@@ -152,6 +152,7 @@ class ResponseCache:
         self.namespace = namespace
         self.blocked_until = 0.0
         self.guard = threading.Lock()
+        self.sitemap: ResponseCache | None = None
 
     def _run(self, operation):
         with self.guard:
@@ -307,9 +308,32 @@ def get_cache() -> ResponseCache:
     return _cache_for_process(os.getpid(), settings.model_dump_json(), settings.database_url)
 
 
+def get_sitemap_cache() -> ResponseCache:
+    """Give retained sitemap snapshots their own pool, deadline and circuit breaker."""
+    cache = get_cache()
+    with cache.guard:
+        if cache.sitemap is None:
+            cache.sitemap = ResponseCache(
+                create_redis(
+                    get_settings(),
+                    socket_connect_timeout=1,
+                    socket_timeout=3,
+                    retry=Retry(NoBackoff(), 0),
+                    max_connections=8,
+                ),
+                cache.namespace,
+            )
+        return cache.sitemap
+
+
 def close_cache() -> None:
     if _cache_for_process.cache_info().currsize:
-        get_cache().redis.close()
+        cache = get_cache()
+        try:
+            cache.redis.close()
+        finally:
+            if cache.sitemap is not None:
+                cache.sitemap.redis.close()
     _cache_for_process.cache_clear()
 
 

@@ -15,6 +15,7 @@ Application releases and Alembic schema revisions are separate identifiers.
 
 ### Fixes
 
+- Keep sitemap requests responsive by generating inventories in the background and serving the last completed snapshot while refreshes run or fail.
 - Restore feed filters, loaded articles, and scroll position when returning from article previews or using browser Back and Forward on web, Chrome, and Edge.
 - Keep guests on the public home feed while account checks finish, without briefly showing personalized content.
 - Show directly opened articles promptly and preserve preview cover proportions without oversized image requests.
