@@ -12,7 +12,7 @@ from urllib.parse import quote
 
 from sqlalchemy import func, literal, select, text, union_all
 
-from devfeed_core.cache import RELEASE, CacheUnavailable, get_cache
+from devfeed_core.cache import RELEASE, CacheUnavailable, get_sitemap_cache
 from devfeed_core.config import get_settings
 from devfeed_core.db import session_factory
 from devfeed_core.models import Article, ArticleOrigin, ArticleTag, ArticleTopic, Source, Tag, Topic
@@ -24,7 +24,7 @@ MAX_PARTS = 49999  # Reserve one of the index's 50,000 entries for public static
 SNAPSHOT_FORMAT = 4
 LOCK_SECONDS = 60
 BUILD_SECONDS = 45
-WAIT_SECONDS = BUILD_SECONDS + 1
+PREVIOUS_SECONDS = 300
 logger = logging.getLogger(__name__)
 
 
@@ -94,12 +94,12 @@ def snapshot_statement():
 
 
 def _prefix():
-    return get_cache().namespace + ":sitemaps:v1"
+    return get_sitemap_cache().namespace + ":sitemaps:v1"
 
 
 def _redis(operation):
-    # Reuse the app's Sentinel-aware pool and bounded cache circuit breaker.
-    return get_cache()._run(lambda: operation(get_cache().redis))
+    cache = get_sitemap_cache()
+    return cache._run(lambda: operation(cache.redis))
 
 
 def _read(key):
@@ -126,7 +126,7 @@ def build_snapshot(prefix, token, ttl):
         _write(
             f"{prefix}:{generation}:{kind}:{page}",
             {"paths": [entry["path"] for entry in entries], "entries": entries},
-            ttl + LOCK_SECONDS,
+            LOCK_SECONDS + PREVIOUS_SECONDS,
         )
         parts.append(
             {
@@ -173,16 +173,32 @@ def build_snapshot(prefix, token, ttl):
         },
     }
     # Publish only after all shards exist, and only while this refresh owns its lease.
+    new_keys = [f"{prefix}:{generation}:{p['kind']}:{p['page']}" for p in parts]
+    old_keys = [
+        f"{prefix}:{previous['generation']}:{p['kind']}:{p['page']}"
+        for p in previous.get("parts", [])
+    ]
     published = _redis(
         lambda redis: redis.eval(
-            "if redis.call('GET', KEYS[1]) == ARGV[1] then "
-            "redis.call('SET', KEYS[2], ARGV[2], 'EX', ARGV[3]); return 1 end; return 0",
-            2,
+            "if redis.call('GET', KEYS[1]) ~= ARGV[1] then return 0 end; "
+            "local count = tonumber(ARGV[4]); "
+            "for i = 3, count + 2 do "
+            "if redis.call('EXISTS', KEYS[i]) == 0 then return 0 end end; "
+            "for i = 3, count + 2 do "
+            "redis.call('EXPIRE', KEYS[i], tonumber(ARGV[3]) + 60) end; "
+            "redis.call('SET', KEYS[2], ARGV[2], 'EX', ARGV[3]); "
+            "for i = count + 3, #KEYS do redis.call('EXPIRE', KEYS[i], ARGV[5]) end; "
+            "return 1",
+            2 + len(new_keys) + len(old_keys),
             prefix + ":lock",
             prefix + ":manifest",
+            *new_keys,
+            *old_keys,
             token,
             json.dumps(manifest, separators=(",", ":")),
             ttl,
+            len(new_keys),
+            PREVIOUS_SECONDS,
         )
     )
     if not published:
@@ -190,20 +206,8 @@ def build_snapshot(prefix, token, ttl):
     return manifest
 
 
-def wait_for_manifest(prefix):
-    """Cold concurrent readers share one build instead of returning transient 503s."""
-    deadline = time.monotonic() + WAIT_SECONDS
-    while True:
-        current = _read(prefix + ":manifest")
-        if current and current.get("format") == SNAPSHOT_FORMAT:
-            return current
-        remaining = deadline - time.monotonic()
-        if remaining <= 0 or _redis(lambda redis: redis.exists(prefix + ":retry")):
-            raise SitemapUnavailable("Sitemap is being prepared")
-        time.sleep(min(0.1, remaining))
-
-
-def manifest():
+def refresh_snapshot():
+    """Scheduled work only: publish a complete inventory without blocking crawlers."""
     prefix = _prefix()
     previous = None
     token = uuid.uuid4().hex
@@ -223,14 +227,14 @@ def manifest():
         if not owns:
             if previous:
                 return previous
-            return wait_for_manifest(prefix)
+            return None
         # Another owner can finish between our first read and lease acquisition.
         current = _read(prefix + ":manifest")
         if current and current.get("format") == SNAPSHOT_FORMAT:
             previous = current
             if time.time() - current["built_at"] < refresh:
                 return current
-        return build_snapshot(prefix, token, refresh * 4 + 300)
+        return build_snapshot(prefix, token, get_settings().sitemap_retention_seconds)
     except Exception as exc:
         if owns:
             logger.warning("sitemap_refresh_failed", extra={"error_type": type(exc).__name__})
@@ -243,6 +247,17 @@ def manifest():
         if owns:
             with suppress(CacheUnavailable):
                 _redis(lambda redis: redis.eval(RELEASE, 1, prefix + ":lock", token))
+
+
+def manifest():
+    """Serve the retained snapshot even when a scheduled refresh is due or failed."""
+    try:
+        current = _read(_prefix() + ":manifest")
+    except CacheUnavailable as exc:
+        raise SitemapUnavailable("Sitemap is temporarily unavailable") from exc
+    if current and current.get("format") == SNAPSHOT_FORMAT:
+        return current
+    raise SitemapUnavailable("Sitemap is being prepared")
 
 
 def part(kind, page, generation=None):
