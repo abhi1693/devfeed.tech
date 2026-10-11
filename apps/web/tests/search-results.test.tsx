@@ -5,7 +5,7 @@ import { TopicFollowsProvider } from "@/components/topic-follows";
 import { UserProvider } from "@/components/user-account";
 import { SourceFollowsProvider } from "@/components/source-follow";
 import { SearchFailure, SearchResults } from "@/components/search-results";
-import { searchKinds, type SearchHit, type SearchResponse } from "@/lib/search";
+import { parseSearchOptions, searchKinds, type SearchHit, type SearchResponse } from "@/lib/search";
 
 const { refresh } = vi.hoisted(() => ({ refresh: vi.fn() }));
 vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh }) }));
@@ -79,6 +79,36 @@ it("shows articles first and waits for a section boundary before fetching", () =
     document.querySelector(".search-result-meta .content-type")?.getAttribute("data-content-type"),
   ).toBe("article");
   expect(fetcher).not.toHaveBeenCalled();
+});
+
+it("keeps the article type on later pages and excludes catalogue sections", async () => {
+  fetcher.mockResolvedValue(
+    Response.json({
+      query: "kubernetes",
+      sections: {
+        articles: { items: [{ ...item("release-next"), label: "release" }], next_cursor: null },
+      },
+    }),
+  );
+  render(
+    <SearchResults
+      result={result()}
+      options={parseSearchOptions(
+        new URLSearchParams("section=articles&content_types=release&sort=newest"),
+      )}
+    />,
+  );
+  expect(document.querySelector(".search-related-results")).toBeNull();
+  await act(async () => intersections.get("search-articles")!());
+  const params = new URL(fetcher.mock.calls[0][0], "http://localhost").searchParams;
+  expect(Object.fromEntries(params)).toEqual({
+    section: "articles",
+    content_types: "release",
+    sort: "newest",
+    q: "kubernetes",
+    page: "2",
+  });
+  expect(screen.getByRole("link", { name: "release-next" })).toBeDefined();
 });
 
 it("tracks privacy-bounded query, impressions, zero-results, and clicks", async () => {

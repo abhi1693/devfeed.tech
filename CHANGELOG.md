@@ -8,6 +8,7 @@ Application releases and Alembic schema revisions are separate identifiers.
 
 ### Enhancements
 
+- Filter search results by Articles, News, Tutorials, Releases, Comparisons, or Opinions on web, Chrome, and Edge; Articles now excludes the other content types.
 - Load feeds, article pages, topics, and sources sooner while public data finishes loading in the background.
 - Browse with smaller article thumbnails, optimized publisher logos, and locally served profile-link icons.
 - Keep publisher logos available through managed image storage, with automatic imports for newly added sources.

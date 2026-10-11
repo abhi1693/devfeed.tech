@@ -5,6 +5,7 @@ import { Select } from "@devfeed/ui/select";
 import { useState, useTransition } from "react";
 import { useReaderRouter } from "@/lib/reader-navigation";
 import { searchHref, searchKinds, type SearchOptions } from "@/lib/search";
+import { contentTypes, contentTypeRoutes } from "@/lib/feed-query";
 
 export function SearchFilters({
   query,
@@ -16,18 +17,28 @@ export function SearchFilters({
   loading?: boolean;
 }) {
   const router = useReaderRouter();
-  const [section, setSection] = useState(options.section);
+  const [resultType, setResultType] = useState<string>(options.content_type ?? options.section);
   const [sort, setSort] = useState(options.sort);
   const [from, setFrom] = useState(options.date_from);
   const [to, setTo] = useState(options.date_to);
   const [pending, startTransition] = useTransition();
   const busy = pending || loading;
   const today = new Date().toISOString().slice(0, 10);
+  const contentType = contentTypes.find((type) => type === resultType);
+  const section = contentType ? "articles" : (resultType as SearchOptions["section"]);
   const articles = !section || section === "articles";
   function apply(changes: Partial<SearchOptions>) {
-    const next = { section, sort, date_from: from, date_to: to, ...changes };
+    const next = {
+      section,
+      content_type: contentType,
+      sort,
+      date_from: from,
+      date_to: to,
+      ...changes,
+    };
     const params = new URLSearchParams({ q: query });
     if (next.section) params.set("section", next.section);
+    if (next.content_type) params.set("content_types", next.content_type);
     if (!next.section || next.section === "articles") {
       params.set("sort", next.sort);
       if (next.date_from) params.set("date_from", next.date_from);
@@ -53,18 +64,30 @@ export function SearchFilters({
           id="search-result-type"
           name="section"
           label="Results"
-          value={section}
+          value={resultType}
           onChange={(value) => {
-            const nextSection = value as SearchOptions["section"];
-            setSection(nextSection);
-            apply({ section: nextSection });
+            const nextType = contentTypes.find((type) => type === value);
+            setResultType(value);
+            apply({
+              section: nextType ? "articles" : (value as SearchOptions["section"]),
+              content_type: nextType,
+            });
           }}
           clearLabel="All results"
           placeholder="All results"
-          options={searchKinds.map((kind) => ({
-            value: kind,
-            label: kind[0].toUpperCase() + kind.slice(1),
-          }))}
+          options={[
+            { value: "articles", label: "All article types" },
+            ...contentTypes.map((type) => ({
+              value: type,
+              label: contentTypeRoutes[type][0].toUpperCase() + contentTypeRoutes[type].slice(1),
+            })),
+            ...searchKinds
+              .filter((kind) => kind !== "articles")
+              .map((kind) => ({
+                value: kind,
+                label: kind[0].toUpperCase() + kind.slice(1),
+              })),
+          ]}
         />
       </div>
       <div className="search-filter-field">

@@ -201,7 +201,12 @@ const fixture = createServer(async (req, res) => {
     res.writeHead(200, { "Content-Type": "application/json" });
     res.end(
       JSON.stringify(
-        searchFixture(requestUrl.searchParams.get("q"), requestUrl.searchParams.get("sort")),
+        searchFixture(
+          requestUrl.searchParams.get("q"),
+          requestUrl.searchParams.get("sort"),
+          requestUrl.searchParams.get("content_types"),
+          requestUrl.searchParams.get("section"),
+        ),
       ),
     );
     return;

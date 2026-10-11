@@ -1,3 +1,5 @@
+import { contentTypes } from "./feed-query";
+
 export const searchKinds = ["articles", "topics", "sources", "tags"] as const;
 export type SearchKind = (typeof searchKinds)[number];
 export type SearchHit = {
@@ -26,12 +28,14 @@ export function searchHref(query: string) {
 
 export type SearchOptions = {
   section: SearchKind | "";
+  content_type?: (typeof contentTypes)[number];
   sort: "relevance" | "newest" | "oldest";
   date_from: string;
   date_to: string;
 };
 export function parseSearchOptions(params: URLSearchParams): SearchOptions {
   const section = params.get("section") ?? "";
+  const contentType = contentTypes.find((type) => type === params.get("content_types"));
   const sort = params.get("sort") ?? "relevance";
   const date = (key: string) => {
     const value = params.get(key) ?? "";
@@ -44,6 +48,9 @@ export function parseSearchOptions(params: URLSearchParams): SearchOptions {
   };
   return {
     section: searchKinds.includes(section as SearchKind) ? (section as SearchKind) : "",
+    ...(contentType && (!section || section === "articles")
+      ? { section: "articles" as const, content_type: contentType }
+      : {}),
     sort: sort === "newest" || sort === "oldest" ? sort : "relevance",
     date_from: date("date_from"),
     date_to: date("date_to"),
@@ -53,6 +60,10 @@ export function searchOptionParams(options?: SearchOptions) {
   const params = new URLSearchParams();
   if (!options) return params;
   if (options.section) params.set("section", options.section);
+  if (options.content_type) {
+    params.set("section", "articles");
+    params.set("content_types", options.content_type);
+  }
   if (options.sort !== "relevance") params.set("sort", options.sort);
   if (options.date_from) params.set("date_from", options.date_from);
   if (options.date_to) params.set("date_to", options.date_to);
