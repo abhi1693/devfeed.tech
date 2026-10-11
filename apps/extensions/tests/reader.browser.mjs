@@ -255,7 +255,12 @@ test(
         ["microservice", "infinite-scroll", searchSecurityQuery].includes(url.searchParams.get("q"))
       ) {
         if (url.searchParams.has("sort")) await new Promise((resolve) => setTimeout(resolve, 800));
-        json = searchFixture(url.searchParams.get("q"), url.searchParams.get("sort"));
+        json = searchFixture(
+          url.searchParams.get("q"),
+          url.searchParams.get("sort"),
+          url.searchParams.get("content_types"),
+          url.searchParams.get("section"),
+        );
       } else if (url.pathname === "/api/v1/search") {
         json = {
           query: url.searchParams.get("q"),

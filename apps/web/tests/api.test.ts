@@ -2,6 +2,7 @@ import { afterEach, expect, it, vi } from "vitest";
 import {
   getArticle,
   getFeed,
+  getSearch,
   getTopic,
   getTopics,
   getSources,
@@ -10,6 +11,7 @@ import {
 } from "@/lib/api";
 import { catalogRoute } from "@/lib/server/catalog-route";
 import { parseFilters } from "@/lib/feed-query";
+import { parseSearchOptions } from "@/lib/search";
 const cookie = vi.hoisted(() => ({ value: "" }));
 vi.mock("next/headers", () => ({ cookies: async () => ({ toString: () => cookie.value }) }));
 afterEach(() => {
@@ -17,6 +19,23 @@ afterEach(() => {
   vi.unstubAllGlobals();
   vi.unstubAllEnvs();
 });
+it.each(["article", "news", "tutorial", "release", "comparison", "opinion"])(
+  "forwards the %s search content type to the public API",
+  async (type) => {
+    const fetcher = vi.fn().mockResolvedValue(Response.json({ query: "cloud", sections: {} }));
+    vi.stubGlobal("fetch", fetcher);
+    const options = parseSearchOptions(new URLSearchParams(`content_types=${type}&sort=newest`));
+    await getSearch("cloud", options.section, "2", undefined, options);
+    const params = fetcher.mock.calls[0][0].searchParams;
+    expect(Object.fromEntries(params)).toEqual({
+      q: "cloud",
+      section: "articles",
+      content_types: type,
+      sort: "newest",
+      page: "2",
+    });
+  },
+);
 it("uses only the configured public API and preserves encoded filters", async () => {
   vi.stubEnv("DEVFEED_PUBLIC_API_URL", "http://api.internal:8000");
   const fetch = vi.fn().mockResolvedValue(Response.json({ items: [], next_cursor: null }));

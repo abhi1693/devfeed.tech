@@ -82,6 +82,12 @@ Reader pages must not exhaust a catalog or feed to render the first screen. The 
 | Search                              | One search response                                                                                | Independent section cursors on scroll                                                 |
 | Public Markdown catalog/feed routes | One bounded page                                                                                   | Next-page links, without draining catalogs                                            |
 
+Search's Results filter distinguishes Articles, News, Tutorials, Releases,
+Comparisons, and Opinions. All article types searches those six types together;
+All results also includes topics, sources, and tags. Type choices use the public
+API's `content_types` filter and remain selected through sorting, date changes,
+shared URLs, and pagination on web, Chrome, and Edge.
+
 The settings server components do not preload catalogs for signed-out visitors. Saved topic/source IDs are loaded independently of visible catalog rows; saving a partially loaded selection must retain IDs outside that page. Search is debounced and applied by the public API before offset/limit, so it finds entries that have never been downloaded. Matching is case-insensitive literal name containment, including literal `%` and `_`. Existing publication, approval, enabled-source and active-topic filters still apply.
 
 Requests have deadlines, cancel on unmount/inactivity, and deduplicate cursor loads. Replacing a search unmounts its page state and cancels the prior request. Failed pages retain already-loaded items and expose a manual retry; they do not start an automatic retry loop.

@@ -27,9 +27,49 @@ it("applies a shareable query, date range and order", () => {
   expect(Object.fromEntries(url.searchParams)).toEqual({
     q: "cloud & data",
     section: "articles",
+    content_types: "article",
     sort: "newest",
     date_from: "2026-09-01",
   });
+});
+
+it.each([
+  ["Articles", "article"],
+  ["News", "news"],
+  ["Tutorials", "tutorial"],
+  ["Releases", "release"],
+  ["Comparisons", "comparison"],
+  ["Opinions", "opinion"],
+])("filters %s by its content type and preserves order and dates", (label, type) => {
+  render(
+    <SearchFilters
+      query="cloud"
+      options={parseSearchOptions(new URLSearchParams("sort=newest&date_from=2020-01-01"))}
+    />,
+  );
+  fireEvent.click(screen.getByRole("combobox", { name: "Results" }));
+  fireEvent.click(screen.getByRole("option", { name: label }));
+  const params = new URL(push.mock.calls.at(-1)![0], "http://localhost").searchParams;
+  expect(Object.fromEntries(params)).toEqual({
+    q: "cloud",
+    section: "articles",
+    content_types: type,
+    sort: "newest",
+    date_from: "2020-01-01",
+  });
+  fireEvent.click(screen.getByRole("combobox", { name: "Results" }));
+  fireEvent.click(screen.getByRole("option", { name: "Topics" }));
+  expect(push.mock.calls.at(-1)![0]).toBe("/search?q=cloud&section=topics");
+});
+
+it("restores a selected article type from a shared URL", () => {
+  const options = parseSearchOptions(new URLSearchParams("section=articles&content_types=release"));
+  expect(options).toMatchObject({ section: "articles", content_type: "release" });
+  render(<SearchFilters query="cloud" options={options} />);
+  expect(screen.getByRole("combobox", { name: "Results" }).textContent).toContain("Releases");
+  fireEvent.click(screen.getByRole("combobox", { name: "Results" }));
+  fireEvent.click(screen.getByRole("option", { name: "All article types" }));
+  expect(push.mock.calls.at(-1)![0]).toBe("/search?q=cloud&section=articles&sort=relevance");
 });
 it("disables article-only controls for catalogue results and clears filters without losing the query", () => {
   render(
