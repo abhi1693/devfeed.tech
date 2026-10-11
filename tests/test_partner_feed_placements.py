@@ -254,7 +254,7 @@ def test_busy_context_edits_skip_issuance_until_the_visible_snapshot_is_stable(
 
 
 @pytest.mark.integration
-def test_context_relevance_ranks_strongest_match_and_ties_are_stable(database, feed_catalog):
+def test_context_relevance_ranks_strongest_match_and_equal_matches_rotate(database, feed_catalog):
     with database.begin() as session:
         session.get(PartnerCampaign, feed_catalog["campaign"]).status = "paused"
         session.get(
@@ -272,7 +272,11 @@ def test_context_relevance_ranks_strongest_match_and_ties_are_stable(database, f
         ).score = 100
     first = deliver(database, feed_query(feed_catalog))
     second = deliver(database, feed_query(feed_catalog))
-    assert len(first) == 1 and first[0]["asset_id"] == second[0]["asset_id"]
+    assert len(first) == len(second) == 1
+    assert [first[0]["product_id"], second[0]["product_id"]] == [
+        feed_catalog["free_product"],
+        feed_catalog["paid_product"],
+    ]
     excluded = deliver(
         database, feed_query(feed_catalog, exclude_product_ids=[first[0]["product_id"]])
     )

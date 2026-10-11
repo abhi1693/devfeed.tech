@@ -16,6 +16,7 @@ PUBLIC_ARTICLE_OPTIONS = (
         Article.ai_title,
         Article.slug,
         Article.summary,
+        Article.sponsor_names,
         Article.ai_summary,
         Article.ai_description,
         Article.published_to_feed_at,

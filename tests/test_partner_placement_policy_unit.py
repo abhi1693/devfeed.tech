@@ -284,16 +284,19 @@ def test_funded_canonical_product_appears_once_with_independent_best_organic_slo
         (assets[3], account, products[1]),
     ]
     session = Mock()
-    session.execute.return_value.all.return_value = rows
-    session.scalars.return_value = campaigns
-    monkeypatch.setattr(
-        placements,
-        "contextual_candidates",
-        lambda *_: {
-            product.id: (95 - index, "Specific task", 1, NOW)
-            for index, product in enumerate(products)
-        },
-    )
+    monkeypatch.setattr(placements, "contextual_candidates", lambda *_, **__: None)
+
+    def ranked_rows(*_, phase, **__):
+        # The SQL layer supplies relevance/priority-ranked rows. This unit checks
+        # attribution and product deduplication across independent commercial slots.
+        ordered = (
+            [rows[1], rows[0]] if phase == "sponsored" else rows[2:] if phase == "organic" else []
+        )
+        for asset, owner, product in ordered:
+            campaign = next((item for item in campaigns if item.id == asset.campaign_id), None)
+            yield asset, owner, product, campaign, 95, "Specific task", 1, NOW, True
+
+    monkeypatch.setattr(placements, "ranked_placement_rows", ranked_rows)
     monkeypatch.setattr(placements, "lock_attribution_row", lambda *_: True)
     monkeypatch.setattr(placements, "automatic_asset_available", lambda *_, **__: True)
     result = placements.deliver_placements(session, PlacementQuery(surface="feed"), KEY, now=NOW)

@@ -87,6 +87,12 @@ stories with active primary/supporting topics; untagged or unrelated stories fai
 An article already visible in the feed is not injected again. All formats share existing relevance,
 audience, account acceptance and campaign-wide impression budgets.
 
+Equally relevant products with the same campaign priority rotate by their least recent anonymous
+delivery, across formats. Stronger relevance and campaign priority remain authoritative. Selection
+continues through bounded batches past unavailable products, so excluded inventory or exhausted
+campaigns cannot hide eligible products later in the catalog. Delivery history affects ordering;
+it does not impose a per-product or per-reader exposure limit or count as a measured impression.
+
 A product's scoped promotion settings can restrict formats and locations for both automatic and
 explicit campaign delivery. Null inherits the account; an empty list blocks all values in that
 dimension. Product settings cannot activate a disabled automatic account channel, grant a missing
@@ -156,7 +162,7 @@ disabled; organic slots and article previews always require relevance. Source-fi
 cursor and compact table views suppress product cards. News and opinion previews receive no
 tutorial placements.
 
-Requests read a bounded prepared candidate set and recheck current product, listing, account,
+Requests fetch prepared candidates in bounded batches and recheck current product, listing, account,
 campaign and exclusion state. Cached matches expire after 30 minutes and are fenced by product
 revision, product update time, article text/editorial revision and topic update time. New articles
 are considered in each product slice; durable cursors also revisit older articles. Completed

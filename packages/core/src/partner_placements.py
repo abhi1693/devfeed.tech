@@ -5,7 +5,8 @@ from datetime import datetime, timedelta
 from typing import Any
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
-from sqlalchemy import and_, exists, func, or_, select
+from sqlalchemy import and_, case, exists, func, literal, or_, select
+from sqlalchemy.orm import aliased
 from sqlalchemy.sql.elements import ColumnElement
 
 from devfeed_core.models import (
@@ -274,7 +275,31 @@ def feed_topic_weights(session, article_ids):
     return weights
 
 
-def contextual_candidates(session, query, now, user_id=None):
+def product_delivery_history():
+    """Read one newest anonymous receipt per asset, aggregating the catalog once.
+
+    Materialization avoids scanning all assets for every matching product. The
+    existing asset/issued-at index bounds each asset's historical receipt lookup.
+    """
+    asset = aliased(PartnerAsset)
+    latest = (
+        select(PartnerPlacementDelivery.issued_at)
+        .where(PartnerPlacementDelivery.asset_id == asset.id)
+        .order_by(PartnerPlacementDelivery.issued_at.desc())
+        .limit(1)
+        .correlate(asset)
+        .scalar_subquery()
+    )
+    return (
+        select(asset.product_id, func.max(latest).label("last_issued_at"))
+        .where(asset.product_id.is_not(None))
+        .group_by(asset.product_id)
+        .cte()
+        .prefix_with("MATERIALIZED")
+    )
+
+
+def contextual_candidates(session, query, now, user_id=None, *, as_query=False):
     if query.surface == "article":
         article = session.scalar(
             select(Article)
@@ -286,8 +311,8 @@ def contextual_candidates(session, query, now, user_id=None):
             .with_for_update(read=True, of=Article, skip_locked=True)
         )
         if article is None:
-            return {}
-        matches = session.execute(
+            return None if as_query else {}
+        statement = (
             select(
                 PartnerArticleMatch.product_id,
                 PartnerArticleMatch.score,
@@ -306,12 +331,16 @@ def contextual_candidates(session, query, now, user_id=None):
                 PartnerArticleMatch.updated_at >= now - MATCH_TTL,
                 PartnerArticleMatch.score >= 75,
             )
-            .order_by(PartnerArticleMatch.score.desc(), PartnerArticleMatch.product_id)
-            .limit(100)
         )
+        if as_query:
+            return statement
         return {
             product_id: (score, reason, revision, updated_at)
-            for product_id, score, reason, revision, updated_at in matches
+            for product_id, score, reason, revision, updated_at in session.execute(
+                statement.order_by(
+                    PartnerArticleMatch.score.desc(), PartnerArticleMatch.product_id
+                ).limit(100)
+            )
         }
     if query.surface == "topic":
         topic = session.scalar(
@@ -336,20 +365,59 @@ def contextual_candidates(session, query, now, user_id=None):
     else:
         weights = personal_topic_weights(session, user_id, now) if user_id else {}
     if not weights:
-        return {}
+        return None if as_query else {}
+    weighted_score = (
+        PartnerProductTopic.score
+        * case(
+            weights,
+            value=PartnerProductTopic.topic_id,
+            else_=0,
+        )
+    ).op("/")(100)
+    conditions = (
+        PartnerProductTopic.topic_id.in_(weights),
+        Topic.status == "active",
+        PartnerProductTopic.topic_updated_at == Topic.updated_at,
+        PartnerProductTopic.product_revision == PartnerProduct.revision,
+        PartnerProductTopic.product_updated_at == PartnerProduct.updated_at,
+        PartnerProductTopic.updated_at >= now - MATCH_TTL,
+        weighted_score >= 40,
+    )
+    if as_query:
+        # Reduce multiple approved context edges to the strongest edge per product
+        # before joining assets. There is no pre-policy terminal candidate cutoff.
+        ranked = (
+            select(
+                PartnerProductTopic.product_id,
+                weighted_score.label("score"),
+                PartnerProductTopic.reason,
+                PartnerProductTopic.product_revision,
+                PartnerProductTopic.product_updated_at,
+                func.row_number()
+                .over(
+                    partition_by=PartnerProductTopic.product_id,
+                    order_by=(weighted_score.desc(), PartnerProductTopic.topic_id),
+                )
+                .label("rank"),
+            )
+            .join(Topic)
+            .join(PartnerProduct)
+            .where(*conditions)
+            .subquery()
+        )
+        return select(
+            ranked.c.product_id,
+            ranked.c.score,
+            ranked.c.reason,
+            ranked.c.product_revision,
+            ranked.c.product_updated_at,
+        ).where(ranked.c.rank == 1)
     matches = session.execute(
         select(PartnerProductTopic)
         .join(Topic)
         .join(PartnerProduct)
-        .where(
-            PartnerProductTopic.topic_id.in_(weights),
-            Topic.status == "active",
-            PartnerProductTopic.topic_updated_at == Topic.updated_at,
-            PartnerProductTopic.product_revision == PartnerProduct.revision,
-            PartnerProductTopic.product_updated_at == PartnerProduct.updated_at,
-            PartnerProductTopic.updated_at >= now - MATCH_TTL,
-        )
-        .order_by(PartnerProductTopic.score.desc(), PartnerProductTopic.product_id)
+        .where(*conditions)
+        .order_by(weighted_score.desc(), PartnerProductTopic.product_id)
         .limit(1000)
     ).scalars()
     candidates: dict[uuid.UUID, tuple[int, str, int, datetime]] = {}
@@ -363,7 +431,7 @@ def contextual_candidates(session, query, now, user_id=None):
             match.product_revision,
             match.product_updated_at,
         )
-    return dict(sorted(candidates.items(), key=lambda item: (-item[1][0], str(item[0])))[:100])
+    return dict(sorted(candidates.items(), key=lambda item: -item[1][0])[:100])
 
 
 def campaign_capacity(session, campaign, now):
@@ -464,7 +532,8 @@ def devfeed_outbound_url(destination):
     return url if len(url) <= 2048 else None
 
 
-def sponsored_fallback_rows(session, excluded, now, formats=("feed", "homepage_sponsorship")):
+def placement_rows_query(query, now):
+    """Cheap current eligibility before ranking; locked policy rechecks remain final."""
     ownership = exists(
         select(PartnerListing.id)
         .join(PartnerConnection)
@@ -476,13 +545,12 @@ def sponsored_fallback_rows(session, excluded, now, formats=("feed", "homepage_s
             PartnerListing.identity_status == "resolved",
         )
     ).correlate(PartnerAccount, PartnerProduct)
-    # A single bounded sponsored slot, using only an inherited paid account policy.
-    # No unverified category, personal-interest or article relevance claim is made.
-    return session.execute(
-        select(PartnerAsset, PartnerAccount, PartnerProduct)
+    formats = [value for value in query.ad_formats if placement_format_allowed(value, query)]
+    return (
+        select(PartnerAsset, PartnerAccount, PartnerProduct, PartnerCampaign)
         .join(PartnerAccount, PartnerAccount.id == PartnerAsset.account_id)
         .join(PartnerProduct, PartnerProduct.id == PartnerAsset.product_id)
-        .join(PartnerCampaign, PartnerCampaign.id == PartnerAsset.campaign_id)
+        .outerjoin(PartnerCampaign, PartnerCampaign.id == PartnerAsset.campaign_id)
         .outerjoin(
             PartnerProductPromotion,
             and_(
@@ -492,9 +560,27 @@ def sponsored_fallback_rows(session, excluded, now, formats=("feed", "homepage_s
         )
         .where(
             ownership,
+            PartnerAsset.automatic.is_(True),
+            PartnerAsset.ad_format.in_(formats),
+            PartnerAsset.status == "active",
+            PartnerAccount.status == "active",
+            PartnerAccount.promotion_surfaces.contains([query.surface]),
+            PartnerProduct.id.not_in(query.exclude_product_ids),
+            PartnerProduct.excluded.is_(False),
+            PartnerProduct.merged_into_id.is_(None),
             or_(
                 PartnerProductPromotion.excluded.is_(None),
                 PartnerProductPromotion.excluded.is_(False),
+            ),
+            or_(
+                PartnerProductPromotion.ad_formats.is_(None),
+                PartnerProductPromotion.ad_formats.bool_op("@>")(
+                    func.jsonb_build_array(PartnerAsset.ad_format)
+                ),
+            ),
+            or_(
+                PartnerProductPromotion.promotion_surfaces.is_(None),
+                PartnerProductPromotion.promotion_surfaces.contains([query.surface]),
             ),
             or_(
                 and_(
@@ -507,10 +593,24 @@ def sponsored_fallback_rows(session, excluded, now, formats=("feed", "homepage_s
                     PartnerProductPromotion.approval_source == "trusted",
                 ),
             ),
-            PartnerAsset.automatic.is_(True),
-            PartnerAsset.ad_format.in_(formats),
-            PartnerAsset.status == "active",
-            PartnerAccount.status == "active",
+        )
+    )
+
+
+def ranked_placement_rows(
+    session, query, now, matches, *, phase, seen, selected_formats=(), user_id=None
+):
+    """Stream ranked assets in bounded batches past any rejected live policies.
+
+    A fixed candidate cutoff before audience/destination/budget checks can leave
+    later eligible products permanently unreachable. Fetching batches instead of
+    imposing a terminal cutoff keeps those checks authoritative without starvation.
+    """
+    if phase == "fallback":
+        formats = set(query.ad_formats) & {"feed", "homepage_sponsorship"}
+        if query.surface != "feed" or not query.allow_sponsored_fallback or not formats:
+            return
+        statement = placement_rows_query(query, now).where(
             PartnerCampaign.managed.is_(True),
             PartnerCampaign.status == "active",
             PartnerCampaign.starts_at <= now,
@@ -518,14 +618,63 @@ def sponsored_fallback_rows(session, excluded, now, formats=("feed", "homepage_s
             PartnerAccount.tier.in_(["silver", "gold", "platinum", "diamond"]),
             or_(PartnerAccount.promotion_kind.is_(None), PartnerAccount.promotion_kind == "ad"),
             PartnerAccount.auto_include_products.is_(True),
-            PartnerAccount.promotion_surfaces.contains(["feed"]),
-            PartnerProduct.id.not_in(excluded),
-            PartnerProduct.excluded.is_(False),
-            PartnerProduct.merged_into_id.is_(None),
+            PartnerAccount.ad_formats.bool_op("@>")(func.jsonb_build_array(PartnerAsset.ad_format)),
+            PartnerCampaign.surfaces.contains(["feed"]),
+            PartnerAsset.ad_format.in_(formats),
+            PartnerProduct.id.not_in(seen),
         )
-        .order_by(PartnerCampaign.priority.desc(), PartnerProduct.id, PartnerAsset.id)
-        .limit(100)
-    ).all()
+        score = literal(0).label("score")
+        reason = literal("Sponsored by this partner").label("reason")
+        revision, updated_at = PartnerProduct.revision, PartnerProduct.updated_at
+    else:
+        if matches is None:
+            return
+        matches = matches.subquery()
+        statement = placement_rows_query(query, now).join(
+            matches, matches.c.product_id == PartnerProduct.id
+        )
+        statement = statement.where(
+            PartnerAsset.campaign_id.is_not(None)
+            if phase == "sponsored"
+            else PartnerAsset.campaign_id.is_(None)
+        )
+        if phase == "sponsored":
+            statement = statement.where(
+                PartnerCampaign.status == "active",
+                PartnerCampaign.starts_at <= now,
+                PartnerCampaign.ends_at > now,
+                PartnerCampaign.surfaces.contains([query.surface]),
+            )
+        score, reason = matches.c.score, matches.c.reason
+        revision, updated_at = matches.c.product_revision, matches.c.product_updated_at
+    if phase != "organic" and selected_formats:
+        statement = statement.where(PartnerAsset.ad_format.not_in(selected_formats))
+    history = product_delivery_history()
+    statement = (
+        statement.add_columns(score, reason, revision, updated_at)
+        .outerjoin(history, history.c.product_id == PartnerProduct.id)
+        .order_by(
+            score.desc(),
+            PartnerCampaign.priority.desc().nulls_last(),
+            history.c.last_issued_at.asc().nulls_first(),
+            PartnerProduct.id,
+            PartnerAsset.id,
+        )
+    )
+    rows = session.execute(statement.execution_options(yield_per=100))
+    try:
+        for batch in rows.partitions(100):
+            stories = sponsored_story_matches(
+                session,
+                query,
+                {asset.article_id for asset, *_ in batch if asset.article_id},
+                now,
+                user_id,
+            )
+            for row in batch:
+                yield (*row, row[0].article_id is None or row[0].article_id in stories)
+    finally:
+        rows.close()
 
 
 def sponsored_story_matches(session, query, article_ids, now, user_id=None):
@@ -563,47 +712,12 @@ def deliver_placements(session, query, key, *, user_id=None, now=None):
     now = now or utcnow()
     if not key:
         return []
-    candidates = contextual_candidates(session, query, now, user_id)
-    candidates = {
-        pid: value for pid, value in candidates.items() if pid not in query.exclude_product_ids
-    }
-    rows = session.execute(
-        select(PartnerAsset, PartnerAccount, PartnerProduct)
-        .join(PartnerAccount, PartnerAccount.id == PartnerAsset.account_id)
-        .join(PartnerProduct, PartnerProduct.id == PartnerAsset.product_id)
-        .where(
-            PartnerAsset.automatic.is_(True),
-            PartnerAsset.ad_format.in_(query.ad_formats),
-            PartnerAsset.status == "active",
-            PartnerAccount.status == "active",
-            PartnerAsset.product_id.in_(candidates),
-        )
-        .order_by(PartnerAsset.id)
-        .limit(1000)
-    ).all()
-    campaigns = {
-        campaign.id: campaign
-        for campaign in session.scalars(
-            select(PartnerCampaign).where(
-                PartnerCampaign.id.in_(
-                    [asset.campaign_id for asset, _, _ in rows if asset.campaign_id]
-                ),
-            )
-        )
-    }
-    rows.sort(
-        key=lambda row: (
-            -candidates[row[2].id][0],
-            -campaigns[row[0].campaign_id].priority if row[0].campaign_id in campaigns else 0,
-            str(row[0].id),
-        )
-    )
+    matches = contextual_candidates(session, query, now, user_id, as_query=True)
     signer = PartnerTrackingTokens(key, clock=lambda: now.timestamp())
     selected: list[dict[str, Any]] = []
     seen: set[uuid.UUID] = set()
     selected_formats: set[str] = set()
     selected_articles = set(query.article_ids)
-    eligible_stories = None
     reader_loaded = False
     reader = None
     audience_cache: dict[tuple, bool] = {}
@@ -613,28 +727,34 @@ def deliver_placements(session, query, key, *, user_id=None, now=None):
     # every product placement, including the non-campaign slot.
     for phase in ("sponsored", "fallback", "organic"):
         sponsored = phase != "organic"
+        phase_formats = {
+            value for value in query.ad_formats if placement_format_allowed(value, query)
+        }
         if phase == "fallback":
-            if query.surface != "feed" or not query.allow_sponsored_fallback:
-                continue
-            phase_rows = sponsored_fallback_rows(
-                session,
-                set(query.exclude_product_ids) | seen,
-                now,
-                formats=set(query.ad_formats) & {"feed", "homepage_sponsorship"} - selected_formats,
-            )
-            for asset, _, product in phase_rows:
-                # Snapshot before row locking, as with contextual prepared matches.
-                candidates.setdefault(
-                    product.id,
-                    (0, "Sponsored by this partner", product.revision, product.updated_at),
-                )
-                if asset.campaign_id not in campaigns:
-                    campaign = session.get(PartnerCampaign, asset.campaign_id)
-                    if campaign:
-                        campaigns[campaign.id] = campaign
-        else:
-            phase_rows = rows
-        for asset, account, product in phase_rows:
+            phase_formats &= {"feed", "homepage_sponsorship"}
+        if sponsored and phase_formats <= selected_formats:
+            continue
+        phase_rows = ranked_placement_rows(
+            session,
+            query,
+            now,
+            matches,
+            phase=phase,
+            seen=seen,
+            selected_formats=selected_formats,
+            user_id=user_id,
+        )
+        for (
+            asset,
+            account,
+            product,
+            campaign,
+            _score,
+            reason,
+            revision,
+            updated_at,
+            story_matches,
+        ) in phase_rows:
             if len(selected) >= 2:
                 break
             ad_format = asset.ad_format
@@ -644,17 +764,8 @@ def deliver_placements(session, query, key, *, user_id=None, now=None):
                 continue
             if asset.article_id is not None and asset.article_id in selected_articles:
                 continue
-            if ad_format == "sponsored_content":
-                if eligible_stories is None:
-                    eligible_stories = sponsored_story_matches(
-                        session,
-                        query,
-                        {item.article_id for item, _, _ in rows if item.article_id},
-                        now,
-                        user_id,
-                    )
-                if asset.article_id not in eligible_stories:
-                    continue
+            if ad_format == "sponsored_content" and not story_matches:
+                continue
             if bool(asset.campaign_id) != sponsored or product.id in seen:
                 continue
             # Readers never wait in an editor's lock order, or on another page's
@@ -666,13 +777,12 @@ def deliver_placements(session, query, key, *, user_id=None, now=None):
                 continue
             if not lock_attribution_row(session, PartnerProduct, product.id):
                 continue
-            if (product.revision, product.updated_at) != candidates[product.id][2:]:
+            if (product.revision, product.updated_at) != (revision, updated_at):
                 continue
             if not automatic_asset_available(
                 session, asset, account, product, now, surface=query.surface
             ):
                 continue
-            campaign = campaigns.get(asset.campaign_id)
             audience = effective_audience(account, campaign)
             if audience is None:
                 continue
@@ -705,7 +815,7 @@ def deliver_placements(session, query, key, *, user_id=None, now=None):
                 url = placement_destination(session, account, product)
             if url is None:
                 continue
-            if sponsored and not campaign_capacity(session, campaigns[asset.campaign_id], now):
+            if sponsored and not campaign_capacity(session, campaign, now):
                 continue
             delivery_id = uuid.uuid4()
             session.add(
@@ -732,11 +842,7 @@ def deliver_placements(session, query, key, *, user_id=None, now=None):
                     sponsored=sponsored,
                     ad_format=ad_format,
                     article=ArticleOut.from_article(article) if article else None,
-                    reason=(
-                        "Sponsored by this partner"
-                        if phase == "fallback"
-                        else candidates[product.id][1][:1000]
-                    ),
+                    reason=("Sponsored by this partner" if phase == "fallback" else reason[:1000]),
                     receipt=signer.issue(asset.id, delivery_id=delivery_id),
                 )
             )
@@ -745,6 +851,9 @@ def deliver_placements(session, query, key, *, user_id=None, now=None):
                 selected_formats.add(ad_format)
             if article:
                 selected_articles.add(article.id)
-            if not sponsored:
+            if not sponsored or phase_formats <= selected_formats:
                 break
+        phase_rows.close()
+        if len(selected) >= 2:
+            break
     return sorted(selected, key=lambda item: item["sponsored"])
