@@ -39,3 +39,5 @@ export interface AccountPage {
   items: Account[];
   total: number;
 }
+export type AssetSort = "name" | "impressions" | "clicks" | "ctr";
+export type SortOrder = "asc" | "desc";

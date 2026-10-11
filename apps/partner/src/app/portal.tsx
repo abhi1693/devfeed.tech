@@ -14,11 +14,62 @@ import {
   TableHead,
   TableCell,
 } from "@/components/atoms/table";
-import { RefreshCw, Eye, MousePointerClick, TrendingUp } from "lucide-react";
+import {
+  RefreshCw,
+  Eye,
+  MousePointerClick,
+  TrendingUp,
+  ArrowUp,
+  ArrowDown,
+  ArrowUpDown,
+} from "lucide-react";
 import { useRouter } from "next/navigation";
 
 import { useEffect, useState } from "react";
-import type { AccountPage, Dashboard, Identity } from "@/lib/types";
+import type { AccountPage, Dashboard, Identity, AssetSort, SortOrder } from "@/lib/types";
+
+function AssetSortHeader({
+  field,
+  label,
+  sort,
+  order,
+  onSort,
+}: {
+  field: AssetSort;
+  label: string;
+  sort: AssetSort;
+  order: SortOrder;
+  onSort: (field: AssetSort) => void;
+}) {
+  const active = sort === field;
+  const Icon = active ? (order === "asc" ? ArrowUp : ArrowDown) : ArrowUpDown;
+  const nextOrder = active
+    ? order === "asc"
+      ? "descending"
+      : "ascending"
+    : field === "name"
+      ? "ascending"
+      : "descending";
+  return (
+    <TableHead
+      scope="col"
+      aria-sort={active ? (order === "asc" ? "ascending" : "descending") : undefined}
+    >
+      <Button
+        type="button"
+        variant="ghost"
+        size="sm"
+        className="-ml-2"
+        aria-label={`Sort by ${label}`}
+        title={`Sort ${label.toLowerCase()} ${nextOrder}`}
+        onClick={() => onSort(field)}
+      >
+        {label}
+        <Icon aria-hidden="true" />
+      </Button>
+    </TableHead>
+  );
+}
 
 export function Portal({
   identity,
@@ -27,6 +78,9 @@ export function Portal({
   initialSelected = "",
   initialDays = 30,
   initialAccountOffset = 0,
+  initialAssetOffset = 0,
+  initialSort = "name",
+  initialOrder = "asc",
 }: {
   identity: Identity;
   initialAccounts: AccountPage;
@@ -34,6 +88,9 @@ export function Portal({
   initialSelected?: string;
   initialDays?: number;
   initialAccountOffset?: number;
+  initialAssetOffset?: number;
+  initialSort?: AssetSort;
+  initialOrder?: SortOrder;
 }) {
   const router = useRouter();
   const [accounts, setAccounts] = useState(initialAccounts);
@@ -44,7 +101,10 @@ export function Portal({
       : initialSelected || initialAccounts.items[0]?.id || "",
   );
   const [days, setDays] = useState(initialDays);
-  const [assetOffset, setAssetOffset] = useState(0);
+  const [assetOffset, setAssetOffset] = useState(initialAssetOffset);
+  const [sort, setSort] = useState(initialSort);
+  const [order, setOrder] = useState(initialOrder);
+  const [sorting, setSorting] = useState(false);
   const [data, setData] = useState<Dashboard | null>(null);
   const [error, setError] = useState("");
   const [refresh, setRefresh] = useState(0);
@@ -52,10 +112,13 @@ export function Portal({
   useEffect(() => {
     if (!selected) return;
     const controller = new AbortController();
-    fetch(`/api/v1/partner/accounts/${selected}/dashboard?days=${days}&offset=${assetOffset}`, {
-      signal: controller.signal,
-      cache: "no-store",
-    })
+    fetch(
+      `/api/v1/partner/accounts/${selected}/dashboard?days=${days}&offset=${assetOffset}&sort=${sort}&order=${order}`,
+      {
+        signal: controller.signal,
+        cache: "no-store",
+      },
+    )
       .then(async (response) => {
         if (response.status === 401 || response.status === 403) {
           router.replace("/login");
@@ -70,13 +133,25 @@ export function Portal({
         return response.json() as Promise<Dashboard>;
       })
       .then((value) => {
-        if (!controller.signal.aborted) setData(value);
+        if (!controller.signal.aborted) {
+          if (value && assetOffset > 0 && assetOffset >= value.asset_total) {
+            setData(null);
+            setAssetOffset(0);
+            return;
+          }
+          setData(value);
+          setSorting(false);
+        }
       })
       .catch((reason) => {
-        if (!controller.signal.aborted) setError(reason.message);
+        if (!controller.signal.aborted) {
+          setData(null);
+          setError(reason.message);
+          setSorting(false);
+        }
       });
     return () => controller.abort();
-  }, [selected, days, assetOffset, refresh, router]);
+  }, [selected, days, assetOffset, sort, order, refresh, router]);
 
   async function loadAccounts(offset: number) {
     try {
@@ -110,8 +185,18 @@ export function Portal({
     setError("");
     setRefresh((value) => value + 1);
   }
+  function changeSort(next: AssetSort) {
+    setOrder(next === sort ? (order === "asc" ? "desc" : "asc") : next === "name" ? "asc" : "desc");
+    setSort(next);
+    setAssetOffset(0);
+    setSorting(true);
+    setError("");
+  }
   const scope = new URLSearchParams();
   scope.set("days", String(days));
+  scope.set("sort", sort);
+  scope.set("order", order);
+  if (assetOffset) scope.set("asset_offset", String(assetOffset));
   if (accountOffset) scope.set("account_offset", String(accountOffset));
   const query = `?${scope}`;
   useEffect(() => {
@@ -180,6 +265,7 @@ export function Portal({
                   onChange={(value) => {
                     if (Number(value) === days) return;
                     setDays(Number(value));
+                    setAssetOffset(0);
                     setData(null);
                     setError("");
                   }}
@@ -354,31 +440,53 @@ export function Portal({
               </section>
             )}
             {section === "assets" && (
-              <section className="card">
+              <section className="card" aria-busy={sorting}>
                 <h2 id="assets" className="scroll-mt-6">
                   Products & ads
                 </h2>
                 <p className="muted">
                   Performance for assets associated with this partner account.
                 </p>
+                {sorting && (
+                  <p role="status" className="muted">
+                    Updating products and ads…
+                  </p>
+                )}
                 {data.assets.length ? (
                   <div className="table-wrap">
                     <Table>
                       <TableHeader>
                         <TableRow>
-                          <TableHead>Name</TableHead>
-                          <TableHead>Type</TableHead>
+                          <AssetSortHeader
+                            field="name"
+                            label="Name"
+                            sort={sort}
+                            order={order}
+                            onSort={changeSort}
+                          />
                           <TableHead>Status</TableHead>
-                          <TableHead>Impressions</TableHead>
-                          <TableHead>Clicks</TableHead>
-                          <TableHead>CTR</TableHead>
+                          {(["impressions", "clicks", "ctr"] as const).map((field) => (
+                            <AssetSortHeader
+                              key={field}
+                              field={field}
+                              label={
+                                field === "ctr"
+                                  ? "CTR"
+                                  : field === "clicks"
+                                    ? "Clicks"
+                                    : "Impressions"
+                              }
+                              sort={sort}
+                              order={order}
+                              onSort={changeSort}
+                            />
+                          ))}
                         </TableRow>
                       </TableHeader>
                       <TableBody>
                         {data.assets.map((asset) => (
                           <TableRow key={asset.id}>
                             <TableCell>{asset.name}</TableCell>
-                            <TableCell>{asset.kind === "ad" ? "Ad" : "Product"}</TableCell>
                             <TableCell>
                               <Badge variant={asset.status === "active" ? "success" : "neutral"}>
                                 {asset.status}
@@ -405,9 +513,9 @@ export function Portal({
                   <nav aria-label="Asset pages">
                     <Button
                       variant="outline"
-                      disabled={!assetOffset}
+                      disabled={sorting || !assetOffset}
                       onClick={() => {
-                        setAssetOffset(assetOffset - 100);
+                        setAssetOffset(Math.max(0, assetOffset - 100));
                         setData(null);
                       }}
                     >
@@ -419,7 +527,7 @@ export function Portal({
                     </span>
                     <Button
                       variant="outline"
-                      disabled={assetOffset + 100 >= data.asset_total}
+                      disabled={sorting || assetOffset + 100 >= data.asset_total}
                       onClick={() => {
                         setAssetOffset(assetOffset + 100);
                         setData(null);

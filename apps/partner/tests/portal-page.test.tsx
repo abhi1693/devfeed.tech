@@ -59,3 +59,54 @@ it.each(["metrics", "performance", "assets", "not-an-account"])(
     expect(session).not.toHaveBeenCalled();
   },
 );
+
+it("restores reporting sort, direction and asset pagination from the URL", async () => {
+  const account = { id: "11111111-1111-1111-1111-111111111111" };
+  session.mockResolvedValueOnce({ identity: {}, accounts: { items: [account], total: 1 } });
+  const page = await PortalPage({
+    section: "assets",
+    accountId: account.id,
+    searchParams: Promise.resolve({
+      days: "7",
+      sort: "impressions",
+      order: "desc",
+      asset_offset: "100",
+    }),
+  });
+  expect(page.props).toMatchObject({
+    initialDays: 7,
+    initialSort: "impressions",
+    initialOrder: "desc",
+    initialAssetOffset: 100,
+  });
+});
+
+it("normalizes invalid sorting and asset pagination parameters", async () => {
+  const account = { id: "11111111-1111-1111-1111-111111111111" };
+  session.mockResolvedValueOnce({ identity: {}, accounts: { items: [account], total: 1 } });
+  const page = await PortalPage({
+    section: "assets",
+    accountId: account.id,
+    searchParams: Promise.resolve({ sort: "status", order: "sideways", asset_offset: "-100" }),
+  });
+  expect(page.props).toMatchObject({
+    initialSort: "name",
+    initialOrder: "asc",
+    initialAssetOffset: 0,
+  });
+});
+
+it("preserves sorting and asset pagination when opening the default account", async () => {
+  const account = { id: "11111111-1111-1111-1111-111111111111" };
+  session.mockResolvedValueOnce({ identity: {}, accounts: { items: [account], total: 1 } });
+  await expect(
+    PortalPage({
+      section: "assets",
+      searchParams: Promise.resolve({ days: "7", sort: "ctr", order: "desc", asset_offset: "100" }),
+    }),
+  ).rejects.toMatchObject({
+    digest: expect.stringContaining(
+      `/${account.id}/assets?days=7&sort=ctr&order=desc&asset_offset=100`,
+    ),
+  });
+});

@@ -33,7 +33,74 @@ const assets = [
     ctr: 5,
     measured_days: 1,
   },
+  {
+    id: "highest-impressions",
+    name: "BuildKit sponsorship",
+    kind: "ad",
+    product_id: null,
+    status: "active",
+    impressions: 5000,
+    clicks: 1,
+    ctr: 0.02,
+    measured_days: 1,
+  },
+  {
+    id: "highest-clicks",
+    name: "Clicks leader",
+    kind: "product",
+    product_id: null,
+    status: "active",
+    impressions: 1000,
+    clicks: 500,
+    ctr: 50,
+    measured_days: 1,
+  },
+  {
+    id: "highest-ctr",
+    name: "CTR leader",
+    kind: "product",
+    product_id: null,
+    status: "active",
+    impressions: 10,
+    clicks: 9,
+    ctr: 90,
+    measured_days: 1,
+  },
+  {
+    id: "zero",
+    name: "Zero delivery",
+    kind: "product",
+    product_id: null,
+    status: "active",
+    impressions: 0,
+    clicks: 0,
+    ctr: null,
+    measured_days: 1,
+  },
+  {
+    id: "unmeasured",
+    name: "Unmeasured delivery",
+    kind: "product",
+    product_id: null,
+    status: "active",
+    impressions: 0,
+    clicks: 0,
+    ctr: null,
+    measured_days: 0,
+  },
+  ...Array.from({ length: 100 }, (_, index) => ({
+    id: `catalog-${index}`,
+    name: `Catalog product ${String(index).padStart(3, "0")}`,
+    kind: "product",
+    product_id: null,
+    status: "active",
+    impressions: 100 + index,
+    clicks: index + 1,
+    ctr: (100 * (index + 1)) / (100 + index),
+    measured_days: 1,
+  })),
 ];
+const dashboardRequests = [];
 const mock = createServer(async (request, response) => {
   const url = new URL(request.url, "http://localhost");
   const path = url.pathname;
@@ -94,6 +161,26 @@ const mock = createServer(async (request, response) => {
       return;
     }
     const days = url.searchParams.get("days");
+    const sort = url.searchParams.get("sort") ?? "name";
+    const order = url.searchParams.get("order") ?? "asc";
+    const offset = Number(url.searchParams.get("offset") ?? 0);
+    dashboardRequests.push({ days, sort, order, offset });
+    const sortedAssets = assets
+      .map((asset, index) =>
+        days === "7" && index === 0 ? { ...asset, impressions: 700, clicks: 35 } : asset,
+      )
+      .sort((left, right) => {
+        const leftUnknown = sort !== "name" && (!left.measured_days || left[sort] === null);
+        const rightUnknown = sort !== "name" && (!right.measured_days || right[sort] === null);
+        if (leftUnknown !== rightUnknown) return leftUnknown ? 1 : -1;
+        const comparison =
+          sort === "name"
+            ? left.name.localeCompare(right.name)
+            : leftUnknown
+              ? 0
+              : left[sort] - right[sort];
+        return (order === "asc" ? comparison : -comparison) || left.name.localeCompare(right.name);
+      });
     response.end(
       JSON.stringify({
         account: isBeta ? beta : account,
@@ -117,12 +204,8 @@ const mock = createServer(async (request, response) => {
                 clicks: days === "7" ? 35 : 120,
               },
             ],
-        assets: isBeta
-          ? []
-          : days === "7"
-            ? [{ ...assets[0], impressions: 700, clicks: 35 }]
-            : assets,
-        asset_total: isBeta ? 0 : 1,
+        assets: isBeta ? [] : sortedAssets.slice(offset, offset + 100),
+        asset_total: isBeta ? 0 : assets.length,
       }),
     );
     return;
@@ -260,6 +343,122 @@ try {
   assert.equal(await page.getByRole("combobox", { name: "Partner account" }).count(), 0);
   await page.reload();
   await page.getByText("API Checker launch campaign", { exact: true }).waitFor();
+  // A saved page may no longer exist after assets are removed from the account.
+  await page.goto(
+    `http://127.0.0.1:${webPort}/${account.id}/assets?days=30&sort=name&order=asc&asset_offset=200`,
+  );
+  await page.getByText("API Checker launch campaign", { exact: true }).waitFor();
+  await page.waitForURL((url) => !url.searchParams.has("asset_offset"));
+  assert.deepEqual(dashboardRequests.at(-1), {
+    days: "30",
+    sort: "name",
+    order: "asc",
+    offset: 0,
+  });
+  assert.equal(await page.getByRole("columnheader", { name: "Type", exact: true }).count(), 0);
+  assert.equal(
+    await page
+      .getByRole("button", { name: "Sort by Name", exact: true })
+      .locator("..")
+      .getAttribute("aria-sort"),
+    "ascending",
+  );
+  await page.setViewportSize({ width: 1440, height: 1100 });
+  async function sortAssets(label, sort, order, firstName) {
+    const header = page.getByRole("button", { name: `Sort by ${label}`, exact: true });
+    await header.click();
+    await page.waitForURL(
+      (url) =>
+        url.searchParams.get("sort") === sort &&
+        url.searchParams.get("order") === order &&
+        !url.searchParams.has("asset_offset"),
+    );
+    await page.waitForFunction(
+      (name) => document.querySelector("tbody tr td")?.textContent === name,
+      firstName,
+    );
+    await page.locator('section[aria-busy="false"]').waitFor();
+    assert.equal(
+      await header.locator("..").getAttribute("aria-sort"),
+      order === "asc" ? "ascending" : "descending",
+    );
+    assert.equal(await header.evaluate((element) => document.activeElement === element), true);
+    assert.deepEqual(dashboardRequests.at(-1), { days: "30", sort, order, offset: 0 });
+  }
+  await sortAssets("Name", "name", "desc", "Zero delivery");
+  await sortAssets("Name", "name", "asc", "API Checker launch campaign");
+  await sortAssets("Impressions", "impressions", "desc", "BuildKit sponsorship");
+  await sortAssets("Impressions", "impressions", "asc", "Zero delivery");
+  await sortAssets("Clicks", "clicks", "desc", "Clicks leader");
+  await sortAssets("Clicks", "clicks", "asc", "Zero delivery");
+  await sortAssets("CTR", "ctr", "desc", "CTR leader");
+  await sortAssets("CTR", "ctr", "asc", "BuildKit sponsorship");
+  await page.getByRole("button", { name: "Next", exact: true }).click();
+  await page.waitForURL((url) => url.searchParams.get("asset_offset") === "100");
+  await page.getByText("Unmeasured delivery", { exact: true }).waitFor();
+  assert.equal(await page.locator("tbody tr").count(), 6);
+  assert.deepEqual(
+    await page
+      .locator("tbody tr")
+      .allTextContents()
+      .then((rows) =>
+        rows
+          .slice(-2)
+          .map((row) => row.includes("Unmeasured delivery") || row.includes("Zero delivery")),
+      ),
+    [true, true],
+  );
+  await page.reload();
+  await page.getByText("Unmeasured delivery", { exact: true }).waitFor();
+  assert.equal(
+    await page
+      .getByRole("button", { name: "Sort by CTR", exact: true })
+      .locator("..")
+      .getAttribute("aria-sort"),
+    "ascending",
+  );
+  assert.equal(new URL(page.url()).searchParams.get("asset_offset"), "100");
+  await sortAssets("Impressions", "impressions", "desc", "BuildKit sponsorship");
+  await page.screenshot({
+    path: root + "reports/partner/assets-sorting-desktop.png",
+    fullPage: true,
+  });
+  await page.getByRole("button", { name: "Next", exact: true }).click();
+  await page.getByText("Unmeasured delivery", { exact: true }).waitFor();
+  await page.getByRole("combobox", { name: "Reporting period" }).click();
+  await page.getByRole("option", { name: "Last 7 days" }).click();
+  await page.getByText("BuildKit sponsorship", { exact: true }).waitFor();
+  assert.equal(new URL(page.url()).searchParams.has("asset_offset"), false);
+  assert.deepEqual(dashboardRequests.at(-1), {
+    days: "7",
+    sort: "impressions",
+    order: "desc",
+    offset: 0,
+  });
+  await page.getByRole("link", { name: "Performance", exact: true }).click();
+  await page.getByRole("heading", { name: "Daily activity" }).waitFor();
+  assert.equal(new URL(page.url()).searchParams.get("sort"), "impressions");
+  assert.equal(new URL(page.url()).searchParams.get("order"), "desc");
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.getByRole("button", { name: "Navigation" }).click();
+  await page.getByRole("link", { name: "Products & ads", exact: true }).click();
+  await page.getByText("BuildKit sponsorship", { exact: true }).waitFor();
+  assert.equal(
+    await page
+      .getByRole("button", { name: "Sort by Impressions", exact: true })
+      .locator("..")
+      .getAttribute("aria-sort"),
+    "descending",
+  );
+  await page.getByRole("button", { name: "Sort by CTR", exact: true }).click();
+  await page.getByText("CTR leader", { exact: true }).waitFor();
+  assert.equal(new URL(page.url()).searchParams.get("sort"), "ctr");
+  assert.equal(new URL(page.url()).searchParams.get("order"), "desc");
+  assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
+  await page.screenshot({
+    path: root + "reports/partner/assets-sorting-mobile.png",
+    fullPage: true,
+  });
   await page.getByRole("button", { name: "Navigation" }).click();
   await page.getByRole("link", { name: "Performance", exact: true }).click();
   await page.waitForURL("**/performance?*");
@@ -315,7 +514,7 @@ try {
   await page.getByText("Your account needs the partner role to access this portal.").waitFor();
   assert.deepEqual(errors, []);
   console.log(
-    "Partner reporting routes, refresh, history, mobile navigation, empty state, and removed management access passed.",
+    "Partner reporting sorting, global pagination, URL/reload/navigation persistence, desktop/mobile layouts, role boundaries, and empty states passed.",
   );
 } finally {
   await browser?.close();

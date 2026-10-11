@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, expect, it, vi } from "vitest";
 import { Portal } from "../src/app/portal";
@@ -96,7 +96,7 @@ it("changes account scope and period together with the reporting request", async
   await userEvent.click(screen.getByRole("option", { name: "Last 7 days" }));
   await waitFor(() =>
     expect(fetchMock).toHaveBeenCalledWith(
-      "/api/v1/partner/accounts/beta/dashboard?days=7&offset=0",
+      "/api/v1/partner/accounts/beta/dashboard?days=7&offset=0&sort=name&order=asc",
       expect.anything(),
     ),
   );
@@ -138,7 +138,7 @@ it("defaults a single account on performance even if a different initial selecti
   expect(screen.queryByRole("combobox", { name: "Partner account" })).toBeNull();
   expect(screen.getByRole("combobox", { name: "Reporting period" })).toBeTruthy();
   expect(fetchMock).toHaveBeenCalledWith(
-    "/api/v1/partner/accounts/alpha/dashboard?days=30&offset=0",
+    "/api/v1/partner/accounts/alpha/dashboard?days=30&offset=0&sort=name&order=asc",
     expect.anything(),
   );
 });
@@ -238,4 +238,235 @@ it("renders daily reporting rows and measured asset metrics", async () => {
   );
   await screen.findByText("API tool");
   expect(screen.getByText("5.00%")).toBeTruthy();
+});
+
+const asset = {
+  id: "asset-1",
+  name: "API tool",
+  kind: "product" as const,
+  product_id: "product-1",
+  status: "active" as const,
+  measured_days: 1,
+  impressions: 100,
+  clicks: 5,
+  ctr: 5,
+};
+
+it("sorts all four reporting headers in both directions and removes the Type column", async () => {
+  const fetchMock = vi
+    .fn()
+    .mockImplementation(async () =>
+      Response.json({ ...dashboard, assets: [asset], asset_total: 1 }),
+    );
+  vi.stubGlobal("fetch", fetchMock);
+  render(
+    <Portal
+      section="assets"
+      identity={identity}
+      initialAccounts={{ items: [account], total: 1 }}
+    />,
+  );
+  await screen.findByText(asset.name);
+  expect(screen.queryByRole("columnheader", { name: "Type" })).toBeNull();
+  expect(screen.getByRole("columnheader", { name: "Name" }).getAttribute("aria-sort")).toBe(
+    "ascending",
+  );
+  for (const [field, label] of [
+    ["name", "Name"],
+    ["impressions", "Impressions"],
+    ["clicks", "Clicks"],
+    ["ctr", "CTR"],
+  ]) {
+    for (const order of ["desc", "asc"]) {
+      await userEvent.click(screen.getByRole("button", { name: `Sort by ${label}` }));
+      await waitFor(() =>
+        expect(fetchMock).toHaveBeenLastCalledWith(
+          `/api/v1/partner/accounts/alpha/dashboard?days=30&offset=0&sort=${field}&order=${order}`,
+          expect.anything(),
+        ),
+      );
+      expect(screen.getByRole("columnheader", { name: label }).getAttribute("aria-sort")).toBe(
+        order === "asc" ? "ascending" : "descending",
+      );
+      expect(document.activeElement).toBe(screen.getByRole("button", { name: `Sort by ${label}` }));
+    }
+  }
+  await userEvent.click(screen.getByRole("button", { name: "Sort by Name" }));
+  expect(screen.getByRole("columnheader", { name: "Name" }).getAttribute("aria-sort")).toBe(
+    "ascending",
+  );
+});
+
+it("restores sort and page scope, preserves it in navigation and resets pagination for a new sort", async () => {
+  const fetchMock = vi.fn().mockImplementation(async () =>
+    Response.json({
+      ...dashboard,
+      assets: [asset, { ...asset, id: "asset-2", name: "Another tool" }],
+      asset_total: 201,
+    }),
+  );
+  vi.stubGlobal("fetch", fetchMock);
+  render(
+    <Portal
+      section="assets"
+      identity={identity}
+      initialAccounts={{ items: [account], total: 1 }}
+      initialDays={7}
+      initialSort="ctr"
+      initialOrder="desc"
+      initialAssetOffset={100}
+    />,
+  );
+  await screen.findByText(asset.name);
+  expect(fetchMock).toHaveBeenLastCalledWith(
+    "/api/v1/partner/accounts/alpha/dashboard?days=7&offset=100&sort=ctr&order=desc",
+    expect.anything(),
+  );
+  expect(screen.getByRole("link", { name: "Performance" }).getAttribute("href")).toBe(
+    "/alpha/performance?days=7&sort=ctr&order=desc&asset_offset=100",
+  );
+  expect(new URLSearchParams(window.location.search).get("asset_offset")).toBe("100");
+  // The API owns global ordering; the frontend must preserve the returned page order.
+  expect(
+    within(screen.getByRole("table"))
+      .getAllByRole("row")
+      .slice(1)
+      .map((row) => within(row).getAllByRole("cell")[0].textContent),
+  ).toEqual(["API tool", "Another tool"]);
+  await userEvent.click(screen.getByRole("button", { name: "Sort by Impressions" }));
+  await waitFor(() =>
+    expect(fetchMock).toHaveBeenLastCalledWith(
+      "/api/v1/partner/accounts/alpha/dashboard?days=7&offset=0&sort=impressions&order=desc",
+      expect.anything(),
+    ),
+  );
+  const scope = new URLSearchParams(window.location.search);
+  expect(scope.get("sort")).toBe("impressions");
+  expect(scope.get("order")).toBe("desc");
+  expect(scope.has("asset_offset")).toBe(false);
+  await userEvent.click(screen.getByRole("button", { name: "Next" }));
+  await screen.findByText(asset.name);
+  expect(fetchMock).toHaveBeenLastCalledWith(
+    "/api/v1/partner/accounts/alpha/dashboard?days=7&offset=100&sort=impressions&order=desc",
+    expect.anything(),
+  );
+});
+
+it("recovers a saved asset page after the available inventory shrinks", async () => {
+  const fetchMock = vi.fn().mockImplementation(async (url: string) =>
+    Response.json({
+      ...dashboard,
+      assets: url.includes("offset=100") ? [] : [asset],
+      asset_total: 50,
+    }),
+  );
+  vi.stubGlobal("fetch", fetchMock);
+  render(
+    <Portal
+      section="assets"
+      identity={identity}
+      initialAccounts={{ items: [account], total: 1 }}
+      initialSort="clicks"
+      initialOrder="desc"
+      initialAssetOffset={100}
+    />,
+  );
+  await screen.findByText(asset.name);
+  expect(fetchMock).toHaveBeenLastCalledWith(
+    "/api/v1/partner/accounts/alpha/dashboard?days=30&offset=0&sort=clicks&order=desc",
+    expect.anything(),
+  );
+  expect(fetchMock).toHaveBeenCalledTimes(2);
+  expect(new URLSearchParams(window.location.search).has("asset_offset")).toBe(false);
+  expect(screen.getByRole("button", { name: "Sort by Clicks" })).toBeTruthy();
+});
+
+it("resets asset pagination when the reporting period or account changes while retaining sorting", async () => {
+  const beta = { ...account, id: "beta", name: "Beta" };
+  const fetchMock = vi
+    .fn()
+    .mockImplementation(async () =>
+      Response.json({ ...dashboard, assets: [asset], asset_total: 201 }),
+    );
+  vi.stubGlobal("fetch", fetchMock);
+  render(
+    <Portal
+      section="assets"
+      identity={identity}
+      initialAccounts={{ items: [account, beta], total: 2 }}
+      initialSort="clicks"
+      initialOrder="desc"
+      initialAssetOffset={100}
+    />,
+  );
+  await screen.findByText(asset.name);
+  await userEvent.click(screen.getByRole("combobox", { name: "Reporting period" }));
+  await userEvent.click(screen.getByRole("option", { name: "Last 7 days" }));
+  await screen.findByText(asset.name);
+  expect(fetchMock).toHaveBeenLastCalledWith(
+    "/api/v1/partner/accounts/alpha/dashboard?days=7&offset=0&sort=clicks&order=desc",
+    expect.anything(),
+  );
+  await userEvent.click(screen.getByRole("button", { name: "Next" }));
+  await screen.findByText(asset.name);
+  await userEvent.click(screen.getByRole("combobox", { name: "Partner account" }));
+  await userEvent.click(screen.getByRole("option", { name: "Beta" }));
+  await screen.findByText(asset.name);
+  expect(fetchMock).toHaveBeenLastCalledWith(
+    "/api/v1/partner/accounts/beta/dashboard?days=7&offset=0&sort=clicks&order=desc",
+    expect.anything(),
+  );
+});
+
+it("preserves sorting focus while loading and prevents paging through stale results", async () => {
+  let finish: (response: Response) => void = () => {};
+  const fetchMock = vi
+    .fn()
+    .mockResolvedValueOnce(Response.json({ ...dashboard, assets: [asset], asset_total: 201 }))
+    .mockImplementationOnce(
+      () =>
+        new Promise<Response>((resolve) => {
+          finish = resolve;
+        }),
+    );
+  vi.stubGlobal("fetch", fetchMock);
+  render(
+    <Portal
+      section="assets"
+      identity={identity}
+      initialAccounts={{ items: [account], total: 1 }}
+    />,
+  );
+  await screen.findByText(asset.name);
+  const button = screen.getByRole("button", { name: "Sort by CTR" });
+  await userEvent.click(button);
+  expect(document.activeElement).toBe(button);
+  expect(
+    screen.getByText("Updating products and ads…").closest("section")?.getAttribute("aria-busy"),
+  ).toBe("true");
+  expect((screen.getByRole("button", { name: "Next" }) as HTMLButtonElement).disabled).toBe(true);
+  finish(Response.json({ ...dashboard, assets: [asset], asset_total: 201 }));
+  await waitFor(() => expect(screen.queryByText("Updating products and ads…")).toBeNull());
+  expect(document.activeElement).toBe(button);
+  expect((screen.getByRole("button", { name: "Next" }) as HTMLButtonElement).disabled).toBe(false);
+});
+
+it("clears a loaded report when membership is removed during sorting", async () => {
+  const fetchMock = vi
+    .fn()
+    .mockResolvedValueOnce(Response.json({ ...dashboard, assets: [asset], asset_total: 1 }))
+    .mockResolvedValueOnce(new Response(null, { status: 404 }));
+  vi.stubGlobal("fetch", fetchMock);
+  render(
+    <Portal
+      section="assets"
+      identity={identity}
+      initialAccounts={{ items: [account], total: 1 }}
+    />,
+  );
+  await screen.findByText(asset.name);
+  await userEvent.click(screen.getByRole("button", { name: "Sort by CTR" }));
+  await screen.findByText("This partner account is no longer available to you.");
+  expect(screen.queryByText(asset.name)).toBeNull();
+  expect(screen.queryByRole("table")).toBeNull();
 });

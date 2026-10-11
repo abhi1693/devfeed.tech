@@ -13,11 +13,13 @@ from devfeed_core.models import (
 from devfeed_core.partner_tiers import PartnerTier
 from fastapi import HTTPException
 from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, StringConstraints, model_validator
-from sqlalchemy import func, select, union_all
+from sqlalchemy import Numeric, cast, func, select, union_all
 
 Name = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=200)]
 
 PromotionSurface = Literal["article", "topic", "feed"]
+AssetSort = Literal["name", "impressions", "clicks", "ctr"]
+SortOrder = Literal["asc", "desc"]
 
 
 def default_promotion_surfaces() -> list[PromotionSurface]:
@@ -247,7 +249,17 @@ def totals(impressions, clicks, measured_days):
     }
 
 
-def reporting_dashboard(account_id: uuid.UUID, session, account, days=30, limit=100, offset=0):
+def reporting_dashboard(
+    account_id: uuid.UUID,
+    session,
+    account,
+    days=30,
+    limit=100,
+    offset=0,
+    *,
+    sort: AssetSort = "name",
+    order: SortOrder = "asc",
+):
     end = datetime.now(UTC).date()
     start = end - timedelta(days=days - 1)
     metrics = union_all(
@@ -289,6 +301,18 @@ def reporting_dashboard(account_id: uuid.UUID, session, account, days=30, limit=
         .group_by(metrics.c.asset_id)
         .subquery()
     )
+    # Sort the complete reporting set before paging. Missing measurements and an
+    # undefined CTR remain last in either direction, distinct from measured zero.
+    sort_value = {
+        "name": func.lower(PartnerAsset.name),
+        "impressions": asset_metrics.c.impressions,
+        "clicks": asset_metrics.c.clicks,
+        "ctr": cast(asset_metrics.c.clicks, Numeric) / func.nullif(asset_metrics.c.impressions, 0),
+    }[sort]
+    ordering = [(sort_value.desc() if order == "desc" else sort_value.asc()).nulls_last()]
+    if sort != "name":
+        ordering.append(func.lower(PartnerAsset.name).asc())
+    ordering.append(PartnerAsset.id.asc())
     rows = session.execute(
         select(
             PartnerAsset,
@@ -298,7 +322,7 @@ def reporting_dashboard(account_id: uuid.UUID, session, account, days=30, limit=
         )
         .outerjoin(asset_metrics, PartnerAsset.id == asset_metrics.c.asset_id)
         .where(PartnerAsset.account_id == account_id)
-        .order_by(PartnerAsset.name, PartnerAsset.id)
+        .order_by(*ordering)
         .limit(limit)
         .offset(offset)
     ).all()

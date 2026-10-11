@@ -29,6 +29,11 @@ request. Unavailable or foreign accounts return 404.
 The portal has separate account pages: `/<account-id>` for the partnership overview,
 `/<account-id>/performance` for daily activity, and `/<account-id>/assets` for products and ads.
 The account path and reporting period survive navigation and reloads.
+On Products & ads, choose Name, Impressions, Clicks or CTR to sort the full result set
+before pagination. Name starts in ascending order; a metric starts in descending order.
+Choose the same header again to reverse direction. Unavailable metrics appear last in
+either direction. Sorting and the current asset page survive navigation and reloads;
+changing the sort or reporting period returns to the first asset page.
 
 All account, membership, tier, benefit, and asset management lives in the admin app at
 `/partnerships/accounts`. These operations use `/v1/admin/partner-accounts`, require an admin

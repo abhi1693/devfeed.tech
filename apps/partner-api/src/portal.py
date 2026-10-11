@@ -3,7 +3,13 @@
 import uuid
 
 from devfeed_core.models import PartnerAccount, PartnerMembership
-from devfeed_http.partner_portal import AccountsOut, Dashboard, reporting_dashboard
+from devfeed_http.partner_portal import (
+    AccountsOut,
+    AssetSort,
+    Dashboard,
+    SortOrder,
+    reporting_dashboard,
+)
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import func, select
 
@@ -57,7 +63,16 @@ def dashboard(
     days: int = Query(30, ge=1, le=365),
     limit: int = Query(100, ge=1, le=200),
     offset: int = Query(0, ge=0),
+    sort: AssetSort = Query("name"),
+    order: SortOrder = Query("asc"),
 ):
     return reporting_dashboard(
-        account_id, session, account_access(session, partner, account_id), days, limit, offset
+        account_id,
+        session,
+        account_access(session, partner, account_id),
+        days,
+        limit,
+        offset,
+        sort=sort,
+        order=order,
     )
