@@ -3,6 +3,7 @@
 import uuid
 from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime
+from time import sleep
 
 import pytest
 from devfeed_core.config import get_settings
@@ -12,7 +13,11 @@ from devfeed_core.models import (
     PartnerDeliveryEvent,
     PartnerTrackedDailyMetric,
 )
-from devfeed_core.partner_tracking import PartnerTrackingTokens, record_delivery_event
+from devfeed_core.partner_tracking import (
+    BusyPartnerAsset,
+    PartnerTrackingTokens,
+    record_delivery_event,
+)
 from pydantic import SecretStr
 from sqlalchemy import func, select
 from sqlalchemy.exc import SQLAlchemyError
@@ -104,8 +109,15 @@ def test_concurrent_duplicate_and_distinct_deliveries_increment_once(database):
     receipts = [duplicate] * 12 + [signer.verify(signer.issue(asset)) for _ in range(8)]
 
     def record(receipt):
-        with database.begin() as session:
-            return record_delivery_event(session, receipt, "impression")
+        # Busy attribution produces a retriable 503 in HTTP. Each retry starts a
+        # fresh transaction, retaining the same signed delivery and event identity.
+        for attempt in range(20):
+            try:
+                with database.begin() as session:
+                    return record_delivery_event(session, receipt, "impression")
+            except BusyPartnerAsset:
+                sleep(0.005 * (attempt + 1))
+        raise AssertionError("Partner attribution remained busy after bounded retries")
 
     with ThreadPoolExecutor(max_workers=8) as executor:
         assert sum(executor.map(record, receipts)) == 9

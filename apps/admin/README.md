@@ -122,10 +122,45 @@ and invalidates its in-flight sync jobs. Shared product checks can continue thro
 or article-ID entry is available.
 
 Connections identify both the partnership type (`launch_platform`) and provider
-(`nick-launches`). This implementation covers launch platforms. Ad networks such as
-Carbon Ads and EthicalAds, and direct paid partnerships, need their own integration and
-commercial workflows; they are not catalog providers in this flow. Billing, ad delivery,
-and reader placements are not enabled by connecting a launch platform.
+(`nick-launches`, or another configured REST JSON connector). Connect an import source to
+its partner account once so its products inherit the account's promotion defaults. A
+connection alone does not establish a paid agreement. External ad networks and billing
+integrations remain separate from product imports.
+
+### Promotion defaults and paid campaigns
+
+Open **Partnerships → Partner accounts** to configure ordinary recommendations, automatic
+inclusion of imported products, allowed article/topic/feed placements, and the per-product
+exposure limit. Ordinary recommendations are available on every tier. The exposure limit
+counts viewable impressions per UTC day in each web reader or extension installation.
+The web reader and each extension maintain independent limits.
+
+The account's **Products** tab lists its imported catalog with search and pagination.
+Products inherit account defaults after qualification. Exclude a product to block its
+ordinary and sponsored appearances for this account; allowing it again restores its
+inherited policy. Global qualification exclusions require rechecking the canonical
+product. If automatic inclusion is off, only a campaign's explicit product selection can
+opt a product into delivery.
+
+Use **Campaigns → Create paid campaign** for an agreed paid promotion. Cover the whole
+eligible catalog, including newly qualified imports, choose named products from the
+account's catalog, or filter products by approved topics and verified technologies.
+When both filter dimensions are supplied, a product must match one topic and one
+technology. Set finite start/end dates in local time, status, placement surfaces,
+priority, and an optional campaign-wide daily impression limit. Relevance ranks sponsors
+first; priority breaks ties between equally relevant campaigns. Account pauses, product
+exclusions, qualification, exposure limits,
+and relevance continue to gate delivery. Expiring a campaign restores ordinary account
+defaults; the tier does not independently enable sponsorship.
+
+Campaign lists show impressions, clicks, and click-through rates. Automatic placement
+reporting records link back to their account defaults or campaign, preserving attribution.
+Historical manual assets remain accessible under **Related objects**; the normal workflow
+does not require associating every product as a placement or ad.
+
+Validate account defaults, inclusion/exclusion, all/selected/filtered campaigns, scoped
+product pickers, and desktop/mobile layouts with `npm run admin:test` and, after
+`npm run admin:build`, `node apps/admin/tests/browser/partner-accounts.mjs`.
 
 The adapter follows cursor pagination, accepts the documented and live response envelopes,
 normalizes the platform listing and product website URLs, and selects the Developer Tools
@@ -147,22 +182,19 @@ editing source data. Exclusions survive subsequent syncs.
 Retrying checks cancels any queued or running evaluation for the previous product revision;
 successful requalification queues current matching results automatically.
 
-Qualified products automatically receive private relevance evaluations against up to 15
-published tutorials and five other articles as negative controls. Evaluations refresh when
-the product changes or a later sync finds a different article sample. Only grounded task
-matches qualify; generic category overlap is insufficient. Qualification expires after
-90 days. Nothing is added to the reader feed, releases, search, MCP, or extensions.
+Qualified products receive private AI evaluations against up to 15 published tutorials
+and five negative controls. Production placement matching continuously prepares product
+and article/topic relevance separately, refreshing changed product and article inputs.
+Reader delivery uses prepared matches and rechecks current commercial and qualification
+settings. Ordinary recommendations and labelled sponsored placements appear across the
+web reader and both extensions only when there is a relevant match. Qualification expires
+after 90 days.
 
-Migration `0021` creates the launch platform connections, canonical products, listings, URL
-aliases, per-product sync jobs, and evaluation jobs in their final form. Run the normal
-database upgrade before starting the API and workers. Downgrading removes these partnership
-tables and their data.
-
-Development databases upgraded to the former PR head `0025` have the final table layout.
-Verify that schema against the consolidated migration before stamping its revision as
-`0021`; superseded revisions are no longer in the migration graph. Databases on earlier
-intermediate PR revisions must first finish the old migration chain or be recreated if
-their development data is disposable.
+Migrations `0024`–`0027` create the partnership catalog, accounts, tiers and configurable
+connectors; `0028` adds promotion defaults, campaigns and prepared matching. Run the normal
+database upgrade before starting the API and workers. Development databases carrying
+superseded draft migration markers require inspecting their actual schema before repair;
+do not stamp revisions based on their numbers alone.
 The scheduler dispatches discovery and product API syncs on `source-discovery` and product checks and
 matching on `source-analysis`. AI must be enabled for checks; API syncing can continue
 while AI is disabled. Jobs are leased, retried with backoff, and protected against stale
@@ -200,9 +232,9 @@ when another connected platform still supplies the product. Global exclusions su
 listings and identity merges. Concurrent syncs serialize short catalog transactions and use
 unique URL identities, avoiding duplicate products and qualification jobs.
 
-Only Nick Launches has an enabled API adapter today; future launch platform adapters share
-this identity model. Ad network integrations and commercial agreements remain separate
-future workflows and do not determine product identity or qualification.
+Nick Launches and configurable REST JSON connections share this identity model. Paid
+campaigns and external ad network integrations do not determine product identity or
+qualification.
 
 ## Next.js 16.4 tooling
 

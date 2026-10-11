@@ -9,6 +9,8 @@ import type { AssetOutKind } from './assetOutKind';
 import type { AssetOutStatus } from './assetOutStatus';
 
 export interface AssetOut {
+  automatic?: boolean;
+  campaign_id?: string | null;
   id: string;
   kind: AssetOutKind;
   /**

@@ -53,6 +53,8 @@ def test_evaluation_rejects_stale_or_unowned_results(monkeypatch, mode):
     session.scalar.return_value = None if mode == "missing" else job
     monkeypatch.setattr(evaluations, "get_settings", lambda: NS(ai_enabled=mode != "disabled"))
     monkeypatch.setattr(evaluations, "lock_catalog", Mock())
+    publish = Mock()
+    monkeypatch.setattr(evaluations, "save_evaluation_matches", publish)
     current = Mock(
         side_effect=[True, False] if mode == "changed" else None, return_value=mode != "stale"
     )
@@ -76,6 +78,7 @@ def test_evaluation_rejects_stale_or_unowned_results(monkeypatch, mode):
         assert job.status == "failed" and job.lease_token is None
     elif mode == "success":
         assert job.status == "succeeded" and job.result == validated and job.lease_token is None
+        publish.assert_called_once_with(session, job)
     elif mode == "error":
         assert job.status == "queued" and "private provider response" not in job.error
     else:

@@ -7,6 +7,7 @@ from devfeed_core.config import get_settings as core_settings
 from devfeed_core.db import database_revision
 from devfeed_core.logging import configure_logging
 from devfeed_core.version import SCHEMA_REVISION, __version__
+from devfeed_http.body_limits import RequestBodyLimitMiddleware
 from devfeed_http.schemas import ERROR_RESPONSES
 from devfeed_http.service import HTTPService
 from devfeed_http.telemetry import fastapi_telemetry
@@ -21,6 +22,7 @@ from devfeed_user_api import (
     mcp,
     must_reads,
     notifications,
+    partner_placements,
     preferences,
     profile,
     recommendations,
@@ -59,6 +61,12 @@ def create_app() -> FastAPI:
         private=True,
         middleware=lambda app: app.add_middleware(avatars.AvatarUploadBodyLimit),
     )
+    app.add_middleware(
+        RequestBodyLimitMiddleware,
+        limits={
+            ("POST", "/v1/user/partner-placements/query"): 8192,
+        },
+    )
 
     service.register_health(
         app,
@@ -79,6 +87,7 @@ def create_app() -> FastAPI:
     app.include_router(avatars.router)
     app.include_router(leaderboard.router)
     app.include_router(recommendations.router)
+    app.include_router(partner_placements.router)
     app.include_router(must_reads.router)
     app.include_router(sources.router)
     return app

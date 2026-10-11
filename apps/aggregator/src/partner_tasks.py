@@ -10,6 +10,7 @@ from devfeed_core.job_lifecycle import clear_lease, fail_or_retry, start_job
 from devfeed_core.job_logs import job_log_context
 from devfeed_core.models import PartnerEvaluation, utcnow
 from devfeed_core.partner_catalog import lock_catalog
+from devfeed_core.partner_matching import save_evaluation_matches
 from devfeed_core.partner_tools import (
     EvaluationResult,
     evaluation_prompt,
@@ -126,6 +127,7 @@ def _process_evaluation(job_id: str, *, factory=None, assessor=None):
         else:
             assert result is not None
             job.result = result
+            save_evaluation_matches(session, job)
             job.status, job.finished_at, job.error = "succeeded", utcnow(), None
             clear_lease(job)
             logger.info(

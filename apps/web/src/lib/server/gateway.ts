@@ -1,7 +1,8 @@
 import { traceHeaders } from "@devfeed/telemetry/propagation";
 import "server-only";
 import { userApiOrigin, userRequestOriginAllowed, xPixelEnabled } from "./config";
-import { readRequestBody, RequestBodyTooLarge } from "./request-body";
+import { readRequestBody, RequestBodyTimeout, RequestBodyTooLarge } from "./request-body";
+import { validPlacementQuery } from "../partner-placements";
 
 // This is not a general-purpose proxy. Only the user service's namespace is reachable.
 const privatePath = /^\/v1\/user\/[a-zA-Z0-9_/-]+$/;
@@ -49,11 +50,26 @@ export async function gateway(request: Request, segments: string[]) {
     }
     let body: ArrayBuffer | undefined;
     if (!safe.has(request.method)) {
-      const limit =
-        request.method === "POST" && path === "/v1/user/settings/profile/avatar"
+      const placementQuery = path === "/v1/user/partner-placements/query";
+      const limit = placementQuery
+        ? 8192
+        : request.method === "POST" && path === "/v1/user/settings/profile/avatar"
           ? 5 * 1024 * 1024 + 65536
           : 1_000_000;
-      body = await readRequestBody(request, limit);
+      body = await readRequestBody(request, limit, placementQuery ? 2000 : undefined);
+      if (placementQuery) {
+        let query: unknown;
+        try {
+          query = JSON.parse(new TextDecoder().decode(body));
+        } catch {
+          query = null;
+        }
+        if (request.method !== "POST" || !validPlacementQuery(query))
+          return Response.json(
+            { detail: "Invalid placement context" },
+            { status: 422, headers: { "Cache-Control": "no-store" } },
+          );
+      }
     }
     for (const [key, value] of Object.entries(traceHeaders())) headers.set(key, value);
     const upstream = await fetch(`${userApiOrigin()}${path}${incoming.search}`, {
@@ -88,7 +104,15 @@ export async function gateway(request: Request, segments: string[]) {
     });
   } catch (error) {
     if (error instanceof RequestBodyTooLarge)
-      return Response.json({ detail: "Request too large" }, { status: 413 });
+      return Response.json(
+        { detail: "Request too large" },
+        { status: 413, headers: { "Cache-Control": "no-store" } },
+      );
+    if (error instanceof RequestBodyTimeout)
+      return Response.json(
+        { detail: "Incomplete request" },
+        { status: 408, headers: { "Cache-Control": "no-store" } },
+      );
     // Do not log callback URLs, provider messages, codes, cookies, or tokens.
     return Response.json(
       { detail: "User service unavailable" },

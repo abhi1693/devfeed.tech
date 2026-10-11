@@ -17,8 +17,17 @@ export default async function Page({
   const { id, section: segments } = await params;
   const section = segments?.join("/") ?? "details";
   if (
-    !["details", "edit", "related", "members/new", "assets/new"].includes(section) &&
-    !/^assets\/[^/]+\/edit$/.test(section)
+    ![
+      "details",
+      "edit",
+      "related",
+      "products",
+      "campaigns",
+      "campaigns/new",
+      "members/new",
+      "assets/new",
+    ].includes(section) &&
+    !/^(?:assets|campaigns)\/[^/]+\/edit$/.test(section)
   )
     notFound();
   const query = await searchParams;

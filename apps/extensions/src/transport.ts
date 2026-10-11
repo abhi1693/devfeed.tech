@@ -12,7 +12,9 @@ const publicReads = new Set([
   "/api/v1/leaderboard",
 ]);
 const partnerTrackingPath = "/api/v1/partner-tracking/events";
-const publicWrites = new Set(["/api/v1/search/analytics/click", partnerTrackingPath]);
+const partnerPlacementsPath = "/api/v1/partner-placements/query";
+const anonymousPartnerPaths = new Set([partnerTrackingPath, partnerPlacementsPath]);
+const publicWrites = new Set(["/api/v1/search/analytics/click", ...anonymousPartnerPaths]);
 const publicProfileRead = /^\/api\/v1\/users\/[a-z0-9][a-z0-9_-]{1,28}[a-z0-9]$/i;
 const userPath = /^\/api\/v1\/user\/[a-zA-Z0-9_/-]+$/;
 const methods = new Set(["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE"]);
@@ -63,7 +65,7 @@ export function createReaderTransport(network: typeof fetch): typeof fetch {
       if (
         value !== null &&
         (privateApi || publicWrite) &&
-        (url.pathname !== partnerTrackingPath || name === "Content-Type")
+        (!anonymousPartnerPaths.has(url.pathname) || name === "Content-Type")
       )
         headers.set(name, value);
     }
@@ -75,7 +77,8 @@ export function createReaderTransport(network: typeof fetch): typeof fetch {
       cache: "no-store",
       credentials:
         publicProfileRead.test(url.pathname) ||
-        ["/api/v1/leaderboard", partnerTrackingPath].includes(url.pathname)
+        url.pathname === "/api/v1/leaderboard" ||
+        anonymousPartnerPaths.has(url.pathname)
           ? "omit"
           : "include",
       redirect: "error",

@@ -163,7 +163,15 @@ it("creates an account with selected benefits and navigates to the saved record"
     expect.objectContaining({
       method: "POST",
       headers: { "content-type": "application/json", "x-csrf-token": "test-csrf" },
-      body: JSON.stringify({ name: "Example partner", tier: "bronze", status: "active" }),
+      body: JSON.stringify({
+        name: "Example partner",
+        tier: "bronze",
+        status: "active",
+        organic_enabled: true,
+        auto_include_products: true,
+        promotion_surfaces: ["article", "topic", "feed"],
+        frequency_cap: 3,
+      }),
     }),
   );
 });

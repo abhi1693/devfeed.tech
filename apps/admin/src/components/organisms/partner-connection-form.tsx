@@ -210,6 +210,7 @@ export function PartnerConnectionForm({
             name="account_id"
             disabled={saving || testing}
             error={errors.account_id}
+            subtext="Imported products inherit this account’s promotion defaults and become available to its paid campaigns after qualification."
           >
             {(control) => (
               <EntityPicker

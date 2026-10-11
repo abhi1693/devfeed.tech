@@ -50,10 +50,12 @@ afterEach(() => {
   vi.clearAllMocks();
 });
 it("requires half visibility for a continuous second and records each kind independently", async () => {
-  dispose = observePartnerPlacement(element, "receipt");
+  const onView = vi.fn();
+  dispose = observePartnerPlacement(element, "receipt", onView);
   view(0.49);
   await vi.advanceTimersByTimeAsync(2000);
   expect(readerRequest).not.toHaveBeenCalled();
+  expect(onView).not.toHaveBeenCalled();
   view(0.5);
   await vi.advanceTimersByTimeAsync(999);
   expect(readerRequest).not.toHaveBeenCalled();
@@ -66,6 +68,7 @@ it("requires half visibility for a continuous second and records each kind indep
   element.dispatchEvent(new MouseEvent("click"));
   await vi.advanceTimersByTimeAsync(2000);
   expect(readerRequest).toHaveBeenCalledTimes(2);
+  expect(onView).toHaveBeenCalledTimes(1);
   expect(
     vi.mocked(readerRequest).mock.calls.map(([, init]) => JSON.parse(init!.body as string)),
   ).toEqual([

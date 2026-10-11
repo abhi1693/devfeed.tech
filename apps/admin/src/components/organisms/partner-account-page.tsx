@@ -13,10 +13,23 @@ import { useAdmin } from "@/components/molecules/admin-session";
 import type { Dashboard, AssetMetrics, MemberOut } from "@/lib/api/generated/models";
 import { PartnerAccountManagement } from "./partner-account-management";
 import { accountsPath, accountHref, accountsTrail } from "./partner-accounts";
+import { PartnerCampaigns } from "./partner-campaigns";
+import { PartnerCampaignPage } from "./partner-campaign-form";
+import { PartnerInventory } from "./partner-inventory";
+import { ApiError, returnToLogin } from "@/lib/api/client";
 
 type Member = MemberOut;
 export type AccountSection =
-  "details" | "edit" | "related" | "members/new" | "assets/new" | `assets/${string}/edit`;
+  | "details"
+  | "edit"
+  | "related"
+  | "products"
+  | "campaigns"
+  | "campaigns/new"
+  | `campaigns/${string}/edit`
+  | "members/new"
+  | "assets/new"
+  | `assets/${string}/edit`;
 export function PartnerAccountPage({
   id,
   section = "details",
@@ -50,6 +63,10 @@ export function PartnerAccountPage({
       }),
     ])
       .then(async (responses) => {
+        if (responses.some((response) => response.status === 401)) {
+          returnToLogin();
+          throw new ApiError(401);
+        }
         if (responses.some((response) => !response.ok))
           throw new Error("Could not load partner account details.");
         const [dashboard, membership] = await Promise.all(
@@ -68,6 +85,7 @@ export function PartnerAccountPage({
   }, [id, offset, limit, revision]);
   const href = id ? accountHref(id) : accountsPath;
   const editingAsset = section.startsWith("assets/") && section.endsWith("/edit");
+  const campaignForm = section === "campaigns/new" || /^campaigns\/[^/]+\/edit$/.test(section);
   const asset = editingAsset
     ? data?.assets.find((item) => item.id === section.split("/")[1])
     : undefined;
@@ -76,6 +94,7 @@ export function PartnerAccountPage({
     section === "edit" ||
     section === "members/new" ||
     section === "assets/new" ||
+    campaignForm ||
     editingAsset;
   const title = !id
     ? "Create partner account"
@@ -83,11 +102,15 @@ export function PartnerAccountPage({
       ? `Edit ${data?.account.name ?? "partner account"}`
       : section === "members/new"
         ? "Add member"
-        : section === "assets/new"
-          ? "Associate asset"
-          : editingAsset
-            ? `Edit ${asset?.name ?? "asset"}`
-            : (data?.account.name ?? "Partner account");
+        : campaignForm
+          ? section === "campaigns/new"
+            ? "Create paid campaign"
+            : "Edit paid campaign"
+          : section === "assets/new"
+            ? "Associate asset"
+            : editingAsset
+              ? `Edit ${asset?.name ?? "asset"}`
+              : (data?.account.name ?? "Partner account");
   async function removeMember(subject: string) {
     setBusy(true);
     try {
@@ -142,6 +165,11 @@ export function PartnerAccountPage({
   const assetColumns: DataTableColumn<AssetMetrics>[] = [
     { accessorKey: "name", header: "Name" },
     { accessorKey: "kind", header: "Type" },
+    {
+      id: "association",
+      header: "Association",
+      cell: ({ row }) => (row.original.automatic ? "Automatic" : "Legacy manual asset"),
+    },
     { accessorKey: "status", header: "Status", kind: "pill" },
     {
       id: "actions",
@@ -149,11 +177,21 @@ export function PartnerAccountPage({
       cell: ({ row }) => (
         <Button asChild variant="outline" size="sm">
           <Link
-            href={`${href}/assets/${row.original.id}/edit?offset=${offset}&limit=${limit}`}
+            href={
+              row.original.automatic
+                ? row.original.campaign_id
+                  ? `${href}/campaigns/${row.original.campaign_id}/edit`
+                  : `${href}/edit`
+                : `${href}/assets/${row.original.id}/edit?offset=${offset}&limit=${limit}`
+            }
             prefetch={false}
-            aria-label={`Edit ${row.original.name}`}
+            aria-label={
+              row.original.automatic
+                ? `View policy for ${row.original.name}`
+                : `Edit ${row.original.name}`
+            }
           >
-            Edit
+            {row.original.automatic ? "View policy" : "Edit"}
           </Link>
         </Button>
       ),
@@ -185,10 +223,20 @@ export function PartnerAccountPage({
       />
       {!error &&
         (!id || data) &&
-        (form ? (
+        (campaignForm && data ? (
+          <PartnerCampaignPage
+            account={data.account}
+            campaignId={section === "campaigns/new" ? undefined : section.split("/")[1]}
+          />
+        ) : form ? (
           editingAsset && !asset ? (
             <p role="alert">
               This asset is unavailable. Return to related objects to select an asset.
+            </p>
+          ) : editingAsset && asset?.automatic ? (
+            <p role="alert">
+              This reporting record is managed automatically. Change promotion settings in the
+              account defaults or its paid campaign.
             </p>
           ) : (
             <PartnerAccountManagement
@@ -207,19 +255,30 @@ export function PartnerAccountPage({
         ) : (
           <>
             <nav aria-label="Object sections" className="flex gap-5 overflow-x-auto border-b">
-              {(["details", "related"] as const).map((tab) => (
+              {(["details", "products", "campaigns", "related"] as const).map((tab) => (
                 <Link
                   key={tab}
                   prefetch={false}
-                  href={href + (tab === "details" ? "" : "/related")}
+                  href={href + (tab === "details" ? "" : `/${tab}`)}
                   aria-current={section === tab ? "page" : undefined}
                   className={`whitespace-nowrap border-b-2 px-1 pb-3 text-sm ${section === tab ? "border-primary font-medium" : "border-transparent text-muted-foreground hover:text-foreground"}`}
                 >
-                  {tab === "details" ? "Details" : "Related objects"}
+                  {
+                    {
+                      details: "Details",
+                      products: "Products",
+                      campaigns: "Campaigns",
+                      related: "Related objects",
+                    }[tab]
+                  }
                 </Link>
               ))}
             </nav>
-            {section === "related" ? (
+            {section === "products" ? (
+              <PartnerInventory account={data!.account} />
+            ) : section === "campaigns" ? (
+              <PartnerCampaigns accountId={data!.account.id} />
+            ) : section === "related" ? (
               <div className="space-y-6">
                 <DataTable
                   label="Account members"
@@ -237,11 +296,11 @@ export function PartnerAccountPage({
                   }
                 />
                 <DataTable
-                  label="Products & ads"
+                  label="Placement reporting records"
                   data={data!.assets}
                   columns={assetColumns}
                   getRowId={(row) => row.id}
-                  empty="No assets associated yet."
+                  empty="No placement reporting records yet. Products and campaigns create these records automatically."
                   pagination={{
                     offset,
                     limit,
@@ -251,36 +310,69 @@ export function PartnerAccountPage({
                       if (values.limit) setLimit(Number(values.limit));
                     },
                   }}
-                  toolbar={
-                    <Button asChild size="sm">
-                      <Link href={`${href}/assets/new`} prefetch={false}>
-                        <Plus aria-hidden />
-                        Associate asset
-                      </Link>
-                    </Button>
-                  }
                 />
               </div>
             ) : (
               <div className="grid items-start gap-6 xl:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)]">
-                <InfoPanel
-                  title="Partnership"
-                  fields={[
-                    { label: "Name", value: <DataValue value={data!.account.name} /> },
-                    {
-                      label: "Partnership tier",
-                      value: (
-                        <DataValue
-                          value={
-                            data!.account.tier.charAt(0).toUpperCase() + data!.account.tier.slice(1)
-                          }
-                        />
-                      ),
-                    },
-                    { label: "Status", value: <StatusBadge value={data!.account.status} /> },
-                    { label: "Benefits", value: <DataValue value={data!.account.benefits} /> },
-                  ]}
-                />
+                <div className="space-y-6">
+                  <InfoPanel
+                    title="Partnership"
+                    fields={[
+                      { label: "Name", value: <DataValue value={data!.account.name} /> },
+                      {
+                        label: "Partnership tier",
+                        value: (
+                          <DataValue
+                            value={
+                              data!.account.tier.charAt(0).toUpperCase() +
+                              data!.account.tier.slice(1)
+                            }
+                          />
+                        ),
+                      },
+                      { label: "Status", value: <StatusBadge value={data!.account.status} /> },
+                      { label: "Benefits", value: <DataValue value={data!.account.benefits} /> },
+                    ]}
+                  />
+                  <InfoPanel
+                    title="Promotion defaults"
+                    fields={[
+                      {
+                        label: "Ordinary recommendations",
+                        value: <DataValue value={data!.account.organic_enabled ?? true} />,
+                      },
+                      {
+                        label: "Automatic product inclusion",
+                        value: <DataValue value={data!.account.auto_include_products ?? true} />,
+                      },
+                      {
+                        label: "Allowed placements",
+                        value: (
+                          <DataValue
+                            value={data!.account.promotion_surfaces ?? ["article", "topic", "feed"]}
+                          />
+                        ),
+                      },
+                      {
+                        label: "Product exposure limit",
+                        value: `${data!.account.frequency_cap ?? 3} per reader installation per UTC day`,
+                      },
+                      {
+                        label: "Paid promotion",
+                        value: (
+                          <Link href={`${href}/campaigns`} className="text-primary hover:underline">
+                            Manage agreed paid campaigns
+                          </Link>
+                        ),
+                      },
+                    ]}
+                  >
+                    <p className="py-3 text-sm text-muted-foreground">
+                      Imported products inherit these defaults after qualification. Each appearance
+                      requires a relevant match. Paid promotion runs through an active campaign.
+                    </p>
+                  </InfoPanel>
+                </div>
                 <InfoPanel
                   title="Record information"
                   fields={[
@@ -294,7 +386,7 @@ export function PartnerAccountPage({
                       ),
                     },
                     {
-                      label: "Products & ads",
+                      label: "Placement reporting records",
                       value: (
                         <Link href={`${href}/related`} className="text-primary hover:underline">
                           {data!.asset_total}

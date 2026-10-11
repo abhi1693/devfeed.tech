@@ -321,6 +321,40 @@ test("partner impression and click events omit credentials and cannot proxy part
   assert.equal(calls.length, 2);
 });
 
+test("contextual placements are anonymous writes while personalized placement queries retain session CSRF", async () => {
+  const calls = [];
+  const request = createReaderTransport(async (...args) => {
+    calls.push(args);
+    return Response.json({ items: [] });
+  });
+  const body = JSON.stringify({ surface: "feed", exclude_product_ids: [] });
+  const headers = {
+    "Content-Type": "application/json",
+    "X-CSRF-Token": "csrf",
+    Authorization: "private",
+  };
+  await request("/api/v1/partner-placements/query", { method: "POST", headers, body });
+  assert.equal(calls[0][1].credentials, "omit");
+  assert.equal(calls[0][1].headers.get("x-csrf-token"), null);
+  assert.equal(calls[0][1].headers.get("authorization"), null);
+  assert.equal(calls[0][1].headers.get("cache-control"), "no-store");
+  assert.equal(calls[0][1].body, body);
+  await request("/api/v1/user/partner-placements/query", { method: "POST", headers, body });
+  assert.equal(calls[1][1].credentials, "include");
+  assert.equal(calls[1][1].headers.get("x-csrf-token"), "csrf");
+  assert.equal(calls[1][1].headers.get("authorization"), null);
+  assert.equal((await request("/api/v1/partner-placements/query")).status, 403);
+  assert.equal(
+    (await request("/api/v1/partner-placements/query", { method: "DELETE" })).status,
+    403,
+  );
+  assert.equal(
+    (await request("/api/v1/partner-placements/private", { method: "POST" })).status,
+    403,
+  );
+  assert.equal(calls.length, 2);
+});
+
 test("public profile visibility checks omit credentials and request fresh responses", async () => {
   const calls = [];
   const request = createReaderTransport(async (...args) => {

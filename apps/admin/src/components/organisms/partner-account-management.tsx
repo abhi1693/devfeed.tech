@@ -14,6 +14,12 @@ import type { AccountOut, AssetMetrics } from "@/lib/api/generated/models";
 import { type PartnershipTierOut, AccountInputTier } from "@/lib/api/generated/models";
 import { adminPartnerToolsList } from "@/lib/api/generated/admin";
 import { accountsPath, accountHref } from "./partner-accounts";
+import { ApiError, returnToLogin } from "@/lib/api/client";
+import {
+  PromotionSurfaces,
+  promotionSurfaces,
+  type PromotionSurface,
+} from "@/components/molecules/promotion-surfaces";
 
 const memberUsers: EntityPickerSource = {
   key: "partner-member-users",
@@ -56,6 +62,11 @@ export function PartnerAccountManagement({
   const [productId, setProductId] = useState(asset?.product_id ?? "");
   const [memberUser, setMemberUser] = useState("");
   const [tier, setTier] = useState(account?.tier ?? "bronze");
+  const [organicEnabled, setOrganicEnabled] = useState(account?.organic_enabled ?? true);
+  const [autoInclude, setAutoInclude] = useState(account?.auto_include_products ?? true);
+  const [surfaces, setSurfaces] = useState<PromotionSurface[]>(
+    account?.promotion_surfaces ?? [...promotionSurfaces],
+  );
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<Error>();
   const [tiers, setTiers] = useState<PartnershipTierOut[]>([]);
@@ -66,6 +77,10 @@ export function PartnerAccountManagement({
     const controller = new AbortController();
     fetch("/api/v1/admin/partner-accounts/tiers", { cache: "no-store", signal: controller.signal })
       .then(async (response) => {
+        if (response.status === 401) {
+          returnToLogin();
+          throw new ApiError(401);
+        }
         if (!response.ok) throw new Error("Could not load tier benefits.");
         return response.json() as Promise<PartnershipTierOut[]>;
       })
@@ -88,6 +103,10 @@ export function PartnerAccountManagement({
     event.preventDefault();
     if (busy) return;
     const form = new FormData(event.currentTarget);
+    if (mode === "account" && !surfaces.length) {
+      setError(new Error("Select at least one placement surface."));
+      return;
+    }
     const base = account ? `/${account.id}` : "";
     const path =
       mode === "member"
@@ -109,6 +128,10 @@ export function PartnerAccountManagement({
               name: form.get("name"),
               tier,
               status,
+              organic_enabled: organicEnabled,
+              auto_include_products: autoInclude,
+              promotion_surfaces: surfaces,
+              frequency_cap: Number(form.get("frequency_cap")),
             };
     setBusy(true);
     setError(undefined);
@@ -118,6 +141,11 @@ export function PartnerAccountManagement({
         headers: { "content-type": "application/json", "x-csrf-token": admin.csrf_token },
         body: JSON.stringify(payload),
       });
+      if (response.status === 401) {
+        returnToLogin();
+        throw new ApiError(401);
+      }
+      if (response.status === 403) throw new ApiError(403);
       if (!response.ok)
         throw new Error(
           response.status === 422
@@ -194,7 +222,7 @@ export function PartnerAccountManagement({
               </Field>
             ) : (
               <>
-                <Field label="Type" name="kind" required disabled={busy}>
+                <Field label="Type" name="kind" required disabled={busy || asset?.automatic}>
                   {(control) => (
                     <Select
                       {...control}
@@ -212,7 +240,7 @@ export function PartnerAccountManagement({
                   label="Catalog product"
                   name="product_id"
                   required={kind === "product"}
-                  disabled={busy}
+                  disabled={busy || asset?.automatic}
                 >
                   {(control) => (
                     <EntityPicker
@@ -267,6 +295,65 @@ export function PartnerAccountManagement({
           </>
         )}
       </div>
+      {mode === "account" && (
+        <section aria-label="Promotion defaults" className="space-y-5 border-t pt-6">
+          <div className="space-y-1">
+            <h2 className="font-semibold">Promotion defaults</h2>
+            <p className="text-sm text-muted-foreground">
+              Products imported through this account inherit these settings. Every appearance must
+              match the reader’s context. Paid promotion requires an active campaign.
+            </p>
+          </div>
+          <label className="flex items-start gap-3 text-sm">
+            <Input
+              type="checkbox"
+              checked={organicEnabled}
+              disabled={busy}
+              onChange={(event) => setOrganicEnabled(event.target.checked)}
+            />
+            <span>
+              Allow ordinary recommendations
+              <span className="mt-1 block text-muted-foreground">
+                Relevant products can appear without a paid campaign, on any partnership tier.
+              </span>
+            </span>
+          </label>
+          <label className="flex items-start gap-3 text-sm">
+            <Input
+              type="checkbox"
+              checked={autoInclude}
+              disabled={busy}
+              onChange={(event) => setAutoInclude(event.target.checked)}
+            />
+            <span>
+              Automatically include imported products
+              <span className="mt-1 block text-muted-foreground">
+                Current and newly imported products become eligible after qualification. You can
+                exclude individual products from the Products tab.
+              </span>
+            </span>
+          </label>
+          <PromotionSurfaces value={surfaces} onChange={setSurfaces} disabled={busy} />
+          <Field
+            label="Product exposure limit"
+            name="frequency_cap"
+            required
+            disabled={busy}
+            subtext="Maximum viewable impressions of the same product per UTC day in each web reader or extension installation."
+          >
+            {(control) => (
+              <Input
+                {...control}
+                type="number"
+                min={1}
+                max={20}
+                defaultValue={account?.frequency_cap ?? 3}
+                className="max-w-32"
+              />
+            )}
+          </Field>
+        </section>
+      )}
       <div className="flex flex-wrap justify-end gap-3 border-t pt-6">
         <Button type="button" variant="outline" disabled={busy} onClick={() => router.push(cancel)}>
           Cancel

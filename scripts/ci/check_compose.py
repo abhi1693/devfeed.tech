@@ -283,10 +283,14 @@ def check() -> None:
         search["api"]["environment"]["DEVFEED_PARTNER_TRACKING_KEY"]
         == "disposable-partner-tracking-key-32-bytes"
     )
+    assert (
+        search["user-api"]["environment"]["DEVFEED_PARTNER_TRACKING_KEY"]
+        == "disposable-partner-tracking-key-32-bytes"
+    )
     assert all(
         "DEVFEED_PARTNER_TRACKING_KEY" not in service.get("environment", {})
         for name, service in search.items()
-        if name != "api"
+        if name not in {"api", "user-api"}
     )
     assert search["search-indexer"]["build"] == search["api"]["build"]
     assert search["search-setup"]["build"] == search["api"]["build"]

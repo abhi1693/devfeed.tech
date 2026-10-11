@@ -1,12 +1,17 @@
 import { readerRequest } from "./reader-runtime";
 
-/** Bind to a future placement's clickable element, using its server-issued delivery receipt. */
-export function observePartnerPlacement(element: HTMLElement, receipt: string) {
+/** Bind a placement's clickable element using its server-issued delivery receipt. */
+export function observePartnerPlacement(
+  element: HTMLElement,
+  receipt: string,
+  onView?: () => void,
+) {
   if (!receipt || receipt.length > 256) return () => {};
   const completed = new Set<string>();
   const pending = new Set<string>();
   let inView = false;
   let stopped = false;
+  let viewed = false;
   let timer: ReturnType<typeof setTimeout> | undefined;
 
   async function report(kind: "impression" | "click") {
@@ -46,7 +51,13 @@ export function observePartnerPlacement(element: HTMLElement, receipt: string) {
     if (completed.has("impression") || pending.has("impression")) return;
     timer = setTimeout(() => {
       timer = undefined;
-      if (element.isConnected && document.visibilityState === "visible") void report("impression");
+      if (element.isConnected && document.visibilityState === "visible") {
+        if (!viewed) {
+          viewed = true;
+          onView?.();
+        }
+        void report("impression");
+      }
     }, 1000);
   }
 

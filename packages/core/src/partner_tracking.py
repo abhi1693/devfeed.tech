@@ -12,11 +12,14 @@ from typing import Literal
 
 from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert
+from sqlalchemy.exc import SQLAlchemyError
 
 from devfeed_core.models import (
     PartnerAccount,
     PartnerAsset,
     PartnerDeliveryEvent,
+    PartnerPlacementDelivery,
+    PartnerProduct,
     PartnerTrackedDailyMetric,
 )
 
@@ -67,20 +70,40 @@ class InactivePartnerAsset(Exception):
     pass
 
 
+class BusyPartnerAsset(SQLAlchemyError):
+    """A valid receipt can be retried after a concurrent attribution edit commits."""
+
+
 def record_delivery_event(session, receipt: DeliveryReceipt, kind: EventKind) -> bool:
-    # Fence event writes against account/asset pauses, including concurrent edits.
-    asset = session.scalar(
-        select(PartnerAsset.id)
-        .join(PartnerAccount)
-        .where(
-            PartnerAsset.id == receipt.asset_id,
-            PartnerAsset.status == "active",
-            PartnerAccount.status == "active",
-        )
-        .with_for_update(of=[PartnerAsset, PartnerAccount])
+    from devfeed_core.partner_placements import automatic_asset_available, lock_attribution_row
+
+    # Resolve the immutable owner first, then acquire the same nonblocking lock
+    # order as issuance. A busy row produces retriable HTTP 503, never a false 403.
+    account_id = session.scalar(
+        select(PartnerAsset.account_id).where(PartnerAsset.id == receipt.asset_id)
     )
-    if asset is None:
+    if account_id is None:
         raise InactivePartnerAsset
+    account = lock_attribution_row(session, PartnerAccount, account_id, busy_error=True)
+    asset_row = lock_attribution_row(session, PartnerAsset, receipt.asset_id, busy_error=True)
+    if account.status != "active" or asset_row.status != "active":
+        raise InactivePartnerAsset
+    # Automatic deliveries must exist in the trusted issuer's durable outbox and
+    # still satisfy account/product/campaign policy when the browser reports them.
+    if asset_row.automatic:
+        reservation = session.get(PartnerPlacementDelivery, receipt.delivery_id)
+        product = lock_attribution_row(
+            session, PartnerProduct, asset_row.product_id, busy_error=True
+        )
+        if (
+            reservation is None
+            or reservation.asset_id != asset_row.id
+            or int(reservation.issued_at.timestamp()) != int(receipt.issued_at.timestamp())
+            or not automatic_asset_available(
+                session, asset_row, account, product, datetime.now(UTC), busy_error=True
+            )
+        ):
+            raise InactivePartnerAsset
     day = receipt.issued_at.date()
     created = session.scalar(
         insert(PartnerDeliveryEvent)

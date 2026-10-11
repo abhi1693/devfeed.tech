@@ -15,6 +15,7 @@ import {
 import { ArticleImage } from "./article-image";
 import { CatalogIcon } from "./catalog-icon";
 import { ArticleSourceBrief } from "./article-source-brief";
+import { PartnerPlacements } from "./partner-placements";
 
 export function ArticlePreviewContent({
   article,
@@ -113,6 +114,7 @@ export function ArticlePreviewContent({
             <aside className="preview-sidebar">
               {source && <ArticleSourceBrief source={source} articleSlug={article.slug} />}
               {topicBrief}
+              <PartnerPlacements key={article.id} surface="article" article_id={article.id} />
             </aside>
           </div>
         </div>

@@ -22,6 +22,7 @@ fi
 run_check npm run extension:test:browser
 run_check npm run extension:edge:test:browser
 run_check node apps/web/tests/browser/partner-tracking.mjs
+run_check node apps/web/tests/browser/partner-placements.mjs
 run_check env DEVFEED_HISTORY_PLATFORM=chrome node tests/benchmarks/reader-history.mjs
 run_check env DEVFEED_HISTORY_PLATFORM=edge node tests/benchmarks/reader-history.mjs
 exit "$status"

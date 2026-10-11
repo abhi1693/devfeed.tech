@@ -2,6 +2,7 @@
 
 import uuid
 from datetime import UTC, datetime
+from types import SimpleNamespace
 from unittest.mock import Mock
 
 import pytest
@@ -60,7 +61,13 @@ def test_tracking_is_disabled_by_default_and_rejects_short_keys():
 def test_event_and_counter_use_atomic_conflicts_without_imported_totals(kind):
     session = Mock()
     receipt = DeliveryReceipt(uuid.uuid4(), uuid.uuid4(), datetime.now(UTC))
-    session.scalar.side_effect = [receipt.asset_id, receipt.delivery_id]
+    account_id = uuid.uuid4()
+    fences = [
+        account_id,
+        SimpleNamespace(status="active"),
+        SimpleNamespace(automatic=False, status="active"),
+    ]
+    session.scalar.side_effect = [*fences, receipt.delivery_id]
     assert record_delivery_event(session, receipt, kind)
     statement = session.execute.call_args.args[0].compile(dialect=dialect())
     assert "ON CONFLICT" in str(statement)
@@ -68,7 +75,7 @@ def test_event_and_counter_use_atomic_conflicts_without_imported_totals(kind):
     assert "partner_daily_metrics" not in str(statement)
     assert statement.params["impressions"] == int(kind == "impression")
     assert statement.params["clicks"] == int(kind == "click")
-    session.scalar.side_effect = [receipt.asset_id, None]
+    session.scalar.side_effect = [*fences, None]
     session.execute.reset_mock()
     assert not record_delivery_event(session, receipt, kind)
     session.execute.assert_not_called()

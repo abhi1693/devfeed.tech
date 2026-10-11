@@ -43,11 +43,13 @@ memberships to match.
 
 ## Measured value
 
-Accounts own `partner_assets` (product placements or ads). Product assets reference canonical
-catalog products; catalog providers and commercial partner accounts remain independent.
+Accounts own `partner_assets` (ordinary recommendations or sponsored appearances). Automatic
+assets reference canonical products and optional explicit paid campaigns. Assigned import
+connections establish each account's eligible catalog; canonical identity stays shared.
 Each asset belongs to one account, keeping reporting attribution stable. Shared canonical
 products can have distinct assets for different partner accounts. Membership, ownership,
-and metrics are never inferred from an imported listing or its email/domain.
+and metrics are never inferred from imported emails/domains. Sponsorship requires an active
+campaign and is independent of product pricing and account tier.
 
 The dashboard shows impressions, clicks, CTR, per-asset results, daily activity, a 7/30/90/365
 day selector, tier, and benefits. Periods use inclusive UTC calendar dates through today.
@@ -56,15 +58,15 @@ Summary totals include all assets even when the asset table is paginated. A day 
 measurement is distinct from a measured zero; coverage and latest update are visible.
 Revenue, conversions, and financial ROI are not claimed by these metrics.
 
-### Impression and click tracking infrastructure
+### Contextual delivery and tracking
 
 The website and both extensions share `observePartnerPlacement(element, receipt)` in
-`apps/web/src/lib/partner-tracking.ts`. Future placement rendering should attach it to the
-clickable placement element and clean it up on unmount. It counts an impression after at
+`apps/web/src/lib/partner-tracking.ts`. The shared contextual placement component attaches it
+to clickable products and cleans it up on unmount. It counts an impression after at
 least half the placement stays visible for one continuous second while the document is
 visible. It counts a click independently, including keyboard and middle-button activation.
-Retries use the same receipt; errors never block link navigation. No placements are launched
-by this infrastructure change.
+Retries use the same receipt; errors never block link navigation. Products inherit account
+defaults and relevant campaign targeting. See [Partner promotions](../../packages/core/PARTNER_PROMOTIONS.md).
 
 Trusted delivery code issues one receipt per placement render with
 `PartnerTrackingTokens(key).issue(asset_id)` from `devfeed_core.partner_tracking`. Keep the
@@ -93,15 +95,16 @@ for that asset/day; import external deliveries only, so the same DevFeed deliver
 counted twice. Negative values, future dates, foreign assets, and partner-authenticated writes
 are rejected. Private article relevance evaluations never count as views or clicks.
 
-A delivery producer still needs to render placements and issue receipts before real traffic
-can be measured. The signing key stays in the public API and trusted delivery servers;
+The public and user APIs issue fresh receipts with durable anonymous delivery reservations.
+The signing key stays in these two trusted backends;
 Compose does not pass it to reader, extension, administration, or partner frontend services.
 
 ## Validation and rollout
 
 Run `npm run partner:tracking:browser` to verify the shared tracker in website and built
 Chrome/Edge fixture pages, including visibility timing and credential isolation. These checks
-also run in reader parity CI. PostgreSQL/Redis regressions verify concurrent duplicate events,
+and `node apps/web/tests/browser/partner-placements.mjs` run in reader parity CI. PostgreSQL/Redis
+regressions verify concurrent duplicate events,
 atomic rollback, imported/live counters, and partner isolation.
 
 Run `npm run partner:lint`, `npm run partner:test`, `npm run partner:build`, and
@@ -118,16 +121,18 @@ after master’s source-logo migration `0023`. An older local draft partnership 
 must be recreated in a disposable database before retesting. Downgrade removes partner data.
 Deploy the new images, configure Zitadel roles/client and the tracking signing key, and route
 the portal hostname to the frontend. Production DNS/TLS/deployment, live provider validation,
-placement rendering, and delivery-producer integration remain separate rollout work.
+and paid-agreement activation remain separate rollout work. Migration `0028` adds promotion
+policies, campaigns, exclusions, prepared matches and delivery reservations; apply it before
+deploying the new services. Existing account, membership, catalog and manual reporting data survive.
 
 ## Admin account pages
 
 Superusers manage partnerships at `/partnerships/accounts` in the admin app. Accounts use
 the common admin table, record detail, and create/edit form components. Select an account
-to view its tier and benefits; use Related objects to add or remove members and associate
-products or ads. Asset forms use the common searchable catalog-product dropdown instead of
-manual product IDs; only approved products appear, without status subtext. Product placements
-require a product, while ads can leave it empty.
+to view its tier, benefits and promotion defaults. Related objects manages members and historical
+reporting assets. Products inherit defaults from assigned connections; Products manages exclusions,
+and Campaigns manages paid whole-catalog, selected-product or filtered agreements. Named pickers
+use the account's catalog and approved taxonomy. Automatic attribution cannot be reassigned.
 Every form has a real URL and returns to its account after saving.
 
 ## Partnership tiers and benefits
@@ -136,8 +141,9 @@ Tiers are Bronze, Silver, Gold, Platinum, and Diamond, in ascending order. The a
 selector and API accept only these tiers (stored as lowercase identifiers). Benefits
 are cumulative and defined in `packages/core/src/partner_tiers.py`; they cannot be edited
 per account or submitted to the API. Create/edit forms preview the selected tier’s
-benefits from the same authenticated API catalog. Bronze includes portal access and reporting; Silver
-adds product placement opportunities; Gold adds sponsored campaign opportunities; Platinum
+benefits from the same authenticated API catalog. Bronze includes portal access, reporting and
+relevant recommendations; Silver adds product promotion planning; Gold adds sponsored campaign
+opportunities; Platinum
 adds priority campaign support; Diamond adds custom partnership planning. These are starter
 commercial offerings, independent of role and membership authorization.
 
@@ -169,6 +175,6 @@ URLs return 404.
 
 Partner connection settings include a searchable Account selector. Each connection stores one
 optional account reference; an account may own multiple connections. Existing connections stay
-unassigned after migration `0026`. Assignment changes use revision protection and do not alter
-catalog assets, memberships, AI evaluations, or sync scheduling. Clearing the selector removes
+unassigned after migration `0026`. Assignment changes use revision protection and preserve historical assets, memberships, AI
+evaluations and sync scheduling. The live assignment controls future eligibility and attribution. Clearing the selector removes
 the association. The connection detail links to its assigned admin account.

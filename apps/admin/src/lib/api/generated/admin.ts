@@ -26,8 +26,10 @@ import type {
   AdminOverview,
   AdminOverviewPanelParams,
   AdminOverviewParams,
+  AdminPartnerCampaignsListParams,
   AdminPartnerConnectionJobsParams,
   AdminPartnerEvaluationsListParams,
+  AdminPartnerInventoryListParams,
   AdminPartnerPipelineListParams,
   AdminPartnerToolsListParams,
   AdminPublicationDecisionsParams,
@@ -65,6 +67,9 @@ import type {
   AssetInput,
   AssetOut,
   AuthConfig,
+  CampaignInput,
+  CampaignOut,
+  CampaignsOut,
   CancelLogin,
   ClassifyArticle,
   CodexStatus,
@@ -87,6 +92,7 @@ import type {
   ImportAction,
   ImportCandidateDetail,
   ImportCandidatePage,
+  InventoryOut,
   JobOut,
   MemberInput,
   MemberOut,
@@ -127,6 +133,8 @@ import type {
   PartnershipTierOut,
   ProductAction,
   ProductOut,
+  ProductPromotionInput,
+  ProductPromotionOut,
   ProfileSettings,
   PublicationPolicyUpdate,
   RecoveryRequest,
@@ -1302,6 +1310,145 @@ return adminFetch<void>(getRecordMetricsV1AdminPartnerAccountsAccountIdAssetsAss
 
 
 
+export const getAdminPartnerCampaignsListUrl = (accountId: string,
+    params?: AdminPartnerCampaignsListParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/v1/admin/partner-accounts/${accountId}/campaigns?${stringifiedParams}` : `/v1/admin/partner-accounts/${accountId}/campaigns`
+}
+
+/**
+ * @summary Campaigns
+ */
+export const adminPartnerCampaignsList = async (accountId: string,
+    params?: AdminPartnerCampaignsListParams, options?: Parameters<typeof adminFetch>[1]): Promise<CampaignsOut> => {
+
+  return adminFetch<CampaignsOut>(getAdminPartnerCampaignsListUrl(accountId,params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+export const getAdminPartnerCampaignCreateUrl = (accountId: string,) => {
+
+
+
+
+  return `/v1/admin/partner-accounts/${accountId}/campaigns`
+}
+
+/**
+ * @summary Create Campaign
+ */
+export const adminPartnerCampaignCreate = async (accountId: string,
+    campaignInput: CampaignInput, options?: Parameters<typeof adminFetch>[1]): Promise<CampaignOut> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
+  };
+return adminFetch<CampaignOut>(getAdminPartnerCampaignCreateUrl(accountId),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(campaignInput)
+  }
+);}
+
+
+
+export const getAdminPartnerCampaignGetUrl = (accountId: string,
+    campaignId: string,) => {
+
+
+
+
+  return `/v1/admin/partner-accounts/${accountId}/campaigns/${campaignId}`
+}
+
+/**
+ * @summary Campaign
+ */
+export const adminPartnerCampaignGet = async (accountId: string,
+    campaignId: string, options?: Parameters<typeof adminFetch>[1]): Promise<CampaignOut> => {
+
+  return adminFetch<CampaignOut>(getAdminPartnerCampaignGetUrl(accountId,campaignId),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+export const getAdminPartnerCampaignUpdateUrl = (accountId: string,
+    campaignId: string,) => {
+
+
+
+
+  return `/v1/admin/partner-accounts/${accountId}/campaigns/${campaignId}`
+}
+
+/**
+ * @summary Update Campaign
+ */
+export const adminPartnerCampaignUpdate = async (accountId: string,
+    campaignId: string,
+    campaignInput: CampaignInput, options?: Parameters<typeof adminFetch>[1]): Promise<CampaignOut> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
+  };
+return adminFetch<CampaignOut>(getAdminPartnerCampaignUpdateUrl(accountId,campaignId),
+  {
+    ...options,
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(campaignInput)
+  }
+);}
+
+
+
 export const getDashboardV1AdminPartnerAccountsAccountIdDashboardGetUrl = (accountId: string,
     params?: DashboardV1AdminPartnerAccountsAccountIdDashboardGetParams,) => {
   const normalizedParams = new URLSearchParams();
@@ -1325,6 +1472,39 @@ export const dashboardV1AdminPartnerAccountsAccountIdDashboardGet = async (accou
     params?: DashboardV1AdminPartnerAccountsAccountIdDashboardGetParams, options?: Parameters<typeof adminFetch>[1]): Promise<Dashboard> => {
 
   return adminFetch<Dashboard>(getDashboardV1AdminPartnerAccountsAccountIdDashboardGetUrl(accountId,params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+export const getAdminPartnerInventoryListUrl = (accountId: string,
+    params?: AdminPartnerInventoryListParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/v1/admin/partner-accounts/${accountId}/inventory?${stringifiedParams}` : `/v1/admin/partner-accounts/${accountId}/inventory`
+}
+
+/**
+ * @summary Inventory
+ */
+export const adminPartnerInventoryList = async (accountId: string,
+    params?: AdminPartnerInventoryListParams, options?: Parameters<typeof adminFetch>[1]): Promise<InventoryOut> => {
+
+  return adminFetch<InventoryOut>(getAdminPartnerInventoryListUrl(accountId,params),
   {
     ...options,
     method: 'GET'
@@ -1419,6 +1599,71 @@ export const removeMemberV1AdminPartnerAccountsAccountIdMembersSubjectDelete = a
     method: 'DELETE'
 
 
+  }
+);}
+
+
+
+export const getAdminPartnerProductPromotionsListUrl = (accountId: string,) => {
+
+
+
+
+  return `/v1/admin/partner-accounts/${accountId}/products/promotions`
+}
+
+/**
+ * @summary Product Promotions
+ */
+export const adminPartnerProductPromotionsList = async (accountId: string, options?: Parameters<typeof adminFetch>[1]): Promise<ProductPromotionOut[]> => {
+
+  return adminFetch<ProductPromotionOut[]>(getAdminPartnerProductPromotionsListUrl(accountId),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+export const getAdminPartnerProductPromotionUpdateUrl = (accountId: string,
+    productId: string,) => {
+
+
+
+
+  return `/v1/admin/partner-accounts/${accountId}/products/${productId}/promotion`
+}
+
+/**
+ * @summary Update Product Promotion
+ */
+export const adminPartnerProductPromotionUpdate = async (accountId: string,
+    productId: string,
+    productPromotionInput: ProductPromotionInput, options?: Parameters<typeof adminFetch>[1]): Promise<ProductPromotionOut> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
+  };
+return adminFetch<ProductPromotionOut>(getAdminPartnerProductPromotionUpdateUrl(accountId,productId),
+  {
+    ...options,
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(productPromotionInput)
   }
 );}
 

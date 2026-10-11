@@ -10,6 +10,7 @@ import { UserShell } from "@/components/user-shell";
 import { InfiniteFeed } from "@/components/infinite-feed";
 import { FeedFiltersBar } from "@/components/feed-filters";
 import { RetryFeed } from "@/components/retry-feed";
+import { PartnerPlacements } from "./partner-placements";
 
 import type { ReactNode } from "react";
 import type { FeedPage, FeedOptions } from "@/lib/types";
@@ -121,6 +122,15 @@ export function FeedContent({
         </section>
       ) : feed.value.items.length ? (
         <>
+          {!filters.q &&
+            !filters.cursor &&
+            (section === "feed" || (section === "topics" && topicId)) && (
+              <PartnerPlacements
+                key={topicId ?? "feed"}
+                surface={section === "topics" && topicId ? "topic" : "feed"}
+                topic_id={section === "topics" ? topicId : undefined}
+              />
+            )}
           <InfiniteFeed
             key={feedParams(filters).toString()}
             initialPage={feed.value}

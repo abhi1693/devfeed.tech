@@ -15,6 +15,7 @@ import { ReaderReloadLink } from "./reader-reload-link";
 import type { RecommendationReason } from "./article-grid";
 import { FeedOnboarding } from "./feed-onboarding";
 import { DevCardPromo } from "./dev-card-promo";
+import { PartnerPlacements } from "./partner-placements";
 
 type RecommendationPage = FeedPage & {
   status: "ready" | "refreshing";
@@ -211,6 +212,7 @@ function Feed({
           preparation
         ) : page.items.length ? (
           <>
+            {!cursor && !filters.q && <PartnerPlacements surface="feed" />}
             {changed ? (
               <p role="status">
                 <ReaderReloadLink href={personalFeedHref(filters)}>

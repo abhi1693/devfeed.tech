@@ -410,6 +410,8 @@ services:
       DEVFEED_REDIS_URL: ${DEVFEED_REDIS_URL:-redis://redis:6379/0}
       DEVFEED_LOG_LEVEL:
       DEVFEED_LOG_FORMAT:
+      # Trusted personalized placement issuer; never passed to frontend services.
+      DEVFEED_PARTNER_TRACKING_KEY: ${DEVFEED_PARTNER_TRACKING_KEY:-}
       DEVFEED_X_PIXEL_ENABLED: ${DEVFEED_X_PIXEL_ENABLED:-false}
       X_PIXEL_TOKEN: ${X_PIXEL_TOKEN:-}
       X_SIGNUP_EVENT_ID: ${X_SIGNUP_EVENT_ID:-}

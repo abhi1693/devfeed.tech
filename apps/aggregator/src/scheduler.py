@@ -22,6 +22,7 @@ from devfeed_core.models import (
     utcnow,
 )
 from devfeed_core.overview_daily import refresh_overview_daily
+from devfeed_core.partner_matching import refresh_partner_matches
 from devfeed_core.recommendations import (
     dispatch_recommendations,
     expand_recommendation_events,
@@ -199,6 +200,10 @@ def _tick() -> dict[str, int]:
         dispatch_discovery(factory, min(batch, 10))
         dispatch_partner_pipeline(factory)
         dispatch_partner_evaluations(factory)
+        try:
+            refresh_partner_matches(factory)
+        except Exception as exc:
+            logger.warning("partner_match_refresh_failed", extra={"error_type": type(exc).__name__})
         recommendations_dispatched = dispatch_recommendations(factory, queue, batch)
         dispatched = dispatch_jobs(factory, queue, batch, now)
         background_counts = {}

@@ -11,6 +11,7 @@ vi.mock("@/components/dev-card-promo", () => ({
 }));
 vi.mock("@/components/user-account", () => ({
   AccountGate: ({ children }: { children: ReactNode }) => children,
+  useUser: () => ({ user: null, loading: true, sessionRevision: 0 }),
 }));
 vi.mock("@/components/article-grid", () => ({
   ArticleGrid: ({ articles }: { articles: { title: string }[] }) => (

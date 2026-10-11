@@ -81,3 +81,10 @@ an adapter. Shipyard or another provider can be configured once its actual endpo
 contract are available; the application does not assume an undocumented API contract.
 
 Mapped paths found in the sample receive a colored border in the form and matching highlights in the JSON preview. Product fields resolve against each item in the configured list, using fallback paths in order. Pagination paths resolve against the response root. Hover titles identify matches without relying on color; unmatched sample paths remain neutral and may still be present in product details. Mapping edits update highlights without refetching the API.
+
+## Automatic promotion policy
+
+Assigning a connector to a partner account establishes the catalog that inherits its promotion
+defaults. Approved products gain ordinary recommendation and applicable paid-campaign
+attribution automatically. See [Partner promotions](PARTNER_PROMOTIONS.md) for exclusions,
+targeting, contextual delivery, signing-key setup and migration `0028`.

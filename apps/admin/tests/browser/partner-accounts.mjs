@@ -12,6 +12,10 @@ const account = {
   tier: "gold",
   status: "active",
   benefits: ["Product placements"],
+  organic_enabled: true,
+  auto_include_products: true,
+  promotion_surfaces: ["article", "topic", "feed"],
+  frequency_cap: 3,
 };
 let members = [{ subject: "alice", issuer: "https://identity.example" }];
 const writes = [];
@@ -27,6 +31,8 @@ const catalogProduct = {
   status: "approved",
 };
 let assets = [];
+const campaigns = [];
+let productExcluded = false;
 const fixture = createServer(async (req, res) => {
   const path = new URL(req.url, "http://localhost").pathname;
   let body = {};
@@ -74,14 +80,15 @@ const fixture = createServer(async (req, res) => {
     const benefits = [
       "Partner portal access",
       "Product and ad performance reporting",
-      "Product placement opportunities",
+      "Relevant product recommendations",
+      "Product promotion planning",
       "Sponsored ad campaign opportunities",
       "Priority campaign support",
       "Custom partnership and campaign planning",
     ];
     body = ["bronze", "silver", "gold", "platinum", "diamond"].map((tier, index) => ({
       tier,
-      benefits: benefits.slice(0, index + 2),
+      benefits: benefits.slice(0, index + 3),
     }));
   } else if (path === "/v1/admin/partner-accounts") {
     if (req.method === "POST") {
@@ -89,7 +96,8 @@ const fixture = createServer(async (req, res) => {
       for await (const chunk of req) raw += chunk;
       const payload = JSON.parse(raw);
       writes.push({ path, csrf: req.headers["x-csrf-token"], payload });
-      body = { ...account, ...payload };
+      Object.assign(account, payload);
+      body = account;
       res.statusCode = 201;
     } else body = { items: [account], total: 1 };
   } else if (path === `/v1/admin/partner-accounts/${account.id}` && req.method === "PUT") {
@@ -99,6 +107,54 @@ const fixture = createServer(async (req, res) => {
     writes.push({ path, csrf: req.headers["x-csrf-token"], payload });
     Object.assign(account, payload);
     body = account;
+  } else if (path === `/v1/admin/partner-accounts/${account.id}/inventory`) {
+    const params = new URL(req.url, "http://localhost").searchParams;
+    const items = [
+      {
+        ...catalogProduct,
+        technologies: ["Kubernetes"],
+        excluded: productExcluded,
+        globally_excluded: false,
+      },
+    ].filter((product) => !params.has("product_id") || params.get("product_id") === product.id);
+    body = { items, total: items.length };
+  } else if (path.endsWith(`/products/${catalogProduct.id}/promotion`) && req.method === "PUT") {
+    let raw = "";
+    for await (const chunk of req) raw += chunk;
+    const payload = JSON.parse(raw);
+    writes.push({ path, csrf: req.headers["x-csrf-token"], payload });
+    productExcluded = payload.excluded;
+    body = { account_id: account.id, product_id: catalogProduct.id, ...payload };
+  } else if (path.endsWith("/campaigns")) {
+    if (req.method === "POST") {
+      let raw = "";
+      for await (const chunk of req) raw += chunk;
+      const payload = JSON.parse(raw);
+      writes.push({ path, csrf: req.headers["x-csrf-token"], payload });
+      body = {
+        id: `22222222-2222-4222-8222-${String(campaigns.length + 1).padStart(12, "0")}`,
+        account_id: account.id,
+        ...payload,
+        impressions: 0,
+        clicks: 0,
+        ctr: null,
+      };
+      campaigns.push(body);
+      res.statusCode = 201;
+    } else body = { items: campaigns, total: campaigns.length };
+  } else if (path.includes("/campaigns/")) {
+    const campaign = campaigns.find((item) => item.id === path.split("/").at(-1));
+    if (!campaign) {
+      res.statusCode = 404;
+      body = { detail: "Campaign not found." };
+    } else if (req.method === "PUT") {
+      let raw = "";
+      for await (const chunk of req) raw += chunk;
+      const payload = JSON.parse(raw);
+      writes.push({ path, csrf: req.headers["x-csrf-token"], payload });
+      Object.assign(campaign, payload);
+      body = campaign;
+    } else body = campaign;
   } else if (path.endsWith("/assets") && req.method === "POST") {
     let raw = "";
     for await (const chunk of req) raw += chunk;
@@ -235,7 +291,7 @@ try {
   await page.getByRole("option", { name: "Silver", exact: true }).click();
   await page
     .getByRole("region", { name: "Selected tier benefits" })
-    .getByText("Product placement opportunities", { exact: true })
+    .getByText("Product promotion planning", { exact: true })
     .waitFor();
   assert.equal(
     await page.getByText("Custom partnership and campaign planning", { exact: true }).count(),
@@ -245,6 +301,9 @@ try {
   await page.waitForURL(`**/accounts/${account.id}`);
   assert.equal(writes.at(-1).payload.tier, "silver");
   assert.equal("benefits" in writes.at(-1).payload, false);
+  assert.equal(writes.at(-1).payload.organic_enabled, true);
+  assert.equal(writes.at(-1).payload.auto_include_products, true);
+  assert.equal(writes.at(-1).payload.frequency_cap, 3);
   await page.getByRole("link", { name: "Edit", exact: true }).click();
   await page.waitForURL(`**/accounts/${account.id}/edit`);
   await page.reload();
@@ -268,43 +327,76 @@ try {
   await page.setViewportSize({ width: 1440, height: 1100 });
   await page.getByRole("combobox", { name: "Status" }).click();
   await page.getByRole("option", { name: "Paused", exact: true }).click();
+  await page.getByLabel("Reader feeds", { exact: true }).uncheck();
+  await page.getByLabel("Product exposure limit", { exact: false }).fill("5");
   await page.getByRole("button", { name: "Save partnership" }).click();
   await page.waitForURL(`**/accounts/${account.id}`);
   await page.getByText("Diamond", { exact: true }).waitFor();
   assert.equal(writes.at(-1).payload.status, "paused");
   assert.equal(writes.at(-1).payload.tier, "diamond");
-  await page.getByRole("link", { name: "Related objects", exact: true }).click();
-  await page.getByRole("link", { name: "Associate asset", exact: true }).click();
-  await page.getByLabel(/Asset name/).fill("Launch ad");
-  await page.getByRole("combobox", { name: "Catalog product" }).click();
-  await page.getByRole("option", { name: "API Checker", exact: true }).waitFor();
-  assert.equal(await page.getByRole("option", { name: /Rejected product/ }).count(), 0);
-  assert.equal(await page.getByText("Approved", { exact: true }).count(), 0);
-  await page.getByPlaceholder("Search products…").fill("API");
-  await page.getByRole("option", { name: /API Checker/ }).click();
-  await page.getByRole("button", { name: "Associate asset", exact: true }).click();
-  await page.waitForURL(`**/accounts/${account.id}/related`);
-  assert.equal(writes.at(-1).payload.product_id, catalogProduct.id);
-  assert.equal(writes.at(-1).payload.kind, "product");
-  await page.getByRole("link", { name: "Edit Launch ad" }).click();
-  await page.waitForURL("**/assets/*/edit*");
-  await page.reload();
+  assert.deepEqual(writes.at(-1).payload.promotion_surfaces, ["article", "topic"]);
+  assert.equal(writes.at(-1).payload.frequency_cap, 5);
+  await page.getByText("Promotion defaults", { exact: true }).waitFor();
   await page
-    .getByRole("combobox", { name: "Catalog product" })
-    .getByText("API Checker", { exact: true })
-    .waitFor();
-  await page.getByRole("combobox", { name: "Type" }).click();
-  await page.getByRole("option", { name: "Ad", exact: true }).click();
-  await page.getByRole("combobox", { name: "Catalog product" }).click();
-  await page.getByRole("option", { name: "None", exact: true }).click();
-  await page.getByRole("combobox", { name: "Status" }).click();
+    .getByRole("navigation", { name: "Object sections" })
+    .getByRole("link", { name: "Products", exact: true })
+    .click();
+  await page.getByRole("link", { name: catalogProduct.name, exact: true }).waitFor();
+  await page.getByRole("button", { name: `Exclude ${catalogProduct.name}`, exact: true }).click();
+  await page.getByRole("button", { name: `Allow ${catalogProduct.name}`, exact: true }).waitFor();
+  assert.equal(writes.at(-1).payload.excluded, true);
+  await page.getByRole("button", { name: `Allow ${catalogProduct.name}`, exact: true }).click();
+  await page.getByText("Inherits account defaults", { exact: true }).waitFor();
+  assert.equal(writes.at(-1).payload.excluded, false);
+  await page.getByRole("link", { name: "Campaigns", exact: true }).click();
+  await page.getByRole("link", { name: "Create paid campaign", exact: true }).click();
+  await page.getByLabel(/Campaign name/).fill("October catalog promotion");
+  await page.getByLabel("Starts", { exact: false }).fill("2026-10-01T00:00");
+  await page.getByLabel("Ends", { exact: false }).fill("2026-11-01T00:00");
+  await page.getByLabel("Daily impression limit", { exact: false }).fill("250");
+  await page.getByRole("combobox", { name: "Campaign status", exact: true }).click();
   await page.getByRole("option", { name: "Active", exact: true }).click();
-  await page.getByRole("button", { name: "Save asset" }).click();
-  await page.waitForURL(`**/accounts/${account.id}/related`);
-  await page.getByText("Launch ad", { exact: true }).waitFor();
+  await page.getByRole("button", { name: "Create campaign", exact: true }).click();
+  await page.waitForURL(`**/accounts/${account.id}/campaigns`);
+  assert.equal(writes.at(-1).payload.targeting, "all");
   assert.equal(writes.at(-1).payload.status, "active");
-  assert.equal(writes.at(-1).payload.product_id, null);
-  assert.equal(writes.length, 6);
+  assert.equal(writes.at(-1).payload.daily_impression_limit, 250);
+  assert.deepEqual(writes.at(-1).payload.surfaces, ["article", "topic"]);
+  await page.getByRole("link", { name: "October catalog promotion", exact: true }).click();
+  await page.waitForURL("**/campaigns/*/edit");
+  await page.reload();
+  await page.getByRole("combobox", { name: "Product targeting", exact: true }).click();
+  await page.getByRole("option", { name: "Selected account products", exact: true }).click();
+  await page.getByRole("combobox", { name: "Add account product", exact: true }).click();
+  await page.getByRole("option", { name: /API Checker/ }).waitFor();
+  assert.equal(await page.getByRole("option", { name: /Rejected product/ }).count(), 0);
+  await page.getByPlaceholder("Search account products…").fill("API");
+  await page.getByRole("option", { name: /API Checker/ }).click();
+  await page.getByRole("button", { name: "Save campaign", exact: true }).click();
+  await page.waitForURL(`**/accounts/${account.id}/campaigns`);
+  assert.equal(writes.at(-1).payload.targeting, "selected");
+  assert.deepEqual(writes.at(-1).payload.product_ids, [catalogProduct.id]);
+  await page.getByRole("link", { name: "Create paid campaign", exact: true }).click();
+  await page.getByLabel(/Campaign name/).fill("Kubernetes tools agreement");
+  await page.getByLabel("Starts", { exact: false }).fill("2026-10-01T00:00");
+  await page.getByLabel("Ends", { exact: false }).fill("2026-11-01T00:00");
+  await page.getByRole("combobox", { name: "Product targeting", exact: true }).click();
+  await page
+    .getByRole("option", { name: "Products matching topics or technologies", exact: true })
+    .click();
+  await page.getByLabel("Technologies", { exact: false }).fill("Kubernetes, PostgreSQL");
+  await page.screenshot({ path: root + "reports/partner/campaign-desktop.png", fullPage: true });
+  await page.setViewportSize({ width: 390, height: 844 });
+  assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
+  await page.screenshot({ path: root + "reports/partner/campaign-mobile.png", fullPage: true });
+  await page.getByRole("button", { name: "Create campaign", exact: true }).click();
+  await page.waitForURL(`**/accounts/${account.id}/campaigns`);
+  assert.equal(writes.at(-1).payload.targeting, "filters");
+  assert.deepEqual(writes.at(-1).payload.technologies, ["Kubernetes", "PostgreSQL"]);
+  await page.setViewportSize({ width: 1440, height: 1100 });
+  await page.getByRole("link", { name: "Related objects", exact: true }).click();
+  assert.equal(await page.getByRole("link", { name: "Associate asset", exact: true }).count(), 0);
+  assert.equal(writes.length, 9);
   assert.ok(
     writes.every(
       (write) =>
@@ -324,7 +416,7 @@ try {
   });
   assert.deepEqual(errors, []);
   console.log(
-    "Admin account list/detail/create/edit, membership and asset workflows passed on desktop/mobile; partner cookie denied.",
+    "Admin account defaults, catalog inclusion/exclusion, paid campaign targeting, memberships and desktop/mobile layouts passed; partner cookie denied.",
   );
 } finally {
   await browser?.close();

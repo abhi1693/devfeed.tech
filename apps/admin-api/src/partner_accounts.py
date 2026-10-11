@@ -7,10 +7,16 @@ from typing import Annotated
 from devfeed_core.models import (
     PartnerAccount,
     PartnerAsset,
+    PartnerCampaign,
     PartnerDailyMetric,
     PartnerMembership,
+    PartnerProduct,
+    PartnerProductPromotion,
+    PartnerTrackedDailyMetric,
+    Topic,
     UserAccount,
 )
+from devfeed_core.partner_promotions import associated_products_query, ensure_automatic_assets
 from devfeed_core.partner_tiers import TIER_BENEFITS
 from devfeed_http.partner_portal import (
     AccountInput,
@@ -18,18 +24,24 @@ from devfeed_http.partner_portal import (
     AccountsOut,
     AssetInput,
     AssetOut,
+    CampaignInput,
+    CampaignOut,
+    CampaignsOut,
     Dashboard,
+    InventoryOut,
     MemberInput,
     MemberOut,
     MemberSubject,
     MetricInput,
     PartnershipTierOut,
+    ProductPromotionInput,
+    ProductPromotionOut,
     asset_access,
     reporting_dashboard,
     validate_product,
 )
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
-from sqlalchemy import func, select
+from sqlalchemy import func, select, union_all
 from sqlalchemy.dialects.postgresql import insert
 
 from devfeed_admin_api.auth import Admin, AdminIdentity, require_admin
@@ -52,8 +64,11 @@ def require_superuser(admin: Admin) -> AdminIdentity:
 Superuser = Annotated[AdminIdentity, Depends(require_superuser)]
 
 
-def account_access(session, _admin, account_id):
-    account = session.scalar(select(PartnerAccount).where(PartnerAccount.id == account_id))
+def account_access(session, _admin, account_id, *, lock=False):
+    query = select(PartnerAccount).where(PartnerAccount.id == account_id)
+    if lock:
+        query = query.with_for_update().execution_options(populate_existing=True)
+    account = session.scalar(query)
     if account is None:
         raise HTTPException(404, "Partner account not found")
     return account
@@ -109,9 +124,11 @@ def create_account(payload: AccountInput, _superuser: Superuser, session: DB):
 
 @router.put("/{account_id}", response_model=AccountOut)
 def update_account(account_id: uuid.UUID, payload: AccountInput, superuser: Superuser, session: DB):
-    account = account_access(session, superuser, account_id)
+    account = account_access(session, superuser, account_id, lock=True)
     for key, value in payload.model_dump().items():
         setattr(account, key, value)
+    session.flush()
+    ensure_automatic_assets(session, account_id)
     session.commit()
     return account
 
@@ -193,6 +210,10 @@ def update_asset(
     account_access(session, superuser, account_id)
     asset = asset_access(session, account_id, asset_id)
     validate_product(payload, session)
+    if asset.automatic and (asset.product_id != payload.product_id or asset.kind != payload.kind):
+        raise HTTPException(
+            409, "Automatic attribution is immutable; use account defaults or campaigns"
+        )
     for key, value in payload.model_dump().items():
         setattr(asset, key, value)
     session.commit()
@@ -220,3 +241,255 @@ def record_metrics(
     )
     session.commit()
     return Response(status_code=204)
+
+
+def campaign_access(session, account_id: uuid.UUID, campaign_id: uuid.UUID):
+    campaign = session.scalar(
+        select(PartnerCampaign).where(
+            PartnerCampaign.id == campaign_id, PartnerCampaign.account_id == account_id
+        )
+    )
+    if campaign is None:
+        raise HTTPException(404, "Partner campaign not found")
+    return campaign
+
+
+def validate_campaign(session, account_id: uuid.UUID, payload: CampaignInput):
+    if payload.product_ids:
+        owned = {
+            product.id
+            for _, product in session.execute(
+                associated_products_query(account_id).where(
+                    PartnerProduct.id.in_(payload.product_ids)
+                )
+            )
+        }
+        if owned != set(payload.product_ids):
+            raise HTTPException(
+                422, "Campaign products must belong to this account's active resolved catalog"
+            )
+    if payload.topic_ids:
+        active = set(
+            session.scalars(
+                select(Topic.id).where(Topic.id.in_(payload.topic_ids), Topic.status == "active")
+            )
+        )
+        if active != set(payload.topic_ids):
+            raise HTTPException(422, "Campaign topics must be active catalog topics")
+
+
+def campaign_values(payload: CampaignInput):
+    values = payload.model_dump()
+    values["product_ids"] = [str(value) for value in payload.product_ids]
+    values["topic_ids"] = [str(value) for value in payload.topic_ids]
+    return values
+
+
+def campaign_reports(session, rows):
+    if not rows:
+        return []
+    campaign_ids = [row.id for row in rows]
+    metric_rows = union_all(
+        *[
+            select(PartnerAsset.campaign_id.label("campaign_id"), model.impressions, model.clicks)
+            .join(PartnerAsset, model.asset_id == PartnerAsset.id)
+            .where(PartnerAsset.campaign_id.in_(campaign_ids))
+            for model in (PartnerDailyMetric, PartnerTrackedDailyMetric)
+        ]
+    ).subquery()
+    measured = {
+        campaign_id: (int(impressions or 0), int(clicks or 0))
+        for campaign_id, impressions, clicks in session.execute(
+            select(
+                metric_rows.c.campaign_id,
+                func.sum(metric_rows.c.impressions),
+                func.sum(metric_rows.c.clicks),
+            ).group_by(metric_rows.c.campaign_id)
+        )
+    }
+    result = []
+    for row in rows:
+        impressions, clicks = measured.get(row.id, (0, 0))
+        result.append(
+            CampaignOut.model_validate(row).model_copy(
+                update={
+                    "impressions": impressions,
+                    "clicks": clicks,
+                    "ctr": clicks / impressions * 100 if impressions else None,
+                }
+            )
+        )
+    return result
+
+
+@router.get(
+    "/{account_id}/campaigns", response_model=CampaignsOut, operation_id="adminPartnerCampaignsList"
+)
+def campaigns(
+    account_id: uuid.UUID,
+    session: DB,
+    superuser: Superuser,
+    limit: int = Query(100, ge=1, le=200),
+    offset: int = Query(0, ge=0),
+):
+    account_access(session, superuser, account_id)
+    rows = session.scalars(
+        select(PartnerCampaign)
+        .where(PartnerCampaign.account_id == account_id)
+        .order_by(PartnerCampaign.created_at.desc(), PartnerCampaign.id)
+        .limit(limit)
+        .offset(offset)
+    ).all()
+    return {
+        "items": campaign_reports(session, rows),
+        "total": session.scalar(
+            select(func.count())
+            .select_from(PartnerCampaign)
+            .where(PartnerCampaign.account_id == account_id)
+        ),
+    }
+
+
+@router.get(
+    "/{account_id}/campaigns/{campaign_id}",
+    response_model=CampaignOut,
+    operation_id="adminPartnerCampaignGet",
+)
+def campaign(account_id: uuid.UUID, campaign_id: uuid.UUID, session: DB, superuser: Superuser):
+    account_access(session, superuser, account_id)
+    return campaign_reports(session, [campaign_access(session, account_id, campaign_id)])[0]
+
+
+@router.post(
+    "/{account_id}/campaigns",
+    response_model=CampaignOut,
+    status_code=201,
+    operation_id="adminPartnerCampaignCreate",
+)
+def create_campaign(
+    account_id: uuid.UUID, payload: CampaignInput, session: DB, superuser: Superuser
+):
+    account_access(session, superuser, account_id, lock=True)
+    validate_campaign(session, account_id, payload)
+    campaign = PartnerCampaign(account_id=account_id, **campaign_values(payload))
+    session.add(campaign)
+    session.flush()
+    ensure_automatic_assets(session, account_id)
+    session.commit()
+    return campaign
+
+
+@router.put(
+    "/{account_id}/campaigns/{campaign_id}",
+    response_model=CampaignOut,
+    operation_id="adminPartnerCampaignUpdate",
+)
+def update_campaign(
+    account_id: uuid.UUID,
+    campaign_id: uuid.UUID,
+    payload: CampaignInput,
+    session: DB,
+    superuser: Superuser,
+):
+    account_access(session, superuser, account_id, lock=True)
+    campaign = campaign_access(session, account_id, campaign_id)
+    validate_campaign(session, account_id, payload)
+    for key, value in campaign_values(payload).items():
+        setattr(campaign, key, value)
+    session.flush()
+    ensure_automatic_assets(session, account_id)
+    session.commit()
+    return campaign_reports(session, [campaign])[0]
+
+
+@router.get(
+    "/{account_id}/inventory", response_model=InventoryOut, operation_id="adminPartnerInventoryList"
+)
+def inventory(
+    account_id: uuid.UUID,
+    session: DB,
+    superuser: Superuser,
+    limit: int = Query(100, ge=1, le=200),
+    offset: int = Query(0, ge=0),
+    q: str = Query("", max_length=200, pattern=r"^[^\x00]*$"),
+    product_id: uuid.UUID | None = None,
+):
+    account_access(session, superuser, account_id)
+    query = associated_products_query(account_id)
+    if q.strip():
+        query = query.where(text_search(q.strip(), PartnerProduct.name))
+    if product_id is not None:
+        query = query.where(PartnerProduct.id == product_id)
+    total = session.scalar(select(func.count()).select_from(query.subquery()))
+    rows = session.execute(
+        query.order_by(PartnerProduct.name, PartnerProduct.id).limit(limit).offset(offset)
+    ).all()
+    exclusions = set(
+        session.scalars(
+            select(PartnerProductPromotion.product_id).where(
+                PartnerProductPromotion.account_id == account_id,
+                PartnerProductPromotion.excluded.is_(True),
+            )
+        )
+    )
+    return {
+        "items": [
+            {
+                "id": product.id,
+                "name": product.name,
+                "technologies": product.technologies,
+                "status": product.status,
+                "excluded": product.id in exclusions,
+                "globally_excluded": product.excluded,
+            }
+            for _, product in rows
+        ],
+        "total": total,
+    }
+
+
+@router.get(
+    "/{account_id}/products/promotions",
+    response_model=list[ProductPromotionOut],
+    operation_id="adminPartnerProductPromotionsList",
+)
+def product_promotions(account_id: uuid.UUID, session: DB, superuser: Superuser):
+    account_access(session, superuser, account_id)
+    return session.scalars(
+        select(PartnerProductPromotion)
+        .where(PartnerProductPromotion.account_id == account_id)
+        .order_by(PartnerProductPromotion.product_id)
+    ).all()
+
+
+@router.put(
+    "/{account_id}/products/{product_id}/promotion",
+    response_model=ProductPromotionOut,
+    operation_id="adminPartnerProductPromotionUpdate",
+)
+def update_product_promotion(
+    account_id: uuid.UUID,
+    product_id: uuid.UUID,
+    payload: ProductPromotionInput,
+    session: DB,
+    superuser: Superuser,
+):
+    account_access(session, superuser, account_id, lock=True)
+    if (
+        session.execute(
+            associated_products_query(account_id).where(PartnerProduct.id == product_id)
+        ).first()
+        is None
+    ):
+        raise HTTPException(404, "Product not found in this account's active resolved catalog")
+    session.execute(
+        insert(PartnerProductPromotion)
+        .values(account_id=account_id, product_id=product_id, excluded=payload.excluded)
+        .on_conflict_do_update(
+            index_elements=[PartnerProductPromotion.account_id, PartnerProductPromotion.product_id],
+            set_={"excluded": payload.excluded},
+        )
+    )
+    ensure_automatic_assets(session, account_id)
+    session.commit()
+    return session.get(PartnerProductPromotion, (account_id, product_id))

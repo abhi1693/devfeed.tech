@@ -11,6 +11,7 @@ from sqlalchemy import (
     FetchedValue,
     Float,
     ForeignKey,
+    ForeignKeyConstraint,
     Index,
     Integer,
     Sequence,
@@ -1460,7 +1461,7 @@ for _payload_model in (ArticleAnalysisJob, TopicAnalysisJob):
 
 
 class PartnerProduct(Base):
-    """Private inventory. Approval never creates an article or reader placement."""
+    """Canonical catalog identity; account policy and contextual matches govern delivery."""
 
     __tablename__ = "partner_products"
     __table_args__ = (
@@ -1619,18 +1620,161 @@ class PartnerAccount(Base):
             "tier IN ('bronze','silver','gold','platinum','diamond')",
             name="ck_partner_account_tier",
         ),
+        CheckConstraint("frequency_cap BETWEEN 1 AND 20", name="ck_partner_frequency_cap"),
+        CheckConstraint(
+            "jsonb_typeof(promotion_surfaces) = 'array' AND "
+            "jsonb_array_length(promotion_surfaces) BETWEEN 1 AND 3 AND "
+            'promotion_surfaces <@ \'["article","topic","feed"]\'::jsonb',
+            name="ck_partner_promotion_surfaces",
+        ),
     )
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
     name: Mapped[str] = mapped_column(String(200))
     tier: Mapped[str] = mapped_column(String(100))
     status: Mapped[str] = mapped_column(String(20), default="active")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    organic_enabled: Mapped[bool] = mapped_column(Boolean, default=True, server_default="true")
+    auto_include_products: Mapped[bool] = mapped_column(
+        Boolean, default=True, server_default="true"
+    )
+    promotion_surfaces: Mapped[list] = mapped_column(
+        JSONB,
+        default=lambda: ["article", "topic", "feed"],
+        server_default='["article","topic","feed"]',
+    )
+    frequency_cap: Mapped[int] = mapped_column(default=3, server_default="3")
 
     @property
     def benefits(self) -> list[str]:
         from .partner_tiers import TIER_BENEFITS
 
         return list(TIER_BENEFITS[self.tier])
+
+
+class PartnerCampaign(Base):
+    """An explicit, finite paid agreement; account tiers never imply sponsorship."""
+
+    __tablename__ = "partner_campaigns"
+    __table_args__ = (
+        UniqueConstraint("account_id", "id", name="uq_partner_campaign_account"),
+        CheckConstraint(
+            "status IN ('draft','active','paused','ended')", name="ck_partner_campaign_status"
+        ),
+        CheckConstraint(
+            "targeting IN ('all','selected','filters')", name="ck_partner_campaign_targeting"
+        ),
+        CheckConstraint(
+            "ends_at > starts_at AND isfinite(starts_at) AND isfinite(ends_at)",
+            name="ck_partner_campaign_dates",
+        ),
+        CheckConstraint("priority BETWEEN 1 AND 100", name="ck_partner_campaign_priority"),
+        CheckConstraint(
+            "daily_impression_limit IS NULL OR daily_impression_limit > 0",
+            name="ck_partner_campaign_daily_limit",
+        ),
+        CheckConstraint(
+            "jsonb_typeof(surfaces) = 'array' AND jsonb_array_length(surfaces) BETWEEN 1 AND 3 AND "
+            'surfaces <@ \'["article","topic","feed"]\'::jsonb',
+            name="ck_partner_campaign_surfaces",
+        ),
+        CheckConstraint(
+            "jsonb_typeof(product_ids) = 'array' AND jsonb_typeof(topic_ids) = 'array' AND "
+            "jsonb_typeof(technologies) = 'array' AND "
+            "((targeting = 'all' AND jsonb_array_length(product_ids) = 0 AND "
+            "jsonb_array_length(topic_ids) = 0 AND jsonb_array_length(technologies) = 0) OR "
+            "(targeting = 'selected' AND jsonb_array_length(product_ids) > 0 AND "
+            "jsonb_array_length(topic_ids) = 0 AND jsonb_array_length(technologies) = 0) OR "
+            "(targeting = 'filters' AND jsonb_array_length(product_ids) = 0 AND "
+            "(jsonb_array_length(topic_ids) > 0 OR jsonb_array_length(technologies) > 0)))",
+            name="ck_partner_campaign_selection",
+        ),
+        Index("ix_partner_campaign_live", "status", "starts_at", "ends_at"),
+    )
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    account_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("partner_accounts.id", ondelete="RESTRICT"), index=True
+    )
+    name: Mapped[str] = mapped_column(String(200))
+    status: Mapped[str] = mapped_column(String(20), default="draft", server_default="draft")
+    targeting: Mapped[str] = mapped_column(String(20), default="all", server_default="all")
+    product_ids: Mapped[list] = mapped_column(JSONB, default=list, server_default="[]")
+    topic_ids: Mapped[list] = mapped_column(JSONB, default=list, server_default="[]")
+    technologies: Mapped[list] = mapped_column(JSONB, default=list, server_default="[]")
+    surfaces: Mapped[list] = mapped_column(
+        JSONB,
+        default=lambda: ["article", "topic", "feed"],
+        server_default='["article","topic","feed"]',
+    )
+    starts_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    ends_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    priority: Mapped[int] = mapped_column(default=50, server_default="50")
+    daily_impression_limit: Mapped[int | None] = mapped_column(BigInteger)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class PartnerProductPromotion(Base):
+    """Per-account catalog exclusions; canonical product identity remains shared."""
+
+    __tablename__ = "partner_product_promotions"
+    account_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("partner_accounts.id", ondelete="CASCADE"), primary_key=True
+    )
+    product_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("partner_products.id", ondelete="CASCADE"), primary_key=True
+    )
+    excluded: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
+
+
+class PartnerProductTopic(Base):
+    __tablename__ = "partner_product_topics"
+    __table_args__ = (Index("ix_partner_product_topic_score", "topic_id", "score"),)
+    product_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("partner_products.id", ondelete="CASCADE"), primary_key=True
+    )
+    topic_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("topics.id", ondelete="CASCADE"), primary_key=True
+    )
+    product_revision: Mapped[int] = mapped_column()
+    product_updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    topic_updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    reason: Mapped[str] = mapped_column(Text)
+    score: Mapped[int] = mapped_column()
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class PartnerArticleMatch(Base):
+    __tablename__ = "partner_article_matches"
+    __table_args__ = (Index("ix_partner_article_match_score", "article_id", "relevant", "score"),)
+    product_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("partner_products.id", ondelete="CASCADE"), primary_key=True
+    )
+    article_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("articles.id", ondelete="CASCADE"), primary_key=True
+    )
+    product_revision: Mapped[int] = mapped_column()
+    product_updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    editorial_revision: Mapped[int] = mapped_column()
+    article_fingerprint: Mapped[str] = mapped_column(String(64))
+    origin: Mapped[str] = mapped_column(String(20), default="rules", server_default="rules")
+    relevant: Mapped[bool] = mapped_column(Boolean)
+    reason: Mapped[str] = mapped_column(Text)
+    score: Mapped[int] = mapped_column()
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class PartnerMatchState(Base):
+    __tablename__ = "partner_match_states"
+    product_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("partner_products.id", ondelete="CASCADE"), primary_key=True
+    )
+    product_revision: Mapped[int] = mapped_column(default=0, server_default="0")
+    product_updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    topic_generation: Mapped[str] = mapped_column(String(64), default="", server_default="")
+    article_cursor: Mapped[uuid.UUID | None] = mapped_column()
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, index=True
+    )
 
 
 class PartnerMembership(Base):
@@ -1657,14 +1801,54 @@ class PartnerAsset(Base):
         CheckConstraint(
             "status IN ('draft','active','paused','ended')", name="ck_partner_asset_status"
         ),
+        CheckConstraint(
+            "NOT automatic OR (product_id IS NOT NULL AND ((campaign_id IS NULL AND kind = "
+            "'product') OR (campaign_id IS NOT NULL AND kind = 'ad')))",
+            name="ck_partner_automatic_asset_identity",
+        ),
+        ForeignKeyConstraint(
+            ["account_id", "campaign_id"],
+            ["partner_campaigns.account_id", "partner_campaigns.id"],
+            name="fk_partner_asset_campaign_account",
+            ondelete="RESTRICT",
+        ),
+        Index(
+            "uq_partner_automatic_organic_asset",
+            "account_id",
+            "product_id",
+            unique=True,
+            postgresql_where=text("automatic AND campaign_id IS NULL"),
+        ),
+        Index(
+            "uq_partner_automatic_sponsored_asset",
+            "account_id",
+            "product_id",
+            "campaign_id",
+            unique=True,
+            postgresql_where=text("automatic AND campaign_id IS NOT NULL"),
+        ),
     )
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
     account_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("partner_accounts.id"), index=True)
     product_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("partner_products.id"))
+    automatic: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
+    campaign_id: Mapped[uuid.UUID | None] = mapped_column(index=True)
     name: Mapped[str] = mapped_column(String(200))
     kind: Mapped[str] = mapped_column(String(20))
     status: Mapped[str] = mapped_column(String(20), default="draft")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class PartnerPlacementDelivery(Base):
+    """Durable issued-receipt reservations prevent concurrent campaign overspending."""
+
+    __tablename__ = "partner_placement_deliveries"
+    __table_args__ = (Index("ix_partner_delivery_asset_issued", "asset_id", "issued_at"),)
+    delivery_id: Mapped[uuid.UUID] = mapped_column(primary_key=True)
+    asset_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("partner_assets.id", ondelete="RESTRICT"), index=True
+    )
+    issued_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, index=True)
 
 
 class PartnerDailyMetric(Base):

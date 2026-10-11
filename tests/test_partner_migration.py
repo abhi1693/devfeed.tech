@@ -11,7 +11,7 @@ from alembic.operations import Operations
 from alembic.script import ScriptDirectory
 from devfeed_core.models import Base
 from devfeed_core.version import SCHEMA_REVISION
-from sqlalchemy import CheckConstraint, MetaData, inspect, text
+from sqlalchemy import CheckConstraint, Column, MetaData, Table, Uuid, inspect, text
 from sqlalchemy.exc import IntegrityError
 
 ROOT = Path(__file__).parents[1]
@@ -19,13 +19,15 @@ ROOT = Path(__file__).parents[1]
 
 def test_partnership_revisions_follow_master_schema():
     scripts = ScriptDirectory.from_config(Config(str(ROOT / "alembic.ini")))
-    assert scripts.get_heads() == [SCHEMA_REVISION] == ["0027"]
+    assert scripts.get_heads() == [SCHEMA_REVISION] == ["0028"]
+    assert scripts.get_revision("0028").down_revision == "0027"
     assert scripts.get_revision("0027").down_revision == "0026"
     assert scripts.get_revision("0026").down_revision == "0025"
     assert scripts.get_revision("0025").down_revision == "0024"
     assert scripts.get_revision("0024").down_revision == "0023"
     assert scripts.get_revision("0023").down_revision == "0022"
     assert [revision.revision for revision in scripts.walk_revisions("0022", "head")] == [
+        "0028",
         "0027",
         "0026",
         "0025",
@@ -57,8 +59,15 @@ def test_consolidated_migration_matches_models_and_downgrades_cleanly(database):
     )
     connector_migration = importlib.util.module_from_spec(connector_spec)
     connector_spec.loader.exec_module(connector_migration)
+    promotion_spec = importlib.util.spec_from_file_location(
+        "promotion_migration", ROOT / "migrations/versions/0028_partner_promotions.py"
+    )
+    promotion_migration = importlib.util.module_from_spec(promotion_spec)
+    promotion_spec.loader.exec_module(promotion_migration)
     partner_names = {name for name in Base.metadata.tables if name.startswith("partner_")}
     metadata = MetaData()
+    for name in ("articles", "topics"):
+        Table(name, metadata, Column("id", Uuid(), primary_key=True))
     for name in partner_names:
         Base.metadata.tables[name].to_metadata(metadata)
 
@@ -67,6 +76,8 @@ def test_consolidated_migration_matches_models_and_downgrades_cleanly(database):
         try:
             connection.execute(text("CREATE SCHEMA partner_migration_fixture"))
             connection.execute(text("SET LOCAL search_path TO partner_migration_fixture"))
+            connection.execute(text("CREATE TABLE articles (id uuid PRIMARY KEY)"))
+            connection.execute(text("CREATE TABLE topics (id uuid PRIMARY KEY)"))
             connection.execute(text("CREATE TABLE existing_data (value text NOT NULL)"))
             connection.execute(text("INSERT INTO existing_data VALUES ('keep me')"))
             context = MigrationContext.configure(
@@ -74,7 +85,7 @@ def test_consolidated_migration_matches_models_and_downgrades_cleanly(database):
                 opts={
                     "compare_server_default": True,
                     "include_name": lambda name, kind, parent: (
-                        kind != "table" or name in partner_names
+                        kind != "table" or name in partner_names | {"articles", "topics"}
                     ),
                 },
             )
@@ -95,6 +106,24 @@ def test_consolidated_migration_matches_models_and_downgrades_cleanly(database):
                     {"payload": '{"cursor":"saved-cursor","pages":3}'},
                 )
                 connector_migration.upgrade()
+                connection.execute(
+                    text("""INSERT INTO partner_accounts(id,name,tier,status,created_at)
+                    VALUES('22222222-2222-4222-8222-222222222222',
+                    'Existing partner','bronze','active',now())""")
+                )
+                connection.execute(
+                    text("""INSERT INTO partner_assets(id,account_id,name,kind,status,created_at)
+                    VALUES('33333333-3333-4333-8333-333333333333',
+                    '22222222-2222-4222-8222-222222222222','Legacy ad','ad','active',now())""")
+                )
+                promotion_migration.upgrade()
+                assert connection.execute(
+                    text("""SELECT organic_enabled, auto_include_products,
+                    promotion_surfaces, frequency_cap FROM partner_accounts""")
+                ).one() == (True, True, ["article", "topic", "feed"], 3)
+                assert connection.execute(
+                    text("SELECT automatic,campaign_id FROM partner_assets")
+                ).one() == (False, None)
                 assert connection.execute(
                     text(
                         "SELECT payload->>'cursor', payload->>'pages', "
@@ -124,6 +153,7 @@ def test_consolidated_migration_matches_models_and_downgrades_cleanly(database):
                             text("UPDATE partner_connections SET sync_interval_minutes=:interval"),
                             {"interval": interval},
                         )
+                promotion_migration.downgrade()
                 connector_migration.downgrade()
                 account_migration.downgrade()
                 tier_migration.downgrade()
@@ -134,6 +164,7 @@ def test_consolidated_migration_matches_models_and_downgrades_cleanly(database):
                 tier_migration.upgrade()
                 account_migration.upgrade()
                 connector_migration.upgrade()
+                promotion_migration.upgrade()
                 assert compare_metadata(context, metadata) == []
         finally:
             transaction.rollback()

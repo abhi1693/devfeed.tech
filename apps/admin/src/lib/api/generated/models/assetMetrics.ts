@@ -9,6 +9,8 @@ import type { AssetMetricsKind } from './assetMetricsKind';
 import type { AssetMetricsStatus } from './assetMetricsStatus';
 
 export interface AssetMetrics {
+  automatic?: boolean;
+  campaign_id?: string | null;
   clicks: number;
   ctr: number | null;
   id: string;

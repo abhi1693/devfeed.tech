@@ -220,6 +220,23 @@ export function PartnerProductPage({
                     <p className="py-3 text-sm text-muted-foreground">No verified evidence yet.</p>
                   )}
                 </InfoPanel>
+                <InfoPanel title="Promotion policy">
+                  <div className="space-y-3 py-3 text-sm">
+                    <p className="text-muted-foreground">
+                      This product inherits promotion settings from each partner account linked to
+                      its import connections. Account defaults control ordinary recommendations;
+                      active paid campaigns control sponsored appearances. Qualification and
+                      relevance are required for every appearance.
+                    </p>
+                    <Link
+                      href="/partnerships/accounts"
+                      prefetch={false}
+                      className="text-primary hover:underline"
+                    >
+                      Manage partner defaults and campaigns
+                    </Link>
+                  </div>
+                </InfoPanel>
               </div>
               <div className="space-y-6">
                 <InfoPanel
