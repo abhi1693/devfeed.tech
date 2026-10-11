@@ -1635,6 +1635,7 @@ class PartnerAccount(Base):
     __tablename__ = "partner_accounts"
     __table_args__ = (
         CheckConstraint("status IN ('active','paused')", name="ck_partner_account_status"),
+        CheckConstraint("jsonb_typeof(audience) = 'object'", name="ck_partner_account_audience"),
         CheckConstraint(
             "tier IN ('bronze','silver','gold','platinum','diamond')",
             name="ck_partner_account_tier",
@@ -1682,6 +1683,13 @@ class PartnerAccount(Base):
     outbound_destination: Mapped[str] = mapped_column(
         String(20), default="product_url", server_default="product_url"
     )
+    audience: Mapped[dict] = mapped_column(JSONB, default=dict, server_default="{}")
+
+    @property
+    def advanced_targeting(self) -> bool:
+        from .partner_tiers import tier_policy
+
+        return tier_policy(self.tier)["advanced_targeting"]
 
     @property
     def allowed_promotion_kinds(self) -> list[str]:
@@ -1712,6 +1720,10 @@ class PartnerCampaign(Base):
     __tablename__ = "partner_campaigns"
     __table_args__ = (
         UniqueConstraint("account_id", "id", name="uq_partner_campaign_account"),
+        CheckConstraint(
+            "audience IS NULL OR jsonb_typeof(audience) = 'object'",
+            name="ck_partner_campaign_audience",
+        ),
         CheckConstraint(
             "status IN ('draft','active','paused','ended')", name="ck_partner_campaign_status"
         ),
@@ -1761,6 +1773,7 @@ class PartnerCampaign(Base):
     product_ids: Mapped[list] = mapped_column(JSONB, default=list, server_default="[]")
     topic_ids: Mapped[list] = mapped_column(JSONB, default=list, server_default="[]")
     technologies: Mapped[list] = mapped_column(JSONB, default=list, server_default="[]")
+    audience: Mapped[dict | None] = mapped_column(JSONB(none_as_null=True))
     surfaces: Mapped[list] = mapped_column(
         JSONB,
         default=lambda: ["article", "topic", "feed"],

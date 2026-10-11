@@ -39,7 +39,8 @@ All account, membership, tier, benefit, and asset management lives in the admin 
 `/partnerships/accounts`. These operations use `/v1/admin/partner-accounts`, require an admin
 session with the `superuser` role, and enforce the admin origin and CSRF token. The partner
 API exposes account-list and dashboard GET routes plus an account-scoped PUT preferences
-route for product click destination. Report mutations remain unavailable. Sign-out uses POST.
+route for product click destination and eligible audience defaults. Report mutations remain
+unavailable. Sign-out uses POST.
 Reader, partner, and admin sessions are isolated.
 
 Assign project roles in Zitadel before adding account memberships in administration. Role
@@ -153,9 +154,29 @@ benefits from the same authenticated API catalog. Bronze includes portal access,
 relevant recommendations; Silver adds product promotion planning; Gold adds inherited sponsored
 placements and sponsored fallback in the unfiltered main feed. Gold and higher tiers also permit
 additional dated campaigns. Contextual matches rank first; search, category, article, and topic
-placements require a relevant match. Platinum
-adds priority campaign support; Diamond adds custom partnership planning. These are starter
+placements require a relevant match. Platinum adds audience targeting and priority campaign
+support; Diamond includes those benefits and custom partnership planning. These are starter
 commercial offerings, independent of role and membership authorization.
+
+### Audience targeting
+
+Platinum and Diamond can set audience defaults by experience level, programming languages,
+and developer tools. Automatic placements inherit these defaults. Dated campaigns can
+inherit the account audience or use a custom audience, independently of which products the
+campaign includes. An empty dimension means any value; selected values match with OR within
+each dimension and AND across dimensions.
+
+Language and tool selections reference active catalog topics. Matching uses signed-in readers'
+current developer stacks (primary, hobby, or learning), followed topics, and fresh inferred
+interests. Past stack entries and stale interest generations do not qualify. Experience level
+is optional, self-reported in reader settings, and private. It is not inferred from a biography
+or a technology's using-since year. Partners receive performance totals, never individual
+reader attributes.
+
+Readers without the required audience signals, including guests, do not qualify for restricted
+placements. Unrestricted placements remain available. Audience criteria also apply to sponsored
+feed fallback and do not replace contextual relevance checks for previews, search, or categories.
+Removing a tier entitlement stops restricted delivery rather than broadening the audience.
 
 Migration `0025` normalizes existing recognized tiers, maps unrecognized draft labels to
 Bronze, and removes the database benefits column. Review account tiers after upgrading.
@@ -175,7 +196,8 @@ The overview shows partnership tier, benefits, inherited promotion type, and imp
 **Product click destination** lets members choose the product website or their connected
 partner listing. Both destinations include DevFeed UTM attribution. A product without a partner
 listing is omitted when that destination is selected. The account-scoped preferences endpoint
-accepts only this destination setting, requires the session CSRF token, and rechecks membership.
+accepts this destination setting and Platinum/Diamond audience defaults, requires the session
+CSRF token, and rechecks membership. Members cannot change account tiers or entitlements.
 Measured outcomes and daily activity
 are on Performance. Account selection appears only for users with multiple memberships.
 A single account is selected automatically on every reporting page.

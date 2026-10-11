@@ -237,8 +237,6 @@ function Feed({
                 !cursor && !filters.source_id
                   ? {
                       surface: "feed",
-                      personal:
-                        !filters.q && !filters.topic && !filters.tag && !filters.content_type,
                       allow_sponsored_fallback:
                         !filters.q && !filters.topic && !filters.tag && !filters.content_type,
                     }

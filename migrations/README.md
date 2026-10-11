@@ -132,3 +132,15 @@ cooldown. Campaign budgets, catalog relevance, attribution and historical measur
 unchanged. Apply before starting runtimes requiring schema `0032`; no production rollout is
 implied. Downgrade recreates the older setting with its original default of three, since removed
 values cannot be recovered.
+
+## 0033: advanced partnership audiences
+
+Adds a non-null empty account audience and a nullable campaign audience. Null campaign criteria
+inherit the account; an explicit empty object means all readers. Existing inventory, attribution
+and reporting retain their behavior. Platinum and Diamond enforce populated criteria at issuance;
+other tiers preserve stored settings without delivering targeted inventory.
+
+Apply before starting runtimes requiring schema `0033`. Downgrading pauses accounts and campaigns
+with populated or unrecognized audience criteria before dropping the new fields, preserving
+inventory and measurements while preventing an older runtime from broadening a restricted audience.
+Empty criteria and inherited unrestricted campaigns remain active. No production rollout is implied.

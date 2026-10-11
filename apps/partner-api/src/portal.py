@@ -3,10 +3,16 @@
 import uuid
 
 from devfeed_core.models import PartnerAccount, PartnerMembership
+from devfeed_core.partner_audiences import (
+    AudienceDimension,
+    audience_topic_options,
+    validate_audience,
+)
 from devfeed_http.partner_portal import (
     AccountOut,
     AccountsOut,
     AssetSort,
+    AudienceTopicsOut,
     Dashboard,
     DestinationPreviewOut,
     PartnerPreferencesInput,
@@ -100,7 +106,7 @@ def update_preferences(
     account_id: uuid.UUID, payload: PartnerPreferencesInput, session: DB, partner: Partner
 ):
     # Recheck immutable membership while locking the account; portal members cannot
-    # edit commercial trust, tier, campaign targeting or another account's setting.
+    # edit commercial trust, tier, product targeting or another account's setting.
     account = session.scalar(
         visible_accounts(partner)
         .where(PartnerAccount.id == account_id)
@@ -109,6 +115,34 @@ def update_preferences(
     )
     if account is None:
         raise HTTPException(404, "Partner account not found")
-    account.outbound_destination = payload.outbound_destination
+    if payload.audience is not None:
+        try:
+            validate_audience(session, account.tier, payload.audience, previous=account.audience)
+        except ValueError as exc:
+            raise HTTPException(422, str(exc)) from None
+        account.audience = payload.audience.model_dump(mode="json")
+    if payload.outbound_destination is not None:
+        account.outbound_destination = payload.outbound_destination
     session.commit()
     return account
+
+
+@router.get(
+    "/accounts/{account_id}/audience-topics",
+    response_model=AudienceTopicsOut,
+    operation_id="partnerAudienceTopics",
+)
+def audience_topics(
+    account_id: uuid.UUID,
+    session: DB,
+    partner: Partner,
+    dimension: AudienceDimension,
+    q: str = Query("", max_length=200, pattern=r"^[^\x00]*$"),
+    topic_id: uuid.UUID | None = None,
+    offset: int = Query(0, ge=0),
+    limit: int = Query(25, ge=1, le=100),
+):
+    account = account_access(session, partner, account_id)
+    return audience_topic_options(
+        session, dimension, account=account, q=q, topic_id=topic_id, offset=offset, limit=limit
+    )

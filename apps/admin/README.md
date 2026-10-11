@@ -182,6 +182,16 @@ can fill remaining slots in the unfiltered main feed; search, category, article,
 placements require a relevant match. Expiring an additional campaign restores account defaults.
 Existing active dated agreements on lower tiers remain read-only and continue until their recorded end.
 
+Platinum and Diamond add **Audience targeting** for experience, programming languages and
+developer tools. Account settings are inherited by default; dated campaigns can inherit, use a
+custom audience, or explicitly target all readers. Choices within a dimension are alternatives;
+each populated dimension must match. Product filters still select inventory independently.
+Audience criteria use a signed-in reader's optional private experience choice, current stack,
+follows and fresh valid interests, and apply to both relevant and fallback placements. Anonymous
+readers cannot receive targeted inventory. Downgrades preserve criteria and stop targeted delivery
+rather than widening it. Unavailable selected topics remain visible for review but prevent
+delivery. Lower tiers can explicitly clear criteria and cannot add populated criteria.
+
 **Product click destination** chooses the product website or the connected partner’s listing;
 both include DevFeed UTM attribution. Partners can update this preference in their portal.
 Selecting the partner listing omits products without that listing rather than changing their destination.
@@ -229,7 +239,9 @@ after 90 days.
 Migrations `0024`–`0027` create the partnership catalog, accounts, tiers and configurable
 connectors; `0028` adds promotion defaults, campaigns and prepared matching. `0030` adds managed
 product featured images; `0031` adds tier promotion defaults, trusted account acceptance, and
-click destinations. Run the normal
+click destinations; `0032` removes per-reader exposure limits, and `0033` adds optional account
+and campaign audiences. Downgrading `0033` pauses targeted accounts/campaigns before dropping
+their criteria. Run the normal
 database upgrade before starting the API and workers. Development databases carrying
 superseded draft migration markers require inspecting their actual schema before repair;
 do not stamp revisions based on their numbers alone.

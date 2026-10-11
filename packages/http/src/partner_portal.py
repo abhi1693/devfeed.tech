@@ -11,6 +11,7 @@ from devfeed_core.models import (
     PartnerProductPromotion,
     PartnerTrackedDailyMetric,
 )
+from devfeed_core.partner_audiences import AudienceInput
 from devfeed_core.partner_placements import account_listing_destination, devfeed_outbound_url
 from devfeed_core.partner_promotions import associated_products_query
 from devfeed_core.partner_tiers import PartnerTier, PromotionKind, tier_policy
@@ -42,6 +43,7 @@ class PartnershipTierOut(BaseModel):
     benefits: list[str]
     allowed_promotion_kinds: list[PromotionKind]
     default_promotion_kind: PromotionKind
+    advanced_targeting: bool
 
 
 class AccountInput(BaseModel):
@@ -58,6 +60,7 @@ class AccountInput(BaseModel):
     promotion_kind: PromotionKind | None = None
     approval_mode: Literal["qualified", "trusted"] = "qualified"
     outbound_destination: Literal["product_url", "listing_url"] = "product_url"
+    audience: AudienceInput = Field(default_factory=AudienceInput)
 
     @model_validator(mode="after")
     def unique_surfaces(self):
@@ -78,11 +81,32 @@ class AccountOut(AccountInput):
     allowed_promotion_kinds: list[PromotionKind]
     effective_promotion_kind: PromotionKind
     promotion_kind_source: Literal["tier", "account"]
+    advanced_targeting: bool
 
 
 class PartnerPreferencesInput(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    outbound_destination: Literal["product_url", "listing_url"]
+    outbound_destination: Literal["product_url", "listing_url"] | None = None
+    audience: AudienceInput | None = None
+
+    @model_validator(mode="after")
+    def supplied_preference(self):
+        if self.outbound_destination is None and self.audience is None:
+            raise ValueError("Supply at least one partner preference")
+        return self
+
+
+class AudienceTopicOut(BaseModel):
+    id: uuid.UUID
+    name: str
+    slug: str
+    kind: str
+    status: str
+
+
+class AudienceTopicsOut(BaseModel):
+    items: list[AudienceTopicOut]
+    total: int
 
 
 class DestinationPreviewProduct(BaseModel):
@@ -193,6 +217,7 @@ class CampaignInput(BaseModel):
     name: Name
     status: Literal["draft", "active", "paused", "ended"] = "draft"
     targeting: Literal["all", "selected", "filters"] = "all"
+    audience: AudienceInput | None = None
     product_ids: list[uuid.UUID] = Field(default_factory=list, max_length=500)
     topic_ids: list[uuid.UUID] = Field(default_factory=list, max_length=100)
     technologies: list[

@@ -27,6 +27,8 @@ import type { AccountOut, CampaignInput, CampaignOut } from "@/lib/api/generated
 import { ApiError, returnToLogin } from "@/lib/api/client";
 import { useRequest } from "@/lib/use-request";
 import { accountHref } from "./partner-accounts";
+import { audienceValue } from "@devfeed/ui/audience-targeting";
+import { PartnerAudience } from "./partner-audience";
 
 const productCatalog = { label: "Account products", singular: "Account product", title: "name" };
 
@@ -117,6 +119,12 @@ function PartnerCampaignForm({
   );
   const [products, setProducts] = useState(campaign?.product_ids ?? []);
   const [topics, setTopics] = useState(campaign?.topic_ids ?? []);
+  const [audienceMode, setAudienceMode] = useState(
+    campaign?.audience == null ? "inherit" : "custom",
+  );
+  const [audience, setAudience] = useState(() =>
+    audienceValue(campaign?.audience ?? account.audience),
+  );
   const [surfaces, setSurfaces] = useState<PromotionSurface[]>(
     campaign?.surfaces ?? account.promotion_surfaces ?? [...promotionSurfaces],
   );
@@ -195,6 +203,7 @@ function PartnerCampaignForm({
       daily_impression_limit: form.get("daily_impression_limit")
         ? Number(form.get("daily_impression_limit"))
         : null,
+      audience: audienceMode === "inherit" ? null : audience,
     };
     setBusy(true);
     setError(undefined);
@@ -427,6 +436,37 @@ function PartnerCampaignForm({
         )}
       </section>
       <PromotionSurfaces value={surfaces} onChange={setSurfaces} disabled={busy} />
+      <section aria-label="Campaign audience settings" className="space-y-4 border-t pt-6">
+        {account.advanced_targeting ? (
+          <Field label="Campaign audience" required disabled={busy}>
+            {(control) => (
+              <Select
+                {...control}
+                label="Campaign audience"
+                value={audienceMode}
+                onChange={setAudienceMode}
+                options={[
+                  { value: "inherit", label: "Inherit account audience" },
+                  { value: "custom", label: "Customize audience" },
+                ]}
+              />
+            )}
+          </Field>
+        ) : (
+          <p className="text-sm text-muted-foreground">
+            {audienceMode === "inherit"
+              ? "Inherits account audience."
+              : "Custom campaign audience."}
+          </p>
+        )}
+        <PartnerAudience
+          accountId={account.id}
+          value={audienceMode === "inherit" ? audienceValue(account.audience) : audience}
+          onChange={audienceMode === "custom" ? setAudience : undefined}
+          enabled={!!account.advanced_targeting}
+          disabled={busy}
+        />
+      </section>
       <div className="flex flex-wrap justify-end gap-3 border-t pt-6">
         <Button type="button" variant="outline" disabled={busy} onClick={() => router.push(cancel)}>
           Cancel

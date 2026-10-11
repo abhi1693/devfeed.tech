@@ -10,6 +10,7 @@ import type { PartnershipTierOutDefaultPromotionKind } from './partnershipTierOu
 import type { PartnershipTierOutTier } from './partnershipTierOutTier';
 
 export interface PartnershipTierOut {
+  advanced_targeting: boolean;
   allowed_promotion_kinds: PartnershipTierOutAllowedPromotionKindsItem[];
   benefits: string[];
   default_promotion_kind: PartnershipTierOutDefaultPromotionKind;

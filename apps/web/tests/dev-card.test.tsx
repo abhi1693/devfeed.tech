@@ -27,6 +27,7 @@ const profile: UserProfile = {
   username: "mayacodes",
   bio: "Building useful things for the web.",
   location: "Berlin",
+  experience_level: "senior",
   reading_streak: {
     current_days: 8,
     longest_days: 24,
@@ -139,7 +140,7 @@ it("always includes profile sections even with legacy hidden flags, but never ac
   expect(data.technologies.map(({ name }) => name)).toEqual(["TypeScript"]);
   expect(data.location).toBe("Berlin");
   const content = JSON.stringify(data);
-  for (const hidden of [user.email, user.user_id, user.csrf_token]) {
+  for (const hidden of [user.email, user.user_id, user.csrf_token, "experience_level", "senior"]) {
     expect(content).not.toContain(hidden);
   }
 });

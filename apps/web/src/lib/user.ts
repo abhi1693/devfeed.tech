@@ -17,12 +17,14 @@ export type UserProfile = {
   bio?: string | null;
   location?: string | null;
   about?: string | null;
+  experience_level?: ExperienceLevel | null;
   links?: ProfileLink[];
   stack?: UserStack[];
   visibility?: ProfileVisibility;
   reading_streak?: ReadingStreak;
   dev_card?: DevCardSettings;
 };
+export type ExperienceLevel = "aspiring" | "entry_level" | "mid_level" | "senior";
 export type AvatarVariant = { width: 32 | 64 | 128 | 256 | 512; url: string };
 export type DevCardStat = "current_streak" | "longest_streak" | "total_reading_days";
 export type DevCardSettings = {

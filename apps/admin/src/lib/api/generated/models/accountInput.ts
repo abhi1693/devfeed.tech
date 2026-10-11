@@ -11,9 +11,11 @@ import type { AccountInputPromotionKind } from './accountInputPromotionKind';
 import type { AccountInputPromotionSurfacesItem } from './accountInputPromotionSurfacesItem';
 import type { AccountInputStatus } from './accountInputStatus';
 import type { AccountInputTier } from './accountInputTier';
+import type { AudienceInput } from './audienceInput';
 
 export interface AccountInput {
   approval_mode?: AccountInputApprovalMode;
+  audience?: AudienceInput;
   auto_include_products?: boolean;
   /**
      * @minLength 1

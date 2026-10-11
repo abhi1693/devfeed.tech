@@ -35,6 +35,7 @@ vi.mock("@/lib/api/generated/admin", () => ({
   adminPartnerEvaluationsList: vi.fn(),
 }));
 const account: AccountOut = {
+  advanced_targeting: false,
   id: "55555555-5555-4555-8555-555555555555",
   name: "Example partner account",
   tier: "bronze",

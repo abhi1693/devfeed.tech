@@ -191,7 +191,7 @@ def save_profile(payload: UserProfileUpdate, user: User, session: DB):
     )
     if replace_managed_avatar:
         values["avatar_variants"] = []
-    for field in ("display_name", "avatar_url", "bio", "location"):
+    for field in ("display_name", "avatar_url", "bio", "location", "experience_level"):
         if field in payload.model_fields_set:
             values[field] = getattr(payload, field)
     if "dev_card" in payload.model_fields_set:

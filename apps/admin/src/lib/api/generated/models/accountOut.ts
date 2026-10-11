@@ -14,10 +14,13 @@ import type { AccountOutPromotionKindSource } from './accountOutPromotionKindSou
 import type { AccountOutPromotionSurfacesItem } from './accountOutPromotionSurfacesItem';
 import type { AccountOutStatus } from './accountOutStatus';
 import type { AccountOutTier } from './accountOutTier';
+import type { AudienceInput } from './audienceInput';
 
 export interface AccountOut {
+  advanced_targeting: boolean;
   allowed_promotion_kinds: AccountOutAllowedPromotionKindsItem[];
   approval_mode?: AccountOutApprovalMode;
+  audience?: AudienceInput;
   auto_include_products?: boolean;
   benefits: string[];
   effective_promotion_kind: AccountOutEffectivePromotionKind;

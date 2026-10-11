@@ -27,6 +27,13 @@ from devfeed_core.models import (
     UserTopic,
     utcnow,
 )
+from devfeed_core.partner_audiences import (
+    audience_entitled,
+    audience_matches,
+    audience_topics_current,
+    effective_audience,
+    reader_audience,
+)
 from devfeed_core.partner_matching import MATCH_TTL, article_fingerprint
 from devfeed_core.partner_product_images import product_image_url, product_image_variants
 from devfeed_core.partner_product_logos import product_logo_url
@@ -115,7 +122,8 @@ def automatic_asset_available(
         return False
     if asset.campaign_id is None:
         return (
-            account.organic_enabled
+            audience_entitled(account)
+            and account.organic_enabled
             and account.auto_include_products
             and effective_promotion_kind(account) == "product"
         )
@@ -150,6 +158,7 @@ def automatic_asset_available(
     return bool(
         campaign
         and campaign_is_live(campaign, now)
+        and audience_entitled(account, campaign)
         and (promotion_kind_allowed(account, "ad") or campaign.grandfathered)
         and (not campaign.managed or effective_promotion_kind(account) == "ad")
         and (surface is None or surface in campaign.surfaces)
@@ -512,6 +521,9 @@ def deliver_placements(session, query, key, *, user_id=None, now=None):
     signer = PartnerTrackingTokens(key, clock=lambda: now.timestamp())
     selected: list[dict[str, Any]] = []
     seen: set[uuid.UUID] = set()
+    reader_loaded = False
+    reader = None
+    audience_cache: dict[tuple, bool] = {}
     # Reserve sponsorship first so a funded product's eligible appearance is attributed
     # to its agreement; fill the independent ordinary slot with the next best product.
     # This flag describes campaign backing only. Reader disclosure is Sponsored for
@@ -558,6 +570,27 @@ def deliver_placements(session, query, key, *, user_id=None, now=None):
                 session, asset, account, product, now, surface=query.surface
             ):
                 continue
+            campaign = campaigns.get(asset.campaign_id)
+            audience = effective_audience(account, campaign)
+            if audience is None:
+                continue
+            if audience.populated:
+                if user_id is None:
+                    continue
+                if not reader_loaded:
+                    reader = reader_audience(session, user_id, now)
+                    reader_loaded = True
+                policy_key = (
+                    tuple(audience.experience_levels),
+                    tuple(audience.language_topic_ids),
+                    tuple(audience.tool_topic_ids),
+                )
+                if policy_key not in audience_cache:
+                    audience_cache[policy_key] = audience_topics_current(
+                        session, audience, lock=True
+                    ) and audience_matches(audience, reader)
+                if not audience_cache[policy_key]:
+                    continue
             url = placement_destination(session, account, product)
             if url is None:
                 continue

@@ -5,11 +5,13 @@
  * Private administration API. OIDC sessions and CSRF protection required.
  * OpenAPI spec version: 0.0.52
  */
+import type { AudienceInput } from './audienceInput';
 import type { CampaignInputStatus } from './campaignInputStatus';
 import type { CampaignInputSurfacesItem } from './campaignInputSurfacesItem';
 import type { CampaignInputTargeting } from './campaignInputTargeting';
 
 export interface CampaignInput {
+  audience?: AudienceInput | null;
   daily_impression_limit?: number | null;
   ends_at: string;
   /**

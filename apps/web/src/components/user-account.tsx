@@ -137,6 +137,7 @@ export function UserProvider({
         ...(value.bio !== undefined && { bio: value.bio }),
         ...(value.location !== undefined && { location: value.location }),
         ...(value.about !== undefined && { about: value.about }),
+        ...(value.experience_level !== undefined && { experience_level: value.experience_level }),
         ...(value.links !== undefined && {
           links: value.links
             .filter((link) => link.url.trim())

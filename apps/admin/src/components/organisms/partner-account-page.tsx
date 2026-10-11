@@ -7,6 +7,8 @@ import { Button } from "@/components/atoms/button";
 import { PageHeading } from "@/components/molecules/page-heading";
 import { RequestState } from "@/components/molecules/request-state";
 import { InfoPanel, DataValue } from "@/components/molecules/info-panel";
+import { audienceValue } from "@devfeed/ui/audience-targeting";
+import { PartnerAudience } from "./partner-audience";
 import { StatusBadge } from "@/components/molecules/status-badge";
 import { DataTable, type DataTableColumn } from "@/components/molecules/data-table";
 import { useAdmin } from "@/components/molecules/admin-session";
@@ -388,6 +390,11 @@ export function PartnerAccountPage({
                       topic placements require a relevant match.
                     </p>
                   </InfoPanel>
+                  <PartnerAudience
+                    accountId={data!.account.id}
+                    value={audienceValue(data!.account.audience)}
+                    enabled={!!data!.account.advanced_targeting}
+                  />
                 </div>
                 <InfoPanel
                   title="Record information"

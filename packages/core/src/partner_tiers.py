@@ -9,12 +9,14 @@ PromotionKind = Literal["product", "ad"]
 class TierPolicy(TypedDict):
     allowed_promotion_kinds: tuple[PromotionKind, ...]
     default_promotion_kind: PromotionKind
+    advanced_targeting: bool
 
 
 TIER_POLICIES: dict[str, TierPolicy] = {
     tier: {
         "allowed_promotion_kinds": ("product", "ad") if paid else ("product",),
         "default_promotion_kind": "ad" if paid else "product",
+        "advanced_targeting": tier in {"platinum", "diamond"},
     }
     for tier, paid in (
         ("bronze", False),
@@ -35,7 +37,11 @@ _GOLD = (
     "Inherited sponsored placements",
     "Sponsored feed fallback when no relevant sponsored product matches",
 )
-_PLATINUM = (*_GOLD, "Priority campaign support")
+_PLATINUM = (
+    *_GOLD,
+    "Audience targeting by experience, programming languages and developer tools",
+    "Priority campaign support",
+)
 _DIAMOND = (*_PLATINUM, "Custom partnership and campaign planning")
 TIER_BENEFITS: dict[str, tuple[str, ...]] = dict(
     zip(TIER_POLICIES, (_BRONZE, _SILVER, _GOLD, _PLATINUM, _DIAMOND), strict=True)

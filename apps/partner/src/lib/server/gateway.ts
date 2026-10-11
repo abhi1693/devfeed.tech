@@ -9,6 +9,8 @@ const preferencesPath =
   /^\/v1\/partner\/accounts\/[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}\/preferences$/i;
 const destinationPreviewPath =
   /^\/v1\/partner\/accounts\/[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}\/destination-preview$/i;
+const audienceTopicsPath =
+  /^\/v1\/partner\/accounts\/[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}\/audience-topics$/i;
 
 export async function gateway(request: Request, segments: string[]) {
   const path = "/" + segments.join("/");
@@ -17,6 +19,12 @@ export async function gateway(request: Request, segments: string[]) {
   }
   if (segments.includes("destination-preview")) {
     if (!destinationPreviewPath.test(path))
+      return Response.json({ detail: "Not found" }, { status: 404 });
+    if (request.method !== "GET")
+      return Response.json({ detail: "Method not allowed" }, { status: 405 });
+  }
+  if (segments.includes("audience-topics")) {
+    if (!audienceTopicsPath.test(path))
       return Response.json({ detail: "Not found" }, { status: 404 });
     if (request.method !== "GET")
       return Response.json({ detail: "Method not allowed" }, { status: 405 });

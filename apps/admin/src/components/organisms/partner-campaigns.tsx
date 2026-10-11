@@ -11,6 +11,7 @@ import { adminPartnerCampaignsList } from "@/lib/api/generated/admin";
 import type { AccountOut, CampaignOut } from "@/lib/api/generated/models";
 import { useRequest } from "@/lib/use-request";
 import { accountHref } from "./partner-accounts";
+import { hasAudience } from "@devfeed/ui/audience-targeting";
 
 export function PartnerCampaigns({ account }: { account: AccountOut }) {
   const accountId = account.id;
@@ -65,6 +66,23 @@ export function PartnerCampaigns({ account }: { account: AccountOut }) {
           : row.original.targeting === "selected"
             ? `${row.original.product_ids?.length ?? 0} selected`
             : "Matching filters",
+    },
+    {
+      accessorKey: "audience",
+      header: "Audience",
+      cell: ({ row }) => {
+        const audience = row.original.audience;
+        if (audience == null) return "Account defaults";
+        if (!hasAudience(audience)) return "Any audience";
+        return [
+          audience.experience_levels?.length &&
+            `${audience.experience_levels.length} experience levels`,
+          audience.language_topic_ids?.length && `${audience.language_topic_ids.length} languages`,
+          audience.tool_topic_ids?.length && `${audience.tool_topic_ids.length} tools`,
+        ]
+          .filter(Boolean)
+          .join(" · ");
+      },
     },
     {
       accessorKey: "ends_at",

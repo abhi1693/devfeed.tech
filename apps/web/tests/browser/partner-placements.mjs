@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import { createServer } from "node:http";
-import { mkdir, mkdtemp, readFile, rm } from "node:fs/promises";
+import { cp, mkdir, mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { chromium } from "playwright";
@@ -93,12 +93,16 @@ const feedArticles = Array.from({ length: 24 }, (_, index) =>
       },
 );
 const temp = await mkdtemp(path.join(tmpdir(), "devfeed-placement-browser-"));
+// Pin the built packages while repository hooks may rebuild their output directories.
+await cp(path.resolve("apps/extensions/dist"), path.join(temp, "extensions"), { recursive: true });
 await mkdir("reports/partner-placements", { recursive: true });
 let signedIn = false;
 let queries = [];
 let events = [];
 let deliveryGate = null;
 let mediaMode = "standard";
+let experienceLevel = null;
+let profileWrites = [];
 
 function productMedia(item) {
   if (item.product_id !== ordinary.product_id || mediaMode === "standard") return item;
@@ -289,10 +293,23 @@ function response(requestPath, body, headers = {}, extension = false) {
       assert.equal(headers.cookie, undefined);
       assert.equal(headers["x-csrf-token"], undefined);
     } else assert.equal(headers["x-csrf-token"], "fixture-csrf");
+    assert.ok(
+      Object.keys(body).every((key) =>
+        [
+          "surface",
+          "article_id",
+          "article_ids",
+          "topic_id",
+          "allow_sponsored_fallback",
+          "exclude_product_ids",
+        ].includes(key),
+      ),
+      "Selection sends context only, never reader identity or audience attributes",
+    );
     queries.push({ pathname, body });
     const eligible =
       body.surface === "topic" ||
-      pathname.includes("/user/") ||
+      (pathname.includes("/user/") && body.surface === "feed") ||
       (body.surface === "feed" && body.article_ids?.includes(article.id)) ||
       (body.surface === "article" && feedArticles.some((item) => item.id === body.article_id));
     return {
@@ -322,17 +339,25 @@ function response(requestPath, body, headers = {}, extension = false) {
         }
       : null;
   if (pathname === "/v1/user/auth/config") return { enabled: true, providers: [] };
-  if (pathname === "/v1/user/settings/profile")
+  if (pathname === "/v1/user/settings/profile") {
+    if (body) {
+      assert.equal(headers["x-csrf-token"], "fixture-csrf");
+      experienceLevel = body.experience_level;
+      profileWrites.push(body);
+    }
     return {
       display_name: "Reader",
       avatar_url: null,
       username: "fixture-reader",
       links: [],
       stack: [],
+      experience_level: experienceLevel,
     };
+  }
   if (pathname === "/v1/user/settings/feed")
     return { view: "cards", content_types: ["tutorial", "news"], languages: ["en"] };
-  if (pathname === "/v1/user/preferences/topics") return { topic_ids: [topic.id] };
+  if (["/v1/user/preferences", "/v1/user/preferences/topics"].includes(pathname))
+    return { topic_ids: [topic.id] };
   if (pathname === "/v1/user/preferences/sources") return { source_ids: [] };
   if (pathname === "/v1/user/engagement") return { items: [] };
   if (pathname === "/v1/user/feed")
@@ -497,7 +522,9 @@ try {
     queries = [];
     events = [];
     mediaMode = "standard";
-    const extension = platform === "web" ? null : path.resolve(`apps/extensions/dist/${platform}`);
+    experienceLevel = null;
+    profileWrites = [];
+    const extension = platform === "web" ? null : path.join(temp, "extensions", platform);
     const context = await chromium.launchPersistentContext(path.join(temp, platform), {
       executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH,
       channel: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH
@@ -849,6 +876,16 @@ try {
       await previewedArticle.scrollIntoViewIfNeeded();
       await previewedArticle.focus();
       const beforePreview = await previewedArticle.boundingBox();
+      const readingGeometry = (element) => ({
+        scroll: document.scrollingElement.scrollTop,
+        card: element.closest(".article-card").getBoundingClientRect().toJSON(),
+        grid: element.closest(".article-grid").getBoundingClientRect().toJSON(),
+        transform: getComputedStyle(element.closest(".article-card")).transform,
+        products: [...document.querySelectorAll(".article-grid > .partner-placement")].map((card) =>
+          card.getBoundingClientRect().toJSON(),
+        ),
+      });
+      const geometryBeforePreview = await previewedArticle.evaluate(readingGeometry);
       await previewedArticle.evaluate((element) => {
         element.dataset.previewPreserved = "true";
       });
@@ -899,6 +936,11 @@ try {
       await page.locator(".article-modal").waitFor({ state: "hidden" });
       await assertGrid("returned feed");
       const afterPreview = await previewedArticle.boundingBox();
+      if (Math.abs(afterPreview.y - beforePreview.y) > 2)
+        console.error("Modal reading geometry", {
+          before: geometryBeforePreview,
+          after: await previewedArticle.evaluate(readingGeometry),
+        });
       assert.ok(
         Math.abs(afterPreview.y - beforePreview.y) <= 2,
         `${platform}: preview return preserves scrolled article position (${beforePreview.y} -> ${afterPreview.y})`,
@@ -1282,13 +1324,91 @@ try {
         2,
         `${platform}: background feed has no competing placements`,
       );
-      assert.equal(
-        queries.filter((query) => query.pathname === "/v1/user/partner-placements/query").length,
-        0,
-        `${platform}: background feed reserves no paid inventory`,
+      assert.deepEqual(
+        queries
+          .filter((query) => query.pathname === "/v1/user/partner-placements/query")
+          .map((query) => query.body.surface),
+        ["article"],
+        `${platform}: only the visible preview uses authenticated selection`,
+      );
+      for (const width of [1280, 390]) {
+        await page.setViewportSize({ width, height: width === 390 ? 844 : 900 });
+        for (const [route, surface] of [
+          [`/articles/${article.slug}`, "article"],
+          ["/topics/typescript", "topic"],
+          ["/search?q=typescript", "feed"],
+          ["/?q=typescript", "feed"],
+        ]) {
+          queries = [];
+          await page.goto(`${base}${route}`);
+          // Hash navigation can reuse the current extension route and its cached cards.
+          // A fresh document proves each authenticated entry selects privately.
+          await page.reload();
+          await page.locator(".partner-placement:visible").first().waitFor();
+          assert.ok(queries.length, `${platform}: ${route} selected products`);
+          assert.ok(
+            queries.every((query) => query.pathname === "/v1/user/partner-placements/query"),
+            `${platform}: ${route} uses the authenticated endpoint`,
+          );
+          assert.ok(queries.some((query) => query.body.surface === surface));
+          if (surface === "feed")
+            assert.ok(queries.every((query) => !query.body.allow_sponsored_fallback));
+          assert.equal(
+            await page.evaluate(() => document.documentElement.scrollWidth > innerWidth),
+            false,
+          );
+        }
+        await page.screenshot({
+          path: `reports/partner-placements/${platform}-authenticated-context-${width === 390 ? "mobile" : "desktop"}.png`,
+          animations: "disabled",
+        });
+        await page.goto(`${base}/settings/profile`);
+        let experience = page.getByRole("combobox", { name: "Experience level", exact: true });
+        await experience.waitFor();
+        assert.equal(await experience.textContent(), "Not specified");
+        await experience.click();
+        assert.deepEqual(await page.getByRole("option").allTextContents(), [
+          "Not specified",
+          "Aspiring",
+          "Entry-level",
+          "Mid-level",
+          "Senior",
+        ]);
+        await page.getByRole("option", { name: "Senior", exact: true }).click();
+        await page.getByRole("button", { name: "Save changes", exact: true }).click();
+        await page.getByText("Your profile is saved.", { exact: true }).waitFor();
+        assert.equal(profileWrites.at(-1).experience_level, "senior");
+        await page.reload();
+        experience = page.getByRole("combobox", { name: "Experience level", exact: true });
+        await experience.waitFor();
+        assert.equal(await experience.textContent(), "Senior");
+        assert.doesNotMatch(
+          await page.locator(".dev-card-preview svg.dev-card-artwork").textContent(),
+          /senior|experience_level/i,
+        );
+        await experience.scrollIntoViewIfNeeded();
+        await page.screenshot({
+          path: `reports/partner-placements/${platform}-private-experience-${width === 390 ? "mobile" : "desktop"}.png`,
+          animations: "disabled",
+        });
+        await experience.click();
+        await page.getByRole("option", { name: "Not specified", exact: true }).click();
+        await page.getByRole("button", { name: "Save changes", exact: true }).click();
+        await page.getByText("Your profile is saved.", { exact: true }).waitFor();
+        assert.equal(profileWrites.at(-1).experience_level, null);
+      }
+      signedIn = false;
+      queries = [];
+      await page.goto(`${base}/articles/${article.slug}`);
+      await page.reload();
+      await page.locator(".partner-placement:visible").first().waitFor();
+      assert.ok(
+        queries.length &&
+          queries.every((query) => query.pathname === "/v1/partner-placements/query"),
+        `${platform}: signed-out visitors retain anonymous contextual products`,
       );
       console.log(
-        `${platform}: built web/extension in-grid homepage, search, category and topic cards; every product disclosed with distinct amber Sponsored pills and no dismissal; branded preview sidebar; focus/layout stability; signed campaign and non-campaign tracking; legacy hides/limits and failed optional storage cannot suppress delivery; article priority passed`,
+        `${platform}: built web/extension in-grid homepage, search, category and topic cards; every product disclosed with distinct amber Sponsored pills and no dismissal; branded preview sidebar; focus/layout stability; signed campaign and non-campaign tracking; legacy hides/limits and failed optional storage cannot suppress delivery; private session routing; optional private experience save/reload/clear; article priority passed`,
       );
     } finally {
       await context.close();

@@ -9,6 +9,7 @@ import {
 } from "@devfeed/ui/product-destination-preview";
 import { Button } from "@/components/atoms/button";
 import type { Account, OutboundDestination } from "@/lib/types";
+import { PartnerAudience } from "./partner-audience";
 
 type Props = {
   account: Account;
@@ -220,6 +221,12 @@ function AccountPreferences({ account, csrfToken, onSaved, onUnavailable }: Prop
           }}
         />
       </div>
+      <PartnerAudience
+        account={account}
+        csrfToken={csrfToken}
+        onSaved={onSaved}
+        onUnavailable={onUnavailable}
+      />
     </section>
   );
 }

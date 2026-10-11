@@ -16,6 +16,11 @@ from devfeed_core.models import (
     Topic,
     UserAccount,
 )
+from devfeed_core.partner_audiences import (
+    AudienceDimension,
+    audience_topic_options,
+    validate_audience,
+)
 from devfeed_core.partner_promotions import (
     associated_products_query,
     commercially_eligible,
@@ -28,6 +33,7 @@ from devfeed_http.partner_portal import (
     AccountsOut,
     AssetInput,
     AssetOut,
+    AudienceTopicsOut,
     CampaignInput,
     CampaignOut,
     CampaignsOut,
@@ -109,6 +115,46 @@ def accounts(
     }
 
 
+@router.get(
+    "/audience-topics",
+    response_model=AudienceTopicsOut,
+    operation_id="adminPartnerAudienceTopicsCatalog",
+)
+def audience_catalog(
+    session: DB,
+    _admin: Superuser,
+    dimension: AudienceDimension,
+    q: str = Query("", max_length=200, pattern=r"^[^\x00]*$"),
+    topic_id: uuid.UUID | None = None,
+    offset: int = Query(0, ge=0),
+    limit: int = Query(25, ge=1, le=100),
+):
+    return audience_topic_options(
+        session, dimension, q=q, topic_id=topic_id, offset=offset, limit=limit
+    )
+
+
+@router.get(
+    "/{account_id}/audience-topics",
+    response_model=AudienceTopicsOut,
+    operation_id="adminPartnerAudienceTopics",
+)
+def audience_topics(
+    account_id: uuid.UUID,
+    session: DB,
+    admin: Superuser,
+    dimension: AudienceDimension,
+    q: str = Query("", max_length=200, pattern=r"^[^\x00]*$"),
+    topic_id: uuid.UUID | None = None,
+    offset: int = Query(0, ge=0),
+    limit: int = Query(25, ge=1, le=100),
+):
+    account = account_access(session, admin, account_id)
+    return audience_topic_options(
+        session, dimension, account=account, q=q, topic_id=topic_id, offset=offset, limit=limit
+    )
+
+
 @router.get("/{account_id}/dashboard", response_model=Dashboard)
 def dashboard(
     account_id: uuid.UUID,
@@ -134,7 +180,11 @@ def preview_destination(account_id: uuid.UUID, session: DB, admin: Superuser):
 
 @router.post("", response_model=AccountOut, status_code=201)
 def create_account(payload: AccountInput, _superuser: Superuser, session: DB):
-    account = PartnerAccount(**payload.model_dump())
+    try:
+        validate_audience(session, payload.tier, payload.audience)
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from None
+    account = PartnerAccount(**payload.model_dump(mode="json"))
     session.add(account)
     session.commit()
     return account
@@ -143,7 +193,11 @@ def create_account(payload: AccountInput, _superuser: Superuser, session: DB):
 @router.put("/{account_id}", response_model=AccountOut)
 def update_account(account_id: uuid.UUID, payload: AccountInput, superuser: Superuser, session: DB):
     account = account_access(session, superuser, account_id, lock=True)
-    for key, value in payload.model_dump().items():
+    try:
+        validate_audience(session, payload.tier, payload.audience, previous=account.audience)
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from None
+    for key, value in payload.model_dump(mode="json").items():
         setattr(account, key, value)
     session.flush()
     ensure_automatic_assets(session, account_id)
@@ -304,7 +358,24 @@ def campaign_values(payload: CampaignInput):
     values = payload.model_dump()
     values["product_ids"] = [str(value) for value in payload.product_ids]
     values["topic_ids"] = [str(value) for value in payload.topic_ids]
+    values["audience"] = (
+        payload.audience.model_dump(mode="json") if payload.audience is not None else None
+    )
     return values
+
+
+def validate_campaign_audience(session, account, payload, campaign=None):
+    if payload.audience is None:
+        return  # Inherited policy retains its own fail-closed live entitlement.
+    try:
+        validate_audience(
+            session,
+            account.tier,
+            payload.audience,
+            previous=campaign.audience if campaign else None,
+        )
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from None
 
 
 def campaign_reports(session, rows):
@@ -395,6 +466,7 @@ def create_campaign(
     if not promotion_kind_allowed(account, "ad"):
         raise HTTPException(422, "Sponsored campaigns require Gold or a higher partnership tier")
     validate_campaign(session, account_id, payload)
+    validate_campaign_audience(session, account, payload)
     campaign = PartnerCampaign(account_id=account_id, **campaign_values(payload))
     session.add(campaign)
     session.flush()
@@ -422,6 +494,7 @@ def update_campaign(
     if not promotion_kind_allowed(account, "ad"):
         raise HTTPException(422, "Sponsored campaigns require Gold or a higher partnership tier")
     validate_campaign(session, account_id, payload)
+    validate_campaign_audience(session, account, payload, campaign)
     for key, value in campaign_values(payload).items():
         setattr(campaign, key, value)
     session.flush()

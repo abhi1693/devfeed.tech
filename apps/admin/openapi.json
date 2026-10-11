@@ -13,6 +13,9 @@
             "title": "Approval Mode",
             "type": "string"
           },
+          "audience": {
+            "$ref": "#/components/schemas/AudienceInput"
+          },
           "auto_include_products": {
             "default": true,
             "title": "Auto Include Products",
@@ -98,6 +101,10 @@
       "AccountOut": {
         "additionalProperties": false,
         "properties": {
+          "advanced_targeting": {
+            "title": "Advanced Targeting",
+            "type": "boolean"
+          },
           "allowed_promotion_kinds": {
             "items": {
               "enum": [
@@ -117,6 +124,9 @@
             ],
             "title": "Approval Mode",
             "type": "string"
+          },
+          "audience": {
+            "$ref": "#/components/schemas/AudienceInput"
           },
           "auto_include_products": {
             "default": true,
@@ -228,7 +238,8 @@
           "benefits",
           "allowed_promotion_kinds",
           "effective_promotion_kind",
-          "promotion_kind_source"
+          "promotion_kind_source",
+          "advanced_targeting"
         ],
         "title": "AccountOut",
         "type": "object"
@@ -3038,6 +3049,100 @@
         "title": "AssetOut",
         "type": "object"
       },
+      "AudienceInput": {
+        "additionalProperties": false,
+        "properties": {
+          "experience_levels": {
+            "items": {
+              "enum": [
+                "aspiring",
+                "entry_level",
+                "mid_level",
+                "senior"
+              ],
+              "type": "string"
+            },
+            "maxItems": 4,
+            "title": "Experience Levels",
+            "type": "array"
+          },
+          "language_topic_ids": {
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "maxItems": 100,
+            "title": "Language Topic Ids",
+            "type": "array"
+          },
+          "tool_topic_ids": {
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "maxItems": 100,
+            "title": "Tool Topic Ids",
+            "type": "array"
+          }
+        },
+        "title": "AudienceInput",
+        "type": "object"
+      },
+      "AudienceTopicOut": {
+        "properties": {
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "kind": {
+            "title": "Kind",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "slug": {
+            "title": "Slug",
+            "type": "string"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "slug",
+          "kind",
+          "status"
+        ],
+        "title": "AudienceTopicOut",
+        "type": "object"
+      },
+      "AudienceTopicsOut": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/AudienceTopicOut"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "items",
+          "total"
+        ],
+        "title": "AudienceTopicsOut",
+        "type": "object"
+      },
       "AuthConfig": {
         "properties": {
           "enabled": {
@@ -3203,6 +3308,16 @@
       "CampaignInput": {
         "additionalProperties": false,
         "properties": {
+          "audience": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AudienceInput"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "daily_impression_limit": {
             "anyOf": [
               {
@@ -3318,6 +3433,16 @@
             "format": "uuid",
             "title": "Account Id",
             "type": "string"
+          },
+          "audience": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AudienceInput"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "clicks": {
             "default": 0,
@@ -8921,6 +9046,10 @@
       },
       "PartnershipTierOut": {
         "properties": {
+          "advanced_targeting": {
+            "title": "Advanced Targeting",
+            "type": "boolean"
+          },
           "allowed_promotion_kinds": {
             "items": {
               "enum": [
@@ -8963,7 +9092,8 @@
           "tier",
           "benefits",
           "allowed_promotion_kinds",
-          "default_promotion_kind"
+          "default_promotion_kind",
+          "advanced_targeting"
         ],
         "title": "PartnershipTierOut",
         "type": "object"
@@ -16657,6 +16787,129 @@
         ]
       }
     },
+    "/v1/admin/partner-accounts/audience-topics": {
+      "get": {
+        "operationId": "adminPartnerAudienceTopicsCatalog",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "dimension",
+            "required": true,
+            "schema": {
+              "enum": [
+                "languages",
+                "tools"
+              ],
+              "title": "Dimension",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "q",
+            "required": false,
+            "schema": {
+              "default": "",
+              "maxLength": 200,
+              "pattern": "^[^\\x00]*$",
+              "title": "Q",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "topic_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Topic Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "minimum": 0,
+              "title": "Offset",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 25,
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AudienceTopicsOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Request validation failed"
+          },
+          "4XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Invalid or unauthorized request"
+          },
+          "5XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service or dependency unavailable"
+          }
+        },
+        "security": [
+          {
+            "APIKeyCookie": []
+          }
+        ],
+        "summary": "Audience Catalog",
+        "tags": [
+          "admin-partner-accounts"
+        ]
+      }
+    },
     "/v1/admin/partner-accounts/tiers": {
       "get": {
         "operationId": "partnership_tiers_v1_admin_partner_accounts_tiers_get",
@@ -17037,6 +17290,139 @@
           }
         ],
         "summary": "Record Metrics",
+        "tags": [
+          "admin-partner-accounts"
+        ]
+      }
+    },
+    "/v1/admin/partner-accounts/{account_id}/audience-topics": {
+      "get": {
+        "operationId": "adminPartnerAudienceTopics",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "account_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Account Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "dimension",
+            "required": true,
+            "schema": {
+              "enum": [
+                "languages",
+                "tools"
+              ],
+              "title": "Dimension",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "q",
+            "required": false,
+            "schema": {
+              "default": "",
+              "maxLength": 200,
+              "pattern": "^[^\\x00]*$",
+              "title": "Q",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "topic_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Topic Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "minimum": 0,
+              "title": "Offset",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 25,
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AudienceTopicsOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Request validation failed"
+          },
+          "4XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Invalid or unauthorized request"
+          },
+          "5XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service or dependency unavailable"
+          }
+        },
+        "security": [
+          {
+            "APIKeyCookie": []
+          }
+        ],
+        "summary": "Audience Topics",
         "tags": [
           "admin-partner-accounts"
         ]

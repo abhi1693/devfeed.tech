@@ -22,6 +22,8 @@ vi.mock("@/lib/api/generated/admin", () => ({
   adminPartnerProductPromotionUpdate: vi.fn(),
   adminPartnerToolsList: vi.fn(),
   adminPartnerDestinationPreview: vi.fn(),
+  adminPartnerAudienceTopics: vi.fn(),
+  adminPartnerAudienceTopicsCatalog: vi.fn(),
 }));
 const account: AccountOut = {
   id: "account-1",
@@ -35,6 +37,7 @@ const account: AccountOut = {
   organic_enabled: true,
   auto_include_products: true,
   promotion_surfaces: ["article", "feed"],
+  advanced_targeting: false,
 };
 const paidAccount: AccountOut = {
   ...account,
@@ -89,6 +92,8 @@ beforeEach(() => {
     excluded: true,
   });
   vi.mocked(api.adminPartnerDestinationPreview).mockResolvedValue({ product: null });
+  vi.mocked(api.adminPartnerAudienceTopics).mockResolvedValue({ items: [], total: 0 });
+  vi.mocked(api.adminPartnerAudienceTopicsCatalog).mockResolvedValue({ items: [], total: 0 });
 });
 afterEach(() => {
   cleanup();
@@ -100,6 +105,138 @@ function fillDates() {
   fireEvent.change(screen.getByLabelText(/^Starts/), { target: { value: "2026-10-01T10:00" } });
   fireEvent.change(screen.getByLabelText(/^Ends/), { target: { value: "2026-11-01T10:00" } });
 }
+
+const seniorAudience = {
+  experience_levels: ["senior" as const],
+  language_topic_ids: [],
+  tool_topic_ids: [],
+};
+const advancedAccount: AccountOut = {
+  ...paidAccount,
+  tier: "platinum",
+  advanced_targeting: true,
+  audience: seniorAudience,
+};
+const advancedTiers = [
+  {
+    tier: "platinum",
+    advanced_targeting: true,
+    benefits: ["Advanced audience targeting"],
+    allowed_promotion_kinds: ["product", "ad"],
+    default_promotion_kind: "ad",
+  },
+  {
+    tier: "gold",
+    advanced_targeting: false,
+    benefits: [],
+    allowed_promotion_kinds: ["product", "ad"],
+    default_promotion_kind: "ad",
+  },
+];
+
+it("saves advanced account defaults and preserves restricted audiences after a tier downgrade", async () => {
+  const fetcher = vi.fn(async (_input: unknown, init?: RequestInit) =>
+    init?.method === "PUT" ? Response.json(advancedAccount) : Response.json(advancedTiers),
+  );
+  vi.stubGlobal("fetch", fetcher);
+  renderAdmin(<PartnerAccountManagement mode="account" account={advancedAccount} />);
+  await screen.findByRole("checkbox", { name: "Senior" });
+  fireEvent.click(screen.getByRole("checkbox", { name: "Entry level" }));
+  fireEvent.click(screen.getByRole("combobox", { name: "Partnership tier" }));
+  fireEvent.click(screen.getByRole("option", { name: "Gold" }));
+  expect(screen.queryByRole("checkbox", { name: "Senior" })).toBeNull();
+  expect(screen.getByText(/Saved restrictions are retained/)).toBeTruthy();
+  fireEvent.submit(screen.getByRole("form", { name: "Partnership settings" }));
+  await waitFor(() => expect(push).toHaveBeenCalled());
+  const write = fetcher.mock.calls.find(([, init]) => init?.method === "PUT");
+  expect(JSON.parse(String(write?.[1]?.body))).toMatchObject({
+    tier: "gold",
+    audience: { ...seniorAudience, experience_levels: ["senior", "entry_level"] },
+  });
+});
+
+it("allows an administrator to explicitly clear saved restrictions on a lower tier", async () => {
+  const current = { ...account, audience: seniorAudience };
+  const fetcher = vi.fn(async (_input: unknown, init?: RequestInit) =>
+    init?.method === "PUT" ? Response.json(current) : Response.json(advancedTiers),
+  );
+  vi.stubGlobal("fetch", fetcher);
+  renderAdmin(<PartnerAccountManagement mode="account" account={current} />);
+  fireEvent.click(screen.getByRole("button", { name: "Clear saved audience restrictions" }));
+  fireEvent.submit(screen.getByRole("form", { name: "Partnership settings" }));
+  await waitFor(() => expect(push).toHaveBeenCalled());
+  const write = fetcher.mock.calls.find(([, init]) => init?.method === "PUT");
+  expect(JSON.parse(String(write?.[1]?.body)).audience).toEqual({
+    experience_levels: [],
+    language_topic_ids: [],
+    tool_topic_ids: [],
+  });
+});
+
+it("uses the bounded global audience catalog before a new account has an ID", async () => {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async () => Response.json(advancedTiers)),
+  );
+  renderAdmin(<PartnerAccountManagement mode="account" />);
+  fireEvent.click(screen.getByRole("combobox", { name: "Partnership tier" }));
+  fireEvent.click(screen.getByRole("option", { name: "Platinum" }));
+  fireEvent.click(await screen.findByRole("combobox", { name: "Programming languages" }));
+  await waitFor(() =>
+    expect(api.adminPartnerAudienceTopicsCatalog).toHaveBeenCalledWith(
+      { dimension: "languages", q: "", offset: 0, limit: 25 },
+      { signal: expect.any(AbortSignal) },
+    ),
+  );
+  expect(api.adminPartnerAudienceTopics).not.toHaveBeenCalled();
+});
+
+it.each(["inherit", "custom"])(
+  "saves an explicit %s campaign audience without changing product targeting",
+  async (mode) => {
+    renderAdmin(<PartnerCampaignPage account={advancedAccount} />);
+    fireEvent.change(screen.getByLabelText(/Campaign name/), {
+      target: { value: "Audience campaign" },
+    });
+    fillDates();
+    if (mode === "custom") {
+      fireEvent.click(screen.getByRole("combobox", { name: "Campaign audience" }));
+      fireEvent.click(screen.getByRole("option", { name: "Customize audience" }));
+      expect((screen.getByRole("checkbox", { name: "Senior" }) as HTMLInputElement).checked).toBe(
+        true,
+      );
+      fireEvent.click(screen.getByRole("checkbox", { name: "Senior" }));
+    } else {
+      expect(screen.queryByRole("checkbox", { name: "Senior" })).toBeNull();
+      expect(screen.getByText("Senior")).toBeTruthy();
+    }
+    fireEvent.submit(screen.getByRole("form", { name: "Paid campaign settings" }));
+    await waitFor(() => expect(api.adminPartnerCampaignCreate).toHaveBeenCalled());
+    expect(vi.mocked(api.adminPartnerCampaignCreate).mock.calls[0][1]).toMatchObject({
+      targeting: "all",
+      audience:
+        mode === "inherit"
+          ? null
+          : { experience_levels: [], language_topic_ids: [], tool_topic_ids: [] },
+    });
+  },
+);
+
+it("keeps a lower-tier campaign's custom audience readonly and unchanged on unrelated edits", async () => {
+  vi.mocked(api.adminPartnerCampaignGet).mockResolvedValue({
+    ...campaign,
+    audience: seniorAudience,
+  });
+  renderAdmin(<PartnerCampaignPage account={paidAccount} campaignId={campaign.id} />);
+  await screen.findByText("Custom campaign audience.");
+  expect(screen.queryByRole("combobox", { name: "Campaign audience" })).toBeNull();
+  expect(screen.queryByRole("checkbox", { name: "Senior" })).toBeNull();
+  fireEvent.submit(screen.getByRole("form", { name: "Paid campaign settings" }));
+  await waitFor(() => expect(api.adminPartnerCampaignUpdate).toHaveBeenCalled());
+  expect(vi.mocked(api.adminPartnerCampaignUpdate).mock.calls[0][2].audience).toEqual(
+    seniorAudience,
+  );
+});
 
 it("saves promotion defaults once on the account without requiring a product type", async () => {
   const fetcher = vi.fn(async (_input: unknown, init?: RequestInit) =>
@@ -257,6 +394,7 @@ it.each([3, 20])(
       promotion_kind: null,
       approval_mode: "qualified",
       outbound_destination: "product_url",
+      audience: { experience_levels: [], language_topic_ids: [], tool_topic_ids: [] },
     });
   },
 );

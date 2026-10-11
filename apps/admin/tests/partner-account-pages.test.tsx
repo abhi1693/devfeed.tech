@@ -25,6 +25,8 @@ vi.mock("@/components/organisms/job-logs", () => ({ JobLogs: () => <p>Run logs</
 vi.mock("@/lib/api/generated/admin", () => ({
   adminPartnerToolsList: vi.fn().mockResolvedValue({ items: [], total: 0 }),
   adminPartnerDestinationPreview: vi.fn().mockResolvedValue({ product: null }),
+  adminPartnerAudienceTopics: vi.fn().mockResolvedValue({ items: [], total: 0 }),
+  adminPartnerAudienceTopicsCatalog: vi.fn().mockResolvedValue({ items: [], total: 0 }),
   adminPartnerConnectionsList: vi.fn(),
   adminPartnerProvidersList: vi.fn().mockResolvedValue([]),
   dashboardV1AdminPartnerAccountsAccountIdDashboardGet: vi.fn(),
@@ -44,6 +46,7 @@ const account: AccountOut & { members: number } = {
   effective_promotion_kind: "product" as const,
   promotion_kind_source: "tier" as const,
   members: 1,
+  advanced_targeting: false,
 };
 const asset = {
   id: "asset-1",
@@ -190,6 +193,7 @@ it("creates an account with selected benefits and navigates to the saved record"
         promotion_kind: null,
         approval_mode: "qualified",
         outbound_destination: "product_url",
+        audience: { experience_levels: [], language_topic_ids: [], tool_topic_ids: [] },
       }),
     }),
   );

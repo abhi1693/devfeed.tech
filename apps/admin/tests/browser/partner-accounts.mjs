@@ -4,6 +4,13 @@ import { spawn } from "node:child_process";
 import { mkdir } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { chromium } from "playwright";
+import {
+  emptyAudience,
+  audienceTopicOptions,
+  selectedAudience,
+  selectAudience,
+  checkAudienceSelection,
+} from "../../../../scripts/testing/audience-targeting.mjs";
 
 const root = fileURLToPath(new URL("../../../../", import.meta.url));
 const account = {
@@ -21,6 +28,8 @@ const account = {
   promotion_kind: null,
   approval_mode: "qualified",
   outbound_destination: "product_url",
+  advanced_targeting: false,
+  audience: structuredClone(emptyAudience),
 };
 let members = [{ subject: "alice", issuer: "https://identity.example" }];
 const writes = [];
@@ -48,6 +57,7 @@ const campaigns = [];
 let productExcluded = false;
 let appearance = { theme: "light" };
 const inventoryRequests = [];
+const audienceRequests = [];
 const inventoryProducts = Array.from({ length: 60 }, (_, index) => ({
   ...catalogProduct,
   id:
@@ -74,6 +84,7 @@ function updatePolicy(payload) {
   account.allowed_promotion_kinds = paid ? ["product", "ad"] : ["product"];
   account.effective_promotion_kind = account.promotion_kind ?? (paid ? "ad" : "product");
   account.promotion_kind_source = account.promotion_kind ? "account" : "tier";
+  account.advanced_targeting = ["platinum", "diamond"].includes(account.tier);
 }
 const fixture = createServer(async (req, res) => {
   const path = new URL(req.url, "http://localhost").pathname;
@@ -139,7 +150,12 @@ const fixture = createServer(async (req, res) => {
       benefits: benefits.slice(0, index + 3),
       allowed_promotion_kinds: index >= 2 ? ["product", "ad"] : ["product"],
       default_promotion_kind: index >= 2 ? "ad" : "product",
+      advanced_targeting: index >= 3,
     }));
+  } else if (path.endsWith("/audience-topics")) {
+    const params = new URL(req.url, "http://localhost").searchParams;
+    audienceRequests.push(Object.fromEntries(params));
+    body = audienceTopicOptions(params);
   } else if (path === "/v1/admin/partner-accounts") {
     if (req.method === "POST") {
       let raw = "";
@@ -353,6 +369,11 @@ try {
   ]);
   assert.equal(await page.getByLabel("Benefits, one per line").count(), 0);
   await page.getByRole("option", { name: "Silver", exact: true }).click();
+  assert.equal(await page.getByLabel("Senior", { exact: true }).count(), 0);
+  assert.equal(
+    await page.getByRole("combobox", { name: "Programming languages", exact: true }).count(),
+    0,
+  );
   await page
     .getByRole("region", { name: "Selected tier benefits" })
     .getByText("Product promotion planning", { exact: true })
@@ -390,6 +411,8 @@ try {
   await page.reload();
   await page.getByRole("combobox", { name: "Partnership tier" }).click();
   await page.getByRole("option", { name: "Diamond", exact: true }).click();
+  const audience = page.getByRole("region", { name: "Audience targeting", exact: true });
+  await selectAudience(page, audience, audienceRequests);
   await page.getByText(/Effective: Sponsored · inherited from tier/).waitFor();
   await page.getByRole("combobox", { name: "Default promotion", exact: true }).click();
   assert.deepEqual(await page.getByRole("option").allTextContents(), [
@@ -489,7 +512,15 @@ try {
     path: root + "reports/partner/tier-benefits-mobile.png",
     fullPage: true,
   });
+  await audience.screenshot({
+    path: root + "reports/partner/audience-admin-mobile.png",
+    animations: "disabled",
+  });
   await page.setViewportSize({ width: 1440, height: 1100 });
+  await audience.screenshot({
+    path: root + "reports/partner/audience-admin-desktop.png",
+    animations: "disabled",
+  });
   await page.getByRole("combobox", { name: "Status" }).click();
   await page.getByRole("option", { name: "Paused", exact: true }).click();
   await page.getByLabel("Reader feeds", { exact: true }).uncheck();
@@ -510,6 +541,7 @@ try {
   assert.equal(writes.at(-1).payload.promotion_kind, null);
   assert.equal(writes.at(-1).payload.approval_mode, "trusted");
   assert.equal(writes.at(-1).payload.outbound_destination, "listing_url");
+  assert.deepEqual(writes.at(-1).payload.audience, selectedAudience);
   await page.getByText("Promotion defaults", { exact: true }).waitFor();
   assert.equal(await page.getByText("Product exposure limit", { exact: true }).count(), 0);
   assert.equal(await page.getByText(/per reader installation per UTC day/).count(), 0);
@@ -629,6 +661,11 @@ try {
   assert.equal(writes.at(-1).payload.targeting, "all");
   assert.equal(writes.at(-1).payload.status, "active");
   assert.equal(writes.at(-1).payload.daily_impression_limit, 250);
+  assert.equal(
+    writes.at(-1).payload.audience,
+    null,
+    "Dated campaigns inherit account audience by default",
+  );
   assert.deepEqual(writes.at(-1).payload.surfaces, ["article", "topic"]);
   await page.getByRole("link", { name: "October catalog promotion", exact: true }).click();
   await page.waitForURL("**/campaigns/*/edit");
@@ -640,10 +677,25 @@ try {
   assert.equal(await page.getByRole("option", { name: /Rejected product/ }).count(), 0);
   await page.getByPlaceholder("Search account products…").fill("API");
   await page.getByRole("option", { name: /API Checker/ }).click();
+  await page.getByRole("combobox", { name: "Campaign audience", exact: true }).click();
+  await page.getByRole("option", { name: "Customize audience", exact: true }).click();
+  await page.getByLabel("Senior", { exact: true }).uncheck();
+  await page.getByLabel("Entry level", { exact: true }).check();
   await page.getByRole("button", { name: "Save campaign", exact: true }).click();
   await page.waitForURL(`**/accounts/${account.id}/campaigns`);
   assert.equal(writes.at(-1).payload.targeting, "selected");
   assert.deepEqual(writes.at(-1).payload.product_ids, [catalogProduct.id]);
+  assert.deepEqual(writes.at(-1).payload.audience.experience_levels, ["entry_level"]);
+  await page.getByRole("link", { name: "October catalog promotion", exact: true }).click();
+  await page.waitForURL("**/campaigns/*/edit");
+  await page.reload();
+  assert.match(
+    await page.getByRole("combobox", { name: "Campaign audience", exact: true }).innerText(),
+    /Customize audience/,
+  );
+  assert.equal(await page.getByLabel("Entry level", { exact: true }).isChecked(), true);
+  assert.equal(await page.getByLabel("Senior", { exact: true }).isChecked(), false);
+  await page.goto(origin + `/partnerships/accounts/${account.id}/campaigns`);
   await page.getByRole("link", { name: "Create paid campaign", exact: true }).click();
   await page.getByLabel(/Campaign name/).fill("Kubernetes tools agreement");
   await page.getByLabel("Starts", { exact: false }).fill("2026-10-01T00:00");
@@ -661,6 +713,21 @@ try {
   await page.waitForURL(`**/accounts/${account.id}/campaigns`);
   assert.equal(writes.at(-1).payload.targeting, "filters");
   assert.deepEqual(writes.at(-1).payload.technologies, ["Kubernetes", "PostgreSQL"]);
+  await page.goto(origin + `/partnerships/accounts/${account.id}/edit`);
+  await checkAudienceSelection(
+    page.getByRole("region", { name: "Audience targeting", exact: true }),
+  );
+  await page.getByRole("combobox", { name: "Partnership tier" }).click();
+  await page.getByRole("option", { name: "Platinum", exact: true }).click();
+  assert.equal(await page.getByLabel("Senior", { exact: true }).isChecked(), true);
+  await page.getByRole("combobox", { name: "Partnership tier" }).click();
+  await page.getByRole("option", { name: "Gold", exact: true }).click();
+  assert.equal(await page.getByLabel("Senior", { exact: true }).count(), 0);
+  assert.equal(
+    await page.getByRole("combobox", { name: "Programming languages", exact: true }).count(),
+    0,
+  );
+  await page.goto(origin + `/partnerships/accounts/${account.id}/campaigns`);
   await page.setViewportSize({ width: 1440, height: 1100 });
   await page.getByRole("link", { name: "Related objects", exact: true }).click();
   assert.equal(await page.getByRole("link", { name: "Associate asset", exact: true }).count(), 0);

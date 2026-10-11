@@ -5,6 +5,13 @@ import { mkdir } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 import { chromium } from "playwright";
+import {
+  emptyAudience,
+  audienceTopicOptions,
+  selectedAudience,
+  selectAudience,
+  checkAudienceSelection,
+} from "../../../scripts/testing/audience-targeting.mjs";
 
 const root = fileURLToPath(new URL("../../../", import.meta.url));
 const account = {
@@ -17,6 +24,8 @@ const account = {
   promotion_kind_source: "tier",
   approval_mode: "trusted",
   outbound_destination: "product_url",
+  advanced_targeting: false,
+  audience: structuredClone(emptyAudience),
 };
 const beta = {
   ...account,
@@ -114,6 +123,7 @@ const assets = [
 const dashboardRequests = [];
 const preferenceWrites = [];
 const previewRequests = [];
+const audienceRequests = [];
 const mock = createServer(async (request, response) => {
   const url = new URL(request.url, "http://localhost");
   const path = url.pathname;
@@ -172,11 +182,23 @@ const mock = createServer(async (request, response) => {
     let raw = "";
     for await (const chunk of request) raw += chunk;
     const payload = JSON.parse(raw);
-    assert.deepEqual(Object.keys(payload), ["outbound_destination"]);
-    assert.ok(["product_url", "listing_url"].includes(payload.outbound_destination));
+    assert.ok(
+      Object.keys(payload).every((key) => ["outbound_destination", "audience"].includes(key)),
+    );
+    if (payload.outbound_destination !== undefined)
+      assert.ok(["product_url", "listing_url"].includes(payload.outbound_destination));
     preferenceWrites.push(payload);
-    account.outbound_destination = payload.outbound_destination;
+    if (payload.outbound_destination !== undefined)
+      account.outbound_destination = payload.outbound_destination;
+    if (payload.audience !== undefined) account.audience = payload.audience;
     response.end(JSON.stringify(account));
+    return;
+  }
+  if (path.endsWith("/audience-topics")) {
+    assert.equal(request.method, "GET");
+    assert.equal(path, `/v1/partner/accounts/${account.id}/audience-topics`);
+    audienceRequests.push(Object.fromEntries(url.searchParams));
+    response.end(JSON.stringify(audienceTopicOptions(url.searchParams)));
     return;
   }
   if (path.endsWith("/destination-preview")) {
@@ -333,6 +355,11 @@ try {
   assert.equal(await page.getByRole("combobox", { name: "Reporting period" }).count(), 0);
   await page.getByText("Sponsored · inherited from tier", { exact: true }).waitFor();
   const settings = page.getByRole("region", { name: "Product promotion settings" });
+  assert.equal(await page.getByLabel("Senior", { exact: true }).count(), 0);
+  assert.equal(
+    await page.getByRole("combobox", { name: "Programming languages", exact: true }).count(),
+    0,
+  );
   const preview = page.getByRole("region", { name: "Click destination preview" });
   const previewLink = preview.getByRole("link");
   await preview.getByRole("link", { name: previewProduct.product_url, exact: true }).waitFor();
@@ -566,6 +593,57 @@ try {
   await page.goBack();
   await page.waitForURL("**/performance?*");
   await page.getByRole("heading", { name: "Daily activity" }).waitFor();
+  account.tier = "platinum";
+  account.advanced_targeting = true;
+  await page.goto(origin + `/${account.id}`);
+  await page.getByRole("heading", { name: "Platinum", exact: true }).waitFor();
+  const audience = page.getByRole("region", { name: "Audience targeting", exact: true });
+  await selectAudience(page, audience, audienceRequests);
+  await audience.screenshot({
+    path: root + "reports/partner/audience-portal-desktop.png",
+    animations: "disabled",
+  });
+  await page.setViewportSize({ width: 390, height: 844 });
+  assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
+  await audience.screenshot({
+    path: root + "reports/partner/audience-portal-mobile.png",
+    animations: "disabled",
+  });
+  const destinationBeforeAudience = account.outbound_destination;
+  await page.getByRole("button", { name: "Save audience", exact: true }).click();
+  await page.getByRole("status").filter({ hasText: "Audience saved." }).waitFor();
+  assert.deepEqual(preferenceWrites.at(-1), { audience: selectedAudience });
+  assert.equal(account.outbound_destination, destinationBeforeAudience);
+  await page.reload();
+  await checkAudienceSelection(audience);
+  assert.ok(
+    audienceRequests.some((params) => params.topic_id === selectedAudience.language_topic_ids[0]),
+    "Reload resolves saved selections by ID",
+  );
+  account.tier = "diamond";
+  await page.reload();
+  await page.getByRole("heading", { name: "Diamond", exact: true }).waitFor();
+  await checkAudienceSelection(audience);
+  account.tier = "gold";
+  account.advanced_targeting = false;
+  await page.reload();
+  await page.getByRole("heading", { name: "Gold", exact: true }).waitFor();
+  assert.equal(await audience.getByLabel("Senior", { exact: true }).count(), 0);
+  assert.equal(
+    await audience.getByRole("combobox", { name: "Programming languages", exact: true }).count(),
+    0,
+  );
+  await audience
+    .getByRole("list", { name: "Selected programming languages", exact: true })
+    .getByText("Python", { exact: true })
+    .waitFor();
+  assert.deepEqual(
+    account.audience,
+    selectedAudience,
+    "A downgraded account retains restrictions without widening them",
+  );
+  account.audience = structuredClone(emptyAudience);
+  await page.setViewportSize({ width: 1440, height: 1100 });
   await context.addCookies([{ name: "devfeed_partner_session", value: "superuser", url: origin }]);
   await page.goto(origin);
   assert.equal(await page.getByRole("link", { name: "Manage partnerships" }).count(), 0);

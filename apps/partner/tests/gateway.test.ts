@@ -173,6 +173,70 @@ it("allows only exact account preview GETs through the authenticated partner bou
   expect(fetchMock).not.toHaveBeenCalled();
 });
 
+it("allows only exact audience-topic GETs and forwards server search parameters without credentials leaking", async () => {
+  vi.stubEnv("DEVFEED_PARTNER_BASE_URL", "https://partner.example");
+  const fetcher = vi.fn(async () => Response.json({ items: [], total: 0 }));
+  vi.stubGlobal("fetch", fetcher);
+  const segments = [
+    "v1",
+    "partner",
+    "accounts",
+    "11111111-1111-4111-8111-111111111111",
+    "audience-topics",
+  ];
+  const response = await gateway(
+    new Request("https://partner.example/api?dimension=tools&q=docker&offset=25&limit=25", {
+      headers: { cookie: "partner_session=private", authorization: "never-forward" },
+    }),
+    segments,
+  );
+  expect(response.status).toBe(200);
+  const [url, init] = fetcher.mock.calls[0] as unknown as [string, RequestInit];
+  expect(url).toBe(
+    `http://partner-api:8004/${segments.join("/")}?dimension=tools&q=docker&offset=25&limit=25`,
+  );
+  expect((init.headers as Headers).get("cookie")).toBe("partner_session=private");
+  expect((init.headers as Headers).has("authorization")).toBe(false);
+  expect(init.cache).toBe("no-store");
+  fetcher.mockClear();
+  for (const method of ["HEAD", "OPTIONS", "POST", "PUT", "DELETE"])
+    expect(
+      (await gateway(new Request("https://partner.example/api", { method }), segments)).status,
+    ).toBe(405);
+  for (const path of [
+    [...segments, "extra"],
+    [...segments.slice(0, 3), "not-a-uuid", "audience-topics"],
+    ["v1", "partner", "audience-topics"],
+  ])
+    expect((await gateway(new Request("https://partner.example/api"), path)).status).toBe(404);
+  expect(fetcher).not.toHaveBeenCalled();
+});
+
+it("forwards an audience-only preference without adding or clearing the destination", async () => {
+  vi.stubEnv("DEVFEED_PARTNER_BASE_URL", "https://partner.example");
+  const fetcher = vi.fn(async () => Response.json({ ok: true }));
+  vi.stubGlobal("fetch", fetcher);
+  const payload = {
+    audience: { experience_levels: ["senior"], language_topic_ids: [], tool_topic_ids: [] },
+  };
+  const response = await gateway(
+    new Request("https://partner.example/api", {
+      method: "PUT",
+      headers: {
+        origin: "https://partner.example",
+        "x-csrf-token": "csrf",
+        "content-type": "application/json",
+      },
+      body: JSON.stringify(payload),
+    }),
+    ["v1", "partner", "accounts", "11111111-1111-4111-8111-111111111111", "preferences"],
+  );
+  expect(response.status).toBe(200);
+  const init = (fetcher.mock.calls[0] as unknown as [string, RequestInit])[1];
+  expect(JSON.parse(new TextDecoder().decode(init.body as ArrayBuffer))).toEqual(payload);
+  expect((init.headers as Headers).get("x-csrf-token")).toBe("csrf");
+});
+
 it("forwards a bounded logout body and reports transport failures without credentials", async () => {
   vi.stubEnv("DEVFEED_PARTNER_BASE_URL", "https://partner.example");
   const fetchMock = vi.fn().mockResolvedValue(new Response(null, { status: 204 }));

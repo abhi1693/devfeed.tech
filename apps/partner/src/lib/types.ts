@@ -1,3 +1,5 @@
+import type { Audience } from "@devfeed/ui/audience-targeting";
+
 export interface Identity {
   subject: string;
   name: string | null;
@@ -16,6 +18,8 @@ export interface Account {
   promotion_kind_source?: "tier" | "account";
   approval_mode?: "qualified" | "trusted";
   outbound_destination?: OutboundDestination;
+  advanced_targeting?: boolean;
+  audience?: Audience;
 }
 export type OutboundDestination = "product_url" | "listing_url";
 export interface Totals {

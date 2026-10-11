@@ -171,6 +171,7 @@ it("ignores legacy saved hides and hide events for every product", async () => {
 it("keeps viewed products eligible on immediate remount in another context", async () => {
   const mounted = render(<PartnerPlacements surface="article" article_id={placement.product_id} />);
   await screen.findByRole("link", { name: placement.name });
+  await waitFor(() => expect(observePartnerPlacement).toHaveBeenCalled());
   act(() => vi.mocked(observePartnerPlacement).mock.calls[0][2]!());
   mounted.unmount();
   render(<PartnerPlacements surface="article" article_id={sponsoredPlacement.product_id} />);
@@ -207,7 +208,7 @@ it("deduplicates the same product across simultaneously mounted contexts", async
 
 it("uses the user endpoint and CSRF for personalized delivery and clears products at session change", async () => {
   session.user = { user_id: "reader", csrf_token: "csrf" };
-  const mounted = render(<PartnerPlacements surface="feed" personal />);
+  const mounted = render(<PartnerPlacements surface="feed" />);
   await screen.findByRole("link", { name: placement.name });
   expect(userRequest).toHaveBeenCalledWith(
     "partner-placements/query",
@@ -219,47 +220,106 @@ it("uses the user endpoint and CSRF for personalized delivery and clears product
   expect(readerRequest).not.toHaveBeenCalled();
   session.user = null;
   session.loading = true;
-  mounted.rerender(<PartnerPlacements surface="feed" personal />);
+  mounted.rerender(<PartnerPlacements surface="feed" />);
   expect(screen.queryByRole("link", { name: placement.name })).toBeNull();
 });
 
-it("grounds public search/feed delivery in visible articles without sending the signed-in identity", async () => {
+it.each([
+  { surface: "article" as const, article_id: placement.product_id },
+  { surface: "topic" as const, topic_id: placement.product_id },
+  { surface: "feed" as const, article_ids: [placement.product_id, sponsoredPlacement.product_id] },
+])("uses authenticated context-only delivery on the $surface surface", async (query) => {
   session.user = { user_id: "reader", csrf_token: "private-csrf" };
-  const article_ids = [placement.product_id, sponsoredPlacement.product_id];
-  render(<PartnerPlacements surface="feed" article_ids={article_ids} />);
+  render(<PartnerPlacements {...query} />);
   await screen.findByRole("link", { name: placement.name });
-  expect(userRequest).not.toHaveBeenCalled();
-  const request = vi.mocked(readerRequest).mock.calls[0][1]!;
-  expect(request.credentials).toBe("omit");
-  expect(request.headers).toEqual({ "Content-Type": "application/json" });
-  expect(JSON.parse(String(request.body))).toEqual({
-    surface: "feed",
-    article_ids,
-    allow_sponsored_fallback: false,
+  expect(readerRequest).not.toHaveBeenCalled();
+  const [path, request] = vi.mocked(userRequest).mock.calls[0];
+  expect(path).toBe("partner-placements/query");
+  expect(request?.headers).toEqual({
+    "Content-Type": "application/json",
+    "X-CSRF-Token": "private-csrf",
+  });
+  expect(JSON.parse(String(request?.body))).toEqual({
+    ...query,
+    ...(query.surface === "feed" ? { allow_sponsored_fallback: false } : {}),
     exclude_product_ids: [],
   });
 });
 
-it("keeps an anonymous article delivery unchanged when a reader session resolves or refreshes", async () => {
+it("waits for session resolution and replaces receipts when the authenticated session refreshes", async () => {
   session.loading = true;
   const mounted = render(<PartnerPlacements surface="article" article_id={placement.product_id} />);
-  await screen.findByRole("link", { name: placement.name });
+  await act(async () => {});
+  expect(readerRequest).not.toHaveBeenCalled();
+  expect(userRequest).not.toHaveBeenCalled();
   session.loading = false;
   session.user = { user_id: "reader", csrf_token: "csrf" };
   session.sessionRevision = 1;
   mounted.rerender(<PartnerPlacements surface="article" article_id={placement.product_id} />);
-  await act(async () => {});
+  await screen.findByRole("link", { name: placement.name });
   session.user = { user_id: "reader", csrf_token: "rotated-csrf" };
   session.sessionRevision = 2;
   mounted.rerender(<PartnerPlacements surface="article" article_id={placement.product_id} />);
-  await act(async () => {});
-  expect(readerRequest).toHaveBeenCalledTimes(1);
-  expect(userRequest).not.toHaveBeenCalled();
-  expect(vi.mocked(readerRequest).mock.calls[0][1]?.headers).toEqual({
+  await waitFor(() => expect(userRequest).toHaveBeenCalledTimes(2));
+  expect(vi.mocked(userRequest).mock.calls[1][1]?.headers).toEqual({
     "Content-Type": "application/json",
+    "X-CSRF-Token": "rotated-csrf",
   });
-  expect(screen.getByRole("link", { name: placement.name })).toBeDefined();
-  expect(observePartnerPlacement).toHaveBeenCalledTimes(2);
+  expect(readerRequest).not.toHaveBeenCalled();
+});
+
+it.each([false, true])(
+  "retains inert grid cells while verifying the same reader (authenticated: %s)",
+  async (authenticated) => {
+    session.user = authenticated ? { user_id: "reader", csrf_token: "csrf" } : null;
+    const content = () => (
+      <PartnerPlacements surface="feed">{(cards) => <div>{cards}</div>}</PartnerPlacements>
+    );
+    const mounted = render(content());
+    await screen.findByRole("link", { name: placement.name });
+    const card = mounted.container.querySelector(".partner-placement")!;
+    const requests = authenticated ? userRequest : readerRequest;
+    expect(requests).toHaveBeenCalledTimes(1);
+    session.loading = true;
+    mounted.rerender(content());
+    expect(mounted.container.querySelector(".partner-placement")).toBe(card);
+    expect(card.getAttribute("data-suspended")).toBe("true");
+    expect(card.getAttribute("aria-hidden")).toBe("true");
+    expect(card.hasAttribute("inert")).toBe(true);
+    expect(card.hasAttribute("hidden")).toBe(false);
+    expect(screen.queryByRole("link", { name: placement.name })).toBeNull();
+    expect(requests).toHaveBeenCalledTimes(1);
+    session.loading = false;
+    mounted.rerender(content());
+    await screen.findByRole("link", { name: placement.name });
+    expect(mounted.container.querySelector(".partner-placement")).toBe(card);
+    expect(requests).toHaveBeenCalledTimes(1);
+  },
+);
+
+it("aborts a previous account delivery and cannot show its late response for the next reader", async () => {
+  let finish!: (value: unknown) => void;
+  vi.mocked(userRequest).mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        finish = resolve;
+      }),
+  );
+  session.user = { user_id: "first", csrf_token: "first-csrf" };
+  const mounted = render(<PartnerPlacements surface="topic" topic_id={placement.product_id} />);
+  const oldSignal = vi.mocked(userRequest).mock.calls[0][1]!.signal;
+  session.user = { user_id: "second", csrf_token: "second-csrf" };
+  session.sessionRevision += 1;
+  vi.mocked(userRequest).mockResolvedValueOnce({ items: [sponsoredPlacement] });
+  mounted.rerender(<PartnerPlacements surface="topic" topic_id={placement.product_id} />);
+  await screen.findByRole("link", { name: sponsoredPlacement.name });
+  expect(oldSignal?.aborted).toBe(true);
+  await act(async () => finish({ items: [placement] }));
+  expect(screen.queryByRole("link", { name: placement.name })).toBeNull();
+  session.user = null;
+  mounted.rerender(<PartnerPlacements surface="topic" topic_id={placement.product_id} />);
+  await waitFor(() => expect(readerRequest).toHaveBeenCalledTimes(1));
+  expect(vi.mocked(readerRequest).mock.calls[0][1]?.credentials).toBe("omit");
 });
 
 it("ignores old account caps and repeated-view history when rendering relevant products", async () => {
@@ -291,9 +351,7 @@ it("gives an article modal its candidates instead of reserving them in a signed-
   const contexts = (
     <>
       <div data-testid="background">
-        <PartnerPlacements surface="feed" personal>
-          {(cards) => <div>{cards}</div>}
-        </PartnerPlacements>
+        <PartnerPlacements surface="feed">{(cards) => <div>{cards}</div>}</PartnerPlacements>
       </div>
       <div data-testid="article">
         <PartnerPlacements surface="article" article_id={placement.product_id} />
@@ -307,9 +365,7 @@ it("gives an article modal its candidates instead of reserving them in a signed-
   mounted.rerender(
     <>
       <div data-testid="background">
-        <PartnerPlacements surface="feed" personal>
-          {(cards) => <div>{cards}</div>}
-        </PartnerPlacements>
+        <PartnerPlacements surface="feed">{(cards) => <div>{cards}</div>}</PartnerPlacements>
       </div>
       <div data-testid="article">
         <PartnerPlacements surface="article" article_id={placement.product_id} />
@@ -325,18 +381,16 @@ it("gives an article modal its candidates instead of reserving them in a signed-
       .querySelector(".partner-placement")
       ?.getAttribute("data-suspended"),
   ).toBe("true");
-  expect(userRequest).toHaveBeenCalledTimes(1);
-  expect(readerRequest).toHaveBeenCalledTimes(1);
+  expect(userRequest).toHaveBeenCalledTimes(2);
+  expect(readerRequest).not.toHaveBeenCalled();
   expect(
-    JSON.parse(vi.mocked(readerRequest).mock.calls[0][1]!.body as string).exclude_product_ids,
+    JSON.parse(vi.mocked(userRequest).mock.calls[1][1]!.body as string).exclude_product_ids,
   ).toEqual([]);
   prompts.current = { ready: true, modalOpen: false };
   mounted.rerender(
     <>
       <div data-testid="background">
-        <PartnerPlacements surface="feed" personal>
-          {(cards) => <div>{cards}</div>}
-        </PartnerPlacements>
+        <PartnerPlacements surface="feed">{(cards) => <div>{cards}</div>}</PartnerPlacements>
       </div>
       <div data-testid="article">
         <PartnerPlacements surface="article" article_id={placement.product_id} />
@@ -351,8 +405,8 @@ it("gives an article modal its candidates instead of reserving them in a signed-
         ?.getAttribute("data-suspended"),
     ).not.toBe("true"),
   );
-  expect(userRequest).toHaveBeenCalledTimes(1);
-  expect(readerRequest).toHaveBeenCalledTimes(1);
+  expect(userRequest).toHaveBeenCalledTimes(2);
+  expect(readerRequest).not.toHaveBeenCalled();
 });
 
 it("renders nothing for empty, unavailable, or unsafe results and never substitutes random products", async () => {

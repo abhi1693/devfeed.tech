@@ -27,14 +27,14 @@ import { ArticleImage } from "./article-image";
 // Simultaneously mounted feed/article contexts must never show the same catalog product twice.
 const displayed = new Set<string>();
 
-export type PartnerPlacementContext = PlacementQuery & { personal?: boolean };
+export type PartnerPlacementContext = PlacementQuery;
 type Props = PartnerPlacementContext & {
   maxItems?: number;
   children?: (cards: ReactNode[]) => ReactNode;
   beforeDisplay?: () => void;
   afterDisplay?: () => void;
 };
-type Delivery = { context: string; items: PartnerPlacement[]; loadedAt: number };
+type Delivery = { context: string; owner: string; items: PartnerPlacement[]; loadedAt: number };
 
 function ProductLogo({ name, url }: { name: string; url: string | null }) {
   const [failed, setFailed] = useState(false);
@@ -204,7 +204,6 @@ function PlacementDelivery({
   article_ids,
   allow_sponsored_fallback = false,
   topic_id,
-  personal = false,
   maxItems = 2,
   active,
   children,
@@ -212,7 +211,7 @@ function PlacementDelivery({
   afterDisplay,
 }: Props & { active: boolean }) {
   const { user, loading, sessionRevision } = useUser();
-  const identity = personal ? (loading ? "loading" : (user?.user_id ?? "anonymous")) : "public";
+  const identity = user?.user_id ?? "anonymous";
   const context = JSON.stringify({
     surface,
     article_id,
@@ -220,7 +219,7 @@ function PlacementDelivery({
     allow_sponsored_fallback,
     topic_id,
     identity,
-    sessionRevision: personal ? sessionRevision : 0,
+    sessionRevision: user ? sessionRevision : 0,
   });
   const [result, setResult] = useState<Delivery | null>(null);
   const cached = useRef<Delivery | null>(null);
@@ -233,9 +232,9 @@ function PlacementDelivery({
     [beforeDisplay],
   );
   useLayoutEffect(() => afterDisplay?.(), [result, afterDisplay]);
-  const csrf = personal ? user?.csrf_token : undefined;
+  const csrf = user?.csrf_token;
   useEffect(() => {
-    if (!active || identity === "loading") return;
+    if (!active || loading) return;
     const controller = new AbortController();
     const reserved: string[] = [];
     function reserve(items: PartnerPlacement[]) {
@@ -266,16 +265,14 @@ function PlacementDelivery({
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        ...(identity !== "public" && identity !== "anonymous" && csrf
-          ? { "X-CSRF-Token": csrf }
-          : {}),
+        ...(identity !== "anonymous" && csrf ? { "X-CSRF-Token": csrf } : {}),
       },
       body: JSON.stringify(query),
       cache: "no-store" as const,
       referrerPolicy: "no-referrer" as const,
       signal: AbortSignal.any([controller.signal, AbortSignal.timeout(5000)]),
     };
-    const personalized = personal && identity !== "anonymous";
+    const personalized = identity !== "anonymous";
     const load = personalized
       ? userRequest<unknown>("partner-placements/query", init)
       : readerRequest("/api/v1/partner-placements/query", { ...init, credentials: "omit" }).then(
@@ -292,7 +289,7 @@ function PlacementDelivery({
         const sponsored = maxItems === 1 ? eligible.find((item) => item.sponsored) : undefined;
         const items = (sponsored ? [sponsored] : eligible).slice(0, maxItems);
         reserve(items);
-        publish({ context, items, loadedAt: Date.now() });
+        publish({ context, owner: identity, items, loadedAt: Date.now() });
       })
       .catch(() => {});
     return () => {
@@ -308,21 +305,29 @@ function PlacementDelivery({
     allow_sponsored_fallback,
     topic_id,
     identity,
+    loading,
     csrf,
-    personal,
     maxItems,
     publish,
   ]);
+  // Pause a confirmed owner's cards during verification without collapsing reading geometry.
+  // A changed owner cannot retain the previous account's delivery.
+  const visible = active && !loading && result?.context === context;
   const cards =
-    result?.context === context
+    result?.owner === identity
       ? result.items.map((item) => (
-          <Placement key={item.product_id} item={item} active={active} preserveSpace={!!children} />
+          <Placement
+            key={item.product_id}
+            item={item}
+            active={visible}
+            preserveSpace={!!children}
+          />
         ))
       : [];
   if (children) return children(cards);
   if (!cards.length) return null;
   return (
-    <section className="partner-placements" aria-label="Products" hidden={!active}>
+    <section className="partner-placements" aria-label="Products" hidden={!visible}>
       {cards}
     </section>
   );

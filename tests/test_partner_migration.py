@@ -19,7 +19,8 @@ ROOT = Path(__file__).parents[1]
 
 def test_partnership_revisions_follow_master_schema():
     scripts = ScriptDirectory.from_config(Config(str(ROOT / "alembic.ini")))
-    assert scripts.get_heads() == [SCHEMA_REVISION] == ["0032"]
+    assert scripts.get_heads() == [SCHEMA_REVISION] == ["0033"]
+    assert scripts.get_revision("0033").down_revision == "0032"
     assert scripts.get_revision("0032").down_revision == "0031"
     assert scripts.get_revision("0031").down_revision == "0030"
     assert scripts.get_revision("0030").down_revision == "0029"
@@ -31,6 +32,7 @@ def test_partnership_revisions_follow_master_schema():
     assert scripts.get_revision("0024").down_revision == "0023"
     assert scripts.get_revision("0023").down_revision == "0022"
     assert [revision.revision for revision in scripts.walk_revisions("0022", "head")] == [
+        "0033",
         "0032",
         "0031",
         "0030",
@@ -82,6 +84,7 @@ def test_consolidated_migration_matches_models_and_downgrades_cleanly(database):
         ("0030", "0030_partner_product_images.py"),
         ("0031", "0031_partner_commercial_policy.py"),
         ("0032", "0032_remove_product_exposure_caps.py"),
+        ("0033", "0033_partner_audiences.py"),
     ):
         spec = importlib.util.spec_from_file_location(
             f"partner_{revision}", ROOT / "migrations/versions" / filename

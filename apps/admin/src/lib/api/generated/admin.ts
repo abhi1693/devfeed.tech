@@ -26,6 +26,8 @@ import type {
   AdminOverview,
   AdminOverviewPanelParams,
   AdminOverviewParams,
+  AdminPartnerAudienceTopicsCatalogParams,
+  AdminPartnerAudienceTopicsParams,
   AdminPartnerCampaignsListParams,
   AdminPartnerConnectionJobsParams,
   AdminPartnerEvaluationsListParams,
@@ -66,6 +68,7 @@ import type {
   ArticleContentOut,
   AssetInput,
   AssetOut,
+  AudienceTopicsOut,
   AuthConfig,
   CampaignInput,
   CampaignOut,
@@ -1127,6 +1130,37 @@ return adminFetch<AccountOut>(getCreateAccountV1AdminPartnerAccountsPostUrl(),
 
 
 
+export const getAdminPartnerAudienceTopicsCatalogUrl = (params: AdminPartnerAudienceTopicsCatalogParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/v1/admin/partner-accounts/audience-topics?${stringifiedParams}` : `/v1/admin/partner-accounts/audience-topics`
+}
+
+/**
+ * @summary Audience Catalog
+ */
+export const adminPartnerAudienceTopicsCatalog = async (params: AdminPartnerAudienceTopicsCatalogParams, options?: Parameters<typeof adminFetch>[1]): Promise<AudienceTopicsOut> => {
+
+  return adminFetch<AudienceTopicsOut>(getAdminPartnerAudienceTopicsCatalogUrl(params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
 export const getPartnershipTiersV1AdminPartnerAccountsTiersGetUrl = () => {
 
 
@@ -1306,6 +1340,39 @@ return adminFetch<void>(getRecordMetricsV1AdminPartnerAccountsAccountIdAssetsAss
     method: 'PUT',
     headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
     body: JSON.stringify(metricInput)
+  }
+);}
+
+
+
+export const getAdminPartnerAudienceTopicsUrl = (accountId: string,
+    params: AdminPartnerAudienceTopicsParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/v1/admin/partner-accounts/${accountId}/audience-topics?${stringifiedParams}` : `/v1/admin/partner-accounts/${accountId}/audience-topics`
+}
+
+/**
+ * @summary Audience Topics
+ */
+export const adminPartnerAudienceTopics = async (accountId: string,
+    params: AdminPartnerAudienceTopicsParams, options?: Parameters<typeof adminFetch>[1]): Promise<AudienceTopicsOut> => {
+
+  return adminFetch<AudienceTopicsOut>(getAdminPartnerAudienceTopicsUrl(accountId,params),
+  {
+    ...options,
+    method: 'GET'
+
+
   }
 );}
 

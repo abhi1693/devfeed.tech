@@ -69,6 +69,39 @@ are saved. There is no routine product/ad asset classification step. Legacy manu
 assets and imported metrics remain available as historical reporting records; they do not
 silently enter the new automatic delivery pipeline.
 
+## Advanced audience targeting
+
+Platinum and Diamond accounts can restrict delivery by reader experience, programming languages
+and developer tools. Account audience defaults apply to its ordinary and inherited campaign
+placements. Dated campaigns inherit these defaults when their audience is null; an explicit
+empty audience means all readers. Product inventory filters and audience criteria are separate:
+inventory filters select products, while audience criteria select eligible readers.
+
+Experience choices are Aspiring developer, Entry level, Mid level and Senior. Language choices
+must be active canonical language topics. Tool choices use active tool, platform, framework,
+library, database, runtime, operating system, software, service, product, package, program or
+technology topics. A reader must match any selected value within each populated dimension and
+every populated dimension overall. Empty criteria add no audience restriction.
+
+Populated criteria require a signed-in reader. Experience uses only the reader's optional private
+profile choice; it is never inferred from their biography or dates. Languages and tools use their
+current primary, hobby and learning stack, followed topics, and fresh valid inferred interests.
+Past stack entries and expired, invalidated or stale interest generations are ignored. Experience
+is not included in public profiles or Dev Cards. Placement requests never accept audience claims.
+
+Audience checks apply equally to contextual delivery and the Sponsored main-feed fallback.
+Article/topic relevance, account exclusions and campaign budgets still apply. An explicit active
+campaign continues to own its matching product inventory even when a reader does not match its
+audience, so inherited delivery cannot bypass its restrictions. Tracking receipts and counters
+retain no reader identity or audience attributes.
+
+Downgrading below Platinum preserves the saved criteria but disables targeted delivery and
+invalidates outstanding targeted receipts. It never silently broadens the audience. Administrators
+and account members may explicitly clear criteria; lower tiers cannot add or change populated
+criteria. Retired or reclassified selected topics also prevent future targeted delivery. The
+bounded audience-topic lookup resolves an account's saved unavailable selections for review,
+while new choices and saves require current active topics of the appropriate kind.
+
 ## Context and relevance
 
 Preparation runs in bounded background scheduler slices, independently of AI availability.
@@ -152,8 +185,8 @@ listing**. Both destinations include `utm_source=devfeed`, preserving existing q
 and fragments. Partner listing delivery resolves an active, enabled, identity-resolved listing
 owned by that account, ordered deterministically; another provider's canonical metadata listing
 can never choose the destination. A missing or unsafe configured listing omits the card, with no
-silent redirection to another partner or website. Portal preference updates can change only this
-marketing setting, never tiers, trust or campaigns.
+silent redirection to another partner or website. Portal preference updates can change click
+destination and entitled audience settings independently, never tiers, trust or campaigns.
 
 Admin account settings and the partner portal preview the destination using the account's first
 qualified product, or a trusted accepted product when none is qualified. The preview shows only
@@ -196,7 +229,7 @@ counters and must describe external deliveries to avoid double counting.
 
 ## Enablement and rollout
 
-Apply migrations through `0032` with `uv run devfeed db upgrade`. It follows the source-logo `0023` and
+Apply migrations through `0033` with `uv run devfeed db upgrade`. It follows the source-logo `0023` and
 partner migrations `0024`–`0027`, preserves existing catalog, accounts, memberships and metrics,
 and adds defaults, campaigns, exclusions, prepared matches and delivery reservations. Existing
 accounts inherit recommendations and automatic inclusion; existing connections remain assigned
@@ -210,6 +243,9 @@ enabling delivery.
 Migration `0032` removes the obsolete per-reader exposure setting and its stored values.
 Campaign budgets, placement attribution and measurements are preserved. Downgrading recreates
 the older exposure setting with its original default of three; removed values cannot be recovered.
+Migration `0033` adds optional account and campaign audiences, without changing existing delivery
+eligibility. Downgrade pauses populated targeted accounts/campaigns before removing their criteria,
+so an older runtime cannot broaden those audiences.
 
 Set the same server-only `DEVFEED_PARTNER_TRACKING_KEY` in the public API and user API, using at
 least 32 random ASCII characters. Compose injects it only into those two trusted backends.
@@ -217,7 +253,7 @@ The worker needs no signing key. An empty key disables delivery and collection. 
 must run to prepare matches and automatic associations, and Redis must be available for query
 and event rate limits. Frontends and extensions never receive the signing key.
 
-Deploy all services requiring schema `0032` together after the migration. Downgrading removes new
+Deploy all services requiring schema `0033` together after the migration. Downgrading removes new
 campaign/default/matching/reservation data and automatic campaign associations; retain a database
 backup before rollback. It preserves the original manually managed asset/metric data. Downgrading
 only `0029` removes product logo metadata/jobs while preserving products, campaigns and reporting.

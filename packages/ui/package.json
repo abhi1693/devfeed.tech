@@ -15,6 +15,7 @@
     "./combobox": "./src/combobox.tsx",
     "./select": "./src/select.tsx",
     "./product-destination-preview": "./src/product-destination-preview.tsx",
+    "./audience-targeting": "./src/audience-targeting.tsx",
     "./markdown": "./src/markdown.tsx",
     "./content.css": "./src/content.css",
     "./theme-toggle": "./src/theme-toggle.tsx",

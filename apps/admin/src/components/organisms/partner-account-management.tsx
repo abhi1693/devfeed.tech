@@ -16,6 +16,8 @@ import { adminPartnerToolsList } from "@/lib/api/generated/admin";
 import { accountsPath, accountHref } from "./partner-accounts";
 import { PartnerDestinationPreview } from "./partner-destination-preview";
 import { ApiError, returnToLogin } from "@/lib/api/client";
+import { audienceValue } from "@devfeed/ui/audience-targeting";
+import { PartnerAudience } from "./partner-audience";
 import {
   PromotionSurfaces,
   promotionSurfaces,
@@ -74,6 +76,7 @@ export function PartnerAccountManagement({
   );
   const [organicEnabled, setOrganicEnabled] = useState(account?.organic_enabled ?? true);
   const [autoInclude, setAutoInclude] = useState(account?.auto_include_products ?? true);
+  const [audience, setAudience] = useState(() => audienceValue(account?.audience));
   const [surfaces, setSurfaces] = useState<PromotionSurface[]>(
     account?.promotion_surfaces ?? [...promotionSurfaces],
   );
@@ -151,6 +154,7 @@ export function PartnerAccountManagement({
               promotion_kind: promotionKind === "inherit" ? null : promotionKind,
               approval_mode: approvalMode,
               outbound_destination: destination,
+              audience,
             };
     setBusy(true);
     setError(undefined);
@@ -439,6 +443,18 @@ export function PartnerAccountManagement({
           </label>
           <PromotionSurfaces value={surfaces} onChange={setSurfaces} disabled={busy} />
         </section>
+      )}
+      {mode === "account" && (
+        <PartnerAudience
+          accountId={account?.id}
+          value={audience}
+          onChange={setAudience}
+          enabled={
+            selectedTier?.advanced_targeting ??
+            (tier === account?.tier && !!account?.advanced_targeting)
+          }
+          disabled={busy}
+        />
       )}
       <div className="flex flex-wrap justify-end gap-3 border-t pt-6">
         <Button type="button" variant="outline" disabled={busy} onClick={() => router.push(cancel)}>
