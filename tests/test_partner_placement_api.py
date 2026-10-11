@@ -1,6 +1,7 @@
 """Delivery HTTP boundaries: strict context, anonymous output and browser-only personalization."""
 
 import json
+import secrets
 import time
 import uuid
 from types import SimpleNamespace
@@ -22,7 +23,7 @@ from pydantic import SecretStr, ValidationError
 from redis.exceptions import RedisError
 from sqlalchemy.exc import SQLAlchemyError
 
-KEY = "disposable-partner-placement-key-32-bytes"
+KEY = secrets.token_urlsafe(32)
 ORIGIN = "https://user.example"
 USER_ID = str(uuid.UUID("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"))
 ARTICLE_ID = str(uuid.UUID("bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"))

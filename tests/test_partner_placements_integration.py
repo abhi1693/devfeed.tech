@@ -1,5 +1,6 @@
 """Real inherited free/paid delivery, continuous matching, caps and policy fences."""
 
+import secrets
 import uuid
 from concurrent.futures import ThreadPoolExecutor
 from datetime import timedelta
@@ -41,7 +42,7 @@ from pydantic import SecretStr
 from sqlalchemy import delete, func, select
 
 pytestmark = pytest.mark.integration
-KEY = "disposable-partner-placement-secret-32bytes"
+KEY = secrets.token_urlsafe(32)
 
 
 @pytest.fixture
