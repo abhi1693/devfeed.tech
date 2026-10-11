@@ -116,3 +116,28 @@ production page performance. The photographic benchmark used
 [an Unsplash landscape](https://images.unsplash.com/photo-1501785888041-af3ef285b470?w=1600&q=95);
 the UI screenshot and text example were captured locally. Review artifacts are
 not repository assets and must stay untracked.
+
+## Cached sitemaps
+
+The scheduler starts a dedicated sitemap refresher immediately and checks for
+due work every minute, independently of ingestion cycles. Keep the scheduler
+running alongside the public API. Crawler requests only read completed snapshots
+from shared Redis/Valkey; they never scan PostgreSQL or wait for generation.
+
+`DEVFEED_SITEMAP_REFRESH_SECONDS` defaults to 900 (15 minutes).
+`DEVFEED_SITEMAP_RETENTION_SECONDS` defaults to 86400 (24 hours): a failed refresh
+keeps the last completed inventory available until that retention expires. A shared
+lease allows only one builder across scheduler replicas, and publication verifies
+all parts before atomically replacing the manifest. Visibility changes appear on
+the next successful refresh; article pages still enforce current public visibility.
+
+After successful publication, the previous generation's parts remain readable for
+five minutes. Unpublished parts expire after six minutes. This bounds storage
+without retaining every generation for a full day. Active parts outlive the
+manifest by one minute. Redis operations use a dedicated Sentinel-aware pool,
+three-second operation timeout, and independent circuit breaker.
+
+A completely cold cache, incompatible snapshot format, or sitemap-cache outage
+returns a retryable 503 until background generation succeeds. During rollout,
+verify `/sitemap.xml` and a listed part return 200 before declaring the sitemap
+ready. No schema migration is required.

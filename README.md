@@ -81,6 +81,10 @@ choose the kind of reading you’re in the mood for.
 DevFeed combines **Next.js and React** with **FastAPI**, **PostgreSQL**, and
 **Redis/RQ**. [Run your own instance with Docker Compose](compose.yaml).
 
+The scheduler generates cached sitemaps in the background. Crawler requests serve
+the last completed snapshot while refreshes run; see
+[sitemap refresh and retention](apps/aggregator/README.md#cached-sitemaps).
+
 [Configure OpenTelemetry and service metrics](packages/core/OBSERVABILITY.md).
 
 ## Help shape what comes next
