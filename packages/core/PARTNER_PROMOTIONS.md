@@ -273,6 +273,16 @@ No reader ID, IP or page URL is stored in
 delivery reservations or tracking events. Imported external totals remain separate from live
 counters and must describe external deliveries to avoid double counting.
 
+Anonymous placement queries have a 60-per-minute caller budget alongside the shared
+3,000-per-minute budget; rejecting a caller consumes neither budget. Tracking applies a
+180-per-minute caller budget independently to impressions and clicks before database work.
+Only a newly claimed event consumes the shared 3,000-per-minute and per-asset 1,000-per-minute
+measurement budgets. Duplicate reports consume only the caller's abuse budget. A one-hour Redis
+quota reservation prevents charging the same event again after database rollback or a lost Redis
+response; database event claims and counters still commit together. Caller keys contain an HMAC
+of the normalized address and expire with their short rate-limit window. Raw addresses are not
+stored in Redis keys or measurement rows.
+
 ## Enablement and rollout
 
 Apply migrations through `0035` with `uv run devfeed db upgrade`. It follows the source-logo `0023` and
@@ -308,6 +318,20 @@ least 32 random ASCII characters. Compose injects it only into those two trusted
 The worker needs no signing key. An empty key disables delivery and collection. The scheduler
 must run to prepare matches and automatic associations, and Redis must be available for query
 and event rate limits. Frontends and extensions never receive the signing key.
+
+For reader requests passing through the web gateway, set the same dedicated server-only
+`DEVFEED_PARTNER_CALLER_KEY` in web and public API, with at least 32 random ASCII characters.
+Use a different key from `DEVFEED_PARTNER_TRACKING_KEY`: the web service must not be able to mint
+delivery receipts. Set `DEVFEED_PARTNER_CALLER_IP_HEADER` in web to the single-IP header overwritten
+by your trusted edge, such as `cf-connecting-ip` behind Cloudflare Tunnel. Restrict origin access
+to that edge before enabling header trust; the gateway must never sign an address supplied
+directly by an untrusted client. Compose passes these settings to the appropriate services.
+The gateway overwrites caller proofs and signs the address, timestamp, method and upstream path.
+The API accepts these proofs for 60 seconds and ignores unsigned forwarding headers. Without
+configured proofs it limits the transport peer, which is appropriate for direct local requests
+but groups proxied readers together. Configure both settings before enabling proxied delivery.
+A configured gateway rejects missing or invalid trusted address headers rather than issuing
+unidentified upstream requests. Neither key nor caller proof is exposed to browsers or extensions.
 
 Deploy all services requiring schema `0035` together after the migration. Downgrading below `0028`
 removes campaign/default/matching/reservation data and automatic campaign associations; retain a database

@@ -122,6 +122,21 @@ class Settings(BaseSettings):
     def empty_tracking_key(cls, value):
         return None if value == "" else value
 
+    partner_caller_key: SecretStr | None = None
+
+    @field_validator("partner_caller_key", mode="before")
+    @classmethod
+    def empty_partner_caller_key(cls, value):
+        raw = value.get_secret_value() if isinstance(value, SecretStr) else value
+        return None if isinstance(raw, str) and not raw.strip() else value
+
+    @field_validator("partner_caller_key")
+    @classmethod
+    def validate_partner_caller_key(cls, value):
+        if value is not None and len(value.get_secret_value().encode()) < 32:
+            raise ValueError("Partner caller key must contain at least 32 bytes")
+        return value
+
     search_enabled: bool = False
     search_analytics_enabled: bool = False
     search_url: str | None = None

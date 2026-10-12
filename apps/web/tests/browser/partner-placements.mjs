@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
-import { createHash } from "node:crypto";
-import { createServer } from "node:http";
+import { createHash, createHmac } from "node:crypto";
+import { createServer, request as httpRequest } from "node:http";
 import { cp, mkdir, mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -104,6 +104,32 @@ let mediaMode = "standard";
 let experienceLevel = null;
 let profileWrites = [];
 let nativeMode = null;
+let placementLimited = false;
+const callerFixtureKey = "disposable-dedicated-caller-proof-key";
+const callerFixtureIps = { web: "203.0.113.20", chrome: "203.0.113.30", edge: "203.0.113.40" };
+let callerFixtureIp = callerFixtureIps.web;
+const observedCallerProofs = new Map();
+const observedCallerIps = new Set();
+
+function verifyCallerProof(headers, pathname) {
+  const proof = headers["x-devfeed-partner-caller"];
+  assert.equal(typeof proof, "string", "The production gateway signs caller identity");
+  const parts = /^v1\.(\d+)\.(.+)\.([a-f0-9]{64})$/.exec(proof);
+  assert.ok(parts, "Caller proof uses the versioned, bounded protocol");
+  const [, timestamp, ip, signature] = parts;
+  assert.ok(Object.values(callerFixtureIps).includes(ip), "Only trusted edge addresses are signed");
+  assert.ok(Math.abs(Date.now() / 1000 - Number(timestamp)) < 60, "Caller proof is fresh");
+  const signingKey = createHmac("sha256", callerFixtureKey)
+    .update("devfeed:partner-caller:v1")
+    .digest();
+  const expected = createHmac("sha256", signingKey)
+    .update(`v1.${timestamp}.${ip}\nPOST\n${pathname}`)
+    .digest("hex");
+  assert.equal(signature, expected, "The proof binds the caller to this method and upstream path");
+  assert.equal(headers["cf-connecting-ip"], undefined, "Raw edge headers are not forwarded");
+  observedCallerProofs.set(pathname, new Set([...(observedCallerProofs.get(pathname) ?? []), ip]));
+  observedCallerIps.add(ip);
+}
 const promotedArticle = {
   ...article,
   id: "dddddddd-dddd-4ddd-8ddd-dddddddddddd",
@@ -385,6 +411,11 @@ async function assertSponsoredCardInteraction(page, card, label, screenshot) {
 function response(requestPath, body, headers = {}, extension = false) {
   const url = new URL(requestPath, "https://devfeed.tech");
   const pathname = url.pathname.replace(/^\/api/, "");
+  if (
+    !extension &&
+    ["/v1/partner-placements/query", "/v1/partner-tracking/events"].includes(pathname)
+  )
+    verifyCallerProof(headers, pathname);
   if (["/v1/partner-placements/query", "/v1/user/partner-placements/query"].includes(pathname)) {
     assert.equal(headers.authorization, undefined);
     if (pathname === "/v1/partner-placements/query") {
@@ -593,7 +624,13 @@ const fixture = createServer(async (req, res) => {
     const body = raw ? JSON.parse(raw) : undefined;
     if (body?.surface === "feed" && deliveryGate) await deliveryGate;
     const json = response(req.url, body, req.headers);
-    const noContent = new URL(req.url, "http://fixture").pathname === "/v1/partner-tracking/events";
+    const pathname = new URL(req.url, "http://fixture").pathname;
+    if (placementLimited && pathname === "/v1/partner-placements/query") {
+      res.writeHead(429, { "Content-Type": "application/json", "Retry-After": "47" });
+      res.end(JSON.stringify({ detail: "private limiter infrastructure details" }));
+      return;
+    }
+    const noContent = pathname === "/v1/partner-tracking/events";
     res.writeHead(noContent ? 204 : 200, { "Content-Type": "application/json" });
     res.end(noContent ? undefined : JSON.stringify(json));
   } catch (error) {
@@ -607,7 +644,26 @@ const probe = createServer();
 await new Promise((resolve) => probe.listen(0, "127.0.0.1", resolve));
 const port = probe.address().port;
 await new Promise((resolve) => probe.close(resolve));
-const origin = `http://127.0.0.1:${port}`;
+const appOrigin = `http://127.0.0.1:${port}`;
+// This fixture models a trusted edge that overwrites browser-supplied client-IP
+// headers. All three readers then use the real production Next.js gateways.
+const edge = createServer((req, res) => {
+  const upstream = httpRequest(
+    new URL(req.url, appOrigin),
+    { method: req.method, headers: { ...req.headers, "cf-connecting-ip": callerFixtureIp } },
+    (response) => {
+      res.writeHead(response.statusCode, response.headers);
+      response.pipe(res);
+    },
+  );
+  upstream.on("error", () => {
+    if (!res.headersSent) res.writeHead(502);
+    res.end();
+  });
+  req.pipe(upstream);
+});
+await new Promise((resolve) => edge.listen(0, "127.0.0.1", resolve));
+const origin = `http://127.0.0.1:${edge.address().port}`;
 const upstream = `http://127.0.0.1:${fixture.address().port}`;
 const env = Object.fromEntries(
   Object.entries(process.env).filter(([key]) => !key.startsWith("DEVFEED_")),
@@ -630,6 +686,8 @@ const app = spawn(
       DEVFEED_USER_API_URL: upstream,
       DEVFEED_USER_BASE_URL: origin,
       DEVFEED_ANALYTICS_ENABLED: "false",
+      DEVFEED_PARTNER_CALLER_KEY: callerFixtureKey,
+      DEVFEED_PARTNER_CALLER_IP_HEADER: "cf-connecting-ip",
     },
     stdio: "pipe",
   },
@@ -654,6 +712,8 @@ try {
   }
   assert.ok(ready, logs);
   for (const platform of ["web", "chrome", "edge"]) {
+    callerFixtureIp = callerFixtureIps[platform];
+    observedCallerProofs.clear();
     signedIn = false;
     queries = [];
     events = [];
@@ -689,6 +749,27 @@ try {
           const request = route.request();
           const raw = request.postData();
           const body = raw ? JSON.parse(raw) : undefined;
+          const pathname = new URL(request.url()).pathname;
+          if (
+            ["/api/v1/partner-placements/query", "/api/v1/partner-tracking/events"].includes(
+              pathname,
+            )
+          ) {
+            assert.equal(request.headers().cookie, undefined);
+            assert.equal(request.headers().authorization, undefined);
+            assert.equal(request.headers()["x-devfeed-partner-caller"], undefined);
+            const gateway = await fetch(new URL(pathname, origin), {
+              method: "POST",
+              headers: { "Content-Type": "application/json", "Accept-Encoding": "identity" },
+              body: raw,
+            });
+            await route.fulfill({
+              status: gateway.status,
+              headers: Object.fromEntries(gateway.headers),
+              body: Buffer.from(await gateway.arrayBuffer()),
+            });
+            return;
+          }
           if (body?.surface === "feed" && deliveryGate) await deliveryGate;
           const json = response(request.url(), body, request.headers(), true);
           await route.fulfill(
@@ -1734,18 +1815,66 @@ try {
         );
       }
       nativeMode = null;
+      placementLimited = true;
+      try {
+        const limited = await page.evaluate(
+          async (url) => {
+            const response = await fetch(url, {
+              method: "POST",
+              credentials: "omit",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ surface: "feed" }),
+            });
+            return {
+              status: response.status,
+              retryAfter: response.headers.get("retry-after"),
+              cacheControl: response.headers.get("cache-control"),
+              body: await response.json(),
+            };
+          },
+          `${extension ? "https://devfeed.tech" : origin}/api/v1/partner-placements/query`,
+        );
+        const { cacheControl, ...retryGuidance } = limited;
+        assert.ok(
+          cacheControl?.split(",").some((directive) => directive.trim() === "no-store"),
+          `${platform}: throttled placement responses cannot be cached`,
+        );
+        assert.deepEqual(
+          retryGuidance,
+          {
+            status: 429,
+            retryAfter: "47",
+            body: { detail: "Partner recommendations unavailable" },
+          },
+          `${platform}: real gateway preserves placement retry guidance and sanitizes errors`,
+        );
+      } finally {
+        placementLimited = false;
+      }
+      for (const pathname of ["/v1/partner-placements/query", "/v1/partner-tracking/events"])
+        assert.ok(
+          observedCallerProofs.get(pathname)?.has(callerFixtureIps[platform]),
+          `${platform}: production gateway preserves distinct caller identity for ${pathname}`,
+        );
       console.log(
-        `${platform}: built web/extension in-grid homepage, search, category and topic cards; every product disclosed with distinct amber Sponsored pills and no dismissal; branded preview sidebar; focus/layout stability; signed campaign and non-campaign tracking; legacy hides/limits and failed optional storage cannot suppress delivery; private session routing; optional private experience save/reload/clear; article priority passed`,
+        `${platform}: built web/extension in-grid homepage, search, category and topic cards; every product disclosed with distinct amber Sponsored pills and no dismissal; branded preview sidebar; focus/layout stability; signed campaign and non-campaign tracking; configured production gateway caller proofs, credential isolation and placement429 retry guidance; legacy hides/limits and failed optional storage cannot suppress delivery; private session routing; optional private experience save/reload/clear; article priority passed`,
       );
     } finally {
       await context.close();
     }
   }
+  assert.equal(
+    observedCallerIps.size,
+    3,
+    "The gateway keeps all three anonymous reader callers distinct",
+  );
 } catch (error) {
   console.error(logs);
   throw error;
 } finally {
   app.kill("SIGTERM");
+  edge.closeAllConnections();
+  await new Promise((resolve) => edge.close(resolve));
   await new Promise((resolve) => fixture.close(resolve));
   await rm(temp, { recursive: true, force: true });
 }

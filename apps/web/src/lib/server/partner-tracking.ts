@@ -1,6 +1,7 @@
 import "server-only";
 import { traceHeaders } from "@devfeed/telemetry/propagation";
 import { publicApiOrigin } from "./config";
+import { partnerCallerHeaders } from "./partner-caller";
 import { readRequestBody, RequestBodyTimeout, RequestBodyTooLarge } from "./request-body";
 
 export async function partnerTracking(request: Request) {
@@ -9,7 +10,11 @@ export async function partnerTracking(request: Request) {
     const body = await readRequestBody(request, 2048, 2000);
     const upstream = await fetch(new URL("/v1/partner-tracking/events", publicApiOrigin()), {
       method: "POST",
-      headers: { "Content-Type": "application/json", ...traceHeaders() },
+      headers: {
+        "Content-Type": "application/json",
+        ...traceHeaders(),
+        ...partnerCallerHeaders(request, "/v1/partner-tracking/events"),
+      },
       body,
       redirect: "manual",
       cache: "no-store",

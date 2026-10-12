@@ -2,6 +2,7 @@ import "server-only";
 import { traceHeaders } from "@devfeed/telemetry/propagation";
 import { parsePartnerPlacements, validPlacementQuery } from "../partner-placements";
 import { publicApiOrigin } from "./config";
+import { partnerCallerHeaders } from "./partner-caller";
 import { readRequestBody, RequestBodyTimeout, RequestBodyTooLarge } from "./request-body";
 
 export async function partnerPlacements(request: Request) {
@@ -18,7 +19,11 @@ export async function partnerPlacements(request: Request) {
       return Response.json({ detail: "Invalid placement context" }, { status: 422, headers });
     const upstream = await fetch(new URL("/v1/partner-placements/query", publicApiOrigin()), {
       method: "POST",
-      headers: { "Content-Type": "application/json", ...traceHeaders() },
+      headers: {
+        "Content-Type": "application/json",
+        ...traceHeaders(),
+        ...partnerCallerHeaders(request, "/v1/partner-placements/query"),
+      },
       body: JSON.stringify(query),
       credentials: "omit",
       redirect: "manual",
@@ -27,9 +32,13 @@ export async function partnerPlacements(request: Request) {
     });
     if (!upstream.ok) {
       await upstream.body?.cancel();
+      const retryAfter = upstream.status === 429 ? upstream.headers.get("retry-after") : null;
       return Response.json(
         { detail: "Partner recommendations unavailable" },
-        { status: 503, headers },
+        {
+          status: upstream.status === 429 ? 429 : 503,
+          headers: retryAfter === null ? headers : { ...headers, "Retry-After": retryAfter },
+        },
       );
     }
     const items = parsePartnerPlacements(await upstream.json());

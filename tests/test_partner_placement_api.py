@@ -122,6 +122,34 @@ def test_delivery_identity_comes_only_from_the_browser_session(placement_client)
     assert "Bearer" not in response.text and USER_ID not in response.text
 
 
+def test_public_caller_and_global_limits_are_checked_together(monkeypatch):
+    state = make_client(monkeypatch)
+    assert state.client.post(state.path, json={"surface": "feed"}).status_code == 200
+    budgets = state.limiter.call_args.args[1]
+    assert len(budgets) == 2
+    caller, shared = budgets
+    assert ":caller:" in caller.key and caller.limit == 60
+    assert shared.key == "devfeed:partner-placement-query:minute" and shared.limit == 3000
+    assert caller.window == shared.window == 60
+    assert "testclient" not in caller.key
+
+
+def test_untrusted_forwarding_headers_cannot_rotate_a_public_callers_quota(monkeypatch):
+    state = make_client(monkeypatch)
+    keys = []
+    for address in ("192.0.2.1", "192.0.2.2"):
+        assert (
+            state.client.post(
+                state.path,
+                json={"surface": "feed"},
+                headers={"X-Forwarded-For": address, "Forwarded": f"for={address}"},
+            ).status_code
+            == 200
+        )
+        keys.append(state.limiter.call_args.args[1][0].key)
+    assert keys[0] == keys[1]
+
+
 @pytest.mark.parametrize("field", ["user_id", "partner_id", "campaign_id", "interests", "receipt"])
 def test_identity_and_commercial_claims_cannot_be_supplied_by_readers(placement_client, field):
     state = placement_client

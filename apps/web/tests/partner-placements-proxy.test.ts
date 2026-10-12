@@ -105,6 +105,8 @@ const request = (body: unknown = query) =>
     },
   });
 beforeEach(() => {
+  vi.stubEnv("DEVFEED_PARTNER_CALLER_IP_HEADER", undefined);
+  vi.stubEnv("DEVFEED_PARTNER_CALLER_KEY", undefined);
   vi.stubEnv("DEVFEED_PUBLIC_API_URL", "http://public-api:8000");
   vi.stubEnv("DEVFEED_USER_API_URL", "http://user-api:8002");
   vi.stubEnv("DEVFEED_USER_BASE_URL", "https://devfeed.tech");
@@ -136,6 +138,55 @@ it("forwards validated context to its fixed upstream without identity or caching
   });
   expect(response.headers.get("cache-control")).toBe("no-store");
 });
+
+it("does not forward browser caller claims when trusted edge forwarding is disabled", async () => {
+  const incoming = request();
+  incoming.headers.set("X-DevFeed-Partner-Caller", "forged-proof");
+  incoming.headers.set("X-Forwarded-For", "203.0.113.7");
+  expect((await POST(incoming)).status).toBe(200);
+  expect(vi.mocked(fetch).mock.calls[0][1]?.headers).toEqual({
+    "Content-Type": "application/json",
+  });
+});
+
+it("replaces browser caller claims with a proof bound to the placement destination", async () => {
+  vi.stubEnv("DEVFEED_PARTNER_CALLER_IP_HEADER", "cf-connecting-ip");
+  vi.stubEnv("DEVFEED_PARTNER_CALLER_KEY", "disposable-partner-caller-key-32-bytes");
+  vi.spyOn(Date, "now").mockReturnValue(1_800_000_000_999);
+  const incoming = request();
+  incoming.headers.set("cf-connecting-ip", "203.0.113.7");
+  incoming.headers.set("X-DevFeed-Partner-Caller", "forged-proof");
+  incoming.headers.set("X-Forwarded-For", "198.51.100.1");
+  expect((await POST(incoming)).status).toBe(200);
+  expect(vi.mocked(fetch).mock.calls[0][1]?.headers).toEqual({
+    "Content-Type": "application/json",
+    "X-DevFeed-Partner-Caller":
+      "v1.1800000000.203.0.113.7.cebe4cf3062024e2b0a188fb0dc46d40e61d42cbb52e21805fca33c2d8d79ada",
+  });
+});
+
+it.each(["missing-edge-ip", "invalid-edge-ip", "missing-key"])(
+  "fails closed before placement delivery when configured caller trust is invalid (%s)",
+  async (mode) => {
+    vi.stubEnv("DEVFEED_PARTNER_CALLER_IP_HEADER", "cf-connecting-ip");
+    vi.stubEnv(
+      "DEVFEED_PARTNER_CALLER_KEY",
+      mode === "missing-key" ? undefined : "disposable-partner-caller-key-32-bytes",
+    );
+    const incoming = request();
+    incoming.headers.set("X-DevFeed-Partner-Caller", "forged-proof");
+    if (mode !== "missing-edge-ip")
+      incoming.headers.set(
+        "cf-connecting-ip",
+        mode === "invalid-edge-ip" ? "203.0.113.7, 198.51.100.1" : "203.0.113.7",
+      );
+    const response = await POST(incoming);
+    expect(response.status).toBe(503);
+    expect(response.headers.get("cache-control")).toBe("no-store");
+    expect(await response.json()).toEqual({ detail: "Partner recommendations unavailable" });
+    expect(fetch).not.toHaveBeenCalled();
+  },
+);
 
 it("accepts deliveries without exposure limits and discards legacy cap metadata", async () => {
   vi.mocked(fetch).mockResolvedValue(
@@ -297,6 +348,23 @@ it.each([302, 500])(
     const response = await POST(request());
     expect(response.status).toBe(503);
     expect(await response.text()).not.toContain("private details");
+  },
+);
+
+it.each([null, "37"])(
+  "preserves placement throttling and retry guidance without exposing upstream details (%s)",
+  async (retryAfter) => {
+    vi.mocked(fetch).mockResolvedValue(
+      new Response("private infrastructure details", {
+        status: 429,
+        headers: retryAfter === null ? {} : { "Retry-After": retryAfter },
+      }),
+    );
+    const response = await POST(request());
+    expect(response.status).toBe(429);
+    expect(response.headers.get("retry-after")).toBe(retryAfter);
+    expect(response.headers.get("cache-control")).toBe("no-store");
+    expect(await response.json()).toEqual({ detail: "Partner recommendations unavailable" });
   },
 );
 

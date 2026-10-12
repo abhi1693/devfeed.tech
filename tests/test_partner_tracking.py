@@ -90,6 +90,7 @@ def tracking_client(monkeypatch):
     monkeypatch.setattr(get_settings(), "partner_tracking_key", SecretStr(KEY))
     session = Mock()
     monkeypatch.setattr(api, "consume_rate_limits", Mock(return_value=0))
+    monkeypatch.setattr(api, "consume_reserved_rate_limits", Mock(return_value=0))
     monkeypatch.setattr(api, "get_rate_limit_redis", Mock())
     app = create_app()
     app.dependency_overrides[get_session] = lambda: session
@@ -98,13 +99,22 @@ def tracking_client(monkeypatch):
 
 @pytest.mark.parametrize(
     "mode,status",
-    [("ok", 204), ("inactive", 403), ("database", 503), ("redis", 503), ("limited", 429)],
+    [
+        ("ok", 204),
+        ("inactive", 403),
+        ("database", 503),
+        ("redis", 503),
+        ("limited", 429),
+        ("shared-redis", 503),
+        ("shared-limited", 429),
+        ("commit", 503),
+    ],
 )
 def test_event_failures_do_not_commit_partial_measurements(
     tracking_client, monkeypatch, mode, status
 ):
     client, session = tracking_client
-    record = Mock()
+    record = Mock(return_value=True)
     monkeypatch.setattr(api, "record_delivery_event", record)
     if mode == "inactive":
         record.side_effect = InactivePartnerAsset()
@@ -114,18 +124,75 @@ def test_event_failures_do_not_commit_partial_measurements(
         api.consume_rate_limits.side_effect = RedisError()
     elif mode == "limited":
         api.consume_rate_limits.return_value = 60
+    elif mode == "shared-redis":
+        api.consume_reserved_rate_limits.side_effect = RedisError()
+    elif mode == "shared-limited":
+        api.consume_reserved_rate_limits.return_value = 60
+    elif mode == "commit":
+        session.commit.side_effect = SQLAlchemyError()
     response = client.post(
         "/v1/partner-tracking/events",
         json={"kind": "click", "receipt": PartnerTrackingTokens(KEY).issue(uuid.uuid4())},
     )
     assert response.status_code == status
     assert response.headers["cache-control"] == "no-store"
-    assert session.commit.call_count == int(mode == "ok")
-    assert session.rollback.call_count == int(mode == "database")
+    assert session.commit.call_count == int(mode in {"ok", "commit"})
+    assert session.rollback.call_count == int(
+        mode in {"database", "shared-redis", "shared-limited", "commit"}
+    )
     if mode in {"redis", "limited"}:
         record.assert_not_called()
-    if mode == "limited":
+    if mode in {"limited", "shared-limited"}:
         assert response.headers["retry-after"] == "60"
+
+
+def test_duplicate_events_charge_only_the_callers_abuse_budget(tracking_client, monkeypatch):
+    client, session = tracking_client
+    record = Mock(return_value=False)
+    monkeypatch.setattr(api, "record_delivery_event", record)
+    response = client.post(
+        "/v1/partner-tracking/events",
+        json={"kind": "impression", "receipt": PartnerTrackingTokens(KEY).issue(uuid.uuid4())},
+    )
+    assert response.status_code == 204
+    budgets = api.consume_rate_limits.call_args.args[1]
+    assert len(budgets) == 1 and ":caller:" in budgets[0].key
+    assert budgets[0].limit == 180
+    api.consume_reserved_rate_limits.assert_not_called()
+    session.commit.assert_called_once_with()
+
+
+def test_impression_and_click_abuse_budgets_are_independent(tracking_client, monkeypatch):
+    client, _ = tracking_client
+    monkeypatch.setattr(api, "record_delivery_event", Mock(return_value=False))
+    token = PartnerTrackingTokens(KEY).issue(uuid.uuid4())
+    caller_keys = []
+    for kind in ("impression", "click"):
+        assert (
+            client.post(
+                "/v1/partner-tracking/events", json={"kind": kind, "receipt": token}
+            ).status_code
+            == 204
+        )
+        caller_keys.append(api.consume_rate_limits.call_args.args[1][0].key)
+    assert caller_keys[0] != caller_keys[1]
+    assert caller_keys[0].endswith(":impression:minute")
+    assert caller_keys[1].endswith(":click:minute")
+
+
+def test_retry_after_shared_redis_failure_preserves_the_quota_reservation_identity(
+    tracking_client, monkeypatch
+):
+    client, session = tracking_client
+    monkeypatch.setattr(api, "record_delivery_event", Mock(return_value=True))
+    api.consume_reserved_rate_limits.side_effect = [RedisError(), 0]
+    event = {"kind": "click", "receipt": PartnerTrackingTokens(KEY).issue(uuid.uuid4())}
+    assert client.post("/v1/partner-tracking/events", json=event).status_code == 503
+    assert client.post("/v1/partner-tracking/events", json=event).status_code == 204
+    attempts = api.consume_reserved_rate_limits.call_args_list
+    assert attempts[0].kwargs["reservation_key"] == attempts[1].kwargs["reservation_key"]
+    session.rollback.assert_called_once_with()
+    session.commit.assert_called_once_with()
 
 
 def test_unproven_events_and_oversized_bodies_never_reach_storage(tracking_client, monkeypatch):
