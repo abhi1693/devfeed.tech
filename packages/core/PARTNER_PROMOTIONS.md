@@ -163,10 +163,14 @@ cursor and compact table views suppress product cards. News and opinion previews
 tutorial placements.
 
 Requests fetch prepared candidates in bounded batches and recheck current product, listing, account,
-campaign and exclusion state. Cached matches expire after 30 minutes and are fenced by product
-revision, product update time, article text/editorial revision and topic update time. New articles
-are considered in each product slice; durable cursors also revisit older articles. Completed
-sweeps become eligible again after five minutes. Preparation throughput depends on catalog and
+campaign and exclusion state. Audience and campaign eligibility are filtered before attribution
+locks, with shared taxonomy and campaign checks batched across candidates. Final policy checks
+still run under locks; rejected candidates release their attribution locks immediately, while
+accepted reservations retain them until the transaction commits. Cached matches expire after
+30 minutes and are fenced by product revision, product update time, article text/editorial revision
+and topic update time. New articles are considered in each product slice; durable cursors also
+revisit older articles. Completed sweeps become eligible again after five minutes.
+Preparation throughput depends on catalog and
 article volume; missing, stale or unrelated matches result in no placement.
 
 Each response contains at most two placements total, with at most one paid placement of each requested format. A feed-only request can include one non-campaign recommendation and one campaign-backed placement. Product destinations use HTTPS; sponsored articles use an internal article preview URL. Both display **Sponsored** in the reader. Matching reasons remain in the response for diagnostics;

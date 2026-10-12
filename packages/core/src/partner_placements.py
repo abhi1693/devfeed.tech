@@ -29,23 +29,23 @@ from devfeed_core.models import (
     UserTopic,
     utcnow,
 )
-from devfeed_core.partner_ad_formats import ad_format_allowed, placement_format_allowed
+from devfeed_core.partner_ad_formats import placement_format_allowed
 from devfeed_core.partner_audiences import (
-    audience_entitled,
     audience_matches,
     audience_topics_current,
     effective_audience,
-    reader_audience,
 )
 from devfeed_core.partner_matching import MATCH_TTL, article_fingerprint
+from devfeed_core.partner_placement_preflight import (
+    PlacementPreflight,
+    automatic_configuration_available,
+)
 from devfeed_core.partner_product_images import product_image_url, product_image_variants
 from devfeed_core.partner_product_logos import product_logo_url
 from devfeed_core.partner_promotions import (
-    campaign_is_live,
     campaign_matches_product,
     commercially_eligible,
 )
-from devfeed_core.partner_tiers import effective_promotion_kind, promotion_kind_allowed
 from devfeed_core.partner_tracking import (
     RECEIPT_TTL,
     BusyPartnerAsset,
@@ -151,12 +151,7 @@ def automatic_asset_available(
     ):
         return False
     if asset.campaign_id is None:
-        return (
-            audience_entitled(account)
-            and account.organic_enabled
-            and account.auto_include_products
-            and effective_promotion_kind(account) == "product"
-        )
+        return automatic_configuration_available(asset, account, None, now, surface=surface)
     campaign = session.scalar(
         select(PartnerCampaign)
         .where(
@@ -194,23 +189,7 @@ def automatic_asset_available(
                 raise BusyPartnerAsset("Sponsored article is being updated")
             return False
     return bool(
-        campaign
-        and getattr(campaign, "ad_format", "feed") == getattr(asset, "ad_format", "feed")
-        and getattr(campaign, "article_id", None) == getattr(asset, "article_id", None)
-        and (
-            ad_format_allowed(account, getattr(asset, "ad_format", "feed"))
-            or (campaign.grandfathered and getattr(asset, "ad_format", "feed") == "feed")
-        )
-        and (
-            not campaign.managed
-            or getattr(asset, "ad_format", "feed") in getattr(account, "ad_formats", ["feed"])
-        )
-        and campaign_is_live(campaign, now)
-        and audience_entitled(account, campaign)
-        and (promotion_kind_allowed(account, "ad") or campaign.grandfathered)
-        and (not campaign.managed or effective_promotion_kind(account) == "ad")
-        and (surface is None or surface in campaign.surfaces)
-        and (account.auto_include_products or campaign.targeting == "selected")
+        automatic_configuration_available(asset, account, campaign, now, surface=surface)
         and campaign_matches_product(
             campaign, product, prepared_product_topics(session, product, now)
         )
@@ -598,7 +577,7 @@ def placement_rows_query(query, now):
 
 
 def ranked_placement_rows(
-    session, query, now, matches, *, phase, seen, selected_formats=(), user_id=None
+    session, query, now, matches, *, phase, seen, selected_formats=(), user_id=None, preflight=None
 ):
     """Stream ranked assets in bounded batches past any rejected live policies.
 
@@ -664,6 +643,8 @@ def ranked_placement_rows(
     rows = session.execute(statement.execution_options(yield_per=100))
     try:
         for batch in rows.partitions(100):
+            if preflight is not None:
+                batch = preflight.eligible_rows(batch)
             stories = sponsored_story_matches(
                 session,
                 query,
@@ -718,9 +699,7 @@ def deliver_placements(session, query, key, *, user_id=None, now=None):
     seen: set[uuid.UUID] = set()
     selected_formats: set[str] = set()
     selected_articles = set(query.article_ids)
-    reader_loaded = False
-    reader = None
-    audience_cache: dict[tuple, bool] = {}
+    preflight = PlacementPreflight(session, query, now, user_id)
     # Reserve sponsorship first so a funded product's eligible appearance is attributed
     # to its agreement; fill the independent ordinary slot with the next best product.
     # This flag describes campaign backing only. Reader disclosure is Sponsored for
@@ -743,6 +722,7 @@ def deliver_placements(session, query, key, *, user_id=None, now=None):
             seen=seen,
             selected_formats=selected_formats,
             user_id=user_id,
+            preflight=preflight,
         )
         for (
             asset,
@@ -768,84 +748,88 @@ def deliver_placements(session, query, key, *, user_id=None, now=None):
                 continue
             if bool(asset.campaign_id) != sponsored or product.id in seen:
                 continue
-            # Readers never wait in an editor's lock order, or on another page's
-            # differently ranked candidates. Skip busy rows and retain the same
-            # account -> asset -> product -> campaign order as event recording.
-            if not lock_attribution_row(session, PartnerAccount, account.id):
-                continue
-            if not lock_attribution_row(session, PartnerAsset, asset.id):
-                continue
-            if not lock_attribution_row(session, PartnerProduct, product.id):
-                continue
-            if (product.revision, product.updated_at) != (revision, updated_at):
-                continue
-            if not automatic_asset_available(
-                session, asset, account, product, now, surface=query.surface
-            ):
-                continue
-            audience = effective_audience(account, campaign)
-            if audience is None:
-                continue
-            if audience.populated:
-                if user_id is None:
+            reader = preflight.reader() if user_id is not None else None
+            # A failed final check releases this candidate's locks. Accepted locks
+            # survive savepoint commit until the outer transaction commits, keeping
+            # concurrent daily-cap reservations serialized.
+            candidate = session.begin_nested()
+            accepted = False
+            try:
+                # Readers never wait in an editor's lock order, or on another page's
+                # differently ranked candidates. Skip busy rows and retain the same
+                # account -> asset -> product -> campaign order as event recording.
+                if not lock_attribution_row(session, PartnerAccount, account.id):
                     continue
-                if not reader_loaded:
-                    reader = reader_audience(session, user_id, now)
-                    reader_loaded = True
-                policy_key = (
-                    tuple(audience.experience_levels),
-                    tuple(audience.language_topic_ids),
-                    tuple(audience.tool_topic_ids),
-                )
-                if policy_key not in audience_cache:
-                    audience_cache[policy_key] = audience_topics_current(
-                        session, audience, lock=True
-                    ) and audience_matches(audience, reader)
-                if not audience_cache[policy_key]:
+                if not lock_attribution_row(session, PartnerAsset, asset.id):
                     continue
-            article = None
-            if ad_format == "sponsored_content":
-                article = session.scalar(
-                    select(Article).where(Article.id == asset.article_id, visible_article())
-                )
-                if article is None:
+                if not lock_attribution_row(session, PartnerProduct, product.id):
                     continue
-                url = f"/articles/{article.slug}"
-            else:
-                url = placement_destination(session, account, product)
-            if url is None:
-                continue
-            if sponsored and not campaign_capacity(session, campaign, now):
-                continue
-            delivery_id = uuid.uuid4()
-            session.add(
-                PartnerPlacementDelivery(
-                    delivery_id=delivery_id,
-                    asset_id=asset.id,
-                    issued_at=now,
-                    surface=query.surface,
+                if asset.campaign_id != (campaign.id if campaign else None):
+                    continue
+                if (product.revision, product.updated_at) != (revision, updated_at):
+                    continue
+                if not automatic_asset_available(
+                    session, asset, account, product, now, surface=query.surface
+                ):
+                    continue
+                audience = effective_audience(account, campaign)
+                if audience is None:
+                    continue
+                if audience.populated and (
+                    not audience_matches(audience, reader)
+                    or not audience_topics_current(session, audience, lock=True)
+                ):
+                    continue
+                article = None
+                if ad_format == "sponsored_content":
+                    article = session.scalar(
+                        select(Article).where(Article.id == asset.article_id, visible_article())
+                    )
+                    if article is None:
+                        continue
+                    url = f"/articles/{article.slug}"
+                else:
+                    url = placement_destination(session, account, product)
+                if url is None:
+                    continue
+                if sponsored and not campaign_capacity(session, campaign, now):
+                    continue
+                delivery_id = uuid.uuid4()
+                session.add(
+                    PartnerPlacementDelivery(
+                        delivery_id=delivery_id,
+                        asset_id=asset.id,
+                        issued_at=now,
+                        surface=query.surface,
+                    )
                 )
-            )
-            session.flush()
-            selected.append(
-                dict(
-                    product_id=product.id,
-                    asset_id=asset.id,
-                    campaign_id=asset.campaign_id,
-                    name=product.name,
-                    description=product.description[:2000],
-                    logo_url=product_logo_url(product),
-                    image_url=product_image_url(product),
-                    image_variants=product_image_variants(product),
-                    url=url,
-                    partner_name=account.name,
-                    sponsored=sponsored,
-                    ad_format=ad_format,
-                    article=ArticleOut.from_article(article) if article else None,
-                    reason=("Sponsored by this partner" if phase == "fallback" else reason[:1000]),
-                    receipt=signer.issue(asset.id, delivery_id=delivery_id),
+                session.flush()
+                selected.append(
+                    dict(
+                        product_id=product.id,
+                        asset_id=asset.id,
+                        campaign_id=asset.campaign_id,
+                        name=product.name,
+                        description=product.description[:2000],
+                        logo_url=product_logo_url(product),
+                        image_url=product_image_url(product),
+                        image_variants=product_image_variants(product),
+                        url=url,
+                        partner_name=account.name,
+                        sponsored=sponsored,
+                        ad_format=ad_format,
+                        article=ArticleOut.from_article(article) if article else None,
+                        reason=(
+                            "Sponsored by this partner" if phase == "fallback" else reason[:1000]
+                        ),
+                        receipt=signer.issue(asset.id, delivery_id=delivery_id),
+                    )
                 )
-            )
+                candidate.commit()
+                accepted = True
+            finally:
+                if not accepted:
+                    candidate.rollback()
             seen.add(product.id)
             if sponsored:
                 selected_formats.add(ad_format)

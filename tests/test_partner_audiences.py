@@ -319,7 +319,7 @@ def test_only_current_stack_follows_and_fresh_valid_interests_supply_audience(
 def test_reader_signals_load_once_for_multiple_candidates_and_not_for_guests(
     database, catalog, monkeypatch
 ):
-    from devfeed_core import partner_placements
+    from devfeed_core import partner_placement_preflight
 
     configure(database, catalog, account={"experience_levels": ["senior"]})
     with database.begin() as session:
@@ -327,13 +327,13 @@ def test_reader_signals_load_once_for_multiple_candidates_and_not_for_guests(
         session.get(PartnerAccount, catalog["free"]).promotion_kind = "product"
         session.get(PartnerAccount, catalog["free"]).audience = {"experience_levels": ["senior"]}
     calls = []
-    original = partner_placements.reader_audience
+    original = partner_placement_preflight.reader_audience
 
     def counted(*args):
         calls.append(args[1])
         return original(*args)
 
-    monkeypatch.setattr(partner_placements, "reader_audience", counted)
+    monkeypatch.setattr(partner_placement_preflight, "reader_audience", counted)
     assert len(issue(database, catalog)) == 2
     assert calls == [catalog["user"]]
     calls.clear()

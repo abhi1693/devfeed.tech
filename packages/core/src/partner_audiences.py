@@ -88,6 +88,11 @@ def audience_topics_current(session, audience: AudienceInput, *, lock=False) -> 
     if lock:
         query = query.with_for_update(read=True, skip_locked=True)
     kinds = dict(session.execute(query).all())
+    return audience_topic_kinds_match(audience, kinds)
+
+
+def audience_topic_kinds_match(audience: AudienceInput, kinds: dict[uuid.UUID, str]) -> bool:
+    """Validate each selection against a current taxonomy snapshot, including missing IDs."""
     return all(
         kinds.get(identifier) == "language" for identifier in audience.language_topic_ids
     ) and all(kinds.get(identifier) in TOOL_KINDS for identifier in audience.tool_topic_ids)
