@@ -214,6 +214,7 @@ def upsert_listing(session, item, generation):
         if resolved
         else "The platform changed the product website; waiting for a verified URL alias."
     )
+    previous_revision = product.revision
     if product.metadata_listing_id is None:
         product.metadata_listing_id = listing.id
     if resolved and product.metadata_listing_id == listing.id:
@@ -228,7 +229,9 @@ def upsert_listing(session, item, generation):
             product.assessment = {}
     session.flush()
     refresh_availability(session, product)
-    product.updated_at = utcnow()
+    # Listing timestamps track imports; unchanged products keep their prepared matches.
+    if product.revision != previous_revision:
+        product.updated_at = utcnow()
     if (
         not product.excluded
         and active_provider(session, product.id)

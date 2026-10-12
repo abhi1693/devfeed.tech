@@ -178,6 +178,9 @@ accepted reservations retain them until the transaction commits. Cached matches 
 30 minutes and are fenced by product revision, product update time, article text/editorial revision
 and topic update time. New articles are considered in each product slice; durable cursors also
 revisit older articles. Completed sweeps become eligible again after five minutes.
+Unchanged imports preserve the canonical product's revision and update time; listing update
+times and sync generations still record every import observation. Changes to canonical metadata
+or product availability continue to invalidate prepared matches.
 Preparation throughput depends on catalog and
 article volume; missing, stale or unrelated matches result in no placement.
 
