@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { createServer } from "node:http";
+import { createServer, request as httpRequest } from "node:http";
 import { spawn } from "node:child_process";
 import { mkdir } from "node:fs/promises";
 import { createRequire } from "node:module";
@@ -142,6 +142,7 @@ const dashboardRequests = [];
 const scopedDashboardRequests = [];
 const accountPages = [];
 const accountLookups = [];
+const logoutRequests = [];
 const preferenceWrites = [];
 const previewRequests = [];
 const audienceRequests = [];
@@ -165,6 +166,7 @@ const mock = createServer(async (request, response) => {
     return;
   }
   if (path.endsWith("/auth/logout")) {
+    logoutRequests.push({ method: request.method, mode });
     response.writeHead(204, { "Set-Cookie": "devfeed_partner_session=; Max-Age=0; Path=/" });
     response.end();
     return;
@@ -441,6 +443,81 @@ next.stdout.on("data", (chunk) => {
 next.stderr.on("data", (chunk) => {
   logs += chunk;
 });
+
+async function checkUploadDeadline() {
+  const completedLogouts = logoutRequests.length;
+  let upload;
+  let watchdog;
+  try {
+    const result = await new Promise((resolve, reject) => {
+      const started = performance.now();
+      watchdog = setTimeout(() => reject(new Error("Incomplete upload exceeded 7 seconds")), 7000);
+      upload = httpRequest(
+        origin + "/api/v1/partner/auth/logout",
+        {
+          method: "POST",
+          agent: false,
+          headers: {
+            Origin: origin,
+            Cookie: "devfeed_partner_session=partner",
+            "Content-Type": "application/json",
+            "X-CSRF-Token": "test-csrf",
+          },
+        },
+        (response) => {
+          let body = "";
+          response.setEncoding("utf8");
+          response.on("data", (chunk) => {
+            body += chunk;
+          });
+          response.once("error", reject);
+          response.once("aborted", () => reject(new Error("Deadline response was interrupted")));
+          response.once("end", () => {
+            resolve({
+              status: response.statusCode,
+              headers: response.headers,
+              body,
+              elapsedMs: performance.now() - started,
+              uploadEnded: upload.writableEnded,
+            });
+          });
+        },
+      );
+      upload.once("error", reject);
+      // Deliberately leave the chunked request open after its first body chunk.
+      upload.write('{"private-slow-upload-marker":');
+    });
+    assert.equal(result.status, 408);
+    assert.deepEqual(JSON.parse(result.body), { detail: "Incomplete request" });
+    assert.ok(
+      String(result.headers["cache-control"])
+        .split(",")
+        .map((directive) => directive.trim())
+        .includes("no-store"),
+    );
+    assert.equal(
+      result.uploadEnded,
+      false,
+      "The timeout response does not wait for upload completion",
+    );
+    assert.ok(
+      result.elapsedMs >= 1800 && result.elapsedMs < 6000,
+      `The 2-second body deadline responded after ${Math.round(result.elapsedMs)}ms`,
+    );
+    assert.equal(
+      logoutRequests.length,
+      completedLogouts,
+      "Incomplete uploads never reach the partner API",
+    );
+    console.log(
+      `Partner incomplete-upload deadline returned 408 after ${Math.round(result.elapsedMs)}ms.`,
+    );
+  } finally {
+    clearTimeout(watchdog);
+    upload?.destroy();
+  }
+}
+
 let browser;
 try {
   for (let attempt = 0; attempt < 100; attempt++) {
@@ -450,6 +527,7 @@ try {
     if (attempt === 99) throw new Error("Portal failed to start: " + logs);
     await new Promise((resolve) => setTimeout(resolve, 200));
   }
+  await checkUploadDeadline();
   browser = await chromium.launch({ headless: true });
   const context = await browser.newContext({ viewport: { width: 1440, height: 1100 } });
   await installCreativeMedia(context);
@@ -1032,9 +1110,16 @@ try {
   await context.addCookies([{ name: "devfeed_partner_session", value: "empty", url: origin }]);
   await page.goto(origin);
   await page.getByRole("heading", { name: "No partner accounts yet" }).waitFor();
+  const completedLogouts = logoutRequests.length;
   await page.getByRole("button", { name: "User menu: Alex Partner" }).click();
   await page.getByRole("menuitem", { name: "Sign out" }).click();
   await page.waitForURL("**/login");
+  assert.equal(
+    logoutRequests.length,
+    completedLogouts + 1,
+    "Normal logout still reaches the partner API",
+  );
+  assert.deepEqual(logoutRequests.at(-1), { method: "POST", mode: "empty" });
   await context.addCookies([{ name: "devfeed_partner_session", value: "denied", url: origin }]);
   await page.goto(origin);
   await page.waitForURL("**/login?error=access_denied");

@@ -6,6 +6,7 @@
     "apps/admin",
     "apps/web",
     "apps/partner",
+    "packages/http",
     "packages/theme",
     "packages/ui",
     "packages/telemetry"

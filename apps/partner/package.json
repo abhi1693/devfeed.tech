@@ -10,6 +10,7 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@devfeed/http": "0.0.1",
     "@devfeed/telemetry": "0.0.1",
     "@devfeed/theme": "0.0.1",
     "@devfeed/ui": "0.0.1",

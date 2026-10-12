@@ -46,6 +46,11 @@ preferences route for product click destination, automatic ad formats and eligib
 unavailable. Sign-out uses POST.
 Reader, partner, and admin sessions are isolated.
 
+The gateway accepts request bodies up to 1,000,000 bytes and requires the whole upload to
+complete within two seconds. Incomplete uploads return 408 and oversized uploads return 413
+without reaching the partner API. Body reading uses the shared `@devfeed/http` helper;
+completed requests retain a separate 45-second upstream timeout.
+
 Assign project roles in Zitadel before adding account memberships in administration. Role
 grants are captured at login and bounded by the session lifetime; revoke Redis sessions for
 immediate role revocation. The admin and partner clients must use the same issuer for

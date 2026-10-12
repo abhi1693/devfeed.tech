@@ -32,6 +32,7 @@ def checks_for(paths: set[str]) -> list[tuple[str, ...]]:
         or bool(paths & WEB_CONFIG)
         or any(
             path.startswith(("packages/ui/", "packages/theme/", "packages/telemetry/"))
+            or (path.startswith("packages/http/") and path.endswith((".ts", "/package.json")))
             for path in paths
         )
     )

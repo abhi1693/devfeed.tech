@@ -2,7 +2,11 @@ import "server-only";
 import { traceHeaders } from "@devfeed/telemetry/propagation";
 import { publicApiOrigin } from "./config";
 import { partnerCallerHeaders } from "./partner-caller";
-import { readRequestBody, RequestBodyTimeout, RequestBodyTooLarge } from "./request-body";
+import {
+  readRequestBody,
+  RequestBodyTimeout,
+  RequestBodyTooLarge,
+} from "@devfeed/http/request-body";
 
 export async function partnerTracking(request: Request) {
   const headers = new Headers({ "Cache-Control": "no-store" });

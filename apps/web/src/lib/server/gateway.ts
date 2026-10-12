@@ -1,7 +1,11 @@
 import { traceHeaders } from "@devfeed/telemetry/propagation";
 import "server-only";
 import { userApiOrigin, userRequestOriginAllowed, xPixelEnabled } from "./config";
-import { readRequestBody, RequestBodyTimeout, RequestBodyTooLarge } from "./request-body";
+import {
+  readRequestBody,
+  RequestBodyTimeout,
+  RequestBodyTooLarge,
+} from "@devfeed/http/request-body";
 import { validPlacementQuery } from "../partner-placements";
 
 // This is not a general-purpose proxy. Only the user service's namespace is reachable.

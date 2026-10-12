@@ -3,7 +3,7 @@ import {
   readRequestBody,
   RequestBodyTimeout,
   RequestBodyTooLarge,
-} from "@/lib/server/request-body";
+} from "@devfeed/http/request-body";
 
 const encoder = new TextEncoder();
 const request = (body?: BodyInit, headers?: HeadersInit) =>

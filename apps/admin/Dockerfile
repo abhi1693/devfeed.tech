@@ -7,6 +7,7 @@ COPY package.json package-lock.json ./
 COPY apps/admin/package.json apps/admin/package.json
 COPY apps/partner/package.json apps/partner/package.json
 COPY apps/web/package.json apps/web/package.json
+COPY packages/http/package.json packages/http/package.json
 COPY packages/theme/package.json packages/theme/package.json
 COPY packages/ui/package.json packages/ui/package.json
 COPY packages/telemetry/package.json packages/telemetry/package.json

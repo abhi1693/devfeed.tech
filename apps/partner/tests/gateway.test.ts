@@ -4,6 +4,7 @@ import { gateway } from "../src/lib/server/gateway";
 vi.mock("@devfeed/telemetry/propagation", () => ({ traceHeaders: () => ({}) }));
 beforeEach(() => vi.stubEnv("DEVFEED_PARTNER_API_URL", "http://partner-api:8004"));
 afterEach(() => {
+  vi.useRealTimers();
   vi.unstubAllGlobals();
   vi.unstubAllEnvs();
 });
@@ -334,3 +335,175 @@ it.each([true, false])(
     expect(fetchMock).not.toHaveBeenCalled();
   },
 );
+
+it.each(["resolves", "stalls", "rejects"])(
+  "returns 408 at the upload deadline even when stream cancellation %s",
+  async (behavior) => {
+    vi.useFakeTimers();
+    vi.stubEnv("DEVFEED_PARTNER_BASE_URL", "https://partner.example");
+    const fetcher = vi.fn();
+    vi.stubGlobal("fetch", fetcher);
+    const cancel = vi.fn(() => {
+      if (behavior === "stalls") return new Promise<void>(() => {});
+      if (behavior === "rejects") return Promise.reject(new Error("Private peer details"));
+      return Promise.resolve();
+    });
+    const incoming = new Request("https://partner.example/api", {
+      method: "POST",
+      headers: { origin: "https://partner.example", cookie: "session=private" },
+      body: new ReadableStream<Uint8Array>({ cancel }),
+      duplex: "half",
+    } as RequestInit);
+    const completed = vi.fn();
+    const pending = gateway(incoming, ["v1", "partner", "auth", "logout"]);
+    void pending.then(completed);
+    await vi.advanceTimersByTimeAsync(1999);
+    expect(completed).not.toHaveBeenCalled();
+    expect(cancel).not.toHaveBeenCalled();
+    expect(fetcher).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(1);
+    expect(completed).toHaveBeenCalledOnce();
+    const response = await pending;
+    expect(response.status).toBe(408);
+    expect(await response.json()).toEqual({ detail: "Incomplete request" });
+    expect(response.headers.get("cache-control")).toBe("no-store");
+    expect(cancel).toHaveBeenCalledOnce();
+    expect(incoming.body!.locked).toBe(false);
+    expect(fetcher).not.toHaveBeenCalled();
+    expect(vi.getTimerCount()).toBe(0);
+  },
+);
+
+it("uses one upload deadline even when partial preference chunks keep arriving", async () => {
+  vi.useFakeTimers();
+  vi.stubEnv("DEVFEED_PARTNER_BASE_URL", "https://partner.example");
+  const fetcher = vi.fn();
+  vi.stubGlobal("fetch", fetcher);
+  let controller!: ReadableStreamDefaultController<Uint8Array>;
+  const cancel = vi.fn();
+  const incoming = new Request("https://partner.example/api", {
+    method: "PUT",
+    headers: { origin: "https://partner.example", "content-type": "application/json" },
+    body: new ReadableStream<Uint8Array>({
+      start(value) {
+        controller = value;
+      },
+      cancel,
+    }),
+    duplex: "half",
+  } as RequestInit);
+  const pending = gateway(incoming, [
+    "v1",
+    "partner",
+    "accounts",
+    "11111111-1111-4111-8111-111111111111",
+    "preferences",
+  ]);
+  const completed = vi.fn();
+  void pending.then(completed);
+  await vi.advanceTimersByTimeAsync(1000);
+  controller.enqueue(new TextEncoder().encode('{"outbound_destination":'));
+  await vi.advanceTimersByTimeAsync(999);
+  controller.enqueue(new TextEncoder().encode('"listing_url"'));
+  expect(completed).not.toHaveBeenCalled();
+  expect(fetcher).not.toHaveBeenCalled();
+  await vi.advanceTimersByTimeAsync(1);
+  expect(completed).toHaveBeenCalledOnce();
+  const response = await pending;
+  expect(response.status).toBe(408);
+  expect(response.headers.get("cache-control")).toBe("no-store");
+  expect(cancel).toHaveBeenCalledOnce();
+  expect(incoming.body!.locked).toBe(false);
+  expect(fetcher).not.toHaveBeenCalled();
+});
+
+it.each([
+  { declared: true, cancellation: "stalls" },
+  { declared: true, cancellation: "rejects" },
+  { declared: false, cancellation: "stalls" },
+  { declared: false, cancellation: "rejects" },
+])(
+  "keeps oversized uploads at 413 when cancellation $cancellation (declared=$declared)",
+  async ({ declared, cancellation }) => {
+    vi.useFakeTimers();
+    vi.stubEnv("DEVFEED_PARTNER_BASE_URL", "https://partner.example");
+    const fetcher = vi.fn();
+    vi.stubGlobal("fetch", fetcher);
+    const cancel = vi.fn(() =>
+      cancellation === "stalls"
+        ? new Promise<void>(() => {})
+        : Promise.reject(new Error("Private peer details")),
+    );
+    const incoming = new Request("https://partner.example/api", {
+      method: "POST",
+      headers: {
+        origin: "https://partner.example",
+        "content-length": declared ? "1000001" : "1",
+      },
+      body: new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.enqueue(new TextEncoder().encode("é".repeat(250_000)));
+          controller.enqueue(new TextEncoder().encode("é".repeat(250_001)));
+        },
+        cancel,
+      }),
+      duplex: "half",
+    } as RequestInit);
+    const completed = vi.fn();
+    const pending = gateway(incoming, ["v1", "partner", "auth", "logout"]);
+    void pending.then(completed);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(completed).toHaveBeenCalledOnce();
+    const response = await pending;
+    expect(response.status).toBe(413);
+    expect(await response.json()).toEqual({ detail: "Request too large" });
+    expect(response.headers.get("cache-control")).toBe("no-store");
+    expect(cancel).toHaveBeenCalledOnce();
+    expect(incoming.body!.locked).toBe(false);
+    expect(fetcher).not.toHaveBeenCalled();
+    expect(vi.getTimerCount()).toBe(0);
+  },
+);
+
+it("forwards a completed chunked upload at the byte limit and clears its deadline", async () => {
+  vi.useFakeTimers();
+  vi.stubEnv("DEVFEED_PARTNER_BASE_URL", "https://partner.example");
+  const fetcher = vi.fn().mockResolvedValue(new Response(null, { status: 204 }));
+  vi.stubGlobal("fetch", fetcher);
+  const value = "é".repeat(500_000);
+  const bytes = new TextEncoder().encode(value);
+  let controller!: ReadableStreamDefaultController<Uint8Array>;
+  const cancel = vi.fn();
+  const incoming = new Request("https://partner.example/api", {
+    method: "POST",
+    headers: { origin: "https://partner.example", "x-csrf-token": "csrf" },
+    body: new ReadableStream<Uint8Array>({
+      start(value) {
+        controller = value;
+      },
+      cancel,
+    }),
+    duplex: "half",
+  } as RequestInit);
+  const pending = gateway(incoming, ["v1", "partner", "auth", "logout"]);
+  await vi.advanceTimersByTimeAsync(400);
+  controller.enqueue(bytes.slice(0, 400_001));
+  await vi.advanceTimersByTimeAsync(400);
+  expect(fetcher).not.toHaveBeenCalled();
+  controller.enqueue(bytes.slice(400_001));
+  controller.close();
+  expect((await pending).status).toBe(204);
+  expect(fetcher).toHaveBeenCalledOnce();
+  const [url, init] = fetcher.mock.calls[0];
+  expect(url).toBe("http://partner-api:8004/v1/partner/auth/logout");
+  expect(init.body.byteLength).toBe(1_000_000);
+  expect(new TextDecoder().decode(init.body)).toBe(value);
+  expect(init.headers.get("x-csrf-token")).toBe("csrf");
+  expect(init.cache).toBe("no-store");
+  expect(init.redirect).toBe("manual");
+  expect(incoming.body!.locked).toBe(false);
+  expect(vi.getTimerCount()).toBe(0);
+  await vi.advanceTimersByTimeAsync(2000);
+  expect(cancel).not.toHaveBeenCalled();
+  expect(fetcher).toHaveBeenCalledOnce();
+});

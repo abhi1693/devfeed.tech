@@ -1,0 +1,12 @@
+{
+  "name": "@devfeed/http",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./request-body": "./src/request-body.ts"
+  },
+  "dependencies": {
+    "server-only": "^0.0.1"
+  }
+}

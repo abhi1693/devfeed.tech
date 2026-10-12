@@ -33,6 +33,8 @@ def test_frontend_changes_only_test_affected_app(workspace):
         "packages/ui/src/button.tsx",
         "packages/theme/tokens.css",
         "packages/telemetry/src/privacy.ts",
+        "packages/http/src/request-body.ts",
+        "packages/http/package.json",
         "package-lock.json",
     ],
 )
@@ -42,7 +44,15 @@ def test_shared_frontend_changes_test_both_apps(path):
         assert ("npm", "run", f"{workspace}:test") in commands
 
 
-@pytest.mark.parametrize("path", ["apps/api/src/main.py", "uv.lock", "apps/api/pyproject.toml"])
+@pytest.mark.parametrize(
+    "path",
+    [
+        "apps/api/src/main.py",
+        "packages/http/src/body_limits.py",
+        "uv.lock",
+        "apps/api/pyproject.toml",
+    ],
+)
 def test_python_changes_run_types_and_only_unit_tests(path):
     commands = hooks.checks_for({path})
     assert ("uv", "run", "--locked", "mypy") in commands
