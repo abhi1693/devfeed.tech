@@ -8,6 +8,7 @@ import {
 import { checkPreviewCover } from "../../../../scripts/testing/preview-cover.mjs";
 import { checkNonceCsp } from "../../../../scripts/testing/nonce-csp.mjs";
 import { checkArticleGrid } from "../../../../scripts/testing/article-grid.mjs";
+import { checkDefaultAll, defaultAllFeed } from "../../../../scripts/testing/default-all.mjs";
 import { checkArticleViews, compactListArticle, compactLoadingGate } from "./article-views.mjs";
 import { checkCompactLoading } from "../../../../scripts/testing/compact-loading.mjs";
 import { checkSourceFilter, longFilterSource } from "../../../../scripts/testing/select-menus.mjs";
@@ -86,6 +87,7 @@ withManagedSourceLogo(article.sources[0]);
 const mustReadsFixture = dailyFixture(article);
 const readingFixture = readingStreakFixture();
 let mode = "ready";
+const defaultAllRequests = [];
 let compactArticles = false;
 let articleFeedGate;
 let feedSettings = {
@@ -123,6 +125,7 @@ const fixture = createServer(async (req, res) => {
     res.end(JSON.stringify({ items: empty ? [] : [article], next_cursor: null }));
     return;
   }
+  if (mode === "default-all" && path === "/v1/feed") defaultAllRequests.push(requestUrl);
   const pendingFeed = articleFeedGate;
   if (pendingFeed && (await pendingFeed.wait(path)) && pendingFeed.fail) {
     res.writeHead(503, { "Content-Type": "application/json" });
@@ -278,7 +281,14 @@ const fixture = createServer(async (req, res) => {
     }
     body = feedSettings;
   } else if (path === "/v1/feed/options")
-    body = { sources: [source, longFilterSource], content_types: ["article"], languages: ["en"] };
+    body = {
+      sources: [source, longFilterSource],
+      content_types:
+        mode === "default-all"
+          ? ["article", "news", "tutorial", "release", "comparison", "opinion"]
+          : ["article"],
+      languages: ["en"],
+    };
   else if (path === "/v1/topics") {
     if (mode === "onboarding")
       assert.equal(new URL(req.url, "http://localhost").searchParams.get("sort"), "articles");
@@ -412,26 +422,30 @@ const fixture = createServer(async (req, res) => {
         };
     if (mode === "onboarding-refreshing") mode = "ready";
   } else if (path === "/v1/feed")
-    body = {
-      items:
-        mode === "scroll"
-          ? requestUrl.searchParams.has("cursor")
-            ? [
-                {
-                  ...article,
-                  id: "next",
-                  slug: "next",
-                  title: "Automatically appended feed article",
-                },
-              ]
-            : Array.from({ length: 24 }, (_, index) => ({
-                ...article,
-                id: String(index),
-                slug: `scroll-${index}`,
-              }))
-          : [article],
-      next_cursor: mode === "scroll" && !requestUrl.searchParams.has("cursor") ? "next+page" : null,
-    };
+    body =
+      mode === "default-all"
+        ? defaultAllFeed(article, requestUrl.searchParams)
+        : {
+            items:
+              mode === "scroll"
+                ? requestUrl.searchParams.has("cursor")
+                  ? [
+                      {
+                        ...article,
+                        id: "next",
+                        slug: "next",
+                        title: "Automatically appended feed article",
+                      },
+                    ]
+                  : Array.from({ length: 24 }, (_, index) => ({
+                      ...article,
+                      id: String(index),
+                      slug: `scroll-${index}`,
+                    }))
+                : [article],
+            next_cursor:
+              mode === "scroll" && !requestUrl.searchParams.has("cursor") ? "next+page" : null,
+          };
   if (
     compactArticles &&
     Array.isArray(body?.items) &&
@@ -547,6 +561,9 @@ try {
       window.__cspViolations.push(`${event.effectiveDirective}: ${event.blockedURI}`);
     });
   });
+  mode = "default-all";
+  await checkDefaultAll(page, origin, `${root}/reports/default-all/web`, () => defaultAllRequests);
+  mode = "ready";
   mode = "engagement-pagination";
   await checkEngagementPagination(page, `${origin}/latest`);
   mode = "ready";
