@@ -18,12 +18,12 @@ PROVIDER = "nick-launches"
 def test_supported_catalog_and_create_disabled(admin_client, database):
     providers = admin_client.get(ROOT + "/providers").json()
     assert [p["provider"] for p in providers] == [PROVIDER, "shipyardhq"]
-    assert admin_client.get(PATH).json() == []
+    assert admin_client.get(PATH).json() == {"items": [], "total": 0, "limit": 25, "offset": 0}
     response = admin_client.post(PATH, json={"provider": PROVIDER, "enabled": False})
     assert response.status_code == 201, response.text
     assert response.json()["enabled"] is False
     assert response.json()["revision"] == 1
-    assert len(admin_client.get(PATH).json()) == 1
+    assert len(admin_client.get(PATH).json()["items"]) == 1
     with database() as session:
         assert session.scalar(select(PartnerPipelineJob)) is None
     assert admin_client.post(PATH, json={"provider": PROVIDER}).status_code == 409
@@ -139,7 +139,7 @@ def test_connection_has_one_revision_protected_account(admin_client, database):
     )
     assert created.status_code == 201
     assert created.json()["account_id"] == first_id
-    assert admin_client.get(PATH).json()[0]["account_id"] == first_id
+    assert admin_client.get(PATH).json()["items"][0]["account_id"] == first_id
     revision = created.json()["revision"]
     invalid = admin_client.put(
         PATH + "/" + PROVIDER,

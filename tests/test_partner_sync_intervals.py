@@ -16,7 +16,7 @@ pytestmark = pytest.mark.integration
 
 
 def settings(client, **values):
-    connection = client.get(ROOT + "/connections").json()[0]
+    connection = client.get(CONNECTION).json()
     return client.put(
         CONNECTION,
         json={

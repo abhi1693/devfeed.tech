@@ -8,6 +8,7 @@ import { PartnerAccountManagement } from "@/components/organisms/partner-account
 import { PartnerConnectionPage } from "@/components/organisms/partner-connection-page";
 import { PartnerRunDetail } from "@/components/organisms/partner-run-detail";
 import * as api from "@/lib/api/generated/admin";
+import { ApiError } from "@/lib/api/client";
 import type {
   ConnectionOut,
   PartnerPipelineOut,
@@ -32,6 +33,7 @@ vi.mock("@/lib/api/generated/admin", () => ({
   adminPartnerProductPromotionGet: vi.fn(),
   adminPartnerProductPromotionUpdate: vi.fn(),
   adminPartnerConnectionsList: vi.fn(),
+  adminPartnerConnectionGet: vi.fn(),
   adminPartnerProvidersList: vi.fn().mockResolvedValue([]),
   dashboardV1AdminPartnerAccountsAccountIdDashboardGet: vi.fn(),
   adminPartnerConnectionAction: vi.fn(),
@@ -96,6 +98,8 @@ const connection = {
 } as ConnectionOut;
 const fetcher = vi.fn();
 beforeEach(() => {
+  vi.clearAllMocks();
+  vi.mocked(api.adminPartnerProvidersList).mockResolvedValue([]);
   push.mockReset();
   fetcher.mockReset();
   vi.stubGlobal("fetch", fetcher);
@@ -258,7 +262,7 @@ it("retains edited account values on validation failure and allows cancellation"
 });
 
 it("loads a connection, links its account, and sends an authorized sync action", async () => {
-  vi.mocked(api.adminPartnerConnectionsList).mockResolvedValue([connection]);
+  vi.mocked(api.adminPartnerConnectionGet).mockResolvedValue(connection);
   vi.mocked(api.dashboardV1AdminPartnerAccountsAccountIdDashboardGet).mockResolvedValue(dashboard);
   vi.mocked(api.adminPartnerConnectionAction).mockResolvedValue({
     ...connection,
@@ -266,6 +270,8 @@ it("loads a connection, links its account, and sends an authorized sync action",
   });
   renderAdmin(<PartnerConnectionPage provider="example" />);
   await screen.findByRole("heading", { name: "Example connection" });
+  expect(api.adminPartnerConnectionGet).toHaveBeenCalledWith("example");
+  expect(api.adminPartnerConnectionsList).not.toHaveBeenCalled();
   expect(screen.getByRole("link", { name: "Import connections" }).getAttribute("href")).toBe(
     "/partnerships/connections",
   );
@@ -283,10 +289,57 @@ it("loads a connection, links its account, and sends an authorized sync action",
 });
 
 it("reports missing connections rather than rendering settings for a different provider", async () => {
-  vi.mocked(api.adminPartnerConnectionsList).mockResolvedValue([]);
+  vi.mocked(api.adminPartnerConnectionGet).mockRejectedValue(new ApiError(404));
   renderAdmin(<PartnerConnectionPage provider="missing" />);
   await screen.findByText("Import connection not found.");
   expect(screen.queryByRole("button", { name: "Sync now" })).toBeNull();
+});
+
+it("checks each preset identity without loading the connections list when creating", async () => {
+  vi.mocked(api.adminPartnerProvidersList).mockResolvedValue([
+    {
+      provider: "example",
+      name: "Existing platform",
+      partnership_type: "launch_platform",
+      api_url: "https://example.test/api",
+      description: "Existing preset",
+    },
+    {
+      provider: "shipyardhq",
+      name: "ShipyardHQ",
+      partnership_type: "launch_platform",
+      api_url: "https://shipyardhq.dev/api/products",
+      description: "Available preset",
+    },
+  ]);
+  vi.mocked(api.adminPartnerConnectionGet).mockImplementation(async (provider) => {
+    if (provider === "example") return connection;
+    throw new ApiError(404);
+  });
+  renderAdmin(<PartnerConnectionPage />);
+  fireEvent.click(await screen.findByRole("combobox", { name: "Platform" }));
+  expect(screen.queryByRole("option", { name: "Existing platform" })).toBeNull();
+  expect(screen.getByRole("option", { name: "ShipyardHQ" })).toBeTruthy();
+  expect(screen.getByRole("option", { name: "Custom API" })).toBeTruthy();
+  expect(api.adminPartnerConnectionGet).toHaveBeenCalledWith("example");
+  expect(api.adminPartnerConnectionGet).toHaveBeenCalledWith("shipyardhq");
+  expect(api.adminPartnerConnectionsList).not.toHaveBeenCalled();
+});
+
+it.each([403, 503])("retains a failed preset access check as an error (%s)", async (status) => {
+  vi.mocked(api.adminPartnerProvidersList).mockResolvedValue([
+    {
+      provider: "example",
+      name: "Example",
+      partnership_type: "launch_platform",
+      api_url: "https://example.test/api",
+      description: "Preset",
+    },
+  ]);
+  vi.mocked(api.adminPartnerConnectionGet).mockRejectedValue(new ApiError(status));
+  renderAdmin(<PartnerConnectionPage />);
+  expect(await screen.findByRole("alert")).toBeTruthy();
+  expect(screen.queryByRole("form", { name: "Import connection settings" })).toBeNull();
 });
 
 it("shows a pipeline run's links, state and logs", async () => {

@@ -42,12 +42,14 @@ from devfeed_core.partner_connectors import (
 from devfeed_core.partner_providers import PARTNER_PRESETS, PartnerProviderOut
 from devfeed_core.partner_tools import EvaluationOut, ProductOut, product_view, snapshot_current
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import String, cast, exists, func, or_, select
+from sqlalchemy import String, and_, cast, exists, func, or_, select
 from sqlalchemy.dialects.postgresql import insert
+from sqlalchemy.orm import aliased
 
 from devfeed_admin_api.auth import Admin, actor, require_admin
 from devfeed_admin_api.dependencies import DB
 from devfeed_admin_api.pagination import Listing, Page, paginate, record
+from devfeed_admin_api.search import text_search
 
 logger = logging.getLogger(__name__)
 
@@ -58,7 +60,112 @@ router = APIRouter(
 )
 
 
+def connection_views(session, connections):
+    """Aggregate catalog statistics for the supplied bounded connection page."""
+    if not connections:
+        return []
+    providers = [connection.provider for connection in connections]
+    products = (
+        select(PartnerListing.provider, PartnerListing.product_id)
+        .where(PartnerListing.provider.in_(providers))
+        .distinct()
+        .subquery()
+    )
+    owner_connection = aliased(PartnerConnection)
+    owner_listing = aliased(PartnerListing)
+    # Provider membership includes historical listings. Live ownership may come
+    # from another enabled connection on the same account.
+    owned = exists(
+        select(owner_listing.id)
+        .join(owner_connection, owner_connection.provider == owner_listing.provider)
+        .where(
+            owner_connection.account_id == PartnerConnection.account_id,
+            owner_connection.enabled.is_(True),
+            owner_listing.product_id == PartnerProduct.id,
+            owner_listing.active.is_(True),
+            owner_listing.identity_status == "resolved",
+        )
+        .correlate(PartnerConnection, PartnerProduct)
+    )
+    accepted = and_(
+        PartnerConnection.enabled.is_(True),
+        PartnerAccount.status == "active",
+        PartnerProduct.merged_into_id.is_(None),
+        PartnerProduct.excluded.is_(False),
+        or_(
+            PartnerProductPromotion.product_id.is_(None),
+            PartnerProductPromotion.excluded.is_(False),
+        ),
+        owned,
+        or_(
+            and_(
+                PartnerProduct.status == "approved",
+                PartnerProduct.verified_at >= utcnow() - timedelta(days=90),
+            ),
+            and_(
+                PartnerAccount.approval_mode == "trusted",
+                PartnerProductPromotion.commercial_approved_at.is_not(None),
+            ),
+        ),
+    )
+    syncing = exists(
+        select(PartnerPipelineJob.id)
+        .where(
+            PartnerPipelineJob.provider == PartnerConnection.provider,
+            PartnerPipelineJob.operation == "sync",
+            PartnerPipelineJob.status.in_(["queued", "running"]),
+        )
+        .correlate(PartnerConnection)
+    )
+    count = func.count(PartnerProduct.id)
+    statistics = {
+        row.provider: row
+        for row in session.execute(
+            select(
+                PartnerConnection.provider,
+                PartnerAccount.approval_mode,
+                syncing.label("syncing"),
+                count.label("products"),
+                count.filter(
+                    PartnerProduct.excluded.is_(False), PartnerProduct.status == "approved"
+                ).label("qualified"),
+                count.filter(
+                    PartnerProduct.excluded.is_(False),
+                    PartnerProduct.assessment["state"].astext == "checking",
+                ).label("checking"),
+                count.filter(
+                    PartnerProduct.excluded.is_(False), PartnerProduct.status == "pending"
+                ).label("pending"),
+                count.filter(PartnerProduct.excluded.is_(True)).label("excluded"),
+                count.filter(accepted).label("commercial_approved"),
+            )
+            .select_from(PartnerConnection)
+            .outerjoin(PartnerAccount, PartnerAccount.id == PartnerConnection.account_id)
+            .outerjoin(products, products.c.provider == PartnerConnection.provider)
+            .outerjoin(PartnerProduct, PartnerProduct.id == products.c.product_id)
+            .outerjoin(
+                PartnerProductPromotion,
+                and_(
+                    PartnerProductPromotion.account_id == PartnerConnection.account_id,
+                    PartnerProductPromotion.product_id == PartnerProduct.id,
+                ),
+            )
+            .where(PartnerConnection.provider.in_(providers))
+            .group_by(PartnerConnection.provider, PartnerAccount.id)
+        )
+    }
+    ai_enabled = get_settings().ai_enabled
+    return [
+        _connection_view(connection, statistics[connection.provider], ai_enabled=ai_enabled)
+        for connection in connections
+    ]
+
+
 def connection_view(session, connection):
+    return connection_views(session, [connection])[0]
+
+
+def _connection_view(connection, statistics, *, ai_enabled):
     provider = connection.provider
     definition = (
         connector_snapshot(connection)
@@ -66,79 +173,9 @@ def connection_view(session, connection):
         else None
     )
 
-    belongs = exists(
-        select(PartnerListing.id)
-        .where(PartnerListing.product_id == PartnerProduct.id, PartnerListing.provider == provider)
-        .correlate(PartnerProduct)
-    )
-    counts = dict(
-        session.execute(
-            select(PartnerProduct.status, func.count())
-            .where(belongs, PartnerProduct.excluded.is_(False))
-            .group_by(PartnerProduct.status)
-        ).all()
-    )
-    excluded = (
-        session.scalar(
-            select(func.count())
-            .select_from(PartnerProduct)
-            .where(belongs, PartnerProduct.excluded.is_(True))
-        )
-        or 0
-    )
-    checking = (
-        session.scalar(
-            select(func.count())
-            .select_from(PartnerProduct)
-            .where(
-                belongs,
-                PartnerProduct.excluded.is_(False),
-                PartnerProduct.assessment["state"].astext == "checking",
-            )
-        )
-        or 0
-    )
-    active = session.scalar(
-        select(PartnerPipelineJob.id).where(
-            PartnerPipelineJob.provider == provider,
-            PartnerPipelineJob.operation == "sync",
-            PartnerPipelineJob.status.in_(["queued", "running"]),
-        )
-    )
-    account = session.get(PartnerAccount, connection.account_id) if connection.account_id else None
-    from devfeed_core.partner_promotions import associated_products_query
-    from devfeed_core.partner_tools import eligible
-
-    promotions = (
-        {
-            row.product_id: row
-            for row in session.scalars(
-                select(PartnerProductPromotion).where(
-                    PartnerProductPromotion.account_id == connection.account_id
-                )
-            )
-        }
-        if account
-        else {}
-    )
-    accepted = 0
-    if account and account.status == "active" and connection.enabled:
-        for _, product in session.execute(associated_products_query(account.id).where(belongs)):
-            promotion = promotions.get(product.id)
-            trusted = (
-                account.approval_mode == "trusted"
-                and promotion
-                and promotion.commercial_approved_at
-            )
-            if (
-                not product.excluded
-                and not (promotion and promotion.excluded)
-                and (eligible(product) or trusted)
-            ):
-                accepted += 1
     return ConnectionOut(
-        commercial_approved=accepted,
-        approval_mode=account.approval_mode if account else None,
+        commercial_approved=statistics.commercial_approved,
+        approval_mode=statistics.approval_mode,
         provider=provider,
         account_id=connection.account_id,
         revision=connection.revision,
@@ -146,34 +183,58 @@ def connection_view(session, connection):
         name=connection.name or provider.replace("-", " ").title(),
         api_url=definition["base_url"] + definition["list_path"] if definition else "",
         connector=definition,
-        enabled=bool(connection and connection.enabled),
+        enabled=connection.enabled,
         state="disconnected"
-        if not connection or not connection.enabled
+        if not connection.enabled
         else "syncing"
-        if active
+        if statistics.syncing
         else "error"
         if connection.last_error
         else "idle",
-        last_sync_at=connection.last_sync_at if connection else None,
-        next_sync_at=connection.next_sync_at if connection and connection.enabled else None,
-        error=connection.last_error if connection else None,
-        products=sum(counts.values()) + excluded,
-        qualified=counts.get("approved", 0),
-        checking=checking,
-        needs_attention=max(0, counts.get("pending", 0) - checking),
-        excluded=excluded,
-        ai_enabled=get_settings().ai_enabled,
+        last_sync_at=connection.last_sync_at,
+        next_sync_at=connection.next_sync_at if connection.enabled else None,
+        error=connection.last_error,
+        products=statistics.products,
+        qualified=statistics.qualified,
+        checking=statistics.checking,
+        needs_attention=max(0, statistics.pending - statistics.checking),
+        excluded=statistics.excluded,
+        ai_enabled=ai_enabled,
     )
 
 
 @router.get(
     "/connections",
-    response_model=list[ConnectionOut],
+    response_model=Page[ConnectionOut],
     operation_id="admin_partner_connections_list",
 )
-def connections(session: DB):
-    records = session.scalars(select(PartnerConnection).order_by(PartnerConnection.provider)).all()
-    return [connection_view(session, connection) for connection in records]
+def connections(query: Listing, session: DB):
+    statement = select(PartnerConnection)
+    if query.q:
+        statement = statement.where(
+            text_search(query.q, PartnerConnection.provider, PartnerConnection.name)
+        )
+    result = paginate(
+        session,
+        statement,
+        query,
+        {"provider": PartnerConnection.provider, "name": PartnerConnection.name},
+        default="provider",
+    )
+    result["items"] = connection_views(session, result["items"])
+    return result
+
+
+@router.get(
+    "/connections/{provider}",
+    response_model=ConnectionOut,
+    operation_id="admin_partner_connection_get",
+)
+def connection(provider: str, session: DB):
+    value = session.get(PartnerConnection, provider)
+    if value is None:
+        raise HTTPException(404, "Import connection not found")
+    return connection_view(session, value)
 
 
 @router.get(

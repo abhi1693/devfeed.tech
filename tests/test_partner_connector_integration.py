@@ -239,6 +239,11 @@ def test_raw_response_preview_does_not_require_known_mapping(admin_client, datab
     assert response.status_code == 200, response.text
     assert response.json()["data"]["unknown"]["products"][0]["name"] == RECORD["name"]
     assert response.json()["data"]["access_token"] == "[redacted]"
-    assert admin_client.get(ROOT + "/connections").json() == []
+    assert admin_client.get(ROOT + "/connections").json() == {
+        "items": [],
+        "total": 0,
+        "limit": 25,
+        "offset": 0,
+    }
     with database() as session:
         assert session.scalar(select(func.count()).select_from(PartnerPipelineJob)) == 0

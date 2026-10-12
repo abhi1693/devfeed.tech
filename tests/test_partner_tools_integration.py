@@ -285,7 +285,7 @@ def test_api_rate_limits_retry_and_ai_disabled_still_syncs(admin_client, databas
         assert job.status == "queued" and job.attempts == 1
         assert job.available_at >= utcnow() + timedelta(seconds=590)
         assert "429" in job.error and "remote response" not in job.error
-    response = admin_client.get(ROOT + "/connections").json()[0]
+    response = admin_client.get(ROOT + "/connections").json()["items"][0]
     assert "429" in response["error"] and not response["ai_enabled"]
 
 

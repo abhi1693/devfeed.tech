@@ -10,6 +10,11 @@ DevFeed records campaign agreements; it does not collect payment or infer invoic
 
 ## Configure a partner once
 
+The administration connection list is searchable and paginated. Its API returns
+`items`, `total`, `limit` and `offset`, with at most 100 connections per page; grouped SQL
+counts cover only that page's providers. Connection detail URLs resolve the provider directly,
+independently of the list's filters or current page.
+
 Assign the account in the import connection's settings. Enabled connections with active,
 resolved listings establish the account's current eligible catalog. An account can have
 multiple connections; the same canonical product may belong to several accounts through

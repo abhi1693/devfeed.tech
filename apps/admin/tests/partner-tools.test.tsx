@@ -123,7 +123,12 @@ beforeEach(() => {
     trend: [],
   });
   vi.mocked(api.adminPartnerProvidersList).mockResolvedValue([provider]);
-  vi.mocked(api.adminPartnerConnectionsList).mockResolvedValue([connection]);
+  vi.mocked(api.adminPartnerConnectionsList).mockResolvedValue({
+    items: [connection],
+    total: 1,
+    offset: 0,
+    limit: 25,
+  });
   vi.mocked(api.adminPartnerToolsList).mockResolvedValue({
     items: [],
     total: 0,
@@ -323,7 +328,12 @@ it("preserves an explicitly saved Shipyard connector when editing the connection
 });
 
 it("uses an import connection table and canonical create page without manual product input", async () => {
-  vi.mocked(api.adminPartnerConnectionsList).mockResolvedValue([]);
+  vi.mocked(api.adminPartnerConnectionsList).mockResolvedValue({
+    items: [],
+    total: 0,
+    offset: 0,
+    limit: 25,
+  });
   renderAdmin(<PartnerConnections />);
   expect(
     await screen.findByText(
@@ -496,9 +506,12 @@ it("labels pipeline relationships as import connections and links their canonica
 });
 
 it("provides retry and exclusion for synced products without editing them", async () => {
-  vi.mocked(api.adminPartnerConnectionsList).mockResolvedValue([
-    { ...connection, enabled: true, state: "idle", products: 1, needs_attention: 1 },
-  ]);
+  vi.mocked(api.adminPartnerConnectionsList).mockResolvedValue({
+    items: [{ ...connection, enabled: true, state: "idle", products: 1, needs_attention: 1 }],
+    total: 1,
+    offset: 0,
+    limit: 25,
+  });
   vi.mocked(api.adminPartnerToolsList).mockResolvedValue({
     items: [product],
     total: 1,

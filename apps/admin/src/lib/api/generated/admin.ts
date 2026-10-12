@@ -30,6 +30,7 @@ import type {
   AdminPartnerAudienceTopicsParams,
   AdminPartnerCampaignsListParams,
   AdminPartnerConnectionJobsParams,
+  AdminPartnerConnectionsListParams,
   AdminPartnerCreativePreviewParams,
   AdminPartnerEvaluationsListParams,
   AdminPartnerInventoryListParams,
@@ -121,6 +122,7 @@ import type {
   PageAdminUserSource,
   PageAdminUserTopic,
   PageArticleReviewOut,
+  PageConnectionOut,
   PagePartnerEvaluationSummary,
   PagePartnerJobOut,
   PagePartnerPipelineOut,
@@ -1920,20 +1922,27 @@ export const adminPartnerToolsList = async (params?: AdminPartnerToolsListParams
 
 
 
-export const getAdminPartnerConnectionsListUrl = () => {
+export const getAdminPartnerConnectionsListUrl = (params?: AdminPartnerConnectionsListParams,) => {
+  const normalizedParams = new URLSearchParams();
 
+  Object.entries(params || {}).forEach(([key, value]) => {
 
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
 
+  const stringifiedParams = normalizedParams.toString();
 
-  return `/v1/admin/partner-tools/connections`
+  return stringifiedParams.length > 0 ? `/v1/admin/partner-tools/connections?${stringifiedParams}` : `/v1/admin/partner-tools/connections`
 }
 
 /**
  * @summary Connections
  */
-export const adminPartnerConnectionsList = async ( options?: Parameters<typeof adminFetch>[1]): Promise<ConnectionOut[]> => {
+export const adminPartnerConnectionsList = async (params?: AdminPartnerConnectionsListParams, options?: Parameters<typeof adminFetch>[1]): Promise<PageConnectionOut> => {
 
-  return adminFetch<ConnectionOut[]>(getAdminPartnerConnectionsListUrl(),
+  return adminFetch<PageConnectionOut>(getAdminPartnerConnectionsListUrl(params),
   {
     ...options,
     method: 'GET'
@@ -1977,6 +1986,30 @@ return adminFetch<ConnectionOut>(getAdminPartnerConnectionCreateUrl(),
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
     body: JSON.stringify(connectionCreate)
+  }
+);}
+
+
+
+export const getAdminPartnerConnectionGetUrl = (provider: string,) => {
+
+
+
+
+  return `/v1/admin/partner-tools/connections/${provider}`
+}
+
+/**
+ * @summary Connection
+ */
+export const adminPartnerConnectionGet = async (provider: string, options?: Parameters<typeof adminFetch>[1]): Promise<ConnectionOut> => {
+
+  return adminFetch<ConnectionOut>(getAdminPartnerConnectionGetUrl(provider),
+  {
+    ...options,
+    method: 'GET'
+
+
   }
 );}
 

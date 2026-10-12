@@ -24,11 +24,12 @@ import {
 } from "./partner-connections";
 import {
   dashboardV1AdminPartnerAccountsAccountIdDashboardGet,
-  adminPartnerConnectionsList,
+  adminPartnerConnectionGet,
   adminPartnerProvidersList,
   adminPartnerConnectionAction,
 } from "@/lib/api/generated/admin";
 import type { AccountOut, ConnectionOut, PartnerProviderOut } from "@/lib/api/generated/models";
+import { ApiError } from "@/lib/api/client";
 
 export function PartnerConnectionPage({
   provider,
@@ -51,14 +52,29 @@ export function PartnerConnectionPage({
   const [refresh, setRefresh] = useState(0);
   useEffect(() => {
     let live = true;
+    async function findConnection(identifier: string) {
+      try {
+        return await adminPartnerConnectionGet(identifier);
+      } catch (error) {
+        if (error instanceof ApiError && error.status === 404) return undefined;
+        throw error;
+      }
+    }
     async function load() {
       try {
-        const [connections, supported] = await Promise.all([
-          adminPartnerConnectionsList(),
-          adminPartnerProvidersList(),
+        const [found, supported] = await Promise.all([
+          provider ? findConnection(provider) : undefined,
+          !provider || editing ? adminPartnerProvidersList() : [],
         ]);
-        const found = connections.find((c) => c.provider === provider);
         if (provider && !found) throw new Error("Import connection not found.");
+        // Presets are a small fixed catalog. Probe each identity directly so an
+        // existing preset outside the connections page cannot be offered again.
+        const existing = provider
+          ? []
+          : await Promise.all(supported.map((preset) => findConnection(preset.provider)));
+        const available = provider
+          ? supported
+          : supported.filter((_preset, index) => !existing[index]);
         const dashboard =
           found?.account_id && !editing && section === "details"
             ? await dashboardV1AdminPartnerAccountsAccountIdDashboardGet(found.account_id, {
@@ -68,11 +84,7 @@ export function PartnerConnectionPage({
         if (live) {
           setConnection(found);
           setAccount(dashboard?.account);
-          setProviders(
-            provider
-              ? supported
-              : supported.filter((p) => !connections.some((c) => c.provider === p.provider)),
-          );
+          setProviders(available);
           setError(undefined);
         }
       } catch (error) {

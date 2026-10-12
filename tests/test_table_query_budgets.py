@@ -30,6 +30,7 @@ from devfeed_core.models import (
     PartnerMembership,
     PartnerPipelineJob,
     PartnerProduct,
+    PartnerProductPromotion,
     Source,
     SourceCandidate,
     SourceEnrichmentJob,
@@ -369,7 +370,10 @@ def table_data(profile_data):  # noqa: F811 - imported pytest fixture
         )
         c.execute(
             insert(PartnerAccount),
-            [{"id": identity("partner-account", 0), "name": "Partner account", "tier": "bronze"}],
+            [
+                {"id": identity("partner-account", 0), "name": "Partner account", "tier": "bronze"},
+                {"id": identity("partner-account", 1), "name": "Other account", "tier": "bronze"},
+            ],
         )
         c.execute(
             insert(PartnerMembership),
@@ -436,6 +440,24 @@ def table_data(profile_data):  # noqa: F811 - imported pytest fixture
                     )
                 ],
             )
+        c.execute(
+            insert(PartnerProductPromotion),
+            [
+                dict(
+                    account_id=identity("partner-account", 0),
+                    product_id=identity("partner", i),
+                    excluded=i % 2 == 0,
+                )
+                for i in range(size)
+            ]
+            + [
+                dict(
+                    account_id=identity("partner-account", 1),
+                    product_id=identity("partner", 0),
+                    excluded=False,
+                )
+            ],
+        )
         # Source/topic zero remain visible; give the public relation list a visible target.
         c.execute(update(Topic).where(Topic.id == identity("topic", 1)).values(status="active"))
         c.execute(text("ANALYZE"))
@@ -467,8 +489,18 @@ def tables():
         2,
         bindings={"account_id": str(identity("partner-account", 0))},
     )
+    yield Table(
+        "/v1/admin/partner-accounts/{account_id}/products/promotions",
+        2,
+        bindings={"account_id": str(identity("partner-account", 0))},
+    )
     yield Table("/v1/admin/partner-tools/providers", 0)
-    yield Table("/v1/admin/partner-tools/connections", 5)
+    yield Table(
+        "/v1/admin/partner-tools/connections",
+        3,
+        sorts=("provider", "name"),
+        search="nick-launches",
+    )
     yield Table(
         "/v1/admin/partner-tools",
         3,
@@ -741,6 +773,8 @@ def rows(body):
 
 def check_filters(spec, values, records, source_enabled):
     for row in records:
+        if spec.template == "/v1/admin/partner-accounts/{account_id}/products/promotions":
+            assert row["account_id"] == spec.bindings["account_id"]
         for key in (
             "status",
             "review_status",

@@ -5,10 +5,14 @@ import { partnerSyncInterval } from "@/lib/partner-interval";
 import { useRefreshInterval } from "@/lib/use-refresh-interval";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useCallback, useState } from "react";
+import { useRouter } from "next/navigation";
 import { Plus } from "lucide-react";
 import { Button } from "@/components/atoms/button";
 import { PageHeading } from "@/components/molecules/page-heading";
+import { SearchField, searchScope } from "@/components/molecules/search-field";
+import { useRequest } from "@/lib/use-request";
+import { useTableQuery } from "@/lib/use-table-query";
 import { DataTable, type DataTableColumn } from "@/components/molecules/data-table";
 import { adminPartnerConnectionsList } from "@/lib/api/generated/admin";
 import type { ConnectionOut } from "@/lib/api/generated/models";
@@ -22,6 +26,7 @@ const columns: DataTableColumn<ConnectionOut>[] = [
     id: "name",
     accessorKey: "name",
     header: "Name",
+    enableSorting: true,
     cell: ({ row }) => (
       <Link
         prefetch={false}
@@ -85,39 +90,42 @@ const columns: DataTableColumn<ConnectionOut>[] = [
 ];
 
 export function PartnerConnections() {
+  const query = useTableQuery("partner-connections").toString();
+  return <ConnectionTable query={query} />;
+}
+
+function ConnectionTable({ query }: { query: string }) {
+  const router = useRouter();
+  const params = new URLSearchParams(query);
+  const bounded = (value: string | null, fallback: number, max: number) =>
+    value !== null && /^\d+$/.test(value) ? Math.min(max, Number(value)) : fallback;
+  const offset = bounded(params.get("offset"), 0, 100000000);
+  const limit = Math.max(1, bounded(params.get("limit"), 25, 100));
+  const requestedSort = params.get("sort") ?? "provider";
+  const sort = ["provider", "-provider", "name", "-name"].includes(requestedSort)
+    ? requestedSort
+    : "provider";
+  const q = params.get("q") ?? "";
   const refreshSeconds = useRefreshInterval();
-  const [items, setItems] = useState<ConnectionOut[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<Error>();
   const [refresh, setRefresh] = useState(0);
-  useEffect(() => {
-    let live = true;
-    async function load() {
-      try {
-        const connections = await adminPartnerConnectionsList();
-        if (live) {
-          setItems(connections);
-          setError(undefined);
-        }
-      } catch (error) {
-        if (live)
-          setError(error instanceof Error ? error : new Error("Could not load import connections"));
-      } finally {
-        if (live) setLoading(false);
-      }
-    }
-    void load();
-    const timer =
-      refreshSeconds > 0 ? setInterval(() => void load(), refreshSeconds * 1000) : undefined;
-    return () => {
-      live = false;
-      clearInterval(timer);
-    };
-  }, [refresh, refreshSeconds]);
+  const load = useCallback(
+    async (signal: AbortSignal) =>
+      adminPartnerConnectionsList({ q, sort, offset, limit }, { signal }),
+    [q, sort, offset, limit],
+  );
+  const result = useRequest(`partner-connections/${query}/${refresh}`, load, refreshSeconds * 1000);
+  function change(values: Record<string, string>) {
+    const next = new URLSearchParams(query);
+    next.set("offset", "0");
+    Object.entries(values).forEach(([key, value]) =>
+      value ? next.set(key, value) : next.delete(key),
+    );
+    router.replace(`${importConnectionsPath}?${next}`, { scroll: false });
+  }
   return (
     <section className="space-y-6">
       <PageHeading title="Import connections" trail={partnershipTrail}>
-        <Button asChild disabled={loading || !!error}>
+        <Button asChild disabled={result.loading || !!result.error}>
           <Link href={`${importConnectionsPath}/new`} prefetch={false}>
             <Plus aria-hidden size={16} />
             Create import connection
@@ -129,14 +137,29 @@ export function PartnerConnections() {
       </p>
       <DataTable
         label="Import connections"
-        data={items}
-        columns={columns}
+        data={result.data?.items ?? []}
+        columns={columns.map((column) => ({ enableSorting: false, ...column }))}
         getRowId={(row) => row.provider}
         columnChoices
-        loading={loading}
-        error={error}
+        loading={result.loading}
+        error={result.error}
         onRetry={() => setRefresh((n) => n + 1)}
-        empty="No import connections. Create an import connection to configure a product API."
+        sort={sort}
+        onSortChange={(next) => change({ sort: next })}
+        pagination={{ offset, limit, total: result.data?.total ?? 0, onChange: change }}
+        toolbar={
+          <SearchField
+            label="Search import connections"
+            value={q}
+            scopeKey={searchScope(query)}
+            onSearch={(value) => change({ q: value })}
+          />
+        }
+        empty={
+          q
+            ? "No import connections match your search."
+            : "No import connections. Create an import connection to configure a product API."
+        }
       />
     </section>
   );

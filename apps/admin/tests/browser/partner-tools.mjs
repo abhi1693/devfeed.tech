@@ -134,6 +134,19 @@ const connection = {
 };
 let added = false;
 const customConnections = [];
+const pagedConnections = Array.from({ length: 30 }, (_, index) => ({
+  ...connection,
+  account_id: null,
+  provider: `zz-fixture-${String(index).padStart(2, "0")}`,
+  name: `Fixture connection ${String(index).padStart(2, "0")}`,
+}));
+const connectionListRequests = [];
+const connectionDetailRequests = [];
+const connectionInventory = () => [
+  ...(added ? [connection] : []),
+  ...customConnections,
+  ...pagedConnections,
+];
 let previewValidation = false;
 const supported = [
   {
@@ -370,7 +383,16 @@ const fixture = createServer(async (req, res) => {
       has_next_page: false,
     };
   } else if (path.endsWith("/partner-tools/providers")) result = supported;
-  else if (path.endsWith("/partner-tools/connections")) {
+  else if (path.includes("/partner-tools/connections/") && req.method === "GET") {
+    const provider = decodeURIComponent(path.split("/").at(-1));
+    connectionDetailRequests.push(provider);
+    result = connectionInventory().find((item) => item.provider === provider);
+    if (!result) {
+      res.writeHead(404, { "content-type": "application/json" });
+      res.end(JSON.stringify({ detail: "Import connection not found." }));
+      return;
+    }
+  } else if (path.endsWith("/partner-tools/connections")) {
     if (req.method === "POST") {
       if (body.provider !== "nick-launches") {
         const custom = {
@@ -395,7 +417,22 @@ const fixture = createServer(async (req, res) => {
       connection.sync_interval_minutes = body.sync_interval_minutes;
       connection.state = body.enabled ? "idle" : "disconnected";
       result = connection;
-    } else result = [...(added ? [connection] : []), ...customConnections];
+    } else {
+      connectionListRequests.push(Object.fromEntries(params));
+      const q = (params.get("q") ?? "").toLowerCase();
+      const sort = params.get("sort") ?? "provider";
+      const key = sort.replace(/^-/, "");
+      const direction = sort.startsWith("-") ? -1 : 1;
+      const items = connectionInventory()
+        .filter((item) => `${item.name} ${item.provider}`.toLowerCase().includes(q))
+        .sort(
+          (a, b) =>
+            direction * a[key].localeCompare(b[key]) || a.provider.localeCompare(b.provider),
+        );
+      const offset = Number(params.get("offset") ?? 0);
+      const limit = Number(params.get("limit") ?? 25);
+      result = { items: items.slice(offset, offset + limit), total: items.length, offset, limit };
+    }
   } else if (path.endsWith("/partner-tools/connections/nick-launches")) {
     Object.assign(connection, {
       name: body.name ?? connection.name,
@@ -533,6 +570,38 @@ try {
   await page.goto(`${origin}/partner-tools`);
   await page.waitForURL("**/partnerships/connections");
   await page.getByRole("heading", { name: "Import connections", exact: true }).waitFor();
+  await page.getByRole("link", { name: "Fixture connection 00", exact: true }).waitFor();
+  assert.equal(
+    await page.getByRole("link", { name: "Fixture connection 29", exact: true }).count(),
+    0,
+  );
+  await page.getByRole("button", { name: "Next", exact: true }).click();
+  await page.getByRole("link", { name: "Fixture connection 29", exact: true }).waitFor();
+  assert.equal(new URL(page.url()).searchParams.get("offset"), "25");
+  assert.ok(
+    connectionListRequests.some((request) => request.offset === "25" && request.limit === "25"),
+  );
+  await page.getByRole("button", { name: "Previous", exact: true }).click();
+  await page.getByRole("link", { name: "Fixture connection 00", exact: true }).waitFor();
+  const connectionSearch = page.getByRole("textbox", { name: "Search import connections" });
+  await connectionSearch.fill("Fixture connection 29");
+  await connectionSearch.press("Enter");
+  await page.getByRole("link", { name: "Fixture connection 29", exact: true }).waitFor();
+  assert.equal(new URL(page.url()).searchParams.get("offset"), "0");
+  await connectionSearch.fill("");
+  await connectionSearch.press("Enter");
+  await page.getByRole("link", { name: "Fixture connection 00", exact: true }).waitFor();
+  assert.equal(
+    await page.getByRole("link", { name: "Fixture connection 29", exact: true }).count(),
+    0,
+  );
+  const listReadsBeforeDetail = connectionListRequests.length;
+  await page.goto(`${origin}/partnerships/connections/zz-fixture-29`);
+  await page.getByRole("heading", { name: "Fixture connection 29", exact: true }).waitFor();
+  assert.ok(connectionDetailRequests.includes("zz-fixture-29"));
+  assert.equal(connectionListRequests.length, listReadsBeforeDetail);
+  await page.goto(`${origin}/partnerships/connections`);
+  await page.getByRole("link", { name: "Fixture connection 00", exact: true }).waitFor();
   const group = page.getByRole("region", { name: "Partnerships", exact: true });
   assert.equal(
     await group.getByRole("link", { name: "Import connections", exact: true }).count(),
