@@ -19,6 +19,7 @@ import {
 } from "@/lib/partner-placements";
 import { recordPlacementView } from "@/lib/partner-placement-preferences";
 import { observePartnerPlacement } from "@/lib/partner-tracking";
+import { PARTNER_RECEIPT_TTL_MS, partnerReceiptExpiresAt } from "@/lib/partner-receipts";
 import { useUser } from "./user-account";
 import { useReaderPromptCoordinator } from "./reader-prompts";
 import { displayHost } from "@/lib/feed-query";
@@ -36,7 +37,13 @@ type Props = PartnerPlacementContext & {
   beforeDisplay?: () => void;
   afterDisplay?: () => void;
 };
-type Delivery = { context: string; owner: string; items: PartnerPlacement[]; loadedAt: number };
+type Delivery = {
+  context: string;
+  owner: string;
+  items: PartnerPlacement[];
+  expiresAt: number;
+  expired: boolean;
+};
 
 function ProductLogo({ name, url }: { name: string; url: string | null }) {
   const [failed, setFailed] = useState(false);
@@ -257,6 +264,11 @@ function PlacementDelivery({
   });
   const [result, setResult] = useState<Delivery | null>(null);
   const cached = useRef<Delivery | null>(null);
+  const reserved = useRef(new Set<string>());
+  const release = useCallback(() => {
+    for (const id of reserved.current) displayed.delete(id);
+    reserved.current.clear();
+  }, []);
   const publish = useCallback(
     (next: Delivery) => {
       beforeDisplay?.();
@@ -266,27 +278,50 @@ function PlacementDelivery({
     [beforeDisplay],
   );
   useLayoutEffect(() => afterDisplay?.(), [result, afterDisplay]);
+  useEffect(() => {
+    if (!result || result.expired) return;
+    let timer: ReturnType<typeof setTimeout>;
+    const check = () => {
+      clearTimeout(timer);
+      if (cached.current !== result) return;
+      const remaining = result.expiresAt - Date.now();
+      if (remaining <= 0) {
+        release();
+        // Retain inert feed cells so expiry cannot move the article being read.
+        publish({ ...result, expired: true });
+      } else timer = setTimeout(check, remaining);
+    };
+    check();
+    // Suspended tabs may resume after the deadline without having run their timer.
+    document.addEventListener("visibilitychange", check);
+    window.addEventListener("focus", check);
+    window.addEventListener("pageshow", check);
+    return () => {
+      clearTimeout(timer);
+      document.removeEventListener("visibilitychange", check);
+      window.removeEventListener("focus", check);
+      window.removeEventListener("pageshow", check);
+    };
+  }, [result, publish, release]);
   const csrf = user?.csrf_token;
   useEffect(() => {
     if (!active || loading) return;
-    const controller = new AbortController();
-    const reserved: string[] = [];
     function reserve(items: PartnerPlacement[]) {
       for (const item of items) {
         displayed.add(item.product_id);
-        reserved.push(item.product_id);
+        reserved.current.add(item.product_id);
       }
     }
     // Returning from a preview restores the same cells and tracking observers.
-    // An expired delivery stays empty until a new reading context is mounted.
+    // Expired cells stay suspended until a new reading context is mounted.
     if (cached.current?.context === context) {
-      if (Date.now() - cached.current.loadedAt >= 60 * 60_000)
-        publish({ ...cached.current, items: [] });
-      else reserve(cached.current.items);
-      return () => {
-        for (const id of reserved) displayed.delete(id);
-      };
+      if (!cached.current.expired) {
+        if (Date.now() >= cached.current.expiresAt) publish({ ...cached.current, expired: true });
+        else reserve(cached.current.items);
+      }
+      return release;
     }
+    const controller = new AbortController();
     const query: PlacementQuery = {
       surface,
       article_id,
@@ -321,11 +356,13 @@ function PlacementDelivery({
     void load
       .then((value) => {
         if (controller.signal.aborted) return;
+        const loadedAt = Date.now();
         const candidates = parsePartnerPlacements(value);
         const requested = JSON.parse(formats) as string[];
         const eligible = candidates.filter(
           (item) =>
             !displayed.has(item.product_id) &&
+            partnerReceiptExpiresAt(item.receipt) > loadedAt &&
             requested.includes(item.ad_format) &&
             (item.ad_format !== "homepage_sponsorship" ||
               (surface === "feed" && allow_sponsored_fallback)) &&
@@ -335,12 +372,21 @@ function PlacementDelivery({
         const sponsored = maxItems === 1 ? eligible.find((item) => item.sponsored) : undefined;
         const items = (sponsored ? [sponsored] : eligible).slice(0, maxItems);
         reserve(items);
-        publish({ context, owner: identity, items, loadedAt: Date.now() });
+        publish({
+          context,
+          owner: identity,
+          items,
+          expiresAt: Math.min(
+            loadedAt + PARTNER_RECEIPT_TTL_MS,
+            ...items.map((item) => partnerReceiptExpiresAt(item.receipt)),
+          ),
+          expired: !items.length,
+        });
       })
       .catch(() => {});
     return () => {
       controller.abort();
-      for (const id of reserved) displayed.delete(id);
+      release();
     };
   }, [
     context,
@@ -357,10 +403,11 @@ function PlacementDelivery({
     csrf,
     maxItems,
     publish,
+    release,
   ]);
   // Pause a confirmed owner's cards during verification without collapsing reading geometry.
   // A changed owner cannot retain the previous account's delivery.
-  const visible = active && !loading && result?.context === context;
+  const visible = active && !loading && result?.context === context && !result.expired;
   const cards =
     result?.owner === identity
       ? result.items.map((item) => (

@@ -5,7 +5,18 @@ import { PartnerPlacements } from "@/components/partner-placements";
 import { readerRequest } from "@/lib/reader-runtime";
 import { userRequest } from "@/lib/user";
 import { observePartnerPlacement } from "@/lib/partner-tracking";
-import { placement, sponsoredPlacement } from "./partner-placement-fixtures";
+import { partnerReceipt, placement, sponsoredPlacement } from "./partner-placement-fixtures";
+
+function refreshReceipts() {
+  placement.receipt = partnerReceipt({ assetId: placement.asset_id });
+  sponsoredPlacement.receipt = partnerReceipt({ assetId: sponsoredPlacement.asset_id });
+}
+
+function usePlacementClock() {
+  vi.useFakeTimers();
+  vi.setSystemTime(Math.floor(Date.now() / 1000) * 1000);
+  refreshReceipts();
+}
 
 const session = vi.hoisted(() => ({
   user: null as null | { user_id: string; csrf_token: string },
@@ -28,16 +39,321 @@ beforeEach(() => {
   session.loading = false;
   session.sessionRevision = 0;
   prompts.current = null;
+  refreshReceipts();
   vi.mocked(readerRequest).mockImplementation(async () =>
     Response.json({ items: [placement, sponsoredPlacement] }),
   );
   vi.mocked(userRequest).mockResolvedValue({ items: [placement] });
+  vi.mocked(observePartnerPlacement)
+    .mockReset()
+    .mockImplementation(() => () => {});
 });
 afterEach(() => {
   cleanup();
+  vi.useRealTimers();
   vi.clearAllMocks();
   vi.restoreAllMocks();
   localStorage.clear();
+});
+
+it("expires continuously mounted compact products without refetching or a parent rerender", async () => {
+  usePlacementClock();
+  const stopTracking = vi.fn();
+  vi.mocked(observePartnerPlacement).mockReturnValue(stopTracking);
+  await act(async () => {
+    render(<PartnerPlacements surface="article" article_id={placement.product_id} />);
+  });
+  expect(screen.getByRole("link", { name: placement.name })).toBeDefined();
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(60 * 60_000 - 1);
+  });
+  expect(screen.getByRole("link", { name: placement.name })).toBeDefined();
+  expect(stopTracking).not.toHaveBeenCalled();
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(1);
+  });
+  expect(screen.queryByRole("link", { name: placement.name })).toBeNull();
+  expect(screen.queryByRole("link", { name: sponsoredPlacement.name })).toBeNull();
+  expect(stopTracking).toHaveBeenCalledTimes(2);
+  expect(readerRequest).toHaveBeenCalledTimes(1);
+});
+
+it.each(["context", "account"])(
+  "cancels the previous expiry when the delivery changes its %s",
+  async (change) => {
+    usePlacementClock();
+    const stopped = new Map<string, ReturnType<typeof vi.fn>>();
+    vi.mocked(observePartnerPlacement).mockImplementation((_element, receipt) => {
+      const stop = vi.fn();
+      stopped.set(receipt, stop);
+      return stop;
+    });
+    let articleId = placement.product_id;
+    const content = () => <PartnerPlacements surface="article" article_id={articleId} />;
+    let mounted!: ReturnType<typeof render>;
+    await act(async () => {
+      mounted = render(content());
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(30 * 60_000);
+    });
+    const renewed = { ...placement, receipt: partnerReceipt({ assetId: placement.asset_id }) };
+    if (change === "context") {
+      articleId = sponsoredPlacement.product_id;
+      vi.mocked(readerRequest).mockResolvedValueOnce(Response.json({ items: [renewed] }));
+    } else {
+      session.user = { user_id: "new-reader", csrf_token: "new-csrf" };
+      session.sessionRevision += 1;
+      vi.mocked(userRequest).mockResolvedValueOnce({ items: [renewed] });
+    }
+    await act(async () => mounted.rerender(content()));
+    expect(stopped.get(placement.receipt)).toHaveBeenCalledTimes(1);
+    expect(stopped.get(sponsoredPlacement.receipt)).toHaveBeenCalledTimes(1);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(30 * 60_000);
+    });
+    expect(screen.getByRole("link", { name: placement.name })).toBeDefined();
+    expect(stopped.get(renewed.receipt)).not.toHaveBeenCalled();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(30 * 60_000);
+    });
+    expect(screen.queryByRole("link", { name: placement.name })).toBeNull();
+    expect(stopped.get(renewed.receipt)).toHaveBeenCalledTimes(1);
+    expect(readerRequest).toHaveBeenCalledTimes(change === "context" ? 2 : 1);
+    expect(userRequest).toHaveBeenCalledTimes(change === "account" ? 1 : 0);
+  },
+);
+
+it("cancels expiry work and tracking when unmounted", async () => {
+  usePlacementClock();
+  const stopTracking = vi.fn();
+  const beforeDisplay = vi.fn();
+  const afterDisplay = vi.fn();
+  vi.mocked(observePartnerPlacement).mockReturnValue(stopTracking);
+  let mounted!: ReturnType<typeof render>;
+  await act(async () => {
+    mounted = render(
+      <PartnerPlacements surface="feed" beforeDisplay={beforeDisplay} afterDisplay={afterDisplay}>
+        {(cards) => <div>{cards}</div>}
+      </PartnerPlacements>,
+    );
+  });
+  mounted.unmount();
+  expect(stopTracking).toHaveBeenCalledTimes(2);
+  beforeDisplay.mockClear();
+  afterDisplay.mockClear();
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(2 * 60 * 60_000);
+    document.dispatchEvent(new Event("visibilitychange"));
+    window.dispatchEvent(new Event("focus"));
+    window.dispatchEvent(new Event("pageshow"));
+  });
+  expect(beforeDisplay).not.toHaveBeenCalled();
+  expect(afterDisplay).not.toHaveBeenCalled();
+  expect(stopTracking).toHaveBeenCalledTimes(2);
+  expect(readerRequest).toHaveBeenCalledTimes(1);
+});
+
+it.each(["active", "verification", "modal"])(
+  "preserves feed cells and reading hooks when a delivery expires during %s",
+  async (state) => {
+    usePlacementClock();
+    const stopTracking = vi.fn();
+    vi.mocked(observePartnerPlacement).mockReturnValue(stopTracking);
+    const beforeLinks: number[] = [];
+    const afterLinks: number[] = [];
+    const beforeDisplay = vi.fn(() => {
+      beforeLinks.push(screen.queryAllByRole("link").length);
+    });
+    const afterDisplay = vi.fn(() => {
+      afterLinks.push(screen.queryAllByRole("link").length);
+    });
+    const content = () => (
+      <PartnerPlacements surface="feed" beforeDisplay={beforeDisplay} afterDisplay={afterDisplay}>
+        {(cards) => (
+          <div data-testid="feed-cells">
+            <article>Earlier article</article>
+            {cards[0]}
+            <article>Current reading position</article>
+            {cards[1]}
+            <article>Later article</article>
+          </div>
+        )}
+      </PartnerPlacements>
+    );
+    let mounted!: ReturnType<typeof render>;
+    await act(async () => {
+      mounted = render(content());
+    });
+    const cells = Array.from(screen.getByTestId("feed-cells").children);
+    expect(cells).toHaveLength(5);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(30 * 60_000);
+    });
+    if (state === "verification") session.loading = true;
+    if (state === "modal") prompts.current = { ready: true, modalOpen: true };
+    if (state !== "active") await act(async () => mounted.rerender(content()));
+    beforeDisplay.mockClear();
+    afterDisplay.mockClear();
+    beforeLinks.length = afterLinks.length = 0;
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(30 * 60_000);
+    });
+
+    const retained = Array.from(screen.getByTestId("feed-cells").children);
+    expect(retained).toHaveLength(cells.length);
+    retained.forEach((cell, index) => expect(cell).toBe(cells[index]));
+    for (const cell of [cells[1], cells[3]]) {
+      expect(cell.getAttribute("data-suspended")).toBe("true");
+      expect(cell.getAttribute("aria-hidden")).toBe("true");
+      expect(cell.hasAttribute("inert")).toBe(true);
+      expect(cell.hasAttribute("hidden")).toBe(false);
+    }
+    expect(screen.queryByRole("link", { name: placement.name })).toBeNull();
+    expect(stopTracking).toHaveBeenCalledTimes(2);
+    expect(beforeDisplay).toHaveBeenCalledTimes(1);
+    expect(afterDisplay).toHaveBeenCalledTimes(1);
+    expect(beforeLinks).toEqual([state === "active" ? 2 : 0]);
+    expect(afterLinks).toEqual([0]);
+
+    session.loading = false;
+    prompts.current = null;
+    await act(async () => mounted.rerender(content()));
+    expect(screen.queryByRole("link", { name: placement.name })).toBeNull();
+    expect(observePartnerPlacement).toHaveBeenCalledTimes(2);
+    expect(readerRequest).toHaveBeenCalledTimes(1);
+  },
+);
+
+it.each(["visibilitychange", "focus", "pageshow"])(
+  "checks the actual receipt deadline on %s when a background timer has not fired",
+  async (event) => {
+    usePlacementClock();
+    const visibility = vi.spyOn(document, "visibilityState", "get").mockReturnValue("hidden");
+    const stopTracking = vi.fn();
+    vi.mocked(observePartnerPlacement).mockReturnValue(stopTracking);
+    await act(async () => {
+      render(<PartnerPlacements surface="article" article_id={placement.product_id} />);
+    });
+    vi.setSystemTime(Date.now() + 60 * 60_000);
+    expect(screen.getByRole("link", { name: placement.name })).toBeDefined();
+    await act(async () => {
+      visibility.mockReturnValue("visible");
+      (event === "visibilitychange" ? document : window).dispatchEvent(new Event(event));
+    });
+    expect(screen.queryByRole("link", { name: placement.name })).toBeNull();
+    expect(stopTracking).toHaveBeenCalledTimes(2);
+    expect(readerRequest).toHaveBeenCalledTimes(1);
+  },
+);
+
+it("uses the earliest signed issuance deadline instead of restarting an hour after loading", async () => {
+  usePlacementClock();
+  const older = {
+    ...placement,
+    receipt: partnerReceipt({ assetId: placement.asset_id, issuedAt: Date.now() - 59 * 60_000 }),
+  };
+  vi.mocked(readerRequest).mockResolvedValueOnce(
+    Response.json({ items: [older, sponsoredPlacement] }),
+  );
+  await act(async () => {
+    render(<PartnerPlacements surface="article" article_id={placement.product_id} />);
+  });
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(60_000 - 1);
+  });
+  expect(screen.getAllByRole("link")).toHaveLength(2);
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(1);
+  });
+  expect(screen.queryAllByRole("link")).toHaveLength(0);
+  expect(readerRequest).toHaveBeenCalledTimes(1);
+});
+
+it.each(["malformed", "expired"])(
+  "does not show or observe a delivery with a %s receipt",
+  async (kind) => {
+    usePlacementClock();
+    const item = {
+      ...placement,
+      receipt:
+        kind === "malformed"
+          ? "unusable-delivery-receipt"
+          : partnerReceipt({ issuedAt: Date.now() - 60 * 60_000 }),
+    };
+    vi.mocked(readerRequest).mockResolvedValueOnce(Response.json({ items: [item] }));
+    await act(async () => {
+      render(<PartnerPlacements surface="article" article_id={placement.product_id} />);
+    });
+    expect(screen.queryByRole("link", { name: placement.name })).toBeNull();
+    expect(observePartnerPlacement).not.toHaveBeenCalled();
+  },
+);
+
+it("rejects a response whose receipt expired while the request was suspended", async () => {
+  usePlacementClock();
+  let finish!: (response: Response) => void;
+  vi.mocked(readerRequest).mockImplementationOnce(
+    () => new Promise<Response>((resolve) => (finish = resolve)),
+  );
+  await act(async () => {
+    render(<PartnerPlacements surface="article" article_id={placement.product_id} />);
+  });
+  vi.setSystemTime(Date.now() + 60 * 60_000);
+  await act(async () => finish(Response.json({ items: [placement] })));
+  expect(screen.queryByRole("link", { name: placement.name })).toBeNull();
+  expect(observePartnerPlacement).not.toHaveBeenCalled();
+  expect(readerRequest).toHaveBeenCalledTimes(1);
+});
+
+it("releases expired product reservations while retaining their inert feed cells", async () => {
+  usePlacementClock();
+  let showFeed = true;
+  let showTopic = false;
+  let showArticle = false;
+  const content = () => (
+    <>
+      {showFeed && (
+        <div key="feed" data-testid="expired-feed">
+          <PartnerPlacements surface="feed">{(cards) => <div>{cards}</div>}</PartnerPlacements>
+        </div>
+      )}
+      {showTopic && (
+        <PartnerPlacements key="topic" surface="topic" topic_id={placement.product_id} />
+      )}
+      {showArticle && (
+        <PartnerPlacements
+          key="article"
+          surface="article"
+          article_id={sponsoredPlacement.product_id}
+        />
+      )}
+    </>
+  );
+  let mounted!: ReturnType<typeof render>;
+  await act(async () => {
+    mounted = render(content());
+  });
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(60 * 60_000);
+  });
+  refreshReceipts();
+  showTopic = true;
+  await act(async () => mounted.rerender(content()));
+  expect(screen.getByRole("link", { name: placement.name })).toBeDefined();
+  expect(screen.getByTestId("expired-feed").querySelectorAll("[data-suspended]")).toHaveLength(2);
+  const query = JSON.parse(String(vi.mocked(readerRequest).mock.calls[1][1]?.body));
+  expect(query.exclude_product_ids).toEqual([]);
+  expect(readerRequest).toHaveBeenCalledTimes(2);
+  showFeed = false;
+  showArticle = true;
+  await act(async () => mounted.rerender(content()));
+  expect(screen.getAllByRole("link", { name: placement.name })).toHaveLength(1);
+  expect(screen.getAllByRole("link", { name: sponsoredPlacement.name })).toHaveLength(1);
+  const nextQuery = JSON.parse(String(vi.mocked(readerRequest).mock.calls[2][1]?.body));
+  expect(new Set(nextQuery.exclude_product_ids)).toEqual(
+    new Set([placement.product_id, sponsoredPlacement.product_id]),
+  );
 });
 
 it("discloses every compact product as sponsored while retaining its signed asset tracking", async () => {

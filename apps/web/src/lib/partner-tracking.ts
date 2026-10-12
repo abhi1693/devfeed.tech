@@ -1,4 +1,5 @@
 import { readerRequest } from "./reader-runtime";
+import { partnerReceiptExpiresAt } from "./partner-receipts";
 
 export type PartnerPlacementTrackingState = {
   completed: Set<string>;
@@ -18,17 +19,23 @@ export function observePartnerPlacement(
   },
   clickSelector?: string,
 ) {
-  if (!receipt || receipt.length > 256) return () => {};
+  const expiresAt = partnerReceiptExpiresAt(receipt);
+  if (expiresAt <= Date.now()) return () => {};
   const { completed, pending } = state;
   let inView = false;
   let stopped = false;
   let timer: ReturnType<typeof setTimeout> | undefined;
 
+  function current() {
+    return !stopped && Date.now() < expiresAt;
+  }
+
   async function report(kind: "impression" | "click") {
-    if (completed.has(kind) || pending.has(kind)) return;
+    if (!current() || completed.has(kind) || pending.has(kind)) return;
     pending.add(kind);
     try {
       for (let attempt = 0; attempt < 2; attempt++) {
+        if (!current()) return;
         try {
           const response = await readerRequest("/api/v1/partner-tracking/events", {
             method: "POST",
@@ -57,11 +64,11 @@ export function observePartnerPlacement(
   function visibility() {
     if (timer !== undefined) clearTimeout(timer);
     timer = undefined;
-    if (stopped || !inView || document.visibilityState !== "visible") return;
+    if (!current() || !inView || document.visibilityState !== "visible") return;
     if (completed.has("impression") || pending.has("impression")) return;
     timer = setTimeout(() => {
       timer = undefined;
-      if (element.isConnected && document.visibilityState === "visible") {
+      if (current() && element.isConnected && document.visibilityState === "visible") {
         if (!state.viewed) {
           state.viewed = true;
           onView?.();

@@ -13,7 +13,8 @@ const html =
   '<!doctype html><html><body style="margin:0;height:300vh"><a id="placement" href="#destination" style="display:block;margin-top:180vh;height:100px">Fixture placement</a><script src="./tracking-fixture.js"></script></body></html>';
 try {
   for (const platform of ["web", "chrome", "edge"]) {
-    const receipt = `controlled-${platform}-delivery`;
+    const issuedAt = Math.floor(Date.now() / 1000);
+    const receipt = `v1.${"1".repeat(32)}.${"2".repeat(32)}.${issuedAt}.${"3".repeat(64)}`;
     const compiled = await build({
       stdin: {
         contents: `
@@ -23,7 +24,13 @@ try {
           if (location.protocol === "chrome-extension:") {
             configureReaderRuntime({ request: createReaderTransport(fetch), publicOrigin: "https://devfeed.tech" });
           }
-          observePartnerPlacement(document.querySelector("#placement"), ${JSON.stringify(receipt)});
+          globalThis.trackingViews = 0;
+          observePartnerPlacement(document.querySelector("#placement"), ${JSON.stringify(receipt)}, () => {
+            globalThis.trackingViews++;
+          });
+          if (new URLSearchParams(location.search).has("expired")) {
+            Date.now = () => ${(issuedAt + 3600) * 1000};
+          }
         `,
         resolveDir: process.cwd(),
         sourcefile: "tracking-fixture.ts",
@@ -133,8 +140,46 @@ try {
         ["impression", "click"],
         `${platform}: click is independent and deduplicated`,
       );
+      await page.close();
+      events.length = 0;
+      const expiredPage = await context.newPage();
+      try {
+        await expiredPage.goto(
+          platform === "web"
+            ? "https://devfeed.tech/tracking-fixture.html?expired"
+            : `chrome-extension://${extensionId}/tracking-fixture.html?expired`,
+        );
+        await expiredPage.locator("#placement").scrollIntoViewIfNeeded();
+        await expiredPage.evaluate(() => {
+          Object.defineProperty(document, "visibilityState", {
+            configurable: true,
+            value: "hidden",
+          });
+          document.dispatchEvent(new Event("visibilitychange"));
+          Object.defineProperty(document, "visibilityState", {
+            configurable: true,
+            value: "visible",
+          });
+          document.dispatchEvent(new Event("visibilitychange"));
+        });
+        await expiredPage.waitForTimeout(1300);
+        await expiredPage.locator("#placement").click();
+        await expiredPage.waitForTimeout(300);
+        assert.equal(
+          await expiredPage.evaluate(() => globalThis.trackingViews),
+          0,
+          `${platform}: an expired card never records a local view after resuming`,
+        );
+        assert.deepEqual(
+          events,
+          [],
+          `${platform}: an expired receipt never reports an impression or click`,
+        );
+      } finally {
+        await expiredPage.close();
+      }
       console.log(
-        `${platform}: offscreen/hidden filtering, viewable impression, independent click, deduplication and credential isolation passed`,
+        `${platform}: offscreen/hidden filtering, viewable impression, independent click, deduplication, expiry and credential isolation passed`,
       );
     } finally {
       await context.close();

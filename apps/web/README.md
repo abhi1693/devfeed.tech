@@ -98,6 +98,20 @@ Shared browser regression helpers test preferences, public directories, onboardi
 
 The public API adds the optional `q` parameter to topics/sources. Deploy that API before the corresponding reader/extension release: an older API ignores `q` and cannot provide correct global catalog search. New same-origin topic/source detail endpoints must also be live before distributing the updated extensions. No database migration is needed. These source changes and local validations do not prove a production latency improvement until a separately authorized deployment is measured.
 
+## Partner placements
+
+The shared web, Chrome and Edge reader expires product placements one hour after
+their tracking receipt was issued. A timer and tab-resume checks enforce the
+deadline while the page stays mounted. Expired feed cards become hidden, inert
+cells with the same dimensions, preserving article position and focus. Placements
+outside feed slots are hidden. The same reading context does not fetch replacements;
+navigation to a new context can request a fresh delivery. Tracking checks the
+deadline before impressions, clicks and retries, including after suspended timers.
+
+After building the web app and both extensions, run
+`node apps/web/tests/browser/partner-placements.mjs` and
+`node apps/web/tests/browser/partner-tracking.mjs` for browser parity checks.
+
 ## Direct article entry
 
 Direct article URLs stream the requested preview before the optional background feed.

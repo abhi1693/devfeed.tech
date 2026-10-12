@@ -9,6 +9,15 @@ import { chromium } from "playwright";
 
 // Exercise actual production reader bundles and packaged extensions, with controlled
 // delivery responses. Backend integration tests prove relevance and signed receipts.
+const receiptIssuedAt = Math.floor(Date.now() / 1000);
+const receiptSigningKey = createHmac("sha256", "disposable-placement-receipt-signing-key")
+  .update("devfeed:partner-delivery:v1")
+  .digest();
+function placementReceipt(assetId, deliveryId) {
+  const payload = `v1.${assetId.replaceAll("-", "")}.${deliveryId.replaceAll("-", "")}.${receiptIssuedAt}`;
+  return `${payload}.${createHmac("sha256", receiptSigningKey).update(payload).digest("hex")}`;
+}
+
 const topic = {
   id: "66666666-6666-4666-8666-666666666666",
   slug: "typescript",
@@ -60,7 +69,10 @@ const ordinary = {
   partner_name: "Free partner",
   sponsored: false,
   reason: "Supports the TypeScript validation task in this article.",
-  receipt: "ordinary-delivery",
+  receipt: placementReceipt(
+    "22222222-2222-4222-8222-222222222222",
+    "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee",
+  ),
 };
 const sponsored = {
   ...ordinary,
@@ -70,7 +82,10 @@ const sponsored = {
   name: "Sponsored validator",
   partner_name: "Paid partner",
   sponsored: true,
-  receipt: "sponsored-delivery",
+  receipt: placementReceipt(
+    "44444444-4444-4444-8444-444444444444",
+    "ffffffff-ffff-4fff-8fff-ffffffffffff",
+  ),
   logo_url: "https://assets.partner.example/broken.png",
   image_url: "https://assets.partner.example/og/broken.png",
   image_variants: [],
@@ -129,6 +144,137 @@ function verifyCallerProof(headers, pathname) {
   assert.equal(headers["cf-connecting-ip"], undefined, "Raw edge headers are not forwarded");
   observedCallerProofs.set(pathname, new Set([...(observedCallerProofs.get(pathname) ?? []), ip]));
   observedCallerIps.add(ip);
+}
+
+async function assertMountedPlacementExpiry(context, base, platform) {
+  // Playwright's clock applies to the entire context. Finish the ordinary UI
+  // scenarios before replacing its pages and installing controlled timers.
+  const previousPages = context.pages();
+  // Keep a blank tab open while replacing reader pages in a persistent context.
+  await context.newPage();
+  await Promise.all(previousPages.map((page) => page.close()));
+  await context.clock.install({ time: new Date(receiptIssuedAt * 1000) });
+  for (const mode of ["foreground", "background-wake"]) {
+    await context.clock.setSystemTime(receiptIssuedAt * 1000);
+    const page = await context.newPage();
+    await page.addInitScript(() => {
+      sessionStorage.setItem("devfeed:dev-card-promo-dismissed", "true");
+      Object.defineProperty(document, "visibilityState", { configurable: true, value: "visible" });
+    });
+    try {
+      await page.goto(`${base}/latest?q=typescript`);
+      const cards = page.locator(".article-grid > .partner-placement");
+      await cards.first().waitFor();
+      await cards.nth(1).waitFor();
+      const reading = page
+        .locator(".article-grid > .article-card:not(.partner-placement) .card-open-link")
+        .nth(8);
+      await reading.scrollIntoViewIfNeeded();
+      await reading.focus();
+      await reading.evaluate((element) =>
+        element.setAttribute("data-expiry-reading-anchor", "true"),
+      );
+      await page.clock.fastForward(59 * 60_000);
+      await page.waitForTimeout(100);
+      assert.equal(
+        await page.locator(".article-grid > .partner-placement:visible").count(),
+        2,
+        `${platform}/${mode}: mounted cards remain available before receipt expiry`,
+      );
+      const beforeReading = await reading.boundingBox();
+      const beforeCards = await cards.evaluateAll((elements) =>
+        elements.map((element, index) => {
+          element.setAttribute("data-expiry-fixture-cell", String(index));
+          const { width, height } = element.getBoundingClientRect();
+          return { width, height };
+        }),
+      );
+      const beforeRequests = queries.length;
+      const beforeEvents = events.length;
+      if (mode === "foreground") await page.clock.fastForward(61_000);
+      else {
+        await page.evaluate(() =>
+          Object.defineProperty(document, "visibilityState", {
+            configurable: true,
+            value: "hidden",
+          }),
+        );
+        // Move wall time beyond the deadline without running the expiry timer,
+        // then wake the hidden tab through the browser visibility boundary.
+        await page.clock.setSystemTime((receiptIssuedAt + 3601) * 1000);
+        await page.evaluate(() => {
+          Object.defineProperty(document, "visibilityState", {
+            configurable: true,
+            value: "visible",
+          });
+          document.dispatchEvent(new Event("visibilitychange"));
+        });
+      }
+      await page.waitForFunction(() => {
+        const cards = [...document.querySelectorAll(".article-grid > .partner-placement")];
+        return (
+          cards.length === 2 &&
+          cards.every(
+            (card) =>
+              card.getAttribute("aria-hidden") === "true" &&
+              card.hasAttribute("inert") &&
+              getComputedStyle(card).visibility === "hidden",
+          )
+        );
+      });
+      assert.equal(await page.getByRole("link", { name: ordinary.name, exact: true }).count(), 0);
+      assert.equal(await page.getByRole("link", { name: sponsored.name, exact: true }).count(), 0);
+      const afterCards = await cards.evaluateAll((elements) =>
+        elements.map((element, index) => {
+          const { width, height } = element.getBoundingClientRect();
+          return {
+            width,
+            height,
+            same: element.getAttribute("data-expiry-fixture-cell") === String(index),
+          };
+        }),
+      );
+      for (const [index, cell] of afterCards.entries()) {
+        assert.ok(
+          cell.same,
+          `${platform}/${mode}: receipt expiry retains the same reserved card node`,
+        );
+        assert.ok(cell.width > 0 && cell.height > 0);
+        assert.ok(Math.abs(cell.width - beforeCards[index].width) <= 1);
+        assert.ok(Math.abs(cell.height - beforeCards[index].height) <= 1);
+      }
+      const afterReading = await reading.boundingBox();
+      assert.ok(
+        Math.abs(afterReading.y - beforeReading.y) <= 2,
+        `${platform}/${mode}: expiry preserves the scrolled reading article position`,
+      );
+      assert.equal(
+        await reading.evaluate(
+          (element) =>
+            element.getAttribute("data-expiry-reading-anchor") === "true" &&
+            document.activeElement === element,
+        ),
+        true,
+        `${platform}/${mode}: expiry preserves reading DOM and keyboard focus`,
+      );
+      await cards.locator(".partner-placement-link").evaluateAll((links) => {
+        for (const link of links) {
+          link.addEventListener("click", (event) => event.preventDefault(), { once: true });
+          link.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
+        }
+      });
+      await page.clock.runFor(2000);
+      await page.waitForTimeout(100);
+      assert.equal(events.length, beforeEvents, `${platform}/${mode}: expired cards stop tracking`);
+      assert.equal(
+        queries.length,
+        beforeRequests,
+        `${platform}/${mode}: expiry does not refresh or rotate the reading context`,
+      );
+    } finally {
+      await page.close();
+    }
+  }
 }
 const promotedArticle = {
   ...article,
@@ -1851,13 +1997,14 @@ try {
       } finally {
         placementLimited = false;
       }
+      await assertMountedPlacementExpiry(context, base, platform);
       for (const pathname of ["/v1/partner-placements/query", "/v1/partner-tracking/events"])
         assert.ok(
           observedCallerProofs.get(pathname)?.has(callerFixtureIps[platform]),
           `${platform}: production gateway preserves distinct caller identity for ${pathname}`,
         );
       console.log(
-        `${platform}: built web/extension in-grid homepage, search, category and topic cards; every product disclosed with distinct amber Sponsored pills and no dismissal; branded preview sidebar; focus/layout stability; signed campaign and non-campaign tracking; configured production gateway caller proofs, credential isolation and placement429 retry guidance; legacy hides/limits and failed optional storage cannot suppress delivery; private session routing; optional private experience save/reload/clear; article priority passed`,
+        `${platform}: built web/extension in-grid homepage, search, category and topic cards; every product disclosed with distinct amber Sponsored pills and no dismissal; branded preview sidebar; focus/layout stability; signed campaign and non-campaign tracking; configured production gateway caller proofs, credential isolation and placement429 retry guidance; mounted receipt expiry and background wake preserve reading position without refreshing or tracking; legacy hides/limits and failed optional storage cannot suppress delivery; private session routing; optional private experience save/reload/clear; article priority passed`,
       );
     } finally {
       await context.close();
