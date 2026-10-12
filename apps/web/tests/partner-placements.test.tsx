@@ -34,7 +34,6 @@ vi.mock("@/lib/reader-runtime", () => ({ readerRequest: vi.fn() }));
 vi.mock("@/lib/user", () => ({ userRequest: vi.fn() }));
 vi.mock("@/lib/partner-tracking", () => ({ observePartnerPlacement: vi.fn(() => () => {}) }));
 beforeEach(() => {
-  localStorage.clear();
   session.user = null;
   session.loading = false;
   session.sessionRevision = 0;
@@ -53,7 +52,6 @@ afterEach(() => {
   vi.useRealTimers();
   vi.clearAllMocks();
   vi.restoreAllMocks();
-  localStorage.clear();
 });
 
 it("expires continuously mounted compact products without refetching or a parent rerender", async () => {
@@ -441,54 +439,18 @@ it.each(["compact", "card"])(
         expect(observePartnerPlacement).toHaveBeenCalledWith(
           link,
           item.receipt,
-          expect.any(Function),
-          expect.objectContaining({ viewed: false }),
+          expect.objectContaining({ completed: expect.any(Set), pending: expect.any(Set) }),
         ),
       );
     }
   },
 );
 
-it("ignores legacy saved hides and hide events for every product", async () => {
-  localStorage.setItem(
-    "devfeed:partner-placement-preferences:v1",
-    JSON.stringify({
-      version: 1,
-      entries: [placement, sponsoredPlacement].map(({ product_id }) => ({
-        id: product_id,
-        day: new Date().toISOString().slice(0, 10),
-        count: 50,
-        cap: 1,
-        seen: Date.now(),
-        hidden: Date.now() + 90 * 86_400_000,
-      })),
-    }),
-  );
-  const mounted = render(<PartnerPlacements surface="article" article_id={placement.product_id} />);
-  await screen.findByRole("link", { name: placement.name });
-  act(() => {
-    window.dispatchEvent(
-      new CustomEvent("devfeed:partner-product-hidden", { detail: placement.product_id }),
-    );
-    window.dispatchEvent(
-      new StorageEvent("storage", { key: "devfeed:partner-placement-preferences:v1" }),
-    );
-  });
-  expect(screen.getByRole("link", { name: placement.name })).toBeDefined();
-  expect(screen.getByRole("link", { name: sponsoredPlacement.name })).toBeDefined();
-  mounted.unmount();
-  render(<PartnerPlacements surface="topic" topic_id={placement.product_id} />);
-  await screen.findByRole("link", { name: sponsoredPlacement.name });
-  expect(screen.getByRole("link", { name: placement.name })).toBeDefined();
-  const query = JSON.parse(vi.mocked(readerRequest).mock.calls.at(-1)![1]!.body as string);
-  expect(query.exclude_product_ids).toEqual([]);
-});
-
 it("keeps viewed products eligible on immediate remount in another context", async () => {
   const mounted = render(<PartnerPlacements surface="article" article_id={placement.product_id} />);
   await screen.findByRole("link", { name: placement.name });
   await waitFor(() => expect(observePartnerPlacement).toHaveBeenCalled());
-  act(() => vi.mocked(observePartnerPlacement).mock.calls[0][2]!());
+  vi.mocked(observePartnerPlacement).mock.calls[0][2]!.completed.add("impression");
   mounted.unmount();
   render(<PartnerPlacements surface="article" article_id={sponsoredPlacement.product_id} />);
   await screen.findByRole("link", { name: placement.name });
@@ -497,18 +459,26 @@ it("keeps viewed products eligible on immediate remount in another context", asy
   expect(query.exclude_product_ids).toEqual([]);
 });
 
-it("keeps delivered products visible when recording their view history fails", async () => {
-  render(<PartnerPlacements surface="article" article_id={placement.product_id} />);
-  await screen.findByRole("link", { name: placement.name });
-  await waitFor(() => expect(observePartnerPlacement).toHaveBeenCalledTimes(2));
-  vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
+it("loads and remounts placements without reading or writing browser storage", async () => {
+  const get = vi.spyOn(Storage.prototype, "getItem").mockImplementation(() => {
     throw new Error("storage unavailable");
   });
-  act(() => {
-    for (const [, , viewed] of vi.mocked(observePartnerPlacement).mock.calls) viewed?.();
+  const set = vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
+    throw new Error("storage unavailable");
   });
-  expect(screen.getByRole("link", { name: placement.name })).toBeDefined();
+  const remove = vi.spyOn(Storage.prototype, "removeItem");
+  const mounted = render(<PartnerPlacements surface="article" article_id={placement.product_id} />);
+  await screen.findByRole("link", { name: placement.name });
+  await waitFor(() => expect(observePartnerPlacement).toHaveBeenCalledTimes(2));
   expect(screen.getByRole("link", { name: sponsoredPlacement.name })).toBeDefined();
+  mounted.unmount();
+  render(<PartnerPlacements surface="topic" topic_id={placement.product_id} />);
+  await screen.findByRole("link", { name: placement.name });
+  await waitFor(() => expect(observePartnerPlacement).toHaveBeenCalledTimes(4));
+  expect(screen.getByRole("link", { name: sponsoredPlacement.name })).toBeDefined();
+  expect(get).not.toHaveBeenCalled();
+  expect(set).not.toHaveBeenCalled();
+  expect(remove).not.toHaveBeenCalled();
 });
 
 it("deduplicates the same product across simultaneously mounted contexts", async () => {
@@ -638,28 +608,6 @@ it("aborts a previous account delivery and cannot show its late response for the
   expect(vi.mocked(readerRequest).mock.calls[0][1]?.credentials).toBe("omit");
 });
 
-it("ignores old account caps and repeated-view history when rendering relevant products", async () => {
-  const stored = {
-    version: 1,
-    entries: [
-      {
-        id: placement.product_id,
-        day: new Date().toISOString().slice(0, 10),
-        count: 50,
-        cap: 1,
-        seen: Date.now(),
-        hidden: 0,
-      },
-    ],
-  };
-  localStorage.setItem("devfeed:partner-placement-preferences:v1", JSON.stringify(stored));
-  render(<PartnerPlacements surface="article" article_id={placement.product_id} />);
-  await screen.findByRole("link", { name: sponsoredPlacement.name });
-  expect(screen.getByRole("link", { name: placement.name })).toBeDefined();
-  const query = JSON.parse(vi.mocked(readerRequest).mock.calls[0][1]!.body as string);
-  expect(query.exclude_product_ids).toEqual([]);
-});
-
 it("gives an article modal its candidates instead of reserving them in a signed-in background feed", async () => {
   session.user = { user_id: "reader", csrf_token: "csrf" };
   prompts.current = { ready: true, modalOpen: false };
@@ -745,26 +693,3 @@ it("renders nothing for empty, unavailable, or unsafe results and never substitu
   await act(async () => {});
   expect(unavailable.container.innerHTML).toBe("");
 });
-
-it.each(["malformed", "unreadable", "unwritable"])(
-  "delivers all products with %s optional history storage",
-  async (failure) => {
-    if (failure === "malformed")
-      localStorage.setItem("devfeed:partner-placement-preferences:v1", "bad");
-    else
-      vi.spyOn(
-        Storage.prototype,
-        failure === "unreadable" ? "getItem" : "setItem",
-      ).mockImplementation(() => {
-        throw new Error("storage unavailable");
-      });
-    render(<PartnerPlacements surface="article" article_id={placement.product_id} />);
-    await screen.findByRole("link", { name: placement.name });
-    expect(screen.getByRole("link", { name: sponsoredPlacement.name })).toBeDefined();
-    expect(screen.getAllByText("Sponsored")).toHaveLength(2);
-    expect(screen.queryByRole("button")).toBeNull();
-    expect(
-      JSON.parse(String(vi.mocked(readerRequest).mock.calls[0][1]?.body)).exclude_product_ids,
-    ).toEqual([]);
-  },
-);

@@ -4,18 +4,15 @@ import { partnerReceiptExpiresAt } from "./partner-receipts";
 export type PartnerPlacementTrackingState = {
   completed: Set<string>;
   pending: Set<string>;
-  viewed: boolean;
 };
 
 /** Bind a placement's clickable element using its server-issued delivery receipt. */
 export function observePartnerPlacement(
   element: HTMLElement,
   receipt: string,
-  onView?: () => void,
   state: PartnerPlacementTrackingState = {
     completed: new Set<string>(),
     pending: new Set<string>(),
-    viewed: false,
   },
   clickSelector?: string,
 ) {
@@ -69,10 +66,6 @@ export function observePartnerPlacement(
     timer = setTimeout(() => {
       timer = undefined;
       if (current() && element.isConnected && document.visibilityState === "visible") {
-        if (!state.viewed) {
-          state.viewed = true;
-          onView?.();
-        }
         void report("impression");
       }
     }, 1000);

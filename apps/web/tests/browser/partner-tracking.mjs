@@ -24,10 +24,7 @@ try {
           if (location.protocol === "chrome-extension:") {
             configureReaderRuntime({ request: createReaderTransport(fetch), publicOrigin: "https://devfeed.tech" });
           }
-          globalThis.trackingViews = 0;
-          observePartnerPlacement(document.querySelector("#placement"), ${JSON.stringify(receipt)}, () => {
-            globalThis.trackingViews++;
-          });
+          observePartnerPlacement(document.querySelector("#placement"), ${JSON.stringify(receipt)});
           if (new URLSearchParams(location.search).has("expired")) {
             Date.now = () => ${(issuedAt + 3600) * 1000};
           }
@@ -165,11 +162,6 @@ try {
         await expiredPage.waitForTimeout(1300);
         await expiredPage.locator("#placement").click();
         await expiredPage.waitForTimeout(300);
-        assert.equal(
-          await expiredPage.evaluate(() => globalThis.trackingViews),
-          0,
-          `${platform}: an expired card never records a local view after resuming`,
-        );
         assert.deepEqual(
           events,
           [],

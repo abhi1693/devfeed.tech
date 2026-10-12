@@ -17,7 +17,6 @@ import {
   type PartnerPlacement,
   type PlacementQuery,
 } from "@/lib/partner-placements";
-import { recordPlacementView } from "@/lib/partner-placement-preferences";
 import { observePartnerPlacement } from "@/lib/partner-tracking";
 import { PARTNER_RECEIPT_TTL_MS, partnerReceiptExpiresAt } from "@/lib/partner-receipts";
 import { useUser } from "./user-account";
@@ -94,7 +93,6 @@ function Placement({
     receipt: item.receipt,
     completed: new Set<string>(),
     pending: new Set<string>(),
-    viewed: false,
   });
   useEffect(() => {
     const target = content ? article.current : link.current;
@@ -104,16 +102,8 @@ function Placement({
         receipt: item.receipt,
         completed: new Set<string>(),
         pending: new Set<string>(),
-        viewed: false,
       };
-    const args = [
-      target,
-      item.receipt,
-      () => {
-        recordPlacementView(item.product_id);
-      },
-      tracking.current,
-    ] as const;
+    const args = [target, item.receipt, tracking.current] as const;
     return content
       ? observePartnerPlacement(...args, "a.card-open-link, a.article-read-link")
       : observePartnerPlacement(...args);

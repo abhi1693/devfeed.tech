@@ -93,7 +93,6 @@ it("shares two total slots between a compact homepage sponsor and a genuine edit
     expect(observePartnerPlacement).toHaveBeenCalledWith(
       card,
       content.receipt,
-      expect.any(Function),
       expect.any(Object),
       "a.card-open-link, a.article-read-link",
     ),

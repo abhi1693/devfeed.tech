@@ -56,15 +56,14 @@ afterEach(() => {
   document.body.replaceChildren();
   vi.useRealTimers();
   vi.unstubAllGlobals();
+  vi.restoreAllMocks();
   vi.clearAllMocks();
 });
 it("requires half visibility for a continuous second and records each kind independently", async () => {
-  const onView = vi.fn();
-  dispose = observePartnerPlacement(element, receipt, onView);
+  dispose = observePartnerPlacement(element, receipt);
   view(0.49);
   await vi.advanceTimersByTimeAsync(2000);
   expect(readerRequest).not.toHaveBeenCalled();
-  expect(onView).not.toHaveBeenCalled();
   view(0.5);
   await vi.advanceTimersByTimeAsync(999);
   expect(readerRequest).not.toHaveBeenCalled();
@@ -77,7 +76,6 @@ it("requires half visibility for a continuous second and records each kind indep
   element.dispatchEvent(new MouseEvent("click"));
   await vi.advanceTimersByTimeAsync(2000);
   expect(readerRequest).toHaveBeenCalledTimes(2);
-  expect(onView).toHaveBeenCalledTimes(1);
   expect(
     vi.mocked(readerRequest).mock.calls.map(([, init]) => JSON.parse(init!.body as string)),
   ).toEqual([
@@ -108,7 +106,6 @@ it("tracks sponsored article visibility while counting only article destination 
   dispose = observePartnerPlacement(
     card,
     receipt,
-    undefined,
     undefined,
     "a.card-open-link, a.article-read-link",
   );
@@ -164,37 +161,32 @@ it("does not retry invalid receipts or attempt tracking without a receipt", asyn
   expect(readerRequest).toHaveBeenCalledTimes(1);
 });
 
-it("pauses an unviewed background card and resumes the full viewability interval", async () => {
-  const state = { completed: new Set<string>(), pending: new Set<string>(), viewed: false };
-  const onView = vi.fn();
-  dispose = observePartnerPlacement(element, receipt, onView, state);
+it("pauses a background card and resumes the full viewability interval", async () => {
+  const state = { completed: new Set<string>(), pending: new Set<string>() };
+  dispose = observePartnerPlacement(element, receipt, state);
   view(1);
   await vi.advanceTimersByTimeAsync(500);
   dispose();
   await vi.advanceTimersByTimeAsync(2000);
   expect(readerRequest).not.toHaveBeenCalled();
-  expect(onView).not.toHaveBeenCalled();
-  dispose = observePartnerPlacement(element, receipt, onView, state);
+  dispose = observePartnerPlacement(element, receipt, state);
   view(1);
   await vi.advanceTimersByTimeAsync(999);
   expect(readerRequest).not.toHaveBeenCalled();
   await vi.advanceTimersByTimeAsync(1);
   expect(readerRequest).toHaveBeenCalledTimes(1);
-  expect(onView).toHaveBeenCalledTimes(1);
 });
 
-it("restores an already viewed card without another impression or local cap increment", async () => {
-  const state = { completed: new Set<string>(), pending: new Set<string>(), viewed: false };
-  const onView = vi.fn();
-  dispose = observePartnerPlacement(element, receipt, onView, state);
+it("restores an already measured card without another impression", async () => {
+  const state = { completed: new Set<string>(), pending: new Set<string>() };
+  dispose = observePartnerPlacement(element, receipt, state);
   view(1);
   await vi.advanceTimersByTimeAsync(1000);
   dispose();
-  dispose = observePartnerPlacement(element, receipt, onView, state);
+  dispose = observePartnerPlacement(element, receipt, state);
   view(1);
   await vi.advanceTimersByTimeAsync(2000);
   expect(readerRequest).toHaveBeenCalledTimes(1);
-  expect(onView).toHaveBeenCalledTimes(1);
   element.dispatchEvent(new MouseEvent("click"));
   await vi.advanceTimersByTimeAsync(1);
   expect(readerRequest).toHaveBeenCalledTimes(2);
@@ -238,29 +230,24 @@ it("stops clicks on a continuously mounted card at the receipt deadline", async 
 });
 
 it("does not record an impression when its viewability interval ends at expiry", async () => {
-  const onView = vi.fn();
-  dispose = observePartnerPlacement(element, deliveryReceipt(NOW - HOUR + 1000), onView);
+  dispose = observePartnerPlacement(element, deliveryReceipt(NOW - HOUR + 1000));
   view(1);
   await vi.advanceTimersByTimeAsync(999);
   expect(readerRequest).not.toHaveBeenCalled();
   await vi.advanceTimersByTimeAsync(1);
   expect(readerRequest).not.toHaveBeenCalled();
-  expect(onView).not.toHaveBeenCalled();
 });
 
 it("rechecks the deadline when a throttled foreground impression timer resumes", async () => {
-  const onView = vi.fn();
-  dispose = observePartnerPlacement(element, receipt, onView);
+  dispose = observePartnerPlacement(element, receipt);
   view(1);
   vi.setSystemTime(NOW + HOUR);
   await vi.advanceTimersByTimeAsync(1000);
   expect(readerRequest).not.toHaveBeenCalled();
-  expect(onView).not.toHaveBeenCalled();
 });
 
 it("does not resume expired tracking when a background tab becomes visible", async () => {
-  const onView = vi.fn();
-  dispose = observePartnerPlacement(element, receipt, onView);
+  dispose = observePartnerPlacement(element, receipt);
   view(1);
   await vi.advanceTimersByTimeAsync(500);
   Object.defineProperty(document, "visibilityState", { configurable: true, value: "hidden" });
@@ -273,7 +260,6 @@ it("does not resume expired tracking when a background tab becomes visible", asy
   element.dispatchEvent(new MouseEvent("click"));
   await vi.advanceTimersByTimeAsync(1000);
   expect(readerRequest).not.toHaveBeenCalled();
-  expect(onView).not.toHaveBeenCalled();
 });
 
 it.each(["network", "429", "503"])(
@@ -284,8 +270,8 @@ it.each(["network", "429", "503"])(
       vi.mocked(readerRequest).mockResolvedValueOnce(
         new Response(null, { status: Number(failure) }),
       );
-    const state = { completed: new Set<string>(), pending: new Set<string>(), viewed: false };
-    dispose = observePartnerPlacement(element, receipt, undefined, state);
+    const state = { completed: new Set<string>(), pending: new Set<string>() };
+    dispose = observePartnerPlacement(element, receipt, state);
     vi.setSystemTime(NOW + HOUR - 500);
     element.dispatchEvent(new MouseEvent("click"));
     await vi.advanceTimersByTimeAsync(1000);
@@ -302,8 +288,8 @@ it("suppresses an in-flight retry after observer cleanup", async () => {
       fail = reject;
     }),
   );
-  const state = { completed: new Set<string>(), pending: new Set<string>(), viewed: false };
-  dispose = observePartnerPlacement(element, receipt, undefined, state);
+  const state = { completed: new Set<string>(), pending: new Set<string>() };
+  dispose = observePartnerPlacement(element, receipt, state);
   element.dispatchEvent(new MouseEvent("click"));
   expect(readerRequest).toHaveBeenCalledTimes(1);
   dispose();
@@ -311,4 +297,21 @@ it("suppresses an in-flight retry after observer cleanup", async () => {
   await vi.advanceTimersByTimeAsync(1000);
   expect(readerRequest).toHaveBeenCalledTimes(1);
   expect(state.pending.size).toBe(0);
+});
+
+it("tracks viewable impressions and clicks without accessing browser storage", async () => {
+  const local = vi.spyOn(window, "localStorage", "get").mockImplementation(() => {
+    throw new Error("local storage must not be accessed");
+  });
+  const session = vi.spyOn(window, "sessionStorage", "get").mockImplementation(() => {
+    throw new Error("session storage must not be accessed");
+  });
+  dispose = observePartnerPlacement(element, receipt);
+  view(1);
+  await vi.advanceTimersByTimeAsync(1000);
+  element.dispatchEvent(new MouseEvent("click"));
+  await vi.advanceTimersByTimeAsync(1);
+  expect(readerRequest).toHaveBeenCalledTimes(2);
+  expect(local).not.toHaveBeenCalled();
+  expect(session).not.toHaveBeenCalled();
 });

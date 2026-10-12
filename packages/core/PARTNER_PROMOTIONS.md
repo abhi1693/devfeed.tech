@@ -272,9 +272,9 @@ Clients must not use this flag to determine disclosure, link attribution or dism
 every displayed product placement is labelled **Sponsored** and cannot be dismissed.
 
 Products have no per-reader exposure limit or repeat cooldown. The reader avoids duplicate
-products within a page and ignores earlier product hiding preferences, including values under
-`devfeed:partner-placement-preferences:v1`. Tracking still counts a viewable impression when at
-least half the card is visible for one continuous second while the document is visible.
+products within a page and does not retain product view history in browser storage. Tracking
+counts a viewable impression when at least half the card is visible for one continuous second
+while the document is visible.
 
 Campaign limits are enforced by a database lock and durable anonymous delivery reservations.
 The daily limit counts measured impressions plus unexpired issued receipts, once per delivery,

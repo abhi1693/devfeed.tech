@@ -146,6 +146,27 @@ function verifyCallerProof(headers, pathname) {
   observedCallerIps.add(ip);
 }
 
+function impressionCount(receipt) {
+  return events.filter((event) => event.kind === "impression" && event.receipt === receipt).length;
+}
+
+async function waitForImpression(page, receipt, previous = 0) {
+  for (let attempt = 0; attempt < 200 && impressionCount(receipt) <= previous; attempt++)
+    await page.waitForTimeout(50);
+  assert.ok(
+    impressionCount(receipt) > previous,
+    "A viewable placement reports its signed impression",
+  );
+}
+
+async function assertNoPlacementHistory(page, label) {
+  assert.deepEqual(
+    await page.evaluate(() => window.__placementHistoryAccess),
+    { reads: 0, writes: 0, removals: 0 },
+    `${label}: placement delivery and tracking never access abandoned local history`,
+  );
+}
+
 async function assertMountedPlacementExpiry(context, base, platform) {
   // Playwright's clock applies to the entire context. Finish the ordinary UI
   // scenarios before replacing its pages and installing controlled timers.
@@ -271,6 +292,7 @@ async function assertMountedPlacementExpiry(context, base, platform) {
         beforeRequests,
         `${platform}/${mode}: expiry does not refresh or rotate the reading context`,
       );
+      await assertNoPlacementHistory(page, `${platform}/${mode}`);
     } finally {
       await page.close();
     }
@@ -944,7 +966,23 @@ try {
           httpOnly: true,
         },
       ]);
-      await context.addInitScript(() => localStorage.setItem("devfeed:dev-card-promo-seen", "1"));
+      await context.addInitScript(() => {
+        const historyKey = "devfeed:partner-placement-preferences:v1";
+        const accesses = { reads: 0, writes: 0, removals: 0 };
+        window.__placementHistoryAccess = accesses;
+        for (const [method, operation] of [
+          ["getItem", "reads"],
+          ["setItem", "writes"],
+          ["removeItem", "removals"],
+        ]) {
+          const original = Storage.prototype[method];
+          Storage.prototype[method] = function (key, ...args) {
+            if (key === historyKey && this === localStorage) accesses[operation]++;
+            return original.call(this, key, ...args);
+          };
+        }
+        localStorage.setItem("devfeed:dev-card-promo-seen", "1");
+      });
       const page = await context.newPage();
       await page.goto(`${base}/articles/${article.slug}`);
       const free = page.getByRole("link", { name: ordinary.name, exact: true });
@@ -1014,11 +1052,7 @@ try {
         return !!logo?.textContent.trim() && !logo.querySelector("img");
       }, sponsored.product_id);
       await free.scrollIntoViewIfNeeded();
-      await page.waitForFunction(() =>
-        JSON.parse(localStorage.getItem("devfeed:partner-placement-preferences:v1"))?.entries.some(
-          (entry) => entry.count > 0,
-        ),
-      );
+      await waitForImpression(page, ordinary.receipt);
       const popupEvent = context.waitForEvent("page");
       await free.click();
       const popup = await popupEvent;
@@ -1036,13 +1070,7 @@ try {
       await waitForVisibleProductLogos(page);
       await page.screenshot({ path: `reports/partner-placements/${platform}-article-desktop.png` });
       await page.getByRole("link", { name: sponsored.name, exact: true }).scrollIntoViewIfNeeded();
-      await page.waitForFunction(
-        (id) =>
-          JSON.parse(
-            localStorage.getItem("devfeed:partner-placement-preferences:v1"),
-          )?.entries.some((entry) => entry.id === id && entry.count > 0),
-        sponsored.product_id,
-      );
+      await waitForImpression(page, sponsored.receipt);
       const sponsoredPopupEvent = context.waitForEvent("page");
       await page.getByRole("link", { name: sponsored.name, exact: true }).click();
       const sponsoredPopup = await sponsoredPopupEvent;
@@ -1056,87 +1084,17 @@ try {
         events.some((event) => event.kind === "click" && event.receipt === sponsored.receipt),
         `${platform}: non-dismissible sponsored product retains signed click tracking`,
       );
+      await assertNoPlacementHistory(page, `${platform}: signed views and clicks`);
+      const impressionsBeforeReload = impressionCount(ordinary.receipt);
       await page.reload();
       await page.getByRole("heading", { name: article.title, level: 1, exact: true }).waitFor();
       await page.getByRole("link", { name: sponsored.name, exact: true }).waitFor();
       await page.getByRole("link", { name: ordinary.name, exact: true }).waitFor();
       const articleQuery = queries.filter((query) => query.body.surface === "article").at(-1);
       assert.deepEqual(articleQuery.body.exclude_product_ids, []);
-      for (const age of [0, 86_400_000, 91 * 86_400_000]) {
-        await page.evaluate(
-          ({ products, age }) => {
-            const viewed = Date.now() - age;
-            localStorage.setItem(
-              "devfeed:partner-placement-preferences:v1",
-              JSON.stringify({
-                version: 1,
-                entries: products.map((id) => ({
-                  id,
-                  day: new Date(viewed).toISOString().slice(0, 10),
-                  count: 50,
-                  cap: 1,
-                  seen: viewed,
-                  hidden: Date.now() + 90 * 86_400_000,
-                })),
-              }),
-            );
-          },
-          { products: [ordinary.product_id, sponsored.product_id], age },
-        );
-        await page.reload();
-        await page.getByRole("link", { name: ordinary.name, exact: true }).waitFor();
-        await page.getByRole("link", { name: sponsored.name, exact: true }).waitFor();
-        const repeated = queries.filter((query) => query.body.surface === "article").at(-1);
-        assert.deepEqual(
-          repeated.body.exclude_product_ids,
-          [],
-          `${platform}: legacy hides, limits and ${age}ms history do not suppress delivery`,
-        );
-        assert.equal(await page.locator(".preview-sidebar .partner-placement").count(), 2);
-      }
-      await page.addInitScript(() => {
-        const get = Storage.prototype.getItem;
-        const set = Storage.prototype.setItem;
-        Storage.prototype.getItem = function (key) {
-          if (
-            key === "devfeed:partner-placement-preferences:v1" &&
-            get.call(sessionStorage, "test:placement-storage") === "unreadable"
-          )
-            throw new DOMException("Storage blocked", "SecurityError");
-          return get.call(this, key);
-        };
-        Storage.prototype.setItem = function (key, value) {
-          if (
-            key === "devfeed:partner-placement-preferences:v1" &&
-            get.call(sessionStorage, "test:placement-storage") === "unwritable"
-          )
-            throw new DOMException("Storage blocked", "QuotaExceededError");
-          return set.call(this, key, value);
-        };
-      });
-      for (const failure of ["malformed", "unreadable", "unwritable"]) {
-        await page.evaluate((failure) => {
-          sessionStorage.setItem("test:placement-storage", failure);
-          localStorage.removeItem("devfeed:partner-placement-preferences:v1");
-          if (failure === "malformed")
-            localStorage.setItem("devfeed:partner-placement-preferences:v1", "{bad");
-        }, failure);
-        await page.reload();
-        await page.getByRole("link", { name: ordinary.name, exact: true }).waitFor();
-        await page.getByRole("link", { name: sponsored.name, exact: true }).waitFor();
-        assert.deepEqual(
-          queries.filter((query) => query.body.surface === "article").at(-1).body
-            .exclude_product_ids,
-          [],
-          `${platform}: ${failure} history cannot suppress delivery`,
-        );
-        assert.equal(await page.locator(".preview-sidebar .partner-placement-label").count(), 2);
-        assert.equal(await page.locator(".partner-placement button").count(), 0);
-      }
-      await page.evaluate(() => sessionStorage.removeItem("test:placement-storage"));
-      await page.evaluate(() =>
-        localStorage.removeItem("devfeed:partner-placement-preferences:v1"),
-      );
+      await free.scrollIntoViewIfNeeded();
+      await waitForImpression(page, ordinary.receipt, impressionsBeforeReload);
+      await assertNoPlacementHistory(page, `${platform}: reloaded placements`);
       await page.goto(`${base}/articles/${news.slug}`);
       await page.getByRole("heading", { name: news.title, level: 1, exact: true }).waitFor();
       await page.waitForTimeout(300);
@@ -1145,11 +1103,6 @@ try {
         0,
         `${platform}: no random fallback`,
       );
-      const resetPreferences = async () => {
-        await page.evaluate(() =>
-          localStorage.removeItem("devfeed:partner-placement-preferences:v1"),
-        );
-      };
       const assertGrid = async (label) => {
         await page.locator(".article-grid > .partner-placement").first().waitFor();
         const children = await page
@@ -1220,20 +1173,14 @@ try {
           .allow_sponsored_fallback,
         undefined,
       );
-      await resetPreferences();
+      const impressionsBeforeFeed = impressionCount(ordinary.receipt);
       await page.goto(`${base}/latest`);
       await assertGrid("preview background");
       const feedRequestsBeforePreview = queries.filter(
         (query) => query.body.surface === "feed",
       ).length;
       await page.locator(".article-grid > .partner-placement").first().scrollIntoViewIfNeeded();
-      await page.waitForFunction(
-        (id) =>
-          JSON.parse(
-            localStorage.getItem("devfeed:partner-placement-preferences:v1"),
-          )?.entries.some((entry) => entry.id === id && entry.count > 0),
-        ordinary.product_id,
-      );
+      await waitForImpression(page, ordinary.receipt, impressionsBeforeFeed);
       const previewedArticle = page
         .locator(".article-grid > .article-card:not(.partner-placement) .card-open-link")
         .nth(8);
@@ -1253,7 +1200,7 @@ try {
       await previewedArticle.evaluate((element) => {
         element.dataset.previewPreserved = "true";
       });
-      await resetPreferences();
+      const impressionsBeforePreview = impressionCount(ordinary.receipt);
       await previewedArticle.click();
       await page.locator(".article-modal .preview-sidebar .partner-placement").first().waitFor();
       await assertSponsoredPill(
@@ -1289,13 +1236,7 @@ try {
         .locator(".article-modal .preview-sidebar .partner-placement")
         .first()
         .scrollIntoViewIfNeeded();
-      await page.waitForFunction(
-        (id) =>
-          JSON.parse(
-            localStorage.getItem("devfeed:partner-placement-preferences:v1"),
-          )?.entries.some((entry) => entry.id === id && entry.count > 0),
-        ordinary.product_id,
-      );
+      await waitForImpression(page, ordinary.receipt, impressionsBeforePreview);
       await page.getByRole("button", { name: "Close preview", exact: true }).click();
       await page.locator(".article-modal").waitFor({ state: "hidden" });
       await assertGrid("returned feed");
@@ -1328,11 +1269,6 @@ try {
         `${platform}: preview preserves background article DOM`,
       );
       const impressionsBeforeReturn = events.filter((event) => event.kind === "impression").length;
-      const countsBeforeReturn = await page.evaluate(() =>
-        JSON.parse(localStorage.getItem("devfeed:partner-placement-preferences:v1"))?.entries.map(
-          ({ id, count }) => ({ id, count }),
-        ),
-      );
       await page.locator(".article-grid > .partner-placement").first().scrollIntoViewIfNeeded();
       await page.waitForTimeout(1200);
       assert.equal(
@@ -1340,15 +1276,7 @@ try {
         impressionsBeforeReturn,
         `${platform}: returning to the same card does not report another impression`,
       );
-      assert.deepEqual(
-        await page.evaluate(() =>
-          JSON.parse(localStorage.getItem("devfeed:partner-placement-preferences:v1"))?.entries.map(
-            ({ id, count }) => ({ id, count }),
-          ),
-        ),
-        countsBeforeReturn,
-        `${platform}: returning to the same card does not consume another local impression`,
-      );
+      await assertNoPlacementHistory(page, `${platform}: feed and preview return`);
       await page.setViewportSize({ width: 390, height: 844 });
       await page.locator(".article-grid > .partner-placement").first().scrollIntoViewIfNeeded();
       await waitForVisibleProductLogos(page);
@@ -1357,7 +1285,6 @@ try {
         await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth),
         `${platform}: mobile has no horizontal overflow`,
       );
-      await resetPreferences();
       await page.goto(`${base}/articles/${article.slug}`);
       await page.locator(".preview-sidebar .partner-placement").first().waitFor();
       await assertSponsoredPill(
@@ -1393,7 +1320,6 @@ try {
         { route: "/latest?q=typescript", width: 390 },
       ]) {
         await page.setViewportSize({ width, height: width === 390 ? 844 : 900 });
-        await resetPreferences();
         queries = [];
         let release;
         deliveryGate = new Promise((resolve) => {
@@ -1468,7 +1394,6 @@ try {
       await page.setViewportSize({ width: 1280, height: 900 });
       for (const width of [1280, 390]) {
         await page.setViewportSize({ width, height: width === 390 ? 844 : 900 });
-        await resetPreferences();
         queries = [];
         let release;
         deliveryGate = new Promise((resolve) => {
@@ -1563,7 +1488,6 @@ try {
           for (const mode of ["standard", "no-og"]) {
             mediaMode = mode;
             await page.setViewportSize({ width, height: width === 390 ? 844 : 900 });
-            await resetPreferences();
             await page.evaluate((value) => localStorage.setItem("devfeed:theme", value), theme);
             await page.goto("about:blank");
             await page.goto(`${base}/topics/typescript`);
@@ -1641,7 +1565,6 @@ try {
       }
       for (const mode of ["broken-og", "no-assets"]) {
         mediaMode = mode;
-        await resetPreferences();
         await page.goto("about:blank");
         await page.goto(`${base}/topics/typescript`);
         await assertGrid(mode);
@@ -1660,7 +1583,6 @@ try {
       }
       mediaMode = "standard";
       await page.setViewportSize({ width: 1280, height: 900 });
-      await resetPreferences();
       signedIn = true;
       await page.goto(`${base}/`);
       await page.reload();
@@ -1673,9 +1595,6 @@ try {
             query.body.allow_sponsored_fallback === true,
         ),
         `${platform}: personalized endpoint`,
-      );
-      await page.evaluate(() =>
-        localStorage.removeItem("devfeed:partner-placement-preferences:v1"),
       );
       queries = [];
       await page.goto(`${base}/articles/${article.slug}`);
@@ -1997,6 +1916,7 @@ try {
       } finally {
         placementLimited = false;
       }
+      await assertNoPlacementHistory(page, `${platform}: reader navigation`);
       await assertMountedPlacementExpiry(context, base, platform);
       for (const pathname of ["/v1/partner-placements/query", "/v1/partner-tracking/events"])
         assert.ok(
@@ -2004,7 +1924,7 @@ try {
           `${platform}: production gateway preserves distinct caller identity for ${pathname}`,
         );
       console.log(
-        `${platform}: built web/extension in-grid homepage, search, category and topic cards; every product disclosed with distinct amber Sponsored pills and no dismissal; branded preview sidebar; focus/layout stability; signed campaign and non-campaign tracking; configured production gateway caller proofs, credential isolation and placement429 retry guidance; mounted receipt expiry and background wake preserve reading position without refreshing or tracking; legacy hides/limits and failed optional storage cannot suppress delivery; private session routing; optional private experience save/reload/clear; article priority passed`,
+        `${platform}: built web/extension in-grid homepage, search, category and topic cards; every product disclosed with distinct amber Sponsored pills and no dismissal; branded preview sidebar; focus/layout stability; signed campaign and non-campaign tracking; configured production gateway caller proofs, credential isolation and placement429 retry guidance; mounted receipt expiry and background wake preserve reading position without refreshing or tracking; viewable placements never read, write or remove abandoned local history; private session routing; optional private experience save/reload/clear; article priority passed`,
       );
     } finally {
       await context.close();
