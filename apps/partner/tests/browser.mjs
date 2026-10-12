@@ -44,6 +44,12 @@ const beta = {
   ad_formats: ["feed"],
   allowed_ad_formats: ["feed"],
 };
+const manyAccounts = Array.from({ length: 105 }, (_, index) => ({
+  ...beta,
+  id: `55555555-5555-4555-8555-${String(index + 1).padStart(12, "0")}`,
+  name: `Catalog partner ${String(index + 1).padStart(3, "0")}`,
+}));
+const bookmarkedAccount = manyAccounts[104];
 const previewProduct = {
   id: "44444444-4444-4444-8444-444444444444",
   name: "API Checker product",
@@ -133,6 +139,9 @@ const assets = [
   })),
 ];
 const dashboardRequests = [];
+const scopedDashboardRequests = [];
+const accountPages = [];
+const accountLookups = [];
 const preferenceWrites = [];
 const previewRequests = [];
 const audienceRequests = [];
@@ -176,18 +185,39 @@ const mock = createServer(async (request, response) => {
     );
     return;
   }
+  const memberAccounts =
+    mode === "empty"
+      ? []
+      : mode === "many"
+        ? [...manyAccounts].sort((left, right) => left.name.localeCompare(right.name))
+        : mode === "superuser"
+          ? [account, beta]
+          : [account];
   if (path === "/v1/partner/accounts") {
     if (request.method === "POST") {
       response.writeHead(201);
       response.end(JSON.stringify(account));
       return;
     }
+    const offset = Number(url.searchParams.get("offset") ?? 0);
+    const limit = Number(url.searchParams.get("limit") ?? 100);
+    assert.ok(limit > 0 && limit <= 100, "The account picker requests bounded pages");
+    const items = memberAccounts.slice(offset, offset + limit);
+    accountPages.push({ mode, offset, limit, ids: items.map((item) => item.id) });
     response.end(
       JSON.stringify({
-        items: mode === "empty" ? [] : mode === "superuser" ? [account, beta] : [account],
-        total: mode === "empty" ? 0 : mode === "superuser" ? 2 : 1,
+        items,
+        total: memberAccounts.length,
       }),
     );
+    return;
+  }
+  const accountLookup = /^\/v1\/partner\/accounts\/([a-f0-9-]+)$/i.exec(path);
+  if (accountLookup && request.method === "GET") {
+    const selected = memberAccounts.find((item) => item.id === accountLookup[1]);
+    accountLookups.push({ mode, id: accountLookup[1], authorized: Boolean(selected) });
+    if (!selected) response.writeHead(404);
+    response.end(JSON.stringify(selected ?? {}));
     return;
   }
   if (path === `/v1/partner/accounts/${account.id}/preferences` && request.method === "PUT") {
@@ -290,17 +320,25 @@ const mock = createServer(async (request, response) => {
     return;
   }
   if (path.endsWith("/dashboard")) {
-    const isBeta = path.includes(beta.id);
-    if (isBeta && mode !== "superuser") {
+    const selected = memberAccounts.find(
+      (item) => path === `/v1/partner/accounts/${item.id}/dashboard`,
+    );
+    if (!selected) {
       response.writeHead(404);
       response.end("{}");
       return;
     }
+    const isPrimary = selected.id === account.id;
+    const measured = isPrimary || mode === "many";
     const days = url.searchParams.get("days");
     const sort = url.searchParams.get("sort") ?? "name";
     const order = url.searchParams.get("order") ?? "asc";
     const offset = Number(url.searchParams.get("offset") ?? 0);
     dashboardRequests.push({ days, sort, order, offset });
+    scopedDashboardRequests.push({ mode, id: selected.id });
+    const impressions =
+      mode === "many" ? 8100 + manyAccounts.indexOf(selected) : days === "7" ? 700 : 2400;
+    const clicks = mode === "many" ? 10 : days === "7" ? 35 : 120;
     const sortedAssets = assets
       .map((asset, index) =>
         days === "7" && index === 0 ? { ...asset, impressions: 700, clicks: 35 } : asset,
@@ -319,32 +357,31 @@ const mock = createServer(async (request, response) => {
       });
     response.end(
       JSON.stringify({
-        account: isBeta ? beta : account,
+        account: selected,
         start: days === "7" ? "2026-10-01" : "2026-09-08",
         end: "2026-10-07",
-        totals: isBeta
-          ? { impressions: 0, clicks: 0, ctr: null, measured_days: 0 }
-          : {
-              impressions: days === "7" ? 700 : 2400,
-              clicks: days === "7" ? 35 : 120,
+        totals: measured
+          ? {
+              impressions,
+              clicks,
               ctr: 5,
               measured_days: 1,
-            },
+            }
+          : { impressions: 0, clicks: 0, ctr: null, measured_days: 0 },
         last_updated_at: "2026-10-07T10:00:00Z",
-        trend: isBeta
-          ? []
-          : [
+        trend: measured
+          ? [
               {
                 day: "2026-10-07",
-                impressions: days === "7" ? 700 : 2400,
-                clicks: days === "7" ? 35 : 120,
+                impressions,
+                clicks,
               },
-            ],
-        assets: isBeta ? [] : sortedAssets.slice(offset, offset + 100),
-        asset_total: isBeta ? 0 : assets.length,
-        format_totals: isBeta
-          ? []
-          : [
+            ]
+          : [],
+        assets: isPrimary ? sortedAssets.slice(offset, offset + 100) : [],
+        asset_total: isPrimary ? assets.length : 0,
+        format_totals: isPrimary
+          ? [
               {
                 ad_format: "feed",
                 impressions: days === "7" ? 350 : 1200,
@@ -359,7 +396,8 @@ const mock = createServer(async (request, response) => {
                 ctr: 5,
                 measured_days: 1,
               },
-            ],
+            ]
+          : [],
       }),
     );
     return;
@@ -876,6 +914,121 @@ try {
   assert.equal(foreign.status(), 404);
   const removed = await page.goto(origin + "/management");
   assert.equal(removed.status(), 404);
+
+  await context.addCookies([{ name: "devfeed_partner_session", value: "many", url: origin }]);
+  const bookmark = `/${bookmarkedAccount.id}/performance?days=7&sort=clicks&order=desc`;
+  const bookmarkedResponse = await page.goto(origin + bookmark);
+  assert.equal(
+    bookmarkedResponse.status(),
+    200,
+    "Membership authorizes a bookmark beyond page one",
+  );
+  const accountPicker = page.getByRole("combobox", { name: "Partner account", exact: true });
+  const accountPagination = page.getByRole("navigation", { name: "Account pages", exact: true });
+  async function checkBookmarkedReport() {
+    await page.getByRole("heading", { name: "Daily activity", exact: true }).waitFor();
+    await page.locator(".metrics").getByText("8,204", { exact: true }).waitFor();
+    assert.equal((await accountPicker.innerText()).trim(), bookmarkedAccount.name);
+    const location = new URL(page.url());
+    assert.equal(location.pathname, `/${bookmarkedAccount.id}/performance`);
+    assert.equal(location.searchParams.get("days"), "7");
+    assert.equal(location.searchParams.get("sort"), "clicks");
+    assert.equal(location.searchParams.get("order"), "desc");
+  }
+  await checkBookmarkedReport();
+  assert.equal(new URL(page.url()).searchParams.has("account_offset"), false);
+  await accountPagination.getByText("1–100 of 105", { exact: true }).waitFor();
+  await accountPicker.click();
+  await page.getByRole("option", { name: manyAccounts[0].name, exact: true }).waitFor();
+  assert.equal(await page.getByRole("option").count(), 100);
+  assert.equal(
+    await page.getByRole("option", { name: bookmarkedAccount.name, exact: true }).count(),
+    0,
+  );
+  await page.keyboard.press("Escape");
+
+  const pagingReports = scopedDashboardRequests.length;
+  await accountPagination.getByRole("button", { name: "Next accounts", exact: true }).click();
+  await accountPagination.getByText("101–105 of 105", { exact: true }).waitFor();
+  await page.waitForURL((url) => url.searchParams.get("account_offset") === "100");
+  await checkBookmarkedReport();
+  assert.equal(new URL(page.url()).searchParams.get("account_offset"), "100");
+  await accountPicker.click();
+  await page.getByRole("option", { name: bookmarkedAccount.name, exact: true }).waitFor();
+  assert.equal(await page.getByRole("option").count(), 5);
+  await page.keyboard.press("Escape");
+  await accountPagination.getByRole("button", { name: "Previous accounts", exact: true }).click();
+  await accountPagination.getByText("1–100 of 105", { exact: true }).waitFor();
+  await page.waitForURL((url) => !url.searchParams.has("account_offset"));
+  await checkBookmarkedReport();
+  assert.equal(new URL(page.url()).searchParams.has("account_offset"), false);
+  assert.ok(
+    scopedDashboardRequests
+      .slice(pagingReports)
+      .every((request) => request.id === bookmarkedAccount.id),
+    "Browsing account pages preserves the selected account and its report",
+  );
+  await accountPicker.click();
+  await page.getByRole("option", { name: manyAccounts[0].name, exact: true }).waitFor();
+  assert.equal(await page.getByRole("option").count(), 100);
+  await page.getByRole("option", { name: manyAccounts[0].name, exact: true }).click();
+  await page.waitForURL((url) => url.pathname === `/${manyAccounts[0].id}/performance`);
+  await page.locator(".metrics").getByText("8,100", { exact: true }).waitFor();
+  assert.equal((await accountPicker.innerText()).trim(), manyAccounts[0].name);
+
+  bookmarkedAccount.name = "Catalog partner 103A";
+  const reordered = [...manyAccounts].sort((left, right) => left.name.localeCompare(right.name));
+  assert.ok(reordered.indexOf(bookmarkedAccount) >= 100);
+  assert.notEqual(reordered.indexOf(bookmarkedAccount), 104);
+  const reorderedResponse = await page.goto(origin + bookmark);
+  assert.equal(
+    reorderedResponse.status(),
+    200,
+    "Renaming changes picker order without invalidating the bookmark",
+  );
+  await checkBookmarkedReport();
+  assert.equal(new URL(page.url()).searchParams.has("account_offset"), false);
+  await page.reload();
+  await checkBookmarkedReport();
+  await accountPicker.click();
+  await page.getByRole("option", { name: manyAccounts[0].name, exact: true }).waitFor();
+  assert.equal(await page.getByRole("option").count(), 100);
+  assert.equal(
+    await page.getByRole("option", { name: bookmarkedAccount.name, exact: true }).count(),
+    0,
+  );
+  await page.keyboard.press("Escape");
+  assert.ok(
+    accountLookups.some(
+      (request) =>
+        request.mode === "many" && request.id === bookmarkedAccount.id && request.authorized,
+    ),
+    "Bookmarked accounts are authorized by a scoped membership lookup",
+  );
+  const manyPages = accountPages.filter((request) => request.mode === "many");
+  assert.ok(manyPages.some((request) => request.offset === 100 && request.ids.length === 5));
+  assert.ok(
+    manyPages.every((request) => [0, 100].includes(request.offset) && request.ids.length <= 100),
+  );
+
+  const foreignAccountId = "99999999-9999-4999-8999-999999999999";
+  const unauthorized = await page.goto(origin + `/${foreignAccountId}/performance`);
+  assert.equal(
+    unauthorized.status(),
+    404,
+    "A valid UUID without membership is not authorized by picker pages",
+  );
+  assert.ok(
+    accountLookups.some(
+      (request) =>
+        request.mode === "many" && request.id === foreignAccountId && !request.authorized,
+    ),
+  );
+  assert.equal(
+    scopedDashboardRequests.some((request) => request.id === foreignAccountId),
+    false,
+  );
+
   await context.addCookies([{ name: "devfeed_partner_session", value: "empty", url: origin }]);
   await page.goto(origin);
   await page.getByRole("heading", { name: "No partner accounts yet" }).waitFor();
@@ -888,7 +1041,7 @@ try {
   await page.getByText("Your account needs the partner role to access this portal.").waitFor();
   assert.deepEqual(errors, []);
   console.log(
-    "Partner account-wide promotion policy and click destination saving, reporting sorting, pagination, URL/reload/navigation persistence, desktop/mobile layouts, role boundaries, and empty states passed.",
+    "Partner account-wide promotion policy and click destination saving, reporting sorting, bounded account picking and authorized bookmarks, URL/reload/navigation persistence, desktop/mobile layouts, role boundaries, and empty states passed.",
   );
 } finally {
   await browser?.close();

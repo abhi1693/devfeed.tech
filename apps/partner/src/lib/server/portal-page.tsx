@@ -37,13 +37,12 @@ export async function PortalPage({
       : 0;
   const requestedOffset = Number(params.account_offset);
   let offset = Number.isSafeInteger(requestedOffset) && requestedOffset >= 0 ? requestedOffset : 0;
-  let { identity, accounts } = await portalSession(offset);
+  let { identity, accounts, requestedAccount } = await portalSession(offset, accountId);
   if (accounts.total === 1 && offset > 0) {
     offset = 0;
-    ({ identity, accounts } = await portalSession(offset));
+    ({ identity, accounts, requestedAccount } = await portalSession(offset, accountId));
   }
-  const selected = accounts.items.find((account) => account.id === accountId)?.id;
-  if (accountId && !selected) notFound();
+  const selected = requestedAccount?.id;
   if (!accountId && accounts.items.length) {
     const scope = new URLSearchParams();
     scope.set("days", String(days));
@@ -59,7 +58,7 @@ export async function PortalPage({
       identity={identity}
       initialAccounts={accounts}
       section={section}
-      initialSelected={selected}
+      initialAccount={requestedAccount}
       initialDays={days}
       initialAccountOffset={offset}
       initialAssetOffset={assetOffset}

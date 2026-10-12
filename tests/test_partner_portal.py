@@ -94,13 +94,21 @@ def test_multi_user_membership_and_superuser_cannot_bypass_scope(portal_client, 
     client, identity = portal_client
     a, b, _, _ = seed(database)
     assert [item["id"] for item in client.get("/v1/partner/accounts").json()["items"]] == [str(a)]
+    assert client.get(f"/v1/partner/accounts/{a}").status_code == 200
+    foreign = client.get(f"/v1/partner/accounts/{b}")
+    missing = client.get(f"/v1/partner/accounts/{uuid.uuid4()}")
+    assert foreign.status_code == missing.status_code == 404
+    assert foreign.json() == missing.json() == {"detail": "Partner account not found"}
     assert client.get(f"/v1/partner/accounts/{b}/dashboard").status_code == 404
     identity.subject = "bob"
+    assert client.get(f"/v1/partner/accounts/{a}").status_code == 200
     assert client.get(f"/v1/partner/accounts/{a}/dashboard").status_code == 200
     identity.subject = "no-membership"
     assert client.get("/v1/partner/accounts").json()["total"] == 0
+    assert client.get(f"/v1/partner/accounts/{a}").status_code == 404
     identity.roles = ["superuser"]
     assert client.get("/v1/partner/accounts").json()["total"] == 0
+    assert client.get(f"/v1/partner/accounts/{b}").status_code == 404
     assert client.get(f"/v1/partner/accounts/{b}/dashboard").status_code == 404
     assert client.get(f"/v1/partner/accounts/{a}/members").status_code == 404
 
@@ -112,17 +120,58 @@ def test_revocation_pause_and_issuer_are_checked_live(portal_client, database):
         session.add(PartnerMembership(account_id=b, issuer=ISSUER, subject="alice"))
         session.commit()
     assert client.get("/v1/partner/accounts").json()["total"] == 2
+    assert client.get(f"/v1/partner/accounts/{a}").status_code == 200
+    assert client.get(f"/v1/partner/accounts/{b}").status_code == 200
     identity.issuer = "https://other-issuer.example"
     assert client.get("/v1/partner/accounts").json()["total"] == 0
+    assert client.get(f"/v1/partner/accounts/{a}").status_code == 404
     identity.issuer = ISSUER
     with database() as session:
         session.delete(session.get(PartnerMembership, (a, ISSUER, "alice")))
         session.get(PartnerAccount, b).status = "paused"
         session.commit()
+    assert client.get(f"/v1/partner/accounts/{a}").status_code == 404
+    assert client.get(f"/v1/partner/accounts/{b}").status_code == 404
     assert client.get(f"/v1/partner/accounts/{a}/dashboard").status_code == 404
     assert client.get(f"/v1/partner/accounts/{b}/dashboard").status_code == 404
     identity.roles = ["superuser"]
+    assert client.get(f"/v1/partner/accounts/{b}").status_code == 404
     assert client.get(f"/v1/partner/accounts/{b}/dashboard").status_code == 404
+
+
+def test_account_get_is_independent_of_bounded_picker_pages_and_reordering(portal_client, database):
+    client, identity = portal_client
+    with database.begin() as session:
+        accounts = [
+            PartnerAccount(name=f"Member account {index:03}", tier="silver") for index in range(101)
+        ]
+        session.add_all(accounts)
+        session.flush()
+        session.add_all(
+            PartnerMembership(
+                account_id=account.id, issuer=identity.issuer, subject=identity.subject
+            )
+            for account in accounts
+        )
+        account_id = accounts[-1].id
+
+    page = client.get("/v1/partner/accounts").json()
+    assert page["total"] == 101 and len(page["items"]) == 100
+    assert str(account_id) not in {account["id"] for account in page["items"]}
+    response = client.get(f"/v1/partner/accounts/{account_id}")
+    assert response.status_code == 200
+    assert response.json()["id"] == str(account_id)
+    assert response.json()["name"] == "Member account 100"
+
+    with database.begin() as session:
+        session.get(PartnerAccount, account_id).name = "000 Reordered account"
+    later_page = client.get("/v1/partner/accounts?offset=100").json()
+    assert later_page["total"] == 101 and len(later_page["items"]) == 1
+    assert str(account_id) not in {account["id"] for account in later_page["items"]}
+    response = client.get(f"/v1/partner/accounts/{str(account_id).upper()}")
+    assert response.status_code == 200
+    assert response.json()["id"] == str(account_id)
+    assert response.json()["name"] == "000 Reordered account"
 
 
 def test_totals_time_windows_and_tenant_filtering(portal_client, database):
@@ -339,7 +388,7 @@ def test_shared_catalog_product_keeps_partner_reporting_separate(
         client.put(
             f"/v1/partner/accounts/{a}", json={"name": "Alpha", "tier": "Forged"}
         ).status_code
-        == 404
+        == 405
     )
 
 

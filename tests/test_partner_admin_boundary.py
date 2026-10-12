@@ -110,6 +110,7 @@ def test_partner_service_only_exposes_scoped_marketing_preference_write():
     preference_path = "/v1/partner/accounts/{account_id}/preferences"
     assert set(paths) == {
         "/v1/partner/accounts",
+        "/v1/partner/accounts/{account_id}",
         "/v1/partner/accounts/{account_id}/dashboard",
         "/v1/partner/accounts/{account_id}/destination-preview",
         "/v1/partner/accounts/{account_id}/audience-topics",
@@ -117,6 +118,11 @@ def test_partner_service_only_exposes_scoped_marketing_preference_write():
         "/v1/partner/accounts/{account_id}/inventory",
         "/v1/partner/accounts/{account_id}/products/{product_id}/promotion",
         preference_path,
+    }
+    account_get = paths["/v1/partner/accounts/{account_id}"]["get"]
+    assert account_get["operationId"] == "partnerAccountGet"
+    assert account_get["responses"]["200"]["content"]["application/json"]["schema"] == {
+        "$ref": "#/components/schemas/AccountOut"
     }
     assert set(paths[preference_path]) == {"put"}
     schema = app.openapi()["components"]["schemas"]["PartnerPreferencesInput"]

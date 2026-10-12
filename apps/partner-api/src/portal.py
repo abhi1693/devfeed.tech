@@ -75,6 +75,11 @@ def accounts(
     }
 
 
+@router.get("/accounts/{account_id}", response_model=AccountOut, operation_id="partnerAccountGet")
+def get_account(account_id: uuid.UUID, session: DB, partner: Partner):
+    return account_access(session, partner, account_id)
+
+
 @router.get("/accounts/{account_id}/dashboard", response_model=Dashboard)
 def dashboard(
     account_id: uuid.UUID,

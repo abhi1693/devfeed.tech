@@ -192,24 +192,40 @@ it("keeps account selection when the account list is paginated", async () => {
   expect(screen.getByRole("combobox", { name: "Partner account" })).toBeTruthy();
 });
 
-it("defaults a single account on performance even if a different initial selection is supplied", async () => {
-  const fetchMock = vi.fn().mockResolvedValue(Response.json(dashboard));
+it("shows an authorized off-page account without changing the picker page or its reporting scope", async () => {
+  const bookmarked = {
+    ...account,
+    id: "bookmarked",
+    name: "Bookmarked partner",
+    benefits: ["Bookmarked benefits"],
+  };
+  const pickerPage = Array.from({ length: 100 }, (_, index) => ({
+    ...account,
+    id: `other-${index}`,
+    name: `Other partner ${index}`,
+  }));
+  const fetchMock = vi.fn().mockResolvedValue(Response.json({ ...dashboard, account: bookmarked }));
   vi.stubGlobal("fetch", fetchMock);
   render(
     <Portal
-      section="performance"
       identity={identity}
-      initialSelected="foreign"
-      initialAccounts={{ items: [account], total: 1 }}
+      initialAccount={bookmarked}
+      initialAccounts={{ items: pickerPage, total: 205 }}
     />,
   );
-  await screen.findByText("5.00%");
-  expect(screen.queryByRole("combobox", { name: "Partner account" })).toBeNull();
-  expect(screen.getByRole("combobox", { name: "Reporting period" })).toBeTruthy();
+  await screen.findByText("Bookmarked benefits");
+  const picker = screen.getByRole("combobox", { name: "Partner account" });
+  expect(picker.textContent).toContain("Bookmarked partner");
+  expect(screen.getByText("1–100 of 205")).toBeTruthy();
+  await userEvent.click(picker);
+  expect(screen.getAllByRole("option")).toHaveLength(100);
+  expect(screen.queryByRole("option", { name: "Bookmarked partner" })).toBeNull();
   expect(fetchMock).toHaveBeenCalledWith(
-    "/api/v1/partner/accounts/alpha/dashboard?days=30&offset=0&sort=name&order=asc",
+    "/api/v1/partner/accounts/bookmarked/dashboard?days=30&offset=0&sort=name&order=asc",
     expect.anything(),
   );
+  expect(fetchMock.mock.calls.filter(([url]) => url.includes("/dashboard?"))).toHaveLength(1);
+  expect(window.location.pathname).toBe("/bookmarked");
 });
 
 it.each([401, 403])(
@@ -223,7 +239,7 @@ it.each([401, 403])(
   },
 );
 
-it("switches account pages without retaining the previous account's reporting data", async () => {
+it("preserves reporting while paging accounts and changes scope only after selecting another account", async () => {
   const beta = { ...account, id: "beta", name: "Beta", benefits: ["Beta benefits"] };
   const fetchMock = vi.fn().mockImplementation(async (url: string) => {
     if (url.includes("accounts?offset=100")) return Response.json({ items: [beta], total: 101 });
@@ -234,10 +250,25 @@ it("switches account pages without retaining the previous account's reporting da
   render(<Portal identity={identity} initialAccounts={{ items: [account], total: 101 }} />);
   await screen.findByText("Product placements");
   await userEvent.click(screen.getByRole("button", { name: "Next accounts" }));
+  await screen.findByText("101–101 of 101");
+  expect(screen.getByText("Product placements")).toBeTruthy();
+  expect(screen.queryByText("Beta benefits")).toBeNull();
+  expect(screen.getByRole("combobox", { name: "Partner account" }).textContent).toContain("Alpha");
+  expect(window.location.pathname).toBe("/alpha");
+  expect(fetchMock.mock.calls.some(([url]) => url.includes("/beta/dashboard"))).toBe(false);
+  await userEvent.click(screen.getByRole("combobox", { name: "Partner account" }));
+  await userEvent.click(screen.getByRole("option", { name: "Beta" }));
   await screen.findByText("Beta benefits");
   expect(screen.queryByText("Product placements")).toBeNull();
   expect(window.location.pathname).toBe("/beta");
   await userEvent.click(screen.getByRole("button", { name: "Previous accounts" }));
+  await screen.findByText("1–100 of 101");
+  expect(screen.getByText("Beta benefits")).toBeTruthy();
+  expect(screen.queryByText("Product placements")).toBeNull();
+  expect(screen.getByRole("combobox", { name: "Partner account" }).textContent).toContain("Beta");
+  expect(window.location.pathname).toBe("/beta");
+  await userEvent.click(screen.getByRole("combobox", { name: "Partner account" }));
+  await userEvent.click(screen.getByRole("option", { name: "Alpha" }));
   await screen.findByText("Product placements");
   expect(screen.queryByText("Beta benefits")).toBeNull();
 });

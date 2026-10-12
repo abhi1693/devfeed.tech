@@ -28,7 +28,10 @@ request. Unavailable or foreign accounts return 404.
 
 The portal has separate account pages: `/<account-id>` for the partnership overview,
 `/<account-id>/performance` for daily activity, and `/<account-id>/assets` for products and ads.
-The account path and reporting period survive navigation and reloads.
+The account path and reporting period survive navigation and reloads. Opening an account URL
+checks its current membership directly, independently of the account picker's 100-item pages.
+Bookmarked accounts remain available after account reordering or without `account_offset`.
+Paging the picker retains the selected account and report until another account is chosen.
 On Products & ads, choose Name, Impressions, Clicks or CTR to sort the full result set
 before pagination. Name starts in ascending order; a metric starts in descending order.
 Choose the same header again to reverse direction. Unavailable metrics appear last in
@@ -38,8 +41,8 @@ changing the sort or reporting period returns to the first asset page.
 All account, membership, tier, benefit, and asset management lives in the admin app at
 `/partnerships/accounts`. These operations use `/v1/admin/partner-accounts`, require an admin
 session with the `superuser` role, and enforce the admin origin and CSRF token. The partner
-API exposes account-list and dashboard GET routes plus an account-scoped PUT preferences
-route for product click destination, automatic ad formats and eligible audience defaults. Report mutations remain
+API exposes account-list, individual account and dashboard GET routes plus an account-scoped PUT
+preferences route for product click destination, automatic ad formats and eligible audience defaults. Report mutations remain
 unavailable. Sign-out uses POST.
 Reader, partner, and admin sessions are isolated.
 

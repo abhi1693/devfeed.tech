@@ -30,7 +30,7 @@ import {
 import { useRouter } from "next/navigation";
 
 import { useEffect, useState } from "react";
-import type { AccountPage, Dashboard, Identity, AssetSort, SortOrder } from "@/lib/types";
+import type { Account, AccountPage, Dashboard, Identity, AssetSort, SortOrder } from "@/lib/types";
 
 function AssetSortHeader({
   field,
@@ -79,7 +79,7 @@ export function Portal({
   identity,
   initialAccounts,
   section = "overview",
-  initialSelected = "",
+  initialAccount,
   initialDays = 30,
   initialAccountOffset = 0,
   initialAssetOffset = 0,
@@ -89,7 +89,7 @@ export function Portal({
   identity: Identity;
   initialAccounts: AccountPage;
   section?: "overview" | "performance" | "assets";
-  initialSelected?: string;
+  initialAccount?: Account;
   initialDays?: number;
   initialAccountOffset?: number;
   initialAssetOffset?: number;
@@ -99,11 +99,10 @@ export function Portal({
   const router = useRouter();
   const [accounts, setAccounts] = useState(initialAccounts);
   const [accountOffset, setAccountOffset] = useState(initialAccountOffset);
-  const [selected, setSelected] = useState(
-    initialAccounts.total === 1
-      ? (initialAccounts.items[0]?.id ?? "")
-      : initialSelected || initialAccounts.items[0]?.id || "",
+  const [selectedAccount, setSelectedAccount] = useState(
+    initialAccount ?? initialAccounts.items[0],
   );
+  const selected = selectedAccount?.id ?? "";
   const [days, setDays] = useState(initialDays);
   const [assetOffset, setAssetOffset] = useState(initialAssetOffset);
   const [sort, setSort] = useState(initialSort);
@@ -166,11 +165,6 @@ export function Portal({
       const page = (await response.json()) as AccountPage;
       setAccounts(page);
       setAccountOffset(offset);
-      if (!page.items.some((account) => account.id === selected)) {
-        setSelected(page.items[0]?.id ?? "");
-        setData(null);
-        setAssetOffset(0);
-      }
       setError("");
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : "Please retry.");
@@ -244,9 +238,15 @@ export function Portal({
                   label="Partner account"
                   required
                   value={selected}
+                  selectedOption={
+                    selectedAccount
+                      ? { value: selectedAccount.id, label: selectedAccount.name }
+                      : undefined
+                  }
                   onChange={(value) => {
-                    if (value === selected) return;
-                    setSelected(value);
+                    const account = accounts.items.find((item) => item.id === value);
+                    if (!account || value === selected) return;
+                    setSelectedAccount(account);
                     setAssetOffset(0);
                     setData(null);
                     setError("");
