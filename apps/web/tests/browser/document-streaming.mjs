@@ -163,7 +163,7 @@ try {
   await context.clearCookies();
   visible = false;
   await page.goto(`${origin}/latest`);
-  await page.getByRole("heading", { name: "No articles match these filters" }).waitFor();
+  await page.getByRole("heading", { name: "No articles yet", exact: true }).waitFor();
   assert.equal(
     await page.locator(".article-card").count(),
     0,
