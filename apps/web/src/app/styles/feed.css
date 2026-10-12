@@ -290,7 +290,7 @@
 }
 .content-type[data-promotion-kind="sponsored"] {
   color: #422006;
-  border-color: #d97706;
+  border-color: var(--sponsored-border);
   background: #fbbf24;
   font-weight: 700;
 }

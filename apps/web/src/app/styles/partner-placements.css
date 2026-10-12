@@ -10,6 +10,35 @@
   border: 1px solid var(--border);
   border-radius: var(--radius-card);
   background: var(--card);
+  transition:
+    border-color 180ms ease,
+    box-shadow 180ms ease,
+    transform 180ms ease;
+}
+.partner-placement:has(:focus-visible) {
+  border-color: var(--sponsored-border);
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--sponsored-border) 12%, transparent),
+    0 6px 20px -8px color-mix(in srgb, var(--sponsored-border) 24%, transparent);
+}
+@media (hover: hover) and (pointer: fine) {
+  .partner-placement:hover {
+    border-color: var(--sponsored-border);
+    box-shadow:
+      0 0 0 1px color-mix(in srgb, var(--sponsored-border) 12%, transparent),
+      0 6px 20px -8px color-mix(in srgb, var(--sponsored-border) 24%, transparent);
+  }
+  .partner-placement:is(.partner-placement--card, .partner-placement--content):hover {
+    transform: translateY(-2px);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .partner-placement {
+    transition: none;
+  }
+  .partner-placement:is(.partner-placement--card, .partner-placement--content):hover {
+    transform: none;
+  }
 }
 .partner-placement[hidden],
 .partner-placements[hidden] {
@@ -184,7 +213,7 @@
   white-space: nowrap;
 }
 .partner-placement-link:focus-visible {
-  outline: 2px solid var(--ring);
+  outline: 2px solid var(--sponsored-border);
   outline-offset: -3px;
 }
 .preview-sidebar .partner-placement-link {

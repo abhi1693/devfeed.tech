@@ -302,6 +302,86 @@ async function assertSingleSponsoredPill(page, badge, label, articleBadge) {
   return treatment;
 }
 
+async function assertSponsoredCardInteraction(page, card, label, screenshot) {
+  const read = () =>
+    card.evaluate((element) => {
+      const style = getComputedStyle(element);
+      const pill = getComputedStyle(element.querySelector(".partner-placement-label"));
+      const link = element.querySelector(".partner-placement-link");
+      const rect = element.getBoundingClientRect();
+      const canvas = document.createElement("canvas");
+      canvas.width = canvas.height = 1;
+      const context = canvas.getContext("2d");
+      const rgba = (color) => {
+        context.clearRect(0, 0, 1, 1);
+        context.fillStyle = color;
+        context.fillRect(0, 0, 1, 1);
+        return Array.from(context.getImageData(0, 0, 1, 1).data);
+      };
+      return {
+        border: rgba(style.borderTopColor),
+        neutral: rgba(style.getPropertyValue("--border")),
+        amber: rgba(pill.borderTopColor),
+        shadow: style.boxShadow,
+        transform: style.transform,
+        transitions: style.transitionDuration.split(",").map(parseFloat),
+        focusVisible: link.matches(":focus-visible"),
+        outline: getComputedStyle(link).outlineWidth,
+        width: rect.width,
+        height: rect.height,
+      };
+    });
+  const settle = () => page.waitForTimeout(250);
+  const leave = async () => {
+    await page.mouse.move(5, 5);
+    await card.evaluate(() => document.activeElement?.blur());
+    await settle();
+  };
+  await leave();
+  const resting = await read();
+  assert.deepEqual(resting.border, resting.neutral, `${label}: neutral at rest`);
+  await card.hover();
+  await settle();
+  const hovered = await read();
+  assert.deepEqual(hovered.border, hovered.amber, `${label}: hover matches Sponsored pill`);
+  assert.notEqual(hovered.shadow, "none", `${label}: subtle hover depth`);
+  assert.equal(hovered.width, resting.width, `${label}: hover preserves width`);
+  assert.equal(hovered.height, resting.height, `${label}: hover preserves height`);
+  const clip = await card.evaluate((element) => {
+    const rect = element.getBoundingClientRect();
+    const x = Math.max(0, Math.floor(rect.x - 12));
+    const y = Math.max(0, Math.floor(rect.y - 12));
+    return {
+      x,
+      y,
+      width: Math.min(innerWidth, Math.ceil(rect.right + 12)) - x,
+      height: Math.min(innerHeight, Math.ceil(rect.bottom + 12)) - y,
+    };
+  });
+  await page.screenshot({ path: screenshot, clip });
+  await leave();
+  assert.deepEqual((await read()).border, resting.border, `${label}: hover clears on leave`);
+  await page.keyboard.press("Tab");
+  await card.locator(".partner-placement-link").focus();
+  await settle();
+  const focused = await read();
+  assert.ok(focused.focusVisible, `${label}: keyboard focus is visible`);
+  assert.deepEqual(focused.border, focused.amber, `${label}: keyboard gets same amber border`);
+  assert.ok(parseFloat(focused.outline) >= 2, `${label}: link retains visible focus outline`);
+  await leave();
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  try {
+    await card.hover();
+    const reduced = await read();
+    assert.deepEqual(reduced.border, reduced.amber, `${label}: reduced motion retains amber`);
+    assert.ok(reduced.transitions.every((duration) => duration === 0));
+    assert.equal(reduced.transform, "none", `${label}: reduced motion prevents lift`);
+  } finally {
+    await leave();
+    await page.emulateMedia({ reducedMotion: "no-preference" });
+  }
+}
+
 function response(requestPath, body, headers = {}, extension = false) {
   const url = new URL(requestPath, "https://devfeed.tech");
   const pathname = url.pathname.replace(/^\/api/, "");
@@ -1313,6 +1393,12 @@ try {
               path: `reports/partner-placements/${platform}-article-card-${theme}-${width === 390 ? "mobile" : "desktop"}-${mode}.png`,
             });
             if (mode === "standard") {
+              await assertSponsoredCardInteraction(
+                page,
+                card,
+                `${platform}: ${theme} ${width} Sponsored hover`,
+                `reports/partner-placements/${platform}-sponsored-hover-${theme}-${width === 390 ? "mobile" : "desktop"}.png`,
+              );
               await page
                 .locator(
                   `.article-grid .partner-placement[data-product-id="${sponsored.product_id}"] .partner-placement-label`,
