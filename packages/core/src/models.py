@@ -420,6 +420,10 @@ class Article(Base):
     title: Mapped[str] = mapped_column(String(500))
     slug: Mapped[str] = mapped_column(String(200), unique=True, server_default=FetchedValue())
     summary: Mapped[str] = mapped_column(Text, default="")
+    # Database-maintained ASCII candidates include Python re.I Unicode equivalents.
+    matching_tokens: Mapped[list[str]] = mapped_column(
+        ARRAY(Text), server_default="{}", server_onupdate=FetchedValue()
+    )
     ai_title: Mapped[str | None] = mapped_column(String(200))
     ai_summary: Mapped[str | None] = mapped_column(Text)
     ai_description: Mapped[str | None] = mapped_column(Text)
@@ -482,6 +486,7 @@ Index(
 )
 Index("ix_articles_published_to_feed_at", Article.published_to_feed_at)
 Index("ix_articles_discovered_at", Article.discovered_at)
+Index("ix_articles_matching_tokens", Article.matching_tokens, postgresql_using="gin")
 Index(
     "ix_articles_search",
     text(
@@ -690,6 +695,9 @@ class Topic(Base):
     kind: Mapped[str] = mapped_column(String(50))
     aliases: Mapped[list[str]] = mapped_column(ARRAY(String(100)), default=list)
     identity_keys: Mapped[list[str]] = mapped_column(ARRAY(Text), default=list, server_default="{}")
+    matching_tokens: Mapped[list[str]] = mapped_column(
+        ARRAY(Text), server_default="{}", server_onupdate=FetchedValue()
+    )
     keywords: Mapped[list[str]] = mapped_column(
         ARRAY(String(100)), default=list, server_default="{}"
     )
@@ -708,12 +716,14 @@ class Topic(Base):
 
 
 Index("ix_topics_identity_keys", Topic.identity_keys, postgresql_using="gin")
+Index("ix_topics_matching_tokens", Topic.matching_tokens, postgresql_using="gin")
 
 
 class TopicRelation(Base):
     __tablename__ = "topic_relations"
     __table_args__ = (
         CheckConstraint("topic_id <> related_topic_id", name="ck_topic_relation_not_self"),
+        Index("ix_topic_relations_related_topic", "related_topic_id", "topic_id"),
     )
     topic_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("topics.id", ondelete="CASCADE"), primary_key=True
@@ -1489,6 +1499,7 @@ class PartnerProduct(Base):
             "status IN ('pending','approved','rejected','paused','withdrawn')",
             name="ck_partner_status",
         ),
+        Index("ix_partner_products_matching_tokens", "matching_tokens", postgresql_using="gin"),
     )
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
     name: Mapped[str] = mapped_column(String(200))
@@ -1496,13 +1507,19 @@ class PartnerProduct(Base):
     description: Mapped[str] = mapped_column(Text)
     pricing: Mapped[str] = mapped_column(String(20), default="unknown")
     technologies: Mapped[list] = mapped_column(JSONB, default=list)
+    # Each Unicode or punctuation-only technology adds __any__; exact rules remain authoritative.
+    matching_tokens: Mapped[list[str]] = mapped_column(
+        ARRAY(Text), server_default="{}", server_onupdate=FetchedValue()
+    )
     evidence: Mapped[list] = mapped_column(JSONB, default=list)
     managed_logo: Mapped[dict] = mapped_column(JSONB, default=dict, server_default="{}")
     managed_image: Mapped[dict] = mapped_column(JSONB, default=dict, server_default="{}")
     revision: Mapped[int] = mapped_column(default=1)
     status: Mapped[str] = mapped_column(String(20), default="pending")
     verified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, server_onupdate=FetchedValue()
+    )
     reviews: Mapped[list] = mapped_column(JSONB, default=list)
     assessment: Mapped[dict] = mapped_column(JSONB, default=dict, server_default="{}")
     assessment_revision: Mapped[int] = mapped_column(default=0, server_default="0")
@@ -1916,18 +1933,24 @@ class PartnerArticleMatch(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 
-class PartnerMatchState(Base):
-    __tablename__ = "partner_match_states"
-    product_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("partner_products.id", ondelete="CASCADE"), primary_key=True
+class PartnerMatchJob(Base):
+    """Coalesced factual changes; source deletion survives as a job without a foreign key."""
+
+    __tablename__ = "partner_match_jobs"
+    __table_args__ = (
+        CheckConstraint("kind IN ('product','article','topics')", name="ck_partner_match_job_kind"),
+        CheckConstraint("generation > 0", name="ck_partner_match_job_generation"),
+        Index("ix_partner_match_job_due", "updated_at", "kind", "entity_id"),
     )
-    product_revision: Mapped[int] = mapped_column(default=0, server_default="0")
-    product_updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
-    topic_generation: Mapped[str] = mapped_column(String(64), default="", server_default="")
-    article_cursor: Mapped[uuid.UUID | None] = mapped_column()
-    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    kind: Mapped[str] = mapped_column(String(20), primary_key=True)
+    entity_id: Mapped[uuid.UUID] = mapped_column(primary_key=True)
+    generation: Mapped[int] = mapped_column(BigInteger, default=1, server_default="1")
+    cursor: Mapped[uuid.UUID | None]
+    requested_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, server_default=text("now()")
+    )
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=utcnow, index=True
+        DateTime(timezone=True), default=utcnow, server_default=text("now()")
     )
 
 

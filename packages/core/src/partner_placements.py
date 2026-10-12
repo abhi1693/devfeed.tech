@@ -35,7 +35,7 @@ from devfeed_core.partner_audiences import (
     audience_topics_current,
     effective_audience,
 )
-from devfeed_core.partner_matching import MATCH_TTL, article_fingerprint
+from devfeed_core.partner_matching import article_fingerprint
 from devfeed_core.partner_placement_preflight import (
     PlacementPreflight,
     automatic_configuration_available,
@@ -120,7 +120,6 @@ def prepared_product_topics(session, product, now):
                 PartnerProductTopic.product_id == product.id,
                 PartnerProductTopic.product_revision == product.revision,
                 PartnerProductTopic.product_updated_at == product.updated_at,
-                PartnerProductTopic.updated_at >= now - MATCH_TTL,
                 PartnerProductTopic.topic_updated_at == Topic.updated_at,
                 Topic.status == "active",
             )
@@ -306,7 +305,6 @@ def contextual_candidates(session, query, now, user_id=None, *, as_query=False):
                 PartnerArticleMatch.product_updated_at == PartnerProduct.updated_at,
                 PartnerArticleMatch.editorial_revision == article.editorial_revision,
                 PartnerArticleMatch.article_fingerprint == article_fingerprint(article),
-                PartnerArticleMatch.updated_at >= now - MATCH_TTL,
                 PartnerArticleMatch.score >= 75,
             )
         )
@@ -358,7 +356,6 @@ def contextual_candidates(session, query, now, user_id=None, *, as_query=False):
         PartnerProductTopic.topic_updated_at == Topic.updated_at,
         PartnerProductTopic.product_revision == PartnerProduct.revision,
         PartnerProductTopic.product_updated_at == PartnerProduct.updated_at,
-        PartnerProductTopic.updated_at >= now - MATCH_TTL,
         weighted_score >= 40,
     )
     if as_query:

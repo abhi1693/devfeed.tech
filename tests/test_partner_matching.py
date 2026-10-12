@@ -91,6 +91,14 @@ def test_fingerprint_changes_on_original_text_and_editorial_decisions():
     assert article_fingerprint(current) != old
 
 
+def test_fingerprint_includes_original_text_after_the_evaluation_excerpt_limit():
+    current = article(summary="Original publisher text. " * 400 + "Original final task.")
+    old = article_fingerprint(current)
+    current.summary = current.summary[:-20] + "A changed final task."
+    assert len(current.summary) > 8000
+    assert article_fingerprint(current) != old
+
+
 @pytest.mark.parametrize(
     "payload",
     [

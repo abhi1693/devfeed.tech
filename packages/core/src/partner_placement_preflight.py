@@ -14,7 +14,6 @@ from devfeed_core.partner_audiences import (
     effective_audience,
     reader_audience,
 )
-from devfeed_core.partner_matching import MATCH_TTL
 from devfeed_core.partner_promotions import campaign_is_live, campaign_matches_product
 from devfeed_core.partner_tiers import effective_promotion_kind, promotion_kind_allowed
 
@@ -151,7 +150,6 @@ class PlacementPreflight:
                 .join(Topic)
                 .where(
                     PartnerProductTopic.product_id.in_(products),
-                    PartnerProductTopic.updated_at >= self.now - MATCH_TTL,
                     PartnerProductTopic.topic_updated_at == Topic.updated_at,
                     Topic.status == "active",
                 )

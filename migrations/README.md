@@ -201,3 +201,32 @@ aggregating unrelated catalog history, while preserving global rotation across f
 
 Apply before starting runtimes requiring schema `0037`. Upgrade preserves assets, delivery
 receipts and daily reporting. Downgrade removes only the new index and preserves the same data.
+
+## 0038: targeted partner matching invalidation
+
+Replaces periodic product/article catalog sweeps with durable, coalesced
+`partner_match_jobs` for changed products, articles and topic dependencies. Database triggers
+capture ORM writes, imports, bulk SQL and deletes in the source transaction. Indexed ASCII token
+projections narrow candidates before the existing factual rules run; Python's four Unicode
+ASCII case equivalents are normalized, while Unicode or punctuation-only product technologies
+retain a conservative fallback. ASCII tokens are split into chunks of at most 200 characters
+to keep GIN entries bounded for long article words. An index on reverse topic-relation endpoints
+supports both directions of dependency lookup.
+
+Topic and relation changes synchronously remove affected prepared topic edges and queue their
+products for rebuilding. A transaction advisory barrier coordinates taxonomy mutation with
+workers so an older snapshot cannot restore removed edges. Job generations and cursors coalesce
+repeated changes, retain bounded progress and retry busy snapshots. Factual preparation remains
+independent of current provider and source visibility; delivery still applies current policy.
+
+Upgrade backfills source token projections before building their GIN indexes and queues one
+job per existing product, without creating product/article pairs. It clears legacy derived
+product/topic edges because their stored snapshots cannot prove removed upstream dependencies;
+topic placements rebuild as bootstrap jobs drain. Existing article evaluations, attribution,
+assets, receipts and reporting remain. Apply before starting runtimes requiring schema `0038`;
+older runtimes using `partner_match_states` must be stopped before upgrade.
+
+Downgrade removes matching triggers, token projections, new indexes and pending jobs, and
+recreates the former empty sweep-state table. Current prepared matches, attribution and
+reporting are preserved; cleared legacy topic edges are not restored, and the older worker
+rebuilds its sweep cursors.

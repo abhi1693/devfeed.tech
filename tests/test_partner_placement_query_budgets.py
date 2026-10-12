@@ -211,7 +211,7 @@ def test_busy_asset_rejection_releases_locks_acquired_before_the_busy_row(databa
 
 @pytest.mark.parametrize(
     "freshness",
-    ["current", "expired", "revision_mismatch", "product_time_mismatch", "topic_time_mismatch"],
+    ["current", "aged", "revision_mismatch", "product_time_mismatch", "topic_time_mismatch"],
 )
 def test_topic_filtered_agreement_only_shadows_current_prepared_product_topics(database, freshness):
     catalog = seed_rotation(database, count=2)
@@ -235,7 +235,7 @@ def test_topic_filtered_agreement_only_shadows_current_prepared_product_topics(d
         setup.flush()
         ensure_automatic_assets(setup, catalog["account"], catalog["now"])
         match = setup.get(PartnerProductTopic, (first, catalog["topic"]))
-        if freshness == "expired":
+        if freshness == "aged":
             match.updated_at = catalog["now"] - timedelta(hours=1)
         elif freshness == "revision_mismatch":
             match.product_revision += 1
@@ -250,8 +250,10 @@ def test_topic_filtered_agreement_only_shadows_current_prepared_product_topics(d
         )
         # An anonymous reader cannot bypass a current topic-targeted agreement's
         # audience. A stale prepared edge cannot reserve the standing inventory.
-        assert [row["product_id"] for row in rows] == ([] if freshness == "current" else [first])
-        if freshness == "current":
+        assert [row["product_id"] for row in rows] == (
+            [] if freshness in {"current", "aged"} else [first]
+        )
+        if freshness in {"current", "aged"}:
             assert_attribution_editable(database, catalog)
 
 

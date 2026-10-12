@@ -71,7 +71,7 @@ repair batch for imported inventory. Jobs use current policy, resume from their 
 cursor after retries, and restart when policy changes. Future campaign starts trigger another
 sweep, including when an agreement starts during enrollment. Inserts use 500-row chunks.
 A single-product policy edit enrolls only that product, without scanning the account catalog.
-Migration 0035 creates the enrollment queue; current runtimes require migrations through 0037.
+Migration 0035 creates the enrollment queue; current runtimes require migrations through 0038.
 There is no routine product/ad asset classification step. Legacy manually associated
 assets and imported metrics remain available as historical reporting records; they do not
 silently enter the new automatic delivery pipeline.
@@ -155,7 +155,10 @@ while new choices and saves require current active topics of the appropriate kin
 Preparation runs in bounded background scheduler slices, independently of AI availability.
 It maps technologies supported by verified official-page quotes to exact active taxonomy names
 or aliases, then expands a bounded approved relationship hop. Direct support outranks related
-topics. No new taxonomy or unsupported capabilities are invented.
+topics. Catalog and article changes record durable preparation jobs in the same database
+transaction. Indexed vocabulary narrows potential article/product pairs before the grounded
+matching rules run; unchanged inventory does not require recurring sweeps. No new taxonomy or
+unsupported capabilities are invented.
 
 Article appearances require a published, approved practical tutorial from an approved source,
 a specific shared technology and at least two task terms present in both verified product
@@ -165,7 +168,7 @@ matches for the same inputs. Those evaluations are prepared privately, never on 
 
 Topic pages use prepared product/topic relevance. Main feed and search grids send at most 24
 visible article IDs. The server resolves their current approved primary/supporting topics and
-matches fresh prepared product topics; clients cannot supply topic claims or private articles.
+matches current prepared product topics; clients cannot supply topic claims or private articles.
 Signed-in feed interests can strengthen those topics without introducing unrelated products.
 Anonymous requests use the same visible context and never manufacture an interest profile.
 Anonymous feed requests without context return no products unless the main feed explicitly enables
@@ -178,15 +181,17 @@ Requests fetch prepared candidates in bounded batches and recheck current produc
 campaign and exclusion state. Audience and campaign eligibility are filtered before attribution
 locks, with shared taxonomy and campaign checks batched across candidates. Final policy checks
 still run under locks; rejected candidates release their attribution locks immediately, while
-accepted reservations retain them until the transaction commits. Cached matches expire after
-30 minutes and are fenced by product revision, product update time, article text/editorial revision
-and topic update time. New articles are considered in each product slice; durable cursors also
-revisit older articles. Completed sweeps become eligible again after five minutes.
+accepted reservations retain them until the transaction commits. Prepared matches remain valid
+while their inputs are unchanged, fenced by product revision, product update time, article
+text/editorial revision and topic update time. Taxonomy name, alias, status and relationship
+changes immediately remove affected prepared topic edges and queue their reconstruction.
+Changed products and articles are processed in bounded slices with durable cursors and retries;
+new articles receive their own jobs regardless of an existing product cursor.
 Unchanged imports preserve the canonical product's revision and update time; listing update
 times and sync generations still record every import observation. Changes to canonical metadata
 or product availability continue to invalidate prepared matches.
-Preparation throughput depends on catalog and
-article volume; missing, stale or unrelated matches result in no placement.
+Preparation throughput depends on changed inventory and its potential matches; missing, stale
+or unrelated matches result in no placement.
 
 Each response contains at most two placements total, with at most one paid placement of each requested format. A feed-only request can include one non-campaign recommendation and one campaign-backed placement. Product destinations use HTTPS; sponsored articles use an internal article preview URL. Both display **Sponsored** in the reader. Matching reasons remain in the response for diagnostics;
 they are not displayed in the card. Canonical products are deduplicated
@@ -296,7 +301,7 @@ stored in Redis keys or measurement rows.
 
 ## Enablement and rollout
 
-Apply migrations through `0037` with `uv run devfeed db upgrade`. It follows the source-logo `0023` and
+Apply migrations through `0038` with `uv run devfeed db upgrade`. It follows the source-logo `0023` and
 partner migrations `0024`–`0027`, preserves existing catalog, accounts, memberships and metrics,
 and adds defaults, campaigns, exclusions, prepared matches and delivery reservations. Accounts
 inherit their tier's promotion type and automatic inclusion; existing connections remain assigned
@@ -333,6 +338,15 @@ It includes every asset identity, preserving rotation history from manual and pa
 well as active automatic formats. The migration preserves assets, receipts and reporting data;
 downgrading removes only the index.
 
+Migration `0038` adds indexed matching vocabulary and durable product/article preparation jobs.
+Database triggers capture committed changes, including bulk imports and taxonomy edits, and
+invalidate affected topic edges before background reconstruction. Existing catalog products
+receive preparation jobs after article vocabulary is indexed, without creating a product/article
+cross product. Unchanged prepared matches remain usable without a time-based expiry.
+Existing topic edges are cleared because their old snapshots omit upstream dependencies;
+topic placements rebuild as the queued product jobs drain. Article evaluations, assets,
+receipts and reporting are retained.
+
 Set the same server-only `DEVFEED_PARTNER_TRACKING_KEY` in the public API and user API, using at
 least 32 random ASCII characters. Compose injects it only into those two trusted backends.
 The worker needs no signing key. An empty key disables delivery and collection. The scheduler
@@ -353,7 +367,7 @@ but groups proxied readers together. Configure both settings before enabling pro
 A configured gateway rejects missing or invalid trusted address headers rather than issuing
 unidentified upstream requests. Neither key nor caller proof is exposed to browsers or extensions.
 
-Deploy all services requiring schema `0037` together after the migration. Downgrading below `0028`
+Deploy all services requiring schema `0038` together after the migration. Downgrading below `0028`
 removes campaign/default/matching/reservation data and automatic campaign associations; retain a database
 backup before rollback. It preserves the original manually managed asset/metric data. Downgrading
 only `0029` removes product logo metadata/jobs while preserving products, campaigns and reporting.

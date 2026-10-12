@@ -347,7 +347,7 @@ def test_prepared_topics_fence_product_and_taxonomy_edits_with_exact_snapshots()
     assert sql.params["product_id_1"] == product.id
     assert sql.params["product_revision_1"] == 7
     assert sql.params["product_updated_at_1"] == NOW
-    assert sql.params["updated_at_1"] == NOW - placements.MATCH_TTL
+    assert "updated_at_1" not in sql.params
     assert "partner_product_topics.topic_updated_at = topics.updated_at" in str(sql)
 
 

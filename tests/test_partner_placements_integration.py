@@ -1,4 +1,4 @@
-"""Real inherited free/paid delivery, continuous matching, caps and policy fences."""
+"""Real inherited free/paid delivery, durable matching, caps and policy fences."""
 
 import secrets
 import uuid
@@ -17,7 +17,7 @@ from devfeed_core.models import (
     PartnerConnection,
     PartnerDeliveryEvent,
     PartnerListing,
-    PartnerMatchState,
+    PartnerMatchJob,
     PartnerPlacementDelivery,
     PartnerProduct,
     PartnerProductPromotion,
@@ -203,6 +203,20 @@ def deliver(database, payload, **kwargs):
         return deliver_placements(session, payload, KEY, **kwargs)
 
 
+def finish_matching(database, *, product_limit=10, article_limit=100, now=None):
+    """Finish bounded preparation jobs, including slices with no matching pairs."""
+    processed = 0
+    for _ in range(100):
+        with database() as session:
+            pending = session.scalar(select(func.count()).select_from(PartnerMatchJob))
+        if not pending:
+            return processed
+        processed += refresh_partner_matches(
+            database, product_limit=product_limit, article_limit=article_limit, now=now
+        )
+    pytest.fail("Matching jobs did not finish within the bounded fixture budget")
+
+
 def test_free_and_paid_relevant_products_automatically_deliver_and_track(client, database, catalog):
     response = client.post(
         "/v1/partner-placements/query", json=query(catalog).model_dump(mode="json")
@@ -356,12 +370,10 @@ def test_concurrent_campaign_reservations_never_exceed_shared_limit(database, ca
     assert not any(item["sponsored"] for item in deliver(database, query(catalog)))
 
 
-def test_article_edits_invalidate_matches_and_continuous_sweep_rebuilds(database, catalog):
+def test_article_edits_invalidate_matches_and_durable_jobs_rebuild(database, catalog):
     with database.begin() as session:
         item = session.get(Article, catalog["article"])
         item.summary = "Deploy Kubernetes applications with namespace configuration and manifests."
-        for state in session.scalars(select(PartnerMatchState)):
-            state.completed_at = utcnow() - timedelta(minutes=6)
     assert deliver(database, query(catalog)) == []
     refresh_partner_matches(database)
     assert deliver(database, query(catalog)) == []
@@ -370,9 +382,7 @@ def test_article_edits_invalidate_matches_and_continuous_sweep_rebuilds(database
         item.summary = (
             "Monitor Kubernetes clusters and inspect metrics in this practical production tutorial."
         )
-        for state in session.scalars(select(PartnerMatchState)):
-            state.completed_at = utcnow() - timedelta(minutes=6)
-    refresh_partner_matches(database, article_limit=1)
+    finish_matching(database, article_limit=1)
     assert len(deliver(database, query(catalog))) == 2
 
 
@@ -389,8 +399,7 @@ def test_current_evaluator_negatives_override_lexical_match_until_inputs_change(
             "Verified evaluator found the task incompatible.",
             origin="evaluation",
         )
-        for state in session.scalars(select(PartnerMatchState)):
-            state.completed_at = utcnow() - timedelta(minutes=6)
+        session.get(Topic, catalog["topic"]).aliases = ["K8s"]
     refresh_partner_matches(database)
     assert [item["name"] for item in deliver(database, query(catalog))] == ["free_product"]
     with database() as session:
@@ -456,8 +465,9 @@ def test_requalification_invalidates_prepared_edges_without_a_revision_bump(data
 
 def test_stale_products_cannot_starve_fresh_matching_batches(database, catalog):
     with database.begin() as session:
-        session.execute(delete(PartnerMatchState))
-        session.execute(delete(PartnerArticleMatch))
+        product = session.get(PartnerProduct, catalog["paid_product"])
+        product.updated_at = utcnow()
+        fresh_timestamp = product.updated_at
         for index in range(12):
             product = PartnerProduct(
                 id=uuid.UUID(int=index + 1),
@@ -480,13 +490,18 @@ def test_stale_products_cannot_starve_fresh_matching_batches(database, catalog):
                     description="Old listing.",
                 )
             )
-    assert refresh_partner_matches(database, product_limit=1) > 0
+    finish_matching(database, product_limit=1)
     with database() as session:
-        assert session.scalar(select(func.count()).select_from(PartnerMatchState)) == 1
-        assert session.scalar(select(PartnerMatchState.product_id)).int > 12
+        match = session.get(PartnerArticleMatch, (catalog["paid_product"], catalog["article"]))
+        assert match.relevant and match.product_updated_at == fresh_timestamp
+        assert not session.scalar(
+            select(func.count())
+            .select_from(PartnerArticleMatch)
+            .where(PartnerArticleMatch.product_id.in_([uuid.UUID(int=i + 1) for i in range(12)]))
+        )
 
 
-def test_new_articles_are_prepared_even_when_below_the_sweep_cursor(database, catalog):
+def test_new_low_uuid_articles_are_prepared_for_existing_products(database, catalog):
     article_id = uuid.UUID(int=1)
     with database.begin() as session:
         original = session.get(Article, catalog["article"])
@@ -510,10 +525,7 @@ def test_new_articles_are_prepared_even_when_below_the_sweep_cursor(database, ca
                 original_url=item.canonical_url,
             )
         )
-        for state in session.scalars(select(PartnerMatchState)):
-            state.completed_at = None
-            state.article_cursor = uuid.UUID(int=2)
-    refresh_partner_matches(database, article_limit=1)
+    finish_matching(database, article_limit=1)
     assert len(deliver(database, PlacementQuery(surface="article", article_id=article_id))) == 2
 
 

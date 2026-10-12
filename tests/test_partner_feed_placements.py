@@ -212,17 +212,12 @@ def test_search_context_never_introduces_unrelated_personal_or_global_inventory(
 
 
 @pytest.mark.integration
-@pytest.mark.parametrize(
-    "change", ["ttl", "product_revision", "product_updated_at", "topic_updated_at"]
-)
+@pytest.mark.parametrize("change", ["product_revision", "product_updated_at", "topic_updated_at"])
 def test_feed_context_requires_current_prepared_product_and_topic_snapshots(
     database, feed_catalog, change
 ):
     with database.begin() as session:
-        if change == "ttl":
-            for match in session.scalars(select(PartnerProductTopic)):
-                match.updated_at = utcnow() - timedelta(minutes=31)
-        elif change.startswith("product"):
+        if change.startswith("product"):
             for name in ("free_product", "paid_product"):
                 product = session.get(PartnerProduct, feed_catalog[name])
                 if change == "product_revision":
@@ -232,6 +227,14 @@ def test_feed_context_requires_current_prepared_product_and_topic_snapshots(
         else:
             session.get(Topic, feed_catalog["topic"]).updated_at += timedelta(seconds=1)
     assert deliver(database, feed_query(feed_catalog)) == []
+
+
+@pytest.mark.integration
+def test_unchanged_feed_context_outlives_preparation_age(database, feed_catalog):
+    with database.begin() as session:
+        for match in session.scalars(select(PartnerProductTopic)):
+            match.updated_at = utcnow() - timedelta(hours=1)
+    assert len(deliver(database, feed_query(feed_catalog))) == 2
 
 
 @pytest.mark.integration
