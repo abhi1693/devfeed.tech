@@ -1,10 +1,11 @@
 """Account inheritance, campaign targeting and immutable automatic attribution."""
 
 import uuid
-from collections.abc import Iterable, Sequence
-from datetime import UTC, datetime
+from collections.abc import Iterable
+from datetime import UTC, datetime, timedelta
+from itertools import batched
 
-from sqlalchemy import and_, exists, func, or_, select
+from sqlalchemy import and_, delete, exists, func, or_, select, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
@@ -16,12 +17,15 @@ from .models import (
     PartnerListing,
     PartnerProduct,
     PartnerProductPromotion,
+    PartnerPromotionEnrollment,
 )
 from .partner_ad_formats import AUTOMATIC_AD_FORMATS, ad_format_allowed
 from .partner_tiers import effective_promotion_kind, promotion_kind_allowed
 from .partner_tools import eligible
 
 PROMOTION_SURFACES = ("article", "topic", "feed")
+PROMOTION_BATCH_SIZE = 200
+PROMOTION_INSERT_BATCH_SIZE = 500
 
 
 def associated_products_query(account_id: uuid.UUID | None = None):
@@ -181,13 +185,22 @@ def ensure_automatic_assets(
     Tier-inherited sponsorship uses its own stable ledger alongside dated campaigns.
     """
     now = now or datetime.now(UTC)
-    query = associated_products_query(account_id).where(
-        PartnerAccount.status == "active",
-        PartnerProduct.excluded.is_(False),
-    )
+    query = automatic_products_query(account_id)
     if product_ids is not None:
         query = query.where(PartnerProduct.id.in_(list(product_ids)))
     rows = session.execute(query).all()
+    if not rows:
+        return 0
+    return _enroll_automatic_rows(session, rows, now)
+
+
+def automatic_products_query(account_id=None):
+    return associated_products_query(account_id).where(
+        PartnerAccount.status == "active", PartnerProduct.excluded.is_(False)
+    )
+
+
+def _enroll_automatic_rows(session, rows, now):
     if not rows:
         return 0
     rows = sorted(rows, key=lambda row: (row[0].id, row[1].id))
@@ -195,7 +208,7 @@ def ensure_automatic_assets(
     for account in accounts.values():
         for ad_format in getattr(account, "ad_formats", ["feed"]):
             ensure_managed_campaign(session, account, now, ad_format)
-    trusted = [
+    trusted = (
         dict(
             account_id=account.id,
             product_id=product.id,
@@ -205,13 +218,13 @@ def ensure_automatic_assets(
         )
         for account, product in rows
         if account.approval_mode == "trusted"
-    ]
-    accepted: Sequence[uuid.UUID] = []
-    if trusted:
-        accepted = (
+    )
+    accepted: set[uuid.UUID] = set()
+    for batch in batched(trusted, PROMOTION_INSERT_BATCH_SIZE):
+        accepted.update(
             session.execute(
                 insert(PartnerProductPromotion)
-                .values(trusted)
+                .values(list(batch))
                 .on_conflict_do_update(
                     index_elements=[
                         PartnerProductPromotion.account_id,
@@ -231,7 +244,7 @@ def ensure_automatic_assets(
         from .logos import request_logo
         from .partner_product_images import request_product_image
 
-        for product_id in sorted(set(accepted)):
+        for product_id in sorted(accepted):
             request_logo(session, PartnerProduct, product_id, automatic=True)
             request_product_image(session, product_id, automatic=True)
     campaigns: dict[uuid.UUID, list[PartnerCampaign]] = {}
@@ -252,7 +265,21 @@ def ensure_automatic_assets(
             )
         ).all()
     )
-    values = []
+    created = 0
+    for batch in batched(
+        _automatic_asset_values(rows, campaigns, excluded), PROMOTION_INSERT_BATCH_SIZE
+    ):
+        result = session.execute(
+            insert(PartnerAsset)
+            .values(list(batch))
+            .on_conflict_do_nothing()
+            .returning(PartnerAsset.id)
+        )
+        created += len(result.all())
+    return created
+
+
+def _automatic_asset_values(rows, campaigns, excluded):
     for account, product in rows:
         if (account.id, product.id) in excluded or not (
             account.approval_mode == "trusted" or product.status == "approved"
@@ -263,7 +290,7 @@ def ensure_automatic_assets(
             and account.auto_include_products
             and effective_promotion_kind(account) == "product"
         ):
-            values.append(_asset_values(account.id, product, None))
+            yield _asset_values(account.id, product, None)
         for campaign in campaigns.get(account.id, []):
             if not promotion_kind_allowed(account, "ad") and not campaign.grandfathered:
                 continue
@@ -274,24 +301,149 @@ def ensure_automatic_assets(
             if campaign_matches_product(campaign, product):
                 if not ad_format_allowed(account, campaign.ad_format):
                     continue
-                values.append(
-                    _asset_values(
-                        account.id, product, campaign.id, campaign.ad_format, campaign.article_id
-                    )
+                yield _asset_values(
+                    account.id, product, campaign.id, campaign.ad_format, campaign.article_id
                 )
-    if not values:
-        return 0
-    result = session.execute(
-        insert(PartnerAsset).values(values).on_conflict_do_nothing().returning(PartnerAsset.id)
+
+
+def _next_campaign_start(session, account_id, after, now):
+    return session.scalar(
+        select(func.min(PartnerCampaign.starts_at))
+        .join(PartnerAccount)
+        .where(
+            PartnerCampaign.account_id == account_id,
+            PartnerAccount.status == "active",
+            PartnerCampaign.status == "active",
+            PartnerCampaign.starts_at > after,
+            PartnerCampaign.ends_at > now,
+        )
     )
-    return len(result.all())
 
 
-def sync_partner_promotions(factory, *, limit=200):
+def request_promotion_enrollment(session, account_id, now=None):
+    """Keep small saves immediate; checkpoint large catalogs in the same transaction."""
+    now = now or datetime.now(UTC)
+    # Account -> enrollment is shared with scheduler slices and policy editors.
+    if (
+        session.scalar(
+            select(PartnerAccount.id).where(PartnerAccount.id == account_id).with_for_update()
+        )
+        is None
+    ):
+        return 0
+    rows = session.execute(
+        automatic_products_query(account_id)
+        .order_by(PartnerProduct.id)
+        .limit(PROMOTION_BATCH_SIZE + 1)
+    ).all()
+    created = 0
+    due = now
+    if len(rows) <= PROMOTION_BATCH_SIZE:
+        created = _enroll_automatic_rows(session, rows, now)
+        due = _next_campaign_start(session, account_id, now, now)
+        if due is None:
+            session.execute(
+                delete(PartnerPromotionEnrollment).where(
+                    PartnerPromotionEnrollment.account_id == account_id
+                )
+            )
+            return created
+    values = dict(
+        account_id=account_id,
+        product_cursor=None,
+        requested_at=now,
+        updated_at=now,
+        available_at=due,
+        sweep_started_at=None,
+    )
+    session.execute(
+        insert(PartnerPromotionEnrollment)
+        .values(**values)
+        .on_conflict_do_update(index_elements=[PartnerPromotionEnrollment.account_id], set_=values)
+    )
+    return created
+
+
+def process_promotion_enrollment(factory, *, limit=PROMOTION_BATCH_SIZE, now=None):
+    """Commit one account slice and its cursor together, without waiting for editors."""
+    if limit <= 0:
+        return 0
+    now = now or datetime.now(UTC)
+    account_id = requested_at = None
+    try:
+        with factory.begin() as session:
+            account = session.scalar(
+                select(PartnerAccount)
+                .join(PartnerPromotionEnrollment)
+                .where(PartnerPromotionEnrollment.available_at <= now)
+                .order_by(PartnerPromotionEnrollment.updated_at, PartnerAccount.id)
+                .limit(1)
+                .with_for_update(of=PartnerAccount, skip_locked=True)
+            )
+            if account is None:
+                return 0
+            job = session.scalar(
+                select(PartnerPromotionEnrollment)
+                .where(PartnerPromotionEnrollment.account_id == account.id)
+                .with_for_update()
+            )
+            if job is None or job.available_at > now:
+                return 0
+            account_id, requested_at = account.id, job.requested_at
+            job.sweep_started_at = job.sweep_started_at or now
+            query = automatic_products_query(account.id)
+            if job.product_cursor is not None:
+                query = query.where(PartnerProduct.id > job.product_cursor)
+            rows = session.execute(query.order_by(PartnerProduct.id).limit(limit + 1)).all()
+            created = _enroll_automatic_rows(session, rows[:limit], now)
+            job.updated_at = now
+            if len(rows) > limit:
+                job.product_cursor = rows[limit - 1][1].id
+            else:
+                # A campaign may start during a long sweep. Revisit earlier rows
+                # as well as scheduling agreements that have not started yet.
+                due = _next_campaign_start(session, account.id, job.sweep_started_at, now)
+                if due is None:
+                    session.delete(job)
+                else:
+                    job.product_cursor = job.sweep_started_at = None
+                    job.available_at = max(now, due)
+            return created
+    except Exception:
+        if account_id is not None:
+            # The failed slice rolled back. Cool down only its request generation;
+            # a newly saved policy keeps its own fresh checkpoint and due time.
+            with factory.begin() as session:
+                locked = session.scalar(
+                    select(PartnerAccount.id)
+                    .where(PartnerAccount.id == account_id)
+                    .with_for_update(skip_locked=True)
+                )
+                if locked is not None:
+                    session.execute(
+                        update(PartnerPromotionEnrollment)
+                        .where(
+                            PartnerPromotionEnrollment.account_id == account_id,
+                            PartnerPromotionEnrollment.requested_at == requested_at,
+                        )
+                        .values(
+                            updated_at=now,
+                            available_at=now + timedelta(seconds=60),
+                            sweep_started_at=func.coalesce(
+                                PartnerPromotionEnrollment.sweep_started_at, now
+                            ),
+                        )
+                    )
+        raise
+
+
+def sync_partner_promotions(factory, *, limit=PROMOTION_BATCH_SIZE, now=None):
     """Bounded repair lane for imported inventory and newly inherited account policy."""
+    now = now or datetime.now(UTC)
+    created = process_promotion_enrollment(factory, limit=limit, now=now)
     with factory.begin() as session:
         if not session.scalar(select(func.pg_try_advisory_xact_lock(832604283))):
-            return 0
+            return created
         paid_mode = or_(
             PartnerAccount.promotion_kind == "ad",
             and_(
@@ -341,9 +493,8 @@ def sync_partner_promotions(factory, *, limit=200):
                 PartnerProductPromotion.commercial_approved_at.is_not(None),
             )
         )
-        ids = session.scalars(
+        rows = session.execute(
             associated_products_query()
-            .with_only_columns(PartnerProduct.id, maintain_column_froms=True)
             .where(
                 PartnerAccount.status == "active",
                 PartnerProduct.excluded.is_(False),
@@ -352,11 +503,20 @@ def sync_partner_promotions(factory, *, limit=200):
                 or_(paid_mode, PartnerAccount.organic_enabled.is_(True)),
                 or_(PartnerProduct.status == "approved", PartnerAccount.approval_mode == "trusted"),
                 or_(~has_asset, and_(PartnerAccount.approval_mode == "trusted", ~accepted)),
+                ~exists(
+                    select(PartnerPromotionEnrollment.account_id).where(
+                        PartnerPromotionEnrollment.account_id == PartnerAccount.id,
+                        or_(
+                            PartnerPromotionEnrollment.available_at <= now,
+                            PartnerPromotionEnrollment.sweep_started_at.is_not(None),
+                        ),
+                    )
+                ),
             )
-            .order_by(PartnerProduct.id)
+            .order_by(PartnerProduct.id, PartnerAccount.id)
             .limit(limit)
         ).all()
-        return ensure_automatic_assets(session, product_ids=ids) if ids else 0
+        return created + _enroll_automatic_rows(session, rows, now)
 
 
 def _asset_values(

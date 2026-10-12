@@ -69,7 +69,7 @@ def test_asset_and_measurement_validation():
 
 
 def test_account_and_asset_edits_preserve_ownership(identity, monkeypatch):
-    monkeypatch.setattr(portal, "ensure_automatic_assets", Mock())
+    monkeypatch.setattr(portal, "request_promotion_enrollment", Mock())
     session = Mock()
     account_id, asset_id = uuid.uuid4(), uuid.uuid4()
     account = PartnerAccount(id=account_id, name="Old", tier="bronze", status="active")

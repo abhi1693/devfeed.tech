@@ -1732,6 +1732,29 @@ class PartnerAccount(Base):
         return list(TIER_BENEFITS[self.tier])
 
 
+class PartnerPromotionEnrollment(Base):
+    """Resumable automatic asset enrollment for one partner account."""
+
+    __tablename__ = "partner_promotion_enrollments"
+    __table_args__ = (
+        Index("ix_partner_promotion_enrollment_due", "available_at", "updated_at", "account_id"),
+    )
+    account_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("partner_accounts.id", ondelete="CASCADE"), primary_key=True
+    )
+    product_cursor: Mapped[uuid.UUID | None]
+    requested_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, server_default=text("now()")
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, server_default=text("now()")
+    )
+    available_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, server_default=text("now()")
+    )
+    sweep_started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
 class PartnerCampaign(Base):
     """Explicit agreements and the stable inherited account sponsorship ledger."""
 

@@ -166,3 +166,15 @@ measurements remain. Format/location settings and sponsor names cannot be recove
 Before restarting an older runtime, clear reader caches and rebuild the search index so removed
 articles cannot be served from a previous cached response. Review paused accounts and unpublished
 articles explicitly before reactivating them. No production rollout is implied.
+
+## 0035: bounded automatic promotion enrollment
+
+Adds `partner_promotion_enrollments`, with one durable product cursor per account and an index
+for due work. Catalogs with at most 200 products enroll during policy saves; larger catalogs
+queue enrollment in the same transaction. Each scheduler pass advances one queued account by
+at most 200 products, with separate bounded repair work for imported inventory. Inserts use
+500-row chunks. Retries resume committed progress, policy changes restart the sweep, and
+future campaign starts schedule another pass. Existing assets and reporting are preserved.
+
+Apply before starting runtimes requiring schema `0035`. Downgrading removes pending enrollment
+jobs only; automatic assets, campaigns and tracking metrics remain. No production rollout is implied.

@@ -65,7 +65,15 @@ tiers; new or edited paid agreements require Silver or higher. Editing
 targeting changes future delivery, and never reassigns historical measurements.
 
 Automatic tracking associations are created idempotently after qualification and when policies
-are saved. There is no routine product/ad asset classification step. Legacy manually associated
+are saved. Catalogs with at most 200 owned products enroll during the save. Larger catalogs record
+a durable per-account enrollment job, so account, preference and campaign saves commit promptly.
+Each scheduler pass advances one account job by at most 200 products, alongside a separate bounded
+repair batch for imported inventory. Jobs use current policy, resume from their committed product
+cursor after retries, and restart when policy changes. Future campaign starts trigger another
+sweep, including when an agreement starts during enrollment. Inserts use 500-row chunks.
+A single-product policy edit enrolls only that product, without scanning the account catalog.
+Migration 0035 creates the enrollment queue; apply it before starting this application version.
+There is no routine product/ad asset classification step. Legacy manually associated
 assets and imported metrics remain available as historical reporting records; they do not
 silently enter the new automatic delivery pipeline.
 
@@ -267,7 +275,7 @@ counters and must describe external deliveries to avoid double counting.
 
 ## Enablement and rollout
 
-Apply migrations through `0034` with `uv run devfeed db upgrade`. It follows the source-logo `0023` and
+Apply migrations through `0035` with `uv run devfeed db upgrade`. It follows the source-logo `0023` and
 partner migrations `0024`–`0027`, preserves existing catalog, accounts, memberships and metrics,
 and adds defaults, campaigns, exclusions, prepared matches and delivery reservations. Accounts
 inherit their tier's promotion type and automatic inclusion; existing connections remain assigned
@@ -291,14 +299,18 @@ Attribution is preserved. Downgrade pauses
 inventory with unsupported channels or product restrictions, and unpublishes sponsored articles
 before removing their disclosure field; retained article text and tracking history are preserved.
 
+Migration `0035` adds durable per-account enrollment checkpoints for large catalogs and future
+campaign starts. Downgrading only `0035` removes pending enrollment jobs; automatic assets,
+campaigns and tracking metrics are preserved.
+
 Set the same server-only `DEVFEED_PARTNER_TRACKING_KEY` in the public API and user API, using at
 least 32 random ASCII characters. Compose injects it only into those two trusted backends.
 The worker needs no signing key. An empty key disables delivery and collection. The scheduler
 must run to prepare matches and automatic associations, and Redis must be available for query
 and event rate limits. Frontends and extensions never receive the signing key.
 
-Deploy all services requiring schema `0034` together after the migration. Downgrading removes new
-campaign/default/matching/reservation data and automatic campaign associations; retain a database
+Deploy all services requiring schema `0035` together after the migration. Downgrading below `0028`
+removes campaign/default/matching/reservation data and automatic campaign associations; retain a database
 backup before rollback. It preserves the original manually managed asset/metric data. Downgrading
 only `0029` removes product logo metadata/jobs while preserving products, campaigns and reporting.
 Downgrading `0030` removes featured-image metadata/jobs while retaining logos. Downgrading `0031`

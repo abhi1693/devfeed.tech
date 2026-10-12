@@ -9,7 +9,7 @@ from devfeed_core.partner_audiences import (
     audience_topic_options,
     validate_audience,
 )
-from devfeed_core.partner_promotions import ensure_automatic_assets
+from devfeed_core.partner_promotions import request_promotion_enrollment
 from devfeed_http.partner_portal import (
     AccountOut,
     AccountsOut,
@@ -142,7 +142,7 @@ def update_preferences(
             raise HTTPException(422, str(exc)) from None
         account.ad_formats = payload.ad_formats
     session.flush()
-    ensure_automatic_assets(session, account.id)
+    request_promotion_enrollment(session, account.id)
     session.commit()
     return account
 

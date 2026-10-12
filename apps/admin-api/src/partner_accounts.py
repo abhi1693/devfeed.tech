@@ -26,7 +26,7 @@ from devfeed_core.partner_audiences import (
 )
 from devfeed_core.partner_promotions import (
     associated_products_query,
-    ensure_automatic_assets,
+    request_promotion_enrollment,
 )
 from devfeed_core.partner_tiers import TIER_BENEFITS, promotion_kind_allowed, tier_policy
 from devfeed_core.publication import visible_article
@@ -266,7 +266,7 @@ def update_account(account_id: uuid.UUID, payload: AccountInput, superuser: Supe
     for key, value in payload.model_dump(mode="json").items():
         setattr(account, key, value)
     session.flush()
-    ensure_automatic_assets(session, account_id)
+    request_promotion_enrollment(session, account_id)
     session.commit()
     return account
 
@@ -570,7 +570,7 @@ def create_campaign(
     campaign = PartnerCampaign(account_id=account_id, **campaign_values(payload))
     session.add(campaign)
     session.flush()
-    ensure_automatic_assets(session, account_id)
+    request_promotion_enrollment(session, account_id)
     session.commit()
     return campaign
 
@@ -601,7 +601,7 @@ def update_campaign(
     for key, value in campaign_values(payload).items():
         setattr(campaign, key, value)
     session.flush()
-    ensure_automatic_assets(session, account_id)
+    request_promotion_enrollment(session, account_id)
     session.commit()
     return campaign_reports(session, [campaign])[0]
 

@@ -810,7 +810,7 @@ def save_product_promotion(session, account, product_id, payload):
             set_=values,
         )
     )
-    ensure_automatic_assets(session, account.id)
+    ensure_automatic_assets(session, account.id, product_ids=[product_id])
     session.flush()
     return session.scalar(
         select(PartnerProductPromotion)
