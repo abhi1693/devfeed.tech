@@ -1,5 +1,12 @@
 # Shared UI
 
+`@devfeed/ui/button`, `@devfeed/ui/input`, `@devfeed/ui/textarea`,
+`@devfeed/ui/table`, and `@devfeed/ui/badge` provide the shared admin and partner
+primitives. Button and badge also export their variant helpers; button exports
+`ButtonProps`. The app atom modules re-export these implementations. Consumers
+must load the shared theme tokens and include `packages/ui/src` in their Tailwind
+sources, as both apps do in their global stylesheets.
+
 `@devfeed/ui/choice-controls` provides Radix radio groups and a styled checkbox.
 Import `@devfeed/ui/choice-controls.css` with the shared theme tokens. The Dev Card
 editor uses these controls for keyboard-accessible design and content choices.

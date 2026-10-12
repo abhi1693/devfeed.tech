@@ -26,7 +26,12 @@
     "./sign-in": "./src/sign-in.tsx",
     "./use-debounced-image-preview": "./src/use-debounced-image-preview.ts",
     "./notification-events": "./src/notification-events.ts",
-    "./dropdown-menu": "./src/dropdown-menu.tsx"
+    "./dropdown-menu": "./src/dropdown-menu.tsx",
+    "./button": "./src/button.tsx",
+    "./input": "./src/input.tsx",
+    "./textarea": "./src/textarea.tsx",
+    "./table": "./src/table.tsx",
+    "./badge": "./src/badge.tsx"
   },
   "peerDependencies": {
     "react": "19.3.0",
@@ -41,6 +46,8 @@
     "react-markdown": "^10.1.0",
     "remark-gfm": "^4.0.1",
     "clsx": "^2.1.1",
-    "tailwind-merge": "^3.7.0"
+    "tailwind-merge": "^3.7.0",
+    "class-variance-authority": "^0.7.1",
+    "cn": "^0.4.0"
   }
 }
