@@ -1,14 +1,10 @@
 """Private audience selection, inheritance, entitlement and durable attribution fences."""
 
-import importlib.util
 import uuid
 from datetime import timedelta
-from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
-from alembic.migration import MigrationContext
-from alembic.operations import Operations
 from devfeed_core.models import (
     PartnerAccount,
     PartnerCampaign,
@@ -41,7 +37,7 @@ from devfeed_core.partner_tracking import (
 from devfeed_http.partner_placements import PlacementQuery
 from devfeed_http.partner_portal import AccountOut, PartnerPreferencesInput
 from pydantic import ValidationError
-from sqlalchemy import select, text
+from sqlalchemy import select
 from test_partner_placements_integration import KEY
 from test_partner_placements_integration import catalog as catalog_fixture
 from test_partner_portal import admin_portal_client as admin_client_fixture
@@ -542,47 +538,3 @@ def test_saved_campaign_unavailable_topic_resolution_is_account_scoped(database,
         ]
         == 0
     )
-
-
-@pytest.mark.integration
-def test_migration_preserves_unrestricted_inventory_and_pauses_targeted_downgrade(database):
-    path = Path(__file__).parents[1] / "migrations/versions/0033_partner_audiences.py"
-    spec = importlib.util.spec_from_file_location("audience_migration", path)
-    migration = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(migration)
-    with database().get_bind().connect() as connection:
-        transaction = connection.begin()
-        try:
-            connection.execute(text("CREATE SCHEMA audience_migration_fixture"))
-            connection.execute(text("SET LOCAL search_path TO audience_migration_fixture"))
-            for table in ("partner_accounts", "partner_campaigns"):
-                connection.execute(
-                    text(f"CREATE TABLE {table} (id int PRIMARY KEY, status text, name text)")
-                )
-                connection.execute(text(f"INSERT INTO {table} VALUES (1, 'active', 'preserved')"))
-            context = MigrationContext.configure(connection)
-            with Operations.context(context):
-                migration.upgrade()
-                assert connection.scalar(text("SELECT audience FROM partner_accounts")) == {}
-                assert connection.scalar(text("SELECT audience FROM partner_campaigns")) is None
-                for table in ("partner_accounts", "partner_campaigns"):
-                    connection.execute(
-                        text(
-                            f"INSERT INTO {table} VALUES "
-                            "(2, 'active', 'targeted', '{\"experience_levels\":[\"senior\"]}'), "
-                            "(3, 'active', 'partial empty', '{\"experience_levels\":[]}')"
-                        )
-                    )
-                migration.downgrade()
-                for table in ("partner_accounts", "partner_campaigns"):
-                    assert connection.execute(
-                        text(f"SELECT id,status,name FROM {table} ORDER BY id")
-                    ).all() == [
-                        (1, "active", "preserved"),
-                        (2, "paused", "targeted"),
-                        (3, "active", "partial empty"),
-                    ]
-                migration.upgrade()
-                assert connection.scalar(text("SELECT count(*) FROM partner_accounts")) == 3
-        finally:
-            transaction.rollback()

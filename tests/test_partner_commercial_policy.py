@@ -1,14 +1,10 @@
 """Tier inheritance, scoped trusted admission and explicitly bounded sponsored fallback."""
 
-import importlib.util
 import uuid
 from datetime import timedelta
-from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
 
 import pytest
-from alembic.migration import MigrationContext
-from alembic.operations import Operations
 from devfeed_core.models import (
     PartnerAccount,
     PartnerAsset,
@@ -36,8 +32,7 @@ from devfeed_core.partner_tracking import (
 from devfeed_http.partner_placements import PlacementQuery
 from devfeed_http.partner_portal import AccountInput, PartnerPreferencesInput
 from pydantic import ValidationError
-from sqlalchemy import func, select, text
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy import func, select
 from test_partner_placements_integration import KEY
 from test_partner_placements_integration import catalog as catalog_fixture
 from test_partner_portal import admin_portal_client as admin_client_fixture
@@ -394,129 +389,6 @@ def test_new_campaign_and_manual_ad_require_tier_entitlement(admin_client, datab
         ).status_code
         == 422
     )
-
-
-def migration_module():
-    path = (
-        Path(__file__).resolve().parents[1]
-        / "migrations/versions/0031_partner_commercial_policy.py"
-    )
-    spec = importlib.util.spec_from_file_location("commercial_migration", path)
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
-
-
-@pytest.mark.integration
-def test_commercial_migration_enforces_constraints_and_retains_attribution(database):
-    migration = migration_module()
-    with database().bind.connect() as connection:
-        transaction = connection.begin()
-        try:
-            schema = f"commercial_{uuid.uuid4().hex}"
-            connection.execute(text(f'CREATE SCHEMA "{schema}"'))
-            connection.execute(text(f'SET LOCAL search_path TO "{schema}"'))
-            connection.execute(
-                text("CREATE TABLE partner_accounts(id uuid PRIMARY KEY, tier text NOT NULL)")
-            )
-            connection.execute(
-                text(
-                    "CREATE TABLE partner_campaigns(id uuid PRIMARY KEY, account_id uuid "
-                    "REFERENCES partner_accounts, status text, ends_at timestamptz)"
-                )
-            )
-            connection.execute(
-                text(
-                    "CREATE TABLE partner_product_promotions(account_id uuid, product_id uuid, "
-                    "excluded bool DEFAULT false, PRIMARY KEY(account_id,product_id))"
-                )
-            )
-            connection.execute(
-                text(
-                    "CREATE TABLE partner_assets(id uuid PRIMARY KEY, campaign_id uuid "
-                    "REFERENCES partner_campaigns)"
-                )
-            )
-            account, legacy, managed, asset = (uuid.uuid4() for _ in range(4))
-            connection.execute(
-                text("INSERT INTO partner_accounts VALUES(:id,'bronze')"), {"id": account}
-            )
-            connection.execute(
-                text(
-                    "INSERT INTO partner_campaigns VALUES(:id,:account,'active',now()+interval "
-                    "'1 day')"
-                ),
-                {"id": legacy, "account": account},
-            )
-            connection.execute(
-                text("INSERT INTO partner_assets VALUES(:id,:campaign)"),
-                {"id": asset, "campaign": legacy},
-            )
-            with Operations.context(MigrationContext.configure(connection)):
-                migration.upgrade()
-                columns = connection.scalars(
-                    text(
-                        "SELECT column_name FROM information_schema.columns "
-                        "WHERE table_schema=current_schema() AND table_name='partner_campaigns'"
-                    )
-                ).all()
-                assert set(columns) == {"id", "account_id", "status", "ends_at", "managed"}
-                assert connection.execute(
-                    text(
-                        "SELECT approval_mode,outbound_destination,promotion_kind FROM "
-                        "partner_accounts"
-                    )
-                ).one() == ("qualified", "product_url", None)
-                with pytest.raises(IntegrityError), connection.begin_nested():
-                    connection.execute(text("UPDATE partner_accounts SET promotion_kind='ad'"))
-                with pytest.raises(IntegrityError), connection.begin_nested():
-                    connection.execute(
-                        text(
-                            "INSERT INTO "
-                            "partner_product_promotions(account_id,product_id,"
-                            "commercial_approved_at) "
-                            "VALUES(:account,:product,now())"
-                        ),
-                        {"account": account, "product": uuid.uuid4()},
-                    )
-                connection.execute(
-                    text(
-                        "INSERT INTO partner_campaigns(id,account_id,status,ends_at,managed) "
-                        "VALUES(:id,:account,'active',now()+interval '1 day',true)"
-                    ),
-                    {"id": managed, "account": account},
-                )
-                with pytest.raises(IntegrityError), connection.begin_nested():
-                    connection.execute(
-                        text(
-                            "INSERT INTO "
-                            "partner_campaigns(id,account_id,status,ends_at,managed) "
-                            "VALUES(:id,:account,'active',now()+interval '1 day',true)"
-                        ),
-                        {"id": uuid.uuid4(), "account": account},
-                    )
-                migration.downgrade()
-                assert (
-                    connection.scalar(
-                        text("SELECT status FROM partner_campaigns WHERE id=:id"), {"id": legacy}
-                    )
-                    == "active"
-                )
-                assert (
-                    connection.scalar(
-                        text("SELECT status FROM partner_campaigns WHERE id=:id"), {"id": managed}
-                    )
-                    == "paused"
-                )
-                assert (
-                    connection.scalar(
-                        text("SELECT campaign_id FROM partner_assets WHERE id=:id"), {"id": asset}
-                    )
-                    == legacy
-                )
-                migration.upgrade()
-        finally:
-            transaction.rollback()
 
 
 @pytest.mark.parametrize("blocked", ["excluded", "merged_into_id"])

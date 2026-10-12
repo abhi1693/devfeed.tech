@@ -76,7 +76,7 @@ repair batch for imported inventory. Jobs use current policy, resume from their 
 cursor after retries, and restart when policy changes. Future campaign starts trigger another
 sweep, including when an agreement starts during enrollment. Inserts use 500-row chunks.
 A single-product policy edit enrolls only that product, without scanning the account catalog.
-Migration 0035 creates the enrollment queue; current runtimes require migrations through 0038.
+Migration `0024` creates the enrollment queue and the complete partnership schema.
 There is no routine product/ad asset classification step. Legacy manually associated
 assets and imported metrics remain available as historical reporting records; they do not
 silently enter the new automatic delivery pipeline.
@@ -306,51 +306,21 @@ stored in Redis keys or measurement rows.
 
 ## Enablement and rollout
 
-Apply migrations through `0038` with `uv run devfeed db upgrade`. It follows the source-logo `0023` and
-partner migrations `0024`–`0027`, preserves existing catalog, accounts, memberships and metrics,
-and adds defaults, campaigns, exclusions, prepared matches and delivery reservations. Accounts
-inherit their tier's promotion type and automatic inclusion; existing connections remain assigned
-as before. Migration `0029` adds managed product logos and product subjects to the Images queue.
-Migration `0030` adds managed featured images and independent logo/image jobs for a product.
-Migration `0031` adds inherited commercial policy, scoped trusted acceptance and click destination
-preferences. Existing account tiers are preserved; Silver and higher accounts can inherit Sponsored
-delivery. Review account policy before enabling delivery.
+Apply the single partnership migration `0024` with `uv run devfeed db upgrade` after the
+unchanged source-logo revision `0023`. It creates the catalog, import connections, accounts,
+memberships, promotion policies, campaigns, exclusions, prepared matches, delivery reservations
+and daily metrics. Product logos and featured images use independent jobs in the existing Images
+queue. Tier policy, trusted acceptance, click destinations, account/campaign audiences, native
+formats and product delivery restrictions are part of the same schema. Article sponsor
+disclosures remain attached to the published article after a campaign ends.
 
-Migration `0032` removes the obsolete per-reader exposure setting and its stored values.
-Campaign budgets, placement attribution and measurements are preserved. Downgrading recreates
-the older exposure setting with its original default of three; removed values cannot be recovered.
-Migration `0033` adds optional account and campaign audiences, without changing existing delivery
-eligibility. Downgrade pauses populated targeted accounts/campaigns before removing their criteria,
-so an older runtime cannot broaden those audiences.
-Migration `0034` adds native format identity, permanent article sponsorship, delivery locations and
-nullable product allowlists. Existing accounts retain Feed as their saved automatic channel and
-explicit type overrides are preserved; Silver now inherits paid promotion when no override is set.
-Attribution is preserved. Downgrade pauses
-inventory with unsupported channels or product restrictions, and unpublishes sponsored articles
-before removing their disclosure field; retained article text and tracking history are preserved.
-
-Migration `0035` adds durable per-account enrollment checkpoints for large catalogs and future
-campaign starts. Downgrading only `0035` removes pending enrollment jobs; automatic assets,
-campaigns and tracking metrics are preserved.
-
-Migration `0036` adds the tracking-event day index used by bounded retention cleanup. The
-migration preserves all records; the scheduler prunes expired event and reservation history
-afterward without changing daily aggregates. Downgrading removes the index and cannot restore
-history already pruned by the scheduler.
-
-Migration `0037` adds the full product/asset index used by candidate-scoped latest-delivery lookups.
-It includes every asset identity, preserving rotation history from manual and paused assets as
-well as active automatic formats. The migration preserves assets, receipts and reporting data;
-downgrading removes only the index.
-
-Migration `0038` adds indexed matching vocabulary and durable product/article preparation jobs.
-Database triggers capture committed changes, including bulk imports and taxonomy edits, and
-invalidate affected topic edges before background reconstruction. Existing catalog products
-receive preparation jobs after article vocabulary is indexed, without creating a product/article
-cross product. Unchanged prepared matches remain usable without a time-based expiry.
-Existing topic edges are cleared because their old snapshots omit upstream dependencies;
-topic placements rebuild as the queued product jobs drain. Article evaluations, assets,
-receipts and reporting are retained.
+Accounts default to automatic product inclusion and Feed as their automatic channel. Silver and
+higher accounts can inherit Sponsored delivery. Review account policy before enabling delivery.
+Large catalogs use durable per-account enrollment checkpoints. Tracking-event and product/asset
+indexes support bounded retention cleanup and candidate-scoped delivery history. Indexed matching
+vocabulary and transactional triggers enqueue changed products, articles and taxonomy dependencies;
+unchanged prepared matches remain usable without a time-based expiry. The migration backfills
+existing article/topic vocabulary without creating a product/article cross product.
 
 Set the same server-only `DEVFEED_PARTNER_TRACKING_KEY` in the public API and user API, using at
 least 32 random ASCII characters. Compose injects it only into those two trusted backends.
@@ -372,12 +342,11 @@ but groups proxied readers together. Configure both settings before enabling pro
 A configured gateway rejects missing or invalid trusted address headers rather than issuing
 unidentified upstream requests. Neither key nor caller proof is exposed to browsers or extensions.
 
-Deploy all services requiring schema `0038` together after the migration. Downgrading below `0028`
-removes campaign/default/matching/reservation data and automatic campaign associations; retain a database
-backup before rollback. It preserves the original manually managed asset/metric data. Downgrading
-only `0029` removes product logo metadata/jobs while preserving products, campaigns and reporting.
-Downgrading `0030` removes featured-image metadata/jobs while retaining logos. Downgrading `0031`
-removes commercial policy and pauses inherited agreements while retaining dated campaigns and metrics.
+Deploy all services requiring schema `0024` together after the migration. Downgrading to
+`0023` removes all partnership catalog, account, campaign, matching, attribution and metric data,
+product image jobs, matching token projections and article sponsor disclosures. Existing reader
+data and article/topic/source image jobs remain. Keep a database backup before rollback if
+partnership data must be retained.
 
 Validation includes disposable PostgreSQL/Redis tests for policy, concurrent caps, stale matches,
 tenant boundaries and migration preservation. Run `npm run admin:test`, `npm run web:test`,

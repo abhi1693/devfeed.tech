@@ -193,19 +193,17 @@ cover the standard account list/detail/create/edit pages and related membership/
 are written to `reports/partner/`. Python auth tests validate signed mock-provider flows;
 reporting and migration tests use disposable PostgreSQL/Redis.
 
-The PR's unpublished `0024` migration includes accounts, memberships, assets, imported and
-tracked daily metrics, and delivery deduplication alongside the catalog tables. Apply it
-after master’s source-logo migration `0023`. An older local draft partnership schema
-must be recreated in a disposable database before retesting. Downgrade removes partner data.
-Deploy the new images, configure Zitadel roles/client and the tracking signing key, and route
-the portal hostname to the frontend. Production DNS/TLS/deployment, live provider validation,
-and paid-agreement activation remain separate rollout work. Migration `0028` adds promotion
-policies, campaigns, exclusions, prepared matches and delivery reservations; apply it before
-deploying the new services. Existing account, membership, catalog and manual reporting data survive.
-Migration `0034` adds native formats, per-product delivery restrictions and permanent article
-sponsor disclosures. Apply it before starting the updated services. Existing campaigns and
-reporting assets retain the feed format; new creative identities receive separate assets so
-historical metrics are not reassigned when a campaign's format or article changes.
+The unpublished partnership migration `0024` creates accounts, memberships, catalog, import
+connections, campaigns, promotion policies, audiences, native formats, prepared matches and daily
+reporting after master's source-logo revision `0023`. It also adds managed product logos/images,
+bounded enrollment jobs, tracking deduplication and reservations, product delivery restrictions
+and permanent article sponsor disclosures. New creative identities receive separate assets so
+historical metrics stay attached to their original format and article.
+
+Apply it before starting the updated services. Downgrading to `0023` removes all partnership data;
+existing reader data and article/topic/source image jobs remain. Configure Zitadel roles/client,
+the tracking signing key and the portal hostname when deploying. Production DNS/TLS/deployment,
+live provider validation and paid-agreement activation remain separate rollout work.
 
 ## Admin account pages
 
@@ -251,9 +249,8 @@ placements. Unrestricted placements remain available. Audience criteria also app
 feed fallback and do not replace contextual relevance checks for previews, search, or categories.
 Removing a tier entitlement stops restricted delivery rather than broadening the audience.
 
-Migration `0025` normalizes existing recognized tiers, maps unrecognized draft labels to
-Bronze, and removes the database benefits column. Review account tiers after upgrading.
-Downgrading recreates an empty benefits column; it does not restore old custom benefit text.
+Account tiers use the canonical Bronze, Silver, Gold, Platinum and Diamond values. Benefits
+are derived from tier policy rather than stored as custom database text.
 
 Membership forms use the common searchable Users picker, scoped to the admin’s Zitadel
 issuer and organization. Choose a user by name; the API resolves their immutable identity.

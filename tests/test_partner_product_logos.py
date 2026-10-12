@@ -1,15 +1,10 @@
 """Official product icons use bounded discovery and the durable managed-image outbox."""
 
-import importlib
-import io
-import uuid
 from datetime import timedelta
 from types import SimpleNamespace
 from unittest.mock import Mock
 
 import pytest
-from alembic.migration import MigrationContext
-from alembic.operations import Operations
 from devfeed_aggregator import image_storage_tasks, image_tasks, logo_storage, product_logo_storage
 from devfeed_core.config import get_settings
 from devfeed_core.feeds.fetcher import FeedError, FetchResult
@@ -17,8 +12,7 @@ from devfeed_core.image_jobs import retry_image
 from devfeed_core.logos import backfill_logos, request_logo
 from devfeed_core.models import ArticleImageJob, PartnerListing, PartnerProduct, utcnow
 from devfeed_core.partner_product_logos import product_icon_urls, product_logo_url
-from sqlalchemy import func, inspect, select, text
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy import func, select
 from test_partner_placements_integration import catalog as catalog
 from test_partner_placements_integration import deliver, query
 
@@ -120,34 +114,6 @@ def test_public_logo_uses_managed_assets_and_fences_changed_product_identity(mon
     assert product_logo_url(product) == "https://images.example/logos/hash/64.webp"
     product.product_url = "https://replacement.example/tool"
     assert product_logo_url(product) is None
-
-
-def migration_sql(direction):
-    migration = importlib.import_module("migrations.versions.0029_partner_product_logos")
-    output = io.StringIO()
-    context = MigrationContext.configure(
-        dialect_name="postgresql", opts={"as_sql": True, "output_buffer": output}
-    )
-    with Operations.context(context):
-        getattr(migration, direction)()
-    return output.getvalue()
-
-
-def test_product_logo_migration_offline_sql_preserves_other_image_subjects():
-    upgrade = migration_sql("upgrade")
-    assert "managed_logo JSONB DEFAULT '{}' NOT NULL" in upgrade
-    assert "FOREIGN KEY(product_id) REFERENCES partner_products (id) ON DELETE CASCADE" in upgrade
-    assert "CREATE UNIQUE INDEX uq_product_image_active" in upgrade
-    assert "WHERE status IN ('queued','running')" in upgrade
-    assert "product_id IS NOT NULL AND operation = 'product-logo'" in upgrade
-    downgrade = migration_sql("downgrade")
-    assert (
-        downgrade.index("DELETE FROM article_image_jobs WHERE product_id IS NOT NULL")
-        < downgrade.index("ADD CONSTRAINT ck_image_job_subject CHECK")
-        < downgrade.index("DROP COLUMN product_id")
-    )
-    assert "DROP INDEX uq_product_image_active" in downgrade
-    assert "ALTER TABLE partner_products DROP COLUMN managed_logo" in downgrade
 
 
 @pytest.fixture
@@ -348,85 +314,3 @@ def test_product_backfill_is_bounded_and_idempotent(database, logo_catalog):
         assert len(remaining) == 2 and all(job.product_id != first_id for job in remaining)
     with database.begin() as session:
         assert backfill_logos(session, PartnerProduct, limit=10) == []
-
-
-@pytest.mark.integration
-def test_product_logo_migration_live_upgrade_downgrade_preserves_legacy_jobs(database):
-    migration = importlib.import_module("migrations.versions.0029_partner_product_logos")
-    with database().get_bind().connect() as connection:
-        transaction = connection.begin()
-        try:
-            connection.execute(text("CREATE SCHEMA product_logo_migration_fixture"))
-            connection.execute(text("SET LOCAL search_path TO product_logo_migration_fixture"))
-            connection.execute(
-                text("CREATE TABLE partner_products (id uuid PRIMARY KEY, name text NOT NULL)")
-            )
-            connection.execute(
-                text(
-                    "CREATE TABLE article_image_jobs (id uuid PRIMARY KEY, "
-                    "article_id uuid, topic_id uuid, source_id uuid, "
-                    "operation text NOT NULL, status text NOT NULL, "
-                    "CONSTRAINT ck_image_job_subject CHECK (" + migration.OLD_SUBJECT + "))"
-                )
-            )
-            product_id = uuid.uuid4()
-            legacy_ids = [uuid.uuid4() for _ in range(3)]
-            connection.execute(
-                text("INSERT INTO partner_products VALUES (:id,'Preserved product')"),
-                {"id": product_id},
-            )
-            for identifier, column, operation in zip(
-                legacy_ids,
-                ("article_id", "topic_id", "source_id"),
-                ("discover", "topic-logo", "source-logo"),
-                strict=True,
-            ):
-                connection.execute(
-                    text(
-                        f"INSERT INTO article_image_jobs(id,{column},operation,status) "
-                        "VALUES(:id,:subject,:operation,'queued')"
-                    ),
-                    {"id": identifier, "subject": uuid.uuid4(), "operation": operation},
-                )
-            with Operations.context(MigrationContext.configure(connection)):
-                migration.upgrade()
-                assert connection.scalar(text("SELECT managed_logo FROM partner_products")) == {}
-                connection.execute(
-                    text(
-                        "INSERT INTO article_image_jobs(id,product_id,operation,status) "
-                        "VALUES(:id,:product,'product-logo','queued')"
-                    ),
-                    {"id": uuid.uuid4(), "product": product_id},
-                )
-                with pytest.raises(IntegrityError), connection.begin_nested():
-                    connection.execute(
-                        text(
-                            "INSERT INTO article_image_jobs(id,product_id,operation,status) "
-                            "VALUES(:id,:product,'product-logo','running')"
-                        ),
-                        {"id": uuid.uuid4(), "product": product_id},
-                    )
-                with pytest.raises(IntegrityError), connection.begin_nested():
-                    connection.execute(
-                        text(
-                            "INSERT INTO article_image_jobs"
-                            "(id,source_id,product_id,operation,status) "
-                            "VALUES(:id,:source,:product,'product-logo','succeeded')"
-                        ),
-                        {"id": uuid.uuid4(), "source": uuid.uuid4(), "product": product_id},
-                    )
-                migration.downgrade()
-                assert set(connection.scalars(text("SELECT id FROM article_image_jobs"))) == set(
-                    legacy_ids
-                )
-                assert (
-                    connection.scalar(text("SELECT name FROM partner_products"))
-                    == "Preserved product"
-                )
-                assert "managed_logo" not in {
-                    column["name"] for column in inspect(connection).get_columns("partner_products")
-                }
-                migration.upgrade()
-                assert connection.scalar(text("SELECT managed_logo FROM partner_products")) == {}
-        finally:
-            transaction.rollback()

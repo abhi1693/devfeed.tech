@@ -94,9 +94,8 @@ beyond the literal `{id}` URL placeholder. Credentials embedded in URLs are reje
 
 ## Revisions and migration
 
-Migration `0027` adds connection names and connector definitions, preserving the existing
-Nick Launches configuration, products, account association and sync progress. Existing Nick
-Launches discovery jobs receive a definition snapshot.
+Migration `0024` creates named import connections, connector definitions and their account
+associations alongside the partnership catalog. New discovery jobs store a definition snapshot.
 
 Each new sync stores its validated definition in the parent job. Product jobs use that snapshot.
 Editing a definition cancels outstanding discovery/product jobs and, if enabled, starts a fresh
@@ -116,4 +115,4 @@ Mapped paths found in the sample receive a colored border in the form and matchi
 Assigning an import connection to a partner account establishes the catalog that inherits its
 promotion defaults. Qualified or account-accepted products gain eligible recommendation or paid-campaign
 attribution automatically. See [Partner promotions](PARTNER_PROMOTIONS.md) for exclusions,
-targeting, contextual delivery, signing-key setup and migration `0028`.
+targeting, contextual delivery, signing-key setup and migration `0024`.

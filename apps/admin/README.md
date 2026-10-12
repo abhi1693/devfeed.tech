@@ -247,16 +247,14 @@ match; sponsored defaults can fill unmatched slots in the unfiltered main feed. 
 acceptance remains separate from AI qualification. Qualification expires
 after 90 days.
 
-Migrations `0024`–`0027` create the partnership catalog, accounts, tiers and configurable
-connectors; `0028` adds promotion defaults, campaigns and prepared matching. `0030` adds managed
-product featured images; `0031` adds tier promotion defaults, trusted account acceptance, and
-click destinations; `0032` removes per-reader exposure limits, and `0033` adds optional account
-and campaign audiences. `0034` adds native formats, permanent sponsored-article disclosure and
-per-product format/location restrictions. Downgrading `0033` pauses targeted accounts/campaigns before dropping
-their criteria. Run the normal
-database upgrade before starting the API and workers. Development databases carrying
-superseded draft migration markers require inspecting their actual schema before repair;
-do not stamp revisions based on their numbers alone.
+Migration `0024` creates the complete partnership schema after source-logo revision `0023`:
+catalog, accounts, tiers, configurable connectors, promotion defaults, campaigns, prepared matching,
+managed product logos/images, trusted acceptance, click destinations, account/campaign audiences,
+native formats, permanent sponsored-article disclosure and product format/location restrictions.
+It includes bounded enrollment jobs and indexed delivery history and retention. Run the normal
+database upgrade before starting the API and workers. Downgrading to `0023` removes partnership
+data; existing reader data and article/topic/source image jobs remain. Development databases with
+superseded draft revision markers require repair based on their actual schema.
 The scheduler dispatches discovery and product API syncs on `source-discovery` and product checks and
 matching on `source-analysis`. AI must be enabled for checks; API syncing can continue
 while AI is disabled. Jobs are leased, retried with backoff, and protected against stale

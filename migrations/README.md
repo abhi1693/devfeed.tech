@@ -124,109 +124,29 @@ valid indexes are idempotent. Downgrade removes schema/indexes but cannot restor
 pruned input payloads. No publication repair or immediate history deletion occurs
 in this migration.
 
-## 0032: remove product exposure limits
+## 0024: partnerships
 
-Removes the partner-account per-reader exposure setting and its stored values. Product
-recommendations and sponsored placements no longer have a per-reader daily cap or repeat
-cooldown. Campaign budgets, catalog relevance, attribution and historical measurements remain
-unchanged. Apply before starting runtimes requiring schema `0032`; no production rollout is
-implied. Downgrade recreates the older setting with its original default of three, since removed
-values cannot be recovered.
+Revision `0024` follows the unchanged source-logo revision `0023` and creates the partnership
+catalog, configurable import connections, accounts and memberships. It includes tier policy,
+product logos and featured images, campaigns, exclusions, account and campaign audiences,
+native advertising formats, product delivery restrictions, permanent article sponsor disclosures,
+prepared contextual matches, delivery reservations and daily reporting.
 
-## 0033: advanced partnership audiences
+The same revision creates bounded promotion-enrollment checkpoints, an indexed tracking-event
+retention path and the full product/asset history index. Transactional matching triggers capture
+product, article and taxonomy changes in durable jobs. Indexed token projections narrow candidate
+lookups; the migration backfills existing article/topic tokens before building their GIN indexes,
+including long publisher text. Source-logo jobs and existing reader/catalog data are preserved.
+There is no per-reader exposure setting or periodic product/article sweep state.
 
-Adds a non-null empty account audience and a nullable campaign audience. Null campaign criteria
-inherit the account; an explicit empty object means all readers. Existing inventory, attribution
-and reporting retain their behavior. Platinum and Diamond enforce populated criteria at issuance;
-other tiers preserve stored settings without delivering targeted inventory.
+Apply with `uv run devfeed db upgrade` before starting runtimes requiring schema `0024`.
+This feature's development migrations are consolidated into this single revision; no compatibility
+migration for superseded development revision markers is included. Existing local databases on
+those markers require a separate repair based on their actual schema.
 
-Apply before starting runtimes requiring schema `0033`. Downgrading pauses accounts and campaigns
-with populated or unrecognized audience criteria before dropping the new fields, preserving
-inventory and measurements while preventing an older runtime from broadening a restricted audience.
-Empty criteria and inherited unrestricted campaigns remain active. No production rollout is implied.
-
-## 0034: native advertising formats and product settings
-
-Adds independent feed, homepage sponsorship, sponsored content and engagement formats, available
-from Silver. Existing accounts, campaigns and attribution assets retain the feed format. Account
-automatic formats default to feed only; per-product nullable format/location allowlists inherit
-account settings, while empty lists disable delivery. Issued receipts retain their placement
-location for live policy checks. No per-reader exposure limit is introduced.
-
-Sponsored-content campaigns reference approved articles and store the article identity in the
-immutable attribution asset. Permanent article sponsor names survive campaign expiry. New format
-and article identities receive separate assets, preserving historical counters and receipts.
-Apply before starting all runtimes requiring schema `0034`.
-
-Downgrade pauses accounts with new format or product restrictions, pauses non-feed campaigns and
-assets, and unpublishes disclosed articles before dropping the disclosure field. Silver accounts
-using the new inherited Sponsored default are also paused. Non-feed managed campaigns and automatic
-assets become inactive historical records to satisfy the older unique indexes; their IDs and
-measurements remain. Format/location settings and sponsor names cannot be recovered after downgrade.
-Before restarting an older runtime, clear reader caches and rebuild the search index so removed
-articles cannot be served from a previous cached response. Review paused accounts and unpublished
-articles explicitly before reactivating them. No production rollout is implied.
-
-## 0035: bounded automatic promotion enrollment
-
-Adds `partner_promotion_enrollments`, with one durable product cursor per account and an index
-for due work. Catalogs with at most 200 products enroll during policy saves; larger catalogs
-queue enrollment in the same transaction. Each scheduler pass advances one queued account by
-at most 200 products, with separate bounded repair work for imported inventory. Inserts use
-500-row chunks. Retries resume committed progress, policy changes restart the sweep, and
-future campaign starts schedule another pass. Existing assets and reporting are preserved.
-
-Apply before starting runtimes requiring schema `0035`. Downgrading removes pending enrollment
-jobs only; automatic assets, campaigns and tracking metrics remain. No production rollout is implied.
-
-## 0036: partner tracking deduplication retention
-
-Adds a day index to `partner_delivery_events` for bounded, oldest-first cleanup. The scheduler
-retains the current UTC date and two complete prior dates of deduplication events, then removes
-older events in batches of at most 4,000 per pass. Delivery reservations older than 48 hours
-have a separate 4,000-row batch in the same cleanup transaction. Cleanup skips locked rows and
-runs independently of promotion enrollment and contextual matching. Daily reporting aggregates
-remain unchanged, and signed receipts still expire after one hour.
-
-Apply before starting runtimes requiring schema `0036`. The migration adds an index without
-deleting data. Downgrading removes the index; it does not restore history already pruned by
-the scheduler.
-
-## 0037: candidate-scoped product delivery history
-
-Adds the non-unique `partner_assets(product_id, id)` index for per-product history ranking.
-It includes all assets, including manual, paused and historical format identities. Together
-with the existing asset/receipt index, candidate products can find their latest delivery without
-aggregating unrelated catalog history, while preserving global rotation across formats.
-
-Apply before starting runtimes requiring schema `0037`. Upgrade preserves assets, delivery
-receipts and daily reporting. Downgrade removes only the new index and preserves the same data.
-
-## 0038: targeted partner matching invalidation
-
-Replaces periodic product/article catalog sweeps with durable, coalesced
-`partner_match_jobs` for changed products, articles and topic dependencies. Database triggers
-capture ORM writes, imports, bulk SQL and deletes in the source transaction. Indexed ASCII token
-projections narrow candidates before the existing factual rules run; Python's four Unicode
-ASCII case equivalents are normalized, while Unicode or punctuation-only product technologies
-retain a conservative fallback. ASCII tokens are split into chunks of at most 200 characters
-to keep GIN entries bounded for long article words. An index on reverse topic-relation endpoints
-supports both directions of dependency lookup.
-
-Topic and relation changes synchronously remove affected prepared topic edges and queue their
-products for rebuilding. A transaction advisory barrier coordinates taxonomy mutation with
-workers so an older snapshot cannot restore removed edges. Job generations and cursors coalesce
-repeated changes, retain bounded progress and retry busy snapshots. Factual preparation remains
-independent of current provider and source visibility; delivery still applies current policy.
-
-Upgrade backfills source token projections before building their GIN indexes and queues one
-job per existing product, without creating product/article pairs. It clears legacy derived
-product/topic edges because their stored snapshots cannot prove removed upstream dependencies;
-topic placements rebuild as bootstrap jobs drain. Existing article evaluations, attribution,
-assets, receipts and reporting remain. Apply before starting runtimes requiring schema `0038`;
-older runtimes using `partner_match_states` must be stopped before upgrade.
-
-Downgrade removes matching triggers, token projections, new indexes and pending jobs, and
-recreates the former empty sweep-state table. Current prepared matches, attribution and
-reporting are preserved; cleared legacy topic edges are not restored, and the older worker
-rebuilds its sweep cursors.
+Downgrading to `0023` removes all partnership tables, product image jobs and image-job fields,
+matching functions/triggers/token projections and article sponsor disclosures. Existing article,
+topic and source image jobs remain. Sponsored articles are unpublished before their disclosure is
+removed; clear reader response caches and rebuild the search index before starting the older
+runtime. Retain a database backup if partnership data must survive a rollback. No production rollout
+is implied by committing the migration.

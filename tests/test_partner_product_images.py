@@ -1,13 +1,9 @@
 """Product featured images reuse managed article storage without reader-side upstream I/O."""
 
-import importlib
-import io
 from types import SimpleNamespace
 from unittest.mock import Mock
 
 import pytest
-from alembic.migration import MigrationContext
-from alembic.operations import Operations
 from devfeed_aggregator import image_storage_tasks, image_tasks, product_image_storage
 from devfeed_core.config import get_settings
 from devfeed_core.feeds.fetcher import FeedError, FetchResult
@@ -104,26 +100,6 @@ def test_product_reader_image_metadata_is_managed_and_fenced_by_current_website(
     monkeypatch.setenv("DEVFEED_IMAGE_STORAGE_ENABLED", "false")
     get_settings.cache_clear()
     assert product_image_url(product) is None and product_image_variants(product) == []
-
-
-def test_product_featured_image_migration_preserves_logos_and_other_subjects():
-    migration = importlib.import_module("migrations.versions.0030_partner_product_images")
-    for direction in ("upgrade", "downgrade"):
-        output = io.StringIO()
-        context = MigrationContext.configure(
-            dialect_name="postgresql", opts={"as_sql": True, "output_buffer": output}
-        )
-        with Operations.context(context):
-            getattr(migration, direction)()
-        sql = output.getvalue()
-        if direction == "upgrade":
-            assert "managed_image JSONB DEFAULT '{}' NOT NULL" in sql
-            assert "ON article_image_jobs (product_id, operation)" in sql
-            assert "operation IN ('product-logo','product-image')" in sql
-        else:
-            assert "DELETE FROM article_image_jobs WHERE operation = 'product-image'" in sql
-            assert "DROP COLUMN managed_image" in sql
-            assert "DELETE FROM partner_products" not in sql
 
 
 @pytest.fixture
