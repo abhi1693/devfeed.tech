@@ -44,7 +44,7 @@ const fixture = createServer(async (req, res) => {
       issuer: "https://identity.example",
       organization_id: "fixture",
       roles: ["superuser"],
-      expires_at: 4102444800,
+      expires_at: Math.floor(Date.now() / 1000) + 3600,
       csrf_token: "fixture",
     };
   else if (path.endsWith("/settings"))
