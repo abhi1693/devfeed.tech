@@ -191,3 +191,13 @@ remain unchanged, and signed receipts still expire after one hour.
 Apply before starting runtimes requiring schema `0036`. The migration adds an index without
 deleting data. Downgrading removes the index; it does not restore history already pruned by
 the scheduler.
+
+## 0037: candidate-scoped product delivery history
+
+Adds the non-unique `partner_assets(product_id, id)` index for per-product history ranking.
+It includes all assets, including manual, paused and historical format identities. Together
+with the existing asset/receipt index, candidate products can find their latest delivery without
+aggregating unrelated catalog history, while preserving global rotation across formats.
+
+Apply before starting runtimes requiring schema `0037`. Upgrade preserves assets, delivery
+receipts and daily reporting. Downgrade removes only the new index and preserves the same data.

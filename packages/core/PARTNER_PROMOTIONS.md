@@ -71,7 +71,7 @@ repair batch for imported inventory. Jobs use current policy, resume from their 
 cursor after retries, and restart when policy changes. Future campaign starts trigger another
 sweep, including when an agreement starts during enrollment. Inserts use 500-row chunks.
 A single-product policy edit enrolls only that product, without scanning the account catalog.
-Migration 0035 creates the enrollment queue; current runtimes require migrations through 0036.
+Migration 0035 creates the enrollment queue; current runtimes require migrations through 0037.
 There is no routine product/ad asset classification step. Legacy manually associated
 assets and imported metrics remain available as historical reporting records; they do not
 silently enter the new automatic delivery pipeline.
@@ -99,6 +99,11 @@ delivery, across formats. Stronger relevance and campaign priority remain author
 continues through bounded batches past unavailable products, so excluded inventory or exhausted
 campaigns cannot hide eligible products later in the catalog. Delivery history affects ordering;
 it does not impose a per-product or per-reader exposure limit or count as a measured impression.
+
+History ranking uses indexed per-product lookups for current candidates rather than aggregating
+delivery history across the entire catalog. The product/asset index includes manual, paused and
+historical format identities; the existing asset/receipt index finds each asset's newest delivery.
+Their latest delivery across all assets preserves global product rotation across formats.
 
 A product's scoped promotion settings can restrict formats and locations for both automatic and
 explicit campaign delivery. Null inherits the account; an empty list blocks all values in that
@@ -291,7 +296,7 @@ stored in Redis keys or measurement rows.
 
 ## Enablement and rollout
 
-Apply migrations through `0036` with `uv run devfeed db upgrade`. It follows the source-logo `0023` and
+Apply migrations through `0037` with `uv run devfeed db upgrade`. It follows the source-logo `0023` and
 partner migrations `0024`–`0027`, preserves existing catalog, accounts, memberships and metrics,
 and adds defaults, campaigns, exclusions, prepared matches and delivery reservations. Accounts
 inherit their tier's promotion type and automatic inclusion; existing connections remain assigned
@@ -323,6 +328,11 @@ migration preserves all records; the scheduler prunes expired event and reservat
 afterward without changing daily aggregates. Downgrading removes the index and cannot restore
 history already pruned by the scheduler.
 
+Migration `0037` adds the full product/asset index used by candidate-scoped latest-delivery lookups.
+It includes every asset identity, preserving rotation history from manual and paused assets as
+well as active automatic formats. The migration preserves assets, receipts and reporting data;
+downgrading removes only the index.
+
 Set the same server-only `DEVFEED_PARTNER_TRACKING_KEY` in the public API and user API, using at
 least 32 random ASCII characters. Compose injects it only into those two trusted backends.
 The worker needs no signing key. An empty key disables delivery and collection. The scheduler
@@ -343,7 +353,7 @@ but groups proxied readers together. Configure both settings before enabling pro
 A configured gateway rejects missing or invalid trusted address headers rather than issuing
 unidentified upstream requests. Neither key nor caller proof is exposed to browsers or extensions.
 
-Deploy all services requiring schema `0036` together after the migration. Downgrading below `0028`
+Deploy all services requiring schema `0037` together after the migration. Downgrading below `0028`
 removes campaign/default/matching/reservation data and automatic campaign associations; retain a database
 backup before rollback. It preserves the original manually managed asset/metric data. Downgrading
 only `0029` removes product logo metadata/jobs while preserving products, campaigns and reporting.

@@ -1974,6 +1974,7 @@ class PartnerAsset(Base):
             name="fk_partner_asset_campaign_account",
             ondelete="RESTRICT",
         ),
+        Index("ix_partner_asset_product", "product_id", "id"),
         Index(
             "uq_partner_automatic_organic_asset",
             "account_id",

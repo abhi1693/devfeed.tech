@@ -255,10 +255,10 @@ def feed_topic_weights(session, article_ids):
 
 
 def product_delivery_history():
-    """Read one newest anonymous receipt per asset, aggregating the catalog once.
+    """Read a candidate product's latest delivery across all of its assets.
 
-    Materialization avoids scanning all assets for every matching product. The
-    existing asset/issued-at index bounds each asset's historical receipt lookup.
+    Product/asset and asset/issuance indexes bound the two lookups. History spans
+    accounts, formats and asset statuses so switching assets cannot reset rotation.
     """
     asset = aliased(PartnerAsset)
     latest = (
@@ -270,11 +270,10 @@ def product_delivery_history():
         .scalar_subquery()
     )
     return (
-        select(asset.product_id, func.max(latest).label("last_issued_at"))
-        .where(asset.product_id.is_not(None))
-        .group_by(asset.product_id)
-        .cte()
-        .prefix_with("MATERIALIZED")
+        select(func.max(latest))
+        .where(asset.product_id == PartnerProduct.id)
+        .correlate(PartnerProduct)
+        .scalar_subquery()
     )
 
 
@@ -628,17 +627,12 @@ def ranked_placement_rows(
         revision, updated_at = matches.c.product_revision, matches.c.product_updated_at
     if phase != "organic" and selected_formats:
         statement = statement.where(PartnerAsset.ad_format.not_in(selected_formats))
-    history = product_delivery_history()
-    statement = (
-        statement.add_columns(score, reason, revision, updated_at)
-        .outerjoin(history, history.c.product_id == PartnerProduct.id)
-        .order_by(
-            score.desc(),
-            PartnerCampaign.priority.desc().nulls_last(),
-            history.c.last_issued_at.asc().nulls_first(),
-            PartnerProduct.id,
-            PartnerAsset.id,
-        )
+    statement = statement.add_columns(score, reason, revision, updated_at).order_by(
+        score.desc(),
+        PartnerCampaign.priority.desc().nulls_last(),
+        product_delivery_history().asc().nulls_first(),
+        PartnerProduct.id,
+        PartnerAsset.id,
     )
     rows = session.execute(statement.execution_options(yield_per=100))
     try:
