@@ -59,10 +59,9 @@ Campaign priority breaks ties between equally relevant sponsored candidates. Exp
 agreements own their selected products within the same format so inherited delivery cannot bypass their daily cap.
 Article and topic placements always require a contextual match. An expired or paused dated campaign stops its own delivery immediately;
 products retain ordinary eligibility if the account defaults allow it. Existing automatic
-tracking records keep their original account/product/campaign identity permanently. Existing active
-dated campaigns created before migration 0031 retain their original delivery window even on lower
-tiers; new or edited paid agreements require Silver or higher. Editing
-targeting changes future delivery, and never reassigns historical measurements.
+tracking records keep their original account/product/campaign identity permanently. Every dated
+campaign requires the account's current sponsorship and format entitlements throughout its delivery
+window. Editing targeting changes future delivery, and never reassigns historical measurements.
 
 Automatic tracking associations are created idempotently after qualification and when policies
 are saved. Catalogs with at most 200 owned products enroll during the save. Larger catalogs record
@@ -294,10 +293,9 @@ and adds defaults, campaigns, exclusions, prepared matches and delivery reservat
 inherit their tier's promotion type and automatic inclusion; existing connections remain assigned
 as before. Migration `0029` adds managed product logos and product subjects to the Images queue.
 Migration `0030` adds managed featured images and independent logo/image jobs for a product.
-Migration `0031` adds inherited commercial policy, scoped trusted acceptance, click destination
-preferences and preservation of existing active dated agreements. Existing account tiers are
-preserved; Silver and higher accounts can inherit Sponsored delivery. Review account policy before
-enabling delivery.
+Migration `0031` adds inherited commercial policy, scoped trusted acceptance and click destination
+preferences. Existing account tiers are preserved; Silver and higher accounts can inherit Sponsored
+delivery. Review account policy before enabling delivery.
 
 Migration `0032` removes the obsolete per-reader exposure setting and its stored values.
 Campaign budgets, placement attribution and measurements are preserved. Downgrading recreates

@@ -37,14 +37,11 @@ def automatic_configuration_available(asset, account, campaign, now, *, surface=
         campaign
         and getattr(campaign, "ad_format", "feed") == ad_format
         and getattr(campaign, "article_id", None) == getattr(asset, "article_id", None)
-        and (
-            ad_format_allowed(account, ad_format)
-            or (campaign.grandfathered and ad_format == "feed")
-        )
+        and ad_format_allowed(account, ad_format)
         and (not campaign.managed or ad_format in getattr(account, "ad_formats", ["feed"]))
         and campaign_is_live(campaign, now)
         and audience_entitled(account, campaign)
-        and (promotion_kind_allowed(account, "ad") or campaign.grandfathered)
+        and promotion_kind_allowed(account, "ad")
         and (not campaign.managed or effective_promotion_kind(account) == "ad")
         and (surface is None or surface in campaign.surfaces)
         and (account.auto_include_products or campaign.targeting == "selected")

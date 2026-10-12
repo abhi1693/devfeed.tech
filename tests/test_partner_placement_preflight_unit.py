@@ -44,7 +44,6 @@ def candidate(audience, *, override=None, tier="platinum"):
         status="active",
         targeting="all",
         managed=False,
-        grandfathered=False,
         product_ids=[],
         technologies=[],
         topic_ids=[],

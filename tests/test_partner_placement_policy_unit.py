@@ -44,7 +44,6 @@ def policy(monkeypatch):
         status="active",
         targeting="all",
         managed=False,
-        grandfathered=False,
         product_ids=[],
         technologies=[],
         topic_ids=[],

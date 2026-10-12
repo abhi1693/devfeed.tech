@@ -124,9 +124,9 @@ def seed_catalog(session, account_id=None, provider="partner-one", name="Kube In
 def test_inherited_organic_and_paid_catalog_include_future_products_idempotently(database):
     with database() as session:
         account_id, product_id = seed_catalog(session)
-        campaign = PartnerCampaign(
-            account_id=account_id, **agreement(), targeting="all", grandfathered=True
-        )
+        account = session.get(PartnerAccount, account_id)
+        account.tier, account.promotion_kind = "silver", "product"
+        campaign = PartnerCampaign(account_id=account_id, **agreement(), targeting="all")
         session.add(campaign)
         session.flush()
         assert ensure_automatic_assets(session, account_id, NOW) == 2
@@ -173,10 +173,10 @@ def test_selected_paid_products_can_opt_in_with_catalog_automatic_inclusion_off(
     with database() as session:
         account_id, product_id = seed_catalog(session)
         account = session.get(PartnerAccount, account_id)
+        account.tier, account.promotion_kind = "silver", "product"
         account.auto_include_products = False
         session.add(PartnerCampaign(account_id=account_id, **agreement(), targeting="all"))
         selected = PartnerCampaign(
-            grandfathered=True,
             account_id=account_id,
             **agreement(),
             targeting="selected",
@@ -187,6 +187,22 @@ def test_selected_paid_products_can_opt_in_with_catalog_automatic_inclusion_off(
         assert ensure_automatic_assets(session, account_id, NOW) == 1
         asset = session.scalar(select(PartnerAsset))
         assert asset.kind == "ad" and asset.campaign_id == selected.id
+
+
+@pytest.mark.integration
+def test_active_campaign_cannot_enroll_ads_without_current_tier_entitlement(database):
+    with database.begin() as session:
+        account_id, product_id = seed_catalog(session)
+        campaign = PartnerCampaign(account_id=account_id, **agreement(), targeting="all")
+        session.add(campaign)
+        session.flush()
+        assert ensure_automatic_assets(session, account_id, NOW) == 1
+        assets = session.scalars(
+            select(PartnerAsset).where(PartnerAsset.account_id == account_id)
+        ).all()
+        assert len(assets) == 1
+        assert assets[0].kind == "product" and assets[0].product_id == product_id
+        assert assets[0].campaign_id is None
 
 
 @pytest.mark.integration

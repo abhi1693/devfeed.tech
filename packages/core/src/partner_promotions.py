@@ -292,7 +292,7 @@ def _automatic_asset_values(rows, campaigns, excluded):
         ):
             yield _asset_values(account.id, product, None)
         for campaign in campaigns.get(account.id, []):
-            if not promotion_kind_allowed(account, "ad") and not campaign.grandfathered:
+            if not promotion_kind_allowed(account, "ad"):
                 continue
             if campaign.managed and effective_promotion_kind(account) != "ad":
                 continue

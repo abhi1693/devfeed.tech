@@ -180,7 +180,8 @@ exclusions, qualification,
 and relevance continue to gate delivery. Contextual matches rank first. Sponsored defaults
 can fill remaining slots in the unfiltered main feed; search, category, article, and topic
 placements require a relevant match. Expiring an additional campaign restores account defaults.
-Existing active dated agreements on lower tiers remain read-only and continue until their recorded end.
+Dated campaigns on lower tiers remain available for reporting; sponsored delivery and campaign
+changes require Silver or higher.
 
 Silver and higher tiers support Feed, Homepage sponsorship, Sponsored content and Engagement.
 Automatic formats default to Feed; choose additional channels in account defaults or partner

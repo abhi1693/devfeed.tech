@@ -3820,11 +3820,6 @@
             "title": "Ends At",
             "type": "string"
           },
-          "grandfathered": {
-            "default": false,
-            "title": "Grandfathered",
-            "type": "boolean"
-          },
           "id": {
             "format": "uuid",
             "title": "Id",

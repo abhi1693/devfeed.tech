@@ -47,9 +47,6 @@ export function PartnerCampaigns({ account }: { account: AccountOut }) {
           {row.original.managed && (
             <span className="ml-2 text-xs text-muted-foreground">Account default</span>
           )}
-          {row.original.grandfathered && (
-            <span className="ml-2 text-xs text-muted-foreground">Existing agreement</span>
-          )}
         </Link>
       ),
     },
@@ -123,8 +120,8 @@ export function PartnerCampaigns({ account }: { account: AccountOut }) {
         </p>
         {!canCreate && (
           <p className="text-sm text-muted-foreground">
-            This tier supports product recommendations. Existing active dated agreements continue
-            until their recorded end.
+            This tier supports product recommendations. Dated campaigns remain available for
+            reporting; sponsored delivery and campaign changes require Silver or higher.
           </p>
         )}
       </div>

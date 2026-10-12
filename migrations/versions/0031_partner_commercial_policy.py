@@ -41,13 +41,6 @@ def upgrade():
         "partner_campaigns",
         sa.Column("managed", sa.Boolean(), nullable=False, server_default="false"),
     )
-    op.add_column(
-        "partner_campaigns",
-        sa.Column("grandfathered", sa.Boolean(), nullable=False, server_default="false"),
-    )
-    op.execute(
-        "UPDATE partner_campaigns SET grandfathered=true WHERE status='active' AND ends_at > now()"
-    )
     op.create_index(
         "uq_partner_managed_campaign",
         "partner_campaigns",
@@ -78,7 +71,6 @@ def downgrade():
     op.drop_column("partner_product_promotions", "commercial_approved_at")
     op.drop_index("uq_partner_managed_campaign", table_name="partner_campaigns")
     op.drop_column("partner_campaigns", "managed")
-    op.drop_column("partner_campaigns", "grandfathered")
     for name in reversed(ACCOUNT_CHECKS):
         op.drop_constraint(name, "partner_accounts", type_="check")
     for name in ("outbound_destination", "approval_mode", "promotion_kind"):

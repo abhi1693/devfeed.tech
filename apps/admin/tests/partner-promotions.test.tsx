@@ -935,12 +935,17 @@ it("retains lower-tier dated campaign reporting while blocking new campaigns and
   const list = renderAdmin(<PartnerCampaigns account={account} />);
   await screen.findByRole("link", { name: campaign.name });
   expect(screen.queryByRole("link", { name: "Create paid campaign" })).toBeNull();
-  expect(screen.getByText(/Existing active dated agreements continue/)).toBeTruthy();
+  expect(
+    screen.getByText(/sponsored delivery and campaign changes require Silver or higher/),
+  ).toBeTruthy();
   list.unmount();
   const form = renderAdmin(<PartnerCampaignPage account={account} campaignId={campaign.id} />);
   await screen.findByRole("region", { name: "Sponsored campaign availability" });
   expect(screen.queryByRole("form", { name: "Paid campaign settings" })).toBeNull();
   expect(screen.getByText(/retained for reporting/)).toBeTruthy();
+  expect(
+    screen.getByText(/Sponsored delivery and campaign changes require Silver or higher/),
+  ).toBeTruthy();
   form.unmount();
   renderAdmin(<PartnerCampaignPage account={account} />);
   await screen.findByRole("region", { name: "Sponsored campaign availability" });

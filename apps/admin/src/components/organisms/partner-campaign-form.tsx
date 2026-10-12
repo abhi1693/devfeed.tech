@@ -95,7 +95,7 @@ export function PartnerCampaignPage({
         <h2 className="font-semibold">Sponsored campaigns require Silver or higher</h2>
         <p className="max-w-3xl text-sm text-muted-foreground">
           {campaignId
-            ? "This dated campaign is retained for reporting. Existing active agreements continue until their recorded end; the current tier does not allow changes or new sponsored campaigns."
+            ? "This dated campaign is retained for reporting. Sponsored delivery and campaign changes require Silver or higher."
             : "This account’s current tier supports product recommendations. Change its partnership tier to create a sponsored campaign."}
         </p>
         <Button asChild variant="outline">

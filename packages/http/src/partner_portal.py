@@ -354,7 +354,6 @@ class CampaignOut(CampaignInput):
     clicks: int = 0
     ctr: float | None = None
     managed: bool = False
-    grandfathered: bool = False
 
 
 class CampaignsOut(BaseModel):

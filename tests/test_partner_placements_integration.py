@@ -519,6 +519,8 @@ def test_new_articles_are_prepared_even_when_below_the_sweep_cursor(database, ca
 
 def test_relevance_precedes_commercial_priority(database, catalog):
     with database.begin() as session:
+        account = session.get(PartnerAccount, catalog["free"])
+        account.tier, account.promotion_kind = "silver", "product"
         campaign = session.get(PartnerCampaign, catalog["campaign"])
         campaign.priority = 100
         campaign.targeting = "selected"
@@ -528,7 +530,6 @@ def test_relevance_precedes_commercial_priority(database, catalog):
             PartnerCampaign(
                 account_id=catalog["free"],
                 name="Stronger relevant sponsor",
-                grandfathered=True,
                 status="active",
                 targeting="selected",
                 product_ids=[str(catalog["free_product"])],

@@ -14,9 +14,11 @@ from devfeed_core.models import (
     PartnerAsset,
     PartnerCampaign,
     PartnerConnection,
+    PartnerDeliveryEvent,
     PartnerListing,
     PartnerProduct,
     PartnerProductPromotion,
+    PartnerTrackedDailyMetric,
     utcnow,
 )
 from devfeed_core.partner_placements import deliver_placements
@@ -34,7 +36,7 @@ from devfeed_core.partner_tracking import (
 from devfeed_http.partner_placements import PlacementQuery
 from devfeed_http.partner_portal import AccountInput, PartnerPreferencesInput
 from pydantic import ValidationError
-from sqlalchemy import select, text
+from sqlalchemy import func, select, text
 from sqlalchemy.exc import IntegrityError
 from test_partner_placements_integration import KEY
 from test_partner_placements_integration import catalog as catalog_fixture
@@ -406,7 +408,7 @@ def migration_module():
 
 
 @pytest.mark.integration
-def test_migration_preserves_existing_sale_and_downgrade_keeps_attribution(database):
+def test_commercial_migration_enforces_constraints_and_retains_attribution(database):
     migration = migration_module()
     with database().bind.connect() as connection:
         transaction = connection.begin()
@@ -452,13 +454,13 @@ def test_migration_preserves_existing_sale_and_downgrade_keeps_attribution(datab
             )
             with Operations.context(MigrationContext.configure(connection)):
                 migration.upgrade()
-                assert (
-                    connection.scalar(
-                        text("SELECT grandfathered FROM partner_campaigns WHERE id=:id"),
-                        {"id": legacy},
+                columns = connection.scalars(
+                    text(
+                        "SELECT column_name FROM information_schema.columns "
+                        "WHERE table_schema=current_schema() AND table_name='partner_campaigns'"
                     )
-                    is True
-                )
+                ).all()
+                assert set(columns) == {"id", "account_id", "status", "ends_at", "managed"}
                 assert connection.execute(
                     text(
                         "SELECT approval_mode,outbound_destination,promotion_kind FROM "
@@ -713,32 +715,51 @@ def test_partner_destination_skips_invalid_owned_listing_without_selecting_other
 
 
 @pytest.mark.integration
-def test_grandfathered_existing_bronze_sale_delivers_until_its_original_end(database, catalog):
+@pytest.mark.parametrize("restriction", ["tier", "format"])
+def test_existing_campaign_rechecks_current_entitlement_and_format_for_delivery_and_tracking(
+    database, catalog, restriction
+):
     with database.begin() as session:
-        old_sale = PartnerCampaign(
+        account = session.get(PartnerAccount, catalog["free"])
+        account.tier, account.promotion_kind = "silver", "product"
+        sale = PartnerCampaign(
             account_id=catalog["free"],
-            name="Existing paid sale",
+            name="Active paid agreement",
             status="active",
-            grandfathered=True,
             targeting="all",
             starts_at=utcnow() - timedelta(days=1),
             ends_at=utcnow() + timedelta(days=1),
             priority=100,
         )
-        session.add(old_sale)
+        session.add(sale)
         session.flush()
         ensure_automatic_assets(session, catalog["free"])
-        sale_id = old_sale.id
+        sale_id = sale.id
     with database.begin() as session:
         items = deliver_placements(
             session, PlacementQuery(surface="article", article_id=catalog["article"]), KEY
         )
-        assert any(item["campaign_id"] == sale_id for item in items)
-        session.get(PartnerCampaign, sale_id).ends_at = utcnow() - timedelta(seconds=1)
+        sponsored = next(item for item in items if item["campaign_id"] == sale_id)
+        receipt = PartnerTrackingTokens(KEY).verify(sponsored["receipt"])
+        asset_ids = set(session.scalars(select(PartnerAsset.id)))
+        if restriction == "tier":
+            session.get(PartnerAccount, catalog["free"]).tier = "bronze"
+        else:
+            session.get(PartnerCampaign, sale_id).ad_format = "engagement"
     with database.begin() as session:
-        assert not any(
-            item["campaign_id"] == sale_id
-            for item in deliver_placements(
-                session, PlacementQuery(surface="article", article_id=catalog["article"]), KEY
-            )
+        items = deliver_placements(
+            session, PlacementQuery(surface="article", article_id=catalog["article"]), KEY
         )
+        assert not any(item["campaign_id"] == sale_id for item in items)
+        assert any(
+            item["product_id"] == catalog["free_product"] and not item["sponsored"]
+            for item in items
+        )
+        if restriction == "tier":
+            assert ensure_automatic_assets(session, catalog["free"]) == 0
+            assert set(session.scalars(select(PartnerAsset.id))) == asset_ids
+    with database.begin() as session, pytest.raises(InactivePartnerAsset):
+        record_delivery_event(session, receipt, "click")
+    with database() as session:
+        assert session.scalar(select(func.count()).select_from(PartnerDeliveryEvent)) == 0
+        assert session.scalar(select(func.count()).select_from(PartnerTrackedDailyMetric)) == 0

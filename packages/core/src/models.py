@@ -1838,7 +1838,6 @@ class PartnerCampaign(Base):
     priority: Mapped[int] = mapped_column(default=50, server_default="50")
     daily_impression_limit: Mapped[int | None] = mapped_column(BigInteger)
     managed: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
-    grandfathered: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 
