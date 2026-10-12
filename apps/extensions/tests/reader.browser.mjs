@@ -7,6 +7,7 @@ import {
 
 import { checkPreviewCover } from "../../../scripts/testing/preview-cover.mjs";
 import { checkArticleGrid } from "../../../scripts/testing/article-grid.mjs";
+import { checkDefaultAll, defaultAllFeed } from "../../../scripts/testing/default-all.mjs";
 import { checkArticleViews, compactListArticle } from "../../web/tests/browser/article-views.mjs";
 import { checkSourceFilter, longFilterSource } from "../../../scripts/testing/select-menus.mjs";
 import { checkAccessibility } from "../../web/tests/browser/accessibility.mjs";
@@ -105,6 +106,7 @@ test(
       slug: `${article.slug}-${index}`,
     }));
     let engagementPagination = false;
+    let defaultAll = false;
     let compactArticles = false;
     let failNextPage = true;
     let failArticle = true;
@@ -198,6 +200,7 @@ test(
       if (url.pathname === "/api/v1/user/trending") {
         json = { items: feedItems, next_cursor: null };
       } else if (url.pathname === "/api/v1/feed") {
+        if (defaultAll) return route.fulfill({ json: defaultAllFeed(article, url.searchParams) });
         if (
           url.searchParams.has("cursor") &&
           url.searchParams.get("sort") === "most_liked" &&
@@ -293,6 +296,18 @@ test(
         if (message.type() === "error" && /Content Security Policy|Refused to/.test(message.text()))
           errors.push(message.text());
       });
+      await page.goto(newTab);
+      await page.locator(".article-card").first().waitFor();
+      const readerBase = `${page.url().split("#")[0]}#`;
+      defaultAll = true;
+      await page.goto("about:blank");
+      await checkDefaultAll(
+        page,
+        readerBase,
+        path.resolve(import.meta.dirname, `../../../reports/default-all/${browser}`),
+        () => requests,
+      );
+      defaultAll = false;
       await page.goto(newTab);
       await page.locator(".article-card").first().waitFor();
       await checkManagedImages(page);

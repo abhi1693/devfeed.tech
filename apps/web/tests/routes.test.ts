@@ -119,12 +119,24 @@ it("redirects legacy tag queries to canonical tag routes without losing the curs
     }),
   ).rejects.toThrow("REDIRECT:/tags/c%2B%2B/tutorials");
 });
-it("defaults anonymous latest feeds to articles without redirecting the latest page", async () => {
-  vi.mocked(api.hasUserSession).mockResolvedValue(false);
-  await Home({ searchParams: Promise.resolve({}) });
-  expect(FeedView).toHaveBeenCalledWith(
-    expect.objectContaining({ filters: expect.objectContaining({ content_type: "article" }) }),
-  );
+it.each([
+  {},
+  { content_type: "" },
+  { content_type: "invalid" },
+  { q: "engineering", sort: "oldest", cursor: "next" },
+])("renders All at latest without redirecting or filtering by article: %j", async (query) => {
+  for (const signedIn of [false, true]) {
+    vi.mocked(FeedView).mockClear();
+    vi.mocked(api.hasUserSession).mockResolvedValue(signedIn);
+    await Home({ searchParams: Promise.resolve(query) });
+    expect(FeedView).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({ filters: expect.objectContaining({ content_type: "" }) }),
+    );
+    const filters = vi.mocked(FeedView).mock.calls[0][0].filters;
+    expect(filters.q).toBe(query.q ?? "");
+    expect(filters.sort).toBe(query.sort ?? "");
+    expect(filters.cursor).toBe(query.cursor ?? "");
+  }
 });
 it.each([
   ["articles", "article"],

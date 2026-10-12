@@ -181,19 +181,44 @@ it("adds publisher attribution while preserving the article URL", () => {
 });
 
 describe("guest entry filters", () => {
-  it.each([{}, { q: "engineering", cursor: "next", sort: "oldest" }, { content_type: "invalid" }])(
-    "defaults an unscoped guest to articles: %j",
-    (query) => {
-      expect(guestFeedFilters(query).content_type).toBe("article");
-    },
-  );
+  it.each([
+    {},
+    { content_type: "" },
+    { q: "engineering", cursor: "next", sort: "oldest" },
+    { content_type: "invalid" },
+  ])("defaults an unscoped guest to All without an API content-type filter: %j", (query) => {
+    const filters = guestFeedFilters(query);
+    expect(filters.content_type).toBe("");
+    expect(filters).toEqual(parseFilters(query));
+    expect(feedParams(filters).has("content_type")).toBe(false);
+    expect(latestFeedParams(filters).has("content_type")).toBe(false);
+  });
   it.each([
     { topic: "python" },
     { tag: "backend" },
     { source_id: "11111111-1111-4111-8111-111111111111" },
+    { content_type: "article" },
     { content_type: "news" },
   ])("preserves an explicit scope: %j", (query) => {
     expect(guestFeedFilters(query)).toEqual(parseFilters(query));
+  });
+
+  it("keeps explicit Articles selected until All clears the type and stale pagination", () => {
+    const filters = guestFeedFilters({
+      content_type: "article",
+      q: "engineering",
+      cursor: "old",
+      sort: "oldest",
+    });
+    expect(filters.content_type).toBe("article");
+    expect(feedParams(filters).get("content_type")).toBe("article");
+    expect(feedHref(filters)).toBe("/articles?q=engineering&sort=oldest");
+    const all = new URL(feedHref(filters, { content_type: "" }), "https://devfeed.test");
+    expect(all.pathname).toBe("/latest");
+    expect(Object.fromEntries(all.searchParams)).toEqual({ q: "engineering", sort: "oldest" });
+    const next = guestFeedFilters(searchParamsFromUrl(all.searchParams));
+    expect(next.content_type).toBe("");
+    expect(feedParams(next).has("content_type")).toBe(false);
   });
 });
 
@@ -218,6 +243,15 @@ describe("extension URL search parameters", () => {
     );
     expect(
       guestFeedFilters(searchParamsFromUrl(new URLSearchParams("q=c%2B%2B"))).content_type,
-    ).toBe("article");
+    ).toBe("");
   });
+
+  it.each(["", "content_type=", "content_type=invalid", "q=c%2B%2B&cursor=next&sort=newest"])(
+    "defaults extension guest URL parameters to All without filtering the API: %s",
+    (query) => {
+      const filters = guestFeedFilters(searchParamsFromUrl(new URLSearchParams(query)));
+      expect(filters.content_type).toBe("");
+      expect(feedParams(filters).has("content_type")).toBe(false);
+    },
+  );
 });
