@@ -20,6 +20,7 @@ async function bundled(path) {
     exports: module.exports,
     require,
     URL,
+    URLSearchParams,
     Request,
     Headers,
     Response,
@@ -30,6 +31,42 @@ async function bundled(path) {
 const { createReaderTransport } = await bundled("../src/transport.ts");
 const { linkDestination } = await bundled("../src/navigation.tsx");
 const { extensionRoute } = await bundled("../src/routes.ts");
+const { guestFeedFilters, searchParamsFromUrl, feedParams, feedHref } = await bundled(
+  "../../web/src/lib/feed-query.ts",
+);
+
+test("extension guest home and Latest default to All without an implicit API content type", () => {
+  for (const pathname of ["/", "/latest"]) {
+    assert.equal(extensionRoute(pathname).contentType, undefined);
+    for (const query of ["", "content_type=", "content_type=invalid", "q=rust&cursor=next"]) {
+      const filters = guestFeedFilters(searchParamsFromUrl(new URLSearchParams(query)));
+      assert.equal(filters.content_type, "");
+      assert.equal(feedParams(filters).has("content_type"), false);
+    }
+  }
+});
+
+test("extension Articles remains explicit and All clears the type without losing scope or sorting", () => {
+  assert.equal(extensionRoute("/articles").contentType, "article");
+  const filters = guestFeedFilters({
+    content_type: "article",
+    topic: "rust",
+    tag: "backend",
+    q: "traits",
+    sort: "oldest",
+    cursor: "old",
+  });
+  assert.equal(feedParams(filters).get("content_type"), "article");
+  const all = feedHref(filters, { content_type: "" });
+  assert.equal(all, "/topics/rust?q=traits&sort=oldest&tag=backend");
+  assert.equal(linkDestination(all), "#/topics/rust?q=traits&sort=oldest&tag=backend");
+  const next = guestFeedFilters(
+    searchParamsFromUrl(new URL(all, "https://devfeed.tech").searchParams),
+  );
+  assert.equal(next.content_type, "");
+  assert.equal(feedParams(next).has("content_type"), false);
+  assert.equal(next.cursor, "");
+});
 
 test("one route registry classifies every extension-owned page", () => {
   const route = (pathname) => JSON.stringify(extensionRoute(pathname));

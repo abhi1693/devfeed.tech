@@ -17,7 +17,8 @@ from devfeed_core.models import (
 )
 from devfeed_core.partner_placements import placement_destination
 from devfeed_http.partner_portal import destination_preview
-from devfeed_partner_api import portal
+from devfeed_partner_api import auth, portal
+from devfeed_partner_api.config import Settings
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from sqlalchemy import text
@@ -101,7 +102,17 @@ def test_preview_does_not_accept_partner_cookie_at_admin_boundary(admin_boundary
     session.scalar.assert_not_called()
 
 
-def test_partner_preview_requires_authentication():
+def test_partner_preview_requires_authentication(monkeypatch):
+    settings = Settings(
+        _env_file=None,
+        partner_base_url="https://partner.example",
+        oidc_issuer_url=ISSUER,
+        oidc_client_id="partner-client",
+        oidc_organization_id="org-1",
+    )
+    monkeypatch.setattr(auth, "get_settings", lambda: settings)
+    redis = Mock()
+    monkeypatch.setattr(auth, "get_redis", lambda: redis)
     app = FastAPI()
     app.include_router(portal.router)
     session = Mock()
@@ -111,6 +122,7 @@ def test_partner_preview_requires_authentication():
     with TestClient(app) as client:
         assert client.get(preview_url(uuid.uuid4())).status_code == 401
     session.scalar.assert_not_called()
+    redis.get.assert_not_called()
 
 
 @pytest.mark.integration

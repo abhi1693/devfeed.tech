@@ -763,7 +763,13 @@ function response(requestPath, body, headers = {}, extension = false) {
     const section = url.searchParams.get("section");
     return {
       query: url.searchParams.get("q") ?? "",
-      sections: section ? { [section]: sections[section] } : sections,
+      sections: section
+        ? Object.fromEntries(
+            ["articles", "topics", "sources", "tags"]
+              .filter((name) => name === section)
+              .map((name) => [name, sections[name]]),
+          )
+        : sections,
     };
   }
   if (pathname === "/v1/feed/options")

@@ -5,8 +5,9 @@ URL-based search and filters, topic and source directories, and article previews
 with original-publisher links. Public browsing uses the anonymous API. Optional sign-in, followed topics, and
 My feed use the separate user API through a same-origin gateway.
 
-Guest homepage entry renders the public feed directly at `/`, using the same
-article default as `/latest`, without a document redirect. Query filters, cursors
+Guest homepage entry renders the public feed directly at `/` without a document
+redirect. Both `/` and `/latest` default to **All** content types. Selecting
+**Articles** restricts the feed; selecting **All** removes that restriction. Query filters, cursors
 and campaign attribution remain in the entry URL. Canonical metadata points to
 the established public feed routes; verified sessions still receive private My
 feed metadata and content. Chrome and Edge use the same guest defaults and keep

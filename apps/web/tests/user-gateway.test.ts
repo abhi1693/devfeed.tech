@@ -85,6 +85,7 @@ it("rejects an oversized declared body before reading it or contacting the API",
   expect(fetcher).not.toHaveBeenCalled();
 });
 afterEach(() => {
+  vi.useRealTimers();
   vi.unstubAllGlobals();
   vi.unstubAllEnvs();
 });
@@ -206,6 +207,102 @@ it("bounds request bodies before contacting the service", async () => {
     body: "x".repeat(1_000_001),
   });
   expect((await gateway(request, ["v1", "user", "preferences"])).status).toBe(413);
+  expect(fetcher).not.toHaveBeenCalled();
+});
+
+it("forwards valid personalized placement contexts within the exact byte limit", async () => {
+  const fetcher = vi.fn().mockResolvedValue(Response.json({ items: [] }));
+  vi.stubGlobal("fetch", fetcher);
+  const body = JSON.stringify({ surface: "feed" }).padEnd(8192, " ");
+  const response = await gateway(
+    new Request("https://user.example/api/v1/user/partner-placements/query", {
+      method: "POST",
+      headers: {
+        Origin: "https://user.example",
+        "Content-Type": "application/json",
+        Cookie: "devfeed_user_session=session; admin_session=private",
+        "X-CSRF-Token": "csrf",
+      },
+      body,
+    }),
+    ["v1", "user", "partner-placements", "query"],
+  );
+  expect(response.status).toBe(200);
+  expect(await response.json()).toEqual({ items: [] });
+  const [url, options] = fetcher.mock.calls[0];
+  expect(url).toBe("http://user-api:8002/v1/user/partner-placements/query");
+  expect(options.method).toBe("POST");
+  expect(new TextDecoder().decode(options.body)).toBe(body);
+  expect(options.headers.get("cookie")).toBe("devfeed_user_session=session");
+  expect(options.headers.get("x-csrf-token")).toBe("csrf");
+  expect(options.cache).toBe("no-store");
+});
+
+it.each([
+  ["POST", "{"],
+  ["POST", JSON.stringify({ surface: "feed", user_id: "untrusted" })],
+  ["PUT", JSON.stringify({ surface: "feed" })],
+])("rejects invalid personalized placement %s bodies (%s)", async (method, body) => {
+  const fetcher = vi.fn();
+  vi.stubGlobal("fetch", fetcher);
+  const response = await gateway(
+    new Request("https://user.example/api/v1/user/partner-placements/query", {
+      method,
+      headers: { Origin: "https://user.example", "Content-Type": "application/json" },
+      body,
+    }),
+    ["v1", "user", "partner-placements", "query"],
+  );
+  expect(response.status).toBe(422);
+  expect(await response.json()).toEqual({ detail: "Invalid placement context" });
+  expect(response.headers.get("cache-control")).toBe("no-store");
+  expect(fetcher).not.toHaveBeenCalled();
+});
+
+it("rejects personalized placement bodies above 8192 bytes before forwarding", async () => {
+  const fetcher = vi.fn();
+  vi.stubGlobal("fetch", fetcher);
+  const response = await gateway(
+    new Request("https://user.example/api/v1/user/partner-placements/query", {
+      method: "POST",
+      headers: { Origin: "https://user.example" },
+      body: JSON.stringify({ surface: "feed" }).padEnd(8193, " "),
+    }),
+    ["v1", "user", "partner-placements", "query"],
+  );
+  expect(response.status).toBe(413);
+  expect(await response.json()).toEqual({ detail: "Request too large" });
+  expect(response.headers.get("cache-control")).toBe("no-store");
+  expect(fetcher).not.toHaveBeenCalled();
+});
+
+it("ends stalled personalized placement uploads at their two-second body deadline", async () => {
+  vi.useFakeTimers();
+  const fetcher = vi.fn();
+  const cancel = vi.fn();
+  vi.stubGlobal("fetch", fetcher);
+  const request = new Request("https://user.example/api/v1/user/partner-placements/query", {
+    method: "POST",
+    headers: { Origin: "https://user.example" },
+    body: new ReadableStream<Uint8Array>({ cancel }),
+    duplex: "half",
+  } as RequestInit);
+  let completed = false;
+  const pending = gateway(request, ["v1", "user", "partner-placements", "query"]).then(
+    (response) => {
+      completed = true;
+      return response;
+    },
+  );
+  await vi.advanceTimersByTimeAsync(1999);
+  expect(completed).toBe(false);
+  expect(fetcher).not.toHaveBeenCalled();
+  await vi.advanceTimersByTimeAsync(1);
+  const response = await pending;
+  expect(response.status).toBe(408);
+  expect(await response.json()).toEqual({ detail: "Incomplete request" });
+  expect(response.headers.get("cache-control")).toBe("no-store");
+  expect(cancel).toHaveBeenCalledOnce();
   expect(fetcher).not.toHaveBeenCalled();
 });
 

@@ -159,7 +159,7 @@ try {
           url.searchParams.get("q") === "engineering" &&
           url.searchParams.get("cursor") === "next" &&
           url.searchParams.get("sort") === "oldest" &&
-          url.searchParams.get("content_type") === "article",
+          !url.searchParams.has("content_type"),
       ),
     );
     assert.match(

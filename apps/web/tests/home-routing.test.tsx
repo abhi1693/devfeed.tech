@@ -12,14 +12,28 @@ vi.mock("@/components/feed-view", () => ({ FeedView: vi.fn(async () => "guest fe
 vi.mock("@/components/user-shell", () => ({ UserShell: () => null }));
 vi.mock("@/components/personal-feed", () => ({ PersonalFeed: () => null }));
 beforeEach(() => vi.clearAllMocks());
-it("renders the guest feed directly at root with the latest guest defaults", async () => {
-  vi.mocked(hasUserSession).mockResolvedValue(false);
-  expect(await Home({ searchParams: Promise.resolve({}) })).toBe("guest feed");
-  expect(FeedView).toHaveBeenCalledWith({
-    allowSponsoredFallback: true,
-    filters: expect.objectContaining({ content_type: "article" }),
-  });
-});
+it.each([{}, { content_type: "" }, { content_type: "invalid" }, { q: "engineering" }])(
+  "renders All at the guest root without an implicit article filter: %j",
+  async (query) => {
+    vi.mocked(hasUserSession).mockResolvedValue(false);
+    expect(await Home({ searchParams: Promise.resolve(query) })).toBe("guest feed");
+    expect(FeedView).toHaveBeenCalledWith({
+      allowSponsoredFallback: !("q" in query),
+      filters: expect.objectContaining({ content_type: "" }),
+    });
+  },
+);
+it.each(["article", "news"])(
+  "preserves the explicit guest %s content-type selection",
+  async (type) => {
+    vi.mocked(hasUserSession).mockResolvedValue(false);
+    await Home({ searchParams: Promise.resolve({ content_type: type, cursor: "next" }) });
+    expect(FeedView).toHaveBeenCalledWith({
+      allowSponsoredFallback: false,
+      filters: expect.objectContaining({ content_type: type, cursor: "next" }),
+    });
+  },
+);
 it("preserves guest filters and cursors while ignoring attribution as API filters", async () => {
   vi.mocked(hasUserSession).mockResolvedValue(false);
   await Home({

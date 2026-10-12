@@ -104,6 +104,8 @@ test(
     let rejectNextPage = true;
     let checkedWrites = 0;
     let authenticatedStreams = 0;
+    let guestPlacementQueries = 0;
+    let authenticatedPlacementQueries = 0;
     let interactionChecks = false;
     let devCardSettings;
     let profileName = "Reader Profile";
@@ -191,10 +193,21 @@ test(
           body: "<!doctype html><title>Signed in</title><script>window.close()</script>",
         });
       if (url.pathname === "/api/v1/user/auth/me") return send(authenticated ? user : null);
+      if (url.pathname === "/api/v1/partner-placements/query") {
+        assert.equal(method, "POST");
+        assert.equal(headers.cookie, undefined, "guest placements must omit the account cookie");
+        assert.equal(headers["x-csrf-token"], undefined);
+        guestPlacementQueries++;
+        return send({ items: [] });
+      }
       if (method !== "GET") {
         assert.equal(authenticated, true, "Chrome must send the real HttpOnly session cookie");
         assert.equal(headers.origin, extensionOrigin);
         assert.equal(headers["x-csrf-token"], user.csrf_token);
+        if (url.pathname === "/api/v1/user/partner-placements/query") {
+          authenticatedPlacementQueries++;
+          return send({ items: [] });
+        }
         checkedWrites++;
         if (url.pathname === "/api/v1/user/must-reads/presentation")
           return send(await mustReadsFixture.response(true));
@@ -990,6 +1003,11 @@ test(
       assert.equal(await second.getByRole("link", { name: "Read later", exact: true }).count(), 0);
       assert.ok(page.url().startsWith("chrome-extension://"));
       assert.ok(checkedWrites >= 4);
+      assert.ok(guestPlacementQueries > 0, "guest placement transport was exercised");
+      assert.ok(
+        authenticatedPlacementQueries > 0,
+        "authenticated placement transport was exercised",
+      );
       assert.deepEqual(errors, [], "browser and fixture errors");
       assert.ok(
         analytics.some((value) => value.event.name === "article_like"),
