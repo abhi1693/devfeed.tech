@@ -1,7 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, type FormEvent } from "react";
-import { useRouter } from "next/navigation";
+import { useEffect, useState, type FormEvent } from "react";
 import { Select } from "@devfeed/ui/select";
 import {
   ProductDestinationPreview,
@@ -9,6 +8,9 @@ import {
 } from "@devfeed/ui/product-destination-preview";
 import { Button } from "@/components/atoms/button";
 import type { Account, OutboundDestination } from "@/lib/types";
+import { parseDestinationPreview } from "@/lib/contracts";
+import { isPartnerRequestCancelled } from "@/lib/partner-request";
+import { usePartnerPreferenceSave } from "@/lib/use-partner-preference-save";
 import { PartnerAudience } from "./partner-audience";
 import { PartnerAdFormats } from "./partner-ad-formats";
 
@@ -18,67 +20,48 @@ type Props = {
   onSaved: (account: Account) => void;
   onUnavailable: () => void;
 };
-function parsePreview(value: unknown): DestinationPreviewProduct | null {
-  if (!value || typeof value !== "object" || !("product" in value))
-    throw new Error("Could not load the product preview. Please retry.");
-  const product = value.product;
-  if (product === null) return null;
-  const row = product as Record<string, unknown>;
-  if (
-    !product ||
-    typeof product !== "object" ||
-    !["id", "name", "product_url"].every((key) => typeof row[key] === "string") ||
-    !(row.listing_url === null || typeof row.listing_url === "string")
-  )
-    throw new Error("Could not load the product preview. Please retry.");
-  return product as DestinationPreviewProduct;
-}
-
 export function PartnerPreferences(props: Props) {
   return <AccountPreferences key={props.account.id} {...props} />;
 }
 
 function AccountPreferences({ account, csrfToken, onSaved, onUnavailable }: Props) {
-  const router = useRouter();
   const [destination, setDestination] = useState<OutboundDestination>(
     account.outbound_destination ?? "product_url",
   );
-  const [saving, setSaving] = useState(false);
-  const [message, setMessage] = useState("");
-  const [error, setError] = useState("");
+  const {
+    request,
+    save: savePreferences,
+    saving,
+    message,
+    error,
+    clearMessage,
+  } = usePartnerPreferenceSave({
+    accountId: account.id,
+    csrfToken,
+    onSaved,
+    onUnavailable,
+    successMessage: "Click destination saved.",
+    errorMessage: "Could not save the click destination. Please retry.",
+    confirmationMessage: "Could not confirm the saved destination. Refresh and try again.",
+  });
   const [preview, setPreview] = useState<{
     product: DestinationPreviewProduct | null;
     loading: boolean;
     error: string;
   }>({ product: null, loading: true, error: "" });
   const [previewAttempt, setPreviewAttempt] = useState(0);
-  const request = useRef<AbortController | null>(null);
-  const access = useRef({ router, onUnavailable });
-  useEffect(() => () => request.current?.abort(), []);
-  useEffect(() => {
-    access.current = { router, onUnavailable };
-  }, [router, onUnavailable]);
   useEffect(() => {
     const controller = new AbortController();
-    void (async () => {
-      try {
-        const response = await fetch(`/api/v1/partner/accounts/${account.id}/destination-preview`, {
-          credentials: "same-origin",
-          cache: "no-store",
-          signal: controller.signal,
-        });
-        if (controller.signal.aborted) return;
-        if ([401, 403, 404].includes(response.status)) {
-          if (response.status === 401 || response.status === 403)
-            access.current.router.replace("/login");
-          access.current.onUnavailable();
-          return;
-        }
-        if (!response.ok) throw new Error("Could not load the product preview. Please retry.");
-        const product = parsePreview(await response.json());
+    void request("destination-preview", {
+      signal: controller.signal,
+      parse: parseDestinationPreview,
+      errorMessage: "Could not load the product preview. Please retry.",
+    })
+      .then((product) => {
         if (!controller.signal.aborted) setPreview({ product, loading: false, error: "" });
-      } catch (reason) {
-        if (!controller.signal.aborted)
+      })
+      .catch((reason: unknown) => {
+        if (!controller.signal.aborted && !isPartnerRequestCancelled(reason))
           setPreview({
             product: null,
             loading: false,
@@ -87,58 +70,13 @@ function AccountPreferences({ account, csrfToken, onSaved, onUnavailable }: Prop
                 ? reason.message
                 : "Could not load the product preview. Please retry.",
           });
-      }
-    })();
+      });
     return () => controller.abort();
-  }, [account.id, previewAttempt]);
+  }, [request, previewAttempt]);
 
   async function save(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (saving) return;
-    const controller = new AbortController();
-    request.current = controller;
-    setSaving(true);
-    setMessage("");
-    setError("");
-    try {
-      const response = await fetch(`/api/v1/partner/accounts/${account.id}/preferences`, {
-        method: "PUT",
-        headers: { "content-type": "application/json", "x-csrf-token": csrfToken },
-        body: JSON.stringify({ outbound_destination: destination }),
-        signal: controller.signal,
-      });
-      if (controller.signal.aborted) return;
-      if (response.status === 401) {
-        router.replace("/login");
-        onUnavailable();
-        return;
-      }
-      if (response.status === 404) {
-        onUnavailable();
-        return;
-      }
-      if (!response.ok)
-        throw new Error(
-          response.status === 403
-            ? "Could not update this account. Refresh the page and try again."
-            : "Could not save the click destination. Please retry.",
-        );
-      const saved = (await response.json()) as Account;
-      if (
-        saved.id !== account.id ||
-        !["product_url", "listing_url"].includes(saved.outbound_destination ?? "")
-      )
-        throw new Error("Could not confirm the saved destination. Refresh and try again.");
-      if (!controller.signal.aborted) {
-        onSaved(saved);
-        setMessage("Click destination saved.");
-      }
-    } catch (reason) {
-      if (!controller.signal.aborted)
-        setError(reason instanceof Error ? reason.message : "Could not save. Please retry.");
-    } finally {
-      if (!controller.signal.aborted) setSaving(false);
-    }
+    await savePreferences({ outbound_destination: destination });
   }
 
   return (
@@ -181,7 +119,7 @@ function AccountPreferences({ account, csrfToken, onSaved, onUnavailable }: Prop
             onChange={(value) => {
               if (value !== "product_url" && value !== "listing_url") return;
               setDestination(value);
-              setMessage("");
+              clearMessage();
             }}
             disabled={saving}
             aria-describedby="partner-click-destination-help"

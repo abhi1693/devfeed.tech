@@ -63,7 +63,8 @@
     "ci:browser-measure": "node --test scripts/ci/browser-performance.test.mjs && node scripts/ci/browser-performance.mjs",
     "ci:mutation": "node scripts/ci/mutation.mjs run",
     "web:analyze": "npm run analyze --workspace @devfeed/web --",
-    "admin:analyze": "npm run analyze --workspace @devfeed/admin --"
+    "admin:analyze": "npm run analyze --workspace @devfeed/admin --",
+    "partner:generate": "uv run python scripts/export_partner_openapi.py && npm run generate --workspace @devfeed/partner"
   },
   "engines": {
     "node": ">=22.13"

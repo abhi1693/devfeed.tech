@@ -9,6 +9,27 @@ Set `DEVFEED_PARTNER_API_URL=http://localhost:8004` and
 normal database/Redis settings and `DEVFEED_PARTNER_COOKIE_SECURE=false` for local HTTP.
 Compose and its build overlay include both services; only the frontend port is exposed.
 
+## API contracts
+
+Run `npm run partner:generate` after changing the partner API response or request models.
+The exporter builds OpenAPI from `devfeed_partner_api.main.create_app()` using normal application
+configuration, without starting services or querying the database. Commit `openapi.json`, generated TypeScript models and
+the four generated preference/preview/topic response validators together. The portal aliases
+these generated output types rather than maintaining a second set of account/report models;
+computed account fields remain separate from preference input.
+
+Orval's runtime response projection requires every serialized account field and audience
+array, removes schema defaults, and restricts automatic formats using backend-exported
+metadata. `parseAccount` also checks the requested account ID and rejects duplicate formats.
+A partial or malformed save response therefore cannot confirm a successful preference save.
+The original OpenAPI snapshot retains the backend's input/output and default semantics.
+
+Generation uses explicit paths under `src/lib/api/generated` with Orval cleanup disabled.
+`npm run partner:test` runs the contract regression, including two isolated generations that
+verify deterministic output and preservation of source, dependency and contract files.
+Release version checks and bumps cover both admin and partner snapshots and generated files;
+a failed generation restores both sets of artifacts.
+
 ## Access model
 
 Create a separate Zitadel OIDC application in the DevFeed project with the exact redirect URI

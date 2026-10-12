@@ -4,18 +4,19 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, expect, it, vi } from "vitest";
 import { Portal } from "../src/app/portal";
 import type { Dashboard } from "../src/lib/types";
+import { partnerAccount, partnerIdentity } from "./partner-fixtures";
 
 const { router } = vi.hoisted(() => ({ router: { replace: vi.fn() } }));
 vi.mock("next/navigation", () => ({ useRouter: () => router }));
 
-const account = {
+const account = partnerAccount({
   id: "alpha",
   name: "Alpha",
   tier: "gold",
   benefits: ["Product placements"],
   status: "active" as const,
-};
-const identity = { subject: "alice", name: "Alice", roles: ["partner"], csrf_token: "csrf" };
+});
+const identity = partnerIdentity();
 const dashboard: Dashboard = {
   account,
   start: "2026-10-01",

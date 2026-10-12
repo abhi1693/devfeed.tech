@@ -1,42 +1,50 @@
 "use client";
 
-import { useEffect, useRef, useState, type FormEvent } from "react";
-import { useRouter } from "next/navigation";
+import { useEffect, useState, type FormEvent } from "react";
 import {
   AdCreativePreview,
   AutomaticAdFormats,
   adFormats,
   automaticAdFormats,
-  parseCreativePreview,
   type AdFormat,
   type CreativePreviewProduct,
 } from "@devfeed/ui/advertising-formats";
 import { Select } from "@devfeed/ui/select";
 import { Button } from "@/components/atoms/button";
 import type { Account } from "@/lib/types";
+import { parseCreativePreview } from "@/lib/contracts";
+import { isPartnerRequestCancelled } from "@/lib/partner-request";
+import { usePartnerPreferenceSave } from "@/lib/use-partner-preference-save";
 
-export function PartnerAdFormats({
-  account,
-  csrfToken,
-  onSaved,
-  onUnavailable,
-}: {
+type Props = {
   account: Account;
   csrfToken: string;
   onSaved: (account: Account) => void;
   onUnavailable: () => void;
-}) {
-  const router = useRouter();
+};
+
+export function PartnerAdFormats(props: Props) {
+  return <AccountAdFormats key={props.account.id} {...props} />;
+}
+
+function AccountAdFormats({ account, csrfToken, onSaved, onUnavailable }: Props) {
   const [value, setValue] = useState<AdFormat[]>(account.ad_formats ?? ["feed"]);
-  const [saving, setSaving] = useState(false);
-  const [message, setMessage] = useState("");
-  const [error, setError] = useState("");
-  const request = useRef<AbortController | null>(null);
-  const access = useRef({ router, onUnavailable });
-  useEffect(() => {
-    access.current = { router, onUnavailable };
-  }, [router, onUnavailable]);
-  useEffect(() => () => request.current?.abort(), []);
+  const {
+    request,
+    save: savePreferences,
+    saving,
+    message,
+    error,
+    clearMessage,
+  } = usePartnerPreferenceSave({
+    accountId: account.id,
+    csrfToken,
+    onSaved,
+    onUnavailable,
+    successMessage: "Ad formats saved.",
+    errorMessage: "Could not save ad formats. Please retry.",
+    confirmationMessage: "Could not confirm the saved ad formats. Refresh and try again.",
+  });
   const allowed =
     account.allowed_ad_formats ??
     (account.tier === "bronze" ? ["feed"] : adFormats.map((format) => format.value));
@@ -54,74 +62,24 @@ export function PartnerAdFormats({
   useEffect(() => {
     if (!previewOpen) return;
     const controller = new AbortController();
-    void (async () => {
-      try {
-        const response = await fetch(`/api/v1/partner/accounts/${account.id}/creative-preview`, {
-          cache: "no-store",
-          signal: controller.signal,
-        });
-        if (controller.signal.aborted) return;
-        if (response.status === 401) {
-          access.current.router.replace("/login");
-          access.current.onUnavailable();
-        } else if (response.status === 404) access.current.onUnavailable();
-        if (!response.ok) throw new Error("Could not load the creative preview.");
-        const product = parseCreativePreview(await response.json());
+    void request("creative-preview", {
+      signal: controller.signal,
+      parse: parseCreativePreview,
+      errorMessage: "Could not load the creative preview.",
+    })
+      .then((product) => {
         if (!controller.signal.aborted) setPreview({ key: previewKey, product, error: false });
-      } catch {
-        if (!controller.signal.aborted) setPreview({ key: previewKey, product: null, error: true });
-      }
-    })();
+      })
+      .catch((reason: unknown) => {
+        if (!controller.signal.aborted && !isPartnerRequestCancelled(reason))
+          setPreview({ key: previewKey, product: null, error: true });
+      });
     return () => controller.abort();
-  }, [account.id, previewOpen, previewKey]);
+  }, [request, previewOpen, previewKey]);
+
   async function save(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (saving || !eligible) return;
-    const controller = new AbortController();
-    request.current = controller;
-    setSaving(true);
-    setError("");
-    setMessage("");
-    try {
-      const response = await fetch(`/api/v1/partner/accounts/${account.id}/preferences`, {
-        method: "PUT",
-        headers: { "content-type": "application/json", "x-csrf-token": csrfToken },
-        body: JSON.stringify({ ad_formats: value }),
-        signal: controller.signal,
-      });
-      if (controller.signal.aborted) return;
-      if (response.status === 401) {
-        router.replace("/login");
-        onUnavailable();
-        return;
-      }
-      if (response.status === 404) {
-        onUnavailable();
-        return;
-      }
-      if (!response.ok)
-        throw new Error(
-          response.status === 403
-            ? "Could not update this account. Refresh the page and try again."
-            : "Could not save ad formats. Please retry.",
-        );
-      const saved = (await response.json()) as Account;
-      if (
-        saved.id !== account.id ||
-        !Array.isArray(saved.ad_formats) ||
-        !saved.ad_formats.every((format) => automaticAdFormats.includes(format))
-      )
-        throw new Error("Could not confirm the saved ad formats. Refresh and try again.");
-      if (!controller.signal.aborted) {
-        onSaved(saved);
-        setMessage("Ad formats saved.");
-      }
-    } catch (reason) {
-      if (!controller.signal.aborted)
-        setError(reason instanceof Error ? reason.message : "Could not save ad formats.");
-    } finally {
-      if (!controller.signal.aborted) setSaving(false);
-    }
+    if (eligible) await savePreferences({ ad_formats: value });
   }
   return (
     <section aria-label="Automatic ad formats" className="mt-6 space-y-4 border-t pt-6">
@@ -139,7 +97,7 @@ export function PartnerAdFormats({
           disabled={saving}
           onChange={(next) => {
             setValue(next);
-            setMessage("");
+            clearMessage();
           }}
         />
         {error && (

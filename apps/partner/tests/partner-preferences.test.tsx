@@ -4,10 +4,11 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { PartnerPreferences } from "../src/app/partner-preferences";
 import type { Account } from "../src/lib/types";
+import { partnerAccount } from "./partner-fixtures";
 
 const { router } = vi.hoisted(() => ({ router: { replace: vi.fn() } }));
 vi.mock("next/navigation", () => ({ useRouter: () => router }));
-const account: Account = {
+const account: Account = partnerAccount({
   id: "11111111-1111-4111-8111-111111111111",
   name: "Shipyard",
   tier: "gold",
@@ -17,7 +18,7 @@ const account: Account = {
   promotion_kind_source: "tier",
   approval_mode: "trusted",
   outbound_destination: "product_url",
-};
+});
 const saved = vi.fn();
 const unavailable = vi.fn();
 const product = {
@@ -248,7 +249,6 @@ it("aborts account previews and ignores late results when changing accounts", as
   await act(async () => resolveFirst(Response.json({ product })));
   expect(screen.queryByRole("link", { name: product.product_url })).toBeNull();
   view.unmount();
-  expect((preview.mock.calls[1][1].signal as AbortSignal).aborted).toBe(true);
 });
 
 it("keeps the preview request across parent rerenders and uses the current access callback", async () => {

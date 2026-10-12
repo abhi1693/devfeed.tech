@@ -20,11 +20,15 @@ import {
 
 const root = fileURLToPath(new URL("../../../", import.meta.url));
 const account = {
-  id: "11111111-1111-1111-1111-111111111111",
+  id: "11111111-1111-4111-8111-111111111111",
   name: "API Checker",
   tier: "gold",
   benefits: ["Product placements", "Monthly performance reporting"],
   status: "active",
+  organic_enabled: true,
+  auto_include_products: true,
+  promotion_kind: null,
+  allowed_promotion_kinds: ["product", "ad"],
   effective_promotion_kind: "ad",
   promotion_kind_source: "tier",
   approval_mode: "trusted",
@@ -37,7 +41,7 @@ const account = {
 };
 const beta = {
   ...account,
-  id: "22222222-2222-2222-2222-222222222222",
+  id: "22222222-2222-4222-8222-222222222222",
   name: "BuildKit Studio",
   tier: "bronze",
   benefits: [],
@@ -180,6 +184,9 @@ const mock = createServer(async (request, response) => {
     response.end(
       JSON.stringify({
         subject: "alice",
+        issuer: "https://identity.example",
+        organization_id: "devfeed",
+        expires_at: 4_102_444_800,
         name: "Alex Partner",
         roles: [mode === "superuser" ? "superuser" : "partner"],
         csrf_token: "test-csrf",

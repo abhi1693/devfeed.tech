@@ -14,3 +14,5 @@ reports/
 **/next-env.d.ts
 apps/admin/openapi.json
 apps/admin/src/lib/api/generated/
+apps/partner/openapi.json
+apps/partner/src/lib/api/generated/

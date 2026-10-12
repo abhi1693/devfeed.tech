@@ -1,4 +1,4 @@
-"""Keep one release version across manifests, lockfiles and admin API artifacts.
+"""Keep one release version across manifests, lockfiles and generated API artifacts.
 
 This developer command never touches git, migrations, databases, or services.
 """
@@ -34,8 +34,20 @@ JSON_MANIFESTS = (
     "apps/web/package.json",
     "apps/partner/package.json",
 )
-ADMIN_SCHEMA = "apps/admin/openapi.json"
-ADMIN_CLIENT = "apps/admin/src/lib/api/generated"
+API_ARTIFACTS = (
+    (
+        "admin",
+        "apps/admin/openapi.json",
+        "apps/admin/src/lib/api/generated",
+        ("admin.ts", "models/index.ts"),
+    ),
+    (
+        "partner",
+        "apps/partner/openapi.json",
+        "apps/partner/src/lib/api/generated",
+        ("validators.ts", "models/index.ts"),
+    ),
+)
 SPEC_VERSION = re.compile(r"(?m)^ \* OpenAPI spec version: ([^\r\n]+)$")
 RELEASE = re.compile(r"(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\Z")
 PROJECT = re.compile(r"(?ms)^\[project\][^\S\n]*\n(?P<body>.*?)(?=^\[|\Z)")
@@ -84,21 +96,24 @@ def check(root: Path) -> str:
         )
     ):
         raise ValueError("Lockfile version drift in package-lock.json")
-    schema = root / ADMIN_SCHEMA
-    if (
-        not schema.is_file()
-        or json.loads(schema.read_text()).get("info", {}).get("version") != expected
-    ):
-        raise ValueError(f"Generated version drift in {ADMIN_SCHEMA}; run npm run admin:generate")
-    clients = set((root / ADMIN_CLIENT).rglob("*.ts")) | {
-        root / ADMIN_CLIENT / "admin.ts",
-        root / ADMIN_CLIENT / "models/index.ts",
-    }
-    for path in sorted(clients):
-        if not path.is_file() or SPEC_VERSION.findall(path.read_text()) != [expected]:
+    for app, schema_name, client_name, required in API_ARTIFACTS:
+        schema = root / schema_name
+        if (
+            not schema.is_file()
+            or json.loads(schema.read_text()).get("info", {}).get("version") != expected
+        ):
             raise ValueError(
-                f"Generated version drift in {path.relative_to(root)}; run npm run admin:generate"
+                f"Generated version drift in {schema_name}; run npm run {app}:generate"
             )
+        clients = set((root / client_name).rglob("*.ts")) | {
+            root / client_name / name for name in required
+        }
+        for path in sorted(clients):
+            if not path.is_file() or SPEC_VERSION.findall(path.read_text()) != [expected]:
+                raise ValueError(
+                    f"Generated version drift in {path.relative_to(root)}; "
+                    f"run npm run {app}:generate"
+                )
     return expected
 
 
@@ -147,7 +162,8 @@ def set_version(root: Path, value: str, *, dry_run=False, runner=subprocess.run)
     original_lock = lock_path.read_bytes()
     generated = {
         path: path.read_bytes()
-        for path in [root / ADMIN_SCHEMA, *(root / ADMIN_CLIENT).rglob("*")]
+        for _, schema_name, client_name, _ in API_ARTIFACTS
+        for path in [root / schema_name, *(root / client_name).rglob("*")]
         if path.is_file()
     }
     generating = False
@@ -161,7 +177,8 @@ def set_version(root: Path, value: str, *, dry_run=False, runner=subprocess.run)
         # otherwise a successful generation can still stamp the previous release.
         runner(["uv", "sync", "--all-packages", "--locked", "--offline"], cwd=root, check=True)
         generating = True
-        runner(["npm", "run", "admin:generate"], cwd=root, check=True)
+        for app, _, _, _ in API_ARTIFACTS:
+            runner(["npm", "run", f"{app}:generate"], cwd=root, check=True)
         check(root)
     except (Exception, KeyboardInterrupt):
         for path, content in originals.items():
@@ -172,9 +189,10 @@ def set_version(root: Path, value: str, *, dry_run=False, runner=subprocess.run)
         if generating:
             # Orval owns this output directory and may clean/recreate it. Restore
             # the exact pre-bump artifacts, including files removed by generation.
-            for path in (root / ADMIN_CLIENT).rglob("*"):
-                if path.is_file() and path not in generated:
-                    path.unlink()
+            for _, _, client_name, _ in API_ARTIFACTS:
+                for path in (root / client_name).rglob("*"):
+                    if path.is_file() and path not in generated:
+                        path.unlink()
             for path, content in generated.items():
                 path.parent.mkdir(parents=True, exist_ok=True)
                 path.write_bytes(content)

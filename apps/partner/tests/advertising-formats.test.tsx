@@ -6,10 +6,11 @@ import { PartnerAdFormats } from "../src/app/partner-ad-formats";
 import { PartnerProductCatalog } from "../src/app/partner-product-catalog";
 import { PartnerProductPlacements } from "../src/app/partner-product-placements";
 import type { Account } from "../src/lib/types";
+import { partnerAccount } from "./partner-fixtures";
 
 const { router } = vi.hoisted(() => ({ router: { replace: vi.fn() } }));
 vi.mock("next/navigation", () => ({ useRouter: () => router }));
-const account: Account = {
+const account: Account = partnerAccount({
   id: "11111111-1111-4111-8111-111111111111",
   name: "Shipyard",
   tier: "silver",
@@ -17,7 +18,7 @@ const account: Account = {
   status: "active",
   ad_formats: ["feed"],
   allowed_ad_formats: ["feed", "homepage_sponsorship", "sponsored_content", "engagement"],
-};
+});
 const product = {
   id: "33333333-3333-4333-8333-333333333333",
   name: "CronWatch",

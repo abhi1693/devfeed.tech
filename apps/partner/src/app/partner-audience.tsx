@@ -1,132 +1,63 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
-import { useRouter } from "next/navigation";
+import { useCallback, useState, type FormEvent } from "react";
 import {
   AudienceTargeting,
   audienceValue,
   hasAudience,
-  experienceLevels,
-  type Audience,
   type AudienceTopicLoader,
 } from "@devfeed/ui/audience-targeting";
 import { Button } from "@/components/atoms/button";
 import type { Account } from "@/lib/types";
+import { parseAudienceTopics } from "@/lib/contracts";
+import { usePartnerPreferenceSave } from "@/lib/use-partner-preference-save";
 
-function validAudience(value: unknown): value is Audience {
-  if (!value || typeof value !== "object") return false;
-  const row = value as Audience;
-  return (
-    Array.isArray(row.experience_levels) &&
-    row.experience_levels.every((level) => experienceLevels.some((item) => item.value === level)) &&
-    Array.isArray(row.language_topic_ids) &&
-    row.language_topic_ids.every((id) => typeof id === "string") &&
-    Array.isArray(row.tool_topic_ids) &&
-    row.tool_topic_ids.every((id) => typeof id === "string")
-  );
-}
-
-export function PartnerAudience({
-  account,
-  csrfToken,
-  onSaved,
-  onUnavailable,
-}: {
+type Props = {
   account: Account;
   csrfToken: string;
   onSaved: (account: Account) => void;
   onUnavailable: () => void;
-}) {
-  const router = useRouter();
+};
+
+export function PartnerAudience(props: Props) {
+  return <AccountAudience key={props.account.id} {...props} />;
+}
+
+function AccountAudience({ account, csrfToken, onSaved, onUnavailable }: Props) {
   const [audience, setAudience] = useState(() => audienceValue(account.audience));
-  const [saving, setSaving] = useState(false);
-  const [message, setMessage] = useState("");
-  const [error, setError] = useState("");
-  const request = useRef<AbortController | null>(null);
-  const access = useRef({ router, onUnavailable });
-  useEffect(() => {
-    access.current = { router, onUnavailable };
-  }, [router, onUnavailable]);
-  useEffect(() => () => request.current?.abort(), []);
+  const {
+    request,
+    save: savePreferences,
+    saving,
+    message,
+    error,
+    clearMessage,
+  } = usePartnerPreferenceSave({
+    accountId: account.id,
+    csrfToken,
+    onSaved,
+    onUnavailable,
+    successMessage: "Audience saved.",
+    errorMessage: "Could not save the audience. Check the selections and retry.",
+    confirmationMessage: "Could not confirm the saved audience. Refresh and try again.",
+  });
   const loadTopics = useCallback<AudienceTopicLoader>(
     async (dimension, params, signal) => {
       const query = new URLSearchParams({ dimension });
       for (const [key, value] of Object.entries(params))
         if (value !== undefined) query.set(key, String(value));
-      const response = await fetch(
-        `/api/v1/partner/accounts/${account.id}/audience-topics?${query}`,
-        {
-          cache: "no-store",
-          signal,
-        },
-      );
-      if (signal.aborted) throw new Error("Request cancelled.");
-      if (response.status === 401) {
-        access.current.router.replace("/login");
-        access.current.onUnavailable();
-      } else if (response.status === 404) access.current.onUnavailable();
-      if (!response.ok) throw new Error("Could not load audience topics.");
-      const page = await response.json();
-      if (
-        !page ||
-        !Array.isArray(page.items) ||
-        typeof page.total !== "number" ||
-        page.items.some(
-          (item: Record<string, unknown>) =>
-            !item ||
-            ["id", "name", "slug", "kind", "status"].some((key) => typeof item[key] !== "string"),
-        )
-      )
-        throw new Error("Could not load audience topics.");
-      return page;
+      return request(`audience-topics?${query}`, {
+        signal,
+        parse: parseAudienceTopics,
+        errorMessage: "Could not load audience topics.",
+      });
     },
-    [account.id],
+    [request],
   );
 
   async function save(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (saving || !account.advanced_targeting) return;
-    const controller = new AbortController();
-    request.current = controller;
-    setSaving(true);
-    setMessage("");
-    setError("");
-    try {
-      const response = await fetch(`/api/v1/partner/accounts/${account.id}/preferences`, {
-        method: "PUT",
-        headers: { "content-type": "application/json", "x-csrf-token": csrfToken },
-        body: JSON.stringify({ audience }),
-        signal: controller.signal,
-      });
-      if (controller.signal.aborted) return;
-      if (response.status === 401) {
-        router.replace("/login");
-        onUnavailable();
-        return;
-      }
-      if (response.status === 404) {
-        onUnavailable();
-        return;
-      }
-      if (!response.ok)
-        throw new Error(
-          response.status === 403
-            ? "Could not update this account. Refresh the page and try again."
-            : "Could not save the audience. Check the selections and retry.",
-        );
-      const saved = (await response.json()) as Account;
-      if (saved.id !== account.id || !validAudience(saved.audience))
-        throw new Error("Could not confirm the saved audience. Refresh and try again.");
-      if (!controller.signal.aborted) {
-        onSaved(saved);
-        setMessage("Audience saved.");
-      }
-    } catch (reason) {
-      if (!controller.signal.aborted)
-        setError(reason instanceof Error ? reason.message : "Could not save the audience.");
-    } finally {
-      if (!controller.signal.aborted) setSaving(false);
-    }
+    if (account.advanced_targeting) await savePreferences({ audience });
   }
   return (
     <section aria-label="Audience targeting" className="mt-6 space-y-4 border-t pt-6">
@@ -152,7 +83,7 @@ export function PartnerAudience({
             account.advanced_targeting
               ? (value) => {
                   setAudience(value);
-                  setMessage("");
+                  clearMessage();
                 }
               : undefined
           }

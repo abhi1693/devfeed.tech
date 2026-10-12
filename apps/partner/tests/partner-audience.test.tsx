@@ -3,6 +3,7 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { PartnerAudience } from "../src/app/partner-audience";
 import type { Account } from "../src/lib/types";
+import { partnerAccount } from "./partner-fixtures";
 
 const router = vi.hoisted(() => ({ replace: vi.fn() }));
 vi.mock("next/navigation", () => ({ useRouter: () => router }));
@@ -11,7 +12,7 @@ const audience = {
   language_topic_ids: [],
   tool_topic_ids: [],
 };
-const account: Account = {
+const account: Account = partnerAccount({
   id: "11111111-1111-4111-8111-111111111111",
   name: "Example",
   tier: "platinum",
@@ -20,7 +21,7 @@ const account: Account = {
   advanced_targeting: true,
   audience,
   outbound_destination: "listing_url",
-};
+});
 const saved = vi.fn();
 const unavailable = vi.fn();
 function mount(value = account) {
@@ -81,13 +82,19 @@ it("shows retained lower-tier restrictions without saveable controls", () => {
 });
 
 it("loads scoped server-filtered topics and resolves saved names on edit", async () => {
-  const rust = { id: "rust", name: "Rust", slug: "rust", kind: "language", status: "active" };
+  const rust = {
+    id: "33333333-3333-4333-8333-333333333333",
+    name: "Rust",
+    slug: "rust",
+    kind: "language",
+    status: "active",
+  };
   const fetcher = vi.fn(async () => Response.json({ items: [rust], total: 1 }));
   vi.stubGlobal("fetch", fetcher);
   mount({ ...account, audience: { ...audience, language_topic_ids: [rust.id] } });
   await screen.findByText("Rust");
   expect(fetcher).toHaveBeenCalledWith(
-    `/api/v1/partner/accounts/${account.id}/audience-topics?dimension=languages&topic_id=rust&limit=1`,
+    `/api/v1/partner/accounts/${account.id}/audience-topics?dimension=languages&topic_id=${rust.id}&limit=1`,
     expect.objectContaining({ cache: "no-store", signal: expect.any(AbortSignal) }),
   );
   fireEvent.click(screen.getByRole("combobox", { name: "Developer tools" }));

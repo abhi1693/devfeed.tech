@@ -3,9 +3,10 @@ import { cleanup, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, expect, it, vi } from "vitest";
 import { PortalShell } from "../src/app/portal-shell";
+import { partnerIdentity } from "./partner-fixtures";
 
 afterEach(cleanup);
-const identity = { subject: "alice", name: "Alice", roles: ["partner"], csrf_token: "csrf" };
+const identity = partnerIdentity();
 
 it("shows partner navigation without management access", () => {
   render(
