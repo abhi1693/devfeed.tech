@@ -71,7 +71,7 @@ repair batch for imported inventory. Jobs use current policy, resume from their 
 cursor after retries, and restart when policy changes. Future campaign starts trigger another
 sweep, including when an agreement starts during enrollment. Inserts use 500-row chunks.
 A single-product policy edit enrolls only that product, without scanning the account catalog.
-Migration 0035 creates the enrollment queue; apply it before starting this application version.
+Migration 0035 creates the enrollment queue; current runtimes require migrations through 0036.
 There is no routine product/ad asset classification step. Legacy manually associated
 assets and imported metrics remain available as historical reporting records; they do not
 silently enter the new automatic delivery pipeline.
@@ -269,8 +269,12 @@ the receipt's UTC issuance day. A receipt issued before midnight and viewed afte
 to the previous day's metrics, so views occurring within a calendar day can exceed that day's
 issuance budget. Outstanding reservations across UTC midnight remain protected until expiry.
 Issuance may conservatively use capacity before a placement becomes visible.
-Expired reservation rows are pruned in bounded batches after two days; durable daily counters
-and historical asset attribution remain. Clicks and impressions are independently deduplicated.
+Tracking deduplication records retain the current UTC issuance day and the two previous days.
+Reservations are retained for 48 hours. An independent scheduler cleanup uses indexed,
+materialized batches of at most 4,000 rows per table per pass and skips locked rows. Cleanup
+continues when promotion or matching work fails. Durable daily counters and historical asset
+attribution remain; expired receipts cannot be replayed after cleanup. Clicks and impressions
+are independently deduplicated.
 No reader ID, IP or page URL is stored in
 delivery reservations or tracking events. Imported external totals remain separate from live
 counters and must describe external deliveries to avoid double counting.
@@ -287,7 +291,7 @@ stored in Redis keys or measurement rows.
 
 ## Enablement and rollout
 
-Apply migrations through `0035` with `uv run devfeed db upgrade`. It follows the source-logo `0023` and
+Apply migrations through `0036` with `uv run devfeed db upgrade`. It follows the source-logo `0023` and
 partner migrations `0024`–`0027`, preserves existing catalog, accounts, memberships and metrics,
 and adds defaults, campaigns, exclusions, prepared matches and delivery reservations. Accounts
 inherit their tier's promotion type and automatic inclusion; existing connections remain assigned
@@ -314,6 +318,11 @@ Migration `0035` adds durable per-account enrollment checkpoints for large catal
 campaign starts. Downgrading only `0035` removes pending enrollment jobs; automatic assets,
 campaigns and tracking metrics are preserved.
 
+Migration `0036` adds the tracking-event day index used by bounded retention cleanup. The
+migration preserves all records; the scheduler prunes expired event and reservation history
+afterward without changing daily aggregates. Downgrading removes the index and cannot restore
+history already pruned by the scheduler.
+
 Set the same server-only `DEVFEED_PARTNER_TRACKING_KEY` in the public API and user API, using at
 least 32 random ASCII characters. Compose injects it only into those two trusted backends.
 The worker needs no signing key. An empty key disables delivery and collection. The scheduler
@@ -334,7 +343,7 @@ but groups proxied readers together. Configure both settings before enabling pro
 A configured gateway rejects missing or invalid trusted address headers rather than issuing
 unidentified upstream requests. Neither key nor caller proof is exposed to browsers or extensions.
 
-Deploy all services requiring schema `0035` together after the migration. Downgrading below `0028`
+Deploy all services requiring schema `0036` together after the migration. Downgrading below `0028`
 removes campaign/default/matching/reservation data and automatic campaign associations; retain a database
 backup before rollback. It preserves the original manually managed asset/metric data. Downgrading
 only `0029` removes product logo metadata/jobs while preserving products, campaigns and reporting.

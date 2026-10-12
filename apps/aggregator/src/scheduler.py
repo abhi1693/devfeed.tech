@@ -24,6 +24,7 @@ from devfeed_core.models import (
 from devfeed_core.overview_daily import refresh_overview_daily
 from devfeed_core.partner_matching import refresh_partner_matches
 from devfeed_core.partner_promotions import sync_partner_promotions
+from devfeed_core.partner_tracking import prune_partner_delivery_history
 from devfeed_core.recommendations import (
     dispatch_recommendations,
     expand_recommendation_events,
@@ -100,6 +101,12 @@ def _tick() -> dict[str, int]:
         prune_job_payloads(factory)
     except Exception:
         logger.exception("job_payload_retention_failed")
+    try:
+        prune_partner_delivery_history(factory)
+    except Exception as exc:
+        logger.warning(
+            "partner_delivery_retention_failed", extra={"error_type": type(exc).__name__}
+        )
     recommendation_users_queued = expand_recommendation_events(
         factory, get_settings().scheduler_batch_size
     )

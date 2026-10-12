@@ -2048,6 +2048,7 @@ class PartnerDeliveryEvent(Base):
     __tablename__ = "partner_delivery_events"
     __table_args__ = (
         CheckConstraint("kind IN ('impression','click')", name="ck_partner_delivery_kind"),
+        Index("ix_partner_delivery_event_day", "day"),
     )
     asset_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("partner_assets.id"), primary_key=True)
     delivery_id: Mapped[uuid.UUID] = mapped_column(primary_key=True)

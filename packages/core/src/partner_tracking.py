@@ -7,10 +7,10 @@ import time
 import uuid
 from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Literal
 
-from sqlalchemy import select
+from sqlalchemy import delete, func, select, tuple_
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.exc import SQLAlchemyError
 
@@ -21,10 +21,13 @@ from devfeed_core.models import (
     PartnerPlacementDelivery,
     PartnerProduct,
     PartnerTrackedDailyMetric,
+    utcnow,
 )
 
 EventKind = Literal["impression", "click"]
 RECEIPT_TTL = 3600
+DELIVERY_HISTORY_RETENTION = timedelta(days=2)
+DELIVERY_HISTORY_BATCH_SIZE = 4000
 _RECEIPT = re.compile(r"v1\.([0-9a-f]{32})\.([0-9a-f]{32})\.([0-9]{1,12})\.([0-9a-f]{64})")
 
 
@@ -72,6 +75,56 @@ class InactivePartnerAsset(Exception):
 
 class BusyPartnerAsset(SQLAlchemyError):
     """A valid receipt can be retried after a concurrent attribution edit commits."""
+
+
+def prune_partner_delivery_history(
+    factory, *, now=None, batch_size=DELIVERY_HISTORY_BATCH_SIZE
+) -> int:
+    """Prune expired receipt history in bounded batches, retaining daily reporting totals."""
+    if not 1 <= batch_size <= DELIVERY_HISTORY_BATCH_SIZE:
+        raise ValueError(f"Partner delivery cleanup batch must be 1..{DELIVERY_HISTORY_BATCH_SIZE}")
+    now = (now or utcnow()).astimezone(UTC)
+    cutoff = now - DELIVERY_HISTORY_RETENTION
+    with factory.begin() as session:
+        if not session.scalar(select(func.pg_try_advisory_xact_lock(832604284))):
+            return 0
+        # The ledger records the receipt's UTC day, so retain two complete days
+        # plus today. Every removed receipt has long exceeded its one-hour TTL.
+        # Materialize each batch so nested-loop delete plans cannot select it repeatedly.
+        event_keys = (
+            PartnerDeliveryEvent.asset_id,
+            PartnerDeliveryEvent.delivery_id,
+            PartnerDeliveryEvent.kind,
+        )
+        expired_events = (
+            select(*event_keys)
+            .where(PartnerDeliveryEvent.day < cutoff.date())
+            .order_by(PartnerDeliveryEvent.day)
+            .limit(batch_size)
+            .with_for_update(skip_locked=True)
+            .cte("expired_partner_events")
+            .prefix_with("MATERIALIZED")
+        )
+        events = session.execute(
+            delete(PartnerDeliveryEvent)
+            .where(tuple_(*event_keys).in_(select(expired_events)))
+            .execution_options(synchronize_session=False)
+        )
+        expired_reservations = (
+            select(PartnerPlacementDelivery.delivery_id)
+            .where(PartnerPlacementDelivery.issued_at < cutoff)
+            .order_by(PartnerPlacementDelivery.issued_at)
+            .limit(batch_size)
+            .with_for_update(skip_locked=True)
+            .cte("expired_partner_reservations")
+            .prefix_with("MATERIALIZED")
+        )
+        reservations = session.execute(
+            delete(PartnerPlacementDelivery)
+            .where(PartnerPlacementDelivery.delivery_id.in_(select(expired_reservations)))
+            .execution_options(synchronize_session=False)
+        )
+        return events.rowcount + reservations.rowcount
 
 
 def record_delivery_event(session, receipt: DeliveryReceipt, kind: EventKind) -> bool:

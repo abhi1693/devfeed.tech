@@ -178,3 +178,16 @@ future campaign starts schedule another pass. Existing assets and reporting are 
 
 Apply before starting runtimes requiring schema `0035`. Downgrading removes pending enrollment
 jobs only; automatic assets, campaigns and tracking metrics remain. No production rollout is implied.
+
+## 0036: partner tracking deduplication retention
+
+Adds a day index to `partner_delivery_events` for bounded, oldest-first cleanup. The scheduler
+retains the current UTC date and two complete prior dates of deduplication events, then removes
+older events in batches of at most 4,000 per pass. Delivery reservations older than 48 hours
+have a separate 4,000-row batch in the same cleanup transaction. Cleanup skips locked rows and
+runs independently of promotion enrollment and contextual matching. Daily reporting aggregates
+remain unchanged, and signed receipts still expire after one hour.
+
+Apply before starting runtimes requiring schema `0036`. The migration adds an index without
+deleting data. Downgrading removes the index; it does not restore history already pruned by
+the scheduler.

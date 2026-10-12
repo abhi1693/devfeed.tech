@@ -12,7 +12,6 @@ from devfeed_core.models import (
     Article,
     PartnerArticleMatch,
     PartnerMatchState,
-    PartnerPlacementDelivery,
     PartnerProduct,
     PartnerProductTopic,
     Topic,
@@ -356,19 +355,6 @@ def refresh_partner_matches(factory, *, product_limit=10, article_limit=100, now
         # Multiple scheduler processes share one bounded preparation lane.
         if not session.scalar(select(func.pg_try_advisory_xact_lock(832604282))):
             return 0
-        expired = (
-            select(PartnerPlacementDelivery.delivery_id)
-            .where(
-                PartnerPlacementDelivery.issued_at < now - timedelta(days=2),
-            )
-            .order_by(PartnerPlacementDelivery.issued_at)
-            .limit(1000)
-        )
-        session.execute(
-            delete(PartnerPlacementDelivery).where(
-                PartnerPlacementDelivery.delivery_id.in_(expired),
-            )
-        )
         products = session.scalars(
             select(PartnerProduct)
             .outerjoin(PartnerMatchState)

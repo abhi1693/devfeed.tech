@@ -111,6 +111,12 @@ reporting. Changing one setting preserves other saved product settings.
 
 ### Contextual delivery and tracking
 
+Deduplication events retain the current UTC date and two complete prior dates. The scheduler
+removes older events and delivery reservations older than 48 hours in independent, indexed
+batches of at most 4,000 rows per table per pass. Busy rows wait for a later pass. Daily
+tracked and imported reporting totals remain intact; expired receipts cannot create new
+measurements after their deduplication rows are removed.
+
 The website and both extensions share `observePartnerPlacement(element, receipt)` in
 `apps/web/src/lib/partner-tracking.ts`. The shared contextual placement component attaches it
 to clickable products and cleans it up on unmount. It counts an impression after at

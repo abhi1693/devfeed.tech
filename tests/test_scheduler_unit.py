@@ -116,8 +116,10 @@ def test_unsupported_recovery_requires_an_explicit_policy():
         "minimal",
         "all",
         "retention-failed",
+        "partner-retention-failed",
         "overview-failed",
         "partner-matching-failed",
+        "partner-promotion-failed",
         "dispatch-failed",
         "topics-only",
         "relationships-only",
@@ -165,6 +167,12 @@ def test_tick_dispatches_outside_transactions_and_preserves_cleanup(monkeypatch,
         "prune_job_payloads",
         Mock(side_effect=RuntimeError("retention")) if mode == "retention-failed" else Mock(),
     )
+    partner_retention = Mock(
+        side_effect=RuntimeError("partner retention")
+        if mode == "partner-retention-failed"
+        else None
+    )
+    monkeypatch.setattr(scheduler, "prune_partner_delivery_history", partner_retention)
     monkeypatch.setattr(scheduler, "expand_recommendation_events", Mock(return_value=3))
     monkeypatch.setattr(
         scheduler, "schedule_automation", Mock(return_value={"automation_scheduled": 4})
@@ -177,6 +185,12 @@ def test_tick_dispatches_outside_transactions_and_preserves_cleanup(monkeypatch,
     monkeypatch.setattr(notification_delivery, "recover_notifications", Mock(return_value=2))
     monkeypatch.setattr(scheduler, "dispatch_partner_pipeline", Mock(return_value=0))
     monkeypatch.setattr(scheduler, "dispatch_partner_evaluations", Mock(return_value=0))
+    promotions = Mock(
+        side_effect=RuntimeError("partner promotion")
+        if mode == "partner-promotion-failed"
+        else None
+    )
+    monkeypatch.setattr(scheduler, "sync_partner_promotions", promotions)
     monkeypatch.setattr(
         scheduler,
         "refresh_partner_matches",
@@ -224,6 +238,10 @@ def test_tick_dispatches_outside_transactions_and_preserves_cleanup(monkeypatch,
             "devfeed:scheduler:heartbeat", NOW.isoformat(), ex=120
         )
     assert prune.call_count == int(mode != "overview-failed")
+    partner_retention.assert_called_once_with(factory)
+    promotions.assert_called_once_with(factory)
+    if mode != "partner-promotion-failed":
+        scheduler.refresh_partner_matches.assert_called_once_with(factory)
     assert all(item.connection.close.call_count == 1 for item in queues)
 
 
