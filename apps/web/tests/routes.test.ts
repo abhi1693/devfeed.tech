@@ -32,9 +32,11 @@ vi.mock("@/lib/api", async (original) => ({
   getSource: vi.fn(),
   getArticle: vi.fn(),
   getTag: vi.fn(),
+  getFeed: vi.fn(),
 }));
 beforeEach(() => {
   vi.clearAllMocks();
+  vi.mocked(api.getFeed).mockResolvedValue({ items: [article], next_cursor: null });
   vi.mocked(api.getTopic).mockResolvedValue(topic);
   vi.mocked(api.getSource).mockResolvedValue(source);
   vi.mocked(api.getArticle).mockResolvedValue(article);
@@ -363,4 +365,68 @@ it("redirects source aliases during metadata generation before streaming HTML", 
       searchParams: Promise.resolve({ language: "en" }),
     }),
   ).rejects.toThrow(`REDIRECT:/sources/${source.slug}/news?language=en`);
+});
+
+it.each([
+  ["tag", tagMetadata, "c++"],
+  ["topic", topicMetadata, topic.slug],
+] as const)(
+  "indexes %s pages only when the rendered feed has articles",
+  async (kind, generate, slug) => {
+    const props = { params: Promise.resolve({ slug }), searchParams: Promise.resolve({}) };
+    expect((await generate(props)).robots).toBeUndefined();
+    expect(api.getFeed).toHaveBeenLastCalledWith(expect.objectContaining({ [kind]: slug }));
+    vi.mocked(api.getFeed).mockResolvedValue({ items: [], next_cursor: null });
+    expect((await generate(props)).robots).toEqual({ index: false, follow: true });
+    vi.mocked(api.getFeed).mockResolvedValue({ items: [article], next_cursor: null });
+    expect((await generate(props)).robots).toBeUndefined();
+  },
+);
+
+it.each([tagMetadata, topicMetadata])(
+  "checks the exact typed collection view",
+  async (generate) => {
+    vi.mocked(api.getFeed).mockResolvedValue({ items: [], next_cursor: null });
+    const metadata = await generate({
+      params: Promise.resolve({ slug: topic.slug, contentType: "tutorials" }),
+      searchParams: Promise.resolve({ cursor: "last-page" }),
+    });
+    expect(api.getFeed).toHaveBeenLastCalledWith(
+      expect.objectContaining({ content_type: "tutorial", cursor: "last-page" }),
+    );
+    expect(metadata.robots).toEqual({ index: false, follow: true });
+  },
+);
+
+it.each([tagMetadata, topicMetadata])(
+  "does not index a collection feed outage",
+  async (generate) => {
+    vi.mocked(api.getFeed).mockRejectedValue(new api.UserApiError(503));
+    expect(
+      (
+        await generate({
+          params: Promise.resolve({ slug: topic.slug }),
+          searchParams: Promise.resolve({}),
+        })
+      ).robots,
+    ).toEqual({ index: false, follow: true });
+    vi.mocked(api.getFeed).mockRejectedValue(new Error("unexpected"));
+    await expect(
+      generate({
+        params: Promise.resolve({ slug: topic.slug }),
+        searchParams: Promise.resolve({}),
+      }),
+    ).rejects.toThrow("unexpected");
+  },
+);
+
+it.each([
+  ["getTag", tagMetadata],
+  ["getTopic", topicMetadata],
+] as const)("keeps missing collection metadata as a 404 (%s)", async (lookup, generate) => {
+  vi.mocked(api[lookup]).mockRejectedValue(new api.UserApiError(404));
+  await expect(
+    generate({ params: Promise.resolve({ slug: "missing" }), searchParams: Promise.resolve({}) }),
+  ).rejects.toThrow("NOT_FOUND");
+  expect(api.getFeed).not.toHaveBeenCalled();
 });
