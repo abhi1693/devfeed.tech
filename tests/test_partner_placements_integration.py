@@ -29,7 +29,7 @@ from devfeed_core.models import (
     UserTopic,
     utcnow,
 )
-from devfeed_core.partner_matching import refresh_partner_matches, save_article_match
+from devfeed_core.partner_matching import article_match, refresh_partner_matches, save_article_match
 from devfeed_core.partner_placements import deliver_placements
 from devfeed_core.partner_promotions import ensure_automatic_assets
 from devfeed_core.partner_tracking import (
@@ -353,21 +353,58 @@ def test_campaign_expiry_retains_organic_eligibility_and_history(database, catal
         )
 
 
-def test_concurrent_campaign_reservations_never_exceed_shared_limit(database, catalog):
+@pytest.mark.parametrize(
+    ("hour", "minute"),
+    [(0, 5), (12, 0), (23, 30)],
+    ids=["after-midnight", "noon", "before-midnight"],
+)
+def test_concurrent_campaign_reservations_never_exceed_shared_limit(
+    database, catalog, hour, minute
+):
+    issued_at = utcnow().replace(hour=hour, minute=minute, second=0, microsecond=0)
+
+    def prepare_context(now):
+        with database.begin() as session:
+            article = session.get(Article, catalog["article"])
+            for name in ("free_product", "paid_product"):
+                product = session.get(PartnerProduct, catalog[name])
+                prepared = article_match(product, article)
+                assert prepared[0]
+                assert save_article_match(session, product, article, *prepared, now=now)
+
     with database.begin() as session:
-        session.get(PartnerCampaign, catalog["campaign"]).daily_impression_limit = 1
+        campaign = session.get(PartnerCampaign, catalog["campaign"])
+        campaign.daily_impression_limit = 1
+        campaign.starts_at = issued_at - timedelta(days=1)
+        campaign.ends_at = issued_at + timedelta(days=1)
+    prepare_context(issued_at)
     with ThreadPoolExecutor(max_workers=4) as pool:
-        pages = list(pool.map(lambda _: deliver(database, query(catalog)), range(4)))
+        pages = list(pool.map(lambda _: deliver(database, query(catalog), now=issued_at), range(4)))
     assert sum(item["sponsored"] for page in pages for item in page) == 1
     funded = next(item for page in pages for item in page if item["sponsored"])
     with database.begin() as session:
-        receipt = PartnerTrackingTokens(KEY).verify(funded["receipt"])
+        receipt = PartnerTrackingTokens(KEY, clock=lambda: issued_at.timestamp()).verify(
+            funded["receipt"]
+        )
+        assert receipt is not None
         assert record_delivery_event(session, receipt, "impression")
-    assert not any(item["sponsored"] for item in deliver(database, query(catalog)))
-    # After expiry, the measured impression still consumes today's campaign cap.
+    assert not any(item["sponsored"] for item in deliver(database, query(catalog), now=issued_at))
+    after_expiry = issued_at + timedelta(hours=2)
+    if after_expiry.date() != issued_at.date():
+        before_expiry = issued_at + timedelta(minutes=35)
+        prepare_context(before_expiry)
+        assert not any(
+            item["sponsored"] for item in deliver(database, query(catalog), now=before_expiry)
+        )
+    prepare_context(after_expiry)
+    # Expired receipts retain measured usage for their UTC day; the next day resets the cap.
+    assert any(
+        item["sponsored"] for item in deliver(database, query(catalog), now=after_expiry)
+    ) == (after_expiry.date() != issued_at.date())
+    # A higher cap must unblock the same eligible context, independently of match freshness.
     with database.begin() as session:
-        session.get(PartnerPlacementDelivery, receipt.delivery_id).issued_at -= timedelta(hours=2)
-    assert not any(item["sponsored"] for item in deliver(database, query(catalog)))
+        session.get(PartnerCampaign, catalog["campaign"]).daily_impression_limit = 2
+    assert any(item["sponsored"] for item in deliver(database, query(catalog), now=after_expiry))
 
 
 def test_article_edits_invalidate_matches_and_durable_jobs_rebuild(database, catalog):
