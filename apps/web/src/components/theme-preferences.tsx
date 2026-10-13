@@ -3,7 +3,7 @@
 import { createContext, useContext, useEffect, useRef, useState } from "react";
 import { defaultDateTimePreferences, type DateTimePreferences } from "@devfeed/ui/date-format";
 import type { ThemeMode } from "@devfeed/ui/theme-toggle";
-import { setBrowserTheme, useBrowserTheme } from "@/lib/browser-theme";
+import { setBrowserTheme, useBrowserTheme } from "@devfeed/ui/browser-theme";
 import { userRequest } from "@/lib/user";
 import { useUser } from "./user-account";
 

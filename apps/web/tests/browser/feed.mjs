@@ -24,6 +24,7 @@ import { checkReaderNavigation } from "../../../../scripts/testing/reader-naviga
 import { checkReaderInteractions, notificationFixture } from "./reader-interactions.mjs";
 import { checkSidebarGitHub } from "../../../../scripts/testing/sidebar-github.mjs";
 import { checkCollapsibleSidebar } from "../../../../scripts/testing/collapsible-sidebar.mjs";
+import { checkBrowserTheme } from "../../../../scripts/testing/browser-theme.mjs";
 import {
   engagementFeed,
   engagementRows,
@@ -502,7 +503,10 @@ async function runReaderChecks() {
     }
   }
   browser = await chromium.launch({ headless: true });
-  if (process.env.DEVFEED_READER_SIDEBAR_ONLY === "1") {
+  if (
+    process.env.DEVFEED_READER_SIDEBAR_ONLY === "1" ||
+    process.env.DEVFEED_READER_THEME_ONLY === "1"
+  ) {
     const context = await browser.newContext({
       viewport: { width: 1440, height: 900 },
       reducedMotion: "reduce",
@@ -513,10 +517,14 @@ async function runReaderChecks() {
     await page.goto(`${origin}/latest`);
     await page.locator(".article-card").first().waitFor();
     await mkdir(`${root}/reports/reader-feed`, { recursive: true });
-    await checkCollapsibleSidebar(page, `${root}/reports/reader-feed/shared-sidebar`);
+    if (process.env.DEVFEED_READER_THEME_ONLY === "1")
+      await checkBrowserTheme(page, `${root}/reports/reader-feed/shared-theme`, {
+        bootstrap: true,
+      });
+    else await checkCollapsibleSidebar(page, `${root}/reports/reader-feed/shared-sidebar`);
     assert.deepEqual(errors, []);
     await context.close();
-    console.log("Shared sidebar passed against the final production web bundle.");
+    console.log("Focused shared reader controls passed against the production web bundle.");
     return;
   }
   const seoPage = await browser.newPage();
@@ -639,6 +647,7 @@ async function runReaderChecks() {
   await page.bringToFront();
   await checkSidebarGitHub(page, `${root}/reports/reader-feed/sidebar-github.png`);
   await checkCollapsibleSidebar(page, `${root}/reports/reader-feed/shared-sidebar`);
+  await checkBrowserTheme(page, `${root}/reports/reader-feed/shared-theme`, { bootstrap: true });
   await checkMcp(page, `${root}/reports/reader-feed/mcp`);
   const whatsNew = page
     .locator(".sidebar")

@@ -20,6 +20,7 @@ import {
 
 import { createConnectionFixture, assertConnectionJourneys } from "./browser-connections.mjs";
 import { createManualProductFixture, assertManualProductJourneys } from "./browser-products.mjs";
+import { assertPartnerThemeJourneys } from "./browser-theme.mjs";
 const manualProducts = createManualProductFixture();
 
 const root = fileURLToPath(new URL("../../../", import.meta.url));
@@ -982,6 +983,7 @@ try {
   await page.getByRole("heading", { name: "Dashboard", exact: true, level: 1 }).waitFor();
   assert.equal(new URL(page.url()).pathname, "/");
   await checkPartnerSidebar(page);
+  await assertPartnerThemeJourneys({ browser, context, origin, root });
   await page.getByRole("figure", { name: "Impressions and clicks", exact: true }).waitFor();
   await page.getByRole("button", { name: "User menu: Alex Partner" }).focus();
   await page.keyboard.press("Enter");

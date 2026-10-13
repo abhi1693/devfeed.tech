@@ -1,7 +1,7 @@
 "use client";
 
 import { useSyncExternalStore } from "react";
-import type { ThemeMode } from "@devfeed/ui/theme-toggle";
+import type { ThemeMode } from "./theme-toggle";
 
 const storageKey = "devfeed:theme";
 let selected: ThemeMode | null = null;
@@ -20,7 +20,7 @@ function apply(theme: ThemeMode) {
   document.documentElement.classList.toggle(
     "dark",
     theme === "dark" ||
-      (theme === "system" && window.matchMedia("(prefers-color-scheme: dark)").matches),
+      (theme === "system" && !!window.matchMedia?.("(prefers-color-scheme: dark)")?.matches),
   );
 }
 export function setBrowserTheme(theme: ThemeMode) {
@@ -35,7 +35,7 @@ export function setBrowserTheme(theme: ThemeMode) {
 }
 function subscribe(listener: () => void) {
   listeners.add(listener);
-  const system = window.matchMedia("(prefers-color-scheme: dark)");
+  const system = window.matchMedia?.("(prefers-color-scheme: dark)");
   const sync = () => apply(snapshot());
   const storage = (event: StorageEvent) => {
     if (event.key !== storageKey && event.key !== null) return;
@@ -44,11 +44,11 @@ function subscribe(listener: () => void) {
     listener();
   };
   sync();
-  system.addEventListener("change", sync);
+  system?.addEventListener?.("change", sync);
   window.addEventListener("storage", storage);
   return () => {
     listeners.delete(listener);
-    system.removeEventListener("change", sync);
+    system?.removeEventListener?.("change", sync);
     window.removeEventListener("storage", storage);
     if (!listeners.size) selected = null;
   };

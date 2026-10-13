@@ -4,6 +4,8 @@
   "private": true,
   "type": "module",
   "exports": {
+    "./browser-theme": "./src/browser-theme.ts",
+    "./theme-script": "./src/theme-script.ts",
     "./sidebar": "./src/sidebar.tsx",
     "./sidebar.css": "./src/sidebar.css",
     "./resource-layout": "./src/resource-layout.tsx",

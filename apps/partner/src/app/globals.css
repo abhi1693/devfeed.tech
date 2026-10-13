@@ -4,6 +4,7 @@
 @import "@devfeed/ui/choice-controls.css";
 @import "@devfeed/ui/info-tip.css";
 @import "@devfeed/ui/sidebar.css";
+@import "@devfeed/theme/theme-toggle.css";
 @import "@devfeed/theme/tokens.css";
 @import "@devfeed/theme/brand.css";
 @import "@devfeed/theme/tailwind.css";
@@ -62,6 +63,7 @@
 
 /* Keep the shared login's partner palette isolated from dashboard tokens. */
 .partner-login {
+  color-scheme: light;
   --primary: #176252;
   --primary-foreground: #ffffff;
   --ring: #176252;

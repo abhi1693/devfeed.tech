@@ -53,6 +53,11 @@ or account UUID prefix in workspace URLs. The shared reader-style sidebar starts
 expands with labels using the bottom toggle, and remembers that choice for this portal. On mobile,
 Navigation opens the labeled menu and closes after navigation or Escape without changing the desktop preference.
 
+The header theme button cycles through system, light, and dark appearances. The portal remembers
+the selection in this browser, follows device appearance changes in system mode, and applies the
+saved appearance before rendering the page. Theme controls, styles, and browser preferences are
+shared with the reader. The sign-in page retains its light partner palette.
+
 - `/`: Dashboard with aggregate performance totals and a daily trend across accessible accounts.
 - `/performance`: daily impressions, clicks and CTR charts, format comparisons, sortable product
   results with an Account column, and a daily CSV export. Missing ledger days remain gaps, and

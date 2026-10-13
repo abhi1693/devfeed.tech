@@ -5,7 +5,9 @@ import Image from "next/image";
 import Link from "next/link";
 import { LayoutDashboard, BarChart3, Shapes, Plug, Settings } from "lucide-react";
 import brandMark from "@devfeed/theme/assets/devfeed-mark.png";
+import { setBrowserTheme, useBrowserTheme } from "@devfeed/ui/browser-theme";
 import { CollapsibleSidebar } from "@devfeed/ui/sidebar";
+import { ThemeToggleButton } from "@devfeed/ui/theme-toggle";
 import { UserMenu } from "@/components/user-menu";
 import type { Identity } from "@/lib/types";
 
@@ -22,6 +24,7 @@ export function PortalShell({
   section?: PortalSection;
   query?: string;
 }) {
+  const theme = useBrowserTheme();
   const links = [
     { id: "overview", label: "Dashboard", icon: LayoutDashboard },
     { id: "performance", label: "Performance", icon: BarChart3 },
@@ -56,7 +59,10 @@ export function PortalShell({
               <span>devfeed.</span>
             </span>
           </Link>
-          <UserMenu identity={identity} onSignOut={onSignOut} query={query} />
+          <div className="flex items-center gap-2">
+            <ThemeToggleButton theme={theme} onChange={setBrowserTheme} />
+            <UserMenu identity={identity} onSignOut={onSignOut} query={query} />
+          </div>
         </div>
       </header>
       <div className="lg:flex">
