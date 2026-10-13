@@ -28,6 +28,12 @@ articles, 20 sources/topics, cache disabled and API admission 16. The dataset
 is synthetic and the topology is one API and one pooler. It is not a production
 capacity model.
 
+Reports stay within the invocation directory's `reports/` folder. `--output` can
+select a subdirectory there, using a relative or absolute path; paths or symlinks
+that escape that folder are rejected before the runner creates resources. Run
+from the repository root for the examples below. Repeating a run replaces its
+reports, but an existing `database-statistics.json` symlink is rejected.
+
 Compare uncached database pressure with a normal cache-enabled run **sequentially**
 on the same otherwise idle machine, with separate report directories:
 
@@ -51,6 +57,9 @@ database so query plans do not depend on automatic analyze starting during the
 measurement. `database-statistics.json` records each table's estimated row count,
 page count, and analyze timestamps before the API starts. This preparation applies
 equally to the base and candidate applications.
+The seed subprocess emits statistics as JSON on stdout and its progress message
+on stderr; the runner saves those streams to the statistics artifact and setup
+log respectively. The seed command accepts only the row count, with no output path.
 
 ## Existing staging API / interactive UI
 
