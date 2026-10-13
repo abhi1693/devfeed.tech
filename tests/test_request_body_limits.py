@@ -6,7 +6,16 @@ import pytest
 from devfeed_http.body_limits import RequestBodyLimitMiddleware
 
 
-def exchange(chunks, *, headers=(), path="/click", method="POST", scope_type="http", root_path=""):
+def exchange(
+    chunks,
+    *,
+    headers=(),
+    path="/click",
+    method="POST",
+    scope_type="http",
+    root_path="",
+    limit_for=None,
+):
     events = []
     calls = []
     received = []
@@ -23,7 +32,9 @@ def exchange(chunks, *, headers=(), path="/click", method="POST", scope_type="ht
         received.append(await receive())
         received.append(await receive())
 
-    middleware = RequestBodyLimitMiddleware(app, limits={("POST", "/click"): 4})
+    middleware = RequestBodyLimitMiddleware(
+        app, limits={("POST", "/click"): 4}, limit_for=limit_for
+    )
     scope = {
         "type": scope_type,
         "path": path,
@@ -109,3 +120,64 @@ def test_other_routes_and_protocols_are_unchanged(options):
     message = {"type": "http.request", "body": b"large data", "more_body": False}
     calls, received, events = exchange([message], **options)
     assert len(calls) == 1 and received[0] == message and not events
+
+
+def test_dynamic_resource_limit_uses_normalized_path_and_counts_actual_bytes():
+    seen = []
+
+    def limit_for(method, path):
+        seen.append((method, path))
+        return 4 if (method, path) == ("PATCH", "/products/tool") else None
+
+    calls, received, events = exchange(
+        [{"type": "http.request", "body": b"oversized", "more_body": False}],
+        method="PATCH",
+        path="/proxy/products/tool",
+        root_path="/proxy",
+        limit_for=limit_for,
+    )
+    assert seen == [("PATCH", "/products/tool")]
+    assert not calls and not received and events[0]["status"] == 413
+
+
+def test_explicit_limits_take_precedence_over_dynamic_resource_limits():
+    def limit_for(*args):
+        pytest.fail("Exact route limit must remain authoritative")
+
+    calls, received, events = exchange(
+        [{"type": "http.request", "body": b"large", "more_body": False}],
+        limit_for=limit_for,
+    )
+    assert not calls and not received and events[0]["status"] == 413
+
+
+def test_dynamic_resource_limit_does_not_consume_unrelated_requests():
+    message = {"type": "http.request", "body": b"large data", "more_body": False}
+    calls, received, events = exchange(
+        [message], path="/other", limit_for=lambda method, path: None
+    )
+    assert len(calls) == 1 and received[0] == message and not events
+
+
+def test_dynamic_resource_limit_cancels_stalled_body_before_application():
+    events, cancelled = [], []
+
+    async def receive():
+        try:
+            await asyncio.Event().wait()
+        finally:
+            cancelled.append(True)
+
+    async def send(message):
+        events.append(message)
+
+    async def app(*args):
+        pytest.fail("Incomplete body reached application")
+
+    middleware = RequestBodyLimitMiddleware(
+        app, limits={}, limit_for=lambda method, path: 4, timeout=0.01
+    )
+    asyncio.run(
+        middleware({"type": "http", "method": "PATCH", "path": "/products/tool"}, receive, send)
+    )
+    assert events[0]["status"] == 408 and cancelled == [True]

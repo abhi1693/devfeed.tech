@@ -26,6 +26,48 @@ afterEach(() => {
 });
 
 describe("isolated API gateway", () => {
+  it.each([
+    ["POST", productAdImage.slice(0, -2)],
+    ["PATCH", productAdImage.slice(0, -1)],
+  ])("caps %s product facts before proxying", async (method, path) => {
+    const fetcher = vi.fn();
+    vi.stubGlobal("fetch", fetcher);
+    for (const declared of [true, false]) {
+      const incoming = new Request("https://admin.example/api", {
+        method,
+        headers: {
+          origin: "https://admin.example",
+          ...(declared ? { "content-length": "65537" } : {}),
+        },
+        body: new Uint8Array(65537),
+      });
+      const response = await gateway(incoming, path);
+      expect(response.status).toBe(413);
+      expect(response.headers.get("cache-control")).toBe("no-store");
+    }
+    expect(fetcher).not.toHaveBeenCalled();
+  });
+
+  it("preserves multilingual product descriptions within the product body limit", async () => {
+    const fetcher = vi.fn().mockResolvedValue(Response.json({ id: productAdImage[5] }));
+    vi.stubGlobal("fetch", fetcher);
+    const body = JSON.stringify({
+      name: "Developer tools",
+      product_url: "https://product.example",
+      description: "開".repeat(5000),
+    });
+    const response = await gateway(
+      new Request("https://admin.example/api", {
+        method: "POST",
+        headers: { origin: "https://admin.example", "content-type": "application/json" },
+        body,
+      }),
+      productAdImage.slice(0, -2),
+    );
+    expect(response.status).toBe(200);
+    expect(new TextDecoder().decode(fetcher.mock.calls[0][1].body)).toBe(body);
+  });
+
   it("preserves multipart image bytes and grants the larger limit only to the upload route", async () => {
     const fetcher = vi.fn().mockResolvedValue(Response.json({ ad_image_status: "ready" }));
     vi.stubGlobal("fetch", fetcher);
@@ -77,6 +119,7 @@ describe("isolated API gateway", () => {
 
   it.each([
     [productAdImage, 10_000],
+    [productAdImage.slice(0, -2), 2000],
     [["v1", "admin", "sources"], 2000],
   ])("bounds incomplete request bodies at %s", async (path, deadline) => {
     vi.useFakeTimers();

@@ -56,6 +56,15 @@ const paidAccount: AccountOut = {
 const product = {
   id: "product-1",
   name: "Kubernetes helper",
+  product_url: "https://tool.example/",
+  description: "Monitor and troubleshoot Kubernetes workloads.",
+  pricing: "paid" as const,
+  revision: 1,
+  source: "imported" as const,
+  active: true,
+  manual_active: null,
+  editable: false,
+  assessment: { state: "qualified" as const, reason: "Verified developer capabilities." },
   technologies: ["Kubernetes"],
   status: "approved",
   excluded: false,
@@ -265,7 +274,7 @@ it("saves promotion defaults once on the account without requiring a product typ
   vi.stubGlobal("fetch", fetcher);
   renderAdmin(<PartnerAccountManagement mode="account" account={account} />);
   fireEvent.click(screen.getByLabelText(/Allow ordinary recommendations/));
-  fireEvent.click(screen.getByLabelText(/Automatically include imported products/));
+  fireEvent.click(screen.getByLabelText(/Automatically include account products/));
   fireEvent.click(screen.getByLabelText("Reader feeds"));
   expect(screen.queryByLabelText(/Product exposure limit/)).toBeNull();
   fireEvent.submit(screen.getByRole("form", { name: "Partnership settings" }));
@@ -320,8 +329,8 @@ it.each([
         choices: [`Inherit tier (${policy.inherited})`, ...policy.kinds],
       },
       {
-        label: "Imported product acceptance",
-        choices: ["Automatic capability checks", "Trust connected partner imports"],
+        label: "Product acceptance",
+        choices: ["Automatic capability checks", "Trust account products"],
       },
       { label: "Product click destination", choices: ["Product website", "Partner listing"] },
     ];
@@ -345,8 +354,8 @@ it.each([
     expect(
       screen.getByText(new RegExp(`Effective: ${policy.inherited} · inherited from tier`)),
     ).toBeTruthy();
-    fireEvent.click(screen.getByRole("combobox", { name: "Imported product acceptance" }));
-    fireEvent.click(screen.getByRole("option", { name: "Trust connected partner imports" }));
+    fireEvent.click(screen.getByRole("combobox", { name: "Product acceptance" }));
+    fireEvent.click(screen.getByRole("option", { name: "Trust account products" }));
     fireEvent.submit(screen.getByRole("form", { name: "Partnership settings" }));
     await waitFor(() => expect(push).toHaveBeenCalled());
     const write = fetcher.mock.calls.find(([, options]) => options?.method === "PUT");
@@ -594,8 +603,8 @@ it("inherits Sponsored from the structured tier and saves account-wide trust and
   expect(
     (screen.getByLabelText(/Allow ordinary recommendations/) as HTMLInputElement).disabled,
   ).toBe(true);
-  fireEvent.click(screen.getByRole("combobox", { name: "Imported product acceptance" }));
-  fireEvent.click(screen.getByRole("option", { name: "Trust connected partner imports" }));
+  fireEvent.click(screen.getByRole("combobox", { name: "Product acceptance" }));
+  fireEvent.click(screen.getByRole("option", { name: "Trust account products" }));
   fireEvent.click(screen.getByRole("combobox", { name: "Product click destination" }));
   fireEvent.click(screen.getByRole("option", { name: "Partner listing" }));
   fireEvent.submit(screen.getByRole("form", { name: "Partnership settings" }));

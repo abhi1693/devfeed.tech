@@ -9,7 +9,7 @@ from devfeed_core.config import get_settings
 from devfeed_core.job_lifecycle import finish_job
 from devfeed_core.managed_images import IMAGE_VERSION, THUMBNAIL_VERSION
 from devfeed_core.models import ArticleImageJob, PartnerProduct, PartnerProductPromotion, utcnow
-from devfeed_core.partner_catalog import has_active_listing
+from devfeed_core.partner_catalog import has_active_source
 from devfeed_core.services import RecordNotFound
 
 AD_IMAGE_SIZES = (400, 800, 1200)
@@ -254,7 +254,7 @@ def backfill_product_images(session, limit=100):
             PartnerProduct.excluded.is_(False),
             PartnerProduct.merged_into_id.is_(None),
             PartnerProduct.product_url.is_not(None),
-            has_active_listing(),
+            has_active_source(),
             ~attempted.exists(),
         )
         .order_by(PartnerProduct.id)

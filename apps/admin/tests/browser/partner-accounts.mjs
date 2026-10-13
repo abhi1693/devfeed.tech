@@ -91,6 +91,18 @@ const inventoryProducts = Array.from({ length: 60 }, (_, index) => ({
     index === 0 ? catalogProduct.id : `66666666-6666-4666-8666-${String(index).padStart(12, "0")}`,
   name: index === 0 ? catalogProduct.name : `Inventory tool ${index + 1}`,
   status: index === 0 ? "pending" : "approved",
+  product_url: "https://product.example/",
+  description: "Monitor and troubleshoot developer applications.",
+  pricing: "paid",
+  revision: 1,
+  source: "imported",
+  active: true,
+  manual_active: null,
+  editable: false,
+  assessment: {
+    state: index === 0 ? "checking" : "qualified",
+    reason: "Checking developer capabilities.",
+  },
   commercial_approved: true,
   approval_source: index === 0 ? "trusted" : "qualified",
   technologies: [
@@ -471,10 +483,10 @@ try {
     "Sponsored",
   ]);
   await page.getByRole("option", { name: "Inherit tier (Sponsored)", exact: true }).click();
-  await page.getByRole("combobox", { name: "Imported product acceptance", exact: true }).click();
+  await page.getByRole("combobox", { name: "Product acceptance", exact: true }).click();
   assert.deepEqual(await page.getByRole("option").allTextContents(), [
     "Automatic capability checks",
-    "Trust connected partner imports",
+    "Trust account products",
   ]);
   await page.getByRole("option", { name: "Automatic capability checks", exact: true }).click();
   assert.equal(
@@ -547,8 +559,8 @@ try {
     "Sponsored",
   ]);
   await page.getByRole("option", { name: "Inherit tier (Sponsored)", exact: true }).click();
-  await page.getByRole("combobox", { name: "Imported product acceptance", exact: true }).click();
-  await page.getByRole("option", { name: "Trust connected partner imports", exact: true }).click();
+  await page.getByRole("combobox", { name: "Product acceptance", exact: true }).click();
+  await page.getByRole("option", { name: "Trust account products", exact: true }).click();
   const destinationPreview = page.getByRole("region", {
     name: "Click destination preview",
     exact: true,
@@ -689,7 +701,7 @@ try {
   assert.equal(await productSearch.evaluate((input) => input === document.activeElement), true);
   await productSearch.fill("Not a catalog match");
   await productSearch.press("Enter");
-  await inventory.getByText(/No matching imported products/).waitFor();
+  await inventory.getByText(/No matching products/).waitFor();
   assert.equal(inventoryRequests.at(-1).q, "Not a catalog match");
   await inventory.getByRole("button", { name: "Clear product name", exact: true }).click();
   await inventory.getByRole("link", { name: catalogProduct.name, exact: true }).waitFor();

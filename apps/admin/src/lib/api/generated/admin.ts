@@ -104,6 +104,8 @@ import type {
   ImportCandidatePage,
   InventoryOut,
   JobOut,
+  ManualProductInput,
+  ManualProductUpdate,
   MemberInput,
   MemberOut,
   MetricInput,
@@ -143,6 +145,7 @@ import type {
   PartnerProviderOut,
   PartnershipTierOut,
   ProductAction,
+  ProductDetailOut,
   ProductOut,
   ProductPromotionInput,
   ProductPromotionOut,
@@ -1768,6 +1771,45 @@ export const removeMemberV1AdminPartnerAccountsAccountIdMembersSubjectDelete = a
 
 
 
+export const getAdminPartnerProductCreateUrl = (accountId: string,) => {
+
+
+
+
+  return `/v1/admin/partner-accounts/${accountId}/products`
+}
+
+/**
+ * @summary Create Product
+ */
+export const adminPartnerProductCreate = async (accountId: string,
+    manualProductInput: ManualProductInput, options?: Parameters<typeof adminFetch>[1]): Promise<ProductDetailOut> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
+  };
+return adminFetch<ProductDetailOut>(getAdminPartnerProductCreateUrl(accountId),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(manualProductInput)
+  }
+);}
+
+
+
 export const getAdminPartnerProductPromotionsListUrl = (accountId: string,) => {
 
 
@@ -1787,6 +1829,99 @@ export const adminPartnerProductPromotionsList = async (accountId: string, optio
     method: 'GET'
 
 
+  }
+);}
+
+
+
+export const getAdminPartnerProductArchiveUrl = (accountId: string,
+    productId: string,) => {
+
+
+
+
+  return `/v1/admin/partner-accounts/${accountId}/products/${productId}`
+}
+
+/**
+ * @summary Archive Product
+ */
+export const adminPartnerProductArchive = async (accountId: string,
+    productId: string, options?: Parameters<typeof adminFetch>[1]): Promise<void> => {
+
+  return adminFetch<void>(getAdminPartnerProductArchiveUrl(accountId,productId),
+  {
+    ...options,
+    method: 'DELETE'
+
+
+  }
+);}
+
+
+
+export const getAdminPartnerProductGetUrl = (accountId: string,
+    productId: string,) => {
+
+
+
+
+  return `/v1/admin/partner-accounts/${accountId}/products/${productId}`
+}
+
+/**
+ * @summary Get Product
+ */
+export const adminPartnerProductGet = async (accountId: string,
+    productId: string, options?: Parameters<typeof adminFetch>[1]): Promise<ProductDetailOut> => {
+
+  return adminFetch<ProductDetailOut>(getAdminPartnerProductGetUrl(accountId,productId),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+export const getAdminPartnerProductUpdateUrl = (accountId: string,
+    productId: string,) => {
+
+
+
+
+  return `/v1/admin/partner-accounts/${accountId}/products/${productId}`
+}
+
+/**
+ * @summary Update Product
+ */
+export const adminPartnerProductUpdate = async (accountId: string,
+    productId: string,
+    manualProductUpdate: ManualProductUpdate, options?: Parameters<typeof adminFetch>[1]): Promise<ProductDetailOut> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
+  };
+return adminFetch<ProductDetailOut>(getAdminPartnerProductUpdateUrl(accountId,productId),
+  {
+    ...options,
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(manualProductUpdate)
   }
 );}
 

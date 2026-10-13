@@ -241,6 +241,11 @@ def test_inventory_policy_summary_uses_loaded_account_product_policy(mode, accep
     product = NS(
         id=uuid.uuid4(),
         name="Product",
+        product_url="https://product.example/",
+        description="A useful developer product.",
+        pricing="paid",
+        assessment={},
+        revision=1,
         technologies=["OpenAPI"],
         status="approved"
         if mode in {"qualified", "expired", "global-excluded", "merged"}
@@ -269,6 +274,11 @@ def test_inventory_without_policy_inherits_account_defaults_without_querying():
     product = NS(
         id=uuid.uuid4(),
         name="Product",
+        product_url="https://product.example/",
+        description="A useful developer product.",
+        pricing="paid",
+        assessment={},
+        revision=1,
         technologies=[],
         status="pending",
         verified_at=None,

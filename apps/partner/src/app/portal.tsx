@@ -11,6 +11,7 @@ import { PortalShell } from "./portal-shell";
 import { PartnerPreferences } from "./partner-preferences";
 import { PartnerProductCatalog } from "./partner-product-catalog";
 import { PartnerProductPage } from "./partner-product-page";
+import { PartnerProductCreate } from "./partner-product-form";
 import { PartnerConnections, type ConnectionsRoute } from "./partner-connections";
 import { PartnerSettings } from "./partner-settings";
 import { PartnerPerformance } from "./partner-performance";
@@ -301,6 +302,22 @@ export function Portal({
               query={query}
               accountFilter={account}
             />
+          ) : productRoute.view === "create" ? (
+            initialAccounts.total ? (
+              <PartnerProductCreate
+                account={account}
+                csrfToken={identity.csrf_token}
+                onUnavailable={onUnavailable}
+                query={productQuery}
+              />
+            ) : (
+              <ResourcePanel title="Partner account required">
+                <p className="text-sm text-muted-foreground">
+                  An active partner account is required. Contact DevFeed to set up your
+                  organization.
+                </p>
+              </ResourcePanel>
+            )
           ) : (
             productRoute.productId && (
               <PartnerProductPage
@@ -308,6 +325,11 @@ export function Portal({
                 account={account}
                 productId={productRoute.productId}
                 edit={productRoute.view === "placements"}
+                action={
+                  productRoute.view === "edit" || productRoute.view === "archive"
+                    ? productRoute.view
+                    : undefined
+                }
                 contextOffset={initialPolicyOffset}
                 csrfToken={identity.csrf_token}
                 query={productQuery}

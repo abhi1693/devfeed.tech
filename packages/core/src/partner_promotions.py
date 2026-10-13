@@ -5,7 +5,7 @@ from collections.abc import Iterable
 from datetime import UTC, datetime, timedelta
 from itertools import batched
 
-from sqlalchemy import and_, delete, exists, func, or_, select, update
+from sqlalchemy import and_, delete, exists, func, or_, select, union, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
@@ -15,6 +15,7 @@ from .models import (
     PartnerCampaign,
     PartnerConnection,
     PartnerListing,
+    PartnerManualProduct,
     PartnerProduct,
     PartnerProductPromotion,
     PartnerPromotionEnrollment,
@@ -28,21 +29,56 @@ PROMOTION_BATCH_SIZE = 200
 PROMOTION_INSERT_BATCH_SIZE = 500
 
 
+def account_product_source(account_id, product_id):
+    """Import ownership and explicit manual inventory share the same serving policy."""
+    imported = exists(
+        select(PartnerListing.id)
+        .join(PartnerConnection)
+        .where(
+            PartnerConnection.account_id == account_id,
+            PartnerListing.product_id == product_id,
+            PartnerConnection.enabled.is_(True),
+            PartnerConnection.archived_at.is_(None),
+            PartnerListing.active.is_(True),
+            PartnerListing.identity_status == "resolved",
+        )
+    ).correlate(PartnerAccount, PartnerProduct)
+    manual = exists(
+        select(PartnerManualProduct.product_id).where(
+            PartnerManualProduct.account_id == account_id,
+            PartnerManualProduct.product_id == product_id,
+            PartnerManualProduct.active.is_(True),
+        )
+    ).correlate(PartnerAccount, PartnerProduct)
+    return or_(imported, manual)
+
+
 def associated_products_query(account_id: uuid.UUID | None = None):
-    """Live resolved listings establish ownership, independently of catalog identity."""
-    query = (
-        select(PartnerAccount, PartnerProduct)
-        .join(PartnerConnection, PartnerConnection.account_id == PartnerAccount.id)
+    """Current explicit or imported inventory, independently of canonical identity."""
+    imported = (
+        select(PartnerConnection.account_id, PartnerListing.product_id)
         .join(PartnerListing, PartnerListing.provider == PartnerConnection.provider)
-        .join(PartnerProduct, PartnerProduct.id == PartnerListing.product_id)
         .where(
             PartnerConnection.enabled.is_(True),
             PartnerConnection.archived_at.is_(None),
             PartnerListing.active.is_(True),
             PartnerListing.identity_status == "resolved",
+        )
+    )
+    manual = select(PartnerManualProduct.account_id, PartnerManualProduct.product_id).where(
+        PartnerManualProduct.active.is_(True)
+    )
+    if account_id is not None:
+        imported = imported.where(PartnerConnection.account_id == account_id)
+        manual = manual.where(PartnerManualProduct.account_id == account_id)
+    sources = union(imported, manual).subquery()
+    query = (
+        select(PartnerAccount, PartnerProduct)
+        .join(sources, sources.c.account_id == PartnerAccount.id)
+        .join(PartnerProduct, PartnerProduct.id == sources.c.product_id)
+        .where(
             PartnerProduct.merged_into_id.is_(None),
         )
-        .distinct()
     )
     if account_id is not None:
         query = query.where(PartnerAccount.id == account_id)
@@ -91,8 +127,6 @@ def trusted_product_exists():
     return exists(
         select(PartnerProductPromotion.product_id)
         .join(PartnerAccount, PartnerAccount.id == PartnerProductPromotion.account_id)
-        .join(PartnerConnection, PartnerConnection.account_id == PartnerAccount.id)
-        .join(PartnerListing, PartnerListing.provider == PartnerConnection.provider)
         .where(
             PartnerProductPromotion.product_id == PartnerProduct.id,
             PartnerProductPromotion.commercial_approved_at.is_not(None),
@@ -100,11 +134,7 @@ def trusted_product_exists():
             PartnerProductPromotion.excluded.is_(False),
             PartnerAccount.status == "active",
             PartnerAccount.approval_mode == "trusted",
-            PartnerConnection.enabled.is_(True),
-            PartnerConnection.archived_at.is_(None),
-            PartnerListing.product_id == PartnerProduct.id,
-            PartnerListing.active.is_(True),
-            PartnerListing.identity_status == "resolved",
+            account_product_source(PartnerAccount.id, PartnerProduct.id),
         )
     )
 

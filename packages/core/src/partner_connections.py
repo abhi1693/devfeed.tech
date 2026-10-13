@@ -24,7 +24,7 @@ from devfeed_core.models import (
     PartnerProductPromotion,
     utcnow,
 )
-from devfeed_core.partner_catalog import active_provider, upsert_listing
+from devfeed_core.partner_catalog import active_provider, product_has_active_source, upsert_listing
 from devfeed_core.partner_connectors import (
     CONNECTOR_PRESETS,
     NICK_CONNECTOR,
@@ -50,7 +50,7 @@ SYSTEM_ACTOR = {"subject": "partner-pipeline", "issuer": "devfeed", "organizatio
 
 class PartnerJobOut(ORMModel):
     id: uuid.UUID
-    provider: str
+    provider: str | None
     operation: Literal["sync", "sync_product", "assess"]
     parent_id: uuid.UUID | None
     external_id: str | None
@@ -231,7 +231,7 @@ def request_assessment(session, product):
         active
         or product.excluded
         or product.merged_into_id
-        or not provider
+        or not product_has_active_source(session, product.id)
         or product.status == "withdrawn"
     ):
         return
@@ -324,7 +324,7 @@ def validate_qualification(raw, page):
 def queue_evaluation(session, product):
     if (
         not eligible(product)
-        or not active_provider(session, product.id)
+        or not product_has_active_source(session, product.id)
         or session.scalar(
             select(PartnerEvaluation.id).where(
                 PartnerEvaluation.product_id == product.id,
@@ -547,7 +547,7 @@ def configure_connection(session, connection, enabled, *, sync=False, sync_inter
             )
             .with_for_update()
         ).all():
-            if job.operation in {"sync", "sync_product"} or not active_provider(
+            if job.operation in {"sync", "sync_product"} or not product_has_active_source(
                 session, job.product_id
             ):
                 affected_jobs.append(str(job.id))

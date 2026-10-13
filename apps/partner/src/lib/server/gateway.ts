@@ -22,6 +22,10 @@ const productPromotionPath =
   /^\/v1\/partner\/accounts\/[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}\/products\/[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}\/promotion$/i;
 const productAdImagePath =
   /^\/v1\/partner\/accounts\/[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}\/products\/[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}\/ad-image$/i;
+const productCollectionPath =
+  /^\/v1\/partner\/accounts\/[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}\/products$/i;
+const productDetailPath =
+  /^\/v1\/partner\/accounts\/[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}\/products\/[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/i;
 const inventoryPath =
   /^\/v1\/partner\/accounts\/[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}\/inventory$/i;
 const accountDashboardPath =
@@ -60,6 +64,20 @@ export async function gateway(request: Request, segments: string[]) {
     return Response.json({ detail: "Not found" }, { status: 404 });
   }
   const connections = connectionMethods(path);
+  const productCollection = productCollectionPath.test(path);
+  const productDetail = productDetailPath.test(path);
+  if (
+    !connections &&
+    segments.some((part) => part.toLowerCase() === "products") &&
+    !productPromotionPath.test(path) &&
+    !productAdImagePath.test(path)
+  ) {
+    if (!productCollection && !productDetail)
+      return Response.json({ detail: "Not found" }, { status: 404 });
+    const methods = productCollection ? ["POST"] : ["GET", "PATCH", "DELETE"];
+    if (!methods.includes(request.method))
+      return Response.json({ detail: "Method not allowed" }, { status: 405 });
+  }
   if (segments.some((part) => part.toLowerCase() === "connections")) {
     if (!connections) return Response.json({ detail: "Not found" }, { status: 404 });
     if (!connections.includes(request.method))
@@ -112,6 +130,8 @@ export async function gateway(request: Request, segments: string[]) {
     !connections?.includes(request.method) &&
     !(request.method === "POST" && path === "/v1/partner/auth/logout") &&
     !(request.method === "POST" && productAdImagePath.test(path)) &&
+    !(request.method === "POST" && productCollection) &&
+    !(["PATCH", "DELETE"].includes(request.method) && productDetail) &&
     !(request.method === "PUT" && (preferencesPath.test(path) || productPromotionPath.test(path)))
   ) {
     return Response.json({ detail: "Method not allowed" }, { status: 405 });
@@ -140,7 +160,11 @@ export async function gateway(request: Request, segments: string[]) {
       const imageUpload = productAdImagePath.test(path);
       body = await readRequestBody(
         request,
-        imageUpload ? 5 * 1024 * 1024 + 65536 : 1_000_000,
+        imageUpload
+          ? 5 * 1024 * 1024 + 65536
+          : productCollection || productDetail
+            ? 65536
+            : 1_000_000,
         imageUpload ? 10_000 : 2000,
       );
     }

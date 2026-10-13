@@ -19,6 +19,6 @@ export interface PartnerPipelineOut {
   parent_id: string | null;
   product_id: string | null;
   product_name: string | null;
-  provider: string;
+  provider: string | null;
   status: string;
 }

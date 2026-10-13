@@ -369,6 +369,42 @@ it("shows a pipeline run's links, state and logs", async () => {
   expect(screen.getByText("Run logs")).toBeTruthy();
 });
 
+it("shows direct product checks without fabricating an import connection", async () => {
+  const job: PartnerPipelineOut = {
+    id: "manual-run",
+    provider: null,
+    operation: "assess",
+    status: "queued",
+    attempts: 0,
+    product_id: "product-1",
+    product_name: "Direct tool",
+    parent_id: null,
+    external_id: null,
+    created_at: "2026-10-01T00:00:00Z",
+    available_at: "2026-10-01T00:00:00Z",
+    finished_at: null,
+    error: null,
+  };
+  vi.mocked(api.adminPartnerPipelineGet).mockResolvedValue(job);
+  const detail = renderAdmin(<PartnerRunDetail kind="pipeline" id={job.id} />);
+  expect(await screen.findByText("Direct account product")).toBeTruthy();
+  expect(screen.getByRole("link", { name: "Direct tool" }).getAttribute("href")).toBe(
+    "/partnerships/products/product-1",
+  );
+  expect(screen.queryByText("Import connection")).toBeNull();
+  expect(
+    screen
+      .getAllByRole("link")
+      .some((link) => link.getAttribute("href")?.includes("/connections/")),
+  ).toBe(false);
+  detail.unmount();
+  renderAdmin(<PartnerRunDetail kind="pipeline" id={job.id} section="related" />);
+  expect((await screen.findByRole("link", { name: "Direct tool" })).getAttribute("href")).toBe(
+    "/partnerships/products/product-1",
+  );
+  expect(screen.queryByText("Import connection")).toBeNull();
+});
+
 it("shows outdated evaluation evidence and article results", async () => {
   vi.mocked(api.adminPartnerEvaluationGet).mockResolvedValue({
     id: "eval-1",

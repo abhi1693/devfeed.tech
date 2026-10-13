@@ -7,8 +7,15 @@ from datetime import datetime, timedelta
 from typing import Annotated, Literal
 
 from pydantic import ConfigDict, Field, StringConstraints, field_validator
+from sqlalchemy import and_, select
 
-from devfeed_core.models import PartnerProduct, utcnow
+from devfeed_core.models import (
+    PartnerAccount,
+    PartnerManualProduct,
+    PartnerProduct,
+    PartnerProductPromotion,
+    utcnow,
+)
 from devfeed_core.schemas import InputModel, ORMModel
 from devfeed_core.urls import validate_public_url
 
@@ -82,12 +89,22 @@ class ListingOut(ORMModel):
     updated_at: datetime
 
 
+class ManualProductSourceOut(ORMModel):
+    account_id: uuid.UUID
+    account_name: str
+    active: bool
+    commercial_approved: bool
+    approval_source: Literal["qualified", "trusted"] | None
+    updated_at: datetime
+
+
 class ProductOut(ProductFacts, ORMModel):
     commercial_approved: bool = False
     approval_sources: list[Literal["qualified", "trusted"]] = Field(default_factory=list)
     listings: list[ListingOut]
+    manual_sources: list[ManualProductSourceOut] = Field(default_factory=list)
     metadata_listing_id: uuid.UUID | None
-    partnership_type: Literal["launch_platform"] = "launch_platform"
+    partnership_type: Literal["launch_platform", "direct"] = "launch_platform"
     assessment: ProductAssessment
     excluded: bool
     id: uuid.UUID
@@ -156,7 +173,57 @@ def eligible(product, now=None):
     )
 
 
-def product_view(product, listings):
+def manual_product_views(session, product_ids):
+    """Batch direct account provenance without inventing import connections or listings."""
+    result: dict[uuid.UUID, list[dict]] = {identifier: [] for identifier in product_ids}
+    if not result:
+        return result
+    now = utcnow()
+    rows = session.execute(
+        select(PartnerManualProduct, PartnerAccount, PartnerProduct, PartnerProductPromotion)
+        .join(PartnerAccount, PartnerAccount.id == PartnerManualProduct.account_id)
+        .join(PartnerProduct, PartnerProduct.id == PartnerManualProduct.product_id)
+        .outerjoin(
+            PartnerProductPromotion,
+            and_(
+                PartnerProductPromotion.account_id == PartnerManualProduct.account_id,
+                PartnerProductPromotion.product_id == PartnerManualProduct.product_id,
+            ),
+        )
+        .where(PartnerManualProduct.product_id.in_(result))
+        .order_by(PartnerAccount.name, PartnerAccount.id)
+    )
+    for source, account, product, policy in rows:
+        qualified = eligible(product, now)
+        trusted = bool(
+            account.approval_mode == "trusted"
+            and policy
+            and policy.commercial_approved_at
+            and policy.approval_source == "trusted"
+        )
+        approved = bool(
+            source.active
+            and account.status == "active"
+            and not product.merged_into_id
+            and not product.excluded
+            and not (policy and policy.excluded)
+            and (qualified or trusted)
+        )
+        result[product.id].append(
+            {
+                "account_id": account.id,
+                "account_name": account.name,
+                "active": source.active,
+                "commercial_approved": approved,
+                "approval_source": "trusted" if trusted else "qualified" if qualified else None,
+                "updated_at": source.updated_at,
+            }
+        )
+    return result
+
+
+def product_view(product, listings, manual_sources=()):
+    sources = [*listings, *manual_sources]
     return {
         **ProductFacts.model_validate(product, from_attributes=True).model_dump(),
         **{
@@ -172,22 +239,27 @@ def product_view(product, listings):
                 "excluded",
             )
         },
-        "commercial_approved": any(item.get("commercial_approved", False) for item in listings),
+        "commercial_approved": any(item.get("commercial_approved", False) for item in sources),
         "approval_sources": sorted(
             {
                 item["approval_source"]
-                for item in listings
+                for item in sources
                 if item.get("commercial_approved") and item.get("approval_source")
             }
         ),
         "eligible": eligible(product)
-        and any(
-            listing["active"]
-            and listing["connection_enabled"]
-            and listing["identity_status"] == "resolved"
-            for listing in listings
+        and (
+            any(
+                listing["active"]
+                and listing["connection_enabled"]
+                and listing["identity_status"] == "resolved"
+                for listing in listings
+            )
+            or any(source["active"] for source in manual_sources)
         ),
         "listings": listings,
+        "manual_sources": list(manual_sources),
+        "partnership_type": "direct" if manual_sources and not listings else "launch_platform",
         "metadata_listing_id": product.metadata_listing_id,
     }
 
@@ -263,15 +335,13 @@ def product_snapshot(product: PartnerProduct):
 
 def snapshot_current(session, job):
     from devfeed_core.models import Article
-    from devfeed_core.partner_catalog import active_provider
+    from devfeed_core.partner_catalog import product_has_active_source
 
     product = session.get(PartnerProduct, job.product_id)
     if not product or not eligible(product) or product_snapshot(product) != job.snapshot["product"]:
         return False
-    if not active_provider(session, product.id):
+    if not product_has_active_source(session, product.id):
         return False
-    from sqlalchemy import select
-
     entries = job.snapshot["articles"]
     rows = session.execute(
         select(

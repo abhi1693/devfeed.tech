@@ -20,9 +20,9 @@ from devfeed_core.models import (
     utcnow,
 )
 from devfeed_core.partner_catalog import (
-    active_provider,
-    has_active_listing,
+    has_active_source,
     lock_catalog,
+    product_has_active_source,
     record_verified_redirect,
     withdraw_missing_listings,
 )
@@ -200,12 +200,11 @@ def _process_pipeline(job_id: str, *, factory=None, reader=None, page_fetcher=No
     identifier = uuid.UUID(job_id)
     with factory.begin() as session:
         lock_catalog(session)
-        provider = session.scalar(
-            select(PartnerPipelineJob.provider).where(PartnerPipelineJob.id == identifier)
-        )
-        if not provider:
+        existing_job = session.get(PartnerPipelineJob, identifier)
+        if existing_job is None:
             logger.debug("partner_pipeline_not_found")
             return
+        provider = existing_job.provider
         connection = session.scalar(
             select(PartnerConnection)
             .where(PartnerConnection.provider == provider)
@@ -222,14 +221,21 @@ def _process_pipeline(job_id: str, *, factory=None, reader=None, page_fetcher=No
         available = (
             bool(connection and connection.enabled and connection.archived_at is None)
             if job.operation == "sync"
-            else bool(active_provider(session, job.product_id))
+            else product_has_active_source(session, job.product_id)
         )
         if not available:
             logger.info(
                 "partner_pipeline_cancelled",
                 extra={**job_fields(job), "reason": "connection_paused"},
             )
-            fail_or_retry(job, "Connection paused", utcnow(), retryable=False)
+            fail_or_retry(
+                job,
+                "Product source is unavailable"
+                if job.operation == "assess"
+                else "Connection paused",
+                utcnow(),
+                retryable=False,
+            )
             return
         if job.operation == "sync" and job.payload.get("discovery_complete"):
             if connection.sync_revision != job.payload["connection_revision"]:
@@ -258,7 +264,7 @@ def _process_pipeline(job_id: str, *, factory=None, reader=None, page_fetcher=No
         payload, operation, connection_revision = (
             job.payload,
             job.operation,
-            connection.sync_revision,
+            connection.sync_revision if connection else None,
         )
         if operation == "sync" and payload["connection_revision"] != connection_revision:
             logger.info(
@@ -323,7 +329,7 @@ def _process_pipeline(job_id: str, *, factory=None, reader=None, page_fetcher=No
                 raise ValueError("Import API pagination did not advance")
         else:
             if snapshot is None:
-                raise ValueError("Missing imported product snapshot")
+                raise ValueError("Missing product snapshot")
             page = (page_fetcher or fetched_page)(snapshot["product_url"], 15)
             page = {"final_url": page["final_url"], "text": page["text"][:20000]}
             # Resolve observed redirects before paying for a second assessment of the same tool.
@@ -346,7 +352,7 @@ def _process_pipeline(job_id: str, *, factory=None, reader=None, page_fetcher=No
                 if (
                     not current_product
                     or current_product.revision != payload["revision"]
-                    or not active_provider(session, current_product.id)
+                    or not product_has_active_source(session, current_product.id)
                 ):
                     fail_or_retry(
                         current_job, "Product or connection changed", utcnow(), retryable=False
@@ -399,14 +405,19 @@ def _process_pipeline(job_id: str, *, factory=None, reader=None, page_fetcher=No
                 and connection.sync_revision == connection_revision
             )
             if operation == "sync"
-            else bool(active_provider(session, job.product_id))
+            else product_has_active_source(session, job.product_id)
         )
         if not available:
             logger.info(
                 "partner_pipeline_cancelled",
                 extra={**job_fields(job), "reason": "connection_changed"},
             )
-            fail_or_retry(job, "Connection changed", utcnow(), retryable=False)
+            fail_or_retry(
+                job,
+                "Product source is unavailable" if operation == "assess" else "Connection changed",
+                utcnow(),
+                retryable=False,
+            )
             return
         product = (
             session.scalar(
@@ -556,7 +567,7 @@ def schedule_partner_syncs(factory):
             select(PartnerProduct)
             .where(
                 PartnerProduct.merged_into_id.is_(None),
-                has_active_listing(),
+                has_active_source(),
                 PartnerProduct.excluded.is_(False),
                 PartnerProduct.status != "withdrawn",
                 PartnerProduct.assessment_revision != PartnerProduct.revision,

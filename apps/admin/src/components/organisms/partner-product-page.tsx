@@ -70,11 +70,13 @@ export function PartnerProductPage({
                 busy ||
                 result.loading ||
                 product.status === "withdrawn" ||
-                !product.listings.some(
-                  (listing) =>
-                    listing.active &&
-                    listing.connection_enabled &&
-                    listing.identity_status === "resolved",
+                !(
+                  product.listings.some(
+                    (listing) =>
+                      listing.active &&
+                      listing.connection_enabled &&
+                      listing.identity_status === "resolved",
+                  ) || product.manual_sources?.some((source) => source.active)
                 )
               }
               onClick={() => void act("retry")}
@@ -116,108 +118,165 @@ export function PartnerProductPage({
           </nav>
           {section === "related" ? (
             <div className="space-y-8">
-              <section className="space-y-3" aria-label="Platform listings">
-                <h2 className="font-semibold">Platform listings ({product.listings.length})</h2>
-                <div className="grid items-start gap-6 xl:grid-cols-2">
-                  {product.listings.map((listing) => (
-                    <ResourcePanel
-                      key={listing.id}
-                      title={listing.platform_name}
-                      fields={[
-                        {
-                          label: "Import connection",
-                          value: (
-                            <Link
-                              prefetch={false}
-                              className="text-primary hover:underline"
-                              href={importConnectionHref(listing.provider)}
-                            >
-                              {listing.platform_name}
-                            </Link>
-                          ),
-                        },
-                        { label: "Name", value: listing.name },
-                        {
-                          label: "Partner account",
-                          value: listing.account_id ? (
-                            <Link
-                              href={`/partnerships/accounts/${listing.account_id}`}
-                              prefetch={false}
-                              className="text-primary hover:underline"
-                            >
-                              {listing.account_name ?? "View partner account"}
-                            </Link>
-                          ) : (
-                            "Unassigned"
-                          ),
-                        },
-                        {
-                          label: "Account acceptance",
-                          value: (
-                            <StatusBadge
-                              value={
-                                listing.commercial_approved
-                                  ? listing.approval_source === "trusted"
-                                    ? "Accepted · trusted partner"
-                                    : "Accepted · verified"
-                                  : "Awaiting acceptance"
-                              }
-                            />
-                          ),
-                        },
-                        {
-                          label: "Platform product ID",
-                          value: <DataValue value={listing.external_id} />,
-                        },
-                        {
-                          label: "Status",
-                          value: (
-                            <StatusBadge
-                              value={
-                                !listing.active
-                                  ? "Unavailable"
-                                  : !listing.connection_enabled
-                                    ? "Paused"
-                                    : "Active"
-                              }
-                            />
-                          ),
-                        },
-                        {
-                          label: "Identity",
-                          value: <StatusBadge value={listing.identity_status} />,
-                        },
-                        {
-                          label: "Identity details",
-                          value: <DataValue value={listing.identity_reason} />,
-                        },
-                        { label: "Description", value: <DataValue value={listing.description} /> },
-                        { label: "Pricing", value: <DataValue value={listing.pricing} /> },
-                        { label: "Attribution", value: <DataValue value={listing.attribution} /> },
-                        {
-                          label: "Display information source",
-                          value: <DataValue value={product.metadata_listing_id === listing.id} />,
-                        },
-                        { label: "Website", value: <DataValue value={listing.product_url} /> },
-                        {
-                          label: "Listing",
-                          value: (
-                            <a
-                              className="text-primary hover:underline"
-                              href={listing.listing_url}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                            >
-                              View {listing.platform_name} listing
-                            </a>
-                          ),
-                        },
-                        { label: "Updated", value: <DateTime value={listing.updated_at} /> },
-                      ]}
-                    />
-                  ))}
-                </div>
-              </section>
+              {!!product.manual_sources?.length && (
+                <section className="space-y-3" aria-label="Direct accounts">
+                  <h2 className="font-semibold">
+                    Direct accounts ({product.manual_sources.length})
+                  </h2>
+                  <div className="grid items-start gap-6 xl:grid-cols-2">
+                    {product.manual_sources.map((source) => (
+                      <ResourcePanel
+                        key={source.account_id}
+                        title={source.account_name}
+                        fields={[
+                          {
+                            label: "Partner account",
+                            value: (
+                              <Link
+                                href={`/partnerships/accounts/${source.account_id}`}
+                                prefetch={false}
+                                className="text-primary hover:underline"
+                              >
+                                {source.account_name}
+                              </Link>
+                            ),
+                          },
+                          { label: "Source", value: "Added directly" },
+                          {
+                            label: "Status",
+                            value: <StatusBadge value={source.active ? "Active" : "Archived"} />,
+                          },
+                          {
+                            label: "Account acceptance",
+                            value: (
+                              <StatusBadge
+                                value={
+                                  source.commercial_approved
+                                    ? source.approval_source === "trusted"
+                                      ? "Accepted · trusted partner"
+                                      : "Accepted · verified"
+                                    : "Awaiting acceptance"
+                                }
+                              />
+                            ),
+                          },
+                          { label: "Updated", value: <DateTime value={source.updated_at} /> },
+                        ]}
+                      />
+                    ))}
+                  </div>
+                </section>
+              )}
+              {!!product.listings.length && (
+                <section className="space-y-3" aria-label="Platform listings">
+                  <h2 className="font-semibold">Platform listings ({product.listings.length})</h2>
+                  <div className="grid items-start gap-6 xl:grid-cols-2">
+                    {product.listings.map((listing) => (
+                      <ResourcePanel
+                        key={listing.id}
+                        title={listing.platform_name}
+                        fields={[
+                          {
+                            label: "Import connection",
+                            value: (
+                              <Link
+                                prefetch={false}
+                                className="text-primary hover:underline"
+                                href={importConnectionHref(listing.provider)}
+                              >
+                                {listing.platform_name}
+                              </Link>
+                            ),
+                          },
+                          { label: "Name", value: listing.name },
+                          {
+                            label: "Partner account",
+                            value: listing.account_id ? (
+                              <Link
+                                href={`/partnerships/accounts/${listing.account_id}`}
+                                prefetch={false}
+                                className="text-primary hover:underline"
+                              >
+                                {listing.account_name ?? "View partner account"}
+                              </Link>
+                            ) : (
+                              "Unassigned"
+                            ),
+                          },
+                          {
+                            label: "Account acceptance",
+                            value: (
+                              <StatusBadge
+                                value={
+                                  listing.commercial_approved
+                                    ? listing.approval_source === "trusted"
+                                      ? "Accepted · trusted partner"
+                                      : "Accepted · verified"
+                                    : "Awaiting acceptance"
+                                }
+                              />
+                            ),
+                          },
+                          {
+                            label: "Platform product ID",
+                            value: <DataValue value={listing.external_id} />,
+                          },
+                          {
+                            label: "Status",
+                            value: (
+                              <StatusBadge
+                                value={
+                                  !listing.active
+                                    ? "Unavailable"
+                                    : !listing.connection_enabled
+                                      ? "Paused"
+                                      : "Active"
+                                }
+                              />
+                            ),
+                          },
+                          {
+                            label: "Identity",
+                            value: <StatusBadge value={listing.identity_status} />,
+                          },
+                          {
+                            label: "Identity details",
+                            value: <DataValue value={listing.identity_reason} />,
+                          },
+                          {
+                            label: "Description",
+                            value: <DataValue value={listing.description} />,
+                          },
+                          { label: "Pricing", value: <DataValue value={listing.pricing} /> },
+                          {
+                            label: "Attribution",
+                            value: <DataValue value={listing.attribution} />,
+                          },
+                          {
+                            label: "Display information source",
+                            value: <DataValue value={product.metadata_listing_id === listing.id} />,
+                          },
+                          { label: "Website", value: <DataValue value={listing.product_url} /> },
+                          {
+                            label: "Listing",
+                            value: (
+                              <a
+                                className="text-primary hover:underline"
+                                href={listing.listing_url}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                              >
+                                View {listing.platform_name} listing
+                              </a>
+                            ),
+                          },
+                          { label: "Updated", value: <DateTime value={listing.updated_at} /> },
+                        ]}
+                      />
+                    ))}
+                  </div>
+                </section>
+              )}
               <RelatedPartnerRuns kind="pipeline" filters={{ product_id: id }} />
               <RelatedPartnerRuns kind="evaluations" filters={{ product_id: id }} />
             </div>
@@ -252,18 +311,18 @@ export function PartnerProductPage({
                   <div className="space-y-3 py-3 text-sm">
                     <p className="font-medium">
                       {product.commercial_approved
-                        ? "Accepted for connected partner accounts"
+                        ? "Accepted for associated partner accounts"
                         : "Awaiting account acceptance"}
                       {product.approval_sources?.includes("trusted") &&
-                        " · trusted partner imports"}
+                        " · trusted account products"}
                     </p>
                     <p className="text-muted-foreground">
-                      This product inherits promotion settings from each partner account linked to
-                      its import connections. Account and tier defaults control product or sponsored
-                      appearances; trusted imports can be accepted automatically while capability
-                      checks continue. Contextual matches are preferred; sponsored feed placements
-                      can fill unmatched feeds. Article and topic placements require a relevant
-                      match. Exclusions still apply.
+                      This product inherits promotion settings from each account that added it
+                      directly or imported it through a connection. Account and tier defaults
+                      control product or sponsored appearances; trusted account products can be
+                      accepted automatically while capability checks continue. Contextual matches
+                      are preferred; sponsored feed placements can fill unmatched feeds. Article and
+                      topic placements require a relevant match. Exclusions still apply.
                     </p>
                     <Link
                       href="/partnerships/accounts"
@@ -309,7 +368,7 @@ export function PartnerProductPage({
                     { label: "Revision", value: <DataValue value={product.revision} /> },
                     { label: "Updated", value: <DateTime value={product.updated_at} /> },
                     {
-                      label: "Platforms",
+                      label: "Sources",
                       value: (
                         <Link
                           prefetch={false}
@@ -318,6 +377,9 @@ export function PartnerProductPage({
                         >
                           {[
                             ...new Set(product.listings.map((listing) => listing.platform_name)),
+                            ...(product.manual_sources ?? []).map(
+                              (source) => `Direct · ${source.account_name}`,
+                            ),
                           ].join(", ")}
                         </Link>
                       ),

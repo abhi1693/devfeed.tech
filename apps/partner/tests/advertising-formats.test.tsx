@@ -349,6 +349,15 @@ it("searches the full imported catalog remotely and resets pagination", async ()
           status: "approved",
           technologies: [],
           commercial_approved: true,
+          product_url: "https://cronwatch.example/",
+          description: "Monitor scheduled jobs.",
+          pricing: "paid",
+          assessment: { state: "qualified", reason: "" },
+          revision: 1,
+          source: "imported",
+          manual_active: null,
+          editable: false,
+          active: true,
         },
       ],
       total: 60,
@@ -360,7 +369,7 @@ it("searches the full imported catalog remotely and resets pagination", async ()
   catalog();
   await screen.findByText(product.name);
   expect(screen.getByText("Excluded")).toBeTruthy();
-  await userEvent.click(screen.getByRole("button", { name: "Next imported products" }));
+  await userEvent.click(screen.getByRole("button", { name: "Next products" }));
   await waitFor(() =>
     expect(fetcher).toHaveBeenLastCalledWith(
       expect.stringContaining("offset=25"),
@@ -379,8 +388,7 @@ it("searches the full imported catalog remotely and resets pagination", async ()
   );
   await screen.findByText(product.name);
   expect(
-    (screen.getByRole("button", { name: "Previous imported products" }) as HTMLButtonElement)
-      .disabled,
+    (screen.getByRole("button", { name: "Previous products" }) as HTMLButtonElement).disabled,
   ).toBe(true);
 });
 it("retries failed catalog reads and aborts an in-flight read after page navigation", async () => {
@@ -391,7 +399,7 @@ it("retries failed catalog reads and aborts an in-flight read after page navigat
   vi.stubGlobal("fetch", fetcher);
   const view = catalog();
   await screen.findByRole("alert");
-  await userEvent.click(screen.getByRole("button", { name: "Retry imported products" }));
+  await userEvent.click(screen.getByRole("button", { name: "Retry products" }));
   await waitFor(() => expect(fetcher).toHaveBeenCalledTimes(2));
   const signal = fetcher.mock.calls[1][1].signal as AbortSignal;
   expect(signal.aborted).toBe(false);

@@ -1526,6 +1526,10 @@ class PartnerProduct(Base):
             "status IN ('pending','approved','rejected','paused','withdrawn')",
             name="ck_partner_status",
         ),
+        CheckConstraint(
+            "metadata_listing_id IS NULL OR metadata_account_id IS NULL",
+            name="ck_partner_metadata_authority",
+        ),
         Index("ix_partner_products_matching_tokens", "matching_tokens", postgresql_using="gin"),
     )
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
@@ -1554,6 +1558,9 @@ class PartnerProduct(Base):
 
     metadata_listing_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("partner_listings.id", use_alter=True, name="fk_partner_metadata_listing")
+    )
+    metadata_account_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("partner_accounts.id", ondelete="SET NULL")
     )
     merged_into_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("partner_products.id"))
 
@@ -1656,6 +1663,9 @@ class PartnerPipelineJob(LeasedJobMixin, Base):
         CheckConstraint(
             "operation IN ('sync','sync_product','assess')", name="ck_partner_pipeline_operation"
         ),
+        CheckConstraint(
+            "operation = 'assess' OR provider IS NOT NULL", name="ck_partner_pipeline_provider"
+        ),
         UniqueConstraint("parent_id", "external_id", name="uq_partner_product_sync"),
         Index(
             "uq_partner_sync_active",
@@ -1672,7 +1682,7 @@ class PartnerPipelineJob(LeasedJobMixin, Base):
         Index("ix_partner_pipeline_due", "status", "available_at"),
     )
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
-    provider: Mapped[str] = mapped_column(ForeignKey("partner_connections.provider"))
+    provider: Mapped[str | None] = mapped_column(ForeignKey("partner_connections.provider"))
     operation: Mapped[str] = mapped_column(String(20))
     product_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("partner_products.id", ondelete="CASCADE")
@@ -1783,6 +1793,26 @@ class PartnerAccount(Base):
         from .partner_tiers import TIER_BENEFITS
 
         return list(TIER_BENEFITS[self.tier])
+
+
+class PartnerManualProduct(Base):
+    """Explicit account inventory, independent of external launch platform imports."""
+
+    __tablename__ = "partner_manual_products"
+    __table_args__ = (Index("ix_partner_manual_products_product_active", "product_id", "active"),)
+    account_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("partner_accounts.id", ondelete="CASCADE"), primary_key=True
+    )
+    product_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("partner_products.id", ondelete="CASCADE"), primary_key=True
+    )
+    active: Mapped[bool] = mapped_column(Boolean, default=True, server_default="true")
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, server_default=text("now()")
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, server_default=text("now()")
+    )
 
 
 class PartnerPromotionEnrollment(Base):

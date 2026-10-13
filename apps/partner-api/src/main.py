@@ -10,11 +10,13 @@ from devfeed_core.logging import configure_logging
 from devfeed_core.telemetry import start_runtime, stop_runtime
 from devfeed_core.version import SCHEMA_REVISION, __version__
 from devfeed_http.admission import AdmissionMiddleware
+from devfeed_http.body_limits import RequestBodyLimitMiddleware
 from devfeed_http.errors import register_error_handlers
 from devfeed_http.health import readiness_response
 from devfeed_http.image_uploads import ImageUploadBodyLimit
 from devfeed_http.logging import RequestLoggingMiddleware
 from devfeed_http.partner_ad_images import ad_image_upload_path
+from devfeed_http.partner_products import product_body_limit
 from devfeed_http.schemas import ERROR_RESPONSES, HealthResponse, UnhealthyResponse
 from devfeed_http.telemetry import fastapi_telemetry
 from fastapi import FastAPI
@@ -56,6 +58,7 @@ def create_app() -> FastAPI:
         description="Partner analytics API with role-gated sessions and live memberships.",
     )
     app.add_middleware(ImageUploadBodyLimit, path_predicate=ad_image_upload_path)
+    app.add_middleware(RequestBodyLimitMiddleware, limits={}, limit_for=product_body_limit)
     # No cross-origin cookie access: the Next.js partner service proxies same-origin requests.
     app.add_middleware(
         AdmissionMiddleware,

@@ -209,10 +209,18 @@ def upgrade():
         sa.Column("assessment_revision", sa.Integer(), server_default="0", nullable=False),
         sa.Column("excluded", sa.Boolean(), server_default="false", nullable=False),
         sa.Column("metadata_listing_id", sa.Uuid(), nullable=True),
+        sa.Column("metadata_account_id", sa.Uuid(), nullable=True),
         sa.Column("merged_into_id", sa.Uuid(), nullable=True),
         sa.CheckConstraint(
             "status IN ('pending','approved','rejected','paused','withdrawn')",
             name="ck_partner_status",
+        ),
+        sa.CheckConstraint(
+            "metadata_listing_id IS NULL OR metadata_account_id IS NULL",
+            name="ck_partner_metadata_authority",
+        ),
+        sa.ForeignKeyConstraint(
+            ["metadata_account_id"], ["partner_accounts.id"], ondelete="SET NULL"
         ),
         sa.ForeignKeyConstraint(
             ["merged_into_id"],
@@ -226,6 +234,32 @@ def upgrade():
         ["matching_tokens"],
         unique=False,
         postgresql_using="gin",
+    )
+    op.create_table(
+        "partner_manual_products",
+        sa.Column("account_id", sa.Uuid(), nullable=False),
+        sa.Column("product_id", sa.Uuid(), nullable=False),
+        sa.Column("active", sa.Boolean(), server_default="true", nullable=False),
+        sa.Column(
+            "created_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.text("now()"),
+            nullable=False,
+        ),
+        sa.Column(
+            "updated_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.text("now()"),
+            nullable=False,
+        ),
+        sa.ForeignKeyConstraint(["account_id"], ["partner_accounts.id"], ondelete="CASCADE"),
+        sa.ForeignKeyConstraint(["product_id"], ["partner_products.id"], ondelete="CASCADE"),
+        sa.PrimaryKeyConstraint("account_id", "product_id"),
+    )
+    op.create_index(
+        "ix_partner_manual_products_product_active",
+        "partner_manual_products",
+        ["product_id", "active"],
     )
     op.create_table(
         "partner_article_matches",
@@ -705,7 +739,7 @@ def upgrade():
     op.create_table(
         "partner_pipeline_jobs",
         sa.Column("id", sa.Uuid(), nullable=False),
-        sa.Column("provider", sa.String(200), nullable=False),
+        sa.Column("provider", sa.String(200), nullable=True),
         sa.Column("operation", sa.String(20), nullable=False),
         sa.Column("product_id", sa.Uuid(), nullable=True),
         sa.Column("parent_id", sa.Uuid(), nullable=True),
@@ -722,6 +756,9 @@ def upgrade():
         sa.Column("finished_at", sa.DateTime(timezone=True), nullable=True),
         sa.CheckConstraint(
             "operation IN ('sync','sync_product','assess')", name="ck_partner_pipeline_operation"
+        ),
+        sa.CheckConstraint(
+            "operation = 'assess' OR provider IS NOT NULL", name="ck_partner_pipeline_provider"
         ),
         sa.ForeignKeyConstraint(
             ["parent_id"],
@@ -1200,6 +1237,7 @@ def downgrade():
     op.drop_table("partner_connections")
     op.drop_table("partner_campaigns")
     op.drop_table("partner_article_matches")
+    op.drop_table("partner_manual_products")
     op.drop_table("partner_products")
     op.drop_table("partner_match_jobs")
     op.drop_table("partner_accounts")

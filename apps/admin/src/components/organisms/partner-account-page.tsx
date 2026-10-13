@@ -367,10 +367,10 @@ export function PartnerAccountPage({
                         value: `${data!.account.effective_promotion_kind === "ad" ? "Sponsored" : "Product recommendation"} · ${data!.account.promotion_kind_source === "account" ? "account override" : "inherited from tier"}`,
                       },
                       {
-                        label: "Imported product acceptance",
+                        label: "Product acceptance",
                         value:
                           data!.account.approval_mode === "trusted"
-                            ? "Trusted partner imports accepted automatically"
+                            ? "Trusted account products accepted automatically"
                             : "Automatic capability checks",
                       },
                       {
@@ -415,10 +415,10 @@ export function PartnerAccountPage({
                     ]}
                   >
                     <p className="py-3 text-sm text-muted-foreground">
-                      Imported products inherit the account’s acceptance and promotion policies.
-                      Sponsored defaults create an automatic standing campaign. Contextual matches
-                      are preferred; sponsored feed placements can fill unmatched feeds. Article and
-                      topic placements require a relevant match.
+                      Products added directly or imported inherit the account’s acceptance and
+                      promotion policies. Sponsored defaults create an automatic standing campaign.
+                      Contextual matches are preferred; sponsored feed placements can fill unmatched
+                      feeds. Article and topic placements require a relevant match.
                     </p>
                   </ResourcePanel>
                   <PartnerAudience

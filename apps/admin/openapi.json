@@ -6749,6 +6749,10 @@
       },
       "InventoryProductOut": {
         "properties": {
+          "active": {
+            "title": "Active",
+            "type": "boolean"
+          },
           "ad_formats": {
             "anyOf": [
               {
@@ -6795,9 +6799,20 @@
             ],
             "title": "Approval Source"
           },
+          "assessment": {
+            "$ref": "#/components/schemas/ProductAssessment"
+          },
           "commercial_approved": {
             "default": false,
             "title": "Commercial Approved",
+            "type": "boolean"
+          },
+          "description": {
+            "title": "Description",
+            "type": "string"
+          },
+          "editable": {
+            "title": "Editable",
             "type": "boolean"
           },
           "excluded": {
@@ -6813,8 +6828,33 @@
             "title": "Id",
             "type": "string"
           },
+          "manual_active": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Manual Active"
+          },
           "name": {
             "title": "Name",
+            "type": "string"
+          },
+          "pricing": {
+            "enum": [
+              "free",
+              "freemium",
+              "paid",
+              "unknown"
+            ],
+            "title": "Pricing",
+            "type": "string"
+          },
+          "product_url": {
+            "title": "Product Url",
             "type": "string"
           },
           "promotion_surfaces": {
@@ -6836,6 +6876,18 @@
             ],
             "title": "Promotion Surfaces"
           },
+          "revision": {
+            "title": "Revision",
+            "type": "integer"
+          },
+          "source": {
+            "enum": [
+              "manual",
+              "imported"
+            ],
+            "title": "Source",
+            "type": "string"
+          },
           "status": {
             "title": "Status",
             "type": "string"
@@ -6854,7 +6906,16 @@
           "technologies",
           "status",
           "excluded",
-          "globally_excluded"
+          "globally_excluded",
+          "product_url",
+          "description",
+          "pricing",
+          "assessment",
+          "revision",
+          "source",
+          "editable",
+          "active",
+          "manual_active"
         ],
         "title": "InventoryProductOut",
         "type": "object"
@@ -7230,6 +7291,182 @@
           "updated_at"
         ],
         "title": "ListingOut",
+        "type": "object"
+      },
+      "ManualProductInput": {
+        "additionalProperties": false,
+        "properties": {
+          "description": {
+            "maxLength": 5000,
+            "minLength": 10,
+            "title": "Description",
+            "type": "string"
+          },
+          "name": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Name",
+            "type": "string"
+          },
+          "pricing": {
+            "default": "unknown",
+            "enum": [
+              "free",
+              "freemium",
+              "paid",
+              "unknown"
+            ],
+            "title": "Pricing",
+            "type": "string"
+          },
+          "product_url": {
+            "maxLength": 2048,
+            "title": "Product Url",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "product_url",
+          "description"
+        ],
+        "title": "ManualProductInput",
+        "type": "object"
+      },
+      "ManualProductSourceOut": {
+        "properties": {
+          "account_id": {
+            "format": "uuid",
+            "title": "Account Id",
+            "type": "string"
+          },
+          "account_name": {
+            "title": "Account Name",
+            "type": "string"
+          },
+          "active": {
+            "title": "Active",
+            "type": "boolean"
+          },
+          "approval_source": {
+            "anyOf": [
+              {
+                "enum": [
+                  "qualified",
+                  "trusted"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Approval Source"
+          },
+          "commercial_approved": {
+            "title": "Commercial Approved",
+            "type": "boolean"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "account_id",
+          "account_name",
+          "active",
+          "commercial_approved",
+          "approval_source",
+          "updated_at"
+        ],
+        "title": "ManualProductSourceOut",
+        "type": "object"
+      },
+      "ManualProductUpdate": {
+        "additionalProperties": false,
+        "properties": {
+          "active": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Active"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "maxLength": 5000,
+                "minLength": 10,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "expected_revision": {
+            "anyOf": [
+              {
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expected Revision"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "pricing": {
+            "anyOf": [
+              {
+                "enum": [
+                  "free",
+                  "freemium",
+                  "paid",
+                  "unknown"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pricing"
+          },
+          "product_url": {
+            "anyOf": [
+              {
+                "maxLength": 2048,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Product Url"
+          }
+        },
+        "title": "ManualProductUpdate",
         "type": "object"
       },
       "MatchDecision": {
@@ -9370,8 +9607,15 @@
             "title": "Product Id"
           },
           "provider": {
-            "title": "Provider",
-            "type": "string"
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Provider"
           },
           "status": {
             "title": "Status",
@@ -9494,8 +9738,15 @@
             "title": "Product Name"
           },
           "provider": {
-            "title": "Provider",
-            "type": "string"
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Provider"
           },
           "status": {
             "title": "Status",
@@ -9985,6 +10236,190 @@
         "title": "ProductAssessment",
         "type": "object"
       },
+      "ProductDetailOut": {
+        "properties": {
+          "account_id": {
+            "format": "uuid",
+            "title": "Account Id",
+            "type": "string"
+          },
+          "account_name": {
+            "title": "Account Name",
+            "type": "string"
+          },
+          "active": {
+            "title": "Active",
+            "type": "boolean"
+          },
+          "ad_formats": {
+            "anyOf": [
+              {
+                "items": {
+                  "enum": [
+                    "feed",
+                    "homepage_sponsorship",
+                    "sponsored_content",
+                    "engagement"
+                  ],
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ad Formats"
+          },
+          "ad_image_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ad Image Url"
+          },
+          "approval_source": {
+            "anyOf": [
+              {
+                "enum": [
+                  "qualified",
+                  "trusted"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Approval Source"
+          },
+          "assessment": {
+            "$ref": "#/components/schemas/ProductAssessment"
+          },
+          "commercial_approved": {
+            "default": false,
+            "title": "Commercial Approved",
+            "type": "boolean"
+          },
+          "description": {
+            "title": "Description",
+            "type": "string"
+          },
+          "editable": {
+            "title": "Editable",
+            "type": "boolean"
+          },
+          "excluded": {
+            "title": "Excluded",
+            "type": "boolean"
+          },
+          "globally_excluded": {
+            "title": "Globally Excluded",
+            "type": "boolean"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "manual_active": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Manual Active"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "pricing": {
+            "enum": [
+              "free",
+              "freemium",
+              "paid",
+              "unknown"
+            ],
+            "title": "Pricing",
+            "type": "string"
+          },
+          "product_url": {
+            "title": "Product Url",
+            "type": "string"
+          },
+          "promotion_surfaces": {
+            "anyOf": [
+              {
+                "items": {
+                  "enum": [
+                    "article",
+                    "topic",
+                    "feed"
+                  ],
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Promotion Surfaces"
+          },
+          "revision": {
+            "title": "Revision",
+            "type": "integer"
+          },
+          "source": {
+            "enum": [
+              "manual",
+              "imported"
+            ],
+            "title": "Source",
+            "type": "string"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "technologies": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Technologies",
+            "type": "array"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "technologies",
+          "status",
+          "excluded",
+          "globally_excluded",
+          "product_url",
+          "description",
+          "pricing",
+          "assessment",
+          "revision",
+          "source",
+          "editable",
+          "active",
+          "manual_active",
+          "account_id",
+          "account_name"
+        ],
+        "title": "ProductDetailOut",
+        "type": "object"
+      },
       "ProductInput": {
         "additionalProperties": false,
         "properties": {
@@ -10123,6 +10558,13 @@
             "title": "Listings",
             "type": "array"
           },
+          "manual_sources": {
+            "items": {
+              "$ref": "#/components/schemas/ManualProductSourceOut"
+            },
+            "title": "Manual Sources",
+            "type": "array"
+          },
           "metadata_listing_id": {
             "anyOf": [
               {
@@ -10142,8 +10584,11 @@
             "type": "string"
           },
           "partnership_type": {
-            "const": "launch_platform",
             "default": "launch_platform",
+            "enum": [
+              "launch_platform",
+              "direct"
+            ],
             "title": "Partnership Type",
             "type": "string"
           },
@@ -19336,6 +19781,84 @@
         ]
       }
     },
+    "/v1/admin/partner-accounts/{account_id}/products": {
+      "post": {
+        "operationId": "adminPartnerProductCreate",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "account_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Account Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ManualProductInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProductDetailOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Request validation failed"
+          },
+          "4XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Invalid or unauthorized request"
+          },
+          "5XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service or dependency unavailable"
+          }
+        },
+        "security": [
+          {
+            "APIKeyCookie": []
+          }
+        ],
+        "summary": "Create Product",
+        "tags": [
+          "admin-partner-accounts"
+        ]
+      }
+    },
     "/v1/admin/partner-accounts/{account_id}/products/promotions": {
       "get": {
         "operationId": "adminPartnerProductPromotionsList",
@@ -19403,6 +19926,239 @@
           }
         ],
         "summary": "Product Promotions",
+        "tags": [
+          "admin-partner-accounts"
+        ]
+      }
+    },
+    "/v1/admin/partner-accounts/{account_id}/products/{product_id}": {
+      "delete": {
+        "operationId": "adminPartnerProductArchive",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "account_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Account Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "product_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Product Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Request validation failed"
+          },
+          "4XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Invalid or unauthorized request"
+          },
+          "5XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service or dependency unavailable"
+          }
+        },
+        "security": [
+          {
+            "APIKeyCookie": []
+          }
+        ],
+        "summary": "Archive Product",
+        "tags": [
+          "admin-partner-accounts"
+        ]
+      },
+      "get": {
+        "operationId": "adminPartnerProductGet",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "account_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Account Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "product_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Product Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProductDetailOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Request validation failed"
+          },
+          "4XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Invalid or unauthorized request"
+          },
+          "5XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service or dependency unavailable"
+          }
+        },
+        "security": [
+          {
+            "APIKeyCookie": []
+          }
+        ],
+        "summary": "Get Product",
+        "tags": [
+          "admin-partner-accounts"
+        ]
+      },
+      "patch": {
+        "operationId": "adminPartnerProductUpdate",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "account_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Account Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "product_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Product Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ManualProductUpdate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProductDetailOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Request validation failed"
+          },
+          "4XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Invalid or unauthorized request"
+          },
+          "5XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service or dependency unavailable"
+          }
+        },
+        "security": [
+          {
+            "APIKeyCookie": []
+          }
+        ],
+        "summary": "Update Product",
         "tags": [
           "admin-partner-accounts"
         ]

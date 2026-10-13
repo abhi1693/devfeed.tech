@@ -12,6 +12,7 @@ from devfeed_core.models import (
     PartnerAccount,
     PartnerAsset,
     PartnerDailyMetric,
+    PartnerManualProduct,
     PartnerProduct,
     PartnerProductPromotion,
     PartnerTrackedDailyMetric,
@@ -37,7 +38,7 @@ from devfeed_core.partner_promotions import (
     ensure_automatic_assets,
 )
 from devfeed_core.partner_tiers import PartnerTier, PromotionKind, tier_policy
-from devfeed_core.partner_tools import eligible
+from devfeed_core.partner_tools import ProductAssessment, eligible
 from devfeed_core.publication import visible_article
 from devfeed_core.schemas import ArticleOut
 from devfeed_core.urls import validate_public_url
@@ -435,6 +436,15 @@ class InventoryProductOut(BaseModel):
     promotion_surfaces: list[PromotionSurface] | None = None
     ad_formats: list[AdFormat] | None = None
     ad_image_url: str | None = None
+    product_url: str
+    description: str
+    pricing: Literal["free", "freemium", "paid", "unknown"]
+    assessment: ProductAssessment
+    revision: int
+    source: Literal["manual", "imported"]
+    editable: bool
+    active: bool
+    manual_active: bool | None
 
 
 class InventoryOut(BaseModel):
@@ -837,7 +847,7 @@ def sponsor_articles(session, *, q="", article_id=None, offset=0, limit=25):
     return {"items": [ArticleOut.from_article(row) for row in rows], "total": total}
 
 
-def inventory_product_view(account, product, policy, now):
+def inventory_product_view(account, product, policy, now, manual=None, *, active=True):
     """Build policy summaries from a loaded account-product policy without extra SQL."""
     excluded = bool(policy and policy.excluded)
     trusted = bool(
@@ -855,7 +865,8 @@ def inventory_product_view(account, product, policy, now):
         status=product.status,
         excluded=excluded,
         globally_excluded=product.excluded,
-        commercial_approved=not excluded
+        commercial_approved=active
+        and not excluded
         and not product.excluded
         and not product.merged_into_id
         and (eligible(product, now) or trusted),
@@ -867,6 +878,15 @@ def inventory_product_view(account, product, policy, now):
         ad_formats=policy.ad_formats if policy else None,
         promotion_surfaces=policy.promotion_surfaces if policy else None,
         ad_image_url=policy.ad_image_url if policy else None,
+        product_url=product.product_url,
+        description=product.description,
+        pricing=product.pricing,
+        assessment=product.assessment or {},
+        revision=product.revision,
+        source="manual" if manual else "imported",
+        editable=bool(manual and product.metadata_account_id == account.id),
+        active=active,
+        manual_active=bool(manual.active) if manual else None,
     )
 
 
@@ -882,12 +902,19 @@ def inventory_page(session, accounts_query, *, q="", product_id=None, offset=0, 
         query = query.where(PartnerProduct.id == product_id)
     total = session.scalar(select(func.count()).select_from(query.subquery()))
     rows = session.execute(
-        query.add_columns(PartnerProductPromotion)
+        query.add_columns(PartnerProductPromotion, PartnerManualProduct)
         .outerjoin(
             PartnerProductPromotion,
             and_(
                 PartnerProductPromotion.account_id == PartnerAccount.id,
                 PartnerProductPromotion.product_id == PartnerProduct.id,
+            ),
+        )
+        .outerjoin(
+            PartnerManualProduct,
+            and_(
+                PartnerManualProduct.account_id == PartnerAccount.id,
+                PartnerManualProduct.product_id == PartnerProduct.id,
             ),
         )
         .order_by(PartnerProduct.name, PartnerAccount.name, PartnerAccount.id, PartnerProduct.id)
@@ -897,8 +924,8 @@ def inventory_page(session, accounts_query, *, q="", product_id=None, offset=0, 
     now = datetime.now(UTC)
     return {
         "items": [
-            inventory_product_view(account, product, policy, now)
-            for account, product, policy in rows
+            inventory_product_view(account, product, policy, now, manual)
+            for account, product, policy, manual in rows
         ],
         "total": total,
         "limit": limit,

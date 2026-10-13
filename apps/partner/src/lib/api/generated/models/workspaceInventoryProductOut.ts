@@ -5,20 +5,32 @@
  * Partner analytics API with role-gated sessions and live memberships.
  * OpenAPI spec version: 0.0.52
  */
+import type { ProductAssessment } from './productAssessment';
 import type { WorkspaceInventoryProductOutApprovalSource } from './workspaceInventoryProductOutApprovalSource';
+import type { WorkspaceInventoryProductOutPricing } from './workspaceInventoryProductOutPricing';
+import type { WorkspaceInventoryProductOutSource } from './workspaceInventoryProductOutSource';
 
 export interface WorkspaceInventoryProductOut {
   account_id: string;
   account_name: string;
+  active: boolean;
   ad_formats?: ('feed' | 'homepage_sponsorship' | 'sponsored_content' | 'engagement')[] | null;
   ad_image_url?: string | null;
   approval_source?: WorkspaceInventoryProductOutApprovalSource;
+  assessment: ProductAssessment;
   commercial_approved?: boolean;
+  description: string;
+  editable: boolean;
   excluded: boolean;
   globally_excluded: boolean;
   id: string;
+  manual_active: boolean | null;
   name: string;
+  pricing: WorkspaceInventoryProductOutPricing;
+  product_url: string;
   promotion_surfaces?: ('article' | 'topic' | 'feed')[] | null;
+  revision: number;
+  source: WorkspaceInventoryProductOutSource;
   status: string;
   technologies: string[];
 }

@@ -50,9 +50,12 @@ export const productColumns: DataTableColumn<ProductOut>[] = [
   },
   {
     id: "platforms",
-    header: "Platforms",
+    header: "Sources",
     accessorFn: (row) =>
-      [...new Set(row.listings.map((listing) => listing.platform_name))].join(", "),
+      [
+        ...new Set(row.listings.map((listing) => listing.platform_name)),
+        ...(row.manual_sources ?? []).map((source) => `Direct · ${source.account_name}`),
+      ].join(", "),
   },
   { id: "pricing", header: "Pricing", accessorKey: "pricing" },
   {
@@ -116,7 +119,7 @@ function ProductTable({ query, provider }: { query: string; provider?: string })
         empty={
           q
             ? "No products match your search."
-            : "No imported products. Configure an import connection to sync its catalog."
+            : "No partner products. Partners can add products directly or connect an import source."
         }
         toolbar={
           <>

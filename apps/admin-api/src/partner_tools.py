@@ -1,4 +1,4 @@
-"""Launch platform connections and their API-managed catalog, private to admins."""
+"""Import connections and direct partner inventory, private to administrators."""
 
 import logging
 import uuid
@@ -14,7 +14,12 @@ from devfeed_core.models import (
     PartnerProduct,
     utcnow,
 )
-from devfeed_core.partner_catalog import active_provider, has_listings, listing_views, lock_catalog
+from devfeed_core.partner_catalog import (
+    has_sources,
+    listing_views,
+    lock_catalog,
+    product_has_active_source,
+)
 from devfeed_core.partner_connections import (
     ConnectionAction,
     ConnectionCreate,
@@ -40,7 +45,13 @@ from devfeed_core.partner_connectors import (
     response_preview,
 )
 from devfeed_core.partner_providers import PARTNER_PRESETS, PartnerProviderOut
-from devfeed_core.partner_tools import EvaluationOut, ProductOut, product_view, snapshot_current
+from devfeed_core.partner_tools import (
+    EvaluationOut,
+    ProductOut,
+    manual_product_views,
+    product_view,
+    snapshot_current,
+)
 from devfeed_core.text_search import text_search
 from devfeed_http.pagination import Listing, Page, paginate, record
 from fastapi import APIRouter, Depends, HTTPException
@@ -360,9 +371,7 @@ def listing(
     product_id: uuid.UUID | None = None,
     status: Literal["pending", "approved", "rejected", "paused", "withdrawn"] | None = None,
 ):
-    statement = select(PartnerProduct).where(
-        PartnerProduct.merged_into_id.is_(None), has_listings()
-    )
+    statement = select(PartnerProduct).where(PartnerProduct.merged_into_id.is_(None), has_sources())
     if provider is not None:
         statement = statement.where(
             exists(
@@ -386,7 +395,11 @@ def listing(
         "-updated_at",
     )
     listings = listing_views(session, [p.id for p in page["items"]])
-    return {**page, "items": [product_view(p, listings[p.id]) for p in page["items"]]}
+    manual = manual_product_views(session, [p.id for p in page["items"]])
+    return {
+        **page,
+        "items": [product_view(p, listings[p.id], manual[p.id]) for p in page["items"]],
+    }
 
 
 @router.post(
@@ -395,10 +408,12 @@ def listing(
 def product_action(product_id: uuid.UUID, body: ProductAction, session: DB, admin: Admin):
     lock_catalog(session)
     product = record(session, PartnerProduct, product_id)
-    if product.merged_into_id or not listing_views(session, [product.id])[product.id]:
-        raise HTTPException(404, "API-managed product not found")
-    if body.action == "retry" and not active_provider(session, product_id):
-        raise HTTPException(409, "An active platform listing is required for rechecking")
+    if product.merged_into_id or not session.scalar(
+        select(PartnerProduct.id).where(PartnerProduct.id == product.id, has_sources())
+    ):
+        raise HTTPException(404, "Partner product not found")
+    if body.action == "retry" and not product_has_active_source(session, product_id):
+        raise HTTPException(409, "An active product source is required for rechecking")
     pipeline_jobs = session.scalars(
         select(PartnerPipelineJob)
         .where(
@@ -429,7 +444,7 @@ def product_action(product_id: uuid.UUID, body: ProductAction, session: DB, admi
     if product.revision != body.expected_revision:
         raise HTTPException(409, "Product changed; refresh and try again")
     if product.status == "withdrawn" and body.action == "retry":
-        raise HTTPException(409, "This product is no longer available from the platform")
+        raise HTTPException(409, "This product no longer has an active source")
     product.excluded = body.action == "exclude"
     product.status = "paused" if product.excluded else "pending"
     product.revision += 1
@@ -451,7 +466,11 @@ def product_action(product_id: uuid.UUID, body: ProductAction, session: DB, admi
             "actor_subject": admin.subject,
         },
     )
-    return product_view(product, listing_views(session, [product.id])[product.id])
+    return product_view(
+        product,
+        listing_views(session, [product.id])[product.id],
+        manual_product_views(session, [product.id])[product.id],
+    )
 
 
 def evaluation_view(session, job):
@@ -481,8 +500,10 @@ def evaluation_view(session, job):
 )
 def evaluations(product_id: uuid.UUID, session: DB):
     product = record(session, PartnerProduct, product_id)
-    if product.merged_into_id or not listing_views(session, [product.id])[product.id]:
-        raise HTTPException(404, "API-managed product not found")
+    if product.merged_into_id or not session.scalar(
+        select(PartnerProduct.id).where(PartnerProduct.id == product.id, has_sources())
+    ):
+        raise HTTPException(404, "Partner product not found")
     jobs = session.scalars(
         select(PartnerEvaluation)
         .where(PartnerEvaluation.product_id == product_id)

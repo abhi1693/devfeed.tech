@@ -1,5 +1,7 @@
 """Bound selected request bodies before JSON decoding or database dependencies."""
 
+from collections.abc import Callable
+
 import anyio
 from starlette.responses import JSONResponse
 from starlette.types import ASGIApp, Receive, Scope, Send
@@ -41,14 +43,28 @@ async def _read_body(receive: Receive, limit: int, timeout: float) -> bytes | No
 
 
 class RequestBodyLimitMiddleware:
-    def __init__(self, app: ASGIApp, *, limits: dict[tuple[str, str], int], timeout: float = 2.0):
+    def __init__(
+        self,
+        app: ASGIApp,
+        *,
+        limits: dict[tuple[str, str], int],
+        timeout: float = 2.0,
+        limit_for: Callable[[str, str], int | None] | None = None,
+    ):
         self.app = app
         self.limits = limits
         self.timeout = timeout
+        self.limit_for = limit_for
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send):
-        limit = self.limits.get((scope.get("method", ""), _route_path(scope)))
-        if scope["type"] != "http" or limit is None:
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+        method, path = scope.get("method", ""), _route_path(scope)
+        limit = self.limits.get((method, path))
+        if limit is None and self.limit_for is not None:
+            limit = self.limit_for(method, path)
+        if limit is None:
             await self.app(scope, receive, send)
             return
         try:

@@ -2,40 +2,26 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { Pencil, RefreshCw, Search } from "lucide-react";
+import { Pencil, Plus, RefreshCw, Search } from "lucide-react";
 import { Button } from "@devfeed/ui/button";
 import { Badge } from "@devfeed/ui/badge";
 import { Input } from "@devfeed/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@devfeed/ui/table";
 import { ResourceHeading } from "@devfeed/ui/resource-layout";
-import {
-  PartnerInventoryListResponse,
-  PartnerWorkspaceInventoryResponse,
-} from "@/lib/api/generated/validators";
+import { PartnerWorkspaceInventoryResponse } from "@/lib/api/generated/validators";
 import { parseProductPlacementPolicy } from "@devfeed/ui/advertising-formats";
 import { accountSettingsPath, portalPath, productPath } from "@/lib/routes";
 import { isPartnerRequestCancelled, usePartnerRequest } from "@/lib/partner-request";
 import type {
-  InventoryOut,
   InventoryProductOut,
   WorkspaceInventoryOut,
   WorkspaceInventoryProductOut,
 } from "@/lib/api/generated/models";
 import type { Account } from "@/lib/types";
 
-export function parseProductInventory(value: unknown): InventoryOut {
-  const data = PartnerInventoryListResponse.parse(value);
-  if (data.total < 0) throw new Error("Invalid imported product count.");
-  return {
-    ...data,
-    items: data.items.map((item) => ({ ...item, ...parseProductPlacementPolicy(item) })),
-  };
-}
-
 export function parseWorkspaceProductInventory(value: unknown): WorkspaceInventoryOut {
   const data = PartnerWorkspaceInventoryResponse.parse(value);
-  if (data.total < 0 || data.offset < 0 || data.limit < 1)
-    throw new Error("Invalid imported product page.");
+  if (data.total < 0 || data.offset < 0 || data.limit < 1) throw new Error("Invalid product page.");
   return {
     ...data,
     items: data.items.map((item) => ({ ...item, ...parseProductPlacementPolicy(item) })),
@@ -105,10 +91,10 @@ export function PartnerProductCatalog({
           data.limit !== 25 ||
           (accountFilter && data.items.some((product) => product.account_id !== accountFilter.id))
         )
-          throw new Error("Could not confirm the imported product page.");
+          throw new Error("Could not confirm the product page.");
         return data;
       },
-      errorMessage: "Could not load imported products. Please retry.",
+      errorMessage: "Could not load products. Please retry.",
     })
       .then((data) => {
         if (controller.signal.aborted) return;
@@ -125,9 +111,7 @@ export function PartnerProductCatalog({
             items: [],
             total: 0,
             error:
-              reason instanceof Error
-                ? reason.message
-                : "Could not load imported products. Please retry.",
+              reason instanceof Error ? reason.message : "Could not load products. Please retry.",
           });
       });
     return () => controller.abort();
@@ -139,15 +123,21 @@ export function PartnerProductCatalog({
         homeLabel="Dashboard"
         siteTitle="DevFeed Partners"
         title="Products"
-        description="Your imported catalog across all partner accounts. Open a product to review its placement settings."
+        description="Products across your partner accounts. Add a product directly or import a catalog from an API."
       >
         <Button variant="outline" onClick={() => setRevision((value) => value + 1)}>
           <RefreshCw aria-hidden />
           Refresh
         </Button>
-        <Button asChild>
+        <Button variant="outline" asChild>
           <Link href={`${portalPath("connections")}${query}`} prefetch={false}>
             Manage connections
+          </Link>
+        </Button>
+        <Button asChild>
+          <Link href={`/products/new${listQuery}`} prefetch={false}>
+            <Plus aria-hidden />
+            Add product
           </Link>
         </Button>
       </ResourceHeading>
@@ -182,7 +172,7 @@ export function PartnerProductCatalog({
         </div>
         <p className="text-sm text-muted-foreground" role="status">
           {loading
-            ? "Loading imported products…"
+            ? "Loading products…"
             : `${result.total.toLocaleString("en-US")} ${result.total === 1 ? "product" : "products"}`}
         </p>
       </div>
@@ -190,16 +180,17 @@ export function PartnerProductCatalog({
         <div role="alert" className="notice">
           <p>{result.error}</p>
           <Button variant="outline" onClick={() => setRevision((value) => value + 1)}>
-            Retry imported products
+            Retry products
           </Button>
         </div>
       )}
       <div className="overflow-x-auto rounded-md border" aria-busy={loading}>
-        <Table aria-label="Imported products" className="[&_td]:py-1.5">
+        <Table aria-label="Products" className="[&_td]:py-1.5">
           <TableHeader>
             <TableRow>
               <TableHead>Name</TableHead>
               <TableHead>Partner account</TableHead>
+              <TableHead>Source</TableHead>
               <TableHead>Placement status</TableHead>
               <TableHead>Technologies</TableHead>
               <TableHead>Settings</TableHead>
@@ -234,6 +225,9 @@ export function PartnerProductCatalog({
                       >
                         {product.account_name}
                       </Link>
+                    </TableCell>
+                    <TableCell className="text-muted-foreground">
+                      {product.source === "manual" ? "Manual" : "Imported"}
                     </TableCell>
                     <TableCell>
                       <Badge
@@ -282,17 +276,17 @@ export function PartnerProductCatalog({
               })}
             {!loading && !result.error && !result.items.length && (
               <TableRow>
-                <TableCell colSpan={6} className="h-20 text-center text-muted-foreground">
+                <TableCell colSpan={7} className="h-20 text-center text-muted-foreground">
                   {page.q
                     ? "No products match your search."
-                    : "No imported products yet. Connect a catalog to get started."}
+                    : "No products yet. Add a product or connect an import API."}
                 </TableCell>
               </TableRow>
             )}
             {loading && (
               <TableRow>
-                <TableCell colSpan={6} className="h-20 text-center text-muted-foreground">
-                  Loading imported products…
+                <TableCell colSpan={7} className="h-20 text-center text-muted-foreground">
+                  Loading products…
                 </TableCell>
               </TableRow>
             )}
@@ -300,7 +294,7 @@ export function PartnerProductCatalog({
         </Table>
       </div>
       <nav
-        aria-label="Imported product pages"
+        aria-label="Product pages"
         className="flex flex-wrap items-center justify-between gap-3 text-sm"
       >
         <span>
@@ -312,7 +306,7 @@ export function PartnerProductCatalog({
           <Button
             size="sm"
             variant="outline"
-            aria-label="Previous imported products"
+            aria-label="Previous products"
             disabled={loading || page.offset === 0}
             onClick={() =>
               setPage((current) => ({ ...current, offset: Math.max(0, current.offset - 25) }))
@@ -323,7 +317,7 @@ export function PartnerProductCatalog({
           <Button
             size="sm"
             variant="outline"
-            aria-label="Next imported products"
+            aria-label="Next products"
             disabled={loading || page.offset + 25 >= result.total}
             onClick={() => setPage((current) => ({ ...current, offset: current.offset + 25 }))}
           >

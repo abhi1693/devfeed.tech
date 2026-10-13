@@ -212,7 +212,7 @@ def product_logo_filters(model):
 
     from sqlalchemy import and_, or_
 
-    from devfeed_core.partner_catalog import has_active_listing
+    from devfeed_core.partner_catalog import has_active_source
     from devfeed_core.partner_promotions import trusted_product_exists
 
     return [
@@ -225,5 +225,5 @@ def product_logo_filters(model):
         ),
         PartnerProduct.excluded.is_(False),
         PartnerProduct.merged_into_id.is_(None),
-        has_active_listing(),
+        has_active_source(),
     ]

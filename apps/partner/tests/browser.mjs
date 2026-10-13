@@ -19,6 +19,8 @@ import {
 } from "../../../scripts/testing/native-ad-formats.mjs";
 
 import { createConnectionFixture, assertConnectionJourneys } from "./browser-connections.mjs";
+import { createManualProductFixture, assertManualProductJourneys } from "./browser-products.mjs";
+const manualProducts = createManualProductFixture();
 
 const root = fileURLToPath(new URL("../../../", import.meta.url));
 const account = {
@@ -234,6 +236,7 @@ const mock = createServer(async (request, response) => {
           ? [account, beta]
           : [account];
   if (await connectionFixture.handle(request, response, url, memberAccounts)) return;
+  if (await manualProducts.handle(request, response, url, memberAccounts)) return;
   if (path === "/v1/partner/accounts") {
     if (request.method === "POST") {
       response.writeHead(201);
@@ -314,6 +317,15 @@ const mock = createServer(async (request, response) => {
               account_id: owner.id,
               account_name: owner.name,
               name: previewProduct.name,
+              product_url: "https://api-checker.example/",
+              description: creativeProduct(previewProduct).description,
+              pricing: "freemium",
+              assessment: { state: "qualified", reason: "" },
+              revision: 1,
+              source: "imported",
+              manual_active: null,
+              editable: false,
+              active: true,
               technologies: ["Kubernetes"],
               status: "approved",
               commercial_approved: true,
@@ -323,12 +335,55 @@ const mock = createServer(async (request, response) => {
             },
           ]
         : [];
+    items.push(
+      ...manualProducts.products.filter(
+        (item) =>
+          item.active &&
+          memberAccounts.some((member) => member.id === item.account_id) &&
+          (!selectedId || item.account_id === selectedId) &&
+          (!productId || item.id === productId) &&
+          item.name.toLowerCase().includes(query),
+      ),
+    );
     response.end(
       JSON.stringify({
         items,
         total: items.length,
         limit: Number(url.searchParams.get("limit") ?? 100),
         offset: Number(url.searchParams.get("offset") ?? 0),
+      }),
+    );
+    return;
+  }
+  if (/^\/v1\/partner\/accounts\/[a-f0-9-]+\/products\/[a-f0-9-]+$/i.test(path)) {
+    const ownerId = path.split("/")[4];
+    const owner = memberAccounts.find((item) => item.id === ownerId);
+    if (request.method !== "GET" || !owner || !path.endsWith(`/${previewProduct.id}`)) {
+      response.writeHead(404);
+      response.end("{}");
+      return;
+    }
+    response.end(
+      JSON.stringify({
+        id: previewProduct.id,
+        account_id: owner.id,
+        account_name: owner.name,
+        name: previewProduct.name,
+        product_url: "https://api-checker.example/",
+        description: creativeProduct(previewProduct).description,
+        pricing: "freemium",
+        assessment: { state: "qualified", reason: "" },
+        revision: 1,
+        source: "imported",
+        manual_active: null,
+        editable: false,
+        active: true,
+        technologies: ["Kubernetes"],
+        status: "approved",
+        commercial_approved: true,
+        approval_source: "qualified",
+        globally_excluded: false,
+        ...productPolicy,
       }),
     );
     return;
@@ -994,7 +1049,7 @@ try {
     .getByRole("link", { name: "Products", exact: true })
     .click();
   await page.waitForURL((url) => url.pathname === `/products`);
-  await page.getByRole("table", { name: "Imported products" }).waitFor();
+  await page.getByRole("table", { name: "Products" }).waitFor();
   await page.getByRole("link", { name: previewProduct.name, exact: true }).waitFor();
   assert.equal(await page.getByRole("dialog").count(), 0);
   assert.equal(await page.getByRole("button", { name: "Manage product placements" }).count(), 0);
@@ -1219,6 +1274,13 @@ try {
   await page.getByRole("link", { name: previewProduct.name, exact: true }).waitFor();
   await page.setViewportSize({ width: 1440, height: 1100 });
   await page.screenshot({ path: root + "reports/partner/products-desktop.png", fullPage: true });
+  await assertManualProductJourneys({
+    page,
+    origin,
+    account,
+    fixture: manualProducts,
+    artifactDir: root + "reports/partner",
+  });
   await assertConnectionJourneys({
     page,
     origin,
@@ -1453,7 +1515,7 @@ try {
   await page.goto(origin + "/products");
   await page.getByRole("columnheader", { name: /account/i }).waitFor();
   await page
-    .getByRole("table", { name: "Imported products" })
+    .getByRole("table", { name: "Products" })
     .getByText(account.name, { exact: true })
     .waitFor();
   await page.goto(origin + "/settings");
@@ -1506,7 +1568,7 @@ try {
   assert.equal(new URL(page.url()).pathname, "/performance");
   await page.goto(origin + "/products");
   await page
-    .getByRole("table", { name: "Imported products" })
+    .getByRole("table", { name: "Products" })
     .getByText(bookmarkedAccount.name, { exact: true })
     .waitFor();
   await page.getByRole("link", { name: previewProduct.name, exact: true }).waitFor();

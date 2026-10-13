@@ -56,9 +56,12 @@ or account UUID prefix in workspace URLs:
   results with an Account column, and a daily CSV export. Missing ledger days remain gaps, and
   CSV cells remain blank; observed zero counts remain zero. Period CTR uses total clicks divided
   by total impressions. Dates use UTC.
-- `/products`: the searchable imported catalog with an Account column, including products without
-  delivery measurements. Product names open `/products/<product-id>` records; edit actions open
-  `/products/<product-id>/placements`. The optional `account_id` query selects an account's policy
+- `/products`: the searchable manual and imported catalog with Account and Source columns,
+  including products without delivery measurements. `/products/new` adds a product directly to
+  an authorized account without an import connection. Product names open `/products/<product-id>`;
+  `/products/<product-id>/edit` edits manually managed facts and `/products/<product-id>/archive`
+  archives a manual entry. Placement actions open `/products/<product-id>/placements`.
+  The optional `account_id` query selects an account's policy
   for a shared product and is authorized independently. Previews appear inline. Cancel discards
   the draft; a confirmed save returns to the product record.
 - `/connections`: imports across accessible accounts, with full-page detail, create, edit and
@@ -194,7 +197,8 @@ locations or formats; choosing **Inherit account settings** restores the default
 cannot enable an automatic format that the account has disabled or bypass a tier entitlement,
 account exclusion or global exclusion. Allowing sponsored content makes the product eligible
 for a campaign with an approved article; it does not create or publish an article.
-Members can edit these settings for their own imported products independently of performance
+Members can edit these settings for products in their account, whether added manually or imported,
+independently of performance
 reporting. The partner placement form and admin dialog can explicitly Allow or Exclude a product while retaining
 its format and location restrictions. They distinguish unsaved choices from saved settings and
 show the automatic formats and locations permitted within account defaults. Allowing a product
@@ -202,6 +206,30 @@ does not override account pauses, automatic inclusion, qualification or targetin
 confirmed only when the response belongs to the requested account and product and confirms the
 submitted exclusion and restrictions; failed or mismatched saves retain the draft for review.
 Canceling the partner form or closing the admin dialog discards unsaved changes.
+
+### Manual products
+
+Organizations can advertise their products without managing a launch platform or connecting an
+external API. Add a name, public HTTPS website, description and pricing under an active partner
+account. Creation queues the same background website checks, capability assessment, imagery and
+contextual preparation used by imports. Account approval, tier, audience and placement policies
+continue to apply. Manually supplied descriptions do not grant approval or verified capabilities.
+
+The catalog keeps a canonical identity for each website. Adding an existing product gives the
+account its own inventory entry and placement settings; it does not overwrite that product's
+shared facts. Only the account that manages a manual product's canonical facts can edit them.
+Edits require the current revision and invalidate outdated assessment and contextual matches;
+unchanged saves preserve them.
+
+Archiving removes the account's manual association and preserves reports. A bookmarked product
+record can restore that entry. An active imported listing can independently keep the same product
+available, so aggregate availability and the manual entry's state are reported separately.
+The account-level product exclusion blocks placements regardless of their source. Direct products
+use their website when the account's preferred listing destination has no owned launch listing.
+
+Manual products use the existing partner sessions, roles and account memberships. They do not
+create a launch-platform connection, grant membership or change an account's advertising tier.
+No additional environment variables are required.
 
 ### Import connections
 
@@ -309,7 +337,8 @@ reporting and migration tests use disposable PostgreSQL/Redis.
 The unpublished partnership migration `0024` creates accounts, memberships, catalog, import
 connections, campaigns, promotion policies, audiences, native formats, prepared matches and daily
 reporting after master's source-logo revision `0023`. It also adds managed product logos/images,
-bounded enrollment jobs, tracking deduplication and reservations, product delivery restrictions
+bounded enrollment jobs, manual account products, provider-free assessment jobs, tracking
+deduplication and reservations, product delivery restrictions
 and permanent article sponsor disclosures. New creative identities receive separate assets so
 historical metrics stay attached to their original format and article.
 
@@ -323,7 +352,7 @@ live provider validation and paid-agreement activation remain separate rollout w
 Superusers manage partnerships at `/partnerships/accounts` in the admin app. Accounts use
 the common admin table, record detail, and create/edit form components. Select an account
 to view its tier, benefits and promotion defaults. Related objects manages members and historical
-reporting assets. Products inherit defaults from assigned connections; Products manages exclusions,
+reporting assets. Manual and imported products inherit their account's defaults; Products manages exclusions,
 and Campaigns manages paid whole-catalog, selected-product or filtered agreements. Named pickers
 use the account's catalog and approved taxonomy. Automatic attribution cannot be reassigned.
 Every form has a real URL and returns to its account after saving.

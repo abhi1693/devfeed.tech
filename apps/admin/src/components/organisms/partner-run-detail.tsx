@@ -93,10 +93,15 @@ export function PartnerRunDetail({
                 pipeline
                   ? [
                       { label: "Operation", value: partnerOperation(pipeline.operation) },
-                      {
-                        label: "Import connection",
-                        value: linked(importConnectionHref(pipeline.provider), pipeline.provider),
-                      },
+                      pipeline.provider
+                        ? {
+                            label: "Import connection",
+                            value: linked(
+                              importConnectionHref(pipeline.provider),
+                              pipeline.provider,
+                            ),
+                          }
+                        : { label: "Source", value: "Direct account product" },
                       {
                         label: "Product",
                         value: pipeline.product_id ? (
@@ -193,10 +198,17 @@ export function PartnerRunDetail({
                 : []),
               ...(pipeline
                 ? [
-                    {
-                      label: "Import connection",
-                      value: linked(importConnectionHref(pipeline.provider), pipeline.provider),
-                    },
+                    ...(pipeline.provider
+                      ? [
+                          {
+                            label: "Import connection",
+                            value: linked(
+                              importConnectionHref(pipeline.provider),
+                              pipeline.provider,
+                            ),
+                          },
+                        ]
+                      : []),
                     ...(pipeline.parent_id
                       ? [
                           {

@@ -5,7 +5,7 @@ from datetime import datetime, timedelta
 from typing import Any
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
-from sqlalchemy import and_, case, exists, func, literal, or_, select, union_all
+from sqlalchemy import and_, case, func, literal, or_, select, union_all
 from sqlalchemy.orm import aliased
 from sqlalchemy.sql.elements import ColumnElement
 
@@ -19,6 +19,7 @@ from devfeed_core.models import (
     PartnerConnection,
     PartnerDeliveryEvent,
     PartnerListing,
+    PartnerManualProduct,
     PartnerPlacementDelivery,
     PartnerProduct,
     PartnerProductPromotion,
@@ -43,6 +44,7 @@ from devfeed_core.partner_placement_preflight import (
 from devfeed_core.partner_product_images import product_image_url, product_image_variants
 from devfeed_core.partner_product_logos import product_logo_url
 from devfeed_core.partner_promotions import (
+    account_product_source,
     campaign_matches_product,
     commercially_eligible,
 )
@@ -78,7 +80,14 @@ def account_product_available(
         )
     )
     if owned is None:
-        if busy_error and session.scalar(ownership) is not None:
+        manual = select(PartnerManualProduct.product_id).where(
+            PartnerManualProduct.account_id == account_id,
+            PartnerManualProduct.product_id == product_id,
+            PartnerManualProduct.active.is_(True),
+        )
+        owned = session.scalar(manual.with_for_update(read=True, skip_locked=True))
+    if owned is None:
+        if busy_error and session.scalar(select(account_product_source(account_id, product_id))):
             raise BusyPartnerAsset("Partner catalog ownership is being updated")
         return False
     restrictions: list[ColumnElement[bool]] = [PartnerProductPromotion.excluded == True]  # noqa: E712
@@ -556,14 +565,14 @@ def lock_attribution_row(session, model, identifier, *, busy_error=False):
 
 
 def placement_destination(session, account, product):
-    """Choose the first safe current listing owned by this account, never another provider."""
+    """Use this account's listing, or the website for its directly managed product."""
     if account.outbound_destination != "listing_url":
         return devfeed_outbound_url(product.product_url)
     return account_listing_destination(session, account.id, product.id, lock=True)
 
 
 def account_listing_destination(session, account_id, product_id, *, lock=False):
-    """Return an owned listing URL; only delivery locks its attribution source rows."""
+    """Return an owned listing URL, falling back to an active direct product's website."""
     query = (
         select(PartnerListing)
         .join(PartnerConnection)
@@ -583,9 +592,24 @@ def account_listing_destination(session, account_id, product_id, *, lock=False):
             read=True, of=[PartnerListing, PartnerConnection], skip_locked=True
         )
     listings = session.scalars(query)
-    return next(
+    destination = next(
         (url for listing in listings if (url := devfeed_outbound_url(listing.listing_url))), None
     )
+    if destination is not None:
+        return destination
+    manual = (
+        select(PartnerProduct.product_url)
+        .join(PartnerManualProduct, PartnerManualProduct.product_id == PartnerProduct.id)
+        .where(
+            PartnerProduct.id == product_id,
+            PartnerProduct.merged_into_id.is_(None),
+            PartnerManualProduct.account_id == account_id,
+            PartnerManualProduct.active.is_(True),
+        )
+    )
+    if lock:
+        manual = manual.with_for_update(read=True, of=PartnerManualProduct, skip_locked=True)
+    return devfeed_outbound_url(session.scalar(manual))
 
 
 def devfeed_outbound_url(destination):
@@ -610,18 +634,7 @@ def devfeed_outbound_url(destination):
 
 def placement_rows_query(query, now):
     """Cheap current eligibility before ranking; locked policy rechecks remain final."""
-    ownership = exists(
-        select(PartnerListing.id)
-        .join(PartnerConnection)
-        .where(
-            PartnerListing.product_id == PartnerProduct.id,
-            PartnerConnection.account_id == PartnerAccount.id,
-            PartnerConnection.enabled.is_(True),
-            PartnerConnection.archived_at.is_(None),
-            PartnerListing.active.is_(True),
-            PartnerListing.identity_status == "resolved",
-        )
-    ).correlate(PartnerAccount, PartnerProduct)
+    ownership = account_product_source(PartnerAccount.id, PartnerProduct.id)
     formats = [value for value in query.ad_formats if placement_format_allowed(value, query)]
     return (
         select(PartnerAsset, PartnerAccount, PartnerProduct, PartnerCampaign)

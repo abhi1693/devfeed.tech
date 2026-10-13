@@ -1564,19 +1564,33 @@ export const PartnerDestinationPreviewResponse = zod.object({
 /**
  * @summary Inventory
  */
+export const partnerInventoryListResponseItemsItemAssessmentReasonDefault = ``;
+export const partnerInventoryListResponseItemsItemAssessmentStateDefault = `waiting`;
 export const partnerInventoryListResponseItemsItemCommercialApprovedDefault = false;
 
 export const PartnerInventoryListResponse = zod.object({
   "items": zod.array(zod.object({
+  "active": zod.boolean(),
   "ad_formats": zod.union([zod.array(zod.enum(['feed', 'homepage_sponsorship', 'sponsored_content', 'engagement'])),zod.null()]).optional(),
   "ad_image_url": zod.union([zod.string(),zod.null()]).optional(),
   "approval_source": zod.union([zod.enum(['qualified', 'trusted']),zod.null()]).optional(),
+  "assessment": zod.object({
+  "reason": zod.string().default(partnerInventoryListResponseItemsItemAssessmentReasonDefault),
+  "state": zod.enum(['waiting', 'checking', 'qualified', 'attention', 'irrelevant', 'withdrawn']).default(partnerInventoryListResponseItemsItemAssessmentStateDefault)
+}),
   "commercial_approved": zod.boolean().default(partnerInventoryListResponseItemsItemCommercialApprovedDefault),
+  "description": zod.string(),
+  "editable": zod.boolean(),
   "excluded": zod.boolean(),
   "globally_excluded": zod.boolean(),
   "id": zod.uuid(),
+  "manual_active": zod.union([zod.boolean(),zod.null()]),
   "name": zod.string(),
+  "pricing": zod.enum(['free', 'freemium', 'paid', 'unknown']),
+  "product_url": zod.string(),
   "promotion_surfaces": zod.union([zod.array(zod.enum(['article', 'topic', 'feed'])),zod.null()]).optional(),
+  "revision": zod.int(),
+  "source": zod.enum(['manual', 'imported']),
   "status": zod.string(),
   "technologies": zod.array(zod.string())
 })),
@@ -1624,6 +1638,120 @@ export const PartnerAccountPreferencesUpdateResponse = zod.object({
   "promotion_surfaces": zod.array(zod.enum(['article', 'topic', 'feed'])).min(1).max(partnerAccountPreferencesUpdateResponsePromotionSurfacesMax),
   "status": zod.enum(['active', 'paused']),
   "tier": zod.enum(['bronze', 'silver', 'gold', 'platinum', 'diamond'])
+})
+
+
+/**
+ * @summary Create Product
+ */
+export const partnerProductCreateResponseAssessmentReasonDefault = ``;
+export const partnerProductCreateResponseAssessmentStateDefault = `waiting`;
+export const partnerProductCreateResponseCommercialApprovedDefault = false;
+
+export const PartnerProductCreateResponse = zod.object({
+  "account_id": zod.uuid(),
+  "account_name": zod.string(),
+  "active": zod.boolean(),
+  "ad_formats": zod.union([zod.array(zod.enum(['feed', 'homepage_sponsorship', 'sponsored_content', 'engagement'])),zod.null()]).optional(),
+  "ad_image_url": zod.union([zod.string(),zod.null()]).optional(),
+  "approval_source": zod.union([zod.enum(['qualified', 'trusted']),zod.null()]).optional(),
+  "assessment": zod.object({
+  "reason": zod.string().default(partnerProductCreateResponseAssessmentReasonDefault),
+  "state": zod.enum(['waiting', 'checking', 'qualified', 'attention', 'irrelevant', 'withdrawn']).default(partnerProductCreateResponseAssessmentStateDefault)
+}),
+  "commercial_approved": zod.boolean().default(partnerProductCreateResponseCommercialApprovedDefault),
+  "description": zod.string(),
+  "editable": zod.boolean(),
+  "excluded": zod.boolean(),
+  "globally_excluded": zod.boolean(),
+  "id": zod.uuid(),
+  "manual_active": zod.union([zod.boolean(),zod.null()]),
+  "name": zod.string(),
+  "pricing": zod.enum(['free', 'freemium', 'paid', 'unknown']),
+  "product_url": zod.string(),
+  "promotion_surfaces": zod.union([zod.array(zod.enum(['article', 'topic', 'feed'])),zod.null()]).optional(),
+  "revision": zod.int(),
+  "source": zod.enum(['manual', 'imported']),
+  "status": zod.string(),
+  "technologies": zod.array(zod.string())
+})
+
+
+/**
+ * @summary Archive Product
+ */
+export const PartnerProductArchiveResponse = zod.void()
+
+
+/**
+ * @summary Get Product
+ */
+export const partnerProductGetResponseAssessmentReasonDefault = ``;
+export const partnerProductGetResponseAssessmentStateDefault = `waiting`;
+export const partnerProductGetResponseCommercialApprovedDefault = false;
+
+export const PartnerProductGetResponse = zod.object({
+  "account_id": zod.uuid(),
+  "account_name": zod.string(),
+  "active": zod.boolean(),
+  "ad_formats": zod.union([zod.array(zod.enum(['feed', 'homepage_sponsorship', 'sponsored_content', 'engagement'])),zod.null()]).optional(),
+  "ad_image_url": zod.union([zod.string(),zod.null()]).optional(),
+  "approval_source": zod.union([zod.enum(['qualified', 'trusted']),zod.null()]).optional(),
+  "assessment": zod.object({
+  "reason": zod.string().default(partnerProductGetResponseAssessmentReasonDefault),
+  "state": zod.enum(['waiting', 'checking', 'qualified', 'attention', 'irrelevant', 'withdrawn']).default(partnerProductGetResponseAssessmentStateDefault)
+}),
+  "commercial_approved": zod.boolean().default(partnerProductGetResponseCommercialApprovedDefault),
+  "description": zod.string(),
+  "editable": zod.boolean(),
+  "excluded": zod.boolean(),
+  "globally_excluded": zod.boolean(),
+  "id": zod.uuid(),
+  "manual_active": zod.union([zod.boolean(),zod.null()]),
+  "name": zod.string(),
+  "pricing": zod.enum(['free', 'freemium', 'paid', 'unknown']),
+  "product_url": zod.string(),
+  "promotion_surfaces": zod.union([zod.array(zod.enum(['article', 'topic', 'feed'])),zod.null()]).optional(),
+  "revision": zod.int(),
+  "source": zod.enum(['manual', 'imported']),
+  "status": zod.string(),
+  "technologies": zod.array(zod.string())
+})
+
+
+/**
+ * @summary Update Product
+ */
+export const partnerProductUpdateResponseAssessmentReasonDefault = ``;
+export const partnerProductUpdateResponseAssessmentStateDefault = `waiting`;
+export const partnerProductUpdateResponseCommercialApprovedDefault = false;
+
+export const PartnerProductUpdateResponse = zod.object({
+  "account_id": zod.uuid(),
+  "account_name": zod.string(),
+  "active": zod.boolean(),
+  "ad_formats": zod.union([zod.array(zod.enum(['feed', 'homepage_sponsorship', 'sponsored_content', 'engagement'])),zod.null()]).optional(),
+  "ad_image_url": zod.union([zod.string(),zod.null()]).optional(),
+  "approval_source": zod.union([zod.enum(['qualified', 'trusted']),zod.null()]).optional(),
+  "assessment": zod.object({
+  "reason": zod.string().default(partnerProductUpdateResponseAssessmentReasonDefault),
+  "state": zod.enum(['waiting', 'checking', 'qualified', 'attention', 'irrelevant', 'withdrawn']).default(partnerProductUpdateResponseAssessmentStateDefault)
+}),
+  "commercial_approved": zod.boolean().default(partnerProductUpdateResponseCommercialApprovedDefault),
+  "description": zod.string(),
+  "editable": zod.boolean(),
+  "excluded": zod.boolean(),
+  "globally_excluded": zod.boolean(),
+  "id": zod.uuid(),
+  "manual_active": zod.union([zod.boolean(),zod.null()]),
+  "name": zod.string(),
+  "pricing": zod.enum(['free', 'freemium', 'paid', 'unknown']),
+  "product_url": zod.string(),
+  "promotion_surfaces": zod.union([zod.array(zod.enum(['article', 'topic', 'feed'])),zod.null()]).optional(),
+  "revision": zod.int(),
+  "source": zod.enum(['manual', 'imported']),
+  "status": zod.string(),
+  "technologies": zod.array(zod.string())
 })
 
 
@@ -2329,21 +2457,35 @@ export const PartnerWorkspaceDashboardResponse = zod.object({
 /**
  * @summary Inventory
  */
+export const partnerWorkspaceInventoryResponseItemsItemAssessmentReasonDefault = ``;
+export const partnerWorkspaceInventoryResponseItemsItemAssessmentStateDefault = `waiting`;
 export const partnerWorkspaceInventoryResponseItemsItemCommercialApprovedDefault = false;
 
 export const PartnerWorkspaceInventoryResponse = zod.object({
   "items": zod.array(zod.object({
   "account_id": zod.uuid(),
   "account_name": zod.string(),
+  "active": zod.boolean(),
   "ad_formats": zod.union([zod.array(zod.enum(['feed', 'homepage_sponsorship', 'sponsored_content', 'engagement'])),zod.null()]).optional(),
   "ad_image_url": zod.union([zod.string(),zod.null()]).optional(),
   "approval_source": zod.union([zod.enum(['qualified', 'trusted']),zod.null()]).optional(),
+  "assessment": zod.object({
+  "reason": zod.string().default(partnerWorkspaceInventoryResponseItemsItemAssessmentReasonDefault),
+  "state": zod.enum(['waiting', 'checking', 'qualified', 'attention', 'irrelevant', 'withdrawn']).default(partnerWorkspaceInventoryResponseItemsItemAssessmentStateDefault)
+}),
   "commercial_approved": zod.boolean().default(partnerWorkspaceInventoryResponseItemsItemCommercialApprovedDefault),
+  "description": zod.string(),
+  "editable": zod.boolean(),
   "excluded": zod.boolean(),
   "globally_excluded": zod.boolean(),
   "id": zod.uuid(),
+  "manual_active": zod.union([zod.boolean(),zod.null()]),
   "name": zod.string(),
+  "pricing": zod.enum(['free', 'freemium', 'paid', 'unknown']),
+  "product_url": zod.string(),
   "promotion_surfaces": zod.union([zod.array(zod.enum(['article', 'topic', 'feed'])),zod.null()]).optional(),
+  "revision": zod.int(),
+  "source": zod.enum(['manual', 'imported']),
   "status": zod.string(),
   "technologies": zod.array(zod.string())
 })),

@@ -69,6 +69,17 @@ from devfeed_http.partner_portal import (
     sponsor_articles,
     validate_product,
 )
+from devfeed_http.partner_products import (
+    ManualProductInput,
+    ManualProductUpdate,
+    ProductDetailOut,
+    archive_manual_product,
+    create_manual_product,
+    limit_product_write,
+    lock_manual_identity,
+    product_detail,
+    update_manual_product,
+)
 from fastapi import APIRouter, Depends, File, HTTPException, Query, Response, UploadFile
 from sqlalchemy import func, select, union_all
 from sqlalchemy.dialects.postgresql import insert
@@ -100,6 +111,77 @@ def account_access(session, _admin, account_id, *, lock=False):
     if account is None:
         raise HTTPException(404, "Partner account not found")
     return account
+
+
+def write_manual_account(session, admin, account_id, *, product_id=None, url=None):
+    account_access(session, admin, account_id)
+    product = lock_manual_identity(session, account_id, product_id=product_id, url=url)
+    return account_access(session, admin, account_id, lock=True), product
+
+
+@router.post(
+    "/{account_id}/products",
+    response_model=ProductDetailOut,
+    status_code=201,
+    operation_id="adminPartnerProductCreate",
+)
+def create_product(
+    account_id: uuid.UUID, payload: ManualProductInput, session: DB, superuser: Superuser
+):
+    account_access(session, superuser, account_id)
+    limit_product_write(get_redis(), superuser, account_id)
+    account, existing = write_manual_account(
+        session, superuser, account_id, url=payload.product_url
+    )
+    result = create_manual_product(session, account, payload, existing)
+    session.commit()
+    return result
+
+
+@router.get(
+    "/{account_id}/products/{product_id:uuid}",
+    response_model=ProductDetailOut,
+    operation_id="adminPartnerProductGet",
+)
+def get_product(account_id: uuid.UUID, product_id: uuid.UUID, session: DB, superuser: Superuser):
+    return product_detail(session, account_access(session, superuser, account_id), product_id)
+
+
+@router.patch(
+    "/{account_id}/products/{product_id:uuid}",
+    response_model=ProductDetailOut,
+    operation_id="adminPartnerProductUpdate",
+)
+def update_product(
+    account_id: uuid.UUID,
+    product_id: uuid.UUID,
+    payload: ManualProductUpdate,
+    session: DB,
+    superuser: Superuser,
+):
+    account_access(session, superuser, account_id)
+    limit_product_write(get_redis(), superuser, account_id)
+    account, product = write_manual_account(session, superuser, account_id, product_id=product_id)
+    result = update_manual_product(session, account, product, payload)
+    session.commit()
+    return result
+
+
+@router.delete(
+    "/{account_id}/products/{product_id:uuid}",
+    status_code=204,
+    response_class=Response,
+    operation_id="adminPartnerProductArchive",
+)
+def archive_product(
+    account_id: uuid.UUID, product_id: uuid.UUID, session: DB, superuser: Superuser
+):
+    account_access(session, superuser, account_id)
+    limit_product_write(get_redis(), superuser, account_id)
+    account, product = write_manual_account(session, superuser, account_id, product_id=product_id)
+    archive_manual_product(session, account, product)
+    session.commit()
+    return Response(status_code=204)
 
 
 @router.get("/tiers", response_model=list[PartnershipTierOut])

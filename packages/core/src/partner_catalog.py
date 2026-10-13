@@ -4,7 +4,7 @@ import logging
 import uuid
 from urllib.parse import urlsplit
 
-from sqlalchemy import exists, select, text, update
+from sqlalchemy import exists, or_, select, text, update
 
 from devfeed_core.job_lifecycle import fail_or_retry, finish_job
 from devfeed_core.models import (
@@ -13,6 +13,7 @@ from devfeed_core.models import (
     PartnerConnection,
     PartnerEvaluation,
     PartnerListing,
+    PartnerManualProduct,
     PartnerPipelineJob,
     PartnerProduct,
     PartnerProductPromotion,
@@ -61,6 +62,38 @@ def has_active_listing():
             PartnerListing.identity_status == "resolved",
             PartnerConnection.enabled.is_(True),
             PartnerConnection.archived_at.is_(None),
+        )
+    )
+
+
+def has_sources():
+    return or_(
+        has_listings(),
+        exists(
+            select(PartnerManualProduct.product_id).where(
+                PartnerManualProduct.product_id == PartnerProduct.id
+            )
+        ),
+    )
+
+
+def has_active_source():
+    """Qualification and image preparation work without any import connection."""
+    return or_(
+        has_active_listing(),
+        exists(
+            select(PartnerManualProduct.product_id).where(
+                PartnerManualProduct.product_id == PartnerProduct.id,
+                PartnerManualProduct.active.is_(True),
+            )
+        ),
+    )
+
+
+def product_has_active_source(session, product_id):
+    return bool(
+        session.scalar(
+            select(PartnerProduct.id).where(PartnerProduct.id == product_id, has_active_source())
         )
     )
 
@@ -154,12 +187,17 @@ def refresh_availability(session, product):
         )
         .limit(1)
     )
+    available = available or session.scalar(
+        select(PartnerManualProduct.product_id)
+        .where(PartnerManualProduct.product_id == product.id, PartnerManualProduct.active.is_(True))
+        .limit(1)
+    )
     if not available and product.status != "withdrawn":
         product.status, product.verified_at = "withdrawn", None
         product.revision += 1
         product.assessment = {
             "state": "withdrawn",
-            "reason": "No active, resolved platform listings remain.",
+            "reason": "No active product sources remain.",
         }
     elif available and product.status == "withdrawn":
         product.status = "paused" if product.excluded else "pending"
@@ -218,7 +256,7 @@ def upsert_listing(session, item, generation):
         else "The platform changed the product website; waiting for a verified URL alias."
     )
     previous_revision = product.revision
-    if product.metadata_listing_id is None:
+    if product.metadata_listing_id is None and product.metadata_account_id is None:
         product.metadata_listing_id = listing.id
     if resolved and product.metadata_listing_id == listing.id:
         # Display metadata has a stable source. Other platforms cannot overwrite it.
@@ -237,7 +275,7 @@ def upsert_listing(session, item, generation):
         product.updated_at = utcnow()
     if (
         not product.excluded
-        and active_provider(session, product.id)
+        and product_has_active_source(session, product.id)
         and (
             product.assessment_revision != product.revision
             or (product.status == "approved" and not eligible(product))
@@ -351,6 +389,26 @@ def merge_products(session, donor, recipient):
         .where(PartnerProductURL.product_id == donor.id)
         .values(product_id=recipient.id)
     )
+    # Preserve explicit inventory when a website redirects to a known canonical URL.
+    # The recipient keeps its metadata authority; redirect aliases grant no edit rights.
+    for source in list(
+        session.scalars(
+            select(PartnerManualProduct).where(PartnerManualProduct.product_id == donor.id)
+        )
+    ):
+        current = session.get(PartnerManualProduct, (source.account_id, recipient.id))
+        if current is None:
+            session.add(
+                PartnerManualProduct(
+                    account_id=source.account_id,
+                    product_id=recipient.id,
+                    active=source.active,
+                    created_at=source.created_at,
+                    updated_at=source.updated_at,
+                )
+            )
+        # An existing archived destination is a deliberate choice and wins.
+        source.active = False
     # Identity consolidation must not erase an account's product restrictions.
     # Keep donor policy for historical receipts and conservatively combine the
     # current canonical policy; null inherits, an empty allowlist blocks all.

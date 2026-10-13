@@ -531,6 +531,99 @@ it("provides retry and exclusion for synced products without editing them", asyn
   );
 });
 
+const directProduct: ProductOut = {
+  ...product,
+  partnership_type: "direct",
+  metadata_listing_id: null,
+  listings: [],
+  commercial_approved: true,
+  approval_sources: ["trusted"],
+  manual_sources: [
+    {
+      account_id: account.id,
+      account_name: account.name,
+      active: true,
+      commercial_approved: true,
+      approval_source: "trusted",
+      updated_at: product.updated_at,
+    },
+  ],
+};
+
+it("lists direct account products with honest sources and supports revision-protected rechecks", async () => {
+  vi.mocked(api.adminPartnerToolsList).mockResolvedValue({
+    items: [directProduct],
+    total: 1,
+    offset: 0,
+    limit: 25,
+  });
+  vi.mocked(api.adminPartnerProductAction).mockResolvedValue(directProduct);
+  const list = renderAdmin(<PartnerTools />);
+  expect(await screen.findByText(`Direct · ${account.name}`)).toBeTruthy();
+  expect(screen.getByRole("columnheader", { name: "Sources" })).toBeTruthy();
+  list.unmount();
+  renderAdmin(<PartnerProductPage id={product.id} />);
+  expect(await screen.findByText(/Accepted for associated partner accounts/)).toBeTruthy();
+  expect(screen.getByText(/directly or imported it through a connection/)).toBeTruthy();
+  expect(screen.getByRole("link", { name: `Direct · ${account.name}` })).toBeTruthy();
+  const retry = screen.getByRole("button", { name: "Retry checks" }) as HTMLButtonElement;
+  expect(retry.disabled).toBe(false);
+  fireEvent.click(retry);
+  await waitFor(() =>
+    expect(api.adminPartnerProductAction).toHaveBeenCalledWith(
+      product.id,
+      { action: "retry", expected_revision: product.revision },
+      { headers: { "X-CSRF-Token": "test-csrf" } },
+    ),
+  );
+});
+
+it.each([
+  [false, "pending"],
+  [true, "withdrawn"],
+] as const)(
+  "keeps retry disabled for direct source active=%s and status=%s",
+  async (active, status) => {
+    vi.mocked(api.adminPartnerToolsList).mockResolvedValue({
+      items: [
+        {
+          ...directProduct,
+          status,
+          manual_sources: [{ ...directProduct.manual_sources![0], active }],
+        },
+      ],
+      total: 1,
+      offset: 0,
+      limit: 25,
+    });
+    renderAdmin(<PartnerProductPage id={product.id} />);
+    const retry = (await screen.findByRole("button", {
+      name: "Retry checks",
+    })) as HTMLButtonElement;
+    expect(retry.disabled).toBe(true);
+    expect(api.adminPartnerProductAction).not.toHaveBeenCalled();
+  },
+);
+
+it("shows direct account attribution separately from real platform listings", async () => {
+  vi.mocked(api.adminPartnerToolsList).mockResolvedValue({
+    items: [directProduct],
+    total: 1,
+    offset: 0,
+    limit: 25,
+  });
+  renderAdmin(<PartnerProductPage id={product.id} section="related" />);
+  const sources = await screen.findByRole("region", { name: "Direct accounts" });
+  expect(within(sources).getByRole("heading", { name: "Direct accounts (1)" })).toBeTruthy();
+  expect(within(sources).getByRole("link", { name: account.name }).getAttribute("href")).toBe(
+    `/partnerships/accounts/${account.id}`,
+  );
+  expect(within(sources).getByText("Active", { exact: true })).toBeTruthy();
+  expect(within(sources).getByText("Accepted · trusted partner")).toBeTruthy();
+  expect(within(sources).queryByText("Import connection")).toBeNull();
+  expect(screen.queryByRole("region", { name: "Platform listings" })).toBeNull();
+});
+
 it("shows one product with independent platform listings and attribution", async () => {
   const sharedProduct: ProductOut = {
     ...product,
@@ -611,7 +704,7 @@ it("distinguishes trusted account acceptance from pending capability checks and 
     limit: 25,
   });
   renderAdmin(<PartnerProductPage id={product.id} />);
-  expect(await screen.findByText(/Accepted for connected partner accounts/)).toBeTruthy();
+  expect(await screen.findByText(/Accepted for associated partner accounts/)).toBeTruthy();
   expect(screen.getByText("Product website could not be read")).toBeTruthy();
 });
 

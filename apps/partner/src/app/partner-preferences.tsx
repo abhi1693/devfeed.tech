@@ -85,8 +85,8 @@ function AccountPreferences({ account, csrfToken, onSaved, onUnavailable }: Prop
       <div className="grid items-start gap-4 xl:grid-cols-[minmax(0,2fr)_minmax(0,3fr)]">
         <ResourcePanel title="Product promotion settings">
           <p className="mb-3 text-sm text-muted-foreground">
-            Imported products inherit this account’s promotion type. Contextual placements require a
-            relevant match.
+            Imported and manually added products inherit this account’s promotion type. Contextual
+            placements require a relevant match.
           </p>
           <dl className="mb-4 grid gap-3 text-sm sm:grid-cols-2 xl:grid-cols-1">
             <div>
@@ -99,7 +99,7 @@ function AccountPreferences({ account, csrfToken, onSaved, onUnavailable }: Prop
               </dd>
             </div>
             <div>
-              <dt className="text-muted-foreground">Imported product acceptance</dt>
+              <dt className="text-muted-foreground">Product acceptance</dt>
               <dd className="mt-1 font-medium">
                 {account.approval_mode === "trusted"
                   ? "Trusted partner imports accepted automatically"

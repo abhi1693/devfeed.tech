@@ -76,6 +76,30 @@ product.listings.push({
   connection_enabled: false,
   description: "Independent listing of the same developer product.",
 });
+const directProduct = {
+  ...product,
+  id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+  name: "Direct API Monitor",
+  product_url: "https://monitor.example/",
+  verified_at: new Date().toISOString(),
+  evidence: product.evidence.map((item) => ({ ...item, url: "https://monitor.example/docs" })),
+  partnership_type: "direct",
+  metadata_listing_id: null,
+  listings: [],
+  commercial_approved: true,
+  approval_sources: ["trusted"],
+  manual_sources: [
+    {
+      account_id: partnerAccounts[0].id,
+      account_name: partnerAccounts[0].name,
+      active: true,
+      commercial_approved: true,
+      approval_source: "trusted",
+      updated_at: product.updated_at,
+    },
+  ],
+};
+let directCatalogVisible = false;
 const articleId = "22222222-2222-2222-2222-222222222222";
 const run = {
   id: "33333333-3333-3333-3333-333333333333",
@@ -292,8 +316,8 @@ const fixture = createServer(async (req, res) => {
           matches: 1,
           articles: 1,
         },
-      ],
-      total: 1,
+      ].filter((item) => !params.get("product_id") || item.product_id === params.get("product_id")),
+      total: params.get("product_id") && params.get("product_id") !== product.id ? 0 : 1,
       offset: 0,
       limit: 25,
     };
@@ -448,24 +472,23 @@ const fixture = createServer(async (req, res) => {
     connection.state = connection.enabled ? "idle" : "disconnected";
     product.listings[0].connection_enabled = connection.enabled;
     result = connection;
-  } else if (path.endsWith("/partner-tools"))
-    result = {
-      items:
-        connection.products &&
-        (!params.get("q") || product.name.toLowerCase().includes(params.get("q").toLowerCase()))
-          ? [product]
-          : [],
-      total:
-        connection.products &&
-        (!params.get("q") || product.name.toLowerCase().includes(params.get("q").toLowerCase()))
-          ? 1
-          : 0,
-      limit: 25,
-      offset: 0,
-    };
-  else if (path.endsWith("/actions")) {
-    Object.assign(product, { excluded: body.action === "exclude", revision: product.revision + 1 });
-    result = product;
+  } else if (path.endsWith("/partner-tools")) {
+    const items = [
+      ...(connection.products ? [product] : []),
+      ...(directCatalogVisible ? [directProduct] : []),
+    ].filter(
+      (item) =>
+        (!params.get("product_id") || item.id === params.get("product_id")) &&
+        (!params.get("provider") ||
+          item.listings.some((listing) => listing.provider === params.get("provider"))) &&
+        (!params.get("q") || item.name.toLowerCase().includes(params.get("q").toLowerCase())),
+    );
+    result = { items, total: items.length, limit: 25, offset: 0 };
+  } else if (path.endsWith("/actions")) {
+    const item = path.includes(directProduct.id) ? directProduct : product;
+    assert.equal(body.expected_revision, item.revision);
+    Object.assign(item, { excluded: body.action === "exclude", revision: item.revision + 1 });
+    result = item;
   } else if (path.endsWith("/evaluations")) {
     result = [run];
   } else {
@@ -1137,6 +1160,70 @@ try {
   await page.screenshot({ path: `${output}/product-image-job-mobile.png`, fullPage: true });
   await subject.click();
   await page.getByRole("heading", { name: product.name, exact: true }).waitFor();
+  directCatalogVisible = true;
+  const directJob = {
+    ...pipelineJobs[1],
+    id: "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+    provider: null,
+    operation: "assess",
+    parent_id: null,
+    external_id: null,
+    product_id: directProduct.id,
+    product_name: directProduct.name,
+  };
+  pipelineJobs.push(directJob);
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto(`${origin}/partnerships/products`);
+  await page.getByRole("columnheader", { name: "Sources", exact: true }).waitFor();
+  await page.getByText(`Direct · ${partnerAccounts[0].name}`, { exact: true }).waitFor();
+  await page.getByRole("link", { name: directProduct.name, exact: true }).click();
+  await page.waitForURL(`**/partnerships/products/${directProduct.id}`);
+  await page.getByRole("heading", { name: directProduct.name, exact: true }).waitFor();
+  const directRetry = page.getByRole("button", { name: "Retry checks", exact: true });
+  assert.equal(await directRetry.isEnabled(), true);
+  await directRetry.click();
+  await page.getByRole("button", { name: "Exclude product", exact: true }).waitFor();
+  assert.equal(mutations.at(-1).body.action, "retry");
+  assert.equal(mutations.at(-1).csrf, "fixture");
+  assert.equal(directProduct.revision, 2);
+  await page.getByText("Accepted for associated partner accounts", { exact: false }).waitFor();
+  await page.screenshot({ path: `${output}/direct-product-desktop.png`, fullPage: true });
+  await page.getByRole("link", { name: "Related objects", exact: true }).click();
+  const directSources = page.getByRole("region", { name: "Direct accounts", exact: true });
+  await directSources.getByRole("heading", { name: "Direct accounts (1)" }).waitFor();
+  assert.equal(
+    await directSources
+      .getByRole("link", { name: partnerAccounts[0].name, exact: true })
+      .getAttribute("href"),
+    `/partnerships/accounts/${partnerAccounts[0].id}`,
+  );
+  assert.equal(await directSources.getByText("Import connection", { exact: true }).count(), 0);
+  assert.equal(await page.getByRole("region", { name: "Platform listings" }).count(), 0);
+  await page.screenshot({ path: `${output}/direct-product-related-desktop.png`, fullPage: true });
+  await page.setViewportSize({ width: 390, height: 844 });
+  assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1));
+  await page.screenshot({ path: `${output}/direct-product-related-mobile.png`, fullPage: true });
+  const directRuns = page.getByRole("table", { name: "Pipeline jobs", exact: true });
+  await directRuns.getByText("Direct product", { exact: true }).waitFor();
+  await directRuns.getByRole("link", { name: "cccccccc", exact: true }).click();
+  await page.getByText("Direct account product", { exact: true }).waitFor();
+  assert.equal(await page.locator('a[href*="/connections/null"]').count(), 0);
+  assert.equal(
+    await page.getByRole("link", { name: directProduct.name, exact: true }).getAttribute("href"),
+    `/partnerships/products/${directProduct.id}`,
+  );
+  await page.screenshot({ path: `${output}/direct-product-check-mobile.png`, fullPage: true });
+  await page.goto(`${origin}/partnerships/products/${directProduct.id}/related`);
+  await directSources.getByText("Active", { exact: true }).waitFor();
+  directProduct.manual_sources[0].active = false;
+  directProduct.manual_sources[0].commercial_approved = false;
+  directProduct.commercial_approved = false;
+  await page.reload();
+  await directSources.getByText("Archived", { exact: true }).waitFor();
+  assert.equal(
+    await page.getByRole("button", { name: "Retry checks", exact: true }).isDisabled(),
+    true,
+  );
   assert.deepEqual(errors, []);
   console.log(`Partner catalog browser workflow passed. Screenshots: ${output}`);
 } catch (error) {

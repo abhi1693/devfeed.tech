@@ -336,10 +336,10 @@ export function PartnerAccountManagement({
           <div className="space-y-1">
             <h2 className="font-semibold">Promotion defaults</h2>
             <p className="text-sm text-muted-foreground">
-              Products imported through this account inherit these settings. Promotion type follows
-              the tier unless you override it. Contextual matches are preferred; sponsored feed
-              placements can fill unmatched feeds. Article and topic placements require a relevant
-              match.
+              Products added directly or imported into this account inherit these settings.
+              Promotion type follows the tier unless you override it. Contextual matches are
+              preferred; sponsored feed placements can fill unmatched feeds. Article and topic
+              placements require a relevant match.
             </p>
           </div>
           <Field
@@ -351,7 +351,7 @@ export function PartnerAccountManagement({
               <>
                 Effective: {promotionName(effectiveKind)} ·{" "}
                 {promotionKind === "inherit" ? "inherited from tier" : "account override"}.
-                Sponsored defaults automatically cover current and newly accepted imported products.
+                Sponsored defaults automatically cover current and newly accepted account products.
               </>
             }
           >
@@ -369,21 +369,21 @@ export function PartnerAccountManagement({
             )}
           </Field>
           <Field
-            label="Imported product acceptance"
+            label="Product acceptance"
             name="approval_mode"
             required
             disabled={busy}
-            subtext="Trusted imports are accepted for this account automatically, without waiting for capability checks. Product identity and exclusions still apply; capability checks continue separately."
+            subtext="Trusted account products are accepted automatically, whether added directly or imported. Product identity and exclusions still apply; capability checks continue separately."
           >
             {(control) => (
               <Select
                 {...control}
-                label="Imported product acceptance"
+                label="Product acceptance"
                 value={approvalMode}
                 onChange={(value) => setApprovalMode(value as typeof approvalMode)}
                 options={[
                   { value: "qualified", label: "Automatic capability checks" },
-                  { value: "trusted", label: "Trust connected partner imports" },
+                  { value: "trusted", label: "Trust account products" },
                 ]}
               />
             )}
@@ -394,7 +394,7 @@ export function PartnerAccountManagement({
               name="outbound_destination"
               required
               disabled={busy}
-              subtext="Both destinations include DevFeed UTM attribution. Products without a partner listing cannot appear when Partner listing is selected. Partners can also change this preference in their portal."
+              subtext="Both destinations include DevFeed UTM attribution. Direct products use their website when no partner listing is available. Partners can also change this preference in their portal."
             >
               {(control) => (
                 <Select
@@ -438,10 +438,10 @@ export function PartnerAccountManagement({
               onChange={(event) => setAutoInclude(event.target.checked)}
             />
             <span>
-              Automatically include imported products
+              Automatically include account products
               <span className="mt-1 block text-muted-foreground">
-                Current and newly imported products follow this account’s acceptance policy. You can
-                exclude individual products from the Products tab.
+                Current and newly added or imported products follow this account’s acceptance
+                policy. You can exclude individual products from the Products tab.
               </span>
             </span>
           </label>

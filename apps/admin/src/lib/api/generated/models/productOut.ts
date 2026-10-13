@@ -7,9 +7,11 @@
  */
 import type { Evidence } from './evidence';
 import type { ListingOut } from './listingOut';
+import type { ManualProductSourceOut } from './manualProductSourceOut';
 import type { PartnerReviewEvent } from './partnerReviewEvent';
 import type { ProductAssessment } from './productAssessment';
 import type { ProductOutApprovalSourcesItem } from './productOutApprovalSourcesItem';
+import type { ProductOutPartnershipType } from './productOutPartnershipType';
 import type { ProductOutPricing } from './productOutPricing';
 import type { ProductOutStatus } from './productOutStatus';
 
@@ -28,13 +30,14 @@ export interface ProductOut {
   excluded: boolean;
   id: string;
   listings: ListingOut[];
+  manual_sources?: ManualProductSourceOut[];
   metadata_listing_id: string | null;
   /**
      * @minLength 1
      * @maxLength 200
      */
   name: string;
-  partnership_type?: 'launch_platform';
+  partnership_type?: ProductOutPartnershipType;
   pricing?: ProductOutPricing;
   product_url: string;
   reviews: PartnerReviewEvent[];

@@ -12,6 +12,10 @@ const privatePath = /^\/v1\/admin\/[a-zA-Z0-9_/-]+$/;
 const safe = new Set(["GET", "HEAD", "OPTIONS"]);
 const productAdImagePath =
   /^\/v1\/admin\/partner-accounts\/[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}\/products\/[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}\/ad-image$/i;
+const productCollectionPath =
+  /^\/v1\/admin\/partner-accounts\/[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}\/products$/i;
+const productDetailPath =
+  /^\/v1\/admin\/partner-accounts\/[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}\/products\/[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/i;
 
 function upstreamTimeout(method: string, path: string): number {
   // Each guarded download has a 60s deadline, but a final in-flight socket
@@ -62,11 +66,16 @@ export async function gateway(request: Request, segments: string[]) {
       if (value) headers.set(name, value);
     }
     const imageUpload = productAdImagePath.test(path) && request.method === "POST";
+    const productWrite =
+      (productCollectionPath.test(path) && request.method === "POST") ||
+      (productDetailPath.test(path) && request.method === "PATCH");
     const bodyLimit = imageUpload
       ? 5 * 1024 * 1024 + 65536
-      : path === "/v1/admin/source-imports"
-        ? 6_100_000
-        : 1_000_000;
+      : productWrite
+        ? 65536
+        : path === "/v1/admin/source-imports"
+          ? 6_100_000
+          : 1_000_000;
     let body: ArrayBuffer | undefined;
     if (!safe.has(request.method)) {
       body = await readRequestBody(request, bodyLimit, bodyLimit > 1_000_000 ? 10_000 : 2000);

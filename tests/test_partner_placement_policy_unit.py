@@ -313,10 +313,10 @@ def test_funded_canonical_product_appears_once_with_independent_best_organic_slo
     "reads,expected",
     [
         ([uuid.uuid4(), False], True),
-        ([None, None], False),
+        ([None, None, False], False),
         ([uuid.uuid4(), True], False),
         ([uuid.uuid4(), None, None], True),
-        ([None, uuid.uuid4()], "retry"),
+        ([None, None, True], "retry"),
         ([uuid.uuid4(), None, False], "retry"),
     ],
 )

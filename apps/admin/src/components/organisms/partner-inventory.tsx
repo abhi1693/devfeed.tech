@@ -188,7 +188,7 @@ export function PartnerInventory({ account }: { account: AccountOut }) {
         loading={result.loading}
         error={result.error}
         onRetry={() => setRevision((value) => value + 1)}
-        empty="No matching imported products. Connect an import source to this account to populate its catalog."
+        empty="No matching products. Products added directly or imported into this account appear here."
         pagination={{
           ...page,
           total: result.data?.total ?? 0,

@@ -12,6 +12,15 @@ const account = partnerAccount();
 const product = {
   id: "33333333-3333-4333-8333-333333333333",
   name: "CronWatch",
+  product_url: "https://cronwatch.example/",
+  description: "Monitor scheduled jobs.",
+  pricing: "paid" as const,
+  assessment: { state: "qualified" as const, reason: "" },
+  revision: 3,
+  source: "imported" as const,
+  manual_active: null,
+  editable: false,
+  active: true,
   status: "approved",
   technologies: ["Python", "PostgreSQL"],
   excluded: false,
@@ -66,7 +75,7 @@ function load(url: string) {
       ? { product: creative }
       : url.includes("/promotion")
         ? policy
-        : { items: [product], total: 1 },
+        : { ...product, account_id: account.id, account_name: account.name },
   );
 }
 
@@ -83,7 +92,7 @@ it("lists imported products as compact records with detail and edit links", asyn
     ),
   );
   render(<PartnerProductCatalog onUnavailable={unavailable} />);
-  const table = screen.getByRole("table", { name: "Imported products" });
+  const table = screen.getByRole("table", { name: "Products" });
   const link = await within(table).findByRole("link", { name: product.name });
   expect(link.getAttribute("href")).toBe(`/products/${product.id}?account_id=${account.id}`);
   expect(
@@ -102,7 +111,7 @@ it("resolves a bookmarked product independently of list pagination and previews 
   page();
   await screen.findByRole("heading", { name: product.name, level: 1 });
   expect(fetcher).toHaveBeenCalledWith(
-    `/api/v1/partner/accounts/${account.id}/inventory?product_id=${product.id}&limit=1`,
+    `/api/v1/partner/accounts/${account.id}/products/${product.id}`,
     expect.anything(),
   );
   expect(fetcher).toHaveBeenCalledWith(

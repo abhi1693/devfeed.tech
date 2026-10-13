@@ -38,7 +38,18 @@ from devfeed_http.partner_portal import (
     product_promotion,
     reporting_dashboard,
 )
-from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
+from devfeed_http.partner_products import (
+    ManualProductInput,
+    ManualProductUpdate,
+    ProductDetailOut,
+    archive_manual_product,
+    create_manual_product,
+    limit_product_write,
+    lock_manual_identity,
+    product_detail,
+    update_manual_product,
+)
+from fastapi import APIRouter, Depends, File, HTTPException, Query, Response, UploadFile
 from sqlalchemy import func, select
 
 from devfeed_partner_api.auth import Partner, PartnerIdentity, require_partner
@@ -85,6 +96,87 @@ def write_product_account(session, partner, account_id, product_id):
     if account is None or member is None:
         raise HTTPException(404, "Partner account not found")
     return account
+
+
+def write_manual_account(session, partner, account_id, *, product_id=None, url=None):
+    account_access(session, partner, account_id)
+    product = lock_manual_identity(session, account_id, product_id=product_id, url=url)
+    account = lock_image_account(
+        session, visible_accounts(partner).where(PartnerAccount.id == account_id)
+    )
+    member = session.scalar(
+        select(PartnerMembership)
+        .where(
+            PartnerMembership.account_id == account_id,
+            PartnerMembership.issuer == partner.issuer,
+            PartnerMembership.subject == partner.subject,
+        )
+        .with_for_update(read=True)
+    )
+    if account is None or member is None:
+        raise HTTPException(404, "Partner account not found")
+    return account, product
+
+
+@router.post(
+    "/accounts/{account_id}/products",
+    response_model=ProductDetailOut,
+    status_code=201,
+    operation_id="partnerProductCreate",
+)
+def create_product(
+    account_id: uuid.UUID, payload: ManualProductInput, session: DB, partner: Partner
+):
+    account_access(session, partner, account_id)
+    limit_product_write(get_redis(), partner, account_id)
+    account, existing = write_manual_account(session, partner, account_id, url=payload.product_url)
+    result = create_manual_product(session, account, payload, existing)
+    session.commit()
+    return result
+
+
+@router.get(
+    "/accounts/{account_id}/products/{product_id:uuid}",
+    response_model=ProductDetailOut,
+    operation_id="partnerProductGet",
+)
+def get_product(account_id: uuid.UUID, product_id: uuid.UUID, session: DB, partner: Partner):
+    return product_detail(session, account_access(session, partner, account_id), product_id)
+
+
+@router.patch(
+    "/accounts/{account_id}/products/{product_id:uuid}",
+    response_model=ProductDetailOut,
+    operation_id="partnerProductUpdate",
+)
+def update_product(
+    account_id: uuid.UUID,
+    product_id: uuid.UUID,
+    payload: ManualProductUpdate,
+    session: DB,
+    partner: Partner,
+):
+    account_access(session, partner, account_id)
+    limit_product_write(get_redis(), partner, account_id)
+    account, product = write_manual_account(session, partner, account_id, product_id=product_id)
+    result = update_manual_product(session, account, product, payload)
+    session.commit()
+    return result
+
+
+@router.delete(
+    "/accounts/{account_id}/products/{product_id:uuid}",
+    status_code=204,
+    response_class=Response,
+    operation_id="partnerProductArchive",
+)
+def archive_product(account_id: uuid.UUID, product_id: uuid.UUID, session: DB, partner: Partner):
+    account_access(session, partner, account_id)
+    limit_product_write(get_redis(), partner, account_id)
+    account, product = write_manual_account(session, partner, account_id, product_id=product_id)
+    archive_manual_product(session, account, product)
+    session.commit()
+    return Response(status_code=204)
 
 
 @router.get("/accounts", response_model=AccountsOut, operation_id="partnerAccountsList")

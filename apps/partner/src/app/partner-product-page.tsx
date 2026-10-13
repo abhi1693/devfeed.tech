@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Pencil } from "lucide-react";
+import { Pencil, Archive, RotateCcw } from "lucide-react";
 import { ResourceHeading, ResourcePanel } from "@devfeed/ui/resource-layout";
 import { ProductPlacementPreview, adFormatLabel } from "@devfeed/ui/advertising-formats";
 import { Button } from "@devfeed/ui/button";
@@ -13,18 +13,20 @@ import { parseCreativePreview } from "@/lib/contracts";
 import { isPartnerRequestCancelled, usePartnerRequest } from "@/lib/partner-request";
 import { accountSettingsPath, portalPath, productPath } from "@/lib/routes";
 import type { Account } from "@/lib/types";
-import type { InventoryProductOut, WorkspaceInventoryProductOut } from "@/lib/api/generated/models";
-import {
-  parseProductInventory,
-  parseWorkspaceProductInventory,
-  productPlacementStatus,
-} from "./partner-product-catalog";
+import type { ProductDetailOut, WorkspaceInventoryProductOut } from "@/lib/api/generated/models";
+import { parseWorkspaceProductInventory, productPlacementStatus } from "./partner-product-catalog";
 import { PartnerProductPlacements } from "./partner-product-placements";
+import { PartnerProductForm } from "./partner-product-form";
+import {
+  PartnerProductGetResponse,
+  PartnerProductUpdateResponse,
+} from "@/lib/api/generated/validators";
 
 export function PartnerProductPage(props: {
   account?: Account;
   productId: string;
   edit?: boolean;
+  action?: "edit" | "archive";
   csrfToken: string;
   query?: string;
   contextOffset?: number;
@@ -36,6 +38,7 @@ export function PartnerProductPage(props: {
     <ProductAccounts
       productId={props.productId}
       edit={props.edit}
+      action={props.action}
       query={props.query}
       initialOffset={props.contextOffset}
       onUnavailable={props.onUnavailable}
@@ -46,12 +49,14 @@ export function PartnerProductPage(props: {
 function ProductAccounts({
   productId,
   edit = false,
+  action,
   query = "",
   initialOffset = 0,
   onUnavailable,
 }: {
   productId: string;
   edit?: boolean;
+  action?: "edit" | "archive";
   query?: string;
   initialOffset?: number;
   onUnavailable: () => void;
@@ -76,9 +81,9 @@ function ProductAccounts({
     window.history.replaceState(
       window.history.state,
       "",
-      productPath(productId, { edit, query: contextQuery }),
+      productPath(productId, { edit, action, query: contextQuery }),
     );
-  }, [productId, edit, contextQuery]);
+  }, [productId, edit, action, contextQuery]);
   useEffect(() => {
     const controller = new AbortController();
     const params = new URLSearchParams({
@@ -108,7 +113,7 @@ function ProductAccounts({
         }
         if (value.total === 1 && value.items[0]) {
           router.replace(
-            productPath(productId, { edit, accountId: value.items[0].account_id, query }),
+            productPath(productId, { edit, action, accountId: value.items[0].account_id, query }),
           );
           return;
         }
@@ -127,7 +132,7 @@ function ProductAccounts({
           });
       });
     return () => controller.abort();
-  }, [request, productId, offset, key, edit, query, router]);
+  }, [request, productId, offset, key, edit, action, query, router]);
   return (
     <section className="space-y-4">
       <ResourceHeading
@@ -137,9 +142,11 @@ function ProductAccounts({
         title={
           loading
             ? "Product"
-            : edit
-              ? "Choose a placement policy"
-              : (result.items[0]?.name ?? "Product unavailable")
+            : action
+              ? "Choose a partner account"
+              : edit
+                ? "Choose a placement policy"
+                : (result.items[0]?.name ?? "Product unavailable")
         }
         description="Each partner account has its own placement settings for this product."
         trail={[{ label: "Products", href: `${portalPath("products")}${query}` }]}
@@ -176,6 +183,7 @@ function ProductAccounts({
                       <Link
                         href={productPath(productId, {
                           edit,
+                          action,
                           accountId: item.account_id,
                           query: contextQuery,
                         })}
@@ -268,6 +276,7 @@ function ProductDetails({
   account,
   productId,
   edit = false,
+  action,
   csrfToken,
   query = "",
   onUnavailable,
@@ -275,6 +284,7 @@ function ProductDetails({
   account: Account;
   productId: string;
   edit?: boolean;
+  action?: "edit" | "archive";
   csrfToken: string;
   query?: string;
   onUnavailable: () => void;
@@ -282,26 +292,31 @@ function ProductDetails({
   const router = useRouter();
   const request = usePartnerRequest({ accountId: account.id, onUnavailable });
   const [attempt, setAttempt] = useState(0);
+  const [busy, setBusy] = useState(false);
+  const [writeError, setWriteError] = useState("");
   const key = `${account.id}/${productId}/${attempt}`;
   const [result, setResult] = useState<{
     key: string;
-    product: InventoryProductOut | null;
+    product: ProductDetailOut | null;
     error: string;
   }>({ key: "", product: null, error: "" });
   const loading = result.key !== key;
   useEffect(() => {
     const controller = new AbortController();
-    void request(`inventory?product_id=${encodeURIComponent(productId)}&limit=1`, {
+    void request(`products/${encodeURIComponent(productId)}`, {
       signal: controller.signal,
-      parse: parseProductInventory,
+      parse: (value) => {
+        const product = PartnerProductGetResponse.parse(value);
+        if (product.id !== productId || product.account_id !== account.id)
+          throw new Error("Unexpected product.");
+        return product;
+      },
       unavailableOnNotFound: false,
       errorMessage: "Could not load this product. Please retry.",
     })
       .then((data) => {
         if (controller.signal.aborted) return;
-        if (data.items.length > 1 || data.items.some((product) => product.id !== productId))
-          throw new Error("Could not confirm the requested product.");
-        setResult({ key, product: data.items[0] ?? null, error: "" });
+        setResult({ key, product: data, error: "" });
       })
       .catch((reason: unknown) => {
         if (!controller.signal.aborted && !isPartnerRequestCancelled(reason))
@@ -315,7 +330,7 @@ function ProductDetails({
           });
       });
     return () => controller.abort();
-  }, [request, productId, key]);
+  }, [request, productId, key, account.id]);
   const loadPreview = useCallback(
     (signal: AbortSignal) =>
       request(`creative-preview?product_id=${encodeURIComponent(productId)}`, {
@@ -365,34 +380,116 @@ function ProductDetails({
         )}
       </div>
     );
-  const status = productPlacementStatus(product);
+  const status = product.active ? productPlacementStatus(product) : "Archived";
+  async function changeAvailability(archive: boolean) {
+    if (!product || busy) return;
+    setBusy(true);
+    setWriteError("");
+    try {
+      await request(`products/${encodeURIComponent(productId)}`, {
+        method: archive ? "DELETE" : "PATCH",
+        headers: { "content-type": "application/json", "x-csrf-token": csrfToken },
+        ...(archive
+          ? {}
+          : { body: JSON.stringify({ active: true, expected_revision: product.revision }) }),
+        parse: (value) => {
+          if (archive) {
+            if (value !== null) throw new Error("Unexpected archive response.");
+            return null;
+          }
+          const saved = PartnerProductUpdateResponse.parse(value);
+          if (
+            saved.id !== productId ||
+            saved.account_id !== account.id ||
+            saved.manual_active !== true
+          )
+            throw new Error("Could not confirm restored product.");
+          return saved;
+        },
+        unavailableOnNotFound: false,
+        errorMessage: archive
+          ? "Could not archive this product. Please retry."
+          : "Could not restore this product. Please retry.",
+        statusMessages: { 409: "This product changed. Reload the page before trying again." },
+      });
+      if (archive) router.replace(listHref);
+      else setAttempt((value) => value + 1);
+    } catch (reason) {
+      if (!isPartnerRequestCancelled(reason))
+        setWriteError(reason instanceof Error ? reason.message : "Could not update product.");
+    } finally {
+      setBusy(false);
+    }
+  }
+  const canEdit = product.editable && product.source === "manual";
+  const canArchive = product.manual_active === true;
+  const canRestore = product.manual_active === false;
+  const factsAction = action === "edit" && canEdit;
+  const archiveAction = action === "archive" && product.manual_active !== null;
+
   return (
     <section className="space-y-4">
       <ResourceHeading
         homeHref={portalPath()}
         homeLabel="Dashboard"
         siteTitle="DevFeed Partners"
-        title={edit ? `Edit ${product.name} placements` : product.name}
+        title={
+          factsAction
+            ? `Edit ${product.name}`
+            : archiveAction
+              ? `Archive ${product.name}`
+              : edit
+                ? `Edit ${product.name} placements`
+                : product.name
+        }
         description={
-          edit
-            ? "Inherit account defaults or limit where this product can appear. Excluding a product preserves its restrictions."
-            : "Review this product’s availability, placement policy, and native creative."
+          factsAction
+            ? "Update the product information used for review and contextual matching."
+            : archiveAction
+              ? "Remove the manually added product while preserving its reporting."
+              : edit
+                ? "Inherit account defaults or limit where this product can appear. Excluding a product preserves its restrictions."
+                : "Review this product’s availability, placement policy, and native creative."
         }
         trail={[
           { label: "Products", href: listHref },
-          ...(edit ? [{ label: product.name, href: detailHref }] : []),
+          ...(edit || action ? [{ label: product.name, href: detailHref }] : []),
         ]}
       >
-        {!edit && (
-          <Button asChild>
-            <Link
-              href={productPath(productId, { edit: true, accountId: account.id, query })}
-              prefetch={false}
-            >
-              <Pencil aria-hidden />
-              Edit placements
-            </Link>
-          </Button>
+        {!edit && !action && product.active && (
+          <>
+            {canEdit && (
+              <Button asChild variant="outline">
+                <Link
+                  href={productPath(productId, { action: "edit", accountId: account.id, query })}
+                  prefetch={false}
+                >
+                  <Pencil aria-hidden />
+                  Edit product
+                </Link>
+              </Button>
+            )}
+            {canArchive && (
+              <Button asChild variant="outline">
+                <Link
+                  href={productPath(productId, { action: "archive", accountId: account.id, query })}
+                  prefetch={false}
+                >
+                  <Archive aria-hidden />
+                  Archive product
+                </Link>
+              </Button>
+            )}
+            <Button asChild>
+              <Link
+                href={productPath(productId, { edit: true, accountId: account.id, query })}
+                prefetch={false}
+              >
+                <Pencil aria-hidden />
+                Edit placements
+              </Link>
+            </Button>
+          </>
         )}
       </ResourceHeading>
       <p className="text-sm text-muted-foreground">
@@ -406,14 +503,84 @@ function ProductDetails({
         </Link>
         .{" "}
         <Link
-          href={productPath(productId, { edit, query })}
+          href={productPath(productId, { edit, action, query })}
           prefetch={false}
           className="text-primary hover:underline"
         >
           View all account policies
         </Link>
       </p>
-      {edit ? (
+      {writeError && (
+        <p role="alert" className="notice">
+          {writeError}
+        </p>
+      )}
+      {canRestore && (
+        <ResourcePanel
+          title={product.active ? "Manually added entry archived" : "Archived product"}
+        >
+          <p className="text-sm text-muted-foreground">
+            {product.active
+              ? "The manually added entry is archived. An active import connection keeps this product available for placements."
+              : "This product is no longer eligible for placements from this account. Its reporting and placement settings are preserved."}
+          </p>
+          <Button className="mt-3" loading={busy} onClick={() => void changeAvailability(false)}>
+            <RotateCcw aria-hidden />
+            Restore product
+          </Button>
+        </ResourcePanel>
+      )}
+      {action && !factsAction && !archiveAction && (
+        <ResourcePanel title="Product details are managed elsewhere">
+          <p className="text-sm text-muted-foreground">
+            {product.source === "imported"
+              ? "Update this product through its import connection. You can still customize its placement settings here."
+              : "This website already belongs to a shared catalog product. Its facts are managed by DevFeed; your placement settings remain independent."}
+          </p>
+          <Button className="mt-3" variant="outline" asChild>
+            <Link href={detailHref} prefetch={false}>
+              Back to product
+            </Link>
+          </Button>
+        </ResourcePanel>
+      )}
+      {factsAction ? (
+        <PartnerProductForm
+          account={account}
+          product={product}
+          csrfToken={csrfToken}
+          onUnavailable={onUnavailable}
+          cancelHref={detailHref}
+          query={query}
+        />
+      ) : archiveAction ? (
+        <ResourcePanel title="Archive this product?">
+          <div className="space-y-3 text-sm">
+            <p>
+              Remove the manually added {product.name} from this account. Existing performance
+              reports and placement settings will remain available.
+            </p>
+            <p>
+              Products also supplied by an active import connection remain available for placements.
+            </p>
+            <p>You can restore the manually added product using its bookmarked detail page.</p>
+            <div className="flex flex-wrap justify-end gap-2 border-t pt-3">
+              <Button variant="outline" asChild disabled={busy}>
+                <Link href={detailHref} prefetch={false}>
+                  Cancel
+                </Link>
+              </Button>
+              <Button
+                variant="destructive"
+                loading={busy}
+                onClick={() => void changeAvailability(true)}
+              >
+                Archive product
+              </Button>
+            </div>
+          </div>
+        </ResourcePanel>
+      ) : action ? null : edit && product.active ? (
         <ResourcePanel title="Product placement settings">
           <PartnerProductPlacements
             accountId={account.id}
@@ -441,7 +608,39 @@ function ProductDetails({
                     <Badge variant={status === "Allowed" ? "success" : "secondary"}>{status}</Badge>
                   ),
                 },
-                { label: "Product review", value: product.status.replaceAll("_", " ") },
+                {
+                  label: "Source",
+                  value: product.source === "manual" ? "Added manually" : "Import connection",
+                },
+                {
+                  label: "Website",
+                  value: (
+                    <a
+                      href={product.product_url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="break-all text-primary hover:underline"
+                    >
+                      {product.product_url}
+                    </a>
+                  ),
+                },
+                { label: "Description", value: product.description },
+                {
+                  label: "Pricing",
+                  value: product.pricing === "unknown" ? "Not specified" : product.pricing,
+                },
+                {
+                  label: "Product review",
+                  value: {
+                    waiting: "Waiting for review",
+                    checking: "Checking website",
+                    qualified: "Qualified",
+                    attention: "Needs attention",
+                    irrelevant: "Not relevant",
+                    withdrawn: "Withdrawn",
+                  }[product.assessment.state ?? "waiting"],
+                },
                 {
                   label: "Account acceptance",
                   value: product.commercial_approved ? "Accepted" : "Awaiting acceptance",
@@ -449,6 +648,15 @@ function ProductDetails({
                 { label: "Technologies", value: product.technologies.join(", ") || "—" },
               ]}
             />
+            {product.assessment.reason && (
+              <p className="text-sm text-muted-foreground">{product.assessment.reason}</p>
+            )}
+            {product.source === "manual" && !product.editable && (
+              <p className="text-sm text-muted-foreground">
+                This website is already in the shared DevFeed catalog. DevFeed manages its product
+                facts; your account controls its placements.
+              </p>
+            )}
             <ResourcePanel
               title="Placement policy"
               fields={[
@@ -488,14 +696,16 @@ function ProductDetails({
               </p>
             </ResourcePanel>
           </div>
-          <ResourcePanel title="Creative preview">
-            <ProductPlacementPreview
-              allowedFormats={account.allowed_ad_formats ?? ["feed"]}
-              initialFormat={account.ad_formats?.[0] ?? "feed"}
-              destination={account.outbound_destination ?? "product_url"}
-              load={loadPreview}
-            />
-          </ResourcePanel>
+          {product.active && (
+            <ResourcePanel title="Creative preview">
+              <ProductPlacementPreview
+                allowedFormats={account.allowed_ad_formats ?? ["feed"]}
+                initialFormat={account.ad_formats?.[0] ?? "feed"}
+                destination={account.outbound_destination ?? "product_url"}
+                load={loadPreview}
+              />
+            </ResourcePanel>
+          )}
         </div>
       )}
     </section>

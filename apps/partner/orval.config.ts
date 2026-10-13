@@ -18,6 +18,8 @@ const responsePaths = new Set([
   "/v1/partner/accounts/{account_id}/creative-preview",
   "/v1/partner/accounts/{account_id}/audience-topics",
   "/v1/partner/accounts/{account_id}/inventory",
+  "/v1/partner/accounts/{account_id}/products",
+  "/v1/partner/accounts/{account_id}/products/{product_id}",
   "/v1/partner/accounts/{account_id}/dashboard",
   "/v1/partner/accounts/{account_id}/connections",
   "/v1/partner/accounts/{account_id}/connections/connector-response",

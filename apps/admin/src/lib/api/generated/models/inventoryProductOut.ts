@@ -6,17 +6,29 @@
  * OpenAPI spec version: 0.0.52
  */
 import type { InventoryProductOutApprovalSource } from './inventoryProductOutApprovalSource';
+import type { InventoryProductOutPricing } from './inventoryProductOutPricing';
+import type { InventoryProductOutSource } from './inventoryProductOutSource';
+import type { ProductAssessment } from './productAssessment';
 
 export interface InventoryProductOut {
+  active: boolean;
   ad_formats?: ('feed' | 'homepage_sponsorship' | 'sponsored_content' | 'engagement')[] | null;
   ad_image_url?: string | null;
   approval_source?: InventoryProductOutApprovalSource;
+  assessment: ProductAssessment;
   commercial_approved?: boolean;
+  description: string;
+  editable: boolean;
   excluded: boolean;
   globally_excluded: boolean;
   id: string;
+  manual_active: boolean | null;
   name: string;
+  pricing: InventoryProductOutPricing;
+  product_url: string;
   promotion_surfaces?: ('article' | 'topic' | 'feed')[] | null;
+  revision: number;
+  source: InventoryProductOutSource;
   status: string;
   technologies: string[];
 }

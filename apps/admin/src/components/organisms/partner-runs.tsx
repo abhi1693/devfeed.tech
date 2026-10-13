@@ -31,7 +31,7 @@ type Run = {
   finished_at: string | null;
   attempts: number;
   error: string | null;
-  provider?: string;
+  provider?: string | null;
   operation?: string;
   external_id?: string | null;
   matches?: number;
@@ -181,7 +181,7 @@ function RunTable({
                   {row.original.provider}
                 </Link>
               ) : (
-                "—"
+                "Direct product"
               ),
           },
         ]

@@ -17,6 +17,6 @@ export interface PartnerJobOut {
   operation: PartnerJobOutOperation;
   parent_id: string | null;
   product_id: string | null;
-  provider: string;
+  provider: string | null;
   status: string;
 }

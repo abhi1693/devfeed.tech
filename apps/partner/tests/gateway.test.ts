@@ -11,6 +11,8 @@ const productAdImage = [
   "22222222-2222-4222-8222-222222222222",
   "ad-image",
 ];
+const manualProducts = productAdImage.slice(0, 5);
+const manualProduct = productAdImage.slice(0, 6);
 beforeEach(() => vi.stubEnv("DEVFEED_PARTNER_API_URL", "http://partner-api:8004"));
 afterEach(() => {
   vi.useRealTimers();
@@ -122,6 +124,94 @@ it("cannot proxy admin, user or traversal paths", async () => {
     expect((await gateway(new Request("https://partner.example/api"), segments)).status).toBe(404);
   }
   expect(fetchMock).not.toHaveBeenCalled();
+});
+
+it.each([
+  { path: manualProducts, methods: ["POST"] },
+  { path: manualProduct, methods: ["GET", "PATCH", "DELETE"] },
+])("restricts manual product methods at $path", async ({ path, methods }) => {
+  vi.stubEnv("DEVFEED_PARTNER_BASE_URL", "https://partner.example");
+  const fetcher = vi.fn().mockImplementation(() => Response.json({ id: manualProduct[5] }));
+  vi.stubGlobal("fetch", fetcher);
+  for (const method of ["GET", "HEAD", "OPTIONS", "POST", "PUT", "PATCH", "DELETE"]) {
+    fetcher.mockClear();
+    const response = await gateway(
+      new Request("https://partner.example/api", {
+        method,
+        headers: { origin: "https://partner.example", "x-csrf-token": "csrf" },
+      }),
+      path,
+    );
+    expect(response.status).toBe(methods.includes(method) ? 200 : 405);
+    if (methods.includes(method)) {
+      expect(fetcher).toHaveBeenCalledOnce();
+      expect(fetcher.mock.calls[0][0]).toBe(`http://partner-api:8004/${path.join("/")}`);
+      expect(fetcher.mock.calls[0][1].headers.get("x-csrf-token")).toBe("csrf");
+    } else expect(fetcher).not.toHaveBeenCalled();
+  }
+});
+
+it("rejects malformed product scopes and foreign origins before reading product facts", async () => {
+  vi.stubEnv("DEVFEED_PARTNER_BASE_URL", "https://partner.example");
+  const fetcher = vi.fn();
+  vi.stubGlobal("fetch", fetcher);
+  for (const [path, origin, status] of [
+    [[...manualProduct, "members"], "https://partner.example", 404],
+    [[...manualProducts.slice(0, 3), "foreign", "products"], "https://partner.example", 404],
+    [manualProducts, "https://evil.example", 403],
+  ] as const) {
+    const incoming = new Request("https://partner.example/api", {
+      method: "POST",
+      headers: { origin },
+      body: new ReadableStream<Uint8Array>(),
+      duplex: "half",
+    } as RequestInit);
+    expect((await gateway(incoming, [...path])).status).toBe(status);
+    expect(incoming.bodyUsed).toBe(false);
+  }
+  expect(fetcher).not.toHaveBeenCalled();
+});
+
+it.each([true, false])(
+  "bounds manual product JSON before forwarding (declared=%s)",
+  async (declared) => {
+    vi.stubEnv("DEVFEED_PARTNER_BASE_URL", "https://partner.example");
+    const fetcher = vi.fn();
+    vi.stubGlobal("fetch", fetcher);
+    expect(
+      (
+        await gateway(
+          new Request("https://partner.example/api", {
+            method: "POST",
+            headers: {
+              origin: "https://partner.example",
+              ...(declared ? { "content-length": "65537" } : {}),
+            },
+            body: new Uint8Array(65537),
+          }),
+          manualProducts,
+        )
+      ).status,
+    ).toBe(413);
+    expect(fetcher).not.toHaveBeenCalled();
+  },
+);
+
+it("preserves multilingual product facts within the bounded write body", async () => {
+  vi.stubEnv("DEVFEED_PARTNER_BASE_URL", "https://partner.example");
+  const fetcher = vi.fn().mockResolvedValue(Response.json({}));
+  vi.stubGlobal("fetch", fetcher);
+  const facts = { name: "Product", description: "界".repeat(5000), expected_revision: 2 };
+  const response = await gateway(
+    new Request("https://partner.example/api", {
+      method: "PATCH",
+      headers: { origin: "https://partner.example", "content-type": "application/json" },
+      body: JSON.stringify(facts),
+    }),
+    manualProduct,
+  );
+  expect(response.status).toBe(200);
+  expect(JSON.parse(new TextDecoder().decode(fetcher.mock.calls[0][1].body))).toEqual(facts);
 });
 it("rejects cross-origin mutations before calling the API", async () => {
   vi.stubEnv("DEVFEED_PARTNER_BASE_URL", "https://partner.example");

@@ -103,12 +103,14 @@ def test_valid_admin_session_can_create_account(admin_boundary):
     session.commit.assert_called_once()
 
 
-def test_partner_service_only_exposes_scoped_marketing_and_image_writes():
+def test_partner_service_only_exposes_scoped_product_marketing_and_image_writes():
     app = FastAPI()
     app.include_router(portal.router)
     paths = app.openapi()["paths"]
     preference_path = "/v1/partner/accounts/{account_id}/preferences"
     image_path = "/v1/partner/accounts/{account_id}/products/{product_id}/ad-image"
+    products_path = "/v1/partner/accounts/{account_id}/products"
+    product_path = f"{products_path}/{{product_id}}"
     assert set(paths) == {
         "/v1/partner/accounts",
         "/v1/partner/accounts/{account_id}",
@@ -118,6 +120,8 @@ def test_partner_service_only_exposes_scoped_marketing_and_image_writes():
         "/v1/partner/accounts/{account_id}/creative-preview",
         "/v1/partner/accounts/{account_id}/inventory",
         "/v1/partner/accounts/{account_id}/products/{product_id}/promotion",
+        products_path,
+        product_path,
         image_path,
         preference_path,
     }
@@ -137,6 +141,8 @@ def test_partner_service_only_exposes_scoped_marketing_and_image_writes():
         not in {
             preference_path,
             image_path,
+            products_path,
+            product_path,
             "/v1/partner/accounts/{account_id}/products/{product_id}/promotion",
         }
     )
@@ -145,6 +151,21 @@ def test_partner_service_only_exposes_scoped_marketing_and_image_writes():
         "put",
     }
     assert set(paths[image_path]) == {"post"}
+    assert set(paths[products_path]) == {"post"}
+    assert set(paths[product_path]) == {"get", "patch", "delete"}
+    for path, method, model in (
+        (products_path, "post", "ManualProductInput"),
+        (product_path, "patch", "ManualProductUpdate"),
+    ):
+        assert paths[path][method]["requestBody"]["content"]["application/json"]["schema"] == {
+            "$ref": f"#/components/schemas/{model}"
+        }
+        product_schema = app.openapi()["components"]["schemas"][model]
+        assert product_schema["additionalProperties"] is False
+        assert not {"status", "technologies", "commercial_approved", "tier"}.intersection(
+            product_schema["properties"]
+        )
+    assert "content" not in paths[product_path]["delete"]["responses"]["204"]
     assert paths[image_path]["post"]["operationId"] == "partnerProductAdImageUpload"
     assert set(paths[image_path]["post"]["requestBody"]["content"]) == {"multipart/form-data"}
     assert paths[image_path]["post"]["responses"]["200"]["content"]["application/json"][
