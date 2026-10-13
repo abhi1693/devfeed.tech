@@ -14,6 +14,9 @@ export function PartnerAccountPicker({
   required = false,
   disabled = false,
   label = "Partner account",
+  size = "default",
+  className,
+  searchPlaceholder,
 }: {
   account?: Account;
   onChange: (account: Account | undefined) => void;
@@ -21,6 +24,9 @@ export function PartnerAccountPicker({
   required?: boolean;
   disabled?: boolean;
   label?: string;
+  size?: "default" | "sm";
+  className?: string;
+  searchPlaceholder?: string;
 }) {
   const request = usePartnerRequest({ onUnavailable });
   const [open, setOpen] = useState(false);
@@ -64,6 +70,9 @@ export function PartnerAccountPicker({
     <Combobox
       name={required ? "account_id" : undefined}
       label={label}
+      size={size}
+      className={className}
+      searchPlaceholder={searchPlaceholder}
       required={required}
       disabled={disabled}
       value={account?.id ?? ""}

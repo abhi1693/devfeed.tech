@@ -56,8 +56,10 @@ or account UUID prefix in workspace URLs:
   results with an Account column, and a daily CSV export. Missing ledger days remain gaps, and
   CSV cells remain blank; observed zero counts remain zero. Period CTR uses total clicks divided
   by total impressions. Dates use UTC.
-- `/products`: the searchable manual and imported catalog with Account and Source columns,
-  including products without delivery measurements. `/products/new` adds a product directly to
+- `/products`: the searchable manual and imported catalog includes products without delivery
+  measurements, Account and Source columns, and a searchable account filter in the Partner account
+  column header. It starts with all accounts and preserves product search and archive filters when
+  changing accounts. `/products/new` adds a product directly to
   an authorized account without an import connection. Product names open `/products/<product-id>`;
   `/products/<product-id>/edit` edits manually managed facts and `/products/<product-id>/archive`
   archives a manual entry. Placement actions open `/products/<product-id>/placements`.

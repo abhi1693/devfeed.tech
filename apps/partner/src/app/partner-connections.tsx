@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Pencil, Plus, RefreshCw, Filter } from "lucide-react";
+import { Pencil, Plus, RefreshCw } from "lucide-react";
 import { ResourcePanel, ResourceHeading } from "@devfeed/ui/resource-layout";
 import { formatDate, defaultDateTimePreferences } from "@devfeed/ui/date-format";
 import { portalPath, accountSettingsPath } from "@/lib/routes";
@@ -12,7 +12,6 @@ import { Input } from "@devfeed/ui/input";
 import { Badge } from "@devfeed/ui/badge";
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from "@devfeed/ui/table";
 import { usePartnerRequest, isPartnerRequestCancelled } from "@/lib/partner-request";
-import type { Account } from "@/lib/types";
 import type {
   PartnerConnectionOut,
   WorkspaceConnectionOut,
@@ -38,15 +37,10 @@ export function connectionPath(connectionId?: string, action?: "edit" | "disconn
   return `/connections${connectionId ? `/${encodeURIComponent(connectionId)}` : ""}${action ? `/${action}` : ""}`;
 }
 
-function connectionListPath({
-  offset = 0,
-  q = "",
-  accountId,
-}: { offset?: number; q?: string; accountId?: string } = {}) {
+function connectionListPath({ offset = 0, q = "" }: { offset?: number; q?: string } = {}) {
   const params = new URLSearchParams();
   if (offset) params.set("connection_offset", String(offset));
   if (q) params.set("q", q);
-  if (accountId) params.set("account_id", accountId);
   return `/connections${params.size ? `?${params}` : ""}`;
 }
 
@@ -96,12 +90,10 @@ const conflictMessage =
   "This connection changed since you opened it. Refresh the page before saving again.";
 
 export function PartnerConnections({
-  filterAccount,
   csrfToken,
   onUnavailable,
   route = { view: "list" },
 }: {
-  filterAccount?: Account;
   csrfToken: string;
   onUnavailable: () => void;
   route?: ConnectionsRoute;
@@ -140,20 +132,11 @@ export function PartnerConnections({
       try {
         if (view === "list" || view === "create") {
           const result = await request(
-            `connections?limit=${view === "list" ? 25 : 1}&offset=${view === "list" ? offset : 0}&q=${encodeURIComponent(view === "list" ? query : "")}${view === "list" && filterAccount ? `&account_id=${encodeURIComponent(filterAccount.id)}` : ""}`,
+            `connections?limit=${view === "list" ? 25 : 1}&offset=${view === "list" ? offset : 0}&q=${encodeURIComponent(view === "list" ? query : "")}`,
             {
               ...common,
               errorMessage: "Could not load import connections. Please retry.",
-              parse: (value) => {
-                const result = PartnerWorkspaceConnectionsResponse.parse(value);
-                if (
-                  filterAccount &&
-                  view === "list" &&
-                  result.items.some((item) => item.account_id !== filterAccount.id)
-                )
-                  throw new Error("Unexpected account filter.");
-                return result;
-              },
+              parse: (value) => PartnerWorkspaceConnectionsResponse.parse(value),
             },
           );
           if (controller.signal.aborted) return;
@@ -181,7 +164,7 @@ export function PartnerConnections({
     }
     void load();
     return () => controller.abort();
-  }, [filterAccount, connectionId, offset, query, refresh, request, view]);
+  }, [connectionId, offset, query, refresh, request, view]);
 
   useEffect(() => {
     if (view !== "detail" || !connectionId) return;
@@ -405,7 +388,7 @@ export function PartnerConnections({
           <form
             onSubmit={(event) => {
               event.preventDefault();
-              router.push(connectionListPath({ q: search.trim(), accountId: filterAccount?.id }));
+              router.push(connectionListPath({ q: search.trim() }));
             }}
             className="flex min-w-0 flex-1 items-end gap-2"
           >
@@ -422,16 +405,6 @@ export function PartnerConnections({
               Search
             </Button>
           </form>
-          {filterAccount && (
-            <div className="flex items-center gap-2 text-sm">
-              <span>Account: {filterAccount.name}</span>
-              <Button variant="ghost" size="sm" asChild>
-                <Link href={connectionListPath({ q: query })} prefetch={false}>
-                  Clear account filter
-                </Link>
-              </Button>
-            </div>
-          )}
         </div>
       )}
       {loading && (
@@ -490,24 +463,13 @@ export function PartnerConnections({
                         </span>
                       </TableCell>
                       <TableCell>
-                        <div className="flex items-center gap-1">
-                          <Link
-                            href={accountSettingsPath(item.account_id)}
-                            className="text-primary hover:underline"
-                            prefetch={false}
-                          >
-                            {item.account_name}
-                          </Link>
-                          <Button asChild variant="ghost" size="icon-xs">
-                            <Link
-                              href={connectionListPath({ q: query, accountId: item.account_id })}
-                              aria-label={`Filter connections by ${item.account_name}`}
-                              prefetch={false}
-                            >
-                              <Filter aria-hidden />
-                            </Link>
-                          </Button>
-                        </div>
+                        <Link
+                          href={accountSettingsPath(item.account_id)}
+                          className="text-primary hover:underline"
+                          prefetch={false}
+                        >
+                          {item.account_name}
+                        </Link>
                       </TableCell>
                       <TableCell>
                         <ConnectionStatus connection={item} />
@@ -540,16 +502,14 @@ export function PartnerConnections({
               </Table>
             </div>
           ) : (
-            <ResourcePanel
-              title={query || filterAccount ? "No matching connections" : "No import connections"}
-            >
+            <ResourcePanel title={query ? "No matching connections" : "No import connections"}>
               <p className="mb-4 text-sm text-muted-foreground">
                 Connect an API to keep your catalog up to date. Imported products appear in Products
                 for placement controls and previews.
               </p>
               <Button asChild>
-                <Link href={query || filterAccount ? basePath : `${basePath}/new`} prefetch={false}>
-                  {query || filterAccount ? "Clear filters" : "Create your first connection"}
+                <Link href={query ? basePath : `${basePath}/new`} prefetch={false}>
+                  {query ? "Clear filters" : "Create your first connection"}
                 </Link>
               </Button>
             </ResourcePanel>
@@ -564,7 +524,6 @@ export function PartnerConnections({
                   href={connectionListPath({
                     offset: Math.max(0, offset - page.limit),
                     q: query,
-                    accountId: filterAccount?.id,
                   })}
                   prefetch={false}
                 >
@@ -579,7 +538,6 @@ export function PartnerConnections({
                   href={connectionListPath({
                     offset: offset + page.limit,
                     q: query,
-                    accountId: filterAccount?.id,
                   })}
                   prefetch={false}
                 >

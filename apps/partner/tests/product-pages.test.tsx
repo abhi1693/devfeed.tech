@@ -105,6 +105,85 @@ it("lists imported products as compact records with detail and edit links", asyn
   expect(screen.queryByRole("dialog")).toBeNull();
 });
 
+it("filters products from the account column header and clears to all accounts without losing other filters", async () => {
+  const other = partnerAccount({
+    id: "22222222-2222-4222-8222-222222222222",
+    name: "Off-page organization",
+  });
+  const fetcher = vi.fn().mockImplementation((input: string) => {
+    const url = new URL(input, "http://localhost");
+    if (url.pathname.endsWith("/accounts")) {
+      const q = url.searchParams.get("q") ?? "";
+      const matches = [account, other].filter((item) => item.name.includes(q));
+      return Response.json({ items: matches, total: matches.length });
+    }
+    const selectedId = url.searchParams.get("account_id");
+    const visible = [account, other].filter((item) => !selectedId || item.id === selectedId);
+    return Response.json({
+      items: visible.map((item) => ({
+        ...product,
+        account_id: item.id,
+        account_name: item.name,
+      })),
+      total: 50,
+      offset: Number(url.searchParams.get("offset")),
+      limit: 25,
+    });
+  });
+  vi.stubGlobal("fetch", fetcher);
+  render(
+    <PartnerProductCatalog
+      onUnavailable={unavailable}
+      accountFilter={account}
+      initialSearch="Cron"
+      initialOffset={25}
+      initialIncludeArchived
+      query="?days=7&sort=clicks"
+    />,
+  );
+  const table = screen.getByRole("table", { name: "Products" });
+  const header = within(table).getByRole("columnheader", { name: /Partner account/ });
+  const filter = within(header).getByRole("combobox", {
+    name: "Filter products by partner account",
+  });
+  await within(table).findByRole("link", { name: account.name });
+  expect(fetcher.mock.calls.some(([url]) => String(url).includes("/accounts?"))).toBe(false);
+  expect(filter.textContent).toContain(account.name);
+  await userEvent.click(filter);
+  await screen.findByRole("option", { name: other.name });
+  await userEvent.type(screen.getByPlaceholderText("Search partner accounts…"), "Off-page");
+  await waitFor(() =>
+    expect(fetcher).toHaveBeenCalledWith(
+      "/api/v1/partner/accounts?limit=25&offset=0&q=Off-page",
+      expect.anything(),
+    ),
+  );
+  await userEvent.click(await screen.findByRole("option", { name: other.name }));
+  await within(table).findByRole("link", { name: other.name });
+  expect(within(table).queryByRole("link", { name: account.name })).toBeNull();
+  let params = new URLSearchParams(window.location.search);
+  expect(params.get("account_id")).toBe(other.id);
+  expect(params.get("q")).toBe("Cron");
+  expect(params.get("include_archived")).toBe("true");
+  expect(params.get("days")).toBe("7");
+  expect(params.get("sort")).toBe("clicks");
+  expect(params.has("product_offset")).toBe(false);
+  expect(fetcher).toHaveBeenCalledWith(
+    `/api/v1/partner/inventory?q=Cron&offset=0&limit=25&account_id=${other.id}&include_archived=true`,
+    expect.anything(),
+  );
+  expect(screen.queryByText(/Filtered to/)).toBeNull();
+  await userEvent.click(filter);
+  await userEvent.click(await screen.findByRole("option", { name: "All accounts" }));
+  await within(table).findByRole("link", { name: account.name });
+  await within(table).findByRole("link", { name: other.name });
+  params = new URLSearchParams(window.location.search);
+  expect(params.has("account_id")).toBe(false);
+  expect(params.get("q")).toBe("Cron");
+  expect(params.get("include_archived")).toBe("true");
+  expect(filter.textContent).toContain("All accounts");
+});
+
 it("resolves a bookmarked product independently of list pagination and previews only that product", async () => {
   const fetcher = vi.fn().mockImplementation(load);
   vi.stubGlobal("fetch", fetcher);

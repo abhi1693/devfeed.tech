@@ -601,6 +601,17 @@ export async function assertConnectionJourneys({ page, origin, account, fixture,
   await page.goto(base);
   await page.setViewportSize({ width: 390, height: 844 });
   await page.getByRole("link", { name: "Renamed product catalog", exact: true }).waitFor();
+  assert.equal(await page.getByRole("link", { name: /^Filter connections by/ }).count(), 0);
+  assert.equal(
+    await page.getByRole("link", { name: "Clear account filter", exact: true }).count(),
+    0,
+  );
+  assert.equal(
+    await page.getByRole("combobox", { name: "Partner account", exact: true }).count(),
+    0,
+  );
+  await page.getByRole("columnheader", { name: "Account", exact: true }).waitFor();
+  await page.getByRole("link", { name: account.name, exact: true }).waitFor();
   await noOverflowOrDialog(page);
   await page.screenshot({
     path: join(artifactDir, "partner-connections-mobile.png"),

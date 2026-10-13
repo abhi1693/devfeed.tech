@@ -9,6 +9,7 @@ import { Input } from "@devfeed/ui/input";
 import { Checkbox } from "@devfeed/ui/choice-controls";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@devfeed/ui/table";
 import { ResourceHeading } from "@devfeed/ui/resource-layout";
+import { PartnerAccountPicker } from "./partner-account-picker";
 import { PartnerWorkspaceInventoryResponse } from "@/lib/api/generated/validators";
 import { parseProductPlacementPolicy } from "@devfeed/ui/advertising-formats";
 import { accountSettingsPath, portalPath, productPath } from "@/lib/routes";
@@ -55,11 +56,12 @@ export function PartnerProductCatalog({
   query?: string;
 }) {
   const request = usePartnerRequest({ onUnavailable });
+  const [selectedAccount, setSelectedAccount] = useState(accountFilter);
   const [search, setSearch] = useState(initialSearch);
   const [page, setPage] = useState({ q: initialSearch, offset: initialOffset });
   const [includeArchived, setIncludeArchived] = useState(initialIncludeArchived);
   const [revision, setRevision] = useState(0);
-  const key = `${accountFilter?.id ?? "all"}/${page.q}/${page.offset}/${includeArchived}/${revision}`;
+  const key = `${selectedAccount?.id ?? "all"}/${page.q}/${page.offset}/${includeArchived}/${revision}`;
   const [result, setResult] = useState<{
     key: string;
     items: WorkspaceInventoryProductOut[];
@@ -74,7 +76,7 @@ export function PartnerProductCatalog({
   else scope.delete("product_offset");
   if (includeArchived) scope.set("include_archived", "true");
   else scope.delete("include_archived");
-  if (accountFilter) scope.set("account_id", accountFilter.id);
+  if (selectedAccount) scope.set("account_id", selectedAccount.id);
   else scope.delete("account_id");
   const listQuery = scope.size ? `?${scope}` : "";
   useEffect(() => {
@@ -88,7 +90,7 @@ export function PartnerProductCatalog({
   useEffect(() => {
     const controller = new AbortController();
     const params = new URLSearchParams({ q: page.q, offset: String(page.offset), limit: "25" });
-    if (accountFilter) params.set("account_id", accountFilter.id);
+    if (selectedAccount) params.set("account_id", selectedAccount.id);
     if (includeArchived) params.set("include_archived", "true");
     void request(`inventory?${params}`, {
       signal: controller.signal,
@@ -98,7 +100,8 @@ export function PartnerProductCatalog({
           data.offset !== page.offset ||
           data.limit !== 25 ||
           (!includeArchived && data.items.some((product) => !product.active)) ||
-          (accountFilter && data.items.some((product) => product.account_id !== accountFilter.id))
+          (selectedAccount &&
+            data.items.some((product) => product.account_id !== selectedAccount.id))
         )
           throw new Error("Could not confirm the product page.");
         return data;
@@ -124,7 +127,7 @@ export function PartnerProductCatalog({
           });
       });
     return () => controller.abort();
-  }, [request, page, key, accountFilter, includeArchived]);
+  }, [request, page, key, selectedAccount, includeArchived]);
   return (
     <section className="space-y-4">
       <ResourceHeading
@@ -150,14 +153,6 @@ export function PartnerProductCatalog({
           </Link>
         </Button>
       </ResourceHeading>
-      {accountFilter && (
-        <p className="text-sm text-muted-foreground">
-          Filtered to {accountFilter.name}.{" "}
-          <Link href={`${portalPath("products")}${query}`} className="text-primary hover:underline">
-            Show all partner accounts
-          </Link>
-        </p>
-      )}
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div className="grid w-full gap-1.5 sm:max-w-sm">
           <label htmlFor="placement-product-search" className="text-sm font-medium">
@@ -208,7 +203,23 @@ export function PartnerProductCatalog({
           <TableHeader>
             <TableRow>
               <TableHead>Name</TableHead>
-              <TableHead>Partner account</TableHead>
+              <TableHead scope="col" className="min-w-48">
+                <div className="space-y-1 py-1.5">
+                  <span>Partner account</span>
+                  <PartnerAccountPicker
+                    account={selectedAccount}
+                    label="Filter products by partner account"
+                    searchPlaceholder="Search partner accounts…"
+                    size="sm"
+                    className="max-w-64"
+                    onUnavailable={onUnavailable}
+                    onChange={(next) => {
+                      setSelectedAccount(next);
+                      setPage((current) => ({ ...current, offset: 0 }));
+                    }}
+                  />
+                </div>
+              </TableHead>
               <TableHead>Source</TableHead>
               <TableHead>Placement status</TableHead>
               <TableHead>Technologies</TableHead>
@@ -300,8 +311,8 @@ export function PartnerProductCatalog({
             {!loading && !result.error && !result.items.length && (
               <TableRow>
                 <TableCell colSpan={7} className="h-20 text-center text-muted-foreground">
-                  {page.q
-                    ? "No products match your search."
+                  {page.q || selectedAccount
+                    ? "No products match your filters."
                     : "No products yet. Add a product or connect an import API."}
                 </TableCell>
               </TableRow>

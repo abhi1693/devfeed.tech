@@ -129,9 +129,8 @@ it("lists connections across authorized accounts without choosing a global accou
   expect(screen.getByRole("link", { name: "Build Studio" }).getAttribute("href")).toBe(
     `/settings/${other.account_id}`,
   );
-  expect(
-    screen.getByRole("link", { name: "Filter connections by Build Studio" }).getAttribute("href"),
-  ).toContain(`account_id=${other.account_id}`);
+  expect(screen.queryByRole("link", { name: /^Filter connections by/ })).toBeNull();
+  expect(screen.queryByRole("link", { name: "Clear account filter" })).toBeNull();
   expect(screen.queryByRole("combobox", { name: "Partner account" })).toBeNull();
   expect(fetcher.mock.calls[0][0]).toBe("/api/v1/partner/connections?limit=25&offset=0&q=");
 });
@@ -187,22 +186,29 @@ it("requests only the bookmarked bounded connection page", async () => {
   );
 });
 
-it("rejects a filtered catalog page containing another account's connection", async () => {
-  vi.stubGlobal(
-    "fetch",
-    vi
-      .fn<typeof fetch>()
-      .mockResolvedValue(
-        Response.json(list([connection({ account_id: "22222222-2222-4222-8222-222222222222" })])),
-      ),
-  );
+it("keeps connection search and pagination across every authorized account", async () => {
+  const fetcher = vi
+    .fn<typeof fetch>()
+    .mockResolvedValue(Response.json(list([connection()], { total: 101, offset: 25 })));
+  vi.stubGlobal("fetch", fetcher);
   render(
-    <PartnerConnections filterAccount={account} csrfToken="csrf" onUnavailable={unavailable} />,
+    <PartnerConnections
+      csrfToken="csrf"
+      onUnavailable={unavailable}
+      route={{ view: "list", q: "catalog", offset: 25 }}
+    />,
   );
-  expect((await screen.findByRole("alert")).textContent).toContain(
-    "Could not load import connections",
+  await screen.findByRole("link", { name: "Product catalog" });
+  expect(fetcher.mock.calls[0][0]).toBe("/api/v1/partner/connections?limit=25&offset=25&q=catalog");
+  expect(screen.getByRole("link", { name: "Next" }).getAttribute("href")).toBe(
+    "/connections?connection_offset=50&q=catalog",
   );
-  expect(screen.queryByRole("link", { name: "Product catalog" })).toBeNull();
+  fireEvent.change(screen.getByRole("textbox", { name: "Search connections" }), {
+    target: { value: " Build Studio " },
+  });
+  fireEvent.click(screen.getByRole("button", { name: "Search" }));
+  expect(router.push).toHaveBeenCalledWith("/connections?q=Build+Studio");
+  expect(screen.queryByRole("link", { name: /^Filter connections by/ })).toBeNull();
 });
 
 it("creates a structured public API connection with write protection and navigates to its record", async () => {

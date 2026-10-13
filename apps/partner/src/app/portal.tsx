@@ -347,7 +347,6 @@ export function Portal({
             csrfToken={identity.csrf_token}
             onUnavailable={onUnavailable}
             route={connectionsRoute}
-            filterAccount={account}
           />
         )}
         {!unavailable &&

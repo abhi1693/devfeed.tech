@@ -180,6 +180,18 @@ it("normalizes real connection slugs without treating them as account UUIDs", as
   expect(page.props.initialAccount).toBeUndefined();
 });
 
+it("opens all connections without resolving an obsolete account filter", async () => {
+  session.mockResolvedValueOnce(response());
+  const page = await PortalPage({
+    section: "connections",
+    searchParams: Promise.resolve({ account_id: account.id }),
+    connectionsRoute: { view: "list", q: "api", offset: 25 },
+  });
+  expect(page.props.initialAccount).toBeUndefined();
+  expect(page.props.connectionsRoute).toEqual({ view: "list", q: "api", offset: 25 });
+  expect(session).toHaveBeenCalledWith(0, undefined, "", 25);
+});
+
 it("rejects invalid connection slugs before authentication", async () => {
   await expect(
     PortalPage({

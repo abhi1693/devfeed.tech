@@ -43,8 +43,8 @@ export async function PortalPage({
 }) {
   const params = await searchParams;
   const uuidPattern = /^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/i;
-  const accountFilter = single(params.account_id);
-  if (params.account_id !== undefined && !accountFilter) notFound();
+  const accountFilter = section === "connections" ? undefined : single(params.account_id);
+  if (section !== "connections" && params.account_id !== undefined && !accountFilter) notFound();
   if ([accountId, accountFilter, productRoute?.productId].some((id) => id && !uuidPattern.test(id)))
     notFound();
   if (accountId && accountFilter && accountId.toLowerCase() !== accountFilter.toLowerCase())

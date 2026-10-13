@@ -1518,6 +1518,47 @@ try {
     .getByRole("table", { name: "Products" })
     .getByText(account.name, { exact: true })
     .waitFor();
+  const productAccountFilter = page
+    .getByRole("table", { name: "Products" })
+    .getByRole("columnheader", { name: /Partner account/ })
+    .getByRole("combobox", { name: "Filter products by partner account", exact: true });
+  assert.match(await productAccountFilter.innerText(), /All accounts/);
+  await page.getByRole("searchbox", { name: "Search products", exact: true }).fill("API");
+  await page.getByRole("checkbox", { name: "Show archived products", exact: true }).click();
+  await page.waitForURL((url) => url.searchParams.get("q") === "API");
+  await productAccountFilter.click();
+  await page.getByRole("option", { name: beta.name, exact: true }).click();
+  await page.waitForURL((url) => url.searchParams.get("account_id") === beta.id);
+  await page.getByText("No products match your filters.", { exact: true }).waitFor();
+  assert.equal(new URL(page.url()).searchParams.get("q"), "API");
+  assert.equal(new URL(page.url()).searchParams.get("include_archived"), "true");
+  await productAccountFilter.click();
+  await page.getByRole("option", { name: account.name, exact: true }).click();
+  await page.getByRole("link", { name: previewProduct.name, exact: true }).waitFor();
+  await page.reload();
+  assert.match(await productAccountFilter.innerText(), new RegExp(account.name));
+  await page.getByRole("link", { name: previewProduct.name, exact: true }).waitFor();
+  assert.equal(new URL(page.url()).searchParams.get("q"), "API");
+  assert.equal(new URL(page.url()).searchParams.get("include_archived"), "true");
+  await page.screenshot({
+    path: root + "reports/partner/products-account-filter-desktop.png",
+    fullPage: true,
+  });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await productAccountFilter.scrollIntoViewIfNeeded();
+  await productAccountFilter.click();
+  await page.getByRole("option", { name: "All accounts", exact: true }).waitFor();
+  assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
+  await page.screenshot({
+    path: root + "reports/partner/products-account-filter-mobile.png",
+    fullPage: true,
+  });
+  await page.getByRole("option", { name: "All accounts", exact: true }).click();
+  await page.waitForURL((url) => !url.searchParams.has("account_id"));
+  await page.getByRole("link", { name: previewProduct.name, exact: true }).waitFor();
+  assert.equal(new URL(page.url()).searchParams.get("q"), "API");
+  assert.equal(new URL(page.url()).searchParams.get("include_archived"), "true");
+  await page.setViewportSize({ width: 1440, height: 1100 });
   await page.goto(origin + "/settings");
   await page
     .getByRole("table", { name: "Partner accounts" })
@@ -1572,6 +1613,18 @@ try {
     .getByText(bookmarkedAccount.name, { exact: true })
     .waitFor();
   await page.getByRole("link", { name: previewProduct.name, exact: true }).waitFor();
+  await productAccountFilter.click();
+  await page
+    .getByPlaceholder("Search partner accounts…", { exact: true })
+    .fill(bookmarkedAccount.name);
+  await page.getByRole("option", { name: bookmarkedAccount.name, exact: true }).click();
+  await page.waitForURL((url) => url.searchParams.get("account_id") === bookmarkedAccount.id);
+  await page.reload();
+  assert.match(await productAccountFilter.innerText(), new RegExp(bookmarkedAccount.name));
+  await page.getByRole("link", { name: previewProduct.name, exact: true }).waitFor();
+  await productAccountFilter.click();
+  await page.getByRole("option", { name: "All accounts", exact: true }).click();
+  await page.waitForURL((url) => !url.searchParams.has("account_id"));
   await page.goto(origin + "/settings");
   const accountTable = page.getByRole("table", { name: "Partner accounts" });
   const accountPagination = page.getByRole("navigation", { name: "Account pages", exact: true });
