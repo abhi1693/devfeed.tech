@@ -59,7 +59,7 @@ def statistics_report(output: Path):
     descriptor = os.open(
         output / "database-statistics.json",
         os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_NOFOLLOW,
-        0o644,
+        0o600,
     )
     return os.fdopen(descriptor, "w", encoding="utf-8")
 

@@ -109,7 +109,9 @@ def test_repeated_runs_replace_the_regular_statistics_report(monkeypatch, tmp_pa
     for value in ([{"estimated_rows": 1000}], [{"estimated_rows": 200}]):
         with runner.statistics_report(runner.report_directory(output)) as statistics:
             json.dump(value, statistics)
-        assert json.loads((output / "database-statistics.json").read_text()) == value
+        destination = output / "database-statistics.json"
+        assert json.loads(destination.read_text()) == value
+        assert destination.stat().st_mode & 0o077 == 0
 
 
 @pytest.mark.parametrize("failing_stage", [None, "migration", "seed"])
