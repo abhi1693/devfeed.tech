@@ -176,6 +176,26 @@ def check() -> None:
                 assert environment[product_secret] == "fixture-products-token", name
             else:
                 assert product_secret not in environment, name
+    placement_options = {
+        "DEVFEED_PARTNER_CALLER_KEY": "fixture-caller-" * 3,
+        "DEVFEED_PARTNER_CALLER_IP_HEADER": "cf-connecting-ip",
+        "DEVFEED_PARTNER_TRACKING_KEY": "fixture-tracking-" * 3,
+    }
+    placement_recipients = {
+        "DEVFEED_PARTNER_CALLER_KEY": {"api", "web"},
+        "DEVFEED_PARTNER_CALLER_IP_HEADER": {"web"},
+        "DEVFEED_PARTNER_TRACKING_KEY": {"api", "user-api"},
+    }
+    for build in (False, True):
+        placement_services = render({**registry_fixtures, **placement_options}, build=build)[
+            "services"
+        ]
+        for name, service in placement_services.items():
+            environment = service.get("environment", {})
+            for key, recipients in placement_recipients.items():
+                assert (key in environment) == (name in recipients), (name, key)
+                if name in recipients:
+                    assert environment[key] == placement_options[key], (name, key)
     assert services["admin"]["ports"][0]["published"] == "3001"
     assert services["web"]["ports"][0]["published"] == "3000"
     assert "data" not in services["web"]["networks"]
@@ -470,6 +490,8 @@ def check() -> None:
         )
         assert services["web"]["environment"] == {
             "DEVFEED_PUBLIC_API_URL": "http://api:8000",
+            "DEVFEED_PARTNER_CALLER_KEY": "",
+            "DEVFEED_PARTNER_CALLER_IP_HEADER": "",
             "DEVFEED_USER_API_URL": "http://user-api:8002",
             "DEVFEED_USER_BASE_URL": "http://localhost:3000",
             "DEVFEED_ANALYTICS_ENABLED": "false",

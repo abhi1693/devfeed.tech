@@ -818,13 +818,17 @@ const probe = createServer();
 await new Promise((resolve) => probe.listen(0, "127.0.0.1", resolve));
 const port = probe.address().port;
 await new Promise((resolve) => probe.close(resolve));
-const appOrigin = `http://127.0.0.1:${port}`;
 // This fixture models a trusted edge that overwrites browser-supplied client-IP
 // headers. All three readers then use the real production Next.js gateways.
 const edge = createServer((req, res) => {
   const upstream = httpRequest(
-    new URL(req.url, appOrigin),
-    { method: req.method, headers: { ...req.headers, "cf-connecting-ip": callerFixtureIp } },
+    {
+      hostname: "127.0.0.1",
+      port,
+      path: req.url,
+      method: req.method,
+      headers: { ...req.headers, "cf-connecting-ip": callerFixtureIp },
+    },
     (response) => {
       res.writeHead(response.statusCode, response.headers);
       response.pipe(res);

@@ -46,6 +46,12 @@ API/setup logs, run metadata and a post-run `SHOW POOLS` snapshot. The API remai
 alive during the snapshot; retained application clients or waiting work fail the
 run. PgBouncer's idle **server** connections are expected and reusable.
 
+After committing the seed data, the runner explicitly analyzes its disposable
+database so query plans do not depend on automatic analyze starting during the
+measurement. `database-statistics.json` records each table's estimated row count,
+page count, and analyze timestamps before the API starts. This preparation applies
+equally to the base and candidate applications.
+
 ## Existing staging API / interactive UI
 
 Supply the public API origin, not a website HTML route. The workload requires

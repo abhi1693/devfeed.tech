@@ -140,7 +140,12 @@ def main():
                         "upgrade",
                         "head",
                     ],
-                    [str(args.app_python), str(ROOT / "loadtests/seed.py"), str(args.rows)],
+                    [
+                        str(args.app_python),
+                        str(ROOT / "loadtests/seed.py"),
+                        str(args.rows),
+                        str(args.output / "database-statistics.json"),
+                    ],
                 ):
                     subprocess.run(
                         command, env=env, cwd=temp, check=True, stdout=log, stderr=log, timeout=120

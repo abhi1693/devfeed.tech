@@ -9,7 +9,7 @@ import { build } from "esbuild";
 import { chromium } from "playwright";
 import { lighthouseConfig, readerPaths, runs } from "./browser-performance-config.mjs";
 import { checkMeasurements, measurementSummary } from "./browser-performance-report.mjs";
-import { applyArticleSnapshot } from "./browser-performance-fixture.mjs";
+import { applyArticleSnapshot, publicPlacementResponse } from "./browser-performance-fixture.mjs";
 
 const root = fileURLToPath(new URL("../../", import.meta.url));
 const articleEntryPhase = process.argv
@@ -152,7 +152,8 @@ function fixtureServer(fixture, origin) {
   ]);
   const server = createServer((req, res) => {
     const path = new URL(req.url, origin).pathname;
-    let body = bodies.get(path);
+    let body =
+      path === "/v1/partner-placements/query" ? publicPlacementResponse(req) : bodies.get(path);
     if (body === undefined) {
       unknown.add(path);
       res.statusCode = 404;

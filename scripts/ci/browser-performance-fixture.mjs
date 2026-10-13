@@ -1,5 +1,12 @@
 import assert from "node:assert/strict";
 
+export function publicPlacementResponse(request) {
+  assert.equal(request.method, "POST", "Public placement queries must use POST");
+  for (const name of ["cookie", "authorization", "x-csrf-token"])
+    assert.equal(request.headers[name], undefined, `Public placements must omit ${name}`);
+  return { items: [] };
+}
+
 // Keep managed fixture images and IDs stable when comparing real article copy.
 export function applyArticleSnapshot(fixture, snapshot, phase) {
   assert.ok(phase, "Article snapshots require --article-entry");

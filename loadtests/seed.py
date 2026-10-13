@@ -1,19 +1,42 @@
 """Seed only the disposable local database created by scripts/load-test.py."""
 
+import json
 import os
 import sys
 import uuid
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 
 from devfeed_core.config import Settings
 from devfeed_core.db import create_database_engine
 from devfeed_core.models import Article, ArticleOrigin, ArticleTopic, Source, Topic
-from sqlalchemy import func, insert, select
+from sqlalchemy import func, insert, select, text
 from sqlalchemy.engine import make_url
 
 
 def identity(kind, index):
     return uuid.uuid5(uuid.NAMESPACE_URL, f"devfeed-load/{kind}/{index}")
+
+
+def prepare_statistics(engine, destination: Path):
+    # The first automatic analyze may run during the short measured interval.
+    # Start both revisions with statistics for the complete committed fixture.
+    with engine.begin() as connection:
+        connection.execute(text("ANALYZE"))
+        statistics = connection.execute(
+            text("""
+                SELECT c.relname AS table_name, c.reltuples AS estimated_rows,
+                       c.relpages AS pages, s.last_analyze, s.last_autoanalyze
+                FROM pg_class c
+                JOIN pg_namespace n ON n.oid = c.relnamespace
+                JOIN pg_stat_all_tables s ON s.relid = c.oid
+                WHERE n.nspname = current_schema() AND c.relkind = 'r'
+                ORDER BY c.relname
+            """)
+        ).mappings()
+        destination.write_text(
+            json.dumps([dict(row) for row in statistics], default=str, indent=2) + "\n"
+        )
 
 
 def main():
@@ -105,6 +128,7 @@ def main():
                     for i in range(size)
                 ],
             )
+        prepare_statistics(engine, Path(sys.argv[2]))
     finally:
         engine.dispose()
     print(f"Seeded {size} published articles, 20 sources and 20 topics")
