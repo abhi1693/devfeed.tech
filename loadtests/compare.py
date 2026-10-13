@@ -1,4 +1,4 @@
-"""Compare artifacts from isolated parallel base and head load-test runners."""
+"""Compare six isolated base/head samples measured on three independent runners."""
 
 import argparse
 import json
@@ -65,7 +65,8 @@ def report(runs, base_sha, head_sha):
         "",
         f"Base `{base_sha}` → PR `{head_sha}`",
         "",
-        "Three independent runs per revision, each on a fresh GitHub-hosted ARM64 runner. "
+        "Three independent GitHub-hosted ARM64 runners, each measuring base and PR "
+        "sequentially with alternating order and isolated resources for every sample. "
         "16 users, 60 seconds/run, 1,000 synthetic articles, cache off, five PgBouncer slots.",
         "",
     ]
@@ -206,8 +207,9 @@ def report(runs, base_sha, head_sha):
         "Throughput is descriptive: "
         "paced users do not measure maximum capacity. This uncached public API test does "
         "not establish production health, browser performance or worker capacity. "
-        "Separate runners can differ in hardware or host load; repetitions and noise checks "
-        "reduce but cannot eliminate that uncertainty.",
+        "Base and PR share a runner within each pair; three pairs use independent runners. "
+        "Alternating order reduces host-assignment bias but cannot eliminate changes in "
+        "host load over time.",
         "",
         "</details>",
     ]

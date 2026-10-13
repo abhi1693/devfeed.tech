@@ -116,9 +116,12 @@ and throughput, individual-run health, and interpretation details.
 CI checks out the event's exact base and head commits into separate directories
 and installs each revision's own locked application dependencies. The candidate's
 Locust harness drives both versions, including bases that predate this harness.
-Each gets a new database, seed dataset, Redis and PgBouncer. Six matrix jobs run in parallel, three samples per revision. **Each sample gets
-a fresh GitHub-hosted ARM64 runner**, so leaked resources cannot carry over
-between samples. All samples use the same profile:
+Each gets a new database, seed dataset, Redis, PgBouncer and API process. Three matrix
+jobs run in parallel, **each on a fresh GitHub-hosted ARM64 runner**. Each job measures
+base and head sequentially, alternating which revision runs first. This produces six
+isolated samples, three per revision, while keeping each base/head pair on the same
+host. The harness cleans up each sample's resources before the next sample starts.
+All samples use the same profile:
 16 users, 60 seconds per run, 1,000 articles, cache disabled, five server slots.
 
 A bot updates one PR comment with commit SHAs, per-endpoint median p50/p95/p99,
@@ -151,9 +154,10 @@ A separate read-only comparison job collects all six artifacts and verifies thei
 commit SHAs and workload metadata before comparing. Missing, malformed or mismatched
 artifacts are errors, never silently omitted. Matrix fail-fast is disabled
 so one failed sample does not discard the other evidence. Runner identity,
-architecture and logical CPU count are recorded in each sample. Separate VMs can
-still differ in hardware or host load; repeated samples and the noise gate reduce,
-but cannot eliminate, that uncertainty.
+architecture and logical CPU count are recorded in each sample. Pairing revisions
+on the same host reduces differences in hardware and host load between base and
+head. Alternating order, repeated pairs and the noise gate reduce, but cannot
+eliminate, changes in host load over time or order effects.
 
 Throughput is descriptive because users include think time. This profile does
 not test cache behavior or maximum capacity. Compare cached workloads and run
