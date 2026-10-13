@@ -8,9 +8,16 @@ from devfeed_core.cache import CacheUnavailable, close_cache, get_cache, get_sit
 from devfeed_core.db import get_engine
 from devfeed_core.models import Article, ArticleOrigin, Source, Topic
 from sqlalchemy import event, update
-from test_public_search_integration import seed
+from test_public_search_integration import seed as search_seed
 
 pytestmark = pytest.mark.integration
+
+
+def seed(database):
+    result = search_seed(database)
+    with database.begin() as session:
+        session.execute(update(Article).where(Article.id.in_(result[3])).values(language="en"))
+    return result
 
 
 @pytest.fixture(autouse=True)
@@ -369,3 +376,71 @@ def test_stale_reads_never_attempt_a_refresh(client, database, monkeypatch):
     monkeypatch.setattr(sitemaps, "session_factory", lambda: pytest.fail("Request read database"))
     assert client.get("/v1/sitemaps").json() == previous
     assert client.get("/v1/sitemaps/articles/1").status_code == 200
+
+
+def test_collection_sitemaps_match_anonymous_feed_language_and_visibility(client, database):
+    from devfeed_core.models import ArticleTag, ArticleTopic, Tag
+
+    source, _, _, articles = seed(database)
+    scenarios = [
+        ("english", "en", "published", "primary"),
+        ("russian", "ru", "published", "primary"),
+        ("chinese", "zh", "published", "supporting"),
+        ("draft", "en", "unpublished", "primary"),
+        ("incidental", "en", "published", "incidental"),
+        ("empty", None, None, None),
+    ]
+    with database.begin() as session:
+        for slug, language, publication, role in scenarios:
+            topic = Topic(name=slug, slug=slug, kind="technology", status="active")
+            tag = Tag(name=slug, slug=slug)
+            session.add_all([topic, tag])
+            session.flush()
+            if language is None:
+                continue
+            article = Article(
+                title=slug,
+                canonical_url=f"https://kube.example/{slug}",
+                url_hash=slug,
+                language=language,
+                review_status="approved",
+                publication_status=publication,
+            )
+            session.add(article)
+            session.flush()
+            session.add_all(
+                [
+                    ArticleOrigin(
+                        article_id=article.id,
+                        source_id=source,
+                        entry_key=slug,
+                        original_url=article.canonical_url,
+                    ),
+                    ArticleTopic(
+                        article_id=article.id,
+                        topic_id=topic.id,
+                        role=role,
+                        relevance=1,
+                        evidence="Test assignment",
+                    ),
+                    ArticleTag(article_id=article.id, tag_id=tag.id, origin="source"),
+                ]
+            )
+    with database() as session:
+        rows = session.execute(sitemaps.snapshot_statement()).all()
+    slugs = {kind: {row.slug for row in rows if row.kind == kind} for kind in sitemaps.KINDS}
+    assert slugs["topics"] == {"kubernetes", "english"}
+    assert slugs["tags"] == {"kubernetes", "english", "incidental"}
+    # Public non-English article detail pages remain indexable.
+    assert len(slugs["articles"]) == 6
+    for slug, *_ in scenarios:
+        for kind, key in [("topics", "topic"), ("tags", "tag")]:
+            response = client.get("/v1/feed", params={key: slug, "languages": "en"})
+            assert response.status_code == 200
+            assert bool(response.json()["items"]) == (slug in slugs[kind])
+    assert client.get("/v1/feed?tag=russian").json()["items"]
+    assert client.get("/v1/feed?topic=chinese").json()["items"]
+    assert client.get("/v1/topics/empty").status_code == 200
+    assert client.get("/v1/topics/missing").status_code == 404
+    assert client.get("/v1/tags/empty").status_code == 404
+    assert client.get("/v1/tags/missing").status_code == 404

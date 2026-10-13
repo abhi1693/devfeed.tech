@@ -225,8 +225,10 @@ async function checkPageContent(urls) {
           "Only the first visible backdrop cover should have priority",
         );
       } else {
-        await page.locator(".article-card").first().waitFor();
-        assert.equal(await page.locator(".article-card").count(), 24);
+        // React may retain a hidden streamed copy outside the rendered feed.
+        const cards = page.locator(".article-card:visible");
+        await cards.first().waitFor();
+        assert.equal(await cards.count(), 24, `Initial visible feed batch on ${url}`);
       }
       await page.waitForFunction(() => {
         const images = [...document.querySelectorAll("main img")].filter((image) => {

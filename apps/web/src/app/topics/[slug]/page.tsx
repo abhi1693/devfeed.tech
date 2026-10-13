@@ -3,7 +3,7 @@ import { notFound, permanentRedirect } from "next/navigation";
 import { getTopic, UserApiError } from "@/lib/api";
 import { FeedView } from "@/components/feed-view";
 import { contentTypeFromRoute, feedHref, parseFilters, type SearchParams } from "@/lib/feed-query";
-import { feedMetadata } from "@/lib/metadata";
+import { collectionFeedMetadata } from "@/lib/server/collection-feed-metadata";
 export const dynamic = "force-dynamic";
 type Props = {
   params: Promise<{ slug: string; contentType?: string }>;
@@ -23,7 +23,7 @@ export async function generateMetadata({ params, searchParams }: Props) {
   const type = contentType ? contentTypeFromRoute(contentType) : undefined;
   if (contentType && !type) notFound();
   const item = await load(slug);
-  return feedMetadata(
+  return collectionFeedMetadata(
     item.name,
     item.description || `Articles about ${item.name}.`,
     await searchParams,

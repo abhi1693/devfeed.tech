@@ -81,6 +81,13 @@ choose the kind of reading you’re in the mood for.
 DevFeed combines **Next.js and React** with **FastAPI**, **PostgreSQL**, and
 **Redis/RQ**. [Run your own instance with Docker Compose](compose.yaml).
 
+Tag and topic pages use the reader's language and content preferences. Existing pages
+with empty filtered feeds are marked `noindex, follow`; missing collections return 404.
+Tags without any publicly visible articles also retain their 404 response. Collection sitemap entries
+require published articles visible to anonymous readers (English by default), with primary
+or supporting assignments for topics. Non-English article detail pages remain eligible
+for the article sitemap.
+
 The scheduler generates cached sitemaps in the background. Crawler requests serve
 the last completed snapshot while refreshes run; see
 [sitemap refresh and retention](apps/aggregator/README.md#cached-sitemaps).

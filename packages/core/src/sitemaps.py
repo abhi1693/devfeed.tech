@@ -21,7 +21,7 @@ from devfeed_core.publication import visible_article
 KINDS = ("articles", "topics", "tags", "sources")
 PART_SIZE = 1000
 MAX_PARTS = 49999  # Reserve one of the index's 50,000 entries for public static pages.
-SNAPSHOT_FORMAT = 4
+SNAPSHOT_FORMAT = 5
 LOCK_SECONDS = 60
 BUILD_SECONDS = 45
 PREVIOUS_SECONDS = 300
@@ -40,6 +40,7 @@ def snapshot_statement():
             Article.slug,
             func.coalesce(Article.published_to_feed_at, Article.discovered_at).label("lastmod"),
             Article.content_type,
+            Article.language,
         )
         .where(visible_article())
         .cte("visible_articles")
@@ -76,6 +77,9 @@ def snapshot_statement():
             .select_from(link)
             .join(visible, visible.c.article_id == link.article_id)
         )
+        # Anonymous collection feeds default to English, unlike article detail pages.
+        if kind in {"topics", "tags"}:
+            membership = membership.where(visible.c.language == "en")
         if kind == "topics":
             membership = membership.where(ArticleTopic.role.in_(["primary", "supporting"]))
         members = membership.group_by(foreign).subquery()
