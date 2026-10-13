@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { join } from "node:path";
+import { assertSelectMenu } from "../../../scripts/testing/select-menus.mjs";
 
 export function createConnectionFixture({ account, origin }) {
   assert.match(account.id, /^[a-f0-9-]{36}$/i);
@@ -212,6 +213,39 @@ async function noOverflowOrDialog(page) {
   );
 }
 
+async function assertConnectionSelect(page, label) {
+  const trigger = page.getByRole("combobox", { name: label, exact: true });
+  assert.equal(await trigger.evaluate((node) => node.tagName), "BUTTON");
+  assert.match(await trigger.getAttribute("class"), /shared-select-trigger/);
+  await assertSelectMenu(page, label);
+  const menu = page.locator(".shared-select-popover:visible");
+  const layout = await menu.evaluate((node) => {
+    const box = node.getBoundingClientRect();
+    const style = getComputedStyle(node);
+    return {
+      top: box.top,
+      bottom: box.bottom,
+      viewportHeight: innerHeight,
+      background: style.backgroundColor,
+      border: Number.parseFloat(style.borderTopWidth),
+    };
+  });
+  assert.ok(layout.top >= 0 && layout.bottom <= layout.viewportHeight + 1);
+  assert.notEqual(layout.background, "rgba(0, 0, 0, 0)", "Shared menu has a themed surface");
+  assert.ok(layout.border > 0, "Shared menu has a visible border");
+}
+
+async function assertSelectClosedAndFocused(page, trigger) {
+  await page.locator(".shared-select-popover:visible").waitFor({ state: "hidden" });
+  const handle = await trigger.elementHandle();
+  try {
+    await page.waitForFunction((node) => node === document.activeElement, handle);
+  } finally {
+    await handle.dispose();
+  }
+  assert.equal(await trigger.getAttribute("aria-expanded"), "false");
+}
+
 export async function assertConnectionJourneys({ page, origin, account, fixture, artifactDir }) {
   const base = `${origin}/connections`;
   const firstCredential = "browser-fixture-only-token-one";
@@ -225,8 +259,106 @@ export async function assertConnectionJourneys({ page, origin, account, fixture,
   await page.getByRole("option", { name: account.name, exact: true }).click();
   await page.getByRole("textbox", { name: /Connection name/ }).fill("Connected product catalog");
   await page.getByRole("textbox", { name: /API base URL/ }).fill("https://catalog.example");
-  await page.getByRole("combobox", { name: "Authentication method" }).selectOption("bearer");
+  const scheduled = page.getByRole("checkbox", { name: "Enable scheduled imports", exact: true });
+  assert.equal(await scheduled.evaluate((node) => node.tagName), "BUTTON");
+  assert.match(await scheduled.getAttribute("class"), /shared-checkbox/);
+  assert.equal(await scheduled.isChecked(), true);
+  await scheduled.focus();
+  await page.keyboard.press("Space");
+  assert.equal(await scheduled.isChecked(), false);
+  await page.keyboard.press("Space");
+  assert.equal(await scheduled.isChecked(), true);
+
+  const authentication = page.getByRole("combobox", { name: "Authentication method", exact: true });
+  await authentication.focus();
+  await page.keyboard.press("ArrowDown");
+  await assertConnectionSelect(page, "Authentication method");
+  await page.keyboard.press("ArrowDown");
+  await page.keyboard.press("Enter");
+  await assertSelectClosedAndFocused(page, authentication);
+  assert.equal(await authentication.innerText(), "Bearer token");
+  await authentication.click();
+  await page.getByRole("option", { name: "API key", exact: true }).click();
+  await page.getByRole("textbox", { name: "API key header", exact: true }).waitFor();
+  assert.equal(await page.getByLabel(/^Bearer token/).count(), 0);
+  await authentication.click();
+  await page.getByRole("option", { name: "Bearer token", exact: true }).click();
+  assert.equal(await page.getByRole("textbox", { name: "API key header", exact: true }).count(), 0);
   await page.getByLabel(/^Bearer token/).fill(firstCredential);
+
+  const pagination = page.getByRole("combobox", { name: "Pagination mode", exact: true });
+  const parameter = page.getByRole("textbox", { name: "Pagination parameter", exact: true });
+  const nextPath = page.getByRole("textbox", { name: "Next cursor or URL path", exact: true });
+  const pageSize = page.getByRole("spinbutton", { name: "Page size", exact: true });
+  assert.equal(await pagination.innerText(), "Single response");
+  assert.equal(await parameter.count(), 0);
+  assert.equal(await nextPath.count(), 0);
+  assert.equal(await pageSize.count(), 0);
+  await pagination.focus();
+  await page.keyboard.press("Enter");
+  await assertConnectionSelect(page, "Pagination mode");
+  await page.keyboard.press("ArrowDown");
+  await page.keyboard.press("Escape");
+  await assertSelectClosedAndFocused(page, pagination);
+  assert.equal(
+    await pagination.innerText(),
+    "Single response",
+    "Escape preserves the saved choice",
+  );
+  await page.keyboard.press("Enter");
+  await page.keyboard.press("c");
+  await page.keyboard.press("Enter");
+  await assertSelectClosedAndFocused(page, pagination);
+  assert.equal(
+    await pagination.innerText(),
+    "Cursor",
+    "Keyboard typeahead chooses a pagination mode",
+  );
+  assert.equal(await parameter.inputValue(), "cursor");
+  assert.equal(await nextPath.inputValue(), "nextCursor");
+  assert.equal(await pageSize.inputValue(), "10");
+  for (const [mode, hasParameter, hasNextPath] of [
+    ["Next-page URL", false, true],
+    ["Page number", true, false],
+    ["Offset", true, false],
+    ["Single response", false, false],
+  ]) {
+    await pagination.click();
+    await page.getByRole("option", { name: mode, exact: true }).click();
+    assert.equal(await parameter.count(), Number(hasParameter), `${mode} pagination parameter`);
+    assert.equal(await nextPath.count(), Number(hasNextPath), `${mode} next-result path`);
+    assert.equal(await pageSize.count(), mode === "Single response" ? 0 : 1);
+  }
+  await pagination.click();
+  await page.getByRole("option", { name: "Cursor", exact: true }).click();
+  await parameter.fill("after");
+  await nextPath.fill("meta.next_cursor");
+  await page.getByRole("textbox", { name: /Page size parameter/ }).fill("limit");
+  await pageSize.fill("25");
+  await pagination.click();
+  await assertConnectionSelect(page, "Pagination mode");
+  await page.screenshot({
+    path: join(artifactDir, "partner-connection-pagination-desktop.png"),
+    fullPage: true,
+  });
+  await page.keyboard.press("Escape");
+  await assertSelectClosedAndFocused(page, pagination);
+  await page.setViewportSize({ width: 390, height: 844 });
+  for (const label of ["Authentication method", "Pagination mode"]) {
+    const trigger = page.getByRole("combobox", { name: label, exact: true });
+    await trigger.click();
+    await assertConnectionSelect(page, label);
+    if (label === "Pagination mode") {
+      await page.screenshot({
+        path: join(artifactDir, "partner-connection-pagination-mobile.png"),
+        fullPage: true,
+      });
+    }
+    await page.keyboard.press("Escape");
+    await assertSelectClosedAndFocused(page, trigger);
+  }
+  await noOverflowOrDialog(page);
+  await page.setViewportSize({ width: 1440, height: 1000 });
   await noOverflowOrDialog(page);
   await page.screenshot({
     path: join(artifactDir, "partner-connection-create-desktop.png"),
@@ -234,6 +366,14 @@ export async function assertConnectionJourneys({ page, origin, account, fixture,
   });
   await page.getByRole("button", { name: "Create connection", exact: true }).click();
   await page.waitForURL(/\/connections\/partner-browser-connection-1$/);
+  const created = fixture.writes.find((item) => item.method === "POST" && !item.subresource);
+  assert.equal(created.input.enabled, true);
+  assert.equal(created.input.connector.auth.mode, "bearer");
+  assert.equal(created.input.connector.pagination.mode, "cursor");
+  assert.equal(created.input.connector.pagination.parameter, "after");
+  assert.equal(created.input.connector.pagination.next_path, "meta.next_cursor");
+  assert.equal(created.input.connector.pagination.size_parameter, "limit");
+  assert.equal(created.input.connector.pagination.page_size, 25);
   const detail = page.url();
   await page.getByRole("heading", { name: "Connected product catalog", exact: true }).waitFor();
   await page.getByText("Bearer token configured", { exact: true }).waitFor();
@@ -271,7 +411,12 @@ export async function assertConnectionJourneys({ page, origin, account, fixture,
     "Renaming does not rewrite connector settings",
   );
   await page.getByRole("link", { name: "Edit", exact: true }).click();
-  await page.getByRole("checkbox", { name: "Replace credential", exact: true }).check();
+  const replaceCredential = page.getByRole("checkbox", { name: "Replace credential", exact: true });
+  assert.equal(await replaceCredential.evaluate((node) => node.tagName), "BUTTON");
+  assert.match(await replaceCredential.getAttribute("class"), /shared-checkbox/);
+  await replaceCredential.focus();
+  await page.keyboard.press("Space");
+  assert.equal(await replaceCredential.isChecked(), true);
   assert.equal(await page.getByLabel(/^Bearer token/).inputValue(), "");
   await page.getByLabel(/^Bearer token/).fill(replacementCredential);
   await page.getByRole("button", { name: "Save changes", exact: true }).click();
@@ -281,7 +426,8 @@ export async function assertConnectionJourneys({ page, origin, account, fixture,
   assert.equal(write.input.credential, replacementCredential);
   assert.equal((await page.locator("body").innerText()).includes(replacementCredential), false);
   await page.getByRole("link", { name: "Edit", exact: true }).click();
-  await page.getByRole("combobox", { name: "Authentication method" }).selectOption("none");
+  await page.getByRole("combobox", { name: "Authentication method", exact: true }).click();
+  await page.getByRole("option", { name: "No authentication", exact: true }).click();
   await page
     .getByText("Saving without authentication removes the stored credential.", { exact: true })
     .waitFor();

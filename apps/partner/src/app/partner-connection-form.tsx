@@ -5,6 +5,8 @@ import Link from "next/link";
 import { ResourcePanel } from "@devfeed/ui/resource-layout";
 import { Input } from "@devfeed/ui/input";
 import { Button } from "@devfeed/ui/button";
+import { Select } from "@devfeed/ui/select";
+import { Checkbox } from "@devfeed/ui/choice-controls";
 import { PartnerAccountPicker } from "./partner-account-picker";
 import type { Account } from "@/lib/types";
 import type {
@@ -220,10 +222,10 @@ export function PartnerConnectionForm({
               </Field>
             </div>
             <label className="mt-4 flex items-center gap-2 text-sm">
-              <input
-                type="checkbox"
+              <Checkbox
                 checked={enabled}
-                onChange={(event) => setEnabled(event.target.checked)}
+                onCheckedChange={(checked) => setEnabled(checked === true)}
+                disabled={saving}
               />
               Enable scheduled imports
             </label>
@@ -315,29 +317,37 @@ export function PartnerConnectionForm({
             <ResourcePanel title="Authentication">
               <div className="grid gap-4 sm:grid-cols-2">
                 <Field label="Authentication method">
-                  <select
-                    className="h-9 rounded-md border bg-background px-3 text-sm"
+                  <Select
+                    label="Authentication method"
                     value={auth}
-                    onChange={(event) => {
+                    required
+                    disabled={saving}
+                    options={[
+                      { value: "none", label: "No authentication" },
+                      {
+                        value: "bearer",
+                        label: "Bearer token",
+                        disabled: !credentialsAvailable && auth !== "bearer",
+                      },
+                      {
+                        value: "api_key",
+                        label: "API key",
+                        disabled: !credentialsAvailable && auth !== "api_key",
+                      },
+                    ]}
+                    onChange={(value) => {
+                      if (value !== "none" && value !== "bearer" && value !== "api_key") return;
                       setConnector({
                         ...connector,
                         auth: {
                           ...connector.auth,
-                          mode: event.target.value as "none" | "bearer" | "api_key",
+                          mode: value,
                         },
                       });
                       setCredential("");
                       setReplaceCredential(false);
                     }}
-                  >
-                    <option value="none">No authentication</option>
-                    <option value="bearer" disabled={!credentialsAvailable && auth !== "bearer"}>
-                      Bearer token
-                    </option>
-                    <option value="api_key" disabled={!credentialsAvailable && auth !== "api_key"}>
-                      API key
-                    </option>
-                  </select>
+                  />
                 </Field>
                 {auth === "api_key" && (
                   <Field label="API key header">
@@ -368,14 +378,13 @@ export function PartnerConnectionForm({
                     Changing the API origin or authentication requires a replacement.
                   </p>
                   <label className="flex items-center gap-2 text-sm">
-                    <input
-                      type="checkbox"
+                    <Checkbox
                       checked={replaceCredential}
-                      onChange={(event) => {
-                        setReplaceCredential(event.target.checked);
+                      onCheckedChange={(checked) => {
+                        setReplaceCredential(checked === true);
                         setCredential("");
                       }}
-                      disabled={!credentialsAvailable}
+                      disabled={saving || !credentialsAvailable}
                     />
                     Replace credential
                   </label>
@@ -407,12 +416,27 @@ export function PartnerConnectionForm({
             <ResourcePanel title="Pagination">
               <div className="grid gap-4 sm:grid-cols-2">
                 <Field label="Pagination mode">
-                  <select
-                    className="h-9 rounded-md border bg-background px-3 text-sm"
+                  <Select
+                    label="Pagination mode"
                     value={connector.pagination?.mode ?? "none"}
-                    onChange={(event) => {
-                      const mode = event.target.value as
-                        "none" | "cursor" | "page" | "offset" | "next_url";
+                    required
+                    disabled={saving}
+                    options={[
+                      { value: "none", label: "Single response" },
+                      { value: "cursor", label: "Cursor" },
+                      { value: "page", label: "Page number" },
+                      { value: "offset", label: "Offset" },
+                      { value: "next_url", label: "Next-page URL" },
+                    ]}
+                    onChange={(mode) => {
+                      if (
+                        mode !== "none" &&
+                        mode !== "cursor" &&
+                        mode !== "page" &&
+                        mode !== "offset" &&
+                        mode !== "next_url"
+                      )
+                        return;
                       setConnector({
                         ...connector,
                         pagination: {
@@ -430,13 +454,7 @@ export function PartnerConnectionForm({
                         },
                       });
                     }}
-                  >
-                    <option value="none">Single response</option>
-                    <option value="cursor">Cursor</option>
-                    <option value="page">Page number</option>
-                    <option value="offset">Offset</option>
-                    <option value="next_url">Next-page URL</option>
-                  </select>
+                  />
                 </Field>
                 {connector.pagination?.mode && connector.pagination.mode !== "none" && (
                   <>

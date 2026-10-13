@@ -72,6 +72,9 @@ The dashboard keeps totals, delivery trends and the format breakdown together in
 laptop layout. Related settings and import forms share desktop columns and stack on mobile.
 Forms use full pages. Headings, record panels, tables, controls and charts are imported directly
 from `@devfeed/ui` by both applications. Obsolete account-prefixed frontend routes are removed.
+Import authentication and pagination use the shared keyboard-accessible dropdowns; scheduled
+imports and credential replacement use the shared checkboxes. Unavailable authentication choices
+remain visible and disabled when credential storage is not configured.
 Record IDs remain where they identify the product, connection or account being edited.
 
 Workspace reporting uses the full membership scope in SQL; account-list pagination never limits

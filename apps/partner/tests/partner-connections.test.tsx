@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
+import userEvent from "@testing-library/user-event";
 import { PartnerConnections, connectionPath } from "../src/app/partner-connections";
 import {
   PartnerConnectionForm,
@@ -352,29 +353,34 @@ it("disconnects from an explicit page and returns to the collection", async () =
   ).toEqual({ expected_revision: 1 });
 });
 
-it("never pre-fills a credential and omits unchanged credentials and connector limits", async () => {
-  const save = form(
-    connection({
-      credential_configured: true,
-      auth_mode: "bearer",
-      connector: {
-        base_url: "https://catalog.example",
-        max_pages: 1000,
-        auth: { mode: "bearer", source: "connection", secret_ref: "" },
-      },
-    }),
-  );
-  expect(screen.queryByLabelText(/^Bearer token/)).toBeNull();
-  fireEvent.change(screen.getByRole("textbox", { name: /Connection name/ }), {
-    target: { value: "Renamed" },
-  });
-  fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
-  await waitFor(() =>
-    expect(save).toHaveBeenCalledExactlyOnceWith({ name: "Renamed", enabled: true }),
-  );
-});
+it.each([true, false])(
+  "keeps unchanged credentials private with credential storage available=%s",
+  async (credentialsAvailable) => {
+    const save = form(
+      connection({
+        credential_configured: true,
+        auth_mode: "bearer",
+        connector: {
+          base_url: "https://catalog.example",
+          max_pages: 1000,
+          auth: { mode: "bearer", source: "connection", secret_ref: "" },
+        },
+      }),
+      { credentialsAvailable },
+    );
+    expect(screen.queryByLabelText(/^Bearer token/)).toBeNull();
+    fireEvent.change(screen.getByRole("textbox", { name: /Connection name/ }), {
+      target: { value: "Renamed" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+    await waitFor(() =>
+      expect(save).toHaveBeenCalledExactlyOnceWith({ name: "Renamed", enabled: true }),
+    );
+  },
+);
 
 it("uses explicit write-only replacement and supports removing authentication", async () => {
+  const user = userEvent.setup();
   const save = form(
     connection({
       credential_configured: true,
@@ -398,9 +404,8 @@ it("uses explicit write-only replacement and supports removing authentication", 
       credential: "fixture-only-secret",
     }),
   );
-  fireEvent.change(screen.getByRole("combobox", { name: "Authentication method" }), {
-    target: { value: "none" },
-  });
+  await user.click(screen.getByRole("combobox", { name: "Authentication method" }));
+  await user.click(screen.getByRole("option", { name: "No authentication" }));
   expect(screen.getByRole("status").textContent).toContain("removes the stored credential");
   fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
   await waitFor(() =>
@@ -451,12 +456,87 @@ it("keeps managed API origins and credentials outside editable controls", async 
   );
 });
 
-it("truthfully disables authenticated creation without server credential storage", () => {
+it("truthfully disables authenticated creation without server credential storage", async () => {
+  const user = userEvent.setup();
   form(undefined, { credentialsAvailable: false });
-  expect((screen.getByRole("option", { name: "Bearer token" }) as HTMLOptionElement).disabled).toBe(
-    true,
-  );
+  const trigger = screen.getByRole("combobox", { name: "Authentication method" });
+  await user.click(trigger);
+  for (const name of ["Bearer token", "API key"]) {
+    const option = screen.getByRole("option", { name });
+    expect(option.getAttribute("aria-disabled")).toBe("true");
+    fireEvent.click(option);
+    expect(trigger.textContent).toBe("No authentication");
+  }
+  await user.keyboard("b{Enter}");
+  expect(trigger.textContent).toBe("No authentication");
+  expect(screen.queryByLabelText(/^Bearer token/)).toBeNull();
+  expect(screen.queryByLabelText(/^API key$/)).toBeNull();
   expect(screen.getByText(/Authenticated imports are not configured/)).toBeTruthy();
+});
+
+it.each([
+  ["none", "Single response", false, false],
+  ["cursor", "Cursor", true, true],
+  ["page", "Page number", true, false],
+  ["offset", "Offset", true, false],
+  ["next_url", "Next-page URL", false, true],
+] as const)(
+  "saves %s pagination through the shared dropdown",
+  async (mode, label, parameter, next) => {
+    const user = userEvent.setup();
+    const save = form(connection());
+    const trigger = screen.getByRole("combobox", { name: "Pagination mode" });
+    expect(trigger.tagName).toBe("BUTTON");
+    await user.click(trigger);
+    expect(screen.getAllByRole("option")).toHaveLength(5);
+    await user.click(screen.getByRole("option", { name: label }));
+    await waitFor(() => expect(document.activeElement).toBe(trigger));
+    expect(Boolean(screen.queryByRole("textbox", { name: "Pagination parameter" }))).toBe(
+      parameter,
+    );
+    expect(Boolean(screen.queryByRole("textbox", { name: "Next cursor or URL path" }))).toBe(next);
+    expect(Boolean(screen.queryByRole("spinbutton", { name: "Page size" }))).toBe(mode !== "none");
+    await user.click(screen.getByRole("button", { name: "Save changes" }));
+    await waitFor(() =>
+      expect(save).toHaveBeenCalledWith(
+        expect.objectContaining({
+          connector: expect.objectContaining({ pagination: expect.objectContaining({ mode }) }),
+        }),
+      ),
+    );
+  },
+);
+
+it("uses shared checkboxes without submitting and disables all controls during saves", async () => {
+  const user = userEvent.setup();
+  const existing = connection({
+    credential_configured: true,
+    auth_mode: "bearer",
+    connector: { base_url: "https://catalog.example", auth: { mode: "bearer" } },
+  });
+  const save = form(existing);
+  const scheduled = screen.getByRole("checkbox", { name: "Enable scheduled imports" });
+  expect(scheduled.tagName).toBe("BUTTON");
+  await user.click(scheduled);
+  expect(scheduled.getAttribute("aria-checked")).toBe("false");
+  await user.click(screen.getByRole("button", { name: "Save changes" }));
+  await waitFor(() =>
+    expect(save).toHaveBeenCalledExactlyOnceWith({ name: existing.name, enabled: false }),
+  );
+  cleanup();
+  const saving = form(existing, { saving: true });
+  for (const name of ["Authentication method", "Pagination mode"]) {
+    await user.click(screen.getByRole("combobox", { name }));
+  }
+  for (const name of ["Enable scheduled imports", "Replace credential"]) {
+    await user.click(screen.getByRole("checkbox", { name }));
+  }
+  expect(screen.queryByRole("dialog")).toBeNull();
+  expect(screen.queryByLabelText(/^Bearer token/)).toBeNull();
+  expect(
+    screen.getByRole("checkbox", { name: "Enable scheduled imports" }).getAttribute("aria-checked"),
+  ).toBe("true");
+  expect(saving).not.toHaveBeenCalled();
 });
 
 it("preserves an administrator's existing interval until it is explicitly changed", async () => {
