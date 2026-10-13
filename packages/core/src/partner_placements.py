@@ -5,7 +5,7 @@ from datetime import datetime, timedelta
 from typing import Any
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
-from sqlalchemy import and_, case, exists, func, literal, or_, select
+from sqlalchemy import and_, case, exists, func, literal, or_, select, union_all
 from sqlalchemy.orm import aliased
 from sqlalchemy.sql.elements import ColumnElement
 
@@ -276,6 +276,30 @@ def product_delivery_history():
     )
 
 
+def prepared_article_candidates(*conditions):
+    """Current grounded article edges, including authoritative evaluation decisions."""
+    return (
+        select(
+            PartnerArticleMatch.product_id,
+            PartnerArticleMatch.score,
+            PartnerArticleMatch.reason,
+            PartnerArticleMatch.product_revision,
+            PartnerArticleMatch.product_updated_at,
+        )
+        .join(PartnerProduct)
+        .join(Article, Article.id == PartnerArticleMatch.article_id)
+        .where(
+            visible_article(),
+            Article.content_type == "tutorial",
+            PartnerArticleMatch.relevant.is_(True),
+            PartnerArticleMatch.product_revision == PartnerProduct.revision,
+            PartnerArticleMatch.product_updated_at == PartnerProduct.updated_at,
+            PartnerArticleMatch.score >= 75,
+            *conditions,
+        )
+    )
+
+
 def contextual_candidates(session, query, now, user_id=None, *, as_query=False):
     if query.surface == "article":
         article = session.scalar(
@@ -289,24 +313,10 @@ def contextual_candidates(session, query, now, user_id=None, *, as_query=False):
         )
         if article is None:
             return None if as_query else {}
-        statement = (
-            select(
-                PartnerArticleMatch.product_id,
-                PartnerArticleMatch.score,
-                PartnerArticleMatch.reason,
-                PartnerArticleMatch.product_revision,
-                PartnerArticleMatch.product_updated_at,
-            )
-            .join(PartnerProduct)
-            .where(
-                PartnerArticleMatch.article_id == article.id,
-                PartnerArticleMatch.relevant.is_(True),
-                PartnerArticleMatch.product_revision == PartnerProduct.revision,
-                PartnerArticleMatch.product_updated_at == PartnerProduct.updated_at,
-                PartnerArticleMatch.editorial_revision == article.editorial_revision,
-                PartnerArticleMatch.article_fingerprint == article_fingerprint(article),
-                PartnerArticleMatch.score >= 75,
-            )
+        statement = prepared_article_candidates(
+            PartnerArticleMatch.article_id == article.id,
+            PartnerArticleMatch.editorial_revision == article.editorial_revision,
+            PartnerArticleMatch.article_fingerprint == article_fingerprint(article),
         )
         if as_query:
             return statement
@@ -407,6 +417,95 @@ def contextual_candidates(session, query, now, user_id=None, *, as_query=False):
             match.product_updated_at,
         )
     return dict(sorted(candidates.items(), key=lambda item: -item[1][0])[:100])
+
+
+def engagement_feed_candidates(session, article_ids):
+    """Resolve at most 24 visible tutorials once; topic overlap cannot imply a task."""
+    if not article_ids:
+        return None
+    articles = session.execute(
+        select(
+            Article.id,
+            Article.title,
+            Article.summary,
+            Article.content_type,
+            Article.publication_status,
+            Article.editorial_revision,
+        )
+        .where(
+            Article.id.in_(set(article_ids)), visible_article(), Article.content_type == "tutorial"
+        )
+        .with_for_update(read=True, of=Article, skip_locked=True)
+    ).all()
+    if not articles:
+        return None
+    statement = prepared_article_candidates(
+        or_(
+            *(
+                and_(
+                    PartnerArticleMatch.article_id == article.id,
+                    PartnerArticleMatch.editorial_revision == article.editorial_revision,
+                    PartnerArticleMatch.article_fingerprint == article_fingerprint(article),
+                )
+                for article in articles
+            )
+        )
+    )
+    ranked = statement.add_columns(
+        func.row_number()
+        .over(
+            partition_by=PartnerArticleMatch.product_id,
+            order_by=(PartnerArticleMatch.score.desc(), PartnerArticleMatch.article_id),
+        )
+        .label("rank")
+    ).subquery()
+    return select(
+        ranked.c.product_id,
+        ranked.c.score,
+        ranked.c.reason,
+        ranked.c.product_revision,
+        ranked.c.product_updated_at,
+    ).where(ranked.c.rank == 1)
+
+
+def placement_format_candidates(session, query, matches):
+    """Keep each creative's score and reason attached to its own relevance contract."""
+    groups = []
+    if matches is not None and any(value != "engagement" for value in query.ad_formats):
+        groups.append(
+            matches.add_columns(
+                literal(False).label("engagement"),
+                literal(2 if query.surface == "article" else 1).label("intent"),
+            )
+        )
+    if "engagement" in query.ad_formats:
+        if query.surface == "feed":
+            engagement = engagement_feed_candidates(session, query.article_ids)
+        elif query.surface == "topic" and matches is not None:
+            direct = matches.subquery()
+            engagement = select(*direct.c).where(direct.c.score == 100)
+        else:
+            engagement = matches
+        if engagement is not None:
+            groups.append(
+                engagement.add_columns(
+                    literal(True).label("engagement"),
+                    literal(1 if query.surface == "topic" else 2).label("intent"),
+                )
+            )
+    if not groups:
+        return None
+    return union_all(*groups) if len(groups) > 1 else groups[0]
+
+
+def fallback_formats(query, *, feed_context):
+    """Feed standing sponsorship is contextless; Homepage is an explicit brand placement."""
+    if query.surface != "feed" or not query.allow_sponsored_fallback:
+        return set()
+    formats = set(query.ad_formats) & {"feed", "homepage_sponsorship"}
+    if feed_context or query.article_ids:
+        formats.discard("feed")
+    return formats
 
 
 def campaign_capacity(session, campaign, now):
@@ -573,7 +672,17 @@ def placement_rows_query(query, now):
 
 
 def ranked_placement_rows(
-    session, query, now, matches, *, phase, seen, selected_formats=(), user_id=None, preflight=None
+    session,
+    query,
+    now,
+    matches,
+    *,
+    phase,
+    seen,
+    selected_formats=(),
+    user_id=None,
+    preflight=None,
+    feed_context=False,
 ):
     """Stream ranked assets in bounded batches past any rejected live policies.
 
@@ -582,8 +691,8 @@ def ranked_placement_rows(
     imposing a terminal cutoff keeps those checks authoritative without starvation.
     """
     if phase == "fallback":
-        formats = set(query.ad_formats) & {"feed", "homepage_sponsorship"}
-        if query.surface != "feed" or not query.allow_sponsored_fallback or not formats:
+        formats = fallback_formats(query, feed_context=feed_context)
+        if not formats:
             return
         statement = placement_rows_query(query, now).where(
             PartnerCampaign.managed.is_(True),
@@ -599,6 +708,7 @@ def ranked_placement_rows(
             PartnerProduct.id.not_in(seen),
         )
         score = literal(0).label("score")
+        intent = literal(0)
         reason = literal("Sponsored by this partner").label("reason")
         revision, updated_at = PartnerProduct.revision, PartnerProduct.updated_at
     else:
@@ -606,7 +716,11 @@ def ranked_placement_rows(
             return
         matches = matches.subquery()
         statement = placement_rows_query(query, now).join(
-            matches, matches.c.product_id == PartnerProduct.id
+            matches,
+            and_(
+                matches.c.product_id == PartnerProduct.id,
+                matches.c.engagement == (PartnerAsset.ad_format == "engagement"),
+            ),
         )
         statement = statement.where(
             PartnerAsset.campaign_id.is_not(None)
@@ -621,10 +735,12 @@ def ranked_placement_rows(
                 PartnerCampaign.surfaces.contains([query.surface]),
             )
         score, reason = matches.c.score, matches.c.reason
+        intent = matches.c.intent
         revision, updated_at = matches.c.product_revision, matches.c.product_updated_at
     if phase != "organic" and selected_formats:
         statement = statement.where(PartnerAsset.ad_format.not_in(selected_formats))
     statement = statement.add_columns(score, reason, revision, updated_at).order_by(
+        intent.desc(),
         score.desc(),
         PartnerCampaign.priority.desc().nulls_last(),
         product_delivery_history().asc().nulls_first(),
@@ -681,10 +797,19 @@ def sponsored_story_matches(session, query, article_ids, now, user_id=None):
 
 
 def deliver_placements(session, query, key, *, user_id=None, now=None):
+    """Issue up to two placements after relevance and locked live-policy checks.
+
+    Article placements and feed Engagement require current grounded tutorial tasks;
+    task intent ranks ahead of broader prepared topic support. Topic Engagement
+    requires direct support. Generic Feed sponsorship is limited to contextless
+    requests, while explicit Homepage sponsorship may serve alongside page context.
+    """
     now = now or utcnow()
     if not key:
         return []
     matches = contextual_candidates(session, query, now, user_id, as_query=True)
+    feed_context = bool(query.article_ids) or matches is not None
+    matches = placement_format_candidates(session, query, matches)
     signer = PartnerTrackingTokens(key, clock=lambda: now.timestamp())
     selected: list[dict[str, Any]] = []
     seen: set[uuid.UUID] = set()
@@ -701,7 +826,7 @@ def deliver_placements(session, query, key, *, user_id=None, now=None):
             value for value in query.ad_formats if placement_format_allowed(value, query)
         }
         if phase == "fallback":
-            phase_formats &= {"feed", "homepage_sponsorship"}
+            phase_formats = fallback_formats(query, feed_context=feed_context)
         if sponsored and phase_formats <= selected_formats:
             continue
         phase_rows = ranked_placement_rows(
@@ -714,6 +839,7 @@ def deliver_placements(session, query, key, *, user_id=None, now=None):
             selected_formats=selected_formats,
             user_id=user_id,
             preflight=preflight,
+            feed_context=feed_context,
         )
         for (
             asset,
@@ -763,6 +889,24 @@ def deliver_placements(session, query, key, *, user_id=None, now=None):
                     session, asset, account, product, now, surface=query.surface
                 ):
                     continue
+                if query.surface == "article" or (
+                    ad_format == "engagement" and query.surface == "feed"
+                ):
+                    # A validated negative may commit after candidate ranking but
+                    # before this product lock. Recheck the task edge now; the
+                    # lock then serializes later rule/evaluation publications.
+                    current = matches.subquery()
+                    reason = session.scalar(
+                        select(current.c.reason)
+                        .where(
+                            current.c.product_id == product.id,
+                            current.c.engagement == (ad_format == "engagement"),
+                            current.c.intent == 2,
+                        )
+                        .limit(1)
+                    )
+                    if reason is None:
+                        continue
                 audience = effective_audience(account, campaign)
                 if audience is None:
                     continue
