@@ -4,7 +4,9 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { SearchResults } from "@/components/search-results";
 import { readerRequest } from "@/lib/reader-runtime";
 import type { SearchHit, SearchResponse } from "@/lib/search";
-import { placement, sponsoredPlacement } from "./partner-placement-fixtures";
+import type { ReactNode } from "react";
+import { article } from "./fixtures";
+import { partnerReceipt, placement, sponsoredPlacement } from "./partner-placement-fixtures";
 
 vi.mock("@/components/user-account", () => ({
   useUser: () => ({ user: null, loading: false, sessionRevision: 0 }),
@@ -18,6 +20,23 @@ vi.mock("@/lib/reader-runtime", async (original) => ({
   readerRequest: vi.fn(),
 }));
 vi.mock("@/lib/partner-tracking", () => ({ observePartnerPlacement: vi.fn(() => () => {}) }));
+vi.mock("@/components/article-engagement", () => ({
+  EngagementProvider: ({ children }: { children: ReactNode }) => children,
+  ArticleEngagement: () => null,
+  ArticleBookmarkButton: () => null,
+  ArticleReadLink: ({
+    children,
+    articleId,
+    ...props
+  }: {
+    children: ReactNode;
+    articleId: string;
+  }) => {
+    void articleId;
+    return <a {...props}>{children}</a>;
+  },
+  useArticleEngagement: () => null,
+}));
 
 const hits: SearchHit[] = Array.from({ length: 24 }, (_, index) => ({
   id: `aaaaaaaa-aaaa-4aaa-8aaa-${String(index).padStart(12, "0")}`,
@@ -55,6 +74,7 @@ beforeEach(() => {
 });
 afterEach(() => {
   cleanup();
+  vi.useRealTimers();
   vi.unstubAllGlobals();
   vi.clearAllMocks();
 });
@@ -103,6 +123,23 @@ it.each(["topics", "sources", "tags"] as const)(
   },
 );
 
+it.each([0, 1, 2, 3])(
+  "keeps sparse %s-article search results organic without requesting products",
+  async (count) => {
+    const items = hits.slice(0, count);
+    const view = render(<SearchResults result={result(items)} />);
+    await act(async () => {});
+    expect(readerRequest).not.toHaveBeenCalled();
+    expect(view.container.querySelector(".partner-placement")).toBeNull();
+    expect(
+      Array.from(
+        view.container.querySelectorAll(".search-result-link"),
+        (link) => link.textContent,
+      ),
+    ).toEqual(items.map((hit) => hit.title));
+  },
+);
+
 it("keeps first-page search context and product density when more results append", async () => {
   vi.mocked(readerRequest).mockImplementation(async (path) =>
     Response.json(
@@ -123,6 +160,64 @@ it("keeps first-page search context and product density when more results append
   expect(JSON.parse(String(deliveries[0][1]?.body)).article_ids).toEqual(
     hits.slice(0, 4).map((hit) => hit.id),
   );
+});
+
+it("restores a paginated organic search hit when its sponsored-content receipt expires", async () => {
+  vi.useFakeTimers();
+  vi.setSystemTime(new Date("2026-10-13T12:00:00Z"));
+  const promoted = { ...article, topics: [], sponsor_names: [sponsoredPlacement.partner_name] };
+  const hit = {
+    ...hits[0],
+    id: promoted.id,
+    title: promoted.title,
+    href: `/articles/${promoted.slug}`,
+  };
+  vi.mocked(readerRequest).mockImplementation(async (path) =>
+    Response.json(
+      String(path).includes("partner-placements")
+        ? {
+            items: [
+              {
+                ...sponsoredPlacement,
+                ad_format: "sponsored_content",
+                article: promoted,
+                url: hit.href,
+                receipt: partnerReceipt({ assetId: sponsoredPlacement.asset_id }),
+              },
+            ],
+          }
+        : result([hit]),
+    ),
+  );
+  let view!: ReturnType<typeof render>;
+  await act(async () => {
+    view = render(<SearchResults result={result(hits, "2")} />);
+  });
+  const promotedCard = screen.getByRole("link", { name: promoted.title }).closest("article")!;
+  await act(async () => intersect());
+  expect(screen.getAllByRole("link", { name: promoted.title })).toHaveLength(1);
+  const reading = screen.getByRole("link", { name: hits[8].title });
+  reading.focus();
+
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(60 * 60_000 + 1000);
+  });
+
+  const organic = screen.getByRole("link", { name: promoted.title }).closest("article")!;
+  expect(organic.className).toBe("search-result");
+  expect(organic).not.toBe(promotedCard);
+  expect(promotedCard.getAttribute("data-suspended")).toBe("true");
+  expect(promotedCard.hasAttribute("inert")).toBe(true);
+  expect(
+    Array.from(view.container.querySelectorAll(".search-result-link"), (link) => link.textContent),
+  ).toEqual([...hits, hit].map((item) => item.title));
+  expect(screen.getByRole("link", { name: hits[8].title })).toBe(reading);
+  expect(document.activeElement).toBe(reading);
+  expect(
+    vi
+      .mocked(readerRequest)
+      .mock.calls.filter(([path]) => String(path).includes("partner-placements")),
+  ).toHaveLength(1);
 });
 
 it("cancels a previous search delivery when a new query has no matching articles", async () => {

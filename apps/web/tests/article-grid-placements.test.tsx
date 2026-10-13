@@ -66,8 +66,8 @@ it("places at most two products directly into the grid after four and twelve unc
   expect(view.container.querySelector(".partner-placements")).toBeNull();
 });
 
-it.each([1, 3, 4, 11])(
-  "shows one product after existing articles in a short %s-article grid",
+it.each([4, 11])(
+  "shows one product after four organic articles in a %s-article grid",
   async (count) => {
     const items = articles.slice(0, count);
     const view = render(
@@ -86,16 +86,45 @@ it.each([1, 3, 4, 11])(
   },
 );
 
-it("suppresses products in an empty feed or compact article table without fetching", async () => {
-  const view = render(<ArticleGrid articles={[]} placements={context} />);
-  await act(async () => {});
-  expect(readerRequest).not.toHaveBeenCalled();
+it.each([0, 1, 2, 3])(
+  "keeps a sparse %s-article feed entirely organic without fetching",
+  async (count) => {
+    const items = articles.slice(0, count);
+    const view = render(<ArticleGrid articles={items} placements={context} />);
+    await act(async () => {});
+    expect(readerRequest).not.toHaveBeenCalled();
+    expect(view.container.querySelectorAll(".partner-placement")).toHaveLength(0);
+    expect(screen.queryAllByRole("link").map((link) => link.textContent)).toEqual(
+      items.map((item) => item.title),
+    );
+  },
+);
+
+it("suppresses products in a compact article table without fetching", async () => {
   preferences.view = "compact";
-  view.rerender(<ArticleGrid articles={articles} placements={context} />);
+  const view = render(<ArticleGrid articles={articles} placements={context} />);
   await act(async () => {});
   expect(readerRequest).not.toHaveBeenCalled();
   expect(view.container.querySelectorAll(".partner-placement")).toHaveLength(0);
   expect(view.container.querySelector("table")).toBeTruthy();
+});
+
+it("opens the first slot only when a three-article feed grows to four organic articles", async () => {
+  const view = render(<ArticleGrid articles={articles.slice(0, 3)} placements={context} />);
+  const first = screen.getByRole("link", { name: articles[0].title });
+  first.focus();
+  await act(async () => {});
+  expect(readerRequest).not.toHaveBeenCalled();
+  view.rerender(<ArticleGrid articles={articles.slice(0, 4)} placements={context} />);
+  await screen.findByRole("link", { name: sponsoredPlacement.name });
+  const cells = Array.from(view.container.querySelector(".article-grid")!.children);
+  expect(cells.slice(0, 4).map((cell) => cell.textContent)).toEqual(
+    articles.slice(0, 4).map((item) => item.title),
+  );
+  expect(cells[4].getAttribute("data-product-id")).toBe(sponsoredPlacement.product_id);
+  expect(screen.getByRole("link", { name: articles[0].title })).toBe(first);
+  expect(document.activeElement).toBe(first);
+  expect(readerRequest).toHaveBeenCalledTimes(1);
 });
 
 it("keeps first-page placement density fixed when more article pages append", async () => {
@@ -165,14 +194,17 @@ it("falls back from a failed OG hero to the product logo and then initials insid
 });
 
 it.each([placement.logo_url, null])(
-  "uses a stable logo or initials hero when no OG image exists (%s)",
+  "uses compact branding without a hero when no OG image exists (%s)",
   async (logo_url) => {
     vi.mocked(readerRequest).mockResolvedValueOnce(
       Response.json({ items: [{ ...placement, logo_url, image_url: null, image_variants: null }] }),
     );
     const view = render(<ArticleGrid articles={articles} placements={context} />);
     await screen.findByRole("link", { name: placement.name });
-    const frame = view.container.querySelector(".partner-placement .card-image")!;
+    const card = view.container.querySelector(".partner-placement--branded")!;
+    expect(card.querySelector(".card-image")).toBeNull();
+    const frame = card.querySelector(".partner-placement-heading")!;
+    expect(frame.textContent).toContain(placement.name);
     if (logo_url) expect(frame.querySelector("img")?.getAttribute("src")).toBe(logo_url);
     else {
       expect(frame.querySelector("img")).toBeNull();
@@ -180,6 +212,21 @@ it.each([placement.logo_url, null])(
     }
   },
 );
+
+it("uses an available managed image variant when the original image is absent", async () => {
+  const url = "https://assets.partner.example/og/400.webp";
+  vi.mocked(readerRequest).mockResolvedValueOnce(
+    Response.json({
+      items: [{ ...placement, image_url: null, image_variants: [{ url, width: 400 }] }],
+    }),
+  );
+  const view = render(<ArticleGrid articles={articles} placements={context} />);
+  await screen.findByRole("link", { name: placement.name });
+  expect(
+    view.container.querySelector(".partner-placement .card-image img")?.getAttribute("src"),
+  ).toBe(url);
+  expect(view.container.querySelector(".partner-placement--branded")).toBeNull();
+});
 
 it("keeps article DOM and keyboard focus while optional products finish loading", async () => {
   let resolve!: (value: Response) => void;

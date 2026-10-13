@@ -110,7 +110,11 @@ const feedArticles = Array.from({ length: 24 }, (_, index) =>
 const temp = await mkdtemp(path.join(tmpdir(), "devfeed-placement-browser-"));
 // Pin the built packages while repository hooks may rebuild their output directories.
 await cp(path.resolve("apps/extensions/dist"), path.join(temp, "extensions"), { recursive: true });
-await mkdir("reports/partner-placements", { recursive: true });
+const reportDirectory = process.env.CI
+  ? "reports/partner-placements"
+  : await mkdtemp(path.join(tmpdir(), "devfeed-placement-reports-"));
+await mkdir(reportDirectory, { recursive: true });
+console.log(`Placement browser artifacts: ${reportDirectory}`);
 let signedIn = false;
 let queries = [];
 let events = [];
@@ -119,6 +123,9 @@ let mediaMode = "standard";
 let experienceLevel = null;
 let profileWrites = [];
 let nativeMode = null;
+let organicCount = 24;
+let promotedArrival = false;
+let organicPagesDelivered = 0;
 let placementLimited = false;
 const callerFixtureKey = "disposable-dedicated-caller-proof-key";
 const callerFixtureIps = { web: "203.0.113.20", chrome: "203.0.113.30", edge: "203.0.113.40" };
@@ -297,6 +304,99 @@ async function assertMountedPlacementExpiry(context, base, platform) {
       await page.close();
     }
   }
+  await assertOrganicRestoration(context, base, platform);
+}
+
+async function assertOrganicRestoration(context, base, platform) {
+  for (const surface of ["grid", "search"]) {
+    await context.clock.setSystemTime(receiptIssuedAt * 1000);
+    nativeMode = "sponsored-content";
+    promotedArrival = true;
+    const delivered = organicPagesDelivered;
+    const page = await context.newPage();
+    await page.addInitScript(() => {
+      sessionStorage.setItem("devfeed:dev-card-promo-dismissed", "true");
+    });
+    try {
+      await page.goto(
+        `${base}/${surface === "search" ? "search?q=typescript&section=articles" : "latest?q=typescript"}`,
+      );
+      const promoted = page.locator('[data-ad-format="sponsored_content"]');
+      await promoted.waitFor();
+      await page.locator('.pagination[data-has-more="true"]').first().scrollIntoViewIfNeeded();
+      // Completed search pagination is intentionally hidden when its end message is empty.
+      await page
+        .locator('.pagination[data-has-more="false"]')
+        .first()
+        .waitFor({ state: "attached" });
+      assert.equal(
+        organicPagesDelivered,
+        delivered + 1,
+        `${platform}/${surface}: a later page really returns the promoted article organically`,
+      );
+      assert.equal(
+        await page.getByRole("link", { name: promotedArticle.title, exact: true }).count(),
+        1,
+      );
+      const selector =
+        surface === "grid"
+          ? ".article-grid > .article-card:not(.partner-placement) .card-open-link"
+          : ".search-section-articles .search-result-link";
+      assert.equal(await page.locator(selector).count(), 24);
+      const reading = page.locator(selector).nth(8);
+      await reading.scrollIntoViewIfNeeded();
+      await reading.focus();
+      await reading.evaluate((node) =>
+        node.setAttribute("data-organic-restoration-anchor", "true"),
+      );
+      const before = await reading.boundingBox();
+      const requests = queries.length;
+      await page.clock.fastForward(60 * 60_000 + 1000);
+      await page.waitForFunction(
+        () =>
+          document
+            .querySelector('[data-ad-format="sponsored_content"]')
+            ?.getAttribute("data-suspended") === "true",
+      );
+      const organic = page.getByRole("link", { name: promotedArticle.title, exact: true });
+      await organic.waitFor();
+      assert.equal(await organic.count(), 1);
+      assert.equal(
+        await organic.evaluate((node) =>
+          node.closest("article").classList.contains("partner-placement"),
+        ),
+        false,
+      );
+      assert.equal(await page.locator(selector).count(), 25);
+      const after = await reading.boundingBox();
+      assert.ok(
+        Math.abs(after.y - before.y) <= 2,
+        `${platform}/${surface}: organic restoration preserves viewport reading position`,
+      );
+      assert.equal(
+        await reading.evaluate(
+          (node) =>
+            node === document.activeElement && node.hasAttribute("data-organic-restoration-anchor"),
+        ),
+        true,
+      );
+      assert.equal(await promoted.getAttribute("aria-hidden"), "true");
+      assert.equal(await promoted.evaluate((node) => node.hasAttribute("inert")), true);
+      assert.equal(
+        queries.length,
+        requests,
+        `${platform}/${surface}: organic restoration does not request new placements`,
+      );
+      await assertNoPlacementHistory(page, `${platform}/${surface}: organic restoration`);
+      await page.screenshot({
+        path: `${reportDirectory}/${platform}-${surface}-organic-restoration.png`,
+      });
+    } finally {
+      await page.close();
+      promotedArrival = false;
+      nativeMode = null;
+    }
+  }
 }
 const promotedArticle = {
   ...article,
@@ -315,6 +415,24 @@ const sponsoredContent = {
   url: `/articles/${promotedArticle.slug}`,
 };
 const engagementPlacement = { ...ordinary, ad_format: "engagement" };
+
+function organicPage(url) {
+  const nextCursor = url.pathname.endsWith("/search") ? "2" : "promoted";
+  const appended =
+    promotedArrival &&
+    (url.searchParams.get("cursor") === "promoted" || url.searchParams.get("page") === "2");
+  const items = appended ? [promotedArticle] : feedArticles.slice(0, organicCount);
+  if (appended) organicPagesDelivered += 1;
+  return {
+    items:
+      nativeMode === "disclosure"
+        ? items.map((item, i) =>
+            i === 0 ? { ...item, sponsor_names: [sponsored.partner_name] } : item,
+          )
+        : items,
+    next_cursor: promotedArrival && !appended ? nextCursor : null,
+  };
+}
 
 function productMedia(item) {
   if (item.product_id !== ordinary.product_id || mediaMode === "standard") return item;
@@ -613,9 +731,11 @@ function response(requestPath, body, headers = {}, extension = false) {
       const items =
         nativeMode === "disclosure"
           ? []
-          : nativeMode === "home" && body.allow_sponsored_fallback
-            ? [homepageSponsor, sponsoredContent]
-            : [engagementPlacement, sponsored];
+          : nativeMode === "sponsored-content"
+            ? [sponsoredContent]
+            : nativeMode === "home" && body.allow_sponsored_fallback
+              ? [homepageSponsor, sponsoredContent]
+              : [engagementPlacement, sponsored];
       return {
         items: items.filter(
           (item) =>
@@ -679,33 +799,19 @@ function response(requestPath, body, headers = {}, extension = false) {
   if (pathname === "/v1/user/engagement") return { items: [] };
   if (pathname === "/v1/user/feed")
     return {
-      items:
-        nativeMode === "disclosure"
-          ? feedArticles.map((item, i) =>
-              i === 0 ? { ...item, sponsor_names: [sponsored.partner_name] } : item,
-            )
-          : feedArticles,
-      next_cursor: null,
+      ...organicPage(url),
       status: "ready",
       has_interests: true,
       reasons: {},
       feed_kind: "personalized",
       refresh_state: "idle",
     };
-  if (pathname === "/v1/feed")
-    return {
-      items:
-        nativeMode === "disclosure"
-          ? feedArticles.map((item, i) =>
-              i === 0 ? { ...item, sponsor_names: [sponsored.partner_name] } : item,
-            )
-          : feedArticles,
-      next_cursor: null,
-    };
+  if (pathname === "/v1/feed") return organicPage(url);
   if (pathname === "/v1/search") {
+    const page = organicPage(url);
     const sections = {
       articles: {
-        items: feedArticles.map((item) => ({
+        items: page.items.map((item) => ({
           id: item.id,
           title: item.title,
           description: item.summary,
@@ -715,7 +821,7 @@ function response(requestPath, body, headers = {}, extension = false) {
           published_at: item.published_at,
           click_token: "fixture-result-token",
         })),
-        next_cursor: null,
+        next_cursor: page.next_cursor,
       },
       topics: {
         items: [
@@ -899,6 +1005,8 @@ try {
     experienceLevel = null;
     profileWrites = [];
     nativeMode = null;
+    organicCount = 24;
+    promotedArrival = false;
     const extension = platform === "web" ? null : path.join(temp, "extensions", platform);
     const context = await chromium.launchPersistentContext(path.join(temp, platform), {
       executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH,
@@ -1078,7 +1186,7 @@ try {
       );
       await page.mouse.move(20, 20);
       await waitForVisibleProductLogos(page);
-      await page.screenshot({ path: `reports/partner-placements/${platform}-article-desktop.png` });
+      await page.screenshot({ path: `${reportDirectory}/${platform}-article-desktop.png` });
       await page.getByRole("link", { name: sponsored.name, exact: true }).scrollIntoViewIfNeeded();
       await waitForImpression(page, sponsored.receipt);
       const sponsoredPopupEvent = context.waitForEvent("page");
@@ -1290,7 +1398,7 @@ try {
       await page.setViewportSize({ width: 390, height: 844 });
       await page.locator(".article-grid > .partner-placement").first().scrollIntoViewIfNeeded();
       await waitForVisibleProductLogos(page);
-      await page.screenshot({ path: `reports/partner-placements/${platform}-topic-mobile.png` });
+      await page.screenshot({ path: `${reportDirectory}/${platform}-topic-mobile.png` });
       assert.ok(
         await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth),
         `${platform}: mobile has no horizontal overflow`,
@@ -1309,14 +1417,14 @@ try {
       );
       await page.locator(".preview-sidebar .partner-placement").first().scrollIntoViewIfNeeded();
       await waitForVisibleProductLogos(page);
-      await page.screenshot({ path: `reports/partner-placements/${platform}-article-mobile.png` });
+      await page.screenshot({ path: `${reportDirectory}/${platform}-article-mobile.png` });
       await page
         .locator(
           `.preview-sidebar .partner-placement[data-product-id="${sponsored.product_id}"] .partner-placement-label`,
         )
         .scrollIntoViewIfNeeded();
       await page.screenshot({
-        path: `reports/partner-placements/${platform}-sponsored-pill-preview-mobile.png`,
+        path: `${reportDirectory}/${platform}-sponsored-pill-preview-mobile.png`,
       });
       assert.ok(
         await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth),
@@ -1390,14 +1498,14 @@ try {
           await page.mouse.move(20, 20);
           await waitForVisibleProductLogos(page);
           await page.screenshot({
-            path: `reports/partner-placements/${platform}-feed-desktop.png`,
+            path: `${reportDirectory}/${platform}-feed-desktop.png`,
           });
         }
         if (width === 390) {
           await page.locator(".article-grid > .partner-placement").first().scrollIntoViewIfNeeded();
           await waitForVisibleProductLogos(page);
           await page.screenshot({
-            path: `reports/partner-placements/${platform}-search-mobile.png`,
+            path: `${reportDirectory}/${platform}-search-mobile.png`,
           });
         }
       }
@@ -1473,7 +1581,7 @@ try {
         await page.mouse.move(5, 5);
         await waitForVisibleProductLogos(page);
         await page.screenshot({
-          path: `reports/partner-placements/${platform}-actual-search-${width === 390 ? "mobile" : "desktop"}.png`,
+          path: `${reportDirectory}/${platform}-actual-search-${width === 390 ? "mobile" : "desktop"}.png`,
         });
         assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
       }
@@ -1493,6 +1601,37 @@ try {
           `${platform}: ${section} search reserves no product inventory`,
         );
       }
+      for (const count of [1, 3]) {
+        organicCount = count;
+        for (const surface of ["grid", "search"]) {
+          queries = [];
+          await page.goto("about:blank");
+          await page.goto(
+            `${base}/${surface === "grid" ? "latest?q=typescript" : "search?q=typescript&section=articles"}`,
+          );
+          const selector =
+            surface === "grid"
+              ? ".article-grid .card-open-link"
+              : ".search-section-articles .search-result-link";
+          await page.locator(selector).first().waitFor();
+          await page.waitForTimeout(100);
+          assert.deepEqual(
+            await page.locator(selector).allTextContents(),
+            feedArticles.slice(0, count).map((item) => item.title),
+          );
+          assert.equal(
+            await page.locator(".partner-placement").count(),
+            0,
+            `${platform}/${surface}: ${count} organic articles do not open an ad slot`,
+          );
+          assert.equal(
+            queries.length,
+            0,
+            `${platform}/${surface}: sparse content reserves no inventory`,
+          );
+        }
+      }
+      organicCount = 24;
       for (const theme of ["light", "dark"]) {
         for (const width of [1280, 390]) {
           for (const mode of ["standard", "no-og"]) {
@@ -1516,11 +1655,11 @@ try {
               };
               const hero = product.querySelector(".card-image");
               const articleHero = neighbor.querySelector(".card-image");
-              const image = hero.querySelector("img");
+              const image = product.querySelector("img");
               return {
                 product: box(product),
                 article: box(neighbor),
-                hero: box(hero),
+                hero: hero && box(hero),
                 articleHero: box(articleHero),
                 radius: getComputedStyle(product).borderRadius,
                 articleRadius: getComputedStyle(neighbor).borderRadius,
@@ -1532,12 +1671,26 @@ try {
             });
             assert.equal(geometry.dark, theme === "dark");
             assert.ok(Math.abs(geometry.product.width - geometry.article.width) <= 1);
-            assert.ok(
-              Math.abs(geometry.product.height - geometry.article.height) <= 2,
-              `${platform}: ${theme} ${width} ${mode} product/article height ${geometry.product.height}/${geometry.article.height}`,
-            );
-            assert.ok(Math.abs(geometry.hero.height - geometry.articleHero.height) <= 1);
-            assert.ok(Math.abs(geometry.hero.width / geometry.hero.height - 16 / 9) < 0.02);
+            if (mode === "standard") {
+              assert.ok(
+                Math.abs(geometry.product.height - geometry.article.height) <= 2,
+                `${platform}: ${theme} ${width} ${mode} product/article height ${geometry.product.height}/${geometry.article.height}`,
+              );
+              assert.ok(Math.abs(geometry.hero.height - geometry.articleHero.height) <= 1);
+              assert.ok(Math.abs(geometry.hero.width / geometry.hero.height - 16 / 9) < 0.02);
+            } else {
+              assert.equal(
+                geometry.hero,
+                null,
+                `${platform}: missing images do not reserve an empty hero`,
+              );
+              assert.ok(
+                geometry.product.height < geometry.article.height * 0.75,
+                `${platform}: branded card stays compact (${geometry.product.height}/${geometry.article.height})`,
+              );
+              const logo = await card.locator(".partner-placement-logo").boundingBox();
+              assert.ok(logo.width <= 44 && logo.height <= 44);
+            }
             assert.equal(geometry.radius, geometry.articleRadius);
             assert.equal(geometry.titleSize, geometry.articleTitleSize);
             assert.equal(geometry.image.fit, mode === "standard" ? "cover" : "contain");
@@ -1551,14 +1704,14 @@ try {
               await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth),
             );
             await page.screenshot({
-              path: `reports/partner-placements/${platform}-article-card-${theme}-${width === 390 ? "mobile" : "desktop"}-${mode}.png`,
+              path: `${reportDirectory}/${platform}-article-card-${theme}-${width === 390 ? "mobile" : "desktop"}-${mode}.png`,
             });
             if (mode === "standard") {
               await assertSponsoredCardInteraction(
                 page,
                 card,
                 `${platform}: ${theme} ${width} Sponsored hover`,
-                `reports/partner-placements/${platform}-sponsored-hover-${theme}-${width === 390 ? "mobile" : "desktop"}.png`,
+                `${reportDirectory}/${platform}-sponsored-hover-${theme}-${width === 390 ? "mobile" : "desktop"}.png`,
               );
               await page
                 .locator(
@@ -1567,7 +1720,7 @@ try {
                 .scrollIntoViewIfNeeded();
               await waitForVisibleProductLogos(page);
               await page.screenshot({
-                path: `reports/partner-placements/${platform}-sponsored-pill-${theme}-${width === 390 ? "mobile" : "desktop"}.png`,
+                path: `${reportDirectory}/${platform}-sponsored-pill-${theme}-${width === 390 ? "mobile" : "desktop"}.png`,
               });
             }
           }
@@ -1583,10 +1736,16 @@ try {
         );
         await card.scrollIntoViewIfNeeded();
         await waitForVisibleProductLogos(page);
-        assert.equal(await card.locator(".partner-placement-hero-logo").count(), 1);
         if (mode === "broken-og") {
+          assert.equal(await card.locator(".partner-placement-hero-logo").count(), 1);
+          assert.equal(await card.locator(".card-image").count(), 1);
           assert.equal(await card.locator(".partner-placement-logo img").count(), 1);
         } else {
+          assert.equal(await card.locator(".card-image").count(), 0);
+          assert.equal(
+            await card.evaluate((node) => node.classList.contains("partner-placement--branded")),
+            true,
+          );
           assert.equal(await card.locator(".partner-placement-logo img").count(), 0);
           assert.equal(await card.locator(".partner-placement-logo").textContent(), "TV");
         }
@@ -1658,7 +1817,7 @@ try {
           );
         }
         await page.screenshot({
-          path: `reports/partner-placements/${platform}-authenticated-context-${width === 390 ? "mobile" : "desktop"}.png`,
+          path: `${reportDirectory}/${platform}-authenticated-context-${width === 390 ? "mobile" : "desktop"}.png`,
           animations: "disabled",
         });
         await page.goto(`${base}/settings/profile`);
@@ -1687,7 +1846,7 @@ try {
         );
         await experience.scrollIntoViewIfNeeded();
         await page.screenshot({
-          path: `reports/partner-placements/${platform}-private-experience-${width === 390 ? "mobile" : "desktop"}.png`,
+          path: `${reportDirectory}/${platform}-private-experience-${width === 390 ? "mobile" : "desktop"}.png`,
           animations: "disabled",
         });
         await experience.click();
@@ -1791,7 +1950,7 @@ try {
         await strip.scrollIntoViewIfNeeded();
         await waitForVisibleProductLogos(page);
         await page.screenshot({
-          path: `reports/partner-placements/${platform}-homepage-sponsorship-${width === 390 ? "mobile" : "desktop"}.png`,
+          path: `${reportDirectory}/${platform}-homepage-sponsorship-${width === 390 ? "mobile" : "desktop"}.png`,
           animations: "disabled",
         });
         const promoted = page.locator(
@@ -1822,7 +1981,7 @@ try {
           ),
         );
         await page.screenshot({
-          path: `reports/partner-placements/${platform}-sponsored-content-${width === 390 ? "mobile" : "desktop"}.png`,
+          path: `${reportDirectory}/${platform}-sponsored-content-${width === 390 ? "mobile" : "desktop"}.png`,
           animations: "disabled",
         });
         await promoted.getByRole("link", { name: promotedArticle.title, exact: true }).click();
@@ -1854,6 +2013,26 @@ try {
         await engagement.waitFor();
         assert.equal(await engagement.locator(".card-image,button").count(), 0);
         assert.equal(
+          (await engagement.locator(".partner-placement-action").textContent()).trim(),
+          "Explore",
+        );
+        assert.equal(await engagement.locator(".partner-placement-action svg").count(), 1);
+        assert.equal(
+          await engagement
+            .locator(".partner-placement-link")
+            .evaluate((node) => getComputedStyle(node).display),
+          "grid",
+        );
+        const compact = await engagement.boundingBox();
+        assert.ok(compact.height < 220, `${platform}: engagement stays compact at ${width}px`);
+        await engagement.locator(".partner-placement-link").focus();
+        assert.equal(
+          await engagement
+            .locator(".partner-placement-link")
+            .evaluate((node) => node.matches(":focus-visible")),
+          true,
+        );
+        assert.equal(
           await engagement.locator(".partner-placement-label").textContent(),
           "Sponsored",
         );
@@ -1868,7 +2047,7 @@ try {
         await engagement.scrollIntoViewIfNeeded();
         await waitForVisibleProductLogos(page);
         await page.screenshot({
-          path: `reports/partner-placements/${platform}-engagement-${width === 390 ? "mobile" : "desktop"}.png`,
+          path: `${reportDirectory}/${platform}-engagement-${width === 390 ? "mobile" : "desktop"}.png`,
           animations: "disabled",
         });
         nativeMode = "disclosure";

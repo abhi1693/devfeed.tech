@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { ArticleGrid } from "@/components/article-grid";
@@ -8,7 +8,7 @@ import { readerRequest } from "@/lib/reader-runtime";
 import { observePartnerPlacement } from "@/lib/partner-tracking";
 import type { PartnerPlacement } from "@/lib/partner-placements";
 import { article } from "./fixtures";
-import { placement, sponsoredPlacement } from "./partner-placement-fixtures";
+import { partnerReceipt, placement, sponsoredPlacement } from "./partner-placement-fixtures";
 
 vi.mock("@/components/user-account", () => ({
   useUser: () => ({ user: null, loading: false, sessionRevision: 0 }),
@@ -69,6 +69,7 @@ beforeEach(() => {
 });
 afterEach(() => {
   cleanup();
+  vi.useRealTimers();
   vi.clearAllMocks();
 });
 
@@ -112,6 +113,74 @@ it("deduplicates a promoted article when a later organic page returns it", async
   expect(screen.getAllByRole("link", { name: promoted.title })).toHaveLength(1);
 });
 
+it("suspends a loaded homepage sponsor at zero slots and restores its valid delivery without refetching", async () => {
+  const stopTracking = vi.fn();
+  vi.mocked(observePartnerPlacement).mockReturnValue(stopTracking);
+  vi.mocked(readerRequest).mockResolvedValue(
+    Response.json({
+      items: [{ ...sponsoredPlacement, ad_format: "homepage_sponsorship" }],
+    }),
+  );
+  const view = render(<ArticleGrid articles={articles.slice(0, 4)} placements={context} />);
+  await screen.findByRole("link", { name: sponsoredPlacement.name });
+  const reading = screen.getByRole("link", { name: articles[0].title });
+  reading.focus();
+
+  view.rerender(<ArticleGrid articles={articles.slice(0, 3)} placements={context} />);
+  await act(async () => {});
+
+  expect(view.container.querySelector(".partner-placement")).toBeNull();
+  expect(stopTracking).toHaveBeenCalledTimes(1);
+  expect(screen.getByRole("link", { name: articles[0].title })).toBe(reading);
+  expect(document.activeElement).toBe(reading);
+  expect(readerRequest).toHaveBeenCalledTimes(1);
+
+  view.rerender(<ArticleGrid articles={articles.slice(0, 4)} placements={context} />);
+  await screen.findByRole("link", { name: sponsoredPlacement.name });
+  expect(readerRequest).toHaveBeenCalledTimes(1);
+  expect(observePartnerPlacement).toHaveBeenCalledTimes(2);
+  expect(screen.getByRole("link", { name: articles[0].title })).toBe(reading);
+  expect(document.activeElement).toBe(reading);
+});
+
+it("restores an organically returned article when its promoted copy expires", async () => {
+  vi.useFakeTimers();
+  vi.setSystemTime(new Date("2026-10-13T12:00:00Z"));
+  vi.mocked(readerRequest).mockResolvedValue(
+    Response.json({
+      items: [{ ...content, receipt: partnerReceipt({ assetId: content.asset_id }) }],
+    }),
+  );
+  let view!: ReturnType<typeof render>;
+  await act(async () => {
+    view = render(<ArticleGrid articles={articles} placements={context} />);
+  });
+  const promotedCard = screen.getByRole("link", { name: promoted.title }).closest("article")!;
+  view.rerender(
+    <ArticleGrid
+      articles={[...articles, promoted]}
+      placements={context}
+      placementArticleCount={24}
+    />,
+  );
+  expect(screen.getAllByRole("link", { name: promoted.title })).toHaveLength(1);
+  const reading = screen.getByRole("link", { name: articles[8].title });
+  reading.focus();
+
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(60 * 60_000 + 1000);
+  });
+
+  const organic = screen.getByRole("link", { name: promoted.title }).closest("article")!;
+  expect(organic).not.toBe(promotedCard);
+  expect(organic.getAttribute("data-ad-format")).toBeNull();
+  expect(promotedCard.getAttribute("data-suspended")).toBe("true");
+  expect(promotedCard.hasAttribute("inert")).toBe(true);
+  expect(screen.getByRole("link", { name: articles[8].title })).toBe(reading);
+  expect(document.activeElement).toBe(reading);
+  expect(readerRequest).toHaveBeenCalledTimes(1);
+});
+
 it("does not replace an already visible article with a paid duplicate", async () => {
   vi.mocked(readerRequest).mockResolvedValue(Response.json({ items: [content] }));
   const view = render(
@@ -135,6 +204,12 @@ it("renders engagement as a compact contextual cell with signed tracking", async
   expect(link.querySelector(".card-image")).toBeNull();
   expect(view.container.querySelectorAll(".article-grid > .partner-placement")).toHaveLength(1);
   expect(screen.getByText("Sponsored")).toBeTruthy();
+  expect(link.querySelector(".partner-placement-action")?.textContent).toContain("Explore");
+  expect(link.querySelector(".partner-placement-action svg")).toBeTruthy();
+  expect(link.querySelector(".partner-placement-destination")?.textContent).toContain(
+    "partner.example",
+  );
+  expect(link.getAttribute("rel")).toBe("sponsored noopener noreferrer");
   expect(link.querySelector("button")).toBeNull();
 });
 

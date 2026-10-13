@@ -49,9 +49,11 @@ export function ArticleGrid({
     ]),
   );
   const count = Math.min(articles.length, placementArticleCount ?? articles.length);
-  const slots = count ? [Math.min(4, count), ...(count >= 12 ? [12] : [])] : [];
-  const grid = (cards: ReactNode[] = [], items: PartnerPlacement[] = []) => {
-    const promoted = new Set(items.flatMap((item) => (item.article ? [item.article.id] : [])));
+  const slots = count >= 4 ? [4, ...(count >= 12 ? [12] : [])] : [];
+  const grid = (cards: ReactNode[] = [], items: PartnerPlacement[] = [], expired = false) => {
+    const promoted = new Set(
+      expired ? [] : items.flatMap((item) => (item.article ? [item.article.id] : [])),
+    );
     const cells = cards.filter((_, index) => items[index]?.ad_format !== "homepage_sponsorship");
     return (
       <div ref={gridRef} className="article-placement-feed">
@@ -80,7 +82,7 @@ export function ArticleGrid({
     <EngagementProvider articleIds={articles.map((article) => article.id)}>
       {view === "compact" ? (
         <ArticleTable articles={articles} showHeader={priority} />
-      ) : placements && slots.length ? (
+      ) : placements ? (
         <PartnerPlacements
           {...placements}
           maxItems={slots.length}

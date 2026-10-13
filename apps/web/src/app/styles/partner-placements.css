@@ -74,6 +74,43 @@
 .partner-placement--engagement {
   align-self: start;
 }
+.partner-placement--engagement .partner-placement-link {
+  display: grid;
+  grid-template-columns: 44px minmax(0, 1fr);
+  gap: 8px 12px;
+  padding: 16px;
+}
+.partner-placement--engagement .partner-placement-identity {
+  display: contents;
+}
+.partner-placement--engagement .partner-placement-logo {
+  grid-row: 1 / span 3;
+}
+.partner-placement--engagement .partner-placement-identity > div {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+}
+.partner-placement--engagement .partner-placement-label {
+  margin: 0;
+}
+.partner-placement--engagement .partner-placement-description,
+.partner-placement--engagement .partner-placement-destination {
+  grid-column: 2;
+}
+.partner-placement--engagement .partner-placement-description {
+  -webkit-line-clamp: 2;
+  font-size: 12px;
+}
+.partner-placement-action {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 2px;
+  color: var(--foreground);
+  font-weight: 500;
+}
 .article-table .partner-placement-label {
   margin: 6px 0 0;
 }
@@ -128,6 +165,33 @@
 }
 .partner-placement--card .card-copy {
   min-height: 178px;
+}
+.partner-placement--branded {
+  align-self: start;
+}
+.partner-placement--branded .card-copy {
+  min-height: 0;
+  padding: 16px;
+}
+.partner-placement-heading {
+  min-width: 0;
+}
+.partner-placement--branded .partner-placement-heading {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+.partner-placement--branded h2 {
+  min-height: 0;
+  margin: 0;
+}
+.partner-placement--card.partner-placement--branded .card-meta-row {
+  margin-top: 4px;
+}
+.partner-placement--card.partner-placement--branded .partner-placement-destination {
+  min-height: 32px;
+  margin-top: 8px;
 }
 .partner-placement--card .partner-placement-description {
   -webkit-line-clamp: 2;

@@ -10,6 +10,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
+import { ArrowUpRight } from "lucide-react";
 import { readerRequest, rememberReaderArticles } from "@/lib/reader-runtime";
 import { userRequest } from "@/lib/user";
 import {
@@ -32,7 +33,7 @@ const displayed = new Set<string>();
 export type PartnerPlacementContext = PlacementQuery;
 type Props = PartnerPlacementContext & {
   maxItems?: number;
-  children?: (cards: ReactNode[], items: PartnerPlacement[]) => ReactNode;
+  children?: (cards: ReactNode[], items: PartnerPlacement[], expired: boolean) => ReactNode;
   beforeDisplay?: () => void;
   afterDisplay?: () => void;
 };
@@ -88,6 +89,7 @@ function Placement({
   const article = useRef<HTMLElement>(null);
   const content = item.ad_format === "sponsored_content" ? item.article : null;
   const card = preserveSpace && !["homepage_sponsorship", "engagement"].includes(item.ad_format);
+  const image = item.image_url ?? item.image_variants[0]?.url;
   const sponsorshipId = useId();
   const tracking = useRef({
     receipt: item.receipt,
@@ -128,7 +130,7 @@ function Placement({
     );
   return (
     <article
-      className={`partner-placement ${card ? "partner-placement--card" : "partner-placement--compact"} partner-placement--${item.ad_format}`}
+      className={`partner-placement ${card ? "partner-placement--card" : "partner-placement--compact"}${card && !image ? " partner-placement--branded" : ""} partner-placement--${item.ad_format}`}
       data-product-id={item.product_id}
       data-ad-format={item.ad_format}
       data-suspended={!active && preserveSpace ? "true" : undefined}
@@ -148,22 +150,27 @@ function Placement({
       >
         {card ? (
           <>
-            <div className="card-image">
-              <ArticleImage
-                src={item.image_url ?? undefined}
-                variants={item.image_variants}
-                label={item.name}
-                fallback={
-                  <span className="partner-placement-hero-logo">
-                    <ProductLogo key={item.logo_url} name={item.name} url={item.logo_url} />
-                  </span>
-                }
-              />
-            </div>
+            {image && (
+              <div className="card-image">
+                <ArticleImage
+                  src={image}
+                  variants={item.image_variants}
+                  label={item.name}
+                  fallback={
+                    <span className="partner-placement-hero-logo">
+                      <ProductLogo key={item.logo_url} name={item.name} url={item.logo_url} />
+                    </span>
+                  }
+                />
+              </div>
+            )}
             <div className="card-copy">
-              <h2>
-                <span>{item.name}</span>
-              </h2>
+              <div className="partner-placement-heading">
+                {!image && <ProductLogo key={item.logo_url} name={item.name} url={item.logo_url} />}
+                <h2>
+                  <span>{item.name}</span>
+                </h2>
+              </div>
               {item.description && (
                 <p className="partner-placement-description">{item.description}</p>
               )}
@@ -203,6 +210,11 @@ function Placement({
             {item.ad_format !== "homepage_sponsorship" && (
               <span className="partner-placement-destination">
                 <span>{displayHost(item.url)}</span>
+                {item.ad_format === "engagement" && (
+                  <span className="partner-placement-action" aria-hidden="true">
+                    Explore <ArrowUpRight size={14} />
+                  </span>
+                )}
               </span>
             )}
           </>
@@ -295,7 +307,7 @@ function PlacementDelivery({
   }, [result, publish, release]);
   const csrf = user?.csrf_token;
   useEffect(() => {
-    if (!active || loading) return;
+    if (!active || loading || maxItems < 1) return;
     function reserve(items: PartnerPlacement[]) {
       for (const item of items) {
         displayed.add(item.product_id);
@@ -307,7 +319,7 @@ function PlacementDelivery({
     if (cached.current?.context === context) {
       if (!cached.current.expired) {
         if (Date.now() >= cached.current.expiresAt) publish({ ...cached.current, expired: true });
-        else reserve(cached.current.items);
+        else reserve(cached.current.items.slice(0, maxItems));
       }
       return release;
     }
@@ -398,18 +410,11 @@ function PlacementDelivery({
   // Pause a confirmed owner's cards during verification without collapsing reading geometry.
   // A changed owner cannot retain the previous account's delivery.
   const visible = active && !loading && result?.context === context && !result.expired;
-  const cards =
-    result?.owner === identity
-      ? result.items.map((item) => (
-          <Placement
-            key={item.product_id}
-            item={item}
-            active={visible}
-            preserveSpace={!!children}
-          />
-        ))
-      : [];
-  if (children) return children(cards, result?.owner === identity ? result.items : []);
+  const items = result?.owner === identity ? result.items.slice(0, maxItems) : [];
+  const cards = items.map((item) => (
+    <Placement key={item.product_id} item={item} active={visible} preserveSpace={!!children} />
+  ));
+  if (children) return children(cards, items, result?.expired ?? true);
   if (!cards.length) return null;
   return (
     <section className="partner-placements" aria-label="Products" hidden={!visible}>

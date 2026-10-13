@@ -46,9 +46,7 @@ function ResultSection({
     [...new Set(initial.items.map((item) => item.id))].slice(0, 24),
   );
   const { ref, beforeDisplay, afterDisplay } = useReadingAnchor(".search-result");
-  const slots = articleIds.length
-    ? [Math.min(4, articleIds.length), ...(articleIds.length >= 12 ? [12] : [])]
-    : [];
+  const slots = articleIds.length >= 4 ? [4, ...(articleIds.length >= 12 ? [12] : [])] : [];
   const returnParams = new URLSearchParams(optionQuery);
   returnParams.set("q", query);
   const returnTo = `/search?${returnParams}`;
@@ -84,10 +82,12 @@ function ResultSection({
       });
     });
   }, [items, kind]);
-  const list = (cards: ReactNode[] = [], placements: PartnerPlacement[] = []) => (
+  const list = (cards: ReactNode[] = [], placements: PartnerPlacement[] = [], expired = false) => (
     <div className="search-result-list" ref={ref}>
       {items
-        .filter((item) => !placements.some((placement) => placement.article?.id === item.id))
+        .filter(
+          (item) => expired || !placements.some((placement) => placement.article?.id === item.id),
+        )
         .flatMap((item, index) => [
           <article key={item.id} className="search-result">
             {kind !== "articles" && kind !== "tags" && (
@@ -196,7 +196,7 @@ function ResultSection({
         label={kind}
         endMessage=""
       >
-        {kind === "articles" && slots.length ? (
+        {kind === "articles" ? (
           <PartnerPlacements
             surface="feed"
             article_ids={articleIds}
