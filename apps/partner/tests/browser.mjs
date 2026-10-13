@@ -437,10 +437,24 @@ const mock = createServer(async (request, response) => {
           impressions,
           clicks,
           ctr: impressions ? (100 * clicks) / impressions : null,
-          measured_days: measured ? 1 : 0,
+          measured_days: measured ? 3 : 0,
         },
         last_updated_at: measured ? "2026-10-07T10:00:00Z" : null,
-        trend: measured ? [{ day: "2026-10-07", impressions, clicks }] : [],
+        trend: measured
+          ? [
+              { day: "2026-10-05", impressions: Math.floor(impressions / 4), clicks: 0 },
+              {
+                day: "2026-10-06",
+                impressions: Math.floor(impressions / 4),
+                clicks: Math.floor(clicks / 2),
+              },
+              {
+                day: "2026-10-07",
+                impressions: impressions - 2 * Math.floor(impressions / 4),
+                clicks: clicks - Math.floor(clicks / 2),
+              },
+            ]
+          : [],
         assets: sortedAssets.slice(offset, offset + limit),
         asset_total: sortedAssets.length,
         format_totals: measured
@@ -450,7 +464,7 @@ const mock = createServer(async (request, response) => {
                 impressions,
                 clicks,
                 ctr: (100 * clicks) / impressions,
-                measured_days: 1,
+                measured_days: 3,
               },
             ]
           : [],
@@ -572,6 +586,81 @@ async function checkUploadDeadline() {
   }
 }
 
+async function checkDeliveryChart(page, { impressions, clicks }) {
+  const trend = page.getByRole("region", { name: "Delivery trend", exact: true });
+  const chart = trend.getByRole("figure", { name: "Impressions and clicks", exact: true });
+  const legend = trend.getByRole("list", { name: "Chart series", exact: true });
+  await legend.getByText("Impressions (left)", { exact: true }).waitFor();
+  await legend.getByText("Clicks (right)", { exact: true }).waitFor();
+  assert.equal(await trend.getByRole("button").count(), 0, "Both metrics are visible together");
+  await chart.locator(".recharts-line-curve").nth(1).waitFor();
+  const rendered = await chart.evaluate((figure) => ({
+    curves: [...figure.querySelectorAll(".recharts-line-curve")].map((line) => ({
+      path: line.getAttribute("d"),
+      color: line.getAttribute("stroke"),
+      dash: line.getAttribute("stroke-dasharray"),
+    })),
+    points: [...figure.querySelectorAll(".recharts-line-dots")].map(
+      (line) => line.querySelectorAll(".recharts-line-dot").length,
+    ),
+    axes: [...figure.querySelectorAll(".recharts-yAxis-tick-labels")].map((axis) =>
+      [...axis.querySelectorAll(".recharts-cartesian-axis-tick-value")].map((tick) => ({
+        value: tick.textContent,
+        x: Number(tick.getAttribute("x")),
+      })),
+    ),
+  }));
+  assert.equal(rendered.curves.length, 2, "Two delivery series render in the real SVG");
+  assert.ok(rendered.curves.every((line) => line.path?.includes("L")));
+  assert.notEqual(rendered.curves[0].color, rendered.curves[1].color);
+  assert.equal(rendered.curves[0].dash, null);
+  assert.ok(rendered.curves[1].dash, "Line patterns distinguish metrics without color");
+  assert.deepEqual(rendered.points, [3, 3], "Unknown dates do not become plotted zeroes");
+  assert.equal(rendered.axes.length, 2);
+  const zeroTicks = rendered.axes.map((axis) => axis.find((tick) => tick.value === "0"));
+  assert.ok(zeroTicks[0], "The impressions scale starts at zero");
+  assert.ok(zeroTicks[1], "The clicks scale starts at zero");
+  assert.ok(zeroTicks[0].x < zeroTicks[1].x, "Each scale has its own side");
+  assert.notDeepEqual(
+    rendered.axes[0].map((tick) => tick.value),
+    rendered.axes[1].map((tick) => tick.value),
+    "The count scales are independent",
+  );
+
+  const tooltip = chart.getByRole("status");
+  const firstImpressions = Math.floor(impressions / 4).toLocaleString("en");
+  const assertTooltip = async (day, expectedClicks) => {
+    await tooltip.getByText(day, { exact: true }).waitFor();
+    await tooltip
+      .getByText("Impressions", { exact: true })
+      .locator("..")
+      .getByText(firstImpressions, { exact: true })
+      .waitFor();
+    await tooltip
+      .getByText("Clicks", { exact: true })
+      .locator("..")
+      .getByText(expectedClicks.toLocaleString("en"), { exact: true })
+      .waitFor();
+  };
+  // Hover a rendered observation: the same tooltip includes the recorded zero-click count.
+  await chart.locator(".recharts-line-dots").first().locator(".recharts-line-dot").first().hover();
+  await assertTooltip("Oct 5", 0);
+  // Navigate the shared date axis with Recharts' real accessibility layer as well.
+  await page.mouse.move(0, 0);
+  const application = chart.getByRole("application");
+  await application.focus();
+  const days = new URL(page.url()).searchParams.get("days") === "7" ? 7 : 30;
+  // The same chart retains its keyboard index when the viewport changes.
+  for (let index = 0; index < days; index++) await application.press("ArrowLeft");
+  for (let index = 0; index < days - 3; index++) await application.press("ArrowRight");
+  await assertTooltip("Oct 5", 0);
+  await application.press("ArrowRight");
+  await assertTooltip("Oct 6", Math.floor(clicks / 2));
+  await application.evaluate((element) => element.blur());
+  await page.mouse.move(0, 0);
+  assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
+}
+
 async function checkDashboardDensity(page) {
   await page.setViewportSize({ width: 1440, height: 900 });
   const trend = await page
@@ -580,7 +669,9 @@ async function checkDashboardDensity(page) {
   const formats = await page
     .getByRole("region", { name: "Format comparison", exact: true })
     .boundingBox();
-  const chart = await page.getByRole("figure", { name: "Impressions", exact: true }).boundingBox();
+  const chart = await page
+    .getByRole("figure", { name: "Impressions and clicks", exact: true })
+    .boundingBox();
   const overview = await page
     .getByRole("region", { name: "Ad performance", exact: true })
     .boundingBox();
@@ -601,6 +692,7 @@ async function checkDashboardDensity(page) {
     .getByRole("heading", { name: "Dashboard", exact: true, level: 1 })
     .boundingBox();
   assert.ok(Math.abs(period.y - heading.y) < 40, "Reporting controls share the page heading row");
+  await checkDeliveryChart(page, { impressions: 2400, clicks: 120 });
   await page.screenshot({ path: root + "reports/partner/dashboard-laptop.png", fullPage: true });
   await page.setViewportSize({ width: 390, height: 844 });
   await page.waitForFunction(() => document.documentElement.scrollWidth <= window.innerWidth);
@@ -613,6 +705,7 @@ async function checkDashboardDensity(page) {
     metrics.every((box) => Math.abs(box.y - metrics[0].y) < 1),
     "Mobile totals remain visible together",
   );
+  await checkDeliveryChart(page, { impressions: 2400, clicks: 120 });
   await page.screenshot({ path: root + "reports/partner/dashboard-mobile.png", fullPage: true });
   await page.setViewportSize({ width: 1440, height: 1100 });
 }
@@ -650,7 +743,7 @@ try {
   await page.getByRole("link", { name: "Continue to sign in" }).click();
   await page.getByRole("heading", { name: "Dashboard", exact: true, level: 1 }).waitFor();
   assert.equal(new URL(page.url()).pathname, "/");
-  await page.getByRole("figure", { name: "Impressions", exact: true }).waitFor();
+  await page.getByRole("figure", { name: "Impressions and clicks", exact: true }).waitFor();
   await page.getByRole("button", { name: "User menu: Alex Partner" }).focus();
   await page.keyboard.press("Enter");
   await page.getByRole("menuitem", { name: "Sign out" }).waitFor();
@@ -671,7 +764,7 @@ try {
   assert.equal(await page.getByRole("combobox", { name: "Reporting period" }).count(), 1);
   assert.equal(await page.getByRole("combobox", { name: "Product click destination" }).count(), 0);
   assert.equal(await page.getByRole("dialog").count(), 0);
-  await page.getByRole("figure", { name: "Impressions", exact: true }).waitFor();
+  await page.getByRole("figure", { name: "Impressions and clicks", exact: true }).waitFor();
   await checkDashboardDensity(page);
   await page.screenshot({ path: root + "reports/partner/dashboard-desktop.png", fullPage: true });
   await page.setViewportSize({ width: 390, height: 844 });
@@ -828,6 +921,7 @@ try {
   await page.getByRole("combobox", { name: "Reporting period" }).click();
   await page.getByRole("option", { name: "Last 30 days" }).click();
   await page.getByText("2,400", { exact: true }).first().waitFor();
+  await checkDeliveryChart(page, { impressions: 2400, clicks: 120 });
   await mkdir(root + "reports/partner", { recursive: true });
   await page
     .getByRole("region", { name: "Ad performance", exact: true })
@@ -1065,6 +1159,7 @@ try {
   assert.equal(new URL(page.url()).searchParams.get("sort"), "ctr");
   assert.equal(new URL(page.url()).searchParams.get("order"), "desc");
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
+  await checkDeliveryChart(page, { impressions: 700, clicks: 35 });
   await page
     .getByRole("region", { name: "Ad performance", exact: true })
     .screenshot({ path: root + "reports/partner/performance-charts-mobile.png" });

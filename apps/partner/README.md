@@ -66,6 +66,8 @@ or account UUID prefix in workspace URLs:
 - `/settings`: a searchable, paginated account table. `/settings/<account-id>` opens that account's
   click destination, automatic formats and audience defaults.
 
+Delivery charts overlay impressions and clicks with labeled left and right scales, a shared
+tooltip and distinct line styles. Unmeasured days remain gaps in both series.
 The dashboard keeps totals, delivery trends and the format breakdown together in a compact
 laptop layout. Related settings and import forms share desktop columns and stack on mobile.
 Forms use full pages. Headings, record panels, tables, controls and charts are imported directly

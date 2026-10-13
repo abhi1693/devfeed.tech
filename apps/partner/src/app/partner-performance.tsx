@@ -1,6 +1,5 @@
 "use client";
 
-import { useState } from "react";
 import Link from "next/link";
 import { Download, Eye, MousePointerClick, TrendingUp } from "lucide-react";
 import { CartesianGrid, Line, LineChart, Tooltip, XAxis, YAxis } from "recharts";
@@ -58,6 +57,23 @@ function Metrics({ data }: { data: WorkspaceDashboard }) {
   );
 }
 
+const deliverySeries = [
+  {
+    metric: "impressions",
+    label: "Impressions",
+    axis: "left",
+    color: "var(--chart-1)",
+    dash: undefined,
+  },
+  {
+    metric: "clicks",
+    label: "Clicks",
+    axis: "right",
+    color: "var(--chart-2)",
+    dash: "5 3",
+  },
+] as const;
+
 function TrendChart({
   rows,
   metric,
@@ -65,13 +81,24 @@ function TrendChart({
   height = 192,
 }: {
   rows: PerformanceDay[];
-  metric: "impressions" | "clicks" | "ctr";
+  metric: "delivery" | "ctr";
   label: string;
   height?: number;
 }) {
   const percentage = metric === "ctr";
   const format = percentage ? metricPercent : metricCount;
-  if (!rows.some((row) => row[metric] !== null))
+  const series = percentage
+    ? [
+        {
+          metric: "ctr" as const,
+          label,
+          axis: "left" as const,
+          color: "var(--chart-2)",
+          dash: undefined,
+        },
+      ]
+    : deliverySeries;
+  if (!rows.some((row) => series.some((item) => row[item.metric] !== null)))
     return (
       <p
         style={{ minHeight: height }}
@@ -94,66 +121,84 @@ function TrendChart({
           minTickGap={40}
           tickMargin={10}
         />
-        <YAxis
-          tickLine={false}
-          axisLine={false}
-          allowDecimals={percentage}
-          tickFormatter={
-            percentage
-              ? (value: number) => `${value.toLocaleString("en", { maximumFractionDigits: 1 })}%`
-              : (value: number) => value.toLocaleString("en", { notation: "compact" })
-          }
-          domain={[0, "auto"]}
-          width={58}
-        />
+        {series.map((item) => (
+          <YAxis
+            key={item.metric}
+            yAxisId={item.metric}
+            orientation={item.axis}
+            tickLine={false}
+            axisLine={false}
+            allowDecimals={percentage}
+            tickFormatter={
+              percentage
+                ? (value: number) => `${value.toLocaleString("en", { maximumFractionDigits: 1 })}%`
+                : (value: number) => value.toLocaleString("en", { notation: "compact" })
+            }
+            domain={[0, "auto"]}
+            width={percentage ? 58 : 42}
+          />
+        ))}
         <Tooltip
           content={(props) => (
             <ChartTooltip {...props} formatLabel={shortMetricDate} formatValue={format} />
           )}
         />
-        <Line
-          type="linear"
-          dataKey={metric}
-          name={label}
-          stroke={percentage ? "var(--chart-2)" : "var(--chart-1)"}
-          strokeWidth={2}
-          dot={{ r: 2 }}
-          activeDot={{ r: 4 }}
-          connectNulls={false}
-          isAnimationActive={false}
-        />
+        {series.map((item) => (
+          <Line
+            key={item.metric}
+            yAxisId={item.metric}
+            type="linear"
+            dataKey={item.metric}
+            name={item.label}
+            stroke={item.color}
+            strokeWidth={2}
+            strokeDasharray={item.dash}
+            dot={{ r: item.metric === "clicks" ? 3 : 2 }}
+            activeDot={{ r: item.metric === "clicks" ? 5 : 4 }}
+            connectNulls={false}
+            isAnimationActive={false}
+          />
+        ))}
       </LineChart>
     </ChartContainer>
   );
 }
 
 function DeliveryTrend({ rows, compact }: { rows: PerformanceDay[]; compact: boolean }) {
-  const [metric, setMetric] = useState<"impressions" | "clicks">("impressions");
   return (
     <section aria-label="Delivery trend" className="min-w-0 rounded-lg border bg-card p-4">
       <header className="mb-3 flex flex-wrap items-center justify-between gap-2">
         <div>
           <h3 className="text-sm font-semibold">Delivery trend</h3>
-          <p className="mt-1 text-xs text-muted-foreground">Daily measurements in UTC</p>
+          <p className="mt-1 text-xs text-muted-foreground">
+            Daily counts in UTC · separate scales
+          </p>
         </div>
-        <div className="flex rounded-md border p-0.5" role="group" aria-label="Trend metric">
-          {(["impressions", "clicks"] as const).map((value) => (
-            <Button
-              key={value}
-              size="sm"
-              variant={metric === value ? "secondary" : "ghost"}
-              aria-pressed={metric === value}
-              onClick={() => setMetric(value)}
-            >
-              {value === "impressions" ? "Impressions" : "Clicks"}
-            </Button>
+        <ul aria-label="Chart series" className="flex flex-wrap gap-x-3 gap-y-1 text-xs">
+          {deliverySeries.map((item) => (
+            <li key={item.metric} className="inline-flex items-center gap-1.5">
+              <svg width="20" height="8" aria-hidden="true">
+                <line
+                  x1="0"
+                  y1="4"
+                  x2="20"
+                  y2="4"
+                  stroke={item.color}
+                  strokeWidth="2"
+                  strokeDasharray={item.dash}
+                />
+              </svg>
+              <span>
+                {item.label} ({item.axis})
+              </span>
+            </li>
           ))}
-        </div>
+        </ul>
       </header>
       <TrendChart
         rows={rows}
-        metric={metric}
-        label={metric === "clicks" ? "Clicks" : "Impressions"}
+        metric="delivery"
+        label="Impressions and clicks"
         height={compact ? 176 : 192}
       />
     </section>
