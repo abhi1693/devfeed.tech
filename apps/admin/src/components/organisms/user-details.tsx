@@ -4,10 +4,10 @@ import Link from "next/link";
 import { useCallback, useState } from "react";
 import { RefreshCw } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { Button } from "@/components/atoms/button";
+import { Button } from "@devfeed/ui/button";
 import { DataTable, type DataTableColumn } from "@/components/molecules/data-table";
 import { DateTime } from "@/components/molecules/date-time";
-import { DataValue, InfoPanel } from "@/components/molecules/info-panel";
+import { DataValue, ResourcePanel } from "@devfeed/ui/resource-layout";
 import { SearchField, searchScope } from "@/components/molecules/search-field";
 import { StatusBadge } from "@/components/molecules/status-badge";
 import type { AdminUserDetail } from "@/lib/api/generated/models";
@@ -103,7 +103,7 @@ const reasons: Record<string, string> = {
 
 export function UserActivitySummary({ user }: { user: AdminUserDetail }) {
   return (
-    <InfoPanel title="Personalization">
+    <ResourcePanel title="Personalization">
       <div className="grid grid-cols-2 gap-3 pt-4">
         {(
           [
@@ -127,7 +127,7 @@ export function UserActivitySummary({ user }: { user: AdminUserDetail }) {
           </Link>
         ))}
       </div>
-    </InfoPanel>
+    </ResourcePanel>
   );
 }
 
@@ -147,7 +147,7 @@ export function UserDetailsOverview({ user }: { user: AdminUserDetail }) {
   return (
     <div className="space-y-6">
       <div className="grid items-start gap-6 lg:grid-cols-2">
-        <InfoPanel
+        <ResourcePanel
           title="Account"
           fields={[
             { label: "Display name", value: user.name },
@@ -179,7 +179,7 @@ export function UserDetailsOverview({ user }: { user: AdminUserDetail }) {
             { label: "Last active", value: <DateTime value={user.last_seen_at} /> },
           ]}
         />
-        <InfoPanel
+        <ResourcePanel
           title="Reading activity"
           fields={[
             {
@@ -214,7 +214,7 @@ export function UserDetailsOverview({ user }: { user: AdminUserDetail }) {
       </div>
       {hasUsername && (
         <UserDisclosure title="Dev Card styling">
-          <InfoPanel
+          <ResourcePanel
             title="Dev Card"
             fields={[
               { label: "Theme", value: humanize(user.dev_card.theme ?? "classic") },
@@ -234,7 +234,7 @@ export function UserDetailsOverview({ user }: { user: AdminUserDetail }) {
       )}
       <UserDisclosure title="Reader preferences">
         <div className="grid items-start gap-4 lg:grid-cols-2">
-          <InfoPanel
+          <ResourcePanel
             title="Feed preferences"
             fields={[
               { label: "View", value: <DataValue value={user.feed_preferences.view} /> },
@@ -245,7 +245,7 @@ export function UserDetailsOverview({ user }: { user: AdminUserDetail }) {
               },
             ]}
           />
-          <InfoPanel
+          <ResourcePanel
             title="Appearance & notifications"
             fields={[
               { label: "Theme", value: <DataValue value={user.appearance_preferences.theme} /> },
@@ -274,7 +274,7 @@ export function UserDetailsOverview({ user }: { user: AdminUserDetail }) {
         </div>
       </UserDisclosure>
       <UserDisclosure title="Technical identifiers">
-        <InfoPanel
+        <ResourcePanel
           title="Record information"
           fields={[{ label: "User ID", value: <DataValue value={user.id} /> }]}
         />
@@ -285,7 +285,7 @@ export function UserDetailsOverview({ user }: { user: AdminUserDetail }) {
 
 export function UserProfileDetails({ user }: { user: AdminUserDetail }) {
   return (
-    <InfoPanel
+    <ResourcePanel
       title="Reader profile"
       fields={[
         { label: "Username", value: <DataValue value={user.username} /> },
@@ -356,7 +356,7 @@ export function UserProfileDetails({ user }: { user: AdminUserDetail }) {
 export function UserFeedStatus({ user }: { user: AdminUserDetail }) {
   if (!hasUserAnalysisData(user))
     return (
-      <InfoPanel
+      <ResourcePanel
         title="Recommendation refresh"
         fields={[
           { label: "Analysis", value: "Not needed" },
@@ -368,7 +368,7 @@ export function UserFeedStatus({ user }: { user: AdminUserDetail }) {
       />
     );
   return (
-    <InfoPanel
+    <ResourcePanel
       title="Recommendation refresh"
       fields={[
         { label: "Feed status", value: <StatusBadge value={user.feed_status} /> },

@@ -281,7 +281,7 @@ def test_superseded_queued_job_schedules_current_source(enabled, case):
 
 def test_admin_images_filter_and_retry_eligibility_include_logos(enabled, case):
     from devfeed_admin_api.jobs import jobs
-    from devfeed_admin_api.pagination import ListQuery
+    from devfeed_http.pagination import ListQuery
 
     identifier, job_id = subject(enabled, case)
     other_id, _ = subject(enabled, case)

@@ -377,6 +377,8 @@ def upgrade():
             server_default="{}",
             nullable=False,
         ),
+        sa.Column("encrypted_credential", sa.Text(), nullable=True),
+        sa.Column("archived_at", sa.DateTime(timezone=True), nullable=True),
         sa.Column("enabled", sa.Boolean(), nullable=False),
         sa.Column("revision", sa.Integer(), nullable=False),
         sa.Column("sync_revision", sa.Integer(), server_default="1", nullable=False),
@@ -404,6 +406,12 @@ def upgrade():
         "partner_connections",
         ["account_id"],
         unique=False,
+    )
+    op.create_index(
+        "ix_partner_connections_active_account",
+        "partner_connections",
+        ["account_id", "name", "provider"],
+        postgresql_where=sa.text("archived_at IS NULL"),
     )
     op.create_table(
         "partner_evaluations",
@@ -449,6 +457,12 @@ def upgrade():
         sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
         sa.ForeignKeyConstraint(["account_id"], ["partner_accounts.id"], ondelete="CASCADE"),
         sa.PrimaryKeyConstraint("account_id", "issuer", "subject"),
+    )
+    op.create_index(
+        "ix_partner_memberships_identity_accounts",
+        "partner_memberships",
+        ["issuer", "subject", "account_id"],
+        unique=False,
     )
     op.create_table(
         "partner_product_promotions",

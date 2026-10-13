@@ -11,14 +11,14 @@ import {
 } from "@/lib/routes";
 import Link from "next/link";
 import { Sparkles } from "lucide-react";
-import { Button } from "@/components/atoms/button";
+import { Button } from "@devfeed/ui/button";
 import { useCallback, useState } from "react";
 import { adminRouteTitle } from "@/lib/page-titles";
-import { PageHeading } from "@/components/molecules/page-heading";
+import { ResourceHeading } from "@devfeed/ui/resource-layout";
 import { RecordActions } from "@/components/molecules/record-actions";
 import { RecordLink } from "@/components/molecules/record-link";
 import { ImageJobSubject, imageJobOperation } from "@/components/molecules/image-job-subject";
-import { InfoPanel, DataValue } from "@/components/molecules/info-panel";
+import { ResourcePanel, DataValue } from "@devfeed/ui/resource-layout";
 import { ImagePreviewLink } from "@/components/molecules/image-preview-link";
 import { RequestState } from "@/components/molecules/request-state";
 import { RelatedRecords } from "./related-records";
@@ -163,7 +163,7 @@ function Details({
   ].filter((key) => key in record);
   return (
     <section className="space-y-6">
-      <PageHeading
+      <ResourceHeading
         browserTitle={adminRouteTitle(
           {
             view: "detail",
@@ -200,7 +200,7 @@ function Details({
           />
         )}
         <RecordActions resource={resource} id={record.id} detail />
-      </PageHeading>
+      </ResourceHeading>
       <nav aria-label="Object sections" className="flex gap-5 overflow-x-auto border-b">
         {tabs.map((item) => (
           <Link
@@ -224,9 +224,9 @@ function Details({
       {tab === "details" && resource !== "users" && (
         <div className="grid items-start gap-6 xl:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)]">
           <div className="space-y-6">
-            {!!fields.length && <InfoPanel title={spec.singular} fields={fields} />}
+            {!!fields.length && <ResourcePanel title={spec.singular} fields={fields} />}
             {resource === "tags" && (
-              <InfoPanel
+              <ResourcePanel
                 title="Topic discovery"
                 fields={[
                   { label: "Status", value: <DataValue value={record.topic_match_status} /> },
@@ -242,7 +242,7 @@ function Details({
               />
             )}
             {resource === "topics" && (
-              <InfoPanel
+              <ResourcePanel
                 title="Logo"
                 fields={[
                   { label: "Source", value: <DataValue value={record.logo_url} /> },
@@ -255,13 +255,13 @@ function Details({
               />
             )}
             {resource === "topics" && (
-              <InfoPanel title="Sourced facts">
+              <ResourcePanel title="Sourced facts">
                 <DataValue value={record.facts} />
-              </InfoPanel>
+              </ResourcePanel>
             )}
             {resource === "articles" && (
               <>
-                <InfoPanel
+                <ResourcePanel
                   title="Classification"
                   fields={[
                     {
@@ -271,7 +271,7 @@ function Details({
                     { label: "Tags", value: <LinkedItems resource="tags" items={record.tags} /> },
                   ]}
                 />
-                <InfoPanel title="Publication requirements">
+                <ResourcePanel title="Publication requirements">
                   <ul className="list-inside list-disc space-y-1 text-sm">
                     {(record.publication_blockers as string[]).length ? (
                       (record.publication_blockers as string[]).map((reason) => (
@@ -281,11 +281,11 @@ function Details({
                       <li>All publication requirements are met.</li>
                     )}
                   </ul>
-                </InfoPanel>
+                </ResourcePanel>
               </>
             )}
             {kind && (
-              <InfoPanel title="Run details">
+              <ResourcePanel title="Run details">
                 {kind === "images" && (
                   <p className="mb-4">Operation: {imageJobOperation(record)}</p>
                 )}
@@ -326,11 +326,11 @@ function Details({
                     </Link>
                   </p>
                 ) : null}
-              </InfoPanel>
+              </ResourcePanel>
             )}
           </div>
           <div className="space-y-6">
-            <InfoPanel
+            <ResourcePanel
               title="Record information"
               fields={meta.map((key) => ({
                 label: humanize(key),
@@ -344,7 +344,7 @@ function Details({
               }))}
             />
             {(resource === "articles" || resource === "topics") && (
-              <InfoPanel title="AI-generated metadata">
+              <ResourcePanel title="AI-generated metadata">
                 <p className="mb-4 text-xs text-muted-foreground">
                   Generated by AI. Kept separate from original and human-authored text.
                 </p>
@@ -355,12 +355,12 @@ function Details({
                       : { ai_description: record.ai_description }
                   }
                 />
-              </InfoPanel>
+              </ResourcePanel>
             )}
             {resource === "articles" && (
-              <InfoPanel title="Classification provenance">
+              <ResourcePanel title="Classification provenance">
                 <DataValue value={record.classification_provenance} />
-              </InfoPanel>
+              </ResourcePanel>
             )}
             {resource === "sources" && (
               <SourcePublicationPolicy
@@ -451,21 +451,21 @@ function Related({ resource, record }: { resource: Resource; record: RecordData 
         <>
           <div className="grid gap-4 md:grid-cols-3">
             {(["sources", "tags"] as const).map((key) => (
-              <InfoPanel key={key} title={resources[key].label}>
+              <ResourcePanel key={key} title={resources[key].label}>
                 <LinkedItems resource={key} items={record[key]} />
-              </InfoPanel>
+              </ResourcePanel>
             ))}
           </div>
-          <InfoPanel title="Topics">
+          <ResourcePanel title="Topics">
             <LinkedItems resource="topics" items={record.topics} />
-          </InfoPanel>
+          </ResourcePanel>
           <RelatedRecords resource="article-jobs" filter={{ article_id: id }} />
           <RelatedRecords resource="image-jobs" filter={{ article_id: id }} />
           <RelatedRecords resource="analysis-jobs" filter={{ article_id: id }} />
         </>
       )}
       {resource === "topic-relations" && (
-        <InfoPanel
+        <ResourcePanel
           title="Linked topics"
           fields={[
             {
@@ -489,7 +489,7 @@ function Evidence({ id }: { id: string }) {
     <>
       <RequestState loading={result.loading} error={result.error} />
       {!result.loading && !result.error && (
-        <InfoPanel title="Original extraction evidence">
+        <ResourcePanel title="Original extraction evidence">
           {result.data ? (
             <>
               <p className="mb-4 text-xs text-muted-foreground">
@@ -505,7 +505,7 @@ function Evidence({ id }: { id: string }) {
               Article text is unavailable. See the Details tab for the original feed information.
             </p>
           )}
-        </InfoPanel>
+        </ResourcePanel>
       )}
     </>
   );

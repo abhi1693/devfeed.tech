@@ -1,69 +1,116 @@
 import "server-only";
-import { notFound, redirect } from "next/navigation";
-import { portalPath } from "@/lib/routes";
+import { notFound } from "next/navigation";
 import { portalSession } from "./session";
 import { Portal } from "@/app/portal";
+import type { PortalSection, ProductRoute } from "@/lib/routes";
+import type { ConnectionsRoute } from "@/app/partner-connections";
 import type { AssetSort, SortOrder } from "@/lib/types";
 
+type SearchValue = string | string[];
 export type PortalSearchParams = {
-  days?: string;
-  account_offset?: string;
-  asset_offset?: string;
-  sort?: string;
-  order?: string;
+  days?: SearchValue;
+  account_id?: SearchValue;
+  account_offset?: SearchValue;
+  asset_offset?: SearchValue;
+  sort?: SearchValue;
+  order?: SearchValue;
+  q?: SearchValue;
+  product_offset?: SearchValue;
+  policy_offset?: SearchValue;
+  connection_offset?: SearchValue;
 };
+function single(value: SearchValue | undefined) {
+  return typeof value === "string" ? value : undefined;
+}
+function offset(value: SearchValue | undefined) {
+  const number = Number(single(value));
+  return Number.isSafeInteger(number) && number >= 0 ? number : 0;
+}
+
 export async function PortalPage({
   section,
   searchParams,
   accountId,
+  productRoute,
+  connectionsRoute,
 }: {
-  section: "overview" | "performance" | "assets";
+  section: PortalSection;
+  productRoute?: ProductRoute;
+  connectionsRoute?: ConnectionsRoute;
   accountId?: string;
   searchParams: Promise<PortalSearchParams>;
 }) {
-  // Account IDs are UUIDs; unknown public paths must return 404 before authentication.
-  if (accountId && !/^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/i.test(accountId)) notFound();
   const params = await searchParams;
+  const uuidPattern = /^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/i;
+  const accountFilter = single(params.account_id);
+  if (params.account_id !== undefined && !accountFilter) notFound();
+  if ([accountId, accountFilter, productRoute?.productId].some((id) => id && !uuidPattern.test(id)))
+    notFound();
+  if (accountId && accountFilter && accountId.toLowerCase() !== accountFilter.toLowerCase())
+    notFound();
   if ("account" in params) notFound();
-  const days = [7, 30, 90, 365].includes(Number(params.days)) ? Number(params.days) : 30;
-  const sort: AssetSort = ["name", "impressions", "clicks", "ctr"].includes(params.sort ?? "")
-    ? (params.sort as AssetSort)
+  const requestedAccountId = (accountId ?? accountFilter)?.toLowerCase();
+  const canonicalProductRoute = productRoute?.productId
+    ? { ...productRoute, productId: productRoute.productId.toLowerCase() }
+    : productRoute;
+  const connectionId = connectionsRoute?.connectionId?.toLowerCase();
+  if (
+    connectionId &&
+    (connectionId.length > 200 ||
+      connectionId === "new" ||
+      !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(connectionId))
+  )
+    notFound();
+  const canonicalConnectionsRoute =
+    connectionsRoute && connectionId ? { ...connectionsRoute, connectionId } : connectionsRoute;
+  const days = [7, 30, 90, 365].includes(Number(single(params.days)))
+    ? Number(single(params.days))
+    : 30;
+  const sort: AssetSort = ["name", "account", "impressions", "clicks", "ctr"].includes(
+    single(params.sort) ?? "",
+  )
+    ? (single(params.sort) as AssetSort)
     : "name";
-  const order: SortOrder = params.order === "desc" ? "desc" : "asc";
-  const requestedAssetOffset = Number(params.asset_offset);
-  const assetOffset =
-    Number.isSafeInteger(requestedAssetOffset) && requestedAssetOffset >= 0
-      ? requestedAssetOffset
-      : 0;
-  const requestedOffset = Number(params.account_offset);
-  let offset = Number.isSafeInteger(requestedOffset) && requestedOffset >= 0 ? requestedOffset : 0;
-  let { identity, accounts, requestedAccount } = await portalSession(offset, accountId);
-  if (accounts.total === 1 && offset > 0) {
-    offset = 0;
-    ({ identity, accounts, requestedAccount } = await portalSession(offset, accountId));
-  }
-  const selected = requestedAccount?.id;
-  if (!accountId && accounts.items.length) {
-    const scope = new URLSearchParams();
-    scope.set("days", String(days));
-    scope.set("sort", sort);
-    scope.set("order", order);
-    if (assetOffset) scope.set("asset_offset", String(assetOffset));
-    if (offset) scope.set("account_offset", String(offset));
-    redirect(`${portalPath(selected ?? accounts.items[0]!.id, section)}?${scope}`);
+  const order: SortOrder = single(params.order) === "desc" ? "desc" : "asc";
+  const assetOffset = offset(params.asset_offset);
+  const productSearch = section === "products" ? (single(params.q) ?? "").slice(0, 200) : "";
+  const accountSearch = section === "settings" ? (single(params.q) ?? "").slice(0, 200) : "";
+  const productOffset = offset(params.product_offset);
+  const policyOffset = offset(params.policy_offset);
+  let accountOffset = section === "settings" ? offset(params.account_offset) : 0;
+  let { identity, accounts, requestedAccount } = await portalSession(
+    accountOffset,
+    requestedAccountId,
+    accountSearch,
+    25,
+  );
+  if (accountOffset > 0 && accountOffset >= accounts.total) {
+    accountOffset = 0;
+    ({ identity, accounts, requestedAccount } = await portalSession(
+      0,
+      requestedAccountId,
+      accountSearch,
+      25,
+    ));
   }
   return (
     <Portal
-      key={`${section}:${selected}:${days}:${offset}:${sort}:${order}:${assetOffset}`}
+      key={`${section}:${requestedAccount?.id ?? "all"}:${days}:${sort}:${order}:${assetOffset}:${productSearch}:${productOffset}:${policyOffset}:${accountSearch}:${accountOffset}:${canonicalProductRoute?.view}:${canonicalProductRoute?.productId}:${canonicalConnectionsRoute?.view}:${canonicalConnectionsRoute?.connectionId}:${canonicalConnectionsRoute?.offset}:${canonicalConnectionsRoute?.q}`}
       identity={identity}
       initialAccounts={accounts}
       section={section}
       initialAccount={requestedAccount}
       initialDays={days}
-      initialAccountOffset={offset}
+      initialAccountOffset={accountOffset}
       initialAssetOffset={assetOffset}
       initialSort={sort}
       initialOrder={order}
+      productRoute={canonicalProductRoute}
+      connectionsRoute={canonicalConnectionsRoute}
+      initialProductSearch={productSearch}
+      initialProductOffset={productOffset}
+      initialPolicyOffset={policyOffset}
+      initialAccountSearch={accountSearch}
     />
   );
 }

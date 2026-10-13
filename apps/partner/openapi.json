@@ -453,6 +453,388 @@
         "title": "AuthConfig",
         "type": "object"
       },
+      "ConnectorAuth": {
+        "additionalProperties": false,
+        "properties": {
+          "header": {
+            "default": "X-API-Key",
+            "maxLength": 100,
+            "minLength": 1,
+            "pattern": "^[A-Za-z][A-Za-z0-9_-]*$",
+            "title": "Header",
+            "type": "string"
+          },
+          "mode": {
+            "default": "none",
+            "enum": [
+              "none",
+              "bearer",
+              "api_key"
+            ],
+            "title": "Mode",
+            "type": "string"
+          },
+          "secret_ref": {
+            "default": "",
+            "pattern": "^$|^DEVFEED_PARTNER_SECRET_[A-Z0-9_]{1,80}$",
+            "title": "Secret Ref",
+            "type": "string"
+          },
+          "source": {
+            "default": "environment",
+            "enum": [
+              "environment",
+              "connection"
+            ],
+            "title": "Source",
+            "type": "string"
+          }
+        },
+        "title": "ConnectorAuth",
+        "type": "object"
+      },
+      "ConnectorConfig": {
+        "additionalProperties": false,
+        "properties": {
+          "attribution": {
+            "default": "",
+            "maxLength": 300,
+            "title": "Attribution",
+            "type": "string"
+          },
+          "auth": {
+            "$ref": "#/components/schemas/ConnectorAuth"
+          },
+          "base_url": {
+            "title": "Base Url",
+            "type": "string"
+          },
+          "detail_path": {
+            "anyOf": [
+              {
+                "maxLength": 500,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Detail Path"
+          },
+          "detail_root": {
+            "default": "",
+            "maxLength": 200,
+            "pattern": "^(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+)(?:\\.(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+))*$|^$",
+            "title": "Detail Root",
+            "type": "string"
+          },
+          "fields": {
+            "$ref": "#/components/schemas/ConnectorFields"
+          },
+          "filters": {
+            "items": {
+              "$ref": "#/components/schemas/ConnectorFilter"
+            },
+            "maxItems": 10,
+            "title": "Filters",
+            "type": "array"
+          },
+          "items_paths": {
+            "items": {
+              "maxLength": 200,
+              "pattern": "^(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+)(?:\\.(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+))*$|^$",
+              "type": "string"
+            },
+            "maxItems": 5,
+            "minItems": 1,
+            "title": "Items Paths",
+            "type": "array"
+          },
+          "list_path": {
+            "default": "/products",
+            "maxLength": 500,
+            "minLength": 1,
+            "title": "List Path",
+            "type": "string"
+          },
+          "listing_url_template": {
+            "anyOf": [
+              {
+                "maxLength": 500,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Listing Url Template"
+          },
+          "max_pages": {
+            "default": 1000,
+            "maximum": 1000.0,
+            "minimum": 1.0,
+            "title": "Max Pages",
+            "type": "integer"
+          },
+          "max_response_bytes": {
+            "default": 2000000,
+            "maximum": 5000000.0,
+            "minimum": 1024.0,
+            "title": "Max Response Bytes",
+            "type": "integer"
+          },
+          "pagination": {
+            "$ref": "#/components/schemas/ConnectorPagination"
+          },
+          "parameters": {
+            "maxProperties": 20,
+            "patternProperties": {
+              "^[A-Za-z][A-Za-z0-9_-]*$": {
+                "type": "string"
+              }
+            },
+            "propertyNames": {
+              "maxLength": 100,
+              "minLength": 1
+            },
+            "title": "Parameters",
+            "type": "object"
+          },
+          "platform_hosts": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 5,
+            "title": "Platform Hosts",
+            "type": "array"
+          },
+          "requests_per_minute": {
+            "default": 60,
+            "maximum": 600.0,
+            "minimum": 1.0,
+            "title": "Requests Per Minute",
+            "type": "integer"
+          },
+          "timeout_seconds": {
+            "default": 15,
+            "maximum": 30.0,
+            "minimum": 1.0,
+            "title": "Timeout Seconds",
+            "type": "integer"
+          },
+          "version": {
+            "const": 1,
+            "default": 1,
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "base_url"
+        ],
+        "title": "ConnectorConfig",
+        "type": "object"
+      },
+      "ConnectorFields": {
+        "additionalProperties": false,
+        "properties": {
+          "description": {
+            "items": {
+              "maxLength": 200,
+              "pattern": "^(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+)(?:\\.(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+))*$|^$",
+              "type": "string"
+            },
+            "maxItems": 5,
+            "minItems": 1,
+            "title": "Description",
+            "type": "array"
+          },
+          "external_id": {
+            "items": {
+              "maxLength": 200,
+              "pattern": "^(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+)(?:\\.(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+))*$|^$",
+              "type": "string"
+            },
+            "maxItems": 5,
+            "minItems": 1,
+            "title": "External Id",
+            "type": "array"
+          },
+          "listing_url": {
+            "items": {
+              "maxLength": 200,
+              "pattern": "^(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+)(?:\\.(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+))*$|^$",
+              "type": "string"
+            },
+            "maxItems": 5,
+            "minItems": 1,
+            "title": "Listing Url",
+            "type": "array"
+          },
+          "name": {
+            "items": {
+              "maxLength": 200,
+              "pattern": "^(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+)(?:\\.(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+))*$|^$",
+              "type": "string"
+            },
+            "maxItems": 5,
+            "minItems": 1,
+            "title": "Name",
+            "type": "array"
+          },
+          "pricing": {
+            "items": {
+              "maxLength": 200,
+              "pattern": "^(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+)(?:\\.(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+))*$|^$",
+              "type": "string"
+            },
+            "maxItems": 5,
+            "minItems": 1,
+            "title": "Pricing",
+            "type": "array"
+          },
+          "product_url": {
+            "items": {
+              "maxLength": 200,
+              "pattern": "^(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+)(?:\\.(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+))*$|^$",
+              "type": "string"
+            },
+            "maxItems": 5,
+            "minItems": 1,
+            "title": "Product Url",
+            "type": "array"
+          }
+        },
+        "title": "ConnectorFields",
+        "type": "object"
+      },
+      "ConnectorFilter": {
+        "additionalProperties": false,
+        "properties": {
+          "include_missing": {
+            "default": true,
+            "title": "Include Missing",
+            "type": "boolean"
+          },
+          "path": {
+            "maxLength": 200,
+            "pattern": "^(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+)(?:\\.(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+))*$|^$",
+            "title": "Path",
+            "type": "string"
+          },
+          "values": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 20,
+            "minItems": 1,
+            "title": "Values",
+            "type": "array"
+          }
+        },
+        "required": [
+          "path",
+          "values"
+        ],
+        "title": "ConnectorFilter",
+        "type": "object"
+      },
+      "ConnectorPagination": {
+        "additionalProperties": false,
+        "properties": {
+          "has_more_path": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "pattern": "^(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+)(?:\\.(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+))*$|^$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Has More Path"
+          },
+          "mode": {
+            "default": "cursor",
+            "enum": [
+              "none",
+              "cursor",
+              "page",
+              "offset",
+              "next_url"
+            ],
+            "title": "Mode",
+            "type": "string"
+          },
+          "next_path": {
+            "default": "nextCursor",
+            "maxLength": 200,
+            "pattern": "^(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+)(?:\\.(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+))*$|^$",
+            "title": "Next Path",
+            "type": "string"
+          },
+          "page_size": {
+            "default": 10,
+            "maximum": 100.0,
+            "minimum": 1.0,
+            "title": "Page Size",
+            "type": "integer"
+          },
+          "parameter": {
+            "anyOf": [
+              {
+                "maxLength": 100,
+                "minLength": 1,
+                "pattern": "^[A-Za-z][A-Za-z0-9_-]*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": "cursor",
+            "title": "Parameter"
+          },
+          "size_parameter": {
+            "anyOf": [
+              {
+                "maxLength": 100,
+                "minLength": 1,
+                "pattern": "^[A-Za-z][A-Za-z0-9_-]*$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": "limit",
+            "title": "Size Parameter"
+          },
+          "start": {
+            "default": 1,
+            "maximum": 1000000.0,
+            "minimum": 0.0,
+            "title": "Start",
+            "type": "integer"
+          },
+          "total_path": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "pattern": "^(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+)(?:\\.(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+))*$|^$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Total Path"
+          }
+        },
+        "title": "ConnectorPagination",
+        "type": "object"
+      },
       "CreativePreviewOut": {
         "properties": {
           "product": {
@@ -594,14 +976,14 @@
           }
         },
         "required": [
-          "account",
           "start",
           "end",
           "totals",
           "trend",
-          "assets",
           "asset_total",
-          "last_updated_at"
+          "last_updated_at",
+          "account",
+          "assets"
         ],
         "title": "Dashboard",
         "type": "object"
@@ -885,6 +1267,631 @@
           "globally_excluded"
         ],
         "title": "InventoryProductOut",
+        "type": "object"
+      },
+      "PartnerConnectionAction": {
+        "additionalProperties": false,
+        "properties": {
+          "action": {
+            "enum": [
+              "sync",
+              "pause",
+              "resume"
+            ],
+            "title": "Action",
+            "type": "string"
+          },
+          "expected_revision": {
+            "minimum": 1.0,
+            "title": "Expected Revision",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "action",
+          "expected_revision"
+        ],
+        "title": "PartnerConnectionAction",
+        "type": "object"
+      },
+      "PartnerConnectionCreate": {
+        "additionalProperties": false,
+        "properties": {
+          "connector": {
+            "$ref": "#/components/schemas/PartnerConnectorConfig"
+          },
+          "credential": {
+            "anyOf": [
+              {
+                "format": "password",
+                "type": "string",
+                "writeOnly": true
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Credential",
+            "writeOnly": true
+          },
+          "enabled": {
+            "default": true,
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "name": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Name",
+            "type": "string"
+          },
+          "sync_interval_minutes": {
+            "default": 360,
+            "maximum": 10080.0,
+            "minimum": 15.0,
+            "title": "Sync Interval Minutes",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "name",
+          "connector"
+        ],
+        "title": "PartnerConnectionCreate",
+        "type": "object"
+      },
+      "PartnerConnectionDelete": {
+        "additionalProperties": false,
+        "properties": {
+          "expected_revision": {
+            "minimum": 1.0,
+            "title": "Expected Revision",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "expected_revision"
+        ],
+        "title": "PartnerConnectionDelete",
+        "type": "object"
+      },
+      "PartnerConnectionJobOut": {
+        "properties": {
+          "attempts": {
+            "title": "Attempts",
+            "type": "integer"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          },
+          "finished_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Finished At"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "operation": {
+            "enum": [
+              "sync",
+              "sync_product",
+              "assess"
+            ],
+            "title": "Operation",
+            "type": "string"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "operation",
+          "status",
+          "attempts",
+          "created_at",
+          "finished_at",
+          "error"
+        ],
+        "title": "PartnerConnectionJobOut",
+        "type": "object"
+      },
+      "PartnerConnectionJobsOut": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/PartnerConnectionJobOut"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "limit": {
+            "title": "Limit",
+            "type": "integer"
+          },
+          "offset": {
+            "title": "Offset",
+            "type": "integer"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "items",
+          "total",
+          "limit",
+          "offset"
+        ],
+        "title": "PartnerConnectionJobsOut",
+        "type": "object"
+      },
+      "PartnerConnectionOut": {
+        "properties": {
+          "account_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Account Id"
+          },
+          "ai_enabled": {
+            "title": "Ai Enabled",
+            "type": "boolean"
+          },
+          "api_url": {
+            "title": "Api Url",
+            "type": "string"
+          },
+          "approval_mode": {
+            "anyOf": [
+              {
+                "enum": [
+                  "qualified",
+                  "trusted"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Approval Mode"
+          },
+          "auth_mode": {
+            "enum": [
+              "none",
+              "bearer",
+              "api_key"
+            ],
+            "title": "Auth Mode",
+            "type": "string"
+          },
+          "checking": {
+            "title": "Checking",
+            "type": "integer"
+          },
+          "commercial_approved": {
+            "default": 0,
+            "title": "Commercial Approved",
+            "type": "integer"
+          },
+          "connector": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ConnectorConfig"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "connector_editable": {
+            "title": "Connector Editable",
+            "type": "boolean"
+          },
+          "credential_configured": {
+            "title": "Credential Configured",
+            "type": "boolean"
+          },
+          "credential_header": {
+            "title": "Credential Header",
+            "type": "string"
+          },
+          "credentials_managed": {
+            "title": "Credentials Managed",
+            "type": "boolean"
+          },
+          "enabled": {
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          },
+          "excluded": {
+            "title": "Excluded",
+            "type": "integer"
+          },
+          "last_sync_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Sync At"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "needs_attention": {
+            "title": "Needs Attention",
+            "type": "integer"
+          },
+          "next_sync_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Sync At"
+          },
+          "partnership_type": {
+            "const": "launch_platform",
+            "default": "launch_platform",
+            "title": "Partnership Type",
+            "type": "string"
+          },
+          "products": {
+            "title": "Products",
+            "type": "integer"
+          },
+          "provider": {
+            "title": "Provider",
+            "type": "string"
+          },
+          "qualified": {
+            "title": "Qualified",
+            "type": "integer"
+          },
+          "revision": {
+            "title": "Revision",
+            "type": "integer"
+          },
+          "state": {
+            "enum": [
+              "disconnected",
+              "idle",
+              "syncing",
+              "error"
+            ],
+            "title": "State",
+            "type": "string"
+          },
+          "sync_interval_minutes": {
+            "title": "Sync Interval Minutes",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "sync_interval_minutes",
+          "revision",
+          "provider",
+          "name",
+          "api_url",
+          "enabled",
+          "state",
+          "last_sync_at",
+          "next_sync_at",
+          "error",
+          "products",
+          "qualified",
+          "checking",
+          "needs_attention",
+          "excluded",
+          "ai_enabled",
+          "auth_mode",
+          "credential_header",
+          "credential_configured",
+          "credentials_managed",
+          "connector_editable"
+        ],
+        "title": "PartnerConnectionOut",
+        "type": "object"
+      },
+      "PartnerConnectionUpdate": {
+        "additionalProperties": false,
+        "properties": {
+          "connector": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PartnerConnectorConfig"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "credential": {
+            "anyOf": [
+              {
+                "format": "password",
+                "type": "string",
+                "writeOnly": true
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Credential",
+            "writeOnly": true
+          },
+          "enabled": {
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "expected_revision": {
+            "minimum": 1.0,
+            "title": "Expected Revision",
+            "type": "integer"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "sync_interval_minutes": {
+            "anyOf": [
+              {
+                "maximum": 10080.0,
+                "minimum": 15.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sync Interval Minutes"
+          }
+        },
+        "required": [
+          "enabled",
+          "expected_revision"
+        ],
+        "title": "PartnerConnectionUpdate",
+        "type": "object"
+      },
+      "PartnerConnectionsOut": {
+        "properties": {
+          "credentials_available": {
+            "title": "Credentials Available",
+            "type": "boolean"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/PartnerConnectionOut"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "limit": {
+            "title": "Limit",
+            "type": "integer"
+          },
+          "offset": {
+            "title": "Offset",
+            "type": "integer"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "items",
+          "total",
+          "limit",
+          "offset",
+          "credentials_available"
+        ],
+        "title": "PartnerConnectionsOut",
+        "type": "object"
+      },
+      "PartnerConnectorConfig": {
+        "additionalProperties": false,
+        "properties": {
+          "attribution": {
+            "default": "",
+            "maxLength": 300,
+            "title": "Attribution",
+            "type": "string"
+          },
+          "auth": {
+            "$ref": "#/components/schemas/ConnectorAuth"
+          },
+          "base_url": {
+            "title": "Base Url",
+            "type": "string"
+          },
+          "detail_path": {
+            "anyOf": [
+              {
+                "maxLength": 500,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Detail Path"
+          },
+          "detail_root": {
+            "default": "",
+            "maxLength": 200,
+            "pattern": "^(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+)(?:\\.(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+))*$|^$",
+            "title": "Detail Root",
+            "type": "string"
+          },
+          "fields": {
+            "$ref": "#/components/schemas/ConnectorFields"
+          },
+          "filters": {
+            "items": {
+              "$ref": "#/components/schemas/ConnectorFilter"
+            },
+            "maxItems": 10,
+            "title": "Filters",
+            "type": "array"
+          },
+          "items_paths": {
+            "items": {
+              "maxLength": 200,
+              "pattern": "^(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+)(?:\\.(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+))*$|^$",
+              "type": "string"
+            },
+            "maxItems": 5,
+            "minItems": 1,
+            "title": "Items Paths",
+            "type": "array"
+          },
+          "list_path": {
+            "default": "/products",
+            "maxLength": 500,
+            "minLength": 1,
+            "title": "List Path",
+            "type": "string"
+          },
+          "listing_url_template": {
+            "anyOf": [
+              {
+                "maxLength": 500,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Listing Url Template"
+          },
+          "max_pages": {
+            "default": 100,
+            "maximum": 100.0,
+            "minimum": 1.0,
+            "title": "Max Pages",
+            "type": "integer"
+          },
+          "max_response_bytes": {
+            "default": 2000000,
+            "maximum": 2000000.0,
+            "minimum": 1024.0,
+            "title": "Max Response Bytes",
+            "type": "integer"
+          },
+          "pagination": {
+            "$ref": "#/components/schemas/ConnectorPagination"
+          },
+          "parameters": {
+            "maxProperties": 20,
+            "patternProperties": {
+              "^[A-Za-z][A-Za-z0-9_-]*$": {
+                "type": "string"
+              }
+            },
+            "propertyNames": {
+              "maxLength": 100,
+              "minLength": 1
+            },
+            "title": "Parameters",
+            "type": "object"
+          },
+          "platform_hosts": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 5,
+            "title": "Platform Hosts",
+            "type": "array"
+          },
+          "requests_per_minute": {
+            "default": 60,
+            "maximum": 60.0,
+            "minimum": 1.0,
+            "title": "Requests Per Minute",
+            "type": "integer"
+          },
+          "timeout_seconds": {
+            "default": 15,
+            "maximum": 15.0,
+            "minimum": 1.0,
+            "title": "Timeout Seconds",
+            "type": "integer"
+          },
+          "version": {
+            "const": 1,
+            "default": 1,
+            "title": "Version",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "base_url"
+        ],
+        "title": "PartnerConnectorConfig",
         "type": "object"
       },
       "PartnerIdentity": {
@@ -1237,6 +2244,655 @@
         ],
         "title": "ValidationIssue",
         "type": "object"
+      },
+      "WorkspaceAssetMetrics": {
+        "properties": {
+          "account_id": {
+            "format": "uuid",
+            "title": "Account Id",
+            "type": "string"
+          },
+          "account_name": {
+            "title": "Account Name",
+            "type": "string"
+          },
+          "ad_format": {
+            "default": "feed",
+            "enum": [
+              "feed",
+              "homepage_sponsorship",
+              "sponsored_content",
+              "engagement"
+            ],
+            "title": "Ad Format",
+            "type": "string"
+          },
+          "ad_formats": {
+            "items": {
+              "enum": [
+                "feed",
+                "homepage_sponsorship",
+                "sponsored_content",
+                "engagement"
+              ],
+              "type": "string"
+            },
+            "title": "Ad Formats",
+            "type": "array"
+          },
+          "aggregated": {
+            "default": false,
+            "title": "Aggregated",
+            "type": "boolean"
+          },
+          "article_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Article Id"
+          },
+          "automatic": {
+            "default": false,
+            "title": "Automatic",
+            "type": "boolean"
+          },
+          "campaign_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Campaign Id"
+          },
+          "clicks": {
+            "title": "Clicks",
+            "type": "integer"
+          },
+          "ctr": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ctr"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "impressions": {
+            "title": "Impressions",
+            "type": "integer"
+          },
+          "kind": {
+            "enum": [
+              "product",
+              "ad"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "measured_days": {
+            "title": "Measured Days",
+            "type": "integer"
+          },
+          "name": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Name",
+            "type": "string"
+          },
+          "product_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Product Id"
+          },
+          "status": {
+            "default": "draft",
+            "enum": [
+              "draft",
+              "active",
+              "paused",
+              "ended"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "impressions",
+          "clicks",
+          "ctr",
+          "measured_days",
+          "name",
+          "kind",
+          "id",
+          "account_id",
+          "account_name"
+        ],
+        "title": "WorkspaceAssetMetrics",
+        "type": "object"
+      },
+      "WorkspaceConnectionCreate": {
+        "additionalProperties": false,
+        "properties": {
+          "account_id": {
+            "format": "uuid",
+            "title": "Account Id",
+            "type": "string"
+          },
+          "connector": {
+            "$ref": "#/components/schemas/PartnerConnectorConfig"
+          },
+          "credential": {
+            "anyOf": [
+              {
+                "format": "password",
+                "type": "string",
+                "writeOnly": true
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Credential",
+            "writeOnly": true
+          },
+          "enabled": {
+            "default": true,
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "name": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Name",
+            "type": "string"
+          },
+          "sync_interval_minutes": {
+            "default": 360,
+            "maximum": 10080.0,
+            "minimum": 15.0,
+            "title": "Sync Interval Minutes",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "name",
+          "connector",
+          "account_id"
+        ],
+        "title": "WorkspaceConnectionCreate",
+        "type": "object"
+      },
+      "WorkspaceConnectionOut": {
+        "properties": {
+          "account_id": {
+            "format": "uuid",
+            "title": "Account Id",
+            "type": "string"
+          },
+          "account_name": {
+            "title": "Account Name",
+            "type": "string"
+          },
+          "ai_enabled": {
+            "title": "Ai Enabled",
+            "type": "boolean"
+          },
+          "api_url": {
+            "title": "Api Url",
+            "type": "string"
+          },
+          "approval_mode": {
+            "anyOf": [
+              {
+                "enum": [
+                  "qualified",
+                  "trusted"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Approval Mode"
+          },
+          "auth_mode": {
+            "enum": [
+              "none",
+              "bearer",
+              "api_key"
+            ],
+            "title": "Auth Mode",
+            "type": "string"
+          },
+          "checking": {
+            "title": "Checking",
+            "type": "integer"
+          },
+          "commercial_approved": {
+            "default": 0,
+            "title": "Commercial Approved",
+            "type": "integer"
+          },
+          "connector": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ConnectorConfig"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "connector_editable": {
+            "title": "Connector Editable",
+            "type": "boolean"
+          },
+          "credential_configured": {
+            "title": "Credential Configured",
+            "type": "boolean"
+          },
+          "credential_header": {
+            "title": "Credential Header",
+            "type": "string"
+          },
+          "credentials_available": {
+            "title": "Credentials Available",
+            "type": "boolean"
+          },
+          "credentials_managed": {
+            "title": "Credentials Managed",
+            "type": "boolean"
+          },
+          "enabled": {
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          },
+          "excluded": {
+            "title": "Excluded",
+            "type": "integer"
+          },
+          "last_sync_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Sync At"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "needs_attention": {
+            "title": "Needs Attention",
+            "type": "integer"
+          },
+          "next_sync_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Sync At"
+          },
+          "partnership_type": {
+            "const": "launch_platform",
+            "default": "launch_platform",
+            "title": "Partnership Type",
+            "type": "string"
+          },
+          "products": {
+            "title": "Products",
+            "type": "integer"
+          },
+          "provider": {
+            "title": "Provider",
+            "type": "string"
+          },
+          "qualified": {
+            "title": "Qualified",
+            "type": "integer"
+          },
+          "revision": {
+            "title": "Revision",
+            "type": "integer"
+          },
+          "state": {
+            "enum": [
+              "disconnected",
+              "idle",
+              "syncing",
+              "error"
+            ],
+            "title": "State",
+            "type": "string"
+          },
+          "sync_interval_minutes": {
+            "title": "Sync Interval Minutes",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "account_id",
+          "sync_interval_minutes",
+          "revision",
+          "provider",
+          "name",
+          "api_url",
+          "enabled",
+          "state",
+          "last_sync_at",
+          "next_sync_at",
+          "error",
+          "products",
+          "qualified",
+          "checking",
+          "needs_attention",
+          "excluded",
+          "ai_enabled",
+          "auth_mode",
+          "credential_header",
+          "credential_configured",
+          "credentials_managed",
+          "connector_editable",
+          "account_name",
+          "credentials_available"
+        ],
+        "title": "WorkspaceConnectionOut",
+        "type": "object"
+      },
+      "WorkspaceConnectionsOut": {
+        "properties": {
+          "credentials_available": {
+            "title": "Credentials Available",
+            "type": "boolean"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/WorkspaceConnectionOut"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "limit": {
+            "title": "Limit",
+            "type": "integer"
+          },
+          "offset": {
+            "title": "Offset",
+            "type": "integer"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "items",
+          "total",
+          "limit",
+          "offset",
+          "credentials_available"
+        ],
+        "title": "WorkspaceConnectionsOut",
+        "type": "object"
+      },
+      "WorkspaceDashboard": {
+        "properties": {
+          "account_total": {
+            "title": "Account Total",
+            "type": "integer"
+          },
+          "asset_total": {
+            "title": "Asset Total",
+            "type": "integer"
+          },
+          "assets": {
+            "items": {
+              "$ref": "#/components/schemas/WorkspaceAssetMetrics"
+            },
+            "title": "Assets",
+            "type": "array"
+          },
+          "end": {
+            "format": "date",
+            "title": "End",
+            "type": "string"
+          },
+          "format_totals": {
+            "items": {
+              "$ref": "#/components/schemas/FormatTotals"
+            },
+            "title": "Format Totals",
+            "type": "array"
+          },
+          "last_updated_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Updated At"
+          },
+          "start": {
+            "format": "date",
+            "title": "Start",
+            "type": "string"
+          },
+          "totals": {
+            "$ref": "#/components/schemas/Totals"
+          },
+          "trend": {
+            "items": {
+              "$ref": "#/components/schemas/Trend"
+            },
+            "title": "Trend",
+            "type": "array"
+          }
+        },
+        "required": [
+          "start",
+          "end",
+          "totals",
+          "trend",
+          "asset_total",
+          "last_updated_at",
+          "account_total",
+          "assets"
+        ],
+        "title": "WorkspaceDashboard",
+        "type": "object"
+      },
+      "WorkspaceInventoryOut": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/WorkspaceInventoryProductOut"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "limit": {
+            "title": "Limit",
+            "type": "integer"
+          },
+          "offset": {
+            "title": "Offset",
+            "type": "integer"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "items",
+          "total",
+          "limit",
+          "offset"
+        ],
+        "title": "WorkspaceInventoryOut",
+        "type": "object"
+      },
+      "WorkspaceInventoryProductOut": {
+        "properties": {
+          "account_id": {
+            "format": "uuid",
+            "title": "Account Id",
+            "type": "string"
+          },
+          "account_name": {
+            "title": "Account Name",
+            "type": "string"
+          },
+          "ad_formats": {
+            "anyOf": [
+              {
+                "items": {
+                  "enum": [
+                    "feed",
+                    "homepage_sponsorship",
+                    "sponsored_content",
+                    "engagement"
+                  ],
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ad Formats"
+          },
+          "approval_source": {
+            "anyOf": [
+              {
+                "enum": [
+                  "qualified",
+                  "trusted"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Approval Source"
+          },
+          "commercial_approved": {
+            "default": false,
+            "title": "Commercial Approved",
+            "type": "boolean"
+          },
+          "excluded": {
+            "title": "Excluded",
+            "type": "boolean"
+          },
+          "globally_excluded": {
+            "title": "Globally Excluded",
+            "type": "boolean"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "promotion_surfaces": {
+            "anyOf": [
+              {
+                "items": {
+                  "enum": [
+                    "article",
+                    "topic",
+                    "feed"
+                  ],
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Promotion Surfaces"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "technologies": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Technologies",
+            "type": "array"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "technologies",
+          "status",
+          "excluded",
+          "globally_excluded",
+          "account_id",
+          "account_name"
+        ],
+        "title": "WorkspaceInventoryProductOut",
+        "type": "object"
       }
     },
     "securitySchemes": {
@@ -1369,7 +3025,7 @@
     },
     "/v1/partner/accounts": {
       "get": {
-        "operationId": "accounts_v1_partner_accounts_get",
+        "operationId": "partnerAccountsList",
         "parameters": [
           {
             "in": "query",
@@ -1392,6 +3048,18 @@
               "minimum": 0,
               "title": "Offset",
               "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "q",
+            "required": false,
+            "schema": {
+              "default": "",
+              "maxLength": 200,
+              "pattern": "^[^\\x00]*$",
+              "title": "Q",
+              "type": "string"
             }
           }
         ],
@@ -1646,6 +3314,668 @@
         "summary": "Audience Topics",
         "tags": [
           "partner"
+        ]
+      }
+    },
+    "/v1/partner/accounts/{account_id}/connections": {
+      "get": {
+        "operationId": "partnerConnectionsList",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "account_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Account Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "q",
+            "required": false,
+            "schema": {
+              "default": "",
+              "maxLength": 200,
+              "pattern": "^[^\\x00]*$",
+              "title": "Q",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "sort",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 50,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Sort"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 25,
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "maximum": 9223372036854775807,
+              "minimum": 0,
+              "title": "Offset",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PartnerConnectionsOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Request validation failed"
+          },
+          "4XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Invalid or unauthorized request"
+          },
+          "5XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service or dependency unavailable"
+          }
+        },
+        "security": [
+          {
+            "APIKeyCookie": []
+          }
+        ],
+        "summary": "List Connections",
+        "tags": [
+          "partner-connections"
+        ]
+      },
+      "post": {
+        "operationId": "partnerConnectionCreate",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "account_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Account Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PartnerConnectionCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PartnerConnectionOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Request validation failed"
+          },
+          "4XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Invalid or unauthorized request"
+          },
+          "5XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service or dependency unavailable"
+          }
+        },
+        "security": [
+          {
+            "APIKeyCookie": []
+          }
+        ],
+        "summary": "Create Connection",
+        "tags": [
+          "partner-connections"
+        ]
+      }
+    },
+    "/v1/partner/accounts/{account_id}/connections/{provider}": {
+      "delete": {
+        "description": "Archive the connection and erase its token, retaining catalog and reporting history.",
+        "operationId": "partnerConnectionDelete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "account_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Account Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "provider",
+            "required": true,
+            "schema": {
+              "title": "Provider",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PartnerConnectionDelete"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PartnerConnectionOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Request validation failed"
+          },
+          "4XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Invalid or unauthorized request"
+          },
+          "5XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service or dependency unavailable"
+          }
+        },
+        "security": [
+          {
+            "APIKeyCookie": []
+          }
+        ],
+        "summary": "Disconnect Connection",
+        "tags": [
+          "partner-connections"
+        ]
+      },
+      "get": {
+        "operationId": "partnerConnectionGet",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "account_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Account Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "provider",
+            "required": true,
+            "schema": {
+              "title": "Provider",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PartnerConnectionOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Request validation failed"
+          },
+          "4XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Invalid or unauthorized request"
+          },
+          "5XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service or dependency unavailable"
+          }
+        },
+        "security": [
+          {
+            "APIKeyCookie": []
+          }
+        ],
+        "summary": "Get Connection",
+        "tags": [
+          "partner-connections"
+        ]
+      },
+      "put": {
+        "operationId": "partnerConnectionUpdate",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "account_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Account Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "provider",
+            "required": true,
+            "schema": {
+              "title": "Provider",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PartnerConnectionUpdate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PartnerConnectionOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Request validation failed"
+          },
+          "4XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Invalid or unauthorized request"
+          },
+          "5XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service or dependency unavailable"
+          }
+        },
+        "security": [
+          {
+            "APIKeyCookie": []
+          }
+        ],
+        "summary": "Update Connection",
+        "tags": [
+          "partner-connections"
+        ]
+      }
+    },
+    "/v1/partner/accounts/{account_id}/connections/{provider}/actions": {
+      "post": {
+        "operationId": "partnerConnectionAction",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "account_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Account Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "provider",
+            "required": true,
+            "schema": {
+              "title": "Provider",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PartnerConnectionAction"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PartnerConnectionOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Request validation failed"
+          },
+          "4XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Invalid or unauthorized request"
+          },
+          "5XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service or dependency unavailable"
+          }
+        },
+        "security": [
+          {
+            "APIKeyCookie": []
+          }
+        ],
+        "summary": "Connection Action",
+        "tags": [
+          "partner-connections"
+        ]
+      }
+    },
+    "/v1/partner/accounts/{account_id}/connections/{provider}/jobs": {
+      "get": {
+        "operationId": "partnerConnectionJobs",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "account_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Account Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "provider",
+            "required": true,
+            "schema": {
+              "title": "Provider",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "q",
+            "required": false,
+            "schema": {
+              "default": "",
+              "maxLength": 200,
+              "pattern": "^[^\\x00]*$",
+              "title": "Q",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "sort",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 50,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Sort"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 25,
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "maximum": 9223372036854775807,
+              "minimum": 0,
+              "title": "Offset",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PartnerConnectionJobsOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Request validation failed"
+          },
+          "4XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Invalid or unauthorized request"
+          },
+          "5XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service or dependency unavailable"
+          }
+        },
+        "security": [
+          {
+            "APIKeyCookie": []
+          }
+        ],
+        "summary": "Connection Jobs",
+        "tags": [
+          "partner-connections"
         ]
       }
     },
@@ -2658,6 +4988,675 @@
         "summary": "Me",
         "tags": [
           "partner-auth"
+        ]
+      }
+    },
+    "/v1/partner/connections": {
+      "get": {
+        "operationId": "partnerWorkspaceConnections",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "account_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Account Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "q",
+            "required": false,
+            "schema": {
+              "default": "",
+              "maxLength": 200,
+              "pattern": "^[^\\x00]*$",
+              "title": "Q",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "sort",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 50,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Sort"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 25,
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "maximum": 9223372036854775807,
+              "minimum": 0,
+              "title": "Offset",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkspaceConnectionsOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Request validation failed"
+          },
+          "4XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Invalid or unauthorized request"
+          },
+          "5XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service or dependency unavailable"
+          }
+        },
+        "security": [
+          {
+            "APIKeyCookie": []
+          }
+        ],
+        "summary": "Connections",
+        "tags": [
+          "partner-workspace"
+        ]
+      },
+      "post": {
+        "operationId": "partnerWorkspaceConnectionCreate",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WorkspaceConnectionCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkspaceConnectionOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Request validation failed"
+          },
+          "4XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Invalid or unauthorized request"
+          },
+          "5XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service or dependency unavailable"
+          }
+        },
+        "security": [
+          {
+            "APIKeyCookie": []
+          }
+        ],
+        "summary": "Add Connection",
+        "tags": [
+          "partner-workspace"
+        ]
+      }
+    },
+    "/v1/partner/connections/{provider}": {
+      "get": {
+        "operationId": "partnerWorkspaceConnectionGet",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "provider",
+            "required": true,
+            "schema": {
+              "title": "Provider",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkspaceConnectionOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Request validation failed"
+          },
+          "4XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Invalid or unauthorized request"
+          },
+          "5XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service or dependency unavailable"
+          }
+        },
+        "security": [
+          {
+            "APIKeyCookie": []
+          }
+        ],
+        "summary": "Get Connection",
+        "tags": [
+          "partner-workspace"
+        ]
+      }
+    },
+    "/v1/partner/connections/{provider}/jobs": {
+      "get": {
+        "operationId": "partnerWorkspaceConnectionJobs",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "provider",
+            "required": true,
+            "schema": {
+              "title": "Provider",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "q",
+            "required": false,
+            "schema": {
+              "default": "",
+              "maxLength": 200,
+              "pattern": "^[^\\x00]*$",
+              "title": "Q",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "sort",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 50,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Sort"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 25,
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "maximum": 9223372036854775807,
+              "minimum": 0,
+              "title": "Offset",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PartnerConnectionJobsOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Request validation failed"
+          },
+          "4XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Invalid or unauthorized request"
+          },
+          "5XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service or dependency unavailable"
+          }
+        },
+        "security": [
+          {
+            "APIKeyCookie": []
+          }
+        ],
+        "summary": "Jobs",
+        "tags": [
+          "partner-workspace"
+        ]
+      }
+    },
+    "/v1/partner/dashboard": {
+      "get": {
+        "operationId": "partnerWorkspaceDashboard",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "account_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Account Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "days",
+            "required": false,
+            "schema": {
+              "default": 30,
+              "maximum": 365,
+              "minimum": 1,
+              "title": "Days",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 100,
+              "maximum": 200,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "minimum": 0,
+              "title": "Offset",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "sort",
+            "required": false,
+            "schema": {
+              "default": "name",
+              "enum": [
+                "name",
+                "account",
+                "impressions",
+                "clicks",
+                "ctr"
+              ],
+              "title": "Sort",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "order",
+            "required": false,
+            "schema": {
+              "default": "asc",
+              "enum": [
+                "asc",
+                "desc"
+              ],
+              "title": "Order",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "ad_format",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "feed",
+                    "homepage_sponsorship",
+                    "sponsored_content",
+                    "engagement"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Ad Format"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkspaceDashboard"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Request validation failed"
+          },
+          "4XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Invalid or unauthorized request"
+          },
+          "5XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service or dependency unavailable"
+          }
+        },
+        "security": [
+          {
+            "APIKeyCookie": []
+          }
+        ],
+        "summary": "Dashboard",
+        "tags": [
+          "partner-workspace"
+        ]
+      }
+    },
+    "/v1/partner/inventory": {
+      "get": {
+        "operationId": "partnerWorkspaceInventory",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "account_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Account Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "product_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Product Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "q",
+            "required": false,
+            "schema": {
+              "default": "",
+              "maxLength": 200,
+              "pattern": "^[^\\x00]*$",
+              "title": "Q",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 100,
+              "maximum": 200,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "minimum": 0,
+              "title": "Offset",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkspaceInventoryOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Request validation failed"
+          },
+          "4XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Invalid or unauthorized request"
+          },
+          "5XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service or dependency unavailable"
+          }
+        },
+        "security": [
+          {
+            "APIKeyCookie": []
+          }
+        ],
+        "summary": "Inventory",
+        "tags": [
+          "partner-workspace"
         ]
       }
     }

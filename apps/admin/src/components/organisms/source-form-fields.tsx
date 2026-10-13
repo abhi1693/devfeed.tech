@@ -8,7 +8,7 @@ import {
   type Dispatch,
   type SetStateAction,
 } from "react";
-import { Button } from "@/components/atoms/button";
+import { Button } from "@devfeed/ui/button";
 import { FormField } from "@/components/molecules/form-field";
 import { useAdmin } from "@/components/molecules/admin-session";
 import { adminSourcePreview } from "@/lib/api/generated/admin";

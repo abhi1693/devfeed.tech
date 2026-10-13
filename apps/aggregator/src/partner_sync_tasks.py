@@ -37,6 +37,7 @@ from devfeed_core.partner_connections import (
     validate_qualification,
 )
 from devfeed_core.partner_connectors import connector_snapshot
+from devfeed_core.partner_credentials import connection_credential
 from devfeed_core.partner_tools import ProductInput, product_snapshot
 from devfeed_core.research_evidence import fetched_page
 from devfeed_core.urls import canonicalize_url, fingerprint
@@ -219,7 +220,7 @@ def _process_pipeline(job_id: str, *, factory=None, reader=None, page_fetcher=No
             logger.debug("partner_pipeline_not_claimed", extra={"provider": provider})
             return
         available = (
-            bool(connection and connection.enabled)
+            bool(connection and connection.enabled and connection.archived_at is None)
             if job.operation == "sync"
             else bool(active_provider(session, job.product_id))
         )
@@ -299,7 +300,12 @@ def _process_pipeline(job_id: str, *, factory=None, reader=None, page_fetcher=No
             products, cursor = (
                 reader(payload["cursor"])
                 if reader
-                else read_partner_page(provider, payload["cursor"], connector)
+                else read_partner_page(
+                    provider,
+                    payload["cursor"],
+                    connector,
+                    credential=connection_credential(connection, connector),
+                )
             )
             candidates = [
                 ProductCandidate(
@@ -389,6 +395,7 @@ def _process_pipeline(job_id: str, *, factory=None, reader=None, page_fetcher=No
             bool(
                 connection
                 and connection.enabled
+                and connection.archived_at is None
                 and connection.sync_revision == connection_revision
             )
             if operation == "sync"
@@ -532,7 +539,7 @@ def schedule_partner_syncs(factory):
         lock_catalog(session)
         connections = session.scalars(
             select(PartnerConnection)
-            .where(PartnerConnection.enabled.is_(True))
+            .where(PartnerConnection.enabled.is_(True), PartnerConnection.archived_at.is_(None))
             .with_for_update(skip_locked=True)
         ).all()
         for connection in connections:

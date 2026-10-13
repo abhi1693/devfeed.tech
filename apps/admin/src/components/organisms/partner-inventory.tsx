@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useCallback, useState } from "react";
-import { Button } from "@/components/atoms/button";
+import { Button } from "@devfeed/ui/button";
 import { DataTable, type DataTableColumn } from "@/components/molecules/data-table";
 import { RequestState } from "@/components/molecules/request-state";
 import { SearchField } from "@/components/molecules/search-field";

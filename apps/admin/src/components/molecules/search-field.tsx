@@ -2,8 +2,8 @@
 
 import { useEffect, useRef, useState } from "react";
 import { Search, X } from "lucide-react";
-import { Input } from "@/components/atoms/input";
-import { Button } from "@/components/atoms/button";
+import { Input } from "@devfeed/ui/input";
+import { Button } from "@devfeed/ui/button";
 import { cn } from "@/lib/utils";
 
 /** Query acknowledgements and paging do not reset an in-progress search. */

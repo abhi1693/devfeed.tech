@@ -18,7 +18,7 @@ it("shows partner navigation without management access", () => {
   expect(screen.queryByRole("link", { name: "Manage partnerships" })).toBeNull();
   expect(screen.queryByText("Partners")).toBeNull();
   expect(screen.queryByText("DevFeed Partners")).toBeNull();
-  expect(screen.getByRole("link", { name: "Products & ads" }).getAttribute("href")).toBe("/assets");
+  expect(screen.getByRole("link", { name: "Products" }).getAttribute("href")).toBe("/products");
 });
 
 it("opens mobile navigation and closes it after choosing a section", async () => {
@@ -40,7 +40,6 @@ it("opens the account dropdown with identity, scoped navigation and sign out", a
   render(
     <PortalShell
       identity={{ ...identity, name: "Alice Partner", email: "alice@example.test" }}
-      accountId="alpha"
       query="?days=7"
       onSignOut={signOut}
     >
@@ -51,7 +50,7 @@ it("opens the account dropdown with identity, scoped navigation and sign out", a
   await userEvent.click(screen.getByRole("button", { name: "User menu: Alice Partner" }));
   expect(screen.getByText("alice@example.test")).toBeTruthy();
   expect(screen.getByRole("menuitem", { name: "Performance" }).getAttribute("href")).toBe(
-    "/alpha/performance?days=7",
+    "/performance?days=7",
   );
   await userEvent.click(screen.getByRole("menuitem", { name: "Sign out" }));
   expect(signOut).toHaveBeenCalledTimes(1);

@@ -18,7 +18,7 @@ from devfeed_http.telemetry import fastapi_telemetry
 from fastapi import FastAPI
 from starlette.concurrency import run_in_threadpool
 
-from devfeed_partner_api import auth, portal
+from devfeed_partner_api import auth, connections, portal, workspace
 from devfeed_partner_api.config import get_settings
 from devfeed_partner_api.dependencies import DB, get_redis
 
@@ -91,6 +91,8 @@ def create_app() -> FastAPI:
 
     app.include_router(auth.router)
     app.include_router(portal.router)
+    app.include_router(connections.router)
+    app.include_router(workspace.router)
     return app
 
 

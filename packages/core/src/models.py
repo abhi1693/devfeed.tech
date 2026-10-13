@@ -1597,6 +1597,13 @@ class PartnerConnection(Base):
             "sync_interval_minutes BETWEEN 1 AND 10080", name="ck_partner_sync_interval"
         ),
         CheckConstraint("partnership_type = 'launch_platform'", name="ck_partner_connection_type"),
+        Index(
+            "ix_partner_connections_active_account",
+            "account_id",
+            "name",
+            "provider",
+            postgresql_where=text("archived_at IS NULL"),
+        ),
     )
     partnership_type: Mapped[str] = mapped_column(
         String(40), default="launch_platform", server_default="launch_platform"
@@ -1604,6 +1611,8 @@ class PartnerConnection(Base):
     provider: Mapped[str] = mapped_column(String(200), primary_key=True)
     name: Mapped[str] = mapped_column(String(200), default="", server_default="")
     connector: Mapped[dict] = mapped_column(JSONB, default=dict, server_default="{}")
+    encrypted_credential: Mapped[str | None] = mapped_column(Text)
+    archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     enabled: Mapped[bool] = mapped_column(Boolean, default=False)
     revision: Mapped[int] = mapped_column(default=1)
     sync_revision: Mapped[int] = mapped_column(default=1, server_default="1")
@@ -1958,6 +1967,9 @@ class PartnerMembership(Base):
     """Issuer/subject is the immutable identity; an email is never an access grant."""
 
     __tablename__ = "partner_memberships"
+    __table_args__ = (
+        Index("ix_partner_memberships_identity_accounts", "issuer", "subject", "account_id"),
+    )
     account_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("partner_accounts.id", ondelete="CASCADE"), primary_key=True
     )

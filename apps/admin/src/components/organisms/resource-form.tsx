@@ -3,11 +3,11 @@ import { resourceTrail, recordHref, resourceHref } from "@/lib/routes";
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Button } from "@/components/atoms/button";
+import { Button } from "@devfeed/ui/button";
 import { ValidationErrors } from "@/components/molecules/validation-errors";
 import { FormField } from "@/components/molecules/form-field";
 import { adminRouteTitle } from "@/lib/page-titles";
-import { PageHeading } from "@/components/molecules/page-heading";
+import { ResourceHeading } from "@devfeed/ui/resource-layout";
 import { RequestState } from "@/components/molecules/request-state";
 import { useAdmin } from "@/components/molecules/admin-session";
 import { FactsEditor } from "./facts-editor";
@@ -126,7 +126,7 @@ function Editor({
   }
   return (
     <section className="max-w-4xl space-y-6">
-      <PageHeading
+      <ResourceHeading
         title={title}
         browserTitle={adminRouteTitle(
           record ? { view: "edit", resource, id: record.id } : { view: "new", resource },

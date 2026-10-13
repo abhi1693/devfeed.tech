@@ -3,7 +3,7 @@
 import { useEffect, useState, type ReactNode } from "react";
 import type { ResponseMapping } from "@/lib/partner-response-mappings";
 import { ApiError } from "@/lib/api/client";
-import { Button } from "@/components/atoms/button";
+import { Button } from "@devfeed/ui/button";
 import { RequestState } from "@/components/molecules/request-state";
 import { ValidationErrors } from "@/components/molecules/validation-errors";
 import { useAdmin } from "@/components/molecules/admin-session";

@@ -39,6 +39,7 @@ def active_provider(session, product_id):
             PartnerListing.active.is_(True),
             PartnerListing.identity_status == "resolved",
             PartnerConnection.enabled.is_(True),
+            PartnerConnection.archived_at.is_(None),
         )
         .order_by(PartnerListing.provider)
         .limit(1)
@@ -58,6 +59,7 @@ def has_active_listing():
             PartnerListing.active.is_(True),
             PartnerListing.identity_status == "resolved",
             PartnerConnection.enabled.is_(True),
+            PartnerConnection.archived_at.is_(None),
         )
     )
 

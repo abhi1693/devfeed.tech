@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState, type PointerEvent } from "react";
 import { ImageIcon, X } from "lucide-react";
-import { Button } from "@/components/atoms/button";
+import { Button } from "@devfeed/ui/button";
 import { Popover, PopoverAnchor, PopoverContent, PopoverTrigger } from "@/components/atoms/popover";
 import { UrlInput, type UrlInputProps } from "@/components/atoms/url-input";
 import { imagePreviewUrl } from "@/lib/image-preview";

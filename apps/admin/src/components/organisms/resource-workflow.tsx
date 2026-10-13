@@ -3,10 +3,10 @@ import { resourceTrail, recordHref, resourceHref } from "@/lib/routes";
 import Link from "next/link";
 import { useCallback, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Button } from "@/components/atoms/button";
+import { Button } from "@devfeed/ui/button";
 import { FormField } from "@/components/molecules/form-field";
 import { adminRouteTitle } from "@/lib/page-titles";
-import { PageHeading } from "@/components/molecules/page-heading";
+import { ResourceHeading } from "@devfeed/ui/resource-layout";
 import { RequestState } from "@/components/molecules/request-state";
 import { useAdmin } from "@/components/molecules/admin-session";
 import { getRecord, type RecordData } from "@/lib/resource-api";
@@ -35,7 +35,7 @@ export function ResourceWorkflow({
   const result = useRequest(`${resource}/${id}`, load);
   return (
     <section className="max-w-4xl space-y-6">
-      <PageHeading
+      <ResourceHeading
         title={`${humanize(action)} ${resources[resource].singular.toLowerCase()}`}
         browserTitle={adminRouteTitle(
           { view: "workflow", resource, id, action },

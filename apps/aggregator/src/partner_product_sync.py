@@ -13,6 +13,7 @@ from devfeed_core.partner_connections import (
     upsert_partner_product,
 )
 from devfeed_core.partner_connectors import connector_snapshot
+from devfeed_core.partner_credentials import connection_credential
 from devfeed_core.research_evidence import fetched_page
 from sqlalchemy import select
 
@@ -36,6 +37,7 @@ def process_product_sync(identifier, factory, *, product_reader=None, page_fetch
         if (
             not connection
             or not connection.enabled
+            or connection.archived_at is not None
             or not parent
             or parent.status not in {"queued", "running", "failed"}
             or connection.sync_revision != parent.payload["connection_revision"]
@@ -58,7 +60,12 @@ def process_product_sync(identifier, factory, *, product_reader=None, page_fetch
         item = (
             product_reader(provider, candidate)
             if product_reader
-            else read_partner_product(provider, candidate, connector)
+            else read_partner_product(
+                provider,
+                candidate,
+                connector,
+                credential=connection_credential(connection, connector),
+            )
         )
         if item.provider != provider or item.external_id != candidate.external_id:
             raise ValueError("Partner product identity changed")
@@ -74,6 +81,7 @@ def process_product_sync(identifier, factory, *, product_reader=None, page_fetch
             if (
                 not connection
                 or not connection.enabled
+                or connection.archived_at is not None
                 or connection.sync_revision != revision
                 or not parent
                 or parent.status not in {"queued", "running", "failed"}

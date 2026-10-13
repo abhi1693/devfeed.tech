@@ -4526,6 +4526,15 @@
             "pattern": "^$|^DEVFEED_PARTNER_SECRET_[A-Z0-9_]{1,80}$",
             "title": "Secret Ref",
             "type": "string"
+          },
+          "source": {
+            "default": "environment",
+            "enum": [
+              "environment",
+              "connection"
+            ],
+            "title": "Source",
+            "type": "string"
           }
         },
         "title": "ConnectorAuth",
@@ -5085,14 +5094,14 @@
           }
         },
         "required": [
-          "account",
           "start",
           "end",
           "totals",
           "trend",
-          "assets",
           "asset_total",
-          "last_updated_at"
+          "last_updated_at",
+          "account",
+          "assets"
         ],
         "title": "Dashboard",
         "type": "object"

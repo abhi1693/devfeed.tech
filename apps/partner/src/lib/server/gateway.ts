@@ -22,43 +22,79 @@ const productPromotionPath =
   /^\/v1\/partner\/accounts\/[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}\/products\/[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}\/promotion$/i;
 const inventoryPath =
   /^\/v1\/partner\/accounts\/[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}\/inventory$/i;
+const accountDashboardPath =
+  /^\/v1\/partner\/accounts\/[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}\/dashboard$/i;
+const connectionsPath =
+  /^\/v1\/partner\/accounts\/[a-fA-F0-9]{8}(?:-[a-fA-F0-9]{4}){3}-[a-fA-F0-9]{12}\/connections(?:\/([a-z0-9]+(?:-[a-z0-9]+)*))?(?:\/(actions|jobs))?$/;
+const workspaceConnectionsPath =
+  /^\/v1\/partner\/connections(?:\/([a-z0-9]+(?:-[a-z0-9]+)*))?(?:\/(jobs))?$/;
+
+function connectionMethods(path: string): readonly string[] | undefined {
+  const workspace = workspaceConnectionsPath.exec(path);
+  const match = workspace ?? connectionsPath.exec(path);
+  if (!match) return undefined;
+  const [, provider, subresource] = match;
+  if (provider && (provider === "new" || provider.length > 200)) return undefined;
+  if (!provider) return ["GET", "POST"];
+  if (workspace) return ["GET"];
+  if (subresource === "actions") return ["POST"];
+  if (subresource === "jobs") return ["GET"];
+  return ["GET", "PUT", "DELETE"];
+}
 
 export async function gateway(request: Request, segments: string[]) {
   const path = "/" + segments.join("/");
-  if (!privatePath.test(path) || segments.some((part) => part === "." || part === "..")) {
+  if (
+    !privatePath.test(path) ||
+    segments.some((part) => part === "." || part === ".." || part.includes("/"))
+  ) {
     return Response.json({ detail: "Not found" }, { status: 404 });
   }
-  if (segments.includes("destination-preview")) {
+  const connections = connectionMethods(path);
+  if (segments.some((part) => part.toLowerCase() === "connections")) {
+    if (!connections) return Response.json({ detail: "Not found" }, { status: 404 });
+    if (!connections.includes(request.method))
+      return Response.json({ detail: "Method not allowed" }, { status: 405 });
+  }
+  if (!connections && segments.includes("destination-preview")) {
     if (!destinationPreviewPath.test(path))
       return Response.json({ detail: "Not found" }, { status: 404 });
     if (request.method !== "GET")
       return Response.json({ detail: "Method not allowed" }, { status: 405 });
   }
-  if (segments.includes("audience-topics")) {
+  if (!connections && segments.includes("audience-topics")) {
     if (!audienceTopicsPath.test(path))
       return Response.json({ detail: "Not found" }, { status: 404 });
     if (request.method !== "GET")
       return Response.json({ detail: "Method not allowed" }, { status: 405 });
   }
-  if (segments.includes("creative-preview")) {
+  if (!connections && segments.includes("creative-preview")) {
     if (!creativePreviewPath.test(path))
       return Response.json({ detail: "Not found" }, { status: 404 });
     if (request.method !== "GET")
       return Response.json({ detail: "Method not allowed" }, { status: 405 });
   }
-  if (segments.includes("promotion")) {
+  if (!connections && segments.includes("promotion")) {
     if (!productPromotionPath.test(path))
       return Response.json({ detail: "Not found" }, { status: 404 });
     if (!["GET", "PUT"].includes(request.method))
       return Response.json({ detail: "Method not allowed" }, { status: 405 });
   }
-  if (segments.includes("inventory")) {
-    if (!inventoryPath.test(path)) return Response.json({ detail: "Not found" }, { status: 404 });
+  if (!connections && segments.includes("inventory")) {
+    if (path !== "/v1/partner/inventory" && !inventoryPath.test(path))
+      return Response.json({ detail: "Not found" }, { status: 404 });
+    if (request.method !== "GET")
+      return Response.json({ detail: "Method not allowed" }, { status: 405 });
+  }
+  if (!connections && segments.includes("dashboard")) {
+    if (path !== "/v1/partner/dashboard" && !accountDashboardPath.test(path))
+      return Response.json({ detail: "Not found" }, { status: 404 });
     if (request.method !== "GET")
       return Response.json({ detail: "Method not allowed" }, { status: 405 });
   }
   if (
     !safe.has(request.method) &&
+    !connections?.includes(request.method) &&
     !(request.method === "POST" && path === "/v1/partner/auth/logout") &&
     !(request.method === "PUT" && (preferencesPath.test(path) || productPromotionPath.test(path)))
   ) {

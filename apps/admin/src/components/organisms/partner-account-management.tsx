@@ -2,8 +2,8 @@
 
 import { useEffect, useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
-import { Button } from "@/components/atoms/button";
-import { Input } from "@/components/atoms/input";
+import { Button } from "@devfeed/ui/button";
+import { Input } from "@devfeed/ui/input";
 import { listRecords, getRecord } from "@/lib/resource-api";
 import { EntityPicker, type EntityPickerSource } from "@/components/molecules/entity-picker";
 import { Field } from "@/components/molecules/field";

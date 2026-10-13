@@ -4,6 +4,7 @@
   "private": true,
   "type": "module",
   "exports": {
+    "./resource-layout": "./src/resource-layout.tsx",
     "./info-tip": "./src/info-tip.tsx",
     "./info-tip.css": "./src/info-tip.css",
     "./choice-controls": "./src/choice-controls.tsx",
@@ -31,11 +32,14 @@
     "./input": "./src/input.tsx",
     "./textarea": "./src/textarea.tsx",
     "./table": "./src/table.tsx",
-    "./badge": "./src/badge.tsx"
+    "./badge": "./src/badge.tsx",
+    "./chart": "./src/chart.tsx"
   },
   "peerDependencies": {
     "react": "19.3.0",
-    "react-dom": "19.3.0"
+    "react-dom": "19.3.0",
+    "recharts": "3.10.1",
+    "next": "^16.4.0"
   },
   "dependencies": {
     "@chimely/client": "0.2.2",
@@ -49,5 +53,13 @@
     "tailwind-merge": "^3.7.0",
     "class-variance-authority": "^0.7.1",
     "cn": "^0.4.0"
+  },
+  "peerDependenciesMeta": {
+    "recharts": {
+      "optional": true
+    },
+    "next": {
+      "optional": true
+    }
   }
 }

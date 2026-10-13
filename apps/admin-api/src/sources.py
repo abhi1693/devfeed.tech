@@ -30,7 +30,15 @@ from devfeed_core.schemas import (
 )
 from devfeed_core.source_preview import preview_source
 from devfeed_core.source_types import SourceType
+from devfeed_core.text_search import text_search
 from devfeed_core.urls import validate_public_url
+from devfeed_http.pagination import (
+    Listing,
+    Page,
+    paginate,
+    record,
+    require_record,
+)
 from fastapi import APIRouter, Depends, HTTPException, Response
 from pydantic import Field, field_validator
 from sqlalchemy import delete, select
@@ -38,14 +46,6 @@ from sqlalchemy.exc import IntegrityError
 
 from devfeed_admin_api.auth import Admin, require_admin
 from devfeed_admin_api.dependencies import DB
-from devfeed_admin_api.pagination import (
-    Listing,
-    Page,
-    paginate,
-    record,
-    require_record,
-)
-from devfeed_admin_api.search import text_search
 from devfeed_admin_api.source_solver import solve_feed
 
 router = APIRouter(

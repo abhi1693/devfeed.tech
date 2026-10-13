@@ -37,6 +37,7 @@ def associated_products_query(account_id: uuid.UUID | None = None):
         .join(PartnerProduct, PartnerProduct.id == PartnerListing.product_id)
         .where(
             PartnerConnection.enabled.is_(True),
+            PartnerConnection.archived_at.is_(None),
             PartnerListing.active.is_(True),
             PartnerListing.identity_status == "resolved",
             PartnerProduct.merged_into_id.is_(None),
@@ -100,6 +101,7 @@ def trusted_product_exists():
             PartnerAccount.status == "active",
             PartnerAccount.approval_mode == "trusted",
             PartnerConnection.enabled.is_(True),
+            PartnerConnection.archived_at.is_(None),
             PartnerListing.product_id == PartnerProduct.id,
             PartnerListing.active.is_(True),
             PartnerListing.identity_status == "resolved",

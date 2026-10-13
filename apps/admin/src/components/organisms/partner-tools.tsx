@@ -3,9 +3,9 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useState } from "react";
-import { Button } from "@/components/atoms/button";
+import { Button } from "@devfeed/ui/button";
 import { DataTable, type DataTableColumn } from "@/components/molecules/data-table";
-import { PageHeading } from "@/components/molecules/page-heading";
+import { ResourceHeading } from "@devfeed/ui/resource-layout";
 import { SearchField, searchScope } from "@/components/molecules/search-field";
 import { adminPartnerToolsList } from "@/lib/api/generated/admin";
 import type { ProductOut } from "@/lib/api/generated/models";
@@ -100,7 +100,7 @@ function ProductTable({ query, provider }: { query: string; provider?: string })
   }
   return (
     <section className="space-y-6">
-      <PageHeading title="Products" trail={partnershipTrail} />
+      <ResourceHeading title="Products" trail={partnershipTrail} />
       <DataTable
         label="Products"
         data={result.data?.items ?? []}

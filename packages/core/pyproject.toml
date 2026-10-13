@@ -21,6 +21,7 @@ dependencies = [
   "opentelemetry-exporter-prometheus>=0.64b0,<1",
   "pyroscope-io>=1.0.3,<2",
   "protego>=0.7,<0.8",
+  "cryptography>=46,<51",
 ]
 
 [build-system]

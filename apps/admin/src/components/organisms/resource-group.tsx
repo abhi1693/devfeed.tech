@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { ArrowRight } from "lucide-react";
-import { PageHeading } from "@/components/molecules/page-heading";
+import { ResourceHeading } from "@devfeed/ui/resource-layout";
 import { resourceKeys, resources } from "@/lib/resources";
 import { groupLabels, groupPaths, resourceHref, type RouteGroup } from "@/lib/routes";
 
@@ -11,7 +11,7 @@ export function ResourceGroup({ group }: { group: RouteGroup }) {
   );
   return (
     <section className="space-y-6">
-      <PageHeading
+      <ResourceHeading
         title={groupLabels[group]}
         trail={group === "enrichment" ? [{ label: "Jobs", href: groupPaths.jobs }] : []}
       />

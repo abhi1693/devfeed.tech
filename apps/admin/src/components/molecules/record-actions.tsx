@@ -1,7 +1,7 @@
 import { recordHref } from "@/lib/routes";
 import Link from "next/link";
 import { ClipboardCheck, Pencil, RefreshCw, Tags, Trash2 } from "lucide-react";
-import { Button } from "@/components/atoms/button";
+import { Button } from "@devfeed/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/atoms/tooltip";
 import { cn } from "@/lib/utils";
 import { type Resource, resources } from "@/lib/resources";

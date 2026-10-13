@@ -1,1 +1,1 @@
-"""DevFeed partneristration service."""
+"""DevFeed partner API."""

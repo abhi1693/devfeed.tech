@@ -112,7 +112,7 @@ def test_explicit_null_pagination_sends_only_configured_query_parameters(monkeyp
         return body
 
     candidates, cursor = connectors.discover_page("custom", config, fetch=fetch)
-    monkeypatch.setattr(connectors, "api_json", lambda provider, parsed, url: fetch(url))
+    monkeypatch.setattr(connectors, "api_json", lambda provider, parsed, url, **kwargs: fetch(url))
     assert connectors.response_preview("custom", config)["data"] == body
     assert len(candidates) == 1 and cursor is None
     assert calls == ["https://api.platform.example/catalog?version=2&tenant=ours"] * 2
@@ -150,7 +150,7 @@ def test_nullable_size_parameter_preserves_configured_pagination(monkeypatch, mo
         return body
 
     connectors.discover_page("custom", config, "token" if mode == "cursor" else None, fetch=fetch)
-    monkeypatch.setattr(connectors, "api_json", lambda provider, parsed, url: fetch(url))
+    monkeypatch.setattr(connectors, "api_json", lambda provider, parsed, url, **kwargs: fetch(url))
     connectors.response_preview("custom", config)
     position = "token" if mode == "cursor" else "1" if mode == "page" else "0"
     assert calls[0] == {parameter: [position]}
@@ -176,7 +176,7 @@ def test_omitted_size_parameter_retains_existing_limit_request(monkeypatch):
     body = {"data": {"products": []}}
     connectors.discover_page("legacy", config, fetch=lambda url: urls.append(url) or body)
     monkeypatch.setattr(
-        connectors, "api_json", lambda provider, parsed, url: urls.append(url) or body
+        connectors, "api_json", lambda provider, parsed, url, **kwargs: urls.append(url) or body
     )
     connectors.response_preview("legacy", config)
     assert urls == ["https://api.platform.example/products?limit=10"] * 2
@@ -305,7 +305,7 @@ def test_auth_uses_env_reference_shared_budget_and_blocks_redirect(monkeypatch):
     assert connectors.api_json("platform", config, config.base_url + "/products") == {"items": []}
     assert len(budgets) == 1 and budgets[0].limit == 60
     assert "test-token" not in config.model_dump_json()
-    monkeypatch.setattr(connectors, "consume_rate_limits", lambda *_: 42)
+    monkeypatch.setattr(connectors, "consume_rate_limits", lambda *_, **kwargs: 42)
     with pytest.raises(FeedError) as error:
         connectors.api_json("platform", config, config.base_url + "/products")
     assert error.value.retry_after == 42
@@ -343,7 +343,7 @@ def test_raw_response_preview_is_mapping_independent_bounded_and_redacted(monkey
     monkeypatch.setattr(
         connectors,
         "api_json",
-        lambda provider, config, url: (
+        lambda provider, config, url, **kwargs: (
             calls.append(url)
             or {
                 "results": [{"id": index, "description": "x" * 2000} for index in range(20)],
@@ -411,6 +411,7 @@ def test_connector_presets_are_creation_defaults_and_never_overwrite_saved_custo
     default = connectors.connector_snapshot(connection)
     assert default["auth"] == {
         "mode": "bearer",
+        "source": "environment",
         "secret_ref": "DEVFEED_PARTNER_SECRET_PRODUCTS_API_TOKEN",
         "header": "X-API-Key",
     }

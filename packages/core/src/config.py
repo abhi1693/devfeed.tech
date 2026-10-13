@@ -51,6 +51,8 @@ class Settings(BaseSettings):
 
     database_url: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
     redis_url: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
+    partner_credential_key: SecretStr | None = None
+
     redis_sentinel_nodes: list[tuple[str, int]] = []
     redis_sentinel_master: str | None = None
     redis_sentinel_username: str | None = None
@@ -222,6 +224,18 @@ class Settings(BaseSettings):
     codex_timeout_seconds: int = Field(default=90, ge=10, le=120)
     notifications_enabled: bool = False
     chimely_user_environment: str | None = None
+
+    @field_validator("partner_credential_key")
+    @classmethod
+    def valid_partner_credential_key(cls, value):
+        if value is not None:
+            from cryptography.fernet import Fernet
+
+            try:
+                Fernet(value.get_secret_value().encode("ascii"))
+            except (ValueError, UnicodeError):
+                raise ValueError("Partner credential encryption key is invalid") from None
+        return value
 
     @model_validator(mode="after")
     def validate_redis_configuration(self):

@@ -10,6 +10,7 @@ from devfeed_core.partner_audiences import (
     validate_audience,
 )
 from devfeed_core.partner_promotions import request_promotion_enrollment
+from devfeed_core.text_search import text_search
 from devfeed_http.partner_portal import (
     AccountOut,
     AccountsOut,
@@ -59,14 +60,17 @@ def account_access(session, partner: PartnerIdentity, account_id: uuid.UUID) -> 
     return account
 
 
-@router.get("/accounts", response_model=AccountsOut)
+@router.get("/accounts", response_model=AccountsOut, operation_id="partnerAccountsList")
 def accounts(
     session: DB,
     partner: Partner,
     limit: int = Query(100, ge=1, le=200),
     offset: int = Query(0, ge=0),
+    q: str = Query("", max_length=200, pattern=r"^[^\x00]*$"),
 ):
     query = visible_accounts(partner)
+    if q.strip():
+        query = query.where(text_search(q.strip(), PartnerAccount.name))
     return {
         "items": session.scalars(
             query.order_by(PartnerAccount.name, PartnerAccount.id).limit(limit).offset(offset)

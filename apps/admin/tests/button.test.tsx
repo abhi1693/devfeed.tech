@@ -3,7 +3,7 @@ import { createRef } from "react";
 import Link from "next/link";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
-import { Button } from "@/components/atoms/button";
+import { Button } from "@devfeed/ui/button";
 
 afterEach(cleanup);
 

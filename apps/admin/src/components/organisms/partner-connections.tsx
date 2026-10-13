@@ -8,8 +8,8 @@ import Link from "next/link";
 import { useCallback, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Plus } from "lucide-react";
-import { Button } from "@/components/atoms/button";
-import { PageHeading } from "@/components/molecules/page-heading";
+import { Button } from "@devfeed/ui/button";
+import { ResourceHeading } from "@devfeed/ui/resource-layout";
 import { SearchField, searchScope } from "@/components/molecules/search-field";
 import { useRequest } from "@/lib/use-request";
 import { useTableQuery } from "@/lib/use-table-query";
@@ -124,14 +124,14 @@ function ConnectionTable({ query }: { query: string }) {
   }
   return (
     <section className="space-y-6">
-      <PageHeading title="Import connections" trail={partnershipTrail}>
+      <ResourceHeading title="Import connections" trail={partnershipTrail}>
         <Button asChild disabled={result.loading || !!result.error}>
           <Link href={`${importConnectionsPath}/new`} prefetch={false}>
             <Plus aria-hidden size={16} />
             Create import connection
           </Link>
         </Button>
-      </PageHeading>
+      </ResourceHeading>
       <p className="text-sm text-muted-foreground">
         Connect product APIs and manage imports into partner accounts.
       </p>

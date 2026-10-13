@@ -1,36 +1,33 @@
 "use client";
-import { portalPath } from "@/lib/routes";
-import { Combobox } from "@devfeed/ui/combobox";
-import { Select } from "@devfeed/ui/select";
 
+import Link from "next/link";
+import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
+import { Select } from "@devfeed/ui/select";
+import { ResourceHeading, ResourcePanel } from "@devfeed/ui/resource-layout";
+import { adFormatLabel } from "@devfeed/ui/advertising-formats";
+import { RefreshCw, ArrowUp, ArrowDown, ArrowUpDown, ArrowRight } from "lucide-react";
 import { PortalShell } from "./portal-shell";
 import { PartnerPreferences } from "./partner-preferences";
-import { PartnerProductPlacements } from "./partner-product-placements";
-import { adFormatLabel } from "@devfeed/ui/advertising-formats";
 import { PartnerProductCatalog } from "./partner-product-catalog";
-import { Button } from "@/components/atoms/button";
-import { Badge } from "@/components/atoms/badge";
+import { PartnerProductPage } from "./partner-product-page";
+import { PartnerConnections, type ConnectionsRoute } from "./partner-connections";
+import { PartnerSettings } from "./partner-settings";
+import { PartnerPerformance } from "./partner-performance";
+import { Button } from "@devfeed/ui/button";
+import { Badge } from "@devfeed/ui/badge";
+import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from "@devfeed/ui/table";
 import {
-  Table,
-  TableHeader,
-  TableBody,
-  TableRow,
-  TableHead,
-  TableCell,
-} from "@/components/atoms/table";
-import {
-  RefreshCw,
-  Eye,
-  MousePointerClick,
-  TrendingUp,
-  ArrowUp,
-  ArrowDown,
-  ArrowUpDown,
-} from "lucide-react";
-import { useRouter } from "next/navigation";
-
-import { useEffect, useState } from "react";
-import type { Account, AccountPage, Dashboard, Identity, AssetSort, SortOrder } from "@/lib/types";
+  accountSettingsPath,
+  portalPath,
+  productPath,
+  type PortalSection,
+  type ProductRoute,
+} from "@/lib/routes";
+import { PartnerWorkspaceDashboardResponse } from "@/lib/api/generated/validators";
+import { isPartnerRequestCancelled, usePartnerRequest } from "@/lib/partner-request";
+import type { Account, AccountPage, Identity, AssetSort, SortOrder } from "@/lib/types";
+import type { WorkspaceDashboard } from "@/lib/api/generated/models";
 
 function AssetSortHeader({
   field,
@@ -51,7 +48,7 @@ function AssetSortHeader({
     ? order === "asc"
       ? "descending"
       : "ascending"
-    : field === "name"
+    : field === "name" || field === "account"
       ? "ascending"
       : "descending";
   return (
@@ -85,91 +82,94 @@ export function Portal({
   initialAssetOffset = 0,
   initialSort = "name",
   initialOrder = "asc",
+  initialProductSearch = "",
+  initialProductOffset = 0,
+  initialPolicyOffset = 0,
+  initialAccountSearch = "",
+  productRoute = { view: "list" },
+  connectionsRoute = { view: "list" },
 }: {
   identity: Identity;
   initialAccounts: AccountPage;
-  section?: "overview" | "performance" | "assets";
+  section?: PortalSection;
   initialAccount?: Account;
   initialDays?: number;
   initialAccountOffset?: number;
   initialAssetOffset?: number;
   initialSort?: AssetSort;
   initialOrder?: SortOrder;
+  initialProductSearch?: string;
+  initialProductOffset?: number;
+  initialPolicyOffset?: number;
+  initialAccountSearch?: string;
+  productRoute?: ProductRoute;
+  connectionsRoute?: ConnectionsRoute;
 }) {
   const router = useRouter();
-  const [accounts, setAccounts] = useState(initialAccounts);
-  const [accountOffset, setAccountOffset] = useState(initialAccountOffset);
-  const [selectedAccount, setSelectedAccount] = useState(
-    initialAccount ?? initialAccounts.items[0],
-  );
-  const selected = selectedAccount?.id ?? "";
+  const [account, setAccount] = useState(initialAccount);
   const [days, setDays] = useState(initialDays);
   const [assetOffset, setAssetOffset] = useState(initialAssetOffset);
   const [sort, setSort] = useState(initialSort);
   const [order, setOrder] = useState(initialOrder);
   const [sorting, setSorting] = useState(false);
-  const [data, setData] = useState<Dashboard | null>(null);
+  const [data, setData] = useState<WorkspaceDashboard | null>(null);
   const [error, setError] = useState("");
+  const [unavailable, setUnavailable] = useState(false);
   const [refresh, setRefresh] = useState(0);
-
+  const reporting = section === "overview" || section === "performance";
+  const request = usePartnerRequest({
+    onUnavailable: () => {
+      setData(null);
+      setUnavailable(true);
+    },
+  });
+  function onUnavailable() {
+    setData(null);
+    setUnavailable(true);
+    setError(
+      account
+        ? "This partner account is no longer available to you."
+        : "Your partner access is no longer available. Sign in again.",
+    );
+  }
   useEffect(() => {
-    if (!selected) return;
+    if (!reporting || initialAccounts.total === 0) return;
     const controller = new AbortController();
-    fetch(
-      `/api/v1/partner/accounts/${selected}/dashboard?days=${days}&offset=${assetOffset}&sort=${sort}&order=${order}`,
-      {
-        signal: controller.signal,
-        cache: "no-store",
-      },
-    )
-      .then(async (response) => {
-        if (response.status === 401 || response.status === 403) {
-          router.replace("/login");
-          return null;
-        }
-        if (!response.ok)
-          throw new Error(
-            response.status === 404
-              ? "This partner account is no longer available to you."
-              : "Could not load performance. Please retry.",
-          );
-        return response.json() as Promise<Dashboard>;
-      })
+    const params = new URLSearchParams({
+      days: String(days),
+      limit: "25",
+      offset: String(assetOffset),
+      sort,
+      order,
+    });
+    if (account) params.set("account_id", account.id);
+    void request(`dashboard?${params}`, {
+      signal: controller.signal,
+      parse: (value) => PartnerWorkspaceDashboardResponse.parse(value),
+      errorMessage: "Could not load performance. Please retry.",
+      invalidMessage: "Could not confirm workspace performance. Please retry.",
+    })
       .then((value) => {
-        if (!controller.signal.aborted) {
-          if (value && assetOffset > 0 && assetOffset >= value.asset_total) {
-            setData(null);
-            setAssetOffset(0);
-            return;
-          }
-          setData(value);
-          setSorting(false);
-        }
-      })
-      .catch((reason) => {
-        if (!controller.signal.aborted) {
+        if (controller.signal.aborted) return;
+        if (assetOffset > 0 && assetOffset >= value.asset_total) {
           setData(null);
-          setError(reason.message);
+          setAssetOffset(0);
+          return;
+        }
+        setData(value);
+        setSorting(false);
+      })
+      .catch((reason: unknown) => {
+        if (!controller.signal.aborted && !isPartnerRequestCancelled(reason)) {
+          setData(null);
+          setError(
+            reason instanceof Error ? reason.message : "Could not load performance. Please retry.",
+          );
           setSorting(false);
         }
       });
     return () => controller.abort();
-  }, [selected, days, assetOffset, sort, order, refresh, router]);
-
-  async function loadAccounts(offset: number) {
-    try {
-      const response = await fetch(`/api/v1/partner/accounts?offset=${offset}`, {
-        cache: "no-store",
-      });
-      if (!response.ok) throw new Error("Could not load partner accounts.");
-      const page = (await response.json()) as AccountPage;
-      setAccounts(page);
-      setAccountOffset(offset);
-      setError("");
-    } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "Please retry.");
-    }
-  }
+  }, [request, reporting, initialAccounts.total, account, days, assetOffset, sort, order, refresh]);
   async function signOut() {
     const response = await fetch("/api/v1/partner/auth/logout", {
       method: "POST",
@@ -184,333 +184,245 @@ export function Portal({
     setRefresh((value) => value + 1);
   }
   function changeSort(next: AssetSort) {
-    setOrder(next === sort ? (order === "asc" ? "desc" : "asc") : next === "name" ? "asc" : "desc");
+    setOrder(
+      next === sort
+        ? order === "asc"
+          ? "desc"
+          : "asc"
+        : next === "name" || next === "account"
+          ? "asc"
+          : "desc",
+    );
     setSort(next);
     setAssetOffset(0);
     setSorting(true);
     setError("");
   }
-  const scope = new URLSearchParams();
-  scope.set("days", String(days));
-  scope.set("sort", sort);
-  scope.set("order", order);
+  const scope = new URLSearchParams({ days: String(days), sort, order });
   if (assetOffset) scope.set("asset_offset", String(assetOffset));
-  if (accountOffset) scope.set("account_offset", String(accountOffset));
   const query = `?${scope}`;
+  const productScope = new URLSearchParams(scope);
+  if (initialProductSearch) productScope.set("q", initialProductSearch);
+  if (initialProductOffset) productScope.set("product_offset", String(initialProductOffset));
+  if (initialPolicyOffset) productScope.set("policy_offset", String(initialPolicyOffset));
+  const productQuery = `?${productScope}`;
+  const settingsScope = new URLSearchParams();
+  if (initialAccountSearch) settingsScope.set("q", initialAccountSearch);
+  if (initialAccountOffset) settingsScope.set("account_offset", String(initialAccountOffset));
+  const settingsQuery = settingsScope.size ? `?${settingsScope}` : "";
   useEffect(() => {
-    window.history.replaceState(
-      window.history.state,
-      "",
-      `${portalPath(selected, section)}${query}`,
-    );
-  }, [query, selected, section]);
-  const titles = {
-    overview: ["Partnership overview", "Your partnership tier and included benefits."],
-    performance: ["Performance", "Daily impressions and clicks for your selected account."],
-    assets: ["Products & ads", "Performance for products and ads associated with your account."],
-  };
+    if (reporting) {
+      const params = new URLSearchParams(query);
+      if (account) params.set("account_id", account.id);
+      window.history.replaceState(window.history.state, "", `${portalPath(section)}?${params}`);
+    }
+  }, [query, reporting, section, account]);
   const number = (value: number) => value.toLocaleString("en-US");
   return (
-    <PortalShell
-      identity={identity}
-      onSignOut={signOut}
-      section={section}
-      query={query}
-      accountId={selected}
-    >
-      <div>
-        <div className="mb-6 flex flex-wrap items-start justify-between gap-4">
-          <div>
-            <h1 className="text-2xl font-semibold tracking-tight">{titles[section][0]}</h1>
-            <p className="muted">{titles[section][1]}</p>
-          </div>
-          <Button variant="outline" onClick={reload}>
-            <RefreshCw aria-hidden="true" />
-            Refresh
-          </Button>
-        </div>
-        {(accounts.total > 1 || section !== "overview") && (
-          <div className="toolbar">
-            {accounts.total > 1 && (
-              <div className="grid w-full min-w-0 gap-2 sm:w-auto sm:min-w-48">
-                <span className="text-sm font-medium">Partner account</span>
-                <Combobox
-                  label="Partner account"
-                  required
-                  value={selected}
-                  selectedOption={
-                    selectedAccount
-                      ? { value: selectedAccount.id, label: selectedAccount.name }
-                      : undefined
-                  }
-                  onChange={(value) => {
-                    const account = accounts.items.find((item) => item.id === value);
-                    if (!account || value === selected) return;
-                    setSelectedAccount(account);
-                    setAssetOffset(0);
-                    setData(null);
-                    setError("");
-                  }}
-                  options={accounts.items.map((account) => ({
-                    value: account.id,
-                    label: account.name,
-                    description: account.status === "paused" ? "Paused" : undefined,
-                  }))}
-                />
-              </div>
-            )}
-            {section !== "overview" && (
-              <div className="grid w-full min-w-0 gap-2 sm:w-auto sm:min-w-48">
-                <span className="text-sm font-medium">Reporting period</span>
-                <Select
-                  label="Reporting period"
-                  required
-                  value={String(days)}
-                  onChange={(value) => {
-                    if (Number(value) === days) return;
-                    setDays(Number(value));
-                    setAssetOffset(0);
-                    setData(null);
-                    setError("");
-                  }}
-                  options={[
-                    { value: "7", label: "Last 7 days" },
-                    { value: "30", label: "Last 30 days" },
-                    { value: "90", label: "Last 90 days" },
-                    { value: "365", label: "Last year" },
-                  ]}
-                />
-              </div>
-            )}
-          </div>
+    <PortalShell identity={identity} onSignOut={signOut} section={section} query={query}>
+      <div className="space-y-6">
+        {reporting && (
+          <ResourceHeading
+            homeHref={portalPath()}
+            homeLabel="Dashboard"
+            siteTitle="DevFeed Partners"
+            title={section === "overview" ? "Dashboard" : "Performance"}
+            description={
+              section === "overview"
+                ? "Your native advertising workspace across all partner accounts."
+                : "Track reach and visits across every partner account and native ad format."
+            }
+          >
+            <Button variant="outline" onClick={reload}>
+              <RefreshCw aria-hidden />
+              Refresh
+            </Button>
+          </ResourceHeading>
         )}
-        {accounts.total > 100 && (
-          <nav aria-label="Account pages">
-            <Button
-              variant="outline"
-              disabled={!accountOffset}
-              onClick={() => loadAccounts(accountOffset - 100)}
-            >
-              Previous accounts
-            </Button>
-            <span>
-              {accountOffset + 1}–{Math.min(accountOffset + 100, accounts.total)} of{" "}
-              {accounts.total}
-            </span>
-            <Button
-              variant="outline"
-              disabled={accountOffset + 100 >= accounts.total}
-              onClick={() => loadAccounts(accountOffset + 100)}
-            >
-              Next accounts
-            </Button>
-          </nav>
+        {reporting && initialAccounts.total > 0 && (
+          <div className="flex flex-wrap items-end justify-between gap-4">
+            <div className="grid w-full gap-2 sm:w-48">
+              <span className="text-sm font-medium">Reporting period</span>
+              <Select
+                label="Reporting period"
+                required
+                value={String(days)}
+                onChange={(value) => {
+                  if (Number(value) === days) return;
+                  setDays(Number(value));
+                  setAssetOffset(0);
+                  setData(null);
+                  setError("");
+                }}
+                options={[
+                  { value: "7", label: "Last 7 days" },
+                  { value: "30", label: "Last 30 days" },
+                  { value: "90", label: "Last 90 days" },
+                  { value: "365", label: "Last year" },
+                ]}
+              />
+            </div>
+            {account ? (
+              <p className="text-sm text-muted-foreground">
+                Filtered to {account.name}.{" "}
+                <Link
+                  href={`${portalPath(section)}${query}`}
+                  className="text-primary hover:underline"
+                >
+                  Show all partner accounts
+                </Link>
+              </p>
+            ) : (
+              <p className="text-sm text-muted-foreground">All your partner accounts</p>
+            )}
+          </div>
         )}
         {error && (
           <div role="alert" className="notice">
             {error}
-            <Button variant="outline" onClick={reload}>
-              Retry
-            </Button>
+            {reporting && !unavailable && (
+              <Button variant="outline" onClick={reload}>
+                Retry
+              </Button>
+            )}
           </div>
         )}
-        {!accounts.total && (
-          <section className="card">
-            <h2>No partner accounts yet</h2>
-            <p>
+        {!initialAccounts.total && reporting && (
+          <ResourcePanel title="No partner accounts yet">
+            <p className="text-sm text-muted-foreground">
               Your account has portal access but no active partner membership. Contact the DevFeed
               team to connect your account.
             </p>
-          </section>
+          </ResourcePanel>
         )}
-        {selected && !data && !error && <p role="status">Loading partnership details…</p>}
-        {data && (
-          <>
-            {section === "overview" && (
-              <>
-                <section className="card partnership">
-                  <div>
-                    <div className="eyebrow">Partnership tier</div>
-                    <h2>
-                      {data.account.tier.charAt(0).toUpperCase() + data.account.tier.slice(1)}
-                    </h2>
-                    <p>
-                      {data.account.name}{" "}
-                      <Badge variant={data.account.status === "active" ? "success" : "warning"}>
-                        {data.account.status}
+        {reporting && initialAccounts.total > 0 && !data && !error && !unavailable && (
+          <p role="status">Loading workspace performance…</p>
+        )}
+        {!unavailable &&
+          section === "products" &&
+          (productRoute.view === "list" ? (
+            <PartnerProductCatalog
+              onUnavailable={onUnavailable}
+              initialSearch={initialProductSearch}
+              initialOffset={initialProductOffset}
+              query={query}
+              accountFilter={account}
+            />
+          ) : (
+            productRoute.productId && (
+              <PartnerProductPage
+                key={`${account?.id ?? "all"}/${productRoute.productId}/${productRoute.view}`}
+                account={account}
+                productId={productRoute.productId}
+                edit={productRoute.view === "placements"}
+                contextOffset={initialPolicyOffset}
+                csrfToken={identity.csrf_token}
+                query={productQuery}
+                onUnavailable={onUnavailable}
+              />
+            )
+          ))}
+        {!unavailable && section === "connections" && (
+          <PartnerConnections
+            key={`${connectionsRoute.view}/${connectionsRoute.connectionId ?? ""}/${connectionsRoute.q ?? ""}`}
+            csrfToken={identity.csrf_token}
+            onUnavailable={onUnavailable}
+            route={connectionsRoute}
+            filterAccount={account}
+          />
+        )}
+        {!unavailable &&
+          section === "settings" &&
+          (account ? (
+            <>
+              <ResourceHeading
+                homeHref={portalPath()}
+                homeLabel="Dashboard"
+                siteTitle="DevFeed Partners"
+                title={`${account.name} settings`}
+                description="Delivery defaults, native formats, and audience targeting for this partner account."
+                trail={[{ label: "Settings", href: `${portalPath("settings")}${settingsQuery}` }]}
+              />
+              <ResourcePanel
+                title="Partner account"
+                fields={[
+                  { label: "Name", value: account.name },
+                  {
+                    label: "Tier",
+                    value: account.tier.charAt(0).toUpperCase() + account.tier.slice(1),
+                  },
+                  {
+                    label: "Status",
+                    value: (
+                      <Badge variant={account.status === "active" ? "success" : "warning"}>
+                        {account.status}
                       </Badge>
-                    </p>
-                  </div>
-                  <div>
-                    <h3>Your benefits</h3>
-                    {data.account.benefits.length ? (
-                      <ul>
-                        {data.account.benefits.map((benefit, i) => (
-                          <li key={i}>{benefit}</li>
-                        ))}
-                      </ul>
-                    ) : (
-                      <p className="muted">Your partnership benefits have not been added yet.</p>
-                    )}
-                  </div>
-                </section>
-                <PartnerPreferences
-                  key={data.account.id}
-                  account={data.account}
-                  csrfToken={identity.csrf_token}
-                  onSaved={(account) =>
-                    setData((current) =>
-                      current?.account.id === account.id ? { ...current, account } : current,
-                    )
-                  }
-                  onUnavailable={() => {
-                    setData(null);
-                    setError("This partner account is no longer available to you.");
-                  }}
-                />
-              </>
-            )}
-            {section === "performance" &&
-              (data.format_totals?.length ? (
-                <section className="card" aria-label="Performance by format">
-                  <h2>Performance by format</h2>
-                  <div className="table-wrap">
-                    <Table>
-                      <TableHeader>
-                        <TableRow>
-                          <TableHead>Format</TableHead>
-                          <TableHead>Impressions</TableHead>
-                          <TableHead>Clicks</TableHead>
-                          <TableHead>CTR</TableHead>
-                        </TableRow>
-                      </TableHeader>
-                      <TableBody>
-                        {data.format_totals.map((row) => (
-                          <TableRow key={row.ad_format}>
-                            <TableCell>{adFormatLabel(row.ad_format)}</TableCell>
-                            <TableCell>
-                              {row.measured_days ? number(row.impressions) : "—"}
-                            </TableCell>
-                            <TableCell>{row.measured_days ? number(row.clicks) : "—"}</TableCell>
-                            <TableCell>
-                              {row.ctr === null ? "—" : `${row.ctr.toFixed(2)}%`}
-                            </TableCell>
-                          </TableRow>
-                        ))}
-                      </TableBody>
-                    </Table>
-                  </div>
-                </section>
-              ) : null)}
-            {section === "performance" && (
-              <>
-                <div className="section-title">
-                  <h2>Performance</h2>
-                  <span className="muted">
-                    {data.start} to {data.end} · UTC
-                  </span>
-                </div>
-                {!data.totals.measured_days && (
-                  <p className="notice">
-                    No delivery measurements for this period yet. Catalog matches are not counted as
-                    impressions or clicks.
-                  </p>
-                )}
-                <div className="metrics">
-                  {[
-                    [
-                      "Impressions",
-                      data.totals.measured_days ? number(data.totals.impressions) : "—",
-                      "Recorded product and ad views",
-                    ],
-                    [
-                      "Clicks",
-                      data.totals.measured_days ? number(data.totals.clicks) : "—",
-                      "Recorded visits to your destinations",
-                    ],
-                    [
-                      "Click-through rate",
-                      data.totals.ctr === null ? "—" : `${data.totals.ctr.toFixed(2)}%`,
-                      "Clicks divided by impressions",
-                    ],
-                  ].map(([label, value, hint]) => (
-                    <section className="card" key={label}>
-                      <div className="flex items-center justify-between gap-2">
-                        <h3>{label}</h3>
-                        {label === "Impressions" ? (
-                          <Eye className="size-4 text-muted-foreground" aria-hidden="true" />
-                        ) : label === "Clicks" ? (
-                          <MousePointerClick
-                            className="size-4 text-muted-foreground"
-                            aria-hidden="true"
-                          />
-                        ) : (
-                          <TrendingUp className="size-4 text-muted-foreground" aria-hidden="true" />
-                        )}
-                      </div>
-                      <strong className="metric-value">{value}</strong>
-                      <p className="muted">{hint}</p>
-                    </section>
+                    ),
+                  },
+                  { label: "Benefits", value: account.benefits.join(", ") || "—" },
+                ]}
+              />
+              <PartnerPreferences
+                account={account}
+                csrfToken={identity.csrf_token}
+                onSaved={setAccount}
+                onUnavailable={onUnavailable}
+              />
+            </>
+          ) : (
+            <PartnerSettings
+              initialAccounts={initialAccounts}
+              initialSearch={initialAccountSearch}
+              initialOffset={initialAccountOffset}
+              onUnavailable={onUnavailable}
+            />
+          ))}
+        {data && reporting && (
+          <>
+            <PartnerPerformance
+              data={data}
+              compact={section === "overview"}
+              accountId={account?.id}
+            />
+            {section === "overview" && (
+              <ResourcePanel
+                title="Your workspace"
+                fields={[{ label: "Partner accounts", value: number(data.account_total) }]}
+              >
+                <div className="mt-4 flex flex-wrap gap-4">
+                  {(["products", "connections", "settings"] as const).map((section) => (
+                    <Link
+                      key={section}
+                      href={portalPath(section)}
+                      prefetch={false}
+                      className="inline-flex items-center gap-2 text-sm text-primary hover:underline"
+                    >
+                      {section === "products"
+                        ? "Manage products"
+                        : section === "connections"
+                          ? "Manage connections"
+                          : "Account settings"}
+                      <ArrowRight aria-hidden className="size-4" />
+                    </Link>
                   ))}
                 </div>
-                <p className="muted">
-                  {data.last_updated_at
-                    ? `Last measurement update: ${new Date(data.last_updated_at).toISOString()}`
-                    : "Awaiting first measurement."}{" "}
-                  {data.totals.measured_days} of {days} days have measurements. These figures
-                  measure reach and traffic; revenue and conversions are not tracked.
-                </p>
-              </>
+              </ResourcePanel>
             )}
             {section === "performance" && (
-              <section className="card">
-                <h2>Daily activity</h2>
-                {data.trend.length ? (
-                  <div className="table-wrap">
-                    <Table>
-                      <TableHeader>
-                        <TableRow>
-                          <TableHead>Date (UTC)</TableHead>
-                          <TableHead>Impressions</TableHead>
-                          <TableHead>Clicks</TableHead>
-                        </TableRow>
-                      </TableHeader>
-                      <TableBody>
-                        {data.trend.map((row) => (
-                          <TableRow key={row.day}>
-                            <TableCell>{row.day}</TableCell>
-                            <TableCell>{number(row.impressions)}</TableCell>
-                            <TableCell>{number(row.clicks)}</TableCell>
-                          </TableRow>
-                        ))}
-                      </TableBody>
-                    </Table>
-                  </div>
-                ) : (
-                  <p className="muted">
-                    Daily results appear when delivery measurements are available.
-                  </p>
-                )}
-              </section>
-            )}
-            {section === "assets" && (
-              <section className="card" aria-busy={sorting}>
-                <h2 id="assets" className="scroll-mt-6">
-                  Products & ads
-                </h2>
-                <p className="muted">
-                  Performance for assets associated with this partner account.
-                </p>
-                <div className="my-4">
-                  <PartnerProductCatalog
-                    key={data.account.id}
-                    account={data.account}
-                    csrfToken={identity.csrf_token}
-                    onUnavailable={() => {
-                      setData(null);
-                      setError("This partner account is no longer available to you.");
-                    }}
-                  />
+              <section
+                className="space-y-4"
+                aria-label="Product and ad performance"
+                aria-busy={sorting}
+              >
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <h2 className="text-base font-semibold">Product and ad performance</h2>
+                  <Link
+                    href={`${portalPath("products")}${query}`}
+                    prefetch={false}
+                    className="text-sm text-primary hover:underline"
+                  >
+                    Manage products
+                  </Link>
                 </div>
                 {sorting && (
                   <p role="status" className="muted">
@@ -518,13 +430,20 @@ export function Portal({
                   </p>
                 )}
                 {data.assets.length ? (
-                  <div className="table-wrap">
-                    <Table>
+                  <div className="overflow-x-auto rounded-md border">
+                    <Table aria-label="Product and ad results">
                       <TableHeader>
                         <TableRow>
                           <AssetSortHeader
                             field="name"
                             label="Name"
+                            sort={sort}
+                            order={order}
+                            onSort={changeSort}
+                          />
+                          <AssetSortHeader
+                            field="account"
+                            label="Partner account"
                             sort={sort}
                             order={order}
                             onSort={changeSort}
@@ -550,9 +469,24 @@ export function Portal({
                       </TableHeader>
                       <TableBody>
                         {data.assets.map((asset) => (
-                          <TableRow key={asset.id}>
+                          <TableRow key={`${asset.account_id}/${asset.id}`}>
                             <TableCell>
-                              <span data-asset-name>{asset.name}</span>
+                              <span data-asset-name>
+                                {asset.product_id ? (
+                                  <Link
+                                    href={productPath(asset.product_id, {
+                                      accountId: asset.account_id,
+                                      query,
+                                    })}
+                                    prefetch={false}
+                                    className="font-medium text-primary hover:underline"
+                                  >
+                                    {asset.name}
+                                  </Link>
+                                ) : (
+                                  asset.name
+                                )}
+                              </span>
                               {(asset.ad_formats?.length || asset.ad_format) && (
                                 <span className="mt-1 block text-xs text-muted-foreground">
                                   {(asset.ad_formats ?? [asset.ad_format!])
@@ -560,72 +494,61 @@ export function Portal({
                                     .join(" · ")}
                                 </span>
                               )}
-                              {asset.product_id && (
-                                <div className="mt-2">
-                                  <PartnerProductPlacements
-                                    accountId={data.account.id}
-                                    productId={asset.product_id}
-                                    name={asset.name}
-                                    allowedFormats={data.account.allowed_ad_formats ?? ["feed"]}
-                                    accountFormats={data.account.ad_formats ?? ["feed"]}
-                                    accountSurfaces={data.account.promotion_surfaces}
-                                    destination={data.account.outbound_destination ?? "product_url"}
-                                    csrfToken={identity.csrf_token}
-                                    disabled={sorting}
-                                    onSaved={reload}
-                                    onUnavailable={() => {
-                                      setData(null);
-                                      setError(
-                                        "This partner account is no longer available to you.",
-                                      );
-                                    }}
-                                  />
-                                </div>
-                              )}
+                            </TableCell>
+                            <TableCell>
+                              <Link
+                                href={accountSettingsPath(asset.account_id)}
+                                prefetch={false}
+                                className="text-primary hover:underline"
+                              >
+                                {asset.account_name}
+                              </Link>
                             </TableCell>
                             <TableCell>
                               <Badge variant={asset.status === "active" ? "success" : "neutral"}>
                                 {asset.status}
                               </Badge>
                             </TableCell>
-                            <TableCell>
+                            <TableCell className="tabular-nums">
                               {asset.measured_days ? number(asset.impressions) : "—"}
                             </TableCell>
-                            <TableCell>
+                            <TableCell className="tabular-nums">
                               {asset.measured_days ? number(asset.clicks) : "—"}
                             </TableCell>
-                            <TableCell>
+                            <TableCell className="tabular-nums">
                               {asset.ctr === null ? "—" : `${asset.ctr.toFixed(2)}%`}
                             </TableCell>
                           </TableRow>
                         ))}
                       </TableBody>
-                    </Table>
+                    </Table>{" "}
                   </div>
                 ) : (
-                  <p>No products or ads are associated with this account yet.</p>
+                  <p className="text-sm text-muted-foreground">
+                    No product or ad results are available for this period yet.
+                  </p>
                 )}
-                {data.asset_total > 100 && (
+                {data.asset_total > 25 && (
                   <nav aria-label="Asset pages">
                     <Button
                       variant="outline"
                       disabled={sorting || !assetOffset}
                       onClick={() => {
-                        setAssetOffset(Math.max(0, assetOffset - 100));
+                        setAssetOffset(Math.max(0, assetOffset - 25));
                         setData(null);
                       }}
                     >
                       Previous
                     </Button>
                     <span>
-                      {assetOffset + 1}–{Math.min(assetOffset + 100, data.asset_total)} of{" "}
+                      {assetOffset + 1}–{Math.min(assetOffset + 25, data.asset_total)} of{" "}
                       {data.asset_total}
                     </span>
                     <Button
                       variant="outline"
-                      disabled={sorting || assetOffset + 100 >= data.asset_total}
+                      disabled={sorting || assetOffset + 25 >= data.asset_total}
                       onClick={() => {
-                        setAssetOffset(assetOffset + 100);
+                        setAssetOffset(assetOffset + 25);
                         setData(null);
                       }}
                     >

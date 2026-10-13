@@ -8,6 +8,52 @@
 import * as zod from 'zod';
 
 /**
+ * @summary Accounts
+ */
+export const partnerAccountsListResponseItemsItemAdFormatsMax = 3;
+
+export const partnerAccountsListResponseItemsItemAudienceExperienceLevelsMax = 4;
+
+export const partnerAccountsListResponseItemsItemAudienceLanguageTopicIdsMax = 100;
+
+export const partnerAccountsListResponseItemsItemAudienceToolTopicIdsMax = 100;
+
+export const partnerAccountsListResponseItemsItemNameMax = 200;
+
+export const partnerAccountsListResponseItemsItemPromotionSurfacesMax = 3;
+
+
+
+export const PartnerAccountsListResponse = zod.object({
+  "items": zod.array(zod.object({
+  "ad_formats": zod.array(zod.enum(['feed', 'homepage_sponsorship', 'engagement'])).max(partnerAccountsListResponseItemsItemAdFormatsMax),
+  "advanced_targeting": zod.boolean(),
+  "allowed_ad_formats": zod.array(zod.enum(['feed', 'homepage_sponsorship', 'sponsored_content', 'engagement'])),
+  "allowed_promotion_kinds": zod.array(zod.enum(['product', 'ad'])),
+  "approval_mode": zod.enum(['qualified', 'trusted']),
+  "audience": zod.object({
+  "experience_levels": zod.array(zod.enum(['aspiring', 'entry_level', 'mid_level', 'senior'])).max(partnerAccountsListResponseItemsItemAudienceExperienceLevelsMax),
+  "language_topic_ids": zod.array(zod.uuid()).max(partnerAccountsListResponseItemsItemAudienceLanguageTopicIdsMax),
+  "tool_topic_ids": zod.array(zod.uuid()).max(partnerAccountsListResponseItemsItemAudienceToolTopicIdsMax)
+}),
+  "auto_include_products": zod.boolean(),
+  "benefits": zod.array(zod.string()),
+  "effective_promotion_kind": zod.enum(['product', 'ad']),
+  "id": zod.uuid(),
+  "name": zod.string().min(1).max(partnerAccountsListResponseItemsItemNameMax),
+  "organic_enabled": zod.boolean(),
+  "outbound_destination": zod.enum(['product_url', 'listing_url']),
+  "promotion_kind": zod.union([zod.enum(['product', 'ad']),zod.null()]),
+  "promotion_kind_source": zod.enum(['tier', 'account']),
+  "promotion_surfaces": zod.array(zod.enum(['article', 'topic', 'feed'])).min(1).max(partnerAccountsListResponseItemsItemPromotionSurfacesMax),
+  "status": zod.enum(['active', 'paused']),
+  "tier": zod.enum(['bronze', 'silver', 'gold', 'platinum', 'diamond'])
+})),
+  "total": zod.int()
+})
+
+
+/**
  * @summary Audience Topics
  */
 export const PartnerAudienceTopicsResponse = zod.object({
@@ -18,6 +64,1256 @@ export const PartnerAudienceTopicsResponse = zod.object({
   "slug": zod.string(),
   "status": zod.string()
 })),
+  "total": zod.int()
+})
+
+
+/**
+ * @summary List Connections
+ */
+export const partnerConnectionsListResponseItemsItemCommercialApprovedDefault = 0;
+export const partnerConnectionsListResponseItemsItemConnectorOneAttributionDefault = ``;
+export const partnerConnectionsListResponseItemsItemConnectorOneAttributionMax = 300;
+
+export const partnerConnectionsListResponseItemsItemConnectorOneAuthHeaderDefault = `X-API-Key`;
+export const partnerConnectionsListResponseItemsItemConnectorOneAuthHeaderMax = 100;
+
+
+export const partnerConnectionsListResponseItemsItemConnectorOneAuthHeaderRegExp = new RegExp('^[A-Za-z][A-Za-z0-9_-]*$');
+export const partnerConnectionsListResponseItemsItemConnectorOneAuthModeDefault = `none`;
+export const partnerConnectionsListResponseItemsItemConnectorOneAuthSecretRefDefault = ``;
+export const partnerConnectionsListResponseItemsItemConnectorOneAuthSecretRefRegExp = new RegExp('^$|^DEVFEED_PARTNER_SECRET_[A-Z0-9_]{1,80}$');
+export const partnerConnectionsListResponseItemsItemConnectorOneAuthSourceDefault = `environment`;
+export const partnerConnectionsListResponseItemsItemConnectorOneDetailPathOneMax = 500;
+
+export const partnerConnectionsListResponseItemsItemConnectorOneDetailRootDefault = ``;
+export const partnerConnectionsListResponseItemsItemConnectorOneDetailRootMax = 200;
+
+
+export const partnerConnectionsListResponseItemsItemConnectorOneDetailRootRegExp = new RegExp('^(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+)(?:\\.(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+))*$|^$');
+export const partnerConnectionsListResponseItemsItemConnectorOneFieldsDescriptionItemMax = 200;
+
+
+export const partnerConnectionsListResponseItemsItemConnectorOneFieldsDescriptionItemRegExp = new RegExp('^(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+)(?:\\.(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+))*$|^$');
+export const partnerConnectionsListResponseItemsItemConnectorOneFieldsDescriptionMax = 5;
+
+export const partnerConnectionsListResponseItemsItemConnectorOneFieldsExternalIdItemMax = 200;
+
+
+export const partnerConnectionsListResponseItemsItemConnectorOneFieldsExternalIdItemRegExp = new RegExp('^(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+)(?:\\.(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+))*$|^$');
+export const partnerConnectionsListResponseItemsItemConnectorOneFieldsExternalIdMax = 5;
+
+export const partnerConnectionsListResponseItemsItemConnectorOneFieldsListingUrlItemMax = 200;
+
+
+export const partnerConnectionsListResponseItemsItemConnectorOneFieldsListingUrlItemRegExp = new RegExp('^(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+)(?:\\.(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+))*$|^$');
+export const partnerConnectionsListResponseItemsItemConnectorOneFieldsListingUrlMax = 5;
+
+export const partnerConnectionsListResponseItemsItemConnectorOneFieldsNameItemMax = 200;
+
+
+export const partnerConnectionsListResponseItemsItemConnectorOneFieldsNameItemRegExp = new RegExp('^(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+)(?:\\.(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+))*$|^$');
+export const partnerConnectionsListResponseItemsItemConnectorOneFieldsNameMax = 5;
+
+export const partnerConnectionsListResponseItemsItemConnectorOneFieldsPricingItemMax = 200;
+
+
+export const partnerConnectionsListResponseItemsItemConnectorOneFieldsPricingItemRegExp = new RegExp('^(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+)(?:\\.(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+))*$|^$');
+export const partnerConnectionsListResponseItemsItemConnectorOneFieldsPricingMax = 5;
+
+export const partnerConnectionsListResponseItemsItemConnectorOneFieldsProductUrlItemMax = 200;
+
+
+export const partnerConnectionsListResponseItemsItemConnectorOneFieldsProductUrlItemRegExp = new RegExp('^(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+)(?:\\.(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+))*$|^$');
+export const partnerConnectionsListResponseItemsItemConnectorOneFieldsProductUrlMax = 5;
+
+export const partnerConnectionsListResponseItemsItemConnectorOneFiltersItemIncludeMissingDefault = true;
+export const partnerConnectionsListResponseItemsItemConnectorOneFiltersItemPathMax = 200;
+
+
+export const partnerConnectionsListResponseItemsItemConnectorOneFiltersItemPathRegExp = new RegExp('^(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+)(?:\\.(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+))*$|^$');
+export const partnerConnectionsListResponseItemsItemConnectorOneFiltersItemValuesMax = 20;
+
+export const partnerConnectionsListResponseItemsItemConnectorOneFiltersMax = 10;
+
+export const partnerConnectionsListResponseItemsItemConnectorOneItemsPathsItemMax = 200;
+
+
+export const partnerConnectionsListResponseItemsItemConnectorOneItemsPathsItemRegExp = new RegExp('^(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+)(?:\\.(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+))*$|^$');
+export const partnerConnectionsListResponseItemsItemConnectorOneItemsPathsMax = 5;
+
+export const partnerConnectionsListResponseItemsItemConnectorOneListPathDefault = `/products`;
+export const partnerConnectionsListResponseItemsItemConnectorOneListPathMax = 500;
+
+export const partnerConnectionsListResponseItemsItemConnectorOneListingUrlTemplateOneMax = 500;
+
+export const partnerConnectionsListResponseItemsItemConnectorOneMaxPagesDefault = 1000;
+export const partnerConnectionsListResponseItemsItemConnectorOneMaxPagesMax = 1000;
+
+export const partnerConnectionsListResponseItemsItemConnectorOneMaxResponseBytesDefault = 2000000;
+export const partnerConnectionsListResponseItemsItemConnectorOneMaxResponseBytesMin = 1024;
+export const partnerConnectionsListResponseItemsItemConnectorOneMaxResponseBytesMax = 5000000;
+
+export const partnerConnectionsListResponseItemsItemConnectorOnePaginationHasMorePathOneMax = 200;
+
+
+export const partnerConnectionsListResponseItemsItemConnectorOnePaginationHasMorePathOneRegExp = new RegExp('^(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+)(?:\\.(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+))*$|^$');
+export const partnerConnectionsListResponseItemsItemConnectorOnePaginationModeDefault = `cursor`;
+export const partnerConnectionsListResponseItemsItemConnectorOnePaginationNextPathDefault = `nextCursor`;
+export const partnerConnectionsListResponseItemsItemConnectorOnePaginationNextPathMax = 200;
+
+
+export const partnerConnectionsListResponseItemsItemConnectorOnePaginationNextPathRegExp = new RegExp('^(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+)(?:\\.(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+))*$|^$');
+export const partnerConnectionsListResponseItemsItemConnectorOnePaginationPageSizeDefault = 10;
+export const partnerConnectionsListResponseItemsItemConnectorOnePaginationPageSizeMax = 100;
+
+export const partnerConnectionsListResponseItemsItemConnectorOnePaginationParameterOneMax = 100;
+
+
+export const partnerConnectionsListResponseItemsItemConnectorOnePaginationParameterOneRegExp = new RegExp('^[A-Za-z][A-Za-z0-9_-]*$');
+export const partnerConnectionsListResponseItemsItemConnectorOnePaginationParameterDefault = `cursor`;
+export const partnerConnectionsListResponseItemsItemConnectorOnePaginationSizeParameterOneMax = 100;
+
+
+export const partnerConnectionsListResponseItemsItemConnectorOnePaginationSizeParameterOneRegExp = new RegExp('^[A-Za-z][A-Za-z0-9_-]*$');
+export const partnerConnectionsListResponseItemsItemConnectorOnePaginationSizeParameterDefault = `limit`;
+export const partnerConnectionsListResponseItemsItemConnectorOnePaginationStartDefault = 1;
+export const partnerConnectionsListResponseItemsItemConnectorOnePaginationStartMin = 0;
+export const partnerConnectionsListResponseItemsItemConnectorOnePaginationStartMax = 1000000;
+
+export const partnerConnectionsListResponseItemsItemConnectorOnePaginationTotalPathOneMax = 200;
+
+
+export const partnerConnectionsListResponseItemsItemConnectorOnePaginationTotalPathOneRegExp = new RegExp('^(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+)(?:\\.(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+))*$|^$');
+export const partnerConnectionsListResponseItemsItemConnectorOnePlatformHostsMax = 5;
+
+export const partnerConnectionsListResponseItemsItemConnectorOneRequestsPerMinuteDefault = 60;
+export const partnerConnectionsListResponseItemsItemConnectorOneRequestsPerMinuteMax = 600;
+
+export const partnerConnectionsListResponseItemsItemConnectorOneTimeoutSecondsDefault = 15;
+export const partnerConnectionsListResponseItemsItemConnectorOneTimeoutSecondsMax = 30;
+
+export const partnerConnectionsListResponseItemsItemConnectorOneVersionDefault = 1;
+export const partnerConnectionsListResponseItemsItemPartnershipTypeDefault = `launch_platform`;
+
+export const PartnerConnectionsListResponse = zod.object({
+  "credentials_available": zod.boolean(),
+  "items": zod.array(zod.object({
+  "account_id": zod.union([zod.uuid(),zod.null()]).optional(),
+  "ai_enabled": zod.boolean(),
+  "api_url": zod.string(),
+  "approval_mode": zod.union([zod.enum(['qualified', 'trusted']),zod.null()]).optional(),
+  "auth_mode": zod.enum(['none', 'bearer', 'api_key']),
+  "checking": zod.int(),
+  "commercial_approved": zod.int().default(partnerConnectionsListResponseItemsItemCommercialApprovedDefault),
+  "connector": zod.union([zod.object({
+  "attribution": zod.string().max(partnerConnectionsListResponseItemsItemConnectorOneAttributionMax).default(partnerConnectionsListResponseItemsItemConnectorOneAttributionDefault),
+  "auth": zod.object({
+  "header": zod.string().min(1).max(partnerConnectionsListResponseItemsItemConnectorOneAuthHeaderMax).regex(partnerConnectionsListResponseItemsItemConnectorOneAuthHeaderRegExp).default(partnerConnectionsListResponseItemsItemConnectorOneAuthHeaderDefault),
+  "mode": zod.enum(['none', 'bearer', 'api_key']).default(partnerConnectionsListResponseItemsItemConnectorOneAuthModeDefault),
+  "secret_ref": zod.string().regex(partnerConnectionsListResponseItemsItemConnectorOneAuthSecretRefRegExp).default(partnerConnectionsListResponseItemsItemConnectorOneAuthSecretRefDefault),
+  "source": zod.enum(['environment', 'connection']).default(partnerConnectionsListResponseItemsItemConnectorOneAuthSourceDefault)
+}).optional(),
+  "base_url": zod.string(),
+  "detail_path": zod.union([zod.string().max(partnerConnectionsListResponseItemsItemConnectorOneDetailPathOneMax),zod.null()]).optional(),
+  "detail_root": zod.string().max(partnerConnectionsListResponseItemsItemConnectorOneDetailRootMax).regex(partnerConnectionsListResponseItemsItemConnectorOneDetailRootRegExp).default(partnerConnectionsListResponseItemsItemConnectorOneDetailRootDefault),
+  "fields": zod.object({
+  "description": zod.array(zod.string().max(partnerConnectionsListResponseItemsItemConnectorOneFieldsDescriptionItemMax).regex(partnerConnectionsListResponseItemsItemConnectorOneFieldsDescriptionItemRegExp)).min(1).max(partnerConnectionsListResponseItemsItemConnectorOneFieldsDescriptionMax).optional(),
+  "external_id": zod.array(zod.string().max(partnerConnectionsListResponseItemsItemConnectorOneFieldsExternalIdItemMax).regex(partnerConnectionsListResponseItemsItemConnectorOneFieldsExternalIdItemRegExp)).min(1).max(partnerConnectionsListResponseItemsItemConnectorOneFieldsExternalIdMax).optional(),
+  "listing_url": zod.array(zod.string().max(partnerConnectionsListResponseItemsItemConnectorOneFieldsListingUrlItemMax).regex(partnerConnectionsListResponseItemsItemConnectorOneFieldsListingUrlItemRegExp)).min(1).max(partnerConnectionsListResponseItemsItemConnectorOneFieldsListingUrlMax).optional(),
+  "name": zod.array(zod.string().max(partnerConnectionsListResponseItemsItemConnectorOneFieldsNameItemMax).regex(partnerConnectionsListResponseItemsItemConnectorOneFieldsNameItemRegExp)).min(1).max(partnerConnectionsListResponseItemsItemConnectorOneFieldsNameMax).optional(),
+  "pricing": zod.array(zod.string().max(partnerConnectionsListResponseItemsItemConnectorOneFieldsPricingItemMax).regex(partnerConnectionsListResponseItemsItemConnectorOneFieldsPricingItemRegExp)).min(1).max(partnerConnectionsListResponseItemsItemConnectorOneFieldsPricingMax).optional(),
+  "product_url": zod.array(zod.string().max(partnerConnectionsListResponseItemsItemConnectorOneFieldsProductUrlItemMax).regex(partnerConnectionsListResponseItemsItemConnectorOneFieldsProductUrlItemRegExp)).min(1).max(partnerConnectionsListResponseItemsItemConnectorOneFieldsProductUrlMax).optional()
+}).optional(),
+  "filters": zod.array(zod.object({
+  "include_missing": zod.boolean().default(partnerConnectionsListResponseItemsItemConnectorOneFiltersItemIncludeMissingDefault),
+  "path": zod.string().max(partnerConnectionsListResponseItemsItemConnectorOneFiltersItemPathMax).regex(partnerConnectionsListResponseItemsItemConnectorOneFiltersItemPathRegExp),
+  "values": zod.array(zod.string()).min(1).max(partnerConnectionsListResponseItemsItemConnectorOneFiltersItemValuesMax)
+})).max(partnerConnectionsListResponseItemsItemConnectorOneFiltersMax).optional(),
+  "items_paths": zod.array(zod.string().max(partnerConnectionsListResponseItemsItemConnectorOneItemsPathsItemMax).regex(partnerConnectionsListResponseItemsItemConnectorOneItemsPathsItemRegExp)).min(1).max(partnerConnectionsListResponseItemsItemConnectorOneItemsPathsMax).optional(),
+  "list_path": zod.string().min(1).max(partnerConnectionsListResponseItemsItemConnectorOneListPathMax).default(partnerConnectionsListResponseItemsItemConnectorOneListPathDefault),
+  "listing_url_template": zod.union([zod.string().max(partnerConnectionsListResponseItemsItemConnectorOneListingUrlTemplateOneMax),zod.null()]).optional(),
+  "max_pages": zod.int().min(1).max(partnerConnectionsListResponseItemsItemConnectorOneMaxPagesMax).default(partnerConnectionsListResponseItemsItemConnectorOneMaxPagesDefault),
+  "max_response_bytes": zod.int().min(partnerConnectionsListResponseItemsItemConnectorOneMaxResponseBytesMin).max(partnerConnectionsListResponseItemsItemConnectorOneMaxResponseBytesMax).default(partnerConnectionsListResponseItemsItemConnectorOneMaxResponseBytesDefault),
+  "pagination": zod.object({
+  "has_more_path": zod.union([zod.string().max(partnerConnectionsListResponseItemsItemConnectorOnePaginationHasMorePathOneMax).regex(partnerConnectionsListResponseItemsItemConnectorOnePaginationHasMorePathOneRegExp),zod.null()]).optional(),
+  "mode": zod.enum(['none', 'cursor', 'page', 'offset', 'next_url']).default(partnerConnectionsListResponseItemsItemConnectorOnePaginationModeDefault),
+  "next_path": zod.string().max(partnerConnectionsListResponseItemsItemConnectorOnePaginationNextPathMax).regex(partnerConnectionsListResponseItemsItemConnectorOnePaginationNextPathRegExp).default(partnerConnectionsListResponseItemsItemConnectorOnePaginationNextPathDefault),
+  "page_size": zod.int().min(1).max(partnerConnectionsListResponseItemsItemConnectorOnePaginationPageSizeMax).default(partnerConnectionsListResponseItemsItemConnectorOnePaginationPageSizeDefault),
+  "parameter": zod.union([zod.string().min(1).max(partnerConnectionsListResponseItemsItemConnectorOnePaginationParameterOneMax).regex(partnerConnectionsListResponseItemsItemConnectorOnePaginationParameterOneRegExp),zod.null()]).default(partnerConnectionsListResponseItemsItemConnectorOnePaginationParameterDefault),
+  "size_parameter": zod.union([zod.string().min(1).max(partnerConnectionsListResponseItemsItemConnectorOnePaginationSizeParameterOneMax).regex(partnerConnectionsListResponseItemsItemConnectorOnePaginationSizeParameterOneRegExp),zod.null()]).default(partnerConnectionsListResponseItemsItemConnectorOnePaginationSizeParameterDefault),
+  "start": zod.int().min(partnerConnectionsListResponseItemsItemConnectorOnePaginationStartMin).max(partnerConnectionsListResponseItemsItemConnectorOnePaginationStartMax).default(partnerConnectionsListResponseItemsItemConnectorOnePaginationStartDefault),
+  "total_path": zod.union([zod.string().max(partnerConnectionsListResponseItemsItemConnectorOnePaginationTotalPathOneMax).regex(partnerConnectionsListResponseItemsItemConnectorOnePaginationTotalPathOneRegExp),zod.null()]).optional()
+}).optional(),
+  "parameters": zod.looseObject({
+
+}).optional(),
+  "platform_hosts": zod.array(zod.string()).max(partnerConnectionsListResponseItemsItemConnectorOnePlatformHostsMax).optional(),
+  "requests_per_minute": zod.int().min(1).max(partnerConnectionsListResponseItemsItemConnectorOneRequestsPerMinuteMax).default(partnerConnectionsListResponseItemsItemConnectorOneRequestsPerMinuteDefault),
+  "timeout_seconds": zod.int().min(1).max(partnerConnectionsListResponseItemsItemConnectorOneTimeoutSecondsMax).default(partnerConnectionsListResponseItemsItemConnectorOneTimeoutSecondsDefault),
+  "version": zod.literal(1).default(partnerConnectionsListResponseItemsItemConnectorOneVersionDefault).meta({ title: 'Version' })
+}),zod.null()]).optional(),
+  "connector_editable": zod.boolean(),
+  "credential_configured": zod.boolean(),
+  "credential_header": zod.string(),
+  "credentials_managed": zod.boolean(),
+  "enabled": zod.boolean(),
+  "error": zod.union([zod.string(),zod.null()]),
+  "excluded": zod.int(),
+  "last_sync_at": zod.union([zod.iso.datetime({"offset":true}),zod.null()]),
+  "name": zod.string(),
+  "needs_attention": zod.int(),
+  "next_sync_at": zod.union([zod.iso.datetime({"offset":true}),zod.null()]),
+  "partnership_type": zod.literal("launch_platform").default(partnerConnectionsListResponseItemsItemPartnershipTypeDefault).meta({ title: 'Partnership Type' }),
+  "products": zod.int(),
+  "provider": zod.string(),
+  "qualified": zod.int(),
+  "revision": zod.int(),
+  "state": zod.enum(['disconnected', 'idle', 'syncing', 'error']),
+  "sync_interval_minutes": zod.int()
+})),
+  "limit": zod.int(),
+  "offset": zod.int(),
+  "total": zod.int()
+})
+
+
+/**
+ * @summary Create Connection
+ */
+export const partnerConnectionCreateResponseCommercialApprovedDefault = 0;
+export const partnerConnectionCreateResponseConnectorOneAttributionDefault = ``;
+export const partnerConnectionCreateResponseConnectorOneAttributionMax = 300;
+
+export const partnerConnectionCreateResponseConnectorOneAuthHeaderDefault = `X-API-Key`;
+export const partnerConnectionCreateResponseConnectorOneAuthHeaderMax = 100;
+
+
+export const partnerConnectionCreateResponseConnectorOneAuthHeaderRegExp = new RegExp('^[A-Za-z][A-Za-z0-9_-]*$');
+export const partnerConnectionCreateResponseConnectorOneAuthModeDefault = `none`;
+export const partnerConnectionCreateResponseConnectorOneAuthSecretRefDefault = ``;
+export const partnerConnectionCreateResponseConnectorOneAuthSecretRefRegExp = new RegExp('^$|^DEVFEED_PARTNER_SECRET_[A-Z0-9_]{1,80}$');
+export const partnerConnectionCreateResponseConnectorOneAuthSourceDefault = `environment`;
+export const partnerConnectionCreateResponseConnectorOneDetailPathOneMax = 500;
+
+export const partnerConnectionCreateResponseConnectorOneDetailRootDefault = ``;
+export const partnerConnectionCreateResponseConnectorOneDetailRootMax = 200;
+
+
+export const partnerConnectionCreateResponseConnectorOneDetailRootRegExp = new RegExp('^(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+)(?:\\.(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+))*$|^$');
+export const partnerConnectionCreateResponseConnectorOneFieldsDescriptionItemMax = 200;
+
+
+export const partnerConnectionCreateResponseConnectorOneFieldsDescriptionItemRegExp = new RegExp('^(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+)(?:\\.(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+))*$|^$');
+export const partnerConnectionCreateResponseConnectorOneFieldsDescriptionMax = 5;
+
+export const partnerConnectionCreateResponseConnectorOneFieldsExternalIdItemMax = 200;
+
+
+export const partnerConnectionCreateResponseConnectorOneFieldsExternalIdItemRegExp = new RegExp('^(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+)(?:\\.(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+))*$|^$');
+export const partnerConnectionCreateResponseConnectorOneFieldsExternalIdMax = 5;
+
+export const partnerConnectionCreateResponseConnectorOneFieldsListingUrlItemMax = 200;
+
+
+export const partnerConnectionCreateResponseConnectorOneFieldsListingUrlItemRegExp = new RegExp('^(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+)(?:\\.(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+))*$|^$');
+export const partnerConnectionCreateResponseConnectorOneFieldsListingUrlMax = 5;
+
+export const partnerConnectionCreateResponseConnectorOneFieldsNameItemMax = 200;
+
+
+export const partnerConnectionCreateResponseConnectorOneFieldsNameItemRegExp = new RegExp('^(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+)(?:\\.(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+))*$|^$');
+export const partnerConnectionCreateResponseConnectorOneFieldsNameMax = 5;
+
+export const partnerConnectionCreateResponseConnectorOneFieldsPricingItemMax = 200;
+
+
+export const partnerConnectionCreateResponseConnectorOneFieldsPricingItemRegExp = new RegExp('^(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+)(?:\\.(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+))*$|^$');
+export const partnerConnectionCreateResponseConnectorOneFieldsPricingMax = 5;
+
+export const partnerConnectionCreateResponseConnectorOneFieldsProductUrlItemMax = 200;
+
+
+export const partnerConnectionCreateResponseConnectorOneFieldsProductUrlItemRegExp = new RegExp('^(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+)(?:\\.(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+))*$|^$');
+export const partnerConnectionCreateResponseConnectorOneFieldsProductUrlMax = 5;
+
+export const partnerConnectionCreateResponseConnectorOneFiltersItemIncludeMissingDefault = true;
+export const partnerConnectionCreateResponseConnectorOneFiltersItemPathMax = 200;
+
+
+export const partnerConnectionCreateResponseConnectorOneFiltersItemPathRegExp = new RegExp('^(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+)(?:\\.(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+))*$|^$');
+export const partnerConnectionCreateResponseConnectorOneFiltersItemValuesMax = 20;
+
+export const partnerConnectionCreateResponseConnectorOneFiltersMax = 10;
+
+export const partnerConnectionCreateResponseConnectorOneItemsPathsItemMax = 200;
+
+
+export const partnerConnectionCreateResponseConnectorOneItemsPathsItemRegExp = new RegExp('^(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+)(?:\\.(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+))*$|^$');
+export const partnerConnectionCreateResponseConnectorOneItemsPathsMax = 5;
+
+export const partnerConnectionCreateResponseConnectorOneListPathDefault = `/products`;
+export const partnerConnectionCreateResponseConnectorOneListPathMax = 500;
+
+export const partnerConnectionCreateResponseConnectorOneListingUrlTemplateOneMax = 500;
+
+export const partnerConnectionCreateResponseConnectorOneMaxPagesDefault = 1000;
+export const partnerConnectionCreateResponseConnectorOneMaxPagesMax = 1000;
+
+export const partnerConnectionCreateResponseConnectorOneMaxResponseBytesDefault = 2000000;
+export const partnerConnectionCreateResponseConnectorOneMaxResponseBytesMin = 1024;
+export const partnerConnectionCreateResponseConnectorOneMaxResponseBytesMax = 5000000;
+
+export const partnerConnectionCreateResponseConnectorOnePaginationHasMorePathOneMax = 200;
+
+
+export const partnerConnectionCreateResponseConnectorOnePaginationHasMorePathOneRegExp = new RegExp('^(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+)(?:\\.(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+))*$|^$');
+export const partnerConnectionCreateResponseConnectorOnePaginationModeDefault = `cursor`;
+export const partnerConnectionCreateResponseConnectorOnePaginationNextPathDefault = `nextCursor`;
+export const partnerConnectionCreateResponseConnectorOnePaginationNextPathMax = 200;
+
+
+export const partnerConnectionCreateResponseConnectorOnePaginationNextPathRegExp = new RegExp('^(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+)(?:\\.(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+))*$|^$');
+export const partnerConnectionCreateResponseConnectorOnePaginationPageSizeDefault = 10;
+export const partnerConnectionCreateResponseConnectorOnePaginationPageSizeMax = 100;
+
+export const partnerConnectionCreateResponseConnectorOnePaginationParameterOneMax = 100;
+
+
+export const partnerConnectionCreateResponseConnectorOnePaginationParameterOneRegExp = new RegExp('^[A-Za-z][A-Za-z0-9_-]*$');
+export const partnerConnectionCreateResponseConnectorOnePaginationParameterDefault = `cursor`;
+export const partnerConnectionCreateResponseConnectorOnePaginationSizeParameterOneMax = 100;
+
+
+export const partnerConnectionCreateResponseConnectorOnePaginationSizeParameterOneRegExp = new RegExp('^[A-Za-z][A-Za-z0-9_-]*$');
+export const partnerConnectionCreateResponseConnectorOnePaginationSizeParameterDefault = `limit`;
+export const partnerConnectionCreateResponseConnectorOnePaginationStartDefault = 1;
+export const partnerConnectionCreateResponseConnectorOnePaginationStartMin = 0;
+export const partnerConnectionCreateResponseConnectorOnePaginationStartMax = 1000000;
+
+export const partnerConnectionCreateResponseConnectorOnePaginationTotalPathOneMax = 200;
+
+
+export const partnerConnectionCreateResponseConnectorOnePaginationTotalPathOneRegExp = new RegExp('^(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+)(?:\\.(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+))*$|^$');
+export const partnerConnectionCreateResponseConnectorOnePlatformHostsMax = 5;
+
+export const partnerConnectionCreateResponseConnectorOneRequestsPerMinuteDefault = 60;
+export const partnerConnectionCreateResponseConnectorOneRequestsPerMinuteMax = 600;
+
+export const partnerConnectionCreateResponseConnectorOneTimeoutSecondsDefault = 15;
+export const partnerConnectionCreateResponseConnectorOneTimeoutSecondsMax = 30;
+
+export const partnerConnectionCreateResponseConnectorOneVersionDefault = 1;
+export const partnerConnectionCreateResponsePartnershipTypeDefault = `launch_platform`;
+
+export const PartnerConnectionCreateResponse = zod.object({
+  "account_id": zod.union([zod.uuid(),zod.null()]).optional(),
+  "ai_enabled": zod.boolean(),
+  "api_url": zod.string(),
+  "approval_mode": zod.union([zod.enum(['qualified', 'trusted']),zod.null()]).optional(),
+  "auth_mode": zod.enum(['none', 'bearer', 'api_key']),
+  "checking": zod.int(),
+  "commercial_approved": zod.int().default(partnerConnectionCreateResponseCommercialApprovedDefault),
+  "connector": zod.union([zod.object({
+  "attribution": zod.string().max(partnerConnectionCreateResponseConnectorOneAttributionMax).default(partnerConnectionCreateResponseConnectorOneAttributionDefault),
+  "auth": zod.object({
+  "header": zod.string().min(1).max(partnerConnectionCreateResponseConnectorOneAuthHeaderMax).regex(partnerConnectionCreateResponseConnectorOneAuthHeaderRegExp).default(partnerConnectionCreateResponseConnectorOneAuthHeaderDefault),
+  "mode": zod.enum(['none', 'bearer', 'api_key']).default(partnerConnectionCreateResponseConnectorOneAuthModeDefault),
+  "secret_ref": zod.string().regex(partnerConnectionCreateResponseConnectorOneAuthSecretRefRegExp).default(partnerConnectionCreateResponseConnectorOneAuthSecretRefDefault),
+  "source": zod.enum(['environment', 'connection']).default(partnerConnectionCreateResponseConnectorOneAuthSourceDefault)
+}).optional(),
+  "base_url": zod.string(),
+  "detail_path": zod.union([zod.string().max(partnerConnectionCreateResponseConnectorOneDetailPathOneMax),zod.null()]).optional(),
+  "detail_root": zod.string().max(partnerConnectionCreateResponseConnectorOneDetailRootMax).regex(partnerConnectionCreateResponseConnectorOneDetailRootRegExp).default(partnerConnectionCreateResponseConnectorOneDetailRootDefault),
+  "fields": zod.object({
+  "description": zod.array(zod.string().max(partnerConnectionCreateResponseConnectorOneFieldsDescriptionItemMax).regex(partnerConnectionCreateResponseConnectorOneFieldsDescriptionItemRegExp)).min(1).max(partnerConnectionCreateResponseConnectorOneFieldsDescriptionMax).optional(),
+  "external_id": zod.array(zod.string().max(partnerConnectionCreateResponseConnectorOneFieldsExternalIdItemMax).regex(partnerConnectionCreateResponseConnectorOneFieldsExternalIdItemRegExp)).min(1).max(partnerConnectionCreateResponseConnectorOneFieldsExternalIdMax).optional(),
+  "listing_url": zod.array(zod.string().max(partnerConnectionCreateResponseConnectorOneFieldsListingUrlItemMax).regex(partnerConnectionCreateResponseConnectorOneFieldsListingUrlItemRegExp)).min(1).max(partnerConnectionCreateResponseConnectorOneFieldsListingUrlMax).optional(),
+  "name": zod.array(zod.string().max(partnerConnectionCreateResponseConnectorOneFieldsNameItemMax).regex(partnerConnectionCreateResponseConnectorOneFieldsNameItemRegExp)).min(1).max(partnerConnectionCreateResponseConnectorOneFieldsNameMax).optional(),
+  "pricing": zod.array(zod.string().max(partnerConnectionCreateResponseConnectorOneFieldsPricingItemMax).regex(partnerConnectionCreateResponseConnectorOneFieldsPricingItemRegExp)).min(1).max(partnerConnectionCreateResponseConnectorOneFieldsPricingMax).optional(),
+  "product_url": zod.array(zod.string().max(partnerConnectionCreateResponseConnectorOneFieldsProductUrlItemMax).regex(partnerConnectionCreateResponseConnectorOneFieldsProductUrlItemRegExp)).min(1).max(partnerConnectionCreateResponseConnectorOneFieldsProductUrlMax).optional()
+}).optional(),
+  "filters": zod.array(zod.object({
+  "include_missing": zod.boolean().default(partnerConnectionCreateResponseConnectorOneFiltersItemIncludeMissingDefault),
+  "path": zod.string().max(partnerConnectionCreateResponseConnectorOneFiltersItemPathMax).regex(partnerConnectionCreateResponseConnectorOneFiltersItemPathRegExp),
+  "values": zod.array(zod.string()).min(1).max(partnerConnectionCreateResponseConnectorOneFiltersItemValuesMax)
+})).max(partnerConnectionCreateResponseConnectorOneFiltersMax).optional(),
+  "items_paths": zod.array(zod.string().max(partnerConnectionCreateResponseConnectorOneItemsPathsItemMax).regex(partnerConnectionCreateResponseConnectorOneItemsPathsItemRegExp)).min(1).max(partnerConnectionCreateResponseConnectorOneItemsPathsMax).optional(),
+  "list_path": zod.string().min(1).max(partnerConnectionCreateResponseConnectorOneListPathMax).default(partnerConnectionCreateResponseConnectorOneListPathDefault),
+  "listing_url_template": zod.union([zod.string().max(partnerConnectionCreateResponseConnectorOneListingUrlTemplateOneMax),zod.null()]).optional(),
+  "max_pages": zod.int().min(1).max(partnerConnectionCreateResponseConnectorOneMaxPagesMax).default(partnerConnectionCreateResponseConnectorOneMaxPagesDefault),
+  "max_response_bytes": zod.int().min(partnerConnectionCreateResponseConnectorOneMaxResponseBytesMin).max(partnerConnectionCreateResponseConnectorOneMaxResponseBytesMax).default(partnerConnectionCreateResponseConnectorOneMaxResponseBytesDefault),
+  "pagination": zod.object({
+  "has_more_path": zod.union([zod.string().max(partnerConnectionCreateResponseConnectorOnePaginationHasMorePathOneMax).regex(partnerConnectionCreateResponseConnectorOnePaginationHasMorePathOneRegExp),zod.null()]).optional(),
+  "mode": zod.enum(['none', 'cursor', 'page', 'offset', 'next_url']).default(partnerConnectionCreateResponseConnectorOnePaginationModeDefault),
+  "next_path": zod.string().max(partnerConnectionCreateResponseConnectorOnePaginationNextPathMax).regex(partnerConnectionCreateResponseConnectorOnePaginationNextPathRegExp).default(partnerConnectionCreateResponseConnectorOnePaginationNextPathDefault),
+  "page_size": zod.int().min(1).max(partnerConnectionCreateResponseConnectorOnePaginationPageSizeMax).default(partnerConnectionCreateResponseConnectorOnePaginationPageSizeDefault),
+  "parameter": zod.union([zod.string().min(1).max(partnerConnectionCreateResponseConnectorOnePaginationParameterOneMax).regex(partnerConnectionCreateResponseConnectorOnePaginationParameterOneRegExp),zod.null()]).default(partnerConnectionCreateResponseConnectorOnePaginationParameterDefault),
+  "size_parameter": zod.union([zod.string().min(1).max(partnerConnectionCreateResponseConnectorOnePaginationSizeParameterOneMax).regex(partnerConnectionCreateResponseConnectorOnePaginationSizeParameterOneRegExp),zod.null()]).default(partnerConnectionCreateResponseConnectorOnePaginationSizeParameterDefault),
+  "start": zod.int().min(partnerConnectionCreateResponseConnectorOnePaginationStartMin).max(partnerConnectionCreateResponseConnectorOnePaginationStartMax).default(partnerConnectionCreateResponseConnectorOnePaginationStartDefault),
+  "total_path": zod.union([zod.string().max(partnerConnectionCreateResponseConnectorOnePaginationTotalPathOneMax).regex(partnerConnectionCreateResponseConnectorOnePaginationTotalPathOneRegExp),zod.null()]).optional()
+}).optional(),
+  "parameters": zod.looseObject({
+
+}).optional(),
+  "platform_hosts": zod.array(zod.string()).max(partnerConnectionCreateResponseConnectorOnePlatformHostsMax).optional(),
+  "requests_per_minute": zod.int().min(1).max(partnerConnectionCreateResponseConnectorOneRequestsPerMinuteMax).default(partnerConnectionCreateResponseConnectorOneRequestsPerMinuteDefault),
+  "timeout_seconds": zod.int().min(1).max(partnerConnectionCreateResponseConnectorOneTimeoutSecondsMax).default(partnerConnectionCreateResponseConnectorOneTimeoutSecondsDefault),
+  "version": zod.literal(1).default(partnerConnectionCreateResponseConnectorOneVersionDefault).meta({ title: 'Version' })
+}),zod.null()]).optional(),
+  "connector_editable": zod.boolean(),
+  "credential_configured": zod.boolean(),
+  "credential_header": zod.string(),
+  "credentials_managed": zod.boolean(),
+  "enabled": zod.boolean(),
+  "error": zod.union([zod.string(),zod.null()]),
+  "excluded": zod.int(),
+  "last_sync_at": zod.union([zod.iso.datetime({"offset":true}),zod.null()]),
+  "name": zod.string(),
+  "needs_attention": zod.int(),
+  "next_sync_at": zod.union([zod.iso.datetime({"offset":true}),zod.null()]),
+  "partnership_type": zod.literal("launch_platform").default(partnerConnectionCreateResponsePartnershipTypeDefault).meta({ title: 'Partnership Type' }),
+  "products": zod.int(),
+  "provider": zod.string(),
+  "qualified": zod.int(),
+  "revision": zod.int(),
+  "state": zod.enum(['disconnected', 'idle', 'syncing', 'error']),
+  "sync_interval_minutes": zod.int()
+})
+
+
+/**
+ * Archive the connection and erase its token, retaining catalog and reporting history.
+ * @summary Disconnect Connection
+ */
+export const partnerConnectionDeleteResponseCommercialApprovedDefault = 0;
+export const partnerConnectionDeleteResponseConnectorOneAttributionDefault = ``;
+export const partnerConnectionDeleteResponseConnectorOneAttributionMax = 300;
+
+export const partnerConnectionDeleteResponseConnectorOneAuthHeaderDefault = `X-API-Key`;
+export const partnerConnectionDeleteResponseConnectorOneAuthHeaderMax = 100;
+
+
+export const partnerConnectionDeleteResponseConnectorOneAuthHeaderRegExp = new RegExp('^[A-Za-z][A-Za-z0-9_-]*$');
+export const partnerConnectionDeleteResponseConnectorOneAuthModeDefault = `none`;
+export const partnerConnectionDeleteResponseConnectorOneAuthSecretRefDefault = ``;
+export const partnerConnectionDeleteResponseConnectorOneAuthSecretRefRegExp = new RegExp('^$|^DEVFEED_PARTNER_SECRET_[A-Z0-9_]{1,80}$');
+export const partnerConnectionDeleteResponseConnectorOneAuthSourceDefault = `environment`;
+export const partnerConnectionDeleteResponseConnectorOneDetailPathOneMax = 500;
+
+export const partnerConnectionDeleteResponseConnectorOneDetailRootDefault = ``;
+export const partnerConnectionDeleteResponseConnectorOneDetailRootMax = 200;
+
+
+export const partnerConnectionDeleteResponseConnectorOneDetailRootRegExp = new RegExp('^(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+)(?:\\.(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+))*$|^$');
+export const partnerConnectionDeleteResponseConnectorOneFieldsDescriptionItemMax = 200;
+
+
+export const partnerConnectionDeleteResponseConnectorOneFieldsDescriptionItemRegExp = new RegExp('^(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+)(?:\\.(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+))*$|^$');
+export const partnerConnectionDeleteResponseConnectorOneFieldsDescriptionMax = 5;
+
+export const partnerConnectionDeleteResponseConnectorOneFieldsExternalIdItemMax = 200;
+
+
+export const partnerConnectionDeleteResponseConnectorOneFieldsExternalIdItemRegExp = new RegExp('^(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+)(?:\\.(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+))*$|^$');
+export const partnerConnectionDeleteResponseConnectorOneFieldsExternalIdMax = 5;
+
+export const partnerConnectionDeleteResponseConnectorOneFieldsListingUrlItemMax = 200;
+
+
+export const partnerConnectionDeleteResponseConnectorOneFieldsListingUrlItemRegExp = new RegExp('^(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+)(?:\\.(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+))*$|^$');
+export const partnerConnectionDeleteResponseConnectorOneFieldsListingUrlMax = 5;
+
+export const partnerConnectionDeleteResponseConnectorOneFieldsNameItemMax = 200;
+
+
+export const partnerConnectionDeleteResponseConnectorOneFieldsNameItemRegExp = new RegExp('^(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+)(?:\\.(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+))*$|^$');
+export const partnerConnectionDeleteResponseConnectorOneFieldsNameMax = 5;
+
+export const partnerConnectionDeleteResponseConnectorOneFieldsPricingItemMax = 200;
+
+
+export const partnerConnectionDeleteResponseConnectorOneFieldsPricingItemRegExp = new RegExp('^(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+)(?:\\.(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+))*$|^$');
+export const partnerConnectionDeleteResponseConnectorOneFieldsPricingMax = 5;
+
+export const partnerConnectionDeleteResponseConnectorOneFieldsProductUrlItemMax = 200;
+
+
+export const partnerConnectionDeleteResponseConnectorOneFieldsProductUrlItemRegExp = new RegExp('^(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+)(?:\\.(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+))*$|^$');
+export const partnerConnectionDeleteResponseConnectorOneFieldsProductUrlMax = 5;
+
+export const partnerConnectionDeleteResponseConnectorOneFiltersItemIncludeMissingDefault = true;
+export const partnerConnectionDeleteResponseConnectorOneFiltersItemPathMax = 200;
+
+
+export const partnerConnectionDeleteResponseConnectorOneFiltersItemPathRegExp = new RegExp('^(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+)(?:\\.(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+))*$|^$');
+export const partnerConnectionDeleteResponseConnectorOneFiltersItemValuesMax = 20;
+
+export const partnerConnectionDeleteResponseConnectorOneFiltersMax = 10;
+
+export const partnerConnectionDeleteResponseConnectorOneItemsPathsItemMax = 200;
+
+
+export const partnerConnectionDeleteResponseConnectorOneItemsPathsItemRegExp = new RegExp('^(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+)(?:\\.(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+))*$|^$');
+export const partnerConnectionDeleteResponseConnectorOneItemsPathsMax = 5;
+
+export const partnerConnectionDeleteResponseConnectorOneListPathDefault = `/products`;
+export const partnerConnectionDeleteResponseConnectorOneListPathMax = 500;
+
+export const partnerConnectionDeleteResponseConnectorOneListingUrlTemplateOneMax = 500;
+
+export const partnerConnectionDeleteResponseConnectorOneMaxPagesDefault = 1000;
+export const partnerConnectionDeleteResponseConnectorOneMaxPagesMax = 1000;
+
+export const partnerConnectionDeleteResponseConnectorOneMaxResponseBytesDefault = 2000000;
+export const partnerConnectionDeleteResponseConnectorOneMaxResponseBytesMin = 1024;
+export const partnerConnectionDeleteResponseConnectorOneMaxResponseBytesMax = 5000000;
+
+export const partnerConnectionDeleteResponseConnectorOnePaginationHasMorePathOneMax = 200;
+
+
+export const partnerConnectionDeleteResponseConnectorOnePaginationHasMorePathOneRegExp = new RegExp('^(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+)(?:\\.(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+))*$|^$');
+export const partnerConnectionDeleteResponseConnectorOnePaginationModeDefault = `cursor`;
+export const partnerConnectionDeleteResponseConnectorOnePaginationNextPathDefault = `nextCursor`;
+export const partnerConnectionDeleteResponseConnectorOnePaginationNextPathMax = 200;
+
+
+export const partnerConnectionDeleteResponseConnectorOnePaginationNextPathRegExp = new RegExp('^(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+)(?:\\.(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+))*$|^$');
+export const partnerConnectionDeleteResponseConnectorOnePaginationPageSizeDefault = 10;
+export const partnerConnectionDeleteResponseConnectorOnePaginationPageSizeMax = 100;
+
+export const partnerConnectionDeleteResponseConnectorOnePaginationParameterOneMax = 100;
+
+
+export const partnerConnectionDeleteResponseConnectorOnePaginationParameterOneRegExp = new RegExp('^[A-Za-z][A-Za-z0-9_-]*$');
+export const partnerConnectionDeleteResponseConnectorOnePaginationParameterDefault = `cursor`;
+export const partnerConnectionDeleteResponseConnectorOnePaginationSizeParameterOneMax = 100;
+
+
+export const partnerConnectionDeleteResponseConnectorOnePaginationSizeParameterOneRegExp = new RegExp('^[A-Za-z][A-Za-z0-9_-]*$');
+export const partnerConnectionDeleteResponseConnectorOnePaginationSizeParameterDefault = `limit`;
+export const partnerConnectionDeleteResponseConnectorOnePaginationStartDefault = 1;
+export const partnerConnectionDeleteResponseConnectorOnePaginationStartMin = 0;
+export const partnerConnectionDeleteResponseConnectorOnePaginationStartMax = 1000000;
+
+export const partnerConnectionDeleteResponseConnectorOnePaginationTotalPathOneMax = 200;
+
+
+export const partnerConnectionDeleteResponseConnectorOnePaginationTotalPathOneRegExp = new RegExp('^(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+)(?:\\.(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+))*$|^$');
+export const partnerConnectionDeleteResponseConnectorOnePlatformHostsMax = 5;
+
+export const partnerConnectionDeleteResponseConnectorOneRequestsPerMinuteDefault = 60;
+export const partnerConnectionDeleteResponseConnectorOneRequestsPerMinuteMax = 600;
+
+export const partnerConnectionDeleteResponseConnectorOneTimeoutSecondsDefault = 15;
+export const partnerConnectionDeleteResponseConnectorOneTimeoutSecondsMax = 30;
+
+export const partnerConnectionDeleteResponseConnectorOneVersionDefault = 1;
+export const partnerConnectionDeleteResponsePartnershipTypeDefault = `launch_platform`;
+
+export const PartnerConnectionDeleteResponse = zod.object({
+  "account_id": zod.union([zod.uuid(),zod.null()]).optional(),
+  "ai_enabled": zod.boolean(),
+  "api_url": zod.string(),
+  "approval_mode": zod.union([zod.enum(['qualified', 'trusted']),zod.null()]).optional(),
+  "auth_mode": zod.enum(['none', 'bearer', 'api_key']),
+  "checking": zod.int(),
+  "commercial_approved": zod.int().default(partnerConnectionDeleteResponseCommercialApprovedDefault),
+  "connector": zod.union([zod.object({
+  "attribution": zod.string().max(partnerConnectionDeleteResponseConnectorOneAttributionMax).default(partnerConnectionDeleteResponseConnectorOneAttributionDefault),
+  "auth": zod.object({
+  "header": zod.string().min(1).max(partnerConnectionDeleteResponseConnectorOneAuthHeaderMax).regex(partnerConnectionDeleteResponseConnectorOneAuthHeaderRegExp).default(partnerConnectionDeleteResponseConnectorOneAuthHeaderDefault),
+  "mode": zod.enum(['none', 'bearer', 'api_key']).default(partnerConnectionDeleteResponseConnectorOneAuthModeDefault),
+  "secret_ref": zod.string().regex(partnerConnectionDeleteResponseConnectorOneAuthSecretRefRegExp).default(partnerConnectionDeleteResponseConnectorOneAuthSecretRefDefault),
+  "source": zod.enum(['environment', 'connection']).default(partnerConnectionDeleteResponseConnectorOneAuthSourceDefault)
+}).optional(),
+  "base_url": zod.string(),
+  "detail_path": zod.union([zod.string().max(partnerConnectionDeleteResponseConnectorOneDetailPathOneMax),zod.null()]).optional(),
+  "detail_root": zod.string().max(partnerConnectionDeleteResponseConnectorOneDetailRootMax).regex(partnerConnectionDeleteResponseConnectorOneDetailRootRegExp).default(partnerConnectionDeleteResponseConnectorOneDetailRootDefault),
+  "fields": zod.object({
+  "description": zod.array(zod.string().max(partnerConnectionDeleteResponseConnectorOneFieldsDescriptionItemMax).regex(partnerConnectionDeleteResponseConnectorOneFieldsDescriptionItemRegExp)).min(1).max(partnerConnectionDeleteResponseConnectorOneFieldsDescriptionMax).optional(),
+  "external_id": zod.array(zod.string().max(partnerConnectionDeleteResponseConnectorOneFieldsExternalIdItemMax).regex(partnerConnectionDeleteResponseConnectorOneFieldsExternalIdItemRegExp)).min(1).max(partnerConnectionDeleteResponseConnectorOneFieldsExternalIdMax).optional(),
+  "listing_url": zod.array(zod.string().max(partnerConnectionDeleteResponseConnectorOneFieldsListingUrlItemMax).regex(partnerConnectionDeleteResponseConnectorOneFieldsListingUrlItemRegExp)).min(1).max(partnerConnectionDeleteResponseConnectorOneFieldsListingUrlMax).optional(),
+  "name": zod.array(zod.string().max(partnerConnectionDeleteResponseConnectorOneFieldsNameItemMax).regex(partnerConnectionDeleteResponseConnectorOneFieldsNameItemRegExp)).min(1).max(partnerConnectionDeleteResponseConnectorOneFieldsNameMax).optional(),
+  "pricing": zod.array(zod.string().max(partnerConnectionDeleteResponseConnectorOneFieldsPricingItemMax).regex(partnerConnectionDeleteResponseConnectorOneFieldsPricingItemRegExp)).min(1).max(partnerConnectionDeleteResponseConnectorOneFieldsPricingMax).optional(),
+  "product_url": zod.array(zod.string().max(partnerConnectionDeleteResponseConnectorOneFieldsProductUrlItemMax).regex(partnerConnectionDeleteResponseConnectorOneFieldsProductUrlItemRegExp)).min(1).max(partnerConnectionDeleteResponseConnectorOneFieldsProductUrlMax).optional()
+}).optional(),
+  "filters": zod.array(zod.object({
+  "include_missing": zod.boolean().default(partnerConnectionDeleteResponseConnectorOneFiltersItemIncludeMissingDefault),
+  "path": zod.string().max(partnerConnectionDeleteResponseConnectorOneFiltersItemPathMax).regex(partnerConnectionDeleteResponseConnectorOneFiltersItemPathRegExp),
+  "values": zod.array(zod.string()).min(1).max(partnerConnectionDeleteResponseConnectorOneFiltersItemValuesMax)
+})).max(partnerConnectionDeleteResponseConnectorOneFiltersMax).optional(),
+  "items_paths": zod.array(zod.string().max(partnerConnectionDeleteResponseConnectorOneItemsPathsItemMax).regex(partnerConnectionDeleteResponseConnectorOneItemsPathsItemRegExp)).min(1).max(partnerConnectionDeleteResponseConnectorOneItemsPathsMax).optional(),
+  "list_path": zod.string().min(1).max(partnerConnectionDeleteResponseConnectorOneListPathMax).default(partnerConnectionDeleteResponseConnectorOneListPathDefault),
+  "listing_url_template": zod.union([zod.string().max(partnerConnectionDeleteResponseConnectorOneListingUrlTemplateOneMax),zod.null()]).optional(),
+  "max_pages": zod.int().min(1).max(partnerConnectionDeleteResponseConnectorOneMaxPagesMax).default(partnerConnectionDeleteResponseConnectorOneMaxPagesDefault),
+  "max_response_bytes": zod.int().min(partnerConnectionDeleteResponseConnectorOneMaxResponseBytesMin).max(partnerConnectionDeleteResponseConnectorOneMaxResponseBytesMax).default(partnerConnectionDeleteResponseConnectorOneMaxResponseBytesDefault),
+  "pagination": zod.object({
+  "has_more_path": zod.union([zod.string().max(partnerConnectionDeleteResponseConnectorOnePaginationHasMorePathOneMax).regex(partnerConnectionDeleteResponseConnectorOnePaginationHasMorePathOneRegExp),zod.null()]).optional(),
+  "mode": zod.enum(['none', 'cursor', 'page', 'offset', 'next_url']).default(partnerConnectionDeleteResponseConnectorOnePaginationModeDefault),
+  "next_path": zod.string().max(partnerConnectionDeleteResponseConnectorOnePaginationNextPathMax).regex(partnerConnectionDeleteResponseConnectorOnePaginationNextPathRegExp).default(partnerConnectionDeleteResponseConnectorOnePaginationNextPathDefault),
+  "page_size": zod.int().min(1).max(partnerConnectionDeleteResponseConnectorOnePaginationPageSizeMax).default(partnerConnectionDeleteResponseConnectorOnePaginationPageSizeDefault),
+  "parameter": zod.union([zod.string().min(1).max(partnerConnectionDeleteResponseConnectorOnePaginationParameterOneMax).regex(partnerConnectionDeleteResponseConnectorOnePaginationParameterOneRegExp),zod.null()]).default(partnerConnectionDeleteResponseConnectorOnePaginationParameterDefault),
+  "size_parameter": zod.union([zod.string().min(1).max(partnerConnectionDeleteResponseConnectorOnePaginationSizeParameterOneMax).regex(partnerConnectionDeleteResponseConnectorOnePaginationSizeParameterOneRegExp),zod.null()]).default(partnerConnectionDeleteResponseConnectorOnePaginationSizeParameterDefault),
+  "start": zod.int().min(partnerConnectionDeleteResponseConnectorOnePaginationStartMin).max(partnerConnectionDeleteResponseConnectorOnePaginationStartMax).default(partnerConnectionDeleteResponseConnectorOnePaginationStartDefault),
+  "total_path": zod.union([zod.string().max(partnerConnectionDeleteResponseConnectorOnePaginationTotalPathOneMax).regex(partnerConnectionDeleteResponseConnectorOnePaginationTotalPathOneRegExp),zod.null()]).optional()
+}).optional(),
+  "parameters": zod.looseObject({
+
+}).optional(),
+  "platform_hosts": zod.array(zod.string()).max(partnerConnectionDeleteResponseConnectorOnePlatformHostsMax).optional(),
+  "requests_per_minute": zod.int().min(1).max(partnerConnectionDeleteResponseConnectorOneRequestsPerMinuteMax).default(partnerConnectionDeleteResponseConnectorOneRequestsPerMinuteDefault),
+  "timeout_seconds": zod.int().min(1).max(partnerConnectionDeleteResponseConnectorOneTimeoutSecondsMax).default(partnerConnectionDeleteResponseConnectorOneTimeoutSecondsDefault),
+  "version": zod.literal(1).default(partnerConnectionDeleteResponseConnectorOneVersionDefault).meta({ title: 'Version' })
+}),zod.null()]).optional(),
+  "connector_editable": zod.boolean(),
+  "credential_configured": zod.boolean(),
+  "credential_header": zod.string(),
+  "credentials_managed": zod.boolean(),
+  "enabled": zod.boolean(),
+  "error": zod.union([zod.string(),zod.null()]),
+  "excluded": zod.int(),
+  "last_sync_at": zod.union([zod.iso.datetime({"offset":true}),zod.null()]),
+  "name": zod.string(),
+  "needs_attention": zod.int(),
+  "next_sync_at": zod.union([zod.iso.datetime({"offset":true}),zod.null()]),
+  "partnership_type": zod.literal("launch_platform").default(partnerConnectionDeleteResponsePartnershipTypeDefault).meta({ title: 'Partnership Type' }),
+  "products": zod.int(),
+  "provider": zod.string(),
+  "qualified": zod.int(),
+  "revision": zod.int(),
+  "state": zod.enum(['disconnected', 'idle', 'syncing', 'error']),
+  "sync_interval_minutes": zod.int()
+})
+
+
+/**
+ * @summary Get Connection
+ */
+export const partnerConnectionGetResponseCommercialApprovedDefault = 0;
+export const partnerConnectionGetResponseConnectorOneAttributionDefault = ``;
+export const partnerConnectionGetResponseConnectorOneAttributionMax = 300;
+
+export const partnerConnectionGetResponseConnectorOneAuthHeaderDefault = `X-API-Key`;
+export const partnerConnectionGetResponseConnectorOneAuthHeaderMax = 100;
+
+
+export const partnerConnectionGetResponseConnectorOneAuthHeaderRegExp = new RegExp('^[A-Za-z][A-Za-z0-9_-]*$');
+export const partnerConnectionGetResponseConnectorOneAuthModeDefault = `none`;
+export const partnerConnectionGetResponseConnectorOneAuthSecretRefDefault = ``;
+export const partnerConnectionGetResponseConnectorOneAuthSecretRefRegExp = new RegExp('^$|^DEVFEED_PARTNER_SECRET_[A-Z0-9_]{1,80}$');
+export const partnerConnectionGetResponseConnectorOneAuthSourceDefault = `environment`;
+export const partnerConnectionGetResponseConnectorOneDetailPathOneMax = 500;
+
+export const partnerConnectionGetResponseConnectorOneDetailRootDefault = ``;
+export const partnerConnectionGetResponseConnectorOneDetailRootMax = 200;
+
+
+export const partnerConnectionGetResponseConnectorOneDetailRootRegExp = new RegExp('^(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+)(?:\\.(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+))*$|^$');
+export const partnerConnectionGetResponseConnectorOneFieldsDescriptionItemMax = 200;
+
+
+export const partnerConnectionGetResponseConnectorOneFieldsDescriptionItemRegExp = new RegExp('^(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+)(?:\\.(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+))*$|^$');
+export const partnerConnectionGetResponseConnectorOneFieldsDescriptionMax = 5;
+
+export const partnerConnectionGetResponseConnectorOneFieldsExternalIdItemMax = 200;
+
+
+export const partnerConnectionGetResponseConnectorOneFieldsExternalIdItemRegExp = new RegExp('^(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+)(?:\\.(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+))*$|^$');
+export const partnerConnectionGetResponseConnectorOneFieldsExternalIdMax = 5;
+
+export const partnerConnectionGetResponseConnectorOneFieldsListingUrlItemMax = 200;
+
+
+export const partnerConnectionGetResponseConnectorOneFieldsListingUrlItemRegExp = new RegExp('^(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+)(?:\\.(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+))*$|^$');
+export const partnerConnectionGetResponseConnectorOneFieldsListingUrlMax = 5;
+
+export const partnerConnectionGetResponseConnectorOneFieldsNameItemMax = 200;
+
+
+export const partnerConnectionGetResponseConnectorOneFieldsNameItemRegExp = new RegExp('^(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+)(?:\\.(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+))*$|^$');
+export const partnerConnectionGetResponseConnectorOneFieldsNameMax = 5;
+
+export const partnerConnectionGetResponseConnectorOneFieldsPricingItemMax = 200;
+
+
+export const partnerConnectionGetResponseConnectorOneFieldsPricingItemRegExp = new RegExp('^(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+)(?:\\.(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+))*$|^$');
+export const partnerConnectionGetResponseConnectorOneFieldsPricingMax = 5;
+
+export const partnerConnectionGetResponseConnectorOneFieldsProductUrlItemMax = 200;
+
+
+export const partnerConnectionGetResponseConnectorOneFieldsProductUrlItemRegExp = new RegExp('^(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+)(?:\\.(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+))*$|^$');
+export const partnerConnectionGetResponseConnectorOneFieldsProductUrlMax = 5;
+
+export const partnerConnectionGetResponseConnectorOneFiltersItemIncludeMissingDefault = true;
+export const partnerConnectionGetResponseConnectorOneFiltersItemPathMax = 200;
+
+
+export const partnerConnectionGetResponseConnectorOneFiltersItemPathRegExp = new RegExp('^(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+)(?:\\.(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+))*$|^$');
+export const partnerConnectionGetResponseConnectorOneFiltersItemValuesMax = 20;
+
+export const partnerConnectionGetResponseConnectorOneFiltersMax = 10;
+
+export const partnerConnectionGetResponseConnectorOneItemsPathsItemMax = 200;
+
+
+export const partnerConnectionGetResponseConnectorOneItemsPathsItemRegExp = new RegExp('^(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+)(?:\\.(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+))*$|^$');
+export const partnerConnectionGetResponseConnectorOneItemsPathsMax = 5;
+
+export const partnerConnectionGetResponseConnectorOneListPathDefault = `/products`;
+export const partnerConnectionGetResponseConnectorOneListPathMax = 500;
+
+export const partnerConnectionGetResponseConnectorOneListingUrlTemplateOneMax = 500;
+
+export const partnerConnectionGetResponseConnectorOneMaxPagesDefault = 1000;
+export const partnerConnectionGetResponseConnectorOneMaxPagesMax = 1000;
+
+export const partnerConnectionGetResponseConnectorOneMaxResponseBytesDefault = 2000000;
+export const partnerConnectionGetResponseConnectorOneMaxResponseBytesMin = 1024;
+export const partnerConnectionGetResponseConnectorOneMaxResponseBytesMax = 5000000;
+
+export const partnerConnectionGetResponseConnectorOnePaginationHasMorePathOneMax = 200;
+
+
+export const partnerConnectionGetResponseConnectorOnePaginationHasMorePathOneRegExp = new RegExp('^(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+)(?:\\.(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+))*$|^$');
+export const partnerConnectionGetResponseConnectorOnePaginationModeDefault = `cursor`;
+export const partnerConnectionGetResponseConnectorOnePaginationNextPathDefault = `nextCursor`;
+export const partnerConnectionGetResponseConnectorOnePaginationNextPathMax = 200;
+
+
+export const partnerConnectionGetResponseConnectorOnePaginationNextPathRegExp = new RegExp('^(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+)(?:\\.(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+))*$|^$');
+export const partnerConnectionGetResponseConnectorOnePaginationPageSizeDefault = 10;
+export const partnerConnectionGetResponseConnectorOnePaginationPageSizeMax = 100;
+
+export const partnerConnectionGetResponseConnectorOnePaginationParameterOneMax = 100;
+
+
+export const partnerConnectionGetResponseConnectorOnePaginationParameterOneRegExp = new RegExp('^[A-Za-z][A-Za-z0-9_-]*$');
+export const partnerConnectionGetResponseConnectorOnePaginationParameterDefault = `cursor`;
+export const partnerConnectionGetResponseConnectorOnePaginationSizeParameterOneMax = 100;
+
+
+export const partnerConnectionGetResponseConnectorOnePaginationSizeParameterOneRegExp = new RegExp('^[A-Za-z][A-Za-z0-9_-]*$');
+export const partnerConnectionGetResponseConnectorOnePaginationSizeParameterDefault = `limit`;
+export const partnerConnectionGetResponseConnectorOnePaginationStartDefault = 1;
+export const partnerConnectionGetResponseConnectorOnePaginationStartMin = 0;
+export const partnerConnectionGetResponseConnectorOnePaginationStartMax = 1000000;
+
+export const partnerConnectionGetResponseConnectorOnePaginationTotalPathOneMax = 200;
+
+
+export const partnerConnectionGetResponseConnectorOnePaginationTotalPathOneRegExp = new RegExp('^(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+)(?:\\.(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+))*$|^$');
+export const partnerConnectionGetResponseConnectorOnePlatformHostsMax = 5;
+
+export const partnerConnectionGetResponseConnectorOneRequestsPerMinuteDefault = 60;
+export const partnerConnectionGetResponseConnectorOneRequestsPerMinuteMax = 600;
+
+export const partnerConnectionGetResponseConnectorOneTimeoutSecondsDefault = 15;
+export const partnerConnectionGetResponseConnectorOneTimeoutSecondsMax = 30;
+
+export const partnerConnectionGetResponseConnectorOneVersionDefault = 1;
+export const partnerConnectionGetResponsePartnershipTypeDefault = `launch_platform`;
+
+export const PartnerConnectionGetResponse = zod.object({
+  "account_id": zod.union([zod.uuid(),zod.null()]).optional(),
+  "ai_enabled": zod.boolean(),
+  "api_url": zod.string(),
+  "approval_mode": zod.union([zod.enum(['qualified', 'trusted']),zod.null()]).optional(),
+  "auth_mode": zod.enum(['none', 'bearer', 'api_key']),
+  "checking": zod.int(),
+  "commercial_approved": zod.int().default(partnerConnectionGetResponseCommercialApprovedDefault),
+  "connector": zod.union([zod.object({
+  "attribution": zod.string().max(partnerConnectionGetResponseConnectorOneAttributionMax).default(partnerConnectionGetResponseConnectorOneAttributionDefault),
+  "auth": zod.object({
+  "header": zod.string().min(1).max(partnerConnectionGetResponseConnectorOneAuthHeaderMax).regex(partnerConnectionGetResponseConnectorOneAuthHeaderRegExp).default(partnerConnectionGetResponseConnectorOneAuthHeaderDefault),
+  "mode": zod.enum(['none', 'bearer', 'api_key']).default(partnerConnectionGetResponseConnectorOneAuthModeDefault),
+  "secret_ref": zod.string().regex(partnerConnectionGetResponseConnectorOneAuthSecretRefRegExp).default(partnerConnectionGetResponseConnectorOneAuthSecretRefDefault),
+  "source": zod.enum(['environment', 'connection']).default(partnerConnectionGetResponseConnectorOneAuthSourceDefault)
+}).optional(),
+  "base_url": zod.string(),
+  "detail_path": zod.union([zod.string().max(partnerConnectionGetResponseConnectorOneDetailPathOneMax),zod.null()]).optional(),
+  "detail_root": zod.string().max(partnerConnectionGetResponseConnectorOneDetailRootMax).regex(partnerConnectionGetResponseConnectorOneDetailRootRegExp).default(partnerConnectionGetResponseConnectorOneDetailRootDefault),
+  "fields": zod.object({
+  "description": zod.array(zod.string().max(partnerConnectionGetResponseConnectorOneFieldsDescriptionItemMax).regex(partnerConnectionGetResponseConnectorOneFieldsDescriptionItemRegExp)).min(1).max(partnerConnectionGetResponseConnectorOneFieldsDescriptionMax).optional(),
+  "external_id": zod.array(zod.string().max(partnerConnectionGetResponseConnectorOneFieldsExternalIdItemMax).regex(partnerConnectionGetResponseConnectorOneFieldsExternalIdItemRegExp)).min(1).max(partnerConnectionGetResponseConnectorOneFieldsExternalIdMax).optional(),
+  "listing_url": zod.array(zod.string().max(partnerConnectionGetResponseConnectorOneFieldsListingUrlItemMax).regex(partnerConnectionGetResponseConnectorOneFieldsListingUrlItemRegExp)).min(1).max(partnerConnectionGetResponseConnectorOneFieldsListingUrlMax).optional(),
+  "name": zod.array(zod.string().max(partnerConnectionGetResponseConnectorOneFieldsNameItemMax).regex(partnerConnectionGetResponseConnectorOneFieldsNameItemRegExp)).min(1).max(partnerConnectionGetResponseConnectorOneFieldsNameMax).optional(),
+  "pricing": zod.array(zod.string().max(partnerConnectionGetResponseConnectorOneFieldsPricingItemMax).regex(partnerConnectionGetResponseConnectorOneFieldsPricingItemRegExp)).min(1).max(partnerConnectionGetResponseConnectorOneFieldsPricingMax).optional(),
+  "product_url": zod.array(zod.string().max(partnerConnectionGetResponseConnectorOneFieldsProductUrlItemMax).regex(partnerConnectionGetResponseConnectorOneFieldsProductUrlItemRegExp)).min(1).max(partnerConnectionGetResponseConnectorOneFieldsProductUrlMax).optional()
+}).optional(),
+  "filters": zod.array(zod.object({
+  "include_missing": zod.boolean().default(partnerConnectionGetResponseConnectorOneFiltersItemIncludeMissingDefault),
+  "path": zod.string().max(partnerConnectionGetResponseConnectorOneFiltersItemPathMax).regex(partnerConnectionGetResponseConnectorOneFiltersItemPathRegExp),
+  "values": zod.array(zod.string()).min(1).max(partnerConnectionGetResponseConnectorOneFiltersItemValuesMax)
+})).max(partnerConnectionGetResponseConnectorOneFiltersMax).optional(),
+  "items_paths": zod.array(zod.string().max(partnerConnectionGetResponseConnectorOneItemsPathsItemMax).regex(partnerConnectionGetResponseConnectorOneItemsPathsItemRegExp)).min(1).max(partnerConnectionGetResponseConnectorOneItemsPathsMax).optional(),
+  "list_path": zod.string().min(1).max(partnerConnectionGetResponseConnectorOneListPathMax).default(partnerConnectionGetResponseConnectorOneListPathDefault),
+  "listing_url_template": zod.union([zod.string().max(partnerConnectionGetResponseConnectorOneListingUrlTemplateOneMax),zod.null()]).optional(),
+  "max_pages": zod.int().min(1).max(partnerConnectionGetResponseConnectorOneMaxPagesMax).default(partnerConnectionGetResponseConnectorOneMaxPagesDefault),
+  "max_response_bytes": zod.int().min(partnerConnectionGetResponseConnectorOneMaxResponseBytesMin).max(partnerConnectionGetResponseConnectorOneMaxResponseBytesMax).default(partnerConnectionGetResponseConnectorOneMaxResponseBytesDefault),
+  "pagination": zod.object({
+  "has_more_path": zod.union([zod.string().max(partnerConnectionGetResponseConnectorOnePaginationHasMorePathOneMax).regex(partnerConnectionGetResponseConnectorOnePaginationHasMorePathOneRegExp),zod.null()]).optional(),
+  "mode": zod.enum(['none', 'cursor', 'page', 'offset', 'next_url']).default(partnerConnectionGetResponseConnectorOnePaginationModeDefault),
+  "next_path": zod.string().max(partnerConnectionGetResponseConnectorOnePaginationNextPathMax).regex(partnerConnectionGetResponseConnectorOnePaginationNextPathRegExp).default(partnerConnectionGetResponseConnectorOnePaginationNextPathDefault),
+  "page_size": zod.int().min(1).max(partnerConnectionGetResponseConnectorOnePaginationPageSizeMax).default(partnerConnectionGetResponseConnectorOnePaginationPageSizeDefault),
+  "parameter": zod.union([zod.string().min(1).max(partnerConnectionGetResponseConnectorOnePaginationParameterOneMax).regex(partnerConnectionGetResponseConnectorOnePaginationParameterOneRegExp),zod.null()]).default(partnerConnectionGetResponseConnectorOnePaginationParameterDefault),
+  "size_parameter": zod.union([zod.string().min(1).max(partnerConnectionGetResponseConnectorOnePaginationSizeParameterOneMax).regex(partnerConnectionGetResponseConnectorOnePaginationSizeParameterOneRegExp),zod.null()]).default(partnerConnectionGetResponseConnectorOnePaginationSizeParameterDefault),
+  "start": zod.int().min(partnerConnectionGetResponseConnectorOnePaginationStartMin).max(partnerConnectionGetResponseConnectorOnePaginationStartMax).default(partnerConnectionGetResponseConnectorOnePaginationStartDefault),
+  "total_path": zod.union([zod.string().max(partnerConnectionGetResponseConnectorOnePaginationTotalPathOneMax).regex(partnerConnectionGetResponseConnectorOnePaginationTotalPathOneRegExp),zod.null()]).optional()
+}).optional(),
+  "parameters": zod.looseObject({
+
+}).optional(),
+  "platform_hosts": zod.array(zod.string()).max(partnerConnectionGetResponseConnectorOnePlatformHostsMax).optional(),
+  "requests_per_minute": zod.int().min(1).max(partnerConnectionGetResponseConnectorOneRequestsPerMinuteMax).default(partnerConnectionGetResponseConnectorOneRequestsPerMinuteDefault),
+  "timeout_seconds": zod.int().min(1).max(partnerConnectionGetResponseConnectorOneTimeoutSecondsMax).default(partnerConnectionGetResponseConnectorOneTimeoutSecondsDefault),
+  "version": zod.literal(1).default(partnerConnectionGetResponseConnectorOneVersionDefault).meta({ title: 'Version' })
+}),zod.null()]).optional(),
+  "connector_editable": zod.boolean(),
+  "credential_configured": zod.boolean(),
+  "credential_header": zod.string(),
+  "credentials_managed": zod.boolean(),
+  "enabled": zod.boolean(),
+  "error": zod.union([zod.string(),zod.null()]),
+  "excluded": zod.int(),
+  "last_sync_at": zod.union([zod.iso.datetime({"offset":true}),zod.null()]),
+  "name": zod.string(),
+  "needs_attention": zod.int(),
+  "next_sync_at": zod.union([zod.iso.datetime({"offset":true}),zod.null()]),
+  "partnership_type": zod.literal("launch_platform").default(partnerConnectionGetResponsePartnershipTypeDefault).meta({ title: 'Partnership Type' }),
+  "products": zod.int(),
+  "provider": zod.string(),
+  "qualified": zod.int(),
+  "revision": zod.int(),
+  "state": zod.enum(['disconnected', 'idle', 'syncing', 'error']),
+  "sync_interval_minutes": zod.int()
+})
+
+
+/**
+ * @summary Update Connection
+ */
+export const partnerConnectionUpdateResponseCommercialApprovedDefault = 0;
+export const partnerConnectionUpdateResponseConnectorOneAttributionDefault = ``;
+export const partnerConnectionUpdateResponseConnectorOneAttributionMax = 300;
+
+export const partnerConnectionUpdateResponseConnectorOneAuthHeaderDefault = `X-API-Key`;
+export const partnerConnectionUpdateResponseConnectorOneAuthHeaderMax = 100;
+
+
+export const partnerConnectionUpdateResponseConnectorOneAuthHeaderRegExp = new RegExp('^[A-Za-z][A-Za-z0-9_-]*$');
+export const partnerConnectionUpdateResponseConnectorOneAuthModeDefault = `none`;
+export const partnerConnectionUpdateResponseConnectorOneAuthSecretRefDefault = ``;
+export const partnerConnectionUpdateResponseConnectorOneAuthSecretRefRegExp = new RegExp('^$|^DEVFEED_PARTNER_SECRET_[A-Z0-9_]{1,80}$');
+export const partnerConnectionUpdateResponseConnectorOneAuthSourceDefault = `environment`;
+export const partnerConnectionUpdateResponseConnectorOneDetailPathOneMax = 500;
+
+export const partnerConnectionUpdateResponseConnectorOneDetailRootDefault = ``;
+export const partnerConnectionUpdateResponseConnectorOneDetailRootMax = 200;
+
+
+export const partnerConnectionUpdateResponseConnectorOneDetailRootRegExp = new RegExp('^(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+)(?:\\.(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+))*$|^$');
+export const partnerConnectionUpdateResponseConnectorOneFieldsDescriptionItemMax = 200;
+
+
+export const partnerConnectionUpdateResponseConnectorOneFieldsDescriptionItemRegExp = new RegExp('^(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+)(?:\\.(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+))*$|^$');
+export const partnerConnectionUpdateResponseConnectorOneFieldsDescriptionMax = 5;
+
+export const partnerConnectionUpdateResponseConnectorOneFieldsExternalIdItemMax = 200;
+
+
+export const partnerConnectionUpdateResponseConnectorOneFieldsExternalIdItemRegExp = new RegExp('^(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+)(?:\\.(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+))*$|^$');
+export const partnerConnectionUpdateResponseConnectorOneFieldsExternalIdMax = 5;
+
+export const partnerConnectionUpdateResponseConnectorOneFieldsListingUrlItemMax = 200;
+
+
+export const partnerConnectionUpdateResponseConnectorOneFieldsListingUrlItemRegExp = new RegExp('^(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+)(?:\\.(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+))*$|^$');
+export const partnerConnectionUpdateResponseConnectorOneFieldsListingUrlMax = 5;
+
+export const partnerConnectionUpdateResponseConnectorOneFieldsNameItemMax = 200;
+
+
+export const partnerConnectionUpdateResponseConnectorOneFieldsNameItemRegExp = new RegExp('^(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+)(?:\\.(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+))*$|^$');
+export const partnerConnectionUpdateResponseConnectorOneFieldsNameMax = 5;
+
+export const partnerConnectionUpdateResponseConnectorOneFieldsPricingItemMax = 200;
+
+
+export const partnerConnectionUpdateResponseConnectorOneFieldsPricingItemRegExp = new RegExp('^(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+)(?:\\.(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+))*$|^$');
+export const partnerConnectionUpdateResponseConnectorOneFieldsPricingMax = 5;
+
+export const partnerConnectionUpdateResponseConnectorOneFieldsProductUrlItemMax = 200;
+
+
+export const partnerConnectionUpdateResponseConnectorOneFieldsProductUrlItemRegExp = new RegExp('^(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+)(?:\\.(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+))*$|^$');
+export const partnerConnectionUpdateResponseConnectorOneFieldsProductUrlMax = 5;
+
+export const partnerConnectionUpdateResponseConnectorOneFiltersItemIncludeMissingDefault = true;
+export const partnerConnectionUpdateResponseConnectorOneFiltersItemPathMax = 200;
+
+
+export const partnerConnectionUpdateResponseConnectorOneFiltersItemPathRegExp = new RegExp('^(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+)(?:\\.(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+))*$|^$');
+export const partnerConnectionUpdateResponseConnectorOneFiltersItemValuesMax = 20;
+
+export const partnerConnectionUpdateResponseConnectorOneFiltersMax = 10;
+
+export const partnerConnectionUpdateResponseConnectorOneItemsPathsItemMax = 200;
+
+
+export const partnerConnectionUpdateResponseConnectorOneItemsPathsItemRegExp = new RegExp('^(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+)(?:\\.(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+))*$|^$');
+export const partnerConnectionUpdateResponseConnectorOneItemsPathsMax = 5;
+
+export const partnerConnectionUpdateResponseConnectorOneListPathDefault = `/products`;
+export const partnerConnectionUpdateResponseConnectorOneListPathMax = 500;
+
+export const partnerConnectionUpdateResponseConnectorOneListingUrlTemplateOneMax = 500;
+
+export const partnerConnectionUpdateResponseConnectorOneMaxPagesDefault = 1000;
+export const partnerConnectionUpdateResponseConnectorOneMaxPagesMax = 1000;
+
+export const partnerConnectionUpdateResponseConnectorOneMaxResponseBytesDefault = 2000000;
+export const partnerConnectionUpdateResponseConnectorOneMaxResponseBytesMin = 1024;
+export const partnerConnectionUpdateResponseConnectorOneMaxResponseBytesMax = 5000000;
+
+export const partnerConnectionUpdateResponseConnectorOnePaginationHasMorePathOneMax = 200;
+
+
+export const partnerConnectionUpdateResponseConnectorOnePaginationHasMorePathOneRegExp = new RegExp('^(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+)(?:\\.(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+))*$|^$');
+export const partnerConnectionUpdateResponseConnectorOnePaginationModeDefault = `cursor`;
+export const partnerConnectionUpdateResponseConnectorOnePaginationNextPathDefault = `nextCursor`;
+export const partnerConnectionUpdateResponseConnectorOnePaginationNextPathMax = 200;
+
+
+export const partnerConnectionUpdateResponseConnectorOnePaginationNextPathRegExp = new RegExp('^(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+)(?:\\.(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+))*$|^$');
+export const partnerConnectionUpdateResponseConnectorOnePaginationPageSizeDefault = 10;
+export const partnerConnectionUpdateResponseConnectorOnePaginationPageSizeMax = 100;
+
+export const partnerConnectionUpdateResponseConnectorOnePaginationParameterOneMax = 100;
+
+
+export const partnerConnectionUpdateResponseConnectorOnePaginationParameterOneRegExp = new RegExp('^[A-Za-z][A-Za-z0-9_-]*$');
+export const partnerConnectionUpdateResponseConnectorOnePaginationParameterDefault = `cursor`;
+export const partnerConnectionUpdateResponseConnectorOnePaginationSizeParameterOneMax = 100;
+
+
+export const partnerConnectionUpdateResponseConnectorOnePaginationSizeParameterOneRegExp = new RegExp('^[A-Za-z][A-Za-z0-9_-]*$');
+export const partnerConnectionUpdateResponseConnectorOnePaginationSizeParameterDefault = `limit`;
+export const partnerConnectionUpdateResponseConnectorOnePaginationStartDefault = 1;
+export const partnerConnectionUpdateResponseConnectorOnePaginationStartMin = 0;
+export const partnerConnectionUpdateResponseConnectorOnePaginationStartMax = 1000000;
+
+export const partnerConnectionUpdateResponseConnectorOnePaginationTotalPathOneMax = 200;
+
+
+export const partnerConnectionUpdateResponseConnectorOnePaginationTotalPathOneRegExp = new RegExp('^(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+)(?:\\.(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+))*$|^$');
+export const partnerConnectionUpdateResponseConnectorOnePlatformHostsMax = 5;
+
+export const partnerConnectionUpdateResponseConnectorOneRequestsPerMinuteDefault = 60;
+export const partnerConnectionUpdateResponseConnectorOneRequestsPerMinuteMax = 600;
+
+export const partnerConnectionUpdateResponseConnectorOneTimeoutSecondsDefault = 15;
+export const partnerConnectionUpdateResponseConnectorOneTimeoutSecondsMax = 30;
+
+export const partnerConnectionUpdateResponseConnectorOneVersionDefault = 1;
+export const partnerConnectionUpdateResponsePartnershipTypeDefault = `launch_platform`;
+
+export const PartnerConnectionUpdateResponse = zod.object({
+  "account_id": zod.union([zod.uuid(),zod.null()]).optional(),
+  "ai_enabled": zod.boolean(),
+  "api_url": zod.string(),
+  "approval_mode": zod.union([zod.enum(['qualified', 'trusted']),zod.null()]).optional(),
+  "auth_mode": zod.enum(['none', 'bearer', 'api_key']),
+  "checking": zod.int(),
+  "commercial_approved": zod.int().default(partnerConnectionUpdateResponseCommercialApprovedDefault),
+  "connector": zod.union([zod.object({
+  "attribution": zod.string().max(partnerConnectionUpdateResponseConnectorOneAttributionMax).default(partnerConnectionUpdateResponseConnectorOneAttributionDefault),
+  "auth": zod.object({
+  "header": zod.string().min(1).max(partnerConnectionUpdateResponseConnectorOneAuthHeaderMax).regex(partnerConnectionUpdateResponseConnectorOneAuthHeaderRegExp).default(partnerConnectionUpdateResponseConnectorOneAuthHeaderDefault),
+  "mode": zod.enum(['none', 'bearer', 'api_key']).default(partnerConnectionUpdateResponseConnectorOneAuthModeDefault),
+  "secret_ref": zod.string().regex(partnerConnectionUpdateResponseConnectorOneAuthSecretRefRegExp).default(partnerConnectionUpdateResponseConnectorOneAuthSecretRefDefault),
+  "source": zod.enum(['environment', 'connection']).default(partnerConnectionUpdateResponseConnectorOneAuthSourceDefault)
+}).optional(),
+  "base_url": zod.string(),
+  "detail_path": zod.union([zod.string().max(partnerConnectionUpdateResponseConnectorOneDetailPathOneMax),zod.null()]).optional(),
+  "detail_root": zod.string().max(partnerConnectionUpdateResponseConnectorOneDetailRootMax).regex(partnerConnectionUpdateResponseConnectorOneDetailRootRegExp).default(partnerConnectionUpdateResponseConnectorOneDetailRootDefault),
+  "fields": zod.object({
+  "description": zod.array(zod.string().max(partnerConnectionUpdateResponseConnectorOneFieldsDescriptionItemMax).regex(partnerConnectionUpdateResponseConnectorOneFieldsDescriptionItemRegExp)).min(1).max(partnerConnectionUpdateResponseConnectorOneFieldsDescriptionMax).optional(),
+  "external_id": zod.array(zod.string().max(partnerConnectionUpdateResponseConnectorOneFieldsExternalIdItemMax).regex(partnerConnectionUpdateResponseConnectorOneFieldsExternalIdItemRegExp)).min(1).max(partnerConnectionUpdateResponseConnectorOneFieldsExternalIdMax).optional(),
+  "listing_url": zod.array(zod.string().max(partnerConnectionUpdateResponseConnectorOneFieldsListingUrlItemMax).regex(partnerConnectionUpdateResponseConnectorOneFieldsListingUrlItemRegExp)).min(1).max(partnerConnectionUpdateResponseConnectorOneFieldsListingUrlMax).optional(),
+  "name": zod.array(zod.string().max(partnerConnectionUpdateResponseConnectorOneFieldsNameItemMax).regex(partnerConnectionUpdateResponseConnectorOneFieldsNameItemRegExp)).min(1).max(partnerConnectionUpdateResponseConnectorOneFieldsNameMax).optional(),
+  "pricing": zod.array(zod.string().max(partnerConnectionUpdateResponseConnectorOneFieldsPricingItemMax).regex(partnerConnectionUpdateResponseConnectorOneFieldsPricingItemRegExp)).min(1).max(partnerConnectionUpdateResponseConnectorOneFieldsPricingMax).optional(),
+  "product_url": zod.array(zod.string().max(partnerConnectionUpdateResponseConnectorOneFieldsProductUrlItemMax).regex(partnerConnectionUpdateResponseConnectorOneFieldsProductUrlItemRegExp)).min(1).max(partnerConnectionUpdateResponseConnectorOneFieldsProductUrlMax).optional()
+}).optional(),
+  "filters": zod.array(zod.object({
+  "include_missing": zod.boolean().default(partnerConnectionUpdateResponseConnectorOneFiltersItemIncludeMissingDefault),
+  "path": zod.string().max(partnerConnectionUpdateResponseConnectorOneFiltersItemPathMax).regex(partnerConnectionUpdateResponseConnectorOneFiltersItemPathRegExp),
+  "values": zod.array(zod.string()).min(1).max(partnerConnectionUpdateResponseConnectorOneFiltersItemValuesMax)
+})).max(partnerConnectionUpdateResponseConnectorOneFiltersMax).optional(),
+  "items_paths": zod.array(zod.string().max(partnerConnectionUpdateResponseConnectorOneItemsPathsItemMax).regex(partnerConnectionUpdateResponseConnectorOneItemsPathsItemRegExp)).min(1).max(partnerConnectionUpdateResponseConnectorOneItemsPathsMax).optional(),
+  "list_path": zod.string().min(1).max(partnerConnectionUpdateResponseConnectorOneListPathMax).default(partnerConnectionUpdateResponseConnectorOneListPathDefault),
+  "listing_url_template": zod.union([zod.string().max(partnerConnectionUpdateResponseConnectorOneListingUrlTemplateOneMax),zod.null()]).optional(),
+  "max_pages": zod.int().min(1).max(partnerConnectionUpdateResponseConnectorOneMaxPagesMax).default(partnerConnectionUpdateResponseConnectorOneMaxPagesDefault),
+  "max_response_bytes": zod.int().min(partnerConnectionUpdateResponseConnectorOneMaxResponseBytesMin).max(partnerConnectionUpdateResponseConnectorOneMaxResponseBytesMax).default(partnerConnectionUpdateResponseConnectorOneMaxResponseBytesDefault),
+  "pagination": zod.object({
+  "has_more_path": zod.union([zod.string().max(partnerConnectionUpdateResponseConnectorOnePaginationHasMorePathOneMax).regex(partnerConnectionUpdateResponseConnectorOnePaginationHasMorePathOneRegExp),zod.null()]).optional(),
+  "mode": zod.enum(['none', 'cursor', 'page', 'offset', 'next_url']).default(partnerConnectionUpdateResponseConnectorOnePaginationModeDefault),
+  "next_path": zod.string().max(partnerConnectionUpdateResponseConnectorOnePaginationNextPathMax).regex(partnerConnectionUpdateResponseConnectorOnePaginationNextPathRegExp).default(partnerConnectionUpdateResponseConnectorOnePaginationNextPathDefault),
+  "page_size": zod.int().min(1).max(partnerConnectionUpdateResponseConnectorOnePaginationPageSizeMax).default(partnerConnectionUpdateResponseConnectorOnePaginationPageSizeDefault),
+  "parameter": zod.union([zod.string().min(1).max(partnerConnectionUpdateResponseConnectorOnePaginationParameterOneMax).regex(partnerConnectionUpdateResponseConnectorOnePaginationParameterOneRegExp),zod.null()]).default(partnerConnectionUpdateResponseConnectorOnePaginationParameterDefault),
+  "size_parameter": zod.union([zod.string().min(1).max(partnerConnectionUpdateResponseConnectorOnePaginationSizeParameterOneMax).regex(partnerConnectionUpdateResponseConnectorOnePaginationSizeParameterOneRegExp),zod.null()]).default(partnerConnectionUpdateResponseConnectorOnePaginationSizeParameterDefault),
+  "start": zod.int().min(partnerConnectionUpdateResponseConnectorOnePaginationStartMin).max(partnerConnectionUpdateResponseConnectorOnePaginationStartMax).default(partnerConnectionUpdateResponseConnectorOnePaginationStartDefault),
+  "total_path": zod.union([zod.string().max(partnerConnectionUpdateResponseConnectorOnePaginationTotalPathOneMax).regex(partnerConnectionUpdateResponseConnectorOnePaginationTotalPathOneRegExp),zod.null()]).optional()
+}).optional(),
+  "parameters": zod.looseObject({
+
+}).optional(),
+  "platform_hosts": zod.array(zod.string()).max(partnerConnectionUpdateResponseConnectorOnePlatformHostsMax).optional(),
+  "requests_per_minute": zod.int().min(1).max(partnerConnectionUpdateResponseConnectorOneRequestsPerMinuteMax).default(partnerConnectionUpdateResponseConnectorOneRequestsPerMinuteDefault),
+  "timeout_seconds": zod.int().min(1).max(partnerConnectionUpdateResponseConnectorOneTimeoutSecondsMax).default(partnerConnectionUpdateResponseConnectorOneTimeoutSecondsDefault),
+  "version": zod.literal(1).default(partnerConnectionUpdateResponseConnectorOneVersionDefault).meta({ title: 'Version' })
+}),zod.null()]).optional(),
+  "connector_editable": zod.boolean(),
+  "credential_configured": zod.boolean(),
+  "credential_header": zod.string(),
+  "credentials_managed": zod.boolean(),
+  "enabled": zod.boolean(),
+  "error": zod.union([zod.string(),zod.null()]),
+  "excluded": zod.int(),
+  "last_sync_at": zod.union([zod.iso.datetime({"offset":true}),zod.null()]),
+  "name": zod.string(),
+  "needs_attention": zod.int(),
+  "next_sync_at": zod.union([zod.iso.datetime({"offset":true}),zod.null()]),
+  "partnership_type": zod.literal("launch_platform").default(partnerConnectionUpdateResponsePartnershipTypeDefault).meta({ title: 'Partnership Type' }),
+  "products": zod.int(),
+  "provider": zod.string(),
+  "qualified": zod.int(),
+  "revision": zod.int(),
+  "state": zod.enum(['disconnected', 'idle', 'syncing', 'error']),
+  "sync_interval_minutes": zod.int()
+})
+
+
+/**
+ * @summary Connection Action
+ */
+export const partnerConnectionActionResponseCommercialApprovedDefault = 0;
+export const partnerConnectionActionResponseConnectorOneAttributionDefault = ``;
+export const partnerConnectionActionResponseConnectorOneAttributionMax = 300;
+
+export const partnerConnectionActionResponseConnectorOneAuthHeaderDefault = `X-API-Key`;
+export const partnerConnectionActionResponseConnectorOneAuthHeaderMax = 100;
+
+
+export const partnerConnectionActionResponseConnectorOneAuthHeaderRegExp = new RegExp('^[A-Za-z][A-Za-z0-9_-]*$');
+export const partnerConnectionActionResponseConnectorOneAuthModeDefault = `none`;
+export const partnerConnectionActionResponseConnectorOneAuthSecretRefDefault = ``;
+export const partnerConnectionActionResponseConnectorOneAuthSecretRefRegExp = new RegExp('^$|^DEVFEED_PARTNER_SECRET_[A-Z0-9_]{1,80}$');
+export const partnerConnectionActionResponseConnectorOneAuthSourceDefault = `environment`;
+export const partnerConnectionActionResponseConnectorOneDetailPathOneMax = 500;
+
+export const partnerConnectionActionResponseConnectorOneDetailRootDefault = ``;
+export const partnerConnectionActionResponseConnectorOneDetailRootMax = 200;
+
+
+export const partnerConnectionActionResponseConnectorOneDetailRootRegExp = new RegExp('^(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+)(?:\\.(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+))*$|^$');
+export const partnerConnectionActionResponseConnectorOneFieldsDescriptionItemMax = 200;
+
+
+export const partnerConnectionActionResponseConnectorOneFieldsDescriptionItemRegExp = new RegExp('^(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+)(?:\\.(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+))*$|^$');
+export const partnerConnectionActionResponseConnectorOneFieldsDescriptionMax = 5;
+
+export const partnerConnectionActionResponseConnectorOneFieldsExternalIdItemMax = 200;
+
+
+export const partnerConnectionActionResponseConnectorOneFieldsExternalIdItemRegExp = new RegExp('^(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+)(?:\\.(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+))*$|^$');
+export const partnerConnectionActionResponseConnectorOneFieldsExternalIdMax = 5;
+
+export const partnerConnectionActionResponseConnectorOneFieldsListingUrlItemMax = 200;
+
+
+export const partnerConnectionActionResponseConnectorOneFieldsListingUrlItemRegExp = new RegExp('^(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+)(?:\\.(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+))*$|^$');
+export const partnerConnectionActionResponseConnectorOneFieldsListingUrlMax = 5;
+
+export const partnerConnectionActionResponseConnectorOneFieldsNameItemMax = 200;
+
+
+export const partnerConnectionActionResponseConnectorOneFieldsNameItemRegExp = new RegExp('^(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+)(?:\\.(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+))*$|^$');
+export const partnerConnectionActionResponseConnectorOneFieldsNameMax = 5;
+
+export const partnerConnectionActionResponseConnectorOneFieldsPricingItemMax = 200;
+
+
+export const partnerConnectionActionResponseConnectorOneFieldsPricingItemRegExp = new RegExp('^(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+)(?:\\.(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+))*$|^$');
+export const partnerConnectionActionResponseConnectorOneFieldsPricingMax = 5;
+
+export const partnerConnectionActionResponseConnectorOneFieldsProductUrlItemMax = 200;
+
+
+export const partnerConnectionActionResponseConnectorOneFieldsProductUrlItemRegExp = new RegExp('^(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+)(?:\\.(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+))*$|^$');
+export const partnerConnectionActionResponseConnectorOneFieldsProductUrlMax = 5;
+
+export const partnerConnectionActionResponseConnectorOneFiltersItemIncludeMissingDefault = true;
+export const partnerConnectionActionResponseConnectorOneFiltersItemPathMax = 200;
+
+
+export const partnerConnectionActionResponseConnectorOneFiltersItemPathRegExp = new RegExp('^(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+)(?:\\.(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+))*$|^$');
+export const partnerConnectionActionResponseConnectorOneFiltersItemValuesMax = 20;
+
+export const partnerConnectionActionResponseConnectorOneFiltersMax = 10;
+
+export const partnerConnectionActionResponseConnectorOneItemsPathsItemMax = 200;
+
+
+export const partnerConnectionActionResponseConnectorOneItemsPathsItemRegExp = new RegExp('^(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+)(?:\\.(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+))*$|^$');
+export const partnerConnectionActionResponseConnectorOneItemsPathsMax = 5;
+
+export const partnerConnectionActionResponseConnectorOneListPathDefault = `/products`;
+export const partnerConnectionActionResponseConnectorOneListPathMax = 500;
+
+export const partnerConnectionActionResponseConnectorOneListingUrlTemplateOneMax = 500;
+
+export const partnerConnectionActionResponseConnectorOneMaxPagesDefault = 1000;
+export const partnerConnectionActionResponseConnectorOneMaxPagesMax = 1000;
+
+export const partnerConnectionActionResponseConnectorOneMaxResponseBytesDefault = 2000000;
+export const partnerConnectionActionResponseConnectorOneMaxResponseBytesMin = 1024;
+export const partnerConnectionActionResponseConnectorOneMaxResponseBytesMax = 5000000;
+
+export const partnerConnectionActionResponseConnectorOnePaginationHasMorePathOneMax = 200;
+
+
+export const partnerConnectionActionResponseConnectorOnePaginationHasMorePathOneRegExp = new RegExp('^(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+)(?:\\.(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+))*$|^$');
+export const partnerConnectionActionResponseConnectorOnePaginationModeDefault = `cursor`;
+export const partnerConnectionActionResponseConnectorOnePaginationNextPathDefault = `nextCursor`;
+export const partnerConnectionActionResponseConnectorOnePaginationNextPathMax = 200;
+
+
+export const partnerConnectionActionResponseConnectorOnePaginationNextPathRegExp = new RegExp('^(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+)(?:\\.(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+))*$|^$');
+export const partnerConnectionActionResponseConnectorOnePaginationPageSizeDefault = 10;
+export const partnerConnectionActionResponseConnectorOnePaginationPageSizeMax = 100;
+
+export const partnerConnectionActionResponseConnectorOnePaginationParameterOneMax = 100;
+
+
+export const partnerConnectionActionResponseConnectorOnePaginationParameterOneRegExp = new RegExp('^[A-Za-z][A-Za-z0-9_-]*$');
+export const partnerConnectionActionResponseConnectorOnePaginationParameterDefault = `cursor`;
+export const partnerConnectionActionResponseConnectorOnePaginationSizeParameterOneMax = 100;
+
+
+export const partnerConnectionActionResponseConnectorOnePaginationSizeParameterOneRegExp = new RegExp('^[A-Za-z][A-Za-z0-9_-]*$');
+export const partnerConnectionActionResponseConnectorOnePaginationSizeParameterDefault = `limit`;
+export const partnerConnectionActionResponseConnectorOnePaginationStartDefault = 1;
+export const partnerConnectionActionResponseConnectorOnePaginationStartMin = 0;
+export const partnerConnectionActionResponseConnectorOnePaginationStartMax = 1000000;
+
+export const partnerConnectionActionResponseConnectorOnePaginationTotalPathOneMax = 200;
+
+
+export const partnerConnectionActionResponseConnectorOnePaginationTotalPathOneRegExp = new RegExp('^(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+)(?:\\.(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+))*$|^$');
+export const partnerConnectionActionResponseConnectorOnePlatformHostsMax = 5;
+
+export const partnerConnectionActionResponseConnectorOneRequestsPerMinuteDefault = 60;
+export const partnerConnectionActionResponseConnectorOneRequestsPerMinuteMax = 600;
+
+export const partnerConnectionActionResponseConnectorOneTimeoutSecondsDefault = 15;
+export const partnerConnectionActionResponseConnectorOneTimeoutSecondsMax = 30;
+
+export const partnerConnectionActionResponseConnectorOneVersionDefault = 1;
+export const partnerConnectionActionResponsePartnershipTypeDefault = `launch_platform`;
+
+export const PartnerConnectionActionResponse = zod.object({
+  "account_id": zod.union([zod.uuid(),zod.null()]).optional(),
+  "ai_enabled": zod.boolean(),
+  "api_url": zod.string(),
+  "approval_mode": zod.union([zod.enum(['qualified', 'trusted']),zod.null()]).optional(),
+  "auth_mode": zod.enum(['none', 'bearer', 'api_key']),
+  "checking": zod.int(),
+  "commercial_approved": zod.int().default(partnerConnectionActionResponseCommercialApprovedDefault),
+  "connector": zod.union([zod.object({
+  "attribution": zod.string().max(partnerConnectionActionResponseConnectorOneAttributionMax).default(partnerConnectionActionResponseConnectorOneAttributionDefault),
+  "auth": zod.object({
+  "header": zod.string().min(1).max(partnerConnectionActionResponseConnectorOneAuthHeaderMax).regex(partnerConnectionActionResponseConnectorOneAuthHeaderRegExp).default(partnerConnectionActionResponseConnectorOneAuthHeaderDefault),
+  "mode": zod.enum(['none', 'bearer', 'api_key']).default(partnerConnectionActionResponseConnectorOneAuthModeDefault),
+  "secret_ref": zod.string().regex(partnerConnectionActionResponseConnectorOneAuthSecretRefRegExp).default(partnerConnectionActionResponseConnectorOneAuthSecretRefDefault),
+  "source": zod.enum(['environment', 'connection']).default(partnerConnectionActionResponseConnectorOneAuthSourceDefault)
+}).optional(),
+  "base_url": zod.string(),
+  "detail_path": zod.union([zod.string().max(partnerConnectionActionResponseConnectorOneDetailPathOneMax),zod.null()]).optional(),
+  "detail_root": zod.string().max(partnerConnectionActionResponseConnectorOneDetailRootMax).regex(partnerConnectionActionResponseConnectorOneDetailRootRegExp).default(partnerConnectionActionResponseConnectorOneDetailRootDefault),
+  "fields": zod.object({
+  "description": zod.array(zod.string().max(partnerConnectionActionResponseConnectorOneFieldsDescriptionItemMax).regex(partnerConnectionActionResponseConnectorOneFieldsDescriptionItemRegExp)).min(1).max(partnerConnectionActionResponseConnectorOneFieldsDescriptionMax).optional(),
+  "external_id": zod.array(zod.string().max(partnerConnectionActionResponseConnectorOneFieldsExternalIdItemMax).regex(partnerConnectionActionResponseConnectorOneFieldsExternalIdItemRegExp)).min(1).max(partnerConnectionActionResponseConnectorOneFieldsExternalIdMax).optional(),
+  "listing_url": zod.array(zod.string().max(partnerConnectionActionResponseConnectorOneFieldsListingUrlItemMax).regex(partnerConnectionActionResponseConnectorOneFieldsListingUrlItemRegExp)).min(1).max(partnerConnectionActionResponseConnectorOneFieldsListingUrlMax).optional(),
+  "name": zod.array(zod.string().max(partnerConnectionActionResponseConnectorOneFieldsNameItemMax).regex(partnerConnectionActionResponseConnectorOneFieldsNameItemRegExp)).min(1).max(partnerConnectionActionResponseConnectorOneFieldsNameMax).optional(),
+  "pricing": zod.array(zod.string().max(partnerConnectionActionResponseConnectorOneFieldsPricingItemMax).regex(partnerConnectionActionResponseConnectorOneFieldsPricingItemRegExp)).min(1).max(partnerConnectionActionResponseConnectorOneFieldsPricingMax).optional(),
+  "product_url": zod.array(zod.string().max(partnerConnectionActionResponseConnectorOneFieldsProductUrlItemMax).regex(partnerConnectionActionResponseConnectorOneFieldsProductUrlItemRegExp)).min(1).max(partnerConnectionActionResponseConnectorOneFieldsProductUrlMax).optional()
+}).optional(),
+  "filters": zod.array(zod.object({
+  "include_missing": zod.boolean().default(partnerConnectionActionResponseConnectorOneFiltersItemIncludeMissingDefault),
+  "path": zod.string().max(partnerConnectionActionResponseConnectorOneFiltersItemPathMax).regex(partnerConnectionActionResponseConnectorOneFiltersItemPathRegExp),
+  "values": zod.array(zod.string()).min(1).max(partnerConnectionActionResponseConnectorOneFiltersItemValuesMax)
+})).max(partnerConnectionActionResponseConnectorOneFiltersMax).optional(),
+  "items_paths": zod.array(zod.string().max(partnerConnectionActionResponseConnectorOneItemsPathsItemMax).regex(partnerConnectionActionResponseConnectorOneItemsPathsItemRegExp)).min(1).max(partnerConnectionActionResponseConnectorOneItemsPathsMax).optional(),
+  "list_path": zod.string().min(1).max(partnerConnectionActionResponseConnectorOneListPathMax).default(partnerConnectionActionResponseConnectorOneListPathDefault),
+  "listing_url_template": zod.union([zod.string().max(partnerConnectionActionResponseConnectorOneListingUrlTemplateOneMax),zod.null()]).optional(),
+  "max_pages": zod.int().min(1).max(partnerConnectionActionResponseConnectorOneMaxPagesMax).default(partnerConnectionActionResponseConnectorOneMaxPagesDefault),
+  "max_response_bytes": zod.int().min(partnerConnectionActionResponseConnectorOneMaxResponseBytesMin).max(partnerConnectionActionResponseConnectorOneMaxResponseBytesMax).default(partnerConnectionActionResponseConnectorOneMaxResponseBytesDefault),
+  "pagination": zod.object({
+  "has_more_path": zod.union([zod.string().max(partnerConnectionActionResponseConnectorOnePaginationHasMorePathOneMax).regex(partnerConnectionActionResponseConnectorOnePaginationHasMorePathOneRegExp),zod.null()]).optional(),
+  "mode": zod.enum(['none', 'cursor', 'page', 'offset', 'next_url']).default(partnerConnectionActionResponseConnectorOnePaginationModeDefault),
+  "next_path": zod.string().max(partnerConnectionActionResponseConnectorOnePaginationNextPathMax).regex(partnerConnectionActionResponseConnectorOnePaginationNextPathRegExp).default(partnerConnectionActionResponseConnectorOnePaginationNextPathDefault),
+  "page_size": zod.int().min(1).max(partnerConnectionActionResponseConnectorOnePaginationPageSizeMax).default(partnerConnectionActionResponseConnectorOnePaginationPageSizeDefault),
+  "parameter": zod.union([zod.string().min(1).max(partnerConnectionActionResponseConnectorOnePaginationParameterOneMax).regex(partnerConnectionActionResponseConnectorOnePaginationParameterOneRegExp),zod.null()]).default(partnerConnectionActionResponseConnectorOnePaginationParameterDefault),
+  "size_parameter": zod.union([zod.string().min(1).max(partnerConnectionActionResponseConnectorOnePaginationSizeParameterOneMax).regex(partnerConnectionActionResponseConnectorOnePaginationSizeParameterOneRegExp),zod.null()]).default(partnerConnectionActionResponseConnectorOnePaginationSizeParameterDefault),
+  "start": zod.int().min(partnerConnectionActionResponseConnectorOnePaginationStartMin).max(partnerConnectionActionResponseConnectorOnePaginationStartMax).default(partnerConnectionActionResponseConnectorOnePaginationStartDefault),
+  "total_path": zod.union([zod.string().max(partnerConnectionActionResponseConnectorOnePaginationTotalPathOneMax).regex(partnerConnectionActionResponseConnectorOnePaginationTotalPathOneRegExp),zod.null()]).optional()
+}).optional(),
+  "parameters": zod.looseObject({
+
+}).optional(),
+  "platform_hosts": zod.array(zod.string()).max(partnerConnectionActionResponseConnectorOnePlatformHostsMax).optional(),
+  "requests_per_minute": zod.int().min(1).max(partnerConnectionActionResponseConnectorOneRequestsPerMinuteMax).default(partnerConnectionActionResponseConnectorOneRequestsPerMinuteDefault),
+  "timeout_seconds": zod.int().min(1).max(partnerConnectionActionResponseConnectorOneTimeoutSecondsMax).default(partnerConnectionActionResponseConnectorOneTimeoutSecondsDefault),
+  "version": zod.literal(1).default(partnerConnectionActionResponseConnectorOneVersionDefault).meta({ title: 'Version' })
+}),zod.null()]).optional(),
+  "connector_editable": zod.boolean(),
+  "credential_configured": zod.boolean(),
+  "credential_header": zod.string(),
+  "credentials_managed": zod.boolean(),
+  "enabled": zod.boolean(),
+  "error": zod.union([zod.string(),zod.null()]),
+  "excluded": zod.int(),
+  "last_sync_at": zod.union([zod.iso.datetime({"offset":true}),zod.null()]),
+  "name": zod.string(),
+  "needs_attention": zod.int(),
+  "next_sync_at": zod.union([zod.iso.datetime({"offset":true}),zod.null()]),
+  "partnership_type": zod.literal("launch_platform").default(partnerConnectionActionResponsePartnershipTypeDefault).meta({ title: 'Partnership Type' }),
+  "products": zod.int(),
+  "provider": zod.string(),
+  "qualified": zod.int(),
+  "revision": zod.int(),
+  "state": zod.enum(['disconnected', 'idle', 'syncing', 'error']),
+  "sync_interval_minutes": zod.int()
+})
+
+
+/**
+ * @summary Connection Jobs
+ */
+export const PartnerConnectionJobsResponse = zod.object({
+  "items": zod.array(zod.object({
+  "attempts": zod.int(),
+  "created_at": zod.iso.datetime({"offset":true}),
+  "error": zod.union([zod.string(),zod.null()]),
+  "finished_at": zod.union([zod.iso.datetime({"offset":true}),zod.null()]),
+  "id": zod.uuid(),
+  "operation": zod.enum(['sync', 'sync_product', 'assess']),
+  "status": zod.string()
+})),
+  "limit": zod.int(),
+  "offset": zod.int(),
   "total": zod.int()
 })
 
@@ -39,6 +1335,95 @@ export const PartnerCreativePreviewResponse = zod.object({
 
 
 /**
+ * @summary Dashboard
+ */
+export const dashboardV1PartnerAccountsAccountIdDashboardGetResponseAccountAdFormatsMax = 3;
+
+export const dashboardV1PartnerAccountsAccountIdDashboardGetResponseAccountAudienceExperienceLevelsMax = 4;
+
+export const dashboardV1PartnerAccountsAccountIdDashboardGetResponseAccountAudienceLanguageTopicIdsMax = 100;
+
+export const dashboardV1PartnerAccountsAccountIdDashboardGetResponseAccountAudienceToolTopicIdsMax = 100;
+
+export const dashboardV1PartnerAccountsAccountIdDashboardGetResponseAccountNameMax = 200;
+
+export const dashboardV1PartnerAccountsAccountIdDashboardGetResponseAccountPromotionSurfacesMax = 3;
+
+export const dashboardV1PartnerAccountsAccountIdDashboardGetResponseAssetsItemAdFormatDefault = `feed`;
+export const dashboardV1PartnerAccountsAccountIdDashboardGetResponseAssetsItemAggregatedDefault = false;
+export const dashboardV1PartnerAccountsAccountIdDashboardGetResponseAssetsItemAutomaticDefault = false;
+export const dashboardV1PartnerAccountsAccountIdDashboardGetResponseAssetsItemNameMax = 200;
+
+export const dashboardV1PartnerAccountsAccountIdDashboardGetResponseAssetsItemStatusDefault = `draft`;
+
+export const DashboardV1PartnerAccountsAccountIdDashboardGetResponse = zod.object({
+  "account": zod.object({
+  "ad_formats": zod.array(zod.enum(['feed', 'homepage_sponsorship', 'engagement'])).max(dashboardV1PartnerAccountsAccountIdDashboardGetResponseAccountAdFormatsMax),
+  "advanced_targeting": zod.boolean(),
+  "allowed_ad_formats": zod.array(zod.enum(['feed', 'homepage_sponsorship', 'sponsored_content', 'engagement'])),
+  "allowed_promotion_kinds": zod.array(zod.enum(['product', 'ad'])),
+  "approval_mode": zod.enum(['qualified', 'trusted']),
+  "audience": zod.object({
+  "experience_levels": zod.array(zod.enum(['aspiring', 'entry_level', 'mid_level', 'senior'])).max(dashboardV1PartnerAccountsAccountIdDashboardGetResponseAccountAudienceExperienceLevelsMax),
+  "language_topic_ids": zod.array(zod.uuid()).max(dashboardV1PartnerAccountsAccountIdDashboardGetResponseAccountAudienceLanguageTopicIdsMax),
+  "tool_topic_ids": zod.array(zod.uuid()).max(dashboardV1PartnerAccountsAccountIdDashboardGetResponseAccountAudienceToolTopicIdsMax)
+}),
+  "auto_include_products": zod.boolean(),
+  "benefits": zod.array(zod.string()),
+  "effective_promotion_kind": zod.enum(['product', 'ad']),
+  "id": zod.uuid(),
+  "name": zod.string().min(1).max(dashboardV1PartnerAccountsAccountIdDashboardGetResponseAccountNameMax),
+  "organic_enabled": zod.boolean(),
+  "outbound_destination": zod.enum(['product_url', 'listing_url']),
+  "promotion_kind": zod.union([zod.enum(['product', 'ad']),zod.null()]),
+  "promotion_kind_source": zod.enum(['tier', 'account']),
+  "promotion_surfaces": zod.array(zod.enum(['article', 'topic', 'feed'])).min(1).max(dashboardV1PartnerAccountsAccountIdDashboardGetResponseAccountPromotionSurfacesMax),
+  "status": zod.enum(['active', 'paused']),
+  "tier": zod.enum(['bronze', 'silver', 'gold', 'platinum', 'diamond'])
+}),
+  "asset_total": zod.int(),
+  "assets": zod.array(zod.object({
+  "ad_format": zod.enum(['feed', 'homepage_sponsorship', 'sponsored_content', 'engagement']).default(dashboardV1PartnerAccountsAccountIdDashboardGetResponseAssetsItemAdFormatDefault),
+  "ad_formats": zod.array(zod.enum(['feed', 'homepage_sponsorship', 'sponsored_content', 'engagement'])).optional(),
+  "aggregated": zod.boolean().default(dashboardV1PartnerAccountsAccountIdDashboardGetResponseAssetsItemAggregatedDefault),
+  "article_id": zod.union([zod.uuid(),zod.null()]).optional(),
+  "automatic": zod.boolean().default(dashboardV1PartnerAccountsAccountIdDashboardGetResponseAssetsItemAutomaticDefault),
+  "campaign_id": zod.union([zod.uuid(),zod.null()]).optional(),
+  "clicks": zod.int(),
+  "ctr": zod.union([zod.number(),zod.null()]),
+  "id": zod.uuid(),
+  "impressions": zod.int(),
+  "kind": zod.enum(['product', 'ad']),
+  "measured_days": zod.int(),
+  "name": zod.string().min(1).max(dashboardV1PartnerAccountsAccountIdDashboardGetResponseAssetsItemNameMax),
+  "product_id": zod.union([zod.uuid(),zod.null()]).optional(),
+  "status": zod.enum(['draft', 'active', 'paused', 'ended']).default(dashboardV1PartnerAccountsAccountIdDashboardGetResponseAssetsItemStatusDefault)
+})),
+  "end": zod.iso.date(),
+  "format_totals": zod.array(zod.object({
+  "ad_format": zod.enum(['feed', 'homepage_sponsorship', 'sponsored_content', 'engagement']),
+  "clicks": zod.int(),
+  "ctr": zod.union([zod.number(),zod.null()]),
+  "impressions": zod.int(),
+  "measured_days": zod.int()
+})).optional(),
+  "last_updated_at": zod.union([zod.iso.datetime({"offset":true}),zod.null()]),
+  "start": zod.iso.date(),
+  "totals": zod.object({
+  "clicks": zod.int(),
+  "ctr": zod.union([zod.number(),zod.null()]),
+  "impressions": zod.int(),
+  "measured_days": zod.int()
+}),
+  "trend": zod.array(zod.object({
+  "clicks": zod.int(),
+  "day": zod.iso.date(),
+  "impressions": zod.int()
+}))
+})
+
+
+/**
  * @summary Preview Destination
  */
 export const PartnerDestinationPreviewResponse = zod.object({
@@ -48,6 +1433,28 @@ export const PartnerDestinationPreviewResponse = zod.object({
   "name": zod.string(),
   "product_url": zod.string()
 }),zod.null()])
+})
+
+
+/**
+ * @summary Inventory
+ */
+export const partnerInventoryListResponseItemsItemCommercialApprovedDefault = false;
+
+export const PartnerInventoryListResponse = zod.object({
+  "items": zod.array(zod.object({
+  "ad_formats": zod.union([zod.array(zod.enum(['feed', 'homepage_sponsorship', 'sponsored_content', 'engagement'])),zod.null()]).optional(),
+  "approval_source": zod.union([zod.enum(['qualified', 'trusted']),zod.null()]).optional(),
+  "commercial_approved": zod.boolean().default(partnerInventoryListResponseItemsItemCommercialApprovedDefault),
+  "excluded": zod.boolean(),
+  "globally_excluded": zod.boolean(),
+  "id": zod.uuid(),
+  "name": zod.string(),
+  "promotion_surfaces": zod.union([zod.array(zod.enum(['article', 'topic', 'feed'])),zod.null()]).optional(),
+  "status": zod.string(),
+  "technologies": zod.array(zod.string())
+})),
+  "total": zod.int()
 })
 
 
@@ -91,4 +1498,729 @@ export const PartnerAccountPreferencesUpdateResponse = zod.object({
   "promotion_surfaces": zod.array(zod.enum(['article', 'topic', 'feed'])).min(1).max(partnerAccountPreferencesUpdateResponsePromotionSurfacesMax),
   "status": zod.enum(['active', 'paused']),
   "tier": zod.enum(['bronze', 'silver', 'gold', 'platinum', 'diamond'])
+})
+
+
+/**
+ * @summary Connections
+ */
+export const partnerWorkspaceConnectionsResponseItemsItemCommercialApprovedDefault = 0;
+export const partnerWorkspaceConnectionsResponseItemsItemConnectorOneAttributionDefault = ``;
+export const partnerWorkspaceConnectionsResponseItemsItemConnectorOneAttributionMax = 300;
+
+export const partnerWorkspaceConnectionsResponseItemsItemConnectorOneAuthHeaderDefault = `X-API-Key`;
+export const partnerWorkspaceConnectionsResponseItemsItemConnectorOneAuthHeaderMax = 100;
+
+
+export const partnerWorkspaceConnectionsResponseItemsItemConnectorOneAuthHeaderRegExp = new RegExp('^[A-Za-z][A-Za-z0-9_-]*$');
+export const partnerWorkspaceConnectionsResponseItemsItemConnectorOneAuthModeDefault = `none`;
+export const partnerWorkspaceConnectionsResponseItemsItemConnectorOneAuthSecretRefDefault = ``;
+export const partnerWorkspaceConnectionsResponseItemsItemConnectorOneAuthSecretRefRegExp = new RegExp('^$|^DEVFEED_PARTNER_SECRET_[A-Z0-9_]{1,80}$');
+export const partnerWorkspaceConnectionsResponseItemsItemConnectorOneAuthSourceDefault = `environment`;
+export const partnerWorkspaceConnectionsResponseItemsItemConnectorOneDetailPathOneMax = 500;
+
+export const partnerWorkspaceConnectionsResponseItemsItemConnectorOneDetailRootDefault = ``;
+export const partnerWorkspaceConnectionsResponseItemsItemConnectorOneDetailRootMax = 200;
+
+
+export const partnerWorkspaceConnectionsResponseItemsItemConnectorOneDetailRootRegExp = new RegExp('^(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+)(?:\\.(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+))*$|^$');
+export const partnerWorkspaceConnectionsResponseItemsItemConnectorOneFieldsDescriptionItemMax = 200;
+
+
+export const partnerWorkspaceConnectionsResponseItemsItemConnectorOneFieldsDescriptionItemRegExp = new RegExp('^(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+)(?:\\.(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+))*$|^$');
+export const partnerWorkspaceConnectionsResponseItemsItemConnectorOneFieldsDescriptionMax = 5;
+
+export const partnerWorkspaceConnectionsResponseItemsItemConnectorOneFieldsExternalIdItemMax = 200;
+
+
+export const partnerWorkspaceConnectionsResponseItemsItemConnectorOneFieldsExternalIdItemRegExp = new RegExp('^(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+)(?:\\.(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+))*$|^$');
+export const partnerWorkspaceConnectionsResponseItemsItemConnectorOneFieldsExternalIdMax = 5;
+
+export const partnerWorkspaceConnectionsResponseItemsItemConnectorOneFieldsListingUrlItemMax = 200;
+
+
+export const partnerWorkspaceConnectionsResponseItemsItemConnectorOneFieldsListingUrlItemRegExp = new RegExp('^(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+)(?:\\.(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+))*$|^$');
+export const partnerWorkspaceConnectionsResponseItemsItemConnectorOneFieldsListingUrlMax = 5;
+
+export const partnerWorkspaceConnectionsResponseItemsItemConnectorOneFieldsNameItemMax = 200;
+
+
+export const partnerWorkspaceConnectionsResponseItemsItemConnectorOneFieldsNameItemRegExp = new RegExp('^(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+)(?:\\.(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+))*$|^$');
+export const partnerWorkspaceConnectionsResponseItemsItemConnectorOneFieldsNameMax = 5;
+
+export const partnerWorkspaceConnectionsResponseItemsItemConnectorOneFieldsPricingItemMax = 200;
+
+
+export const partnerWorkspaceConnectionsResponseItemsItemConnectorOneFieldsPricingItemRegExp = new RegExp('^(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+)(?:\\.(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+))*$|^$');
+export const partnerWorkspaceConnectionsResponseItemsItemConnectorOneFieldsPricingMax = 5;
+
+export const partnerWorkspaceConnectionsResponseItemsItemConnectorOneFieldsProductUrlItemMax = 200;
+
+
+export const partnerWorkspaceConnectionsResponseItemsItemConnectorOneFieldsProductUrlItemRegExp = new RegExp('^(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+)(?:\\.(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+))*$|^$');
+export const partnerWorkspaceConnectionsResponseItemsItemConnectorOneFieldsProductUrlMax = 5;
+
+export const partnerWorkspaceConnectionsResponseItemsItemConnectorOneFiltersItemIncludeMissingDefault = true;
+export const partnerWorkspaceConnectionsResponseItemsItemConnectorOneFiltersItemPathMax = 200;
+
+
+export const partnerWorkspaceConnectionsResponseItemsItemConnectorOneFiltersItemPathRegExp = new RegExp('^(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+)(?:\\.(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+))*$|^$');
+export const partnerWorkspaceConnectionsResponseItemsItemConnectorOneFiltersItemValuesMax = 20;
+
+export const partnerWorkspaceConnectionsResponseItemsItemConnectorOneFiltersMax = 10;
+
+export const partnerWorkspaceConnectionsResponseItemsItemConnectorOneItemsPathsItemMax = 200;
+
+
+export const partnerWorkspaceConnectionsResponseItemsItemConnectorOneItemsPathsItemRegExp = new RegExp('^(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+)(?:\\.(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+))*$|^$');
+export const partnerWorkspaceConnectionsResponseItemsItemConnectorOneItemsPathsMax = 5;
+
+export const partnerWorkspaceConnectionsResponseItemsItemConnectorOneListPathDefault = `/products`;
+export const partnerWorkspaceConnectionsResponseItemsItemConnectorOneListPathMax = 500;
+
+export const partnerWorkspaceConnectionsResponseItemsItemConnectorOneListingUrlTemplateOneMax = 500;
+
+export const partnerWorkspaceConnectionsResponseItemsItemConnectorOneMaxPagesDefault = 1000;
+export const partnerWorkspaceConnectionsResponseItemsItemConnectorOneMaxPagesMax = 1000;
+
+export const partnerWorkspaceConnectionsResponseItemsItemConnectorOneMaxResponseBytesDefault = 2000000;
+export const partnerWorkspaceConnectionsResponseItemsItemConnectorOneMaxResponseBytesMin = 1024;
+export const partnerWorkspaceConnectionsResponseItemsItemConnectorOneMaxResponseBytesMax = 5000000;
+
+export const partnerWorkspaceConnectionsResponseItemsItemConnectorOnePaginationHasMorePathOneMax = 200;
+
+
+export const partnerWorkspaceConnectionsResponseItemsItemConnectorOnePaginationHasMorePathOneRegExp = new RegExp('^(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+)(?:\\.(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+))*$|^$');
+export const partnerWorkspaceConnectionsResponseItemsItemConnectorOnePaginationModeDefault = `cursor`;
+export const partnerWorkspaceConnectionsResponseItemsItemConnectorOnePaginationNextPathDefault = `nextCursor`;
+export const partnerWorkspaceConnectionsResponseItemsItemConnectorOnePaginationNextPathMax = 200;
+
+
+export const partnerWorkspaceConnectionsResponseItemsItemConnectorOnePaginationNextPathRegExp = new RegExp('^(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+)(?:\\.(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+))*$|^$');
+export const partnerWorkspaceConnectionsResponseItemsItemConnectorOnePaginationPageSizeDefault = 10;
+export const partnerWorkspaceConnectionsResponseItemsItemConnectorOnePaginationPageSizeMax = 100;
+
+export const partnerWorkspaceConnectionsResponseItemsItemConnectorOnePaginationParameterOneMax = 100;
+
+
+export const partnerWorkspaceConnectionsResponseItemsItemConnectorOnePaginationParameterOneRegExp = new RegExp('^[A-Za-z][A-Za-z0-9_-]*$');
+export const partnerWorkspaceConnectionsResponseItemsItemConnectorOnePaginationParameterDefault = `cursor`;
+export const partnerWorkspaceConnectionsResponseItemsItemConnectorOnePaginationSizeParameterOneMax = 100;
+
+
+export const partnerWorkspaceConnectionsResponseItemsItemConnectorOnePaginationSizeParameterOneRegExp = new RegExp('^[A-Za-z][A-Za-z0-9_-]*$');
+export const partnerWorkspaceConnectionsResponseItemsItemConnectorOnePaginationSizeParameterDefault = `limit`;
+export const partnerWorkspaceConnectionsResponseItemsItemConnectorOnePaginationStartDefault = 1;
+export const partnerWorkspaceConnectionsResponseItemsItemConnectorOnePaginationStartMin = 0;
+export const partnerWorkspaceConnectionsResponseItemsItemConnectorOnePaginationStartMax = 1000000;
+
+export const partnerWorkspaceConnectionsResponseItemsItemConnectorOnePaginationTotalPathOneMax = 200;
+
+
+export const partnerWorkspaceConnectionsResponseItemsItemConnectorOnePaginationTotalPathOneRegExp = new RegExp('^(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+)(?:\\.(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+))*$|^$');
+export const partnerWorkspaceConnectionsResponseItemsItemConnectorOnePlatformHostsMax = 5;
+
+export const partnerWorkspaceConnectionsResponseItemsItemConnectorOneRequestsPerMinuteDefault = 60;
+export const partnerWorkspaceConnectionsResponseItemsItemConnectorOneRequestsPerMinuteMax = 600;
+
+export const partnerWorkspaceConnectionsResponseItemsItemConnectorOneTimeoutSecondsDefault = 15;
+export const partnerWorkspaceConnectionsResponseItemsItemConnectorOneTimeoutSecondsMax = 30;
+
+export const partnerWorkspaceConnectionsResponseItemsItemConnectorOneVersionDefault = 1;
+export const partnerWorkspaceConnectionsResponseItemsItemPartnershipTypeDefault = `launch_platform`;
+
+export const PartnerWorkspaceConnectionsResponse = zod.object({
+  "credentials_available": zod.boolean(),
+  "items": zod.array(zod.object({
+  "account_id": zod.uuid(),
+  "account_name": zod.string(),
+  "ai_enabled": zod.boolean(),
+  "api_url": zod.string(),
+  "approval_mode": zod.union([zod.enum(['qualified', 'trusted']),zod.null()]).optional(),
+  "auth_mode": zod.enum(['none', 'bearer', 'api_key']),
+  "checking": zod.int(),
+  "commercial_approved": zod.int().default(partnerWorkspaceConnectionsResponseItemsItemCommercialApprovedDefault),
+  "connector": zod.union([zod.object({
+  "attribution": zod.string().max(partnerWorkspaceConnectionsResponseItemsItemConnectorOneAttributionMax).default(partnerWorkspaceConnectionsResponseItemsItemConnectorOneAttributionDefault),
+  "auth": zod.object({
+  "header": zod.string().min(1).max(partnerWorkspaceConnectionsResponseItemsItemConnectorOneAuthHeaderMax).regex(partnerWorkspaceConnectionsResponseItemsItemConnectorOneAuthHeaderRegExp).default(partnerWorkspaceConnectionsResponseItemsItemConnectorOneAuthHeaderDefault),
+  "mode": zod.enum(['none', 'bearer', 'api_key']).default(partnerWorkspaceConnectionsResponseItemsItemConnectorOneAuthModeDefault),
+  "secret_ref": zod.string().regex(partnerWorkspaceConnectionsResponseItemsItemConnectorOneAuthSecretRefRegExp).default(partnerWorkspaceConnectionsResponseItemsItemConnectorOneAuthSecretRefDefault),
+  "source": zod.enum(['environment', 'connection']).default(partnerWorkspaceConnectionsResponseItemsItemConnectorOneAuthSourceDefault)
+}).optional(),
+  "base_url": zod.string(),
+  "detail_path": zod.union([zod.string().max(partnerWorkspaceConnectionsResponseItemsItemConnectorOneDetailPathOneMax),zod.null()]).optional(),
+  "detail_root": zod.string().max(partnerWorkspaceConnectionsResponseItemsItemConnectorOneDetailRootMax).regex(partnerWorkspaceConnectionsResponseItemsItemConnectorOneDetailRootRegExp).default(partnerWorkspaceConnectionsResponseItemsItemConnectorOneDetailRootDefault),
+  "fields": zod.object({
+  "description": zod.array(zod.string().max(partnerWorkspaceConnectionsResponseItemsItemConnectorOneFieldsDescriptionItemMax).regex(partnerWorkspaceConnectionsResponseItemsItemConnectorOneFieldsDescriptionItemRegExp)).min(1).max(partnerWorkspaceConnectionsResponseItemsItemConnectorOneFieldsDescriptionMax).optional(),
+  "external_id": zod.array(zod.string().max(partnerWorkspaceConnectionsResponseItemsItemConnectorOneFieldsExternalIdItemMax).regex(partnerWorkspaceConnectionsResponseItemsItemConnectorOneFieldsExternalIdItemRegExp)).min(1).max(partnerWorkspaceConnectionsResponseItemsItemConnectorOneFieldsExternalIdMax).optional(),
+  "listing_url": zod.array(zod.string().max(partnerWorkspaceConnectionsResponseItemsItemConnectorOneFieldsListingUrlItemMax).regex(partnerWorkspaceConnectionsResponseItemsItemConnectorOneFieldsListingUrlItemRegExp)).min(1).max(partnerWorkspaceConnectionsResponseItemsItemConnectorOneFieldsListingUrlMax).optional(),
+  "name": zod.array(zod.string().max(partnerWorkspaceConnectionsResponseItemsItemConnectorOneFieldsNameItemMax).regex(partnerWorkspaceConnectionsResponseItemsItemConnectorOneFieldsNameItemRegExp)).min(1).max(partnerWorkspaceConnectionsResponseItemsItemConnectorOneFieldsNameMax).optional(),
+  "pricing": zod.array(zod.string().max(partnerWorkspaceConnectionsResponseItemsItemConnectorOneFieldsPricingItemMax).regex(partnerWorkspaceConnectionsResponseItemsItemConnectorOneFieldsPricingItemRegExp)).min(1).max(partnerWorkspaceConnectionsResponseItemsItemConnectorOneFieldsPricingMax).optional(),
+  "product_url": zod.array(zod.string().max(partnerWorkspaceConnectionsResponseItemsItemConnectorOneFieldsProductUrlItemMax).regex(partnerWorkspaceConnectionsResponseItemsItemConnectorOneFieldsProductUrlItemRegExp)).min(1).max(partnerWorkspaceConnectionsResponseItemsItemConnectorOneFieldsProductUrlMax).optional()
+}).optional(),
+  "filters": zod.array(zod.object({
+  "include_missing": zod.boolean().default(partnerWorkspaceConnectionsResponseItemsItemConnectorOneFiltersItemIncludeMissingDefault),
+  "path": zod.string().max(partnerWorkspaceConnectionsResponseItemsItemConnectorOneFiltersItemPathMax).regex(partnerWorkspaceConnectionsResponseItemsItemConnectorOneFiltersItemPathRegExp),
+  "values": zod.array(zod.string()).min(1).max(partnerWorkspaceConnectionsResponseItemsItemConnectorOneFiltersItemValuesMax)
+})).max(partnerWorkspaceConnectionsResponseItemsItemConnectorOneFiltersMax).optional(),
+  "items_paths": zod.array(zod.string().max(partnerWorkspaceConnectionsResponseItemsItemConnectorOneItemsPathsItemMax).regex(partnerWorkspaceConnectionsResponseItemsItemConnectorOneItemsPathsItemRegExp)).min(1).max(partnerWorkspaceConnectionsResponseItemsItemConnectorOneItemsPathsMax).optional(),
+  "list_path": zod.string().min(1).max(partnerWorkspaceConnectionsResponseItemsItemConnectorOneListPathMax).default(partnerWorkspaceConnectionsResponseItemsItemConnectorOneListPathDefault),
+  "listing_url_template": zod.union([zod.string().max(partnerWorkspaceConnectionsResponseItemsItemConnectorOneListingUrlTemplateOneMax),zod.null()]).optional(),
+  "max_pages": zod.int().min(1).max(partnerWorkspaceConnectionsResponseItemsItemConnectorOneMaxPagesMax).default(partnerWorkspaceConnectionsResponseItemsItemConnectorOneMaxPagesDefault),
+  "max_response_bytes": zod.int().min(partnerWorkspaceConnectionsResponseItemsItemConnectorOneMaxResponseBytesMin).max(partnerWorkspaceConnectionsResponseItemsItemConnectorOneMaxResponseBytesMax).default(partnerWorkspaceConnectionsResponseItemsItemConnectorOneMaxResponseBytesDefault),
+  "pagination": zod.object({
+  "has_more_path": zod.union([zod.string().max(partnerWorkspaceConnectionsResponseItemsItemConnectorOnePaginationHasMorePathOneMax).regex(partnerWorkspaceConnectionsResponseItemsItemConnectorOnePaginationHasMorePathOneRegExp),zod.null()]).optional(),
+  "mode": zod.enum(['none', 'cursor', 'page', 'offset', 'next_url']).default(partnerWorkspaceConnectionsResponseItemsItemConnectorOnePaginationModeDefault),
+  "next_path": zod.string().max(partnerWorkspaceConnectionsResponseItemsItemConnectorOnePaginationNextPathMax).regex(partnerWorkspaceConnectionsResponseItemsItemConnectorOnePaginationNextPathRegExp).default(partnerWorkspaceConnectionsResponseItemsItemConnectorOnePaginationNextPathDefault),
+  "page_size": zod.int().min(1).max(partnerWorkspaceConnectionsResponseItemsItemConnectorOnePaginationPageSizeMax).default(partnerWorkspaceConnectionsResponseItemsItemConnectorOnePaginationPageSizeDefault),
+  "parameter": zod.union([zod.string().min(1).max(partnerWorkspaceConnectionsResponseItemsItemConnectorOnePaginationParameterOneMax).regex(partnerWorkspaceConnectionsResponseItemsItemConnectorOnePaginationParameterOneRegExp),zod.null()]).default(partnerWorkspaceConnectionsResponseItemsItemConnectorOnePaginationParameterDefault),
+  "size_parameter": zod.union([zod.string().min(1).max(partnerWorkspaceConnectionsResponseItemsItemConnectorOnePaginationSizeParameterOneMax).regex(partnerWorkspaceConnectionsResponseItemsItemConnectorOnePaginationSizeParameterOneRegExp),zod.null()]).default(partnerWorkspaceConnectionsResponseItemsItemConnectorOnePaginationSizeParameterDefault),
+  "start": zod.int().min(partnerWorkspaceConnectionsResponseItemsItemConnectorOnePaginationStartMin).max(partnerWorkspaceConnectionsResponseItemsItemConnectorOnePaginationStartMax).default(partnerWorkspaceConnectionsResponseItemsItemConnectorOnePaginationStartDefault),
+  "total_path": zod.union([zod.string().max(partnerWorkspaceConnectionsResponseItemsItemConnectorOnePaginationTotalPathOneMax).regex(partnerWorkspaceConnectionsResponseItemsItemConnectorOnePaginationTotalPathOneRegExp),zod.null()]).optional()
+}).optional(),
+  "parameters": zod.looseObject({
+
+}).optional(),
+  "platform_hosts": zod.array(zod.string()).max(partnerWorkspaceConnectionsResponseItemsItemConnectorOnePlatformHostsMax).optional(),
+  "requests_per_minute": zod.int().min(1).max(partnerWorkspaceConnectionsResponseItemsItemConnectorOneRequestsPerMinuteMax).default(partnerWorkspaceConnectionsResponseItemsItemConnectorOneRequestsPerMinuteDefault),
+  "timeout_seconds": zod.int().min(1).max(partnerWorkspaceConnectionsResponseItemsItemConnectorOneTimeoutSecondsMax).default(partnerWorkspaceConnectionsResponseItemsItemConnectorOneTimeoutSecondsDefault),
+  "version": zod.literal(1).default(partnerWorkspaceConnectionsResponseItemsItemConnectorOneVersionDefault).meta({ title: 'Version' })
+}),zod.null()]).optional(),
+  "connector_editable": zod.boolean(),
+  "credential_configured": zod.boolean(),
+  "credential_header": zod.string(),
+  "credentials_available": zod.boolean(),
+  "credentials_managed": zod.boolean(),
+  "enabled": zod.boolean(),
+  "error": zod.union([zod.string(),zod.null()]),
+  "excluded": zod.int(),
+  "last_sync_at": zod.union([zod.iso.datetime({"offset":true}),zod.null()]),
+  "name": zod.string(),
+  "needs_attention": zod.int(),
+  "next_sync_at": zod.union([zod.iso.datetime({"offset":true}),zod.null()]),
+  "partnership_type": zod.literal("launch_platform").default(partnerWorkspaceConnectionsResponseItemsItemPartnershipTypeDefault).meta({ title: 'Partnership Type' }),
+  "products": zod.int(),
+  "provider": zod.string(),
+  "qualified": zod.int(),
+  "revision": zod.int(),
+  "state": zod.enum(['disconnected', 'idle', 'syncing', 'error']),
+  "sync_interval_minutes": zod.int()
+})),
+  "limit": zod.int(),
+  "offset": zod.int(),
+  "total": zod.int()
+})
+
+
+/**
+ * @summary Add Connection
+ */
+export const partnerWorkspaceConnectionCreateResponseCommercialApprovedDefault = 0;
+export const partnerWorkspaceConnectionCreateResponseConnectorOneAttributionDefault = ``;
+export const partnerWorkspaceConnectionCreateResponseConnectorOneAttributionMax = 300;
+
+export const partnerWorkspaceConnectionCreateResponseConnectorOneAuthHeaderDefault = `X-API-Key`;
+export const partnerWorkspaceConnectionCreateResponseConnectorOneAuthHeaderMax = 100;
+
+
+export const partnerWorkspaceConnectionCreateResponseConnectorOneAuthHeaderRegExp = new RegExp('^[A-Za-z][A-Za-z0-9_-]*$');
+export const partnerWorkspaceConnectionCreateResponseConnectorOneAuthModeDefault = `none`;
+export const partnerWorkspaceConnectionCreateResponseConnectorOneAuthSecretRefDefault = ``;
+export const partnerWorkspaceConnectionCreateResponseConnectorOneAuthSecretRefRegExp = new RegExp('^$|^DEVFEED_PARTNER_SECRET_[A-Z0-9_]{1,80}$');
+export const partnerWorkspaceConnectionCreateResponseConnectorOneAuthSourceDefault = `environment`;
+export const partnerWorkspaceConnectionCreateResponseConnectorOneDetailPathOneMax = 500;
+
+export const partnerWorkspaceConnectionCreateResponseConnectorOneDetailRootDefault = ``;
+export const partnerWorkspaceConnectionCreateResponseConnectorOneDetailRootMax = 200;
+
+
+export const partnerWorkspaceConnectionCreateResponseConnectorOneDetailRootRegExp = new RegExp('^(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+)(?:\\.(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+))*$|^$');
+export const partnerWorkspaceConnectionCreateResponseConnectorOneFieldsDescriptionItemMax = 200;
+
+
+export const partnerWorkspaceConnectionCreateResponseConnectorOneFieldsDescriptionItemRegExp = new RegExp('^(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+)(?:\\.(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+))*$|^$');
+export const partnerWorkspaceConnectionCreateResponseConnectorOneFieldsDescriptionMax = 5;
+
+export const partnerWorkspaceConnectionCreateResponseConnectorOneFieldsExternalIdItemMax = 200;
+
+
+export const partnerWorkspaceConnectionCreateResponseConnectorOneFieldsExternalIdItemRegExp = new RegExp('^(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+)(?:\\.(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+))*$|^$');
+export const partnerWorkspaceConnectionCreateResponseConnectorOneFieldsExternalIdMax = 5;
+
+export const partnerWorkspaceConnectionCreateResponseConnectorOneFieldsListingUrlItemMax = 200;
+
+
+export const partnerWorkspaceConnectionCreateResponseConnectorOneFieldsListingUrlItemRegExp = new RegExp('^(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+)(?:\\.(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+))*$|^$');
+export const partnerWorkspaceConnectionCreateResponseConnectorOneFieldsListingUrlMax = 5;
+
+export const partnerWorkspaceConnectionCreateResponseConnectorOneFieldsNameItemMax = 200;
+
+
+export const partnerWorkspaceConnectionCreateResponseConnectorOneFieldsNameItemRegExp = new RegExp('^(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+)(?:\\.(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+))*$|^$');
+export const partnerWorkspaceConnectionCreateResponseConnectorOneFieldsNameMax = 5;
+
+export const partnerWorkspaceConnectionCreateResponseConnectorOneFieldsPricingItemMax = 200;
+
+
+export const partnerWorkspaceConnectionCreateResponseConnectorOneFieldsPricingItemRegExp = new RegExp('^(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+)(?:\\.(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+))*$|^$');
+export const partnerWorkspaceConnectionCreateResponseConnectorOneFieldsPricingMax = 5;
+
+export const partnerWorkspaceConnectionCreateResponseConnectorOneFieldsProductUrlItemMax = 200;
+
+
+export const partnerWorkspaceConnectionCreateResponseConnectorOneFieldsProductUrlItemRegExp = new RegExp('^(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+)(?:\\.(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+))*$|^$');
+export const partnerWorkspaceConnectionCreateResponseConnectorOneFieldsProductUrlMax = 5;
+
+export const partnerWorkspaceConnectionCreateResponseConnectorOneFiltersItemIncludeMissingDefault = true;
+export const partnerWorkspaceConnectionCreateResponseConnectorOneFiltersItemPathMax = 200;
+
+
+export const partnerWorkspaceConnectionCreateResponseConnectorOneFiltersItemPathRegExp = new RegExp('^(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+)(?:\\.(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+))*$|^$');
+export const partnerWorkspaceConnectionCreateResponseConnectorOneFiltersItemValuesMax = 20;
+
+export const partnerWorkspaceConnectionCreateResponseConnectorOneFiltersMax = 10;
+
+export const partnerWorkspaceConnectionCreateResponseConnectorOneItemsPathsItemMax = 200;
+
+
+export const partnerWorkspaceConnectionCreateResponseConnectorOneItemsPathsItemRegExp = new RegExp('^(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+)(?:\\.(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+))*$|^$');
+export const partnerWorkspaceConnectionCreateResponseConnectorOneItemsPathsMax = 5;
+
+export const partnerWorkspaceConnectionCreateResponseConnectorOneListPathDefault = `/products`;
+export const partnerWorkspaceConnectionCreateResponseConnectorOneListPathMax = 500;
+
+export const partnerWorkspaceConnectionCreateResponseConnectorOneListingUrlTemplateOneMax = 500;
+
+export const partnerWorkspaceConnectionCreateResponseConnectorOneMaxPagesDefault = 1000;
+export const partnerWorkspaceConnectionCreateResponseConnectorOneMaxPagesMax = 1000;
+
+export const partnerWorkspaceConnectionCreateResponseConnectorOneMaxResponseBytesDefault = 2000000;
+export const partnerWorkspaceConnectionCreateResponseConnectorOneMaxResponseBytesMin = 1024;
+export const partnerWorkspaceConnectionCreateResponseConnectorOneMaxResponseBytesMax = 5000000;
+
+export const partnerWorkspaceConnectionCreateResponseConnectorOnePaginationHasMorePathOneMax = 200;
+
+
+export const partnerWorkspaceConnectionCreateResponseConnectorOnePaginationHasMorePathOneRegExp = new RegExp('^(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+)(?:\\.(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+))*$|^$');
+export const partnerWorkspaceConnectionCreateResponseConnectorOnePaginationModeDefault = `cursor`;
+export const partnerWorkspaceConnectionCreateResponseConnectorOnePaginationNextPathDefault = `nextCursor`;
+export const partnerWorkspaceConnectionCreateResponseConnectorOnePaginationNextPathMax = 200;
+
+
+export const partnerWorkspaceConnectionCreateResponseConnectorOnePaginationNextPathRegExp = new RegExp('^(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+)(?:\\.(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+))*$|^$');
+export const partnerWorkspaceConnectionCreateResponseConnectorOnePaginationPageSizeDefault = 10;
+export const partnerWorkspaceConnectionCreateResponseConnectorOnePaginationPageSizeMax = 100;
+
+export const partnerWorkspaceConnectionCreateResponseConnectorOnePaginationParameterOneMax = 100;
+
+
+export const partnerWorkspaceConnectionCreateResponseConnectorOnePaginationParameterOneRegExp = new RegExp('^[A-Za-z][A-Za-z0-9_-]*$');
+export const partnerWorkspaceConnectionCreateResponseConnectorOnePaginationParameterDefault = `cursor`;
+export const partnerWorkspaceConnectionCreateResponseConnectorOnePaginationSizeParameterOneMax = 100;
+
+
+export const partnerWorkspaceConnectionCreateResponseConnectorOnePaginationSizeParameterOneRegExp = new RegExp('^[A-Za-z][A-Za-z0-9_-]*$');
+export const partnerWorkspaceConnectionCreateResponseConnectorOnePaginationSizeParameterDefault = `limit`;
+export const partnerWorkspaceConnectionCreateResponseConnectorOnePaginationStartDefault = 1;
+export const partnerWorkspaceConnectionCreateResponseConnectorOnePaginationStartMin = 0;
+export const partnerWorkspaceConnectionCreateResponseConnectorOnePaginationStartMax = 1000000;
+
+export const partnerWorkspaceConnectionCreateResponseConnectorOnePaginationTotalPathOneMax = 200;
+
+
+export const partnerWorkspaceConnectionCreateResponseConnectorOnePaginationTotalPathOneRegExp = new RegExp('^(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+)(?:\\.(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+))*$|^$');
+export const partnerWorkspaceConnectionCreateResponseConnectorOnePlatformHostsMax = 5;
+
+export const partnerWorkspaceConnectionCreateResponseConnectorOneRequestsPerMinuteDefault = 60;
+export const partnerWorkspaceConnectionCreateResponseConnectorOneRequestsPerMinuteMax = 600;
+
+export const partnerWorkspaceConnectionCreateResponseConnectorOneTimeoutSecondsDefault = 15;
+export const partnerWorkspaceConnectionCreateResponseConnectorOneTimeoutSecondsMax = 30;
+
+export const partnerWorkspaceConnectionCreateResponseConnectorOneVersionDefault = 1;
+export const partnerWorkspaceConnectionCreateResponsePartnershipTypeDefault = `launch_platform`;
+
+export const PartnerWorkspaceConnectionCreateResponse = zod.object({
+  "account_id": zod.uuid(),
+  "account_name": zod.string(),
+  "ai_enabled": zod.boolean(),
+  "api_url": zod.string(),
+  "approval_mode": zod.union([zod.enum(['qualified', 'trusted']),zod.null()]).optional(),
+  "auth_mode": zod.enum(['none', 'bearer', 'api_key']),
+  "checking": zod.int(),
+  "commercial_approved": zod.int().default(partnerWorkspaceConnectionCreateResponseCommercialApprovedDefault),
+  "connector": zod.union([zod.object({
+  "attribution": zod.string().max(partnerWorkspaceConnectionCreateResponseConnectorOneAttributionMax).default(partnerWorkspaceConnectionCreateResponseConnectorOneAttributionDefault),
+  "auth": zod.object({
+  "header": zod.string().min(1).max(partnerWorkspaceConnectionCreateResponseConnectorOneAuthHeaderMax).regex(partnerWorkspaceConnectionCreateResponseConnectorOneAuthHeaderRegExp).default(partnerWorkspaceConnectionCreateResponseConnectorOneAuthHeaderDefault),
+  "mode": zod.enum(['none', 'bearer', 'api_key']).default(partnerWorkspaceConnectionCreateResponseConnectorOneAuthModeDefault),
+  "secret_ref": zod.string().regex(partnerWorkspaceConnectionCreateResponseConnectorOneAuthSecretRefRegExp).default(partnerWorkspaceConnectionCreateResponseConnectorOneAuthSecretRefDefault),
+  "source": zod.enum(['environment', 'connection']).default(partnerWorkspaceConnectionCreateResponseConnectorOneAuthSourceDefault)
+}).optional(),
+  "base_url": zod.string(),
+  "detail_path": zod.union([zod.string().max(partnerWorkspaceConnectionCreateResponseConnectorOneDetailPathOneMax),zod.null()]).optional(),
+  "detail_root": zod.string().max(partnerWorkspaceConnectionCreateResponseConnectorOneDetailRootMax).regex(partnerWorkspaceConnectionCreateResponseConnectorOneDetailRootRegExp).default(partnerWorkspaceConnectionCreateResponseConnectorOneDetailRootDefault),
+  "fields": zod.object({
+  "description": zod.array(zod.string().max(partnerWorkspaceConnectionCreateResponseConnectorOneFieldsDescriptionItemMax).regex(partnerWorkspaceConnectionCreateResponseConnectorOneFieldsDescriptionItemRegExp)).min(1).max(partnerWorkspaceConnectionCreateResponseConnectorOneFieldsDescriptionMax).optional(),
+  "external_id": zod.array(zod.string().max(partnerWorkspaceConnectionCreateResponseConnectorOneFieldsExternalIdItemMax).regex(partnerWorkspaceConnectionCreateResponseConnectorOneFieldsExternalIdItemRegExp)).min(1).max(partnerWorkspaceConnectionCreateResponseConnectorOneFieldsExternalIdMax).optional(),
+  "listing_url": zod.array(zod.string().max(partnerWorkspaceConnectionCreateResponseConnectorOneFieldsListingUrlItemMax).regex(partnerWorkspaceConnectionCreateResponseConnectorOneFieldsListingUrlItemRegExp)).min(1).max(partnerWorkspaceConnectionCreateResponseConnectorOneFieldsListingUrlMax).optional(),
+  "name": zod.array(zod.string().max(partnerWorkspaceConnectionCreateResponseConnectorOneFieldsNameItemMax).regex(partnerWorkspaceConnectionCreateResponseConnectorOneFieldsNameItemRegExp)).min(1).max(partnerWorkspaceConnectionCreateResponseConnectorOneFieldsNameMax).optional(),
+  "pricing": zod.array(zod.string().max(partnerWorkspaceConnectionCreateResponseConnectorOneFieldsPricingItemMax).regex(partnerWorkspaceConnectionCreateResponseConnectorOneFieldsPricingItemRegExp)).min(1).max(partnerWorkspaceConnectionCreateResponseConnectorOneFieldsPricingMax).optional(),
+  "product_url": zod.array(zod.string().max(partnerWorkspaceConnectionCreateResponseConnectorOneFieldsProductUrlItemMax).regex(partnerWorkspaceConnectionCreateResponseConnectorOneFieldsProductUrlItemRegExp)).min(1).max(partnerWorkspaceConnectionCreateResponseConnectorOneFieldsProductUrlMax).optional()
+}).optional(),
+  "filters": zod.array(zod.object({
+  "include_missing": zod.boolean().default(partnerWorkspaceConnectionCreateResponseConnectorOneFiltersItemIncludeMissingDefault),
+  "path": zod.string().max(partnerWorkspaceConnectionCreateResponseConnectorOneFiltersItemPathMax).regex(partnerWorkspaceConnectionCreateResponseConnectorOneFiltersItemPathRegExp),
+  "values": zod.array(zod.string()).min(1).max(partnerWorkspaceConnectionCreateResponseConnectorOneFiltersItemValuesMax)
+})).max(partnerWorkspaceConnectionCreateResponseConnectorOneFiltersMax).optional(),
+  "items_paths": zod.array(zod.string().max(partnerWorkspaceConnectionCreateResponseConnectorOneItemsPathsItemMax).regex(partnerWorkspaceConnectionCreateResponseConnectorOneItemsPathsItemRegExp)).min(1).max(partnerWorkspaceConnectionCreateResponseConnectorOneItemsPathsMax).optional(),
+  "list_path": zod.string().min(1).max(partnerWorkspaceConnectionCreateResponseConnectorOneListPathMax).default(partnerWorkspaceConnectionCreateResponseConnectorOneListPathDefault),
+  "listing_url_template": zod.union([zod.string().max(partnerWorkspaceConnectionCreateResponseConnectorOneListingUrlTemplateOneMax),zod.null()]).optional(),
+  "max_pages": zod.int().min(1).max(partnerWorkspaceConnectionCreateResponseConnectorOneMaxPagesMax).default(partnerWorkspaceConnectionCreateResponseConnectorOneMaxPagesDefault),
+  "max_response_bytes": zod.int().min(partnerWorkspaceConnectionCreateResponseConnectorOneMaxResponseBytesMin).max(partnerWorkspaceConnectionCreateResponseConnectorOneMaxResponseBytesMax).default(partnerWorkspaceConnectionCreateResponseConnectorOneMaxResponseBytesDefault),
+  "pagination": zod.object({
+  "has_more_path": zod.union([zod.string().max(partnerWorkspaceConnectionCreateResponseConnectorOnePaginationHasMorePathOneMax).regex(partnerWorkspaceConnectionCreateResponseConnectorOnePaginationHasMorePathOneRegExp),zod.null()]).optional(),
+  "mode": zod.enum(['none', 'cursor', 'page', 'offset', 'next_url']).default(partnerWorkspaceConnectionCreateResponseConnectorOnePaginationModeDefault),
+  "next_path": zod.string().max(partnerWorkspaceConnectionCreateResponseConnectorOnePaginationNextPathMax).regex(partnerWorkspaceConnectionCreateResponseConnectorOnePaginationNextPathRegExp).default(partnerWorkspaceConnectionCreateResponseConnectorOnePaginationNextPathDefault),
+  "page_size": zod.int().min(1).max(partnerWorkspaceConnectionCreateResponseConnectorOnePaginationPageSizeMax).default(partnerWorkspaceConnectionCreateResponseConnectorOnePaginationPageSizeDefault),
+  "parameter": zod.union([zod.string().min(1).max(partnerWorkspaceConnectionCreateResponseConnectorOnePaginationParameterOneMax).regex(partnerWorkspaceConnectionCreateResponseConnectorOnePaginationParameterOneRegExp),zod.null()]).default(partnerWorkspaceConnectionCreateResponseConnectorOnePaginationParameterDefault),
+  "size_parameter": zod.union([zod.string().min(1).max(partnerWorkspaceConnectionCreateResponseConnectorOnePaginationSizeParameterOneMax).regex(partnerWorkspaceConnectionCreateResponseConnectorOnePaginationSizeParameterOneRegExp),zod.null()]).default(partnerWorkspaceConnectionCreateResponseConnectorOnePaginationSizeParameterDefault),
+  "start": zod.int().min(partnerWorkspaceConnectionCreateResponseConnectorOnePaginationStartMin).max(partnerWorkspaceConnectionCreateResponseConnectorOnePaginationStartMax).default(partnerWorkspaceConnectionCreateResponseConnectorOnePaginationStartDefault),
+  "total_path": zod.union([zod.string().max(partnerWorkspaceConnectionCreateResponseConnectorOnePaginationTotalPathOneMax).regex(partnerWorkspaceConnectionCreateResponseConnectorOnePaginationTotalPathOneRegExp),zod.null()]).optional()
+}).optional(),
+  "parameters": zod.looseObject({
+
+}).optional(),
+  "platform_hosts": zod.array(zod.string()).max(partnerWorkspaceConnectionCreateResponseConnectorOnePlatformHostsMax).optional(),
+  "requests_per_minute": zod.int().min(1).max(partnerWorkspaceConnectionCreateResponseConnectorOneRequestsPerMinuteMax).default(partnerWorkspaceConnectionCreateResponseConnectorOneRequestsPerMinuteDefault),
+  "timeout_seconds": zod.int().min(1).max(partnerWorkspaceConnectionCreateResponseConnectorOneTimeoutSecondsMax).default(partnerWorkspaceConnectionCreateResponseConnectorOneTimeoutSecondsDefault),
+  "version": zod.literal(1).default(partnerWorkspaceConnectionCreateResponseConnectorOneVersionDefault).meta({ title: 'Version' })
+}),zod.null()]).optional(),
+  "connector_editable": zod.boolean(),
+  "credential_configured": zod.boolean(),
+  "credential_header": zod.string(),
+  "credentials_available": zod.boolean(),
+  "credentials_managed": zod.boolean(),
+  "enabled": zod.boolean(),
+  "error": zod.union([zod.string(),zod.null()]),
+  "excluded": zod.int(),
+  "last_sync_at": zod.union([zod.iso.datetime({"offset":true}),zod.null()]),
+  "name": zod.string(),
+  "needs_attention": zod.int(),
+  "next_sync_at": zod.union([zod.iso.datetime({"offset":true}),zod.null()]),
+  "partnership_type": zod.literal("launch_platform").default(partnerWorkspaceConnectionCreateResponsePartnershipTypeDefault).meta({ title: 'Partnership Type' }),
+  "products": zod.int(),
+  "provider": zod.string(),
+  "qualified": zod.int(),
+  "revision": zod.int(),
+  "state": zod.enum(['disconnected', 'idle', 'syncing', 'error']),
+  "sync_interval_minutes": zod.int()
+})
+
+
+/**
+ * @summary Get Connection
+ */
+export const partnerWorkspaceConnectionGetResponseCommercialApprovedDefault = 0;
+export const partnerWorkspaceConnectionGetResponseConnectorOneAttributionDefault = ``;
+export const partnerWorkspaceConnectionGetResponseConnectorOneAttributionMax = 300;
+
+export const partnerWorkspaceConnectionGetResponseConnectorOneAuthHeaderDefault = `X-API-Key`;
+export const partnerWorkspaceConnectionGetResponseConnectorOneAuthHeaderMax = 100;
+
+
+export const partnerWorkspaceConnectionGetResponseConnectorOneAuthHeaderRegExp = new RegExp('^[A-Za-z][A-Za-z0-9_-]*$');
+export const partnerWorkspaceConnectionGetResponseConnectorOneAuthModeDefault = `none`;
+export const partnerWorkspaceConnectionGetResponseConnectorOneAuthSecretRefDefault = ``;
+export const partnerWorkspaceConnectionGetResponseConnectorOneAuthSecretRefRegExp = new RegExp('^$|^DEVFEED_PARTNER_SECRET_[A-Z0-9_]{1,80}$');
+export const partnerWorkspaceConnectionGetResponseConnectorOneAuthSourceDefault = `environment`;
+export const partnerWorkspaceConnectionGetResponseConnectorOneDetailPathOneMax = 500;
+
+export const partnerWorkspaceConnectionGetResponseConnectorOneDetailRootDefault = ``;
+export const partnerWorkspaceConnectionGetResponseConnectorOneDetailRootMax = 200;
+
+
+export const partnerWorkspaceConnectionGetResponseConnectorOneDetailRootRegExp = new RegExp('^(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+)(?:\\.(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+))*$|^$');
+export const partnerWorkspaceConnectionGetResponseConnectorOneFieldsDescriptionItemMax = 200;
+
+
+export const partnerWorkspaceConnectionGetResponseConnectorOneFieldsDescriptionItemRegExp = new RegExp('^(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+)(?:\\.(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+))*$|^$');
+export const partnerWorkspaceConnectionGetResponseConnectorOneFieldsDescriptionMax = 5;
+
+export const partnerWorkspaceConnectionGetResponseConnectorOneFieldsExternalIdItemMax = 200;
+
+
+export const partnerWorkspaceConnectionGetResponseConnectorOneFieldsExternalIdItemRegExp = new RegExp('^(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+)(?:\\.(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+))*$|^$');
+export const partnerWorkspaceConnectionGetResponseConnectorOneFieldsExternalIdMax = 5;
+
+export const partnerWorkspaceConnectionGetResponseConnectorOneFieldsListingUrlItemMax = 200;
+
+
+export const partnerWorkspaceConnectionGetResponseConnectorOneFieldsListingUrlItemRegExp = new RegExp('^(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+)(?:\\.(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+))*$|^$');
+export const partnerWorkspaceConnectionGetResponseConnectorOneFieldsListingUrlMax = 5;
+
+export const partnerWorkspaceConnectionGetResponseConnectorOneFieldsNameItemMax = 200;
+
+
+export const partnerWorkspaceConnectionGetResponseConnectorOneFieldsNameItemRegExp = new RegExp('^(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+)(?:\\.(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+))*$|^$');
+export const partnerWorkspaceConnectionGetResponseConnectorOneFieldsNameMax = 5;
+
+export const partnerWorkspaceConnectionGetResponseConnectorOneFieldsPricingItemMax = 200;
+
+
+export const partnerWorkspaceConnectionGetResponseConnectorOneFieldsPricingItemRegExp = new RegExp('^(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+)(?:\\.(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+))*$|^$');
+export const partnerWorkspaceConnectionGetResponseConnectorOneFieldsPricingMax = 5;
+
+export const partnerWorkspaceConnectionGetResponseConnectorOneFieldsProductUrlItemMax = 200;
+
+
+export const partnerWorkspaceConnectionGetResponseConnectorOneFieldsProductUrlItemRegExp = new RegExp('^(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+)(?:\\.(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+))*$|^$');
+export const partnerWorkspaceConnectionGetResponseConnectorOneFieldsProductUrlMax = 5;
+
+export const partnerWorkspaceConnectionGetResponseConnectorOneFiltersItemIncludeMissingDefault = true;
+export const partnerWorkspaceConnectionGetResponseConnectorOneFiltersItemPathMax = 200;
+
+
+export const partnerWorkspaceConnectionGetResponseConnectorOneFiltersItemPathRegExp = new RegExp('^(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+)(?:\\.(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+))*$|^$');
+export const partnerWorkspaceConnectionGetResponseConnectorOneFiltersItemValuesMax = 20;
+
+export const partnerWorkspaceConnectionGetResponseConnectorOneFiltersMax = 10;
+
+export const partnerWorkspaceConnectionGetResponseConnectorOneItemsPathsItemMax = 200;
+
+
+export const partnerWorkspaceConnectionGetResponseConnectorOneItemsPathsItemRegExp = new RegExp('^(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+)(?:\\.(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+))*$|^$');
+export const partnerWorkspaceConnectionGetResponseConnectorOneItemsPathsMax = 5;
+
+export const partnerWorkspaceConnectionGetResponseConnectorOneListPathDefault = `/products`;
+export const partnerWorkspaceConnectionGetResponseConnectorOneListPathMax = 500;
+
+export const partnerWorkspaceConnectionGetResponseConnectorOneListingUrlTemplateOneMax = 500;
+
+export const partnerWorkspaceConnectionGetResponseConnectorOneMaxPagesDefault = 1000;
+export const partnerWorkspaceConnectionGetResponseConnectorOneMaxPagesMax = 1000;
+
+export const partnerWorkspaceConnectionGetResponseConnectorOneMaxResponseBytesDefault = 2000000;
+export const partnerWorkspaceConnectionGetResponseConnectorOneMaxResponseBytesMin = 1024;
+export const partnerWorkspaceConnectionGetResponseConnectorOneMaxResponseBytesMax = 5000000;
+
+export const partnerWorkspaceConnectionGetResponseConnectorOnePaginationHasMorePathOneMax = 200;
+
+
+export const partnerWorkspaceConnectionGetResponseConnectorOnePaginationHasMorePathOneRegExp = new RegExp('^(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+)(?:\\.(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+))*$|^$');
+export const partnerWorkspaceConnectionGetResponseConnectorOnePaginationModeDefault = `cursor`;
+export const partnerWorkspaceConnectionGetResponseConnectorOnePaginationNextPathDefault = `nextCursor`;
+export const partnerWorkspaceConnectionGetResponseConnectorOnePaginationNextPathMax = 200;
+
+
+export const partnerWorkspaceConnectionGetResponseConnectorOnePaginationNextPathRegExp = new RegExp('^(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+)(?:\\.(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+))*$|^$');
+export const partnerWorkspaceConnectionGetResponseConnectorOnePaginationPageSizeDefault = 10;
+export const partnerWorkspaceConnectionGetResponseConnectorOnePaginationPageSizeMax = 100;
+
+export const partnerWorkspaceConnectionGetResponseConnectorOnePaginationParameterOneMax = 100;
+
+
+export const partnerWorkspaceConnectionGetResponseConnectorOnePaginationParameterOneRegExp = new RegExp('^[A-Za-z][A-Za-z0-9_-]*$');
+export const partnerWorkspaceConnectionGetResponseConnectorOnePaginationParameterDefault = `cursor`;
+export const partnerWorkspaceConnectionGetResponseConnectorOnePaginationSizeParameterOneMax = 100;
+
+
+export const partnerWorkspaceConnectionGetResponseConnectorOnePaginationSizeParameterOneRegExp = new RegExp('^[A-Za-z][A-Za-z0-9_-]*$');
+export const partnerWorkspaceConnectionGetResponseConnectorOnePaginationSizeParameterDefault = `limit`;
+export const partnerWorkspaceConnectionGetResponseConnectorOnePaginationStartDefault = 1;
+export const partnerWorkspaceConnectionGetResponseConnectorOnePaginationStartMin = 0;
+export const partnerWorkspaceConnectionGetResponseConnectorOnePaginationStartMax = 1000000;
+
+export const partnerWorkspaceConnectionGetResponseConnectorOnePaginationTotalPathOneMax = 200;
+
+
+export const partnerWorkspaceConnectionGetResponseConnectorOnePaginationTotalPathOneRegExp = new RegExp('^(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+)(?:\\.(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+))*$|^$');
+export const partnerWorkspaceConnectionGetResponseConnectorOnePlatformHostsMax = 5;
+
+export const partnerWorkspaceConnectionGetResponseConnectorOneRequestsPerMinuteDefault = 60;
+export const partnerWorkspaceConnectionGetResponseConnectorOneRequestsPerMinuteMax = 600;
+
+export const partnerWorkspaceConnectionGetResponseConnectorOneTimeoutSecondsDefault = 15;
+export const partnerWorkspaceConnectionGetResponseConnectorOneTimeoutSecondsMax = 30;
+
+export const partnerWorkspaceConnectionGetResponseConnectorOneVersionDefault = 1;
+export const partnerWorkspaceConnectionGetResponsePartnershipTypeDefault = `launch_platform`;
+
+export const PartnerWorkspaceConnectionGetResponse = zod.object({
+  "account_id": zod.uuid(),
+  "account_name": zod.string(),
+  "ai_enabled": zod.boolean(),
+  "api_url": zod.string(),
+  "approval_mode": zod.union([zod.enum(['qualified', 'trusted']),zod.null()]).optional(),
+  "auth_mode": zod.enum(['none', 'bearer', 'api_key']),
+  "checking": zod.int(),
+  "commercial_approved": zod.int().default(partnerWorkspaceConnectionGetResponseCommercialApprovedDefault),
+  "connector": zod.union([zod.object({
+  "attribution": zod.string().max(partnerWorkspaceConnectionGetResponseConnectorOneAttributionMax).default(partnerWorkspaceConnectionGetResponseConnectorOneAttributionDefault),
+  "auth": zod.object({
+  "header": zod.string().min(1).max(partnerWorkspaceConnectionGetResponseConnectorOneAuthHeaderMax).regex(partnerWorkspaceConnectionGetResponseConnectorOneAuthHeaderRegExp).default(partnerWorkspaceConnectionGetResponseConnectorOneAuthHeaderDefault),
+  "mode": zod.enum(['none', 'bearer', 'api_key']).default(partnerWorkspaceConnectionGetResponseConnectorOneAuthModeDefault),
+  "secret_ref": zod.string().regex(partnerWorkspaceConnectionGetResponseConnectorOneAuthSecretRefRegExp).default(partnerWorkspaceConnectionGetResponseConnectorOneAuthSecretRefDefault),
+  "source": zod.enum(['environment', 'connection']).default(partnerWorkspaceConnectionGetResponseConnectorOneAuthSourceDefault)
+}).optional(),
+  "base_url": zod.string(),
+  "detail_path": zod.union([zod.string().max(partnerWorkspaceConnectionGetResponseConnectorOneDetailPathOneMax),zod.null()]).optional(),
+  "detail_root": zod.string().max(partnerWorkspaceConnectionGetResponseConnectorOneDetailRootMax).regex(partnerWorkspaceConnectionGetResponseConnectorOneDetailRootRegExp).default(partnerWorkspaceConnectionGetResponseConnectorOneDetailRootDefault),
+  "fields": zod.object({
+  "description": zod.array(zod.string().max(partnerWorkspaceConnectionGetResponseConnectorOneFieldsDescriptionItemMax).regex(partnerWorkspaceConnectionGetResponseConnectorOneFieldsDescriptionItemRegExp)).min(1).max(partnerWorkspaceConnectionGetResponseConnectorOneFieldsDescriptionMax).optional(),
+  "external_id": zod.array(zod.string().max(partnerWorkspaceConnectionGetResponseConnectorOneFieldsExternalIdItemMax).regex(partnerWorkspaceConnectionGetResponseConnectorOneFieldsExternalIdItemRegExp)).min(1).max(partnerWorkspaceConnectionGetResponseConnectorOneFieldsExternalIdMax).optional(),
+  "listing_url": zod.array(zod.string().max(partnerWorkspaceConnectionGetResponseConnectorOneFieldsListingUrlItemMax).regex(partnerWorkspaceConnectionGetResponseConnectorOneFieldsListingUrlItemRegExp)).min(1).max(partnerWorkspaceConnectionGetResponseConnectorOneFieldsListingUrlMax).optional(),
+  "name": zod.array(zod.string().max(partnerWorkspaceConnectionGetResponseConnectorOneFieldsNameItemMax).regex(partnerWorkspaceConnectionGetResponseConnectorOneFieldsNameItemRegExp)).min(1).max(partnerWorkspaceConnectionGetResponseConnectorOneFieldsNameMax).optional(),
+  "pricing": zod.array(zod.string().max(partnerWorkspaceConnectionGetResponseConnectorOneFieldsPricingItemMax).regex(partnerWorkspaceConnectionGetResponseConnectorOneFieldsPricingItemRegExp)).min(1).max(partnerWorkspaceConnectionGetResponseConnectorOneFieldsPricingMax).optional(),
+  "product_url": zod.array(zod.string().max(partnerWorkspaceConnectionGetResponseConnectorOneFieldsProductUrlItemMax).regex(partnerWorkspaceConnectionGetResponseConnectorOneFieldsProductUrlItemRegExp)).min(1).max(partnerWorkspaceConnectionGetResponseConnectorOneFieldsProductUrlMax).optional()
+}).optional(),
+  "filters": zod.array(zod.object({
+  "include_missing": zod.boolean().default(partnerWorkspaceConnectionGetResponseConnectorOneFiltersItemIncludeMissingDefault),
+  "path": zod.string().max(partnerWorkspaceConnectionGetResponseConnectorOneFiltersItemPathMax).regex(partnerWorkspaceConnectionGetResponseConnectorOneFiltersItemPathRegExp),
+  "values": zod.array(zod.string()).min(1).max(partnerWorkspaceConnectionGetResponseConnectorOneFiltersItemValuesMax)
+})).max(partnerWorkspaceConnectionGetResponseConnectorOneFiltersMax).optional(),
+  "items_paths": zod.array(zod.string().max(partnerWorkspaceConnectionGetResponseConnectorOneItemsPathsItemMax).regex(partnerWorkspaceConnectionGetResponseConnectorOneItemsPathsItemRegExp)).min(1).max(partnerWorkspaceConnectionGetResponseConnectorOneItemsPathsMax).optional(),
+  "list_path": zod.string().min(1).max(partnerWorkspaceConnectionGetResponseConnectorOneListPathMax).default(partnerWorkspaceConnectionGetResponseConnectorOneListPathDefault),
+  "listing_url_template": zod.union([zod.string().max(partnerWorkspaceConnectionGetResponseConnectorOneListingUrlTemplateOneMax),zod.null()]).optional(),
+  "max_pages": zod.int().min(1).max(partnerWorkspaceConnectionGetResponseConnectorOneMaxPagesMax).default(partnerWorkspaceConnectionGetResponseConnectorOneMaxPagesDefault),
+  "max_response_bytes": zod.int().min(partnerWorkspaceConnectionGetResponseConnectorOneMaxResponseBytesMin).max(partnerWorkspaceConnectionGetResponseConnectorOneMaxResponseBytesMax).default(partnerWorkspaceConnectionGetResponseConnectorOneMaxResponseBytesDefault),
+  "pagination": zod.object({
+  "has_more_path": zod.union([zod.string().max(partnerWorkspaceConnectionGetResponseConnectorOnePaginationHasMorePathOneMax).regex(partnerWorkspaceConnectionGetResponseConnectorOnePaginationHasMorePathOneRegExp),zod.null()]).optional(),
+  "mode": zod.enum(['none', 'cursor', 'page', 'offset', 'next_url']).default(partnerWorkspaceConnectionGetResponseConnectorOnePaginationModeDefault),
+  "next_path": zod.string().max(partnerWorkspaceConnectionGetResponseConnectorOnePaginationNextPathMax).regex(partnerWorkspaceConnectionGetResponseConnectorOnePaginationNextPathRegExp).default(partnerWorkspaceConnectionGetResponseConnectorOnePaginationNextPathDefault),
+  "page_size": zod.int().min(1).max(partnerWorkspaceConnectionGetResponseConnectorOnePaginationPageSizeMax).default(partnerWorkspaceConnectionGetResponseConnectorOnePaginationPageSizeDefault),
+  "parameter": zod.union([zod.string().min(1).max(partnerWorkspaceConnectionGetResponseConnectorOnePaginationParameterOneMax).regex(partnerWorkspaceConnectionGetResponseConnectorOnePaginationParameterOneRegExp),zod.null()]).default(partnerWorkspaceConnectionGetResponseConnectorOnePaginationParameterDefault),
+  "size_parameter": zod.union([zod.string().min(1).max(partnerWorkspaceConnectionGetResponseConnectorOnePaginationSizeParameterOneMax).regex(partnerWorkspaceConnectionGetResponseConnectorOnePaginationSizeParameterOneRegExp),zod.null()]).default(partnerWorkspaceConnectionGetResponseConnectorOnePaginationSizeParameterDefault),
+  "start": zod.int().min(partnerWorkspaceConnectionGetResponseConnectorOnePaginationStartMin).max(partnerWorkspaceConnectionGetResponseConnectorOnePaginationStartMax).default(partnerWorkspaceConnectionGetResponseConnectorOnePaginationStartDefault),
+  "total_path": zod.union([zod.string().max(partnerWorkspaceConnectionGetResponseConnectorOnePaginationTotalPathOneMax).regex(partnerWorkspaceConnectionGetResponseConnectorOnePaginationTotalPathOneRegExp),zod.null()]).optional()
+}).optional(),
+  "parameters": zod.looseObject({
+
+}).optional(),
+  "platform_hosts": zod.array(zod.string()).max(partnerWorkspaceConnectionGetResponseConnectorOnePlatformHostsMax).optional(),
+  "requests_per_minute": zod.int().min(1).max(partnerWorkspaceConnectionGetResponseConnectorOneRequestsPerMinuteMax).default(partnerWorkspaceConnectionGetResponseConnectorOneRequestsPerMinuteDefault),
+  "timeout_seconds": zod.int().min(1).max(partnerWorkspaceConnectionGetResponseConnectorOneTimeoutSecondsMax).default(partnerWorkspaceConnectionGetResponseConnectorOneTimeoutSecondsDefault),
+  "version": zod.literal(1).default(partnerWorkspaceConnectionGetResponseConnectorOneVersionDefault).meta({ title: 'Version' })
+}),zod.null()]).optional(),
+  "connector_editable": zod.boolean(),
+  "credential_configured": zod.boolean(),
+  "credential_header": zod.string(),
+  "credentials_available": zod.boolean(),
+  "credentials_managed": zod.boolean(),
+  "enabled": zod.boolean(),
+  "error": zod.union([zod.string(),zod.null()]),
+  "excluded": zod.int(),
+  "last_sync_at": zod.union([zod.iso.datetime({"offset":true}),zod.null()]),
+  "name": zod.string(),
+  "needs_attention": zod.int(),
+  "next_sync_at": zod.union([zod.iso.datetime({"offset":true}),zod.null()]),
+  "partnership_type": zod.literal("launch_platform").default(partnerWorkspaceConnectionGetResponsePartnershipTypeDefault).meta({ title: 'Partnership Type' }),
+  "products": zod.int(),
+  "provider": zod.string(),
+  "qualified": zod.int(),
+  "revision": zod.int(),
+  "state": zod.enum(['disconnected', 'idle', 'syncing', 'error']),
+  "sync_interval_minutes": zod.int()
+})
+
+
+/**
+ * @summary Jobs
+ */
+export const PartnerWorkspaceConnectionJobsResponse = zod.object({
+  "items": zod.array(zod.object({
+  "attempts": zod.int(),
+  "created_at": zod.iso.datetime({"offset":true}),
+  "error": zod.union([zod.string(),zod.null()]),
+  "finished_at": zod.union([zod.iso.datetime({"offset":true}),zod.null()]),
+  "id": zod.uuid(),
+  "operation": zod.enum(['sync', 'sync_product', 'assess']),
+  "status": zod.string()
+})),
+  "limit": zod.int(),
+  "offset": zod.int(),
+  "total": zod.int()
+})
+
+
+/**
+ * @summary Dashboard
+ */
+export const partnerWorkspaceDashboardResponseAssetsItemAdFormatDefault = `feed`;
+export const partnerWorkspaceDashboardResponseAssetsItemAggregatedDefault = false;
+export const partnerWorkspaceDashboardResponseAssetsItemAutomaticDefault = false;
+export const partnerWorkspaceDashboardResponseAssetsItemNameMax = 200;
+
+export const partnerWorkspaceDashboardResponseAssetsItemStatusDefault = `draft`;
+
+export const PartnerWorkspaceDashboardResponse = zod.object({
+  "account_total": zod.int(),
+  "asset_total": zod.int(),
+  "assets": zod.array(zod.object({
+  "account_id": zod.uuid(),
+  "account_name": zod.string(),
+  "ad_format": zod.enum(['feed', 'homepage_sponsorship', 'sponsored_content', 'engagement']).default(partnerWorkspaceDashboardResponseAssetsItemAdFormatDefault),
+  "ad_formats": zod.array(zod.enum(['feed', 'homepage_sponsorship', 'sponsored_content', 'engagement'])).optional(),
+  "aggregated": zod.boolean().default(partnerWorkspaceDashboardResponseAssetsItemAggregatedDefault),
+  "article_id": zod.union([zod.uuid(),zod.null()]).optional(),
+  "automatic": zod.boolean().default(partnerWorkspaceDashboardResponseAssetsItemAutomaticDefault),
+  "campaign_id": zod.union([zod.uuid(),zod.null()]).optional(),
+  "clicks": zod.int(),
+  "ctr": zod.union([zod.number(),zod.null()]),
+  "id": zod.uuid(),
+  "impressions": zod.int(),
+  "kind": zod.enum(['product', 'ad']),
+  "measured_days": zod.int(),
+  "name": zod.string().min(1).max(partnerWorkspaceDashboardResponseAssetsItemNameMax),
+  "product_id": zod.union([zod.uuid(),zod.null()]).optional(),
+  "status": zod.enum(['draft', 'active', 'paused', 'ended']).default(partnerWorkspaceDashboardResponseAssetsItemStatusDefault)
+})),
+  "end": zod.iso.date(),
+  "format_totals": zod.array(zod.object({
+  "ad_format": zod.enum(['feed', 'homepage_sponsorship', 'sponsored_content', 'engagement']),
+  "clicks": zod.int(),
+  "ctr": zod.union([zod.number(),zod.null()]),
+  "impressions": zod.int(),
+  "measured_days": zod.int()
+})).optional(),
+  "last_updated_at": zod.union([zod.iso.datetime({"offset":true}),zod.null()]),
+  "start": zod.iso.date(),
+  "totals": zod.object({
+  "clicks": zod.int(),
+  "ctr": zod.union([zod.number(),zod.null()]),
+  "impressions": zod.int(),
+  "measured_days": zod.int()
+}),
+  "trend": zod.array(zod.object({
+  "clicks": zod.int(),
+  "day": zod.iso.date(),
+  "impressions": zod.int()
+}))
+})
+
+
+/**
+ * @summary Inventory
+ */
+export const partnerWorkspaceInventoryResponseItemsItemCommercialApprovedDefault = false;
+
+export const PartnerWorkspaceInventoryResponse = zod.object({
+  "items": zod.array(zod.object({
+  "account_id": zod.uuid(),
+  "account_name": zod.string(),
+  "ad_formats": zod.union([zod.array(zod.enum(['feed', 'homepage_sponsorship', 'sponsored_content', 'engagement'])),zod.null()]).optional(),
+  "approval_source": zod.union([zod.enum(['qualified', 'trusted']),zod.null()]).optional(),
+  "commercial_approved": zod.boolean().default(partnerWorkspaceInventoryResponseItemsItemCommercialApprovedDefault),
+  "excluded": zod.boolean(),
+  "globally_excluded": zod.boolean(),
+  "id": zod.uuid(),
+  "name": zod.string(),
+  "promotion_surfaces": zod.union([zod.array(zod.enum(['article', 'topic', 'feed'])),zod.null()]).optional(),
+  "status": zod.string(),
+  "technologies": zod.array(zod.string())
+})),
+  "limit": zod.int(),
+  "offset": zod.int(),
+  "total": zod.int()
 })

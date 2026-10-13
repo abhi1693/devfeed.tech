@@ -1,7 +1,7 @@
 "use client";
 
 /* eslint-disable @next/next/no-img-element -- Previews use managed product/article media. */
-import { useEffect, useRef, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import { Dialog } from "radix-ui";
 import { Select } from "./select";
 
@@ -155,18 +155,7 @@ export function parseProductPlacementPolicy(value: unknown): ProductPlacementPol
   return row;
 }
 
-export function ProductPlacementDialog({
-  name,
-  allowedFormats,
-  accountFormats = allowedFormats,
-  accountSurfaces = placementSurfaces.map((surface) => surface.value),
-  destination,
-  loadPolicy,
-  savePolicy,
-  loadPreview,
-  onSaved,
-  disabled,
-}: {
+type ProductPlacementEditorProps = {
   name: string;
   allowedFormats: AdFormat[];
   accountFormats?: AdFormat[];
@@ -179,20 +168,78 @@ export function ProductPlacementDialog({
   ) => Promise<ProductPlacementPolicy>;
   loadPreview?: (signal: AbortSignal) => Promise<CreativePreviewProduct | null>;
   onSaved?: () => void;
-  disabled?: boolean;
-}) {
+};
+
+export function ProductPlacementDialog(
+  props: ProductPlacementEditorProps & { disabled?: boolean },
+) {
   const [open, setOpen] = useState(false);
+  return (
+    <Dialog.Root open={open} onOpenChange={setOpen}>
+      <Dialog.Trigger asChild>
+        <button
+          type="button"
+          disabled={props.disabled}
+          aria-label={`Edit placements for ${props.name}`}
+          className="rounded-md border px-3 py-1.5 text-xs hover:bg-muted disabled:opacity-50"
+        >
+          Placements
+        </button>
+      </Dialog.Trigger>
+      <Dialog.Portal>
+        <Dialog.Overlay className="fixed inset-0 z-50 bg-black/45" />
+        <Dialog.Content className="fixed left-1/2 top-1/2 z-50 max-h-[85dvh] w-[calc(100%-2rem)] max-w-xl -translate-x-1/2 -translate-y-1/2 overflow-y-auto rounded-xl border bg-background p-5 shadow-xl">
+          <Dialog.Title className="text-lg font-semibold">{props.name} placements</Dialog.Title>
+          <Dialog.Description className="mt-2 text-sm text-muted-foreground">
+            Inherit account defaults or restrict this product’s formats and locations. Restrictions
+            also apply to dated campaigns and cannot enable an account-disabled automatic format.
+          </Dialog.Description>
+          <ProductPlacementEditor
+            {...props}
+            onCancel={() => setOpen(false)}
+            cancelLabel="Close placements"
+            onSaved={() => {
+              setOpen(false);
+              props.onSaved?.();
+            }}
+          />
+        </Dialog.Content>
+      </Dialog.Portal>
+    </Dialog.Root>
+  );
+}
+
+export function ProductPlacementEditor({
+  allowedFormats,
+  accountFormats = allowedFormats,
+  accountSurfaces = placementSurfaces.map((surface) => surface.value),
+  destination,
+  loadPolicy,
+  savePolicy,
+  loadPreview,
+  onSaved,
+  onCancel,
+  cancelLabel = "Cancel",
+  previewInline = false,
+}: ProductPlacementEditorProps & {
+  onCancel: () => void;
+  cancelLabel?: string;
+  previewInline?: boolean;
+}) {
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [policy, setPolicy] = useState<ProductPlacementPolicy | null>(null);
   const [excluded, setExcluded] = useState(false);
-  const [previewOpen, setPreviewOpen] = useState(false);
+  const [previewOpen, setPreviewOpen] = useState(previewInline);
   const [formatMode, setFormatMode] = useState("inherit");
   const [surfaceMode, setSurfaceMode] = useState("inherit");
   const [formats, setFormats] = useState<AdFormat[]>([]);
   const [surfaces, setSurfaces] = useState<PlacementSurface[]>([]);
   const request = useRef<AbortController | null>(null);
+  // The caller keys this editor by account and product. Parent refreshes must
+  // preserve an open draft even when they create new callback/format arrays.
+  const initial = useRef({ loadPolicy, allowedFormats, previewInline });
   useEffect(() => () => request.current?.abort(), []);
   const draft: ProductPlacementPolicy = {
     excluded,
@@ -215,22 +262,22 @@ export function ProductPlacementDialog({
           accountSurfaces.includes(value) &&
           (draft.promotion_surfaces === null || draft.promotion_surfaces.includes(value)),
       );
-  async function load() {
+  const load = useCallback(async () => {
     request.current?.abort();
     const controller = new AbortController();
     request.current = controller;
     setLoading(true);
     setError("");
     setPolicy(null);
-    setPreviewOpen(false);
+    setPreviewOpen(initial.current.previewInline);
     try {
-      const next = await loadPolicy(controller.signal);
+      const next = await initial.current.loadPolicy(controller.signal);
       if (controller.signal.aborted) return;
       setPolicy(next);
       setExcluded(next.excluded);
       setFormatMode(next.ad_formats === null ? "inherit" : "custom");
       setSurfaceMode(next.promotion_surfaces === null ? "inherit" : "custom");
-      setFormats(next.ad_formats ?? [...allowedFormats]);
+      setFormats(next.ad_formats ?? [...initial.current.allowedFormats]);
       setSurfaces(next.promotion_surfaces ?? placementSurfaces.map((surface) => surface.value));
     } catch (reason) {
       if (!controller.signal.aborted)
@@ -238,7 +285,11 @@ export function ProductPlacementDialog({
     } finally {
       if (!controller.signal.aborted) setLoading(false);
     }
-  }
+  }, []);
+  useEffect(() => {
+    void load();
+  }, [load]);
+
   async function save(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (saving || !policy) return;
@@ -253,7 +304,7 @@ export function ProductPlacementDialog({
           throw new Error(
             "Could not confirm saved product placements. Review your changes and retry.",
           );
-        setOpen(false);
+        setPolicy(saved);
         onSaved?.();
       }
     } catch (reason) {
@@ -264,237 +315,229 @@ export function ProductPlacementDialog({
     }
   }
   return (
-    <Dialog.Root
-      open={open}
-      onOpenChange={(next) => {
-        setOpen(next);
-        if (next) void load();
-        else {
-          request.current?.abort();
-          setSaving(false);
-        }
-      }}
-    >
-      <Dialog.Trigger asChild>
-        <button
-          type="button"
-          disabled={disabled}
-          aria-label={`Edit placements for ${name}`}
-          className="rounded-md border px-3 py-1.5 text-xs hover:bg-muted disabled:opacity-50"
-        >
-          Placements
-        </button>
-      </Dialog.Trigger>
-      <Dialog.Portal>
-        <Dialog.Overlay className="fixed inset-0 z-50 bg-black/45" />
-        <Dialog.Content className="fixed left-1/2 top-1/2 z-50 max-h-[85dvh] w-[calc(100%-2rem)] max-w-xl -translate-x-1/2 -translate-y-1/2 overflow-y-auto rounded-xl border bg-background p-5 shadow-xl">
-          <Dialog.Title className="text-lg font-semibold">{name} placements</Dialog.Title>
-          <Dialog.Description className="mt-2 text-sm text-muted-foreground">
-            Inherit account defaults or restrict this product’s formats and locations. Restrictions
-            also apply to dated campaigns and cannot enable an account-disabled automatic format.
-          </Dialog.Description>
-          {loading ? (
-            <p role="status" className="py-6 text-sm">
-              Loading product placements…
-            </p>
-          ) : (
-            policy && (
-              <form
-                aria-label="Product placement settings"
-                onSubmit={save}
-                aria-busy={saving}
-                className="mt-5 space-y-5"
-              >
-                <Select
-                  label="Product availability"
-                  required
-                  value={excluded ? "excluded" : "allowed"}
-                  disabled={saving}
-                  onChange={(value) => setExcluded(value === "excluded")}
-                  options={[
-                    { value: "allowed", label: "Allow this product" },
-                    { value: "excluded", label: "Exclude this product" },
-                  ]}
-                />
-                {excluded && (
-                  <p className="text-sm text-muted-foreground">
-                    {policy.excluded
-                      ? "This product is excluded."
-                      : "This product will be excluded after saving."}{" "}
-                    Exclusion blocks placements for this product, including dated product campaigns.
-                    Format and location restrictions are retained.
-                  </p>
-                )}
-                <Select
-                  label="Product formats"
-                  required
-                  value={formatMode}
-                  disabled={saving}
-                  onChange={setFormatMode}
-                  options={[
-                    { value: "inherit", label: "Inherit account formats" },
-                    { value: "custom", label: "Choose product formats" },
-                  ]}
-                />
-                {formatMode === "custom" && (
-                  <fieldset disabled={saving} className="space-y-2">
-                    <legend className="mb-2 text-sm font-medium">Allowed product formats</legend>
-                    <div className="grid gap-3 sm:grid-cols-2">
-                      {adFormats.map((format) => (
-                        <label key={format.value} className="flex items-center gap-2 text-sm">
-                          <input
-                            type="checkbox"
-                            checked={formats.includes(format.value)}
-                            disabled={!allowedFormats.includes(format.value)}
-                            onChange={(event) =>
-                              setFormats((current) =>
-                                event.target.checked
-                                  ? [...current, format.value]
-                                  : current.filter((item) => item !== format.value),
-                              )
-                            }
-                          />
-                          {format.label}
-                        </label>
-                      ))}
-                    </div>
-                    <p className="text-xs text-muted-foreground">
-                      No formats selected blocks this product in every format. Sponsored content
-                      requires an approved-article campaign.
-                    </p>
-                  </fieldset>
-                )}
-                <Select
-                  label="Product placements"
-                  required
-                  value={surfaceMode}
-                  disabled={saving}
-                  onChange={setSurfaceMode}
-                  options={[
-                    { value: "inherit", label: "Inherit account placements" },
-                    { value: "custom", label: "Choose product placements" },
-                  ]}
-                />
-                {surfaceMode === "custom" && (
-                  <fieldset disabled={saving} className="space-y-2">
-                    <legend className="mb-2 text-sm font-medium">Allowed product placements</legend>
-                    <div className="flex flex-wrap gap-3">
-                      {placementSurfaces.map((surface) => (
-                        <label key={surface.value} className="flex items-center gap-2 text-sm">
-                          <input
-                            type="checkbox"
-                            checked={surfaces.includes(surface.value)}
-                            onChange={(event) =>
-                              setSurfaces((current) =>
-                                event.target.checked
-                                  ? [...current, surface.value]
-                                  : current.filter((item) => item !== surface.value),
-                              )
-                            }
-                          />
-                          {surface.label}
-                        </label>
-                      ))}
-                    </div>
-                    <p className="text-xs text-muted-foreground">
-                      No placements selected blocks this product everywhere.
-                    </p>
-                  </fieldset>
-                )}
-                <div className="space-y-2 rounded-lg bg-muted p-3 text-sm">
-                  <p role="status" className="font-medium">
-                    {dirty ? "Unsaved changes" : "Saved product settings"}
-                  </p>
-                  <p>
-                    Allowed automatic formats after saving:{" "}
-                    {effectiveFormats.map(adFormatLabel).join(", ") || "None"}.
-                  </p>
-                  <p>
-                    Allowed locations after saving:{" "}
-                    {effectiveSurfaces.map((surface) => surface.label).join(", ") || "None"}.
-                  </p>
-                  <p className="text-xs text-muted-foreground">
-                    Inherited settings follow future account changes. Product restrictions also
-                    limit dated campaigns, which choose their own formats. Allowing a product does
-                    not guarantee delivery: account status, automatic inclusion, approval,
-                    ownership, targeting, and available capacity still apply. Each format also
-                    supports specific locations.
-                  </p>
-                </div>
-                {loadPreview && (
-                  <div className="space-y-3 border-t pt-4">
-                    <button
-                      type="button"
-                      className="text-sm underline"
-                      aria-expanded={previewOpen}
-                      onClick={() => setPreviewOpen((current) => !current)}
-                    >
-                      {previewOpen ? "Hide product preview" : "Preview this product"}
-                    </button>
-                    {previewOpen && (
-                      <ProductPlacementPreview
-                        allowedFormats={allowedFormats}
-                        initialFormat={
-                          effectiveFormats[0] ??
-                          automaticAdFormats.find((format) => formats.includes(format)) ??
-                          "feed"
-                        }
-                        destination={destination}
-                        load={loadPreview}
-                      />
-                    )}
-                  </div>
-                )}
-                {error && (
-                  <p role="alert" className="text-sm text-destructive">
-                    {error}
-                  </p>
-                )}
-                <div className="flex flex-wrap justify-end gap-3">
-                  <Dialog.Close asChild>
-                    <button
-                      type="button"
-                      className="rounded-md border px-3 py-2 text-sm"
-                      disabled={saving}
-                    >
-                      Close placements
-                    </button>
-                  </Dialog.Close>
-                  <button
-                    type="submit"
-                    disabled={saving}
-                    className="rounded-md bg-primary px-3 py-2 text-sm text-primary-foreground disabled:opacity-50"
-                  >
-                    {saving ? "Saving…" : "Save product placements"}
-                  </button>
-                </div>
-              </form>
-            )
-          )}
-          {!policy && !loading && (
-            <div className="mt-5 space-y-3">
-              {error && (
-                <p role="alert" className="text-sm text-destructive">
-                  {error}
+    <div>
+      {loading ? (
+        <p role="status" className="py-6 text-sm">
+          Loading product placements…
+        </p>
+      ) : (
+        policy && (
+          <form
+            aria-label="Product placement settings"
+            onSubmit={save}
+            aria-busy={saving}
+            className={
+              previewInline ? "mt-5 grid items-start gap-6 lg:grid-cols-2" : "mt-5 space-y-5"
+            }
+          >
+            <div className="space-y-5">
+              <Select
+                label="Product availability"
+                required
+                value={excluded ? "excluded" : "allowed"}
+                disabled={saving}
+                onChange={(value) => setExcluded(value === "excluded")}
+                options={[
+                  { value: "allowed", label: "Allow this product" },
+                  { value: "excluded", label: "Exclude this product" },
+                ]}
+              />
+              {excluded && (
+                <p className="text-sm text-muted-foreground">
+                  {policy.excluded
+                    ? "This product is excluded."
+                    : "This product will be excluded after saving."}{" "}
+                  Exclusion blocks placements for this product, including dated product campaigns.
+                  Format and location restrictions are retained.
                 </p>
               )}
-              <button type="button" className="text-sm underline" onClick={() => void load()}>
-                Retry product placements
-              </button>
-              <Dialog.Close asChild>
-                <button type="button" className="ml-4 text-sm underline">
-                  Close placements
-                </button>
-              </Dialog.Close>
+              <Select
+                label="Product formats"
+                required
+                value={formatMode}
+                disabled={saving}
+                onChange={setFormatMode}
+                options={[
+                  { value: "inherit", label: "Inherit account formats" },
+                  { value: "custom", label: "Choose product formats" },
+                ]}
+              />
+              {formatMode === "custom" && (
+                <fieldset disabled={saving} className="space-y-2">
+                  <legend className="mb-2 text-sm font-medium">Allowed product formats</legend>
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    {adFormats.map((format) => (
+                      <label key={format.value} className="flex items-center gap-2 text-sm">
+                        <input
+                          type="checkbox"
+                          checked={formats.includes(format.value)}
+                          disabled={!allowedFormats.includes(format.value)}
+                          onChange={(event) =>
+                            setFormats((current) =>
+                              event.target.checked
+                                ? [...current, format.value]
+                                : current.filter((item) => item !== format.value),
+                            )
+                          }
+                        />
+                        {format.label}
+                      </label>
+                    ))}
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    No formats selected blocks this product in every format. Sponsored content
+                    requires an approved-article campaign.
+                  </p>
+                </fieldset>
+              )}
+              <Select
+                label="Product placements"
+                required
+                value={surfaceMode}
+                disabled={saving}
+                onChange={setSurfaceMode}
+                options={[
+                  { value: "inherit", label: "Inherit account placements" },
+                  { value: "custom", label: "Choose product placements" },
+                ]}
+              />
+              {surfaceMode === "custom" && (
+                <fieldset disabled={saving} className="space-y-2">
+                  <legend className="mb-2 text-sm font-medium">Allowed product placements</legend>
+                  <div className="flex flex-wrap gap-3">
+                    {placementSurfaces.map((surface) => (
+                      <label key={surface.value} className="flex items-center gap-2 text-sm">
+                        <input
+                          type="checkbox"
+                          checked={surfaces.includes(surface.value)}
+                          onChange={(event) =>
+                            setSurfaces((current) =>
+                              event.target.checked
+                                ? [...current, surface.value]
+                                : current.filter((item) => item !== surface.value),
+                            )
+                          }
+                        />
+                        {surface.label}
+                      </label>
+                    ))}
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    No placements selected blocks this product everywhere.
+                  </p>
+                </fieldset>
+              )}
+              <div className="space-y-2 rounded-lg bg-muted p-3 text-sm">
+                <p role="status" className="font-medium">
+                  {dirty ? "Unsaved changes" : "Saved product settings"}
+                </p>
+                <p>
+                  Allowed automatic formats after saving:{" "}
+                  {effectiveFormats.map(adFormatLabel).join(", ") || "None"}.
+                </p>
+                <p>
+                  Allowed locations after saving:{" "}
+                  {effectiveSurfaces.map((surface) => surface.label).join(", ") || "None"}.
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  Inherited settings follow future account changes. Product restrictions also limit
+                  dated campaigns, which choose their own formats. Allowing a product does not
+                  guarantee delivery: account status, automatic inclusion, approval, ownership,
+                  targeting, and available capacity still apply. Each format also supports specific
+                  locations.
+                </p>
+              </div>
             </div>
+            {loadPreview && (
+              <div
+                className={
+                  previewInline ? "space-y-3 lg:sticky lg:top-6" : "space-y-3 border-t pt-4"
+                }
+              >
+                {previewInline ? (
+                  <h3 className="text-sm font-semibold">Creative preview</h3>
+                ) : (
+                  <button
+                    type="button"
+                    className="text-sm underline"
+                    aria-expanded={previewOpen}
+                    onClick={() => setPreviewOpen((current) => !current)}
+                  >
+                    {previewOpen ? "Hide product preview" : "Preview this product"}
+                  </button>
+                )}
+                {previewOpen && (
+                  <ProductPlacementPreview
+                    allowedFormats={allowedFormats}
+                    initialFormat={
+                      effectiveFormats[0] ??
+                      automaticAdFormats.find((format) => formats.includes(format)) ??
+                      "feed"
+                    }
+                    destination={destination}
+                    load={loadPreview}
+                  />
+                )}
+              </div>
+            )}
+            {error && (
+              <p
+                role="alert"
+                className={
+                  previewInline
+                    ? "text-sm text-destructive lg:col-span-2"
+                    : "text-sm text-destructive"
+                }
+              >
+                {error}
+              </p>
+            )}
+            <div
+              className={
+                previewInline
+                  ? "flex flex-wrap justify-end gap-3 border-t pt-5 lg:col-span-2"
+                  : "flex flex-wrap justify-end gap-3"
+              }
+            >
+              <button
+                type="button"
+                className="rounded-md border px-3 py-2 text-sm"
+                disabled={saving}
+                onClick={onCancel}
+              >
+                {cancelLabel}
+              </button>
+              <button
+                type="submit"
+                disabled={saving}
+                className="rounded-md bg-primary px-3 py-2 text-sm text-primary-foreground disabled:opacity-50"
+              >
+                {saving ? "Saving…" : "Save product placements"}
+              </button>
+            </div>
+          </form>
+        )
+      )}
+      {!policy && !loading && (
+        <div className="mt-5 space-y-3">
+          {error && (
+            <p role="alert" className="text-sm text-destructive">
+              {error}
+            </p>
           )}
-        </Dialog.Content>
-      </Dialog.Portal>
-    </Dialog.Root>
+          <button type="button" className="text-sm underline" onClick={() => void load()}>
+            Retry product placements
+          </button>
+          <button type="button" className="ml-4 text-sm underline" onClick={onCancel}>
+            {cancelLabel}
+          </button>
+        </div>
+      )}
+    </div>
   );
 }
 
-function ProductPlacementPreview({
+export function ProductPlacementPreview({
   allowedFormats,
   initialFormat,
   destination,

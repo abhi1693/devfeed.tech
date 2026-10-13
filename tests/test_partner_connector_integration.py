@@ -42,7 +42,7 @@ def test_custom_definition_runs_existing_catalog_and_ai_pipeline(
     monkeypatch.setattr(
         connectors,
         "api_json",
-        lambda provider, config, url: (
+        lambda provider, config, url, **kwargs: (
             requests.append((provider, url)) or {"data": {"products": [RECORD]}}
         ),
     )
@@ -89,7 +89,9 @@ def test_explicit_null_pagination_survives_previews_persistence_and_import(
     monkeypatch.setattr(
         connectors,
         "api_json",
-        lambda provider, parsed, url: requests.append(url) or {"data": {"products": [RECORD]}},
+        lambda provider, parsed, url, **kwargs: (
+            requests.append(url) or {"data": {"products": [RECORD]}}
+        ),
     )
     created = create(admin_client, connector=config)
     assert created["connector"]["pagination"]["parameter"] is None
@@ -153,7 +155,7 @@ def test_preview_is_bounded_read_only_and_sanitizes_errors(admin_client, databas
     calls = []
     config = {**CONFIG, "detail_path": "/products/{id}"}
 
-    def api_json(provider, config, url):
+    def api_json(provider, config, url, **kwargs):
         calls.append(url)
         if "/v2/products" in url:
             return {"data": {"products": [{**RECORD, "id": str(index)} for index in range(10)]}}
@@ -173,7 +175,9 @@ def test_preview_is_bounded_read_only_and_sanitizes_errors(admin_client, databas
         for model in (PartnerConnection, PartnerPipelineJob, PartnerProduct):
             assert session.scalar(select(func.count()).select_from(model)) == 0
     monkeypatch.setattr(
-        connectors, "api_json", lambda *_: (_ for _ in ()).throw(ValueError("private secret"))
+        connectors,
+        "api_json",
+        lambda *_, **kwargs: (_ for _ in ()).throw(ValueError("private secret")),
     )
     response = admin_client.post(
         ROOT + "/connector-preview", json={"provider": "platform", "connector": config}
@@ -208,7 +212,9 @@ def test_page_cap_does_not_complete_partial_import(admin_client, database, monke
     config = {**CONFIG, "max_pages": 1, "pagination": {"mode": "cursor", "next_path": "next"}}
     create(admin_client, connector=config)
     monkeypatch.setattr(
-        connectors, "api_json", lambda *_: {"data": {"products": [RECORD]}, "next": "another-page"}
+        connectors,
+        "api_json",
+        lambda *_, **kwargs: {"data": {"products": [RECORD]}, "next": "another-page"},
     )
     with database() as session:
         identifier = session.scalar(select(PartnerPipelineJob.id))
@@ -231,7 +237,7 @@ def test_raw_response_preview_does_not_require_known_mapping(admin_client, datab
     monkeypatch.setattr(
         connectors,
         "api_json",
-        lambda *_: {"unknown": {"products": [RECORD]}, "access_token": "sensitive"},
+        lambda *_, **kwargs: {"unknown": {"products": [RECORD]}, "access_token": "sensitive"},
     )
     response = admin_client.post(
         ROOT + "/connector-response", json={"provider": "platform", "connector": CONFIG}

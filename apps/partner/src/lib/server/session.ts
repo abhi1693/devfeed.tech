@@ -7,6 +7,8 @@ import type { Account, Identity, AccountPage } from "../types";
 export async function portalSession(
   accountOffset = 0,
   accountId?: string,
+  accountSearch = "",
+  accountLimit = 25,
 ): Promise<{ identity: Identity; accounts: AccountPage; requestedAccount?: Account }> {
   const jar = await cookies();
   const session = jar.get("__Host-devfeed_partner_session") ?? jar.get("devfeed_partner_session");
@@ -26,7 +28,9 @@ export async function portalSession(
   };
   const identity = await fetchPrivate<Identity>("auth/me");
   const [accounts, requestedAccount] = await Promise.all([
-    fetchPrivate<AccountPage>(`accounts?offset=${accountOffset}`),
+    fetchPrivate<AccountPage>(
+      `accounts?offset=${accountOffset}&limit=${accountLimit}&q=${encodeURIComponent(accountSearch)}`,
+    ),
     accountId ? fetchPrivate<Account>(`accounts/${accountId}`, true) : undefined,
   ]);
   return { identity, accounts, requestedAccount };

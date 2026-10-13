@@ -4,10 +4,10 @@ import { resourceTrail } from "@/lib/routes";
 import Link from "next/link";
 import { useCallback, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Button } from "@/components/atoms/button";
-import { Input } from "@/components/atoms/input";
+import { Button } from "@devfeed/ui/button";
+import { Input } from "@devfeed/ui/input";
 import { adminRouteTitle } from "@/lib/page-titles";
-import { PageHeading } from "@/components/molecules/page-heading";
+import { ResourceHeading } from "@devfeed/ui/resource-layout";
 import { RequestState } from "@/components/molecules/request-state";
 import { useAdmin } from "@/components/molecules/admin-session";
 import { adminTopicEnrichmentPreview, adminTopicEnrichmentSubmit } from "@/lib/api/generated/admin";
@@ -53,7 +53,7 @@ export function TopicEnrichment({ id }: { id: string }) {
   }
   return (
     <section className="space-y-6">
-      <PageHeading
+      <ResourceHeading
         title="Enrich topic keywords"
         browserTitle={adminRouteTitle({ view: "enrich", id }, result.data?.topic.name)}
         trail={[

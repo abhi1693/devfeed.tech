@@ -305,3 +305,37 @@ it("retains product edits on a failed save and supports retry without widening t
   await userEvent.click(screen.getByRole("button", { name: "Save product placements" }));
   await waitFor(() => expect(save).toHaveBeenCalledTimes(2));
 });
+
+it("preserves an unsaved product draft when an admin parent refreshes callbacks", async () => {
+  const load = vi
+    .fn()
+    .mockResolvedValue({ excluded: false, ad_formats: null, promotion_surfaces: null });
+  const save = vi.fn(async (next: ProductPlacementPolicy) => next);
+  const view = render(
+    <ProductPlacementDialog
+      name={product.name}
+      allowedFormats={allowed}
+      loadPolicy={(signal) => load(signal)}
+      savePolicy={save}
+    />,
+  );
+  await userEvent.click(
+    screen.getByRole("button", { name: `Edit placements for ${product.name}` }),
+  );
+  await screen.findByRole("combobox", { name: "Product availability" });
+  await userEvent.click(screen.getByRole("combobox", { name: "Product availability" }));
+  await userEvent.click(screen.getByRole("option", { name: "Exclude this product" }));
+  view.rerender(
+    <ProductPlacementDialog
+      name={product.name}
+      allowedFormats={[...allowed]}
+      loadPolicy={(signal) => load(signal)}
+      savePolicy={save}
+    />,
+  );
+  expect(screen.getByRole("combobox", { name: "Product availability" }).textContent).toContain(
+    "Exclude this product",
+  );
+  expect(screen.getByText("Unsaved changes")).toBeTruthy();
+  expect(load).toHaveBeenCalledOnce();
+});

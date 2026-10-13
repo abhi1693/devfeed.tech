@@ -43,13 +43,15 @@ type PartnerRequestOptions<T> = Omit<RequestInit, "signal"> & {
   parse: (value: unknown) => T;
   errorMessage: string;
   invalidMessage?: string;
+  unavailableOnNotFound?: boolean;
+  statusMessages?: Partial<Record<number, string>>;
 };
 
-export function usePartnerAccountRequest({
+export function usePartnerRequest({
   accountId,
   onUnavailable,
 }: {
-  accountId: string;
+  accountId?: string;
   onUnavailable: () => void;
 }) {
   const router = useRouter();
@@ -65,7 +67,15 @@ export function usePartnerAccountRequest({
 
   return useCallback(
     async <T>(endpoint: string, options: PartnerRequestOptions<T>): Promise<T> => {
-      const { parse, errorMessage, invalidMessage = errorMessage, signal, ...init } = options;
+      const {
+        parse,
+        errorMessage,
+        invalidMessage = errorMessage,
+        unavailableOnNotFound = Boolean(scope.accountId),
+        statusMessages,
+        signal,
+        ...init
+      } = options;
       const controller = scope.begin();
       if (!controller) throw cancelled();
       const abort = () => controller.abort();
@@ -78,7 +88,8 @@ export function usePartnerAccountRequest({
         checkCurrent();
         let response: Response;
         try {
-          response = await fetch(`/api/v1/partner/accounts/${scope.accountId}/${endpoint}`, {
+          const prefix = scope.accountId ? `accounts/${encodeURIComponent(scope.accountId)}/` : "";
+          response = await fetch(`/api/v1/partner/${prefix}${endpoint}`, {
             credentials: "same-origin",
             cache: "no-store",
             ...init,
@@ -89,11 +100,11 @@ export function usePartnerAccountRequest({
           throw new Error(errorMessage);
         }
         checkCurrent();
-        const write = init.method?.toUpperCase() === "PUT";
+        const write = !["GET", "HEAD"].includes(init.method?.toUpperCase() ?? "GET");
         if (
           response.status === 401 ||
           (!write && response.status === 403) ||
-          response.status === 404
+          (response.status === 404 && unavailableOnNotFound)
         ) {
           scope.cancel();
           if (response.status !== 404) access.current.router.replace("/login");
@@ -102,13 +113,14 @@ export function usePartnerAccountRequest({
         }
         if (!response.ok)
           throw new Error(
-            write && response.status === 403
-              ? "Could not update this account. Refresh the page and try again."
-              : errorMessage,
+            statusMessages?.[response.status] ??
+              (write && response.status === 403
+                ? "Could not update this account. Refresh the page and try again."
+                : errorMessage),
           );
         let value: unknown;
         try {
-          value = await response.json();
+          value = response.status === 204 ? null : await response.json();
         } catch {
           checkCurrent();
           throw new Error(invalidMessage);

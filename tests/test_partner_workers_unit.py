@@ -111,6 +111,7 @@ def test_evaluation_dispatch_closes_queue_even_on_delivery_failure(monkeypatch, 
     [
         "missing",
         "disabled",
+        "archived",
         "parent-failed",
         "generation",
         "exhausted",
@@ -120,6 +121,7 @@ def test_evaluation_dispatch_closes_queue_even_on_delivery_failure(monkeypatch, 
         "database",
         "lost",
         "paused",
+        "archived-after-read",
     ],
 )
 def test_product_sync_preserves_generation_and_fences_results(monkeypatch, mode):
@@ -134,6 +136,7 @@ def test_product_sync_preserves_generation_and_fences_results(monkeypatch, mode)
     )
     connection = NS(
         enabled=mode != "disabled",
+        archived_at=utcnow() if mode == "archived" else None,
         sync_revision=2 if mode == "generation" else 1,
         provider="nick-launches",
         connector={},
@@ -159,12 +162,23 @@ def test_product_sync_preserves_generation_and_fences_results(monkeypatch, mode)
             job.lease_token = uuid.uuid4()
         if mode == "paused":
             connection.enabled = False
+        if mode == "archived-after-read":
+            connection.archived_at = utcnow()
         return NS(provider="other" if mode == "identity" else job.provider, external_id="checker")
 
     products.process_product_sync(job.id, factory, product_reader=read)
     if mode == "missing":
         assert job.attempts == 0
-    elif mode in {"disabled", "parent-failed", "generation", "exhausted", "identity", "paused"}:
+    elif mode in {
+        "disabled",
+        "archived",
+        "parent-failed",
+        "generation",
+        "exhausted",
+        "identity",
+        "paused",
+        "archived-after-read",
+    }:
         assert job.status == "failed" and job.lease_token is None
     elif mode == "success":
         assert job.status == "succeeded" and job.product_id == canonical.id

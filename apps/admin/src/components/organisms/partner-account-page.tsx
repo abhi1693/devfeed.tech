@@ -3,10 +3,10 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { Pencil, Plus } from "lucide-react";
-import { Button } from "@/components/atoms/button";
-import { PageHeading } from "@/components/molecules/page-heading";
+import { Button } from "@devfeed/ui/button";
+import { ResourceHeading } from "@devfeed/ui/resource-layout";
 import { RequestState } from "@/components/molecules/request-state";
-import { InfoPanel, DataValue } from "@/components/molecules/info-panel";
+import { ResourcePanel, DataValue } from "@devfeed/ui/resource-layout";
 import { audienceValue } from "@devfeed/ui/audience-targeting";
 import { PartnerAudience } from "./partner-audience";
 import { adFormatLabel } from "@devfeed/ui/advertising-formats";
@@ -219,7 +219,7 @@ export function PartnerAccountPage({
   ];
   return (
     <section className={form ? "max-w-4xl space-y-6" : "space-y-6"}>
-      <PageHeading
+      <ResourceHeading
         title={title}
         trail={[
           ...accountsTrail,
@@ -235,7 +235,7 @@ export function PartnerAccountPage({
             </Link>
           </Button>
         )}
-      </PageHeading>
+      </ResourceHeading>
       <RequestState
         loading={!!id && !data && !error}
         error={error}
@@ -340,7 +340,7 @@ export function PartnerAccountPage({
             ) : (
               <div className="grid items-start gap-6 xl:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)]">
                 <div className="space-y-6">
-                  <InfoPanel
+                  <ResourcePanel
                     title="Partnership"
                     fields={[
                       { label: "Name", value: <DataValue value={data!.account.name} /> },
@@ -359,7 +359,7 @@ export function PartnerAccountPage({
                       { label: "Benefits", value: <DataValue value={data!.account.benefits} /> },
                     ]}
                   />
-                  <InfoPanel
+                  <ResourcePanel
                     title="Promotion defaults"
                     fields={[
                       {
@@ -420,14 +420,14 @@ export function PartnerAccountPage({
                       are preferred; sponsored feed placements can fill unmatched feeds. Article and
                       topic placements require a relevant match.
                     </p>
-                  </InfoPanel>
+                  </ResourcePanel>
                   <PartnerAudience
                     accountId={data!.account.id}
                     value={audienceValue(data!.account.audience)}
                     enabled={!!data!.account.advanced_targeting}
                   />
                 </div>
-                <InfoPanel
+                <ResourcePanel
                   title="Record information"
                   fields={[
                     { label: "ID", value: <DataValue value={id} /> },

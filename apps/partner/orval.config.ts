@@ -7,10 +7,22 @@ function isObject(value: unknown): value is Record<string, unknown> {
 
 const generatedDirectory = "./src/lib/api/generated";
 const responsePaths = new Set([
+  "/v1/partner/accounts",
+  "/v1/partner/dashboard",
+  "/v1/partner/inventory",
+  "/v1/partner/connections",
+  "/v1/partner/connections/{provider}",
+  "/v1/partner/connections/{provider}/jobs",
   "/v1/partner/accounts/{account_id}/preferences",
   "/v1/partner/accounts/{account_id}/destination-preview",
   "/v1/partner/accounts/{account_id}/creative-preview",
   "/v1/partner/accounts/{account_id}/audience-topics",
+  "/v1/partner/accounts/{account_id}/inventory",
+  "/v1/partner/accounts/{account_id}/dashboard",
+  "/v1/partner/accounts/{account_id}/connections",
+  "/v1/partner/accounts/{account_id}/connections/{provider}",
+  "/v1/partner/accounts/{account_id}/connections/{provider}/actions",
+  "/v1/partner/accounts/{account_id}/connections/{provider}/jobs",
 ]);
 
 export default defineConfig({

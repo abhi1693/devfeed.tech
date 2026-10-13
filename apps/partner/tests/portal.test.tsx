@@ -1,41 +1,105 @@
 // @vitest-environment jsdom
 import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { afterEach, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { Portal } from "../src/app/portal";
-import type { Dashboard } from "../src/lib/types";
+import type { WorkspaceDashboard } from "../src/lib/api/generated/models";
 import { partnerAccount, partnerIdentity } from "./partner-fixtures";
 
 const { router } = vi.hoisted(() => ({ router: { replace: vi.fn() } }));
 vi.mock("next/navigation", () => ({ useRouter: () => router }));
-
-const account = partnerAccount({
-  id: "alpha",
-  name: "Alpha",
-  tier: "gold",
-  benefits: ["Product placements"],
-  status: "active" as const,
-});
+const alpha = partnerAccount({ name: "Alpha" });
+const beta = partnerAccount({ id: "22222222-2222-4222-8222-222222222222", name: "Beta" });
 const identity = partnerIdentity();
-const dashboard: Dashboard = {
-  account,
+const asset = {
+  id: "33333333-3333-4333-8333-333333333333",
+  product_id: "44444444-4444-4444-8444-444444444444",
+  account_id: alpha.id,
+  account_name: alpha.name,
+  name: "API tool",
+  kind: "product" as const,
+  status: "active" as const,
+  measured_days: 1,
+  impressions: 100,
+  clicks: 5,
+  ctr: 5,
+};
+const dashboard: WorkspaceDashboard = {
+  account_total: 205,
   start: "2026-10-01",
   end: "2026-10-07",
-  totals: { impressions: 100, clicks: 5, ctr: 5, measured_days: 1 },
+  totals: { impressions: 3000, clicks: 126, ctr: 4.2, measured_days: 2 },
   assets: [],
   asset_total: 0,
   trend: [],
   last_updated_at: null,
 };
+function portal(props: Partial<React.ComponentProps<typeof Portal>> = {}) {
+  return render(
+    <Portal identity={identity} initialAccounts={{ items: [alpha], total: 205 }} {...props} />,
+  );
+}
+beforeEach(() => vi.clearAllMocks());
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
 });
 
-it("shows ledger format totals independently of one grouped product row", async () => {
+it("shows all authorized account totals without a selector or account-page fanout", async () => {
+  const fetcher = vi.fn().mockImplementation(() => Response.json(dashboard));
+  vi.stubGlobal("fetch", fetcher);
+  portal();
+  await screen.findByText("3,000");
+  expect(screen.getByText("4.20%")).toBeTruthy();
+  expect(screen.getByText("205")).toBeTruthy();
+  expect(screen.queryByRole("combobox", { name: "Partner account" })).toBeNull();
+  expect(screen.queryByRole("button", { name: "Save click destination" })).toBeNull();
+  expect(fetcher).toHaveBeenCalledOnce();
+  expect(fetcher).toHaveBeenCalledWith(
+    "/api/v1/partner/dashboard?days=30&limit=25&offset=0&sort=name&order=asc",
+    expect.anything(),
+  );
+  expect(window.location.pathname).toBe("/");
+  expect(new URLSearchParams(window.location.search).has("account_id")).toBe(false);
+  expect(screen.getByRole("link", { name: "Products" }).getAttribute("href")).toBe(
+    "/products?days=30&sort=name&order=asc",
+  );
+});
+
+it("shows account columns and distinct policy links for a product delivered by two accounts", async () => {
   vi.stubGlobal(
     "fetch",
-    vi.fn().mockResolvedValue(
+    vi.fn().mockImplementation(() =>
+      Response.json({
+        ...dashboard,
+        assets: [asset, { ...asset, account_id: beta.id, account_name: beta.name }],
+        asset_total: 2,
+      }),
+    ),
+  );
+  portal({ section: "performance" });
+  const table = await screen.findByRole("table", { name: "Product and ad results" });
+  const rows = within(table).getAllByRole("row").slice(1);
+  expect(rows).toHaveLength(2);
+  for (const [index, account] of [alpha, beta].entries()) {
+    const product = within(rows[index]).getByRole("link", { name: asset.name });
+    expect(
+      new URL(product.getAttribute("href")!, "https://partner.example").searchParams.get(
+        "account_id",
+      ),
+    ).toBe(account.id);
+    expect(within(rows[index]).getByRole("link", { name: account.name }).getAttribute("href")).toBe(
+      `/settings/${account.id}`,
+    );
+  }
+  expect(screen.queryByRole("button", { name: "Placements" })).toBeNull();
+  expect(screen.queryByRole("combobox", { name: "Partner account" })).toBeNull();
+});
+
+it("shows visual format totals independently of grouped product results", async () => {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn().mockImplementation(() =>
       Response.json({
         ...dashboard,
         format_totals: [
@@ -51,523 +115,251 @@ it("shows ledger format totals independently of one grouped product row", async 
       }),
     ),
   );
-  render(
-    <Portal
-      section="performance"
-      identity={identity}
-      initialAccounts={{ items: [account], total: 1 }}
-    />,
-  );
-  const breakdown = await screen.findByRole("region", { name: "Performance by format" });
-  expect(within(breakdown).getByText("Homepage sponsorship")).toBeTruthy();
-  expect(within(breakdown).getByText("20.00%")).toBeTruthy();
-  expect(within(breakdown).getAllByRole("row")).toHaveLength(3);
+  portal({ section: "performance" });
+  const formats = await screen.findByRole("region", { name: "Format comparison" });
+  expect(within(formats).getByText("Homepage sponsorship")).toBeTruthy();
+  expect(within(formats).getByText(/20.00% CTR/)).toBeTruthy();
+  expect(within(formats).getAllByRole("listitem")).toHaveLength(2);
 });
 
-it("shows every delivered format for a grouped product without adding a Type column", async () => {
-  vi.stubGlobal(
-    "fetch",
-    vi.fn().mockResolvedValue(
-      Response.json({
-        ...dashboard,
-        assets: [
-          {
-            id: "group-1",
-            name: "CronWatch",
-            kind: "ad",
-            status: "active",
-            product_id: null,
-            ad_formats: ["feed", "homepage_sponsorship", "engagement"],
-            impressions: 100,
-            clicks: 5,
-            ctr: 5,
-            measured_days: 1,
-          },
-        ],
-        asset_total: 1,
-      }),
-    ),
-  );
-  render(
-    <Portal
-      section="assets"
-      identity={identity}
-      initialAccounts={{ items: [account], total: 1 }}
-    />,
-  );
-  await screen.findByText("CronWatch");
-  expect(screen.getByText("Feed · Homepage sponsorship · Engagement")).toBeTruthy();
-  expect(screen.getAllByRole("row")).toHaveLength(2);
-  expect(screen.queryByRole("columnheader", { name: "Type" })).toBeNull();
-});
-
-it("shows the tier and benefits on overview without duplicated performance or a single-account selector", async () => {
-  vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json(dashboard)));
-  render(<Portal identity={identity} initialAccounts={{ items: [account], total: 1 }} />);
-  expect(await screen.findByText("Gold")).toBeTruthy();
-  expect(screen.queryByText("5.00%")).toBeNull();
-  expect(screen.queryByRole("heading", { name: "Performance" })).toBeNull();
-  expect(screen.queryByRole("combobox", { name: "Partner account" })).toBeNull();
-  expect(screen.queryByRole("combobox", { name: "Reporting period" })).toBeNull();
-  expect(screen.queryByText("Manage partnerships")).toBeNull();
-  expect(window.location.pathname).toBe("/alpha");
-  expect(new URLSearchParams(window.location.search).has("account")).toBe(false);
-});
-
-it("distinguishes unavailable measurements from measured zero", async () => {
-  const fetchMock = vi.fn().mockResolvedValue(
+it("distinguishes missing measurements from measured zero", async () => {
+  const fetcher = vi.fn().mockImplementation(() =>
     Response.json({
       ...dashboard,
       totals: { impressions: 0, clicks: 0, ctr: null, measured_days: 0 },
     }),
   );
-  vi.stubGlobal("fetch", fetchMock);
-  render(
-    <Portal
-      section="performance"
-      identity={identity}
-      initialAccounts={{ items: [account], total: 1 }}
-    />,
-  );
-  expect(await screen.findByText(/No delivery measurements/)).toBeTruthy();
-  fetchMock.mockResolvedValue(
+  vi.stubGlobal("fetch", fetcher);
+  portal({ section: "performance" });
+  await screen.findByText(/0 of 7 days have measurements/);
+  expect(within(screen.getByRole("region", { name: "Impressions" })).getByText("—")).toBeTruthy();
+  fetcher.mockImplementation(() =>
     Response.json({
       ...dashboard,
       totals: { impressions: 0, clicks: 0, ctr: null, measured_days: 1 },
     }),
   );
-  await userEvent.click(screen.getByText("Refresh"));
-  await waitFor(() => expect(screen.queryByText(/No delivery measurements/)).toBeNull());
-  expect(screen.getAllByText("0").length).toBe(2);
+  await userEvent.click(screen.getByRole("button", { name: "Refresh" }));
+  await screen.findByText(/1 of 7 days have measurements/);
+  expect(within(screen.getByRole("region", { name: "Impressions" })).getByText("0")).toBeTruthy();
 });
 
-it("changes account scope and period together with the reporting request", async () => {
-  const beta = { ...account, id: "beta", name: "Beta" };
-  const fetchMock = vi
+it("keeps an explicit account filter local to the report while global navigation remains unfiltered", async () => {
+  const fetcher = vi
     .fn()
-    .mockImplementation((url: string) =>
-      Promise.resolve(
-        Response.json({ ...dashboard, account: url.includes("beta") ? beta : account }),
+    .mockImplementation(() => Response.json({ ...dashboard, account_total: 1 }));
+  vi.stubGlobal("fetch", fetcher);
+  portal({ initialAccount: beta });
+  await screen.findByText("3,000");
+  expect(fetcher).toHaveBeenCalledWith(
+    `/api/v1/partner/dashboard?days=30&limit=25&offset=0&sort=name&order=asc&account_id=${beta.id}`,
+    expect.anything(),
+  );
+  expect(screen.getByText(/Filtered to Beta/)).toBeTruthy();
+  expect(screen.getByRole("link", { name: "Show all partner accounts" }).getAttribute("href")).toBe(
+    "/?days=30&sort=name&order=asc",
+  );
+  expect(
+    new URL(
+      screen.getByRole("link", { name: "View performance" }).getAttribute("href")!,
+      "https://partner.example",
+    ).searchParams.get("account_id"),
+  ).toBe(beta.id);
+  expect(screen.getByRole("link", { name: "Products" }).getAttribute("href")).not.toContain(
+    "account_id",
+  );
+});
+
+it("sorts account and product names ascending by default and metrics descending", async () => {
+  const fetcher = vi
+    .fn()
+    .mockImplementation(() => Response.json({ ...dashboard, assets: [asset], asset_total: 1 }));
+  vi.stubGlobal("fetch", fetcher);
+  portal({ section: "performance" });
+  await screen.findByText(asset.name);
+  for (const [field, label, expected] of [
+    ["account", "Partner account", "asc"],
+    ["impressions", "Impressions", "desc"],
+    ["clicks", "Clicks", "desc"],
+    ["ctr", "CTR", "desc"],
+    ["name", "Name", "asc"],
+  ]) {
+    const button = screen.getByRole("button", { name: `Sort by ${label}` });
+    await userEvent.click(button);
+    await waitFor(() =>
+      expect(fetcher).toHaveBeenLastCalledWith(
+        `/api/v1/partner/dashboard?days=30&limit=25&offset=0&sort=${field}&order=${expected}`,
+        expect.anything(),
       ),
     );
-  vi.stubGlobal("fetch", fetchMock);
-  render(
-    <Portal
-      section="performance"
-      identity={identity}
-      initialAccounts={{ items: [account, beta], total: 2 }}
-    />,
-  );
-  await screen.findByText("5.00%");
-  await userEvent.click(screen.getByRole("combobox", { name: "Partner account" }));
-  await userEvent.type(screen.getByPlaceholderText("Search partner account…"), "Beta");
-  await userEvent.click(screen.getByRole("option", { name: "Beta" }));
-  await userEvent.click(screen.getByRole("combobox", { name: "Reporting period" }));
-  await userEvent.click(screen.getByRole("option", { name: "Last 7 days" }));
-  await waitFor(() =>
-    expect(fetchMock).toHaveBeenCalledWith(
-      "/api/v1/partner/accounts/beta/dashboard?days=7&offset=0&sort=name&order=asc",
-      expect.anything(),
-    ),
-  );
-});
-
-it("explains role access without memberships", () => {
-  vi.stubGlobal("fetch", vi.fn());
-  render(<Portal identity={identity} initialAccounts={{ items: [], total: 0 }} />);
-  expect(screen.getByText(/no active partner membership/)).toBeTruthy();
-  expect(fetch).not.toHaveBeenCalled();
-});
-
-it("removes reporting data when a request loses membership", async () => {
-  vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(null, { status: 404 })));
-  render(<Portal identity={identity} initialAccounts={{ items: [account], total: 1 }} />);
-  expect(await screen.findByRole("alert")).toBeTruthy();
-  expect(screen.queryByText("Gold")).toBeNull();
-});
-
-it("keeps account selection when the account list is paginated", async () => {
-  vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json(dashboard)));
-  render(<Portal identity={identity} initialAccounts={{ items: [account], total: 101 }} />);
-  await screen.findByText("Gold");
-  expect(screen.getByRole("combobox", { name: "Partner account" })).toBeTruthy();
-});
-
-it("shows an authorized off-page account without changing the picker page or its reporting scope", async () => {
-  const bookmarked = {
-    ...account,
-    id: "bookmarked",
-    name: "Bookmarked partner",
-    benefits: ["Bookmarked benefits"],
-  };
-  const pickerPage = Array.from({ length: 100 }, (_, index) => ({
-    ...account,
-    id: `other-${index}`,
-    name: `Other partner ${index}`,
-  }));
-  const fetchMock = vi.fn().mockResolvedValue(Response.json({ ...dashboard, account: bookmarked }));
-  vi.stubGlobal("fetch", fetchMock);
-  render(
-    <Portal
-      identity={identity}
-      initialAccount={bookmarked}
-      initialAccounts={{ items: pickerPage, total: 205 }}
-    />,
-  );
-  await screen.findByText("Bookmarked benefits");
-  const picker = screen.getByRole("combobox", { name: "Partner account" });
-  expect(picker.textContent).toContain("Bookmarked partner");
-  expect(screen.getByText("1–100 of 205")).toBeTruthy();
-  await userEvent.click(picker);
-  expect(screen.getAllByRole("option")).toHaveLength(100);
-  expect(screen.queryByRole("option", { name: "Bookmarked partner" })).toBeNull();
-  expect(fetchMock).toHaveBeenCalledWith(
-    "/api/v1/partner/accounts/bookmarked/dashboard?days=30&offset=0&sort=name&order=asc",
-    expect.anything(),
-  );
-  expect(fetchMock.mock.calls.filter(([url]) => url.includes("/dashboard?"))).toHaveLength(1);
-  expect(window.location.pathname).toBe("/bookmarked");
-});
-
-it.each([401, 403])(
-  "returns to sign-in when reporting rejects the session (%s)",
-  async (status) => {
-    router.replace.mockClear();
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(null, { status })));
-    render(<Portal identity={identity} initialAccounts={{ items: [account], total: 1 }} />);
-    await waitFor(() => expect(router.replace).toHaveBeenCalledWith("/login"));
-    expect(screen.queryByText("Gold")).toBeNull();
-  },
-);
-
-it("preserves reporting while paging accounts and changes scope only after selecting another account", async () => {
-  const beta = { ...account, id: "beta", name: "Beta", benefits: ["Beta benefits"] };
-  const fetchMock = vi.fn().mockImplementation(async (url: string) => {
-    if (url.includes("accounts?offset=100")) return Response.json({ items: [beta], total: 101 });
-    if (url.includes("accounts?offset=0")) return Response.json({ items: [account], total: 101 });
-    return Response.json({ ...dashboard, account: url.includes("/beta/") ? beta : account });
-  });
-  vi.stubGlobal("fetch", fetchMock);
-  render(<Portal identity={identity} initialAccounts={{ items: [account], total: 101 }} />);
-  await screen.findByText("Product placements");
-  await userEvent.click(screen.getByRole("button", { name: "Next accounts" }));
-  await screen.findByText("101–101 of 101");
-  expect(screen.getByText("Product placements")).toBeTruthy();
-  expect(screen.queryByText("Beta benefits")).toBeNull();
-  expect(screen.getByRole("combobox", { name: "Partner account" }).textContent).toContain("Alpha");
-  expect(window.location.pathname).toBe("/alpha");
-  expect(fetchMock.mock.calls.some(([url]) => url.includes("/beta/dashboard"))).toBe(false);
-  await userEvent.click(screen.getByRole("combobox", { name: "Partner account" }));
-  await userEvent.click(screen.getByRole("option", { name: "Beta" }));
-  await screen.findByText("Beta benefits");
-  expect(screen.queryByText("Product placements")).toBeNull();
-  expect(window.location.pathname).toBe("/beta");
-  await userEvent.click(screen.getByRole("button", { name: "Previous accounts" }));
-  await screen.findByText("1–100 of 101");
-  expect(screen.getByText("Beta benefits")).toBeTruthy();
-  expect(screen.queryByText("Product placements")).toBeNull();
-  expect(screen.getByRole("combobox", { name: "Partner account" }).textContent).toContain("Beta");
-  expect(window.location.pathname).toBe("/beta");
-  await userEvent.click(screen.getByRole("combobox", { name: "Partner account" }));
-  await userEvent.click(screen.getByRole("option", { name: "Alpha" }));
-  await screen.findByText("Product placements");
-  expect(screen.queryByText("Beta benefits")).toBeNull();
-});
-
-it("keeps sign-out errors visible and retries with the session CSRF token", async () => {
-  router.replace.mockClear();
-  let rejected = true;
-  const fetchMock = vi.fn().mockImplementation(async (url: string) => {
-    if (url.endsWith("/logout")) return new Response(null, { status: rejected ? 503 : 204 });
-    return Response.json(dashboard);
-  });
-  vi.stubGlobal("fetch", fetchMock);
-  render(<Portal identity={identity} initialAccounts={{ items: [account], total: 1 }} />);
-  await screen.findByText("Gold");
-  await userEvent.click(screen.getByRole("button", { name: "User menu: Alice" }));
-  await userEvent.click(screen.getByRole("menuitem", { name: "Sign out" }));
-  await screen.findByText("Could not sign out. Please try again.");
-  expect(router.replace).not.toHaveBeenCalled();
-  rejected = false;
-  await userEvent.click(screen.getByRole("menuitem", { name: "Sign out" }));
-  await waitFor(() => expect(router.replace).toHaveBeenCalledWith("/login"));
-  expect(fetchMock).toHaveBeenCalledWith("/api/v1/partner/auth/logout", {
-    method: "POST",
-    headers: { "x-csrf-token": "csrf" },
-  });
-});
-
-it("renders daily reporting rows and measured asset metrics", async () => {
-  const data = {
-    ...dashboard,
-    trend: [{ day: "2026-10-01", impressions: 100, clicks: 5 }],
-    last_updated_at: "2026-10-01T00:00:00Z",
-    assets: [
-      {
-        id: "asset",
-        name: "API tool",
-        kind: "product",
-        status: "active",
-        measured_days: 1,
-        impressions: 100,
-        clicks: 5,
-        ctr: 5,
-      },
-    ],
-    asset_total: 1,
-  };
-  vi.stubGlobal(
-    "fetch",
-    vi.fn().mockImplementation(async () => Response.json(data)),
-  );
-  const view = render(
-    <Portal
-      section="performance"
-      identity={identity}
-      initialAccounts={{ items: [account], total: 1 }}
-    />,
-  );
-  await screen.findByText("2026-10-01");
-  expect(screen.getByText(/Last measurement update/)).toBeTruthy();
-  view.unmount();
-  render(
-    <Portal
-      section="assets"
-      identity={identity}
-      initialAccounts={{ items: [account], total: 1 }}
-    />,
-  );
-  await screen.findByText("API tool");
-  expect(screen.getByText("5.00%")).toBeTruthy();
-});
-
-const asset = {
-  id: "asset-1",
-  name: "API tool",
-  kind: "product" as const,
-  product_id: "product-1",
-  status: "active" as const,
-  measured_days: 1,
-  impressions: 100,
-  clicks: 5,
-  ctr: 5,
-};
-
-it("sorts all four reporting headers in both directions and removes the Type column", async () => {
-  const fetchMock = vi
-    .fn()
-    .mockImplementation(async () =>
-      Response.json({ ...dashboard, assets: [asset], asset_total: 1 }),
+    expect(document.activeElement).toBe(button);
+    await userEvent.click(button);
+    await waitFor(() =>
+      expect(fetcher).toHaveBeenLastCalledWith(
+        `/api/v1/partner/dashboard?days=30&limit=25&offset=0&sort=${field}&order=${expected === "asc" ? "desc" : "asc"}`,
+        expect.anything(),
+      ),
     );
-  vi.stubGlobal("fetch", fetchMock);
-  render(
-    <Portal
-      section="assets"
-      identity={identity}
-      initialAccounts={{ items: [account], total: 1 }}
-    />,
-  );
-  await screen.findByText(asset.name);
-  expect(screen.queryByRole("columnheader", { name: "Type" })).toBeNull();
-  expect(screen.getByRole("columnheader", { name: "Name" }).getAttribute("aria-sort")).toBe(
-    "ascending",
-  );
-  for (const [field, label] of [
-    ["name", "Name"],
-    ["impressions", "Impressions"],
-    ["clicks", "Clicks"],
-    ["ctr", "CTR"],
-  ]) {
-    for (const order of ["desc", "asc"]) {
-      await userEvent.click(screen.getByRole("button", { name: `Sort by ${label}` }));
-      await waitFor(() =>
-        expect(fetchMock).toHaveBeenLastCalledWith(
-          `/api/v1/partner/accounts/alpha/dashboard?days=30&offset=0&sort=${field}&order=${order}`,
-          expect.anything(),
-        ),
-      );
-      expect(screen.getByRole("columnheader", { name: label }).getAttribute("aria-sort")).toBe(
-        order === "asc" ? "ascending" : "descending",
-      );
-      expect(document.activeElement).toBe(screen.getByRole("button", { name: `Sort by ${label}` }));
-    }
   }
-  await userEvent.click(screen.getByRole("button", { name: "Sort by Name" }));
-  expect(screen.getByRole("columnheader", { name: "Name" }).getAttribute("aria-sort")).toBe(
-    "ascending",
-  );
 });
 
-it("restores sort and page scope, preserves it in navigation and resets pagination for a new sort", async () => {
-  const fetchMock = vi.fn().mockImplementation(async () =>
-    Response.json({
-      ...dashboard,
-      assets: [asset, { ...asset, id: "asset-2", name: "Another tool" }],
-      asset_total: 201,
-    }),
-  );
-  vi.stubGlobal("fetch", fetchMock);
-  render(
-    <Portal
-      section="assets"
-      identity={identity}
-      initialAccounts={{ items: [account], total: 1 }}
-      initialDays={7}
-      initialSort="ctr"
-      initialOrder="desc"
-      initialAssetOffset={100}
-    />,
-  );
+it("restores global pagination and resets it when sort or reporting period changes", async () => {
+  const fetcher = vi
+    .fn()
+    .mockImplementation(() => Response.json({ ...dashboard, assets: [asset], asset_total: 205 }));
+  vi.stubGlobal("fetch", fetcher);
+  portal({
+    section: "performance",
+    initialDays: 7,
+    initialSort: "ctr",
+    initialOrder: "desc",
+    initialAssetOffset: 25,
+  });
   await screen.findByText(asset.name);
-  expect(fetchMock).toHaveBeenLastCalledWith(
-    "/api/v1/partner/accounts/alpha/dashboard?days=7&offset=100&sort=ctr&order=desc",
+  expect(fetcher).toHaveBeenLastCalledWith(
+    "/api/v1/partner/dashboard?days=7&limit=25&offset=25&sort=ctr&order=desc",
     expect.anything(),
   );
-  expect(screen.getByRole("link", { name: "Performance" }).getAttribute("href")).toBe(
-    "/alpha/performance?days=7&sort=ctr&order=desc&asset_offset=100",
-  );
-  expect(new URLSearchParams(window.location.search).get("asset_offset")).toBe("100");
-  // The API owns global ordering; the frontend must preserve the returned page order.
-  expect(
-    within(screen.getByRole("table"))
-      .getAllByRole("row")
-      .slice(1)
-      .map((row) => row.querySelector("[data-asset-name]")?.textContent),
-  ).toEqual(["API tool", "Another tool"]);
+  expect(window.location.pathname).toBe("/performance");
+  expect(new URLSearchParams(window.location.search).get("asset_offset")).toBe("25");
   await userEvent.click(screen.getByRole("button", { name: "Sort by Impressions" }));
   await waitFor(() =>
-    expect(fetchMock).toHaveBeenLastCalledWith(
-      "/api/v1/partner/accounts/alpha/dashboard?days=7&offset=0&sort=impressions&order=desc",
+    expect(fetcher).toHaveBeenLastCalledWith(
+      "/api/v1/partner/dashboard?days=7&limit=25&offset=0&sort=impressions&order=desc",
       expect.anything(),
     ),
   );
-  const scope = new URLSearchParams(window.location.search);
-  expect(scope.get("sort")).toBe("impressions");
-  expect(scope.get("order")).toBe("desc");
-  expect(scope.has("asset_offset")).toBe(false);
   await userEvent.click(screen.getByRole("button", { name: "Next" }));
   await screen.findByText(asset.name);
-  expect(fetchMock).toHaveBeenLastCalledWith(
-    "/api/v1/partner/accounts/alpha/dashboard?days=7&offset=100&sort=impressions&order=desc",
+  expect(fetcher).toHaveBeenLastCalledWith(
+    "/api/v1/partner/dashboard?days=7&limit=25&offset=25&sort=impressions&order=desc",
     expect.anything(),
+  );
+  await userEvent.click(screen.getByRole("combobox", { name: "Reporting period" }));
+  await userEvent.click(screen.getByRole("option", { name: "Last 30 days" }));
+  await waitFor(() =>
+    expect(fetcher).toHaveBeenLastCalledWith(
+      "/api/v1/partner/dashboard?days=30&limit=25&offset=0&sort=impressions&order=desc",
+      expect.anything(),
+    ),
   );
 });
 
-it("recovers a saved asset page after the available inventory shrinks", async () => {
-  const fetchMock = vi.fn().mockImplementation(async (url: string) =>
+it("recovers a saved report page when available inventory shrinks", async () => {
+  const fetcher = vi.fn().mockImplementation((url: string) =>
     Response.json({
       ...dashboard,
-      assets: url.includes("offset=100") ? [] : [asset],
-      asset_total: 50,
+      assets: url.includes("offset=25") ? [] : [asset],
+      asset_total: 1,
     }),
   );
-  vi.stubGlobal("fetch", fetchMock);
-  render(
-    <Portal
-      section="assets"
-      identity={identity}
-      initialAccounts={{ items: [account], total: 1 }}
-      initialSort="clicks"
-      initialOrder="desc"
-      initialAssetOffset={100}
-    />,
-  );
+  vi.stubGlobal("fetch", fetcher);
+  portal({ section: "performance", initialAssetOffset: 25 });
   await screen.findByText(asset.name);
-  expect(fetchMock).toHaveBeenLastCalledWith(
-    "/api/v1/partner/accounts/alpha/dashboard?days=30&offset=0&sort=clicks&order=desc",
-    expect.anything(),
-  );
-  expect(fetchMock).toHaveBeenCalledTimes(2);
+  expect(fetcher).toHaveBeenCalledTimes(2);
   expect(new URLSearchParams(window.location.search).has("asset_offset")).toBe(false);
-  expect(screen.getByRole("button", { name: "Sort by Clicks" })).toBeTruthy();
 });
 
-it("resets asset pagination when the reporting period or account changes while retaining sorting", async () => {
-  const beta = { ...account, id: "beta", name: "Beta" };
-  const fetchMock = vi
+it("preserves sorting focus and disables paging while the next results are pending", async () => {
+  let finish!: (response: Response) => void;
+  const fetcher = vi
     .fn()
-    .mockImplementation(async () =>
-      Response.json({ ...dashboard, assets: [asset], asset_total: 201 }),
-    );
-  vi.stubGlobal("fetch", fetchMock);
-  render(
-    <Portal
-      section="assets"
-      identity={identity}
-      initialAccounts={{ items: [account, beta], total: 2 }}
-      initialSort="clicks"
-      initialOrder="desc"
-      initialAssetOffset={100}
-    />,
-  );
-  await screen.findByText(asset.name);
-  await userEvent.click(screen.getByRole("combobox", { name: "Reporting period" }));
-  await userEvent.click(screen.getByRole("option", { name: "Last 7 days" }));
-  await screen.findByText(asset.name);
-  expect(fetchMock).toHaveBeenLastCalledWith(
-    "/api/v1/partner/accounts/alpha/dashboard?days=7&offset=0&sort=clicks&order=desc",
-    expect.anything(),
-  );
-  await userEvent.click(screen.getByRole("button", { name: "Next" }));
-  await screen.findByText(asset.name);
-  await userEvent.click(screen.getByRole("combobox", { name: "Partner account" }));
-  await userEvent.click(screen.getByRole("option", { name: "Beta" }));
-  await screen.findByText(asset.name);
-  expect(fetchMock).toHaveBeenLastCalledWith(
-    "/api/v1/partner/accounts/beta/dashboard?days=7&offset=0&sort=clicks&order=desc",
-    expect.anything(),
-  );
-});
-
-it("preserves sorting focus while loading and prevents paging through stale results", async () => {
-  let finish: (response: Response) => void = () => {};
-  const fetchMock = vi
-    .fn()
-    .mockResolvedValueOnce(Response.json({ ...dashboard, assets: [asset], asset_total: 201 }))
+    .mockResolvedValueOnce(Response.json({ ...dashboard, assets: [asset], asset_total: 205 }))
     .mockImplementationOnce(
       () =>
         new Promise<Response>((resolve) => {
           finish = resolve;
         }),
     );
-  vi.stubGlobal("fetch", fetchMock);
-  render(
-    <Portal
-      section="assets"
-      identity={identity}
-      initialAccounts={{ items: [account], total: 1 }}
-    />,
-  );
+  vi.stubGlobal("fetch", fetcher);
+  portal({ section: "performance" });
   await screen.findByText(asset.name);
   const button = screen.getByRole("button", { name: "Sort by CTR" });
   await userEvent.click(button);
   expect(document.activeElement).toBe(button);
-  expect(
-    screen.getByText("Updating products and ads…").closest("section")?.getAttribute("aria-busy"),
-  ).toBe("true");
   expect((screen.getByRole("button", { name: "Next" }) as HTMLButtonElement).disabled).toBe(true);
-  finish(Response.json({ ...dashboard, assets: [asset], asset_total: 201 }));
+  finish(Response.json({ ...dashboard, assets: [asset], asset_total: 205 }));
   await waitFor(() => expect(screen.queryByText("Updating products and ads…")).toBeNull());
   expect(document.activeElement).toBe(button);
-  expect((screen.getByRole("button", { name: "Next" }) as HTMLButtonElement).disabled).toBe(false);
 });
 
-it("clears a loaded report when membership is removed during sorting", async () => {
-  const fetchMock = vi
-    .fn()
-    .mockResolvedValueOnce(Response.json({ ...dashboard, assets: [asset], asset_total: 1 }))
-    .mockResolvedValueOnce(new Response(null, { status: 404 }));
-  vi.stubGlobal("fetch", fetchMock);
-  render(
-    <Portal
-      section="assets"
-      identity={identity}
-      initialAccounts={{ items: [account], total: 1 }}
-    />,
+it.each([401, 403])("clears report data when session access is lost (%s)", async (status) => {
+  vi.stubGlobal(
+    "fetch",
+    vi
+      .fn()
+      .mockResolvedValueOnce(Response.json({ ...dashboard, assets: [asset], asset_total: 1 }))
+      .mockResolvedValueOnce(new Response(null, { status })),
   );
+  portal({ section: "performance" });
   await screen.findByText(asset.name);
-  await userEvent.click(screen.getByRole("button", { name: "Sort by CTR" }));
-  await screen.findByText("This partner account is no longer available to you.");
+  await userEvent.click(screen.getByRole("button", { name: "Refresh" }));
+  await waitFor(() => expect(router.replace).toHaveBeenCalledWith("/login"));
   expect(screen.queryByText(asset.name)).toBeNull();
-  expect(screen.queryByRole("table")).toBeNull();
+});
+
+it("rejects malformed workspace responses without exposing validation internals", async () => {
+  vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json({ ...dashboard, totals: null })));
+  portal();
+  expect(await screen.findByRole("alert")).toHaveProperty(
+    "textContent",
+    expect.stringContaining("Could not confirm workspace performance"),
+  );
+  expect(screen.queryByText("3,000")).toBeNull();
+});
+
+it.each(["overview", "performance"] as const)(
+  "explains portal access without memberships on %s",
+  (section) => {
+    vi.stubGlobal("fetch", vi.fn());
+    portal({ section, initialAccounts: { items: [], total: 0 } });
+    expect(screen.getByText(/no active partner membership/)).toBeTruthy();
+    expect(fetch).not.toHaveBeenCalled();
+  },
+);
+
+it("renders a global settings list instead of mounting account forms", () => {
+  vi.stubGlobal("fetch", vi.fn());
+  portal({ section: "settings", initialAccounts: { items: [alpha, beta], total: 205 } });
+  const table = screen.getByRole("table", { name: "Partner accounts" });
+  expect(within(table).getByRole("link", { name: "Beta" }).getAttribute("href")).toBe(
+    `/settings/${beta.id}`,
+  );
+  expect(screen.queryByRole("button", { name: "Save click destination" })).toBeNull();
+  expect(screen.queryByRole("combobox", { name: "Partner account" })).toBeNull();
+  expect(fetch).not.toHaveBeenCalled();
+});
+
+it("opens a focused settings record independently of the current account list", async () => {
+  const fetcher = vi.fn().mockResolvedValue(Response.json({ product: null }));
+  vi.stubGlobal("fetch", fetcher);
+  portal({ section: "settings", initialAccount: beta });
+  expect(screen.getByRole("heading", { name: "Beta settings", level: 1 })).toBeTruthy();
+  expect(screen.getByRole("button", { name: "Save click destination" })).toBeTruthy();
+  await screen.findByText(/A preview will appear/);
+  expect(fetcher.mock.calls.some(([url]) => String(url).includes("/dashboard?"))).toBe(false);
+});
+
+it("keeps sign-out errors retryable and sends the session CSRF token", async () => {
+  let failed = true;
+  const fetcher = vi
+    .fn()
+    .mockImplementation((url: string) =>
+      url.endsWith("/logout")
+        ? new Response(null, { status: failed ? 503 : 204 })
+        : Response.json(dashboard),
+    );
+  vi.stubGlobal("fetch", fetcher);
+  portal();
+  await screen.findByText("3,000");
+  await userEvent.click(screen.getByRole("button", { name: "User menu: Alice" }));
+  await userEvent.click(screen.getByRole("menuitem", { name: "Sign out" }));
+  await screen.findByText("Could not sign out. Please try again.");
+  failed = false;
+  await userEvent.click(screen.getByRole("menuitem", { name: "Sign out" }));
+  await waitFor(() => expect(router.replace).toHaveBeenCalledWith("/login"));
+  expect(fetcher).toHaveBeenCalledWith("/api/v1/partner/auth/logout", {
+    method: "POST",
+    headers: { "x-csrf-token": "csrf" },
+  });
 });

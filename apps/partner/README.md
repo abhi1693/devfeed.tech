@@ -14,7 +14,7 @@ Compose and its build overlay include both services; only the frontend port is e
 Run `npm run partner:generate` after changing the partner API response or request models.
 The exporter builds OpenAPI from `devfeed_partner_api.main.create_app()` using normal application
 configuration, without starting services or querying the database. Commit `openapi.json`, generated TypeScript models and
-the four generated preference/preview/topic response validators together. The portal aliases
+the generated response validators together. The portal aliases
 these generated output types rather than maintaining a second set of account/report models;
 computed account fields remain separate from preference input.
 
@@ -47,17 +47,38 @@ subject ID. Role grants alone show an empty account state; the partner portal ha
 superuser reporting bypass. Membership deletion and account pausing take effect on the next
 request. Unavailable or foreign accounts return 404.
 
-The portal has separate account pages: `/<account-id>` for the partnership overview,
-`/<account-id>/performance` for daily activity, and `/<account-id>/assets` for products and ads.
-The account path and reporting period survive navigation and reloads. Opening an account URL
-checks its current membership directly, independently of the account picker's 100-item pages.
-Bookmarked accounts remain available after account reordering or without `account_offset`.
-Paging the picker retains the selected account and report until another account is chosen.
-On Products & ads, choose Name, Impressions, Clicks or CTR to sort the full result set
-before pagination. Name starts in ascending order; a metric starts in descending order.
-Choose the same header again to reverse direction. Unavailable metrics appear last in
-either direction. Sorting and the current asset page survive navigation and reloads;
-changing the sort or reporting period returns to the first asset page.
+The portal follows the administration application's record and form layouts and shows all data
+belonging to the signed-in user's active account memberships. There is no global account selector
+or account UUID prefix in workspace URLs:
+
+- `/`: Dashboard with aggregate performance totals and a daily trend across accessible accounts.
+- `/performance`: daily impressions, clicks and CTR charts, format comparisons, sortable product
+  results with an Account column, and a daily CSV export. Missing ledger days remain gaps, and
+  CSV cells remain blank; observed zero counts remain zero. Period CTR uses total clicks divided
+  by total impressions. Dates use UTC.
+- `/products`: the searchable imported catalog with an Account column, including products without
+  delivery measurements. Product names open `/products/<product-id>` records; edit actions open
+  `/products/<product-id>/placements`. The optional `account_id` query selects an account's policy
+  for a shared product and is authorized independently. Previews appear inline. Cancel discards
+  the draft; a confirmed save returns to the product record.
+- `/connections`: imports across accessible accounts, with full-page detail, create, edit and
+  disconnect workflows. The account relationship is selected when creating a connection.
+- `/settings`: a searchable, paginated account table. `/settings/<account-id>` opens that account's
+  click destination, automatic formats and audience defaults.
+
+Forms use full pages. Headings, record panels, tables, controls and charts are imported directly
+from `@devfeed/ui` by both applications. Obsolete account-prefixed frontend routes are removed.
+Record IDs remain where they identify the product, connection or account being edited.
+
+Workspace reporting uses the full membership scope in SQL; account-list pagination never limits
+report totals, products or connections. Record access checks membership directly, so a settings
+bookmark remains available beyond the first account page or after accounts are reordered.
+Membership removal takes effect on the next request. A role alone does not expose other partners'
+data. Reporting periods, sorting and pagination survive navigation and reloads. On Performance,
+choose a column header to sort the full result set before pagination. Name starts in ascending
+order; a metric starts in descending order. Choose the same header again to reverse direction.
+Unavailable metrics appear last in either direction. Changing the sort or reporting period returns
+to the first result page.
 
 Account administration, memberships, tiers, benefits, campaigns and historical asset management
 live in the admin app at `/partnerships/accounts`. These operations use
@@ -90,8 +111,8 @@ sponsored placement through an automatically managed standing campaign; account 
 select product recommendations. Product pricing does not determine sponsorship. Trusted import
 acceptance is an explicit account policy and remains separate from factual capability assessments.
 
-The dashboard shows impressions, clicks, CTR, per-asset results, daily activity, a 7/30/90/365
-day selector, tier, and benefits. Periods use inclusive UTC calendar dates through today.
+The dashboard and Performance page show impressions, clicks, CTR, per-product results, daily
+activity and a 7/30/90/365 day selector. Account records show tier and benefits. Periods use inclusive UTC calendar dates through today.
 CTR is total clicks divided by total impressions, not an average of daily percentages.
 Summary totals include all assets even when the asset table is paginated. A day with no
 measurement is distinct from a measured zero; coverage and latest update are visible.
@@ -123,10 +144,10 @@ context or resolved reader interests; failed contextual matching cannot broaden 
 Feed inventory. Explicit Homepage sponsorship remains a separate brand placement on the
 unfiltered home feed and may appear alongside page context. Audience restrictions also apply
 to fallback delivery. Formats have separate assets and attribution while the product performance
-table combines the same product's results into one row.
+table combines the same product's formats within each account into one row.
 
 **Creative preview** shows a real accepted product or approved sponsored article for the selected
-format without reserving delivery or recording measurements. From a product's placement dialog,
+format without reserving delivery or recording measurements. From a product's placement page,
 it requests that exact account-owned product and uses the saved click destination. Excluded or otherwise unavailable
 inventory has no preview. Unsaved placement edits do not affect preview availability, and an
 appearance preview does not confirm delivery eligibility. It is separate from the compact URL-only
@@ -139,13 +160,41 @@ cannot enable an automatic format that the account has disabled or bypass a tier
 account exclusion or global exclusion. Allowing sponsored content makes the product eligible
 for a campaign with an approved article; it does not create or publish an article.
 Members can edit these settings for their own imported products independently of performance
-reporting. The partner and admin dialogs can explicitly Allow or Exclude a product while retaining
+reporting. The partner placement form and admin dialog can explicitly Allow or Exclude a product while retaining
 its format and location restrictions. They distinguish unsaved choices from saved settings and
 show the automatic formats and locations permitted within account defaults. Allowing a product
 does not override account pauses, automatic inclusion, qualification or targeting. A save is
 confirmed only when the response belongs to the requested account and product and confirms the
 submitted exclusion and restrictions; failed or mismatched saves retain the draft for review.
-Closing the dialog discards unsaved changes.
+Canceling the partner form or closing the admin dialog discards unsaved changes.
+
+### Import connections
+
+Members can create and manage REST/JSON imports for any of their active accounts. Connection IDs
+are generated by the server; members cannot claim an existing provider identifier or reassign
+a connection to another account. Settings include public HTTPS endpoints, JSON field mappings,
+pagination and a sync interval of 15 minutes to seven days. Imports run in the background;
+the detail record shows connection state, product counts and recent runs. Sync, pause and resume
+actions check the current revision, and conflicting edits preserve the draft for review.
+
+Connections support public endpoints, bearer tokens and API keys. Tokens are write-only:
+editing a connection never retrieves the saved value. Keeping authentication unchanged preserves
+the token; changing the origin or authentication requires a replacement. Selecting no authentication
+removes the saved token. Administrator-managed environment credentials remain under administration
+control and cannot be redirected or replaced through the partner portal.
+
+Set `DEVFEED_PARTNER_CREDENTIAL_KEY` to a persistent Fernet key in the partner API and import worker.
+Generate one with `uv run python -c 'from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())'`
+and store it in private deployment configuration. The key is separate from database ciphertext;
+back it up securely because replacing or losing it requires re-entering stored credentials.
+Credentials are encrypted and bound to account, connection, HTTPS origin and authentication.
+Job snapshots, API responses and logs exclude token values and ciphertext. Without the key,
+public imports remain available and private credential setup is unavailable.
+
+The disconnect confirmation is a dedicated page. Disconnect stops imports, removes the saved
+token and archives the connection; catalog records, measurements and import history remain.
+Archived sources cannot deliver placements or resume imports, and no longer consume the account's
+25-connection limit. Creating a new connection does not bypass qualification or audience rules.
 
 ### Contextual delivery and tracking
 
@@ -292,8 +341,8 @@ Existing partner sessions register on the next portal identity request. Reader s
 registers users. The partner role in Zitadel is required before accessing an assigned account. Membership assignment
 does not grant or change Zitadel roles.
 
-The overview shows partnership tier, benefits, inherited promotion type, and import acceptance.
-**Product click destination** lets members choose the product website or their connected
+Dashboard shows performance, partnership tier and included benefits. Settings contains account
+configuration. **Product click destination** lets members choose the product website or their connected
 partner listing. Both destinations include DevFeed UTM attribution. A product without a partner
 listing is omitted when that destination is selected. The account-scoped preferences endpoint
 accepts independent destination, automatic-format and Platinum/Diamond audience settings, requires the session
@@ -311,9 +360,9 @@ account. Account paths require membership; the old `/performance`, `/assets`, an
 URLs return 404.
 
 Admin import connection settings require a searchable **Partner account** selection. Each
-connection belongs to one account; an account may own multiple connections. The backend retains
-a nullable account reference for legacy/API compatibility, so older or API-created rows can
-remain unassigned. Creating or editing a connection in administration requires an account.
+connection belongs to one account; an account may own multiple connections. The data model permits
+unassigned records, which do not establish account catalog ownership. Administration forms require
+an account; portal connections always belong to the current authorized account.
 Assignment changes use revision protection and preserve historical assets, memberships, AI
 evaluations and sync scheduling. The live assignment controls future eligibility and attribution.
 The connection detail links to its assigned admin account.

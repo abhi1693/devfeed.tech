@@ -10,7 +10,7 @@ import {
   type CreativePreviewProduct,
 } from "@devfeed/ui/advertising-formats";
 import { Select } from "@devfeed/ui/select";
-import { Button } from "@/components/atoms/button";
+import { Button } from "@devfeed/ui/button";
 import type { Account } from "@/lib/types";
 import { parseCreativePreview } from "@/lib/contracts";
 import { isPartnerRequestCancelled } from "@/lib/partner-request";

@@ -3,7 +3,7 @@ import { resourceTrail, recordHref, resourceHref } from "@/lib/routes";
 import Link from "next/link";
 import { useCallback, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Button } from "@/components/atoms/button";
+import { Button } from "@devfeed/ui/button";
 import { Field } from "@/components/molecules/field";
 import { TopicReplacementPicker } from "@/components/molecules/topic-replacement-picker";
 import { DeleteConfirmation } from "@/components/molecules/delete-confirmation";
@@ -12,7 +12,7 @@ import {
   type DeletionImpact,
 } from "@/components/molecules/deletion-impact-table";
 import { adminRouteTitle } from "@/lib/page-titles";
-import { PageHeading } from "@/components/molecules/page-heading";
+import { ResourceHeading } from "@devfeed/ui/resource-layout";
 import { RequestState } from "@/components/molecules/request-state";
 import { useAdmin } from "@/components/molecules/admin-session";
 import { getRecord, deleteRecord } from "@/lib/resource-api";
@@ -85,7 +85,7 @@ export function ResourceDelete({ resource, id }: { resource: Resource; id: strin
   }
   return (
     <section className="max-w-2xl space-y-6">
-      <PageHeading
+      <ResourceHeading
         title={`Delete ${spec.singular.toLowerCase()}`}
         browserTitle={adminRouteTitle(
           { view: "delete", resource, id },

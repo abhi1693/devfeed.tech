@@ -7,14 +7,21 @@ from datetime import datetime, timedelta
 from typing import Literal
 
 from pydantic import Field, JsonValue, field_validator
-from sqlalchemy import select
+from sqlalchemy import and_, exists, func, or_, select
+from sqlalchemy.orm import aliased
 
+from devfeed_core.config import get_settings
 from devfeed_core.job_lifecycle import fail_or_retry
 from devfeed_core.json_types import JsonValue as ResponseJson
 from devfeed_core.models import (
     Article,
+    PartnerAccount,
+    PartnerConnection,
     PartnerEvaluation,
+    PartnerListing,
     PartnerPipelineJob,
+    PartnerProduct,
+    PartnerProductPromotion,
     utcnow,
 )
 from devfeed_core.partner_catalog import active_provider, upsert_listing
@@ -255,23 +262,25 @@ def read_nick_page(cursor=None, *, fetch=None):
     return read_partner_page(PROVIDER, cursor, NICK_CONNECTOR, fetch=fetch)
 
 
-def read_partner_page(provider, cursor=None, config=None, *, fetch=None):
+def read_partner_page(provider, cursor=None, config=None, *, fetch=None, credential=None):
     if config is None:
         config = CONNECTOR_PRESETS.get(provider)
         if config is None:
             raise ValueError("Import connection API configuration is missing")
-    candidates, cursor = discover_page(provider, config, cursor, fetch=fetch)
+    candidates, cursor = discover_page(provider, config, cursor, fetch=fetch, credential=credential)
     return [ProductCandidate.model_validate(item) for item in candidates], cursor
 
 
-def read_partner_product(provider, candidate: ProductCandidate, config=None, *, fetch=None):
+def read_partner_product(
+    provider, candidate: ProductCandidate, config=None, *, fetch=None, credential=None
+):
     if candidate.normalized:
         return ProductInput.model_validate(candidate.data)
     if config is None:
         config = CONNECTOR_PRESETS.get(provider)
         if config is None:
             raise ValueError("Import connection API configuration is missing")
-    return mapped_product(provider, config, candidate, fetch=fetch)
+    return mapped_product(provider, config, candidate, fetch=fetch, credential=credential)
 
 
 def upsert_partner_product(session, item: ProductInput, generation):
@@ -363,3 +372,211 @@ def queue_evaluation(session, product):
     session.add(
         PartnerEvaluation(product_id=product.id, requested_by=SYSTEM_ACTOR, snapshot=snapshot)
     )
+
+
+def connection_views(session, connections):
+    """Aggregate catalog statistics for the supplied bounded connection page."""
+    if not connections:
+        return []
+    providers = [connection.provider for connection in connections]
+    products = (
+        select(PartnerListing.provider, PartnerListing.product_id)
+        .where(PartnerListing.provider.in_(providers))
+        .distinct()
+        .subquery()
+    )
+    owner_connection = aliased(PartnerConnection)
+    owner_listing = aliased(PartnerListing)
+    # Provider membership includes historical listings. Live ownership may come
+    # from another enabled connection on the same account.
+    owned = exists(
+        select(owner_listing.id)
+        .join(owner_connection, owner_connection.provider == owner_listing.provider)
+        .where(
+            owner_connection.account_id == PartnerConnection.account_id,
+            owner_connection.enabled.is_(True),
+            owner_connection.archived_at.is_(None),
+            owner_listing.product_id == PartnerProduct.id,
+            owner_listing.active.is_(True),
+            owner_listing.identity_status == "resolved",
+        )
+        .correlate(PartnerConnection, PartnerProduct)
+    )
+    accepted = and_(
+        PartnerConnection.enabled.is_(True),
+        PartnerConnection.archived_at.is_(None),
+        PartnerAccount.status == "active",
+        PartnerProduct.merged_into_id.is_(None),
+        PartnerProduct.excluded.is_(False),
+        or_(
+            PartnerProductPromotion.product_id.is_(None),
+            PartnerProductPromotion.excluded.is_(False),
+        ),
+        owned,
+        or_(
+            and_(
+                PartnerProduct.status == "approved",
+                PartnerProduct.verified_at >= utcnow() - timedelta(days=90),
+            ),
+            and_(
+                PartnerAccount.approval_mode == "trusted",
+                PartnerProductPromotion.commercial_approved_at.is_not(None),
+            ),
+        ),
+    )
+    syncing = exists(
+        select(PartnerPipelineJob.id)
+        .where(
+            PartnerPipelineJob.provider == PartnerConnection.provider,
+            PartnerPipelineJob.operation == "sync",
+            PartnerPipelineJob.status.in_(["queued", "running"]),
+        )
+        .correlate(PartnerConnection)
+    )
+    count = func.count(PartnerProduct.id)
+    statistics = {
+        row.provider: row
+        for row in session.execute(
+            select(
+                PartnerConnection.provider,
+                PartnerAccount.approval_mode,
+                syncing.label("syncing"),
+                count.label("products"),
+                count.filter(
+                    PartnerProduct.excluded.is_(False), PartnerProduct.status == "approved"
+                ).label("qualified"),
+                count.filter(
+                    PartnerProduct.excluded.is_(False),
+                    PartnerProduct.assessment["state"].astext == "checking",
+                ).label("checking"),
+                count.filter(
+                    PartnerProduct.excluded.is_(False), PartnerProduct.status == "pending"
+                ).label("pending"),
+                count.filter(PartnerProduct.excluded.is_(True)).label("excluded"),
+                count.filter(accepted).label("commercial_approved"),
+            )
+            .select_from(PartnerConnection)
+            .outerjoin(PartnerAccount, PartnerAccount.id == PartnerConnection.account_id)
+            .outerjoin(products, products.c.provider == PartnerConnection.provider)
+            .outerjoin(PartnerProduct, PartnerProduct.id == products.c.product_id)
+            .outerjoin(
+                PartnerProductPromotion,
+                and_(
+                    PartnerProductPromotion.account_id == PartnerConnection.account_id,
+                    PartnerProductPromotion.product_id == PartnerProduct.id,
+                ),
+            )
+            .where(PartnerConnection.provider.in_(providers))
+            .group_by(PartnerConnection.provider, PartnerAccount.id)
+        )
+    }
+    ai_enabled = get_settings().ai_enabled
+    return [
+        _connection_view(connection, statistics[connection.provider], ai_enabled=ai_enabled)
+        for connection in connections
+    ]
+
+
+def connection_view(session, connection):
+    return connection_views(session, [connection])[0]
+
+
+def _connection_view(connection, statistics, *, ai_enabled):
+    provider = connection.provider
+    definition = (
+        connector_snapshot(connection)
+        if connection.connector or provider in CONNECTOR_PRESETS
+        else None
+    )
+
+    return ConnectionOut(
+        commercial_approved=statistics.commercial_approved,
+        approval_mode=statistics.approval_mode,
+        provider=provider,
+        account_id=connection.account_id,
+        revision=connection.revision,
+        sync_interval_minutes=connection.sync_interval_minutes,
+        name=connection.name or provider.replace("-", " ").title(),
+        api_url=definition["base_url"] + definition["list_path"] if definition else "",
+        connector=definition,
+        enabled=connection.enabled,
+        state="disconnected"
+        if not connection.enabled
+        else "syncing"
+        if statistics.syncing
+        else "error"
+        if connection.last_error
+        else "idle",
+        last_sync_at=connection.last_sync_at,
+        next_sync_at=connection.next_sync_at if connection.enabled else None,
+        error=connection.last_error,
+        products=statistics.products,
+        qualified=statistics.qualified,
+        checking=statistics.checking,
+        needs_attention=max(0, statistics.pending - statistics.checking),
+        excluded=statistics.excluded,
+        ai_enabled=ai_enabled,
+    )
+
+
+def configure_connection(session, connection, enabled, *, sync=False, sync_interval_minutes=None):
+    affected_jobs = []
+    changed = connection.enabled != enabled
+    interval_changed = (
+        sync_interval_minutes is not None
+        and sync_interval_minutes != connection.sync_interval_minutes
+    )
+    if changed or interval_changed:
+        connection.revision += 1
+    if changed:
+        connection.enabled = enabled
+        connection.sync_revision += 1
+    if interval_changed:
+        connection.sync_interval_minutes = sync_interval_minutes
+        if enabled:
+            now = utcnow()
+            connection.next_sync_at = max(
+                now, (connection.last_sync_at or now) + timedelta(minutes=sync_interval_minutes)
+            )
+    if not enabled and changed:
+        for job in session.scalars(
+            select(PartnerPipelineJob)
+            .where(
+                PartnerPipelineJob.provider == connection.provider,
+                PartnerPipelineJob.status.in_(["queued", "running"]),
+            )
+            .with_for_update()
+        ).all():
+            if job.operation in {"sync", "sync_product"} or not active_provider(
+                session, job.product_id
+            ):
+                affected_jobs.append(str(job.id))
+                fail_or_retry(job, "Connection disabled", utcnow(), retryable=False)
+    elif enabled and (changed or sync):
+        job = request_sync(session, connection)
+        session.flush()
+        affected_jobs.append(str(job.id))
+    return affected_jobs
+
+
+def update_connection_definition(session, connection, connector, *, credential_changed=False):
+    """Fence outstanding import generations for endpoint or credential changes."""
+    definition = connector.model_dump(mode="json")
+    changed = definition != connector_snapshot(connection) or credential_changed
+    if not changed:
+        return False
+    connection.connector = definition
+    connection.revision += 1
+    connection.sync_revision += 1
+    for job in session.scalars(
+        select(PartnerPipelineJob)
+        .where(
+            PartnerPipelineJob.provider == connection.provider,
+            PartnerPipelineJob.operation.in_(["sync", "sync_product"]),
+            PartnerPipelineJob.status.in_(["queued", "running"]),
+        )
+        .with_for_update()
+    ):
+        fail_or_retry(job, "Connector definition changed", utcnow(), retryable=False)
+    session.flush()
+    return True

@@ -988,6 +988,7 @@ version = "0.0.52"
 source = { editable = "packages/core" }
 dependencies = [
     { name = "alembic" },
+    { name = "cryptography" },
     { name = "feedparser" },
     { name = "httpcore" },
     { name = "markdown-it-py" },
@@ -1009,6 +1010,7 @@ dependencies = [
 [package.metadata]
 requires-dist = [
     { name = "alembic", specifier = ">=1.15,<2" },
+    { name = "cryptography", specifier = ">=46,<51" },
     { name = "feedparser", specifier = ">=6.0.11,<7" },
     { name = "httpcore", specifier = ">=1.0.9,<2" },
     { name = "markdown-it-py", specifier = ">=4.2,<5" },

@@ -11,9 +11,9 @@ from devfeed_http.oidc import OIDCError as OIDCError
 from devfeed_http.oidc import consume_callback_flow as consume_callback_flow
 from devfeed_http.oidc import discovery as discovery
 from devfeed_http.oidc import validate_callback_response as validate_callback_response
+from devfeed_http.roles import verified_roles
 
 from devfeed_partner_api.config import Settings
-from devfeed_partner_api.roles import verified_roles
 
 
 def configured(settings: Settings) -> bool:

@@ -6,7 +6,7 @@ import type { Account } from "./types";
 import {
   createPartnerRequestScope,
   isPartnerRequestCancelled,
-  usePartnerAccountRequest,
+  usePartnerRequest,
 } from "./partner-request";
 
 export function usePartnerPreferenceSave({
@@ -26,7 +26,7 @@ export function usePartnerPreferenceSave({
   errorMessage: string;
   confirmationMessage: string;
 }) {
-  const request = usePartnerAccountRequest({ accountId, onUnavailable });
+  const request = usePartnerRequest({ accountId, onUnavailable });
   const scope = useMemo(
     () => ({ accountId, csrfToken, ...createPartnerRequestScope() }),
     [accountId, csrfToken],

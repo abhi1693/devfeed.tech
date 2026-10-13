@@ -1,4 +1,4 @@
-import { Badge } from "@/components/atoms/badge";
+import { Badge } from "@devfeed/ui/badge";
 import { BooleanIndicator } from "@/components/atoms/boolean-indicator";
 import { humanize } from "@/lib/resources";
 import type { PillTone } from "@/lib/column-kinds";

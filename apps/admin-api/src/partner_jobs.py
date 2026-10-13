@@ -13,13 +13,13 @@ from devfeed_core.models import (
 from devfeed_core.partner_connections import PartnerJobOut
 from devfeed_core.partner_tools import EvaluationOut
 from devfeed_core.schemas import ORMModel
+from devfeed_http.pagination import Listing, Page, paginate, record
 from fastapi import APIRouter, Depends
 from sqlalchemy import String, cast, exists, or_, select
 from sqlalchemy.orm import load_only
 
 from devfeed_admin_api.auth import require_admin
 from devfeed_admin_api.dependencies import DB
-from devfeed_admin_api.pagination import Listing, Page, paginate, record
 from devfeed_admin_api.partner_tools import evaluation_view
 
 router = APIRouter(

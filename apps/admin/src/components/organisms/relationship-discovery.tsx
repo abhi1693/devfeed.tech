@@ -4,10 +4,10 @@ import Link from "next/link";
 import { useCallback, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Sparkles } from "lucide-react";
-import { Button } from "@/components/atoms/button";
+import { Button } from "@devfeed/ui/button";
 import { Field } from "@/components/molecules/field";
 import { EntityPicker } from "@/components/molecules/entity-picker";
-import { PageHeading } from "@/components/molecules/page-heading";
+import { ResourceHeading } from "@devfeed/ui/resource-layout";
 import { ValidationErrors } from "@/components/molecules/validation-errors";
 import { useAdmin } from "@/components/molecules/admin-session";
 import { adminTopicGet, adminTopicRelationshipsAnalyze } from "@/lib/api/generated/admin";
@@ -54,7 +54,7 @@ export function RelationshipDiscovery() {
   }
   return (
     <section className="min-w-0 space-y-6">
-      <PageHeading
+      <ResourceHeading
         title="Discover relationships"
         trail={relationshipTrail}
         description="Find related topics and review suggestions."
@@ -62,7 +62,7 @@ export function RelationshipDiscovery() {
         <Button variant="outline" size="sm" asChild>
           <Link href="/taxonomy/relationships/proposals">Review proposals</Link>
         </Button>
-      </PageHeading>
+      </ResourceHeading>
       <form
         className="max-w-2xl space-y-5 rounded-lg border bg-card p-5"
         onSubmit={(event) => {

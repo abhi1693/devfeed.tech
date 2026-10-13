@@ -1,11 +1,11 @@
 import Link from "next/link";
 import { ArrowRight } from "lucide-react";
-import { PageHeading } from "@/components/molecules/page-heading";
+import { ResourceHeading } from "@devfeed/ui/resource-layout";
 export const metadata = { title: "Partnerships" };
 export default function Page() {
   return (
     <section className="space-y-6">
-      <PageHeading title="Partnerships" />
+      <ResourceHeading title="Partnerships" />
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
         {[
           {

@@ -31,6 +31,7 @@ from devfeed_core.models import (
 from devfeed_core.must_reads import read_snapshot
 from devfeed_core.recommendations import request_recommendation_refresh
 from devfeed_core.services import OperationConflict
+from devfeed_core.text_search import text_search
 from devfeed_core.user_settings import (
     DevCardSettings,
     FeedSettings,
@@ -42,14 +43,13 @@ from devfeed_core.user_settings import (
 from devfeed_core.user_settings import (
     UserReadingStreak as ReadingStreakSettings,
 )
+from devfeed_http.pagination import Listing, Page, paginate, record, require_record
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 from sqlalchemy import String, cast, func, select
 
 from devfeed_admin_api.auth import Admin, require_admin
 from devfeed_admin_api.dependencies import DB
-from devfeed_admin_api.pagination import Listing, Page, paginate, record, require_record
-from devfeed_admin_api.search import text_search
 
 router = APIRouter(
     prefix="/v1/admin/users", tags=["admin-users"], dependencies=[Depends(require_admin)]

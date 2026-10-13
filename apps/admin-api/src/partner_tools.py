@@ -2,10 +2,8 @@
 
 import logging
 import uuid
-from datetime import timedelta
 from typing import Literal
 
-from devfeed_core.config import get_settings
 from devfeed_core.job_lifecycle import fail_or_retry
 from devfeed_core.models import (
     PartnerAccount,
@@ -14,7 +12,6 @@ from devfeed_core.models import (
     PartnerListing,
     PartnerPipelineJob,
     PartnerProduct,
-    PartnerProductPromotion,
     utcnow,
 )
 from devfeed_core.partner_catalog import active_provider, has_listings, listing_views, lock_catalog
@@ -28,10 +25,13 @@ from devfeed_core.partner_connections import (
     ConnectorResponseOut,
     PartnerJobOut,
     ProductAction,
+    configure_connection,
+    connection_view,
+    connection_views,
     read_partner_page,
     read_partner_product,
     request_assessment,
-    request_sync,
+    update_connection_definition,
 )
 from devfeed_core.partner_connectors import (
     CONNECTOR_PRESETS,
@@ -41,15 +41,14 @@ from devfeed_core.partner_connectors import (
 )
 from devfeed_core.partner_providers import PARTNER_PRESETS, PartnerProviderOut
 from devfeed_core.partner_tools import EvaluationOut, ProductOut, product_view, snapshot_current
+from devfeed_core.text_search import text_search
+from devfeed_http.pagination import Listing, Page, paginate, record
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import String, and_, cast, exists, func, or_, select
+from sqlalchemy import String, cast, exists, or_, select
 from sqlalchemy.dialects.postgresql import insert
-from sqlalchemy.orm import aliased
 
 from devfeed_admin_api.auth import Admin, actor, require_admin
 from devfeed_admin_api.dependencies import DB
-from devfeed_admin_api.pagination import Listing, Page, paginate, record
-from devfeed_admin_api.search import text_search
 
 logger = logging.getLogger(__name__)
 
@@ -60,156 +59,13 @@ router = APIRouter(
 )
 
 
-def connection_views(session, connections):
-    """Aggregate catalog statistics for the supplied bounded connection page."""
-    if not connections:
-        return []
-    providers = [connection.provider for connection in connections]
-    products = (
-        select(PartnerListing.provider, PartnerListing.product_id)
-        .where(PartnerListing.provider.in_(providers))
-        .distinct()
-        .subquery()
-    )
-    owner_connection = aliased(PartnerConnection)
-    owner_listing = aliased(PartnerListing)
-    # Provider membership includes historical listings. Live ownership may come
-    # from another enabled connection on the same account.
-    owned = exists(
-        select(owner_listing.id)
-        .join(owner_connection, owner_connection.provider == owner_listing.provider)
-        .where(
-            owner_connection.account_id == PartnerConnection.account_id,
-            owner_connection.enabled.is_(True),
-            owner_listing.product_id == PartnerProduct.id,
-            owner_listing.active.is_(True),
-            owner_listing.identity_status == "resolved",
-        )
-        .correlate(PartnerConnection, PartnerProduct)
-    )
-    accepted = and_(
-        PartnerConnection.enabled.is_(True),
-        PartnerAccount.status == "active",
-        PartnerProduct.merged_into_id.is_(None),
-        PartnerProduct.excluded.is_(False),
-        or_(
-            PartnerProductPromotion.product_id.is_(None),
-            PartnerProductPromotion.excluded.is_(False),
-        ),
-        owned,
-        or_(
-            and_(
-                PartnerProduct.status == "approved",
-                PartnerProduct.verified_at >= utcnow() - timedelta(days=90),
-            ),
-            and_(
-                PartnerAccount.approval_mode == "trusted",
-                PartnerProductPromotion.commercial_approved_at.is_not(None),
-            ),
-        ),
-    )
-    syncing = exists(
-        select(PartnerPipelineJob.id)
-        .where(
-            PartnerPipelineJob.provider == PartnerConnection.provider,
-            PartnerPipelineJob.operation == "sync",
-            PartnerPipelineJob.status.in_(["queued", "running"]),
-        )
-        .correlate(PartnerConnection)
-    )
-    count = func.count(PartnerProduct.id)
-    statistics = {
-        row.provider: row
-        for row in session.execute(
-            select(
-                PartnerConnection.provider,
-                PartnerAccount.approval_mode,
-                syncing.label("syncing"),
-                count.label("products"),
-                count.filter(
-                    PartnerProduct.excluded.is_(False), PartnerProduct.status == "approved"
-                ).label("qualified"),
-                count.filter(
-                    PartnerProduct.excluded.is_(False),
-                    PartnerProduct.assessment["state"].astext == "checking",
-                ).label("checking"),
-                count.filter(
-                    PartnerProduct.excluded.is_(False), PartnerProduct.status == "pending"
-                ).label("pending"),
-                count.filter(PartnerProduct.excluded.is_(True)).label("excluded"),
-                count.filter(accepted).label("commercial_approved"),
-            )
-            .select_from(PartnerConnection)
-            .outerjoin(PartnerAccount, PartnerAccount.id == PartnerConnection.account_id)
-            .outerjoin(products, products.c.provider == PartnerConnection.provider)
-            .outerjoin(PartnerProduct, PartnerProduct.id == products.c.product_id)
-            .outerjoin(
-                PartnerProductPromotion,
-                and_(
-                    PartnerProductPromotion.account_id == PartnerConnection.account_id,
-                    PartnerProductPromotion.product_id == PartnerProduct.id,
-                ),
-            )
-            .where(PartnerConnection.provider.in_(providers))
-            .group_by(PartnerConnection.provider, PartnerAccount.id)
-        )
-    }
-    ai_enabled = get_settings().ai_enabled
-    return [
-        _connection_view(connection, statistics[connection.provider], ai_enabled=ai_enabled)
-        for connection in connections
-    ]
-
-
-def connection_view(session, connection):
-    return connection_views(session, [connection])[0]
-
-
-def _connection_view(connection, statistics, *, ai_enabled):
-    provider = connection.provider
-    definition = (
-        connector_snapshot(connection)
-        if connection.connector or provider in CONNECTOR_PRESETS
-        else None
-    )
-
-    return ConnectionOut(
-        commercial_approved=statistics.commercial_approved,
-        approval_mode=statistics.approval_mode,
-        provider=provider,
-        account_id=connection.account_id,
-        revision=connection.revision,
-        sync_interval_minutes=connection.sync_interval_minutes,
-        name=connection.name or provider.replace("-", " ").title(),
-        api_url=definition["base_url"] + definition["list_path"] if definition else "",
-        connector=definition,
-        enabled=connection.enabled,
-        state="disconnected"
-        if not connection.enabled
-        else "syncing"
-        if statistics.syncing
-        else "error"
-        if connection.last_error
-        else "idle",
-        last_sync_at=connection.last_sync_at,
-        next_sync_at=connection.next_sync_at if connection.enabled else None,
-        error=connection.last_error,
-        products=statistics.products,
-        qualified=statistics.qualified,
-        checking=statistics.checking,
-        needs_attention=max(0, statistics.pending - statistics.checking),
-        excluded=statistics.excluded,
-        ai_enabled=ai_enabled,
-    )
-
-
 @router.get(
     "/connections",
     response_model=Page[ConnectionOut],
     operation_id="admin_partner_connections_list",
 )
 def connections(query: Listing, session: DB):
-    statement = select(PartnerConnection)
+    statement = select(PartnerConnection).where(PartnerConnection.archived_at.is_(None))
     if query.q:
         statement = statement.where(
             text_search(query.q, PartnerConnection.provider, PartnerConnection.name)
@@ -232,7 +88,7 @@ def connections(query: Listing, session: DB):
 )
 def connection(provider: str, session: DB):
     value = session.get(PartnerConnection, provider)
-    if value is None:
+    if value is None or value.archived_at is not None:
         raise HTTPException(404, "Import connection not found")
     return connection_view(session, value)
 
@@ -296,46 +152,6 @@ def connector_response(body: ConnectorPreview, admin: Admin):
         ) from exc
 
 
-def configure_connection(session, connection, enabled, *, sync=False, sync_interval_minutes=None):
-    affected_jobs = []
-    changed = connection.enabled != enabled
-    interval_changed = (
-        sync_interval_minutes is not None
-        and sync_interval_minutes != connection.sync_interval_minutes
-    )
-    if changed or interval_changed:
-        connection.revision += 1
-    if changed:
-        connection.enabled = enabled
-        connection.sync_revision += 1
-    if interval_changed:
-        connection.sync_interval_minutes = sync_interval_minutes
-        if enabled:
-            now = utcnow()
-            connection.next_sync_at = max(
-                now, (connection.last_sync_at or now) + timedelta(minutes=sync_interval_minutes)
-            )
-    if not enabled and changed:
-        for job in session.scalars(
-            select(PartnerPipelineJob)
-            .where(
-                PartnerPipelineJob.provider == connection.provider,
-                PartnerPipelineJob.status.in_(["queued", "running"]),
-            )
-            .with_for_update()
-        ).all():
-            if job.operation in {"sync", "sync_product"} or not active_provider(
-                session, job.product_id
-            ):
-                affected_jobs.append(str(job.id))
-                fail_or_retry(job, "Connection disabled", utcnow(), retryable=False)
-    elif enabled and (changed or sync):
-        job = request_sync(session, connection)
-        session.flush()
-        affected_jobs.append(str(job.id))
-    return affected_jobs
-
-
 def log_connection(event, connection, admin, affected_jobs):
     logger.info(
         event,
@@ -370,6 +186,8 @@ def create_connection(body: ConnectionCreate, session: DB, admin: Admin):
         raise HTTPException(409, "This import connection already exists; edit its settings")
     if body.account_id is not None and session.get(PartnerAccount, body.account_id) is None:
         raise HTTPException(422, "Partner account not found")
+    if body.connector is not None and body.connector.auth.source == "connection":
+        raise HTTPException(422, "Configure account credentials in the partner portal")
     connection = PartnerConnection(
         account_id=body.account_id,
         provider=body.provider,
@@ -397,39 +215,37 @@ def create_connection(body: ConnectionCreate, session: DB, admin: Admin):
 def update_connection(provider: str, body: ConnectionSettings, session: DB, admin: Admin):
     lock_catalog(session)
     connection = session.get(PartnerConnection, provider)
-    if not connection:
+    if not connection or connection.archived_at is not None:
         raise HTTPException(404, "Import connection not found")
     if connection.revision != body.expected_revision:
         raise HTTPException(
             409, "Import connection settings changed; reopen the form to load the latest settings"
         )
     if "account_id" in body.model_fields_set and body.account_id != connection.account_id:
+        if connection.encrypted_credential:
+            raise HTTPException(
+                409, "Remove the account-bound credential before moving this connection"
+            )
         if body.account_id is not None and session.get(PartnerAccount, body.account_id) is None:
             raise HTTPException(422, "Partner account not found")
         connection.account_id = body.account_id
         connection.revision += 1
-    definition_changed = body.connector is not None and body.connector.model_dump(
-        mode="json"
-    ) != connector_snapshot(connection)
+    definition_changed = False
     if body.name is not None and body.name != connection.name:
         connection.name = body.name
         connection.revision += 1
-    if definition_changed:
-        assert body.connector is not None
-        connection.connector = body.connector.model_dump(mode="json")
-        connection.revision += 1
-        connection.sync_revision += 1
-        for job in session.scalars(
-            select(PartnerPipelineJob)
-            .where(
-                PartnerPipelineJob.provider == provider,
-                PartnerPipelineJob.operation.in_(["sync", "sync_product"]),
-                PartnerPipelineJob.status.in_(["queued", "running"]),
-            )
-            .with_for_update()
-        ):
-            fail_or_retry(job, "Connector definition changed", utcnow(), retryable=False)
-        session.flush()
+    if body.connector is not None:
+        current = ConnectorConfig.model_validate(connector_snapshot(connection))
+        if body.connector.auth.source == "connection" and body.connector.auth.mode != "none":
+            if not connection.encrypted_credential or (
+                current.base_url != body.connector.base_url or current.auth != body.connector.auth
+            ):
+                raise HTTPException(
+                    409, "Update the account-bound credential in the partner portal"
+                )
+        elif body.connector.auth.mode == "none":
+            connection.encrypted_credential = None
+        definition_changed = update_connection_definition(session, connection, body.connector)
     affected_jobs = configure_connection(
         session,
         connection,
@@ -468,6 +284,8 @@ def connection_action(provider: str, body: ConnectionAction, session: DB, admin:
         select(PartnerConnection).where(PartnerConnection.provider == provider).with_for_update()
     )
     assert connection is not None
+    if connection.archived_at is not None:
+        raise HTTPException(404, "Import connection not found")
     if body.action == "sync" and not connection.enabled:
         raise HTTPException(409, "Enable this import connection before syncing")
     affected_jobs = configure_connection(
@@ -494,7 +312,8 @@ def connection_action(provider: str, body: ConnectionAction, session: DB, admin:
     operation_id="admin_partner_connection_jobs",
 )
 def connection_jobs(provider: str, session: DB, query: Listing):
-    if not session.get(PartnerConnection, provider):
+    connection = session.get(PartnerConnection, provider)
+    if connection is None or connection.archived_at is not None:
         raise HTTPException(404, "Import connection not found")
     shared_product = exists(
         select(PartnerListing.id).where(

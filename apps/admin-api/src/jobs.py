@@ -23,6 +23,8 @@ from devfeed_core.models import (
     TopicProposal,
 )
 from devfeed_core.schemas import ORMModel
+from devfeed_core.text_search import text_search
+from devfeed_http.pagination import Listing, Page, paginate, record
 from devfeed_http.schemas import ErrorResponse
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.encoders import jsonable_encoder
@@ -34,8 +36,6 @@ from sqlalchemy.orm import load_only
 from devfeed_admin_api.auth import Admin, actor, require_admin
 from devfeed_admin_api.dependencies import DB, get_redis
 from devfeed_admin_api.job_views import JOB_FIELDS
-from devfeed_admin_api.pagination import Listing, Page, paginate, record
-from devfeed_admin_api.search import text_search
 
 MODELS = {kind: d.model for kind, d in JOB_DEFINITIONS.items() if d.admin_visible}
 LOG_MODELS = {

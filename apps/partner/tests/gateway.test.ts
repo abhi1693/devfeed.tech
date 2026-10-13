@@ -170,7 +170,7 @@ it.each(["destination-preview", "creative-preview", "inventory"])(
     for (const path of [
       [...segments.slice(0, 3), "not-a-uuid", endpoint],
       [...segments, "extra"],
-      ["v1", "partner", endpoint],
+      ...(endpoint === "inventory" ? [] : [["v1", "partner", endpoint]]),
     ])
       expect((await gateway(new Request("https://partner.example/api"), path)).status).toBe(404);
     expect(fetchMock).not.toHaveBeenCalled();
@@ -506,4 +506,240 @@ it("forwards a completed chunked upload at the byte limit and clears its deadlin
   await vi.advanceTimersByTimeAsync(2000);
   expect(cancel).not.toHaveBeenCalled();
   expect(fetcher).toHaveBeenCalledOnce();
+});
+
+const accountConnections = [
+  "v1",
+  "partner",
+  "accounts",
+  "11111111-1111-4111-8111-111111111111",
+  "connections",
+];
+
+it.each(["inventory", "dashboard"])("allows only exact workspace %s GETs", async (endpoint) => {
+  vi.stubEnv("DEVFEED_PARTNER_BASE_URL", "https://partner.example");
+  const fetcher = vi.fn().mockImplementation(() => Response.json({ items: [] }));
+  vi.stubGlobal("fetch", fetcher);
+  const path = ["v1", "partner", endpoint];
+  expect(
+    (
+      await gateway(
+        new Request(
+          "https://partner.example/api?account_id=11111111-1111-4111-8111-111111111111&q=catalog",
+        ),
+        path,
+      )
+    ).status,
+  ).toBe(200);
+  expect(fetcher.mock.calls[0][0]).toContain(`/v1/partner/${endpoint}?account_id=`);
+  fetcher.mockClear();
+  for (const method of ["HEAD", "OPTIONS", "POST", "PUT", "PATCH", "DELETE"]) {
+    expect(
+      (await gateway(new Request("https://partner.example/api", { method }), path)).status,
+    ).toBe(405);
+  }
+  expect(
+    (await gateway(new Request("https://partner.example/api"), [...path, "extra"])).status,
+  ).toBe(404);
+  expect(fetcher).not.toHaveBeenCalled();
+});
+
+it("requires a trusted origin for explicit workspace connection creation", async () => {
+  vi.stubEnv("DEVFEED_PARTNER_BASE_URL", "https://partner.example");
+  const fetcher = vi.fn();
+  vi.stubGlobal("fetch", fetcher);
+  expect(
+    (
+      await gateway(
+        new Request("https://partner.example/api", {
+          method: "POST",
+          headers: { origin: "https://evil.example", "x-csrf-token": "csrf" },
+          body: "{}",
+        }),
+        ["v1", "partner", "connections"],
+      )
+    ).status,
+  ).toBe(403);
+  expect(fetcher).not.toHaveBeenCalled();
+});
+
+it.each([
+  { suffix: [], allowed: ["GET", "POST"] },
+  { suffix: ["source"], allowed: ["GET"] },
+  { suffix: ["source", "jobs"], allowed: ["GET"] },
+])(
+  "permits only workspace connection reads and explicit creation at $suffix",
+  async ({ suffix, allowed }) => {
+    vi.stubEnv("DEVFEED_PARTNER_BASE_URL", "https://partner.example");
+    const fetcher = vi.fn().mockImplementation(() => Response.json({ ok: true }));
+    vi.stubGlobal("fetch", fetcher);
+    const segments = ["v1", "partner", "connections", ...suffix];
+    for (const method of ["GET", "HEAD", "OPTIONS", "POST", "PUT", "PATCH", "DELETE"]) {
+      fetcher.mockClear();
+      expect(
+        (
+          await gateway(
+            new Request("https://partner.example/api", {
+              method,
+              headers: {
+                origin: "https://partner.example",
+                "x-csrf-token": "csrf",
+                authorization: "never-forward",
+              },
+            }),
+            segments,
+          )
+        ).status,
+      ).toBe(allowed.includes(method) ? 200 : 405);
+      if (allowed.includes(method)) {
+        expect(fetcher).toHaveBeenCalledOnce();
+        expect(fetcher.mock.calls[0][1].headers.has("authorization")).toBe(false);
+        expect(fetcher.mock.calls[0][1].headers.get("x-csrf-token")).toBe("csrf");
+      } else expect(fetcher).not.toHaveBeenCalled();
+    }
+  },
+);
+
+it.each([
+  { suffix: [], allowed: ["GET", "POST"] },
+  { suffix: ["nick-launches"], allowed: ["GET", "PUT", "DELETE"] },
+  { suffix: ["nick-launches", "actions"], allowed: ["POST"] },
+  { suffix: ["nick-launches", "jobs"], allowed: ["GET"] },
+  { suffix: ["inventory"], allowed: ["GET", "PUT", "DELETE"] },
+  { suffix: ["a".repeat(200)], allowed: ["GET", "PUT", "DELETE"] },
+])("allows only declared connection methods at $suffix", async ({ suffix, allowed }) => {
+  vi.stubEnv("DEVFEED_PARTNER_BASE_URL", "https://partner.example");
+  const fetcher = vi.fn().mockImplementation(() => Response.json({ ok: true }));
+  vi.stubGlobal("fetch", fetcher);
+  const segments = [...accountConnections, ...suffix];
+  for (const method of ["GET", "HEAD", "OPTIONS", "POST", "PUT", "PATCH", "DELETE"]) {
+    fetcher.mockClear();
+    const write = !["GET", "HEAD", "OPTIONS"].includes(method);
+    const payload = { expected_revision: 3, credential: "fixture-only-write-value" };
+    const response = await gateway(
+      new Request("https://partner.example/api?limit=10&offset=25", {
+        method,
+        headers: {
+          origin: "https://partner.example",
+          cookie: "partner_session=private",
+          "x-csrf-token": "partner-csrf",
+          "content-type": "application/json",
+          authorization: "never-forward",
+        },
+        ...(write ? { body: JSON.stringify(payload) } : {}),
+      }),
+      segments,
+    );
+    expect(response.status).toBe(allowed.includes(method) ? 200 : 405);
+    if (!allowed.includes(method)) {
+      expect(fetcher).not.toHaveBeenCalled();
+      continue;
+    }
+    expect(fetcher).toHaveBeenCalledOnce();
+    const [url, init] = fetcher.mock.calls[0];
+    expect(url).toBe(`http://partner-api:8004/${segments.join("/")}?limit=10&offset=25`);
+    expect(init.method).toBe(method);
+    expect(init.headers.get("origin")).toBe("https://partner.example");
+    expect(init.headers.get("x-csrf-token")).toBe("partner-csrf");
+    expect(init.headers.get("cookie")).toBe("partner_session=private");
+    expect(init.headers.has("authorization")).toBe(false);
+    expect(init.redirect).toBe("manual");
+    expect(init.cache).toBe("no-store");
+    if (write) expect(JSON.parse(new TextDecoder().decode(init.body))).toEqual(payload);
+    else expect(init.body).toBeUndefined();
+  }
+});
+
+it("rejects malformed connection scopes and nested routes before contacting the API", async () => {
+  const fetcher = vi.fn();
+  vi.stubGlobal("fetch", fetcher);
+  for (const segments of [
+    [...accountConnections.slice(0, 3), "not-a-uuid", "connections"],
+    ["v1", "partner", "connections", "source", "actions"],
+    [...accountConnections, "source_name"],
+    [...accountConnections, "source--name"],
+    [...accountConnections, "source-"],
+    [...accountConnections, "Source"],
+    [...accountConnections, "new"],
+    [...accountConnections, "a".repeat(201)],
+    [...accountConnections, "source", "unknown"],
+    [...accountConnections, "source", "jobs", "extra"],
+    [...accountConnections, "source", "actions", "extra"],
+    [...accountConnections, "", "actions"],
+    [...accountConnections.slice(0, -1), "Connections"],
+    [...accountConnections.slice(0, -1), "connections/source"],
+  ]) {
+    for (const method of ["GET", "POST"]) {
+      expect(
+        (await gateway(new Request("https://partner.example/api", { method }), segments)).status,
+      ).toBe(404);
+    }
+  }
+  expect(fetcher).not.toHaveBeenCalled();
+});
+
+it.each([
+  { method: "POST", suffix: [] },
+  { method: "PUT", suffix: ["source"] },
+  { method: "DELETE", suffix: ["source"] },
+  { method: "POST", suffix: ["source", "actions"] },
+])(
+  "origin-checks connection $method $suffix before reading or forwarding the body",
+  async ({ method, suffix }) => {
+    vi.stubEnv("DEVFEED_PARTNER_BASE_URL", "https://partner.example");
+    const fetcher = vi.fn();
+    vi.stubGlobal("fetch", fetcher);
+    for (const origin of [undefined, "https://evil.example"]) {
+      const response = await gateway(
+        new Request("https://partner.example/api", {
+          method,
+          headers: origin
+            ? { origin, "x-csrf-token": "partner-csrf" }
+            : { "x-csrf-token": "partner-csrf" },
+          body: "{}",
+        }),
+        [...accountConnections, ...suffix],
+      );
+      expect(response.status).toBe(403);
+      expect(await response.json()).toEqual({ detail: "Invalid request origin" });
+    }
+    expect(fetcher).not.toHaveBeenCalled();
+  },
+);
+
+it("bounds incomplete connection creation uploads with the shared body deadline", async () => {
+  vi.useFakeTimers();
+  vi.stubEnv("DEVFEED_PARTNER_BASE_URL", "https://partner.example");
+  const fetcher = vi.fn();
+  const cancel = vi.fn();
+  vi.stubGlobal("fetch", fetcher);
+  const incoming = new Request("https://partner.example/api", {
+    method: "POST",
+    headers: { origin: "https://partner.example", "x-csrf-token": "csrf" },
+    body: new ReadableStream<Uint8Array>({ cancel }),
+    duplex: "half",
+  } as RequestInit);
+  const pending = gateway(incoming, accountConnections);
+  await vi.advanceTimersByTimeAsync(2000);
+  const response = await pending;
+  expect(response.status).toBe(408);
+  expect(cancel).toHaveBeenCalledOnce();
+  expect(fetcher).not.toHaveBeenCalled();
+  expect(vi.getTimerCount()).toBe(0);
+});
+
+it("rejects oversized connection mutation bodies before forwarding credentials", async () => {
+  vi.stubEnv("DEVFEED_PARTNER_BASE_URL", "https://partner.example");
+  const fetcher = vi.fn();
+  vi.stubGlobal("fetch", fetcher);
+  const response = await gateway(
+    new Request("https://partner.example/api", {
+      method: "PUT",
+      headers: { origin: "https://partner.example", "content-length": "1000001" },
+      body: "{}",
+    }),
+    [...accountConnections, "source"],
+  );
+  expect(response.status).toBe(413);
+  expect(fetcher).not.toHaveBeenCalled();
 });

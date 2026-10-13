@@ -6,14 +6,14 @@ import { useRefreshInterval } from "@/lib/use-refresh-interval";
 
 import Link from "next/link";
 import { Pencil, RefreshCw } from "lucide-react";
-import { InfoPanel, DataValue } from "@/components/molecules/info-panel";
+import { ResourcePanel, DataValue } from "@devfeed/ui/resource-layout";
 import { DateTime } from "@/components/molecules/date-time";
 import { StatusBadge } from "@/components/molecules/status-badge";
 import { PartnerRelated } from "./partner-related";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
-import { Button } from "@/components/atoms/button";
-import { PageHeading } from "@/components/molecules/page-heading";
+import { Button } from "@devfeed/ui/button";
+import { ResourceHeading } from "@devfeed/ui/resource-layout";
 import { RequestState } from "@/components/molecules/request-state";
 import { useAdmin } from "@/components/molecules/admin-session";
 import { PartnerConnectionForm } from "./partner-connection-form";
@@ -132,7 +132,7 @@ export function PartnerConnectionPage({
   }
   return (
     <section className="space-y-6">
-      <PageHeading
+      <ResourceHeading
         title={
           !provider
             ? "Create import connection"
@@ -162,7 +162,7 @@ export function PartnerConnectionPage({
             </Button>
           </>
         )}
-      </PageHeading>
+      </ResourceHeading>
       <RequestState loading={loading} error={error} retry={() => setRefresh((n) => n + 1)} />
       {!loading && !error && (!provider || editing) && (
         <PartnerConnectionForm
@@ -198,7 +198,7 @@ export function PartnerConnectionPage({
           ) : (
             <div className="grid items-start gap-6 xl:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)]">
               <div className="space-y-6">
-                <InfoPanel
+                <ResourcePanel
                   title="Import connection"
                   fields={[
                     { label: "Name", value: <DataValue value={connection.name} /> },
@@ -229,7 +229,7 @@ export function PartnerConnectionPage({
                   ]}
                 />
                 {account && (
-                  <InfoPanel
+                  <ResourcePanel
                     title="Inherited promotion policy"
                     fields={[
                       {
@@ -264,9 +264,9 @@ export function PartnerConnectionPage({
                     >
                       Edit partner account defaults
                     </Link>
-                  </InfoPanel>
+                  </ResourcePanel>
                 )}
-                <InfoPanel
+                <ResourcePanel
                   title="Products"
                   fields={[
                     {
@@ -295,7 +295,7 @@ export function PartnerConnectionPage({
                 />
               </div>
               <div className="space-y-6">
-                <InfoPanel
+                <ResourcePanel
                   title="Record information"
                   fields={[
                     {
@@ -305,7 +305,7 @@ export function PartnerConnectionPage({
                     { label: "Revision", value: <DataValue value={connection.revision} /> },
                   ]}
                 />
-                <InfoPanel
+                <ResourcePanel
                   title="Sync status"
                   fields={[
                     {

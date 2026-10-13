@@ -6,7 +6,7 @@ import {
   ProductDestinationPreview,
   type DestinationPreviewProduct,
 } from "@devfeed/ui/product-destination-preview";
-import { Button } from "@/components/atoms/button";
+import { Button } from "@devfeed/ui/button";
 import type { Account, OutboundDestination } from "@/lib/types";
 import { parseDestinationPreview } from "@/lib/contracts";
 import { isPartnerRequestCancelled } from "@/lib/partner-request";

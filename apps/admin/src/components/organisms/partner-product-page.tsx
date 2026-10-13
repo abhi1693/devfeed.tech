@@ -2,11 +2,11 @@
 
 import Link from "next/link";
 import { useCallback, useState } from "react";
-import { Button } from "@/components/atoms/button";
+import { Button } from "@devfeed/ui/button";
 import { useAdmin } from "@/components/molecules/admin-session";
 import { DateTime } from "@/components/molecules/date-time";
-import { InfoPanel, DataValue } from "@/components/molecules/info-panel";
-import { PageHeading } from "@/components/molecules/page-heading";
+import { ResourcePanel, DataValue } from "@devfeed/ui/resource-layout";
+import { ResourceHeading } from "@devfeed/ui/resource-layout";
 import { RequestState } from "@/components/molecules/request-state";
 import { StatusBadge } from "@/components/molecules/status-badge";
 import { adminPartnerToolsList, adminPartnerProductAction } from "@/lib/api/generated/admin";
@@ -57,7 +57,7 @@ export function PartnerProductPage({
   }
   return (
     <section className="space-y-6">
-      <PageHeading
+      <ResourceHeading
         title={product?.name ?? "Product"}
         trail={[...partnershipTrail, { label: "Products", href: "/partnerships/products" }]}
       >
@@ -93,7 +93,7 @@ export function PartnerProductPage({
             )}
           </>
         )}
-      </PageHeading>
+      </ResourceHeading>
       <RequestState
         loading={result.loading}
         error={error ?? result.error}
@@ -120,7 +120,7 @@ export function PartnerProductPage({
                 <h2 className="font-semibold">Platform listings ({product.listings.length})</h2>
                 <div className="grid items-start gap-6 xl:grid-cols-2">
                   {product.listings.map((listing) => (
-                    <InfoPanel
+                    <ResourcePanel
                       key={listing.id}
                       title={listing.platform_name}
                       fields={[
@@ -224,7 +224,7 @@ export function PartnerProductPage({
           ) : (
             <div className="grid items-start gap-6 xl:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)]">
               <div className="space-y-6">
-                <InfoPanel
+                <ResourcePanel
                   title="Product"
                   fields={[
                     { label: "Name", value: product.name },
@@ -234,7 +234,7 @@ export function PartnerProductPage({
                     { label: "Technologies", value: <DataValue value={product.technologies} /> },
                   ]}
                 />
-                <InfoPanel title="Capability evidence">
+                <ResourcePanel title="Capability evidence">
                   {product.evidence?.length ? (
                     <div className="space-y-4 py-3">
                       {product.evidence.map((evidence, index) => (
@@ -247,8 +247,8 @@ export function PartnerProductPage({
                   ) : (
                     <p className="py-3 text-sm text-muted-foreground">No verified evidence yet.</p>
                   )}
-                </InfoPanel>
-                <InfoPanel title="Promotion policy">
+                </ResourcePanel>
+                <ResourcePanel title="Promotion policy">
                   <div className="space-y-3 py-3 text-sm">
                     <p className="font-medium">
                       {product.commercial_approved
@@ -273,10 +273,10 @@ export function PartnerProductPage({
                       Manage partner account defaults and campaigns
                     </Link>
                   </div>
-                </InfoPanel>
+                </ResourcePanel>
               </div>
               <div className="space-y-6">
-                <InfoPanel
+                <ResourcePanel
                   title="Assessment"
                   fields={[
                     {
@@ -302,7 +302,7 @@ export function PartnerProductPage({
                     },
                   ]}
                 />
-                <InfoPanel
+                <ResourcePanel
                   title="Record information"
                   fields={[
                     { label: "ID", value: <DataValue value={product.id} /> },

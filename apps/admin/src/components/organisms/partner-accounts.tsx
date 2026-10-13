@@ -3,8 +3,8 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { Plus } from "lucide-react";
-import { Button } from "@/components/atoms/button";
-import { PageHeading } from "@/components/molecules/page-heading";
+import { Button } from "@devfeed/ui/button";
+import { ResourceHeading } from "@devfeed/ui/resource-layout";
 import { DataTable, type DataTableColumn } from "@/components/molecules/data-table";
 import type { AccountOut, AccountsOut } from "@/lib/api/generated/models";
 
@@ -81,7 +81,7 @@ export function PartnerAccounts() {
   }, [offset, limit, revision]);
   return (
     <section className="space-y-6">
-      <PageHeading
+      <ResourceHeading
         title="Partner accounts"
         description="Manage commercial partnerships and partner access."
         trail={accountsTrail}
@@ -92,7 +92,7 @@ export function PartnerAccounts() {
             Create partner account
           </Link>
         </Button>
-      </PageHeading>
+      </ResourceHeading>
       <DataTable
         label="Partner accounts"
         data={accounts.items}

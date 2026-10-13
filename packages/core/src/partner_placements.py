@@ -66,6 +66,7 @@ def account_product_available(
             PartnerListing.product_id == product_id,
             PartnerConnection.account_id == account_id,
             PartnerConnection.enabled.is_(True),
+            PartnerConnection.archived_at.is_(None),
             PartnerListing.active.is_(True),
             PartnerListing.identity_status == "resolved",
         )
@@ -570,6 +571,7 @@ def account_listing_destination(session, account_id, product_id, *, lock=False):
             PartnerListing.product_id == product_id,
             PartnerConnection.account_id == account_id,
             PartnerConnection.enabled.is_(True),
+            PartnerConnection.archived_at.is_(None),
             PartnerListing.active.is_(True),
             PartnerListing.identity_status == "resolved",
         )
@@ -615,6 +617,7 @@ def placement_rows_query(query, now):
             PartnerListing.product_id == PartnerProduct.id,
             PartnerConnection.account_id == PartnerAccount.id,
             PartnerConnection.enabled.is_(True),
+            PartnerConnection.archived_at.is_(None),
             PartnerListing.active.is_(True),
             PartnerListing.identity_status == "resolved",
         )

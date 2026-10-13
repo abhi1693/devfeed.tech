@@ -3,20 +3,13 @@
 import { useCallback, useState } from "react";
 import Link from "next/link";
 import { RefreshCw } from "lucide-react";
-import { Button } from "@/components/atoms/button";
-import { Input } from "@/components/atoms/input";
+import { Button } from "@devfeed/ui/button";
+import { Input } from "@devfeed/ui/input";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/atoms/card";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/atoms/table";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@devfeed/ui/table";
 import { DateTime } from "@/components/molecules/date-time";
 import { SummaryStrip } from "@/components/molecules/summary-strip";
-import { PageHeading } from "@/components/molecules/page-heading";
+import { ResourceHeading } from "@devfeed/ui/resource-layout";
 import { Select } from "@/components/molecules/select";
 import { StatusBadge } from "@/components/molecules/status-badge";
 import { JobLogs } from "@/components/organisms/job-logs";
@@ -249,12 +242,15 @@ export function WorkersOverview() {
   );
   return (
     <section className="space-y-6" aria-busy={loading || refreshing}>
-      <PageHeading title="Workers" description="See what is running and open a worker for details.">
+      <ResourceHeading
+        title="Workers"
+        description="See what is running and open a worker for details."
+      >
         <Link href="/queues" className={linkClass}>
           Queues
         </Link>
         <Refresh onClick={refresh} loading={loading || refreshing} />
-      </PageHeading>
+      </ResourceHeading>
       <ReadError error={error} stale={!!data} />
       {loading && <p role="status">Loading workers…</p>}
       {data && (
@@ -346,7 +342,7 @@ export function WorkerDetails({ name }: { name: string }) {
   const target = job && targetHref(job);
   return (
     <section className="space-y-6" aria-busy={loading || refreshing}>
-      <PageHeading
+      <ResourceHeading
         title={worker ? workerLabel(worker) : name.length > 28 ? "Worker" : name}
         browserTitle={`${worker ? workerLabel(worker) : "Worker"} · Workers`}
         trail={[{ label: "Workers", href: "/workers" }]}
@@ -355,7 +351,7 @@ export function WorkerDetails({ name }: { name: string }) {
           onClick={() => setRevision((value) => value + 1)}
           loading={loading || refreshing}
         />
-      </PageHeading>
+      </ResourceHeading>
       <ReadError error={error} stale={!!worker} />
       {loading && <p role="status">Loading worker…</p>}
       {worker && (
@@ -479,7 +475,7 @@ export function QueuesOverview() {
   const { data, error, loading, refreshing, refresh } = useSnapshot();
   return (
     <section className="space-y-6" aria-busy={loading || refreshing}>
-      <PageHeading
+      <ResourceHeading
         title="Queues"
         description="Work waiting to be picked up, and what is running now."
       >
@@ -487,7 +483,7 @@ export function QueuesOverview() {
           Workers
         </Link>
         <Refresh onClick={refresh} loading={loading || refreshing} />
-      </PageHeading>
+      </ResourceHeading>
       <ReadError error={error} stale={!!data} />
       {loading && <p role="status">Loading queues…</p>}
       {data && (

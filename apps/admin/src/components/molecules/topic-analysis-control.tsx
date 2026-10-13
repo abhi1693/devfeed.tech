@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { CircleAlert, Sparkles } from "lucide-react";
-import { Button } from "@/components/atoms/button";
+import { Button } from "@devfeed/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/atoms/tooltip";
 import { useAdmin } from "@/components/molecules/admin-session";
 import { adminTopicProposalAnalyze, adminTopicProposalGet } from "@/lib/api/generated/admin";

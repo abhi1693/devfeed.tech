@@ -56,7 +56,7 @@ it.each([401, 403, 503])("handles upstream session failure %s", async (status) =
   );
 });
 
-it("authorizes an off-page account with one scoped lookup and preserves the bounded picker page", async () => {
+it("authorizes an off-page account with one scoped lookup and preserves the bounded account page", async () => {
   const accountId = "22222222-2222-2222-2222-222222222222";
   const requestedAccount = { id: accountId, name: "Bookmarked partner" };
   const accounts = {
@@ -94,7 +94,7 @@ it("authorizes an off-page account with one scoped lookup and preserves the boun
 });
 
 it.each([401, 403, 404, 503])(
-  "uses scoped account authorization even when the picker lists it (response %s)",
+  "uses scoped account authorization even when the account list includes it (response %s)",
   async (status) => {
     const accountId = "22222222-2222-2222-2222-222222222222";
     vi.mocked(cookies).mockResolvedValue({

@@ -10,5 +10,5 @@ export type {
 } from "./api/generated/models";
 
 export type OutboundDestination = NonNullable<AccountOut["outbound_destination"]>;
-export type AssetSort = "name" | "impressions" | "clicks" | "ctr";
+export type AssetSort = "name" | "account" | "impressions" | "clicks" | "ctr";
 export type SortOrder = "asc" | "desc";

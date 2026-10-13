@@ -7,7 +7,7 @@ import {
   hasAudience,
   type AudienceTopicLoader,
 } from "@devfeed/ui/audience-targeting";
-import { Button } from "@/components/atoms/button";
+import { Button } from "@devfeed/ui/button";
 import type { Account } from "@/lib/types";
 import { parseAudienceTopics } from "@/lib/contracts";
 import { usePartnerPreferenceSave } from "@/lib/use-partner-preference-save";

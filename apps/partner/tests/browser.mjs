@@ -18,6 +18,8 @@ import {
   installCreativeMedia,
 } from "../../../scripts/testing/native-ad-formats.mjs";
 
+import { createConnectionFixture, assertConnectionJourneys } from "./browser-connections.mjs";
+
 const root = fileURLToPath(new URL("../../../", import.meta.url));
 const account = {
   id: "11111111-1111-4111-8111-111111111111",
@@ -44,6 +46,7 @@ const beta = {
   id: "22222222-2222-4222-8222-222222222222",
   name: "BuildKit Studio",
   tier: "bronze",
+  effective_promotion_kind: "product",
   benefits: [],
   ad_formats: ["feed"],
   allowed_ad_formats: ["feed"],
@@ -142,8 +145,12 @@ const assets = [
     measured_days: 1,
   })),
 ];
+// Reporting contracts use real UUID identities, including synthetic pagination records.
+assets.forEach((asset, index) => {
+  asset.id = `66666666-6666-4666-8666-${String(index + 1).padStart(12, "0")}`;
+});
 const dashboardRequests = [];
-const scopedDashboardRequests = [];
+const workspaceDashboardRequests = [];
 const accountPages = [];
 const accountLookups = [];
 const logoutRequests = [];
@@ -153,6 +160,7 @@ const creativePreviewRequests = [];
 const audienceRequests = [];
 const productPolicy = { excluded: false, promotion_surfaces: null, ad_formats: null };
 const productPolicyWrites = [];
+const connectionFixture = createConnectionFixture({ account, origin: () => origin });
 const mock = createServer(async (request, response) => {
   const url = new URL(request.url, "http://localhost");
   const path = url.pathname;
@@ -189,7 +197,7 @@ const mock = createServer(async (request, response) => {
         organization_id: "devfeed",
         expires_at: 4_102_444_800,
         name: "Alex Partner",
-        roles: [mode === "superuser" ? "superuser" : "partner"],
+        roles: mode === "superuser" ? ["partner", "superuser"] : ["partner"],
         csrf_token: "test-csrf",
       }),
     );
@@ -203,6 +211,7 @@ const mock = createServer(async (request, response) => {
         : mode === "superuser"
           ? [account, beta]
           : [account];
+  if (await connectionFixture.handle(request, response, url, memberAccounts)) return;
   if (path === "/v1/partner/accounts") {
     if (request.method === "POST") {
       response.writeHead(201);
@@ -211,13 +220,15 @@ const mock = createServer(async (request, response) => {
     }
     const offset = Number(url.searchParams.get("offset") ?? 0);
     const limit = Number(url.searchParams.get("limit") ?? 100);
-    assert.ok(limit > 0 && limit <= 100, "The account picker requests bounded pages");
-    const items = memberAccounts.slice(offset, offset + limit);
+    assert.ok(limit > 0 && limit <= 100, "Account records use bounded pages");
+    const query = (url.searchParams.get("q") ?? "").toLowerCase();
+    const matches = memberAccounts.filter((item) => item.name.toLowerCase().includes(query));
+    const items = matches.slice(offset, offset + limit);
     accountPages.push({ mode, offset, limit, ids: items.map((item) => item.id) });
     response.end(
       JSON.stringify({
         items,
-        total: memberAccounts.length,
+        total: matches.length,
       }),
     );
     return;
@@ -258,24 +269,44 @@ const mock = createServer(async (request, response) => {
     response.end(JSON.stringify(audienceTopicOptions(url.searchParams)));
     return;
   }
-  if (path.endsWith("/inventory")) {
+  const accountInventory = /^\/v1\/partner\/accounts\/([a-f0-9-]+)\/inventory$/i.exec(path);
+  if (path === "/v1/partner/inventory" || accountInventory) {
     assert.equal(request.method, "GET");
-    assert.equal(path, `/v1/partner/accounts/${account.id}/inventory`);
+    const selectedId = accountInventory?.[1] ?? url.searchParams.get("account_id");
+    if (selectedId && !memberAccounts.some((item) => item.id === selectedId)) {
+      response.writeHead(404);
+      response.end("{}");
+      return;
+    }
+    const owner = mode === "many" ? bookmarkedAccount : account;
+    const query = (url.searchParams.get("q") ?? "").toLowerCase();
+    const productId = url.searchParams.get("product_id");
+    const items =
+      memberAccounts.some((item) => item.id === owner.id) &&
+      (!selectedId || selectedId === owner.id) &&
+      (!productId || productId === previewProduct.id) &&
+      previewProduct.name.toLowerCase().includes(query)
+        ? [
+            {
+              id: previewProduct.id,
+              account_id: owner.id,
+              account_name: owner.name,
+              name: previewProduct.name,
+              technologies: ["Kubernetes"],
+              status: "approved",
+              commercial_approved: true,
+              approval_source: "qualified",
+              globally_excluded: false,
+              ...productPolicy,
+            },
+          ]
+        : [];
     response.end(
       JSON.stringify({
-        items: [
-          {
-            id: previewProduct.id,
-            name: previewProduct.name,
-            technologies: ["Kubernetes"],
-            status: "approved",
-            commercial_approved: true,
-            approval_source: "qualified",
-            globally_excluded: false,
-            ...productPolicy,
-          },
-        ],
-        total: 1,
+        items,
+        total: items.length,
+        limit: Number(url.searchParams.get("limit") ?? 100),
+        offset: Number(url.searchParams.get("offset") ?? 0),
       }),
     );
     return;
@@ -336,81 +367,89 @@ const mock = createServer(async (request, response) => {
     );
     return;
   }
-  if (path.endsWith("/dashboard")) {
-    const selected = memberAccounts.find(
-      (item) => path === `/v1/partner/accounts/${item.id}/dashboard`,
-    );
-    if (!selected) {
+  if (path === "/v1/partner/dashboard") {
+    const selectedId = url.searchParams.get("account_id");
+    if (selectedId && !memberAccounts.some((item) => item.id === selectedId)) {
       response.writeHead(404);
       response.end("{}");
       return;
     }
-    const isPrimary = selected.id === account.id;
-    const measured = isPrimary || mode === "many";
+    const scope = selectedId
+      ? memberAccounts.filter((item) => item.id === selectedId)
+      : memberAccounts;
     const days = url.searchParams.get("days");
     const sort = url.searchParams.get("sort") ?? "name";
     const order = url.searchParams.get("order") ?? "asc";
     const offset = Number(url.searchParams.get("offset") ?? 0);
+    const limit = Number(url.searchParams.get("limit") ?? 25);
+    assert.equal(limit, 25, "Performance uses the same bounded page size as CRUD lists");
     dashboardRequests.push({ days, sort, order, offset });
-    scopedDashboardRequests.push({ mode, id: selected.id });
-    const impressions =
-      mode === "many" ? 8100 + manyAccounts.indexOf(selected) : days === "7" ? 700 : 2400;
-    const clicks = mode === "many" ? 10 : days === "7" ? 35 : 120;
-    const sortedAssets = assets
-      .map((asset, index) =>
-        days === "7" && index === 0 ? { ...asset, impressions: 700, clicks: 35 } : asset,
-      )
-      .sort((left, right) => {
-        const leftUnknown = sort !== "name" && (!left.measured_days || left[sort] === null);
-        const rightUnknown = sort !== "name" && (!right.measured_days || right[sort] === null);
-        if (leftUnknown !== rightUnknown) return leftUnknown ? 1 : -1;
-        const comparison =
-          sort === "name"
-            ? left.name.localeCompare(right.name)
+    workspaceDashboardRequests.push({ mode, accountIds: scope.map((item) => item.id) });
+    const impressions = scope.reduce(
+      (total, item) =>
+        total +
+        (mode === "many"
+          ? 8100 + manyAccounts.indexOf(item)
+          : item.id === account.id
+            ? days === "7"
+              ? 700
+              : 2400
+            : 600),
+      0,
+    );
+    const clicks = scope.reduce(
+      (total, item) =>
+        total + (mode === "many" ? 10 : item.id === account.id ? (days === "7" ? 35 : 120) : 6),
+      0,
+    );
+    const measured = scope.length > 0;
+    const owner = mode === "many" ? bookmarkedAccount : account;
+    const scopedAssets = scope.some((item) => item.id === owner.id)
+      ? assets.map((asset, index) => ({
+          ...asset,
+          ...(days === "7" && index === 0 ? { impressions: 700, clicks: 35 } : {}),
+          account_id: owner.id,
+          account_name: owner.name,
+        }))
+      : [];
+    const sortedAssets = scopedAssets.sort((left, right) => {
+      const leftUnknown =
+        !["name", "account"].includes(sort) && (!left.measured_days || left[sort] === null);
+      const rightUnknown =
+        !["name", "account"].includes(sort) && (!right.measured_days || right[sort] === null);
+      if (leftUnknown !== rightUnknown) return leftUnknown ? 1 : -1;
+      const comparison =
+        sort === "name"
+          ? left.name.localeCompare(right.name)
+          : sort === "account"
+            ? left.account_name.localeCompare(right.account_name)
             : leftUnknown
               ? 0
               : left[sort] - right[sort];
-        return (order === "asc" ? comparison : -comparison) || left.name.localeCompare(right.name);
-      });
+      return (order === "asc" ? comparison : -comparison) || left.name.localeCompare(right.name);
+    });
     response.end(
       JSON.stringify({
-        account: selected,
+        account_total: scope.length,
         start: days === "7" ? "2026-10-01" : "2026-09-08",
         end: "2026-10-07",
-        totals: measured
-          ? {
-              impressions,
-              clicks,
-              ctr: 5,
-              measured_days: 1,
-            }
-          : { impressions: 0, clicks: 0, ctr: null, measured_days: 0 },
-        last_updated_at: "2026-10-07T10:00:00Z",
-        trend: measured
-          ? [
-              {
-                day: "2026-10-07",
-                impressions,
-                clicks,
-              },
-            ]
-          : [],
-        assets: isPrimary ? sortedAssets.slice(offset, offset + 100) : [],
-        asset_total: isPrimary ? assets.length : 0,
-        format_totals: isPrimary
+        totals: {
+          impressions,
+          clicks,
+          ctr: impressions ? (100 * clicks) / impressions : null,
+          measured_days: measured ? 1 : 0,
+        },
+        last_updated_at: measured ? "2026-10-07T10:00:00Z" : null,
+        trend: measured ? [{ day: "2026-10-07", impressions, clicks }] : [],
+        assets: sortedAssets.slice(offset, offset + limit),
+        asset_total: sortedAssets.length,
+        format_totals: measured
           ? [
               {
                 ad_format: "feed",
-                impressions: days === "7" ? 350 : 1200,
-                clicks: days === "7" ? 17 : 60,
-                ctr: 5,
-                measured_days: 1,
-              },
-              {
-                ad_format: "engagement",
-                impressions: days === "7" ? 350 : 1200,
-                clicks: days === "7" ? 18 : 60,
-                ctr: 5,
+                impressions,
+                clicks,
+                ctr: (100 * clicks) / impressions,
                 measured_days: 1,
               },
             ]
@@ -534,6 +573,7 @@ async function checkUploadDeadline() {
 }
 
 let browser;
+let activePage;
 try {
   for (let attempt = 0; attempt < 100; attempt++) {
     try {
@@ -547,7 +587,11 @@ try {
   const context = await browser.newContext({ viewport: { width: 1440, height: 1100 } });
   await installCreativeMedia(context);
   const page = await context.newPage();
+  activePage = page;
   const errors = [];
+  page.on("dialog", () => {
+    errors.push("Unexpected native dialog");
+  });
   page.on("pageerror", (error) => errors.push(error.message));
   await page.goto(origin);
   await page.waitForURL("**/login");
@@ -559,7 +603,9 @@ try {
   await page.screenshot({ path: root + "reports/partner/login-mobile.png", fullPage: true });
   await page.setViewportSize({ width: 1440, height: 1100 });
   await page.getByRole("link", { name: "Continue to sign in" }).click();
-  await page.getByRole("heading", { name: "Gold", exact: true }).waitFor();
+  await page.getByRole("heading", { name: "Dashboard", exact: true, level: 1 }).waitFor();
+  assert.equal(new URL(page.url()).pathname, "/");
+  await page.getByRole("figure", { name: "Impressions", exact: true }).waitFor();
   await page.getByRole("button", { name: "User menu: Alex Partner" }).focus();
   await page.keyboard.press("Enter");
   await page.getByRole("menuitem", { name: "Sign out" }).waitFor();
@@ -577,7 +623,17 @@ try {
   assert.equal(await page.getByText("Manage partnerships").count(), 0);
   assert.equal(await page.getByRole("heading", { name: "Performance", exact: true }).count(), 0);
   assert.equal(await page.getByRole("combobox", { name: "Partner account" }).count(), 0);
-  assert.equal(await page.getByRole("combobox", { name: "Reporting period" }).count(), 0);
+  assert.equal(await page.getByRole("combobox", { name: "Reporting period" }).count(), 1);
+  assert.equal(await page.getByRole("combobox", { name: "Product click destination" }).count(), 0);
+  assert.equal(await page.getByRole("dialog").count(), 0);
+  await page.getByRole("figure", { name: "Impressions", exact: true }).waitFor();
+  await page.screenshot({ path: root + "reports/partner/dashboard-desktop.png", fullPage: true });
+  await page.setViewportSize({ width: 390, height: 844 });
+  assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
+  await page.screenshot({ path: root + "reports/partner/dashboard-mobile.png", fullPage: true });
+  await page.setViewportSize({ width: 1440, height: 1100 });
+  await page.goto(origin + `/settings/${account.id}`);
+  await page.getByRole("region", { name: "Product promotion settings" }).waitFor();
   await page.getByText("Sponsored · inherited from tier", { exact: true }).waitFor();
   const settings = page.getByRole("region", { name: "Product promotion settings" });
   assert.equal(await page.getByLabel("Senior", { exact: true }).count(), 0);
@@ -613,12 +669,12 @@ try {
   await page.getByRole("status").filter({ hasText: "Click destination saved." }).waitFor();
   assert.deepEqual(preferenceWrites.at(-1), { outbound_destination: "listing_url" });
   await page.reload();
-  await page.getByRole("heading", { name: "Gold", exact: true }).waitFor();
+  await page.getByText("Gold", { exact: true }).waitFor();
   assert.match(
     await page.getByRole("combobox", { name: "Product click destination" }).innerText(),
     /Partner listing/,
   );
-  await page.screenshot({ path: root + "reports/partner/overview-desktop.png", fullPage: true });
+  await page.screenshot({ path: root + "reports/partner/settings-desktop.png", fullPage: true });
   await page.setViewportSize({ width: 390, height: 844 });
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
   assert.equal(await page.getByRole("combobox", { name: "Partner account" }).count(), 0);
@@ -634,7 +690,7 @@ try {
   await page.getByRole("button", { name: "Save click destination", exact: true }).click();
   await page.getByRole("status").filter({ hasText: "Click destination saved." }).waitFor();
   assert.deepEqual(preferenceWrites.at(-1), { outbound_destination: "product_url" });
-  await page.screenshot({ path: root + "reports/partner/overview-mobile.png", fullPage: true });
+  await page.screenshot({ path: root + "reports/partner/settings-mobile.png", fullPage: true });
   await page.getByRole("button", { name: "User menu: Alex Partner" }).click();
   await page.getByRole("menuitem", { name: "Sign out" }).waitFor();
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
@@ -642,9 +698,9 @@ try {
     await Promise.all(element.getAnimations().map((animation) => animation.finished));
   });
   await page.screenshot({ path: root + "reports/partner/avatar-menu-mobile.png", fullPage: true });
-  await page.getByRole("menuitem", { name: "Overview", exact: true }).click();
-  await page.waitForURL((url) => url.pathname === `/${account.id}`);
-  await page.getByRole("heading", { name: "Gold", exact: true }).waitFor();
+  await page.getByRole("menuitem", { name: "Dashboard", exact: true }).click();
+  await page.waitForURL((url) => url.pathname === "/");
+  await page.getByRole("heading", { name: "Dashboard", exact: true, level: 1 }).waitFor();
   assert.equal(
     await page
       .getByRole("button", { name: "User menu: Alex Partner" })
@@ -652,12 +708,15 @@ try {
     "false",
   );
   await page.setViewportSize({ width: 1440, height: 1100 });
-  await page.getByRole("link", { name: "Performance", exact: true }).click();
+  await page
+    .getByRole("navigation", { name: "Partner portal", exact: true })
+    .getByRole("link", { name: "Performance", exact: true })
+    .click();
   await page.waitForURL("**/performance?*");
-  await page.getByRole("heading", { name: "Daily activity" }).waitFor();
+  await page.getByRole("heading", { name: "Ad performance", exact: true }).waitFor();
   account.tier = "silver";
-  await page.goto(origin + `/${account.id}`);
-  await page.getByRole("heading", { name: "Silver", exact: true }).waitFor();
+  await page.goto(origin + `/settings/${account.id}`);
+  await page.getByText("Silver", { exact: true }).waitFor();
   const formatSettings = page.getByRole("form", { name: "Ad format settings", exact: true });
   assert.equal(await formatSettings.getByRole("checkbox", { name: /^Feed/ }).isChecked(), true);
   await formatSettings.getByRole("checkbox", { name: /^Homepage sponsorship/ }).check();
@@ -698,10 +757,15 @@ try {
   await formatSection.screenshot({ path: root + "reports/partner/ad-formats-mobile.png" });
   await page.setViewportSize({ width: 1440, height: 1100 });
   account.tier = "gold";
-  await page.goto(origin + `/${account.id}/performance`);
-  await page.getByRole("heading", { name: "Daily activity" }).waitFor();
+  await page.goto(origin + `/performance`);
+  await page.getByRole("heading", { name: "Ad performance", exact: true }).waitFor();
   assert.equal(await page.getByRole("combobox", { name: "Partner account" }).count(), 0);
-  assert.equal(await page.getByText("2,400", { exact: true }).count(), 2);
+  await page
+    .getByRole("region", { name: "Impressions", exact: true })
+    .getByText("2,400", { exact: true })
+    .waitFor();
+  assert.equal(await page.getByRole("figure").count(), 2);
+  await page.getByRole("link", { name: "Export daily CSV", exact: true }).waitFor();
   await page.getByRole("combobox", { name: "Reporting period" }).click();
   await page.getByRole("option", { name: "Last 7 days" }).click();
   await page.getByText("700", { exact: true }).first().waitFor();
@@ -709,144 +773,132 @@ try {
   await page.getByRole("option", { name: "Last 30 days" }).click();
   await page.getByText("2,400", { exact: true }).first().waitFor();
   await mkdir(root + "reports/partner", { recursive: true });
+  await page
+    .getByRole("region", { name: "Ad performance", exact: true })
+    .screenshot({ path: root + "reports/partner/performance-charts-desktop.png" });
   await page.screenshot({ path: root + "reports/partner/desktop.png", fullPage: true });
   await page.setViewportSize({ width: 390, height: 844 });
   await page.getByRole("button", { name: "Navigation" }).click();
-  await page.getByRole("link", { name: "Products & ads", exact: true }).click();
-  assert.equal(
-    await page.getByRole("button", { name: "Navigation" }).getAttribute("aria-expanded"),
-    "false",
-  );
-  await page.screenshot({ path: root + "reports/partner/mobile.png", fullPage: true });
-  assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
-
-  await page.waitForURL("**/assets?*");
-  assert.equal(new URL(page.url()).hash, "");
-  assert.equal(await page.getByRole("heading", { name: "Daily activity" }).count(), 0);
-  assert.equal(await page.getByRole("combobox", { name: "Partner account" }).count(), 0);
-  await page.reload();
-  await page.getByText("API Checker launch campaign", { exact: true }).waitFor();
-  // A saved page may no longer exist after assets are removed from the account.
-  await page.goto(
-    `http://127.0.0.1:${webPort}/${account.id}/assets?days=30&sort=name&order=asc&asset_offset=200`,
-  );
-  await page.getByText("API Checker launch campaign", { exact: true }).waitFor();
-  await page.waitForURL((url) => !url.searchParams.has("asset_offset"));
-  assert.deepEqual(dashboardRequests.at(-1), {
-    days: "30",
-    sort: "name",
-    order: "asc",
-    offset: 0,
-  });
-  assert.equal(await page.getByRole("columnheader", { name: "Type", exact: true }).count(), 0);
-  await page.getByRole("button", { name: "Manage product placements", exact: true }).click();
-  const productCatalog = page.getByRole("dialog", {
-    name: "Imported product placements",
-    exact: true,
-  });
-  await productCatalog
-    .getByRole("button", { name: `Edit placements for ${previewProduct.name}`, exact: true })
+  await page
+    .getByRole("navigation", { name: "Partner portal", exact: true })
+    .getByRole("link", { name: "Products", exact: true })
     .click();
-  const productDialog = page.getByRole("dialog", {
-    name: `${previewProduct.name} placements`,
-    exact: true,
-  });
-  await productDialog.getByRole("button", { name: "Preview this product", exact: true }).click();
-  await productDialog
-    .getByRole("region", { name: "Creative preview" })
+  await page.waitForURL((url) => url.pathname === `/products`);
+  await page.getByRole("table", { name: "Imported products" }).waitFor();
+  await page.getByRole("link", { name: previewProduct.name, exact: true }).waitFor();
+  assert.equal(await page.getByRole("dialog").count(), 0);
+  assert.equal(await page.getByRole("button", { name: "Manage product placements" }).count(), 0);
+  assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
+  await page.screenshot({ path: root + "reports/partner/products-mobile.png", fullPage: true });
+  await page.reload();
+  await page.getByRole("link", { name: previewProduct.name, exact: true }).click();
+  const productPath = `/products/${previewProduct.id}`;
+  await page.waitForURL((url) => url.pathname === productPath);
+  await page.getByRole("heading", { name: previewProduct.name, exact: true, level: 1 }).waitFor();
+  await page
+    .getByRole("region", { name: "Creative preview", exact: true })
     .getByText(previewProduct.name, { exact: true })
     .waitFor();
   assert.deepEqual(creativePreviewRequests.at(-1), {
     productId: previewProduct.id,
     excluded: false,
   });
-  await productDialog.getByRole("combobox", { name: "Product availability", exact: true }).click();
+  const directProduct = await page.goto(origin + productPath);
+  assert.equal(
+    directProduct.status(),
+    200,
+    "A product bookmark resolves its authorized account policy without an account URL prefix",
+  );
+  await page.getByRole("heading", { name: previewProduct.name, exact: true, level: 1 }).waitFor();
+  await page.getByRole("link", { name: "Edit placements", exact: true }).click();
+  await page.waitForURL((url) => url.pathname === `${productPath}/placements`);
+  await page
+    .getByRole("heading", { name: `Edit ${previewProduct.name} placements`, exact: true })
+    .waitFor();
+  assert.equal(await page.getByRole("dialog").count(), 0);
+  await page.getByRole("combobox", { name: "Product availability", exact: true }).click();
   await page.getByRole("option", { name: "Exclude this product", exact: true }).click();
-  await productDialog.getByText("Unsaved changes", { exact: true }).waitFor();
-  await productDialog.getByRole("combobox", { name: "Product formats", exact: true }).click();
+  await page.getByText("Unsaved changes", { exact: true }).waitFor();
+  await page.getByRole("combobox", { name: "Product formats", exact: true }).click();
   await page.getByRole("option", { name: "Choose product formats", exact: true }).click();
   for (const name of ["Feed", "Homepage sponsorship", "Sponsored content"])
-    await productDialog.getByRole("checkbox", { name, exact: true }).uncheck();
-  await productDialog.getByRole("checkbox", { name: "Engagement", exact: true }).check();
-  await productDialog.getByRole("combobox", { name: "Product placements", exact: true }).click();
+    await page.getByRole("checkbox", { name, exact: true }).uncheck();
+  await page.getByRole("checkbox", { name: "Engagement", exact: true }).check();
+  await page.getByRole("combobox", { name: "Product placements", exact: true }).click();
   await page.getByRole("option", { name: "Choose product placements", exact: true }).click();
-  await productDialog.getByLabel("Article pages", { exact: true }).uncheck();
-  await productDialog.getByLabel("Topic and category pages", { exact: true }).uncheck();
-  await productDialog.getByLabel("Reader feeds", { exact: true }).check();
-  await productDialog.screenshot({ path: root + "reports/partner/product-placements-mobile.png" });
-  await productDialog.getByRole("button", { name: "Save product placements", exact: true }).click();
-  await productDialog.waitFor({ state: "hidden" });
+  await page.getByLabel("Article pages", { exact: true }).uncheck();
+  await page.getByLabel("Topic and category pages", { exact: true }).uncheck();
+  await page.getByLabel("Reader feeds", { exact: true }).check();
+  await page.screenshot({
+    path: root + "reports/partner/product-placements-mobile.png",
+    fullPage: true,
+  });
+  await page.getByRole("button", { name: "Save product placements", exact: true }).click();
+  await page.waitForURL((url) => url.pathname === productPath);
   assert.deepEqual(productPolicyWrites.at(-1), {
     excluded: true,
     ad_formats: ["engagement"],
     promotion_surfaces: ["feed"],
   });
-  await page.keyboard.press("Escape");
-  await productCatalog.waitFor({ state: "hidden" });
   await page.reload();
-  await page
-    .getByRole("button", { name: "Edit placements for API Checker launch campaign", exact: true })
-    .click();
-  const reportProductDialog = page.getByRole("dialog", {
-    name: "API Checker launch campaign placements",
-    exact: true,
-  });
-  await reportProductDialog.getByText(/This product is excluded/).waitFor();
-  await reportProductDialog
-    .getByRole("button", { name: "Preview this product", exact: true })
-    .click();
-  await reportProductDialog.getByText(/This product is unavailable for preview/).waitFor();
+  await page.getByRole("link", { name: "Edit placements", exact: true }).click();
+  await page.getByText(/This product is excluded/).waitFor();
+  await page.getByText(/This product is unavailable for preview/).waitFor();
   assert.deepEqual(creativePreviewRequests.at(-1), {
     productId: previewProduct.id,
     excluded: true,
   });
-  await reportProductDialog
-    .getByRole("combobox", { name: "Product availability", exact: true })
-    .click();
+  await page.getByRole("combobox", { name: "Product availability", exact: true }).click();
   await page.getByRole("option", { name: "Allow this product", exact: true }).click();
-  await reportProductDialog.getByText("Unsaved changes", { exact: true }).waitFor();
+  await page.getByText("Unsaved changes", { exact: true }).waitFor();
+  assert.equal(productPolicy.excluded, true, "Draft Allow does not restore delivery before save");
   assert.equal(
-    productPolicy.excluded,
-    true,
-    "Changing the draft does not restore the product until save",
-  );
-  assert.equal(
-    await reportProductDialog
-      .getByRole("checkbox", { name: "Engagement", exact: true })
-      .isChecked(),
+    await page.getByRole("checkbox", { name: "Engagement", exact: true }).isChecked(),
     true,
   );
-  assert.equal(
-    await reportProductDialog.getByRole("checkbox", { name: "Feed", exact: true }).isChecked(),
-    false,
-  );
+  assert.equal(await page.getByRole("checkbox", { name: "Feed", exact: true }).isChecked(), false);
   await page.setViewportSize({ width: 1280, height: 1100 });
-  await reportProductDialog.screenshot({
+  assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
+  await page.screenshot({
     path: root + "reports/partner/product-placements-desktop.png",
+    fullPage: true,
   });
-  await reportProductDialog.getByRole("combobox", { name: "Product formats", exact: true }).click();
+  await page.getByRole("combobox", { name: "Product formats", exact: true }).click();
   await page.getByRole("option", { name: "Inherit account formats", exact: true }).click();
-  await reportProductDialog
-    .getByRole("combobox", { name: "Product placements", exact: true })
-    .click();
+  await page.getByRole("combobox", { name: "Product placements", exact: true }).click();
   await page.getByRole("option", { name: "Inherit account placements", exact: true }).click();
-  await reportProductDialog
-    .getByRole("button", { name: "Save product placements", exact: true })
-    .click();
-  await reportProductDialog.waitFor({ state: "hidden" });
+  await page.getByRole("button", { name: "Save product placements", exact: true }).click();
+  await page.waitForURL((url) => url.pathname === productPath);
   assert.deepEqual(productPolicyWrites.at(-1), {
     excluded: false,
     ad_formats: null,
     promotion_surfaces: null,
   });
-  assert.equal(
-    await page
-      .getByRole("button", { name: "Sort by Name", exact: true })
-      .locator("..")
-      .getAttribute("aria-sort"),
-    "ascending",
-  );
+  await page.getByRole("link", { name: "Edit placements", exact: true }).click();
+  await page.getByRole("combobox", { name: "Product availability", exact: true }).click();
+  await page.getByRole("option", { name: "Exclude this product", exact: true }).click();
+  await page.getByRole("button", { name: "Cancel", exact: true }).click();
+  await page.waitForURL((url) => url.pathname === productPath);
+  assert.equal(productPolicy.excluded, false, "Cancel discards an unsaved draft without a popup");
+  const previousBookmark = await page.goto(origin + `/${account.id}/assets?days=30`);
+  assert.equal(previousBookmark.status(), 404, "Obsolete account-prefixed routes are removed");
+  await page.goto(origin + "/products");
+  await page.getByRole("link", { name: previewProduct.name, exact: true }).waitFor();
   await page.setViewportSize({ width: 1440, height: 1100 });
+  await page.screenshot({ path: root + "reports/partner/products-desktop.png", fullPage: true });
+  await assertConnectionJourneys({
+    page,
+    origin,
+    account,
+    fixture: connectionFixture,
+    artifactDir: root + "reports/partner",
+  });
+  await page.setViewportSize({ width: 1440, height: 1100 });
+  // Removed report pages reset independently of the Products inventory list.
+  await page.goto(origin + `/performance?days=30&sort=name&order=asc&asset_offset=200`);
+  await page.getByText("API Checker launch campaign", { exact: true }).waitFor();
+  await page.waitForURL((url) => !url.searchParams.has("asset_offset"));
+  assert.deepEqual(dashboardRequests.at(-1), { days: "30", sort: "name", order: "asc", offset: 0 });
   async function sortAssets(label, sort, order, firstName) {
     const header = page.getByRole("button", { name: `Sort by ${label}`, exact: true });
     await header.click();
@@ -876,8 +928,11 @@ try {
   await sortAssets("Clicks", "clicks", "asc", "Zero delivery");
   await sortAssets("CTR", "ctr", "desc", "CTR leader");
   await sortAssets("CTR", "ctr", "asc", "BuildKit sponsorship");
-  await page.getByRole("button", { name: "Next", exact: true }).click();
-  await page.waitForURL((url) => url.searchParams.get("asset_offset") === "100");
+  for (const offset of [25, 50, 75, 100]) {
+    await page.getByRole("button", { name: "Next", exact: true }).click();
+    await page.waitForURL((url) => url.searchParams.get("asset_offset") === String(offset));
+    await page.locator('section[aria-busy="false"]').waitFor();
+  }
   await page.getByText("Unmeasured delivery", { exact: true }).waitFor();
   assert.equal(await page.locator("tbody tr").count(), 6);
   assert.deepEqual(
@@ -906,7 +961,11 @@ try {
     path: root + "reports/partner/assets-sorting-desktop.png",
     fullPage: true,
   });
-  await page.getByRole("button", { name: "Next", exact: true }).click();
+  for (const offset of [25, 50, 75, 100]) {
+    await page.getByRole("button", { name: "Next", exact: true }).click();
+    await page.waitForURL((url) => url.searchParams.get("asset_offset") === String(offset));
+    await page.locator('section[aria-busy="false"]').waitFor();
+  }
   await page.getByText("Unmeasured delivery", { exact: true }).waitFor();
   await page.getByRole("combobox", { name: "Reporting period" }).click();
   await page.getByRole("option", { name: "Last 7 days" }).click();
@@ -918,13 +977,25 @@ try {
     order: "desc",
     offset: 0,
   });
-  await page.getByRole("link", { name: "Performance", exact: true }).click();
-  await page.getByRole("heading", { name: "Daily activity" }).waitFor();
+  await page
+    .getByRole("navigation", { name: "Partner portal", exact: true })
+    .getByRole("link", { name: "Performance", exact: true })
+    .click();
+  await page.getByRole("heading", { name: "Ad performance", exact: true }).waitFor();
   assert.equal(new URL(page.url()).searchParams.get("sort"), "impressions");
   assert.equal(new URL(page.url()).searchParams.get("order"), "desc");
   await page.setViewportSize({ width: 390, height: 844 });
   await page.getByRole("button", { name: "Navigation" }).click();
-  await page.getByRole("link", { name: "Products & ads", exact: true }).click();
+  await page
+    .getByRole("navigation", { name: "Partner portal", exact: true })
+    .getByRole("link", { name: "Products", exact: true })
+    .click();
+  await page.getByRole("link", { name: previewProduct.name, exact: true }).waitFor();
+  await page.getByRole("button", { name: "Navigation" }).click();
+  await page
+    .getByRole("navigation", { name: "Partner portal", exact: true })
+    .getByRole("link", { name: "Performance", exact: true })
+    .click();
   await page.getByText("BuildKit sponsorship", { exact: true }).waitFor();
   assert.equal(
     await page
@@ -938,15 +1009,21 @@ try {
   assert.equal(new URL(page.url()).searchParams.get("sort"), "ctr");
   assert.equal(new URL(page.url()).searchParams.get("order"), "desc");
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
+  await page
+    .getByRole("region", { name: "Ad performance", exact: true })
+    .screenshot({ path: root + "reports/partner/performance-charts-mobile.png" });
   await page.screenshot({
     path: root + "reports/partner/assets-sorting-mobile.png",
     fullPage: true,
   });
   await page.getByRole("button", { name: "Navigation" }).click();
-  await page.getByRole("link", { name: "Performance", exact: true }).click();
+  await page
+    .getByRole("navigation", { name: "Partner portal", exact: true })
+    .getByRole("link", { name: "Performance", exact: true })
+    .click();
   await page.waitForURL("**/performance?*");
-  await page.getByRole("heading", { name: "Daily activity" }).waitFor();
-  assert.equal(new URL(page.url()).pathname, `/${account.id}/performance`);
+  await page.getByRole("heading", { name: "Ad performance", exact: true }).waitFor();
+  assert.equal(new URL(page.url()).pathname, `/performance`);
   await page.getByRole("combobox", { name: "Reporting period" }).click();
   await page.getByRole("option", { name: "Last 7 days" }).click();
   await page.getByText("700", { exact: true }).first().waitFor();
@@ -955,18 +1032,21 @@ try {
     await page.getByRole("combobox", { name: "Reporting period" }).innerText(),
     /Last 7 days/,
   );
-  await page.getByRole("heading", { name: "Daily activity" }).waitFor();
+  await page.getByRole("heading", { name: "Ad performance", exact: true }).waitFor();
   await page.setViewportSize({ width: 1440, height: 1100 });
-  await page.getByRole("link", { name: "Overview", exact: true }).click();
-  await page.waitForURL((url) => url.pathname === `/${account.id}`);
-  await page.getByRole("heading", { name: "Gold", exact: true }).waitFor();
+  await page
+    .getByRole("navigation", { name: "Partner portal", exact: true })
+    .getByRole("link", { name: "Dashboard", exact: true })
+    .click();
+  await page.waitForURL((url) => url.pathname === "/");
+  await page.getByRole("heading", { name: "Dashboard", exact: true, level: 1 }).waitFor();
   await page.goBack();
   await page.waitForURL("**/performance?*");
-  await page.getByRole("heading", { name: "Daily activity" }).waitFor();
+  await page.getByRole("heading", { name: "Ad performance", exact: true }).waitFor();
   account.tier = "platinum";
   account.advanced_targeting = true;
-  await page.goto(origin + `/${account.id}`);
-  await page.getByRole("heading", { name: "Platinum", exact: true }).waitFor();
+  await page.goto(origin + `/settings/${account.id}`);
+  await page.getByText("Platinum", { exact: true }).waitFor();
   const audience = page.getByRole("region", { name: "Audience targeting", exact: true });
   await selectAudience(page, audience, audienceRequests);
   await audience.screenshot({
@@ -992,12 +1072,12 @@ try {
   );
   account.tier = "diamond";
   await page.reload();
-  await page.getByRole("heading", { name: "Diamond", exact: true }).waitFor();
+  await page.getByText("Diamond", { exact: true }).waitFor();
   await checkAudienceSelection(audience);
   account.tier = "gold";
   account.advanced_targeting = false;
   await page.reload();
-  await page.getByRole("heading", { name: "Gold", exact: true }).waitFor();
+  await page.getByText("Gold", { exact: true }).waitFor();
   assert.equal(await audience.getByLabel("Senior", { exact: true }).count(), 0);
   assert.equal(
     await audience.getByRole("combobox", { name: "Programming languages", exact: true }).count(),
@@ -1018,9 +1098,41 @@ try {
   await page.goto(origin);
   assert.equal(await page.getByRole("link", { name: "Manage partnerships" }).count(), 0);
   assert.equal(await page.getByRole("heading", { name: "Manage partnerships" }).count(), 0);
-  await page.getByRole("combobox", { name: "Partner account" }).click();
-  await page.getByRole("option", { name: "BuildKit Studio", exact: true }).click();
-  await page.getByRole("heading", { name: "Bronze", exact: true }).waitFor();
+  await page.getByRole("heading", { name: "Dashboard", exact: true, level: 1 }).waitFor();
+  assert.equal(new URL(page.url()).pathname, "/", "The workspace has no account UUID prefix");
+  assert.equal(await page.getByRole("combobox", { name: "Partner account" }).count(), 0);
+  await page
+    .getByRole("region", { name: "Impressions", exact: true })
+    .getByText("3,000", { exact: true })
+    .waitFor();
+  assert.deepEqual(workspaceDashboardRequests.at(-1).accountIds, [account.id, beta.id]);
+  await page.goto(origin + "/performance");
+  await page.getByRole("columnheader", { name: /account/i }).waitFor();
+  await page
+    .getByRole("region", { name: "Impressions", exact: true })
+    .getByText("3,000", { exact: true })
+    .waitFor();
+  await page
+    .getByRole("region", { name: "Click-through rate", exact: true })
+    .getByText("4.20%", { exact: true })
+    .waitFor();
+  await page.goto(origin + "/products");
+  await page.getByRole("columnheader", { name: /account/i }).waitFor();
+  await page
+    .getByRole("table", { name: "Imported products" })
+    .getByText(account.name, { exact: true })
+    .waitFor();
+  await page.goto(origin + "/settings");
+  await page
+    .getByRole("table", { name: "Partner accounts" })
+    .getByText(beta.name, { exact: true })
+    .waitFor();
+  await page.screenshot({
+    path: root + "reports/partner/workspace-settings-desktop.png",
+    fullPage: true,
+  });
+  await page.goto(origin + `/settings/${beta.id}`);
+  await page.getByText("Bronze", { exact: true }).waitFor();
   await page
     .getByText("A preview will appear when this account has an accepted product.", { exact: true })
     .waitFor();
@@ -1028,13 +1140,13 @@ try {
   assert.ok(
     previewRequests.some((request) => request.account === beta.id && request.mode === "superuser"),
   );
-  assert.equal(new URL(page.url()).pathname, `/${beta.id}`);
-  assert.equal(new URL(page.url()).searchParams.has("account"), false);
+  assert.equal(new URL(page.url()).pathname, `/settings/${beta.id}`);
   for (const path of [
-    "/performance",
     "/assets",
-    `/?account=${beta.id}`,
-    `/${beta.id}/performance?account=${account.id}`,
+    `/${account.id}`,
+    `/${beta.id}/performance`,
+    `/${account.id}/products`,
+    `/${account.id}/settings`,
   ]) {
     const removedRoute = await page.goto(origin + path);
     assert.equal(removedRoute.status(), 404, path);
@@ -1045,116 +1157,90 @@ try {
   assert.equal(removed.status(), 404);
 
   await context.addCookies([{ name: "devfeed_partner_session", value: "many", url: origin }]);
-  const bookmark = `/${bookmarkedAccount.id}/performance?days=7&sort=clicks&order=desc`;
+  await page.goto(origin + "/performance?days=7&sort=clicks&order=desc");
+  const manyTotal = manyAccounts.reduce((total, _, index) => total + 8100 + index, 0);
+  await page
+    .getByRole("region", { name: "Impressions", exact: true })
+    .getByText(manyTotal.toLocaleString("en"), { exact: true })
+    .waitFor();
+  assert.equal(
+    workspaceDashboardRequests.at(-1).accountIds.length,
+    105,
+    "Workspace reporting includes memberships beyond the first page",
+  );
+  assert.equal(await page.getByRole("combobox", { name: "Partner account" }).count(), 0);
+  assert.equal(new URL(page.url()).pathname, "/performance");
+  await page.goto(origin + "/products");
+  await page
+    .getByRole("table", { name: "Imported products" })
+    .getByText(bookmarkedAccount.name, { exact: true })
+    .waitFor();
+  await page.getByRole("link", { name: previewProduct.name, exact: true }).waitFor();
+  await page.goto(origin + "/settings");
+  const accountTable = page.getByRole("table", { name: "Partner accounts" });
+  const accountPagination = page.getByRole("navigation", { name: "Account pages", exact: true });
+  await accountPagination.getByText("1–25 of 105", { exact: true }).waitFor();
+  assert.equal(await accountTable.locator("tbody tr").count(), 25);
+  assert.equal(await accountTable.getByText(bookmarkedAccount.name, { exact: true }).count(), 0);
+  for (let offset = 25; offset <= 100; offset += 25) {
+    await accountPagination.getByRole("button", { name: "Next accounts", exact: true }).click();
+    await accountPagination
+      .getByText(`${offset + 1}–${Math.min(offset + 25, 105)} of 105`, { exact: true })
+      .waitFor();
+    await accountTable.getByText(manyAccounts[offset].name, { exact: true }).waitFor();
+  }
+  assert.equal(await accountTable.locator("tbody tr").count(), 5);
+  await accountTable.getByText(bookmarkedAccount.name, { exact: true }).waitFor();
+  await page.reload();
+  await accountPagination.getByText("101–105 of 105", { exact: true }).waitFor();
+  const bookmark = `/settings/${bookmarkedAccount.id}`;
   const bookmarkedResponse = await page.goto(origin + bookmark);
   assert.equal(
     bookmarkedResponse.status(),
     200,
-    "Membership authorizes a bookmark beyond page one",
+    "Record membership is independent of account-list pagination",
   );
-  const accountPicker = page.getByRole("combobox", { name: "Partner account", exact: true });
-  const accountPagination = page.getByRole("navigation", { name: "Account pages", exact: true });
-  async function checkBookmarkedReport() {
-    await page.getByRole("heading", { name: "Daily activity", exact: true }).waitFor();
-    await page.locator(".metrics").getByText("8,204", { exact: true }).waitFor();
-    assert.equal((await accountPicker.innerText()).trim(), bookmarkedAccount.name);
-    const location = new URL(page.url());
-    assert.equal(location.pathname, `/${bookmarkedAccount.id}/performance`);
-    assert.equal(location.searchParams.get("days"), "7");
-    assert.equal(location.searchParams.get("sort"), "clicks");
-    assert.equal(location.searchParams.get("order"), "desc");
-  }
-  await checkBookmarkedReport();
+  await page.getByText("Bronze", { exact: true }).waitFor();
+  assert.equal(new URL(page.url()).pathname, bookmark);
   assert.equal(new URL(page.url()).searchParams.has("account_offset"), false);
-  await accountPagination.getByText("1–100 of 105", { exact: true }).waitFor();
-  await accountPicker.click();
-  await page.getByRole("option", { name: manyAccounts[0].name, exact: true }).waitFor();
-  assert.equal(await page.getByRole("option").count(), 100);
-  assert.equal(
-    await page.getByRole("option", { name: bookmarkedAccount.name, exact: true }).count(),
-    0,
-  );
-  await page.keyboard.press("Escape");
-
-  const pagingReports = scopedDashboardRequests.length;
-  await accountPagination.getByRole("button", { name: "Next accounts", exact: true }).click();
-  await accountPagination.getByText("101–105 of 105", { exact: true }).waitFor();
-  await page.waitForURL((url) => url.searchParams.get("account_offset") === "100");
-  await checkBookmarkedReport();
-  assert.equal(new URL(page.url()).searchParams.get("account_offset"), "100");
-  await accountPicker.click();
-  await page.getByRole("option", { name: bookmarkedAccount.name, exact: true }).waitFor();
-  assert.equal(await page.getByRole("option").count(), 5);
-  await page.keyboard.press("Escape");
-  await accountPagination.getByRole("button", { name: "Previous accounts", exact: true }).click();
-  await accountPagination.getByText("1–100 of 105", { exact: true }).waitFor();
-  await page.waitForURL((url) => !url.searchParams.has("account_offset"));
-  await checkBookmarkedReport();
-  assert.equal(new URL(page.url()).searchParams.has("account_offset"), false);
-  assert.ok(
-    scopedDashboardRequests
-      .slice(pagingReports)
-      .every((request) => request.id === bookmarkedAccount.id),
-    "Browsing account pages preserves the selected account and its report",
-  );
-  await accountPicker.click();
-  await page.getByRole("option", { name: manyAccounts[0].name, exact: true }).waitFor();
-  assert.equal(await page.getByRole("option").count(), 100);
-  await page.getByRole("option", { name: manyAccounts[0].name, exact: true }).click();
-  await page.waitForURL((url) => url.pathname === `/${manyAccounts[0].id}/performance`);
-  await page.locator(".metrics").getByText("8,100", { exact: true }).waitFor();
-  assert.equal((await accountPicker.innerText()).trim(), manyAccounts[0].name);
-
   bookmarkedAccount.name = "Catalog partner 103A";
-  const reordered = [...manyAccounts].sort((left, right) => left.name.localeCompare(right.name));
-  assert.ok(reordered.indexOf(bookmarkedAccount) >= 100);
-  assert.notEqual(reordered.indexOf(bookmarkedAccount), 104);
   const reorderedResponse = await page.goto(origin + bookmark);
   assert.equal(
     reorderedResponse.status(),
     200,
-    "Renaming changes picker order without invalidating the bookmark",
+    "Renaming accounts does not invalidate record bookmarks",
   );
-  await checkBookmarkedReport();
-  assert.equal(new URL(page.url()).searchParams.has("account_offset"), false);
+  await page.getByText("Bronze", { exact: true }).waitFor();
   await page.reload();
-  await checkBookmarkedReport();
-  await accountPicker.click();
-  await page.getByRole("option", { name: manyAccounts[0].name, exact: true }).waitFor();
-  assert.equal(await page.getByRole("option").count(), 100);
-  assert.equal(
-    await page.getByRole("option", { name: bookmarkedAccount.name, exact: true }).count(),
-    0,
-  );
-  await page.keyboard.press("Escape");
+  await page.getByText("Bronze", { exact: true }).waitFor();
   assert.ok(
     accountLookups.some(
       (request) =>
         request.mode === "many" && request.id === bookmarkedAccount.id && request.authorized,
     ),
-    "Bookmarked accounts are authorized by a scoped membership lookup",
   );
   const manyPages = accountPages.filter((request) => request.mode === "many");
   assert.ok(manyPages.some((request) => request.offset === 100 && request.ids.length === 5));
-  assert.ok(
-    manyPages.every((request) => [0, 100].includes(request.offset) && request.ids.length <= 100),
-  );
-
+  assert.ok(manyPages.every((request) => request.ids.length <= 100));
   const foreignAccountId = "99999999-9999-4999-8999-999999999999";
-  const unauthorized = await page.goto(origin + `/${foreignAccountId}/performance`);
-  assert.equal(
-    unauthorized.status(),
-    404,
-    "A valid UUID without membership is not authorized by picker pages",
-  );
+  const unauthorized = await page.goto(origin + `/settings/${foreignAccountId}`);
+  assert.equal(unauthorized.status(), 404, "Foreign account records remain inaccessible");
   assert.ok(
     accountLookups.some(
       (request) =>
         request.mode === "many" && request.id === foreignAccountId && !request.authorized,
     ),
   );
+  const filteredForeign = await context.request.get(
+    origin + `/api/v1/partner/dashboard?account_id=${foreignAccountId}`,
+  );
   assert.equal(
-    scopedDashboardRequests.some((request) => request.id === foreignAccountId),
+    filteredForeign.status(),
+    404,
+    "An account filter cannot expand the membership scope",
+  );
+  assert.equal(
+    workspaceDashboardRequests.some((request) => request.accountIds.includes(foreignAccountId)),
     false,
   );
 
@@ -1177,8 +1263,18 @@ try {
   await page.getByText("Your account needs the partner role to access this portal.").waitFor();
   assert.deepEqual(errors, []);
   console.log(
-    "Partner account-wide promotion policy and click destination saving, reporting sorting, bounded account picking and authorized bookmarks, URL/reload/navigation persistence, desktop/mobile layouts, role boundaries, and empty states passed.",
+    "Partner dashboard charts, full-page product and connection CRUD, secure credential controls, settings, report sorting, all-membership aggregation, paginated account records, clean URLs, mobile layouts, role boundaries, and empty states passed.",
   );
+} catch (error) {
+  if (activePage && !activePage.isClosed()) {
+    console.error("Failed partner journey URL:", activePage.url());
+    console.error((await activePage.locator("body").innerText()).slice(0, 3000));
+    await activePage.screenshot({
+      path: root + "reports/partner/journey-failure.png",
+      fullPage: true,
+    });
+  }
+  throw error;
 } finally {
   await browser?.close();
   next.kill("SIGTERM");

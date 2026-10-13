@@ -9,6 +9,8 @@ import {
   LayoutDashboard,
   BarChart3,
   Shapes,
+  Plug,
+  Settings,
   LogOut,
   LoaderCircle,
 } from "lucide-react";
@@ -20,19 +22,17 @@ import {
   DropdownMenuLabel,
   DropdownMenuSeparator,
 } from "@devfeed/ui/dropdown-menu";
-import { Button } from "@/components/atoms/button";
+import { Button } from "@devfeed/ui/button";
 import type { Identity } from "@/lib/types";
 
 export function UserMenu({
   identity,
   onSignOut,
   query,
-  accountId = "",
 }: {
   identity: Identity;
   onSignOut: () => Promise<void>;
   query: string;
-  accountId?: string;
 }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -84,13 +84,15 @@ export function UserMenu({
         </DropdownMenuLabel>
         <DropdownMenuSeparator />
         {[
-          { href: "/", label: "Overview", icon: LayoutDashboard },
+          { href: "/", label: "Dashboard", icon: LayoutDashboard },
           { href: "/performance", label: "Performance", icon: BarChart3 },
-          { href: "/assets", label: "Products & ads", icon: Shapes },
+          { href: "/products", label: "Products", icon: Shapes },
+          { href: "/connections", label: "Connections", icon: Plug },
+          { href: "/settings", label: "Settings", icon: Settings },
         ].map(({ href, label: entry, icon: Icon }) => (
           <DropdownMenuItem key={href} asChild>
             <Link
-              href={`${portalPath(accountId, (href === "/" ? "overview" : href.slice(1)) as PortalSection)}${query}`}
+              href={`${portalPath((href === "/" ? "overview" : href.slice(1)) as PortalSection)}${query}`}
               prefetch={false}
             >
               <Icon aria-hidden />

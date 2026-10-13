@@ -7,13 +7,13 @@ import { useCallback, useState } from "react";
 import { useTableQuery } from "@/lib/use-table-query";
 import { useRouter } from "next/navigation";
 import { Check, Sparkles, Trash2, X } from "lucide-react";
-import { Button } from "@/components/atoms/button";
+import { Button } from "@devfeed/ui/button";
 import { SearchField, searchScope } from "@/components/molecules/search-field";
 import { DataTable, type DataTableColumn } from "@/components/molecules/data-table";
 import type { BulkAction } from "@/components/molecules/table-bulk-actions";
 import { FormField } from "@/components/molecules/form-field";
 import { adminRouteTitle } from "@/lib/page-titles";
-import { PageHeading } from "@/components/molecules/page-heading";
+import { ResourceHeading } from "@devfeed/ui/resource-layout";
 import {
   RelationshipProposalActions,
   relationshipLabel as label,
@@ -216,7 +216,7 @@ export function RelationshipProposals() {
   ];
   return (
     <section className="min-w-0 space-y-6">
-      <PageHeading
+      <ResourceHeading
         title="Relationship proposals"
         trail={relationshipTrail}
         description="Review AI suggestions before connecting active topics."
@@ -230,7 +230,7 @@ export function RelationshipProposals() {
             Discover relationships
           </Link>
         </Button>
-      </PageHeading>
+      </ResourceHeading>
       <nav aria-label="Relationship proposal status" className="flex gap-6 border-b">
         {(["pending", "approved", "rejected"] as const).map((value) => (
           <Link
@@ -343,7 +343,7 @@ function Review({ initial }: { initial: Proposal }) {
   }
   return (
     <section className="min-w-0 space-y-6">
-      <PageHeading
+      <ResourceHeading
         title="Review relationship"
         browserTitle={adminRouteTitle(
           { view: "relationship-proposal", id: proposal.id },
@@ -366,7 +366,7 @@ function Review({ initial }: { initial: Proposal }) {
             </Link>
           </Button>
         )}
-      </PageHeading>
+      </ResourceHeading>
       <form
         className="max-w-3xl space-y-5 rounded-lg border bg-card p-5"
         onSubmit={(event) => {

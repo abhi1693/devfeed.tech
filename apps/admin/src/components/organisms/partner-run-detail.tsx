@@ -2,8 +2,8 @@
 
 import Link from "next/link";
 import { useCallback, useState } from "react";
-import { PageHeading } from "@/components/molecules/page-heading";
-import { InfoPanel, DataValue } from "@/components/molecules/info-panel";
+import { ResourceHeading } from "@devfeed/ui/resource-layout";
+import { ResourcePanel, DataValue } from "@devfeed/ui/resource-layout";
 import { DateTime } from "@/components/molecules/date-time";
 import { StatusBadge } from "@/components/molecules/status-badge";
 import { RequestState } from "@/components/molecules/request-state";
@@ -61,7 +61,7 @@ export function PartnerRunDetail({
   ];
   return (
     <section className="space-y-6">
-      <PageHeading
+      <ResourceHeading
         title={`Run ${id.slice(0, 8)}`}
         browserTitle={`${partnerRunLabels[kind]} · ${id.slice(0, 8)}`}
         trail={[...partnershipTrail, { label: partnerRunLabels[kind], href: partnerRunPath(kind) }]}
@@ -87,7 +87,7 @@ export function PartnerRunDetail({
       {run && section === "details" && (
         <div className="grid items-start gap-6 xl:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)]">
           <div className="space-y-6">
-            <InfoPanel
+            <ResourcePanel
               title={pipeline ? "Pipeline job" : "Evaluation"}
               fields={
                 pipeline
@@ -150,7 +150,7 @@ export function PartnerRunDetail({
                     : []
               }
             />
-            <InfoPanel
+            <ResourcePanel
               title="Execution"
               fields={[
                 { label: "Status", value: <StatusBadge value={run.status} /> },
@@ -160,7 +160,7 @@ export function PartnerRunDetail({
               ]}
             />
           </div>
-          <InfoPanel
+          <ResourcePanel
             title="Record information"
             fields={[
               { label: "ID", value: <DataValue value={run.id} /> },
@@ -175,7 +175,7 @@ export function PartnerRunDetail({
       )}
       {run && section === "related" && (
         <div className="space-y-8">
-          <InfoPanel
+          <ResourcePanel
             title="Linked records"
             fields={[
               ...(run.product_id
@@ -285,7 +285,7 @@ function EvaluationResults({ run }: { run: PartnerEvaluationDetail }) {
         const article = run.snapshot.articles.find((a) => a.id === decision.article_id);
         const evidence = run.snapshot.product.evidence?.[decision.evidence_index];
         return (
-          <InfoPanel
+          <ResourcePanel
             key={decision.article_id}
             title={article?.title ?? "Article"}
             fields={[

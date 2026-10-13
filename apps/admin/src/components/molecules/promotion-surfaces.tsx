@@ -1,6 +1,6 @@
 "use client";
 
-import { Input } from "@/components/atoms/input";
+import { Input } from "@devfeed/ui/input";
 
 export const promotionSurfaces = ["article", "topic", "feed"] as const;
 export type PromotionSurface = (typeof promotionSurfaces)[number];

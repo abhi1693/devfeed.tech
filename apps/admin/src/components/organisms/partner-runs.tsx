@@ -4,10 +4,10 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useState } from "react";
 import { DataTable, type DataTableColumn } from "@/components/molecules/data-table";
-import { PageHeading } from "@/components/molecules/page-heading";
+import { ResourceHeading } from "@devfeed/ui/resource-layout";
 import { SearchField, searchScope } from "@/components/molecules/search-field";
 import { Select } from "@/components/molecules/select";
-import { Button } from "@/components/atoms/button";
+import { Button } from "@devfeed/ui/button";
 import { useRequest } from "@/lib/use-request";
 import { useTableQuery } from "@/lib/use-table-query";
 import { useRefreshInterval } from "@/lib/use-refresh-interval";
@@ -44,7 +44,7 @@ export function PartnerRuns({ kind }: { kind: PartnerRunKind }) {
   const router = useRouter();
   return (
     <section className="space-y-6">
-      <PageHeading title={partnerRunLabels[kind]} trail={partnershipTrail} />
+      <ResourceHeading title={partnerRunLabels[kind]} trail={partnershipTrail} />
       <RunTable
         kind={kind}
         query={query}

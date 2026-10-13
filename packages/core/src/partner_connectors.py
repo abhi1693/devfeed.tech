@@ -5,7 +5,7 @@ import json
 import os
 import re
 from typing import Annotated, Literal
-from urllib.parse import parse_qsl, quote, urlencode, urljoin, urlsplit, urlunsplit
+from urllib.parse import parse_qsl, quote, quote_plus, urlencode, urljoin, urlsplit, urlunsplit
 
 from pydantic import Field, StringConstraints, field_validator, model_validator
 
@@ -31,12 +31,15 @@ Parameter = Annotated[
 
 class ConnectorAuth(InputModel):
     mode: Literal["none", "bearer", "api_key"] = "none"
+    source: Literal["environment", "connection"] = "environment"
     secret_ref: str = Field(default="", pattern=r"^$|^DEVFEED_PARTNER_SECRET_[A-Z0-9_]{1,80}$")
     header: Parameter = "X-API-Key"
 
     @model_validator(mode="after")
     def valid_auth(self):
-        if self.mode != "none" and not self.secret_ref:
+        if self.source == "connection" and self.secret_ref:
+            raise ValueError("Connection credentials cannot reference environment secrets")
+        if self.mode != "none" and self.source == "environment" and not self.secret_ref:
             raise ValueError("Authentication requires an import API secret reference")
         if self.header.lower() in {
             "host",
@@ -244,11 +247,16 @@ def same_origin(config, value):
     return value
 
 
-def api_json(provider, config, url):
+def api_json(provider, config, url, *, credential=None):
     url = same_origin(config, url)
     headers = {}
+    secret = None
     if config.auth.mode != "none":
-        secret = os.environ.get(config.auth.secret_ref)
+        secret = (
+            credential
+            if config.auth.source == "connection"
+            else os.environ.get(config.auth.secret_ref)
+        )
         if not secret or len(secret) > 4096 or any(ord(c) < 32 or ord(c) > 126 for c in secret):
             raise ValueError("Import API credential is unavailable or invalid")
         headers["Authorization" if config.auth.mode == "bearer" else config.auth.header] = (
@@ -283,9 +291,47 @@ def api_json(provider, config, url):
         before_request=before_request,
     )
     try:
-        return json.loads(response.body)
+        data = json.loads(response.body)
     except (ValueError, UnicodeError) as exc:
         raise ValueError("Import API returned invalid JSON") from exc
+
+    # An API may echo request authentication. Strip literal and URL/form-encoded
+    # copies before discovered records enter persisted product jobs or catalogs.
+    # JSON parsing already resolves JSON slash and Unicode escapes. Other opaque
+    # encodings cannot be identified reliably from an arbitrary API response.
+    patterns = [re.escape(secret)] if secret else []
+    for encoded in {quote(secret, safe=""), quote_plus(secret, safe="")} if secret else ():
+        pattern = re.sub(
+            r"%[0-9A-Fa-f]{2}",
+            lambda match: (
+                "%"
+                + "".join(
+                    f"[{char.upper()}{char.lower()}]" if char.isalpha() else char
+                    for char in match[0][1:]
+                )
+            ),
+            re.escape(encoded),
+        )
+        patterns.append(pattern)
+    credential_pattern = (
+        re.compile("|".join(sorted(set(patterns), key=len, reverse=True))) if patterns else None
+    )
+
+    def without_credential(value, depth=0):
+        if depth > 20:
+            return "[omitted]"
+        if isinstance(value, str):
+            return credential_pattern.sub("[redacted]", value) if credential_pattern else value
+        if isinstance(value, list):
+            return [without_credential(item, depth + 1) for item in value]
+        if isinstance(value, dict):
+            return {
+                without_credential(key): without_credential(item, depth + 1)
+                for key, item in value.items()
+            }
+        return value
+
+    return without_credential(data)
 
 
 def normalized_filter(value):
@@ -313,7 +359,7 @@ def included(config, data):
     return True
 
 
-def discover_page(provider, config, cursor=None, *, fetch=None):
+def discover_page(provider, config, cursor=None, *, fetch=None, credential=None):
     config = ConnectorConfig.model_validate(config)
     pagination = config.pagination
     params = {**config.parameters}
@@ -343,7 +389,7 @@ def discover_page(provider, config, cursor=None, *, fetch=None):
         endpoint = urlunsplit(
             parts._replace(query=urlencode([*parse_qsl(parts.query), *params.items()]))
         )
-    body = (fetch or (lambda url: api_json(provider, config, url)))(endpoint)
+    body = (fetch or (lambda url: api_json(provider, config, url, credential=credential)))(endpoint)
     items = first_value(body, config.items_paths, required=True)
     if not isinstance(items, list) or len(items) > 1000:
         raise ValueError("Import API returned an invalid product page")
@@ -397,7 +443,7 @@ def discover_page(provider, config, cursor=None, *, fetch=None):
     return candidates, next_cursor
 
 
-def mapped_product(provider, config, candidate, *, fetch=None):
+def mapped_product(provider, config, candidate, *, fetch=None, credential=None):
     config = ConnectorConfig.model_validate(config)
     identity = first_value(candidate.data, config.fields.external_id, required=True)
     if str(identity) != candidate.external_id or str(identity) in {".", ".."}:
@@ -406,7 +452,10 @@ def mapped_product(provider, config, candidate, *, fetch=None):
     if config.detail_path:
         url = config.base_url + config.detail_path.replace("{id}", quote(str(identity), safe=""))
         data = value_at(
-            (fetch or (lambda target: api_json(provider, config, target)))(url), config.detail_root
+            (fetch or (lambda target: api_json(provider, config, target, credential=credential)))(
+                url
+            ),
+            config.detail_root,
         )
         if (
             str(first_value(data, config.fields.external_id, required=True))

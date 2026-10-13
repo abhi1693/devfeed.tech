@@ -16,7 +16,7 @@ import {
   Users,
   Cable,
 } from "lucide-react";
-import { Button } from "@/components/atoms/button";
+import { Button } from "@devfeed/ui/button";
 import { resourceHref } from "@/lib/routes";
 import { resourceKeys, resources, type Resource } from "@/lib/resources";
 const icons: Partial<Record<Resource, typeof FileText>> = {

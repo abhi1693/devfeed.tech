@@ -4,9 +4,9 @@ import { portalPath, type PortalSection } from "@/lib/routes";
 import Image from "next/image";
 import Link from "next/link";
 import { useState } from "react";
-import { LayoutDashboard, BarChart3, Shapes, Menu, X } from "lucide-react";
+import { LayoutDashboard, BarChart3, Shapes, Plug, Settings, Menu, X } from "lucide-react";
 import brandMark from "@devfeed/theme/assets/devfeed-mark.png";
-import { Button } from "@/components/atoms/button";
+import { Button } from "@devfeed/ui/button";
 import { UserMenu } from "@/components/user-menu";
 import type { Identity } from "@/lib/types";
 
@@ -16,20 +16,20 @@ export function PortalShell({
   children,
   section = "overview",
   query = "",
-  accountId = "",
 }: {
   identity: Identity;
   onSignOut: () => Promise<void>;
   children: React.ReactNode;
-  section?: "overview" | "performance" | "assets";
+  section?: PortalSection;
   query?: string;
-  accountId?: string;
 }) {
   const [open, setOpen] = useState(false);
   const links = [
-    { id: "overview", href: "/", label: "Overview", icon: LayoutDashboard },
-    { id: "performance", href: "/performance", label: "Performance", icon: BarChart3 },
-    { id: "assets", href: "/assets", label: "Products & ads", icon: Shapes },
+    { id: "overview", label: "Dashboard", icon: LayoutDashboard },
+    { id: "performance", label: "Performance", icon: BarChart3 },
+    { id: "products", label: "Products", icon: Shapes },
+    { id: "connections", label: "Connections", icon: Plug },
+    { id: "settings", label: "Settings", icon: Settings },
   ];
   return (
     <div className="min-h-dvh">
@@ -42,7 +42,7 @@ export function PortalShell({
       <header className="border-b bg-card">
         <div className="flex flex-wrap items-center justify-between gap-4 px-4 py-4 sm:px-6">
           <Link
-            href={`${portalPath(accountId)}${query}`}
+            href={`${portalPath()}${query}`}
             aria-label="DevFeed Partners home"
             className="inline-flex items-center gap-3 rounded-sm focus-visible:outline-2"
           >
@@ -58,7 +58,7 @@ export function PortalShell({
               <span>devfeed.</span>
             </span>
           </Link>
-          <UserMenu identity={identity} onSignOut={onSignOut} query={query} accountId={accountId} />
+          <UserMenu identity={identity} onSignOut={onSignOut} query={query} />
         </div>
       </header>
       <div className="lg:flex">
@@ -85,7 +85,7 @@ export function PortalShell({
               {links.map(({ id, label, icon: Icon }) => (
                 <li key={id}>
                   <Link
-                    href={`${portalPath(accountId, id as PortalSection)}${query}`}
+                    href={`${portalPath(id as PortalSection)}${query}`}
                     prefetch={false}
                     aria-current={section === id ? "page" : undefined}
                     className={`flex items-center gap-2.5 rounded-md px-3 py-2 text-sm ${section === id ? "bg-accent font-medium text-foreground" : "text-muted-foreground hover:bg-accent hover:text-foreground"}`}

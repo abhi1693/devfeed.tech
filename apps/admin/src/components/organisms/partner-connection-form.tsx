@@ -1,8 +1,8 @@
 "use client";
 
 import { useEffect, useRef, useState, type FormEvent } from "react";
-import { Input } from "@/components/atoms/input";
-import { Button } from "@/components/atoms/button";
+import { Input } from "@devfeed/ui/input";
+import { Button } from "@devfeed/ui/button";
 import { Field } from "@/components/molecules/field";
 import { Select } from "@/components/molecules/select";
 import { EntityPicker, type EntityPickerSource } from "@/components/molecules/entity-picker";

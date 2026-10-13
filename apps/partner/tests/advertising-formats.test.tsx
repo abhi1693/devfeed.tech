@@ -53,13 +53,7 @@ function formats(value = account) {
   );
 }
 function catalog() {
-  return render(
-    <PartnerProductCatalog
-      account={account}
-      csrfToken="partner-csrf"
-      onUnavailable={unavailable}
-    />,
-  );
+  return render(<PartnerProductCatalog onUnavailable={unavailable} />);
 }
 function placements(productId = product.id) {
   return render(
@@ -75,9 +69,6 @@ function placements(productId = product.id) {
   );
 }
 async function openProductPlacements() {
-  await userEvent.click(
-    screen.getByRole("button", { name: `Edit placements for ${product.name}` }),
-  );
   await screen.findByRole("combobox", { name: "Product availability" });
 }
 it("saves automatic formats independently and permits disabling every automatic format", async () => {
@@ -165,10 +156,6 @@ it("edits an excluded product through owned routes without changing exclusion", 
       onUnavailable={unavailable}
     />,
   );
-  expect(fetcher).not.toHaveBeenCalled();
-  await userEvent.click(
-    screen.getByRole("button", { name: `Edit placements for ${product.name}` }),
-  );
   await screen.findByRole("combobox", { name: "Product formats" });
   expect(screen.getByText(/This product is excluded/)).toBeTruthy();
   await userEvent.click(screen.getByRole("button", { name: "Save product placements" }));
@@ -198,9 +185,6 @@ it("rejects a product policy belonging to another account", async () => {
       onUnavailable={unavailable}
     />,
   );
-  await userEvent.click(
-    screen.getByRole("button", { name: `Edit placements for ${product.name}` }),
-  );
   await screen.findByRole("alert");
   expect(screen.queryByRole("button", { name: "Save product placements" })).toBeNull();
 });
@@ -216,7 +200,7 @@ it("restores an excluded product only when its draft is saved", async () => {
   await userEvent.click(screen.getByRole("combobox", { name: "Product availability" }));
   await userEvent.click(screen.getByRole("option", { name: "Allow this product" }));
   expect(screen.getByText("Unsaved changes")).toBeTruthy();
-  expect(fetcher).toHaveBeenCalledTimes(1);
+  expect(fetcher.mock.calls.filter(([, init]) => init.method === "PUT")).toHaveLength(0);
   await userEvent.click(screen.getByRole("button", { name: "Save product placements" }));
   await waitFor(() => expect(saved).toHaveBeenCalledOnce());
   expect(fetcher).toHaveBeenLastCalledWith(
@@ -248,8 +232,7 @@ it.each([false, true])(
     vi.stubGlobal("fetch", fetcher);
     placements();
     await openProductPlacements();
-    expect(fetcher).toHaveBeenCalledTimes(1);
-    await userEvent.click(screen.getByRole("button", { name: "Preview this product" }));
+    expect(fetcher.mock.calls.filter(([, init]) => init.method === "PUT")).toHaveLength(0);
     const preview = await screen.findByRole("region", { name: "Creative preview" });
     if (wrongProduct) {
       await within(preview).findByText("Could not load the creative preview.");
@@ -272,7 +255,6 @@ it("explains a null preview without inventing creative for an excluded product",
   );
   placements();
   await openProductPlacements();
-  await userEvent.click(screen.getByRole("button", { name: "Preview this product" }));
   await screen.findByText(/This product is unavailable for preview/);
   expect(screen.queryByText("Sponsored")).toBeNull();
 });
@@ -287,12 +269,11 @@ it.each([401, 403, 404])("handles lost product-preview access (%s)", async (stat
   );
   placements();
   await openProductPlacements();
-  await userEvent.click(screen.getByRole("button", { name: "Preview this product" }));
   await waitFor(() => expect(unavailable).toHaveBeenCalledOnce());
   if (status !== 404) expect(router.replace).toHaveBeenCalledWith("/login");
   expect(saved).not.toHaveBeenCalled();
 });
-it("aborts a hidden preview and ignores late responses from a closed dialog", async () => {
+it("aborts an inline preview and ignores late responses after page navigation", async () => {
   let resolvePreview!: (response: Response) => void;
   const fetcher = vi.fn().mockImplementation((url: string) =>
     url.includes("creative-preview")
@@ -302,19 +283,18 @@ it("aborts a hidden preview and ignores late responses from a closed dialog", as
       : Response.json(policy),
   );
   vi.stubGlobal("fetch", fetcher);
-  placements();
+  const view = placements();
   await openProductPlacements();
-  await userEvent.click(screen.getByRole("button", { name: "Preview this product" }));
   await waitFor(() => expect(fetcher).toHaveBeenCalledTimes(2));
   const signal = fetcher.mock.calls[1][1].signal as AbortSignal;
-  await userEvent.click(screen.getByRole("button", { name: "Close placements" }));
+  view.unmount();
   expect(signal.aborted).toBe(true);
   await act(async () => resolvePreview(new Response(null, { status: 401 })));
   expect(unavailable).not.toHaveBeenCalled();
   expect(router.replace).not.toHaveBeenCalled();
   expect(screen.queryByRole("dialog")).toBeNull();
 });
-it("aborts an escaped save and ignores its late unauthorized response", async () => {
+it("aborts a save and ignores its late unauthorized response after page navigation", async () => {
   let finishSave!: (response: Response) => void;
   const fetcher = vi.fn().mockImplementation((_url: string, init: RequestInit) =>
     init.method === "PUT"
@@ -324,12 +304,12 @@ it("aborts an escaped save and ignores its late unauthorized response", async ()
       : Response.json(policy),
   );
   vi.stubGlobal("fetch", fetcher);
-  placements();
+  const view = placements();
   await openProductPlacements();
   await userEvent.click(screen.getByRole("button", { name: "Save product placements" }));
-  await waitFor(() => expect(fetcher).toHaveBeenCalledTimes(2));
-  const signal = fetcher.mock.calls[1][1].signal as AbortSignal;
-  await userEvent.keyboard("{Escape}");
+  await waitFor(() => expect(fetcher).toHaveBeenCalledTimes(3));
+  const signal = fetcher.mock.calls[2][1].signal as AbortSignal;
+  view.unmount();
   expect(signal.aborted).toBe(true);
   await act(async () => finishSave(new Response(null, { status: 401 })));
   expect(saved).not.toHaveBeenCalled();
@@ -337,13 +317,26 @@ it("aborts an escaped save and ignores its late unauthorized response", async ()
   expect(router.replace).not.toHaveBeenCalled();
 });
 it("searches the full imported catalog remotely and resets pagination", async () => {
-  const fetcher = vi
-    .fn()
-    .mockImplementation(() => Response.json({ items: [{ ...product, ...policy }], total: 60 }));
+  const fetcher = vi.fn().mockImplementation((url: string) =>
+    Response.json({
+      items: [
+        {
+          ...product,
+          ...policy,
+          account_name: account.name,
+          globally_excluded: false,
+          status: "approved",
+          technologies: [],
+          commercial_approved: true,
+        },
+      ],
+      total: 60,
+      limit: 25,
+      offset: Number(new URL(url, "https://partner.example").searchParams.get("offset")),
+    }),
+  );
   vi.stubGlobal("fetch", fetcher);
   catalog();
-  expect(fetcher).not.toHaveBeenCalled();
-  await userEvent.click(screen.getByRole("button", { name: "Manage product placements" }));
   await screen.findByText(product.name);
   expect(screen.getByText("Excluded")).toBeTruthy();
   await userEvent.click(screen.getByRole("button", { name: "Next imported products" }));
@@ -354,12 +347,12 @@ it("searches the full imported catalog remotely and resets pagination", async ()
     ),
   );
   await screen.findByText(product.name);
-  fireEvent.change(screen.getByRole("searchbox", { name: "Search imported products" }), {
+  fireEvent.change(screen.getByRole("searchbox", { name: "Search products" }), {
     target: { value: "cron" },
   });
   await waitFor(() =>
     expect(fetcher).toHaveBeenLastCalledWith(
-      `/api/v1/partner/accounts/${account.id}/inventory?q=cron&offset=0&limit=25`,
+      `/api/v1/partner/inventory?q=cron&offset=0&limit=25`,
       expect.anything(),
     ),
   );
@@ -369,19 +362,18 @@ it("searches the full imported catalog remotely and resets pagination", async ()
       .disabled,
   ).toBe(true);
 });
-it("retries failed catalog reads and aborts an in-flight read when closed", async () => {
+it("retries failed catalog reads and aborts an in-flight read after page navigation", async () => {
   const fetcher = vi
     .fn()
     .mockResolvedValueOnce(new Response(null, { status: 503 }))
     .mockImplementationOnce(() => new Promise(() => {}));
   vi.stubGlobal("fetch", fetcher);
-  catalog();
-  await userEvent.click(screen.getByRole("button", { name: "Manage product placements" }));
+  const view = catalog();
   await screen.findByRole("alert");
   await userEvent.click(screen.getByRole("button", { name: "Retry imported products" }));
   await waitFor(() => expect(fetcher).toHaveBeenCalledTimes(2));
   const signal = fetcher.mock.calls[1][1].signal as AbortSignal;
   expect(signal.aborted).toBe(false);
-  await userEvent.click(screen.getByRole("button", { name: "Close product catalog" }));
+  view.unmount();
   expect(signal.aborted).toBe(true);
 });

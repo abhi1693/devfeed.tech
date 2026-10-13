@@ -1,8 +1,8 @@
 "use client";
 
 import { useState } from "react";
-import { Button } from "@/components/atoms/button";
-import { InfoPanel } from "@/components/molecules/info-panel";
+import { Button } from "@devfeed/ui/button";
+import { ResourcePanel } from "@devfeed/ui/resource-layout";
 import { useAdmin } from "@/components/molecules/admin-session";
 import { adminSourcePublicationPolicy } from "@/lib/api/generated/admin";
 import type { PublicationPolicyUpdate } from "@/lib/api/generated/models";
@@ -47,12 +47,12 @@ export function SourcePublicationPolicy({
   }
   if (fullAutomation)
     return (
-      <InfoPanel title="Automatic publication">
+      <ResourcePanel title="Automatic publication">
         <p className="text-sm text-muted-foreground">Automatic publication is enabled.</p>
-      </InfoPanel>
+      </ResourcePanel>
     );
   return (
-    <InfoPanel title="Automatic publication">
+    <ResourcePanel title="Automatic publication">
       <p className="mb-4 text-sm text-muted-foreground">
         Preview publication decisions before enabling automatic publication.
       </p>
@@ -88,6 +88,6 @@ export function SourcePublicationPolicy({
             ? "Start with preview before enabling automatic publication."
             : "Review existing articles from the overview."}
       </p>
-    </InfoPanel>
+    </ResourcePanel>
   );
 }

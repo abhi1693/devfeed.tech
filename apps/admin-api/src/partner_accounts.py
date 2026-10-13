@@ -30,6 +30,7 @@ from devfeed_core.partner_promotions import (
 )
 from devfeed_core.partner_tiers import TIER_BENEFITS, promotion_kind_allowed, tier_policy
 from devfeed_core.publication import visible_article
+from devfeed_core.text_search import text_search
 from devfeed_http.partner_portal import (
     AccountInput,
     AccountOut,
@@ -68,7 +69,6 @@ from sqlalchemy.dialects.postgresql import insert
 
 from devfeed_admin_api.auth import Admin, AdminIdentity, require_admin
 from devfeed_admin_api.dependencies import DB
-from devfeed_admin_api.search import text_search
 
 router = APIRouter(
     prefix="/v1/admin/partner-accounts",

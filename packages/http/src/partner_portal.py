@@ -7,6 +7,7 @@ from typing import Annotated, Literal
 from devfeed_core.models import (
     Article,
     ArticleTopic,
+    PartnerAccount,
     PartnerAsset,
     PartnerDailyMetric,
     PartnerProduct,
@@ -26,10 +27,10 @@ from devfeed_core.partner_product_images import product_image_url
 from devfeed_core.partner_product_logos import product_logo_url
 from devfeed_core.partner_promotions import (
     associated_products_query,
-    commercially_eligible,
     ensure_automatic_assets,
 )
 from devfeed_core.partner_tiers import PartnerTier, PromotionKind, tier_policy
+from devfeed_core.partner_tools import eligible
 from devfeed_core.publication import visible_article
 from devfeed_core.schemas import ArticleOut
 from fastapi import HTTPException
@@ -54,6 +55,7 @@ Name = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max
 
 PromotionSurface = Literal["article", "topic", "feed"]
 AssetSort = Literal["name", "impressions", "clicks", "ctr"]
+WorkspaceAssetSort = Literal["name", "account", "impressions", "clicks", "ctr"]
 SortOrder = Literal["asc", "desc"]
 
 
@@ -404,6 +406,18 @@ class InventoryOut(BaseModel):
     total: int
 
 
+class WorkspaceInventoryProductOut(InventoryProductOut):
+    account_id: uuid.UUID
+    account_name: str
+
+
+class WorkspaceInventoryOut(BaseModel):
+    items: list[WorkspaceInventoryProductOut]
+    total: int
+    limit: int
+    offset: int
+
+
 class MetricInput(BaseModel):
     day: date
     impressions: int = Field(ge=0, le=2**63 - 1)
@@ -438,16 +452,29 @@ class FormatTotals(Totals):
     ad_format: AdFormat
 
 
-class Dashboard(BaseModel):
-    account: AccountOut
+class ReportSummary(BaseModel):
     start: date
     end: date
     totals: Totals
     trend: list[Trend]
-    assets: list[AssetMetrics]
     asset_total: int
     last_updated_at: datetime | None
     format_totals: list[FormatTotals] = Field(default_factory=list)
+
+
+class Dashboard(ReportSummary):
+    account: AccountOut
+    assets: list[AssetMetrics]
+
+
+class WorkspaceAssetMetrics(AssetMetrics):
+    account_id: uuid.UUID
+    account_name: str
+
+
+class WorkspaceDashboard(ReportSummary):
+    account_total: int
+    assets: list[WorkspaceAssetMetrics]
 
 
 def validate_product(payload: AssetInput, session):
@@ -488,6 +515,40 @@ def reporting_dashboard(
     order: SortOrder = "asc",
     ad_format: AdFormat | None = None,
 ):
+    return {
+        "account": account,
+        **reporting_metrics(
+            session,
+            select(PartnerAccount).where(PartnerAccount.id == account_id),
+            days,
+            limit,
+            offset,
+            sort=sort,
+            order=order,
+            ad_format=ad_format,
+        ),
+    }
+
+
+def reporting_metrics(
+    session,
+    accounts_query,
+    days=30,
+    limit=100,
+    offset=0,
+    *,
+    sort: WorkspaceAssetSort = "name",
+    order: SortOrder = "asc",
+    ad_format: AdFormat | None = None,
+):
+    """Aggregate the complete SQL account scope before sorting or paging rows."""
+    accounts = (
+        accounts_query.with_only_columns(
+            PartnerAccount.id.label("account_id"), PartnerAccount.name.label("account_name")
+        )
+        .order_by(None)
+        .cte("report_accounts")
+    )
     end = datetime.now(UTC).date()
     start = end - timedelta(days=days - 1)
     metrics = union_all(
@@ -495,7 +556,7 @@ def reporting_dashboard(
             select(model.asset_id, model.day, model.impressions, model.clicks, model.updated_at)
             .join(PartnerAsset)
             .where(
-                PartnerAsset.account_id == account_id,
+                PartnerAsset.account_id.in_(select(accounts.c.account_id)),
                 model.day.between(start, end),
                 *([PartnerAsset.ad_format == ad_format] if ad_format is not None else []),
             )
@@ -538,9 +599,9 @@ def reporting_dashboard(
     # identities, then combines every format before sorting or paginating products.
     # The visited path and bound also make malformed legacy alias chains finite.
     scoped_assets = (
-        select(PartnerAsset)
+        select(PartnerAsset, accounts.c.account_name)
+        .join(accounts, accounts.c.account_id == PartnerAsset.account_id)
         .where(
-            PartnerAsset.account_id == account_id,
             *([PartnerAsset.ad_format == ad_format] if ad_format is not None else []),
         )
         .cte("report_assets")
@@ -576,9 +637,15 @@ def reporting_dashboard(
     )
     product = PartnerProduct.__table__.alias("report_product")
     canonical_id = func.coalesce(resolved.c.canonical_id, scoped_assets.c.product_id)
-    group_key = case(
+    product_group = case(
         (canonical_id.is_not(None), literal("product:") + cast(canonical_id, String)),
         else_=literal("asset:") + cast(scoped_assets.c.id, String),
+    )
+    group_key = (
+        literal("account:")
+        + cast(scoped_assets.c.account_id, String)
+        + literal(":")
+        + product_group
     )
     collection = (
         select(
@@ -595,6 +662,8 @@ def reporting_dashboard(
     grouped = (
         select(
             collection.c.group_key,
+            cast(func.min(cast(collection.c.account_id, String)), Uuid).label("account_id"),
+            func.min(collection.c.account_name).label("account_name"),
             cast(func.min(cast(collection.c.id, String)), Uuid).label("id"),
             cast(func.min(cast(collection.c.canonical_product_id, String)), Uuid).label(
                 "product_id"
@@ -643,6 +712,7 @@ def reporting_dashboard(
     # undefined CTR remain last in either direction, distinct from measured zero.
     sort_value = {
         "name": func.lower(grouped.c.name),
+        "account": func.lower(grouped.c.account_name),
         "impressions": product_metrics.c.impressions,
         "clicks": product_metrics.c.clicks,
         "ctr": cast(product_metrics.c.clicks, Numeric)
@@ -651,6 +721,8 @@ def reporting_dashboard(
     ordering = [(sort_value.desc() if order == "desc" else sort_value.asc()).nulls_last()]
     if sort != "name":
         ordering.append(func.lower(grouped.c.name).asc())
+    if sort != "account":
+        ordering.append(func.lower(grouped.c.account_name).asc())
     ordering.append(grouped.c.id.asc())
     rows = (
         session.execute(
@@ -669,7 +741,6 @@ def reporting_dashboard(
         .all()
     )
     return {
-        "account": account,
         "start": start,
         "end": end,
         "totals": totals(*summary[:3]),
@@ -684,6 +755,8 @@ def reporting_dashboard(
                     key: row[key]
                     for key in (
                         "id",
+                        "account_id",
+                        "account_name",
                         "product_id",
                         "name",
                         "kind",
@@ -728,53 +801,83 @@ def sponsor_articles(session, *, q="", article_id=None, offset=0, limit=25):
     return {"items": [ArticleOut.from_article(row) for row in rows], "total": total}
 
 
-def inventory_products(session, account, *, q="", product_id=None, offset=0, limit=100):
-    query = associated_products_query(account.id)
+def inventory_product_view(account, product, policy, now):
+    """Build policy summaries from a loaded account-product policy without extra SQL."""
+    excluded = bool(policy and policy.excluded)
+    trusted = bool(
+        account.approval_mode == "trusted"
+        and policy
+        and policy.commercial_approved_at
+        and policy.approval_source == "trusted"
+    )
+    return dict(
+        id=product.id,
+        account_id=account.id,
+        account_name=account.name,
+        name=product.name,
+        technologies=product.technologies,
+        status=product.status,
+        excluded=excluded,
+        globally_excluded=product.excluded,
+        commercial_approved=not excluded
+        and not product.excluded
+        and not product.merged_into_id
+        and (eligible(product, now) or trusted),
+        approval_source="trusted"
+        if trusted
+        else "qualified"
+        if product.status == "approved"
+        else None,
+        ad_formats=policy.ad_formats if policy else None,
+        promotion_surfaces=policy.promotion_surfaces if policy else None,
+    )
+
+
+def inventory_page(session, accounts_query, *, q="", product_id=None, offset=0, limit=100):
+    query = associated_products_query().where(
+        PartnerAccount.id.in_(accounts_query.with_only_columns(PartnerAccount.id).order_by(None))
+    )
     if q.strip():
-        term = q.strip().replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
-        query = query.where(PartnerProduct.name.ilike(f"%{term}%", escape="\\"))
+        from devfeed_core.text_search import text_search
+
+        query = query.where(text_search(q.strip(), PartnerProduct.name))
     if product_id is not None:
         query = query.where(PartnerProduct.id == product_id)
     total = session.scalar(select(func.count()).select_from(query.subquery()))
     rows = session.execute(
-        query.order_by(PartnerProduct.name, PartnerProduct.id).offset(offset).limit(limit)
+        query.add_columns(PartnerProductPromotion)
+        .outerjoin(
+            PartnerProductPromotion,
+            and_(
+                PartnerProductPromotion.account_id == PartnerAccount.id,
+                PartnerProductPromotion.product_id == PartnerProduct.id,
+            ),
+        )
+        .order_by(PartnerProduct.name, PartnerAccount.name, PartnerAccount.id, PartnerProduct.id)
+        .offset(offset)
+        .limit(limit)
     ).all()
-    policies = {
-        row.product_id: row
-        for row in session.scalars(
-            select(PartnerProductPromotion).where(
-                PartnerProductPromotion.account_id == account.id,
-                PartnerProductPromotion.product_id.in_([product.id for _, product in rows]),
-            )
-        )
+    now = datetime.now(UTC)
+    return {
+        "items": [
+            inventory_product_view(account, product, policy, now)
+            for account, product, policy in rows
+        ],
+        "total": total,
+        "limit": limit,
+        "offset": offset,
     }
-    items = []
-    for _, product in rows:
-        policy = policies.get(product.id)
-        excluded = bool(policy and policy.excluded)
-        trusted = bool(
-            account.approval_mode == "trusted" and policy and policy.commercial_approved_at
-        )
-        items.append(
-            dict(
-                id=product.id,
-                name=product.name,
-                technologies=product.technologies,
-                status=product.status,
-                excluded=excluded,
-                globally_excluded=product.excluded,
-                commercial_approved=not excluded
-                and commercially_eligible(session, account, product, datetime.now(UTC)),
-                approval_source="trusted"
-                if trusted
-                else "qualified"
-                if product.status == "approved"
-                else None,
-                ad_formats=policy.ad_formats if policy else None,
-                promotion_surfaces=policy.promotion_surfaces if policy else None,
-            )
-        )
-    return {"items": items, "total": total}
+
+
+def inventory_products(session, account, *, q="", product_id=None, offset=0, limit=100):
+    return inventory_page(
+        session,
+        select(PartnerAccount).where(PartnerAccount.id == account.id),
+        q=q,
+        product_id=product_id,
+        offset=offset,
+        limit=limit,
+    )
 
 
 def product_promotion(session, account, product_id):
