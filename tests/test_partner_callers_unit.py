@@ -55,7 +55,10 @@ def test_transport_peers_have_stable_distinct_opaque_keys():
     assert callers.partner_caller_key(request()) == first
     assert callers.partner_caller_key(request("203.0.113.11")) != first
     assert len(first) == 64 and "203.0.113.10" not in first
-    assert callers.partner_caller_key(request(None)) == callers.partner_caller_key(request(None))
+    identity_key = hmac.new(KEY.encode(), b"devfeed:partner-caller:identity:v1", hashlib.sha256)
+    expected_unknown = hmac.new(identity_key.digest(), b"unknown", hashlib.sha256).hexdigest()
+    assert callers.partner_caller_key(request(None)) == expected_unknown
+    assert expected_unknown != first
 
 
 @pytest.mark.parametrize(
@@ -133,7 +136,8 @@ def test_gateway_proofs_require_the_dedicated_key(monkeypatch):
     )
     assert callers.partner_caller_key(attempted) == callers.partner_caller_key(request("10.0.0.5"))
     monkeypatch.setattr(get_settings(), "partner_tracking_key", None)
-    assert callers.partner_caller_key(request()) == callers.partner_caller_key(request())
+    expected_peer = hashlib.sha256(b"devfeed:partner-caller:identity:v1\0" + b"203.0.113.10")
+    assert callers.partner_caller_key(request()) == expected_peer.hexdigest()
     assert callers.partner_caller_key(request()) != callers.partner_caller_key(request("192.0.2.1"))
 
 

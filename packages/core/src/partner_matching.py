@@ -431,7 +431,7 @@ def _prepare_job(session, job, *, article_limit, now):
     )
     candidate_model = Article if product_job else PartnerProduct
     candidates = candidate_ids.subquery()
-    candidate_id = list(candidates.c)[0]
+    candidate_id = next(iter(candidates.c))
     page_ids = session.scalars(
         select(candidate_id).order_by(candidate_id).limit(article_limit + 1)
     ).all()

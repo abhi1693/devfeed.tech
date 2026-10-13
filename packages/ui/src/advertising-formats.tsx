@@ -59,6 +59,7 @@ export function AutomaticAdFormats({
           .map((format) => (
             <label
               key={format.value}
+              aria-label={format.label}
               className="flex items-start gap-3 rounded-lg border p-3 text-sm"
             >
               <input

@@ -10,15 +10,15 @@ export type PartnerPlacementTrackingState = {
 export function observePartnerPlacement(
   element: HTMLElement,
   receipt: string,
-  state: PartnerPlacementTrackingState = {
-    completed: new Set<string>(),
-    pending: new Set<string>(),
-  },
+  state?: PartnerPlacementTrackingState,
   clickSelector?: string,
 ) {
   const expiresAt = partnerReceiptExpiresAt(receipt);
   if (expiresAt <= Date.now()) return () => {};
-  const { completed, pending } = state;
+  const { completed, pending } = state ?? {
+    completed: new Set<string>(),
+    pending: new Set<string>(),
+  };
   let inView = false;
   let stopped = false;
   let timer: ReturnType<typeof setTimeout> | undefined;
