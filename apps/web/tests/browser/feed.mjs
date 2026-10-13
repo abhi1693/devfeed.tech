@@ -23,6 +23,7 @@ import {
 import { checkReaderNavigation } from "../../../../scripts/testing/reader-navigation.mjs";
 import { checkReaderInteractions, notificationFixture } from "./reader-interactions.mjs";
 import { checkSidebarGitHub } from "../../../../scripts/testing/sidebar-github.mjs";
+import { checkCollapsibleSidebar } from "../../../../scripts/testing/collapsible-sidebar.mjs";
 import {
   engagementFeed,
   engagementRows,
@@ -491,7 +492,7 @@ let logs = "",
   browser;
 app.stdout.on("data", (data) => (logs += data));
 app.stderr.on("data", (data) => (logs += data));
-try {
+async function runReaderChecks() {
   for (let i = 0; i < 100; i++) {
     try {
       await fetch(`${origin}/login`, { redirect: "manual" });
@@ -501,6 +502,23 @@ try {
     }
   }
   browser = await chromium.launch({ headless: true });
+  if (process.env.DEVFEED_READER_SIDEBAR_ONLY === "1") {
+    const context = await browser.newContext({
+      viewport: { width: 1440, height: 900 },
+      reducedMotion: "reduce",
+    });
+    const page = await context.newPage();
+    const errors = [];
+    page.on("pageerror", (error) => errors.push(error.message));
+    await page.goto(`${origin}/latest`);
+    await page.locator(".article-card").first().waitFor();
+    await mkdir(`${root}/reports/reader-feed`, { recursive: true });
+    await checkCollapsibleSidebar(page, `${root}/reports/reader-feed/shared-sidebar`);
+    assert.deepEqual(errors, []);
+    await context.close();
+    console.log("Shared sidebar passed against the final production web bundle.");
+    return;
+  }
   const seoPage = await browser.newPage();
   for (const kind of ["tags", "topics"]) {
     for (const [slug, suffix, empty] of [
@@ -620,6 +638,7 @@ try {
   await checkSignupPrompts(context, origin, `${root}/reports/reader-feed/signup`);
   await page.bringToFront();
   await checkSidebarGitHub(page, `${root}/reports/reader-feed/sidebar-github.png`);
+  await checkCollapsibleSidebar(page, `${root}/reports/reader-feed/shared-sidebar`);
   await checkMcp(page, `${root}/reports/reader-feed/mcp`);
   const whatsNew = page
     .locator(".sidebar")
@@ -688,7 +707,12 @@ try {
     `${root}/reports/reader-feed/install-button-personal.png`,
   );
   assert.equal(
-    await page.locator(".sidebar > nav").first().getByRole("link").first().innerText(),
+    await page
+      .locator(".sidebar .shared-sidebar-content > nav")
+      .first()
+      .getByRole("link")
+      .first()
+      .innerText(),
     "My feed",
   );
   await page.getByRole("link", { name: "Previous recommendation", exact: true }).waitFor();
@@ -919,6 +943,9 @@ try {
   console.log(
     "Reader routes, signed-out navigation, and background recommendation refresh passed.",
   );
+}
+try {
+  await runReaderChecks();
 } catch (error) {
   console.error(logs);
   throw error;

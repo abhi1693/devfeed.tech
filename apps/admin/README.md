@@ -7,6 +7,20 @@ Traefik ingress also redirects HTTP to HTTPS.
 
 See [configuration, authentication, service boundaries and commands](../../docs/admin.md).
 
+## Sidebar navigation
+
+The administration sidebar starts as a compact icon rail. Use **Expand sidebar** at the
+bottom to reveal group and link labels; **Collapse sidebar** restores the rail. The saved
+preference belongs to this browser's admin interface and is separate from reader and
+partner navigation. Active routes remain marked in either view.
+
+On narrow screens, **Navigation** opens an inline menu. Selecting a link or pressing Escape
+closes it. Long navigation scrolls independently while the desktop expand/collapse control
+stays reachable, including on short screens.
+
+Validate with `npm run admin:test` and, after `npm run admin:build`,
+`node apps/admin/tests/browser/overview.mjs`.
+
 ## User details
 
 The user Details tab shows reader-profile fields and Dev Card styling only when

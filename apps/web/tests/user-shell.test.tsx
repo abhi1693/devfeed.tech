@@ -12,7 +12,6 @@ vi.mock("@/components/user-search", () => ({ UserSearch: () => null }));
 vi.mock("@/components/notification-inbox", () => ({ NotificationInbox: () => null }));
 vi.mock("@/components/must-reads", () => ({ MustReads: () => null }));
 vi.mock("@/components/theme-toggle", () => ({ ThemeToggle: () => null }));
-vi.mock("@/components/sidebar-toggle", () => ({ SidebarToggle: () => null }));
 
 const reader: UserIdentity = {
   user_id: "reader",
@@ -48,6 +47,8 @@ async function signedIn() {
 }
 
 beforeEach(() => {
+  localStorage.clear();
+  delete document.documentElement.dataset.sidebarState;
   identity = reader;
   network
     .mockReset()
@@ -62,6 +63,8 @@ beforeEach(() => {
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
+  localStorage.clear();
+  delete document.documentElement.dataset.sidebarState;
 });
 
 it("keeps five direct mobile destinations and retains secondary destinations on desktop", async () => {
@@ -151,4 +154,21 @@ it("keeps every direct mobile destination in the native keyboard navigation orde
     await user.tab();
     expect(document.activeElement).toBe(link);
   }
+});
+
+it("uses the shared sidebar while retaining saved reader preference and legal navigation", async () => {
+  localStorage.setItem("devfeed:sidebar-expanded", "true");
+  const user = userEvent.setup();
+  render(<App />);
+  await signedIn();
+  const sidebar = screen.getByRole("complementary", { name: "Primary navigation" });
+  expect(sidebar.id).toBe("reader-sidebar");
+  expect(sidebar.getAttribute("data-sidebar-layout")).toBe("reader");
+  expect(document.documentElement.dataset.sidebarState).toBe("expanded");
+  expect(within(sidebar).getByRole("navigation", { name: "Legal" })).toBeTruthy();
+  await user.click(desktop().getByRole("button", { name: "Collapse sidebar" }));
+  expect(localStorage.getItem("devfeed:sidebar-expanded")).toBe("false");
+  expect(document.documentElement.dataset.sidebarState).toBe("collapsed");
+  await user.click(desktop().getByRole("button", { name: "Expand sidebar" }));
+  expect(localStorage.getItem("devfeed:sidebar-expanded")).toBe("true");
 });

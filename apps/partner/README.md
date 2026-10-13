@@ -49,7 +49,9 @@ request. Unavailable or foreign accounts return 404.
 
 The portal follows the administration application's record and form layouts and shows all data
 belonging to the signed-in user's active account memberships. There is no global account selector
-or account UUID prefix in workspace URLs:
+or account UUID prefix in workspace URLs. The shared reader-style sidebar starts with compact icons on desktop,
+expands with labels using the bottom toggle, and remembers that choice for this portal. On mobile,
+Navigation opens the labeled menu and closes after navigation or Escape without changing the desktop preference.
 
 - `/`: Dashboard with aggregate performance totals and a daily trend across accessible accounts.
 - `/performance`: daily impressions, clicks and CTR charts, format comparisons, sortable product

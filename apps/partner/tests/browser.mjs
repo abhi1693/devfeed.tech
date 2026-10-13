@@ -776,6 +776,129 @@ async function checkDeliveryChart(page, { impressions, clicks }) {
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
 }
 
+async function checkPartnerSidebar(page) {
+  const initialUrl = page.url();
+  const sidebar = page.locator("#partner-sidebar");
+  const navigation = page.getByRole("navigation", { name: "Partner portal", exact: true });
+  const key = "devfeed:partner-sidebar-expanded";
+  async function width(expected) {
+    await page.waitForFunction(
+      (value) =>
+        Math.abs(document.getElementById("partner-sidebar").getBoundingClientRect().width - value) <
+        1,
+      expected,
+    );
+  }
+  await width(76);
+  const initialBounds = [];
+  for (const height of [1100, 600]) {
+    await page.setViewportSize({ width: 1440, height });
+    const toggle = await page
+      .getByRole("button", { name: "Expand sidebar", exact: true })
+      .boundingBox();
+    const position = await page.evaluate(() => ({ scrollY, viewportHeight: innerHeight }));
+    initialBounds.push({ height, top: toggle.y, bottom: toggle.y + toggle.height, ...position });
+  }
+  console.log("Partner initial sidebar toggle bounds:", JSON.stringify(initialBounds));
+  for (const bounds of initialBounds) {
+    assert.equal(bounds.scrollY, 0, "Initial sidebar measurement must precede automatic scrolling");
+    assert.ok(
+      bounds.top >= 0 && bounds.bottom <= bounds.viewportHeight,
+      `Sidebar toggle stays visible in a ${bounds.height}px viewport before interaction`,
+    );
+  }
+  await page.evaluate(() => window.scrollTo(0, 80));
+  await page.waitForFunction(() => {
+    const rect = document.getElementById("partner-sidebar").getBoundingClientRect();
+    return scrollY > 0 && rect.top <= 0.5 && Math.abs(rect.height - innerHeight) < 1;
+  });
+  const scrolledToggle = await page
+    .getByRole("button", { name: "Expand sidebar", exact: true })
+    .boundingBox();
+  assert.ok(
+    scrolledToggle.y >= 0 && scrolledToggle.y + scrolledToggle.height <= 600,
+    "Sidebar toggle remains visible after the header scrolls offscreen",
+  );
+  await page.evaluate(() => window.scrollTo(0, 0));
+  await page.setViewportSize({ width: 1440, height: 1100 });
+  assert.equal(await sidebar.getAttribute("data-expanded"), "false");
+  const products = navigation.getByRole("link", { name: "Products", exact: true });
+  assert.equal(await products.getAttribute("title"), "Products");
+  assert.equal(await products.locator("svg").getAttribute("width"), "20");
+  assert.equal(
+    await products.locator("span").evaluate((element) => getComputedStyle(element).opacity),
+    "0",
+  );
+  await page.screenshot({
+    path: root + "reports/partner/sidebar-collapsed-desktop.png",
+    fullPage: true,
+  });
+  await page.getByRole("button", { name: "Expand sidebar", exact: true }).focus();
+  await page.keyboard.press("Enter");
+  await width(232);
+  assert.equal(await page.evaluate((name) => localStorage.getItem(name), key), "true");
+  await page.screenshot({
+    path: root + "reports/partner/sidebar-expanded-desktop.png",
+    fullPage: true,
+  });
+  await page.reload();
+  await width(232);
+  await navigation.getByRole("link", { name: "Products", exact: true }).click();
+  await page.waitForURL((url) => url.pathname === "/products");
+  await width(232);
+  assert.equal(
+    await navigation
+      .getByRole("link", { name: "Products", exact: true })
+      .getAttribute("aria-current"),
+    "page",
+  );
+  await page.getByRole("button", { name: "Collapse sidebar", exact: true }).focus();
+  await page.keyboard.press("Space");
+  await width(76);
+  assert.equal(await page.evaluate((name) => localStorage.getItem(name), key), "false");
+  await page.reload();
+  await width(76);
+  await page.setViewportSize({ width: 390, height: 844 });
+  const disclosure = page.getByRole("button", { name: "Navigation", exact: true });
+  await disclosure.waitFor({ state: "visible" });
+  assert.equal(await sidebar.isVisible(), false);
+  await disclosure.click();
+  assert.equal(await disclosure.getAttribute("aria-expanded"), "true");
+  for (const label of ["Dashboard", "Performance", "Products", "Connections", "Settings"]) {
+    const link = navigation.getByRole("link", { name: label, exact: true });
+    await link.waitFor({ state: "visible" });
+    assert.equal(
+      await link.locator("span").evaluate((element) => getComputedStyle(element).opacity),
+      "1",
+    );
+  }
+  assert.equal(
+    await page.getByRole("button", { name: "Expand sidebar", exact: true }).isVisible(),
+    false,
+  );
+  assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
+  await page.screenshot({ path: root + "reports/partner/sidebar-open-mobile.png", fullPage: true });
+  await products.focus();
+  await page.keyboard.press("Escape");
+  assert.equal(await disclosure.getAttribute("aria-expanded"), "false");
+  assert.equal(await disclosure.evaluate((element) => element === document.activeElement), true);
+  await disclosure.focus();
+  await page.keyboard.press("Space");
+  await navigation.getByRole("link", { name: "Performance", exact: true }).click();
+  await page.waitForURL((url) => url.pathname === "/performance");
+  assert.equal(await disclosure.getAttribute("aria-expanded"), "false");
+  assert.equal(await sidebar.isVisible(), false);
+  assert.equal(await page.evaluate((name) => localStorage.getItem(name), key), "false");
+  await page.screenshot({
+    path: root + "reports/partner/sidebar-closed-mobile.png",
+    fullPage: true,
+  });
+  await page.setViewportSize({ width: 1440, height: 1100 });
+  await width(76);
+  await page.goto(initialUrl);
+  await page.getByRole("heading", { name: "Dashboard", exact: true, level: 1 }).waitFor();
+}
+
 async function checkDashboardDensity(page) {
   await page.setViewportSize({ width: 1440, height: 900 });
   const trend = await page
@@ -858,6 +981,7 @@ try {
   await page.getByRole("link", { name: "Continue to sign in" }).click();
   await page.getByRole("heading", { name: "Dashboard", exact: true, level: 1 }).waitFor();
   assert.equal(new URL(page.url()).pathname, "/");
+  await checkPartnerSidebar(page);
   await page.getByRole("figure", { name: "Impressions and clicks", exact: true }).waitFor();
   await page.getByRole("button", { name: "User menu: Alex Partner" }).focus();
   await page.keyboard.press("Enter");

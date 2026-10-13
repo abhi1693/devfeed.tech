@@ -781,7 +781,12 @@ test(
       await page.getByRole("region", { name: "Feed controls" }).waitFor();
       assert.equal(await page.getByRole("link", { name: /^Get for (Chrome|Edge)$/ }).count(), 0);
       assert.equal(
-        await page.locator(".sidebar > nav").first().getByRole("link").first().innerText(),
+        await page
+          .locator(".sidebar .shared-sidebar-content > nav")
+          .first()
+          .getByRole("link")
+          .first()
+          .innerText(),
         "My feed",
       );
       await page.getByRole("heading", { name: "Couldn’t load your feed" }).waitFor();

@@ -18,6 +18,7 @@ import {
 } from "../../../scripts/testing/avatar-uploads.mjs";
 import { checkMcp, testMcpEndpoint } from "../../../scripts/testing/mcp.mjs";
 import { checkSidebarGitHub } from "../../../scripts/testing/sidebar-github.mjs";
+import { checkCollapsibleSidebar } from "../../../scripts/testing/collapsible-sidebar.mjs";
 import {
   engagementFeed,
   engagementRows,
@@ -76,7 +77,9 @@ const filterSource = { ...article.sources[0], id: "99999999-9999-4999-8999-99999
 // Run against a real unpacked extension; browser requests are deterministic and
 // never depend on the production feed or mutate visitor/account data.
 test(
-  "shared reader works inside new tabs at desktop and mobile sizes",
+  process.env.DEVFEED_READER_SIDEBAR_ONLY === "1"
+    ? "shared sidebar persists and adapts inside built new tabs"
+    : "shared reader works inside new tabs at desktop and mobile sizes",
   { timeout: 180000 },
   async () => {
     const profile = await mkdtemp(path.join(tmpdir(), "devfeed-reader-test-"));
@@ -298,6 +301,15 @@ test(
       });
       await page.goto(newTab);
       await page.locator(".article-card").first().waitFor();
+      if (process.env.DEVFEED_READER_SIDEBAR_ONLY === "1") {
+        await checkCollapsibleSidebar(
+          page,
+          path.resolve(extension, `../${browser}-shared-sidebar`),
+        );
+        assert.deepEqual(errors, []);
+        console.log(`Shared sidebar passed against the final installed ${browser} extension.`);
+        return;
+      }
       const readerBase = `${page.url().split("#")[0]}#`;
       defaultAll = true;
       await page.goto("about:blank");
@@ -502,6 +514,7 @@ test(
       ]);
       assert.equal(await page.locator(".sidebar .nav-item").count(), 7);
       await checkSidebarGitHub(page, path.resolve(extension, `../${browser}-sidebar-github.png`));
+      await checkCollapsibleSidebar(page, path.resolve(extension, `../${browser}-shared-sidebar`));
       await checkMcp(page, path.resolve(extension, `../${browser}-mcp`));
       const whatsNew = page
         .locator(".sidebar")

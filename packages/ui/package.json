@@ -4,6 +4,8 @@
   "private": true,
   "type": "module",
   "exports": {
+    "./sidebar": "./src/sidebar.tsx",
+    "./sidebar.css": "./src/sidebar.css",
     "./resource-layout": "./src/resource-layout.tsx",
     "./info-tip": "./src/info-tip.tsx",
     "./info-tip.css": "./src/info-tip.css",

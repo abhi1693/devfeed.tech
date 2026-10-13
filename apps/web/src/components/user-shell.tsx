@@ -1,6 +1,7 @@
 import Link from "@/components/reader-link";
 import Image from "next/image";
 import brandMark from "@devfeed/theme/assets/devfeed-mark.png";
+import { CollapsibleSidebar } from "@devfeed/ui/sidebar";
 import { NotificationInbox } from "./notification-inbox";
 import { ReadingTools } from "./reading-tools";
 import { ThemeToggle } from "./theme-toggle";
@@ -9,7 +10,6 @@ import { Bot, Compass, House, Rss, Sparkles, Trophy } from "lucide-react";
 import { legalPages } from "@/lib/legal";
 import { UserSearch } from "./user-search";
 import { SkipToContent } from "./skip-to-content";
-import { SidebarToggle } from "./sidebar-toggle";
 import type { FeedFilters } from "@/lib/feed-query";
 
 export function UserShell({
@@ -58,7 +58,22 @@ export function UserShell({
           <UserAccount />
         </div>
       </header>
-      <aside className="sidebar" aria-label="Primary navigation">
+      <CollapsibleSidebar
+        id="reader-sidebar"
+        label="Primary navigation"
+        storageKey="devfeed:sidebar-expanded"
+        variant="reader"
+        syncDocumentState
+        footer={
+          <nav className="sidebar-legal" aria-label="Legal">
+            {legalPages.map((page) => (
+              <Link key={page.path} href={page.path}>
+                {page.title}
+              </Link>
+            ))}
+          </nav>
+        }
+      >
         <nav>
           <PersonalFeedNav active={section === "personal"} />
           <Link
@@ -131,17 +146,7 @@ export function UserShell({
             <span>Star us on GitHub</span>
           </a>
         </nav>
-        <nav className="sidebar-legal" aria-label="Legal">
-          {legalPages.map((page) => (
-            <Link key={page.path} href={page.path}>
-              {page.title}
-            </Link>
-          ))}
-        </nav>
-        <div className="sidebar-toggle-area">
-          <SidebarToggle />
-        </div>
-      </aside>
+      </CollapsibleSidebar>
       <main id="main" className="main-content" tabIndex={-1}>
         {children}
       </main>

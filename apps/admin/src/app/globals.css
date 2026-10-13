@@ -2,6 +2,7 @@
 @import "@devfeed/theme/theme-toggle.css";
 @import "@devfeed/ui/content.css";
 @import "@devfeed/ui/choice-controls.css";
+@import "@devfeed/ui/sidebar.css";
 @import "tailwindcss";
 @import "tw-animate-css";
 @import "@devfeed/theme/tokens.css";
