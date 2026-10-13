@@ -59,12 +59,13 @@ Choose the same header again to reverse direction. Unavailable metrics appear la
 either direction. Sorting and the current asset page survive navigation and reloads;
 changing the sort or reporting period returns to the first asset page.
 
-All account, membership, tier, benefit, and asset management lives in the admin app at
-`/partnerships/accounts`. These operations use `/v1/admin/partner-accounts`, require an admin
-session with the `superuser` role, and enforce the admin origin and CSRF token. The partner
-API exposes account-list, individual account and dashboard GET routes plus an account-scoped PUT
-preferences route for product click destination, automatic ad formats and eligible audience defaults. Report mutations remain
-unavailable. Sign-out uses POST.
+Account administration, memberships, tiers, benefits, campaigns and historical asset management
+live in the admin app at `/partnerships/accounts`. These operations use
+`/v1/admin/partner-accounts`, require an admin session with the `superuser` role, and enforce the
+admin origin and CSRF token. The partner API exposes account, dashboard, inventory and preview
+GET routes, plus account-scoped updates for product click destination, automatic ad formats,
+eligible audience defaults and owned product placement settings. Members cannot manage campaigns
+or mutate reports. Sign-out uses POST.
 Reader, partner, and admin sessions are isolated.
 
 The gateway accepts request bodies up to 1,000,000 bytes and requires the whole upload to
@@ -100,10 +101,13 @@ Revenue, conversions, and financial ROI are not claimed by these metrics.
 
 Silver, Gold, Platinum and Diamond support native feed cards, homepage sponsorship, sponsored
 content and contextual engagement ads. Account settings choose automatic feed, homepage and
-engagement formats. Existing accounts retain feed-only settings until another format is enabled.
+engagement formats. Automatic formats default to Feed until another format is enabled.
 Homepage sponsorship appears as a compact unit beneath the main feed controls, only in the
-unfiltered home feed. Engagement placements use relevant products in existing grid and preview
-areas. They do not interrupt article reading or replace reader actions.
+unfiltered home feed. Engagement placements use grounded task matches or direct topic support in
+existing grid and preview areas. They do not interrupt article reading or replace reader actions.
+A Feed card without managed artwork uses compact product branding; Engagement uses a compact
+logo, product copy and an Explore affordance. Feed and article-search
+lists with fewer than four organic stories omit in-list placements.
 
 Sponsored content requires a dated campaign linked to an existing approved, visible article.
 Its card uses that article's title, image, topics and publisher and opens the article preview.
@@ -113,13 +117,20 @@ The sponsored article is omitted when it is already present in the visible feed.
 
 All product placements show a distinct Sponsored pill, regardless of tier or internal promotion
 kind, and cannot be dismissed. The formats share the existing maximum of two placements per
-delivery response. Article, topic, category and search contexts require a relevant match;
-only sponsored feed delivery can fall back in the unfiltered home feed. Audience restrictions
-also apply to fallback delivery. Formats have separate assets and attribution while the product
-performance table combines the same product's results into one row.
+delivery response. Article, topic, category and search contexts require a relevant match.
+Generic Feed sponsorship may fall back only on the unfiltered home feed without supplied article
+context or resolved reader interests; failed contextual matching cannot broaden into unrelated
+Feed inventory. Explicit Homepage sponsorship remains a separate brand placement on the
+unfiltered home feed and may appear alongside page context. Audience restrictions also apply
+to fallback delivery. Formats have separate assets and attribution while the product performance
+table combines the same product's results into one row.
 
-**Creative preview** shows a real accepted product for the selected format without recording
-an impression. It is separate from the compact URL-only **Click destination preview**.
+**Creative preview** shows a real accepted product or approved sponsored article for the selected
+format without reserving delivery or recording measurements. From a product's placement dialog,
+it requests that exact account-owned product and uses the saved click destination. Excluded or otherwise unavailable
+inventory has no preview. Unsaved placement edits do not affect preview availability, and an
+appearance preview does not confirm delivery eligibility. It is separate from the compact URL-only
+**Click destination preview**.
 
 Products can inherit account placement locations and formats or use explicit allowlists.
 These restrictions apply to automatic delivery and dated campaigns. Empty lists disable all
@@ -128,9 +139,23 @@ cannot enable an automatic format that the account has disabled or bypass a tier
 account exclusion or global exclusion. Allowing sponsored content makes the product eligible
 for a campaign with an approved article; it does not create or publish an article.
 Members can edit these settings for their own imported products independently of performance
-reporting. Changing one setting preserves other saved product settings.
+reporting. The partner and admin dialogs can explicitly Allow or Exclude a product while retaining
+its format and location restrictions. They distinguish unsaved choices from saved settings and
+show the automatic formats and locations permitted within account defaults. Allowing a product
+does not override account pauses, automatic inclusion, qualification or targeting. A save is
+confirmed only when the response belongs to the requested account and product and confirms the
+submitted exclusion and restrictions; failed or mismatched saves retain the draft for review.
+Closing the dialog discards unsaved changes.
 
 ### Contextual delivery and tracking
+
+Article placements and feed Engagement require current grounded tutorial task matches. Topic
+Engagement requires directly verified technology support; a broad shared category or a related
+topic alone cannot qualify it. Matches must still describe the current product and article inputs,
+and a validated negative task evaluation prevents task-based delivery for that product/article
+pair. Within each delivery phase, grounded task intent ranks ahead of broader topic support,
+followed by match score and campaign priority.
+Locked live-policy checks remain authoritative before issuing a receipt.
 
 Deduplication events retain the current UTC date and two complete prior dates. The scheduler
 removes older events and delivery reservations older than 48 hours in independent, indexed
@@ -154,6 +179,10 @@ server-only `DEVFEED_PARTNER_TRACKING_KEY` (at least 32 random ASCII characters)
 server delivery code may hold the key; never put it in a browser or extension. Receipts bind
 an asset, an anonymous delivery UUID, and the UTC delivery time, and expire after one hour.
 Issue them when delivering an active account-owned placement, not for private catalog matches.
+Mounted pages also enforce expiry: expired cards become inactive and stop tracking, and any
+organic story hidden by a sponsored-content card returns. Reading-anchor restoration preserves
+the article being read as the layout changes. Tabs recheck expiry when they become visible or
+regain focus; returning from a preview does not renew an expired receipt.
 
 The shared client POSTs `{ "kind": "impression" | "click", "receipt": "..." }` to
 `/api/v1/partner-tracking/events`. The website forwards only that bounded JSON body to the
@@ -223,9 +252,10 @@ are cumulative and defined in `packages/core/src/partner_tiers.py`; they cannot 
 per account or submitted to the API. Create/edit forms preview the selected tier’s
 benefits from the same authenticated API catalog. Bronze includes portal access, reporting and
 relevant recommendations; Silver adds the four native advertising formats, inherited sponsored
-placements and sponsored fallback in the unfiltered main feed. Silver and higher tiers also permit
-additional dated campaigns. Contextual matches rank first; search, category, article, and topic
-placements require a relevant match. Gold adds product promotion planning. Platinum adds audience targeting and priority campaign
+placements and contextless sponsored Feed fallback in the unfiltered main feed. Silver and higher
+tiers also permit additional dated campaigns. Grounded task matches rank ahead of broader topic
+support within each delivery phase; search, category, article and topic placements require a
+relevant match. Gold adds product promotion planning. Platinum adds audience targeting and priority campaign
 support; Diamond includes those benefits and custom partnership planning. These are starter
 commercial offerings, independent of role and membership authorization.
 

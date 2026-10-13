@@ -149,6 +149,7 @@ const accountLookups = [];
 const logoutRequests = [];
 const preferenceWrites = [];
 const previewRequests = [];
+const creativePreviewRequests = [];
 const audienceRequests = [];
 const productPolicy = { excluded: false, promotion_surfaces: null, ad_formats: null };
 const productPolicyWrites = [];
@@ -325,7 +326,14 @@ const mock = createServer(async (request, response) => {
       response.end("{}");
       return;
     }
-    response.end(JSON.stringify({ product: isBeta ? null : creativeProduct(previewProduct) }));
+    const productId = url.searchParams.get("product_id");
+    if (productId) assert.equal(productId, previewProduct.id);
+    creativePreviewRequests.push({ productId, excluded: productPolicy.excluded });
+    response.end(
+      JSON.stringify({
+        product: isBeta || productPolicy.excluded ? null : creativeProduct(previewProduct),
+      }),
+    );
     return;
   }
   if (path.endsWith("/dashboard")) {
@@ -743,6 +751,18 @@ try {
     name: `${previewProduct.name} placements`,
     exact: true,
   });
+  await productDialog.getByRole("button", { name: "Preview this product", exact: true }).click();
+  await productDialog
+    .getByRole("region", { name: "Creative preview" })
+    .getByText(previewProduct.name, { exact: true })
+    .waitFor();
+  assert.deepEqual(creativePreviewRequests.at(-1), {
+    productId: previewProduct.id,
+    excluded: false,
+  });
+  await productDialog.getByRole("combobox", { name: "Product availability", exact: true }).click();
+  await page.getByRole("option", { name: "Exclude this product", exact: true }).click();
+  await productDialog.getByText("Unsaved changes", { exact: true }).waitFor();
   await productDialog.getByRole("combobox", { name: "Product formats", exact: true }).click();
   await page.getByRole("option", { name: "Choose product formats", exact: true }).click();
   for (const name of ["Feed", "Homepage sponsorship", "Sponsored content"])
@@ -757,6 +777,7 @@ try {
   await productDialog.getByRole("button", { name: "Save product placements", exact: true }).click();
   await productDialog.waitFor({ state: "hidden" });
   assert.deepEqual(productPolicyWrites.at(-1), {
+    excluded: true,
     ad_formats: ["engagement"],
     promotion_surfaces: ["feed"],
   });
@@ -770,6 +791,25 @@ try {
     name: "API Checker launch campaign placements",
     exact: true,
   });
+  await reportProductDialog.getByText(/This product is excluded/).waitFor();
+  await reportProductDialog
+    .getByRole("button", { name: "Preview this product", exact: true })
+    .click();
+  await reportProductDialog.getByText(/This product is unavailable for preview/).waitFor();
+  assert.deepEqual(creativePreviewRequests.at(-1), {
+    productId: previewProduct.id,
+    excluded: true,
+  });
+  await reportProductDialog
+    .getByRole("combobox", { name: "Product availability", exact: true })
+    .click();
+  await page.getByRole("option", { name: "Allow this product", exact: true }).click();
+  await reportProductDialog.getByText("Unsaved changes", { exact: true }).waitFor();
+  assert.equal(
+    productPolicy.excluded,
+    true,
+    "Changing the draft does not restore the product until save",
+  );
   assert.equal(
     await reportProductDialog
       .getByRole("checkbox", { name: "Engagement", exact: true })
@@ -794,7 +834,11 @@ try {
     .getByRole("button", { name: "Save product placements", exact: true })
     .click();
   await reportProductDialog.waitFor({ state: "hidden" });
-  assert.deepEqual(productPolicyWrites.at(-1), { ad_formats: null, promotion_surfaces: null });
+  assert.deepEqual(productPolicyWrites.at(-1), {
+    excluded: false,
+    ad_formats: null,
+    promotion_surfaces: null,
+  });
   assert.equal(
     await page
       .getByRole("button", { name: "Sort by Name", exact: true })

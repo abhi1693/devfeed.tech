@@ -60,6 +60,7 @@ const destinationProduct = {
     "https://shipyard.example/products/api-checker?ref=catalog&utm_source=devfeed#overview",
 };
 const previewRequests = [];
+const creativePreviewRequests = [];
 const sponsorArticleRequests = [];
 let assets = [];
 const campaigns = [];
@@ -194,7 +195,10 @@ const fixture = createServer(async (req, res) => {
     previewRequests.push(path);
     body = { product: destinationProduct };
   } else if (path === `/v1/admin/partner-accounts/${account.id}/creative-preview`) {
-    body = { product: creativeProduct(destinationProduct) };
+    const productId = new URL(req.url, "http://localhost").searchParams.get("product_id");
+    if (productId) assert.equal(productId, catalogProduct.id);
+    creativePreviewRequests.push({ productId, excluded: productExcluded });
+    body = { product: productExcluded ? null : creativeProduct(destinationProduct) };
   } else if (path === `/v1/admin/partner-accounts/${account.id}/inventory`) {
     const params = new URL(req.url, "http://localhost").searchParams;
     inventoryRequests.push(Object.fromEntries(params));
@@ -735,6 +739,18 @@ try {
     name: `${catalogProduct.name} placements`,
     exact: true,
   });
+  await productDialog.getByRole("button", { name: "Preview this product", exact: true }).click();
+  await productDialog
+    .getByRole("region", { name: "Creative preview" })
+    .getByText(destinationProduct.name, { exact: true })
+    .waitFor();
+  assert.deepEqual(creativePreviewRequests.at(-1), {
+    productId: catalogProduct.id,
+    excluded: false,
+  });
+  await productDialog.getByRole("combobox", { name: "Product availability", exact: true }).click();
+  await page.getByRole("option", { name: "Exclude this product", exact: true }).click();
+  await productDialog.getByText("Unsaved changes", { exact: true }).waitFor();
   await productDialog.getByRole("combobox", { name: "Product formats", exact: true }).click();
   await page.getByRole("option", { name: "Choose product formats", exact: true }).click();
   for (const name of ["Feed", "Homepage sponsorship", "Sponsored content"])
@@ -748,11 +764,23 @@ try {
   await productDialog.getByRole("button", { name: "Save product placements", exact: true }).click();
   await productDialog.waitFor({ state: "hidden" });
   assert.deepEqual(writes.at(-1).payload, {
+    excluded: true,
     ad_formats: ["engagement"],
     promotion_surfaces: ["feed"],
   });
   await page.reload();
   await editProductPlacements.click();
+  await productDialog.getByText(/This product is excluded/).waitFor();
+  await productDialog.getByRole("button", { name: "Preview this product", exact: true }).click();
+  await productDialog.getByText(/This product is unavailable for preview/).waitFor();
+  assert.deepEqual(creativePreviewRequests.at(-1), {
+    productId: catalogProduct.id,
+    excluded: true,
+  });
+  await productDialog.getByRole("combobox", { name: "Product availability", exact: true }).click();
+  await page.getByRole("option", { name: "Allow this product", exact: true }).click();
+  await productDialog.getByText("Unsaved changes", { exact: true }).waitFor();
+  assert.equal(productExcluded, true, "The availability draft is applied only after save");
   assert.equal(
     await productDialog.getByRole("checkbox", { name: "Engagement", exact: true }).isChecked(),
     true,
@@ -767,7 +795,11 @@ try {
   await page.getByRole("option", { name: "Inherit account placements", exact: true }).click();
   await productDialog.getByRole("button", { name: "Save product placements", exact: true }).click();
   await productDialog.waitFor({ state: "hidden" });
-  assert.deepEqual(writes.at(-1).payload, { ad_formats: null, promotion_surfaces: null });
+  assert.deepEqual(writes.at(-1).payload, {
+    excluded: false,
+    ad_formats: null,
+    promotion_surfaces: null,
+  });
   await page.getByRole("link", { name: "Campaigns", exact: true }).click();
   await page.getByRole("link", { name: "Create paid campaign", exact: true }).click();
   await page.getByLabel(/Campaign name/).fill("October catalog promotion");

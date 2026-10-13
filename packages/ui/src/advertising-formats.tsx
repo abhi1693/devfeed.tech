@@ -121,6 +121,18 @@ export type ProductPlacementRestrictions = {
   promotion_surfaces: PlacementSurface[] | null;
 };
 export type ProductPlacementPolicy = ProductPlacementRestrictions & { excluded: boolean };
+function sameSelection(left: string[] | null, right: string[] | null) {
+  return left === null || right === null
+    ? left === right
+    : left.length === right.length && left.every((item) => right.includes(item));
+}
+function sameProductPolicy(left: ProductPlacementPolicy, right: ProductPlacementPolicy) {
+  return (
+    left.excluded === right.excluded &&
+    sameSelection(left.ad_formats, right.ad_formats) &&
+    sameSelection(left.promotion_surfaces, right.promotion_surfaces)
+  );
+}
 export function parseProductPlacementPolicy(value: unknown): ProductPlacementPolicy {
   if (!value || typeof value !== "object") throw new Error("Invalid product placement settings.");
   const row = value as ProductPlacementPolicy;
@@ -146,18 +158,26 @@ export function parseProductPlacementPolicy(value: unknown): ProductPlacementPol
 export function ProductPlacementDialog({
   name,
   allowedFormats,
+  accountFormats = allowedFormats,
+  accountSurfaces = placementSurfaces.map((surface) => surface.value),
+  destination,
   loadPolicy,
   savePolicy,
+  loadPreview,
   onSaved,
   disabled,
 }: {
   name: string;
   allowedFormats: AdFormat[];
+  accountFormats?: AdFormat[];
+  accountSurfaces?: PlacementSurface[];
+  destination?: "product_url" | "listing_url";
   loadPolicy: (signal: AbortSignal) => Promise<ProductPlacementPolicy>;
   savePolicy: (
-    restrictions: ProductPlacementRestrictions,
+    policy: ProductPlacementPolicy,
     signal: AbortSignal,
   ) => Promise<ProductPlacementPolicy>;
+  loadPreview?: (signal: AbortSignal) => Promise<CreativePreviewProduct | null>;
   onSaved?: () => void;
   disabled?: boolean;
 }) {
@@ -166,12 +186,35 @@ export function ProductPlacementDialog({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [policy, setPolicy] = useState<ProductPlacementPolicy | null>(null);
+  const [excluded, setExcluded] = useState(false);
+  const [previewOpen, setPreviewOpen] = useState(false);
   const [formatMode, setFormatMode] = useState("inherit");
   const [surfaceMode, setSurfaceMode] = useState("inherit");
   const [formats, setFormats] = useState<AdFormat[]>([]);
   const [surfaces, setSurfaces] = useState<PlacementSurface[]>([]);
   const request = useRef<AbortController | null>(null);
   useEffect(() => () => request.current?.abort(), []);
+  const draft: ProductPlacementPolicy = {
+    excluded,
+    ad_formats: formatMode === "inherit" ? null : formats,
+    promotion_surfaces: surfaceMode === "inherit" ? null : surfaces,
+  };
+  const dirty = policy && !sameProductPolicy(policy, draft);
+  const effectiveFormats = excluded
+    ? []
+    : automaticAdFormats.filter(
+        (format) =>
+          allowedFormats.includes(format) &&
+          accountFormats.includes(format) &&
+          (draft.ad_formats === null || draft.ad_formats.includes(format)),
+      );
+  const effectiveSurfaces = excluded
+    ? []
+    : placementSurfaces.filter(
+        ({ value }) =>
+          accountSurfaces.includes(value) &&
+          (draft.promotion_surfaces === null || draft.promotion_surfaces.includes(value)),
+      );
   async function load() {
     request.current?.abort();
     const controller = new AbortController();
@@ -179,10 +222,12 @@ export function ProductPlacementDialog({
     setLoading(true);
     setError("");
     setPolicy(null);
+    setPreviewOpen(false);
     try {
       const next = await loadPolicy(controller.signal);
       if (controller.signal.aborted) return;
       setPolicy(next);
+      setExcluded(next.excluded);
       setFormatMode(next.ad_formats === null ? "inherit" : "custom");
       setSurfaceMode(next.promotion_surfaces === null ? "inherit" : "custom");
       setFormats(next.ad_formats ?? [...allowedFormats]);
@@ -202,14 +247,12 @@ export function ProductPlacementDialog({
     setSaving(true);
     setError("");
     try {
-      await savePolicy(
-        {
-          ad_formats: formatMode === "inherit" ? null : formats,
-          promotion_surfaces: surfaceMode === "inherit" ? null : surfaces,
-        },
-        controller.signal,
-      );
+      const saved = await savePolicy(draft, controller.signal);
       if (!controller.signal.aborted) {
+        if (!sameProductPolicy(parseProductPlacementPolicy(saved), draft))
+          throw new Error(
+            "Could not confirm saved product placements. Review your changes and retry.",
+          );
         setOpen(false);
         onSaved?.();
       }
@@ -262,9 +305,24 @@ export function ProductPlacementDialog({
                 aria-busy={saving}
                 className="mt-5 space-y-5"
               >
-                {policy.excluded && (
+                <Select
+                  label="Product availability"
+                  required
+                  value={excluded ? "excluded" : "allowed"}
+                  disabled={saving}
+                  onChange={(value) => setExcluded(value === "excluded")}
+                  options={[
+                    { value: "allowed", label: "Allow this product" },
+                    { value: "excluded", label: "Exclude this product" },
+                  ]}
+                />
+                {excluded && (
                   <p className="text-sm text-muted-foreground">
-                    This product is excluded. These settings apply if the product is allowed again.
+                    {policy.excluded
+                      ? "This product is excluded."
+                      : "This product will be excluded after saving."}{" "}
+                    Exclusion blocks placements for this product, including dated product campaigns.
+                    Format and location restrictions are retained.
                   </p>
                 )}
                 <Select
@@ -343,6 +401,50 @@ export function ProductPlacementDialog({
                     </p>
                   </fieldset>
                 )}
+                <div className="space-y-2 rounded-lg bg-muted p-3 text-sm">
+                  <p role="status" className="font-medium">
+                    {dirty ? "Unsaved changes" : "Saved product settings"}
+                  </p>
+                  <p>
+                    Allowed automatic formats after saving:{" "}
+                    {effectiveFormats.map(adFormatLabel).join(", ") || "None"}.
+                  </p>
+                  <p>
+                    Allowed locations after saving:{" "}
+                    {effectiveSurfaces.map((surface) => surface.label).join(", ") || "None"}.
+                  </p>
+                  <p className="text-xs text-muted-foreground">
+                    Inherited settings follow future account changes. Product restrictions also
+                    limit dated campaigns, which choose their own formats. Allowing a product does
+                    not guarantee delivery: account status, automatic inclusion, approval,
+                    ownership, targeting, and available capacity still apply. Each format also
+                    supports specific locations.
+                  </p>
+                </div>
+                {loadPreview && (
+                  <div className="space-y-3 border-t pt-4">
+                    <button
+                      type="button"
+                      className="text-sm underline"
+                      aria-expanded={previewOpen}
+                      onClick={() => setPreviewOpen((current) => !current)}
+                    >
+                      {previewOpen ? "Hide product preview" : "Preview this product"}
+                    </button>
+                    {previewOpen && (
+                      <ProductPlacementPreview
+                        allowedFormats={allowedFormats}
+                        initialFormat={
+                          effectiveFormats[0] ??
+                          automaticAdFormats.find((format) => formats.includes(format)) ??
+                          "feed"
+                        }
+                        destination={destination}
+                        load={loadPreview}
+                      />
+                    )}
+                  </div>
+                )}
                 {error && (
                   <p role="alert" className="text-sm text-destructive">
                     {error}
@@ -389,6 +491,76 @@ export function ProductPlacementDialog({
         </Dialog.Content>
       </Dialog.Portal>
     </Dialog.Root>
+  );
+}
+
+function ProductPlacementPreview({
+  allowedFormats,
+  initialFormat,
+  destination,
+  load,
+}: {
+  allowedFormats: AdFormat[];
+  initialFormat: AdFormat;
+  destination?: "product_url" | "listing_url";
+  load: (signal: AbortSignal) => Promise<CreativePreviewProduct | null>;
+}) {
+  const formats = automaticAdFormats.filter((format) => allowedFormats.includes(format));
+  const [format, setFormat] = useState<AdFormat>(
+    formats.includes(initialFormat) ? initialFormat : (formats[0] ?? "feed"),
+  );
+  const [product, setProduct] = useState<CreativePreviewProduct | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(false);
+  const [revision, setRevision] = useState(0);
+  useEffect(() => {
+    const controller = new AbortController();
+    setLoading(true);
+    setError(false);
+    setProduct(null);
+    void load(controller.signal)
+      .then((next) => {
+        if (!controller.signal.aborted) setProduct(next);
+      })
+      .catch(() => {
+        if (!controller.signal.aborted) setError(true);
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setLoading(false);
+      });
+    return () => controller.abort();
+  }, [load, revision]);
+  return (
+    <div className="space-y-3">
+      <p className="text-xs text-muted-foreground">
+        Appearance preview for this product using its saved destination. Unsaved placement changes
+        do not affect preview availability, and a preview does not confirm delivery eligibility.
+      </p>
+      {formats.length > 1 && (
+        <Select
+          label="Product preview format"
+          required
+          value={format}
+          onChange={(value) => setFormat(value as AdFormat)}
+          options={formats.map((value) => ({ value, label: adFormatLabel(value) }))}
+        />
+      )}
+      {loading || error || product ? (
+        <AdCreativePreview
+          format={format}
+          product={product}
+          destination={destination}
+          loading={loading}
+          error={error}
+          onRetry={() => setRevision((current) => current + 1)}
+        />
+      ) : (
+        <p className="text-sm text-muted-foreground">
+          This product is unavailable for preview. It must be accepted, owned by this account, and
+          allowed by saved product settings.
+        </p>
+      )}
+    </div>
   );
 }
 
@@ -503,6 +675,11 @@ export function AdCreativePreview({
   } catch {
     /* A destination may be unavailable. */
   }
+  const disclosure = (
+    <span className="inline-flex rounded-full border border-amber-300 bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-900 dark:border-amber-700 dark:bg-amber-950 dark:text-amber-200">
+      Sponsored
+    </span>
+  );
   return (
     <section aria-label="Creative preview" aria-busy={loading} className="min-w-0 space-y-3">
       <h3 className="text-sm font-medium">{adFormatLabel(format)}</h3>
@@ -525,27 +702,53 @@ export function AdCreativePreview({
             <div className="flex items-center gap-3 p-4">
               <PreviewMedia key={product?.id} logo={product?.logo_url} name={title} compact />
               <div className="min-w-0 flex-1">
-                <span className="inline-flex rounded-full border border-amber-300 bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-900 dark:border-amber-700 dark:bg-amber-950 dark:text-amber-200">
-                  Sponsored
-                </span>
+                {disclosure}
                 <p className="mt-2 truncate font-semibold">{title}</p>
                 {host && <p className="truncate text-xs text-muted-foreground">{host}</p>}
               </div>
             </div>
+          ) : format === "engagement" || (format === "feed" && !safeImage(product?.image_url)) ? (
+            <div className="space-y-3 p-4">
+              <div className="flex items-start gap-3">
+                <PreviewMedia key={product?.id} logo={product?.logo_url} name={title} compact />
+                <div className="min-w-0 flex-1 space-y-2">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <h4 className="line-clamp-2 text-base leading-snug font-semibold">{title}</h4>
+                    {format === "engagement" && disclosure}
+                  </div>
+                  {format === "engagement" && description && (
+                    <p className="line-clamp-2 text-xs text-muted-foreground">{description}</p>
+                  )}
+                  {format === "engagement" && (
+                    <div className="flex items-center justify-between gap-3 text-xs text-muted-foreground">
+                      <span className="truncate">{host}</span>
+                      <span className="shrink-0">Explore ↗</span>
+                    </div>
+                  )}
+                </div>
+              </div>
+              {format === "feed" && (
+                <>
+                  {description && (
+                    <p className="line-clamp-2 text-xs text-muted-foreground">{description}</p>
+                  )}
+                  {disclosure}
+                  <div className="border-t pt-3 text-xs text-muted-foreground">
+                    <span className="block truncate">{host}</span>
+                  </div>
+                </>
+              )}
+            </div>
           ) : (
             <>
-              {format !== "engagement" && (
-                <PreviewMedia
-                  key={`${product?.id ?? article?.id}/${product?.image_url ?? article?.image_url}`}
-                  image={content ? article?.image_url : product?.image_url}
-                  logo={product?.logo_url}
-                  name={title}
-                />
-              )}
+              <PreviewMedia
+                key={`${product?.id ?? article?.id}/${product?.image_url ?? article?.image_url}`}
+                image={content ? article?.image_url : product?.image_url}
+                logo={product?.logo_url}
+                name={title}
+              />
               <div className="space-y-3 p-4">
-                <span className="inline-flex rounded-full border border-amber-300 bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-900 dark:border-amber-700 dark:bg-amber-950 dark:text-amber-200">
-                  Sponsored
-                </span>
+                {disclosure}
                 <h4 className="line-clamp-2 text-lg leading-snug font-semibold">{title}</h4>
                 {description && (
                   <p className="line-clamp-3 text-sm text-muted-foreground">{description}</p>

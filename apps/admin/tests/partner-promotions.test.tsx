@@ -9,6 +9,7 @@ import { PartnerInventory } from "@/components/organisms/partner-inventory";
 import { PartnerAccountManagement } from "@/components/organisms/partner-account-management";
 import { PartnerProductPlacements } from "@/components/organisms/partner-ad-formats";
 import { ApiError } from "@/lib/api/client";
+import * as client from "@/lib/api/client";
 import * as api from "@/lib/api/generated/admin";
 import type { AccountOut, ArticleOut, CampaignOut } from "@/lib/api/generated/models";
 
@@ -790,12 +791,114 @@ it("updates product restrictions with admin CSRF without toggling its exclusion"
   expect(api.adminPartnerProductPromotionUpdate).toHaveBeenCalledWith(
     account.id,
     product.id,
-    { ad_formats: null, promotion_surfaces: null },
+    { excluded: true, ad_formats: null, promotion_surfaces: null },
     expect.objectContaining({
       headers: { "X-CSRF-Token": "test-csrf" },
       signal: expect.any(AbortSignal),
     }),
   );
+});
+
+it.each([false, true])(
+  "requests an exact admin product preview and rejects unrelated creative (%s)",
+  async (wrongProduct) => {
+    vi.mocked(api.adminPartnerProductPromotionGet).mockResolvedValue({
+      account_id: account.id,
+      product_id: product.id,
+      excluded: false,
+      ad_formats: null,
+      promotion_surfaces: null,
+    });
+    vi.mocked(api.adminPartnerCreativePreview).mockResolvedValue({
+      product: {
+        ...destinationProduct,
+        id: wrongProduct ? "other-product" : product.id,
+        name: wrongProduct ? "Other product" : product.name,
+        description: "Manage Kubernetes workloads.",
+        logo_url: null,
+        image_url: null,
+      },
+    });
+    renderAdmin(
+      <PartnerProductPlacements
+        accountId={account.id}
+        product={product}
+        allowedFormats={paidAccount.allowed_ad_formats}
+        onSaved={push}
+      />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: `Edit placements for ${product.name}` }));
+    await screen.findByRole("combobox", { name: "Product availability" });
+    expect(api.adminPartnerCreativePreview).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Preview this product" }));
+    const preview = await screen.findByRole("region", { name: "Creative preview" });
+    if (wrongProduct) {
+      await within(preview).findByText("Could not load the creative preview.");
+      expect(screen.queryByText("Other product")).toBeNull();
+    } else await within(preview).findByText(product.name);
+    expect(api.adminPartnerCreativePreview).toHaveBeenCalledWith(
+      account.id,
+      { product_id: product.id },
+      { signal: expect.any(AbortSignal) },
+    );
+  },
+);
+
+it("rejects an admin product policy for another product", async () => {
+  vi.mocked(api.adminPartnerProductPromotionGet).mockResolvedValue({
+    account_id: account.id,
+    product_id: "other-product",
+    excluded: false,
+    ad_formats: null,
+    promotion_surfaces: null,
+  });
+  renderAdmin(
+    <PartnerProductPlacements
+      accountId={account.id}
+      product={product}
+      allowedFormats={paidAccount.allowed_ad_formats}
+      onSaved={push}
+    />,
+  );
+  fireEvent.click(screen.getByRole("button", { name: `Edit placements for ${product.name}` }));
+  await screen.findByText("Could not confirm product placement settings.");
+  expect(screen.queryByRole("button", { name: "Save product placements" })).toBeNull();
+});
+
+it("aborts a closed admin preview and ignores its late unauthorized failure", async () => {
+  const login = vi.spyOn(client, "returnToLogin").mockImplementation(() => {});
+  let rejectPreview!: (error: Error) => void;
+  vi.mocked(api.adminPartnerCreativePreview).mockImplementation(
+    () =>
+      new Promise((_resolve, reject) => {
+        rejectPreview = reject;
+      }),
+  );
+  vi.mocked(api.adminPartnerProductPromotionGet).mockResolvedValue({
+    account_id: account.id,
+    product_id: product.id,
+    excluded: false,
+    ad_formats: null,
+    promotion_surfaces: null,
+  });
+  renderAdmin(
+    <PartnerProductPlacements
+      accountId={account.id}
+      product={product}
+      allowedFormats={paidAccount.allowed_ad_formats}
+      onSaved={push}
+    />,
+  );
+  fireEvent.click(screen.getByRole("button", { name: `Edit placements for ${product.name}` }));
+  await screen.findByRole("combobox", { name: "Product availability" });
+  fireEvent.click(screen.getByRole("button", { name: "Preview this product" }));
+  await waitFor(() => expect(api.adminPartnerCreativePreview).toHaveBeenCalledOnce());
+  const signal = vi.mocked(api.adminPartnerCreativePreview).mock.calls[0][2]?.signal;
+  fireEvent.click(screen.getByRole("button", { name: "Close placements" }));
+  expect(signal?.aborted).toBe(true);
+  await act(async () => rejectPreview(new ApiError(401)));
+  expect(login).not.toHaveBeenCalled();
+  expect(push).not.toHaveBeenCalled();
 });
 
 it("selects products only from this account's inventory and rejects an empty selection", async () => {

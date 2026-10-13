@@ -157,6 +157,9 @@ export function PartnerProductCatalog({
                       productId={product.id}
                       name={product.name}
                       allowedFormats={account.allowed_ad_formats ?? ["feed"]}
+                      accountFormats={account.ad_formats ?? ["feed"]}
+                      accountSurfaces={account.promotion_surfaces}
+                      destination={account.outbound_destination ?? "product_url"}
                       csrfToken={csrfToken}
                       onSaved={() => setRevision((value) => value + 1)}
                       onUnavailable={onUnavailable}

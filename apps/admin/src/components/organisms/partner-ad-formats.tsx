@@ -10,7 +10,9 @@ import {
   type CreativePreviewArticle,
   type CreativePreviewProduct,
   ProductPlacementDialog,
+  parseCreativePreview,
   parseProductPlacementPolicy,
+  type PlacementSurface,
 } from "@devfeed/ui/advertising-formats";
 import {
   adminPartnerCreativePreview,
@@ -27,45 +29,77 @@ export function PartnerProductPlacements({
   accountId,
   product,
   allowedFormats,
+  accountFormats,
+  accountSurfaces,
+  destination,
   disabled,
   onSaved,
 }: {
   accountId: string;
   product: { id: string; name: string };
   allowedFormats: AdFormat[];
+  accountFormats?: AdFormat[];
+  accountSurfaces?: PlacementSurface[];
+  destination?: "product_url" | "listing_url";
   disabled?: boolean;
   onSaved: () => void;
 }) {
   const admin = useAdmin();
+  function parsePolicy(value: unknown) {
+    const row = value as { account_id?: unknown; product_id?: unknown } | null;
+    if (row?.account_id !== accountId || row?.product_id !== product.id)
+      throw new Error("Could not confirm product placement settings.");
+    return parseProductPlacementPolicy(value);
+  }
+  const loadPreview = useCallback(
+    async (signal: AbortSignal) => {
+      try {
+        const preview = parseCreativePreview(
+          await adminPartnerCreativePreview(accountId, { product_id: product.id }, { signal }),
+        );
+        if (preview && preview.id !== product.id) throw new Error("Unexpected preview product.");
+        return preview;
+      } catch (error) {
+        if (!signal.aborted && error instanceof ApiError && error.status === 401) returnToLogin();
+        throw error;
+      }
+    },
+    [accountId, product.id],
+  );
   return (
     <ProductPlacementDialog
+      key={`${accountId}/${product.id}`}
       name={product.name}
       allowedFormats={allowedFormats}
+      accountFormats={accountFormats}
+      accountSurfaces={accountSurfaces}
+      destination={destination}
       disabled={disabled}
       onSaved={onSaved}
       loadPolicy={async (signal) => {
         try {
-          return parseProductPlacementPolicy(
+          return parsePolicy(
             await adminPartnerProductPromotionGet(accountId, product.id, { signal }),
           );
         } catch (error) {
-          if (error instanceof ApiError && error.status === 401) returnToLogin();
+          if (!signal.aborted && error instanceof ApiError && error.status === 401) returnToLogin();
           throw error;
         }
       }}
       savePolicy={async (restrictions, signal) => {
         try {
-          return parseProductPlacementPolicy(
+          return parsePolicy(
             await adminPartnerProductPromotionUpdate(accountId, product.id, restrictions, {
               signal,
               headers: { "X-CSRF-Token": admin.csrf_token },
             }),
           );
         } catch (error) {
-          if (error instanceof ApiError && error.status === 401) returnToLogin();
+          if (!signal.aborted && error instanceof ApiError && error.status === 401) returnToLogin();
           throw error;
         }
       }}
+      loadPreview={loadPreview}
     />
   );
 }

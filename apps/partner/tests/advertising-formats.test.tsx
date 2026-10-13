@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { PartnerAdFormats } from "../src/app/partner-ad-formats";
@@ -60,6 +60,25 @@ function catalog() {
       onUnavailable={unavailable}
     />,
   );
+}
+function placements(productId = product.id) {
+  return render(
+    <PartnerProductPlacements
+      accountId={account.id}
+      productId={productId}
+      name={product.name}
+      allowedFormats={account.allowed_ad_formats!}
+      csrfToken="partner-csrf"
+      onSaved={saved}
+      onUnavailable={unavailable}
+    />,
+  );
+}
+async function openProductPlacements() {
+  await userEvent.click(
+    screen.getByRole("button", { name: `Edit placements for ${product.name}` }),
+  );
+  await screen.findByRole("combobox", { name: "Product availability" });
 }
 it("saves automatic formats independently and permits disabling every automatic format", async () => {
   const fetcher = vi.fn().mockImplementation(() => Response.json({ ...account, ad_formats: [] }));
@@ -158,7 +177,7 @@ it("edits an excluded product through owned routes without changing exclusion", 
     `/api/v1/partner/accounts/${account.id}/products/${product.id}/promotion`,
     expect.objectContaining({
       method: "PUT",
-      body: JSON.stringify({ ad_formats: null, promotion_surfaces: null }),
+      body: JSON.stringify({ excluded: true, ad_formats: null, promotion_surfaces: null }),
       headers: { "content-type": "application/json", "x-csrf-token": "partner-csrf" },
     }),
   );
@@ -184,6 +203,138 @@ it("rejects a product policy belonging to another account", async () => {
   );
   await screen.findByRole("alert");
   expect(screen.queryByRole("button", { name: "Save product placements" })).toBeNull();
+});
+it("restores an excluded product only when its draft is saved", async () => {
+  const fetcher = vi
+    .fn()
+    .mockImplementation((_url: string, init: RequestInit) =>
+      Response.json(init.method === "PUT" ? { ...policy, excluded: false } : policy),
+    );
+  vi.stubGlobal("fetch", fetcher);
+  placements();
+  await openProductPlacements();
+  await userEvent.click(screen.getByRole("combobox", { name: "Product availability" }));
+  await userEvent.click(screen.getByRole("option", { name: "Allow this product" }));
+  expect(screen.getByText("Unsaved changes")).toBeTruthy();
+  expect(fetcher).toHaveBeenCalledTimes(1);
+  await userEvent.click(screen.getByRole("button", { name: "Save product placements" }));
+  await waitFor(() => expect(saved).toHaveBeenCalledOnce());
+  expect(fetcher).toHaveBeenLastCalledWith(
+    `/api/v1/partner/accounts/${account.id}/products/${product.id}/promotion`,
+    expect.objectContaining({
+      method: "PUT",
+      body: JSON.stringify({ excluded: false, ad_formats: null, promotion_surfaces: null }),
+    }),
+  );
+});
+it.each([false, true])(
+  "previews only the chosen product, rejecting a wrong-product response (%s)",
+  async (wrongProduct) => {
+    const fetcher = vi.fn().mockImplementation((url: string) =>
+      Response.json(
+        url.includes("creative-preview")
+          ? {
+              product: wrongProduct
+                ? {
+                    ...product,
+                    id: "44444444-4444-4444-8444-444444444444",
+                    name: "Other product",
+                  }
+                : product,
+            }
+          : policy,
+      ),
+    );
+    vi.stubGlobal("fetch", fetcher);
+    placements();
+    await openProductPlacements();
+    expect(fetcher).toHaveBeenCalledTimes(1);
+    await userEvent.click(screen.getByRole("button", { name: "Preview this product" }));
+    const preview = await screen.findByRole("region", { name: "Creative preview" });
+    if (wrongProduct) {
+      await within(preview).findByText("Could not load the creative preview.");
+      expect(screen.queryByText("Other product")).toBeNull();
+    } else await within(preview).findByText(product.name);
+    expect(fetcher).toHaveBeenLastCalledWith(
+      `/api/v1/partner/accounts/${account.id}/creative-preview?product_id=${product.id}`,
+      expect.objectContaining({ signal: expect.any(AbortSignal), credentials: "same-origin" }),
+    );
+  },
+);
+it("explains a null preview without inventing creative for an excluded product", async () => {
+  vi.stubGlobal(
+    "fetch",
+    vi
+      .fn()
+      .mockImplementation((url: string) =>
+        Response.json(url.includes("creative-preview") ? { product: null } : policy),
+      ),
+  );
+  placements();
+  await openProductPlacements();
+  await userEvent.click(screen.getByRole("button", { name: "Preview this product" }));
+  await screen.findByText(/This product is unavailable for preview/);
+  expect(screen.queryByText("Sponsored")).toBeNull();
+});
+it.each([401, 403, 404])("handles lost product-preview access (%s)", async (status) => {
+  vi.stubGlobal(
+    "fetch",
+    vi
+      .fn()
+      .mockImplementation((url: string) =>
+        url.includes("creative-preview") ? new Response(null, { status }) : Response.json(policy),
+      ),
+  );
+  placements();
+  await openProductPlacements();
+  await userEvent.click(screen.getByRole("button", { name: "Preview this product" }));
+  await waitFor(() => expect(unavailable).toHaveBeenCalledOnce());
+  if (status !== 404) expect(router.replace).toHaveBeenCalledWith("/login");
+  expect(saved).not.toHaveBeenCalled();
+});
+it("aborts a hidden preview and ignores late responses from a closed dialog", async () => {
+  let resolvePreview!: (response: Response) => void;
+  const fetcher = vi.fn().mockImplementation((url: string) =>
+    url.includes("creative-preview")
+      ? new Promise<Response>((resolve) => {
+          resolvePreview = resolve;
+        })
+      : Response.json(policy),
+  );
+  vi.stubGlobal("fetch", fetcher);
+  placements();
+  await openProductPlacements();
+  await userEvent.click(screen.getByRole("button", { name: "Preview this product" }));
+  await waitFor(() => expect(fetcher).toHaveBeenCalledTimes(2));
+  const signal = fetcher.mock.calls[1][1].signal as AbortSignal;
+  await userEvent.click(screen.getByRole("button", { name: "Close placements" }));
+  expect(signal.aborted).toBe(true);
+  await act(async () => resolvePreview(new Response(null, { status: 401 })));
+  expect(unavailable).not.toHaveBeenCalled();
+  expect(router.replace).not.toHaveBeenCalled();
+  expect(screen.queryByRole("dialog")).toBeNull();
+});
+it("aborts an escaped save and ignores its late unauthorized response", async () => {
+  let finishSave!: (response: Response) => void;
+  const fetcher = vi.fn().mockImplementation((_url: string, init: RequestInit) =>
+    init.method === "PUT"
+      ? new Promise<Response>((resolve) => {
+          finishSave = resolve;
+        })
+      : Response.json(policy),
+  );
+  vi.stubGlobal("fetch", fetcher);
+  placements();
+  await openProductPlacements();
+  await userEvent.click(screen.getByRole("button", { name: "Save product placements" }));
+  await waitFor(() => expect(fetcher).toHaveBeenCalledTimes(2));
+  const signal = fetcher.mock.calls[1][1].signal as AbortSignal;
+  await userEvent.keyboard("{Escape}");
+  expect(signal.aborted).toBe(true);
+  await act(async () => finishSave(new Response(null, { status: 401 })));
+  expect(saved).not.toHaveBeenCalled();
+  expect(unavailable).not.toHaveBeenCalled();
+  expect(router.replace).not.toHaveBeenCalled();
 });
 it("searches the full imported catalog remotely and resets pagination", async () => {
   const fetcher = vi

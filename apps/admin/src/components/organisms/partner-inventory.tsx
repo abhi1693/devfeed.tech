@@ -141,6 +141,9 @@ export function PartnerInventory({ account }: { account: AccountOut }) {
             accountId={account.id}
             product={row.original}
             allowedFormats={account.allowed_ad_formats ?? ["feed"]}
+            accountFormats={account.ad_formats ?? ["feed"]}
+            accountSurfaces={account.promotion_surfaces}
+            destination={account.outbound_destination ?? "product_url"}
             disabled={!!busy || result.loading}
             onSaved={() => setRevision((value) => value + 1)}
           />

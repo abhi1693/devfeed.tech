@@ -31,10 +31,21 @@ it.each(["feed", "homepage_sponsorship", "engagement"] as const)(
     expect(within(preview).getByText(product.name)).toBeTruthy();
     expect(within(preview).getByText("Sponsored").className).toContain("rounded-full");
     expect(preview.textContent).toContain("rust.example");
-    expect(preview.textContent).not.toMatch(/Visit website|Read article|↗/);
-    expect(preview.querySelectorAll("img").length).toBe(format === "engagement" ? 0 : 1);
+    expect(preview.textContent).not.toMatch(/Visit website|Read article/);
+    expect(preview.textContent?.includes("Explore ↗")).toBe(format === "engagement");
+    expect(preview.querySelectorAll("img").length).toBe(1);
   },
 );
+
+it("previews a feed without a hero using compact product branding", () => {
+  const view = render(
+    <AdCreativePreview format="feed" product={{ ...product, image_url: null }} />,
+  );
+  expect(view.container.querySelector("img")?.src).toBe(product.logo_url);
+  expect(view.container.querySelector(".aspect-video")).toBeNull();
+  expect(screen.getByText(product.name)).toBeTruthy();
+  expect(screen.getByText("Sponsored")).toBeTruthy();
+});
 
 it("previews the approved article's internal destination and title", () => {
   render(
@@ -84,7 +95,7 @@ it("validates preview and product-policy boundaries, preserving null versus empt
 it("lazily loads product restrictions and saves custom empty formats independently of exclusion", async () => {
   const inherited = { excluded: true, ad_formats: null, promotion_surfaces: null };
   const load = vi.fn().mockResolvedValue(inherited);
-  const save = vi.fn().mockResolvedValue(inherited);
+  const save = vi.fn(async (next: ProductPlacementPolicy) => next);
   const onSaved = vi.fn();
   render(
     <ProductPlacementDialog
@@ -108,7 +119,7 @@ it("lazily loads product restrictions and saves custom empty formats independent
   await userEvent.click(within(dialog).getByRole("button", { name: "Save product placements" }));
   await waitFor(() =>
     expect(save).toHaveBeenCalledWith(
-      { ad_formats: [], promotion_surfaces: null },
+      { excluded: true, ad_formats: [], promotion_surfaces: null },
       expect.any(AbortSignal),
     ),
   );
@@ -122,7 +133,7 @@ it("explicitly resets saved custom policy to account inheritance", async () => {
     ad_formats: ["engagement"],
     promotion_surfaces: ["article"],
   };
-  const save = vi.fn().mockResolvedValue(policy);
+  const save = vi.fn(async (next: ProductPlacementPolicy) => next);
   render(
     <ProductPlacementDialog
       name={product.name}
@@ -145,10 +156,123 @@ it("explicitly resets saved custom policy to account inheritance", async () => {
   await userEvent.click(screen.getByRole("button", { name: "Save product placements" }));
   await waitFor(() =>
     expect(save).toHaveBeenCalledWith(
-      { ad_formats: null, promotion_surfaces: null },
+      { excluded: false, ad_formats: null, promotion_surfaces: null },
       expect.any(AbortSignal),
     ),
   );
+});
+
+it.each([true, false])(
+  "saves a deliberate change from excluded=%s and retains restrictions",
+  async (excluded) => {
+    const policy: ProductPlacementPolicy = {
+      excluded,
+      ad_formats: ["engagement"],
+      promotion_surfaces: ["article"],
+    };
+    const save = vi
+      .fn(async (next: ProductPlacementPolicy) => next)
+      .mockRejectedValueOnce(new Error("Save failed."));
+    render(
+      <ProductPlacementDialog
+        name={product.name}
+        allowedFormats={allowed}
+        loadPolicy={async () => policy}
+        savePolicy={save}
+      />,
+    );
+    await userEvent.click(
+      screen.getByRole("button", { name: `Edit placements for ${product.name}` }),
+    );
+    await screen.findByText("Saved product settings");
+    await userEvent.click(screen.getByRole("combobox", { name: "Product availability" }));
+    await userEvent.click(
+      screen.getByRole("option", {
+        name: excluded ? "Allow this product" : "Exclude this product",
+      }),
+    );
+    expect(screen.getByText("Unsaved changes")).toBeTruthy();
+    if (!excluded)
+      expect(screen.getByText(/This product will be excluded after saving/)).toBeTruthy();
+    expect(save).not.toHaveBeenCalled();
+    await userEvent.click(screen.getByRole("button", { name: "Save product placements" }));
+    await screen.findByText("Save failed.");
+    expect(screen.getByText("Unsaved changes")).toBeTruthy();
+    expect(screen.getByRole("combobox", { name: "Product availability" }).textContent).toContain(
+      excluded ? "Allow this product" : "Exclude this product",
+    );
+    await userEvent.click(screen.getByRole("button", { name: "Save product placements" }));
+    await waitFor(() => expect(save).toHaveBeenCalledTimes(2));
+    for (const [value] of save.mock.calls)
+      expect(value).toEqual({ ...policy, excluded: !excluded });
+  },
+);
+
+it("keeps a changed exclusion open when the server returns different saved settings", async () => {
+  const policy: ProductPlacementPolicy = {
+    excluded: true,
+    ad_formats: null,
+    promotion_surfaces: null,
+  };
+  const onSaved = vi.fn();
+  render(
+    <ProductPlacementDialog
+      name={product.name}
+      allowedFormats={allowed}
+      loadPolicy={async () => policy}
+      savePolicy={async () => policy}
+      onSaved={onSaved}
+    />,
+  );
+  await userEvent.click(
+    screen.getByRole("button", { name: `Edit placements for ${product.name}` }),
+  );
+  await screen.findByRole("combobox", { name: "Product availability" });
+  await userEvent.click(screen.getByRole("combobox", { name: "Product availability" }));
+  await userEvent.click(screen.getByRole("option", { name: "Allow this product" }));
+  await userEvent.click(screen.getByRole("button", { name: "Save product placements" }));
+  await screen.findByText(
+    "Could not confirm saved product placements. Review your changes and retry.",
+  );
+  expect(screen.getByText("Unsaved changes")).toBeTruthy();
+  expect(screen.getByRole("dialog")).toBeTruthy();
+  expect(onSaved).not.toHaveBeenCalled();
+});
+
+it("discards unsaved availability changes on close and explains the inherited account limits", async () => {
+  const policy: ProductPlacementPolicy = {
+    excluded: false,
+    ad_formats: null,
+    promotion_surfaces: null,
+  };
+  const save = vi.fn();
+  const load = vi.fn().mockResolvedValue(policy);
+  render(
+    <ProductPlacementDialog
+      name={product.name}
+      allowedFormats={allowed}
+      accountFormats={["engagement"]}
+      accountSurfaces={["article"]}
+      loadPolicy={load}
+      savePolicy={save}
+    />,
+  );
+  const trigger = screen.getByRole("button", { name: `Edit placements for ${product.name}` });
+  await userEvent.click(trigger);
+  await screen.findByText("Allowed automatic formats after saving: Engagement.");
+  expect(screen.getByText("Allowed locations after saving: Article pages.")).toBeTruthy();
+  await userEvent.click(screen.getByRole("combobox", { name: "Product availability" }));
+  await userEvent.click(screen.getByRole("option", { name: "Exclude this product" }));
+  expect(screen.getByText("Allowed automatic formats after saving: None.")).toBeTruthy();
+  expect(screen.getByText("Allowed locations after saving: None.")).toBeTruthy();
+  await userEvent.click(screen.getByRole("button", { name: "Close placements" }));
+  await userEvent.click(trigger);
+  await screen.findByText("Saved product settings");
+  expect(screen.getByRole("combobox", { name: "Product availability" }).textContent).toContain(
+    "Allow this product",
+  );
+  expect(load).toHaveBeenCalledTimes(2);
+  expect(save).not.toHaveBeenCalled();
 });
 
 it("retains product edits on a failed save and supports retry without widening them", async () => {

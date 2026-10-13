@@ -567,6 +567,9 @@ export function Portal({
                                     productId={asset.product_id}
                                     name={asset.name}
                                     allowedFormats={data.account.allowed_ad_formats ?? ["feed"]}
+                                    accountFormats={data.account.ad_formats ?? ["feed"]}
+                                    accountSurfaces={data.account.promotion_surfaces}
+                                    destination={data.account.outbound_destination ?? "product_url"}
                                     csrfToken={identity.csrf_token}
                                     disabled={sorting}
                                     onSaved={reload}
