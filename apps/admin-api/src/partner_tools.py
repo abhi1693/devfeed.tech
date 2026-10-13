@@ -33,8 +33,6 @@ from devfeed_core.partner_connections import (
     configure_connection,
     connection_view,
     connection_views,
-    read_partner_page,
-    read_partner_product,
     request_assessment,
     update_connection_definition,
 )
@@ -42,7 +40,6 @@ from devfeed_core.partner_connectors import (
     CONNECTOR_PRESETS,
     ConnectorConfig,
     connector_snapshot,
-    response_preview,
 )
 from devfeed_core.partner_providers import PARTNER_PRESETS, PartnerProviderOut
 from devfeed_core.partner_tools import (
@@ -54,6 +51,7 @@ from devfeed_core.partner_tools import (
 )
 from devfeed_core.text_search import text_search
 from devfeed_http.pagination import Listing, Page, paginate, record
+from devfeed_http.partner_connector_previews import ConnectorPreviewService
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import String, cast, exists, or_, select
 from sqlalchemy.dialects.postgresql import insert
@@ -119,34 +117,7 @@ def providers():
     operation_id="admin_partner_connector_preview",
 )
 def preview_connector(body: ConnectorPreview, admin: Admin):
-    # Bounded, read-only preview: one discovery page and at most three detail requests.
-    try:
-        candidates, cursor = read_partner_page(
-            body.provider, config=body.connector.model_dump(mode="json")
-        )
-    except Exception as exc:
-        logger.info(
-            "partner_connector_preview_failed",
-            extra={"provider": body.provider, "error_type": type(exc).__name__},
-        )
-        raise HTTPException(
-            422, "Could not read the product page. Check endpoints, response paths and credentials."
-        ) from exc
-    products, errors = [], []
-    for candidate in candidates[:3]:
-        try:
-            products.append(
-                read_partner_product(
-                    body.provider, candidate, body.connector.model_dump(mode="json")
-                )
-            )
-        except Exception:
-            errors.append(
-                "A product could not be mapped. Check field paths, detail endpoint and URLs."
-            )
-    return ConnectorPreviewOut(
-        products=products, errors=errors, has_next_page=bool(cursor), discovered=len(candidates)
-    )
+    return ConnectorPreviewService(body.provider, body.connector).products()
 
 
 @router.post(
@@ -155,12 +126,7 @@ def preview_connector(body: ConnectorPreview, admin: Admin):
     operation_id="admin_partner_connector_response",
 )
 def connector_response(body: ConnectorPreview, admin: Admin):
-    try:
-        return response_preview(body.provider, body.connector)
-    except Exception as exc:
-        raise HTTPException(
-            422, "Could not read the API response. Check the endpoint and authentication."
-        ) from exc
+    return ConnectorPreviewService(body.provider, body.connector).response()
 
 
 def log_connection(event, connection, admin, affected_jobs):

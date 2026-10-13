@@ -69,17 +69,17 @@ def test_product_db_failure_retries_only_that_product(
     assert len(children) == 3 and product_count(database) == 0
     process_pipeline(children[0], factory=database)
     assert product_count(database) == 1
-    original = partner_product_sync.upsert_partner_product
+    original = partner_product_sync.upsert_listing
 
     def fail_after_write(session, item, generation):
         original(session, item, generation)
         session.flush()
         raise RuntimeError("Simulated product database failure")
 
-    monkeypatch.setattr(partner_product_sync, "upsert_partner_product", fail_after_write)
+    monkeypatch.setattr(partner_product_sync, "upsert_listing", fail_after_write)
     process_pipeline(children[1], factory=database)
     assert product_count(database) == 1  # The failed product transaction was rolled back.
-    monkeypatch.setattr(partner_product_sync, "upsert_partner_product", original)
+    monkeypatch.setattr(partner_product_sync, "upsert_listing", original)
     process_pipeline(children[2], factory=database)
     assert product_count(database) == 2
     with database() as session:
@@ -238,7 +238,7 @@ def test_background_worker_recovers_delivery_on_old_discovery_queue(
         connect(admin_client)
         identifier = job_id(database, "sync")
         monkeypatch.setattr(
-            partner_sync_tasks, "read_partner_page", lambda *_, **kwargs: ([], None)
+            partner_sync_tasks.ConnectorClient, "discover_page", lambda *_, **kwargs: ([], None)
         )
     else:
         _, children = discover(admin_client, database, product_payload)
@@ -326,7 +326,7 @@ def test_repeated_malformed_candidate_failure_starts_fresh_scan(
     admin_client, database, product_payload, scheduled, corrected
 ):
     from devfeed_aggregator.partner_sync_tasks import schedule_partner_syncs
-    from devfeed_core.partner_connections import ProductCandidate
+    from devfeed_core.partner_connectors import ProductCandidate
 
     connect(admin_client)
     parent = job_id(database, "sync")

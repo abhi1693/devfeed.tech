@@ -153,7 +153,7 @@ def test_product_sync_preserves_generation_and_fences_results(monkeypatch, mode)
     writer = Mock(return_value=canonical)
     if mode == "database":
         writer.side_effect = RuntimeError("database unavailable")
-    monkeypatch.setattr(products, "upsert_partner_product", writer)
+    monkeypatch.setattr(products, "upsert_listing", writer)
 
     def read(*_):
         if mode == "http":

@@ -1,5 +1,6 @@
-"""Bound selected request bodies before JSON decoding or database dependencies."""
+"""Bound selected request bodies before parsing or database dependencies."""
 
+from abc import ABC, abstractmethod
 from collections.abc import Callable
 
 import anyio
@@ -42,42 +43,39 @@ async def _read_body(receive: Receive, limit: int, timeout: float) -> bytes | No
                 return bytes(body)
 
 
-class RequestBodyLimitMiddleware:
-    def __init__(
-        self,
-        app: ASGIApp,
-        *,
-        limits: dict[tuple[str, str], int],
-        timeout: float = 2.0,
-        limit_for: Callable[[str, str], int | None] | None = None,
-    ):
-        self.app = app
-        self.limits = limits
-        self.timeout = timeout
-        self.limit_for = limit_for
+class BoundedRequestBodyMiddleware(ABC):
+    """Read a limited body once, with route and response policy supplied by subclasses."""
+
+    def __init__(self, app: ASGIApp, *, timeout: float):
+        self.app, self.timeout = app, timeout
+
+    @abstractmethod
+    def body_limit(self, scope: Scope) -> int | None:
+        """Return a byte limit, or leave this request untouched."""
+
+    def declared_oversize(self, scope: Scope, limit: int) -> bool:
+        return _declared_oversize(scope, limit)
+
+    @abstractmethod
+    async def reject(self, scope: Scope, receive: Receive, send: Send, status: int) -> None:
+        """Send the route policy's size or timeout response."""
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send):
         if scope["type"] != "http":
             await self.app(scope, receive, send)
             return
-        method, path = scope.get("method", ""), _route_path(scope)
-        limit = self.limits.get((method, path))
-        if limit is None and self.limit_for is not None:
-            limit = self.limit_for(method, path)
+        limit = self.body_limit(scope)
         if limit is None:
             await self.app(scope, receive, send)
             return
         try:
-            if _declared_oversize(scope, limit):
+            if self.declared_oversize(scope, limit):
                 raise RequestBodyTooLarge
             body = await _read_body(receive, limit, self.timeout)
         except (RequestBodyTooLarge, TimeoutError) as exc:
-            too_large = isinstance(exc, RequestBodyTooLarge)
-            await JSONResponse(
-                {"detail": "Request too large" if too_large else "Incomplete request"},
-                status_code=413 if too_large else 408,
-                headers={"Cache-Control": "no-store"},
-            )(scope, receive, send)
+            await self.reject(
+                scope, receive, send, 413 if isinstance(exc, RequestBodyTooLarge) else 408
+            )
             return
         if body is None:
             return
@@ -91,3 +89,30 @@ class RequestBodyLimitMiddleware:
             return {"type": "http.request", "body": body, "more_body": False}
 
         await self.app(scope, replay, send)
+
+
+class RequestBodyLimitMiddleware(BoundedRequestBodyMiddleware):
+    def __init__(
+        self,
+        app: ASGIApp,
+        *,
+        limits: dict[tuple[str, str], int],
+        timeout: float = 2.0,
+        limit_for: Callable[[str, str], int | None] | None = None,
+    ):
+        super().__init__(app, timeout=timeout)
+        self.limits, self.limit_for = limits, limit_for
+
+    def body_limit(self, scope: Scope) -> int | None:
+        method, path = scope.get("method", ""), _route_path(scope)
+        limit = self.limits.get((method, path))
+        if limit is None and self.limit_for is not None:
+            limit = self.limit_for(method, path)
+        return limit
+
+    async def reject(self, scope: Scope, receive: Receive, send: Send, status: int) -> None:
+        await JSONResponse(
+            {"detail": "Request too large" if status == 413 else "Incomplete request"},
+            status_code=status,
+            headers={"Cache-Control": "no-store"},
+        )(scope, receive, send)

@@ -2,6 +2,7 @@
 
 import asyncio
 import io
+import json
 import struct
 import zlib
 
@@ -146,6 +147,8 @@ def test_declared_body_size_is_rejected_before_reading_or_form_parsing():
         )
     )
     assert messages[0]["status"] == 413
+    assert json.loads(messages[1]["body"]) == {"detail": "Choose an image under 5 MB"}
+    assert b"cache-control" not in dict(messages[0]["headers"])
 
 
 @pytest.mark.parametrize("declared", [b"1", b"invalid"])
@@ -202,6 +205,8 @@ def test_stalled_body_returns_408_and_cancels_its_reader():
 
     asyncio.run(run())
     assert messages[0]["status"] == 408 and cancelled == [True]
+    assert json.loads(messages[1]["body"]) == {"detail": "Image upload timed out"}
+    assert b"cache-control" not in dict(messages[0]["headers"])
 
 
 def test_disconnected_upload_stops_without_calling_form_parser():
@@ -242,6 +247,61 @@ def test_bounded_multipart_body_is_replayed_once_without_losing_bytes():
         {"type": "http.request", "body": b"firstsecond", "more_body": False},
         {"type": "http.disconnect"},
     ]
+
+
+def test_receiving_upload_chunks_does_not_restart_the_deadline():
+    messages, received = [], []
+
+    async def app(*args):
+        pytest.fail("A continuously streaming upload outlived its deadline")
+
+    async def receive():
+        if received:
+            await asyncio.sleep(0.01)
+        received.append(True)
+        return {"type": "http.request", "body": b"x", "more_body": True}
+
+    async def send(message):
+        messages.append(message)
+
+    async def run():
+        await asyncio.wait_for(
+            image_uploads.ImageUploadBodyLimit(app, paths=("/upload",), timeout=0.03)(
+                scope(), receive, send
+            ),
+            timeout=1,
+        )
+
+    asyncio.run(run())
+    assert messages[0]["status"] == 408
+    assert 0 < len(received) < image_uploads.MAX_REQUEST_BYTES
+
+
+def test_dynamic_upload_routes_use_the_received_path_and_enforce_the_limit(monkeypatch):
+    monkeypatch.setattr(image_uploads, "MAX_REQUEST_BYTES", 4)
+    messages, paths = [], []
+
+    async def app(*args):
+        pytest.fail("Oversized dynamic upload reached multipart parsing")
+
+    async def receive():
+        return {"type": "http.request", "body": b"large", "more_body": False}
+
+    async def send(message):
+        messages.append(message)
+
+    def matches(path):
+        paths.append(path)
+        return path == "/mounted/products/tool/image"
+
+    request_scope = {**scope(path="/mounted/products/tool/image"), "root_path": "/mounted"}
+    asyncio.run(
+        image_uploads.ImageUploadBodyLimit(app, path_predicate=matches)(
+            request_scope, receive, send
+        )
+    )
+    assert paths == ["/mounted/products/tool/image"]
+    assert messages[0]["status"] == 413
 
 
 @pytest.mark.parametrize("method,path", [("GET", "/upload"), ("POST", "/other")])

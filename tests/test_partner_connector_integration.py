@@ -1,5 +1,6 @@
 """Generic connectors share the catalog pipeline and revision/authorization fences."""
 
+import time
 import uuid
 
 import pytest
@@ -40,10 +41,10 @@ def test_custom_definition_runs_existing_catalog_and_ai_pipeline(
 ):
     requests = []
     monkeypatch.setattr(
-        connectors,
-        "api_json",
-        lambda provider, config, url, **kwargs: (
-            requests.append((provider, url)) or {"data": {"products": [RECORD]}}
+        connectors.ConnectorClient,
+        "request",
+        lambda client, url: (
+            requests.append((client.provider, url)) or {"data": {"products": [RECORD]}}
         ),
     )
     created = create(admin_client)
@@ -87,11 +88,9 @@ def test_explicit_null_pagination_survives_previews_persistence_and_import(
     }
     requests = []
     monkeypatch.setattr(
-        connectors,
-        "api_json",
-        lambda provider, parsed, url, **kwargs: (
-            requests.append(url) or {"data": {"products": [RECORD]}}
-        ),
+        connectors.ConnectorClient,
+        "request",
+        lambda client, url: requests.append(url) or {"data": {"products": [RECORD]}},
     )
     created = create(admin_client, connector=config)
     assert created["connector"]["pagination"]["parameter"] is None
@@ -153,17 +152,17 @@ def test_definition_edit_cancels_generation_and_saves_new_snapshot(
 
 def test_preview_is_bounded_read_only_and_sanitizes_errors(admin_client, database, monkeypatch):
     calls = []
-    config = {**CONFIG, "detail_path": "/products/{id}"}
+    config = {**CONFIG, "detail_path": "/products/{id}", "timeout_seconds": 30}
 
-    def api_json(provider, config, url, **kwargs):
-        calls.append(url)
+    def request(client, url):
+        calls.append((url, client.config.timeout_seconds, client.deadline))
         if "/v2/products" in url:
             return {"data": {"products": [{**RECORD, "id": str(index)} for index in range(10)]}}
         if url.endswith("/1"):
             raise ValueError("sensitive private upstream response")
         return {**RECORD, "id": url.rsplit("/", 1)[1]}
 
-    monkeypatch.setattr(connectors, "api_json", api_json)
+    monkeypatch.setattr(connectors.ConnectorClient, "request", request)
     response = admin_client.post(
         ROOT + "/connector-preview", json={"provider": "platform", "connector": config}
     )
@@ -171,12 +170,16 @@ def test_preview_is_bounded_read_only_and_sanitizes_errors(admin_client, databas
     assert response.json()["discovered"] == 10
     assert len(response.json()["products"]) == 2 and len(response.json()["errors"]) == 1
     assert len(calls) == 4 and "sensitive" not in response.text
+    assert {timeout for _, timeout, _ in calls} == {5}
+    deadlines = {deadline for _, _, deadline in calls}
+    assert len(deadlines) == 1 and time.monotonic() < deadlines.pop() <= time.monotonic() + 20
+    assert config["timeout_seconds"] == 30
     with database() as session:
         for model in (PartnerConnection, PartnerPipelineJob, PartnerProduct):
             assert session.scalar(select(func.count()).select_from(model)) == 0
     monkeypatch.setattr(
-        connectors,
-        "api_json",
+        connectors.ConnectorClient,
+        "request",
         lambda *_, **kwargs: (_ for _ in ()).throw(ValueError("private secret")),
     )
     response = admin_client.post(
@@ -212,8 +215,8 @@ def test_page_cap_does_not_complete_partial_import(admin_client, database, monke
     config = {**CONFIG, "max_pages": 1, "pagination": {"mode": "cursor", "next_path": "next"}}
     create(admin_client, connector=config)
     monkeypatch.setattr(
-        connectors,
-        "api_json",
+        connectors.ConnectorClient,
+        "request",
         lambda *_, **kwargs: {"data": {"products": [RECORD]}, "next": "another-page"},
     )
     with database() as session:
@@ -235,8 +238,8 @@ def test_page_cap_does_not_complete_partial_import(admin_client, database, monke
 
 def test_raw_response_preview_does_not_require_known_mapping(admin_client, database, monkeypatch):
     monkeypatch.setattr(
-        connectors,
-        "api_json",
+        connectors.ConnectorClient,
+        "request",
         lambda *_, **kwargs: {"unknown": {"products": [RECORD]}, "access_token": "sensitive"},
     )
     response = admin_client.post(

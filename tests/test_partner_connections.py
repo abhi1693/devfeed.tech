@@ -2,10 +2,9 @@
 
 import pytest
 from devfeed_core.partner_connections import (
-    read_nick_page,
-    read_partner_product,
     validate_qualification,
 )
+from devfeed_core.partner_connectors import ConnectorClient
 
 
 def entry(**changes):
@@ -26,12 +25,12 @@ def test_live_contract_and_legacy_url_names():
         entry(),
         entry(url=entry()["productUrl"], productUrl=entry()["url"], pricing="one_time"),
     ]:
-        products, cursor = read_nick_page(
-            fetch=lambda _, record=record: {"items": [record], "nextCursor": None}
-        )
+        products, cursor = ConnectorClient(
+            "nick-launches", fetch=lambda _, record=record: {"items": [record], "nextCursor": None}
+        ).discover_page()
         assert cursor is None
-        product = read_partner_product(
-            "nick-launches", products[0], fetch=lambda _, record=record: record
+        product = ConnectorClient("nick-launches", fetch=lambda _, record=record: record).product(
+            products[0]
         )
         assert product.product_url == "https://checker.example/"
         assert product.listing_url == "https://nicklaunches.com/products/checker/"
@@ -49,7 +48,7 @@ def test_category_filter_and_pagination():
             "nextCursor": "opaque",
         }
 
-    products, cursor = read_nick_page("a&b", fetch=fetch)
+    products, cursor = ConnectorClient("nick-launches", fetch=fetch).discover_page("a&b")
     assert len(products) == 1 and cursor == "opaque"
     assert "cursor=a%26b" in urls[0]
 
@@ -63,7 +62,7 @@ def test_category_filter_and_pagination():
 )
 def test_invalid_pages_do_not_become_empty_success(body):
     with pytest.raises(ValueError):
-        read_nick_page(fetch=lambda _: body)
+        ConnectorClient("nick-launches", fetch=lambda _: body).discover_page()
 
 
 def test_qualification_requires_independent_quotes():
@@ -99,24 +98,24 @@ def test_discovery_does_not_fetch_or_validate_individual_products():
             "nextCursor": None,
         }
 
-    candidates, cursor = read_nick_page(fetch=fetch)
+    candidates, cursor = ConnectorClient("nick-launches", fetch=fetch).discover_page()
     assert cursor is None and len(calls) == 1 and len(candidates) == 3
     assert candidates[0].external_id == "checker"
     assert candidates[1].external_id == "broken"
     assert candidates[2].external_id.startswith("invalid-")
     assert (
-        read_partner_product("nick-launches", candidates[0], fetch=lambda _: entry()).name
+        ConnectorClient("nick-launches", fetch=lambda _: entry()).product(candidates[0]).name
         == "API Checker"
     )
     with pytest.raises(ValueError):
-        read_partner_product(
-            "nick-launches",
-            candidates[2],
-            fetch=lambda _: pytest.fail("Invalid ID must not be fetched"),
-        )
+        ConnectorClient(
+            "nick-launches", fetch=lambda _: pytest.fail("Invalid ID must not be fetched")
+        ).product(candidates[2])
 
 
 def test_product_endpoint_identity_must_match_discovery():
-    candidates, _ = read_nick_page(fetch=lambda _: {"items": [entry()], "nextCursor": None})
+    candidates, _ = ConnectorClient(
+        "nick-launches", fetch=lambda _: {"items": [entry()], "nextCursor": None}
+    ).discover_page()
     with pytest.raises(ValueError, match="different product identity"):
-        read_partner_product("nick-launches", candidates[0], fetch=lambda _: entry(slug="other"))
+        ConnectorClient("nick-launches", fetch=lambda _: entry(slug="other")).product(candidates[0])

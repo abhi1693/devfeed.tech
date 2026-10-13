@@ -6,13 +6,8 @@ import uuid
 from devfeed_core.feeds.fetcher import FeedError
 from devfeed_core.job_lifecycle import clear_lease, fail_or_retry, start_job
 from devfeed_core.models import PartnerConnection, PartnerPipelineJob, PartnerProduct, utcnow
-from devfeed_core.partner_catalog import lock_catalog, record_verified_redirect
-from devfeed_core.partner_connections import (
-    ProductCandidate,
-    read_partner_product,
-    upsert_partner_product,
-)
-from devfeed_core.partner_connectors import connector_snapshot
+from devfeed_core.partner_catalog import lock_catalog, record_verified_redirect, upsert_listing
+from devfeed_core.partner_connectors import ConnectorClient, ProductCandidate, connector_snapshot
 from devfeed_core.partner_credentials import connection_credential
 from devfeed_core.research_evidence import fetched_page
 from sqlalchemy import select
@@ -60,12 +55,9 @@ def process_product_sync(identifier, factory, *, product_reader=None, page_fetch
         item = (
             product_reader(provider, candidate)
             if product_reader
-            else read_partner_product(
-                provider,
-                candidate,
-                connector,
-                credential=connection_credential(connection, connector),
-            )
+            else ConnectorClient(
+                provider, connector, credential=connection_credential(connection, connector)
+            ).product(candidate)
         )
         if item.provider != provider or item.external_id != candidate.external_id:
             raise ValueError("Partner product identity changed")
@@ -94,7 +86,7 @@ def process_product_sync(identifier, factory, *, product_reader=None, page_fetch
                 product = session.get(PartnerProduct, product_id)
                 if product and product.revision == product_revision and not product.merged_into_id:
                     record_verified_redirect(session, product, final_url)
-            product = upsert_partner_product(session, item, generation)
+            product = upsert_listing(session, item, generation)
             session.flush()
             job.product_id = product.id
             job.status, job.error, job.finished_at = "succeeded", None, utcnow()

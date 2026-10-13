@@ -2,7 +2,6 @@
 
 import hashlib
 import logging
-import time
 import uuid
 from datetime import datetime
 from typing import Literal
@@ -22,15 +21,11 @@ from devfeed_core.partner_connections import (
     ConnectorResponseOut,
     configure_connection,
     connection_views,
-    read_partner_page,
-    read_partner_product,
     update_connection_definition,
 )
 from devfeed_core.partner_connectors import (
     ConnectorConfig,
-    api_json,
     connector_snapshot,
-    response_preview,
 )
 from devfeed_core.partner_credentials import (
     CredentialUnavailable,
@@ -44,6 +39,7 @@ from devfeed_core.rate_limits import RateLimitBudget, consume_rate_limits
 from devfeed_core.schemas import InputModel, ORMModel
 from devfeed_core.text_search import text_search
 from devfeed_http.pagination import Listing, Page, paginate
+from devfeed_http.partner_connector_previews import ConnectorPreviewService
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import Field, SecretStr, field_validator
 from redis.exceptions import RedisError
@@ -306,55 +302,10 @@ def preview_context(session, partner, account_id, body, *, provider=None):
                 raise CredentialUnavailable("Provide an import API credential")
         except CredentialUnavailable as exc:
             raise safe_credential_error(exc) from None
-    # One list page and at most three details fit within the gateway deadline.
-    # These preview-only bounds do not alter the saved import configuration.
-    config = config.model_copy(update={"timeout_seconds": min(config.timeout_seconds, 5)})
     session.rollback()
-    return provider or f"partner-preview-{account_id.hex}", config, credential
-
-
-def preview_products(provider, config, credential):
-    deadline = time.monotonic() + 20
-
-    def fetch(url):
-        return api_json(provider, config, url, credential=credential, deadline=deadline)
-
-    try:
-        candidates, cursor = read_partner_page(
-            provider, config=config.model_dump(mode="json"), fetch=fetch
-        )
-    except Exception as exc:
-        logger.info("partner_import_preview_failed", extra={"error_type": type(exc).__name__})
-        raise HTTPException(
-            422, "Could not read the product page. Check endpoints, response paths and credentials."
-        ) from None
-    products, errors = [], []
-    for candidate in candidates[:3]:
-        try:
-            products.append(
-                read_partner_product(
-                    provider, candidate, config.model_dump(mode="json"), fetch=fetch
-                )
-            )
-        except Exception:
-            errors.append(
-                "A product could not be mapped. Check field paths, detail endpoint and URLs."
-            )
-    return ConnectorPreviewOut(
-        products=products, errors=errors, has_next_page=bool(cursor), discovered=len(candidates)
+    return ConnectorPreviewService(
+        provider or f"partner-preview-{account_id.hex}", config, credential=credential
     )
-
-
-def preview_response(provider, config, credential):
-    try:
-        return response_preview(
-            provider, config, credential=credential, deadline=time.monotonic() + 20
-        )
-    except Exception as exc:
-        logger.info("partner_import_response_failed", extra={"error_type": type(exc).__name__})
-        raise HTTPException(
-            422, "Could not read the API response. Check the endpoint and authentication."
-        ) from None
 
 
 @router.post(
@@ -365,7 +316,7 @@ def preview_response(provider, config, credential):
 def draft_connector_preview(
     account_id: uuid.UUID, body: PartnerConnectorPreview, session: DB, partner: Partner
 ):
-    return preview_products(*preview_context(session, partner, account_id, body))
+    return preview_context(session, partner, account_id, body).products()
 
 
 @router.post(
@@ -376,7 +327,7 @@ def draft_connector_preview(
 def draft_connector_response(
     account_id: uuid.UUID, body: PartnerConnectorPreview, session: DB, partner: Partner
 ):
-    return preview_response(*preview_context(session, partner, account_id, body))
+    return preview_context(session, partner, account_id, body).response()
 
 
 @router.post(
@@ -391,7 +342,7 @@ def existing_connector_preview(
     session: DB,
     partner: Partner,
 ):
-    return preview_products(*preview_context(session, partner, account_id, body, provider=provider))
+    return preview_context(session, partner, account_id, body, provider=provider).products()
 
 
 @router.post(
@@ -406,7 +357,7 @@ def existing_connector_response(
     session: DB,
     partner: Partner,
 ):
-    return preview_response(*preview_context(session, partner, account_id, body, provider=provider))
+    return preview_context(session, partner, account_id, body, provider=provider).response()
 
 
 @router.get("", response_model=PartnerConnectionsOut, operation_id="partnerConnectionsList")

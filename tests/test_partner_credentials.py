@@ -9,7 +9,7 @@ import pytest
 from cryptography.fernet import Fernet
 from devfeed_core.config import get_settings
 from devfeed_core.models import PartnerConnection
-from devfeed_core.partner_connectors import ConnectorConfig, api_json
+from devfeed_core.partner_connectors import ConnectorClient, ConnectorConfig
 from devfeed_core.partner_credentials import (
     CredentialUnavailable,
     connection_credential,
@@ -105,20 +105,14 @@ def test_connection_token_is_only_passed_as_an_origin_header(token_connection, m
         return SimpleNamespace(body=b'{"items": [], "nextCursor": null}')
 
     monkeypatch.setattr("devfeed_core.partner_connectors._fetch", fetch)
-    result = api_json(
-        "account-import",
-        config,
-        "https://catalog.example/products",
-        credential="private-test-token",
+    result = ConnectorClient("account-import", config, credential="private-test-token").request(
+        "https://catalog.example/products"
     )
     assert result["items"] == []
     assert requests[0][1]["origin_headers"] == {"Authorization": "Bearer private-test-token"}
     with pytest.raises(ValueError, match="origin"):
-        api_json(
-            "account-import",
-            config,
-            "https://foreign.example/products",
-            credential="private-test-token",
+        ConnectorClient("account-import", config, credential="private-test-token").request(
+            "https://foreign.example/products"
         )
     assert len(requests) == 1
 
@@ -133,8 +127,8 @@ def test_numeric_credential_echo_is_redacted_before_product_identity_mapping(
             body=b'{"items": [{"id": 123456789, "count": 3}], "nextCursor": null}'
         ),
     )
-    response = api_json(
-        "account-import", config, "https://catalog.example/products", credential="123456789"
+    response = ConnectorClient("account-import", config, credential="123456789").request(
+        "https://catalog.example/products"
     )
     assert response == {"items": [{"id": "[redacted]", "count": 3}], "nextCursor": None}
 
@@ -221,7 +215,7 @@ def test_credential_echoes_are_redacted_before_discovered_records_are_persisted(
         "devfeed_core.partner_connectors._fetch",
         lambda *args, **kwargs: SimpleNamespace(body=body.encode()),
     )
-    result = api_json("unit-echo", config, "https://catalog.example/products")
+    result = ConnectorClient("unit-echo", config).request("https://catalog.example/products")
     assert result["items"] == [
         {"echo": "prefix [redacted] suffix", "nested": [{"[redacted]": "[redacted]"}]}
     ]

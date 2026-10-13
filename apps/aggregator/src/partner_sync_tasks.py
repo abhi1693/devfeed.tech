@@ -27,16 +27,14 @@ from devfeed_core.partner_catalog import (
     withdraw_missing_listings,
 )
 from devfeed_core.partner_connections import (
-    ProductCandidate,
     Qualification,
     qualification_prompt,
     queue_evaluation,
-    read_partner_page,
     request_assessment,
     request_sync,
     validate_qualification,
 )
-from devfeed_core.partner_connectors import connector_snapshot
+from devfeed_core.partner_connectors import ConnectorClient, ProductCandidate, connector_snapshot
 from devfeed_core.partner_credentials import connection_credential
 from devfeed_core.partner_tools import ProductInput, product_snapshot
 from devfeed_core.research_evidence import fetched_page
@@ -306,12 +304,9 @@ def _process_pipeline(job_id: str, *, factory=None, reader=None, page_fetcher=No
             products, cursor = (
                 reader(payload["cursor"])
                 if reader
-                else read_partner_page(
-                    provider,
-                    payload["cursor"],
-                    connector,
-                    credential=connection_credential(connection, connector),
-                )
+                else ConnectorClient(
+                    provider, connector, credential=connection_credential(connection, connector)
+                ).discover_page(payload["cursor"])
             )
             candidates = [
                 ProductCandidate(

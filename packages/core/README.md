@@ -1,5 +1,22 @@
 # Shared backend core
 
+## Backend service boundaries
+
+- `devfeed_core.partner_connectors.ConnectorClient` binds one provider, validated connector
+  definition, credential and request deadline. Discovery, detail mapping and response sampling
+  share that context and the same origin, redaction and request-budget checks. Workers construct
+  clients from their saved job definitions rather than reading mutable connection settings.
+- `devfeed_http.partner_connector_previews.ConnectorPreviewService` shares the bounded preview
+  workflow between the admin and partner APIs. Each API still authorizes the request, resolves
+  permitted credentials and releases its database transaction before remote I/O.
+- `devfeed_http.partner_campaigns.CampaignService` owns account-scoped campaign queries,
+  validation, disclosure and enrollment. Routes authorize access, lock the account for writes
+  and commit the transaction; the service only flushes, so sponsorship disclosure and enrollment
+  remain atomic with the campaign save.
+- `devfeed_http.body_limits.BoundedRequestBodyMiddleware` owns body size/deadline checks and
+  replay. JSON and image-upload subclasses supply their route and error policies, preserving
+  their different limits, deadlines and responses.
+
 ## Topic branding
 
 `DEVFEED_AUTO_RESEARCH_TOPIC_BRANDING=true` enables a separate backfill for active

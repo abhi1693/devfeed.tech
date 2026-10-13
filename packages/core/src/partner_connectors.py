@@ -7,11 +7,11 @@ import re
 from typing import Annotated, Literal
 from urllib.parse import parse_qsl, quote, quote_plus, urlencode, urljoin, urlsplit, urlunsplit
 
-from pydantic import Field, StringConstraints, field_validator, model_validator
+from pydantic import Field, JsonValue, StringConstraints, field_validator, model_validator
 
 from devfeed_core.config import get_settings
 from devfeed_core.feeds.fetcher import FeedError, _fetch
-from devfeed_core.partner_tools import ProductInput
+from devfeed_core.partner_tools import ProductInput, ShortText
 from devfeed_core.rate_limits import RateLimitBudget, consume_rate_limits
 from devfeed_core.redis import create_redis
 from devfeed_core.schemas import InputModel
@@ -247,94 +247,6 @@ def same_origin(config, value):
     return value
 
 
-def api_json(provider, config, url, *, credential=None, deadline=None):
-    url = same_origin(config, url)
-    headers = {}
-    secret = None
-    if config.auth.mode != "none":
-        secret = (
-            credential
-            if config.auth.source == "connection"
-            else os.environ.get(config.auth.secret_ref)
-        )
-        if not secret or len(secret) > 4096 or any(ord(c) < 32 or ord(c) > 126 for c in secret):
-            raise ValueError("Import API credential is unavailable or invalid")
-        headers["Authorization" if config.auth.mode == "bearer" else config.auth.header] = (
-            f"Bearer {secret}" if config.auth.mode == "bearer" else secret
-        )
-
-    # Share the budget across preview and every worker/product request for this provider.
-    def before_request(target):
-        same_origin(config, target)
-        with create_redis(get_settings()) as redis:
-            retry = consume_rate_limits(
-                redis,
-                [
-                    RateLimitBudget(
-                        key="partner-api-budget:" + hashlib.sha256(provider.encode()).hexdigest(),
-                        limit=config.requests_per_minute,
-                        window=60,
-                    )
-                ],
-            )
-        if retry:
-            raise FeedError("Partner request budget exhausted", retryable=True, retry_after=retry)
-
-    response = _fetch(
-        url,
-        None,
-        None,
-        accept="application/json",
-        max_bytes=config.max_response_bytes,
-        timeout=config.timeout_seconds,
-        deadline=deadline,
-        origin_headers=headers,
-        before_request=before_request,
-    )
-    try:
-        data = json.loads(response.body)
-    except (ValueError, UnicodeError) as exc:
-        raise ValueError("Import API returned invalid JSON") from exc
-
-    # An API may echo request authentication. Strip literal and URL/form-encoded
-    # copies before discovered records enter persisted product jobs or catalogs.
-    # JSON parsing already resolves JSON slash and Unicode escapes. Other opaque
-    # encodings cannot be identified reliably from an arbitrary API response.
-    patterns = [re.escape(secret)] if secret else []
-    for encoded in {quote(secret, safe=""), quote_plus(secret, safe="")} if secret else ():
-        pattern = re.sub(
-            r"%[0-9A-Fa-f]{2}",
-            lambda match: (
-                "%"
-                + "".join(
-                    f"[{char.upper()}{char.lower()}]" if char.isalpha() else char
-                    for char in match[0][1:]
-                )
-            ),
-            re.escape(encoded),
-        )
-        patterns.append(pattern)
-    credential_pattern = (
-        re.compile("|".join(sorted(set(patterns), key=len, reverse=True))) if patterns else None
-    )
-
-    def without_credential(value, depth=0):
-        if depth > 20:
-            return "[omitted]"
-        if isinstance(value, str):
-            return credential_pattern.sub("[redacted]", value) if credential_pattern else value
-        if isinstance(value, list):
-            return [without_credential(item, depth + 1) for item in value]
-        if isinstance(value, dict):
-            return {
-                without_credential(key): without_credential(item, depth + 1)
-                for key, item in value.items()
-            }
-        return "[redacted]" if secret and str(value) == secret else value
-
-    return without_credential(data)
-
-
 def normalized_filter(value):
     return str(value).casefold().replace("-", " ").strip()
 
@@ -360,17 +272,35 @@ def included(config, data):
     return True
 
 
-def discover_page(provider, config, cursor=None, *, fetch=None, credential=None):
-    config = ConnectorConfig.model_validate(config)
-    pagination = config.pagination
-    params = {**config.parameters}
-    if pagination.size_parameter is not None:
-        params[pagination.size_parameter] = str(pagination.page_size)
-    endpoint = config.base_url + config.list_path
-    if pagination.mode == "next_url" and cursor:
-        endpoint = same_origin(config, cursor)
-    elif pagination.mode in {"page", "offset"}:
-        assert pagination.parameter is not None  # Validated for these modes.
+class ProductCandidate(InputModel):
+    external_id: ShortText
+    data: dict[str, JsonValue]
+    normalized: bool = False
+
+
+class ConnectorClient:
+    """One validated connector and its bounded, credential-safe requests."""
+
+    def __init__(self, provider, config=None, *, credential=None, fetch=None, deadline=None):
+        if config is None:
+            config = CONNECTOR_PRESETS.get(provider)
+            if config is None:
+                raise ValueError("Import connection API configuration is missing")
+        self.provider = provider
+        self.config = ConnectorConfig.model_validate(config)
+        self.credential = credential
+        self.fetch = fetch
+        self.deadline = deadline
+
+    @property
+    def _secret(self):
+        auth = self.config.auth
+        if auth.mode == "none":
+            return None
+        return self.credential if auth.source == "connection" else os.environ.get(auth.secret_ref)
+
+    def _position(self, cursor):
+        pagination = self.config.pagination
         start = pagination.start if pagination.mode == "page" else 0
         try:
             position = int(cursor) if cursor is not None else start
@@ -378,182 +308,268 @@ def discover_page(provider, config, cursor=None, *, fetch=None, credential=None)
             raise ValueError("Invalid pagination position") from exc
         if position < 0 or position > 1000000000:
             raise ValueError("Invalid pagination position")
-        params[pagination.parameter] = str(position)
-    elif pagination.mode == "cursor" and cursor:
-        assert pagination.parameter is not None  # Validated for cursor pagination.
-        if not isinstance(cursor, str) or len(cursor) > 2000:
-            raise ValueError("Invalid pagination cursor")
-        params[pagination.parameter] = cursor
-    parts = urlsplit(endpoint)
-    # Server-provided next URLs own their exact query (including signed cursors).
-    if pagination.mode != "next_url" or not cursor:
-        endpoint = urlunsplit(
+        return position
+
+    def list_url(self, cursor=None):
+        config, pagination = self.config, self.config.pagination
+        params = {**config.parameters}
+        if pagination.size_parameter is not None:
+            params[pagination.size_parameter] = str(pagination.page_size)
+        endpoint = config.base_url + config.list_path
+        if pagination.mode == "next_url" and cursor:
+            return same_origin(config, cursor)
+        if pagination.mode in {"page", "offset"}:
+            assert pagination.parameter is not None
+            params[pagination.parameter] = str(self._position(cursor))
+        elif pagination.mode == "cursor" and cursor:
+            assert pagination.parameter is not None
+            if not isinstance(cursor, str) or len(cursor) > 2000:
+                raise ValueError("Invalid pagination cursor")
+            params[pagination.parameter] = cursor
+        parts = urlsplit(endpoint)
+        return urlunsplit(
             parts._replace(query=urlencode([*parse_qsl(parts.query), *params.items()]))
         )
-    body = (fetch or (lambda url: api_json(provider, config, url, credential=credential)))(endpoint)
-    items = first_value(body, config.items_paths, required=True)
-    if not isinstance(items, list) or len(items) > 1000:
-        raise ValueError("Import API returned an invalid product page")
-    next_cursor = None
-    if pagination.mode in {"cursor", "next_url"}:
-        next_cursor = value_at(body, pagination.next_path)
-        if (
-            next_cursor is not None
-            and next_cursor != ""
-            and (not isinstance(next_cursor, str) or len(next_cursor) > 2000)
-        ):
-            raise ValueError("Import API returned an invalid pagination token")
-        next_cursor = next_cursor or None
-        if pagination.mode == "next_url" and next_cursor:
-            next_cursor = same_origin(config, urljoin(endpoint, next_cursor))
-    elif pagination.mode in {"page", "offset"}:
-        more = len(items) >= pagination.page_size
-        if pagination.has_more_path:
-            more = value_at(body, pagination.has_more_path)
-            if not isinstance(more, bool):
-                raise ValueError("Pagination has-more field must be a boolean")
-        elif pagination.total_path:
-            total = value_at(body, pagination.total_path)
-            if not isinstance(total, int) or isinstance(total, bool) or total < 0:
-                raise ValueError("Pagination total must be a nonnegative integer")
-            more = (
-                (position - pagination.start) * pagination.page_size + len(items) < total
-                if pagination.mode == "page"
-                else position + len(items) < total
+
+    def request(self, url):
+        if self.fetch is not None:
+            return self.fetch(url)
+        provider, config = self.provider, self.config
+        url = same_origin(config, url)
+        headers = {}
+        secret = self._secret
+        if config.auth.mode != "none":
+            if not secret or len(secret) > 4096 or any(ord(c) < 32 or ord(c) > 126 for c in secret):
+                raise ValueError("Import API credential is unavailable or invalid")
+            headers["Authorization" if config.auth.mode == "bearer" else config.auth.header] = (
+                f"Bearer {secret}" if config.auth.mode == "bearer" else secret
             )
-        if more and not items:
-            raise ValueError("Pagination cannot advance without products")
-        if more:
-            next_cursor = str(position + (1 if pagination.mode == "page" else len(items)))
-    candidates = []
-    for entry in items:
-        data = entry if isinstance(entry, dict) else {"invalid_record": entry}
-        if not included(config, data):
-            continue
-        identity = first_value(data, config.fields.external_id)
-        identity = (
-            str(identity)
-            if isinstance(identity, (str, int)) and not isinstance(identity, bool)
-            else ""
-        )
-        if not identity.strip() or len(identity) > 200 or identity in {".", ".."}:
-            identity = (
-                "invalid-" + hashlib.sha256(json.dumps(data, sort_keys=True).encode()).hexdigest()
-            )
-        candidates.append({"external_id": identity, "data": data})
-    return candidates, next_cursor
 
-
-def mapped_product(provider, config, candidate, *, fetch=None, credential=None):
-    config = ConnectorConfig.model_validate(config)
-    identity = first_value(candidate.data, config.fields.external_id, required=True)
-    if str(identity) != candidate.external_id or str(identity) in {".", ".."}:
-        raise ValueError("Imported product identity is missing or invalid")
-    data = candidate.data
-    if config.detail_path:
-        url = config.base_url + config.detail_path.replace("{id}", quote(str(identity), safe=""))
-        data = value_at(
-            (fetch or (lambda target: api_json(provider, config, target, credential=credential)))(
-                url
-            ),
-            config.detail_root,
-        )
-        if (
-            str(first_value(data, config.fields.external_id, required=True))
-            != candidate.external_id
-        ):
-            raise ValueError("Import API returned a different product identity")
-    hosts = {host.lower() for host in config.platform_hosts}
-
-    def mapped_url(paths, listing):
-        for path in paths:
-            value = first_value(data, [path])
-            if not isinstance(value, str):
-                continue
-            value = validate_public_url(value)
-            if not hosts or (urlsplit(value).hostname in hosts) == listing:
-                return value
-        if listing and config.listing_url_template:
-            return config.listing_url_template.replace("{id}", quote(str(identity), safe=""))
-        raise ValueError("Product website or platform listing is missing")
-
-    pricing = first_value(data, config.fields.pricing)
-    return ProductInput(
-        provider=provider,
-        external_id=candidate.external_id,
-        name=first_value(data, config.fields.name, required=True),
-        product_url=mapped_url(config.fields.product_url, False),
-        listing_url=mapped_url(config.fields.listing_url, True),
-        description=first_value(data, config.fields.description, required=True),
-        pricing={
-            "free": "free",
-            "freemium": "freemium",
-            "paid": "paid",
-            "subscription": "paid",
-            "one time": "paid",
-            "one_time": "paid",
-        }.get(str(pricing or "unknown").lower(), "unknown"),
-        attribution=config.attribution,
-    )
-
-
-def response_preview(provider, config, *, credential=None, deadline=None):
-    """Read one first page without depending on response paths or product mappings."""
-    config = ConnectorConfig.model_validate(config)
-    pagination = config.pagination
-    parameters = {**config.parameters}
-    if pagination.size_parameter is not None:
-        parameters[pagination.size_parameter] = str(pagination.page_size)
-    if pagination.mode in {"page", "offset"}:
-        assert pagination.parameter is not None  # Validated for these modes.
-        parameters[pagination.parameter] = str(pagination.start if pagination.mode == "page" else 0)
-    parts = urlsplit(config.base_url + config.list_path)
-    url = urlunsplit(
-        parts._replace(query=urlencode([*parse_qsl(parts.query), *parameters.items()]))
-    )
-    data = api_json(provider, config, url, credential=credential, deadline=deadline)
-    secret = None
-    if config.auth.mode != "none":
-        secret = (
-            credential
-            if config.auth.source == "connection"
-            else os.environ.get(config.auth.secret_ref)
-        )
-    sampled, remaining = False, 500
-
-    def sample(value, depth=0):
-        nonlocal sampled, remaining
-        remaining -= 1
-        if remaining < 0 or depth > 8:
-            sampled = True
-            return "[omitted]"
-        if isinstance(value, dict):
-            sampled |= len(value) > 40
-            result = {}
-            for key, item in list(value.items())[:40]:
-                if remaining <= 0:
-                    sampled = True
-                    break
-                key = str(key)
-                sampled |= len(key) > 200
-                if secret:
-                    key = key.replace(secret, "[redacted]")
-                result[key[:200]] = (
-                    "[redacted]"
-                    if re.search(
-                        r"secret|token|password|authorization|cookie|api.?key|credential", key, re.I
-                    )
-                    else sample(item, depth + 1)
+        # Share the budget across preview and every worker/product request for this provider.
+        def before_request(target):
+            same_origin(config, target)
+            with create_redis(get_settings()) as redis:
+                retry = consume_rate_limits(
+                    redis,
+                    [
+                        RateLimitBudget(
+                            key="partner-api-budget:"
+                            + hashlib.sha256(provider.encode()).hexdigest(),
+                            limit=config.requests_per_minute,
+                            window=60,
+                        )
+                    ],
                 )
-            return result
-        if isinstance(value, list):
-            sampled |= len(value) > 3
-            return [sample(item, depth + 1) for item in value[:3]]
-        if isinstance(value, str):
-            if secret:
-                value = value.replace(secret, "[redacted]")
-            sampled |= len(value) > 1000
-            return value[:1000]
-        return "[redacted]" if secret and str(value) == secret else value
+            if retry:
+                raise FeedError(
+                    "Partner request budget exhausted", retryable=True, retry_after=retry
+                )
 
-    return {"data": sample(data), "sampled": sampled}
+        response = _fetch(
+            url,
+            None,
+            None,
+            accept="application/json",
+            max_bytes=config.max_response_bytes,
+            timeout=config.timeout_seconds,
+            deadline=self.deadline,
+            origin_headers=headers,
+            before_request=before_request,
+        )
+        try:
+            data = json.loads(response.body)
+        except (ValueError, UnicodeError) as exc:
+            raise ValueError("Import API returned invalid JSON") from exc
+
+        # An API may echo request authentication. Strip literal and URL/form-encoded
+        # copies before discovered records enter persisted product jobs or catalogs.
+        # JSON parsing already resolves JSON slash and Unicode escapes. Other opaque
+        # encodings cannot be identified reliably from an arbitrary API response.
+        patterns = [re.escape(secret)] if secret else []
+        for encoded in {quote(secret, safe=""), quote_plus(secret, safe="")} if secret else ():
+            pattern = re.sub(
+                r"%[0-9A-Fa-f]{2}",
+                lambda match: (
+                    "%"
+                    + "".join(
+                        f"[{char.upper()}{char.lower()}]" if char.isalpha() else char
+                        for char in match[0][1:]
+                    )
+                ),
+                re.escape(encoded),
+            )
+            patterns.append(pattern)
+        credential_pattern = (
+            re.compile("|".join(sorted(set(patterns), key=len, reverse=True))) if patterns else None
+        )
+
+        def without_credential(value, depth=0):
+            if depth > 20:
+                return "[omitted]"
+            if isinstance(value, str):
+                return credential_pattern.sub("[redacted]", value) if credential_pattern else value
+            if isinstance(value, list):
+                return [without_credential(item, depth + 1) for item in value]
+            if isinstance(value, dict):
+                return {
+                    without_credential(key): without_credential(item, depth + 1)
+                    for key, item in value.items()
+                }
+            return "[redacted]" if secret and str(value) == secret else value
+
+        return without_credential(data)
+
+    def discover_page(self, cursor=None):
+        config = self.config
+        pagination = config.pagination
+        endpoint = self.list_url(cursor)
+        position = self._position(cursor) if pagination.mode in {"page", "offset"} else 0
+        body = self.request(endpoint)
+        items = first_value(body, config.items_paths, required=True)
+        if not isinstance(items, list) or len(items) > 1000:
+            raise ValueError("Import API returned an invalid product page")
+        next_cursor = None
+        if pagination.mode in {"cursor", "next_url"}:
+            next_cursor = value_at(body, pagination.next_path)
+            if (
+                next_cursor is not None
+                and next_cursor != ""
+                and (not isinstance(next_cursor, str) or len(next_cursor) > 2000)
+            ):
+                raise ValueError("Import API returned an invalid pagination token")
+            next_cursor = next_cursor or None
+            if pagination.mode == "next_url" and next_cursor:
+                next_cursor = same_origin(config, urljoin(endpoint, next_cursor))
+        elif pagination.mode in {"page", "offset"}:
+            more = len(items) >= pagination.page_size
+            if pagination.has_more_path:
+                more = value_at(body, pagination.has_more_path)
+                if not isinstance(more, bool):
+                    raise ValueError("Pagination has-more field must be a boolean")
+            elif pagination.total_path:
+                total = value_at(body, pagination.total_path)
+                if not isinstance(total, int) or isinstance(total, bool) or total < 0:
+                    raise ValueError("Pagination total must be a nonnegative integer")
+                more = (
+                    (position - pagination.start) * pagination.page_size + len(items) < total
+                    if pagination.mode == "page"
+                    else position + len(items) < total
+                )
+            if more and not items:
+                raise ValueError("Pagination cannot advance without products")
+            if more:
+                next_cursor = str(position + (1 if pagination.mode == "page" else len(items)))
+        candidates = []
+        for entry in items:
+            data = entry if isinstance(entry, dict) else {"invalid_record": entry}
+            if not included(config, data):
+                continue
+            identity = first_value(data, config.fields.external_id)
+            identity = (
+                str(identity)
+                if isinstance(identity, (str, int)) and not isinstance(identity, bool)
+                else ""
+            )
+            if not identity.strip() or len(identity) > 200 or identity in {".", ".."}:
+                identity = (
+                    "invalid-"
+                    + hashlib.sha256(json.dumps(data, sort_keys=True).encode()).hexdigest()
+                )
+            candidates.append(ProductCandidate(external_id=identity, data=data))
+        return candidates, next_cursor
+
+    def product(self, candidate):
+        if candidate.normalized:
+            return ProductInput.model_validate(candidate.data)
+        provider, config = self.provider, self.config
+        identity = first_value(candidate.data, config.fields.external_id, required=True)
+        if str(identity) != candidate.external_id or str(identity) in {".", ".."}:
+            raise ValueError("Imported product identity is missing or invalid")
+        data = candidate.data
+        if config.detail_path:
+            url = config.base_url + config.detail_path.replace(
+                "{id}", quote(str(identity), safe="")
+            )
+            data = value_at(self.request(url), config.detail_root)
+            if (
+                str(first_value(data, config.fields.external_id, required=True))
+                != candidate.external_id
+            ):
+                raise ValueError("Import API returned a different product identity")
+        hosts = {host.lower() for host in config.platform_hosts}
+
+        def mapped_url(paths, listing):
+            for path in paths:
+                value = first_value(data, [path])
+                if not isinstance(value, str):
+                    continue
+                value = validate_public_url(value)
+                if not hosts or (urlsplit(value).hostname in hosts) == listing:
+                    return value
+            if listing and config.listing_url_template:
+                return config.listing_url_template.replace("{id}", quote(str(identity), safe=""))
+            raise ValueError("Product website or platform listing is missing")
+
+        pricing = first_value(data, config.fields.pricing)
+        return ProductInput(
+            provider=provider,
+            external_id=candidate.external_id,
+            name=first_value(data, config.fields.name, required=True),
+            product_url=mapped_url(config.fields.product_url, False),
+            listing_url=mapped_url(config.fields.listing_url, True),
+            description=first_value(data, config.fields.description, required=True),
+            pricing={
+                "free": "free",
+                "freemium": "freemium",
+                "paid": "paid",
+                "subscription": "paid",
+                "one time": "paid",
+                "one_time": "paid",
+            }.get(str(pricing or "unknown").lower(), "unknown"),
+            attribution=config.attribution,
+        )
+
+    def response_preview(self):
+        """Read one first page without depending on response paths or product mappings."""
+        data = self.request(self.list_url())
+        secret = self._secret
+        sampled, remaining = False, 500
+
+        def sample(value, depth=0):
+            nonlocal sampled, remaining
+            remaining -= 1
+            if remaining < 0 or depth > 8:
+                sampled = True
+                return "[omitted]"
+            if isinstance(value, dict):
+                sampled |= len(value) > 40
+                result = {}
+                for key, item in list(value.items())[:40]:
+                    if remaining <= 0:
+                        sampled = True
+                        break
+                    key = str(key)
+                    sampled |= len(key) > 200
+                    if secret:
+                        key = key.replace(secret, "[redacted]")
+                    result[key[:200]] = (
+                        "[redacted]"
+                        if re.search(
+                            r"secret|token|password|authorization|cookie|api.?key|credential",
+                            key,
+                            re.I,
+                        )
+                        else sample(item, depth + 1)
+                    )
+                return result
+            if isinstance(value, list):
+                sampled |= len(value) > 3
+                return [sample(item, depth + 1) for item in value[:3]]
+            if isinstance(value, str):
+                if secret:
+                    value = value.replace(secret, "[redacted]")
+                sampled |= len(value) > 1000
+                return value[:1000]
+            return "[redacted]" if secret and str(value) == secret else value
+
+        return {"data": sample(data), "sampled": sampled}

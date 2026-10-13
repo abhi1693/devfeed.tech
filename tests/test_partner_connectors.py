@@ -1,12 +1,13 @@
 """Configurable REST mappings, bounded pagination and credential isolation."""
 
+import json
 from types import SimpleNamespace
 from urllib.parse import parse_qs, urlsplit
 
 import pytest
 from devfeed_core import partner_connectors as connectors
 from devfeed_core.feeds.fetcher import FeedError
-from devfeed_core.partner_connections import ProductCandidate
+from devfeed_core.partner_connectors import ProductCandidate
 
 
 def definition(**changes):
@@ -41,29 +42,26 @@ def entry(identity="tool"):
 
 def test_nested_mapping_and_detail_identity_keep_ai_independent():
     config = definition()
-    candidates, cursor = connectors.discover_page(
+    candidates, cursor = connectors.ConnectorClient(
         "platform", config, fetch=lambda _: {"data": {"products": [entry("a/b")]}}
-    )
+    ).discover_page()
     calls = []
 
     def fetch(url):
         calls.append(url)
         return {"data": {"product": entry("a/b")}}
 
-    product = connectors.mapped_product(
-        "platform", config, ProductCandidate.model_validate(candidates[0]), fetch=fetch
+    product = connectors.ConnectorClient("platform", config, fetch=fetch).product(
+        ProductCandidate.model_validate(candidates[0])
     )
     assert cursor is None and calls == ["https://api.platform.example/products/a%2Fb"]
     assert product.provider == "platform" and product.external_id == "a/b"
     assert product.listing_url == "https://platform.example/products/a%2Fb"
     assert product.evidence == product.technologies == []
     with pytest.raises(ValueError, match="different product identity"):
-        connectors.mapped_product(
-            "platform",
-            config,
-            ProductCandidate.model_validate(candidates[0]),
-            fetch=lambda _: {"data": {"product": entry("someone-else")}},
-        )
+        connectors.ConnectorClient(
+            "platform", config, fetch=lambda _: {"data": {"product": entry("someone-else")}}
+        ).product(ProductCandidate.model_validate(candidates[0]))
 
 
 @pytest.mark.parametrize(
@@ -86,14 +84,11 @@ def test_page_and_offset_use_total_and_stop(mode, parameter, start, next_positio
         calls.append(parse_qs(urlsplit(url).query))
         return {"data": {"products": [entry("one"), entry("two")], "total": 3}}
 
-    _, cursor = connectors.discover_page("platform", config, fetch=fetch)
+    _, cursor = connectors.ConnectorClient("platform", config, fetch=fetch).discover_page()
     assert cursor == next_position and calls[0][parameter] == [str(start)]
-    _, cursor = connectors.discover_page(
-        "platform",
-        config,
-        cursor,
-        fetch=lambda _: {"data": {"products": [entry("three")], "total": 3}},
-    )
+    _, cursor = connectors.ConnectorClient(
+        "platform", config, fetch=lambda _: {"data": {"products": [entry("three")], "total": 3}}
+    ).discover_page(cursor)
     assert cursor is None
 
 
@@ -111,9 +106,9 @@ def test_explicit_null_pagination_sends_only_configured_query_parameters(monkeyp
         calls.append(url)
         return body
 
-    candidates, cursor = connectors.discover_page("custom", config, fetch=fetch)
-    monkeypatch.setattr(connectors, "api_json", lambda provider, parsed, url, **kwargs: fetch(url))
-    assert connectors.response_preview("custom", config)["data"] == body
+    candidates, cursor = connectors.ConnectorClient("custom", config, fetch=fetch).discover_page()
+    monkeypatch.setattr(connectors.ConnectorClient, "request", lambda self, url: fetch(url))
+    assert connectors.ConnectorClient("custom", config).response_preview()["data"] == body
     assert len(candidates) == 1 and cursor is None
     assert calls == ["https://api.platform.example/catalog?version=2&tenant=ours"] * 2
     # Null is a persisted choice, not an omitted field that restores legacy defaults.
@@ -149,9 +144,11 @@ def test_nullable_size_parameter_preserves_configured_pagination(monkeypatch, mo
         calls.append(parse_qs(urlsplit(url).query))
         return body
 
-    connectors.discover_page("custom", config, "token" if mode == "cursor" else None, fetch=fetch)
-    monkeypatch.setattr(connectors, "api_json", lambda provider, parsed, url, **kwargs: fetch(url))
-    connectors.response_preview("custom", config)
+    connectors.ConnectorClient("custom", config, fetch=fetch).discover_page(
+        "token" if mode == "cursor" else None
+    )
+    monkeypatch.setattr(connectors.ConnectorClient, "request", lambda self, url: fetch(url))
+    connectors.ConnectorClient("custom", config).response_preview()
     position = "token" if mode == "cursor" else "1" if mode == "page" else "0"
     assert calls[0] == {parameter: [position]}
     assert calls[1] == ({} if mode == "cursor" else {parameter: [position]})
@@ -174,11 +171,13 @@ def test_omitted_size_parameter_retains_existing_limit_request(monkeypatch):
     config = definition(pagination={"mode": "none"})
     urls = []
     body = {"data": {"products": []}}
-    connectors.discover_page("legacy", config, fetch=lambda url: urls.append(url) or body)
+    connectors.ConnectorClient(
+        "legacy", config, fetch=lambda url: urls.append(url) or body
+    ).discover_page()
     monkeypatch.setattr(
-        connectors, "api_json", lambda provider, parsed, url, **kwargs: urls.append(url) or body
+        connectors.ConnectorClient, "request", lambda self, url: urls.append(url) or body
     )
-    connectors.response_preview("legacy", config)
+    connectors.ConnectorClient("legacy", config).response_preview()
     assert urls == ["https://api.platform.example/products?limit=10"] * 2
 
 
@@ -195,12 +194,11 @@ def test_cursor_tokens_and_next_urls_cannot_escape_origin():
         pagination={"mode": "cursor", "parameter": "after", "next_path": "data.next"}
     )
     calls = []
-    _, cursor = connectors.discover_page(
+    _, cursor = connectors.ConnectorClient(
         "platform",
         config,
-        "a&b",
         fetch=lambda url: calls.append(url) or {"data": {"products": [], "next": None}},
-    )
+    ).discover_page("a&b")
     assert cursor is None and parse_qs(urlsplit(calls[0]).query)["after"] == ["a&b"]
     config.pagination.mode = "next_url"
     for target in [
@@ -209,23 +207,22 @@ def test_cursor_tokens_and_next_urls_cannot_escape_origin():
         "https://127.0.0.1/products",
     ]:
         with pytest.raises(ValueError):
-            connectors.discover_page(
+            connectors.ConnectorClient(
                 "platform",
                 config,
                 fetch=lambda _, target=target: {"data": {"products": [entry()], "next": target}},
-            )
-    _, cursor = connectors.discover_page(
+            ).discover_page()
+    _, cursor = connectors.ConnectorClient(
         "platform",
         config,
         fetch=lambda _: {"data": {"products": [entry()], "next": "/products?signature=x%2Fy"}},
-    )
+    ).discover_page()
     calls.clear()
-    connectors.discover_page(
+    connectors.ConnectorClient(
         "platform",
         config,
-        cursor,
         fetch=lambda url: calls.append(url) or {"data": {"products": [], "next": None}},
-    )
+    ).discover_page(cursor)
     assert calls == ["https://api.platform.example/products?signature=x%2Fy"]
 
 
@@ -233,7 +230,7 @@ def test_filters_and_missing_pages_fail_explicitly():
     config = definition(
         filters=[{"path": "status", "values": ["approved"], "include_missing": False}]
     )
-    candidates, _ = connectors.discover_page(
+    candidates, _ = connectors.ConnectorClient(
         "platform",
         config,
         fetch=lambda _: {
@@ -245,16 +242,18 @@ def test_filters_and_missing_pages_fail_explicitly():
                 ]
             }
         },
-    )
-    assert [candidate["external_id"] for candidate in candidates] == ["yes"]
+    ).discover_page()
+    assert [candidate.external_id for candidate in candidates] == ["yes"]
     with pytest.raises(ValueError):
-        connectors.discover_page("platform", config, fetch=lambda _: {"unexpected": []})
+        connectors.ConnectorClient(
+            "platform", config, fetch=lambda _: {"unexpected": []}
+        ).discover_page()
     config.pagination.mode = "page"
     config.pagination.has_more_path = "more"
     with pytest.raises(ValueError, match="without products"):
-        connectors.discover_page(
+        connectors.ConnectorClient(
             "platform", config, fetch=lambda _: {"data": {"products": []}, "more": True}
-        )
+        ).discover_page()
 
 
 @pytest.mark.parametrize(
@@ -302,23 +301,27 @@ def test_auth_uses_env_reference_shared_budget_and_blocks_redirect(monkeypatch):
         return SimpleNamespace(body=b'{"items": []}')
 
     monkeypatch.setattr(connectors, "_fetch", fetch)
-    assert connectors.api_json("platform", config, config.base_url + "/products") == {"items": []}
+    assert connectors.ConnectorClient("platform", config).request(
+        config.base_url + "/products"
+    ) == {"items": []}
     assert len(budgets) == 1 and budgets[0].limit == 60
     assert "test-token" not in config.model_dump_json()
     monkeypatch.setattr(connectors, "consume_rate_limits", lambda *_, **kwargs: 42)
     with pytest.raises(FeedError) as error:
-        connectors.api_json("platform", config, config.base_url + "/products")
+        connectors.ConnectorClient("platform", config).request(config.base_url + "/products")
     assert error.value.retry_after == 42
     monkeypatch.delenv("DEVFEED_PARTNER_SECRET_TEST")
     with pytest.raises(ValueError, match="credential"):
-        connectors.api_json("platform", config, config.base_url + "/products")
+        connectors.ConnectorClient("platform", config).request(config.base_url + "/products")
 
 
 def test_top_level_array_and_numeric_id_without_detail_request():
     config = definition(items_paths=[""], detail_path=None)
-    candidates, _ = connectors.discover_page("platform", config, fetch=lambda _: [entry(42)])
-    product = connectors.mapped_product(
-        "platform", config, ProductCandidate.model_validate(candidates[0])
+    candidates, _ = connectors.ConnectorClient(
+        "platform", config, fetch=lambda _: [entry(42)]
+    ).discover_page()
+    product = connectors.ConnectorClient("platform", config).product(
+        ProductCandidate.model_validate(candidates[0])
     )
     assert product.external_id == "42"
 
@@ -327,9 +330,9 @@ def test_next_url_relative_query_uses_current_endpoint():
     config = definition(
         list_path="/v2/products", pagination={"mode": "next_url", "next_path": "next"}
     )
-    _, cursor = connectors.discover_page(
+    _, cursor = connectors.ConnectorClient(
         "platform", config, fetch=lambda _: {"data": {"products": [entry()]}, "next": "?page=2"}
-    )
+    ).discover_page()
     assert cursor == "https://api.platform.example/v2/products?page=2"
 
 
@@ -341,9 +344,9 @@ def test_raw_response_preview_is_mapping_independent_bounded_and_redacted(monkey
     monkeypatch.setenv("DEVFEED_PARTNER_SECRET_TEST", "sensitive-example")
     calls = []
     monkeypatch.setattr(
-        connectors,
-        "api_json",
-        lambda provider, config, url, **kwargs: (
+        connectors.ConnectorClient,
+        "request",
+        lambda self, url: (
             calls.append(url)
             or {
                 "results": [{"id": index, "description": "x" * 2000} for index in range(20)],
@@ -353,7 +356,7 @@ def test_raw_response_preview_is_mapping_independent_bounded_and_redacted(monkey
             }
         ),
     )
-    response = connectors.response_preview("platform", config)
+    response = connectors.ConnectorClient("platform", config).response_preview()
     assert len(calls) == 1 and response["sampled"]
     assert len(response["data"]["results"]) == 3
     assert len(response["data"]["results"][0]["description"]) == 1000
@@ -367,7 +370,7 @@ def test_raw_response_preview_is_mapping_independent_bounded_and_redacted(monkey
     [("cronwatch", "https://cronwatch.dev"), ("the-audio-stuff", "https://theaudiostuff.com")],
 )
 def test_shipyard_preset_keeps_official_website_distinct_from_platform_listing(slug, website):
-    from devfeed_core.partner_connections import read_partner_page, read_partner_product
+    from devfeed_core.partner_connectors import ConnectorClient
 
     record = {
         "id": f"prod_{slug}",
@@ -377,10 +380,10 @@ def test_shipyard_preset_keeps_official_website_distinct_from_platform_listing(s
         "description": "Official product description",
         "pricing": {"model": "subscription"},
     }
-    candidates, cursor = read_partner_page(
+    candidates, cursor = ConnectorClient(
         "shipyardhq", fetch=lambda _: {"items": [record], "nextCursor": None}
-    )
-    product = read_partner_product("shipyardhq", candidates[0])
+    ).discover_page()
+    product = ConnectorClient("shipyardhq").product(candidates[0])
     assert cursor is None
     assert product.product_url == website + "/"
     assert product.listing_url == record["url"]
@@ -399,10 +402,8 @@ def test_shipyard_platform_host_guard_rejects_reversed_url_roles(wrong_role):
     }
     record[wrong_role] = record["url" if wrong_role == "productUrl" else "productUrl"]
     with pytest.raises(ValueError, match="website or platform listing is missing"):
-        connectors.mapped_product(
-            "shipyardhq",
-            connectors.SHIPYARD_CONNECTOR,
-            ProductCandidate(external_id=record["id"], data=record),
+        connectors.ConnectorClient("shipyardhq", connectors.SHIPYARD_CONNECTOR).product(
+            ProductCandidate(external_id=record["id"], data=record)
         )
 
 
@@ -419,3 +420,83 @@ def test_connector_presets_are_creation_defaults_and_never_overwrite_saved_custo
     custom = {**default, "fields": {**default["fields"], "product_url": ["custom.website"]}}
     connection.connector = custom
     assert connectors.connector_snapshot(connection) == custom
+
+
+def test_one_client_keeps_validated_configuration_across_discovery_product_and_preview():
+    raw = definition(detail_path=None).model_dump(mode="json")
+    urls = []
+    client = connectors.ConnectorClient(
+        "account-catalog",
+        raw,
+        fetch=lambda url: urls.append(url) or {"data": {"products": [entry()]}},
+    )
+    # The caller's mutable request dictionary cannot change an already configured client.
+    raw["base_url"] = "https://another-account.example"
+    raw["parameters"]["injected"] = "later"
+    candidates, cursor = client.discover_page()
+    product = client.product(candidates[0])
+    response = client.response_preview()
+    assert cursor is None and product.provider == "account-catalog"
+    assert candidates[0].normalized is False and product.technologies == []
+    assert response["data"]["data"]["products"][0]["title"] == product.name
+    assert urls == ["https://api.platform.example/products?limit=10"] * 2
+
+
+def test_client_reuses_credential_deadline_and_budget_for_all_transport_methods(monkeypatch):
+    from contextlib import nullcontext
+
+    config = definition(auth={"mode": "bearer", "source": "connection"})
+    calls, budgets = [], []
+    monkeypatch.setattr(connectors, "create_redis", lambda _: nullcontext(object()))
+    monkeypatch.setattr(
+        connectors, "consume_rate_limits", lambda _, values: budgets.extend(values) or 0
+    )
+
+    def fetch(url, *args, **kwargs):
+        calls.append(kwargs)
+        kwargs["before_request"](url)
+        body = (
+            {"data": {"product": entry()}}
+            if url.endswith("/tool")
+            else {"data": {"products": [entry()]}}
+        )
+        return SimpleNamespace(body=json.dumps(body).encode())
+
+    monkeypatch.setattr(connectors, "_fetch", fetch)
+    client = connectors.ConnectorClient(
+        "owned-connection", config, credential="private-example", deadline=123.5
+    )
+    candidates, _ = client.discover_page()
+    client.product(candidates[0])
+    client.response_preview()
+    assert len(calls) == len(budgets) == 3
+    assert all(call["deadline"] == 123.5 for call in calls)
+    assert all(
+        call["origin_headers"] == {"Authorization": "Bearer private-example"} for call in calls
+    )
+    assert len({budget.key for budget in budgets}) == 1
+    assert "private-example" not in budgets[0].key
+
+
+def test_normalized_internal_candidate_never_calls_the_import_transport():
+    client = connectors.ConnectorClient(
+        "nick-launches", fetch=lambda _: pytest.fail("Unexpected request")
+    )
+    candidate = ProductCandidate(
+        external_id="tool",
+        normalized=True,
+        data={
+            "provider": "nick-launches",
+            "external_id": "tool",
+            "name": "Tool",
+            "product_url": "https://tool.example/",
+            "listing_url": "https://launch.example/tool",
+            "description": "A bounded normalized test product.",
+        },
+    )
+    assert client.product(candidate).name == "Tool"
+
+
+def test_unknown_provider_requires_an_explicit_connector_definition():
+    with pytest.raises(ValueError, match="configuration is missing"):
+        connectors.ConnectorClient("unconfigured-platform")

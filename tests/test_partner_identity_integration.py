@@ -15,9 +15,9 @@ from devfeed_core.models import (
 from devfeed_core.partner_catalog import (
     lock_catalog,
     record_verified_redirect,
+    upsert_listing,
     withdraw_missing_listings,
 )
-from devfeed_core.partner_connections import upsert_partner_product
 from devfeed_core.partner_tools import ProductInput
 from sqlalchemy import func, select
 from test_partner_tools import product_payload as shared_product_payload
@@ -43,7 +43,7 @@ def second_platform(database, payload, **changes):
                 **changes,
             }
         )
-        result = upsert_partner_product(session, item, uuid.uuid4())
+        result = upsert_listing(session, item, uuid.uuid4())
         session.flush()
         return str(result.id)
 
@@ -212,7 +212,7 @@ def test_concurrent_platform_syncs_create_one_product(database, product_payload)
     def sync(provider):
         with database.begin() as session:
             item = ProductInput.model_validate({**product_payload, "provider": provider})
-            return upsert_partner_product(session, item, uuid.uuid4()).id
+            return upsert_listing(session, item, uuid.uuid4()).id
 
     with ThreadPoolExecutor(max_workers=2) as executor:
         identities = list(executor.map(sync, ["nick-launches", "platform-b"]))

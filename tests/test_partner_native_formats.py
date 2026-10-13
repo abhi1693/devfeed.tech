@@ -354,7 +354,7 @@ def test_concurrent_campaign_activation_preserves_each_permanent_sponsor(databas
     from concurrent.futures import ThreadPoolExecutor
     from threading import Barrier
 
-    from devfeed_admin_api.partner_accounts import record_sponsorship
+    from devfeed_http.partner_campaigns import CampaignService
 
     article_id = sponsored_article(database, catalog)
     barrier = Barrier(2)
@@ -364,7 +364,7 @@ def test_concurrent_campaign_activation_preserves_each_permanent_sponsor(databas
             account = session.get(PartnerAccount, account_id)
             payload = CampaignInput(**campaign_payload(article_id))
             barrier.wait(timeout=10)
-            record_sponsorship(session, account, payload)
+            CampaignService(session, account).record_sponsorship(payload)
 
     with ThreadPoolExecutor(max_workers=2) as pool:
         list(pool.map(activate, [catalog["free"], catalog["paid"]]))

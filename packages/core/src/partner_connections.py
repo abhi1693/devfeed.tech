@@ -6,7 +6,7 @@ import uuid
 from datetime import datetime, timedelta
 from typing import Literal
 
-from pydantic import Field, JsonValue, field_validator
+from pydantic import Field, field_validator
 from sqlalchemy import and_, exists, func, or_, select
 from sqlalchemy.orm import aliased
 
@@ -24,14 +24,11 @@ from devfeed_core.models import (
     PartnerProductPromotion,
     utcnow,
 )
-from devfeed_core.partner_catalog import active_provider, product_has_active_source, upsert_listing
+from devfeed_core.partner_catalog import active_provider, product_has_active_source
 from devfeed_core.partner_connectors import (
     CONNECTOR_PRESETS,
-    NICK_CONNECTOR,
     ConnectorConfig,
     connector_snapshot,
-    discover_page,
-    mapped_product,
 )
 from devfeed_core.partner_tools import (
     Evidence,
@@ -44,7 +41,6 @@ from devfeed_core.partner_tools import (
 from devfeed_core.research_evidence import normalized
 from devfeed_core.schemas import InputModel, ORMModel
 
-PROVIDER = "nick-launches"
 SYSTEM_ACTOR = {"subject": "partner-pipeline", "issuer": "devfeed", "organization_id": "system"}
 
 
@@ -250,41 +246,6 @@ def request_assessment(session, product):
             payload={"revision": product.revision},
         )
     )
-
-
-class ProductCandidate(InputModel):
-    external_id: ShortText
-    data: dict[str, JsonValue]
-    normalized: bool = False
-
-
-def read_nick_page(cursor=None, *, fetch=None):
-    return read_partner_page(PROVIDER, cursor, NICK_CONNECTOR, fetch=fetch)
-
-
-def read_partner_page(provider, cursor=None, config=None, *, fetch=None, credential=None):
-    if config is None:
-        config = CONNECTOR_PRESETS.get(provider)
-        if config is None:
-            raise ValueError("Import connection API configuration is missing")
-    candidates, cursor = discover_page(provider, config, cursor, fetch=fetch, credential=credential)
-    return [ProductCandidate.model_validate(item) for item in candidates], cursor
-
-
-def read_partner_product(
-    provider, candidate: ProductCandidate, config=None, *, fetch=None, credential=None
-):
-    if candidate.normalized:
-        return ProductInput.model_validate(candidate.data)
-    if config is None:
-        config = CONNECTOR_PRESETS.get(provider)
-        if config is None:
-            raise ValueError("Import connection API configuration is missing")
-    return mapped_product(provider, config, candidate, fetch=fetch, credential=credential)
-
-
-def upsert_partner_product(session, item: ProductInput, generation):
-    return upsert_listing(session, item, generation)
 
 
 def qualification_prompt(product, page):

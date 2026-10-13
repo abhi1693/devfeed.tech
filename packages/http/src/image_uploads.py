@@ -1,9 +1,9 @@
 """Bounded raster uploads and rollback-capable fixed object storage for private APIs."""
 
-import asyncio
 import io
 import logging
 import warnings
+from collections.abc import Callable
 from threading import BoundedSemaphore
 from uuid import uuid4
 
@@ -14,6 +14,9 @@ from devfeed_core.config import get_settings
 from fastapi import HTTPException
 from PIL import Image, ImageOps, UnidentifiedImageError
 from starlette.responses import JSONResponse
+from starlette.types import ASGIApp, Receive, Scope, Send
+
+from devfeed_http.body_limits import BoundedRequestBodyMiddleware
 
 MAX_BYTES = 5 * 1024 * 1024
 MAX_REQUEST_BYTES = MAX_BYTES + 65536
@@ -197,58 +200,35 @@ class FixedImageObjects:
             self.client.close()
 
 
-class ImageUploadBodyLimit:
+class ImageUploadBodyLimit(BoundedRequestBodyMiddleware):
     """Limit bytes and total reading time before multipart parsing allocates or spools."""
 
-    def __init__(self, app, *, paths=(), path_predicate=None, timeout=10):
-        self.app, self.paths, self.path_predicate, self.timeout = (
-            app,
-            paths,
-            path_predicate,
-            timeout,
-        )
+    def __init__(
+        self,
+        app: ASGIApp,
+        *,
+        paths=(),
+        path_predicate: Callable[[str], bool] | None = None,
+        timeout: float = 10,
+    ):
+        super().__init__(app, timeout=timeout)
+        self.paths, self.path_predicate = paths, path_predicate
 
-    async def __call__(self, scope, receive, send):
+    def body_limit(self, scope: Scope) -> int | None:
         path = scope.get("path", "")
-        if (
-            scope["type"] != "http"
-            or scope.get("method") != "POST"
-            or not (path in self.paths or self.path_predicate and self.path_predicate(path))
+        if scope.get("method") == "POST" and (
+            path in self.paths or self.path_predicate and self.path_predicate(path)
         ):
-            return await self.app(scope, receive, send)
+            return MAX_REQUEST_BYTES
+        return None
+
+    def declared_oversize(self, scope: Scope, limit: int) -> bool:
         try:
             declared = int(dict(scope.get("headers", [])).get(b"content-length", b"0"))
         except ValueError:
             declared = 0
-        if declared > MAX_REQUEST_BYTES:
-            return await self.reject(scope, receive, send, 413)
-        chunks, size = [], 0
-        try:
-            async with asyncio.timeout(self.timeout):
-                while True:
-                    message = await receive()
-                    if message["type"] == "http.disconnect":
-                        return
-                    chunk = message.get("body", b"")
-                    size += len(chunk)
-                    if size > MAX_REQUEST_BYTES:
-                        return await self.reject(scope, receive, send, 413)
-                    chunks.append(chunk)
-                    if not message.get("more_body", False):
-                        break
-        except TimeoutError:
-            return await self.reject(scope, receive, send, 408)
-        pending = True
+        return declared > limit
 
-        async def replay():
-            nonlocal pending
-            if pending:
-                pending = False
-                return {"type": "http.request", "body": b"".join(chunks), "more_body": False}
-            return await receive()
-
-        await self.app(scope, replay, send)
-
-    async def reject(self, scope, receive, send, status):
+    async def reject(self, scope: Scope, receive: Receive, send: Send, status: int) -> None:
         detail = "Choose an image under 5 MB" if status == 413 else "Image upload timed out"
         await JSONResponse({"detail": detail}, status_code=status)(scope, receive, send)

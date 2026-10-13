@@ -1,6 +1,7 @@
 """Exercise byte accounting at the ASGI boundary, before application parsing."""
 
 import asyncio
+import json
 
 import pytest
 from devfeed_http.body_limits import RequestBodyLimitMiddleware
@@ -60,6 +61,7 @@ def test_actual_chunked_bytes_are_authoritative(header):
     assert not calls and not received
     assert events[0]["status"] == 413
     assert (b"cache-control", b"no-store") in events[0]["headers"]
+    assert json.loads(events[1]["body"]) == {"detail": "Request too large"}
 
 
 def test_exact_limit_is_replayed_once_and_disconnect_remains_visible():
@@ -111,6 +113,7 @@ def test_incomplete_body_releases_request_without_running_application():
     asyncio.run(middleware({"type": "http", "method": "POST", "path": "/click"}, receive, send))
     assert events[0]["status"] == 408
     assert (b"cache-control", b"no-store") in events[0]["headers"]
+    assert json.loads(events[1]["body"]) == {"detail": "Incomplete request"}
 
 
 @pytest.mark.parametrize(
@@ -181,3 +184,32 @@ def test_dynamic_resource_limit_cancels_stalled_body_before_application():
         middleware({"type": "http", "method": "PATCH", "path": "/products/tool"}, receive, send)
     )
     assert events[0]["status"] == 408 and cancelled == [True]
+
+
+def test_receiving_chunks_does_not_restart_the_request_deadline():
+    events = []
+    received = []
+
+    async def receive():
+        if received:
+            await asyncio.sleep(0.01)
+        received.append(True)
+        return {"type": "http.request", "body": b"x", "more_body": True}
+
+    async def send(message):
+        events.append(message)
+
+    async def app(*args):
+        pytest.fail("A continuously streaming body outlived its deadline")
+
+    middleware = RequestBodyLimitMiddleware(app, limits={("POST", "/click"): 1000}, timeout=0.03)
+
+    async def run():
+        await asyncio.wait_for(
+            middleware({"type": "http", "method": "POST", "path": "/click"}, receive, send),
+            timeout=1,
+        )
+
+    asyncio.run(run())
+    assert events[0]["status"] == 408
+    assert 0 < len(received) < 1000
