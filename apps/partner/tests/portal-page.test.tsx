@@ -190,3 +190,20 @@ it("rejects invalid connection slugs before authentication", async () => {
   ).rejects.toThrow("NEXT_HTTP_ERROR_FALLBACK;404");
   expect(session).not.toHaveBeenCalled();
 });
+
+it("restores the archived product filter independently of membership pagination", async () => {
+  session.mockResolvedValueOnce(response(account));
+  const page = await PortalPage({
+    section: "products",
+    searchParams: Promise.resolve({
+      include_archived: "true",
+      q: "cron",
+      product_offset: "25",
+      account_id: account.id,
+    }),
+  });
+  expect(page.props.initialIncludeArchived).toBe(true);
+  expect(page.props.initialProductSearch).toBe("cron");
+  expect(page.props.initialProductOffset).toBe(25);
+  expect(page.props.initialAccount).toEqual(account);
+});

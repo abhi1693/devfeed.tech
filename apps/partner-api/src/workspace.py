@@ -91,6 +91,7 @@ def inventory(
     q: str = Query("", max_length=200, pattern=r"^[^\x00]*$"),
     limit: int = Query(100, ge=1, le=200),
     offset: int = Query(0, ge=0),
+    include_archived: bool = False,
 ):
     return inventory_page(
         session,
@@ -99,6 +100,7 @@ def inventory(
         product_id=product_id,
         limit=limit,
         offset=offset,
+        include_archived=include_archived,
     )
 
 

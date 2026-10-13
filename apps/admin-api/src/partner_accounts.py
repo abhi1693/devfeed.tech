@@ -705,10 +705,17 @@ def inventory(
     offset: int = Query(0, ge=0),
     q: str = Query("", max_length=200, pattern=r"^[^\x00]*$"),
     product_id: uuid.UUID | None = None,
+    include_archived: bool = False,
 ):
     account = account_access(session, superuser, account_id)
     return inventory_products(
-        session, account, q=q, product_id=product_id, offset=offset, limit=limit
+        session,
+        account,
+        q=q,
+        product_id=product_id,
+        offset=offset,
+        limit=limit,
+        include_archived=include_archived,
     )
 
 

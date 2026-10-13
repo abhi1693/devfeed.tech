@@ -289,3 +289,131 @@ it("opens a dedicated policy chooser for an ambiguous placement-edit bookmark", 
     `/products/${product.id}/placements?account_id=${account.id}`,
   );
 });
+
+it("shows archived products on request while preserving search and account filters", async () => {
+  const fetcher = vi.fn().mockImplementation((url: string) => {
+    const params = new URL(url, "https://partner.example").searchParams;
+    return Response.json({
+      items: [
+        {
+          ...product,
+          account_id: account.id,
+          account_name: account.name,
+          active: params.get("include_archived") !== "true",
+          source: "manual",
+          manual_active: params.get("include_archived") !== "true",
+        },
+      ],
+      total: 60,
+      limit: 25,
+      offset: Number(params.get("offset")),
+    });
+  });
+  vi.stubGlobal("fetch", fetcher);
+  render(
+    <PartnerProductCatalog
+      accountFilter={account}
+      onUnavailable={unavailable}
+      initialSearch="cron"
+      initialOffset={25}
+      query="?days=7"
+    />,
+  );
+  await screen.findByRole("link", { name: product.name });
+  await userEvent.click(screen.getByRole("checkbox", { name: "Show archived products" }));
+  const table = screen.getByRole("table", { name: "Products" });
+  await within(table).findByText("Archived");
+  expect(fetcher).toHaveBeenLastCalledWith(
+    `/api/v1/partner/inventory?q=cron&offset=0&limit=25&account_id=${account.id}&include_archived=true`,
+    expect.anything(),
+  );
+  expect(new URLSearchParams(window.location.search).get("product_offset")).toBeNull();
+  expect(new URLSearchParams(window.location.search).get("q")).toBe("cron");
+  expect(new URLSearchParams(window.location.search).get("days")).toBe("7");
+  expect(new URLSearchParams(window.location.search).get("include_archived")).toBe("true");
+  expect(
+    within(table)
+      .getByRole("link", { name: `Restore ${product.name}` })
+      .getAttribute("href"),
+  ).toContain(`account_id=${account.id}`);
+  expect(
+    within(table)
+      .getByRole("link", { name: `Restore ${product.name}` })
+      .getAttribute("href"),
+  ).not.toContain("/placements");
+  await userEvent.click(screen.getByRole("button", { name: "Next products" }));
+  await within(table).findByText("Archived");
+  expect(fetcher).toHaveBeenLastCalledWith(expect.stringContaining("offset=25"), expect.anything());
+  expect(fetcher).toHaveBeenLastCalledWith(
+    expect.stringContaining("include_archived=true"),
+    expect.anything(),
+  );
+  await userEvent.click(screen.getByRole("checkbox", { name: "Show archived products" }));
+  await within(table).findByText("Allowed");
+  expect(new URLSearchParams(window.location.search).has("include_archived")).toBe(false);
+  expect(new URLSearchParams(window.location.search).has("product_offset")).toBe(false);
+});
+it("hydrates archived products from the initial filter and labels inactive blocked entries as archived", async () => {
+  const archived = {
+    ...product,
+    active: false,
+    manual_active: false,
+    source: "manual" as const,
+    globally_excluded: true,
+  };
+  vi.stubGlobal(
+    "fetch",
+    vi.fn().mockResolvedValue(
+      Response.json({
+        items: [{ ...archived, account_id: account.id, account_name: account.name }],
+        total: 1,
+        limit: 25,
+        offset: 0,
+      }),
+    ),
+  );
+  render(<PartnerProductCatalog onUnavailable={unavailable} initialIncludeArchived />);
+  await screen.findByText("Archived");
+  expect(
+    screen.getByRole("checkbox", { name: "Show archived products" }).getAttribute("aria-checked"),
+  ).toBe("true");
+  expect(productPlacementStatus(archived)).toBe("Archived");
+});
+
+it("keeps the archived filter when resolving a product's account policy", async () => {
+  const fetcher = vi.fn().mockResolvedValue(
+    Response.json({
+      items: [
+        {
+          ...product,
+          active: false,
+          manual_active: false,
+          source: "manual",
+          account_id: account.id,
+          account_name: account.name,
+        },
+      ],
+      total: 1,
+      limit: 25,
+      offset: 0,
+    }),
+  );
+  vi.stubGlobal("fetch", fetcher);
+  render(
+    <PartnerProductPage
+      productId={product.id}
+      csrfToken="csrf"
+      onUnavailable={unavailable}
+      query="?q=cron&include_archived=true"
+    />,
+  );
+  await waitFor(() =>
+    expect(router.replace).toHaveBeenCalledWith(
+      `/products/${product.id}?q=cron&include_archived=true&account_id=${account.id}`,
+    ),
+  );
+  expect(fetcher).toHaveBeenCalledWith(
+    `/api/v1/partner/inventory?product_id=${product.id}&limit=25&offset=0&include_archived=true`,
+    expect.anything(),
+  );
+});

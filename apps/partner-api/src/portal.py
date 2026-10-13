@@ -322,6 +322,7 @@ def inventory(
     product_id: uuid.UUID | None = None,
     offset: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=200),
+    include_archived: bool = False,
 ):
     return inventory_products(
         session,
@@ -330,6 +331,7 @@ def inventory(
         product_id=product_id,
         offset=offset,
         limit=limit,
+        include_archived=include_archived,
     )
 
 

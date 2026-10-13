@@ -22,4 +22,5 @@ offset?: number;
  */
 q?: string;
 product_id?: string | null;
+include_archived?: boolean;
 };

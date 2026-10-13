@@ -53,7 +53,7 @@ def account_product_source(account_id, product_id):
     return or_(imported, manual)
 
 
-def associated_products_query(account_id: uuid.UUID | None = None):
+def associated_products_query(account_id: uuid.UUID | None = None, *, include_archived=False):
     """Current explicit or imported inventory, independently of canonical identity."""
     imported = (
         select(PartnerConnection.account_id, PartnerListing.product_id)
@@ -65,9 +65,9 @@ def associated_products_query(account_id: uuid.UUID | None = None):
             PartnerListing.identity_status == "resolved",
         )
     )
-    manual = select(PartnerManualProduct.account_id, PartnerManualProduct.product_id).where(
-        PartnerManualProduct.active.is_(True)
-    )
+    manual = select(PartnerManualProduct.account_id, PartnerManualProduct.product_id)
+    if not include_archived:
+        manual = manual.where(PartnerManualProduct.active.is_(True))
     if account_id is not None:
         imported = imported.where(PartnerConnection.account_id == account_id)
         manual = manual.where(PartnerManualProduct.account_id == account_id)

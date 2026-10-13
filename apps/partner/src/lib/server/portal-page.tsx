@@ -16,6 +16,7 @@ export type PortalSearchParams = {
   order?: SearchValue;
   q?: SearchValue;
   product_offset?: SearchValue;
+  include_archived?: SearchValue;
   policy_offset?: SearchValue;
   connection_offset?: SearchValue;
 };
@@ -76,6 +77,7 @@ export async function PortalPage({
   const productSearch = section === "products" ? (single(params.q) ?? "").slice(0, 200) : "";
   const accountSearch = section === "settings" ? (single(params.q) ?? "").slice(0, 200) : "";
   const productOffset = offset(params.product_offset);
+  const includeArchived = section === "products" && single(params.include_archived) === "true";
   const policyOffset = offset(params.policy_offset);
   let accountOffset = section === "settings" ? offset(params.account_offset) : 0;
   let { identity, accounts, requestedAccount } = await portalSession(
@@ -95,7 +97,7 @@ export async function PortalPage({
   }
   return (
     <Portal
-      key={`${section}:${requestedAccount?.id ?? "all"}:${days}:${sort}:${order}:${assetOffset}:${productSearch}:${productOffset}:${policyOffset}:${accountSearch}:${accountOffset}:${canonicalProductRoute?.view}:${canonicalProductRoute?.productId}:${canonicalConnectionsRoute?.view}:${canonicalConnectionsRoute?.connectionId}:${canonicalConnectionsRoute?.offset}:${canonicalConnectionsRoute?.q}`}
+      key={`${section}:${requestedAccount?.id ?? "all"}:${days}:${sort}:${order}:${assetOffset}:${productSearch}:${productOffset}:${includeArchived}:${policyOffset}:${accountSearch}:${accountOffset}:${canonicalProductRoute?.view}:${canonicalProductRoute?.productId}:${canonicalConnectionsRoute?.view}:${canonicalConnectionsRoute?.connectionId}:${canonicalConnectionsRoute?.offset}:${canonicalConnectionsRoute?.q}`}
       identity={identity}
       initialAccounts={accounts}
       section={section}
@@ -109,6 +111,7 @@ export async function PortalPage({
       connectionsRoute={canonicalConnectionsRoute}
       initialProductSearch={productSearch}
       initialProductOffset={productOffset}
+      initialIncludeArchived={includeArchived}
       initialPolicyOffset={policyOffset}
       initialAccountSearch={accountSearch}
     />

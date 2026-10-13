@@ -174,11 +174,48 @@ export async function assertManualProductJourneys({ page, origin, account, fixtu
   await page.getByRole("button", { name: "Archive product", exact: true }).click();
   await page.waitForURL((url) => url.pathname === "/products");
   assert.equal(product.active, false);
-  await page.goto(bookmark);
+  await page.getByRole("checkbox", { name: "Show archived products", exact: true }).waitFor();
+  assert.equal(await page.getByRole("link", { name: product.name, exact: true }).count(), 0);
+  await page.getByRole("checkbox", { name: "Show archived products", exact: true }).click();
+  await page.waitForURL((url) => url.searchParams.get("include_archived") === "true");
+  const archivedRow = page
+    .getByRole("row")
+    .filter({ has: page.getByRole("link", { name: product.name, exact: true }) });
+  await archivedRow.getByText("Archived", { exact: true }).waitFor();
+  await page.screenshot({ path: artifactDir + "/products-archived-desktop.png", fullPage: true });
+  await page.setViewportSize({ width: 390, height: 844 });
+  assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
+  await page.screenshot({ path: artifactDir + "/products-archived-mobile.png", fullPage: true });
+  await page.reload();
+  assert.equal(
+    await page
+      .getByRole("checkbox", { name: "Show archived products", exact: true })
+      .getAttribute("aria-checked"),
+    "true",
+  );
+  await archivedRow.getByText("Archived", { exact: true }).waitFor();
+  await archivedRow.getByRole("link", { name: product.name, exact: true }).click();
   await page.getByRole("heading", { name: "Archived product", exact: true }).waitFor();
+  assert.equal(new URL(page.url()).searchParams.get("include_archived"), "true");
+  assert.match(
+    await page
+      .getByRole("navigation", { name: "Breadcrumb" })
+      .getByRole("link", { name: "Products", exact: true })
+      .getAttribute("href"),
+    /include_archived=true/,
+  );
   await page.getByRole("button", { name: "Restore product", exact: true }).click();
   await page.getByRole("link", { name: "Edit product", exact: true }).waitFor();
   assert.equal(product.active, true);
+  assert.match(
+    await page.getByRole("link", { name: "Edit placements", exact: true }).getAttribute("href"),
+    /include_archived=true/,
+  );
+  assert.match(
+    await page.getByRole("link", { name: "Edit product", exact: true }).getAttribute("href"),
+    /include_archived=true/,
+  );
+  await page.setViewportSize({ width: 1440, height: 1100 });
   fixture.imported.add(product.id);
   await page.getByRole("link", { name: "Archive product", exact: true }).click();
   await page.getByRole("button", { name: "Archive product", exact: true }).click();

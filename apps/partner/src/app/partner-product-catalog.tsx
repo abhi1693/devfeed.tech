@@ -2,10 +2,11 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { Pencil, Plus, RefreshCw, Search } from "lucide-react";
+import { Pencil, Plus, RefreshCw, RotateCcw, Search } from "lucide-react";
 import { Button } from "@devfeed/ui/button";
 import { Badge } from "@devfeed/ui/badge";
 import { Input } from "@devfeed/ui/input";
+import { Checkbox } from "@devfeed/ui/choice-controls";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@devfeed/ui/table";
 import { ResourceHeading } from "@devfeed/ui/resource-layout";
 import { PartnerWorkspaceInventoryResponse } from "@/lib/api/generated/validators";
@@ -29,6 +30,7 @@ export function parseWorkspaceProductInventory(value: unknown): WorkspaceInvento
 }
 
 export function productPlacementStatus(product: InventoryProductOut) {
+  if (!product.active) return "Archived";
   if (product.globally_excluded) return "Blocked";
   if (product.excluded) return "Excluded";
   if (!product.commercial_approved) return "In review";
@@ -42,19 +44,22 @@ export function PartnerProductCatalog({
   onUnavailable,
   initialSearch = "",
   initialOffset = 0,
+  initialIncludeArchived = false,
   query = "",
 }: {
   accountFilter?: Account;
   onUnavailable: () => void;
   initialSearch?: string;
   initialOffset?: number;
+  initialIncludeArchived?: boolean;
   query?: string;
 }) {
   const request = usePartnerRequest({ onUnavailable });
   const [search, setSearch] = useState(initialSearch);
   const [page, setPage] = useState({ q: initialSearch, offset: initialOffset });
+  const [includeArchived, setIncludeArchived] = useState(initialIncludeArchived);
   const [revision, setRevision] = useState(0);
-  const key = `${accountFilter?.id ?? "all"}/${page.q}/${page.offset}/${revision}`;
+  const key = `${accountFilter?.id ?? "all"}/${page.q}/${page.offset}/${includeArchived}/${revision}`;
   const [result, setResult] = useState<{
     key: string;
     items: WorkspaceInventoryProductOut[];
@@ -67,6 +72,8 @@ export function PartnerProductCatalog({
   else scope.delete("q");
   if (page.offset) scope.set("product_offset", String(page.offset));
   else scope.delete("product_offset");
+  if (includeArchived) scope.set("include_archived", "true");
+  else scope.delete("include_archived");
   if (accountFilter) scope.set("account_id", accountFilter.id);
   else scope.delete("account_id");
   const listQuery = scope.size ? `?${scope}` : "";
@@ -82,6 +89,7 @@ export function PartnerProductCatalog({
     const controller = new AbortController();
     const params = new URLSearchParams({ q: page.q, offset: String(page.offset), limit: "25" });
     if (accountFilter) params.set("account_id", accountFilter.id);
+    if (includeArchived) params.set("include_archived", "true");
     void request(`inventory?${params}`, {
       signal: controller.signal,
       parse: (value) => {
@@ -89,6 +97,7 @@ export function PartnerProductCatalog({
         if (
           data.offset !== page.offset ||
           data.limit !== 25 ||
+          (!includeArchived && data.items.some((product) => !product.active)) ||
           (accountFilter && data.items.some((product) => product.account_id !== accountFilter.id))
         )
           throw new Error("Could not confirm the product page.");
@@ -115,7 +124,7 @@ export function PartnerProductCatalog({
           });
       });
     return () => controller.abort();
-  }, [request, page, key, accountFilter]);
+  }, [request, page, key, accountFilter, includeArchived]);
   return (
     <section className="space-y-4">
       <ResourceHeading
@@ -170,6 +179,16 @@ export function PartnerProductCatalog({
             />
           </div>
         </div>
+        <label className="flex items-center gap-2 pb-2 text-sm">
+          <Checkbox
+            checked={includeArchived}
+            onCheckedChange={(checked) => {
+              setIncludeArchived(checked === true);
+              setPage((current) => ({ ...current, offset: 0 }));
+            }}
+          />
+          Show archived products
+        </label>
         <p className="text-sm text-muted-foreground" role="status">
           {loading
             ? "Loading products…"
@@ -234,7 +253,7 @@ export function PartnerProductCatalog({
                         variant={
                           status === "Allowed"
                             ? "success"
-                            : status === "Excluded" || status === "Blocked"
+                            : status === "Excluded" || status === "Blocked" || status === "Archived"
                               ? "secondary"
                               : "warning"
                         }
@@ -260,14 +279,18 @@ export function PartnerProductCatalog({
                       <Button size="icon-sm" variant="outline" asChild>
                         <Link
                           href={productPath(product.id, {
-                            edit: true,
+                            edit: product.active,
                             accountId: product.account_id,
                             query: listQuery,
                           })}
                           prefetch={false}
-                          aria-label={`Edit placements for ${product.name}`}
+                          aria-label={
+                            product.active
+                              ? `Edit placements for ${product.name}`
+                              : `Restore ${product.name}`
+                          }
                         >
-                          <Pencil aria-hidden />
+                          {product.active ? <Pencil aria-hidden /> : <RotateCcw aria-hidden />}
                         </Link>
                       </Button>
                     </TableCell>

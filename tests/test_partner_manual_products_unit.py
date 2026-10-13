@@ -122,6 +122,42 @@ def test_active_only_update_does_not_require_product_revision():
     assert products.ManualProductUpdate(active=False).active is False
 
 
+@pytest.mark.parametrize("include_archived", [False, True])
+def test_inventory_archive_option_uses_batched_projected_availability(include_archived):
+    from devfeed_core.models import PartnerAccount
+    from devfeed_core.partner_promotions import associated_products_query
+    from devfeed_http.partner_portal import inventory_page
+    from sqlalchemy import select
+    from sqlalchemy.dialects import postgresql
+
+    account, session = NS(id=uuid.uuid4(), name="Business", approval_mode="qualified"), Mock()
+    row = product(account, status="withdrawn" if include_archived else "approved")
+    source = NS(active=not include_archived)
+    session.scalar.return_value = 1
+    session.execute.return_value.all.return_value = [
+        (account, row, None, source, not include_archived)
+    ]
+    result = inventory_page(
+        session,
+        select(PartnerAccount).where(PartnerAccount.id == account.id),
+        include_archived=include_archived,
+        limit=10,
+        offset=2,
+    )
+    assert result["total"] == 1 and result["items"][0]["active"] is not include_archived
+    assert result["items"][0]["manual_active"] is not include_archived
+    assert result["items"][0]["commercial_approved"] is not include_archived
+    session.scalar.assert_called_once()
+    session.execute.assert_called_once()
+    query = str(
+        associated_products_query(account.id, include_archived=include_archived).compile(
+            dialect=postgresql.dialect(), compile_kwargs={"literal_binds": True}
+        )
+    )
+    assert ("partner_manual_products.active IS true" in query) is not include_archived
+    assert "partner_connections.enabled IS true" in query and "UNION" in query
+
+
 @pytest.mark.parametrize("status", ["allowed", "limited", "unavailable"])
 def test_write_abuse_budget_is_actor_and_account_scoped(monkeypatch, status):
     actor, account_id, redis = NS(issuer="issuer", subject="subject"), uuid.uuid4(), Mock()

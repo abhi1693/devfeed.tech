@@ -221,9 +221,11 @@ shared facts. Only the account that manages a manual product's canonical facts c
 Edits require the current revision and invalidate outdated assessment and contextual matches;
 unchanged saves preserve them.
 
-Archiving removes the account's manual association and preserves reports. A bookmarked product
-record can restore that entry. An active imported listing can independently keep the same product
-available, so aggregate availability and the manual entry's state are reported separately.
+Archiving removes the account's manual association and preserves reports. Select **Show archived
+products** in Products, open the record and restore it there. An active imported listing can
+independently keep the same product available, so aggregate availability and the manual entry's
+state are reported separately. The `include_archived` inventory option is off by default so
+placement pickers continue to offer active products.
 The account-level product exclusion blocks placements regardless of their source. Direct products
 use their website when the account's preferred listing destination has no owned launch listing.
 

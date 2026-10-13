@@ -65,7 +65,8 @@ function ProductAccounts({
   const request = usePartnerRequest({ onUnavailable });
   const [offset, setOffset] = useState(initialOffset);
   const [attempt, setAttempt] = useState(0);
-  const key = `${productId}/${offset}/${attempt}`;
+  const includeArchived = new URLSearchParams(query).get("include_archived") === "true";
+  const key = `${productId}/${offset}/${includeArchived}/${attempt}`;
   const [result, setResult] = useState<{
     key: string;
     items: WorkspaceInventoryProductOut[];
@@ -91,6 +92,7 @@ function ProductAccounts({
       limit: "25",
       offset: String(offset),
     });
+    if (includeArchived) params.set("include_archived", "true");
     void request(`inventory?${params}`, {
       signal: controller.signal,
       parse: (value) => {
@@ -132,7 +134,7 @@ function ProductAccounts({
           });
       });
     return () => controller.abort();
-  }, [request, productId, offset, key, edit, action, query, router]);
+  }, [request, productId, offset, key, edit, action, query, router, includeArchived]);
   return (
     <section className="space-y-4">
       <ResourceHeading
@@ -563,7 +565,10 @@ function ProductDetails({
             <p>
               Products also supplied by an active import connection remain available for placements.
             </p>
-            <p>You can restore the manually added product using its bookmarked detail page.</p>
+            <p>
+              You can restore it from Products by enabling Show archived products and opening the
+              product.
+            </p>
             <div className="flex flex-wrap justify-end gap-2 border-t pt-3">
               <Button variant="outline" asChild disabled={busy}>
                 <Link href={detailHref} prefetch={false}>

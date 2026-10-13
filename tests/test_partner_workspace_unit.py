@@ -124,6 +124,20 @@ def test_optional_account_filters_authorize_before_reading_data(api, monkeypatch
         )
 
 
+@pytest.mark.parametrize("include_archived", [False, True])
+def test_workspace_inventory_forwards_opt_in_archive_filter(api, monkeypatch, include_archived):
+    client, session, identity = api
+    reader = Mock(return_value={"items": [], "total": 0, "limit": 100, "offset": 0})
+    monkeypatch.setattr(workspace, "inventory_page", reader)
+    response = client.get(
+        "/v1/partner/inventory", params={"include_archived": str(include_archived).lower()}
+    )
+    assert response.status_code == 200
+    assert reader.call_args.kwargs["include_archived"] is include_archived
+    scope = statement_sql(reader.call_args.args[1])
+    assert identity.issuer in scope and identity.subject in scope and "'active'" in scope
+
+
 def test_global_connection_list_uses_account_scope_and_batches_one_page(api, monkeypatch):
     client, session, identity = api
     account_id = uuid.uuid4()
@@ -208,6 +222,7 @@ def test_global_create_forwards_only_connection_fields_to_locked_account_service
         "dashboard?sort=invalid",
         "inventory?limit=201",
         "inventory?offset=-1",
+        "inventory?include_archived=maybe",
         "connections?limit=101",
         "connections?offset=-1",
     ],

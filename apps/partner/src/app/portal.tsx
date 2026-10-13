@@ -85,6 +85,7 @@ export function Portal({
   initialOrder = "asc",
   initialProductSearch = "",
   initialProductOffset = 0,
+  initialIncludeArchived = false,
   initialPolicyOffset = 0,
   initialAccountSearch = "",
   productRoute = { view: "list" },
@@ -101,6 +102,7 @@ export function Portal({
   initialOrder?: SortOrder;
   initialProductSearch?: string;
   initialProductOffset?: number;
+  initialIncludeArchived?: boolean;
   initialPolicyOffset?: number;
   initialAccountSearch?: string;
   productRoute?: ProductRoute;
@@ -205,6 +207,7 @@ export function Portal({
   const productScope = new URLSearchParams(scope);
   if (initialProductSearch) productScope.set("q", initialProductSearch);
   if (initialProductOffset) productScope.set("product_offset", String(initialProductOffset));
+  if (initialIncludeArchived) productScope.set("include_archived", "true");
   if (initialPolicyOffset) productScope.set("policy_offset", String(initialPolicyOffset));
   const productQuery = `?${productScope}`;
   const settingsScope = new URLSearchParams();
@@ -299,6 +302,7 @@ export function Portal({
               onUnavailable={onUnavailable}
               initialSearch={initialProductSearch}
               initialOffset={initialProductOffset}
+              initialIncludeArchived={initialIncludeArchived}
               query={query}
               accountFilter={account}
             />

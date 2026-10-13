@@ -314,6 +314,10 @@ def test_archived_manual_registration_stays_available_through_active_import(
     assert detail["active"] and detail["manual_active"] is False
     inventory = client.get(f"/v1/partner/accounts/{account_id}/inventory").json()["items"][0]
     assert inventory["active"] and inventory["manual_active"] is False
+    inclusive = client.get(
+        f"/v1/partner/accounts/{account_id}/inventory", params={"include_archived": "true"}
+    ).json()
+    assert inclusive["total"] == 1 and inclusive["items"][0]["active"]
     restored = client.patch(base, json={"active": True}).json()
     assert restored["active"] and restored["manual_active"]
 
@@ -415,3 +419,79 @@ def test_pending_manual_product_accepts_custom_image_upload_and_url(
     with database() as session:
         assert session.scalar(select(func.count()).select_from(PartnerConnection)) == 0
         assert session.get(PartnerProduct, uuid.UUID(row["id"])).status == "pending"
+
+
+@pytest.mark.parametrize("scope", ["account", "workspace", "admin"])
+def test_archived_inventory_opt_in_retains_scope_filters_counts_and_restore(
+    portal_client, admin_portal_client, database, scope
+):
+    portal, identity = portal_client
+    admin, _ = admin_portal_client
+    account_id = seed_account(database, identity)
+    rows = [
+        create(portal, account_id, name=name, product_url=f"https://{name.lower()}.example/")
+        for name in ("Alpha", "Beta", "Gamma")
+    ]
+    for row in rows[:2]:
+        assert (
+            portal.delete(f"/v1/partner/accounts/{account_id}/products/{row['id']}").status_code
+            == 204
+        )
+    hidden = []
+    for mode in ("foreign", "paused"):
+        other_id = seed_account(database, identity)
+        other = create(portal, other_id, product_url=f"https://{mode}.example/")
+        hidden.append((other_id, other["id"]))
+        assert (
+            portal.delete(f"/v1/partner/accounts/{other_id}/products/{other['id']}").status_code
+            == 204
+        )
+        with database.begin() as session:
+            if mode == "foreign":
+                session.delete(
+                    session.get(PartnerMembership, (other_id, identity.issuer, identity.subject))
+                )
+            else:
+                session.get(PartnerAccount, other_id).status = "paused"
+    path = (
+        f"/v1/admin/partner-accounts/{account_id}/inventory"
+        if scope == "admin"
+        else "/v1/partner/inventory"
+        if scope == "workspace"
+        else f"/v1/partner/accounts/{account_id}/inventory"
+    )
+    client = admin if scope == "admin" else portal
+    default = client.get(path).json()
+    assert default["total"] == 1 and default["items"][0]["name"] == "Gamma"
+    all_rows = client.get(path, params={"include_archived": "true"}).json()
+    assert all_rows["total"] == 3
+    assert [(row["name"], row["active"], row["manual_active"]) for row in all_rows["items"]] == [
+        ("Alpha", False, False),
+        ("Beta", False, False),
+        ("Gamma", True, True),
+    ]
+    page = client.get(path, params={"include_archived": "true", "limit": 1, "offset": 1}).json()
+    assert page["total"] == 3 and [row["name"] for row in page["items"]] == ["Beta"]
+    filtered = client.get(path, params={"include_archived": "true", "q": "Alpha"}).json()
+    assert filtered["total"] == 1 and filtered["items"][0]["id"] == rows[0]["id"]
+    exact = client.get(
+        path, params={"include_archived": "true", "product_id": rows[1]["id"]}
+    ).json()
+    assert exact["total"] == 1 and exact["items"][0]["name"] == "Beta"
+    for other_id, product_id in hidden:
+        missing = client.get(
+            path, params={"include_archived": "true", "product_id": product_id}
+        ).json()
+        assert missing["total"] == 0 and missing["items"] == []
+        if scope == "workspace":
+            assert (
+                client.get(
+                    path, params={"include_archived": "true", "account_id": str(other_id)}
+                ).status_code
+                == 404
+            )
+    restored = portal.patch(
+        f"/v1/partner/accounts/{account_id}/products/{rows[0]['id']}", json={"active": True}
+    )
+    assert restored.status_code == 200
+    assert client.get(path).json()["total"] == 2

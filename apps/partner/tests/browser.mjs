@@ -338,7 +338,7 @@ const mock = createServer(async (request, response) => {
     items.push(
       ...manualProducts.products.filter(
         (item) =>
-          item.active &&
+          (item.active || url.searchParams.get("include_archived") === "true") &&
           memberAccounts.some((member) => member.id === item.account_id) &&
           (!selectedId || item.account_id === selectedId) &&
           (!productId || item.id === productId) &&

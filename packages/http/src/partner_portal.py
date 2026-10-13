@@ -34,6 +34,7 @@ from devfeed_core.partner_product_images import (
 )
 from devfeed_core.partner_product_logos import product_logo_url
 from devfeed_core.partner_promotions import (
+    account_product_source,
     associated_products_query,
     ensure_automatic_assets,
 )
@@ -890,8 +891,10 @@ def inventory_product_view(account, product, policy, now, manual=None, *, active
     )
 
 
-def inventory_page(session, accounts_query, *, q="", product_id=None, offset=0, limit=100):
-    query = associated_products_query().where(
+def inventory_page(
+    session, accounts_query, *, q="", product_id=None, offset=0, limit=100, include_archived=False
+):
+    query = associated_products_query(include_archived=include_archived).where(
         PartnerAccount.id.in_(accounts_query.with_only_columns(PartnerAccount.id).order_by(None))
     )
     if q.strip():
@@ -902,7 +905,13 @@ def inventory_page(session, accounts_query, *, q="", product_id=None, offset=0, 
         query = query.where(PartnerProduct.id == product_id)
     total = session.scalar(select(func.count()).select_from(query.subquery()))
     rows = session.execute(
-        query.add_columns(PartnerProductPromotion, PartnerManualProduct)
+        query.add_columns(
+            PartnerProductPromotion,
+            PartnerManualProduct,
+            account_product_source(PartnerAccount.id, PartnerProduct.id)
+            if include_archived
+            else literal(True),
+        )
         .outerjoin(
             PartnerProductPromotion,
             and_(
@@ -924,8 +933,8 @@ def inventory_page(session, accounts_query, *, q="", product_id=None, offset=0, 
     now = datetime.now(UTC)
     return {
         "items": [
-            inventory_product_view(account, product, policy, now, manual)
-            for account, product, policy, manual in rows
+            inventory_product_view(account, product, policy, now, manual, active=active)
+            for account, product, policy, manual, active in rows
         ],
         "total": total,
         "limit": limit,
@@ -933,7 +942,9 @@ def inventory_page(session, accounts_query, *, q="", product_id=None, offset=0, 
     }
 
 
-def inventory_products(session, account, *, q="", product_id=None, offset=0, limit=100):
+def inventory_products(
+    session, account, *, q="", product_id=None, offset=0, limit=100, include_archived=False
+):
     return inventory_page(
         session,
         select(PartnerAccount).where(PartnerAccount.id == account.id),
@@ -941,6 +952,7 @@ def inventory_products(session, account, *, q="", product_id=None, offset=0, lim
         product_id=product_id,
         offset=offset,
         limit=limit,
+        include_archived=include_archived,
     )
 
 
