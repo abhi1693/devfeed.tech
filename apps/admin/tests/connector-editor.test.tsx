@@ -13,7 +13,7 @@ import type { ConnectorConfig } from "@/lib/api/generated/models";
 afterEach(cleanup);
 
 describe("shared connector editor", () => {
-  it("pairs colored check feedback with the same response paths and treats unmatched samples as hints", () => {
+  it("keeps mapping feedback inside inputs with accessible status and matching response colors", () => {
     const config = connectorDefaults("shipyardhq");
     const data = { items: [{ id: "one", name: "One" }], nextCursor: null };
     const mappings = responseMappings(config, data);
@@ -32,10 +32,21 @@ describe("shared connector editor", () => {
     const found = screen.getByLabelText("Product name found in sample");
     expect(found.querySelector("svg.lucide-check")).not.toBeNull();
     expect(found.getAttribute("data-mapping-status")).toBe("matched");
+    expect(found.getAttribute("role")).toBe("img");
+    expect(found.className).toContain("absolute");
     const input = screen.getByRole("textbox", { name: "Product name paths" });
     const json = screen.getByRole("textbox", { name: "API response JSON" });
     const mapped = json.querySelector('[data-mappings="fields.name"]');
     expect(input.className).toContain("border-emerald-600");
+    expect(input.className).toContain("pr-9");
+    expect(input.parentElement).toBe(found.parentElement);
+    expect(input.getAttribute("aria-describedby")?.split(" ")).toContain(found.id);
+    expect(found.querySelector(".sr-only")?.textContent).toBe("Product name: found in sample");
+    expect(found.className).toContain("text-emerald-800");
+    for (const status of document.querySelectorAll("[data-mapping-status]")) {
+      expect(status.querySelector(".sr-only")?.textContent).toMatch(/found in (?:this )?sample/);
+      expect(status.querySelector("p")).toBeNull();
+    }
     expect(mapped?.className).toContain("border-emerald-600");
     expect(mapped?.textContent).toContain('"name": "One"');
     expect(
@@ -46,6 +57,11 @@ describe("shared connector editor", () => {
     expect(
       screen.getByRole("textbox", { name: "Description paths" }).getAttribute("aria-invalid"),
     ).toBe("false");
+    const unmatched = screen.getByLabelText("Description not found in this sample");
+    expect(unmatched.querySelector("svg.lucide-circle-help")).not.toBeNull();
+    expect(
+      screen.getByRole("textbox", { name: "Description paths" }).getAttribute("aria-describedby"),
+    ).toContain(unmatched.id);
     expect(screen.getByText(/Sample response; long lists/)).not.toBeNull();
   });
 

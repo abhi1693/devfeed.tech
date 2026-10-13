@@ -2,6 +2,7 @@
 
 import { useId, useState, type ComponentProps, type ReactNode } from "react";
 import { Check, CircleHelp } from "lucide-react";
+import { cn } from "cn";
 import { Input } from "./input";
 import { Button } from "./button";
 import { Checkbox } from "./choice-controls";
@@ -173,10 +174,15 @@ export function ConnectorFields<C extends ConnectorDefinition>({
         )}
       >
         {(control) => (
-          <>
+          <div className="relative">
             <ConnectorTextInput
               {...control}
-              className={matched ? mapping?.style : undefined}
+              aria-describedby={
+                [control["aria-describedby"], mapping && `${control.id}-mapping`]
+                  .filter(Boolean)
+                  .join(" ") || undefined
+              }
+              className={cn(matched && mapping?.style, mapping && "pr-9")}
               title={
                 mapping
                   ? matched
@@ -188,20 +194,28 @@ export function ConnectorFields<C extends ConnectorDefinition>({
               onChange={change}
             />
             {mapping && (
-              <p
+              <span
+                id={`${control.id}-mapping`}
+                role="img"
                 data-mapping-status={matched ? "matched" : "unmatched"}
                 aria-label={`${mapping.label} ${matched ? "found in sample" : "not found in this sample"}`}
-                className={`flex items-center gap-1.5 text-xs ${matched ? mapping.style : "text-muted-foreground"}`}
+                className={cn(
+                  "pointer-events-none absolute inset-y-0 right-3 flex items-center",
+                  matched ? mapping.style : "text-muted-foreground",
+                  "bg-transparent",
+                )}
               >
                 {matched ? (
                   <Check aria-hidden="true" className="size-3.5 shrink-0" />
                 ) : (
                   <CircleHelp aria-hidden="true" className="size-3.5 shrink-0" />
                 )}
-                {mapping.label}: {matched ? "found in sample" : "not found in this sample"}
-              </p>
+                <span className="sr-only">
+                  {mapping.label}: {matched ? "found in sample" : "not found in this sample"}
+                </span>
+              </span>
             )}
-          </>
+          </div>
         )}
       </Field>
     );
