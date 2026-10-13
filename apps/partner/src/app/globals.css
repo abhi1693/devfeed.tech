@@ -2,6 +2,7 @@
 @import "tw-animate-css";
 @import "@devfeed/ui/content.css";
 @import "@devfeed/ui/choice-controls.css";
+@import "@devfeed/ui/info-tip.css";
 @import "@devfeed/theme/tokens.css";
 @import "@devfeed/theme/brand.css";
 @import "@devfeed/theme/tailwind.css";
@@ -24,6 +25,8 @@
 
 @layer components {
   .partner-workspace {
+    --connector-field-gap: 1rem;
+    --connector-section-gap: 1rem;
     --resource-heading-gap: 0.5rem;
     --resource-heading-actions-gap: 0.75rem;
     --resource-panel-padding: 1rem;

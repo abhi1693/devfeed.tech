@@ -26,10 +26,17 @@ const accountDashboardPath =
   /^\/v1\/partner\/accounts\/[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}\/dashboard$/i;
 const connectionsPath =
   /^\/v1\/partner\/accounts\/[a-fA-F0-9]{8}(?:-[a-fA-F0-9]{4}){3}-[a-fA-F0-9]{12}\/connections(?:\/([a-z0-9]+(?:-[a-z0-9]+)*))?(?:\/(actions|jobs))?$/;
+const connectionPreviewPath =
+  /^\/v1\/partner\/accounts\/[a-fA-F0-9]{8}(?:-[a-fA-F0-9]{4}){3}-[a-fA-F0-9]{12}\/connections(?:\/([a-z0-9]+(?:-[a-z0-9]+)*))?\/(connector-response|connector-preview)$/;
 const workspaceConnectionsPath =
   /^\/v1\/partner\/connections(?:\/([a-z0-9]+(?:-[a-z0-9]+)*))?(?:\/(jobs))?$/;
 
 function connectionMethods(path: string): readonly string[] | undefined {
+  const preview = connectionPreviewPath.exec(path);
+  if (preview) {
+    if (preview[1] && (preview[1] === "new" || preview[1].length > 200)) return undefined;
+    return ["POST"];
+  }
   const workspace = workspaceConnectionsPath.exec(path);
   const match = workspace ?? connectionsPath.exec(path);
   if (!match) return undefined;

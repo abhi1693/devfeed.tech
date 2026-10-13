@@ -483,6 +483,68 @@ export const PartnerConnectionCreateResponse = zod.object({
 
 
 /**
+ * @summary Draft Connector Preview
+ */
+export const partnerConnectorPreviewResponseProductsItemAttributionDefault = ``;
+export const partnerConnectorPreviewResponseProductsItemAttributionMax = 300;
+
+export const partnerConnectorPreviewResponseProductsItemDescriptionMin = 10;
+export const partnerConnectorPreviewResponseProductsItemDescriptionMax = 5000;
+
+export const partnerConnectorPreviewResponseProductsItemEvidenceItemCapabilityMin = 10;
+export const partnerConnectorPreviewResponseProductsItemEvidenceItemCapabilityMax = 500;
+
+export const partnerConnectorPreviewResponseProductsItemEvidenceItemQuoteMin = 20;
+export const partnerConnectorPreviewResponseProductsItemEvidenceItemQuoteMax = 2000;
+
+export const partnerConnectorPreviewResponseProductsItemEvidenceMax = 10;
+
+export const partnerConnectorPreviewResponseProductsItemExternalIdMax = 200;
+
+export const partnerConnectorPreviewResponseProductsItemNameMax = 200;
+
+export const partnerConnectorPreviewResponseProductsItemPricingDefault = `unknown`;
+export const partnerConnectorPreviewResponseProductsItemProviderMax = 200;
+
+export const partnerConnectorPreviewResponseProductsItemTechnologiesItemMax = 200;
+
+export const partnerConnectorPreviewResponseProductsItemTechnologiesMax = 20;
+
+
+
+export const PartnerConnectorPreviewResponse = zod.object({
+  "discovered": zod.int(),
+  "errors": zod.array(zod.string()),
+  "has_next_page": zod.boolean(),
+  "products": zod.array(zod.object({
+  "attribution": zod.string().max(partnerConnectorPreviewResponseProductsItemAttributionMax).default(partnerConnectorPreviewResponseProductsItemAttributionDefault),
+  "description": zod.string().min(partnerConnectorPreviewResponseProductsItemDescriptionMin).max(partnerConnectorPreviewResponseProductsItemDescriptionMax),
+  "evidence": zod.array(zod.object({
+  "capability": zod.string().min(partnerConnectorPreviewResponseProductsItemEvidenceItemCapabilityMin).max(partnerConnectorPreviewResponseProductsItemEvidenceItemCapabilityMax),
+  "quote": zod.string().min(partnerConnectorPreviewResponseProductsItemEvidenceItemQuoteMin).max(partnerConnectorPreviewResponseProductsItemEvidenceItemQuoteMax),
+  "url": zod.string()
+})).max(partnerConnectorPreviewResponseProductsItemEvidenceMax).optional(),
+  "external_id": zod.string().min(1).max(partnerConnectorPreviewResponseProductsItemExternalIdMax),
+  "listing_url": zod.string(),
+  "name": zod.string().min(1).max(partnerConnectorPreviewResponseProductsItemNameMax),
+  "pricing": zod.enum(['free', 'freemium', 'paid', 'unknown']).default(partnerConnectorPreviewResponseProductsItemPricingDefault),
+  "product_url": zod.string(),
+  "provider": zod.string().min(1).max(partnerConnectorPreviewResponseProductsItemProviderMax),
+  "technologies": zod.array(zod.string().min(1).max(partnerConnectorPreviewResponseProductsItemTechnologiesItemMax)).max(partnerConnectorPreviewResponseProductsItemTechnologiesMax).optional()
+}))
+})
+
+
+/**
+ * @summary Draft Connector Response
+ */
+export const PartnerConnectorResponseResponse = zod.object({
+  "data": zod.union([zod.string(),zod.int(),zod.number(),zod.boolean(),zod.array(zod.unknown()),zod.record(zod.string(), zod.unknown()),zod.null()]),
+  "sampled": zod.boolean()
+})
+
+
+/**
  * Archive the connection and erase its token, retaining catalog and reporting history.
  * @summary Disconnect Connection
  */
@@ -1296,6 +1358,68 @@ export const PartnerConnectionActionResponse = zod.object({
   "revision": zod.int(),
   "state": zod.enum(['disconnected', 'idle', 'syncing', 'error']),
   "sync_interval_minutes": zod.int()
+})
+
+
+/**
+ * @summary Existing Connector Preview
+ */
+export const partnerConnectionPreviewResponseProductsItemAttributionDefault = ``;
+export const partnerConnectionPreviewResponseProductsItemAttributionMax = 300;
+
+export const partnerConnectionPreviewResponseProductsItemDescriptionMin = 10;
+export const partnerConnectionPreviewResponseProductsItemDescriptionMax = 5000;
+
+export const partnerConnectionPreviewResponseProductsItemEvidenceItemCapabilityMin = 10;
+export const partnerConnectionPreviewResponseProductsItemEvidenceItemCapabilityMax = 500;
+
+export const partnerConnectionPreviewResponseProductsItemEvidenceItemQuoteMin = 20;
+export const partnerConnectionPreviewResponseProductsItemEvidenceItemQuoteMax = 2000;
+
+export const partnerConnectionPreviewResponseProductsItemEvidenceMax = 10;
+
+export const partnerConnectionPreviewResponseProductsItemExternalIdMax = 200;
+
+export const partnerConnectionPreviewResponseProductsItemNameMax = 200;
+
+export const partnerConnectionPreviewResponseProductsItemPricingDefault = `unknown`;
+export const partnerConnectionPreviewResponseProductsItemProviderMax = 200;
+
+export const partnerConnectionPreviewResponseProductsItemTechnologiesItemMax = 200;
+
+export const partnerConnectionPreviewResponseProductsItemTechnologiesMax = 20;
+
+
+
+export const PartnerConnectionPreviewResponse = zod.object({
+  "discovered": zod.int(),
+  "errors": zod.array(zod.string()),
+  "has_next_page": zod.boolean(),
+  "products": zod.array(zod.object({
+  "attribution": zod.string().max(partnerConnectionPreviewResponseProductsItemAttributionMax).default(partnerConnectionPreviewResponseProductsItemAttributionDefault),
+  "description": zod.string().min(partnerConnectionPreviewResponseProductsItemDescriptionMin).max(partnerConnectionPreviewResponseProductsItemDescriptionMax),
+  "evidence": zod.array(zod.object({
+  "capability": zod.string().min(partnerConnectionPreviewResponseProductsItemEvidenceItemCapabilityMin).max(partnerConnectionPreviewResponseProductsItemEvidenceItemCapabilityMax),
+  "quote": zod.string().min(partnerConnectionPreviewResponseProductsItemEvidenceItemQuoteMin).max(partnerConnectionPreviewResponseProductsItemEvidenceItemQuoteMax),
+  "url": zod.string()
+})).max(partnerConnectionPreviewResponseProductsItemEvidenceMax).optional(),
+  "external_id": zod.string().min(1).max(partnerConnectionPreviewResponseProductsItemExternalIdMax),
+  "listing_url": zod.string(),
+  "name": zod.string().min(1).max(partnerConnectionPreviewResponseProductsItemNameMax),
+  "pricing": zod.enum(['free', 'freemium', 'paid', 'unknown']).default(partnerConnectionPreviewResponseProductsItemPricingDefault),
+  "product_url": zod.string(),
+  "provider": zod.string().min(1).max(partnerConnectionPreviewResponseProductsItemProviderMax),
+  "technologies": zod.array(zod.string().min(1).max(partnerConnectionPreviewResponseProductsItemTechnologiesItemMax)).max(partnerConnectionPreviewResponseProductsItemTechnologiesMax).optional()
+}))
+})
+
+
+/**
+ * @summary Existing Connector Response
+ */
+export const PartnerConnectionResponseResponse = zod.object({
+  "data": zod.union([zod.string(),zod.int(),zod.number(),zod.boolean(),zod.array(zod.unknown()),zod.record(zod.string(), zod.unknown()),zod.null()]),
+  "sampled": zod.boolean()
 })
 
 

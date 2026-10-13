@@ -67,6 +67,7 @@ function form(existing?: WorkspaceConnectionOut, extra = {}) {
   render(
     <PartnerConnectionForm
       connection={existing}
+      csrfToken="csrf"
       credentialsAvailable
       cancelHref="/connections"
       saving={false}
@@ -406,7 +407,9 @@ it("uses explicit write-only replacement and supports removing authentication", 
   );
   await user.click(screen.getByRole("combobox", { name: "Authentication method" }));
   await user.click(screen.getByRole("option", { name: "No authentication" }));
-  expect(screen.getByRole("status").textContent).toContain("removes the stored credential");
+  expect(screen.getByText(/Saving without authentication/).textContent).toContain(
+    "removes the stored credential",
+  );
   fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
   await waitFor(() =>
     expect(save).toHaveBeenLastCalledWith(
@@ -475,7 +478,7 @@ it("truthfully disables authenticated creation without server credential storage
 });
 
 it.each([
-  ["none", "Single response", false, false],
+  ["none", "None", false, false],
   ["cursor", "Cursor", true, true],
   ["page", "Page number", true, false],
   ["offset", "Offset", true, false],
@@ -494,8 +497,8 @@ it.each([
     expect(Boolean(screen.queryByRole("textbox", { name: "Pagination parameter" }))).toBe(
       parameter,
     );
-    expect(Boolean(screen.queryByRole("textbox", { name: "Next cursor or URL path" }))).toBe(next);
-    expect(Boolean(screen.queryByRole("spinbutton", { name: "Page size" }))).toBe(mode !== "none");
+    expect(Boolean(screen.queryByRole("textbox", { name: "Next token path" }))).toBe(next);
+    expect(screen.getByRole("spinbutton", { name: "Page size" })).toBeTruthy();
     await user.click(screen.getByRole("button", { name: "Save changes" }));
     await waitFor(() =>
       expect(save).toHaveBeenCalledWith(
@@ -551,4 +554,111 @@ it("preserves an administrator's existing interval until it is explicitly change
   fireEvent.submit(screen.getByRole("button", { name: "Save changes" }).closest("form")!);
   expect(screen.getByRole("alert").textContent).toContain("between 15 and 10,080");
   expect(save).toHaveBeenCalledTimes(1);
+});
+
+it("tests the edited import without saving and clears the result when configuration changes", async () => {
+  const existing = connection();
+  const preview = {
+    discovered: 1,
+    has_next_page: true,
+    errors: [],
+    products: [
+      {
+        provider: existing.provider,
+        external_id: "debug-tool",
+        name: "Debug console",
+        description: "Inspect and debug Python applications with a native developer console.",
+        product_url: "https://debug.example",
+        listing_url: "https://catalog.example/debug-console",
+        pricing: "free",
+        attribution: "",
+      },
+    ],
+  };
+  const fetcher = vi
+    .fn<typeof fetch>()
+    .mockImplementation(async (url) =>
+      Response.json(
+        String(url).endsWith("connector-preview") ? preview : { data: {}, sampled: false },
+      ),
+    );
+  vi.stubGlobal("fetch", fetcher);
+  const save = form(existing);
+  fireEvent.click(screen.getByRole("button", { name: "Test import connection" }));
+  const result = await screen.findByRole("status", { name: "Import test result" });
+  expect(result.textContent).toContain("1 product found; another page is available");
+  expect(result.textContent).toContain("Debug console");
+  expect(result.textContent).toContain("No products were imported");
+  const [url, init] = fetcher.mock.calls.find(([url]) =>
+    String(url).endsWith("connector-preview"),
+  )!;
+  expect(url).toBe(
+    `/api/v1/partner/accounts/${account.id}/connections/${existing.provider}/connector-preview`,
+  );
+  expect(init?.headers).toMatchObject({ "x-csrf-token": "csrf" });
+  expect(JSON.parse(String(init?.body))).toMatchObject({
+    expected_revision: existing.revision,
+    connector: { base_url: "https://catalog.example", max_pages: 100 },
+  });
+  expect(JSON.parse(String(init?.body))).not.toHaveProperty("credential");
+  expect(save).not.toHaveBeenCalled();
+  fireEvent.change(screen.getByRole("textbox", { name: "Product name paths" }), {
+    target: { value: "title" },
+  });
+  expect(screen.queryByRole("status", { name: "Import test result" })).toBeNull();
+});
+
+it("sends replacement credentials only to preview and clears them when the API origin changes", async () => {
+  const existing = connection({
+    credential_configured: true,
+    auth_mode: "bearer",
+    connector: {
+      base_url: "https://catalog.example",
+      auth: { mode: "bearer", source: "connection" },
+    },
+  });
+  const fetcher = vi
+    .fn<typeof fetch>()
+    .mockResolvedValue(
+      Response.json({ products: [], errors: [], has_next_page: false, discovered: 0 }),
+    );
+  vi.stubGlobal("fetch", fetcher);
+  const save = form(existing);
+  fireEvent.click(screen.getByRole("checkbox", { name: "Replace credential" }));
+  fireEvent.change(screen.getByLabelText(/^Bearer token/), {
+    target: { value: "test-only-replacement" },
+  });
+  fireEvent.click(screen.getByRole("button", { name: "Test import connection" }));
+  await screen.findByRole("status", { name: "Import test result" });
+  expect(JSON.parse(String(fetcher.mock.calls[0][1]?.body)).credential).toBe(
+    "test-only-replacement",
+  );
+  expect(save).not.toHaveBeenCalled();
+  fireEvent.change(screen.getByRole("textbox", { name: "API base URL" }), {
+    target: { value: "https://different.example" },
+  });
+  expect((screen.getByLabelText(/^Bearer token/) as HTMLInputElement).value).toBe("");
+  expect(screen.queryByRole("status", { name: "Import test result" })).toBeNull();
+  expect(
+    (screen.getByRole("button", { name: "Test import connection" }) as HTMLButtonElement).disabled,
+  ).toBe(true);
+  fireEvent.change(screen.getByRole("textbox", { name: "API base URL" }), {
+    target: { value: "https://catalog.example" },
+  });
+  expect((screen.getByLabelText(/^Bearer token/) as HTMLInputElement).value).toBe("");
+  expect(
+    screen.getByRole("checkbox", { name: "Replace credential" }).getAttribute("aria-checked"),
+  ).toBe("true");
+});
+
+it("keeps preview rate failures actionable and does not publish a successful import test", async () => {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn<typeof fetch>().mockResolvedValue(new Response(null, { status: 429 })),
+  );
+  const save = form(connection());
+  fireEvent.click(screen.getByRole("button", { name: "Test import connection" }));
+  expect((await screen.findByRole("alert")).textContent).toContain("Wait a minute");
+  expect(screen.queryByRole("status", { name: "Import test result" })).toBeNull();
+  expect(save).not.toHaveBeenCalled();
 });

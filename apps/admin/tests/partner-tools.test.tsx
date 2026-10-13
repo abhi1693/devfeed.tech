@@ -1050,7 +1050,9 @@ it("previews raw API fields independently of mapping changes", async () => {
   );
   const id = screen.getByRole("textbox", { name: "Product ID paths" });
   expect(id.className).toContain("border-violet-600");
-  expect(screen.queryByText("Product list: found in sample")).toBeNull();
+  expect(
+    screen.getByLabelText("Product list found in sample").getAttribute("data-mapping-status"),
+  ).toBe("matched");
   expect(json.querySelector('[data-mappings="fields.external_id"]')?.className).toContain(
     "border-violet-600",
   );

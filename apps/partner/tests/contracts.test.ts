@@ -149,6 +149,8 @@ it("generates deterministically twice without changing files outside generated o
       expect(generated).not.toHaveProperty("models-only.ts");
       expect(generated["models/accountOut.ts"]).toContain("export interface AccountOut");
       expect(generated["validators.ts"]).toContain("PartnerAccountPreferencesUpdateResponse");
+      expect(generated["validators.ts"]).toContain("PartnerConnectionPreviewResponse");
+      expect(generated["validators.ts"]).toContain("PartnerConnectorResponseResponse");
       if (pass === 0) {
         first = generated;
         expect(generated).toEqual(

@@ -123,6 +123,22 @@ def test_connection_token_is_only_passed_as_an_origin_header(token_connection, m
     assert len(requests) == 1
 
 
+def test_numeric_credential_echo_is_redacted_before_product_identity_mapping(
+    token_connection, monkeypatch
+):
+    _, config = token_connection
+    monkeypatch.setattr(
+        "devfeed_core.partner_connectors._fetch",
+        lambda *args, **kwargs: SimpleNamespace(
+            body=b'{"items": [{"id": 123456789, "count": 3}], "nextCursor": null}'
+        ),
+    )
+    response = api_json(
+        "account-import", config, "https://catalog.example/products", credential="123456789"
+    )
+    assert response == {"items": [{"id": "[redacted]", "count": 3}], "nextCursor": None}
+
+
 def test_partner_contract_does_not_allow_server_secret_reference():
     with pytest.raises(ValidationError):
         PartnerConnectionCreate.model_validate(

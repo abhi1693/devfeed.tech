@@ -9,6 +9,7 @@ export function createConnectionFixture({ account, origin }) {
   const credentials = new Map();
   const runs = new Map();
   const writes = [];
+  const previews = [];
   let sequence = 0;
 
   function json(response, value, status = 200) {
@@ -26,6 +27,61 @@ export function createConnectionFixture({ account, origin }) {
     return JSON.parse(raw);
   }
   async function handle(request, response, url, memberAccounts) {
+    const preview =
+      /^\/v1\/partner\/accounts\/([^/]+)\/connections(?:\/([^/]+))?\/(connector-response|connector-preview)$/.exec(
+        url.pathname,
+      );
+    if (preview) {
+      const [, accountId, provider, kind] = preview;
+      const record = provider ? records.get(provider) : undefined;
+      if (
+        request.method !== "POST" ||
+        !memberAccounts.some((item) => item.id === accountId) ||
+        (provider && (!record || record.account_id !== accountId || archived.has(provider)))
+      ) {
+        json(response, {}, 404);
+        return true;
+      }
+      const input = await body(request);
+      assert.equal(input.connector.auth?.source, "connection");
+      assert.equal(input.connector.auth?.secret_ref, "");
+      if (record && input.expected_revision !== record.revision) {
+        json(response, { detail: "Connection changed" }, 409);
+        return true;
+      }
+      previews.push({ accountId, provider, kind, input: structuredClone(input) });
+      const product = {
+        id: "browser-preview-product",
+        name: "Preview developer tool",
+        display_name: "Alternative developer tool title",
+        url: "https://preview-tool.example",
+        listing_url: "https://catalog.example/products/browser-preview-product",
+        description: "A developer product shown only in the import preview.",
+        pricing: "free",
+      };
+      json(
+        response,
+        kind === "connector-response"
+          ? { data: { items: [product], nextCursor: null }, sampled: true }
+          : {
+              discovered: 1,
+              has_next_page: false,
+              errors: [],
+              products: [
+                {
+                  external_id: product.id,
+                  provider: provider ?? "connector-preview",
+                  name: product.name,
+                  product_url: product.url,
+                  listing_url: product.listing_url,
+                  description: product.description,
+                  pricing: product.pricing,
+                },
+              ],
+            },
+      );
+      return true;
+    }
     const scoped =
       /^\/v1\/partner\/accounts\/([^/]+)\/connections(?:\/([^/]+))?(?:\/(actions|jobs))?$/.exec(
         url.pathname,
@@ -201,7 +257,7 @@ export function createConnectionFixture({ account, origin }) {
       record.last_sync_at = "2026-10-13T02:01:00Z";
     }
   }
-  return { handle, writes, completeRuns };
+  return { handle, writes, previews, completeRuns };
 }
 
 async function noOverflowOrDialog(page) {
@@ -246,6 +302,73 @@ async function assertSelectClosedAndFocused(page, trigger) {
   assert.equal(await trigger.getAttribute("aria-expanded"), "false");
 }
 
+async function assertConnectorPreview(page, fixture, { exerciseMappings = true } = {}) {
+  const json = page.getByRole("textbox", { name: "API response JSON", exact: true });
+  await json.waitFor();
+  const found = page.getByLabel("Product name found in sample", { exact: true });
+  await found.waitFor();
+  assert.equal(await found.locator("svg.lucide-check").count(), 1);
+  const name = page.getByRole("textbox", { name: "Product name paths", exact: true });
+  const original = await name.inputValue();
+  const nameLine = json.locator('[data-mappings="fields.name"]');
+  assert.match(await name.getAttribute("class"), /border-emerald-600/);
+  assert.match(await nameLine.getAttribute("class"), /border-emerald-600/);
+  assert.match(await nameLine.innerText(), /"name": "Preview developer tool"/);
+  const writes = fixture.writes.length;
+  if (exerciseMappings) {
+    const requests = fixture.previews.filter((item) => item.kind === "connector-response").length;
+    await name.fill("display_name");
+    await page.waitForFunction(() => {
+      const line = document.querySelector('[data-mappings="fields.name"]');
+      return line?.textContent.includes('"display_name"');
+    });
+    await name.fill("missing.name");
+    await page.getByLabel("Product name not found in this sample", { exact: true }).waitFor();
+    assert.equal(await json.locator('[data-mappings="fields.name"]').count(), 0);
+    assert.notEqual(await name.getAttribute("aria-invalid"), "true");
+    assert.equal(
+      await page
+        .getByRole("form", { name: "Import connection settings" })
+        .getByRole("alert")
+        .count(),
+      0,
+    );
+    assert.equal(
+      await page
+        .getByRole("complementary", { name: "API response preview" })
+        .getByRole("alert")
+        .count(),
+      0,
+    );
+    await name.fill(original);
+    await found.waitFor();
+    // A mapping-only edit must stay local even after the automatic request debounce.
+    await page.waitForTimeout(850);
+    assert.equal(
+      fixture.previews.filter((item) => item.kind === "connector-response").length,
+      requests,
+      "Mapping changes recolor the existing sample without fetching the product API again",
+    );
+  }
+  const test = page.getByRole("button", { name: "Test import connection", exact: true });
+  await test.click();
+  const result = page.getByRole("status", { name: "Import test result", exact: true });
+  await result.waitFor();
+  assert.match(await result.innerText(), /1 product found/);
+  assert.match(await result.innerText(), /Preview developer tool/);
+  assert.match(await result.innerText(), /No products were imported and no settings were saved/);
+  assert.equal(fixture.writes.length, writes, "Testing the draft does not persist a connection");
+  if (exerciseMappings) {
+    await name.fill("display_name");
+    assert.equal(await result.count(), 0, "Mapping changes clear the previous parsed import test");
+    await name.fill(original);
+    await test.click();
+    await result.waitFor();
+  }
+  assert.equal(fixture.writes.length, writes);
+  return { json, result };
+}
+
 export async function assertConnectionJourneys({ page, origin, account, fixture, artifactDir }) {
   const base = `${origin}/connections`;
   const firstCredential = "browser-fixture-only-token-one";
@@ -288,23 +411,19 @@ export async function assertConnectionJourneys({ page, origin, account, fixture,
 
   const pagination = page.getByRole("combobox", { name: "Pagination mode", exact: true });
   const parameter = page.getByRole("textbox", { name: "Pagination parameter", exact: true });
-  const nextPath = page.getByRole("textbox", { name: "Next cursor or URL path", exact: true });
+  const nextPath = page.getByRole("textbox", { name: "Next token path", exact: true });
   const pageSize = page.getByRole("spinbutton", { name: "Page size", exact: true });
-  assert.equal(await pagination.innerText(), "Single response");
+  assert.equal(await pagination.innerText(), "None");
   assert.equal(await parameter.count(), 0);
   assert.equal(await nextPath.count(), 0);
-  assert.equal(await pageSize.count(), 0);
+  assert.equal(await pageSize.count(), 1);
   await pagination.focus();
   await page.keyboard.press("Enter");
   await assertConnectionSelect(page, "Pagination mode");
   await page.keyboard.press("ArrowDown");
   await page.keyboard.press("Escape");
   await assertSelectClosedAndFocused(page, pagination);
-  assert.equal(
-    await pagination.innerText(),
-    "Single response",
-    "Escape preserves the saved choice",
-  );
+  assert.equal(await pagination.innerText(), "None", "Escape preserves the saved choice");
   await page.keyboard.press("Enter");
   await page.keyboard.press("c");
   await page.keyboard.press("Enter");
@@ -321,13 +440,13 @@ export async function assertConnectionJourneys({ page, origin, account, fixture,
     ["Next-page URL", false, true],
     ["Page number", true, false],
     ["Offset", true, false],
-    ["Single response", false, false],
+    ["None", false, false],
   ]) {
     await pagination.click();
     await page.getByRole("option", { name: mode, exact: true }).click();
     assert.equal(await parameter.count(), Number(hasParameter), `${mode} pagination parameter`);
     assert.equal(await nextPath.count(), Number(hasNextPath), `${mode} next-result path`);
-    assert.equal(await pageSize.count(), mode === "Single response" ? 0 : 1);
+    assert.equal(await pageSize.count(), 1);
   }
   await pagination.click();
   await page.getByRole("option", { name: "Cursor", exact: true }).click();
@@ -360,6 +479,7 @@ export async function assertConnectionJourneys({ page, origin, account, fixture,
   await noOverflowOrDialog(page);
   await page.setViewportSize({ width: 1440, height: 1000 });
   await noOverflowOrDialog(page);
+  await assertConnectorPreview(page, fixture);
   await page.screenshot({
     path: join(artifactDir, "partner-connection-create-desktop.png"),
     fullPage: true,
@@ -396,6 +516,37 @@ export async function assertConnectionJourneys({ page, origin, account, fixture,
   await page.getByRole("link", { name: "Edit", exact: true }).click();
   await page.getByRole("textbox", { name: /Connection name/ }).fill("Renamed product catalog");
   assert.equal(await page.locator('input[type="password"]').count(), 0);
+  const { json: editJson } = await assertConnectorPreview(page, fixture, {
+    exerciseMappings: false,
+  });
+  await page.evaluate(() => window.scrollTo(0, 0));
+  await page.waitForFunction(() => window.scrollY === 0);
+  const form = page.getByRole("form", { name: "Import connection settings", exact: true });
+  const previewPanel = page.getByRole("complementary", {
+    name: "API response preview",
+    exact: true,
+  });
+  const formBox = await form.boundingBox();
+  const previewBox = await previewPanel.boundingBox();
+  assert.ok(previewBox.x >= formBox.x + formBox.width, "Desktop preview sits beside the editor");
+  assert.ok(Math.abs(previewBox.y - formBox.y) < 2, "Desktop editor and preview align at the top");
+  assert.equal(
+    Object.hasOwn(fixture.previews.filter((item) => item.provider).at(-1).input, "credential"),
+    false,
+    "A stored write-only credential is reused without returning it to the portal",
+  );
+  await page.screenshot({
+    path: join(artifactDir, "partner-connection-edit-preview-desktop.png"),
+    fullPage: true,
+  });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await noOverflowOrDialog(page);
+  await editJson.scrollIntoViewIfNeeded();
+  await page.screenshot({
+    path: join(artifactDir, "partner-connection-edit-preview-mobile.png"),
+    fullPage: true,
+  });
+  await page.setViewportSize({ width: 1440, height: 1000 });
   await page.getByRole("button", { name: "Save changes", exact: true }).click();
   await page.waitForURL(detail);
   await page.getByRole("heading", { name: "Renamed product catalog", exact: true }).waitFor();
@@ -418,6 +569,19 @@ export async function assertConnectionJourneys({ page, origin, account, fixture,
   await page.keyboard.press("Space");
   assert.equal(await replaceCredential.isChecked(), true);
   assert.equal(await page.getByLabel(/^Bearer token/).inputValue(), "");
+  await page.getByLabel(/^Bearer token/).fill(replacementCredential);
+  const apiBase = page.getByRole("textbox", { name: "API base URL", exact: true });
+  const responseJson = page.getByRole("textbox", { name: "API response JSON", exact: true });
+  await responseJson.waitFor();
+  await apiBase.fill("https://other-catalog.example");
+  assert.equal(await page.getByLabel(/^Bearer token/).inputValue(), "");
+  assert.equal(
+    await responseJson.count(),
+    0,
+    "An origin change clears the previous response sample",
+  );
+  await page.getByText(/Enter a credential for this API and authentication method/).waitFor();
+  await apiBase.fill("https://catalog.example");
   await page.getByLabel(/^Bearer token/).fill(replacementCredential);
   await page.getByRole("button", { name: "Save changes", exact: true }).click();
   await page.waitForURL(detail);

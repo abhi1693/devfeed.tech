@@ -687,6 +687,19 @@ try {
   await page.setViewportSize({ width: 390, height: 844 });
   assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1));
   await page.getByLabel("API response JSON", { exact: true }).waitFor();
+  await page.getByText("Filters and query parameters", { exact: true }).click();
+  await page.getByRole("button", { name: "Add filter", exact: true }).click();
+  const includeMissing = page.getByRole("checkbox", {
+    name: "Filter 1: include missing values",
+    exact: true,
+  });
+  const checkboxBox = await includeMissing.boundingBox();
+  assert.equal(checkboxBox.width, 18, "Shared filter checkbox retains its styled size");
+  assert.equal(checkboxBox.height, 18);
+  await includeMissing.check();
+  assert.equal(await includeMissing.isChecked(), true);
+  await page.getByRole("button", { name: "Remove filter 1", exact: true }).click();
+  await page.getByText("Filters and query parameters", { exact: true }).click();
   assert.ok(
     (await page.getByLabel("API response JSON", { exact: true }).textContent()).includes("slug"),
   );

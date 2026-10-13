@@ -743,3 +743,48 @@ it("rejects oversized connection mutation bodies before forwarding credentials",
   expect(response.status).toBe(413);
   expect(fetcher).not.toHaveBeenCalled();
 });
+
+it.each([
+  ["connector-response"],
+  ["connector-preview"],
+  ["catalog-connection", "connector-response"],
+  ["catalog-connection", "connector-preview"],
+])("proxies only account-scoped preview POST requests: %j", async (...suffix) => {
+  vi.stubEnv("DEVFEED_PARTNER_BASE_URL", "https://partner.example");
+  const fetcher = vi
+    .fn()
+    .mockImplementation(async () => Response.json({ data: {}, sampled: false }));
+  vi.stubGlobal("fetch", fetcher);
+  const path = [
+    "v1",
+    "partner",
+    "accounts",
+    "11111111-1111-4111-8111-111111111111",
+    "connections",
+    ...suffix,
+  ];
+  const request = (method = "POST", origin = "https://partner.example") =>
+    new Request("https://partner.example/api", {
+      method,
+      headers: { origin, "x-csrf-token": "preview-csrf", "content-type": "application/json" },
+      ...(!["GET", "HEAD"].includes(method)
+        ? { body: JSON.stringify({ connector: { base_url: "https://catalog.example" } }) }
+        : {}),
+    });
+  expect((await gateway(request(), path)).status).toBe(200);
+  expect(fetcher.mock.calls[0][0]).toBe(`http://partner-api:8004/${path.join("/")}`);
+  expect(fetcher.mock.calls[0][1].headers.get("x-csrf-token")).toBe("preview-csrf");
+  fetcher.mockClear();
+  expect((await gateway(request("POST", "https://foreign.example"), path)).status).toBe(403);
+  for (const method of ["GET", "PUT", "DELETE", "PATCH"]) {
+    expect((await gateway(request(method), path)).status).toBe(405);
+  }
+  for (const invalid of [
+    [...path, "extra"],
+    ["v1", "partner", "connections", ...suffix],
+    ["v1", "partner", "accounts", "not-a-uuid", "connections", ...suffix],
+  ]) {
+    expect([404, 405]).toContain((await gateway(request(), invalid)).status);
+  }
+  expect(fetcher).not.toHaveBeenCalled();
+});

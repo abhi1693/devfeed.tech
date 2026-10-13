@@ -2,6 +2,7 @@
 
 import hashlib
 import logging
+import time
 import uuid
 from datetime import datetime
 from typing import Literal
@@ -17,16 +18,26 @@ from devfeed_core.models import (
 from devfeed_core.partner_catalog import lock_catalog
 from devfeed_core.partner_connections import (
     ConnectionOut,
+    ConnectorPreviewOut,
+    ConnectorResponseOut,
     configure_connection,
     connection_views,
+    read_partner_page,
+    read_partner_product,
     update_connection_definition,
 )
-from devfeed_core.partner_connectors import ConnectorConfig, connector_snapshot
+from devfeed_core.partner_connectors import (
+    ConnectorConfig,
+    api_json,
+    connector_snapshot,
+    response_preview,
+)
 from devfeed_core.partner_credentials import (
     CredentialUnavailable,
     connection_credential,
     credential_storage_available,
     encrypt_credential,
+    validate_credential,
 )
 from devfeed_core.partner_tools import ShortText
 from devfeed_core.rate_limits import RateLimitBudget, consume_rate_limits
@@ -102,6 +113,17 @@ class PartnerConnectionAction(InputModel):
 
 
 class PartnerConnectionDelete(InputModel):
+    expected_revision: int = Field(ge=1, strict=True)
+
+
+class PartnerConnectorPreview(InputModel):
+    connector: PartnerConnectorConfig
+    credential: SecretStr | None = Field(default=None, json_schema_extra={"writeOnly": True})
+
+    _connector = field_validator("connector")(validate_partner_connector)
+
+
+class PartnerConnectionPreview(PartnerConnectorPreview):
     expected_revision: int = Field(ge=1, strict=True)
 
 
@@ -238,6 +260,153 @@ def log_change(event, connection, partner):
             "connection_revision": connection.revision,
         },
     )
+
+
+def preview_context(session, partner, account_id, body, *, provider=None):
+    """Authorize a read-only draft without holding database locks during API calls."""
+    account_access(session, partner, account_id)
+    caller = hashlib.sha256(f"{partner.issuer}\0{partner.subject}".encode()).hexdigest()
+    try:
+        retry = consume_rate_limits(
+            get_redis(),
+            [
+                RateLimitBudget(key=f"partner-import-preview-caller:{caller}", limit=6, window=60),
+                RateLimitBudget(
+                    key=f"partner-import-preview-account:{account_id}", limit=12, window=60
+                ),
+            ],
+        )
+    except RedisError:
+        raise HTTPException(503, "Import previews are temporarily unavailable") from None
+    if retry:
+        raise HTTPException(
+            429, "Too many import previews; try again shortly", headers={"Retry-After": str(retry)}
+        )
+    connection = None
+    if provider is not None:
+        connection = connection_access(session, account_id, provider)
+        check_revision(connection, body.expected_revision)
+        current = ConnectorConfig.model_validate(connector_snapshot(connection))
+        if current.auth.mode != "none" and current.auth.source == "environment":
+            raise HTTPException(
+                403, "This connection's authentication is managed by an administrator"
+            )
+    config = body.connector
+    credential = None
+    if config.auth.mode == "none":
+        if body.credential is not None:
+            raise HTTPException(422, "Select authentication before providing a credential")
+    else:
+        try:
+            if body.credential is not None:
+                credential = validate_credential(body.credential.get_secret_value())
+            elif connection is not None:
+                credential = connection_credential(connection, config)
+            else:
+                raise CredentialUnavailable("Provide an import API credential")
+        except CredentialUnavailable as exc:
+            raise safe_credential_error(exc) from None
+    # One list page and at most three details fit within the gateway deadline.
+    # These preview-only bounds do not alter the saved import configuration.
+    config = config.model_copy(update={"timeout_seconds": min(config.timeout_seconds, 5)})
+    session.rollback()
+    return provider or f"partner-preview-{account_id.hex}", config, credential
+
+
+def preview_products(provider, config, credential):
+    deadline = time.monotonic() + 20
+
+    def fetch(url):
+        return api_json(provider, config, url, credential=credential, deadline=deadline)
+
+    try:
+        candidates, cursor = read_partner_page(
+            provider, config=config.model_dump(mode="json"), fetch=fetch
+        )
+    except Exception as exc:
+        logger.info("partner_import_preview_failed", extra={"error_type": type(exc).__name__})
+        raise HTTPException(
+            422, "Could not read the product page. Check endpoints, response paths and credentials."
+        ) from None
+    products, errors = [], []
+    for candidate in candidates[:3]:
+        try:
+            products.append(
+                read_partner_product(
+                    provider, candidate, config.model_dump(mode="json"), fetch=fetch
+                )
+            )
+        except Exception:
+            errors.append(
+                "A product could not be mapped. Check field paths, detail endpoint and URLs."
+            )
+    return ConnectorPreviewOut(
+        products=products, errors=errors, has_next_page=bool(cursor), discovered=len(candidates)
+    )
+
+
+def preview_response(provider, config, credential):
+    try:
+        return response_preview(
+            provider, config, credential=credential, deadline=time.monotonic() + 20
+        )
+    except Exception as exc:
+        logger.info("partner_import_response_failed", extra={"error_type": type(exc).__name__})
+        raise HTTPException(
+            422, "Could not read the API response. Check the endpoint and authentication."
+        ) from None
+
+
+@router.post(
+    "/connector-preview",
+    response_model=ConnectorPreviewOut,
+    operation_id="partnerConnectorPreview",
+)
+def draft_connector_preview(
+    account_id: uuid.UUID, body: PartnerConnectorPreview, session: DB, partner: Partner
+):
+    return preview_products(*preview_context(session, partner, account_id, body))
+
+
+@router.post(
+    "/connector-response",
+    response_model=ConnectorResponseOut,
+    operation_id="partnerConnectorResponse",
+)
+def draft_connector_response(
+    account_id: uuid.UUID, body: PartnerConnectorPreview, session: DB, partner: Partner
+):
+    return preview_response(*preview_context(session, partner, account_id, body))
+
+
+@router.post(
+    "/{provider}/connector-preview",
+    response_model=ConnectorPreviewOut,
+    operation_id="partnerConnectionPreview",
+)
+def existing_connector_preview(
+    account_id: uuid.UUID,
+    provider: str,
+    body: PartnerConnectionPreview,
+    session: DB,
+    partner: Partner,
+):
+    return preview_products(*preview_context(session, partner, account_id, body, provider=provider))
+
+
+@router.post(
+    "/{provider}/connector-response",
+    response_model=ConnectorResponseOut,
+    operation_id="partnerConnectionResponse",
+)
+def existing_connector_response(
+    account_id: uuid.UUID,
+    provider: str,
+    body: PartnerConnectionPreview,
+    session: DB,
+    partner: Partner,
+):
+    return preview_response(*preview_context(session, partner, account_id, body, provider=provider))
 
 
 @router.get("", response_model=PartnerConnectionsOut, operation_id="partnerConnectionsList")

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { responseMappings } from "@/lib/partner-response-mappings";
+import { responseMappings } from "@devfeed/ui/connector-response-mappings";
 import { connectorDefaults } from "@/lib/partner-connectors";
 
 describe("responseMappings", () => {

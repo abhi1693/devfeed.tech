@@ -1,17 +1,62 @@
 "use client";
 
-import { useState, type ComponentProps } from "react";
-import { Input } from "@devfeed/ui/input";
-import { Button } from "@devfeed/ui/button";
-import { Field } from "@/components/molecules/field";
-import { Select } from "@/components/molecules/select";
-import type { ResponseMapping } from "@/lib/partner-response-mappings";
-import { connectorDefaults } from "@/lib/partner-connectors";
+import { useId, useState, type ComponentProps, type ReactNode } from "react";
+import { Check, CircleHelp } from "lucide-react";
+import { Input } from "./input";
+import { Button } from "./button";
+import { Checkbox } from "./choice-controls";
+import { InfoTip } from "./info-tip";
+import { Select } from "./select";
+import type { ResponseMapping } from "./connector-response-mappings";
 import type {
-  ConnectorConfig,
+  ConnectorDefinition,
+  ConnectorFieldProps,
+  ConnectorFieldRenderer,
   ConnectorPaginationMode,
   ConnectorAuthMode,
-} from "@/lib/api/generated/models";
+} from "./connector-definition";
+
+export type { ConnectorDefinition, ConnectorFieldProps } from "./connector-definition";
+
+function ConnectorField({
+  label,
+  required = false,
+  disabled = false,
+  tooltip,
+  error,
+  children,
+}: ConnectorFieldProps) {
+  const id = useId();
+  const describedBy = [tooltip && `${id}-help`, error && `${id}-error`].filter(Boolean).join(" ");
+  return (
+    <div className="min-w-0 space-y-2" data-invalid={!!error} data-disabled={disabled}>
+      <div className="flex items-center gap-1.5">
+        <label htmlFor={id} className="text-sm font-medium">
+          {label}
+          {required && <span aria-hidden="true"> *</span>}
+        </label>
+        {tooltip && <InfoTip label={`About ${label}`}>{tooltip}</InfoTip>}
+      </div>
+      {tooltip && (
+        <span id={`${id}-help`} className="sr-only">
+          {tooltip}
+        </span>
+      )}
+      {children({
+        id,
+        required,
+        disabled,
+        "aria-invalid": !!error,
+        "aria-describedby": describedBy || undefined,
+      })}
+      {error && (
+        <p id={`${id}-error`} className="text-sm text-destructive">
+          {error}
+        </p>
+      )}
+    </div>
+  );
+}
 
 const paths = (value: string) =>
   value
@@ -65,18 +110,31 @@ const fieldPaths: Record<string, string> = {
   "API key header": "auth.header",
 };
 
-export function PartnerConnectorFields({
+export function ConnectorFields<C extends ConnectorDefinition>({
   value,
   onChange,
+  defaults,
   disabled,
   errors = {},
   mappings = [],
+  authentication,
+  suggestPaginationParameters = false,
+  limits = {},
+  Field = ConnectorField,
 }: {
   mappings?: ResponseMapping[];
   errors?: Record<string, string>;
-  value: ConnectorConfig;
-  onChange: (value: ConnectorConfig) => void;
+  value: C;
+  onChange: (value: C) => void;
+  defaults: ConnectorDefinition;
   disabled: boolean;
+  /** Replace admin environment-secret controls with application-specific authentication. */
+  authentication?: ReactNode;
+  suggestPaginationParameters?: boolean;
+  limits?: Partial<
+    Record<"requests_per_minute" | "timeout_seconds" | "max_pages" | "max_response_bytes", number>
+  >;
+  Field?: ConnectorFieldRenderer;
 }) {
   function fieldError(path: string) {
     return (
@@ -86,7 +144,6 @@ export function PartnerConnectorFields({
         .join(" ") || undefined
     );
   }
-  const defaults = connectorDefaults();
   const fields = { ...defaults.fields!, ...value.fields };
   const pagination = { ...defaults.pagination!, ...value.pagination };
   const auth = { ...defaults.auth!, ...value.auth };
@@ -116,19 +173,35 @@ export function PartnerConnectorFields({
         )}
       >
         {(control) => (
-          <ConnectorTextInput
-            {...control}
-            className={matched ? mapping?.style : undefined}
-            title={
-              mapping
-                ? matched
-                  ? `${mapping.label}: found in sample`
-                  : "Not found in this sample"
-                : undefined
-            }
-            value={current}
-            onChange={change}
-          />
+          <>
+            <ConnectorTextInput
+              {...control}
+              className={matched ? mapping?.style : undefined}
+              title={
+                mapping
+                  ? matched
+                    ? `${mapping.label}: found in sample`
+                    : "Not found in this sample"
+                  : undefined
+              }
+              value={current}
+              onChange={change}
+            />
+            {mapping && (
+              <p
+                data-mapping-status={matched ? "matched" : "unmatched"}
+                aria-label={`${mapping.label} ${matched ? "found in sample" : "not found in this sample"}`}
+                className={`flex items-center gap-1.5 text-xs ${matched ? mapping.style : "text-muted-foreground"}`}
+              >
+                {matched ? (
+                  <Check aria-hidden="true" className="size-3.5 shrink-0" />
+                ) : (
+                  <CircleHelp aria-hidden="true" className="size-3.5 shrink-0" />
+                )}
+                {mapping.label}: {matched ? "found in sample" : "not found in this sample"}
+              </p>
+            )}
+          </>
         )}
       </Field>
     );
@@ -146,7 +219,7 @@ export function PartnerConnectorFields({
             {...control}
             type="number"
             min={min}
-            max={max}
+            max={limits[key] ?? max}
             step={1}
             value={value[key] ?? defaults[key]}
             onChange={(event) => onChange({ ...value, [key]: Number(event.target.value) })}
@@ -157,9 +230,9 @@ export function PartnerConnectorFields({
   }
   return (
     <div
-      className={`space-y-6 border-t pt-6 ${errors.connector ? "rounded-lg border border-destructive p-4" : ""}`}
+      className={`space-y-[var(--connector-section-gap,1.5rem)] border-t pt-[var(--connector-section-gap,1.5rem)] ${errors.connector ? "rounded-lg border border-destructive p-4" : ""}`}
     >
-      <div className="grid gap-6 sm:grid-cols-2">
+      <div className="grid gap-[var(--connector-field-gap,1.5rem)] sm:grid-cols-2">
         {text(
           "API base URL",
           value.base_url,
@@ -201,9 +274,9 @@ export function PartnerConnectorFields({
           "Optional public URL containing {id}, used when the record has no listing URL.",
         )}
       </div>
-      <details open className="space-y-6">
+      <details open className="space-y-[var(--connector-section-gap,1.5rem)]">
         <summary className="cursor-pointer text-sm font-medium">Product fields</summary>
-        <div className="grid gap-6 sm:grid-cols-2">
+        <div className="grid gap-[var(--connector-field-gap,1.5rem)] sm:grid-cols-2">
           {(
             [
               ["external_id", "Product ID paths"],
@@ -232,9 +305,9 @@ export function PartnerConnectorFields({
           )}
         </div>
       </details>
-      <details open className="space-y-6">
+      <details open className="space-y-[var(--connector-section-gap,1.5rem)]">
         <summary className="cursor-pointer text-sm font-medium">Pagination</summary>
-        <div className="grid gap-6 sm:grid-cols-2">
+        <div className="grid gap-[var(--connector-field-gap,1.5rem)] sm:grid-cols-2">
           <Field
             label="Pagination mode"
             required
@@ -252,6 +325,19 @@ export function PartnerConnectorFields({
                     pagination: {
                       ...pagination,
                       mode: mode as ConnectorPaginationMode,
+                      ...(suggestPaginationParameters
+                        ? {
+                            parameter:
+                              mode === "none" || mode === "next_url"
+                                ? null
+                                : (pagination.parameter ??
+                                  (mode === "cursor"
+                                    ? "cursor"
+                                    : mode === "page"
+                                      ? "page"
+                                      : "offset")),
+                          }
+                        : {}),
                     },
                   })
                 }
@@ -353,60 +439,72 @@ export function PartnerConnectorFields({
           )}
         </div>
       </details>
-      <details className="space-y-6">
+      <details
+        open={authentication !== undefined}
+        className="space-y-[var(--connector-section-gap,1.5rem)]"
+      >
         <summary className="cursor-pointer text-sm font-medium">Authentication and limits</summary>
-        <div className="grid gap-6 sm:grid-cols-2">
-          <Field
-            label="Authentication"
-            required
-            disabled={disabled}
-            error={fieldError("auth.mode") ?? errors["connector.auth"]}
-          >
-            {(control) => (
-              <Select
-                {...control}
+        <div className="grid gap-[var(--connector-field-gap,1.5rem)] sm:grid-cols-2">
+          {authentication === undefined ? (
+            <>
+              <Field
                 label="Authentication"
                 required
-                value={auth.mode ?? "none"}
-                onChange={(mode) =>
-                  onChange({ ...value, auth: { ...auth, mode: mode as ConnectorAuthMode } })
-                }
-                options={[
-                  { value: "none", label: "None" },
-                  { value: "bearer", label: "Bearer token" },
-                  { value: "api_key", label: "API key header" },
-                ]}
-              />
-            )}
-          </Field>
-          {(auth.mode !== "none" || fieldError("auth.secret_ref")) &&
-            text(
-              "Secret reference",
-              auth.secret_ref ?? "",
-              (secret_ref) => onChange({ ...value, auth: { ...auth, secret_ref } }),
-              "Environment variable on admin-api and worker, e.g. DEVFEED_PARTNER_SECRET_SHIPYARD. Enter the variable name, never the token.",
-              true,
-            )}
-          {(auth.mode === "api_key" || fieldError("auth.header")) &&
-            text(
-              "API key header",
-              auth.header ?? "",
-              (header) => onChange({ ...value, auth: { ...auth, header } }),
-              undefined,
-              true,
-            )}
+                disabled={disabled}
+                error={fieldError("auth.mode") ?? errors["connector.auth"]}
+              >
+                {(control) => (
+                  <Select
+                    {...control}
+                    label="Authentication"
+                    required
+                    value={auth.mode ?? "none"}
+                    onChange={(mode) =>
+                      onChange({ ...value, auth: { ...auth, mode: mode as ConnectorAuthMode } })
+                    }
+                    options={[
+                      { value: "none", label: "None" },
+                      { value: "bearer", label: "Bearer token" },
+                      { value: "api_key", label: "API key header" },
+                    ]}
+                  />
+                )}
+              </Field>
+              {(auth.mode !== "none" || fieldError("auth.secret_ref")) &&
+                text(
+                  "Secret reference",
+                  auth.secret_ref ?? "",
+                  (secret_ref) => onChange({ ...value, auth: { ...auth, secret_ref } }),
+                  "Environment variable on admin-api and worker, e.g. DEVFEED_PARTNER_SECRET_SHIPYARD. Enter the variable name, never the token.",
+                  true,
+                )}
+              {(auth.mode === "api_key" || fieldError("auth.header")) &&
+                text(
+                  "API key header",
+                  auth.header ?? "",
+                  (header) => onChange({ ...value, auth: { ...auth, header } }),
+                  undefined,
+                  true,
+                )}
+            </>
+          ) : (
+            authentication
+          )}
           {number("Requests per minute", "requests_per_minute", 1, 600)}
           {number("Timeout (seconds)", "timeout_seconds", 1, 30)}
           {number("Maximum pages", "max_pages", 1, 1000)}
           {number("Maximum response (bytes)", "max_response_bytes", 1024, 5000000)}
         </div>
       </details>
-      <details className="space-y-6">
+      <details className="space-y-[var(--connector-section-gap,1.5rem)]">
         <summary className="cursor-pointer text-sm font-medium">
           Filters and query parameters
         </summary>
         {(value.filters ?? []).map((filter, index) => (
-          <div key={index} className="grid items-end gap-6 sm:grid-cols-2">
+          <div
+            key={index}
+            className="grid items-end gap-[var(--connector-field-gap,1.5rem)] sm:grid-cols-2"
+          >
             {text(`Filter ${index + 1} path`, filter.path, (path) =>
               onChange({
                 ...value,
@@ -427,16 +525,14 @@ export function PartnerConnectorFields({
               error={fieldError(`filters.${index}.include_missing`)}
             >
               {(control) => (
-                <input
+                <Checkbox
                   {...control}
-                  type="checkbox"
-                  className="size-4 accent-primary"
                   checked={filter.include_missing ?? true}
-                  onChange={(event) =>
+                  onCheckedChange={(checked) =>
                     onChange({
                       ...value,
                       filters: value.filters!.map((item, i) =>
-                        i === index ? { ...item, include_missing: event.target.checked } : item,
+                        i === index ? { ...item, include_missing: checked === true } : item,
                       ),
                     })
                   }
@@ -470,7 +566,10 @@ export function PartnerConnectorFields({
           Add filter
         </Button>
         {Object.entries(value.parameters ?? {}).map(([key, parameter], index) => (
-          <div key={index} className="grid items-end gap-6 sm:grid-cols-2">
+          <div
+            key={index}
+            className="grid items-end gap-[var(--connector-field-gap,1.5rem)] sm:grid-cols-2"
+          >
             {text(`Parameter ${index + 1} name`, key, (next) =>
               onChange({
                 ...value,

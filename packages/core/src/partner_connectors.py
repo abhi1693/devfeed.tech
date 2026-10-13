@@ -247,7 +247,7 @@ def same_origin(config, value):
     return value
 
 
-def api_json(provider, config, url, *, credential=None):
+def api_json(provider, config, url, *, credential=None, deadline=None):
     url = same_origin(config, url)
     headers = {}
     secret = None
@@ -287,6 +287,7 @@ def api_json(provider, config, url, *, credential=None):
         accept="application/json",
         max_bytes=config.max_response_bytes,
         timeout=config.timeout_seconds,
+        deadline=deadline,
         origin_headers=headers,
         before_request=before_request,
     )
@@ -329,7 +330,7 @@ def api_json(provider, config, url, *, credential=None):
                 without_credential(key): without_credential(item, depth + 1)
                 for key, item in value.items()
             }
-        return value
+        return "[redacted]" if secret and str(value) == secret else value
 
     return without_credential(data)
 
@@ -496,7 +497,7 @@ def mapped_product(provider, config, candidate, *, fetch=None, credential=None):
     )
 
 
-def response_preview(provider, config):
+def response_preview(provider, config, *, credential=None, deadline=None):
     """Read one first page without depending on response paths or product mappings."""
     config = ConnectorConfig.model_validate(config)
     pagination = config.pagination
@@ -510,8 +511,14 @@ def response_preview(provider, config):
     url = urlunsplit(
         parts._replace(query=urlencode([*parse_qsl(parts.query), *parameters.items()]))
     )
-    data = api_json(provider, config, url)
-    secret = os.environ.get(config.auth.secret_ref) if config.auth.mode != "none" else None
+    data = api_json(provider, config, url, credential=credential, deadline=deadline)
+    secret = None
+    if config.auth.mode != "none":
+        secret = (
+            credential
+            if config.auth.source == "connection"
+            else os.environ.get(config.auth.secret_ref)
+        )
     sampled, remaining = False, 500
 
     def sample(value, depth=0):

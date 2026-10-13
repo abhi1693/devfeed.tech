@@ -175,6 +175,25 @@ def complete(state, flow=None, extra=None):
     )
 
 
+@pytest.mark.parametrize(
+    "suffix",
+    [
+        "connector-preview",
+        "connector-response",
+        "saved-connection/connector-preview",
+        "saved-connection/connector-response",
+    ],
+)
+def test_import_previews_require_session_and_csrf_before_database_access(oidc_app, suffix):
+    state = oidc_app
+    url = f"/v1/partner/accounts/00000000-0000-0000-0000-000000000001/connections/{suffix}"
+    body = {"connector": {"base_url": "https://catalog.example"}, "expected_revision": 1}
+    assert state.client.post(url, json=body).status_code == 401
+    assert complete(state).status_code == 302
+    for headers in ({}, {"Origin": ORIGIN}, {"Origin": "https://attacker.example"}):
+        assert state.client.post(url, json=body, headers=headers).status_code == 403
+
+
 @pytest.mark.parametrize("role", ["partner"])
 def test_partner_login_requests_partner_role_and_isolates_sessions(oidc_app, role):
     state = oidc_app

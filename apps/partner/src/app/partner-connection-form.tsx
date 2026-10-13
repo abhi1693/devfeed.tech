@@ -1,19 +1,28 @@
 "use client";
 
-import { useState, type FormEvent, type ReactNode } from "react";
+import { useMemo, useState, type FormEvent, type ReactNode } from "react";
 import Link from "next/link";
 import { ResourcePanel } from "@devfeed/ui/resource-layout";
 import { Input } from "@devfeed/ui/input";
 import { Button } from "@devfeed/ui/button";
 import { Select } from "@devfeed/ui/select";
 import { Checkbox } from "@devfeed/ui/choice-controls";
+import { ConnectorFields } from "@devfeed/ui/connector-fields";
+import { responseMappings } from "@devfeed/ui/connector-response-mappings";
+import { usePartnerRequest, isPartnerRequestCancelled } from "@/lib/partner-request";
 import { PartnerAccountPicker } from "./partner-account-picker";
+import { PartnerApiResponse } from "./partner-api-response";
 import type { Account } from "@/lib/types";
 import type {
   ConnectorConfig,
+  ConnectorPreviewOut,
   PartnerConnectorConfig,
   PartnerConnectionOut,
 } from "@/lib/api/generated/models";
+import {
+  PartnerConnectorPreviewResponse,
+  PartnerConnectionPreviewResponse,
+} from "@/lib/api/generated/validators";
 
 export type ConnectionFormInput = {
   account_id?: string;
@@ -22,6 +31,13 @@ export type ConnectionFormInput = {
   sync_interval_minutes?: number;
   connector?: PartnerConnectorConfig;
   credential?: string;
+};
+
+const limits = {
+  max_pages: 100,
+  requests_per_minute: 60,
+  timeout_seconds: 15,
+  max_response_bytes: 2000000,
 };
 
 function defaultConnector(): ConnectorConfig {
@@ -37,8 +53,16 @@ function defaultConnector(): ConnectorConfig {
       description: ["description"],
       pricing: ["pricing"],
     },
-    pagination: { mode: "none", parameter: null, size_parameter: null },
-    auth: { mode: "none" },
+    pagination: {
+      mode: "none",
+      parameter: null,
+      size_parameter: null,
+      page_size: 10,
+      start: 1,
+      next_path: "nextCursor",
+    },
+    auth: { mode: "none", source: "connection", secret_ref: "", header: "X-API-Key" },
+    ...limits,
   };
 }
 
@@ -52,18 +76,10 @@ function Field({ label, hint, children }: { label: string; hint?: string; childr
   );
 }
 
-const mappingFields = [
-  ["external_id", "Product ID paths"],
-  ["name", "Product name paths"],
-  ["product_url", "Product website paths"],
-  ["listing_url", "Listing URL paths"],
-  ["description", "Description paths"],
-  ["pricing", "Pricing paths"],
-] as const;
-
 export function PartnerConnectionForm({
   connection,
   credentialsAvailable,
+  csrfToken,
   cancelHref,
   saving,
   error,
@@ -72,6 +88,7 @@ export function PartnerConnectionForm({
 }: {
   connection?: PartnerConnectionOut;
   credentialsAvailable: boolean;
+  csrfToken: string;
   cancelHref: string;
   saving: boolean;
   error: string;
@@ -84,18 +101,13 @@ export function PartnerConnectionForm({
   const [interval, setInterval] = useState(String(connection?.sync_interval_minutes ?? 360));
   const [connector, setConnectorState] = useState(connection?.connector ?? defaultConnector());
   const [connectorDirty, setConnectorDirty] = useState(false);
-  function setConnector(value: ConnectorConfig) {
-    setConnectorState(value);
-    setConnectorDirty(true);
-  }
-  const [mapping, setMapping] = useState(
-    Object.fromEntries(
-      mappingFields.map(([key]) => [key, (connector.fields?.[key] ?? [key]).join(", ")]),
-    ),
-  );
-  const [itemsPaths, setItemsPaths] = useState((connector.items_paths ?? ["items"]).join(", "));
   const [credential, setCredential] = useState("");
   const [replaceCredential, setReplaceCredential] = useState(false);
+  const [responseData, setResponseData] = useState<unknown>();
+  const [preview, setPreview] = useState<ConnectorPreviewOut>();
+  const [previewError, setPreviewError] = useState("");
+  const [testing, setTesting] = useState(false);
+  const [validation, setValidation] = useState("");
   const editable = !connection || connection.connector_editable;
   const auth = connector.auth?.mode ?? "none";
   const configured = connection?.credential_configured ?? false;
@@ -107,12 +119,104 @@ export function PartnerConnectionForm({
       (connection?.connector?.auth?.header ?? "X-API-Key");
   const needsCredential =
     editable && auth !== "none" && (!configured || replaceCredential || authenticationChanged);
+  const credentialReady =
+    auth === "none" || (credentialsAvailable && (!needsCredential || Boolean(credential.trim())));
   const intervalChanged = !connection || interval !== String(connection.sync_interval_minutes);
-  const [validation, setValidation] = useState("");
+  const busy = saving || testing;
+  const accountId = connection?.account_id ?? account?.id;
+  const request = usePartnerRequest({ accountId, onUnavailable });
+  const definition = useMemo<PartnerConnectorConfig>(
+    () => ({
+      ...connector,
+      max_pages: Math.min(connector.max_pages ?? limits.max_pages, limits.max_pages),
+      requests_per_minute: Math.min(
+        connector.requests_per_minute ?? limits.requests_per_minute,
+        limits.requests_per_minute,
+      ),
+      timeout_seconds: Math.min(
+        connector.timeout_seconds ?? limits.timeout_seconds,
+        limits.timeout_seconds,
+      ),
+      max_response_bytes: Math.min(
+        connector.max_response_bytes ?? limits.max_response_bytes,
+        limits.max_response_bytes,
+      ),
+      base_url: connector.base_url.trim(),
+      list_path: connector.list_path ?? "/products",
+      pagination: { ...defaultConnector().pagination, ...connector.pagination },
+      fields: { ...defaultConnector().fields, ...connector.fields },
+      auth: {
+        mode: auth,
+        source: "connection",
+        secret_ref: "",
+        header: connector.auth?.header ?? "X-API-Key",
+      },
+    }),
+    [connector, auth],
+  );
+  const mappings =
+    responseData === undefined
+      ? []
+      : responseMappings(definition, responseData, defaultConnector());
+
+  function clearTest() {
+    setPreview(undefined);
+    setPreviewError("");
+  }
+  function setConnector(value: ConnectorConfig) {
+    if (
+      value.base_url.trim() !== connector.base_url.trim() ||
+      (value.auth?.mode ?? "none") !== auth ||
+      (value.auth?.header ?? "X-API-Key") !== (connector.auth?.header ?? "X-API-Key")
+    ) {
+      setCredential("");
+    }
+    setConnectorState(value);
+    setConnectorDirty(true);
+    clearTest();
+  }
+
+  async function test() {
+    if (!accountId || busy || !credentialReady) return;
+    setTesting(true);
+    clearTest();
+    try {
+      const result = await request(
+        `connections/${connection ? `${encodeURIComponent(connection.provider)}/` : ""}connector-preview`,
+        {
+          method: "POST",
+          headers: { "content-type": "application/json", "x-csrf-token": csrfToken },
+          body: JSON.stringify({
+            connector: definition,
+            ...(connection ? { expected_revision: connection.revision } : {}),
+            ...(needsCredential ? { credential } : {}),
+          }),
+          parse: (value) =>
+            connection
+              ? PartnerConnectionPreviewResponse.parse(value)
+              : PartnerConnectorPreviewResponse.parse(value),
+          errorMessage:
+            "Could not test this import connection. Check the API and authentication settings.",
+          statusMessages: {
+            409: "This connection changed. Refresh the page before testing again.",
+            429: "Too many preview requests. Wait a minute and try again.",
+          },
+        },
+      );
+      setPreview(result);
+    } catch (reason) {
+      if (!isPartnerRequestCancelled(reason))
+        setPreviewError(
+          reason instanceof Error ? reason.message : "Could not test this import connection.",
+        );
+    } finally {
+      setTesting(false);
+    }
+  }
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (saving) return;
+    if (busy) return;
     if (!connection && !account) {
       setValidation("Choose the partner account that owns this connection.");
       return;
@@ -133,426 +237,278 @@ export function PartnerConnectionForm({
       return;
     }
     setValidation("");
-    const paths = (value: string) =>
-      value
-        .split(",")
-        .map((part) => part.trim())
-        .filter(Boolean);
     await onSave({
       name: name.trim(),
       ...(!connection ? { account_id: account!.id } : {}),
       enabled,
       ...(intervalChanged ? { sync_interval_minutes: minutes } : {}),
-      ...(editable && (!connection || connectorDirty)
-        ? {
-            connector: {
-              ...connector,
-              max_pages: Math.min(connector.max_pages ?? 100, 100),
-              requests_per_minute: Math.min(connector.requests_per_minute ?? 60, 60),
-              timeout_seconds: Math.min(connector.timeout_seconds ?? 15, 15),
-              max_response_bytes: Math.min(connector.max_response_bytes ?? 2000000, 2000000),
-              base_url: connector.base_url.trim(),
-              items_paths: itemsPaths.trim() ? paths(itemsPaths) : [""],
-              fields: Object.fromEntries(
-                mappingFields.map(([key]) => [key, paths(mapping[key] ?? "")]),
-              ),
-              auth: {
-                mode: auth,
-                source: "connection",
-                secret_ref: "",
-                header: connector.auth?.header ?? "X-API-Key",
-              },
-            },
-          }
-        : {}),
+      ...(editable && (!connection || connectorDirty) ? { connector: definition } : {}),
       ...(needsCredential ? { credential } : {}),
     });
   }
 
-  return (
-    <form onSubmit={(event) => void submit(event)} className="space-y-4">
-      {(error || validation) && (
-        <p role="alert" className="notice">
-          {validation || error}
+  const authentication = (
+    <div className="space-y-3">
+      <Field label="Authentication method">
+        <Select
+          label="Authentication method"
+          value={auth}
+          required
+          disabled={busy}
+          options={[
+            { value: "none", label: "No authentication" },
+            {
+              value: "bearer",
+              label: "Bearer token",
+              disabled: !credentialsAvailable && auth !== "bearer",
+            },
+            {
+              value: "api_key",
+              label: "API key",
+              disabled: !credentialsAvailable && auth !== "api_key",
+            },
+          ]}
+          onChange={(value) => {
+            if (value !== "none" && value !== "bearer" && value !== "api_key") return;
+            setConnector({ ...connector, auth: { ...connector.auth, mode: value } });
+            setCredential("");
+            setReplaceCredential(false);
+          }}
+        />
+      </Field>
+      {auth === "api_key" && (
+        <Field label="API key header">
+          <Input
+            value={connector.auth?.header ?? "X-API-Key"}
+            onChange={(event) =>
+              setConnector({
+                ...connector,
+                auth: { ...connector.auth, mode: auth, header: event.target.value },
+              })
+            }
+            required
+            maxLength={100}
+          />
+        </Field>
+      )}
+      {!credentialsAvailable && (
+        <p className="text-sm text-muted-foreground">
+          Authenticated imports are not configured on this DevFeed server. Public APIs remain
+          available.
         </p>
       )}
-      <fieldset disabled={saving} className="min-w-0 space-y-4">
-        <div className={connection ? "min-w-0" : "grid items-start gap-4 lg:grid-cols-2"}>
-          {!connection && (
-            <ResourcePanel title="Partner account">
-              <div className="max-w-xl">
+      {configured && auth !== "none" && (
+        <>
+          <p className="text-sm text-muted-foreground">
+            A credential is configured. Leaving it unchanged keeps the existing credential. Changing
+            the API origin or authentication requires a replacement.
+          </p>
+          <label className="flex items-center gap-2 text-sm">
+            <Checkbox
+              checked={replaceCredential}
+              disabled={busy || !credentialsAvailable}
+              onCheckedChange={(checked) => {
+                setReplaceCredential(checked === true);
+                setCredential("");
+                clearTest();
+              }}
+            />
+            Replace credential
+          </label>
+        </>
+      )}
+      {configured && initialAuth !== "none" && auth === "none" && (
+        <p role="status" className="text-sm text-muted-foreground">
+          Saving without authentication removes the stored credential.
+        </p>
+      )}
+      {needsCredential && (
+        <Field
+          label={auth === "bearer" ? "Bearer token" : "API key"}
+          hint="Stored encrypted. DevFeed never returns this value to the portal."
+        >
+          <Input
+            type="password"
+            value={credential}
+            onChange={(event) => {
+              setCredential(event.target.value);
+              clearTest();
+            }}
+            autoComplete="new-password"
+            required
+            maxLength={8192}
+          />
+        </Field>
+      )}
+    </div>
+  );
+
+  return (
+    <div
+      className={
+        editable ? "grid items-start gap-4 xl:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)]" : "min-w-0"
+      }
+    >
+      <form
+        aria-label="Import connection settings"
+        aria-busy={busy}
+        onSubmit={(event) => void submit(event)}
+        className="min-w-0 space-y-4 rounded-lg border bg-card p-4"
+      >
+        {(error || validation) && (
+          <p role="alert" className="notice">
+            {validation || error}
+          </p>
+        )}
+        <fieldset disabled={busy} className="min-w-0 space-y-4">
+          <div className="grid items-start gap-4 sm:grid-cols-2">
+            {!connection && (
+              <div className="min-w-0 sm:col-span-2">
                 <PartnerAccountPicker
                   account={account}
-                  onChange={setAccount}
+                  onChange={(next) => {
+                    setAccount(next);
+                    clearTest();
+                  }}
                   required
-                  disabled={saving}
+                  disabled={busy}
                   onUnavailable={onUnavailable}
                 />
+                <p className="mt-2 text-xs text-muted-foreground">
+                  Imported products and reporting belong to this account. The account cannot be
+                  changed after creation.
+                </p>
               </div>
-              <p className="mt-3 text-sm text-muted-foreground">
-                Imported products and reporting belong to this account. The account cannot be
-                changed after creation.
-              </p>
-            </ResourcePanel>
-          )}
-          <ResourcePanel title="Connection settings">
-            <div className="grid gap-4 sm:grid-cols-2">
-              <Field label="Connection name">
-                <Input
-                  value={name}
-                  onChange={(event) => setName(event.target.value)}
-                  maxLength={200}
-                  required
-                  autoComplete="off"
-                />
-              </Field>
-              <Field
-                label="Sync interval (minutes)"
-                hint="How often DevFeed checks for product updates."
-              >
-                <Input
-                  type="number"
-                  value={interval}
-                  onChange={(event) => setInterval(event.target.value)}
-                  min={intervalChanged ? 15 : 1}
-                  max={10080}
-                  step={1}
-                  required
-                />
-              </Field>
-            </div>
-            <label className="mt-4 flex items-center gap-2 text-sm">
+            )}
+            <Field label="Connection name">
+              <Input
+                value={name}
+                onChange={(event) => setName(event.target.value)}
+                maxLength={200}
+                required
+                autoComplete="off"
+              />
+            </Field>
+            <Field
+              label="Sync interval (minutes)"
+              hint="How often DevFeed checks for product updates."
+            >
+              <Input
+                type="number"
+                value={interval}
+                onChange={(event) => setInterval(event.target.value)}
+                min={intervalChanged ? 15 : 1}
+                max={10080}
+                step={1}
+                required
+              />
+            </Field>
+            <label className="flex items-center gap-2 text-sm sm:col-span-2">
               <Checkbox
                 checked={enabled}
                 onCheckedChange={(checked) => setEnabled(checked === true)}
-                disabled={saving}
+                disabled={busy}
               />
               Enable scheduled imports
             </label>
-          </ResourcePanel>
-        </div>
-        {editable ? (
-          <div className="grid items-start gap-4 lg:grid-cols-2">
-            <ResourcePanel title="Product API">
-              <p className="mb-3 text-sm text-muted-foreground">
-                Self-service imports use up to 100 pages per sync, 60 requests per minute and a
-                15-second response deadline.
-              </p>
-              <div className="grid gap-4 sm:grid-cols-2">
-                <Field
-                  label="API base URL"
-                  hint="Public HTTPS origin, for example https://api.example.com."
-                >
-                  <Input
-                    type="url"
-                    value={connector.base_url}
-                    onChange={(event) =>
-                      setConnector({ ...connector, base_url: event.target.value })
-                    }
-                    placeholder="https://api.example.com"
-                    required
-                  />
-                </Field>
-                <Field
-                  label="Products endpoint"
-                  hint="Path on this origin, for example /v1/products."
-                >
-                  <Input
-                    value={connector.list_path ?? "/products"}
-                    onChange={(event) =>
-                      setConnector({ ...connector, list_path: event.target.value })
-                    }
-                    maxLength={500}
-                    required
-                  />
-                </Field>
-                <Field
-                  label="Product list paths"
-                  hint="Comma-separated JSON paths. Leave blank for a top-level array."
-                >
-                  <Input
-                    value={itemsPaths}
-                    onChange={(event) => {
-                      setItemsPaths(event.target.value);
-                      setConnectorDirty(true);
-                    }}
-                    placeholder="items, data.products"
-                  />
-                </Field>
-                <Field
-                  label="Product detail endpoint"
-                  hint="Optional path containing {id}, when the list omits full details."
-                >
-                  <Input
-                    value={connector.detail_path ?? ""}
-                    onChange={(event) =>
-                      setConnector({ ...connector, detail_path: event.target.value || null })
-                    }
-                    maxLength={500}
-                    placeholder="/products/{id}"
-                  />
-                </Field>
-              </div>
-            </ResourcePanel>
-            <ResourcePanel title="Product field mapping">
-              <p className="mb-3 text-sm text-muted-foreground">
-                Map each product fact to JSON paths. Separate alternatives with commas; the first
-                populated field is used.
-              </p>
-              <div className="grid gap-4 sm:grid-cols-2">
-                {mappingFields.map(([key, label]) => (
-                  <Field key={key} label={label}>
-                    <Input
-                      value={mapping[key] ?? ""}
-                      onChange={(event) => {
-                        setMapping({ ...mapping, [key]: event.target.value });
-                        setConnectorDirty(true);
-                      }}
-                      required
-                    />
-                  </Field>
-                ))}
-              </div>
-            </ResourcePanel>
-            <ResourcePanel title="Authentication">
-              <div className="grid gap-4 sm:grid-cols-2">
-                <Field label="Authentication method">
-                  <Select
-                    label="Authentication method"
-                    value={auth}
-                    required
-                    disabled={saving}
-                    options={[
-                      { value: "none", label: "No authentication" },
-                      {
-                        value: "bearer",
-                        label: "Bearer token",
-                        disabled: !credentialsAvailable && auth !== "bearer",
-                      },
-                      {
-                        value: "api_key",
-                        label: "API key",
-                        disabled: !credentialsAvailable && auth !== "api_key",
-                      },
-                    ]}
-                    onChange={(value) => {
-                      if (value !== "none" && value !== "bearer" && value !== "api_key") return;
-                      setConnector({
-                        ...connector,
-                        auth: {
-                          ...connector.auth,
-                          mode: value,
-                        },
-                      });
-                      setCredential("");
-                      setReplaceCredential(false);
-                    }}
-                  />
-                </Field>
-                {auth === "api_key" && (
-                  <Field label="API key header">
-                    <Input
-                      value={connector.auth?.header ?? "X-API-Key"}
-                      onChange={(event) =>
-                        setConnector({
-                          ...connector,
-                          auth: { ...connector.auth, mode: auth, header: event.target.value },
-                        })
-                      }
-                      required
-                      maxLength={100}
-                    />
-                  </Field>
-                )}
-              </div>
-              {!credentialsAvailable && (
-                <p className="mt-3 text-sm text-muted-foreground">
-                  Authenticated imports are not configured on this DevFeed server. Public APIs
-                  remain available.
-                </p>
-              )}
-              {configured && auth !== "none" && (
-                <div className="mt-4 space-y-3">
-                  <p className="text-sm text-muted-foreground">
-                    A credential is configured. Leaving it unchanged keeps the existing credential.
-                    Changing the API origin or authentication requires a replacement.
-                  </p>
-                  <label className="flex items-center gap-2 text-sm">
-                    <Checkbox
-                      checked={replaceCredential}
-                      onCheckedChange={(checked) => {
-                        setReplaceCredential(checked === true);
-                        setCredential("");
-                      }}
-                      disabled={saving || !credentialsAvailable}
-                    />
-                    Replace credential
-                  </label>
-                </div>
-              )}
-              {configured && initialAuth !== "none" && auth === "none" && (
-                <p role="status" className="mt-4 text-sm text-muted-foreground">
-                  Saving without authentication removes the stored credential.
-                </p>
-              )}
-              {needsCredential && (
-                <div className="mt-4 max-w-xl">
-                  <Field
-                    label={auth === "bearer" ? "Bearer token" : "API key"}
-                    hint="Stored encrypted. DevFeed never returns this value to the portal."
-                  >
-                    <Input
-                      type="password"
-                      value={credential}
-                      onChange={(event) => setCredential(event.target.value)}
-                      autoComplete="new-password"
-                      required
-                      maxLength={8192}
-                    />
-                  </Field>
-                </div>
-              )}
-            </ResourcePanel>
-            <ResourcePanel title="Pagination">
-              <div className="grid gap-4 sm:grid-cols-2">
-                <Field label="Pagination mode">
-                  <Select
-                    label="Pagination mode"
-                    value={connector.pagination?.mode ?? "none"}
-                    required
-                    disabled={saving}
-                    options={[
-                      { value: "none", label: "Single response" },
-                      { value: "cursor", label: "Cursor" },
-                      { value: "page", label: "Page number" },
-                      { value: "offset", label: "Offset" },
-                      { value: "next_url", label: "Next-page URL" },
-                    ]}
-                    onChange={(mode) => {
-                      if (
-                        mode !== "none" &&
-                        mode !== "cursor" &&
-                        mode !== "page" &&
-                        mode !== "offset" &&
-                        mode !== "next_url"
-                      )
-                        return;
-                      setConnector({
-                        ...connector,
-                        pagination: {
-                          ...connector.pagination,
-                          mode,
-                          parameter:
-                            mode === "none" || mode === "next_url"
-                              ? null
-                              : (connector.pagination?.parameter ??
-                                (mode === "cursor"
-                                  ? "cursor"
-                                  : mode === "page"
-                                    ? "page"
-                                    : "offset")),
-                        },
-                      });
-                    }}
-                  />
-                </Field>
-                {connector.pagination?.mode && connector.pagination.mode !== "none" && (
-                  <>
-                    {connector.pagination.mode !== "next_url" && (
-                      <Field label="Pagination parameter">
-                        <Input
-                          value={connector.pagination.parameter ?? ""}
-                          onChange={(event) =>
-                            setConnector({
-                              ...connector,
-                              pagination: {
-                                ...connector.pagination,
-                                parameter: event.target.value,
-                              },
-                            })
-                          }
-                          required
-                        />
-                      </Field>
-                    )}
-                    {(connector.pagination.mode === "cursor" ||
-                      connector.pagination.mode === "next_url") && (
-                      <Field label="Next cursor or URL path">
-                        <Input
-                          value={connector.pagination.next_path ?? "nextCursor"}
-                          onChange={(event) =>
-                            setConnector({
-                              ...connector,
-                              pagination: {
-                                ...connector.pagination,
-                                next_path: event.target.value,
-                              },
-                            })
-                          }
-                          required
-                        />
-                      </Field>
-                    )}
-                    <Field
-                      label="Page size parameter"
-                      hint="Optional query parameter, for example limit."
-                    >
-                      <Input
-                        value={connector.pagination.size_parameter ?? ""}
-                        onChange={(event) =>
-                          setConnector({
-                            ...connector,
-                            pagination: {
-                              ...connector.pagination,
-                              size_parameter: event.target.value || null,
-                            },
-                          })
-                        }
-                      />
-                    </Field>
-                    <Field label="Page size">
-                      <Input
-                        type="number"
-                        value={connector.pagination.page_size ?? 10}
-                        onChange={(event) =>
-                          setConnector({
-                            ...connector,
-                            pagination: {
-                              ...connector.pagination,
-                              page_size: Number(event.target.value),
-                            },
-                          })
-                        }
-                        required
-                        min={1}
-                        max={100}
-                        step={1}
-                      />
-                    </Field>
-                  </>
-                )}
-              </div>
-            </ResourcePanel>
           </div>
-        ) : (
-          <ResourcePanel title="Managed integration">
-            <p className="text-sm text-muted-foreground">
-              The API configuration and credentials for this integration are managed by DevFeed. You
-              can change its name and schedule, pause imports, or sync it now.
-            </p>
-          </ResourcePanel>
+          {editable ? (
+            <ConnectorFields
+              suggestPaginationParameters
+              value={definition}
+              defaults={defaultConnector()}
+              onChange={setConnector}
+              disabled={busy}
+              mappings={mappings}
+              authentication={authentication}
+              limits={limits}
+            />
+          ) : (
+            <ResourcePanel title="Managed integration">
+              <p className="text-sm text-muted-foreground">
+                The API configuration and credentials for this integration are managed by DevFeed.
+                You can change its name and schedule, pause imports, or sync it now.
+              </p>
+            </ResourcePanel>
+          )}
+        </fieldset>
+        {previewError && (
+          <p role="alert" className="text-sm text-destructive">
+            {previewError}
+          </p>
         )}
-      </fieldset>
-      <div className="flex flex-wrap gap-3 border-t pt-4">
-        <Button type="submit" loading={saving}>
-          {connection ? "Save changes" : "Create connection"}
-        </Button>
-        <Button variant="outline" asChild disabled={saving}>
-          <Link href={cancelHref} prefetch={false}>
-            Cancel
-          </Link>
-        </Button>
-      </div>
-    </form>
+        {preview && (
+          <section
+            role="status"
+            aria-label="Import test result"
+            className="space-y-3 rounded-lg border p-4 text-sm"
+          >
+            <p className="font-medium">
+              {preview.discovered} {preview.discovered === 1 ? "product" : "products"} found
+              {preview.has_next_page ? "; another page is available" : ""}.
+            </p>
+            <p className="text-xs text-muted-foreground">
+              Preview only. No products were imported and no settings were saved.
+            </p>
+            {preview.products.map((product) => (
+              <div key={product.external_id} className="space-y-1 border-t pt-3">
+                <p className="font-medium">{product.name}</p>
+                <p className="break-all text-muted-foreground">{product.product_url}</p>
+                <p>{product.description}</p>
+              </div>
+            ))}
+            {preview.errors.map((message, index) => (
+              <p key={index} className="text-destructive">
+                {message}
+              </p>
+            ))}
+            {!preview.products.length && !preview.errors.length && (
+              <p>No products matched the filters.</p>
+            )}
+          </section>
+        )}
+        <div className="flex flex-wrap justify-end gap-2 border-t pt-4">
+          {editable && (
+            <Button
+              variant="outline"
+              loading={testing}
+              loadingText="Testing…"
+              disabled={
+                busy ||
+                !accountId ||
+                !credentialReady ||
+                !definition.base_url ||
+                !definition.list_path?.startsWith("/")
+              }
+              onClick={() => void test()}
+            >
+              Test import connection
+            </Button>
+          )}
+          <Button variant="outline" asChild disabled={busy}>
+            <Link href={cancelHref} prefetch={false}>
+              Cancel
+            </Link>
+          </Button>
+          <Button type="submit" loading={saving} disabled={testing}>
+            {connection ? "Save changes" : "Create connection"}
+          </Button>
+        </div>
+      </form>
+      {editable && (
+        <PartnerApiResponse
+          accountId={accountId}
+          connection={connection}
+          connector={definition}
+          credential={needsCredential ? credential : undefined}
+          credentialReady={credentialReady}
+          csrfToken={csrfToken}
+          onUnavailable={onUnavailable}
+          mappings={mappings}
+          onResponse={setResponseData}
+          disabled={busy}
+        />
+      )}
+    </div>
   );
 }

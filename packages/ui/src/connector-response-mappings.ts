@@ -1,5 +1,4 @@
-import { connectorDefaults } from "@/lib/partner-connectors";
-import type { ConnectorConfig } from "@/lib/api/generated/models";
+import type { ConnectorDefinition } from "./connector-definition";
 
 const styles = [
   "border-cyan-600 bg-cyan-500/10 text-cyan-800 dark:text-cyan-200",
@@ -20,7 +19,11 @@ export type ResponseMapping = {
   addresses: string[];
 };
 // Use segment arrays rather than joined paths: JSON keys may themselves contain dots.
-export function responseMappings(config: ConnectorConfig, data: unknown): ResponseMapping[] {
+export function responseMappings(
+  config: ConnectorDefinition,
+  data: unknown,
+  defaults?: ConnectorDefinition,
+): ResponseMapping[] {
   const at = (root: unknown, path: string): unknown => {
     let value = root;
     for (const segment of path ? path.split(".") : []) {
@@ -32,9 +35,8 @@ export function responseMappings(config: ConnectorConfig, data: unknown): Respon
     return value;
   };
   const valid = (value: unknown) => value !== undefined && value !== null && value !== "";
-  const defaults = connectorDefaults();
-  const fields = { ...defaults.fields, ...config.fields };
-  const listPath = (config.items_paths ?? defaults.items_paths ?? ["items"]).find((path) =>
+  const fields = { ...defaults?.fields, ...config.fields };
+  const listPath = (config.items_paths ?? defaults?.items_paths ?? [""]).find((path) =>
     valid(at(data, path)),
   );
   const list = listPath === undefined ? undefined : at(data, listPath);

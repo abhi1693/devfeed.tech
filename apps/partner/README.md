@@ -75,6 +75,14 @@ from `@devfeed/ui` by both applications. Obsolete account-prefixed frontend rout
 Import authentication and pagination use the shared keyboard-accessible dropdowns; scheduled
 imports and credential replacement use the shared checkboxes. Unavailable authentication choices
 remain visible and disabled when credential storage is not configured.
+The connection editor shares the admin configuration fields and shows a live API response beside
+the form. Colored checks link each mapped field to its JSON path; paths absent from a sample are
+identified without being treated as invalid. Mapping edits reuse the current sample. Request and
+authentication changes clear stale samples, and changing the API origin clears a draft credential.
+“Test import connection” previews up to three mapped products without saving settings, enrolling
+products or queuing imports. Both previews use account-scoped, CSRF-protected endpoints with
+bounded upstream requests, rate limits and redacted responses. Existing stored credentials remain
+write-only and can only be reused for their bound API origin and authentication settings.
 Record IDs remain where they identify the product, connection or account being edited.
 
 Workspace reporting uses the full membership scope in SQL; account-list pagination never limits

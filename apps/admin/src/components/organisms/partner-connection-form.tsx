@@ -7,8 +7,8 @@ import { Field } from "@/components/molecules/field";
 import { Select } from "@/components/molecules/select";
 import { EntityPicker, type EntityPickerSource } from "@/components/molecules/entity-picker";
 import { PartnerApiResponse } from "./partner-api-response";
-import { PartnerConnectorFields } from "./partner-connector-fields";
-import { responseMappings } from "@/lib/partner-response-mappings";
+import { ConnectorFields } from "@devfeed/ui/connector-fields";
+import { responseMappings } from "@devfeed/ui/connector-response-mappings";
 import { connectorDefaults } from "@/lib/partner-connectors";
 import { ApiError } from "@/lib/api/client";
 import { ValidationErrors } from "@/components/molecules/validation-errors";
@@ -70,7 +70,10 @@ export function PartnerConnectionForm({
     connection?.connector ?? connectorDefaults(provider),
   );
   const [responseData, setResponseData] = useState<unknown>();
-  const mappings = responseData === undefined ? [] : responseMappings(connector, responseData);
+  const mappings =
+    responseData === undefined
+      ? []
+      : responseMappings(connector, responseData, connectorDefaults());
   const [testing, setTesting] = useState(false);
   const [preview, setPreview] = useState<ConnectorPreviewOut>();
   const identifier = provider === "__custom__" ? customId : provider;
@@ -287,8 +290,10 @@ export function PartnerConnectionForm({
             )}
           </Field>
         </div>
-        <PartnerConnectorFields
+        <ConnectorFields
           key={provider}
+          Field={Field}
+          defaults={connectorDefaults()}
           value={connector}
           errors={errors}
           mappings={mappings}
@@ -298,7 +303,7 @@ export function PartnerConnectionForm({
         {preview && (
           <div role="status" className="space-y-3 rounded-lg border p-4 text-sm">
             <p>
-              {preview.discovered} products found
+              {preview.discovered} {preview.discovered === 1 ? "product" : "products"} found
               {preview.has_next_page ? "; another page is available" : ""}.
             </p>
             {preview.products.map((product) => (

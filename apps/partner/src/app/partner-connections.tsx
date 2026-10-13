@@ -594,6 +594,7 @@ export function PartnerConnections({
         <PartnerConnectionForm
           key={`${connection?.provider ?? "new"}:${connection?.revision ?? 0}`}
           connection={connection}
+          csrfToken={csrfToken}
           credentialsAvailable={credentialsAvailable}
           cancelHref={detailPath}
           saving={busy}
