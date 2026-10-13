@@ -109,6 +109,22 @@ let rejectSourceFollow = true;
 const fixture = createServer(async (req, res) => {
   const requestUrl = new URL(req.url, "http://localhost");
   const path = requestUrl.pathname;
+  // Collection indexing fixtures: metadata and page content use the same feed.
+  const collection = requestUrl.searchParams.get("tag") || requestUrl.searchParams.get("topic");
+  if (/^\/v1\/(?:tags|topics)\/seo-/.test(path)) {
+    const slug = path.split("/").at(-1);
+    res.writeHead(slug === "seo-missing" ? 404 : 200, { "Content-Type": "application/json" });
+    res.end(JSON.stringify(slug === "seo-missing" ? { detail: "Not found" } : { ...topic, slug }));
+    return;
+  }
+  if (path === "/v1/feed" && collection?.startsWith("seo-")) {
+    assert.equal(requestUrl.searchParams.get("languages"), "en");
+    const empty =
+      collection === "seo-empty" || requestUrl.searchParams.get("content_type") === "tutorial";
+    res.writeHead(200, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({ items: empty ? [] : [article], next_cursor: null }));
+    return;
+  }
   if (mode === "default-all" && path === "/v1/feed") defaultAllRequests.push(requestUrl);
   const pendingFeed = articleFeedGate;
   if (pendingFeed && (await pendingFeed.wait(path)) && pendingFeed.fail) {
@@ -485,6 +501,27 @@ try {
     }
   }
   browser = await chromium.launch({ headless: true });
+  const seoPage = await browser.newPage();
+  for (const kind of ["tags", "topics"]) {
+    for (const [slug, suffix, empty] of [
+      ["seo-populated", "", false],
+      ["seo-empty", "", true],
+      ["seo-populated", "/tutorials", true],
+    ]) {
+      const response = await seoPage.goto(`${origin}/${kind}/${slug}${suffix}`);
+      assert.equal(response.status(), 200);
+      const robots = (await seoPage.locator('meta[name="robots"]').getAttribute("content")) || "";
+      assert.equal(robots.includes("noindex"), empty);
+      if (empty)
+        await seoPage.getByText("No articles match these filters", { exact: true }).waitFor();
+      else await seoPage.locator(`a[href="/articles/${article.slug}"]`).first().waitFor();
+    }
+    const missing = await fetch(`${origin}/${kind}/seo-missing`, {
+      headers: { "User-Agent": "Googlebot" },
+    });
+    assert.equal(missing.status, 404);
+  }
+  await seoPage.close();
   for (const path of ["/latest?sort=newest", "/api/v1/feed?sort=newest"]) {
     const redirect = await new Promise((resolve, reject) => {
       const request = httpRequest(
