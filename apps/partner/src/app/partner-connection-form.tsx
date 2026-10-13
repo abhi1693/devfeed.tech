@@ -42,7 +42,7 @@ function defaultConnector(): ConnectorConfig {
 
 function Field({ label, hint, children }: { label: string; hint?: string; children: ReactNode }) {
   return (
-    <label className="grid min-w-0 gap-2 text-sm font-medium">
+    <label className="grid min-w-0 gap-1.5 text-sm font-medium">
       {label}
       {children}
       {hint && <span className="text-xs font-normal text-muted-foreground">{hint}</span>}
@@ -168,73 +168,75 @@ export function PartnerConnectionForm({
   }
 
   return (
-    <form onSubmit={(event) => void submit(event)} className="space-y-6">
+    <form onSubmit={(event) => void submit(event)} className="space-y-4">
       {(error || validation) && (
         <p role="alert" className="notice">
           {validation || error}
         </p>
       )}
-      <fieldset disabled={saving} className="min-w-0 space-y-6">
-        {!connection && (
-          <ResourcePanel title="Partner account">
-            <div className="max-w-xl">
-              <PartnerAccountPicker
-                account={account}
-                onChange={setAccount}
-                required
-                disabled={saving}
-                onUnavailable={onUnavailable}
-              />
+      <fieldset disabled={saving} className="min-w-0 space-y-4">
+        <div className={connection ? "min-w-0" : "grid items-start gap-4 lg:grid-cols-2"}>
+          {!connection && (
+            <ResourcePanel title="Partner account">
+              <div className="max-w-xl">
+                <PartnerAccountPicker
+                  account={account}
+                  onChange={setAccount}
+                  required
+                  disabled={saving}
+                  onUnavailable={onUnavailable}
+                />
+              </div>
+              <p className="mt-3 text-sm text-muted-foreground">
+                Imported products and reporting belong to this account. The account cannot be
+                changed after creation.
+              </p>
+            </ResourcePanel>
+          )}
+          <ResourcePanel title="Connection settings">
+            <div className="grid gap-4 sm:grid-cols-2">
+              <Field label="Connection name">
+                <Input
+                  value={name}
+                  onChange={(event) => setName(event.target.value)}
+                  maxLength={200}
+                  required
+                  autoComplete="off"
+                />
+              </Field>
+              <Field
+                label="Sync interval (minutes)"
+                hint="How often DevFeed checks for product updates."
+              >
+                <Input
+                  type="number"
+                  value={interval}
+                  onChange={(event) => setInterval(event.target.value)}
+                  min={intervalChanged ? 15 : 1}
+                  max={10080}
+                  step={1}
+                  required
+                />
+              </Field>
             </div>
-            <p className="mt-3 text-sm text-muted-foreground">
-              Imported products and reporting belong to this account. The account cannot be changed
-              after creation.
-            </p>
+            <label className="mt-4 flex items-center gap-2 text-sm">
+              <input
+                type="checkbox"
+                checked={enabled}
+                onChange={(event) => setEnabled(event.target.checked)}
+              />
+              Enable scheduled imports
+            </label>
           </ResourcePanel>
-        )}
-        <ResourcePanel title="Connection settings">
-          <div className="grid gap-5 sm:grid-cols-2">
-            <Field label="Connection name">
-              <Input
-                value={name}
-                onChange={(event) => setName(event.target.value)}
-                maxLength={200}
-                required
-                autoComplete="off"
-              />
-            </Field>
-            <Field
-              label="Sync interval (minutes)"
-              hint="How often DevFeed checks for product updates."
-            >
-              <Input
-                type="number"
-                value={interval}
-                onChange={(event) => setInterval(event.target.value)}
-                min={intervalChanged ? 15 : 1}
-                max={10080}
-                step={1}
-                required
-              />
-            </Field>
-          </div>
-          <label className="mt-5 flex items-center gap-2 text-sm">
-            <input
-              type="checkbox"
-              checked={enabled}
-              onChange={(event) => setEnabled(event.target.checked)}
-            />
-            Enable scheduled imports
-          </label>
-        </ResourcePanel>
+        </div>
         {editable ? (
-          <>
+          <div className="grid items-start gap-4 lg:grid-cols-2">
             <ResourcePanel title="Product API">
-              <p className="mb-4 text-sm text-muted-foreground">
+              <p className="mb-3 text-sm text-muted-foreground">
                 Self-service imports use up to 100 pages per sync, 60 requests per minute and a
                 15-second response deadline.
               </p>
-              <div className="grid gap-5 sm:grid-cols-2">
+              <div className="grid gap-4 sm:grid-cols-2">
                 <Field
                   label="API base URL"
                   hint="Public HTTPS origin, for example https://api.example.com."
@@ -290,8 +292,28 @@ export function PartnerConnectionForm({
                 </Field>
               </div>
             </ResourcePanel>
+            <ResourcePanel title="Product field mapping">
+              <p className="mb-3 text-sm text-muted-foreground">
+                Map each product fact to JSON paths. Separate alternatives with commas; the first
+                populated field is used.
+              </p>
+              <div className="grid gap-4 sm:grid-cols-2">
+                {mappingFields.map(([key, label]) => (
+                  <Field key={key} label={label}>
+                    <Input
+                      value={mapping[key] ?? ""}
+                      onChange={(event) => {
+                        setMapping({ ...mapping, [key]: event.target.value });
+                        setConnectorDirty(true);
+                      }}
+                      required
+                    />
+                  </Field>
+                ))}
+              </div>
+            </ResourcePanel>
             <ResourcePanel title="Authentication">
-              <div className="grid gap-5 sm:grid-cols-2">
+              <div className="grid gap-4 sm:grid-cols-2">
                 <Field label="Authentication method">
                   <select
                     className="h-9 rounded-md border bg-background px-3 text-sm"
@@ -382,28 +404,8 @@ export function PartnerConnectionForm({
                 </div>
               )}
             </ResourcePanel>
-            <ResourcePanel title="Product field mapping">
-              <p className="mb-4 text-sm text-muted-foreground">
-                Map each product fact to JSON paths. Separate alternatives with commas; the first
-                populated field is used.
-              </p>
-              <div className="grid gap-5 sm:grid-cols-2">
-                {mappingFields.map(([key, label]) => (
-                  <Field key={key} label={label}>
-                    <Input
-                      value={mapping[key] ?? ""}
-                      onChange={(event) => {
-                        setMapping({ ...mapping, [key]: event.target.value });
-                        setConnectorDirty(true);
-                      }}
-                      required
-                    />
-                  </Field>
-                ))}
-              </div>
-            </ResourcePanel>
             <ResourcePanel title="Pagination">
-              <div className="grid gap-5 sm:grid-cols-2">
+              <div className="grid gap-4 sm:grid-cols-2">
                 <Field label="Pagination mode">
                   <select
                     className="h-9 rounded-md border bg-background px-3 text-sm"
@@ -513,7 +515,7 @@ export function PartnerConnectionForm({
                 )}
               </div>
             </ResourcePanel>
-          </>
+          </div>
         ) : (
           <ResourcePanel title="Managed integration">
             <p className="text-sm text-muted-foreground">
@@ -523,7 +525,7 @@ export function PartnerConnectionForm({
           </ResourcePanel>
         )}
       </fieldset>
-      <div className="flex flex-wrap gap-3 border-t pt-5">
+      <div className="flex flex-wrap gap-3 border-t pt-4">
         <Button type="submit" loading={saving}>
           {connection ? "Save changes" : "Create connection"}
         </Button>

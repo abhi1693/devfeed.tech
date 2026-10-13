@@ -4,9 +4,8 @@ import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Pencil } from "lucide-react";
-import { ResourcePanel } from "@devfeed/ui/resource-layout";
+import { ResourceHeading, ResourcePanel } from "@devfeed/ui/resource-layout";
 import { ProductPlacementPreview, adFormatLabel } from "@devfeed/ui/advertising-formats";
-import { ResourceHeading } from "@devfeed/ui/resource-layout";
 import { Button } from "@devfeed/ui/button";
 import { Badge } from "@devfeed/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@devfeed/ui/table";
@@ -130,7 +129,7 @@ function ProductAccounts({
     return () => controller.abort();
   }, [request, productId, offset, key, edit, query, router]);
   return (
-    <section className="space-y-6">
+    <section className="space-y-4">
       <ResourceHeading
         homeHref={portalPath()}
         homeLabel="Dashboard"
@@ -335,7 +334,7 @@ function ProductDetails({
   const product = !loading ? result.product : null;
   if (!product)
     return (
-      <div className="space-y-6">
+      <div className="space-y-4">
         <ResourceHeading
           homeHref={portalPath()}
           homeLabel="Dashboard"
@@ -368,7 +367,7 @@ function ProductDetails({
     );
   const status = productPlacementStatus(product);
   return (
-    <section className="space-y-6">
+    <section className="space-y-4">
       <ResourceHeading
         homeHref={portalPath()}
         homeLabel="Dashboard"
@@ -431,8 +430,8 @@ function ProductDetails({
           />
         </ResourcePanel>
       ) : (
-        <div className="grid items-start gap-6 xl:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)]">
-          <div className="space-y-6">
+        <div className="grid items-start gap-4 lg:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)]">
+          <div className="space-y-4">
             <ResourcePanel
               title="Product"
               fields={[
@@ -475,7 +474,7 @@ function ProductDetails({
                 },
               ]}
             >
-              <p className="mt-4 text-sm text-muted-foreground">
+              <p className="mt-3 text-sm text-muted-foreground">
                 Delivery also depends on approval, relevance, audience, account status, and
                 available capacity.{" "}
                 <Link

@@ -10,8 +10,8 @@ import {
   type PlacementSurface,
   type ProductPlacementPolicy,
 } from "@devfeed/ui/advertising-formats";
-import { parseCreativePreview } from "../lib/contracts";
-import { usePartnerRequest } from "../lib/partner-request";
+import { parseCreativePreview } from "@/lib/contracts";
+import { usePartnerRequest } from "@/lib/partner-request";
 
 export function PartnerProductPlacements({
   accountId,

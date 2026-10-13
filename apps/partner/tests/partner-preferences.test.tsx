@@ -62,7 +62,7 @@ it("shows inherited sponsorship and trusted import policy without product-by-pro
   expect(screen.getByText("Trusted partner imports accepted automatically")).toBeTruthy();
   expect(screen.getByRole("combobox", { name: "Product click destination" })).toBeTruthy();
   expect(screen.queryByRole("combobox", { name: /promotion type/i })).toBeNull();
-  expect(screen.getByText(/Both destinations include DevFeed UTM/)).toBeTruthy();
+  expect(screen.getByText(/DevFeed attribution/)).toBeTruthy();
   await screen.findByRole("link", { name: product.product_url });
 });
 

@@ -32,7 +32,7 @@ export function PortalShell({
     { id: "settings", label: "Settings", icon: Settings },
   ];
   return (
-    <div className="min-h-dvh">
+    <div className="partner-workspace min-h-dvh">
       <a
         href="#main"
         className="sr-only focus:not-sr-only focus:absolute focus:z-50 focus:bg-card focus:p-4"
@@ -40,7 +40,7 @@ export function PortalShell({
         Skip to content
       </a>
       <header className="border-b bg-card">
-        <div className="flex flex-wrap items-center justify-between gap-4 px-4 py-4 sm:px-6">
+        <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-2.5 sm:px-5">
           <Link
             href={`${portalPath()}${query}`}
             aria-label="DevFeed Partners home"
@@ -51,8 +51,8 @@ export function PortalShell({
                 className="devfeed-brand-mark"
                 src={brandMark}
                 alt=""
-                width={40}
-                height={40}
+                width={32}
+                height={32}
                 priority
               />
               <span>devfeed.</span>
@@ -75,7 +75,7 @@ export function PortalShell({
         </div>
         <aside
           id="partner-sidebar"
-          className={`${open ? "block" : "hidden"} shrink-0 border-b bg-card p-4 lg:sticky lg:top-0 lg:block lg:h-dvh lg:w-60 lg:overflow-y-auto lg:border-r lg:border-b-0`}
+          className={`${open ? "block" : "hidden"} shrink-0 border-b bg-card p-3 lg:sticky lg:top-0 lg:block lg:h-dvh lg:w-52 lg:overflow-y-auto lg:border-r lg:border-b-0`}
         >
           <nav aria-label="Partner portal">
             <h2 className="mb-2 px-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
@@ -101,7 +101,7 @@ export function PortalShell({
             </ul>
           </nav>
         </aside>
-        <main id="main" className="min-w-0 flex-1 px-4 py-6 sm:px-6">
+        <main id="main" className="min-w-0 flex-1 px-4 py-4 sm:px-5">
           <div className="w-full min-w-0">{children}</div>
         </main>
       </div>

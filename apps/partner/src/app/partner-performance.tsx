@@ -41,15 +41,17 @@ function Metrics({ data }: { data: WorkspaceDashboard }) {
     },
   ];
   return (
-    <div className="grid gap-4 sm:grid-cols-3">
+    <div className="grid grid-cols-3 divide-x rounded-lg border bg-card">
       {metrics.map(({ label, value, hint, icon: Icon }) => (
-        <section key={label} aria-label={label} className="rounded-lg border bg-card p-5">
-          <div className="flex items-center justify-between gap-3 text-sm text-muted-foreground">
+        <section key={label} aria-label={label} className="min-w-0 px-3 py-3 sm:px-4">
+          <div className="flex min-h-8 items-start justify-between gap-2 text-xs text-muted-foreground sm:min-h-0 sm:items-center sm:text-sm">
             <h3 className="font-medium">{label}</h3>
-            <Icon size={16} aria-hidden="true" />
+            <Icon size={14} aria-hidden="true" className="hidden shrink-0 sm:block" />
           </div>
-          <p className="mt-3 text-3xl font-semibold tracking-tight tabular-nums">{value}</p>
-          <p className="mt-2 text-xs text-muted-foreground">{hint}</p>
+          <p className="mt-2 break-words text-[clamp(1rem,4vw,1.5rem)] font-semibold leading-tight tracking-tight tabular-nums">
+            {value}
+          </p>
+          <p className="mt-1 hidden text-xs text-muted-foreground sm:block">{hint}</p>
         </section>
       ))}
     </div>
@@ -60,23 +62,28 @@ function TrendChart({
   rows,
   metric,
   label,
+  height = 192,
 }: {
   rows: PerformanceDay[];
   metric: "impressions" | "clicks" | "ctr";
   label: string;
+  height?: number;
 }) {
   const percentage = metric === "ctr";
   const format = percentage ? metricPercent : metricCount;
   if (!rows.some((row) => row[metric] !== null))
     return (
-      <p className="flex h-64 items-center justify-center px-5 text-center text-sm text-muted-foreground">
+      <p
+        style={{ minHeight: height }}
+        className="flex items-center justify-center px-4 text-center text-sm text-muted-foreground"
+      >
         {percentage
           ? "Click-through rate appears after the first measured impression."
           : "Your delivery trend will appear when measurements arrive."}
       </p>
     );
   return (
-    <ChartContainer label={label} className="overflow-hidden">
+    <ChartContainer label={label} height={height} className="overflow-hidden">
       <LineChart data={rows} accessibilityLayer margin={{ top: 10, right: 16, bottom: 5, left: 0 }}>
         <CartesianGrid vertical={false} stroke="var(--border)" strokeDasharray="3 4" />
         <XAxis
@@ -120,11 +127,11 @@ function TrendChart({
   );
 }
 
-function DeliveryTrend({ rows }: { rows: PerformanceDay[] }) {
+function DeliveryTrend({ rows, compact }: { rows: PerformanceDay[]; compact: boolean }) {
   const [metric, setMetric] = useState<"impressions" | "clicks">("impressions");
   return (
-    <section aria-label="Delivery trend" className="min-w-0 rounded-lg border bg-card p-5">
-      <header className="mb-5 flex flex-wrap items-center justify-between gap-3">
+    <section aria-label="Delivery trend" className="min-w-0 rounded-lg border bg-card p-4">
+      <header className="mb-3 flex flex-wrap items-center justify-between gap-2">
         <div>
           <h3 className="text-sm font-semibold">Delivery trend</h3>
           <p className="mt-1 text-xs text-muted-foreground">Daily measurements in UTC</p>
@@ -147,22 +154,31 @@ function DeliveryTrend({ rows }: { rows: PerformanceDay[] }) {
         rows={rows}
         metric={metric}
         label={metric === "clicks" ? "Clicks" : "Impressions"}
+        height={compact ? 176 : 192}
       />
     </section>
   );
 }
 
-function FormatPerformance({ data }: { data: WorkspaceDashboard }) {
+function FormatPerformance({
+  data,
+  compact = false,
+}: {
+  data: WorkspaceDashboard;
+  compact?: boolean;
+}) {
   const measured = (data.format_totals ?? []).filter((row) => row.measured_days > 0);
   const max = Math.max(1, ...measured.map((row) => row.impressions));
   return (
-    <section aria-label="Format comparison" className="rounded-lg border bg-card p-5">
+    <section aria-label="Format comparison" className="min-w-0 rounded-lg border bg-card p-4">
       <h3 className="text-sm font-semibold">Performance by format</h3>
       <p className="mt-1 text-xs text-muted-foreground">Measured impressions, clicks and CTR</p>
       {measured.length ? (
-        <ul className="mt-5 grid gap-5 sm:grid-cols-2">
+        <ul
+          className={compact ? "mt-3 grid gap-3" : "mt-3 grid gap-3 sm:grid-cols-2 xl:grid-cols-4"}
+        >
           {measured.map((row) => (
-            <li key={row.ad_format} className="min-w-0 space-y-2">
+            <li key={row.ad_format} className="min-w-0 space-y-1.5">
               <div className="flex flex-wrap justify-between gap-x-4 gap-y-1 text-sm">
                 <span className="font-medium">{adFormatLabel(row.ad_format)}</span>
                 <span className="tabular-nums">{metricCount(row.impressions)} impressions</span>
@@ -181,7 +197,7 @@ function FormatPerformance({ data }: { data: WorkspaceDashboard }) {
           ))}
         </ul>
       ) : (
-        <p className="mt-5 text-sm text-muted-foreground">
+        <p className="mt-3 text-sm text-muted-foreground">
           Format comparisons appear after your first delivery measurements.
         </p>
       )}
@@ -202,10 +218,10 @@ export function PartnerPerformance({
   const performanceQuery = new URLSearchParams({ days: String(rows.length) });
   if (accountId) performanceQuery.set("account_id", accountId);
   return (
-    <section aria-label="Ad performance" className="space-y-4">
+    <section aria-label="Ad performance" className="space-y-3">
       <header className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h2 className="text-lg font-semibold tracking-tight">Ad performance</h2>
+          <h2 className="text-base font-semibold tracking-tight">Ad performance</h2>
           <p className="mt-1 text-sm text-muted-foreground">
             {data.start} to {data.end} · UTC
           </p>
@@ -226,14 +242,22 @@ export function PartnerPerformance({
         )}
       </header>
       <Metrics data={data} />
-      <div className={compact ? "min-w-0" : "grid min-w-0 gap-4 xl:grid-cols-2"}>
-        <DeliveryTrend rows={rows} />
-        {!compact && (
+      <div
+        className={
+          compact
+            ? "grid min-w-0 items-start gap-3 lg:grid-cols-[minmax(0,2fr)_minmax(16rem,1fr)]"
+            : "grid min-w-0 gap-3 lg:grid-cols-2"
+        }
+      >
+        <DeliveryTrend rows={rows} compact={compact} />
+        {compact ? (
+          <FormatPerformance data={data} compact />
+        ) : (
           <section
             aria-label="Click-through trend"
-            className="min-w-0 rounded-lg border bg-card p-5"
+            className="min-w-0 rounded-lg border bg-card p-4"
           >
-            <header className="mb-5">
+            <header className="mb-3">
               <h3 className="text-sm font-semibold">Click-through rate</h3>
               <p className="mt-1 text-xs text-muted-foreground">
                 Daily clicks divided by impressions

@@ -7,6 +7,7 @@ import {
   type DestinationPreviewProduct,
 } from "@devfeed/ui/product-destination-preview";
 import { Button } from "@devfeed/ui/button";
+import { ResourcePanel } from "@devfeed/ui/resource-layout";
 import type { Account, OutboundDestination } from "@/lib/types";
 import { parseDestinationPreview } from "@/lib/contracts";
 import { isPartnerRequestCancelled } from "@/lib/partner-request";
@@ -80,98 +81,101 @@ function AccountPreferences({ account, csrfToken, onSaved, onUnavailable }: Prop
   }
 
   return (
-    <section className="card mt-6" aria-label="Product promotion settings">
-      <h2>Product promotion settings</h2>
-      <p className="muted mb-5">
-        Imported products inherit your account’s promotion type. Contextual matches are preferred;
-        sponsored feed placements can fill unmatched feeds. Article and topic placements require a
-        relevant match.
-      </p>
-      <dl className="mb-6 grid gap-4 text-sm sm:grid-cols-2">
-        <div>
-          <dt className="muted">Default promotion</dt>
-          <dd className="mt-1 font-medium">
-            {account.effective_promotion_kind === "ad" ? "Sponsored" : "Product recommendation"}
-            {account.promotion_kind_source === "tier"
-              ? " · inherited from tier"
-              : " · account setting"}
-          </dd>
-        </div>
-        <div>
-          <dt className="muted">Imported product acceptance</dt>
-          <dd className="mt-1 font-medium">
-            {account.approval_mode === "trusted"
-              ? "Trusted partner imports accepted automatically"
-              : "Automatic capability checks"}
-          </dd>
-        </div>
-      </dl>
-      <div className="grid gap-6 lg:grid-cols-2">
-        <form onSubmit={save} className="grid min-w-0 content-start gap-3">
-          <label htmlFor="partner-click-destination" className="text-sm font-medium">
-            Product click destination
-          </label>
-          <Select
-            id="partner-click-destination"
-            label="Product click destination"
-            value={destination}
-            required
-            onChange={(value) => {
-              if (value !== "product_url" && value !== "listing_url") return;
-              setDestination(value);
-              clearMessage();
-            }}
-            disabled={saving}
-            aria-describedby="partner-click-destination-help"
-            options={[
-              { value: "product_url", label: "Product website" },
-              { value: "listing_url", label: "Partner listing" },
-            ]}
-          />
-          <p id="partner-click-destination-help" className="muted text-sm">
-            Choose where readers go from your product cards. Both destinations include DevFeed UTM
-            attribution. Products without a partner listing cannot appear when Partner listing is
-            selected.
+    <section className="space-y-4" aria-label="Product promotion settings">
+      <div className="grid items-start gap-4 xl:grid-cols-[minmax(0,2fr)_minmax(0,3fr)]">
+        <ResourcePanel title="Product promotion settings">
+          <p className="mb-3 text-sm text-muted-foreground">
+            Imported products inherit this account’s promotion type. Contextual placements require a
+            relevant match.
           </p>
-          {error && (
-            <p role="alert" className="text-sm text-destructive">
-              {error}
+          <dl className="mb-4 grid gap-3 text-sm sm:grid-cols-2 xl:grid-cols-1">
+            <div>
+              <dt className="text-muted-foreground">Default promotion</dt>
+              <dd className="mt-1 font-medium">
+                {account.effective_promotion_kind === "ad" ? "Sponsored" : "Product recommendation"}
+                {account.promotion_kind_source === "tier"
+                  ? " · inherited from tier"
+                  : " · account setting"}
+              </dd>
+            </div>
+            <div>
+              <dt className="text-muted-foreground">Imported product acceptance</dt>
+              <dd className="mt-1 font-medium">
+                {account.approval_mode === "trusted"
+                  ? "Trusted partner imports accepted automatically"
+                  : "Automatic capability checks"}
+              </dd>
+            </div>
+          </dl>
+          <form onSubmit={save} className="grid min-w-0 content-start gap-3">
+            <label htmlFor="partner-click-destination" className="text-sm font-medium">
+              Product click destination
+            </label>
+            <Select
+              id="partner-click-destination"
+              label="Product click destination"
+              value={destination}
+              required
+              onChange={(value) => {
+                if (value !== "product_url" && value !== "listing_url") return;
+                setDestination(value);
+                clearMessage();
+              }}
+              disabled={saving}
+              aria-describedby="partner-click-destination-help"
+              options={[
+                { value: "product_url", label: "Product website" },
+                { value: "listing_url", label: "Partner listing" },
+              ]}
+            />
+            <p id="partner-click-destination-help" className="muted text-sm">
+              Product cards use this destination with DevFeed attribution. Partner listing requires
+              an available listing URL.
             </p>
-          )}
-          {message && (
-            <p role="status" className="text-sm">
-              {message}
-            </p>
-          )}
-          <div>
-            <Button type="submit" loading={saving}>
-              Save click destination
-            </Button>
+            {error && (
+              <p role="alert" className="text-sm text-destructive">
+                {error}
+              </p>
+            )}
+            {message && (
+              <p role="status" className="text-sm">
+                {message}
+              </p>
+            )}
+            <div>
+              <Button type="submit" loading={saving}>
+                Save click destination
+              </Button>
+            </div>
+          </form>
+          <div className="mt-4">
+            <ProductDestinationPreview
+              product={preview.product}
+              destination={destination}
+              loading={preview.loading}
+              error={preview.error}
+              onRetry={() => {
+                setPreview({ product: null, loading: true, error: "" });
+                setPreviewAttempt((attempt) => attempt + 1);
+              }}
+            />
           </div>
-        </form>
-        <ProductDestinationPreview
-          product={preview.product}
-          destination={destination}
-          loading={preview.loading}
-          error={preview.error}
-          onRetry={() => {
-            setPreview({ product: null, loading: true, error: "" });
-            setPreviewAttempt((attempt) => attempt + 1);
-          }}
-        />
+        </ResourcePanel>
+        <div className="min-w-0 space-y-4">
+          <PartnerAdFormats
+            account={account}
+            csrfToken={csrfToken}
+            onSaved={onSaved}
+            onUnavailable={onUnavailable}
+          />
+          <PartnerAudience
+            account={account}
+            csrfToken={csrfToken}
+            onSaved={onSaved}
+            onUnavailable={onUnavailable}
+          />
+        </div>
       </div>
-      <PartnerAdFormats
-        account={account}
-        csrfToken={csrfToken}
-        onSaved={onSaved}
-        onUnavailable={onUnavailable}
-      />
-      <PartnerAudience
-        account={account}
-        csrfToken={csrfToken}
-        onSaved={onSaved}
-        onUnavailable={onUnavailable}
-      />
     </section>
   );
 }

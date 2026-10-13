@@ -8,6 +8,7 @@ import {
   type AudienceTopicLoader,
 } from "@devfeed/ui/audience-targeting";
 import { Button } from "@devfeed/ui/button";
+import { ResourcePanel } from "@devfeed/ui/resource-layout";
 import type { Account } from "@/lib/types";
 import { parseAudienceTopics } from "@/lib/contracts";
 import { usePartnerPreferenceSave } from "@/lib/use-partner-preference-save";
@@ -60,50 +61,59 @@ function AccountAudience({ account, csrfToken, onSaved, onUnavailable }: Props) 
     if (account.advanced_targeting) await savePreferences({ audience });
   }
   return (
-    <section aria-label="Audience targeting" className="mt-6 space-y-4 border-t pt-6">
-      <div className="space-y-1">
-        <h2>Audience targeting</h2>
-        <p className="muted text-sm">
-          Any match within a group qualifies. Selected groups must all match the reader’s profile.
-        </p>
-        {!account.advanced_targeting && (
-          <p className="muted text-sm">
-            Advanced targeting requires Platinum or Diamond.
-            {hasAudience(audience) &&
-              " Saved restrictions are retained. These placements stay disabled until the account has an eligible tier or an administrator explicitly clears the restrictions."}
-          </p>
-        )}
-      </div>
-      <form aria-label="Audience settings" aria-busy={saving} onSubmit={save} className="space-y-4">
-        <AudienceTargeting
-          value={audience}
-          loadTopics={loadTopics}
-          disabled={saving}
-          onChange={
-            account.advanced_targeting
-              ? (value) => {
-                  setAudience(value);
-                  clearMessage();
-                }
-              : undefined
-          }
-        />
-        {error && (
-          <p role="alert" className="text-sm text-destructive">
-            {error}
-          </p>
-        )}
-        {message && (
-          <p role="status" className="text-sm">
-            {message}
-          </p>
-        )}
-        {account.advanced_targeting && (
-          <Button type="submit" loading={saving}>
-            Save audience
-          </Button>
-        )}
-      </form>
+    <section aria-label="Audience targeting" className="min-w-0">
+      <ResourcePanel title="Audience targeting">
+        <div className="space-y-3">
+          <div className="space-y-1">
+            <p className="muted text-sm">
+              Any match within a group qualifies. Selected groups must all match the reader’s
+              profile.
+            </p>
+            {!account.advanced_targeting && (
+              <p className="muted text-sm">
+                Advanced targeting requires Platinum or Diamond.
+                {hasAudience(audience) &&
+                  " Saved restrictions are retained. These placements stay disabled until the account has an eligible tier or an administrator explicitly clears the restrictions."}
+              </p>
+            )}
+          </div>
+          <form
+            aria-label="Audience settings"
+            aria-busy={saving}
+            onSubmit={save}
+            className="space-y-3"
+          >
+            <AudienceTargeting
+              value={audience}
+              loadTopics={loadTopics}
+              disabled={saving}
+              onChange={
+                account.advanced_targeting
+                  ? (value) => {
+                      setAudience(value);
+                      clearMessage();
+                    }
+                  : undefined
+              }
+            />
+            {error && (
+              <p role="alert" className="text-sm text-destructive">
+                {error}
+              </p>
+            )}
+            {message && (
+              <p role="status" className="text-sm">
+                {message}
+              </p>
+            )}
+            {account.advanced_targeting && (
+              <Button type="submit" loading={saving}>
+                Save audience
+              </Button>
+            )}
+          </form>
+        </div>
+      </ResourcePanel>
     </section>
   );
 }

@@ -133,7 +133,7 @@ export function PartnerProductCatalog({
     return () => controller.abort();
   }, [request, page, key, accountFilter]);
   return (
-    <section className="space-y-6">
+    <section className="space-y-4">
       <ResourceHeading
         homeHref={portalPath()}
         homeLabel="Dashboard"
@@ -159,8 +159,8 @@ export function PartnerProductCatalog({
           </Link>
         </p>
       )}
-      <div className="flex flex-wrap items-end justify-between gap-4">
-        <div className="grid w-full gap-2 sm:max-w-sm">
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <div className="grid w-full gap-1.5 sm:max-w-sm">
           <label htmlFor="placement-product-search" className="text-sm font-medium">
             Search products
           </label>
@@ -195,7 +195,7 @@ export function PartnerProductCatalog({
         </div>
       )}
       <div className="overflow-x-auto rounded-md border" aria-busy={loading}>
-        <Table aria-label="Imported products">
+        <Table aria-label="Imported products" className="[&_td]:py-1.5">
           <TableHeader>
             <TableRow>
               <TableHead>Name</TableHead>
@@ -282,7 +282,7 @@ export function PartnerProductCatalog({
               })}
             {!loading && !result.error && !result.items.length && (
               <TableRow>
-                <TableCell colSpan={6} className="h-28 text-center text-muted-foreground">
+                <TableCell colSpan={6} className="h-20 text-center text-muted-foreground">
                   {page.q
                     ? "No products match your search."
                     : "No imported products yet. Connect a catalog to get started."}
@@ -291,7 +291,7 @@ export function PartnerProductCatalog({
             )}
             {loading && (
               <TableRow>
-                <TableCell colSpan={6} className="h-28 text-center text-muted-foreground">
+                <TableCell colSpan={6} className="h-20 text-center text-muted-foreground">
                   Loading imported products…
                 </TableCell>
               </TableRow>

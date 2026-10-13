@@ -220,7 +220,7 @@ export function Portal({
   const number = (value: number) => value.toLocaleString("en-US");
   return (
     <PortalShell identity={identity} onSignOut={signOut} section={section} query={query}>
-      <div className="space-y-6">
+      <div className="space-y-4">
         {reporting && (
           <ResourceHeading
             homeHref={portalPath()}
@@ -233,49 +233,42 @@ export function Portal({
                 : "Track reach and visits across every partner account and native ad format."
             }
           >
+            {initialAccounts.total > 0 && (
+              <div className="w-40">
+                <span className="sr-only">Reporting period</span>
+                <Select
+                  label="Reporting period"
+                  required
+                  value={String(days)}
+                  onChange={(value) => {
+                    if (Number(value) === days) return;
+                    setDays(Number(value));
+                    setAssetOffset(0);
+                    setData(null);
+                    setError("");
+                  }}
+                  options={[
+                    { value: "7", label: "Last 7 days" },
+                    { value: "30", label: "Last 30 days" },
+                    { value: "90", label: "Last 90 days" },
+                    { value: "365", label: "Last year" },
+                  ]}
+                />
+              </div>
+            )}
             <Button variant="outline" onClick={reload}>
               <RefreshCw aria-hidden />
               Refresh
             </Button>
           </ResourceHeading>
         )}
-        {reporting && initialAccounts.total > 0 && (
-          <div className="flex flex-wrap items-end justify-between gap-4">
-            <div className="grid w-full gap-2 sm:w-48">
-              <span className="text-sm font-medium">Reporting period</span>
-              <Select
-                label="Reporting period"
-                required
-                value={String(days)}
-                onChange={(value) => {
-                  if (Number(value) === days) return;
-                  setDays(Number(value));
-                  setAssetOffset(0);
-                  setData(null);
-                  setError("");
-                }}
-                options={[
-                  { value: "7", label: "Last 7 days" },
-                  { value: "30", label: "Last 30 days" },
-                  { value: "90", label: "Last 90 days" },
-                  { value: "365", label: "Last year" },
-                ]}
-              />
-            </div>
-            {account ? (
-              <p className="text-sm text-muted-foreground">
-                Filtered to {account.name}.{" "}
-                <Link
-                  href={`${portalPath(section)}${query}`}
-                  className="text-primary hover:underline"
-                >
-                  Show all partner accounts
-                </Link>
-              </p>
-            ) : (
-              <p className="text-sm text-muted-foreground">All your partner accounts</p>
-            )}
-          </div>
+        {reporting && initialAccounts.total > 0 && account && (
+          <p className="text-sm text-muted-foreground">
+            Filtered to {account.name}.{" "}
+            <Link href={`${portalPath(section)}${query}`} className="text-primary hover:underline">
+              Show all partner accounts
+            </Link>
+          </p>
         )}
         {error && (
           <div role="alert" className="notice">
@@ -343,25 +336,32 @@ export function Portal({
                 description="Delivery defaults, native formats, and audience targeting for this partner account."
                 trail={[{ label: "Settings", href: `${portalPath("settings")}${settingsQuery}` }]}
               />
-              <ResourcePanel
-                title="Partner account"
-                fields={[
-                  { label: "Name", value: account.name },
-                  {
-                    label: "Tier",
-                    value: account.tier.charAt(0).toUpperCase() + account.tier.slice(1),
-                  },
-                  {
-                    label: "Status",
-                    value: (
+              <ResourcePanel title="Partner account">
+                <dl className="grid gap-3 text-sm sm:grid-cols-2 xl:grid-cols-[1fr_1fr_1fr_2fr]">
+                  <div>
+                    <dt className="text-xs text-muted-foreground">Name</dt>
+                    <dd className="mt-1 font-medium">{account.name}</dd>
+                  </div>
+                  <div>
+                    <dt className="text-xs text-muted-foreground">Tier</dt>
+                    <dd className="mt-1">
+                      {account.tier.charAt(0).toUpperCase() + account.tier.slice(1)}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt className="text-xs text-muted-foreground">Status</dt>
+                    <dd className="mt-1">
                       <Badge variant={account.status === "active" ? "success" : "warning"}>
                         {account.status}
                       </Badge>
-                    ),
-                  },
-                  { label: "Benefits", value: account.benefits.join(", ") || "—" },
-                ]}
-              />
+                    </dd>
+                  </div>
+                  <div>
+                    <dt className="text-xs text-muted-foreground">Benefits</dt>
+                    <dd className="mt-1">{account.benefits.join(", ") || "—"}</dd>
+                  </div>
+                </dl>
+              </ResourcePanel>
               <PartnerPreferences
                 account={account}
                 csrfToken={identity.csrf_token}
@@ -385,17 +385,21 @@ export function Portal({
               accountId={account?.id}
             />
             {section === "overview" && (
-              <ResourcePanel
-                title="Your workspace"
-                fields={[{ label: "Partner accounts", value: number(data.account_total) }]}
+              <nav
+                aria-label="Workspace shortcuts"
+                className="flex flex-wrap items-center justify-between gap-x-4 gap-y-3 text-sm"
               >
-                <div className="mt-4 flex flex-wrap gap-4">
+                <p className="text-muted-foreground">
+                  {number(data.account_total)} partner{" "}
+                  {data.account_total === 1 ? "account" : "accounts"}
+                </p>
+                <div className="flex flex-wrap gap-x-4 gap-y-2">
                   {(["products", "connections", "settings"] as const).map((section) => (
                     <Link
                       key={section}
                       href={portalPath(section)}
                       prefetch={false}
-                      className="inline-flex items-center gap-2 text-sm text-primary hover:underline"
+                      className="inline-flex items-center gap-1.5 text-primary hover:underline"
                     >
                       {section === "products"
                         ? "Manage products"
@@ -406,7 +410,7 @@ export function Portal({
                     </Link>
                   ))}
                 </div>
-              </ResourcePanel>
+              </nav>
             )}
             {section === "performance" && (
               <section

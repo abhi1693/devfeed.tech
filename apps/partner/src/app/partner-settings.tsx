@@ -82,7 +82,7 @@ export function PartnerSettings({
     return () => controller.abort();
   }, [request, page, key, initialKey]);
   return (
-    <section className="space-y-6">
+    <section className="space-y-4">
       <ResourceHeading
         homeHref={portalPath()}
         homeLabel="Dashboard"
@@ -95,8 +95,8 @@ export function PartnerSettings({
           Refresh
         </Button>
       </ResourceHeading>
-      <div className="flex flex-wrap items-end justify-between gap-4">
-        <div className="grid w-full gap-2 sm:max-w-sm">
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <div className="grid w-full gap-1.5 sm:max-w-sm">
           <label htmlFor="settings-account-search" className="text-sm font-medium">
             Search partner accounts
           </label>
@@ -124,7 +124,7 @@ export function PartnerSettings({
         </div>
       )}
       <div className="overflow-x-auto rounded-md border" aria-busy={loading}>
-        <Table aria-label="Partner accounts">
+        <Table aria-label="Partner accounts" className="[&_td]:py-1.5">
           <TableHeader>
             <TableRow>
               <TableHead>Partner account</TableHead>
@@ -179,14 +179,14 @@ export function PartnerSettings({
               ))}
             {loading && (
               <TableRow>
-                <TableCell colSpan={6} className="h-28 text-center text-muted-foreground">
+                <TableCell colSpan={6} className="h-20 text-center text-muted-foreground">
                   Loading partner accounts…
                 </TableCell>
               </TableRow>
             )}
             {!loading && !result.error && !result.items.length && (
               <TableRow>
-                <TableCell colSpan={6} className="h-28 text-center text-muted-foreground">
+                <TableCell colSpan={6} className="h-20 text-center text-muted-foreground">
                   {page.q
                     ? "No partner accounts match your search."
                     : "No partner accounts are connected to your profile yet."}

@@ -11,6 +11,7 @@ import {
 } from "@devfeed/ui/advertising-formats";
 import { Select } from "@devfeed/ui/select";
 import { Button } from "@devfeed/ui/button";
+import { ResourcePanel } from "@devfeed/ui/resource-layout";
 import type { Account } from "@/lib/types";
 import { parseCreativePreview } from "@/lib/contracts";
 import { isPartnerRequestCancelled } from "@/lib/partner-request";
@@ -82,72 +83,80 @@ function AccountAdFormats({ account, csrfToken, onSaved, onUnavailable }: Props)
     if (eligible) await savePreferences({ ad_formats: value });
   }
   return (
-    <section aria-label="Automatic ad formats" className="mt-6 space-y-4 border-t pt-6">
-      <h2>Automatic ad formats</h2>
-      <form
-        aria-label="Ad format settings"
-        onSubmit={save}
-        aria-busy={saving}
-        className="space-y-4"
-      >
-        <AutomaticAdFormats
-          value={value}
-          allowed={allowed}
-          eligible={eligible}
-          disabled={saving}
-          onChange={(next) => {
-            setValue(next);
-            clearMessage();
-          }}
-        />
-        {error && (
-          <p role="alert" className="text-sm text-destructive">
-            {error}
-          </p>
-        )}
-        {message && (
-          <p role="status" className="text-sm">
-            {message}
-          </p>
-        )}
-        {eligible && (
-          <Button type="submit" loading={saving}>
-            Save ad formats
-          </Button>
-        )}
-      </form>
-      {value.length > 1 && (
-        <Select
-          label="Preview format"
-          required
-          value={format}
-          onChange={(next) => setPreviewFormat(next as AdFormat)}
-          options={adFormats
-            .filter((item) => value.includes(item.value) && automaticAdFormats.includes(item.value))
-            .map(({ value, label }) => ({ value, label }))}
-        />
-      )}
-      {value.length > 0 && (
-        <details
-          className="space-y-4 rounded-lg border p-4"
-          onToggle={(event) => {
-            setPreviewOpen(event.currentTarget.open);
-            if (event.currentTarget.open) setPreviewAttempt((attempt) => attempt + 1);
-          }}
-        >
-          <summary className="cursor-pointer text-sm font-medium">Creative preview</summary>
-          {previewOpen && (
-            <AdCreativePreview
-              format={format}
-              product={preview.product}
-              destination={account.outbound_destination}
-              loading={preview.key !== previewKey}
-              error={preview.error}
-              onRetry={() => setPreviewAttempt((attempt) => attempt + 1)}
+    <section aria-label="Automatic ad formats" className="min-w-0">
+      <ResourcePanel title="Automatic ad formats">
+        <div className="space-y-3">
+          <form
+            aria-label="Ad format settings"
+            onSubmit={save}
+            aria-busy={saving}
+            className="space-y-3"
+          >
+            <AutomaticAdFormats
+              value={value}
+              allowed={allowed}
+              eligible={eligible}
+              disabled={saving}
+              onChange={(next) => {
+                setValue(next);
+                clearMessage();
+              }}
             />
+            {error && (
+              <p role="alert" className="text-sm text-destructive">
+                {error}
+              </p>
+            )}
+            {message && (
+              <p role="status" className="text-sm">
+                {message}
+              </p>
+            )}
+            {eligible && (
+              <Button type="submit" loading={saving}>
+                Save ad formats
+              </Button>
+            )}
+          </form>
+          {value.length > 0 && (
+            <details
+              className="space-y-3 rounded-lg border p-3"
+              onToggle={(event) => {
+                setPreviewOpen(event.currentTarget.open);
+                if (event.currentTarget.open) setPreviewAttempt((attempt) => attempt + 1);
+              }}
+            >
+              <summary className="cursor-pointer text-sm font-medium">Creative preview</summary>
+              {previewOpen && (
+                <div className="space-y-3">
+                  {value.length > 1 && (
+                    <Select
+                      label="Preview format"
+                      required
+                      value={format}
+                      onChange={(next) => setPreviewFormat(next as AdFormat)}
+                      options={adFormats
+                        .filter(
+                          (item) =>
+                            value.includes(item.value) && automaticAdFormats.includes(item.value),
+                        )
+                        .map(({ value, label }) => ({ value, label }))}
+                    />
+                  )}
+                  <AdCreativePreview
+                    format={format}
+                    product={preview.product}
+                    destination={account.outbound_destination}
+                    loading={preview.key !== previewKey}
+                    error={preview.error}
+                    onRetry={() => setPreviewAttempt((attempt) => attempt + 1)}
+                  />
+                </div>
+              )}
+            </details>
           )}
-        </details>
-      )}
+        </div>
+      </ResourcePanel>
     </section>
   );
 }

@@ -66,6 +66,8 @@ or account UUID prefix in workspace URLs:
 - `/settings`: a searchable, paginated account table. `/settings/<account-id>` opens that account's
   click destination, automatic formats and audience defaults.
 
+The dashboard keeps totals, delivery trends and the format breakdown together in a compact
+laptop layout. Related settings and import forms share desktop columns and stack on mobile.
 Forms use full pages. Headings, record panels, tables, controls and charts are imported directly
 from `@devfeed/ui` by both applications. Obsolete account-prefixed frontend routes are removed.
 Record IDs remain where they identify the product, connection or account being edited.

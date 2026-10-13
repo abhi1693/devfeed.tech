@@ -33,7 +33,7 @@ export function ResourceHeading({
     };
   }, [browserTitle, siteTitle]);
   return (
-    <div className="space-y-3">
+    <div className="space-y-[var(--resource-heading-gap,0.75rem)]">
       <nav aria-label="Breadcrumb" className="flex flex-wrap gap-2 text-xs text-muted-foreground">
         <Link href={homeHref} prefetch={false} className="hover:underline">
           {homeLabel}
@@ -47,11 +47,13 @@ export function ResourceHeading({
           </span>
         ))}
       </nav>
-      <div className="flex flex-wrap items-start justify-between gap-4">
+      <div className="flex flex-wrap items-start justify-between gap-[var(--resource-heading-actions-gap,1rem)]">
         <div className="flex min-w-0 max-w-full items-center gap-3">
           {leading && <div className="shrink-0">{leading}</div>}
           <div className="min-w-0">
-            <h1 className="break-words text-2xl font-semibold tracking-tight">{title}</h1>
+            <h1 className="break-words text-[length:var(--resource-title-size,1.5rem)] font-semibold leading-8 tracking-tight">
+              {title}
+            </h1>
             {description && (
               <p className="mt-1 max-w-3xl text-sm text-muted-foreground">{description}</p>
             )}
@@ -75,20 +77,23 @@ export function ResourcePanel({
   return (
     <section
       data-slot="card"
-      className="flex min-w-0 flex-col gap-6 rounded-xl border bg-card py-6 text-card-foreground"
+      className="flex min-w-0 flex-col gap-[var(--resource-panel-gap,1.5rem)] rounded-xl border bg-card py-[var(--resource-panel-padding,1.5rem)] text-card-foreground"
     >
-      <div data-slot="card-header" className="border-b px-6 pb-6">
+      <div
+        data-slot="card-header"
+        className="border-b px-[var(--resource-panel-padding,1.5rem)] pb-[var(--resource-panel-gap,1.5rem)]"
+      >
         <h2 data-slot="card-title" className="text-sm font-semibold leading-none">
           {title}
         </h2>
       </div>
-      <div data-slot="card-content" className="px-6">
+      <div data-slot="card-content" className="px-[var(--resource-panel-padding,1.5rem)]">
         {fields && (
           <dl className="divide-y">
             {fields.map((field) => (
               <div
                 key={field.label}
-                className="grid gap-1 py-3 text-sm sm:grid-cols-[160px_minmax(0,1fr)] sm:gap-4"
+                className="grid gap-1 py-[var(--resource-field-padding-block,0.75rem)] text-sm sm:grid-cols-[160px_minmax(0,1fr)] sm:gap-4"
               >
                 <dt className="text-muted-foreground">{field.label}</dt>
                 <dd className="min-w-0">{field.value}</dd>

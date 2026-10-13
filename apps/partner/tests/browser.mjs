@@ -572,6 +572,51 @@ async function checkUploadDeadline() {
   }
 }
 
+async function checkDashboardDensity(page) {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  const trend = await page
+    .getByRole("region", { name: "Delivery trend", exact: true })
+    .boundingBox();
+  const formats = await page
+    .getByRole("region", { name: "Format comparison", exact: true })
+    .boundingBox();
+  const chart = await page.getByRole("figure", { name: "Impressions", exact: true }).boundingBox();
+  const overview = await page
+    .getByRole("region", { name: "Ad performance", exact: true })
+    .boundingBox();
+  assert.ok(
+    chart.height <= 192,
+    "The dashboard chart leaves room for the format breakdown and actions",
+  );
+  assert.ok(
+    formats.x >= trend.x + trend.width,
+    "Delivery and format comparison share the desktop row",
+  );
+  assert.ok(
+    overview.y + overview.height <= 760,
+    "Core dashboard performance fits a laptop viewport",
+  );
+  const period = await page.getByRole("combobox", { name: "Reporting period" }).boundingBox();
+  const heading = await page
+    .getByRole("heading", { name: "Dashboard", exact: true, level: 1 })
+    .boundingBox();
+  assert.ok(Math.abs(period.y - heading.y) < 40, "Reporting controls share the page heading row");
+  await page.screenshot({ path: root + "reports/partner/dashboard-laptop.png", fullPage: true });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.waitForFunction(() => document.documentElement.scrollWidth <= window.innerWidth);
+  const metrics = await Promise.all(
+    ["Impressions", "Clicks", "Click-through rate"].map((name) =>
+      page.getByRole("region", { name, exact: true }).boundingBox(),
+    ),
+  );
+  assert.ok(
+    metrics.every((box) => Math.abs(box.y - metrics[0].y) < 1),
+    "Mobile totals remain visible together",
+  );
+  await page.screenshot({ path: root + "reports/partner/dashboard-mobile.png", fullPage: true });
+  await page.setViewportSize({ width: 1440, height: 1100 });
+}
+
 let browser;
 let activePage;
 try {
@@ -627,6 +672,7 @@ try {
   assert.equal(await page.getByRole("combobox", { name: "Product click destination" }).count(), 0);
   assert.equal(await page.getByRole("dialog").count(), 0);
   await page.getByRole("figure", { name: "Impressions", exact: true }).waitFor();
+  await checkDashboardDensity(page);
   await page.screenshot({ path: root + "reports/partner/dashboard-desktop.png", fullPage: true });
   await page.setViewportSize({ width: 390, height: 844 });
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
@@ -653,8 +699,18 @@ try {
     .boundingBox();
   const previewBox = await preview.boundingBox();
   assert.ok(
-    previewBox.x >= selectorBox.x + selectorBox.width,
-    "desktop preview is to the right of destination selector",
+    previewBox.y > selectorBox.y,
+    "Destination preview stays with its controls in the compact settings panel",
+  );
+  const promotionPanel = await settings
+    .locator(':scope > div > section[data-slot="card"]')
+    .boundingBox();
+  const formatPanel = await page
+    .getByRole("region", { name: "Automatic ad formats", exact: true })
+    .boundingBox();
+  assert.ok(
+    formatPanel.x >= promotionPanel.x + promotionPanel.width,
+    "Related settings share the desktop row",
   );
   await page.getByRole("combobox", { name: "Product click destination" }).click();
   assert.equal(await page.getByRole("option", { name: "None", exact: true }).count(), 0);
@@ -1263,7 +1319,7 @@ try {
   await page.getByText("Your account needs the partner role to access this portal.").waitFor();
   assert.deepEqual(errors, []);
   console.log(
-    "Partner dashboard charts, full-page product and connection CRUD, secure credential controls, settings, report sorting, all-membership aggregation, paginated account records, clean URLs, mobile layouts, role boundaries, and empty states passed.",
+    "Compact partner dashboard, responsive forms and charts, full-page product and connection CRUD, secure credential controls, settings, report sorting, all-membership aggregation, paginated account records, clean URLs, mobile layouts, role boundaries, and empty states passed.",
   );
 } catch (error) {
   if (activePage && !activePage.isClosed()) {

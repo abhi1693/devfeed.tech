@@ -312,7 +312,7 @@ export function PartnerConnections({
             ? (connection?.name ?? "Import connection")
             : "Import connections";
   return (
-    <section className="space-y-6" aria-label="Import connections">
+    <section className="space-y-4" aria-label="Import connections">
       <ResourceHeading
         homeHref={portalPath()}
         homeLabel="Dashboard"
@@ -357,6 +357,47 @@ export function PartnerConnections({
               Edit
             </Link>
           </Button>
+        )}
+        {!loading && view === "detail" && connection && (
+          <>
+            <Button
+              loading={busy}
+              disabled={!connection.enabled || connection.state === "syncing"}
+              onClick={() => void act("sync")}
+            >
+              <RefreshCw aria-hidden />
+              Sync now
+            </Button>
+            {!connection.enabled &&
+            connection.auth_mode !== "none" &&
+            !connection.credential_configured &&
+            !connection.credentials_managed ? (
+              <Button asChild variant="outline">
+                <Link href={connectionPath(connection.provider, "edit")} prefetch={false}>
+                  Configure credential to reconnect
+                </Link>
+              </Button>
+            ) : (
+              <Button
+                variant="outline"
+                disabled={busy}
+                onClick={() => void act(connection.enabled ? "pause" : "resume")}
+              >
+                {connection.enabled
+                  ? "Pause imports"
+                  : connection.state === "disconnected"
+                    ? "Reconnect"
+                    : "Resume imports"}
+              </Button>
+            )}
+            {connection.state !== "disconnected" && (
+              <Button asChild variant="destructive-ghost" disabled={busy}>
+                <Link href={connectionPath(connection.provider, "disconnect")} prefetch={false}>
+                  Disconnect
+                </Link>
+              </Button>
+            )}
+          </>
         )}
       </ResourceHeading>
       {view === "list" && (
@@ -585,106 +626,40 @@ export function PartnerConnections({
       )}
       {!loading && view === "detail" && connection && (
         <>
-          <div className="flex flex-wrap gap-3">
-            <Button
-              loading={busy}
-              disabled={!connection.enabled || connection.state === "syncing"}
-              onClick={() => void act("sync")}
-            >
-              <RefreshCw aria-hidden />
-              Sync now
-            </Button>
-            {!connection.enabled &&
-            connection.auth_mode !== "none" &&
-            !connection.credential_configured &&
-            !connection.credentials_managed ? (
-              <Button asChild variant="outline">
-                <Link href={connectionPath(connection.provider, "edit")} prefetch={false}>
-                  Configure credential to reconnect
-                </Link>
-              </Button>
-            ) : (
-              <Button
-                variant="outline"
-                disabled={busy}
-                onClick={() => void act(connection.enabled ? "pause" : "resume")}
-              >
-                {connection.enabled
-                  ? "Pause imports"
-                  : connection.state === "disconnected"
-                    ? "Reconnect"
-                    : "Resume imports"}
-              </Button>
-            )}
-            {connection.state !== "disconnected" && (
-              <Button asChild variant="destructive-ghost" disabled={busy}>
-                <Link href={connectionPath(connection.provider, "disconnect")} prefetch={false}>
-                  Disconnect
-                </Link>
-              </Button>
-            )}
-          </div>
-          <div className="grid items-start gap-6 xl:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)]">
-            <div className="space-y-6">
-              <ResourcePanel
-                title="Import connection"
-                fields={[
-                  { label: "Name", value: connection.name },
-                  {
-                    label: "Partner account",
-                    value: (
-                      <Link
-                        href={accountSettingsPath(connection.account_id)}
-                        prefetch={false}
-                        className="text-primary hover:underline"
-                      >
-                        {connection.account_name}
-                      </Link>
-                    ),
-                  },
-                  { label: "API", value: <span className="break-all">{connection.api_url}</span> },
-                  {
-                    label: "Sync interval",
-                    value: `${connection.sync_interval_minutes.toLocaleString()} minutes`,
-                  },
-                  {
-                    label: "Authentication",
-                    value: connection.credentials_managed
-                      ? "Managed by DevFeed"
-                      : connection.credential_configured
-                        ? connection.auth_mode === "bearer"
-                          ? "Bearer token configured"
-                          : "API key configured"
-                        : "No credential configured",
-                  },
-                ]}
-              />
-              <ResourcePanel
-                title="Imported products"
-                fields={[
-                  {
-                    label: "Total",
-                    value: (
-                      <Link
-                        href={`/products?account_id=${encodeURIComponent(connection.account_id)}`}
-                        className="text-primary hover:underline"
-                        prefetch={false}
-                      >
-                        {connection.products.toLocaleString()}
-                      </Link>
-                    ),
-                  },
-                  {
-                    label: "Accepted",
-                    value: (connection.commercial_approved ?? 0).toLocaleString(),
-                  },
-                  { label: "Qualified", value: connection.qualified.toLocaleString() },
-                  { label: "Checking", value: connection.checking.toLocaleString() },
-                  { label: "Needs attention", value: connection.needs_attention.toLocaleString() },
-                  { label: "Excluded", value: connection.excluded.toLocaleString() },
-                ]}
-              />
-            </div>
+          <div className="grid items-start gap-4 lg:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)]">
+            <ResourcePanel
+              title="Import connection"
+              fields={[
+                { label: "Name", value: connection.name },
+                {
+                  label: "Partner account",
+                  value: (
+                    <Link
+                      href={accountSettingsPath(connection.account_id)}
+                      prefetch={false}
+                      className="text-primary hover:underline"
+                    >
+                      {connection.account_name}
+                    </Link>
+                  ),
+                },
+                { label: "API", value: <span className="break-all">{connection.api_url}</span> },
+                {
+                  label: "Sync interval",
+                  value: `${connection.sync_interval_minutes.toLocaleString()} minutes`,
+                },
+                {
+                  label: "Authentication",
+                  value: connection.credentials_managed
+                    ? "Managed by DevFeed"
+                    : connection.credential_configured
+                      ? connection.auth_mode === "bearer"
+                        ? "Bearer token configured"
+                        : "API key configured"
+                      : "No credential configured",
+                },
+              ]}
+            />
             <ResourcePanel
               title="Sync status"
               fields={[
@@ -698,6 +673,37 @@ export function PartnerConnections({
               ]}
             />
           </div>
+          <ResourcePanel title="Imported products">
+            <dl className="grid grid-cols-2 gap-3 text-sm sm:grid-cols-3 lg:grid-cols-6">
+              {(
+                [
+                  ["Total", connection.products],
+                  ["Accepted", connection.commercial_approved ?? 0],
+                  ["Qualified", connection.qualified],
+                  ["Checking", connection.checking],
+                  ["Needs attention", connection.needs_attention],
+                  ["Excluded", connection.excluded],
+                ] as const
+              ).map(([label, count]) => (
+                <div key={label} className="min-w-0">
+                  <dt className="text-muted-foreground">{label}</dt>
+                  <dd className="mt-1 font-medium tabular-nums">
+                    {label === "Total" ? (
+                      <Link
+                        href={`/products?account_id=${encodeURIComponent(connection.account_id)}`}
+                        className="text-primary hover:underline"
+                        prefetch={false}
+                      >
+                        {count.toLocaleString()}
+                      </Link>
+                    ) : (
+                      count.toLocaleString()
+                    )}
+                  </dd>
+                </div>
+              ))}
+            </dl>
+          </ResourcePanel>
           <ResourcePanel title="Recent import runs">
             {jobsError ? (
               <p role="alert" className="text-sm">

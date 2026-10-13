@@ -133,12 +133,12 @@ describe("partner performance", () => {
     expect(csv).not.toContain("Shipyard");
   });
 
-  it("keeps the compact dashboard focused and links to the user-wide report and same period", () => {
+  it("compares formats on the dashboard and links to the user-wide report and same period", () => {
     render(<PartnerPerformance data={dashboard({ end: "2026-10-07" })} compact />);
     expect(screen.getByRole("link", { name: "View performance" }).getAttribute("href")).toBe(
       "/performance?days=7",
     );
-    expect(screen.queryByRole("region", { name: "Format comparison" })).toBeNull();
+    expect(screen.getByRole("region", { name: "Format comparison" })).toBeTruthy();
     expect(screen.queryByRole("link", { name: "Export daily CSV" })).toBeNull();
   });
 

@@ -51,7 +51,7 @@ it("shows all authorized account totals without a selector or account-page fanou
   portal();
   await screen.findByText("3,000");
   expect(screen.getByText("4.20%")).toBeTruthy();
-  expect(screen.getByText("205")).toBeTruthy();
+  expect(screen.getByText("205 partner accounts")).toBeTruthy();
   expect(screen.queryByRole("combobox", { name: "Partner account" })).toBeNull();
   expect(screen.queryByRole("button", { name: "Save click destination" })).toBeNull();
   expect(fetcher).toHaveBeenCalledOnce();
