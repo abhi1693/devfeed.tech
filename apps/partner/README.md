@@ -69,7 +69,11 @@ or account UUID prefix in workspace URLs:
 - `/connections`: imports across accessible accounts, with full-page detail, create, edit and
   disconnect workflows. The account relationship is selected when creating a connection.
 - `/settings`: a searchable, paginated account table. `/settings/<account-id>` opens that account's
-  click destination, automatic formats and audience defaults.
+  General section with account details, tier, promotion policy and benefits. Underlined section
+  navigation follows the reader settings structure: `/settings/<account-id>/destination` edits
+  click destinations, `/settings/<account-id>/formats` edits automatic ad formats and creative
+  previews, and `/settings/<account-id>/audience` edits audience targeting. Only the active section
+  loads its controls; every section checks account access and preserves the settings list context.
 
 Delivery charts overlay impressions and clicks with labeled left and right scales, a shared
 tooltip and distinct line styles. Unmeasured days remain gaps in both series.

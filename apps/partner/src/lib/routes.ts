@@ -1,4 +1,5 @@
 export type PortalSection = "overview" | "performance" | "products" | "connections" | "settings";
+export type AccountSettingsSection = "general" | "destination" | "formats" | "audience";
 export type ProductRoute = {
   view: "list" | "create" | "detail" | "placements" | "edit" | "archive";
   productId?: string;
@@ -8,8 +9,11 @@ export function portalPath(section: PortalSection = "overview") {
   return section === "overview" ? "/" : `/${section}`;
 }
 
-export function accountSettingsPath(accountId: string) {
-  return `/settings/${encodeURIComponent(accountId)}`;
+export function accountSettingsPath(
+  accountId: string,
+  section: AccountSettingsSection = "general",
+) {
+  return `/settings/${encodeURIComponent(accountId)}${section === "general" ? "" : `/${section}`}`;
 }
 
 export function productPath(

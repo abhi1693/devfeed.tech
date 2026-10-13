@@ -2,7 +2,7 @@
 import { act, cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
-import { PartnerPreferences } from "../src/app/partner-preferences";
+import { PartnerDestination } from "../src/app/partner-destination";
 import type { Account } from "../src/lib/types";
 import { partnerAccount } from "./partner-fixtures";
 
@@ -39,7 +39,7 @@ function stubApi(
 }
 function mount(value: Account = account) {
   return render(
-    <PartnerPreferences
+    <PartnerDestination
       account={value}
       csrfToken="partner-csrf"
       onSaved={saved}
@@ -56,14 +56,20 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-it("shows inherited sponsorship and trusted import policy without product-by-product type selection", async () => {
+it("shows only click destination controls and a preview", async () => {
+  const fetcher = stubApi();
   mount();
-  expect(screen.getByText("Sponsored · inherited from tier")).toBeTruthy();
-  expect(screen.getByText("Trusted partner imports accepted automatically")).toBeTruthy();
+  expect(screen.queryByText("Default promotion")).toBeNull();
+  expect(screen.queryByRole("button", { name: "Save ad formats" })).toBeNull();
+  expect(screen.queryByRole("form", { name: "Audience settings" })).toBeNull();
   expect(screen.getByRole("combobox", { name: "Product click destination" })).toBeTruthy();
   expect(screen.queryByRole("combobox", { name: /promotion type/i })).toBeNull();
   expect(screen.getByText(/DevFeed attribution/)).toBeTruthy();
   await screen.findByRole("link", { name: product.product_url });
+  expect(fetcher).toHaveBeenCalledOnce();
+  expect(fetcher.mock.calls[0][0]).toBe(
+    `/api/v1/partner/accounts/${account.id}/destination-preview`,
+  );
 });
 
 it("saves only the chosen destination with the partner CSRF token", async () => {
@@ -235,7 +241,7 @@ it("aborts account previews and ignores late results when changing accounts", as
   const view = mount();
   const firstSignal = preview.mock.calls[0][1].signal as AbortSignal;
   view.rerender(
-    <PartnerPreferences
+    <PartnerDestination
       account={second}
       csrfToken="next-csrf"
       onSaved={saved}
@@ -263,7 +269,7 @@ it("keeps the preview request across parent rerenders and uses the current acces
   stubApi(undefined, preview);
   const view = mount();
   view.rerender(
-    <PartnerPreferences
+    <PartnerDestination
       account={{ ...account }}
       csrfToken="new-csrf"
       onSaved={saved}
@@ -289,7 +295,7 @@ it("ignores late access errors from a save for the previous account", async () =
   const view = mount();
   await userEvent.click(screen.getByRole("button", { name: "Save click destination" }));
   view.rerender(
-    <PartnerPreferences
+    <PartnerDestination
       account={{ ...account, id: "22222222-2222-4222-8222-222222222222" }}
       csrfToken="new-csrf"
       onSaved={saved}

@@ -330,14 +330,32 @@ it("renders a global settings list instead of mounting account forms", () => {
   expect(fetch).not.toHaveBeenCalled();
 });
 
-it("opens a focused settings record independently of the current account list", async () => {
-  const fetcher = vi.fn().mockResolvedValue(Response.json({ product: null }));
+it("opens general account settings independently of the current account list without loading forms", () => {
+  const fetcher = vi.fn();
   vi.stubGlobal("fetch", fetcher);
   portal({ section: "settings", initialAccount: beta });
   expect(screen.getByRole("heading", { name: "Beta settings", level: 1 })).toBeTruthy();
+  const navigation = screen.getByRole("navigation", { name: "Account settings sections" });
+  expect(
+    within(navigation).getByRole("link", { name: "General" }).getAttribute("aria-current"),
+  ).toBe("page");
+  expect(screen.queryByRole("button", { name: "Save click destination" })).toBeNull();
+  expect(screen.queryByRole("form")).toBeNull();
+  expect(fetcher).not.toHaveBeenCalled();
+});
+
+it("opens only the requested account settings editor without loading workspace performance", async () => {
+  const fetcher = vi.fn().mockResolvedValue(Response.json({ product: null }));
+  vi.stubGlobal("fetch", fetcher);
+  portal({ section: "settings", settingsSection: "destination", initialAccount: beta });
+  expect(screen.getByRole("heading", { name: "Beta settings", level: 1 })).toBeTruthy();
   expect(screen.getByRole("button", { name: "Save click destination" })).toBeTruthy();
   await screen.findByText(/A preview will appear/);
-  expect(fetcher.mock.calls.some(([url]) => String(url).includes("/dashboard?"))).toBe(false);
+  expect(fetcher).toHaveBeenCalledOnce();
+  expect(fetcher).toHaveBeenCalledWith(
+    `/api/v1/partner/accounts/${beta.id}/destination-preview`,
+    expect.anything(),
+  );
 });
 
 it("keeps sign-out errors retryable and sends the session CSRF token", async () => {

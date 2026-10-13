@@ -8,7 +8,7 @@ import { ResourceHeading, ResourcePanel } from "@devfeed/ui/resource-layout";
 import { adFormatLabel } from "@devfeed/ui/advertising-formats";
 import { RefreshCw, ArrowUp, ArrowDown, ArrowUpDown, ArrowRight } from "lucide-react";
 import { PortalShell } from "./portal-shell";
-import { PartnerPreferences } from "./partner-preferences";
+import { PartnerAccountSettings } from "./partner-account-settings";
 import { PartnerProductCatalog } from "./partner-product-catalog";
 import { PartnerProductPage } from "./partner-product-page";
 import { PartnerProductCreate } from "./partner-product-form";
@@ -23,6 +23,7 @@ import {
   portalPath,
   productPath,
   type PortalSection,
+  type AccountSettingsSection,
   type ProductRoute,
 } from "@/lib/routes";
 import { PartnerWorkspaceDashboardResponse } from "@/lib/api/generated/validators";
@@ -77,6 +78,7 @@ export function Portal({
   identity,
   initialAccounts,
   section = "overview",
+  settingsSection = "general",
   initialAccount,
   initialDays = 30,
   initialAccountOffset = 0,
@@ -94,6 +96,7 @@ export function Portal({
   identity: Identity;
   initialAccounts: AccountPage;
   section?: PortalSection;
+  settingsSection?: AccountSettingsSection;
   initialAccount?: Account;
   initialDays?: number;
   initialAccountOffset?: number;
@@ -352,48 +355,14 @@ export function Portal({
         {!unavailable &&
           section === "settings" &&
           (account ? (
-            <>
-              <ResourceHeading
-                homeHref={portalPath()}
-                homeLabel="Dashboard"
-                siteTitle="DevFeed Partners"
-                title={`${account.name} settings`}
-                description="Delivery defaults, native formats, and audience targeting for this partner account."
-                trail={[{ label: "Settings", href: `${portalPath("settings")}${settingsQuery}` }]}
-              />
-              <ResourcePanel title="Partner account">
-                <dl className="grid gap-3 text-sm sm:grid-cols-2 xl:grid-cols-[1fr_1fr_1fr_2fr]">
-                  <div>
-                    <dt className="text-xs text-muted-foreground">Name</dt>
-                    <dd className="mt-1 font-medium">{account.name}</dd>
-                  </div>
-                  <div>
-                    <dt className="text-xs text-muted-foreground">Tier</dt>
-                    <dd className="mt-1">
-                      {account.tier.charAt(0).toUpperCase() + account.tier.slice(1)}
-                    </dd>
-                  </div>
-                  <div>
-                    <dt className="text-xs text-muted-foreground">Status</dt>
-                    <dd className="mt-1">
-                      <Badge variant={account.status === "active" ? "success" : "warning"}>
-                        {account.status}
-                      </Badge>
-                    </dd>
-                  </div>
-                  <div>
-                    <dt className="text-xs text-muted-foreground">Benefits</dt>
-                    <dd className="mt-1">{account.benefits.join(", ") || "—"}</dd>
-                  </div>
-                </dl>
-              </ResourcePanel>
-              <PartnerPreferences
-                account={account}
-                csrfToken={identity.csrf_token}
-                onSaved={setAccount}
-                onUnavailable={onUnavailable}
-              />
-            </>
+            <PartnerAccountSettings
+              account={account}
+              section={settingsSection}
+              query={settingsQuery}
+              csrfToken={identity.csrf_token}
+              onSaved={setAccount}
+              onUnavailable={onUnavailable}
+            />
           ) : (
             <PartnerSettings
               initialAccounts={initialAccounts}

@@ -886,10 +886,63 @@ try {
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
   await page.screenshot({ path: root + "reports/partner/dashboard-mobile.png", fullPage: true });
   await page.setViewportSize({ width: 1440, height: 1100 });
+  const previewsBeforeSettings = previewRequests.length;
+  const creativesBeforeSettings = creativePreviewRequests.length;
   await page.goto(origin + `/settings/${account.id}`);
-  await page.getByRole("region", { name: "Product promotion settings" }).waitFor();
+  const settingsNavigation = page.getByRole("navigation", {
+    name: "Account settings sections",
+    exact: true,
+  });
+  await settingsNavigation.getByRole("link", { name: "General", exact: true }).waitFor();
+  assert.equal(
+    await settingsNavigation
+      .getByRole("link", { name: "General", exact: true })
+      .getAttribute("aria-current"),
+    "page",
+  );
   await page.getByText("Sponsored · inherited from tier", { exact: true }).waitFor();
-  const settings = page.getByRole("region", { name: "Product promotion settings" });
+  assert.equal(await page.getByRole("button", { name: /^Save/ }).count(), 0);
+  assert.equal(
+    previewRequests.length,
+    previewsBeforeSettings,
+    "General does not load destination previews",
+  );
+  assert.equal(
+    creativePreviewRequests.length,
+    creativesBeforeSettings,
+    "General does not load creative previews",
+  );
+  await page.screenshot({
+    path: root + "reports/partner/settings-general-desktop.png",
+    fullPage: true,
+  });
+  await page.setViewportSize({ width: 390, height: 844 });
+  assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
+  await page.screenshot({
+    path: root + "reports/partner/settings-general-mobile.png",
+    fullPage: true,
+  });
+  await page.setViewportSize({ width: 1440, height: 1100 });
+  await settingsNavigation.getByRole("link", { name: "Click destination", exact: true }).click();
+  await page.waitForURL((url) => url.pathname === `/settings/${account.id}/destination`);
+  await page.goBack();
+  await page.waitForURL((url) => url.pathname === `/settings/${account.id}`);
+  await settingsNavigation.getByRole("link", { name: "General", exact: true }).waitFor();
+  await page.goForward();
+  await page.waitForURL((url) => url.pathname === `/settings/${account.id}/destination`);
+  const settings = page.getByRole("region", { name: "Click destination", exact: true });
+  await settings.waitFor();
+  assert.equal(
+    await settingsNavigation
+      .getByRole("link", { name: "Click destination", exact: true })
+      .getAttribute("aria-current"),
+    "page",
+  );
+  assert.equal(
+    await page.getByRole("form", { name: "Ad format settings", exact: true }).count(),
+    0,
+  );
+  assert.equal(await page.getByRole("form", { name: "Audience settings", exact: true }).count(), 0);
   assert.equal(await page.getByLabel("Senior", { exact: true }).count(), 0);
   assert.equal(
     await page.getByRole("combobox", { name: "Programming languages", exact: true }).count(),
@@ -910,16 +963,6 @@ try {
     previewBox.y > selectorBox.y,
     "Destination preview stays with its controls in the compact settings panel",
   );
-  const promotionPanel = await settings
-    .locator(':scope > div > section[data-slot="card"]')
-    .boundingBox();
-  const formatPanel = await page
-    .getByRole("region", { name: "Automatic ad formats", exact: true })
-    .boundingBox();
-  assert.ok(
-    formatPanel.x >= promotionPanel.x + promotionPanel.width,
-    "Related settings share the desktop row",
-  );
   await page.getByRole("combobox", { name: "Product click destination" }).click();
   assert.equal(await page.getByRole("option", { name: "None", exact: true }).count(), 0);
   assert.equal(await page.getByRole("option").count(), 2);
@@ -932,8 +975,13 @@ try {
   await page.getByRole("button", { name: "Save click destination", exact: true }).click();
   await page.getByRole("status").filter({ hasText: "Click destination saved." }).waitFor();
   assert.deepEqual(preferenceWrites.at(-1), { outbound_destination: "listing_url" });
+  await settingsNavigation.getByRole("link", { name: "Ad formats", exact: true }).click();
+  await page.waitForURL((url) => url.pathname.endsWith("/formats"));
+  assert.equal(await page.getByRole("combobox", { name: "Product click destination" }).count(), 0);
+  await settingsNavigation.getByRole("link", { name: "Click destination", exact: true }).click();
+  await page.waitForURL((url) => url.pathname === `/settings/${account.id}/destination`);
   await page.reload();
-  await page.getByText("Gold", { exact: true }).waitFor();
+  await page.getByRole("combobox", { name: "Product click destination" }).waitFor();
   assert.match(
     await page.getByRole("combobox", { name: "Product click destination" }).innerText(),
     /Partner listing/,
@@ -981,6 +1029,8 @@ try {
   account.tier = "silver";
   await page.goto(origin + `/settings/${account.id}`);
   await page.getByText("Silver", { exact: true }).waitFor();
+  await settingsNavigation.getByRole("link", { name: "Ad formats", exact: true }).click();
+  await page.waitForURL((url) => url.pathname === `/settings/${account.id}/formats`);
   const formatSettings = page.getByRole("form", { name: "Ad format settings", exact: true });
   assert.equal(await formatSettings.getByRole("checkbox", { name: /^Feed/ }).isChecked(), true);
   await formatSettings.getByRole("checkbox", { name: /^Homepage sponsorship/ }).check();
@@ -995,6 +1045,12 @@ try {
   assert.equal(account.outbound_destination, destinationBeforeFormats);
   assert.deepEqual(account.audience, audienceBeforeFormats);
   await page.reload();
+  assert.equal(
+    await settingsNavigation
+      .getByRole("link", { name: "Ad formats", exact: true })
+      .getAttribute("aria-current"),
+    "page",
+  );
   assert.equal(
     await formatSettings.getByRole("checkbox", { name: /^Homepage sponsorship/ }).isChecked(),
     true,
@@ -1013,12 +1069,24 @@ try {
   await actualCreative.locator("img").evaluate((img) => img.decode());
   assert.equal(await actualCreative.getByText("Sponsored", { exact: true }).count(), 1);
   assert.equal(await actualCreative.getByText("Visit website", { exact: true }).count(), 0);
-  assert.equal(await preview.locator("img").count(), 0, "destination preview remains URL-only");
+  assert.equal(
+    await preview.count(),
+    0,
+    "Destination settings are not mounted on the formats page",
+  );
   await page.setViewportSize({ width: 1280, height: 1100 });
   await formatSection.screenshot({ path: root + "reports/partner/ad-formats-desktop.png" });
+  await page.screenshot({
+    path: root + "reports/partner/settings-formats-desktop.png",
+    fullPage: true,
+  });
   await page.setViewportSize({ width: 390, height: 844 });
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
   await formatSection.screenshot({ path: root + "reports/partner/ad-formats-mobile.png" });
+  await page.screenshot({
+    path: root + "reports/partner/settings-formats-mobile.png",
+    fullPage: true,
+  });
   await page.setViewportSize({ width: 1440, height: 1100 });
   account.tier = "gold";
   await page.goto(origin + `/performance`);
@@ -1443,17 +1511,45 @@ try {
   account.advanced_targeting = true;
   await page.goto(origin + `/settings/${account.id}`);
   await page.getByText("Platinum", { exact: true }).waitFor();
+  await settingsNavigation.getByRole("link", { name: "Audience", exact: true }).click();
+  await page.waitForURL((url) => url.pathname === `/settings/${account.id}/audience`);
   const audience = page.getByRole("region", { name: "Audience targeting", exact: true });
+  assert.equal(
+    await page.getByRole("button", { name: "Save click destination", exact: true }).count(),
+    0,
+  );
+  assert.equal(
+    await page.getByRole("form", { name: "Ad format settings", exact: true }).count(),
+    0,
+  );
   await selectAudience(page, audience, audienceRequests);
   await audience.screenshot({
     path: root + "reports/partner/audience-portal-desktop.png",
     animations: "disabled",
   });
+  await page.screenshot({
+    path: root + "reports/partner/settings-audience-desktop.png",
+    fullPage: true,
+  });
   await page.setViewportSize({ width: 390, height: 844 });
+  await page.evaluate(() => new Promise(requestAnimationFrame));
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
+  const audienceTab = await settingsNavigation
+    .getByRole("link", { name: "Audience", exact: true })
+    .boundingBox();
+  const settingsNavBox = await settingsNavigation.boundingBox();
+  assert.ok(
+    audienceTab.x >= settingsNavBox.x &&
+      audienceTab.x + audienceTab.width <= settingsNavBox.x + settingsNavBox.width + 1,
+    "The active Audience tab stays visible on mobile without scrolling the page",
+  );
   await audience.screenshot({
     path: root + "reports/partner/audience-portal-mobile.png",
     animations: "disabled",
+  });
+  await page.screenshot({
+    path: root + "reports/partner/settings-audience-mobile.png",
+    fullPage: true,
   });
   const destinationBeforeAudience = account.outbound_destination;
   await page.getByRole("button", { name: "Save audience", exact: true }).click();
@@ -1468,12 +1564,12 @@ try {
   );
   account.tier = "diamond";
   await page.reload();
-  await page.getByText("Diamond", { exact: true }).waitFor();
+  await audience.getByRole("button", { name: "Save audience", exact: true }).waitFor();
   await checkAudienceSelection(audience);
   account.tier = "gold";
   account.advanced_targeting = false;
   await page.reload();
-  await page.getByText("Gold", { exact: true }).waitFor();
+  await audience.getByText(/Advanced targeting requires Platinum or Diamond/).waitFor();
   assert.equal(await audience.getByLabel("Senior", { exact: true }).count(), 0);
   assert.equal(
     await audience.getByRole("combobox", { name: "Programming languages", exact: true }).count(),
@@ -1570,6 +1666,7 @@ try {
   });
   await page.goto(origin + `/settings/${beta.id}`);
   await page.getByText("Bronze", { exact: true }).waitFor();
+  await settingsNavigation.getByRole("link", { name: "Click destination", exact: true }).click();
   await page
     .getByText("A preview will appear when this account has an accepted product.", { exact: true })
     .waitFor();
@@ -1577,7 +1674,7 @@ try {
   assert.ok(
     previewRequests.some((request) => request.account === beta.id && request.mode === "superuser"),
   );
-  assert.equal(new URL(page.url()).pathname, `/settings/${beta.id}`);
+  assert.equal(new URL(page.url()).pathname, `/settings/${beta.id}/destination`);
   for (const path of [
     "/assets",
     `/${account.id}`,
@@ -1674,6 +1771,18 @@ try {
   const foreignAccountId = "99999999-9999-4999-8999-999999999999";
   const unauthorized = await page.goto(origin + `/settings/${foreignAccountId}`);
   assert.equal(unauthorized.status(), 404, "Foreign account records remain inaccessible");
+  const unauthorizedSection = await context.request.get(
+    origin + `/settings/${foreignAccountId}/audience`,
+  );
+  assert.equal(
+    unauthorizedSection.status(),
+    404,
+    "Nested settings pages retain account authorization",
+  );
+  const unknownSection = await context.request.get(
+    origin + `/settings/${bookmarkedAccount.id}/private`,
+  );
+  assert.equal(unknownSection.status(), 404, "Unknown settings sections are not routes");
   assert.ok(
     accountLookups.some(
       (request) =>

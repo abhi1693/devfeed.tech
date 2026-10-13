@@ -2,7 +2,7 @@ import "server-only";
 import { notFound } from "next/navigation";
 import { portalSession } from "./session";
 import { Portal } from "@/app/portal";
-import type { PortalSection, ProductRoute } from "@/lib/routes";
+import type { AccountSettingsSection, PortalSection, ProductRoute } from "@/lib/routes";
 import type { ConnectionsRoute } from "@/app/partner-connections";
 import type { AssetSort, SortOrder } from "@/lib/types";
 
@@ -32,6 +32,7 @@ export async function PortalPage({
   section,
   searchParams,
   accountId,
+  settingsSection = "general",
   productRoute,
   connectionsRoute,
 }: {
@@ -39,6 +40,7 @@ export async function PortalPage({
   productRoute?: ProductRoute;
   connectionsRoute?: ConnectionsRoute;
   accountId?: string;
+  settingsSection?: AccountSettingsSection;
   searchParams: Promise<PortalSearchParams>;
 }) {
   const params = await searchParams;
@@ -97,10 +99,11 @@ export async function PortalPage({
   }
   return (
     <Portal
-      key={`${section}:${requestedAccount?.id ?? "all"}:${days}:${sort}:${order}:${assetOffset}:${productSearch}:${productOffset}:${includeArchived}:${policyOffset}:${accountSearch}:${accountOffset}:${canonicalProductRoute?.view}:${canonicalProductRoute?.productId}:${canonicalConnectionsRoute?.view}:${canonicalConnectionsRoute?.connectionId}:${canonicalConnectionsRoute?.offset}:${canonicalConnectionsRoute?.q}`}
+      key={`${section}:${settingsSection}:${requestedAccount?.id ?? "all"}:${days}:${sort}:${order}:${assetOffset}:${productSearch}:${productOffset}:${includeArchived}:${policyOffset}:${accountSearch}:${accountOffset}:${canonicalProductRoute?.view}:${canonicalProductRoute?.productId}:${canonicalConnectionsRoute?.view}:${canonicalConnectionsRoute?.connectionId}:${canonicalConnectionsRoute?.offset}:${canonicalConnectionsRoute?.q}`}
       identity={identity}
       initialAccounts={accounts}
       section={section}
+      settingsSection={settingsSection}
       initialAccount={requestedAccount}
       initialDays={days}
       initialAccountOffset={accountOffset}

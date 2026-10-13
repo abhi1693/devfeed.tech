@@ -36,7 +36,42 @@ it("authorizes a bookmarked settings record independently of the account list pa
   expect(page.props.initialAccount).toEqual(bookmarked);
   expect(page.props.initialAccounts.items).toEqual([account]);
   expect(page.props.initialAccountOffset).toBe(100);
+  expect(page.props.settingsSection).toBe("general");
   expect(session).toHaveBeenCalledWith(100, bookmarked.id, "", 25);
+});
+
+it.each(["destination", "formats", "audience"] as const)(
+  "authorizes a bookmarked %s section and preserves the settings list context",
+  async (settingsSection) => {
+    session.mockResolvedValueOnce(response(account));
+    const page = await PortalPage({
+      section: "settings",
+      accountId: account.id,
+      settingsSection,
+      searchParams: Promise.resolve({ q: "Shipyard", account_offset: "100" }),
+    });
+    expect(page.props.settingsSection).toBe(settingsSection);
+    expect(page.props.initialAccount).toEqual(account);
+    expect(page.props.initialAccountSearch).toBe("Shipyard");
+    expect(page.props.initialAccountOffset).toBe(100);
+    expect(session).toHaveBeenCalledWith(100, account.id, "Shipyard", 25);
+  },
+);
+
+it("remounts account state when navigating between settings sections", async () => {
+  session.mockResolvedValue(response(account));
+  const general = await PortalPage({
+    section: "settings",
+    accountId: account.id,
+    searchParams: Promise.resolve({}),
+  });
+  const audience = await PortalPage({
+    section: "settings",
+    accountId: account.id,
+    settingsSection: "audience",
+    searchParams: Promise.resolve({}),
+  });
+  expect(general.key).not.toBe(audience.key);
 });
 
 it("authorizes an explicit account policy filter before rendering a clean product route", async () => {
