@@ -71,6 +71,7 @@ describe("partner response contracts", () => {
       description: "Deploy services",
       image_url: null,
       logo_url: null,
+      ad_image_status: "default",
     };
     expect(parseCreativePreview({ product: creative })).toEqual(creative);
     expect(parseCreativePreview({ product: null })).toBeNull();

@@ -247,7 +247,7 @@ def create_master_prerequisites(connection, metadata):
         text(
             """CREATE TABLE article_image_jobs (
         id uuid PRIMARY KEY, article_id uuid, topic_id uuid, source_id uuid,
-        operation text, status text,
+        operation text, status text, created_at timestamptz NOT NULL DEFAULT now(),
         CONSTRAINT ck_image_job_subject CHECK ("""
             + source_logos.NEW_SUBJECT
             + "))"
@@ -354,6 +354,17 @@ def assert_partner_schema(connection, metadata):
     )
     assert image_index["column_names"] == ["product_id", "operation"]
     assert image_index["unique"] is True
+    custom_index = next(
+        index
+        for index in inspector.get_indexes("article_image_jobs")
+        if index["name"] == "uq_partner_ad_image_active"
+    )
+    assert custom_index["column_names"] == ["account_id", "product_id"]
+    assert custom_index["unique"] is True
+    assert {column["name"] for column in inspector.get_columns("article_image_jobs")} >= {
+        "account_id",
+        "subject_revision",
+    }
 
 
 def assert_enrollment_and_image_jobs(connection):
@@ -450,6 +461,29 @@ def assert_enrollment_and_image_jobs(connection):
             VALUES('bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',:product,'product-logo','running')"""),
             {"product": product},
         )
+    connection.execute(
+        text("""INSERT INTO partner_accounts(id,name,tier,status,created_at)
+        VALUES('dddddddd-dddd-4ddd-8ddd-dddddddddddd',
+        'Another image owner','gold','active',now())""")
+    )
+    for account in (
+        "22222222-2222-4222-8222-222222222222",
+        "dddddddd-dddd-4ddd-8ddd-dddddddddddd",
+    ):
+        connection.execute(
+            text("""INSERT INTO article_image_jobs
+            (id,account_id,product_id,subject_revision,operation,status)
+            VALUES(gen_random_uuid(),:account,:product,1,'product-ad-image','queued')"""),
+            {"account": account, "product": product},
+        )
+    for account, revision in ((None, 1), ("22222222-2222-4222-8222-222222222222", None)):
+        with pytest.raises(IntegrityError), connection.begin_nested():
+            connection.execute(
+                text("""INSERT INTO article_image_jobs
+                (id,account_id,product_id,subject_revision,operation,status)
+                VALUES(gen_random_uuid(),:account,:product,:revision,'product-ad-image','queued')"""),
+                {"account": account, "product": product, "revision": revision},
+            )
 
 
 @pytest.mark.integration

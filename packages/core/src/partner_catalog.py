@@ -6,8 +6,9 @@ from urllib.parse import urlsplit
 
 from sqlalchemy import exists, select, text, update
 
-from devfeed_core.job_lifecycle import fail_or_retry
+from devfeed_core.job_lifecycle import fail_or_retry, finish_job
 from devfeed_core.models import (
+    ArticleImageJob,
     PartnerAccount,
     PartnerConnection,
     PartnerEvaluation,
@@ -360,6 +361,7 @@ def merge_products(session, donor, recipient):
             .order_by(PartnerProductPromotion.account_id)
         )
     )
+    transferred_images, discarded_images = [], []
     for policy in donor_policies:
         session.scalar(
             select(PartnerAccount).where(PartnerAccount.id == policy.account_id).with_for_update()
@@ -372,6 +374,18 @@ def merge_products(session, donor, recipient):
                 account_id=policy.account_id, product_id=recipient.id, excluded=False
             )
             session.add(current)
+        # An explicit canonical choice (including clearing) wins. A never-customized
+        # canonical policy may inherit this account's image from its merged alias.
+        if not current.ad_image_url and not current.ad_image_revision and policy.ad_image_url:
+            current.ad_image_url = policy.ad_image_url
+            current.ad_image_revision = max(policy.ad_image_revision, 1)
+            current.managed_ad_image = {
+                **(policy.managed_ad_image or {}),
+                "subject_revision": current.ad_image_revision,
+            }
+            transferred_images.append((policy.account_id, recipient.id))
+        elif policy.managed_ad_image and policy.managed_ad_image.get("upload"):
+            discarded_images.append(policy)
         current.excluded = bool(current.excluded or policy.excluded)
         for field in ("ad_formats", "promotion_surfaces"):
             previous, incoming = getattr(current, field), getattr(policy, field)
@@ -385,6 +399,27 @@ def merge_products(session, donor, recipient):
             current.commercial_approved_at = policy.commercial_approved_at
             current.approval_source = policy.approval_source
     session.flush()
+    for job in session.scalars(
+        select(ArticleImageJob)
+        .where(
+            ArticleImageJob.product_id == donor.id,
+            ArticleImageJob.operation == "product-ad-image",
+            ArticleImageJob.status.in_(["queued", "running"]),
+        )
+        .with_for_update()
+    ):
+        finish_job(job, "already_present", utcnow())
+    if discarded_images:
+        from devfeed_core.partner_product_images import request_ad_image_cleanup
+
+        session.flush()
+        for policy in discarded_images:
+            request_ad_image_cleanup(session, policy)
+    if transferred_images:
+        from devfeed_core.partner_product_images import request_product_ad_image
+
+        for account_id, product_id in transferred_images:
+            request_product_ad_image(session, account_id, product_id)
     refresh_availability(session, recipient)
     if not eligible(recipient) and not recipient.excluded:
         request_assessment(session, recipient)

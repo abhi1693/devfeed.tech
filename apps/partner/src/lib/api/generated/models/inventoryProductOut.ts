@@ -9,6 +9,7 @@ import type { InventoryProductOutApprovalSource } from './inventoryProductOutApp
 
 export interface InventoryProductOut {
   ad_formats?: ('feed' | 'homepage_sponsorship' | 'sponsored_content' | 'engagement')[] | null;
+  ad_image_url?: string | null;
   approval_source?: InventoryProductOutApprovalSource;
   commercial_approved?: boolean;
   excluded: boolean;

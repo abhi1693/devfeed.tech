@@ -1,6 +1,7 @@
 """Reporting and limited marketing preferences scoped to live account memberships."""
 
 import uuid
+from typing import Annotated
 
 from devfeed_core.models import PartnerAccount, PartnerMembership
 from devfeed_core.partner_ad_formats import AdFormat, validate_account_formats
@@ -11,6 +12,13 @@ from devfeed_core.partner_audiences import (
 )
 from devfeed_core.partner_promotions import request_promotion_enrollment
 from devfeed_core.text_search import text_search
+from devfeed_http.partner_ad_images import (
+    limit_ad_image_upload,
+    lock_image_account,
+    lock_image_product,
+    save_product_promotion_with_images,
+    upload_product_ad_image,
+)
 from devfeed_http.partner_portal import (
     AccountOut,
     AccountsOut,
@@ -29,13 +37,12 @@ from devfeed_http.partner_portal import (
     inventory_products,
     product_promotion,
     reporting_dashboard,
-    save_product_promotion,
 )
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
 from sqlalchemy import func, select
 
 from devfeed_partner_api.auth import Partner, PartnerIdentity, require_partner
-from devfeed_partner_api.dependencies import DB
+from devfeed_partner_api.dependencies import DB, get_redis
 
 router = APIRouter(prefix="/v1/partner", tags=["partner"], dependencies=[Depends(require_partner)])
 
@@ -56,6 +63,26 @@ def visible_accounts(partner: PartnerIdentity):
 def account_access(session, partner: PartnerIdentity, account_id: uuid.UUID) -> PartnerAccount:
     account = session.scalar(visible_accounts(partner).where(PartnerAccount.id == account_id))
     if account is None:
+        raise HTTPException(404, "Partner account not found")
+    return account
+
+
+def write_product_account(session, partner, account_id, product_id):
+    account_access(session, partner, account_id)
+    lock_image_product(session, account_id, product_id)
+    account = lock_image_account(
+        session, visible_accounts(partner).where(PartnerAccount.id == account_id)
+    )
+    member = session.scalar(
+        select(PartnerMembership)
+        .where(
+            PartnerMembership.account_id == account_id,
+            PartnerMembership.issuer == partner.issuer,
+            PartnerMembership.subject == partner.subject,
+        )
+        .with_for_update(read=True)
+    )
+    if account is None or member is None:
         raise HTTPException(404, "Partner account not found")
     return account
 
@@ -237,14 +264,23 @@ def update_product_promotion(
     session: DB,
     partner: Partner,
 ):
-    account = session.scalar(
-        visible_accounts(partner)
-        .where(PartnerAccount.id == account_id)
-        .with_for_update()
-        .execution_options(populate_existing=True)
-    )
-    if account is None:
-        raise HTTPException(404, "Partner account not found")
-    result = save_product_promotion(session, account, product_id, payload)
-    session.commit()
-    return result
+    account = write_product_account(session, partner, account_id, product_id)
+    return save_product_promotion_with_images(session, account, product_id, payload)
+
+
+@router.post(
+    "/accounts/{account_id}/products/{product_id}/ad-image",
+    response_model=ProductPromotionOut,
+    operation_id="partnerProductAdImageUpload",
+)
+def upload_ad_image(
+    account_id: uuid.UUID,
+    product_id: uuid.UUID,
+    file: Annotated[UploadFile, File(description="JPEG, PNG or WebP, up to 5 MB")],
+    session: DB,
+    partner: Partner,
+):
+    account_access(session, partner, account_id)
+    limit_ad_image_upload(get_redis(), partner, account_id)
+    account = write_product_account(session, partner, account_id, product_id)
+    return upload_product_ad_image(session, account, product_id, file)

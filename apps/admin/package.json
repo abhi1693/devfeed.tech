@@ -12,6 +12,7 @@
     "analyze": "next analyze"
   },
   "dependencies": {
+    "@devfeed/http": "0.0.1",
     "@chimely/client": "0.2.2",
     "@chimely/react": "0.2.2",
     "@devfeed/telemetry": "0.0.1",

@@ -81,6 +81,32 @@ export function PartnerProductPlacements({
       }),
     [accountRequest, productId],
   );
+  const uploadImage = useCallback(
+    (file: File, signal: AbortSignal) => {
+      const body = new FormData();
+      body.append("file", file);
+      return accountRequest(`products/${productId}/ad-image`, {
+        method: "POST",
+        body,
+        signal,
+        headers: { "x-csrf-token": csrfToken },
+        errorMessage: "Could not upload the ad image. Try again.",
+        invalidMessage: "Could not confirm the uploaded ad image. Refresh and try again.",
+        statusMessages: {
+          413: "Choose an image under 5 MB.",
+          415: "Choose a valid JPEG, PNG or WebP image.",
+          422: "Choose a valid JPEG, PNG or WebP image.",
+        },
+        parse: (value) => {
+          const row = value as { account_id?: unknown; product_id?: unknown } | null;
+          if (row?.account_id !== accountId || row?.product_id !== productId)
+            throw new Error("Unexpected product placement settings.");
+          return parseProductPlacementPolicy(value);
+        },
+      });
+    },
+    [accountRequest, productId, accountId, csrfToken],
+  );
   return (
     <ProductPlacementEditor
       key={`${accountId}/${productId}`}
@@ -95,6 +121,7 @@ export function PartnerProductPlacements({
       loadPolicy={loadPolicy}
       savePolicy={savePolicy}
       loadPreview={loadPreview}
+      uploadImage={uploadImage}
     />
   );
 }

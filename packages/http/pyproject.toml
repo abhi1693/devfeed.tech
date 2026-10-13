@@ -7,6 +7,7 @@ dependencies = ["devfeed-core", "fastapi>=0.142.2,<1"]
 
 [project.optional-dependencies]
 identity = ["httpx>=0.28,<1", "PyJWT[crypto]>=2.10,<3"]
+uploads = ["boto3>=1.40,<2", "pillow>=11.3,<13", "python-multipart>=0.0.20,<1"]
 
 [build-system]
 requires = ["setuptools>=80,<85"]

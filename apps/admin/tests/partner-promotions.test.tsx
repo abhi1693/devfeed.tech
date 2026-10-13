@@ -29,6 +29,7 @@ vi.mock("@/lib/api/generated/admin", () => ({
   adminPartnerCreativePreview: vi.fn(),
   adminPartnerSponsorArticles: vi.fn(),
   adminPartnerProductPromotionGet: vi.fn(),
+  adminPartnerProductAdImageUpload: vi.fn(),
 }));
 const account: AccountOut = {
   id: "account-1",
@@ -59,6 +60,13 @@ const product = {
   status: "approved",
   excluded: false,
   globally_excluded: false,
+  ad_image_url: null,
+};
+const adImageDefaults = {
+  ad_image_url: null,
+  image_url: null,
+  default_image_url: null,
+  ad_image_status: "default" as const,
 };
 const campaign: CampaignOut = {
   id: "campaign-1",
@@ -94,6 +102,7 @@ beforeEach(() => {
   vi.mocked(api.adminPartnerCampaignUpdate).mockResolvedValue(campaign);
   vi.mocked(api.adminPartnerInventoryList).mockResolvedValue({ items: [product], total: 1 });
   vi.mocked(api.adminPartnerProductPromotionUpdate).mockResolvedValue({
+    ...adImageDefaults,
     account_id: account.id,
     product_id: product.id,
     excluded: true,
@@ -767,6 +776,7 @@ it("saves homepage sponsorship with feed-only surfaces and clears obsolete artic
 
 it("updates product restrictions with admin CSRF without toggling its exclusion", async () => {
   const policy = {
+    ...adImageDefaults,
     account_id: account.id,
     product_id: product.id,
     excluded: true,
@@ -791,7 +801,7 @@ it("updates product restrictions with admin CSRF without toggling its exclusion"
   expect(api.adminPartnerProductPromotionUpdate).toHaveBeenCalledWith(
     account.id,
     product.id,
-    { excluded: true, ad_formats: null, promotion_surfaces: null },
+    { excluded: true, ad_formats: null, promotion_surfaces: null, ad_image_url: null },
     expect.objectContaining({
       headers: { "X-CSRF-Token": "test-csrf" },
       signal: expect.any(AbortSignal),
@@ -799,10 +809,61 @@ it("updates product restrictions with admin CSRF without toggling its exclusion"
   );
 });
 
+it("uploads ad images through the admin gateway with CSRF without closing placements", async () => {
+  vi.mocked(api.adminPartnerProductPromotionGet).mockResolvedValue({
+    ...adImageDefaults,
+    account_id: account.id,
+    product_id: product.id,
+    excluded: false,
+    ad_formats: null,
+    promotion_surfaces: null,
+  });
+  const uploadedUrl = "https://images.example/partner-ad-images/800.webp?v=admin-upload";
+  vi.mocked(api.adminPartnerProductAdImageUpload).mockResolvedValue({
+    ...adImageDefaults,
+    account_id: account.id,
+    product_id: product.id,
+    excluded: false,
+    ad_formats: null,
+    promotion_surfaces: null,
+    ad_image_url: uploadedUrl,
+    image_url: uploadedUrl,
+    ad_image_status: "ready",
+  });
+  renderAdmin(
+    <PartnerProductPlacements
+      accountId={account.id}
+      product={product}
+      allowedFormats={paidAccount.allowed_ad_formats}
+      onSaved={push}
+    />,
+  );
+  fireEvent.click(screen.getByRole("button", { name: `Edit placements for ${product.name}` }));
+  await screen.findByRole("combobox", { name: "Ad image" });
+  expect(screen.queryByRole("button", { name: "Upload image" })).toBeNull();
+  fireEvent.click(screen.getByRole("combobox", { name: "Ad image" }));
+  fireEvent.click(screen.getByRole("option", { name: "Custom image" }));
+  const file = new File(["png"], "ad.png", { type: "image/png" });
+  fireEvent.change(screen.getByLabelText("Upload ad image file"), { target: { files: [file] } });
+  await screen.findByText(/Image uploaded and applied/);
+  expect(api.adminPartnerProductAdImageUpload).toHaveBeenCalledWith(
+    account.id,
+    product.id,
+    { file },
+    expect.objectContaining({
+      headers: { "X-CSRF-Token": "test-csrf" },
+      signal: expect.any(AbortSignal),
+    }),
+  );
+  expect(push).not.toHaveBeenCalled();
+  expect(screen.getByRole("dialog")).toBeTruthy();
+});
+
 it.each([false, true])(
   "requests an exact admin product preview and rejects unrelated creative (%s)",
   async (wrongProduct) => {
     vi.mocked(api.adminPartnerProductPromotionGet).mockResolvedValue({
+      ...adImageDefaults,
       account_id: account.id,
       product_id: product.id,
       excluded: false,
@@ -817,6 +878,7 @@ it.each([false, true])(
         description: "Manage Kubernetes workloads.",
         logo_url: null,
         image_url: null,
+        ad_image_status: "default",
       },
     });
     renderAdmin(
@@ -846,6 +908,7 @@ it.each([false, true])(
 
 it("rejects an admin product policy for another product", async () => {
   vi.mocked(api.adminPartnerProductPromotionGet).mockResolvedValue({
+    ...adImageDefaults,
     account_id: account.id,
     product_id: "other-product",
     excluded: false,
@@ -875,6 +938,7 @@ it("aborts a closed admin preview and ignores its late unauthorized failure", as
       }),
   );
   vi.mocked(api.adminPartnerProductPromotionGet).mockResolvedValue({
+    ...adImageDefaults,
     account_id: account.id,
     product_id: product.id,
     excluded: false,

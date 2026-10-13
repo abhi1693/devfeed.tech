@@ -1,10 +1,17 @@
 import { traceHeaders } from "@devfeed/telemetry/propagation";
+import {
+  readRequestBody,
+  RequestBodyTimeout,
+  RequestBodyTooLarge,
+} from "@devfeed/http/request-body";
 import "server-only";
 import { adminApiOrigin, adminWebOrigin } from "./config";
 
 // This is not a general-purpose proxy. Only the admin service's namespace is reachable.
 const privatePath = /^\/v1\/admin\/[a-zA-Z0-9_/-]+$/;
 const safe = new Set(["GET", "HEAD", "OPTIONS"]);
+const productAdImagePath =
+  /^\/v1\/admin\/partner-accounts\/[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}\/products\/[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}\/ad-image$/i;
 
 function upstreamTimeout(method: string, path: string): number {
   // Each guarded download has a 60s deadline, but a final in-flight socket
@@ -54,35 +61,17 @@ export async function gateway(request: Request, segments: string[]) {
       const value = request.headers.get(name);
       if (value) headers.set(name, value);
     }
-    const bodyLimit = path === "/v1/admin/source-imports" ? 6_100_000 : 1_000_000;
+    const imageUpload = productAdImagePath.test(path) && request.method === "POST";
+    const bodyLimit = imageUpload
+      ? 5 * 1024 * 1024 + 65536
+      : path === "/v1/admin/source-imports"
+        ? 6_100_000
+        : 1_000_000;
     let body: ArrayBuffer | undefined;
     if (!safe.has(request.method)) {
-      if (Number(request.headers.get("content-length")) > bodyLimit) {
-        return Response.json({ detail: "Request too large" }, { status: 413 });
-      }
-      const reader = request.body?.getReader();
-      const chunks: Uint8Array[] = [];
-      let size = 0;
-      if (reader) {
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
-          size += value.byteLength;
-          if (size > bodyLimit) {
-            await reader.cancel();
-            return Response.json({ detail: "Request too large" }, { status: 413 });
-          }
-          chunks.push(value);
-        }
-      }
-      const buffer = new Uint8Array(size);
-      let offset = 0;
-      for (const chunk of chunks) {
-        buffer.set(chunk, offset);
-        offset += chunk.length;
-      }
-      body = buffer.buffer;
+      body = await readRequestBody(request, bodyLimit, bodyLimit > 1_000_000 ? 10_000 : 2000);
     }
+    request.signal.throwIfAborted();
     for (const [key, value] of Object.entries(traceHeaders())) headers.set(key, value);
     const upstream = await fetch(`${adminApiOrigin()}${path}${incoming.search}`, {
       method: request.method,
@@ -114,7 +103,17 @@ export async function gateway(request: Request, segments: string[]) {
     // Never collapse Set-Cookie: callback rotates a session and deletes the state cookie.
     for (const value of upstream.headers.getSetCookie()) resultHeaders.append("Set-Cookie", value);
     return new Response(upstream.body, { status: upstream.status, headers: resultHeaders });
-  } catch {
+  } catch (error) {
+    if (error instanceof RequestBodyTooLarge)
+      return Response.json(
+        { detail: "Request too large" },
+        { status: 413, headers: { "Cache-Control": "no-store" } },
+      );
+    if (error instanceof RequestBodyTimeout)
+      return Response.json(
+        { detail: "Incomplete request" },
+        { status: 408, headers: { "Cache-Control": "no-store" } },
+      );
     // Do not log callback URLs, provider messages, codes, cookies, or tokens.
     return Response.json(
       { detail: "Admin service unavailable" },

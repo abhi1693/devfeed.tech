@@ -572,17 +572,22 @@ class ArticleImageJob(LeasedJobMixin, Base):
     __table_args__ = (
         CheckConstraint(
             "(article_id IS NOT NULL AND topic_id IS NULL AND source_id IS NULL "
-            "AND product_id IS NULL AND operation NOT IN "
-            "('topic-logo','source-logo','source-logo-refresh','product-logo','product-image')) OR "
+            "AND product_id IS NULL AND account_id IS NULL AND subject_revision IS NULL "
+            "AND operation NOT IN ('topic-logo','source-logo','source-logo-refresh',"
+            "'product-logo','product-image','product-ad-image')) OR "
             "(article_id IS NULL AND topic_id IS NOT NULL AND source_id IS NULL "
-            "AND product_id IS NULL "
+            "AND product_id IS NULL AND account_id IS NULL AND subject_revision IS NULL "
             "AND operation = 'topic-logo') OR "
             "(article_id IS NULL AND topic_id IS NULL AND source_id IS NOT NULL "
-            "AND product_id IS NULL "
+            "AND product_id IS NULL AND account_id IS NULL AND subject_revision IS NULL "
             "AND operation IN ('source-logo','source-logo-refresh')) OR "
             "(article_id IS NULL AND topic_id IS NULL AND source_id IS NULL "
-            "AND product_id IS NOT NULL "
-            "AND operation IN ('product-logo','product-image'))",
+            "AND product_id IS NOT NULL AND account_id IS NULL AND subject_revision IS NULL "
+            "AND operation IN ('product-logo','product-image')) OR "
+            "(article_id IS NULL AND topic_id IS NULL AND source_id IS NULL "
+            "AND product_id IS NOT NULL AND account_id IS NOT NULL "
+            "AND subject_revision IS NOT NULL AND subject_revision >= 0 "
+            "AND operation = 'product-ad-image')",
             name="ck_image_job_subject",
         ),
         CheckConstraint("status IN ('queued','running','succeeded','failed')"),
@@ -605,6 +610,10 @@ class ArticleImageJob(LeasedJobMixin, Base):
         ForeignKey("partner_products.id", ondelete="CASCADE"), index=True
     )
     product: Mapped["PartnerProduct | None"] = relationship(foreign_keys=[product_id])
+    account_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("partner_accounts.id", ondelete="CASCADE"), index=True
+    )
+    subject_revision: Mapped[int | None] = mapped_column(Integer)
     storage_version: Mapped[str | None] = mapped_column(String(20))
     http_status: Mapped[int | None] = mapped_column(Integer)
     outcome: Mapped[str | None] = mapped_column(String(20))
@@ -636,8 +645,26 @@ Index(
     ArticleImageJob.product_id,
     ArticleImageJob.operation,
     unique=True,
-    postgresql_where=ArticleImageJob.status.in_(["queued", "running"]),
+    postgresql_where=ArticleImageJob.status.in_(["queued", "running"])
+    & ArticleImageJob.account_id.is_(None),
 )
+Index(
+    "uq_partner_ad_image_active",
+    ArticleImageJob.account_id,
+    ArticleImageJob.product_id,
+    unique=True,
+    postgresql_where=ArticleImageJob.status.in_(["queued", "running"])
+    & (ArticleImageJob.operation == "product-ad-image"),
+)
+Index(
+    "ix_partner_ad_image_history",
+    ArticleImageJob.account_id,
+    ArticleImageJob.product_id,
+    ArticleImageJob.subject_revision,
+    ArticleImageJob.created_at,
+    postgresql_where=ArticleImageJob.operation == "product-ad-image",
+)
+
 Index(
     "ix_article_image_dispatch",
     ArticleImageJob.available_at,
@@ -1891,6 +1918,7 @@ class PartnerProductPromotion(Base):
             "AND approval_source = 'trusted')",
             name="ck_partner_commercial_approval",
         ),
+        CheckConstraint("ad_image_revision >= 0", name="ck_partner_ad_image_revision"),
     )
     account_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("partner_accounts.id", ondelete="CASCADE"), primary_key=True
@@ -1901,6 +1929,9 @@ class PartnerProductPromotion(Base):
     excluded: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
     promotion_surfaces: Mapped[list | None] = mapped_column(JSONB(none_as_null=True))
     ad_formats: Mapped[list | None] = mapped_column(JSONB(none_as_null=True))
+    ad_image_url: Mapped[str | None] = mapped_column(String(2048))
+    managed_ad_image: Mapped[dict] = mapped_column(JSONB, default=dict, server_default="{}")
+    ad_image_revision: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
     commercial_approved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     approval_source: Mapped[str | None] = mapped_column(String(20))
 

@@ -111,4 +111,5 @@ def test_large_enrollment_preserves_inventory_idempotency_and_new_acceptance_job
     assert {product.status for product in products} == ({"pending"} if trusted else {"approved"})
     if trusted:
         assert len(ledger.approval_bind_counts) > 1
-        assert max(ledger.approval_bind_counts) <= 3000
+        # Managed-image defaults add bindings while each trusted batch stays bounded.
+        assert max(ledger.approval_bind_counts) <= 4000

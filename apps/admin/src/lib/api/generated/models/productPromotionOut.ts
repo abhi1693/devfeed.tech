@@ -5,11 +5,16 @@
  * Private administration API. OIDC sessions and CSRF protection required.
  * OpenAPI spec version: 0.0.52
  */
+import type { ProductPromotionOutAdImageStatus } from './productPromotionOutAdImageStatus';
 
 export interface ProductPromotionOut {
   account_id: string;
   ad_formats?: ('feed' | 'homepage_sponsorship' | 'sponsored_content' | 'engagement')[] | null;
+  ad_image_status: ProductPromotionOutAdImageStatus;
+  ad_image_url?: string | null;
+  default_image_url: string | null;
   excluded: boolean;
+  image_url: string | null;
   product_id: string;
   promotion_surfaces?: ('article' | 'topic' | 'feed')[] | null;
 }

@@ -1,9 +1,13 @@
 "use client";
 
-/* eslint-disable @next/next/no-img-element -- Previews use managed product/article media. */
-import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
+/* eslint-disable @next/next/no-img-element -- Previews use managed media and the owner's draft image. */
+import { useCallback, useEffect, useId, useRef, useState, type FormEvent } from "react";
 import { Dialog } from "radix-ui";
+import { Upload } from "lucide-react";
 import { Select } from "./select";
+import { Input } from "./input";
+import { Button } from "./button";
+import { useDebouncedImagePreview } from "./use-debounced-image-preview";
 
 export const adFormats = [
   {
@@ -100,6 +104,7 @@ export type CreativePreviewProduct = {
   image_url: string | null;
   product_url: string;
   listing_url: string | null;
+  ad_image_status?: ProductAdImageStatus;
 };
 export type CreativePreviewArticle = {
   id: string;
@@ -120,7 +125,19 @@ export type ProductPlacementRestrictions = {
   ad_formats: AdFormat[] | null;
   promotion_surfaces: PlacementSurface[] | null;
 };
-export type ProductPlacementPolicy = ProductPlacementRestrictions & { excluded: boolean };
+export type ProductAdImageStatus = "default" | "queued" | "running" | "ready" | "failed";
+function validAdImageStatus(value: unknown): value is ProductAdImageStatus {
+  return (
+    typeof value === "string" && ["default", "queued", "running", "ready", "failed"].includes(value)
+  );
+}
+export type ProductPlacementPolicy = ProductPlacementRestrictions & {
+  excluded: boolean;
+  ad_image_url: string | null;
+  image_url?: string | null;
+  default_image_url?: string | null;
+  ad_image_status?: ProductAdImageStatus;
+};
 function sameSelection(left: string[] | null, right: string[] | null) {
   return left === null || right === null
     ? left === right
@@ -129,6 +146,7 @@ function sameSelection(left: string[] | null, right: string[] | null) {
 function sameProductPolicy(left: ProductPlacementPolicy, right: ProductPlacementPolicy) {
   return (
     left.excluded === right.excluded &&
+    left.ad_image_url === right.ad_image_url &&
     sameSelection(left.ad_formats, right.ad_formats) &&
     sameSelection(left.promotion_surfaces, right.promotion_surfaces)
   );
@@ -138,6 +156,15 @@ export function parseProductPlacementPolicy(value: unknown): ProductPlacementPol
   const row = value as ProductPlacementPolicy;
   if (
     typeof row.excluded !== "boolean" ||
+    !(row.ad_image_url === null || typeof row.ad_image_url === "string") ||
+    (typeof row.ad_image_url === "string" && !normalizeAdImageUrl(row.ad_image_url)) ||
+    (row.ad_image_status !== undefined && !validAdImageStatus(row.ad_image_status)) ||
+    ["image_url", "default_image_url"].some(
+      (key) =>
+        key in row &&
+        row[key as "image_url" | "default_image_url"] !== null &&
+        typeof row[key as "image_url" | "default_image_url"] !== "string",
+    ) ||
     !(
       row.ad_formats === null ||
       (Array.isArray(row.ad_formats) &&
@@ -167,6 +194,7 @@ type ProductPlacementEditorProps = {
     signal: AbortSignal,
   ) => Promise<ProductPlacementPolicy>;
   loadPreview?: (signal: AbortSignal) => Promise<CreativePreviewProduct | null>;
+  uploadImage?: (file: File, signal: AbortSignal) => Promise<ProductPlacementPolicy>;
   onSaved?: () => void;
 };
 
@@ -217,6 +245,7 @@ export function ProductPlacementEditor({
   loadPolicy,
   savePolicy,
   loadPreview,
+  uploadImage,
   onSaved,
   onCancel,
   cancelLabel = "Cancel",
@@ -228,25 +257,43 @@ export function ProductPlacementEditor({
 }) {
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const [uploadMessage, setUploadMessage] = useState("");
+  const [uploadedImage, setUploadedImage] = useState<ProductPlacementPolicy | null>(null);
   const [error, setError] = useState("");
   const [policy, setPolicy] = useState<ProductPlacementPolicy | null>(null);
   const [excluded, setExcluded] = useState(false);
   const [previewOpen, setPreviewOpen] = useState(previewInline);
   const [formatMode, setFormatMode] = useState("inherit");
   const [surfaceMode, setSurfaceMode] = useState("inherit");
+  const imageControlId = useId();
+  const [imageMode, setImageMode] = useState("default");
+  const [imageUrl, setImageUrl] = useState("");
   const [formats, setFormats] = useState<AdFormat[]>([]);
   const [surfaces, setSurfaces] = useState<PlacementSurface[]>([]);
   const request = useRef<AbortController | null>(null);
+  const uploadRequest = useRef<AbortController | null>(null);
+  const uploadInput = useRef<HTMLInputElement>(null);
   // The caller keys this editor by account and product. Parent refreshes must
   // preserve an open draft even when they create new callback/format arrays.
   const initial = useRef({ loadPolicy, allowedFormats, previewInline });
-  useEffect(() => () => request.current?.abort(), []);
+  useEffect(
+    () => () => {
+      request.current?.abort();
+      uploadRequest.current?.abort();
+    },
+    [],
+  );
+  const busy = saving || uploading;
   const draft: ProductPlacementPolicy = {
     excluded,
     ad_formats: formatMode === "inherit" ? null : formats,
     promotion_surfaces: surfaceMode === "inherit" ? null : surfaces,
+    ad_image_url: imageMode === "custom" ? normalizeAdImageUrl(imageUrl) : null,
   };
-  const dirty = policy && !sameProductPolicy(policy, draft);
+  const dirty =
+    policy &&
+    (!sameProductPolicy(policy, draft) || (imageMode === "custom" && !draft.ad_image_url));
   const effectiveFormats = excluded
     ? []
     : automaticAdFormats.filter(
@@ -279,6 +326,8 @@ export function ProductPlacementEditor({
       setSurfaceMode(next.promotion_surfaces === null ? "inherit" : "custom");
       setFormats(next.ad_formats ?? [...initial.current.allowedFormats]);
       setSurfaces(next.promotion_surfaces ?? placementSurfaces.map((surface) => surface.value));
+      setImageMode(next.ad_image_url ? "custom" : "default");
+      setImageUrl(next.ad_image_url ?? "");
     } catch (reason) {
       if (!controller.signal.aborted)
         setError(reason instanceof Error ? reason.message : "Could not load product placements.");
@@ -292,7 +341,11 @@ export function ProductPlacementEditor({
 
   async function save(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (saving || !policy) return;
+    if (busy || !policy) return;
+    if (imageMode === "custom" && !draft.ad_image_url) {
+      setError("Enter a public HTTPS URL for the ad image.");
+      return;
+    }
     const controller = new AbortController();
     request.current = controller;
     setSaving(true);
@@ -305,6 +358,8 @@ export function ProductPlacementEditor({
             "Could not confirm saved product placements. Review your changes and retry.",
           );
         setPolicy(saved);
+        setUploadedImage(null);
+        setUploadMessage("");
         onSaved?.();
       }
     } catch (reason) {
@@ -313,6 +368,61 @@ export function ProductPlacementEditor({
     } finally {
       if (!controller.signal.aborted) setSaving(false);
     }
+  }
+  async function upload(file: File) {
+    if (busy || uploadRequest.current || !policy || !uploadImage) return;
+    setError("");
+    setUploadMessage("");
+    if (!file.size || file.size > 5 * 1024 * 1024) {
+      setError("Choose an image under 5 MB.");
+      return;
+    }
+    if (!["image/jpeg", "image/png", "image/webp"].includes(file.type)) {
+      setError("Choose a JPEG, PNG or WebP image.");
+      return;
+    }
+    const controller = new AbortController();
+    uploadRequest.current = controller;
+    setUploading(true);
+    try {
+      const next = parseProductPlacementPolicy(await uploadImage(file, controller.signal));
+      if (controller.signal.aborted) return;
+      if (
+        !next.ad_image_url ||
+        next.image_url !== next.ad_image_url ||
+        next.ad_image_status !== "ready"
+      )
+        throw new Error("Could not confirm the uploaded ad image. Refresh and try again.");
+      setPolicy(
+        (current) =>
+          current && {
+            ...current,
+            ad_image_url: next.ad_image_url,
+            image_url: next.image_url,
+            default_image_url: next.default_image_url,
+            ad_image_status: next.ad_image_status,
+          },
+      );
+      setImageMode("custom");
+      setImageUrl(next.ad_image_url);
+      setUploadedImage(next);
+      setPreviewOpen(true);
+      setUploadMessage("Image uploaded and applied. Save any other placement changes separately.");
+    } catch (reason) {
+      if (!controller.signal.aborted)
+        setError(
+          reason instanceof Error ? reason.message : "Could not upload the ad image. Try again.",
+        );
+    } finally {
+      if (uploadRequest.current === controller) uploadRequest.current = null;
+      if (!controller.signal.aborted) setUploading(false);
+    }
+  }
+  function cancel() {
+    uploadRequest.current?.abort();
+    uploadRequest.current = null;
+    setUploading(false);
+    onCancel();
   }
   return (
     <div>
@@ -325,7 +435,7 @@ export function ProductPlacementEditor({
           <form
             aria-label="Product placement settings"
             onSubmit={save}
-            aria-busy={saving}
+            aria-busy={busy}
             className={
               previewInline ? "mt-5 grid items-start gap-6 lg:grid-cols-2" : "mt-5 space-y-5"
             }
@@ -335,7 +445,7 @@ export function ProductPlacementEditor({
                 label="Product availability"
                 required
                 value={excluded ? "excluded" : "allowed"}
-                disabled={saving}
+                disabled={busy}
                 onChange={(value) => setExcluded(value === "excluded")}
                 options={[
                   { value: "allowed", label: "Allow this product" },
@@ -355,7 +465,7 @@ export function ProductPlacementEditor({
                 label="Product formats"
                 required
                 value={formatMode}
-                disabled={saving}
+                disabled={busy}
                 onChange={setFormatMode}
                 options={[
                   { value: "inherit", label: "Inherit account formats" },
@@ -363,7 +473,7 @@ export function ProductPlacementEditor({
                 ]}
               />
               {formatMode === "custom" && (
-                <fieldset disabled={saving} className="space-y-2">
+                <fieldset disabled={busy} className="space-y-2">
                   <legend className="mb-2 text-sm font-medium">Allowed product formats</legend>
                   <div className="grid gap-3 sm:grid-cols-2">
                     {adFormats.map((format) => (
@@ -394,7 +504,7 @@ export function ProductPlacementEditor({
                 label="Product placements"
                 required
                 value={surfaceMode}
-                disabled={saving}
+                disabled={busy}
                 onChange={setSurfaceMode}
                 options={[
                   { value: "inherit", label: "Inherit account placements" },
@@ -402,7 +512,7 @@ export function ProductPlacementEditor({
                 ]}
               />
               {surfaceMode === "custom" && (
-                <fieldset disabled={saving} className="space-y-2">
+                <fieldset disabled={busy} className="space-y-2">
                   <legend className="mb-2 text-sm font-medium">Allowed product placements</legend>
                   <div className="flex flex-wrap gap-3">
                     {placementSurfaces.map((surface) => (
@@ -427,6 +537,81 @@ export function ProductPlacementEditor({
                   </p>
                 </fieldset>
               )}
+              <div className="space-y-3 border-t pt-4">
+                <label htmlFor={`${imageControlId}-mode`} className="text-sm font-medium">
+                  Ad image
+                </label>
+                <Select
+                  id={`${imageControlId}-mode`}
+                  label="Ad image"
+                  value={imageMode}
+                  onChange={setImageMode}
+                  disabled={busy}
+                  required
+                  options={[
+                    { value: "default", label: "Website image" },
+                    { value: "custom", label: "Custom image" },
+                  ]}
+                />
+                {imageMode === "custom" && (
+                  <div className="space-y-2">
+                    <label htmlFor={`${imageControlId}-url`} className="text-sm font-medium">
+                      Ad image URL
+                    </label>
+                    <Input
+                      id={`${imageControlId}-url`}
+                      type="url"
+                      value={imageUrl}
+                      onChange={(event) => setImageUrl(event.target.value)}
+                      placeholder="https://cdn.example.com/product-ad.jpg"
+                      maxLength={2048}
+                      disabled={busy}
+                      required
+                      aria-describedby={`${imageControlId}-help`}
+                    />
+                  </div>
+                )}
+                {imageMode === "custom" && uploadImage && (
+                  <div className="space-y-2">
+                    <input
+                      ref={uploadInput}
+                      type="file"
+                      className="sr-only"
+                      aria-label="Upload ad image file"
+                      accept="image/jpeg,image/png,image/webp"
+                      disabled={busy}
+                      onChange={(event) => {
+                        const file = event.target.files?.[0];
+                        event.target.value = "";
+                        if (file) void upload(file);
+                      }}
+                    />
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      disabled={busy}
+                      aria-busy={uploading}
+                      onClick={() => uploadInput.current?.click()}
+                    >
+                      <Upload className="size-4" aria-hidden="true" />
+                      {uploading ? "Uploading…" : "Upload image"}
+                    </Button>
+                    <p className="text-xs text-muted-foreground">
+                      JPEG, PNG or WebP, up to 5 MB. Uploading applies the image immediately.
+                    </p>
+                    {uploadMessage && (
+                      <p role="status" className="text-sm">
+                        {uploadMessage}
+                      </p>
+                    )}
+                  </div>
+                )}
+                <p id={`${imageControlId}-help`} className="text-xs text-muted-foreground">
+                  Save an image URL to prepare it for delivery; the website image stays in use until
+                  it is ready. Article sponsorship keeps the article’s image.
+                </p>
+              </div>
               <div className="space-y-2 rounded-lg bg-muted p-3 text-sm">
                 <p role="status" className="font-medium">
                   {dirty ? "Unsaved changes" : "Saved product settings"}
@@ -476,6 +661,15 @@ export function ProductPlacementEditor({
                     }
                     destination={destination}
                     load={loadPreview}
+                    imageUrlOverride={
+                      draft.ad_image_url !== policy.ad_image_url
+                        ? imageMode === "custom"
+                          ? draftImagePreviewUrl(draft.ad_image_url)
+                          : policy.default_image_url
+                        : uploadedImage?.image_url
+                    }
+                    draftImage={draft.ad_image_url !== policy.ad_image_url}
+                    savedImageStatus={uploadedImage?.ad_image_status}
                   />
                 )}
               </div>
@@ -503,13 +697,13 @@ export function ProductPlacementEditor({
                 type="button"
                 className="rounded-md border px-3 py-2 text-sm"
                 disabled={saving}
-                onClick={onCancel}
+                onClick={cancel}
               >
                 {cancelLabel}
               </button>
               <button
                 type="submit"
-                disabled={saving}
+                disabled={busy}
                 className="rounded-md bg-primary px-3 py-2 text-sm text-primary-foreground disabled:opacity-50"
               >
                 {saving ? "Saving…" : "Save product placements"}
@@ -542,11 +736,17 @@ export function ProductPlacementPreview({
   initialFormat,
   destination,
   load,
+  imageUrlOverride,
+  draftImage = false,
+  savedImageStatus,
 }: {
   allowedFormats: AdFormat[];
   initialFormat: AdFormat;
   destination?: "product_url" | "listing_url";
   load: (signal: AbortSignal) => Promise<CreativePreviewProduct | null>;
+  imageUrlOverride?: string | null;
+  draftImage?: boolean;
+  savedImageStatus?: ProductAdImageStatus;
 }) {
   const formats = automaticAdFormats.filter((format) => allowedFormats.includes(format));
   const [format, setFormat] = useState<AdFormat>(
@@ -556,11 +756,14 @@ export function ProductPlacementPreview({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
   const [revision, setRevision] = useState(0);
+  const [imagePolls, setImagePolls] = useState(0);
+  const settledImage = useDebouncedImagePreview(imageUrlOverride ?? null);
   useEffect(() => {
     const controller = new AbortController();
     setLoading(true);
     setError(false);
     setProduct(null);
+    setImagePolls(0);
     void load(controller.signal)
       .then((next) => {
         if (!controller.signal.aborted) setProduct(next);
@@ -573,12 +776,57 @@ export function ProductPlacementPreview({
       });
     return () => controller.abort();
   }, [load, revision]);
+  const imageStatus = savedImageStatus ?? product?.ad_image_status;
+  useEffect(() => {
+    if (draftImage || imagePolls >= 20 || (imageStatus !== "queued" && imageStatus !== "running"))
+      return;
+    const controller = new AbortController();
+    const timer = setTimeout(() => {
+      void load(controller.signal).then(
+        (next) => {
+          if (!controller.signal.aborted) {
+            setProduct(next);
+            setImagePolls((count) => count + 1);
+          }
+        },
+        () => {
+          if (!controller.signal.aborted) setImagePolls((count) => count + 1);
+        },
+      );
+    }, 3000);
+    return () => {
+      clearTimeout(timer);
+      controller.abort();
+    };
+  }, [draftImage, imageStatus, imagePolls, load, revision]);
+  const visibleProduct =
+    product && imageUrlOverride !== undefined
+      ? { ...product, image_url: imageUrlOverride === null ? null : settledImage }
+      : product;
   return (
     <div className="space-y-3">
       <p className="text-xs text-muted-foreground">
         Appearance preview for this product using its saved destination. Unsaved placement changes
         do not affect preview availability, and a preview does not confirm delivery eligibility.
       </p>
+      {draftImage ? (
+        <p role="status" aria-label="Ad image status" className="text-xs text-muted-foreground">
+          Unsaved image preview. Save product placements to apply it.
+        </p>
+      ) : imageStatus === "queued" || imageStatus === "running" ? (
+        <p role="status" aria-label="Ad image status" className="text-xs text-muted-foreground">
+          Preparing the custom image. The website image remains in use until it is ready.
+        </p>
+      ) : imageStatus === "failed" ? (
+        <p role="status" aria-label="Ad image status" className="text-xs text-muted-foreground">
+          The custom image could not be prepared. The website image remains in use. Save product
+          placements to retry, or choose another URL.
+        </p>
+      ) : imageStatus === "ready" ? (
+        <p role="status" aria-label="Ad image status" className="text-xs text-muted-foreground">
+          Using the custom ad image.
+        </p>
+      ) : null}
       {formats.length > 1 && (
         <Select
           label="Product preview format"
@@ -591,7 +839,7 @@ export function ProductPlacementPreview({
       {loading || error || product ? (
         <AdCreativePreview
           format={format}
-          product={product}
+          product={visibleProduct}
           destination={destination}
           loading={loading}
           error={error}
@@ -603,6 +851,14 @@ export function ProductPlacementPreview({
           allowed by saved product settings.
         </p>
       )}
+      <Button
+        size="sm"
+        variant="outline"
+        disabled={loading}
+        onClick={() => setRevision((value) => value + 1)}
+      >
+        Refresh preview
+      </Button>
     </div>
   );
 }
@@ -620,10 +876,47 @@ export function parseCreativePreview(value: unknown): CreativePreviewProduct | n
     ) ||
     !["logo_url", "image_url", "listing_url"].every(
       (key) => product[key] === null || typeof product[key] === "string",
-    )
+    ) ||
+    (product.ad_image_status !== undefined && !validAdImageStatus(product.ad_image_status))
   )
     throw new Error("Invalid creative preview.");
   return product as CreativePreviewProduct;
+}
+
+function normalizeAdImageUrl(value: string) {
+  const trimmed = value.trim();
+  if (!trimmed || trimmed.length > 2048 || /[\s\u0000-\u001f\u007f]/.test(trimmed)) return null;
+  try {
+    const url = new URL(trimmed);
+    if (
+      url.protocol !== "https:" ||
+      url.username ||
+      url.password ||
+      (url.port && url.port !== "443")
+    )
+      return null;
+    url.hash = "";
+    url.hostname = url.hostname.toLowerCase().replace(/\.$/, "");
+    return url.href;
+  } catch {
+    return null;
+  }
+}
+
+// An unsaved URL is only previewed in its owner's form. Delivery uses managed assets.
+function draftImagePreviewUrl(value: string | null) {
+  if (!value) return null;
+  const url = new URL(value);
+  const host = url.hostname;
+  if (
+    !host.includes(".") ||
+    host.endsWith(".localhost") ||
+    host.endsWith(".local") ||
+    host.endsWith(".internal") ||
+    /^\d+(?:\.\d+){3}$/.test(host)
+  )
+    return null;
+  return value;
 }
 
 function safeImage(value?: string | null) {

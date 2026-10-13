@@ -103,11 +103,12 @@ def test_valid_admin_session_can_create_account(admin_boundary):
     session.commit.assert_called_once()
 
 
-def test_partner_service_only_exposes_scoped_marketing_preference_write():
+def test_partner_service_only_exposes_scoped_marketing_and_image_writes():
     app = FastAPI()
     app.include_router(portal.router)
     paths = app.openapi()["paths"]
     preference_path = "/v1/partner/accounts/{account_id}/preferences"
+    image_path = "/v1/partner/accounts/{account_id}/products/{product_id}/ad-image"
     assert set(paths) == {
         "/v1/partner/accounts",
         "/v1/partner/accounts/{account_id}",
@@ -117,6 +118,7 @@ def test_partner_service_only_exposes_scoped_marketing_preference_write():
         "/v1/partner/accounts/{account_id}/creative-preview",
         "/v1/partner/accounts/{account_id}/inventory",
         "/v1/partner/accounts/{account_id}/products/{product_id}/promotion",
+        image_path,
         preference_path,
     }
     account_get = paths["/v1/partner/accounts/{account_id}"]["get"]
@@ -134,6 +136,7 @@ def test_partner_service_only_exposes_scoped_marketing_preference_write():
         if path
         not in {
             preference_path,
+            image_path,
             "/v1/partner/accounts/{account_id}/products/{product_id}/promotion",
         }
     )
@@ -141,6 +144,12 @@ def test_partner_service_only_exposes_scoped_marketing_preference_write():
         "get",
         "put",
     }
+    assert set(paths[image_path]) == {"post"}
+    assert paths[image_path]["post"]["operationId"] == "partnerProductAdImageUpload"
+    assert set(paths[image_path]["post"]["requestBody"]["content"]) == {"multipart/form-data"}
+    assert paths[image_path]["post"]["responses"]["200"]["content"]["application/json"][
+        "schema"
+    ] == {"$ref": "#/components/schemas/ProductPromotionOut"}
     with TestClient(app) as client:
         assert client.post("/v1/partner/accounts", json={}).status_code == 405
         assert client.get(f"/v1/partner/accounts/{uuid.uuid4()}/members").status_code == 404

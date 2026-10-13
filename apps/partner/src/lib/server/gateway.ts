@@ -20,6 +20,8 @@ const creativePreviewPath =
   /^\/v1\/partner\/accounts\/[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}\/creative-preview$/i;
 const productPromotionPath =
   /^\/v1\/partner\/accounts\/[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}\/products\/[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}\/promotion$/i;
+const productAdImagePath =
+  /^\/v1\/partner\/accounts\/[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}\/products\/[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}\/ad-image$/i;
 const inventoryPath =
   /^\/v1\/partner\/accounts\/[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}\/inventory$/i;
 const accountDashboardPath =
@@ -87,6 +89,12 @@ export async function gateway(request: Request, segments: string[]) {
     if (!["GET", "PUT"].includes(request.method))
       return Response.json({ detail: "Method not allowed" }, { status: 405 });
   }
+  if (!connections && segments.some((part) => part.toLowerCase() === "ad-image")) {
+    if (!productAdImagePath.test(path))
+      return Response.json({ detail: "Not found" }, { status: 404 });
+    if (request.method !== "POST")
+      return Response.json({ detail: "Method not allowed" }, { status: 405 });
+  }
   if (!connections && segments.includes("inventory")) {
     if (path !== "/v1/partner/inventory" && !inventoryPath.test(path))
       return Response.json({ detail: "Not found" }, { status: 404 });
@@ -103,6 +111,7 @@ export async function gateway(request: Request, segments: string[]) {
     !safe.has(request.method) &&
     !connections?.includes(request.method) &&
     !(request.method === "POST" && path === "/v1/partner/auth/logout") &&
+    !(request.method === "POST" && productAdImagePath.test(path)) &&
     !(request.method === "PUT" && (preferencesPath.test(path) || productPromotionPath.test(path)))
   ) {
     return Response.json({ detail: "Method not allowed" }, { status: 405 });
@@ -128,8 +137,14 @@ export async function gateway(request: Request, segments: string[]) {
     }
     let body: ArrayBuffer | undefined;
     if (!safe.has(request.method)) {
-      body = await readRequestBody(request, 1_000_000, 2000);
+      const imageUpload = productAdImagePath.test(path);
+      body = await readRequestBody(
+        request,
+        imageUpload ? 5 * 1024 * 1024 + 65536 : 1_000_000,
+        imageUpload ? 10_000 : 2000,
+      );
     }
+    request.signal.throwIfAborted();
     for (const [key, value] of Object.entries(traceHeaders())) headers.set(key, value);
     const upstream = await fetch(`${partnerApiOrigin()}${path}${incoming.search}`, {
       method: request.method,

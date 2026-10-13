@@ -1447,6 +1447,7 @@ export const PartnerConnectionJobsResponse = zod.object({
  */
 export const PartnerCreativePreviewResponse = zod.object({
   "product": zod.union([zod.object({
+  "ad_image_status": zod.enum(['default', 'queued', 'running', 'ready', 'failed']),
   "description": zod.string(),
   "id": zod.uuid(),
   "image_url": zod.union([zod.string(),zod.null()]),
@@ -1568,6 +1569,7 @@ export const partnerInventoryListResponseItemsItemCommercialApprovedDefault = fa
 export const PartnerInventoryListResponse = zod.object({
   "items": zod.array(zod.object({
   "ad_formats": zod.union([zod.array(zod.enum(['feed', 'homepage_sponsorship', 'sponsored_content', 'engagement'])),zod.null()]).optional(),
+  "ad_image_url": zod.union([zod.string(),zod.null()]).optional(),
   "approval_source": zod.union([zod.enum(['qualified', 'trusted']),zod.null()]).optional(),
   "commercial_approved": zod.boolean().default(partnerInventoryListResponseItemsItemCommercialApprovedDefault),
   "excluded": zod.boolean(),
@@ -2334,6 +2336,7 @@ export const PartnerWorkspaceInventoryResponse = zod.object({
   "account_id": zod.uuid(),
   "account_name": zod.string(),
   "ad_formats": zod.union([zod.array(zod.enum(['feed', 'homepage_sponsorship', 'sponsored_content', 'engagement'])),zod.null()]).optional(),
+  "ad_image_url": zod.union([zod.string(),zod.null()]).optional(),
   "approval_source": zod.union([zod.enum(['qualified', 'trusted']),zod.null()]).optional(),
   "commercial_approved": zod.boolean().default(partnerWorkspaceInventoryResponseItemsItemCommercialApprovedDefault),
   "excluded": zod.boolean(),

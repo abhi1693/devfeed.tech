@@ -51,7 +51,7 @@ def logo_target(model):
 
 
 def logo_job_target(job):
-    if getattr(job, "operation", None) == "product-image":
+    if getattr(job, "operation", None) in {"product-image", "product-ad-image"}:
         return None
     if getattr(job, "product_id", None) is not None:
         return PRODUCT_LOGO
@@ -129,14 +129,14 @@ def queue_logo(session, subject, *, automatic=False, refresh=False):
     for job in session.new:
         if (
             isinstance(job, ArticleImageJob)
-            and job.operation != "product-image"
+            and job.operation not in {"product-image", "product-ad-image"}
             and getattr(job, target.job_field) == subject.id
         ):
             return job
     active = session.scalar(
         select(ArticleImageJob).where(
             target.job_column == subject.id,
-            ArticleImageJob.operation != "product-image",
+            ArticleImageJob.operation.not_in(["product-image", "product-ad-image"]),
             ArticleImageJob.status.in_(["queued", "running"]),
         )
     )
@@ -166,7 +166,7 @@ def backfill_logos(session, model, limit=100):
         raise OperationConflict("Enable image storage before scheduling the backfill")
     attempted = select(ArticleImageJob.id).where(
         target.job_column == model.id,
-        ArticleImageJob.operation != "product-image",
+        ArticleImageJob.operation.not_in(["product-image", "product-ad-image"]),
         ArticleImageJob.status.in_(["queued", "running"])
         | (
             (ArticleImageJob.image_url == source)

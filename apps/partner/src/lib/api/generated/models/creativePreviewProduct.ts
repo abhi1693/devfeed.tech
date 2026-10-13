@@ -5,8 +5,10 @@
  * Partner analytics API with role-gated sessions and live memberships.
  * OpenAPI spec version: 0.0.52
  */
+import type { CreativePreviewProductAdImageStatus } from './creativePreviewProductAdImageStatus';
 
 export interface CreativePreviewProduct {
+  ad_image_status: CreativePreviewProductAdImageStatus;
   description: string;
   id: string;
   image_url: string | null;

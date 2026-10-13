@@ -5,8 +5,10 @@
  * Private administration API. OIDC sessions and CSRF protection required.
  * OpenAPI spec version: 0.0.52
  */
+import type { CreativePreviewProductAdImageStatus } from './creativePreviewProductAdImageStatus';
 
 export interface CreativePreviewProduct {
+  ad_image_status: CreativePreviewProductAdImageStatus;
   description: string;
   id: string;
   image_url: string | null;

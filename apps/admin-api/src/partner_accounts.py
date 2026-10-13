@@ -13,7 +13,6 @@ from devfeed_core.models import (
     PartnerDailyMetric,
     PartnerMembership,
     PartnerProduct,
-    PartnerProductPromotion,
     PartnerTrackedDailyMetric,
     Topic,
     UserAccount,
@@ -31,6 +30,13 @@ from devfeed_core.partner_promotions import (
 from devfeed_core.partner_tiers import TIER_BENEFITS, promotion_kind_allowed, tier_policy
 from devfeed_core.publication import visible_article
 from devfeed_core.text_search import text_search
+from devfeed_http.partner_ad_images import (
+    limit_ad_image_upload,
+    lock_image_account,
+    lock_image_product,
+    save_product_promotion_with_images,
+    upload_product_ad_image,
+)
 from devfeed_http.partner_portal import (
     AccountInput,
     AccountOut,
@@ -57,18 +63,18 @@ from devfeed_http.partner_portal import (
     creative_preview,
     destination_preview,
     inventory_products,
+    list_product_promotions,
     product_promotion,
     reporting_dashboard,
-    save_product_promotion,
     sponsor_articles,
     validate_product,
 )
-from fastapi import APIRouter, Depends, HTTPException, Query, Response
+from fastapi import APIRouter, Depends, File, HTTPException, Query, Response, UploadFile
 from sqlalchemy import func, select, union_all
 from sqlalchemy.dialects.postgresql import insert
 
 from devfeed_admin_api.auth import Admin, AdminIdentity, require_admin
-from devfeed_admin_api.dependencies import DB
+from devfeed_admin_api.dependencies import DB, get_redis
 
 router = APIRouter(
     prefix="/v1/admin/partner-accounts",
@@ -631,11 +637,7 @@ def inventory(
 )
 def product_promotions(account_id: uuid.UUID, session: DB, superuser: Superuser):
     account_access(session, superuser, account_id)
-    return session.scalars(
-        select(PartnerProductPromotion)
-        .where(PartnerProductPromotion.account_id == account_id)
-        .order_by(PartnerProductPromotion.product_id)
-    ).all()
+    return list_product_promotions(session, account_id)
 
 
 @router.put(
@@ -650,10 +652,14 @@ def update_product_promotion(
     session: DB,
     superuser: Superuser,
 ):
-    account = account_access(session, superuser, account_id, lock=True)
-    result = save_product_promotion(session, account, product_id, payload)
-    session.commit()
-    return result
+    account_access(session, superuser, account_id)
+    lock_image_product(session, account_id, product_id)
+    account = lock_image_account(
+        session, select(PartnerAccount).where(PartnerAccount.id == account_id)
+    )
+    if account is None:
+        raise HTTPException(404, "Partner account not found")
+    return save_product_promotion_with_images(session, account, product_id, payload)
 
 
 @router.get(
@@ -665,3 +671,26 @@ def get_product_promotion(
     account_id: uuid.UUID, product_id: uuid.UUID, session: DB, superuser: Superuser
 ):
     return product_promotion(session, account_access(session, superuser, account_id), product_id)
+
+
+@router.post(
+    "/{account_id}/products/{product_id}/ad-image",
+    response_model=ProductPromotionOut,
+    operation_id="adminPartnerProductAdImageUpload",
+)
+def upload_ad_image(
+    account_id: uuid.UUID,
+    product_id: uuid.UUID,
+    file: Annotated[UploadFile, File(description="JPEG, PNG or WebP, up to 5 MB")],
+    session: DB,
+    superuser: Superuser,
+):
+    account_access(session, superuser, account_id)
+    limit_ad_image_upload(get_redis(), superuser, account_id)
+    lock_image_product(session, account_id, product_id)
+    account = lock_image_account(
+        session, select(PartnerAccount).where(PartnerAccount.id == account_id)
+    )
+    if account is None:
+        raise HTTPException(404, "Partner account not found")
+    return upload_product_ad_image(session, account, product_id, file)

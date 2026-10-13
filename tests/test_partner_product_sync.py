@@ -237,7 +237,9 @@ def test_background_worker_recovers_delivery_on_old_discovery_queue(
     if operation == "sync":
         connect(admin_client)
         identifier = job_id(database, "sync")
-        monkeypatch.setattr(partner_sync_tasks, "read_partner_page", lambda *_: ([], None))
+        monkeypatch.setattr(
+            partner_sync_tasks, "read_partner_page", lambda *_, **kwargs: ([], None)
+        )
     else:
         _, children = discover(admin_client, database, product_payload)
         identifier = children[0]

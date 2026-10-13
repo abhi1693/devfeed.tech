@@ -194,6 +194,19 @@ def test_import_previews_require_session_and_csrf_before_database_access(oidc_ap
         assert state.client.post(url, json=body, headers=headers).status_code == 403
 
 
+def test_product_image_upload_requires_session_and_csrf_before_database_access(oidc_app):
+    state = oidc_app
+    url = (
+        "/v1/partner/accounts/00000000-0000-0000-0000-000000000001"
+        "/products/00000000-0000-0000-0000-000000000002/ad-image"
+    )
+    files = {"file": ("image.png", b"not decoded before authorization", "image/png")}
+    assert state.client.post(url, files=files).status_code == 401
+    assert complete(state).status_code == 302
+    for headers in ({}, {"Origin": ORIGIN}, {"Origin": "https://attacker.example"}):
+        assert state.client.post(url, files=files, headers=headers).status_code == 403
+
+
 @pytest.mark.parametrize("role", ["partner"])
 def test_partner_login_requests_partner_role_and_isolates_sessions(oidc_app, role):
     state = oidc_app

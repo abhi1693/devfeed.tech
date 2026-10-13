@@ -3601,6 +3601,21 @@
         "title": "AutomationOverview",
         "type": "object"
       },
+      "Body_adminPartnerProductAdImageUpload": {
+        "properties": {
+          "file": {
+            "contentMediaType": "application/octet-stream",
+            "description": "JPEG, PNG or WebP, up to 5 MB",
+            "title": "File",
+            "type": "string"
+          }
+        },
+        "required": [
+          "file"
+        ],
+        "title": "Body_adminPartnerProductAdImageUpload",
+        "type": "object"
+      },
       "CampaignInput": {
         "additionalProperties": false,
         "properties": {
@@ -4974,6 +4989,17 @@
       },
       "CreativePreviewProduct": {
         "properties": {
+          "ad_image_status": {
+            "enum": [
+              "default",
+              "queued",
+              "running",
+              "ready",
+              "failed"
+            ],
+            "title": "Ad Image Status",
+            "type": "string"
+          },
           "description": {
             "title": "Description",
             "type": "string"
@@ -5030,6 +5056,7 @@
           "name",
           "product_url",
           "listing_url",
+          "ad_image_status",
           "description",
           "logo_url",
           "image_url"
@@ -6741,6 +6768,17 @@
               }
             ],
             "title": "Ad Formats"
+          },
+          "ad_image_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ad Image Url"
           },
           "approval_source": {
             "anyOf": [
@@ -10217,6 +10255,18 @@
             ],
             "title": "Ad Formats"
           },
+          "ad_image_url": {
+            "anyOf": [
+              {
+                "maxLength": 2048,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ad Image Url"
+          },
           "excluded": {
             "anyOf": [
               {
@@ -10281,9 +10331,54 @@
             ],
             "title": "Ad Formats"
           },
+          "ad_image_status": {
+            "enum": [
+              "default",
+              "queued",
+              "running",
+              "ready",
+              "failed"
+            ],
+            "title": "Ad Image Status",
+            "type": "string"
+          },
+          "ad_image_url": {
+            "anyOf": [
+              {
+                "maxLength": 2048,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ad Image Url"
+          },
+          "default_image_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Default Image Url"
+          },
           "excluded": {
             "title": "Excluded",
             "type": "boolean"
+          },
+          "image_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Image Url"
           },
           "product_id": {
             "format": "uuid",
@@ -10314,7 +10409,10 @@
         "required": [
           "excluded",
           "account_id",
-          "product_id"
+          "product_id",
+          "image_url",
+          "default_image_url",
+          "ad_image_status"
         ],
         "title": "ProductPromotionOut",
         "type": "object"
@@ -19305,6 +19403,94 @@
           }
         ],
         "summary": "Product Promotions",
+        "tags": [
+          "admin-partner-accounts"
+        ]
+      }
+    },
+    "/v1/admin/partner-accounts/{account_id}/products/{product_id}/ad-image": {
+      "post": {
+        "operationId": "adminPartnerProductAdImageUpload",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "account_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Account Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "product_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Product Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_adminPartnerProductAdImageUpload"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProductPromotionOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Request validation failed"
+          },
+          "4XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Invalid or unauthorized request"
+          },
+          "5XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service or dependency unavailable"
+          }
+        },
+        "security": [
+          {
+            "APIKeyCookie": []
+          }
+        ],
+        "summary": "Upload Ad Image",
         "tags": [
           "admin-partner-accounts"
         ]

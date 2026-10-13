@@ -3,10 +3,19 @@
 import logging
 from contextlib import closing
 
+from devfeed_core.config import get_settings
 from devfeed_core.feeds.fetcher import FeedError
 from devfeed_core.job_lifecycle import clear_lease, fail_or_retry, finish_job
 from devfeed_core.jobs import owned_job
-from devfeed_core.models import Article, ArticleImageJob, PartnerProduct, Source, Topic, utcnow
+from devfeed_core.models import (
+    Article,
+    ArticleImageJob,
+    PartnerProduct,
+    PartnerProductPromotion,
+    Source,
+    Topic,
+    utcnow,
+)
 from sqlalchemy import select
 
 from devfeed_aggregator.image_storage import (
@@ -87,6 +96,80 @@ def store_product_image(factory, identifier, token, product_id, source):
     )
 
 
+def store_product_ad_image(factory, identifier, token, account_id, product_id, source):
+    _store_asset(
+        factory,
+        identifier,
+        token,
+        (account_id, product_id),
+        source,
+        model=PartnerProductPromotion,
+        source_field="ad_image_url",
+        asset_field="managed_ad_image",
+        original=store_original,
+        variant=store_variant,
+        sizes=variant_widths,
+        method="r2-imgproxy",
+    )
+
+
+def cleanup_product_ad_image(factory, identifier, token, account_id, product_id):
+    from devfeed_core.partner_product_images import (
+        AD_IMAGE_SIZES,
+        uploaded_ad_image_prefix,
+    )
+
+    with factory.begin() as session:
+        policy = _lock_subject(session, PartnerProductPromotion, (account_id, product_id))
+        job = owned_job(session, ArticleImageJob, identifier, token)
+        product = session.get(PartnerProduct, product_id)
+        if job is None or policy is None:
+            return
+        prefix = job.storage.get("cleanup_upload")
+        if (
+            product is None
+            or not product.merged_into_id
+            or prefix != uploaded_ad_image_prefix(policy.managed_ad_image, account_id)
+        ):
+            finish_job(job, "already_present", utcnow())
+            return
+        try:
+            with closing(storage_client()) as client:
+                for size in AD_IMAGE_SIZES:
+                    client.delete_object(
+                        Bucket=get_settings().image_storage_bucket, Key=f"{prefix}/{size}.webp"
+                    )
+            policy.managed_ad_image = {}
+            finish_job(job, "found", utcnow())
+        except Exception as exc:
+            fail_or_retry(job, f"Image cleanup failed: {type(exc).__name__}", utcnow())
+
+
+def _lock_subject(session, model, subject_id):
+    if model is PartnerProductPromotion:
+        account_id, product_id = subject_id
+        # Saves, claims, merges and publication use product -> policy -> job.
+        session.scalar(
+            select(PartnerProduct.id).where(PartnerProduct.id == product_id).with_for_update()
+        )
+        return session.scalar(
+            select(PartnerProductPromotion)
+            .where(
+                PartnerProductPromotion.account_id == account_id,
+                PartnerProductPromotion.product_id == product_id,
+            )
+            .with_for_update()
+        )
+    return session.scalar(select(model).where(model.id == subject_id).with_for_update())
+
+
+def _current_source(subject, job, source_field, source):
+    return getattr(subject, source_field) == source and (
+        not isinstance(subject, PartnerProductPromotion)
+        or subject.ad_image_revision == job.subject_revision
+    )
+
+
 def publish_product_image_original(factory, identifier, token, product_id, source, asset):
     with factory.begin() as session:
         product = session.scalar(
@@ -127,7 +210,12 @@ def store_logo(factory, identifier, token, subject_id, source, *, model):
 
 
 def _replacement(session, model, subject, *, asset_field="managed_logo"):
-    if model is PartnerProduct and asset_field == "managed_image":
+    if model is PartnerProductPromotion:
+        from devfeed_core.partner_product_images import request_product_ad_image
+
+        session.flush()
+        request_product_ad_image(session, subject.account_id, subject.product_id)
+    elif model is PartnerProduct and asset_field == "managed_image":
         from devfeed_core.partner_product_images import request_product_image
 
         session.flush()
@@ -188,13 +276,19 @@ def _store_asset(
                 if not checkpoint(factory, identifier, token, asset):
                     return
         with factory.begin() as session:
-            subject = session.scalar(select(model).where(model.id == subject_id).with_for_update())
+            subject = _lock_subject(session, model, subject_id)
             job = owned_job(session, ArticleImageJob, identifier, token)
             if job is None or subject is None:
                 return
-            current = getattr(subject, source_field) == source
+            current = _current_source(subject, job, source_field, source)
             if current:
-                setattr(subject, asset_field, asset)
+                setattr(
+                    subject,
+                    asset_field,
+                    {**asset, "subject_revision": job.subject_revision}
+                    if model is PartnerProductPromotion
+                    else asset,
+                )
             job.method = method
             finish_job(job, "found" if current else "already_present", utcnow())
             if not current:
@@ -205,14 +299,16 @@ def _store_asset(
         # Client exceptions may contain signed URLs; persist safe categories only.
         reason = transport.reason if transport else type(exc).__name__
         with factory.begin() as session:
-            subject = session.scalar(select(model).where(model.id == subject_id).with_for_update())
+            subject = _lock_subject(session, model, subject_id)
             job = owned_job(session, ArticleImageJob, identifier, token)
             if job is None or subject is None:
                 return
-            if (
-                model in {Topic, Source, PartnerProduct}
-                and getattr(subject, source_field) != source
-            ):
+            if model in {
+                Topic,
+                Source,
+                PartnerProduct,
+                PartnerProductPromotion,
+            } and not _current_source(subject, job, source_field, source):
                 finish_job(job, "already_present", utcnow())
                 _replacement(session, model, subject, asset_field=asset_field)
                 return

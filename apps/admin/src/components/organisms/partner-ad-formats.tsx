@@ -19,6 +19,7 @@ import {
   adminPartnerSponsorArticles,
   adminPartnerProductPromotionGet,
   adminPartnerProductPromotionUpdate,
+  adminPartnerProductAdImageUpload,
 } from "@/lib/api/generated/admin";
 import { ApiError, returnToLogin } from "@/lib/api/client";
 import { useRequest } from "@/lib/use-request";
@@ -96,6 +97,26 @@ export function PartnerProductPlacements({
           );
         } catch (error) {
           if (!signal.aborted && error instanceof ApiError && error.status === 401) returnToLogin();
+          throw error;
+        }
+      }}
+      uploadImage={async (file, signal) => {
+        try {
+          return parsePolicy(
+            await adminPartnerProductAdImageUpload(
+              accountId,
+              product.id,
+              { file },
+              { signal, headers: { "X-CSRF-Token": admin.csrf_token } },
+            ),
+          );
+        } catch (error) {
+          if (!signal.aborted && error instanceof ApiError) {
+            if (error.status === 401) returnToLogin();
+            if (error.status === 413) throw new Error("Choose an image under 5 MB.");
+            if ([415, 422].includes(error.status))
+              throw new Error("Choose a valid JPEG, PNG or WebP image.");
+          }
           throw error;
         }
       }}

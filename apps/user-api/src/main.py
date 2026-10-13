@@ -8,6 +8,7 @@ from devfeed_core.db import database_revision
 from devfeed_core.logging import configure_logging
 from devfeed_core.version import SCHEMA_REVISION, __version__
 from devfeed_http.body_limits import RequestBodyLimitMiddleware
+from devfeed_http.image_uploads import ImageUploadBodyLimit
 from devfeed_http.schemas import ERROR_RESPONSES
 from devfeed_http.service import HTTPService
 from devfeed_http.telemetry import fastapi_telemetry
@@ -59,7 +60,9 @@ def create_app() -> FastAPI:
         app,
         settings,
         private=True,
-        middleware=lambda app: app.add_middleware(avatars.AvatarUploadBodyLimit),
+        middleware=lambda app: app.add_middleware(
+            ImageUploadBodyLimit, paths=(avatars.router.prefix,)
+        ),
     )
     app.add_middleware(
         RequestBodyLimitMiddleware,

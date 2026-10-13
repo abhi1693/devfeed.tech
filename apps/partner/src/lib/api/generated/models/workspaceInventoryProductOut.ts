@@ -11,6 +11,7 @@ export interface WorkspaceInventoryProductOut {
   account_id: string;
   account_name: string;
   ad_formats?: ('feed' | 'homepage_sponsorship' | 'sponsored_content' | 'engagement')[] | null;
+  ad_image_url?: string | null;
   approval_source?: WorkspaceInventoryProductOutApprovalSource;
   commercial_approved?: boolean;
   excluded: boolean;

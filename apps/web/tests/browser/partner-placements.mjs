@@ -90,6 +90,13 @@ const sponsored = {
   image_url: "https://assets.partner.example/og/broken.png",
   image_variants: [],
 };
+const customProductImage = {
+  image_url: "https://assets.partner.example/ads/validator-original.svg?v=upload-2",
+  image_variants: [
+    { url: "https://assets.partner.example/ads/validator-400.svg?v=upload-2", width: 400 },
+    { url: "https://assets.partner.example/ads/validator-800.svg?v=upload-2", width: 800 },
+  ],
+};
 const news = {
   ...article,
   id: "99999999-9999-4999-8999-999999999999",
@@ -404,12 +411,14 @@ const promotedArticle = {
   slug: "approved-sponsored-typescript-guide",
   title: "A sponsored guide to TypeScript boundaries",
   author: "Engineering team",
+  image_url: "https://assets.partner.example/articles/typescript-guide.svg",
   summary: "A practical tutorial about validating TypeScript application inputs. ".repeat(500),
   sponsor_names: [sponsored.partner_name],
 };
 const homepageSponsor = { ...ordinary, ad_format: "homepage_sponsorship" };
 const sponsoredContent = {
   ...sponsored,
+  ...customProductImage,
   ad_format: "sponsored_content",
   article: promotedArticle,
   url: `/articles/${promotedArticle.slug}`,
@@ -436,6 +445,14 @@ function organicPage(url) {
 
 function productMedia(item) {
   if (item.product_id !== ordinary.product_id || mediaMode === "standard") return item;
+  if (mediaMode === "custom") return { ...item, ...customProductImage };
+  if (mediaMode.startsWith("broken-custom"))
+    return {
+      ...item,
+      image_url: "https://assets.partner.example/ads/broken.png",
+      image_variants: [],
+      logo_url: mediaMode === "broken-custom-logo" ? sponsored.logo_url : ordinary.logo_url,
+    };
   return {
     ...item,
     image_url: mediaMode === "broken-og" ? sponsored.image_url : null,
@@ -737,11 +754,13 @@ function response(requestPath, body, headers = {}, extension = false) {
               ? [homepageSponsor, sponsoredContent]
               : [engagementPlacement, sponsored];
       return {
-        items: items.filter(
-          (item) =>
-            body.ad_formats.includes(item.ad_format ?? "feed") &&
-            !body.exclude_product_ids?.includes(item.product_id),
-        ),
+        items: items
+          .filter(
+            (item) =>
+              body.ad_formats.includes(item.ad_format ?? "feed") &&
+              !body.exclude_product_ids?.includes(item.product_id),
+          )
+          .map(productMedia),
       };
     }
     const eligible =
@@ -1068,9 +1087,12 @@ try {
           ? route.fulfill({ status: 404, body: "Missing" })
           : route.fulfill({
               contentType: "image/svg+xml",
-              body: route.request().url().includes("/og/")
-                ? '<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="675"><defs><linearGradient id="bg"><stop stop-color="#122b5c"/><stop offset="1" stop-color="#3178c6"/></linearGradient></defs><rect width="1200" height="675" fill="url(#bg)"/><text x="100" y="270" fill="white" font-size="68" font-family="sans-serif">TypeScript Validator</text><text x="100" y="390" fill="#a5d8ff" font-size="42" font-family="sans-serif">Safe inputs. Confident applications.</text></svg>'
-                : '<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48"><rect width="48" height="48" rx="10" fill="#3178c6"/><text x="8" y="33" fill="white" font-size="24">TS</text></svg>',
+              body: route.request().url().includes("/ads/")
+                ? '<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="675"><rect width="1200" height="675" fill="#173b35"/><text x="100" y="280" fill="#b7f3c8" font-size="64" font-family="sans-serif">A custom product creative</text><text x="100" y="390" fill="white" font-size="42" font-family="sans-serif">Built for native placements.</text></svg>'
+                : route.request().url().includes("/og/") ||
+                    route.request().url().includes("/articles/")
+                  ? '<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="675"><defs><linearGradient id="bg"><stop stop-color="#122b5c"/><stop offset="1" stop-color="#3178c6"/></linearGradient></defs><rect width="1200" height="675" fill="url(#bg)"/><text x="100" y="270" fill="white" font-size="68" font-family="sans-serif">TypeScript Validator</text><text x="100" y="390" fill="#a5d8ff" font-size="42" font-family="sans-serif">Safe inputs. Confident applications.</text></svg>'
+                  : '<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48"><rect width="48" height="48" rx="10" fill="#3178c6"/><text x="8" y="33" fill="white" font-size="24">TS</text></svg>',
             }),
       );
       await context.route("https://partner.example/**", (route) =>
@@ -1634,7 +1656,7 @@ try {
       organicCount = 24;
       for (const theme of ["light", "dark"]) {
         for (const width of [1280, 390]) {
-          for (const mode of ["standard", "no-og"]) {
+          for (const mode of ["custom", "standard", "no-og"]) {
             mediaMode = mode;
             await page.setViewportSize({ width, height: width === 390 ? 844 : 900 });
             await page.evaluate((value) => localStorage.setItem("devfeed:theme", value), theme);
@@ -1671,7 +1693,7 @@ try {
             });
             assert.equal(geometry.dark, theme === "dark");
             assert.ok(Math.abs(geometry.product.width - geometry.article.width) <= 1);
-            if (mode === "standard") {
+            if (mode !== "no-og") {
               assert.ok(
                 Math.abs(geometry.product.height - geometry.article.height) <= 2,
                 `${platform}: ${theme} ${width} ${mode} product/article height ${geometry.product.height}/${geometry.article.height}`,
@@ -1693,12 +1715,34 @@ try {
             }
             assert.equal(geometry.radius, geometry.articleRadius);
             assert.equal(geometry.titleSize, geometry.articleTitleSize);
-            assert.equal(geometry.image.fit, mode === "standard" ? "cover" : "contain");
+            assert.equal(geometry.image.fit, mode !== "no-og" ? "cover" : "contain");
             assert.ok(
               geometry.image.src.includes(
-                mode === "standard" ? "/og/validator-" : "/validator.svg",
+                mode === "custom"
+                  ? "/ads/validator-"
+                  : mode === "standard"
+                    ? "/og/validator-"
+                    : "/validator.svg",
               ),
+              `${platform}: ${theme} ${width} uses the ${mode === "custom" ? "custom creative" : mode === "standard" ? "default OG after clearing the override" : "logo fallback"}`,
             );
+            if (mode === "custom") {
+              const hero = card.locator(".card-image img");
+              assert.equal(await hero.getAttribute("src"), customProductImage.image_url);
+              assert.equal(
+                await hero.getAttribute("srcset"),
+                customProductImage.image_variants
+                  .map(({ url, width }) => `${url} ${width}w`)
+                  .join(", "),
+              );
+              assert.equal(await hero.getAttribute("referrerpolicy"), "no-referrer");
+              assert.equal(
+                new URL(geometry.image.src).searchParams.get("v"),
+                "upload-2",
+                `${platform}: the selected responsive creative retains the upload cache version`,
+              );
+              assert.equal(await card.locator('img[src*="/og/"]').count(), 0);
+            }
             assert.equal(await card.locator("time, .engagement-button").count(), 0);
             assert.ok(
               await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth),
@@ -1726,7 +1770,7 @@ try {
           }
         }
       }
-      for (const mode of ["broken-og", "no-assets"]) {
+      for (const mode of ["broken-og", "broken-custom", "broken-custom-logo", "no-assets"]) {
         mediaMode = mode;
         await page.goto("about:blank");
         await page.goto(`${base}/topics/typescript`);
@@ -1736,10 +1780,15 @@ try {
         );
         await card.scrollIntoViewIfNeeded();
         await waitForVisibleProductLogos(page);
-        if (mode === "broken-og") {
+        if (mode !== "no-assets") {
           assert.equal(await card.locator(".partner-placement-hero-logo").count(), 1);
           assert.equal(await card.locator(".card-image").count(), 1);
-          assert.equal(await card.locator(".partner-placement-logo img").count(), 1);
+          assert.equal(
+            await card.locator(".partner-placement-logo img").count(),
+            mode === "broken-custom-logo" ? 0 : 1,
+          );
+          if (mode === "broken-custom-logo")
+            assert.equal(await card.locator(".partner-placement-logo").textContent(), "TV");
         } else {
           assert.equal(await card.locator(".card-image").count(), 0);
           assert.equal(
@@ -1867,6 +1916,7 @@ try {
       );
       for (const width of [1280, 390]) {
         await page.setViewportSize({ width, height: width === 390 ? 844 : 900 });
+        mediaMode = "custom";
         nativeMode = "home";
         queries = [];
         events = [];
@@ -1949,6 +1999,7 @@ try {
         ]);
         await strip.scrollIntoViewIfNeeded();
         await waitForVisibleProductLogos(page);
+        assert.equal(await strip.locator("img").getAttribute("src"), ordinary.logo_url);
         await page.screenshot({
           path: `${reportDirectory}/${platform}-homepage-sponsorship-${width === 390 ? "mobile" : "desktop"}.png`,
           animations: "disabled",
@@ -1974,6 +2025,14 @@ try {
           0,
         );
         await promoted.scrollIntoViewIfNeeded();
+        const editorialHero = promoted.locator(".card-image img");
+        await editorialHero.waitFor();
+        assert.equal(
+          await editorialHero.getAttribute("src"),
+          promotedArticle.image_url,
+          `${platform}: sponsored content preserves its article image instead of the product creative`,
+        );
+        assert.equal(await promoted.locator('img[src*="/ads/"]').count(), 0);
         await page.waitForTimeout(1200);
         assert.ok(
           events.some(
@@ -2046,6 +2105,7 @@ try {
         );
         await engagement.scrollIntoViewIfNeeded();
         await waitForVisibleProductLogos(page);
+        assert.equal(await engagement.locator("img").getAttribute("src"), ordinary.logo_url);
         await page.screenshot({
           path: `${reportDirectory}/${platform}-engagement-${width === 390 ? "mobile" : "desktop"}.png`,
           animations: "disabled",
@@ -2069,6 +2129,7 @@ try {
         );
       }
       nativeMode = null;
+      mediaMode = "standard";
       placementLimited = true;
       try {
         const limited = await page.evaluate(
@@ -2113,7 +2174,7 @@ try {
           `${platform}: production gateway preserves distinct caller identity for ${pathname}`,
         );
       console.log(
-        `${platform}: built web/extension in-grid homepage, search, category and topic cards; every product disclosed with distinct amber Sponsored pills and no dismissal; branded preview sidebar; focus/layout stability; signed campaign and non-campaign tracking; configured production gateway caller proofs, credential isolation and placement429 retry guidance; mounted receipt expiry and background wake preserve reading position without refreshing or tracking; viewable placements never read, write or remove abandoned local history; private session routing; optional private experience save/reload/clear; article priority passed`,
+        `${platform}: built web/extension in-grid homepage, search, category and topic cards; managed custom product creatives, clearing to default OG, responsive sources and failed-image fallback; compact formats preserve logos and sponsored content preserves its article image; every product disclosed with distinct amber Sponsored pills and no dismissal; branded preview sidebar; focus/layout stability; signed campaign and non-campaign tracking; configured production gateway caller proofs, credential isolation and placement429 retry guidance; mounted receipt expiry and background wake preserve reading position without refreshing or tracking; viewable placements never read, write or remove abandoned local history; private session routing; optional private experience save/reload/clear; article priority passed`,
       );
     } finally {
       await context.close();

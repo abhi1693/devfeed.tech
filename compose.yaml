@@ -338,6 +338,11 @@ services:
       # The inbox API uses its HMAC secret, never the management API key.
       DEVFEED_CHIMELY_ADMIN_HMAC_SECRET:
       DEVFEED_PARTNER_SECRET_PRODUCTS_API_TOKEN: ${DEVFEED_PARTNER_SECRET_PRODUCTS_API_TOKEN:-}
+      # Server-only credentials for bounded product ad image uploads.
+      DEVFEED_IMAGE_STORAGE_ENDPOINT:
+      DEVFEED_IMAGE_STORAGE_BUCKET:
+      DEVFEED_IMAGE_STORAGE_ACCESS_KEY:
+      DEVFEED_IMAGE_STORAGE_SECRET_KEY:
       DEVFEED_ADMIN_BASE_URL: ${DEVFEED_ADMIN_BASE_URL:-http://localhost:${DEVFEED_ADMIN_PORT:-3001}}
       DEVFEED_ADMIN_COOKIE_SECURE: ${DEVFEED_ADMIN_COOKIE_SECURE:-false}
       # Unset values stay absent, rather than becoming invalid empty URLs.
@@ -372,6 +377,11 @@ services:
       DEVFEED_PARTNER_BASE_URL: ${DEVFEED_PARTNER_BASE_URL:-http://localhost:${DEVFEED_PARTNER_PORT:-3002}}
       DEVFEED_PARTNER_COOKIE_SECURE: ${DEVFEED_PARTNER_COOKIE_SECURE:-false}
       DEVFEED_PARTNER_CREDENTIAL_KEY:
+      # Shared image bucket; never passed to either frontend or the public API.
+      DEVFEED_IMAGE_STORAGE_ENDPOINT:
+      DEVFEED_IMAGE_STORAGE_BUCKET:
+      DEVFEED_IMAGE_STORAGE_ACCESS_KEY:
+      DEVFEED_IMAGE_STORAGE_SECRET_KEY:
       # Unset values stay absent, rather than becoming invalid empty URLs.
       # Compose resolves these from the shell or the root .env file.
       DEVFEED_OIDC_ISSUER_URL:

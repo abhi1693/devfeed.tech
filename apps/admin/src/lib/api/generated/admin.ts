@@ -74,6 +74,7 @@ import type {
   AssetOut,
   AudienceTopicsOut,
   AuthConfig,
+  BodyAdminPartnerProductAdImageUpload,
   CampaignInput,
   CampaignOut,
   CampaignsOut,
@@ -1786,6 +1787,35 @@ export const adminPartnerProductPromotionsList = async (accountId: string, optio
     method: 'GET'
 
 
+  }
+);}
+
+
+
+export const getAdminPartnerProductAdImageUploadUrl = (accountId: string,
+    productId: string,) => {
+
+
+
+
+  return `/v1/admin/partner-accounts/${accountId}/products/${productId}/ad-image`
+}
+
+/**
+ * @summary Upload Ad Image
+ */
+export const adminPartnerProductAdImageUpload = async (accountId: string,
+    productId: string,
+    bodyAdminPartnerProductAdImageUpload: BodyAdminPartnerProductAdImageUpload, options?: Parameters<typeof adminFetch>[1]): Promise<ProductPromotionOut> => {
+    const formData = new FormData();
+formData.append(`file`, bodyAdminPartnerProductAdImageUpload.file);
+
+  return adminFetch<ProductPromotionOut>(getAdminPartnerProductAdImageUploadUrl(accountId,productId),
+  {
+    ...options,
+    method: 'POST'
+    ,
+    body: formData
   }
 );}
 

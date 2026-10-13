@@ -45,6 +45,7 @@ def test_retry_selection_keeps_only_unresolved_latest_failure_even_with_out_of_o
         "proposal_id",
         "product_id",
         "operation",
+        "account_id",
     ]
     table = Table(
         model.__tablename__,
@@ -92,6 +93,21 @@ def test_retry_selection_keeps_only_unresolved_latest_failure_even_with_out_of_o
             ]
         )
         expected.add(uuid.UUID(int=10))
+        rows.extend(
+            [
+                {
+                    **row(12, 1, age=3),
+                    "operation": "product-ad-image",
+                    "account_id": uuid.UUID(int=30),
+                },
+                {
+                    **row(13, 1, "running", -1),
+                    "operation": "product-ad-image",
+                    "account_id": uuid.UUID(int=31),
+                },
+            ]
+        )
+        expected.add(uuid.UUID(int=12))
     with engine.begin() as connection:
         connection.execute(table.insert(), rows)
         eligible = set(

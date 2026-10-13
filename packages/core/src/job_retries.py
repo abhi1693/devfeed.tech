@@ -38,6 +38,7 @@ def retry_candidate(model):
                 model.product_id.is_not(None),
                 newer.product_id == model.product_id,
                 newer.operation == model.operation,
+                newer.account_id.is_not_distinct_from(model.account_id),
             ),
         )
     elif model is TopicAnalysisJob:

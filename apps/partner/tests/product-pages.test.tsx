@@ -19,6 +19,7 @@ const product = {
   commercial_approved: true,
   ad_formats: null,
   promotion_surfaces: null,
+  ad_image_url: null,
 };
 const policy = {
   account_id: account.id,
@@ -26,6 +27,10 @@ const policy = {
   excluded: false,
   ad_formats: null,
   promotion_surfaces: null,
+  ad_image_url: null,
+  image_url: null,
+  default_image_url: null,
+  ad_image_status: "default" as const,
 };
 const creative = {
   id: product.id,
@@ -33,6 +38,7 @@ const creative = {
   description: "Monitor scheduled jobs.",
   logo_url: null,
   image_url: null,
+  ad_image_status: "default" as const,
   product_url: "https://cronwatch.example/",
   listing_url: null,
 };
@@ -152,7 +158,12 @@ it("edits placements on a page, confirms the saved policy and returns to the rec
     `/api/v1/partner/accounts/${account.id}/products/${product.id}/promotion`,
     expect.objectContaining({
       method: "PUT",
-      body: JSON.stringify({ excluded: true, ad_formats: null, promotion_surfaces: null }),
+      body: JSON.stringify({
+        excluded: true,
+        ad_formats: null,
+        promotion_surfaces: null,
+        ad_image_url: null,
+      }),
     }),
   );
   expect(screen.queryByRole("dialog")).toBeNull();

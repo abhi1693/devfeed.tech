@@ -4,8 +4,10 @@ import uuid
 from datetime import UTC, date, datetime, timedelta
 from typing import Annotated, Literal
 
+from devfeed_core.config import get_settings
 from devfeed_core.models import (
     Article,
+    ArticleImageJob,
     ArticleTopic,
     PartnerAccount,
     PartnerAsset,
@@ -23,7 +25,12 @@ from devfeed_core.partner_ad_formats import (
 )
 from devfeed_core.partner_audiences import AudienceInput
 from devfeed_core.partner_placements import account_listing_destination, devfeed_outbound_url
-from devfeed_core.partner_product_images import product_image_url
+from devfeed_core.partner_product_images import (
+    product_ad_image_current,
+    product_ad_image_status,
+    product_image_url,
+    request_product_ad_image,
+)
 from devfeed_core.partner_product_logos import product_logo_url
 from devfeed_core.partner_promotions import (
     associated_products_query,
@@ -33,8 +40,17 @@ from devfeed_core.partner_tiers import PartnerTier, PromotionKind, tier_policy
 from devfeed_core.partner_tools import eligible
 from devfeed_core.publication import visible_article
 from devfeed_core.schemas import ArticleOut
+from devfeed_core.urls import validate_public_url
 from fastapi import HTTPException
-from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, StringConstraints, model_validator
+from pydantic import (
+    AwareDatetime,
+    BaseModel,
+    ConfigDict,
+    Field,
+    StringConstraints,
+    field_validator,
+    model_validator,
+)
 from sqlalchemy import (
     Numeric,
     String,
@@ -57,6 +73,7 @@ PromotionSurface = Literal["article", "topic", "feed"]
 AssetSort = Literal["name", "impressions", "clicks", "ctr"]
 WorkspaceAssetSort = Literal["name", "account", "impressions", "clicks", "ctr"]
 SortOrder = Literal["asc", "desc"]
+AdImageStatus = Literal["default", "queued", "running", "ready", "failed"]
 
 
 def default_promotion_surfaces() -> list[PromotionSurface]:
@@ -164,6 +181,7 @@ class DestinationPreviewOut(BaseModel):
 
 
 class CreativePreviewProduct(DestinationPreviewProduct):
+    ad_image_status: AdImageStatus
     description: str
     logo_url: str | None
     image_url: str | None
@@ -244,6 +262,7 @@ def creative_preview(session, account, product_id=None) -> CreativePreviewOut:
     if selected is None:
         return CreativePreviewOut(product=None)
     product, product_url = selected
+    policy = session.get(PartnerProductPromotion, (account.id, product.id))
     return CreativePreviewOut(
         product=CreativePreviewProduct(
             id=product.id,
@@ -252,7 +271,8 @@ def creative_preview(session, account, product_id=None) -> CreativePreviewOut:
             product_url=product_url,
             listing_url=account_listing_destination(session, account.id, product.id),
             logo_url=product_logo_url(product),
-            image_url=product_image_url(product),
+            image_url=product_image_url(product, policy),
+            ad_image_status=product_ad_image_status(session, policy),
         )
     )
 
@@ -369,6 +389,18 @@ class ProductPromotionInput(BaseModel):
     promotion_surfaces: list[PromotionSurface] | None = Field(default=None, max_length=3)
     ad_formats: list[AdFormat] | None = Field(default=None, max_length=4)
 
+    ad_image_url: str | None = Field(default=None, max_length=2048)
+
+    @field_validator("ad_image_url")
+    @classmethod
+    def valid_image_url(cls, value):
+        if value is None:
+            return None
+        normalized = validate_public_url(value)
+        if not normalized.startswith("https://"):
+            raise ValueError("Ad images require a public HTTPS URL")
+        return normalized
+
     @model_validator(mode="after")
     def valid_policy(self):
         if not self.model_fields_set:
@@ -386,6 +418,9 @@ class ProductPromotionOut(ProductPromotionInput):
     account_id: uuid.UUID
     product_id: uuid.UUID
     excluded: bool
+    image_url: str | None
+    default_image_url: str | None
+    ad_image_status: AdImageStatus
 
 
 class InventoryProductOut(BaseModel):
@@ -399,6 +434,7 @@ class InventoryProductOut(BaseModel):
     approval_source: Literal["qualified", "trusted"] | None = None
     promotion_surfaces: list[PromotionSurface] | None = None
     ad_formats: list[AdFormat] | None = None
+    ad_image_url: str | None = None
 
 
 class InventoryOut(BaseModel):
@@ -830,6 +866,7 @@ def inventory_product_view(account, product, policy, now):
         else None,
         ad_formats=policy.ad_formats if policy else None,
         promotion_surfaces=policy.promotion_surfaces if policy else None,
+        ad_image_url=policy.ad_image_url if policy else None,
     )
 
 
@@ -880,7 +917,7 @@ def inventory_products(session, account, *, q="", product_id=None, offset=0, lim
     )
 
 
-def product_promotion(session, account, product_id):
+def _product_promotion_policy(session, account, product_id, *, lock=False):
     if (
         session.execute(
             associated_products_query(account.id).where(PartnerProduct.id == product_id)
@@ -888,15 +925,91 @@ def product_promotion(session, account, product_id):
         is None
     ):
         raise HTTPException(404, "Product not found in this account's active resolved catalog")
+    if lock:
+        session.scalar(
+            select(PartnerProduct).where(PartnerProduct.id == product_id).with_for_update()
+        )
     row = session.get(PartnerProductPromotion, (account.id, product_id))
     return row or PartnerProductPromotion(
-        account_id=account.id, product_id=product_id, excluded=False
+        account_id=account.id, product_id=product_id, excluded=False, ad_image_revision=0
     )
 
 
+def _product_promotion_out(session, policy, product, *, status=None):
+    return ProductPromotionOut(
+        account_id=policy.account_id,
+        product_id=policy.product_id,
+        excluded=bool(policy.excluded),
+        promotion_surfaces=policy.promotion_surfaces,
+        ad_formats=policy.ad_formats,
+        ad_image_url=policy.ad_image_url,
+        image_url=product_image_url(product, policy),
+        default_image_url=product_image_url(product),
+        ad_image_status=status or product_ad_image_status(session, policy),
+    )
+
+
+def product_promotion(session, account, product_id):
+    policy = _product_promotion_policy(session, account, product_id)
+    return _product_promotion_out(session, policy, session.get(PartnerProduct, product_id))
+
+
+def list_product_promotions(session, account_id):
+    """Admin policy list keeps managed previews and current jobs in two grouped reads."""
+    rows = session.execute(
+        select(PartnerProductPromotion, PartnerProduct)
+        .join(PartnerProduct, PartnerProduct.id == PartnerProductPromotion.product_id)
+        .where(PartnerProductPromotion.account_id == account_id)
+        .order_by(PartnerProductPromotion.product_id)
+    ).all()
+    statuses = dict(
+        session.execute(
+            select(ArticleImageJob.product_id, ArticleImageJob.status)
+            .join(
+                PartnerProductPromotion,
+                (PartnerProductPromotion.account_id == ArticleImageJob.account_id)
+                & (PartnerProductPromotion.product_id == ArticleImageJob.product_id)
+                & (PartnerProductPromotion.ad_image_revision == ArticleImageJob.subject_revision),
+            )
+            .where(
+                ArticleImageJob.account_id == account_id,
+                ArticleImageJob.operation == "product-ad-image",
+                PartnerProductPromotion.ad_image_url.is_not(None),
+            )
+            .distinct(ArticleImageJob.product_id)
+            .order_by(
+                ArticleImageJob.product_id,
+                ArticleImageJob.created_at.desc(),
+                ArticleImageJob.id.desc(),
+            )
+        ).all()
+    )
+    return [
+        _product_promotion_out(
+            session,
+            policy,
+            product,
+            status="default"
+            if not policy.ad_image_url
+            else "ready"
+            if product_ad_image_current(policy)
+            else statuses[product.id]
+            if statuses.get(product.id) in {"queued", "running"}
+            else "failed",
+        )
+        for policy, product in rows
+    ]
+
+
 def save_product_promotion(session, account, product_id, payload):
-    previous = product_promotion(session, account, product_id)
+    previous = _product_promotion_policy(session, account, product_id, lock=True)
     values = payload.model_dump(mode="json", exclude_unset=True)
+    if values.get("ad_image_url") is not None and not get_settings().image_storage_enabled:
+        raise HTTPException(422, "Enable managed image storage before setting a custom ad image")
+    if "ad_image_url" in values and (
+        values["ad_image_url"] != previous.ad_image_url or values["ad_image_url"] is None
+    ):
+        values.update(managed_ad_image={}, ad_image_revision=(previous.ad_image_revision or 0) + 1)
     if "ad_formats" in values:
         try:
             validate_product_formats(
@@ -912,9 +1025,11 @@ def save_product_promotion(session, account, product_id, payload):
             set_=values,
         )
     )
+    if "ad_image_url" in values:
+        request_product_ad_image(session, account.id, product_id)
     ensure_automatic_assets(session, account.id, product_ids=[product_id])
     session.flush()
-    return session.scalar(
+    row = session.scalar(
         select(PartnerProductPromotion)
         .where(
             PartnerProductPromotion.account_id == account.id,
@@ -922,3 +1037,5 @@ def save_product_promotion(session, account, product_id, payload):
         )
         .execution_options(populate_existing=True)
     )
+
+    return _product_promotion_out(session, row, session.get(PartnerProduct, product_id))

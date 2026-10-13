@@ -942,6 +942,7 @@ def deliver_placements(session, query, key, *, user_id=None, now=None):
                     )
                 )
                 session.flush()
+                policy = session.get(PartnerProductPromotion, (account.id, product.id))
                 selected.append(
                     dict(
                         product_id=product.id,
@@ -950,8 +951,8 @@ def deliver_placements(session, query, key, *, user_id=None, now=None):
                         name=product.name,
                         description=product.description[:2000],
                         logo_url=product_logo_url(product),
-                        image_url=product_image_url(product),
-                        image_variants=product_image_variants(product),
+                        image_url=product_image_url(product, policy),
+                        image_variants=product_image_variants(product, policy),
                         url=url,
                         partner_name=account.name,
                         sponsored=sponsored,

@@ -8,6 +8,7 @@ import pytest
 from botocore.exceptions import ClientError
 from devfeed_core.config import get_settings
 from devfeed_core.models import UserAccount
+from devfeed_http.image_uploads import CACHE_CONTROL, MAX_BYTES, MAX_REQUEST_BYTES
 from devfeed_user_api import avatar_storage
 from devfeed_user_api.auth import UserIdentity, require_user
 from devfeed_user_api.main import create_app
@@ -110,7 +111,7 @@ def test_upload_replaces_every_size_without_history_and_projects_public_variants
         with Image.open(io.BytesIO(body)) as image:
             assert image.size == (size, size) and image.format == "WEBP"
             assert not image.getexif()
-    assert all(item["CacheControl"] == avatar_storage.CACHE_CONTROL for item in r2.puts)
+    assert all(item["CacheControl"] == CACHE_CONTROL for item in r2.puts)
     assert all(item["ContentType"] == "image/webp" for item in r2.puts)
     public = client.get("/v1/user/profiles/reader").json()
     assert public["avatar_variants"] == second["avatar_variants"]
@@ -184,7 +185,7 @@ def test_invalid_uploads_unowned_identity_and_forged_variants_never_write_storag
     for body, mime, status in [
         (b"<svg/>", "image/svg+xml", 415),
         (b"not an image", "image/png", 422),
-        (b"x" * (avatar_storage.MAX_BYTES + 1), "image/png", 413),
+        (b"x" * (MAX_BYTES + 1), "image/png", 413),
     ]:
         assert (
             client.post(
@@ -230,7 +231,7 @@ def test_upload_configuration_is_required(monkeypatch):
 def test_chunked_upload_is_bounded_before_form_parsing():
     import asyncio
 
-    from devfeed_user_api.avatars import AvatarUploadBodyLimit
+    from devfeed_http.image_uploads import ImageUploadBodyLimit
 
     messages = []
 
@@ -240,7 +241,7 @@ def test_chunked_upload_is_bounded_before_form_parsing():
     async def receive():
         return {
             "type": "http.request",
-            "body": b"x" * (avatar_storage.MAX_REQUEST_BYTES + 1),
+            "body": b"x" * (MAX_REQUEST_BYTES + 1),
             "more_body": False,
         }
 
@@ -248,7 +249,7 @@ def test_chunked_upload_is_bounded_before_form_parsing():
         messages.append(message)
 
     asyncio.run(
-        AvatarUploadBodyLimit(app)(
+        ImageUploadBodyLimit(app, paths=("/v1/user/settings/profile/avatar",))(
             {
                 "type": "http",
                 "method": "POST",

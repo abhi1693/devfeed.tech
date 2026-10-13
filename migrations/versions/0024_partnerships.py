@@ -34,14 +34,20 @@ BASE_IMAGE_JOB_SUBJECT = (
 )
 IMAGE_JOB_SUBJECT = (
     "(article_id IS NOT NULL AND topic_id IS NULL AND source_id IS NULL AND product_id IS NULL "
-    "AND operation NOT IN "
-    "('topic-logo','source-logo','source-logo-refresh','product-logo','product-image')) OR "
+    "AND account_id IS NULL AND subject_revision IS NULL AND operation NOT IN "
+    "('topic-logo','source-logo','source-logo-refresh','product-logo','product-image',"
+    "'product-ad-image')) OR "
     "(article_id IS NULL AND topic_id IS NOT NULL AND source_id IS NULL AND product_id IS NULL "
-    "AND operation = 'topic-logo') OR "
+    "AND account_id IS NULL AND subject_revision IS NULL AND operation = 'topic-logo') OR "
     "(article_id IS NULL AND topic_id IS NULL AND source_id IS NOT NULL AND product_id IS NULL "
+    "AND account_id IS NULL AND subject_revision IS NULL "
     "AND operation IN ('source-logo','source-logo-refresh')) OR "
     "(article_id IS NULL AND topic_id IS NULL AND source_id IS NULL AND product_id IS NOT NULL "
-    "AND operation IN ('product-logo','product-image'))"
+    "AND account_id IS NULL AND subject_revision IS NULL "
+    "AND operation IN ('product-logo','product-image')) OR "
+    "(article_id IS NULL AND topic_id IS NULL AND source_id IS NULL AND product_id IS NOT NULL "
+    "AND account_id IS NOT NULL AND subject_revision IS NOT NULL AND subject_revision >= 0 "
+    "AND operation = 'product-ad-image')"
 )
 AUTOMATIC_ASSET_IDENTITY = """CREATE FUNCTION preserve_partner_automatic_asset_identity()
 RETURNS trigger LANGUAGE plpgsql AS $$
@@ -477,6 +483,10 @@ def upgrade():
         sa.Column(
             "ad_formats", postgresql.JSONB(none_as_null=True, astext_type=sa.Text()), nullable=True
         ),
+        sa.Column("ad_image_url", sa.String(2048), nullable=True),
+        sa.Column("managed_ad_image", postgresql.JSONB(), server_default="{}", nullable=False),
+        sa.Column("ad_image_revision", sa.Integer(), server_default="0", nullable=False),
+        sa.CheckConstraint("ad_image_revision >= 0", name="ck_partner_ad_image_revision"),
         sa.Column("commercial_approved_at", sa.DateTime(timezone=True), nullable=True),
         sa.Column("approval_source", sa.String(20), nullable=True),
         sa.CheckConstraint(
@@ -847,13 +857,34 @@ def upgrade():
             "product_id", sa.Uuid(), sa.ForeignKey("partner_products.id", ondelete="CASCADE")
         ),
     )
+    op.add_column(
+        "article_image_jobs",
+        sa.Column(
+            "account_id", sa.Uuid(), sa.ForeignKey("partner_accounts.id", ondelete="CASCADE")
+        ),
+    )
+    op.add_column("article_image_jobs", sa.Column("subject_revision", sa.Integer(), nullable=True))
+    op.create_index("ix_article_image_jobs_account_id", "article_image_jobs", ["account_id"])
+    op.create_index(
+        "uq_partner_ad_image_active",
+        "article_image_jobs",
+        ["account_id", "product_id"],
+        unique=True,
+        postgresql_where=sa.text("status IN ('queued','running') AND operation='product-ad-image'"),
+    )
+    op.create_index(
+        "ix_partner_ad_image_history",
+        "article_image_jobs",
+        ["account_id", "product_id", "subject_revision", "created_at"],
+        postgresql_where=sa.text("operation='product-ad-image'"),
+    )
     op.create_index("ix_article_image_jobs_product_id", "article_image_jobs", ["product_id"])
     op.create_index(
         "uq_product_image_active",
         "article_image_jobs",
         ["product_id", "operation"],
         unique=True,
-        postgresql_where=sa.text("status IN ('queued','running')"),
+        postgresql_where=sa.text("status IN ('queued','running') AND account_id IS NULL"),
     )
     op.drop_constraint("ck_image_job_subject", "article_image_jobs", type_="check")
     op.create_check_constraint("ck_image_job_subject", "article_image_jobs", IMAGE_JOB_SUBJECT)
@@ -1144,6 +1175,11 @@ def downgrade():
     op.create_check_constraint("ck_image_job_subject", "article_image_jobs", BASE_IMAGE_JOB_SUBJECT)
     op.drop_index("uq_product_image_active", table_name="article_image_jobs")
     op.drop_index("ix_article_image_jobs_product_id", table_name="article_image_jobs")
+    op.drop_index("uq_partner_ad_image_active", table_name="article_image_jobs")
+    op.drop_index("ix_partner_ad_image_history", table_name="article_image_jobs")
+    op.drop_index("ix_article_image_jobs_account_id", table_name="article_image_jobs")
+    op.drop_column("article_image_jobs", "account_id")
+    op.drop_column("article_image_jobs", "subject_revision")
     op.drop_column("article_image_jobs", "product_id")
     op.execute("DROP TRIGGER partner_automatic_asset_identity ON partner_assets")
     op.execute("DROP FUNCTION preserve_partner_automatic_asset_identity()")

@@ -255,6 +255,7 @@ def test_inventory_policy_summary_uses_loaded_account_product_policy(mode, accep
         approval_source="qualified" if mode == "wrong-source" else "trusted",
         ad_formats=["feed"],
         promotion_surfaces=["article"],
+        ad_image_url=None,
     )
     data = inventory_product_view(account, product, policy, now)
     assert data["commercial_approved"] is accepted

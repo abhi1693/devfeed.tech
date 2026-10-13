@@ -77,6 +77,7 @@ def backfill_images(session: Session, limit: int) -> list[ArticleImageJob]:
 
 def retry_image(session: Session, job_id: uuid.UUID) -> ArticleImageJob | None:
     from devfeed_core.logos import logo_job_target, request_logo
+    from devfeed_core.models import PartnerProduct
 
     previous = session.get(ArticleImageJob, job_id)
     if previous is None:
@@ -86,7 +87,26 @@ def retry_image(session: Session, job_id: uuid.UUID) -> ArticleImageJob | None:
             "Only failed image jobs can be retried; use images fetch for a new lookup"
         )
     target = logo_job_target(previous)
-    if previous.operation == "product-image":
+    if previous.operation == "product-ad-image":
+        from devfeed_core.partner_product_images import request_product_ad_image
+
+        assert previous.product_id is not None and previous.account_id is not None
+        if previous.storage.get("cleanup_upload"):
+            from devfeed_core.models import PartnerProductPromotion
+            from devfeed_core.partner_product_images import request_ad_image_cleanup
+
+            session.scalar(
+                select(PartnerProduct.id)
+                .where(PartnerProduct.id == previous.product_id)
+                .with_for_update()
+            )
+            policy = session.get(
+                PartnerProductPromotion, (previous.account_id, previous.product_id)
+            )
+            job = request_ad_image_cleanup(session, policy) if policy else None
+        else:
+            job = request_product_ad_image(session, previous.account_id, previous.product_id)
+    elif previous.operation == "product-image":
         from devfeed_core.partner_product_images import request_product_image
 
         assert previous.product_id is not None
@@ -115,10 +135,12 @@ def retry_image(session: Session, job_id: uuid.UUID) -> ArticleImageJob | None:
             "source-logo-refresh",
             "product-logo",
             "product-image",
+            "product-ad-image",
         }
         and job.operation == previous.operation
         and job.storage_version == previous.storage_version
         and previous.image_url == job.image_url
+        and previous.subject_revision == job.subject_revision
         and (
             not job.storage
             or (
@@ -142,7 +164,7 @@ def claim_image(session: Session, job_id: uuid.UUID) -> tuple[ArticleImageJob, s
         logo_target,
         request_logo,
     )
-    from devfeed_core.models import PartnerProduct, Source, Topic
+    from devfeed_core.models import PartnerProduct, PartnerProductPromotion, Source, Topic
 
     # Match saves/completion by locking the logo subject before its job.
     # Article-only jobs do not match either query.
@@ -154,6 +176,16 @@ def claim_image(session: Session, job_id: uuid.UUID) -> tuple[ArticleImageJob, s
             .where(ArticleImageJob.id == job_id)
             .with_for_update(of=model)
         )
+    session.scalar(
+        select(PartnerProductPromotion)
+        .join(
+            ArticleImageJob,
+            (ArticleImageJob.account_id == PartnerProductPromotion.account_id)
+            & (ArticleImageJob.product_id == PartnerProductPromotion.product_id),
+        )
+        .where(ArticleImageJob.id == job_id)
+        .with_for_update(of=PartnerProductPromotion)
+    )
     # Targeted claims wait for dispatch to commit; a locked row is not a missing job.
     job = session.scalar(
         select(ArticleImageJob).where(ArticleImageJob.id == job_id).with_for_update()
@@ -161,6 +193,43 @@ def claim_image(session: Session, job_id: uuid.UUID) -> tuple[ArticleImageJob, s
     now = utcnow()
     if job is None or job.status != "queued" or job.available_at > now:
         return None
+    if job.operation == "product-ad-image":
+        from devfeed_core.partner_product_images import product_ad_image_current
+
+        if not get_settings().image_storage_enabled:
+            return None
+        product = session.get(PartnerProduct, job.product_id)
+        policy = session.get(PartnerProductPromotion, (job.account_id, job.product_id))
+        if job.storage.get("cleanup_upload"):
+            from devfeed_core.partner_product_images import (
+                uploaded_ad_image_prefix,
+            )
+
+            if (
+                product is None
+                or not product.merged_into_id
+                or policy is None
+                or uploaded_ad_image_prefix(policy.managed_ad_image, job.account_id)
+                != job.storage["cleanup_upload"]
+            ):
+                finish_job(job, "already_present", now)
+                return None
+            start_job(job, now, LEASE_SECONDS)
+            assert job.image_url is not None
+            return job, job.image_url
+        if (
+            product is None
+            or product.merged_into_id
+            or policy is None
+            or policy.ad_image_url != job.image_url
+            or policy.ad_image_revision != job.subject_revision
+            or product_ad_image_current(policy)
+        ):
+            finish_job(job, "already_present", now)
+            return None
+        start_job(job, now, LEASE_SECONDS)
+        assert job.image_url is not None
+        return job, job.image_url
     if job.operation == "product-image":
         from devfeed_core.partner_product_images import product_image_current, request_product_image
 

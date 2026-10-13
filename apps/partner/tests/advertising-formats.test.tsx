@@ -24,6 +24,7 @@ const product = {
   name: "CronWatch",
   description: "Monitor scheduled jobs.",
   image_url: null,
+  ad_image_status: "default" as const,
   logo_url: null,
   product_url: "https://cronwatch.example/",
   listing_url: "https://shipyard.example/cronwatch",
@@ -34,6 +35,10 @@ const policy = {
   excluded: true,
   ad_formats: null,
   promotion_surfaces: null,
+  ad_image_url: null,
+  image_url: "https://assets.example/website.webp",
+  default_image_url: "https://assets.example/website.webp",
+  ad_image_status: "default" as const,
 };
 const saved = vi.fn();
 const unavailable = vi.fn();
@@ -70,6 +75,12 @@ function placements(productId = product.id) {
 }
 async function openProductPlacements() {
   await screen.findByRole("combobox", { name: "Product availability" });
+}
+async function chooseCustomImage() {
+  expect(screen.queryByRole("button", { name: "Upload image" })).toBeNull();
+  expect(screen.queryByRole("textbox", { name: "Ad image URL" })).toBeNull();
+  await userEvent.click(screen.getByRole("combobox", { name: "Ad image" }));
+  await userEvent.click(screen.getByRole("option", { name: "Custom image" }));
 }
 it("saves automatic formats independently and permits disabling every automatic format", async () => {
   const fetcher = vi.fn().mockImplementation(() => Response.json({ ...account, ad_formats: [] }));
@@ -164,7 +175,12 @@ it("edits an excluded product through owned routes without changing exclusion", 
     `/api/v1/partner/accounts/${account.id}/products/${product.id}/promotion`,
     expect.objectContaining({
       method: "PUT",
-      body: JSON.stringify({ excluded: true, ad_formats: null, promotion_surfaces: null }),
+      body: JSON.stringify({
+        excluded: true,
+        ad_formats: null,
+        promotion_surfaces: null,
+        ad_image_url: null,
+      }),
       headers: { "content-type": "application/json", "x-csrf-token": "partner-csrf" },
     }),
   );
@@ -207,7 +223,12 @@ it("restores an excluded product only when its draft is saved", async () => {
     `/api/v1/partner/accounts/${account.id}/products/${product.id}/promotion`,
     expect.objectContaining({
       method: "PUT",
-      body: JSON.stringify({ excluded: false, ad_formats: null, promotion_surfaces: null }),
+      body: JSON.stringify({
+        excluded: false,
+        ad_formats: null,
+        promotion_surfaces: null,
+        ad_image_url: null,
+      }),
     }),
   );
 });
@@ -376,4 +397,189 @@ it("retries failed catalog reads and aborts an in-flight read after page navigat
   expect(signal.aborted).toBe(false);
   view.unmount();
   expect(signal.aborted).toBe(true);
+});
+
+it("previews an unsaved image URL locally and saves only editable product settings", async () => {
+  const image = "https://assets.example/partner-campaign.webp";
+  const fetcher = vi.fn().mockImplementation((url: string, init: RequestInit) => {
+    if (url.includes("creative-preview"))
+      return Response.json({
+        product: { ...product, image_url: policy.default_image_url, ad_image_status: "default" },
+      });
+    if (init.method === "PUT")
+      return Response.json({
+        ...policy,
+        ...JSON.parse(String(init.body)),
+        ad_image_status: "queued",
+      });
+    return Response.json(policy);
+  });
+  vi.stubGlobal("fetch", fetcher);
+  placements();
+  await openProductPlacements();
+  const preview = await screen.findByRole("region", { name: "Creative preview" });
+  await waitFor(() => expect(preview.querySelector("img")?.src).toBe(policy.default_image_url));
+  await userEvent.click(screen.getByRole("combobox", { name: "Ad image" }));
+  await userEvent.click(screen.getByRole("option", { name: "Custom image" }));
+  fireEvent.change(screen.getByRole("textbox", { name: "Ad image URL" }), {
+    target: { value: image },
+  });
+  await waitFor(() => expect(preview.querySelector("img")?.src).toBe(image));
+  expect(fetcher.mock.calls.filter(([, init]) => init.method === "PUT")).toHaveLength(0);
+  await userEvent.click(screen.getByRole("button", { name: "Save product placements" }));
+  await waitFor(() => expect(saved).toHaveBeenCalledOnce());
+  const write = fetcher.mock.calls.find(([, init]) => init.method === "PUT");
+  expect(JSON.parse(String(write?.[1].body))).toEqual({
+    excluded: true,
+    ad_formats: null,
+    promotion_surfaces: null,
+    ad_image_url: image,
+  });
+});
+
+it.each(["queued", "running", "failed"] as const)(
+  "uses the website fallback while the saved custom image is %s",
+  async (status) => {
+    const fetcher = vi.fn().mockImplementation((url: string) =>
+      Response.json(
+        url.includes("creative-preview")
+          ? {
+              product: {
+                ...product,
+                image_url: policy.default_image_url,
+                ad_image_status: status,
+              },
+            }
+          : {
+              ...policy,
+              ad_image_url: "https://assets.example/not-ready.webp",
+              ad_image_status: status,
+            },
+      ),
+    );
+    vi.stubGlobal("fetch", fetcher);
+    const view = placements();
+    await openProductPlacements();
+    const preview = await screen.findByRole("region", { name: "Creative preview" });
+    await waitFor(() => expect(preview.querySelector("img")?.src).toBe(policy.default_image_url));
+    expect((screen.getByRole("textbox", { name: "Ad image URL" }) as HTMLInputElement).value).toBe(
+      "https://assets.example/not-ready.webp",
+    );
+    expect(screen.getByText("Saved product settings")).toBeTruthy();
+    expect(fetcher.mock.calls.filter(([, init]) => init.method === "PUT")).toHaveLength(0);
+    view.unmount();
+  },
+);
+
+it("keeps the partner image draft when the save response does not confirm its URL", async () => {
+  const fetcher = vi
+    .fn()
+    .mockImplementation((url: string) =>
+      Response.json(url.includes("creative-preview") ? { product } : policy),
+    );
+  vi.stubGlobal("fetch", fetcher);
+  placements();
+  await openProductPlacements();
+  await userEvent.click(screen.getByRole("combobox", { name: "Ad image" }));
+  await userEvent.click(screen.getByRole("option", { name: "Custom image" }));
+  const input = screen.getByRole("textbox", { name: "Ad image URL" }) as HTMLInputElement;
+  fireEvent.change(input, { target: { value: "https://assets.example/new.webp" } });
+  await userEvent.click(screen.getByRole("button", { name: "Save product placements" }));
+  await screen.findByText(/Could not confirm saved product placements/);
+  expect(input.value).toBe("https://assets.example/new.webp");
+  expect(saved).not.toHaveBeenCalled();
+  expect(router.replace).not.toHaveBeenCalled();
+});
+
+it("uploads multipart images with partner CSRF and keeps the edit page open", async () => {
+  const uploadedUrl = "https://images.example/partner-ad-images/800.webp?v=revision-1";
+  const fetcher = vi.fn().mockImplementation((url: string, init: RequestInit) => {
+    if (init.method === "POST")
+      return Response.json({
+        ...policy,
+        ad_image_url: uploadedUrl,
+        image_url: uploadedUrl,
+        ad_image_status: "ready",
+      });
+    return Response.json(url.includes("creative-preview") ? { product } : policy);
+  });
+  vi.stubGlobal("fetch", fetcher);
+  placements();
+  await openProductPlacements();
+  const file = new File(["jpeg-bytes"], "ad.jpg", { type: "image/jpeg" });
+  await chooseCustomImage();
+  fireEvent.change(screen.getByLabelText("Upload ad image file"), { target: { files: [file] } });
+  await screen.findByText(/Image uploaded and applied/);
+  const write = fetcher.mock.calls.find(([, init]) => init.method === "POST")!;
+  expect(write[0]).toBe(`/api/v1/partner/accounts/${account.id}/products/${product.id}/ad-image`);
+  expect(write[1].headers).toEqual({ "x-csrf-token": "partner-csrf" });
+  expect((write[1].body as FormData).get("file")).toBe(file);
+  expect(saved).not.toHaveBeenCalled();
+  expect(router.replace).not.toHaveBeenCalled();
+  expect((screen.getByRole("textbox", { name: "Ad image URL" }) as HTMLInputElement).value).toBe(
+    uploadedUrl,
+  );
+  const preview = await screen.findByRole("region", { name: "Creative preview" });
+  await waitFor(() => expect(preview.querySelector("img")?.src).toBe(uploadedUrl));
+});
+
+it.each(["account_id", "product_id"])(
+  "rejects an upload response for another %s",
+  async (field) => {
+    const uploadedUrl = "https://images.example/800.webp?v=revision-1";
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockImplementation((url: string, init: RequestInit) =>
+        Response.json(
+          init.method === "POST"
+            ? {
+                ...policy,
+                [field]: "another-record",
+                ad_image_url: uploadedUrl,
+                image_url: uploadedUrl,
+                ad_image_status: "ready",
+              }
+            : url.includes("creative-preview")
+              ? { product }
+              : policy,
+        ),
+      ),
+    );
+    placements();
+    await openProductPlacements();
+    await chooseCustomImage();
+    fireEvent.change(screen.getByLabelText("Upload ad image file"), {
+      target: { files: [new File(["webp"], "ad.webp", { type: "image/webp" })] },
+    });
+    await screen.findByText("Could not confirm the uploaded ad image. Refresh and try again.");
+    expect(screen.queryByText(/Image uploaded and applied/)).toBeNull();
+    expect(saved).not.toHaveBeenCalled();
+  },
+);
+
+it.each([
+  [413, "Choose an image under 5 MB."],
+  [422, "Choose a valid JPEG, PNG or WebP image."],
+])("shows useful upload validation errors (%s)", async (status, message) => {
+  vi.stubGlobal(
+    "fetch",
+    vi
+      .fn()
+      .mockImplementation((url: string, init: RequestInit) =>
+        init.method === "POST"
+          ? new Response(null, { status })
+          : Response.json(url.includes("creative-preview") ? { product } : policy),
+      ),
+  );
+  placements();
+  await openProductPlacements();
+  await chooseCustomImage();
+  fireEvent.change(screen.getByLabelText("Upload ad image file"), {
+    target: { files: [new File(["png"], "ad.png", { type: "image/png" })] },
+  });
+  await screen.findByText(message);
+  expect((screen.getByRole("button", { name: "Upload image" }) as HTMLButtonElement).disabled).toBe(
+    false,
+  );
+  expect(saved).not.toHaveBeenCalled();
 });

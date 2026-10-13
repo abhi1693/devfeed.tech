@@ -4,12 +4,9 @@ version = "0.0.52"
 description = "Optional user identity and personalized feeds"
 requires-python = ">=3.12"
 dependencies = [
-    "boto3>=1.40,<2",
     "devfeed-core",
-    "devfeed-http[identity]",
+    "devfeed-http[identity,uploads]",
     "fastapi>=0.142.2,<1",
-    "pillow>=11.3,<13",
-    "python-multipart>=0.0.20,<1",
     "uvicorn[standard]>=0.34,<1",
 ]
 

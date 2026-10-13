@@ -64,6 +64,7 @@ def retry_candidates(model):
             model.topic_id,
             model.source_id,
             model.product_id,
+            model.account_id,
             case((model.product_id.is_not(None), model.operation), else_=null()),
         )
         if model is ArticleImageJob

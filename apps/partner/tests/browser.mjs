@@ -158,8 +158,30 @@ const preferenceWrites = [];
 const previewRequests = [];
 const creativePreviewRequests = [];
 const audienceRequests = [];
-const productPolicy = { excluded: false, promotion_surfaces: null, ad_formats: null };
+const productPolicy = {
+  excluded: false,
+  promotion_surfaces: null,
+  ad_formats: null,
+  ad_image_url: null,
+};
 const productPolicyWrites = [];
+const websiteImage = creativeProduct(previewProduct).image_url;
+const customImage = "https://assets.partner.example/custom-hero.svg";
+const managedCustomImage = "https://assets.partner.example/managed-custom-hero.svg";
+const uploadedImage = "https://assets.partner.example/partner-ad-images/800.webp?v=upload-1";
+const productImageUploads = [];
+function productAdImage() {
+  return {
+    default_image_url: websiteImage,
+    image_url:
+      productPolicy.ad_image_url === uploadedImage
+        ? uploadedImage
+        : productPolicy.ad_image_url
+          ? managedCustomImage
+          : websiteImage,
+    ad_image_status: productPolicy.ad_image_url ? "ready" : "default",
+  };
+}
 const connectionFixture = createConnectionFixture({ account, origin: () => origin });
 const mock = createServer(async (request, response) => {
   const url = new URL(request.url, "http://localhost");
@@ -311,6 +333,36 @@ const mock = createServer(async (request, response) => {
     );
     return;
   }
+  if (path.endsWith(`/products/${previewProduct.id}/ad-image`)) {
+    assert.equal(path, `/v1/partner/accounts/${account.id}/products/${previewProduct.id}/ad-image`);
+    assert.equal(request.method, "POST");
+    assert.equal(request.headers["x-csrf-token"], "test-csrf");
+    assert.match(request.headers["content-type"], /^multipart\/form-data; boundary=/);
+    const chunks = [];
+    for await (const chunk of request) chunks.push(chunk);
+    const form = await new Response(Buffer.concat(chunks), {
+      headers: { "content-type": request.headers["content-type"] },
+    }).formData();
+    const file = form.get("file");
+    assert.equal(file.name, "campaign.png");
+    assert.equal(file.type, "image/png");
+    assert.ok(file.size > 0);
+    productImageUploads.push({
+      account_id: account.id,
+      product_id: previewProduct.id,
+      name: file.name,
+    });
+    productPolicy.ad_image_url = uploadedImage;
+    response.end(
+      JSON.stringify({
+        account_id: account.id,
+        product_id: previewProduct.id,
+        ...productPolicy,
+        ...productAdImage(),
+      }),
+    );
+    return;
+  }
   if (path.endsWith(`/products/${previewProduct.id}/promotion`)) {
     assert.equal(
       path,
@@ -324,14 +376,19 @@ const mock = createServer(async (request, response) => {
       const payload = JSON.parse(raw);
       assert.ok(
         Object.keys(payload).every((key) =>
-          ["excluded", "promotion_surfaces", "ad_formats"].includes(key),
+          ["excluded", "promotion_surfaces", "ad_formats", "ad_image_url"].includes(key),
         ),
       );
       productPolicyWrites.push(payload);
       Object.assign(productPolicy, payload);
     }
     response.end(
-      JSON.stringify({ account_id: account.id, product_id: previewProduct.id, ...productPolicy }),
+      JSON.stringify({
+        account_id: account.id,
+        product_id: previewProduct.id,
+        ...productPolicy,
+        ...productAdImage(),
+      }),
     );
     return;
   }
@@ -362,7 +419,10 @@ const mock = createServer(async (request, response) => {
     creativePreviewRequests.push({ productId, excluded: productPolicy.excluded });
     response.end(
       JSON.stringify({
-        product: isBeta || productPolicy.excluded ? null : creativeProduct(previewProduct),
+        product:
+          isBeta || productPolicy.excluded
+            ? null
+            : { ...creativeProduct(previewProduct), ...productAdImage() },
       }),
     );
     return;
@@ -989,6 +1049,7 @@ try {
     excluded: true,
     ad_formats: ["engagement"],
     promotion_surfaces: ["feed"],
+    ad_image_url: null,
   });
   await page.reload();
   await page.getByRole("link", { name: "Edit placements", exact: true }).click();
@@ -1023,7 +1084,129 @@ try {
     excluded: false,
     ad_formats: null,
     promotion_surfaces: null,
+    ad_image_url: null,
   });
+  await page.getByRole("link", { name: "Edit placements", exact: true }).click();
+  const creative = page.getByRole("region", { name: "Creative preview", exact: true });
+  await creative.locator(`img[src="${websiteImage}"]`).waitFor();
+  await page.getByRole("combobox", { name: "Ad image", exact: true }).click();
+  await page.getByRole("option", { name: "Custom image", exact: true }).click();
+  await page.getByRole("textbox", { name: "Ad image URL", exact: true }).fill(customImage);
+  await creative.locator(`img[src="${customImage}"]`).waitFor();
+  assert.equal(productPolicy.ad_image_url, null, "A draft image is private until saved");
+  await page.screenshot({
+    path: root + "reports/partner/product-ad-image-desktop.png",
+    fullPage: true,
+  });
+  await page.setViewportSize({ width: 390, height: 844 });
+  assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
+  await page.screenshot({
+    path: root + "reports/partner/product-ad-image-mobile.png",
+    fullPage: true,
+  });
+  await page.getByRole("button", { name: "Save product placements", exact: true }).click();
+  await page.waitForURL((url) => url.pathname === productPath);
+  assert.deepEqual(productPolicyWrites.at(-1), {
+    excluded: false,
+    ad_formats: null,
+    promotion_surfaces: null,
+    ad_image_url: customImage,
+  });
+  await page
+    .getByRole("region", { name: "Creative preview", exact: true })
+    .locator(`img[src="${managedCustomImage}"]`)
+    .waitFor();
+  await page.getByRole("link", { name: "Edit placements", exact: true }).click();
+  await page.getByRole("textbox", { name: "Ad image URL", exact: true }).waitFor();
+  assert.equal(
+    await page.getByRole("textbox", { name: "Ad image URL", exact: true }).inputValue(),
+    customImage,
+  );
+  await page.getByRole("combobox", { name: "Ad image", exact: true }).click();
+  await page.getByRole("option", { name: "Website image", exact: true }).click();
+  await creative.locator(`img[src="${websiteImage}"]`).waitFor();
+  await page.getByRole("button", { name: "Cancel", exact: true }).click();
+  await page.waitForURL((url) => url.pathname === productPath);
+  assert.equal(productPolicy.ad_image_url, customImage, "Cancel retains the saved custom image");
+  await page.getByRole("link", { name: "Edit placements", exact: true }).click();
+  await page.getByRole("combobox", { name: "Ad image", exact: true }).click();
+  await page.getByRole("option", { name: "Website image", exact: true }).click();
+  await page.getByRole("button", { name: "Save product placements", exact: true }).click();
+  await page.waitForURL((url) => url.pathname === productPath);
+  assert.equal(
+    productPolicyWrites.at(-1).ad_image_url,
+    null,
+    "Saving Website image clears the override explicitly",
+  );
+  await page
+    .getByRole("region", { name: "Creative preview", exact: true })
+    .locator(`img[src="${websiteImage}"]`)
+    .waitFor();
+  await page.setViewportSize({ width: 1280, height: 1100 });
+  await page.getByRole("link", { name: "Edit placements", exact: true }).click();
+  await page.getByRole("combobox", { name: "Product availability", exact: true }).click();
+  await page.getByRole("option", { name: "Exclude this product", exact: true }).click();
+  const writesBeforeUpload = productPolicyWrites.length;
+  assert.equal(
+    await page.getByRole("button", { name: "Upload image", exact: true }).count(),
+    0,
+    "Website image hides upload controls",
+  );
+  await page.getByRole("combobox", { name: "Ad image", exact: true }).click();
+  await page.getByRole("option", { name: "Custom image", exact: true }).click();
+  await page.getByLabel("Upload ad image file", { exact: true }).setInputFiles({
+    name: "campaign.png",
+    mimeType: "image/png",
+    buffer: Buffer.from(
+      "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aIuoAAAAASUVORK5CYII=",
+      "base64",
+    ),
+  });
+  await page.getByText(/Image uploaded and applied/).waitFor();
+  assert.equal(
+    new URL(page.url()).pathname,
+    `${productPath}/placements`,
+    "Uploading stays on the edit page",
+  );
+  assert.equal(productImageUploads.length, 1);
+  assert.equal(
+    productPolicyWrites.length,
+    writesBeforeUpload,
+    "Upload does not submit placement drafts",
+  );
+  assert.equal(productPolicy.excluded, false, "Upload preserves the saved availability");
+  assert.equal(productPolicy.ad_image_url, uploadedImage);
+  await page.getByText("Unsaved changes", { exact: true }).waitFor();
+  assert.match(
+    await page.getByRole("combobox", { name: "Product availability", exact: true }).innerText(),
+    /Exclude this product/,
+  );
+  await creative.locator(`img[src="${uploadedImage}"]`).waitFor();
+  await page.screenshot({
+    path: root + "reports/partner/product-ad-image-upload-desktop.png",
+    fullPage: true,
+  });
+  await page.setViewportSize({ width: 390, height: 844 });
+  assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
+  await page.screenshot({
+    path: root + "reports/partner/product-ad-image-upload-mobile.png",
+    fullPage: true,
+  });
+  await page.getByRole("button", { name: "Cancel", exact: true }).click();
+  await page.waitForURL((url) => url.pathname === productPath);
+  assert.equal(
+    productPolicy.ad_image_url,
+    uploadedImage,
+    "Cancel discards other drafts while retaining the immediately saved upload",
+  );
+  assert.equal(productPolicy.excluded, false);
+  await page.getByRole("link", { name: "Edit placements", exact: true }).click();
+  await page.getByRole("combobox", { name: "Ad image", exact: true }).click();
+  await page.getByRole("option", { name: "Website image", exact: true }).click();
+  await page.getByRole("button", { name: "Save product placements", exact: true }).click();
+  await page.waitForURL((url) => url.pathname === productPath);
+  assert.equal(productPolicy.ad_image_url, null);
+  await page.setViewportSize({ width: 1280, height: 1100 });
   await page.getByRole("link", { name: "Edit placements", exact: true }).click();
   await page.getByRole("combobox", { name: "Product availability", exact: true }).click();
   await page.getByRole("option", { name: "Exclude this product", exact: true }).click();

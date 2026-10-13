@@ -65,7 +65,23 @@ const sponsorArticleRequests = [];
 let assets = [];
 const campaigns = [];
 let productExcluded = false;
-const productPolicy = { promotion_surfaces: null, ad_formats: null };
+const productPolicy = { promotion_surfaces: null, ad_formats: null, ad_image_url: null };
+const websiteImage = creativeProduct(destinationProduct).image_url;
+const customImage = "https://assets.partner.example/admin-hero.svg";
+const uploadedImage = "https://assets.partner.example/partner-ad-images/800.webp?v=admin-upload-1";
+const productImageUploads = [];
+function productAdImage() {
+  return {
+    image_url:
+      productPolicy.ad_image_url === uploadedImage
+        ? uploadedImage
+        : productPolicy.ad_image_url
+          ? "https://assets.partner.example/admin-managed-hero.svg"
+          : websiteImage,
+    default_image_url: websiteImage,
+    ad_image_status: productPolicy.ad_image_url ? "ready" : "default",
+  };
+}
 let appearance = { theme: "light" };
 const inventoryRequests = [];
 const audienceRequests = [];
@@ -198,7 +214,11 @@ const fixture = createServer(async (req, res) => {
     const productId = new URL(req.url, "http://localhost").searchParams.get("product_id");
     if (productId) assert.equal(productId, catalogProduct.id);
     creativePreviewRequests.push({ productId, excluded: productExcluded });
-    body = { product: productExcluded ? null : creativeProduct(destinationProduct) };
+    body = {
+      product: productExcluded
+        ? null
+        : { ...creativeProduct(destinationProduct), ...productAdImage() },
+    };
   } else if (path === `/v1/admin/partner-accounts/${account.id}/inventory`) {
     const params = new URL(req.url, "http://localhost").searchParams;
     inventoryRequests.push(Object.fromEntries(params));
@@ -214,9 +234,31 @@ const fixture = createServer(async (req, res) => {
       excluded: product.id === catalogProduct.id && productExcluded,
       ...(product.id === catalogProduct.id
         ? productPolicy
-        : { promotion_surfaces: null, ad_formats: null }),
+        : { promotion_surfaces: null, ad_formats: null, ad_image_url: null }),
     }));
     body = { items, total: matching.length };
+  } else if (path.endsWith(`/products/${catalogProduct.id}/ad-image`)) {
+    assert.equal(req.method, "POST");
+    assert.equal(req.headers["x-csrf-token"], "fixture-csrf");
+    assert.match(req.headers["content-type"], /^multipart\/form-data; boundary=/);
+    const chunks = [];
+    for await (const chunk of req) chunks.push(chunk);
+    const form = await new Response(Buffer.concat(chunks), {
+      headers: { "content-type": req.headers["content-type"] },
+    }).formData();
+    const file = form.get("file");
+    assert.equal(file.name, "campaign.png");
+    assert.equal(file.type, "image/png");
+    assert.ok(file.size > 0);
+    productImageUploads.push(file.name);
+    productPolicy.ad_image_url = uploadedImage;
+    body = {
+      account_id: account.id,
+      product_id: catalogProduct.id,
+      excluded: productExcluded,
+      ...productPolicy,
+      ...productAdImage(),
+    };
   } else if (path.endsWith(`/products/${catalogProduct.id}/promotion`)) {
     if (req.method === "PUT") {
       let raw = "";
@@ -227,12 +269,14 @@ const fixture = createServer(async (req, res) => {
       if (payload.promotion_surfaces !== undefined)
         productPolicy.promotion_surfaces = payload.promotion_surfaces;
       if (payload.ad_formats !== undefined) productPolicy.ad_formats = payload.ad_formats;
+      if (payload.ad_image_url !== undefined) productPolicy.ad_image_url = payload.ad_image_url;
     }
     body = {
       account_id: account.id,
       product_id: catalogProduct.id,
       excluded: productExcluded,
       ...productPolicy,
+      ...productAdImage(),
     };
   } else if (path.endsWith("/campaigns")) {
     if (req.method === "POST") {
@@ -767,6 +811,7 @@ try {
     excluded: true,
     ad_formats: ["engagement"],
     promotion_surfaces: ["feed"],
+    ad_image_url: null,
   });
   await page.reload();
   await editProductPlacements.click();
@@ -799,7 +844,87 @@ try {
     excluded: false,
     ad_formats: null,
     promotion_surfaces: null,
+    ad_image_url: null,
   });
+  await editProductPlacements.click();
+  await productDialog.getByRole("combobox", { name: "Ad image", exact: true }).click();
+  await page.getByRole("option", { name: "Custom image", exact: true }).click();
+  await productDialog.getByRole("textbox", { name: "Ad image URL", exact: true }).fill(customImage);
+  await productDialog.getByRole("button", { name: "Preview this product", exact: true }).click();
+  await productDialog
+    .getByRole("region", { name: "Creative preview", exact: true })
+    .locator(`img[src="${customImage}"]`)
+    .waitFor();
+  assert.equal(productPolicy.ad_image_url, null, "Admin image draft remains local before save");
+  await page.screenshot({
+    path: root + "reports/partner/admin-product-ad-image-desktop.png",
+    fullPage: true,
+  });
+  await productDialog.getByRole("button", { name: "Save product placements", exact: true }).click();
+  await productDialog.waitFor({ state: "hidden" });
+  assert.equal(writes.at(-1).payload.ad_image_url, customImage);
+  assert.equal(
+    "image_url" in writes.at(-1).payload,
+    false,
+    "Read-only image metadata is never submitted",
+  );
+  await editProductPlacements.click();
+  await productDialog.getByRole("textbox", { name: "Ad image URL", exact: true }).waitFor();
+  assert.equal(
+    await productDialog.getByRole("textbox", { name: "Ad image URL", exact: true }).inputValue(),
+    customImage,
+  );
+  await productDialog.getByRole("combobox", { name: "Ad image", exact: true }).click();
+  await page.getByRole("option", { name: "Website image", exact: true }).click();
+  await productDialog.getByRole("button", { name: "Save product placements", exact: true }).click();
+  await productDialog.waitFor({ state: "hidden" });
+  assert.equal(writes.at(-1).payload.ad_image_url, null);
+  await editProductPlacements.click();
+  await productDialog.getByRole("combobox", { name: "Product availability", exact: true }).click();
+  await page.getByRole("option", { name: "Exclude this product", exact: true }).click();
+  const writesBeforeUpload = writes.length;
+  assert.equal(
+    await productDialog.getByRole("button", { name: "Upload image", exact: true }).count(),
+    0,
+    "Website image hides upload controls",
+  );
+  await productDialog.getByRole("combobox", { name: "Ad image", exact: true }).click();
+  await page.getByRole("option", { name: "Custom image", exact: true }).click();
+  await productDialog.getByLabel("Upload ad image file", { exact: true }).setInputFiles({
+    name: "campaign.png",
+    mimeType: "image/png",
+    buffer: Buffer.from(
+      "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aIuoAAAAASUVORK5CYII=",
+      "base64",
+    ),
+  });
+  await productDialog.getByText(/Image uploaded and applied/).waitFor();
+  assert.equal(productImageUploads.length, 1);
+  assert.equal(writes.length, writesBeforeUpload);
+  assert.equal(productExcluded, false, "Admin upload leaves unrelated drafts unsaved");
+  await productDialog.getByText("Unsaved changes", { exact: true }).waitFor();
+  await productDialog
+    .getByRole("region", { name: "Creative preview", exact: true })
+    .locator(`img[src="${uploadedImage}"]`)
+    .waitFor();
+  await page.setViewportSize({ width: 1440, height: 1800 });
+  await productDialog.screenshot({
+    path: root + "reports/partner/admin-product-ad-image-upload-desktop.png",
+  });
+  await page.setViewportSize({ width: 1440, height: 1100 });
+  await productDialog.getByRole("button", { name: "Close placements", exact: true }).click();
+  await productDialog.waitFor({ state: "hidden" });
+  assert.equal(
+    productPolicy.ad_image_url,
+    uploadedImage,
+    "Closing retains the immediately applied upload",
+  );
+  await editProductPlacements.click();
+  await productDialog.getByRole("combobox", { name: "Ad image", exact: true }).click();
+  await page.getByRole("option", { name: "Website image", exact: true }).click();
+  await productDialog.getByRole("button", { name: "Save product placements", exact: true }).click();
+  await productDialog.waitFor({ state: "hidden" });
+  assert.equal(productPolicy.ad_image_url, null);
   await page.getByRole("link", { name: "Campaigns", exact: true }).click();
   await page.getByRole("link", { name: "Create paid campaign", exact: true }).click();
   await page.getByLabel(/Campaign name/).fill("October catalog promotion");
@@ -978,7 +1103,7 @@ try {
     `/partnerships/accounts/${account.id}/edit`,
   );
   assert.equal(await page.getByRole("link", { name: "Associate asset", exact: true }).count(), 0);
-  assert.equal(writes.length, 13);
+  assert.equal(writes.length, 16);
   assert.ok(
     writes.every(
       (write) =>

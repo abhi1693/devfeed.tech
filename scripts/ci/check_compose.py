@@ -165,6 +165,19 @@ def check() -> None:
         == "partner-secret"
     )
     assert "DEVFEED_OIDC_CLIENT_SECRET" not in partner_services["partner"]["environment"]
+    storage_secrets = {
+        "DEVFEED_IMAGE_STORAGE_ACCESS_KEY": "fixture-image-access-key",
+        "DEVFEED_IMAGE_STORAGE_SECRET_KEY": "fixture-image-secret-key",
+    }
+    for build in (False, True):
+        upload_services = render({**registry_fixtures, **storage_secrets}, build=build)["services"]
+        for name, service in upload_services.items():
+            environment = service.get("environment", {})
+            for key, value in storage_secrets.items():
+                recipient = name in {"images-worker", "user-api", "admin-api", "partner-api"}
+                assert (key in environment) == recipient, (name, key)
+                if recipient:
+                    assert environment[key] == value, (name, key)
     product_secret = "DEVFEED_PARTNER_SECRET_PRODUCTS_API_TOKEN"
     for build in (False, True):
         connector_services = render(

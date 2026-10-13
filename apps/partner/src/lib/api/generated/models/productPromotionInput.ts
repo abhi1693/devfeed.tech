@@ -8,6 +8,7 @@
 
 export interface ProductPromotionInput {
   ad_formats?: ('feed' | 'homepage_sponsorship' | 'sponsored_content' | 'engagement')[] | null;
+  ad_image_url?: string | null;
   excluded?: boolean | null;
   promotion_surfaces?: ('article' | 'topic' | 'feed')[] | null;
 }

@@ -2,11 +2,114 @@ import { beforeEach, afterEach, expect, it, vi } from "vitest";
 import { gateway } from "../src/lib/server/gateway";
 
 vi.mock("@devfeed/telemetry/propagation", () => ({ traceHeaders: () => ({}) }));
+const productAdImage = [
+  "v1",
+  "partner",
+  "accounts",
+  "11111111-1111-4111-8111-111111111111",
+  "products",
+  "22222222-2222-4222-8222-222222222222",
+  "ad-image",
+];
 beforeEach(() => vi.stubEnv("DEVFEED_PARTNER_API_URL", "http://partner-api:8004"));
 afterEach(() => {
   vi.useRealTimers();
   vi.unstubAllGlobals();
   vi.unstubAllEnvs();
+});
+
+it("forwards a product image multipart upload without changing its boundary or bytes", async () => {
+  vi.stubEnv("DEVFEED_PARTNER_BASE_URL", "https://partner.example");
+  const fetcher = vi.fn().mockResolvedValue(Response.json({ ad_image_status: "ready" }));
+  vi.stubGlobal("fetch", fetcher);
+  const body = new FormData();
+  body.append("file", new Blob([new Uint8Array(1_100_000)], { type: "image/png" }), "ad.png");
+  const incoming = new Request("https://partner.example/api", {
+    method: "POST",
+    headers: { origin: "https://partner.example", "x-csrf-token": "csrf" },
+    body,
+  });
+  const expectedBytes = await incoming.clone().arrayBuffer();
+  expect((await gateway(incoming, productAdImage)).status).toBe(200);
+  const [url, init] = fetcher.mock.calls[0];
+  expect(url).toBe(`http://partner-api:8004/${productAdImage.join("/")}`);
+  expect(init.headers.get("content-type")).toBe(incoming.headers.get("content-type"));
+  expect(init.headers.get("x-csrf-token")).toBe("csrf");
+  expect(Buffer.from(init.body).equals(Buffer.from(expectedBytes))).toBe(true);
+});
+
+it("rejects foreign origins and malformed image upload scopes before reading the body", async () => {
+  vi.stubEnv("DEVFEED_PARTNER_BASE_URL", "https://partner.example");
+  const fetcher = vi.fn();
+  vi.stubGlobal("fetch", fetcher);
+  for (const [path, origin, status] of [
+    [productAdImage, "https://evil.example", 403],
+    [[...productAdImage, "extra"], "https://partner.example", 404],
+    [
+      [...productAdImage.slice(0, 3), "foreign", ...productAdImage.slice(4)],
+      "https://partner.example",
+      404,
+    ],
+  ] as const) {
+    const incoming = new Request("https://partner.example/api", {
+      method: "POST",
+      headers: { origin },
+      body: new ReadableStream<Uint8Array>(),
+      duplex: "half",
+    } as RequestInit);
+    expect((await gateway(incoming, [...path])).status).toBe(status);
+    expect(incoming.bodyUsed).toBe(false);
+  }
+  for (const method of ["GET", "PUT", "DELETE"]) {
+    expect(
+      (await gateway(new Request("https://partner.example/api", { method }), productAdImage))
+        .status,
+    ).toBe(405);
+  }
+  expect(fetcher).not.toHaveBeenCalled();
+});
+
+it.each([true, false])(
+  "caps declared and chunked product image bodies (declared=%s)",
+  async (declared) => {
+    vi.stubEnv("DEVFEED_PARTNER_BASE_URL", "https://partner.example");
+    const fetcher = vi.fn();
+    vi.stubGlobal("fetch", fetcher);
+    const bytes = 5 * 1024 * 1024 + 65537;
+    const incoming = new Request("https://partner.example/api", {
+      method: "POST",
+      headers: {
+        origin: "https://partner.example",
+        ...(declared ? { "content-length": String(bytes) } : {}),
+      },
+      body: new Uint8Array(bytes),
+    });
+    expect((await gateway(incoming, productAdImage)).status).toBe(413);
+    expect(fetcher).not.toHaveBeenCalled();
+  },
+);
+
+it("times out an incomplete product image upload and cancels its body reader", async () => {
+  vi.useFakeTimers();
+  vi.stubEnv("DEVFEED_PARTNER_BASE_URL", "https://partner.example");
+  const fetcher = vi.fn();
+  const cancel = vi.fn();
+  vi.stubGlobal("fetch", fetcher);
+  const incoming = new Request("https://partner.example/api", {
+    method: "POST",
+    headers: { origin: "https://partner.example" },
+    body: new ReadableStream<Uint8Array>({ cancel }),
+    duplex: "half",
+  } as RequestInit);
+  const pending = gateway(incoming, productAdImage);
+  await vi.advanceTimersByTimeAsync(10_000);
+  const response = await pending;
+  expect(response.status).toBe(408);
+  expect(response.headers.get("cache-control")).toBe("no-store");
+  expect(cancel).toHaveBeenCalledOnce();
+  expect(fetcher).not.toHaveBeenCalled();
+  expect(incoming.body!.locked).toBe(false);
+  expect(vi.getTimerCount()).toBe(0);
 });
 it("cannot proxy admin, user or traversal paths", async () => {
   const fetchMock = vi.fn();
