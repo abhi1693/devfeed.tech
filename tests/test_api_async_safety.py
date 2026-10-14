@@ -97,7 +97,7 @@ def test_lifespan_closes_blocking_clients_outside_the_event_loop(package, monkey
 
 
 def test_inbox_tls_initialization_does_not_run_on_the_event_loop():
-    from devfeed_http.inbox import proxy_inbox
+    from devfeed_http.inbox import INBOX_OPERATIONS, InboxProxy, InboxSession
 
     async def scenario():
         loop_thread = threading.get_ident()
@@ -117,14 +117,16 @@ def test_inbox_tls_initialization_does_not_run_on_the_event_loop():
         request = Request(
             {"type": "http", "method": "GET", "headers": [], "query_string": b""}, receive
         )
-        response = await proxy_inbox(
-            "items",
-            request,
+        session = InboxSession(
             api_url="https://inbox.test",
-            headers={},
+            environment="test",
+            secret="test-secret",
+            subscriber_id="test-subscriber",
             expires_at=9999999999,
             client_factory=factory,
         )
+        operation = next(operation for operation in INBOX_OPERATIONS if operation.name == "Items")
+        response = await InboxProxy().forward(operation, request, session)
         assert response.status_code == 200
         assert clients[0].is_closed
 
@@ -146,7 +148,7 @@ def test_inbox_settings_file_loading_is_off_the_event_loop(package, monkeypatch)
 
         monkeypatch.setattr(module, "get_settings", settings)
         with pytest.raises(HTTPException) as error:
-            await module.inbox_proxy("items", None, None)
+            await module.resolve_inbox_session(None)
         assert error.value.status_code == 503
 
     asyncio.run(scenario())

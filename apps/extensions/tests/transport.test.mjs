@@ -31,7 +31,8 @@ const params = {
   request_id: "opaque-request-id",
   username: "reader_1",
   slug: "reader-parity",
-  path: "preferences",
+  notification_id: `notif_${"a".repeat(26)}`,
+  broadcast_id: `bcast_${"b".repeat(26)}`,
 };
 
 function clock() {
@@ -107,11 +108,11 @@ function resource(operation) {
 }
 
 test("generated extension operations declare policies and omit direct OAuth exchange operations", () => {
-  assert.equal(operations.length, 59);
-  assert.equal(new Set(operations.map((operation) => operation.operationId)).size, 59);
+  assert.equal(operations.length, 73);
+  assert.equal(new Set(operations.map((operation) => operation.operationId)).size, 73);
   assert.equal(
     new Set(operations.map((operation) => `${operation.method} ${operation.path}`)).size,
-    59,
+    73,
   );
   for (const operation of operations) {
     assert.ok(operation.policy.extension);
@@ -191,6 +192,29 @@ for (const operation of operations) {
     time.advance(1);
     assert.equal(init.signal.aborted, true);
     assert.equal(init.signal.reason.name, "TimeoutError");
+  });
+}
+
+for (const [method, suffix] of [
+  ["GET", "messages"],
+  ["POST", "items"],
+  ["GET", "read-all"],
+  ["POST", "preferences"],
+  ["GET", "stream/extra"],
+  ["POST", `items/${params.notification_id}/read`],
+  ["POST", "notifications/bad-id/read"],
+  ["POST", `notifications/${params.broadcast_id}/read`],
+  ["POST", `notifications/${params.notification_id}/unknown`],
+]) {
+  test(`denies undeclared or malformed inbox ${method} ${suffix} without forwarding`, async () => {
+    const { request, calls } = harness();
+    const original = new Request(`${origin}/api/v1/user/notifications/chimely/v1/inbox/${suffix}`, {
+      method,
+      ...(method === "POST" ? { body: new ReadableStream(), duplex: "half" } : {}),
+    });
+    assert.equal((await request(original)).status, 403);
+    assert.equal(original.bodyUsed, false);
+    assert.equal(calls.length, 0);
   });
 }
 
@@ -283,9 +307,9 @@ test("browser policy follows a renamed operation instead of the endpoint namespa
   assert.equal(calls[0].init.signal.aborted, true);
 });
 
-test("preserves nested inbox paths, conditional reads and CSRF-protected updates", async () => {
+test("preserves concrete notification actions, conditional reads and CSRF-protected updates", async () => {
   const { request, calls } = harness();
-  const path = `/api/v1/user/notifications/chimely/v1/inbox/items/${params.article_id}/read`;
+  const path = `/api/v1/user/notifications/chimely/v1/inbox/notifications/${params.notification_id}/read`;
   await request(path, {
     method: "POST",
     headers: { "Content-Type": "application/json", "X-CSRF-Token": "csrf" },

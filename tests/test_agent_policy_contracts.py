@@ -66,7 +66,7 @@ def test_agent_permissions_are_exported_on_operations_without_entering_gateway_t
             assert AGENT_POLICY_EXTENSION not in operation[GATEWAY_POLICY_EXTENSION]
     assert actual == EXPECTED
     operations = document[GATEWAY_ROUTES_EXTENSION]
-    assert len(operations) == 47
+    assert len(operations) == 61
     for operation in operations:
         assert set(operation) == {"operationId", "method", "path", "parameters", "policy"}
         assert set(operation["policy"]) == {

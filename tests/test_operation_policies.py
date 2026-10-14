@@ -4,6 +4,7 @@ import uuid
 
 import pytest
 from devfeed_admin_api.main import create_app
+from devfeed_http.inbox import INBOX_OPERATIONS, MAX_BODY
 from devfeed_http.operation_policies import (
     DEFAULT_GATEWAY_POLICY,
     GATEWAY_POLICY_EXTENSION,
@@ -142,8 +143,10 @@ def specimen():
     def worker(worker_name: str = Path(min_length=1, max_length=256)):
         return {}
 
-    @router.api_route("/inbox/{path:path}", methods=["GET", "PUT", "POST"], include_in_schema=False)
-    def inbox(path: str):
+    @router.api_route(
+        "/exports/{path:path}", methods=["GET", "PUT", "POST"], include_in_schema=False
+    )
+    def export(path: str):
         return {}
 
     include_gateway_router(app, router)
@@ -159,9 +162,9 @@ def test_policy_export_preserves_order_schemas_ids_and_explicit_exposure():
         "/changed-prefix/static",
         "/changed-prefix/products/{product_id}",
         "/changed-prefix/workers/{worker_name}",
-        "/changed-prefix/inbox/{path}",
-        "/changed-prefix/inbox/{path}",
-        "/changed-prefix/inbox/{path}",
+        "/changed-prefix/exports/{path}",
+        "/changed-prefix/exports/{path}",
+        "/changed-prefix/exports/{path}",
     ]
     assert [operation["method"] for operation in operations] == [
         "GET",
@@ -196,7 +199,7 @@ def test_hidden_routes_export_deterministic_identity_and_path_converter():
     hidden = first[GATEWAY_ROUTES_EXTENSION][-3:]
     assert first[GATEWAY_ROUTES_EXTENSION] == second[GATEWAY_ROUTES_EXTENSION]
     assert len({operation["operationId"] for operation in hidden}) == 3
-    assert "/changed-prefix/inbox/{path}" not in first["paths"]
+    assert "/changed-prefix/exports/{path}" not in first["paths"]
     for operation in hidden:
         assert operation["parameters"] == [
             {"name": "path", "schema": {"type": "string"}, "converter": "path"}
@@ -240,9 +243,26 @@ def test_admin_export_covers_auth_and_hidden_inbox_without_exposing_health():
     assert ("/v1/admin/auth/callback", "GET") in actual
     assert ("/v1/admin/auth/logout", "POST") in actual
     assert not any(operation["path"].startswith("/health/") for operation in operations)
-    for method in ("GET", "POST", "PUT"):
-        hidden = actual[("/v1/admin/notifications/chimely/v1/inbox/{path}", method)]
-        assert hidden["parameters"][0]["converter"] == "path"
+    hidden_operations = {
+        key: operation for key, operation in actual.items() if key not in documented
+    }
+    assert len(hidden_operations) == 17
+    for operation in INBOX_OPERATIONS:
+        hidden = hidden_operations[
+            ("/v1/admin/notifications/chimely/v1/inbox" + operation.path, operation.method)
+        ]
+        assert hidden["operationId"] == "adminInbox" + operation.name
+        assert hidden["policy"] == GatewayPolicy(body_limit=MAX_BODY).model_dump(by_alias=True)
+        if operation.parameter is None:
+            assert hidden["parameters"] == []
+        else:
+            parameter = hidden["parameters"][0]
+            assert parameter["name"] == operation.parameter
+            assert parameter["converter"] == "str"
+            assert parameter["schema"]["minLength"] == 32
+            assert parameter["schema"]["maxLength"] == 32
+            prefix = "notif" if operation.parameter == "notification_id" else "bcast"
+            assert parameter["schema"]["pattern"] == "^" + prefix + r"_[a-z0-9]{26}$"
     expected = {
         "admin_source_create": GatewayPolicy(upstream_timeout_ms=215_000),
         "admin_source_preview": GatewayPolicy(upstream_timeout_ms=305_000),

@@ -2799,58 +2799,276 @@ export const adminGatewayOperations = [
     },
   },
   {
-    operationId: "inbox_proxy_get_0a8b905194de",
+    operationId: "adminInboxItems",
     method: "GET",
-    path: "/v1/admin/notifications/chimely/v1/inbox/{path}",
-    parameters: [
-      {
-        name: "path",
-        schema: {
-          type: "string",
-        },
-        converter: "path",
-      },
-    ],
+    path: "/v1/admin/notifications/chimely/v1/inbox/items",
+    parameters: [],
     policy: {
-      bodyLimit: 1000000,
+      bodyLimit: 16384,
       bodyTimeoutMs: 2000,
       upstreamTimeoutMs: 45000,
     },
   },
   {
-    operationId: "inbox_proxy_post_e6b013be6623",
-    method: "POST",
-    path: "/v1/admin/notifications/chimely/v1/inbox/{path}",
-    parameters: [
-      {
-        name: "path",
-        schema: {
-          type: "string",
-        },
-        converter: "path",
-      },
-    ],
+    operationId: "adminInboxCounts",
+    method: "GET",
+    path: "/v1/admin/notifications/chimely/v1/inbox/counts",
+    parameters: [],
     policy: {
-      bodyLimit: 1000000,
+      bodyLimit: 16384,
       bodyTimeoutMs: 2000,
       upstreamTimeoutMs: 45000,
     },
   },
   {
-    operationId: "inbox_proxy_put_f80c29c2b6b8",
+    operationId: "adminInboxPreferencesRead",
+    method: "GET",
+    path: "/v1/admin/notifications/chimely/v1/inbox/preferences",
+    parameters: [],
+    policy: {
+      bodyLimit: 16384,
+      bodyTimeoutMs: 2000,
+      upstreamTimeoutMs: 45000,
+    },
+  },
+  {
+    operationId: "adminInboxPreferencesUpdate",
     method: "PUT",
-    path: "/v1/admin/notifications/chimely/v1/inbox/{path}",
+    path: "/v1/admin/notifications/chimely/v1/inbox/preferences",
+    parameters: [],
+    policy: {
+      bodyLimit: 16384,
+      bodyTimeoutMs: 2000,
+      upstreamTimeoutMs: 45000,
+    },
+  },
+  {
+    operationId: "adminInboxStream",
+    method: "GET",
+    path: "/v1/admin/notifications/chimely/v1/inbox/stream",
+    parameters: [],
+    policy: {
+      bodyLimit: 16384,
+      bodyTimeoutMs: 2000,
+      upstreamTimeoutMs: 45000,
+    },
+  },
+  {
+    operationId: "adminInboxReadAll",
+    method: "POST",
+    path: "/v1/admin/notifications/chimely/v1/inbox/read-all",
+    parameters: [],
+    policy: {
+      bodyLimit: 16384,
+      bodyTimeoutMs: 2000,
+      upstreamTimeoutMs: 45000,
+    },
+  },
+  {
+    operationId: "adminInboxSeenAll",
+    method: "POST",
+    path: "/v1/admin/notifications/chimely/v1/inbox/seen-all",
+    parameters: [],
+    policy: {
+      bodyLimit: 16384,
+      bodyTimeoutMs: 2000,
+      upstreamTimeoutMs: 45000,
+    },
+  },
+  {
+    operationId: "adminInboxArchiveAll",
+    method: "POST",
+    path: "/v1/admin/notifications/chimely/v1/inbox/archive-all",
+    parameters: [],
+    policy: {
+      bodyLimit: 16384,
+      bodyTimeoutMs: 2000,
+      upstreamTimeoutMs: 45000,
+    },
+  },
+  {
+    operationId: "adminInboxArchiveRead",
+    method: "POST",
+    path: "/v1/admin/notifications/chimely/v1/inbox/archive-read",
+    parameters: [],
+    policy: {
+      bodyLimit: 16384,
+      bodyTimeoutMs: 2000,
+      upstreamTimeoutMs: 45000,
+    },
+  },
+  {
+    operationId: "adminInboxNotificationRead",
+    method: "POST",
+    path: "/v1/admin/notifications/chimely/v1/inbox/notifications/{notification_id}/read",
     parameters: [
       {
-        name: "path",
+        name: "notification_id",
         schema: {
           type: "string",
+          minLength: 32,
+          maxLength: 32,
+          pattern: "^notif_[a-z0-9]{26}$",
         },
-        converter: "path",
+        converter: "str",
       },
     ],
     policy: {
-      bodyLimit: 1000000,
+      bodyLimit: 16384,
+      bodyTimeoutMs: 2000,
+      upstreamTimeoutMs: 45000,
+    },
+  },
+  {
+    operationId: "adminInboxNotificationUnread",
+    method: "POST",
+    path: "/v1/admin/notifications/chimely/v1/inbox/notifications/{notification_id}/unread",
+    parameters: [
+      {
+        name: "notification_id",
+        schema: {
+          type: "string",
+          minLength: 32,
+          maxLength: 32,
+          pattern: "^notif_[a-z0-9]{26}$",
+        },
+        converter: "str",
+      },
+    ],
+    policy: {
+      bodyLimit: 16384,
+      bodyTimeoutMs: 2000,
+      upstreamTimeoutMs: 45000,
+    },
+  },
+  {
+    operationId: "adminInboxNotificationArchive",
+    method: "POST",
+    path: "/v1/admin/notifications/chimely/v1/inbox/notifications/{notification_id}/archive",
+    parameters: [
+      {
+        name: "notification_id",
+        schema: {
+          type: "string",
+          minLength: 32,
+          maxLength: 32,
+          pattern: "^notif_[a-z0-9]{26}$",
+        },
+        converter: "str",
+      },
+    ],
+    policy: {
+      bodyLimit: 16384,
+      bodyTimeoutMs: 2000,
+      upstreamTimeoutMs: 45000,
+    },
+  },
+  {
+    operationId: "adminInboxNotificationUnarchive",
+    method: "POST",
+    path: "/v1/admin/notifications/chimely/v1/inbox/notifications/{notification_id}/unarchive",
+    parameters: [
+      {
+        name: "notification_id",
+        schema: {
+          type: "string",
+          minLength: 32,
+          maxLength: 32,
+          pattern: "^notif_[a-z0-9]{26}$",
+        },
+        converter: "str",
+      },
+    ],
+    policy: {
+      bodyLimit: 16384,
+      bodyTimeoutMs: 2000,
+      upstreamTimeoutMs: 45000,
+    },
+  },
+  {
+    operationId: "adminInboxBroadcastRead",
+    method: "POST",
+    path: "/v1/admin/notifications/chimely/v1/inbox/broadcasts/{broadcast_id}/read",
+    parameters: [
+      {
+        name: "broadcast_id",
+        schema: {
+          type: "string",
+          minLength: 32,
+          maxLength: 32,
+          pattern: "^bcast_[a-z0-9]{26}$",
+        },
+        converter: "str",
+      },
+    ],
+    policy: {
+      bodyLimit: 16384,
+      bodyTimeoutMs: 2000,
+      upstreamTimeoutMs: 45000,
+    },
+  },
+  {
+    operationId: "adminInboxBroadcastUnread",
+    method: "POST",
+    path: "/v1/admin/notifications/chimely/v1/inbox/broadcasts/{broadcast_id}/unread",
+    parameters: [
+      {
+        name: "broadcast_id",
+        schema: {
+          type: "string",
+          minLength: 32,
+          maxLength: 32,
+          pattern: "^bcast_[a-z0-9]{26}$",
+        },
+        converter: "str",
+      },
+    ],
+    policy: {
+      bodyLimit: 16384,
+      bodyTimeoutMs: 2000,
+      upstreamTimeoutMs: 45000,
+    },
+  },
+  {
+    operationId: "adminInboxBroadcastArchive",
+    method: "POST",
+    path: "/v1/admin/notifications/chimely/v1/inbox/broadcasts/{broadcast_id}/archive",
+    parameters: [
+      {
+        name: "broadcast_id",
+        schema: {
+          type: "string",
+          minLength: 32,
+          maxLength: 32,
+          pattern: "^bcast_[a-z0-9]{26}$",
+        },
+        converter: "str",
+      },
+    ],
+    policy: {
+      bodyLimit: 16384,
+      bodyTimeoutMs: 2000,
+      upstreamTimeoutMs: 45000,
+    },
+  },
+  {
+    operationId: "adminInboxBroadcastUnarchive",
+    method: "POST",
+    path: "/v1/admin/notifications/chimely/v1/inbox/broadcasts/{broadcast_id}/unarchive",
+    parameters: [
+      {
+        name: "broadcast_id",
+        schema: {
+          type: "string",
+          minLength: 32,
+          maxLength: 32,
+          pattern: "^bcast_[a-z0-9]{26}$",
+        },
+        converter: "str",
+      },
+    ],
+    policy: {
+      bodyLimit: 16384,
       bodyTimeoutMs: 2000,
       upstreamTimeoutMs: 45000,
     },

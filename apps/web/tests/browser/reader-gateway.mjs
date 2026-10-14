@@ -217,6 +217,84 @@ async function checkCookieAndForwardingPolicies() {
   );
 }
 
+async function checkInboxOperations() {
+  const inbox = "/api/v1/user/notifications/chimely/v1/inbox";
+  const notificationId = `notif_${"a".repeat(26)}`;
+  const broadcastId = `bcast_${"b".repeat(26)}`;
+  const operations = [
+    ...["items", "counts", "preferences", "stream"].map((path) => ({ method: "GET", path })),
+    { method: "PUT", path: "preferences" },
+    ...["read-all", "seen-all", "archive-all", "archive-read"].map((path) => ({
+      method: "POST",
+      path,
+    })),
+    ...[
+      ["notifications", notificationId],
+      ["broadcasts", broadcastId],
+    ].flatMap(([kind, id]) =>
+      ["read", "unread", "archive", "unarchive"].map((action) => ({
+        method: "POST",
+        path: `${kind}/${id}/${action}`,
+      })),
+    ),
+  ];
+  assert.equal(operations.length, 17);
+  for (const { method, path } of operations) {
+    const before = requests.length;
+    const response = await call(
+      `${inbox}/${path}`,
+      method,
+      method === "GET" ? undefined : method === "PUT" ? '{"preferences":[]}' : "{}",
+      { Authorization: "private", "X-Chimely-Subscriber-Hash": "forged" },
+    );
+    assert.equal(response.status, 200, `${method} ${path}`);
+    await response.arrayBuffer();
+    assert.equal(requests.length, before + 1);
+    const request = requests.at(-1);
+    assert.equal(request.path, `/v1/user/notifications/chimely/v1/inbox/${path}`);
+    assert.equal(request.method, method);
+    assert.equal(request.headers.cookie, readerCookies);
+    assert.equal(request.headers.authorization, undefined);
+    assert.equal(request.headers["x-chimely-subscriber-hash"], undefined);
+    assert.equal(request.headers["x-csrf-token"], "reader-csrf-fixture");
+    assert.ok(response.headers.get("cache-control").includes("no-store"));
+  }
+  for (const { method, path, status, allowed } of [
+    { method: "GET", path: "messages", status: 404 },
+    { method: "GET", path: "unavailable", status: 404 },
+    { method: "GET", path: "stream/extra", status: 404 },
+    { method: "POST", path: `items/${notificationId}/read`, status: 404 },
+    { method: "POST", path: "notifications/bad-id/read", status: 404 },
+    { method: "POST", path: `notifications/${broadcastId}/read`, status: 404 },
+    { method: "POST", path: `notifications/${notificationId}/unknown`, status: 404 },
+    { method: "POST", path: "items", status: 405 },
+    { method: "GET", path: `notifications/${notificationId}/read`, status: 405 },
+    { method: "POST", path: "preferences", status: 405 },
+    { method: "HEAD", path: "stream", status: 405, allowed: ["GET"] },
+    { method: "HEAD", path: "preferences", status: 405, allowed: ["GET", "PUT"] },
+    {
+      method: "OPTIONS",
+      path: `notifications/${notificationId}/read`,
+      status: 204,
+      allowed: ["OPTIONS", "POST"],
+    },
+  ]) {
+    const before = requests.length;
+    const response = await call(
+      `${inbox}/${path}`,
+      method,
+      ["GET", "HEAD", "OPTIONS"].includes(method) ? undefined : "{}",
+    );
+    assert.equal(response.status, status, `${method} ${path}`);
+    if (allowed) assert.deepEqual(allow(response), new Set(allowed));
+    await response.arrayBuffer();
+    assert.equal(requests.length, before, "Rejected inbox requests must not reach the upstream");
+  }
+  console.log(
+    "All seventeen concrete inbox operations passed with reader cookies/CSRF; unknown routes, wrong methods and malformed IDs were rejected before forwarding.",
+  );
+}
+
 async function checkExactByteLimits() {
   for (const { resource, method, limit } of [
     { resource: "/api/v1/user/preferences", method: "PUT", limit: 1_000_000 },
@@ -359,6 +437,7 @@ try {
   assert.ok(ready, "Built reader became ready");
   await checkRoutingBoundary();
   await checkCookieAndForwardingPolicies();
+  await checkInboxOperations();
   await checkExactByteLimits();
   await checkBodyDeadlines();
   console.log("Reader concrete gateway HTTP regressions passed against the production build.");

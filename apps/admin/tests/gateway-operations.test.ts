@@ -282,23 +282,78 @@ describe("generated admin gateway contract", () => {
     ).toBeTruthy();
   });
 
-  it.each([
-    ["GET", ["stream"]],
-    ["GET", ["preferences"]],
-    ["PUT", ["preferences"]],
-    ["POST", ["notifications", `notif_${"a".repeat(26)}`, "read"]],
-  ])("retains the backend's schema-hidden inbox operation for %s %j", (method, suffix) => {
-    const result = match(router, method, [
-      "v1",
-      "admin",
-      "notifications",
-      "chimely",
-      "v1",
-      "inbox",
-      ...suffix,
-    ]);
-    expect(result.parameters).toEqual({ path: suffix.join("/") });
-    expect(result.operation.policy.upstreamTimeoutMs).toBe(45_000);
+  const inbox = ["v1", "admin", "notifications", "chimely", "v1", "inbox"];
+  const inboxCases: {
+    method: string;
+    suffix: string[];
+    operation: string;
+    parameters: Record<string, string>;
+  }[] = [
+    { method: "GET", suffix: ["items"], operation: "Items", parameters: {} },
+    { method: "GET", suffix: ["counts"], operation: "Counts", parameters: {} },
+    { method: "GET", suffix: ["stream"], operation: "Stream", parameters: {} },
+    { method: "GET", suffix: ["preferences"], operation: "PreferencesRead", parameters: {} },
+    { method: "PUT", suffix: ["preferences"], operation: "PreferencesUpdate", parameters: {} },
+    ...[
+      ["read-all", "ReadAll"],
+      ["seen-all", "SeenAll"],
+      ["archive-all", "ArchiveAll"],
+      ["archive-read", "ArchiveRead"],
+    ].map(([path, operation]) => ({ method: "POST", suffix: [path], operation, parameters: {} })),
+    ...[
+      {
+        family: "notifications",
+        kind: "Notification",
+        name: "notification_id",
+        value: `notif_${"a".repeat(26)}`,
+      },
+      {
+        family: "broadcasts",
+        kind: "Broadcast",
+        name: "broadcast_id",
+        value: `bcast_${"b".repeat(26)}`,
+      },
+    ].flatMap(({ family, kind, name, value }) =>
+      [
+        ["read", "Read"],
+        ["unread", "Unread"],
+        ["archive", "Archive"],
+        ["unarchive", "Unarchive"],
+      ].map(([path, action]) => ({
+        method: "POST",
+        suffix: [family, value, path],
+        operation: kind + action,
+        parameters: { [name]: value },
+      })),
+    ),
+  ];
+  it.each(inboxCases)(
+    "matches the declared admin inbox operation $operation",
+    ({ method, suffix, operation, parameters }) => {
+      const result = match(router, method, [...inbox, ...suffix]);
+      expect(result.operation.operationId).toBe("adminInbox" + operation);
+      expect(result.parameters).toEqual(parameters);
+      expect(result.operation.policy.upstreamTimeoutMs).toBe(45_000);
+    },
+  );
+
+  it("exposes only the seventeen explicit inbox operations", () => {
+    expect(
+      adminGatewayOperations.filter((operation) => operation.operationId.startsWith("adminInbox")),
+    ).toHaveLength(17);
+    for (const suffix of [["messages"], ["stream", "extra"], ["items", identifier, "read"]]) {
+      expect(router.resolve("GET", [...inbox, ...suffix])).toEqual({ kind: "not-found" });
+    }
+    expect(router.resolve("POST", [...inbox, "items"])).toEqual({
+      kind: "method-not-allowed",
+      allowedMethods: ["GET"],
+    });
+    expect(
+      router.resolve("POST", [...inbox, "notifications", `bcast_${"b".repeat(26)}`, "read"]),
+    ).toEqual({ kind: "invalid-parameters" });
+    expect(router.resolve("POST", [...inbox, "broadcasts", "bad-id", "archive"])).toEqual({
+      kind: "invalid-parameters",
+    });
   });
 
   it("validates real UUID and enum parameters rather than forwarding plausible-looking unknown operations", () => {

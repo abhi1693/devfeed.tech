@@ -35,11 +35,11 @@ class RequestBodyPolicy(BaseModel):
         return JSONResponse({"detail": detail}, status_code=status, headers=headers)
 
 
-class BoundedRequestBody:
-    """Read and replay one body using the policy of an already selected endpoint."""
+class RequestBodyReader:
+    """Share byte accounting and one complete-body deadline between HTTP consumers."""
 
-    def __init__(self, app: ASGIApp, *, policy: RequestBodyPolicy):
-        self.app, self.policy = app, policy
+    def __init__(self, *, policy: RequestBodyPolicy):
+        self.policy = policy
 
     def declared_oversize(self, scope: Scope) -> bool:
         for name, value in scope.get("headers", []):
@@ -64,6 +64,14 @@ class BoundedRequestBody:
                 body.extend(chunk)
                 if not message.get("more_body", False):
                     return bytes(body)
+
+
+class BoundedRequestBody(RequestBodyReader):
+    """Read and replay one body using the policy of an already selected endpoint."""
+
+    def __init__(self, app: ASGIApp, *, policy: RequestBodyPolicy):
+        super().__init__(policy=policy)
+        self.app = app
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         if scope["type"] != "http":

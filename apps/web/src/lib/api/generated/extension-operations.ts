@@ -72,16 +72,72 @@ export const extensionGatewayOperations = [
     path: "/api/v1/user/notifications/config",
   },
   {
-    ...userGatewayOperations["inbox_proxy_get_6cdbab7ed73d"],
-    path: "/api/v1/user/notifications/chimely/v1/inbox/{path}",
+    ...userGatewayOperations["userInboxItems"],
+    path: "/api/v1/user/notifications/chimely/v1/inbox/items",
   },
   {
-    ...userGatewayOperations["inbox_proxy_post_4336b7494364"],
-    path: "/api/v1/user/notifications/chimely/v1/inbox/{path}",
+    ...userGatewayOperations["userInboxCounts"],
+    path: "/api/v1/user/notifications/chimely/v1/inbox/counts",
   },
   {
-    ...userGatewayOperations["inbox_proxy_put_78d33e831323"],
-    path: "/api/v1/user/notifications/chimely/v1/inbox/{path}",
+    ...userGatewayOperations["userInboxPreferencesRead"],
+    path: "/api/v1/user/notifications/chimely/v1/inbox/preferences",
+  },
+  {
+    ...userGatewayOperations["userInboxPreferencesUpdate"],
+    path: "/api/v1/user/notifications/chimely/v1/inbox/preferences",
+  },
+  {
+    ...userGatewayOperations["userInboxStream"],
+    path: "/api/v1/user/notifications/chimely/v1/inbox/stream",
+  },
+  {
+    ...userGatewayOperations["userInboxReadAll"],
+    path: "/api/v1/user/notifications/chimely/v1/inbox/read-all",
+  },
+  {
+    ...userGatewayOperations["userInboxSeenAll"],
+    path: "/api/v1/user/notifications/chimely/v1/inbox/seen-all",
+  },
+  {
+    ...userGatewayOperations["userInboxArchiveAll"],
+    path: "/api/v1/user/notifications/chimely/v1/inbox/archive-all",
+  },
+  {
+    ...userGatewayOperations["userInboxArchiveRead"],
+    path: "/api/v1/user/notifications/chimely/v1/inbox/archive-read",
+  },
+  {
+    ...userGatewayOperations["userInboxNotificationRead"],
+    path: "/api/v1/user/notifications/chimely/v1/inbox/notifications/{notification_id}/read",
+  },
+  {
+    ...userGatewayOperations["userInboxNotificationUnread"],
+    path: "/api/v1/user/notifications/chimely/v1/inbox/notifications/{notification_id}/unread",
+  },
+  {
+    ...userGatewayOperations["userInboxNotificationArchive"],
+    path: "/api/v1/user/notifications/chimely/v1/inbox/notifications/{notification_id}/archive",
+  },
+  {
+    ...userGatewayOperations["userInboxNotificationUnarchive"],
+    path: "/api/v1/user/notifications/chimely/v1/inbox/notifications/{notification_id}/unarchive",
+  },
+  {
+    ...userGatewayOperations["userInboxBroadcastRead"],
+    path: "/api/v1/user/notifications/chimely/v1/inbox/broadcasts/{broadcast_id}/read",
+  },
+  {
+    ...userGatewayOperations["userInboxBroadcastUnread"],
+    path: "/api/v1/user/notifications/chimely/v1/inbox/broadcasts/{broadcast_id}/unread",
+  },
+  {
+    ...userGatewayOperations["userInboxBroadcastArchive"],
+    path: "/api/v1/user/notifications/chimely/v1/inbox/broadcasts/{broadcast_id}/archive",
+  },
+  {
+    ...userGatewayOperations["userInboxBroadcastUnarchive"],
+    path: "/api/v1/user/notifications/chimely/v1/inbox/broadcasts/{broadcast_id}/unarchive",
   },
   {
     ...userGatewayOperations["profile_v1_user_settings_profile_get"],

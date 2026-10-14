@@ -32482,57 +32482,275 @@
     },
     {
       "method": "GET",
-      "operationId": "inbox_proxy_get_0a8b905194de",
-      "parameters": [
-        {
-          "converter": "path",
-          "name": "path",
-          "schema": {
-            "type": "string"
-          }
-        }
-      ],
-      "path": "/v1/admin/notifications/chimely/v1/inbox/{path}",
+      "operationId": "adminInboxItems",
+      "parameters": [],
+      "path": "/v1/admin/notifications/chimely/v1/inbox/items",
       "policy": {
-        "bodyLimit": 1000000,
+        "bodyLimit": 16384,
         "bodyTimeoutMs": 2000,
         "upstreamTimeoutMs": 45000
       }
     },
     {
-      "method": "POST",
-      "operationId": "inbox_proxy_post_e6b013be6623",
-      "parameters": [
-        {
-          "converter": "path",
-          "name": "path",
-          "schema": {
-            "type": "string"
-          }
-        }
-      ],
-      "path": "/v1/admin/notifications/chimely/v1/inbox/{path}",
+      "method": "GET",
+      "operationId": "adminInboxCounts",
+      "parameters": [],
+      "path": "/v1/admin/notifications/chimely/v1/inbox/counts",
       "policy": {
-        "bodyLimit": 1000000,
+        "bodyLimit": 16384,
+        "bodyTimeoutMs": 2000,
+        "upstreamTimeoutMs": 45000
+      }
+    },
+    {
+      "method": "GET",
+      "operationId": "adminInboxPreferencesRead",
+      "parameters": [],
+      "path": "/v1/admin/notifications/chimely/v1/inbox/preferences",
+      "policy": {
+        "bodyLimit": 16384,
         "bodyTimeoutMs": 2000,
         "upstreamTimeoutMs": 45000
       }
     },
     {
       "method": "PUT",
-      "operationId": "inbox_proxy_put_f80c29c2b6b8",
+      "operationId": "adminInboxPreferencesUpdate",
+      "parameters": [],
+      "path": "/v1/admin/notifications/chimely/v1/inbox/preferences",
+      "policy": {
+        "bodyLimit": 16384,
+        "bodyTimeoutMs": 2000,
+        "upstreamTimeoutMs": 45000
+      }
+    },
+    {
+      "method": "GET",
+      "operationId": "adminInboxStream",
+      "parameters": [],
+      "path": "/v1/admin/notifications/chimely/v1/inbox/stream",
+      "policy": {
+        "bodyLimit": 16384,
+        "bodyTimeoutMs": 2000,
+        "upstreamTimeoutMs": 45000
+      }
+    },
+    {
+      "method": "POST",
+      "operationId": "adminInboxReadAll",
+      "parameters": [],
+      "path": "/v1/admin/notifications/chimely/v1/inbox/read-all",
+      "policy": {
+        "bodyLimit": 16384,
+        "bodyTimeoutMs": 2000,
+        "upstreamTimeoutMs": 45000
+      }
+    },
+    {
+      "method": "POST",
+      "operationId": "adminInboxSeenAll",
+      "parameters": [],
+      "path": "/v1/admin/notifications/chimely/v1/inbox/seen-all",
+      "policy": {
+        "bodyLimit": 16384,
+        "bodyTimeoutMs": 2000,
+        "upstreamTimeoutMs": 45000
+      }
+    },
+    {
+      "method": "POST",
+      "operationId": "adminInboxArchiveAll",
+      "parameters": [],
+      "path": "/v1/admin/notifications/chimely/v1/inbox/archive-all",
+      "policy": {
+        "bodyLimit": 16384,
+        "bodyTimeoutMs": 2000,
+        "upstreamTimeoutMs": 45000
+      }
+    },
+    {
+      "method": "POST",
+      "operationId": "adminInboxArchiveRead",
+      "parameters": [],
+      "path": "/v1/admin/notifications/chimely/v1/inbox/archive-read",
+      "policy": {
+        "bodyLimit": 16384,
+        "bodyTimeoutMs": 2000,
+        "upstreamTimeoutMs": 45000
+      }
+    },
+    {
+      "method": "POST",
+      "operationId": "adminInboxNotificationRead",
       "parameters": [
         {
-          "converter": "path",
-          "name": "path",
+          "converter": "str",
+          "name": "notification_id",
           "schema": {
+            "maxLength": 32,
+            "minLength": 32,
+            "pattern": "^notif_[a-z0-9]{26}$",
             "type": "string"
           }
         }
       ],
-      "path": "/v1/admin/notifications/chimely/v1/inbox/{path}",
+      "path": "/v1/admin/notifications/chimely/v1/inbox/notifications/{notification_id}/read",
       "policy": {
-        "bodyLimit": 1000000,
+        "bodyLimit": 16384,
+        "bodyTimeoutMs": 2000,
+        "upstreamTimeoutMs": 45000
+      }
+    },
+    {
+      "method": "POST",
+      "operationId": "adminInboxNotificationUnread",
+      "parameters": [
+        {
+          "converter": "str",
+          "name": "notification_id",
+          "schema": {
+            "maxLength": 32,
+            "minLength": 32,
+            "pattern": "^notif_[a-z0-9]{26}$",
+            "type": "string"
+          }
+        }
+      ],
+      "path": "/v1/admin/notifications/chimely/v1/inbox/notifications/{notification_id}/unread",
+      "policy": {
+        "bodyLimit": 16384,
+        "bodyTimeoutMs": 2000,
+        "upstreamTimeoutMs": 45000
+      }
+    },
+    {
+      "method": "POST",
+      "operationId": "adminInboxNotificationArchive",
+      "parameters": [
+        {
+          "converter": "str",
+          "name": "notification_id",
+          "schema": {
+            "maxLength": 32,
+            "minLength": 32,
+            "pattern": "^notif_[a-z0-9]{26}$",
+            "type": "string"
+          }
+        }
+      ],
+      "path": "/v1/admin/notifications/chimely/v1/inbox/notifications/{notification_id}/archive",
+      "policy": {
+        "bodyLimit": 16384,
+        "bodyTimeoutMs": 2000,
+        "upstreamTimeoutMs": 45000
+      }
+    },
+    {
+      "method": "POST",
+      "operationId": "adminInboxNotificationUnarchive",
+      "parameters": [
+        {
+          "converter": "str",
+          "name": "notification_id",
+          "schema": {
+            "maxLength": 32,
+            "minLength": 32,
+            "pattern": "^notif_[a-z0-9]{26}$",
+            "type": "string"
+          }
+        }
+      ],
+      "path": "/v1/admin/notifications/chimely/v1/inbox/notifications/{notification_id}/unarchive",
+      "policy": {
+        "bodyLimit": 16384,
+        "bodyTimeoutMs": 2000,
+        "upstreamTimeoutMs": 45000
+      }
+    },
+    {
+      "method": "POST",
+      "operationId": "adminInboxBroadcastRead",
+      "parameters": [
+        {
+          "converter": "str",
+          "name": "broadcast_id",
+          "schema": {
+            "maxLength": 32,
+            "minLength": 32,
+            "pattern": "^bcast_[a-z0-9]{26}$",
+            "type": "string"
+          }
+        }
+      ],
+      "path": "/v1/admin/notifications/chimely/v1/inbox/broadcasts/{broadcast_id}/read",
+      "policy": {
+        "bodyLimit": 16384,
+        "bodyTimeoutMs": 2000,
+        "upstreamTimeoutMs": 45000
+      }
+    },
+    {
+      "method": "POST",
+      "operationId": "adminInboxBroadcastUnread",
+      "parameters": [
+        {
+          "converter": "str",
+          "name": "broadcast_id",
+          "schema": {
+            "maxLength": 32,
+            "minLength": 32,
+            "pattern": "^bcast_[a-z0-9]{26}$",
+            "type": "string"
+          }
+        }
+      ],
+      "path": "/v1/admin/notifications/chimely/v1/inbox/broadcasts/{broadcast_id}/unread",
+      "policy": {
+        "bodyLimit": 16384,
+        "bodyTimeoutMs": 2000,
+        "upstreamTimeoutMs": 45000
+      }
+    },
+    {
+      "method": "POST",
+      "operationId": "adminInboxBroadcastArchive",
+      "parameters": [
+        {
+          "converter": "str",
+          "name": "broadcast_id",
+          "schema": {
+            "maxLength": 32,
+            "minLength": 32,
+            "pattern": "^bcast_[a-z0-9]{26}$",
+            "type": "string"
+          }
+        }
+      ],
+      "path": "/v1/admin/notifications/chimely/v1/inbox/broadcasts/{broadcast_id}/archive",
+      "policy": {
+        "bodyLimit": 16384,
+        "bodyTimeoutMs": 2000,
+        "upstreamTimeoutMs": 45000
+      }
+    },
+    {
+      "method": "POST",
+      "operationId": "adminInboxBroadcastUnarchive",
+      "parameters": [
+        {
+          "converter": "str",
+          "name": "broadcast_id",
+          "schema": {
+            "maxLength": 32,
+            "minLength": 32,
+            "pattern": "^bcast_[a-z0-9]{26}$",
+            "type": "string"
+          }
+        }
+      ],
+      "path": "/v1/admin/notifications/chimely/v1/inbox/broadcasts/{broadcast_id}/unarchive",
+      "policy": {
+        "bodyLimit": 16384,
         "bodyTimeoutMs": 2000,
         "upstreamTimeoutMs": 45000
       }

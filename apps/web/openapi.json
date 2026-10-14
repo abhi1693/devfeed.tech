@@ -7017,19 +7017,11 @@
     },
     {
       "method": "GET",
-      "operationId": "inbox_proxy_get_6cdbab7ed73d",
-      "parameters": [
-        {
-          "converter": "path",
-          "name": "path",
-          "schema": {
-            "type": "string"
-          }
-        }
-      ],
-      "path": "/v1/user/notifications/chimely/v1/inbox/{path}",
+      "operationId": "userInboxItems",
+      "parameters": [],
+      "path": "/v1/user/notifications/chimely/v1/inbox/items",
       "policy": {
-        "bodyLimit": 1000000,
+        "bodyLimit": 16384,
         "bodyTimeoutMs": 2000,
         "cookiePolicy": "reader",
         "extension": {
@@ -7047,20 +7039,35 @@
       }
     },
     {
-      "method": "POST",
-      "operationId": "inbox_proxy_post_4336b7494364",
-      "parameters": [
-        {
-          "converter": "path",
-          "name": "path",
-          "schema": {
-            "type": "string"
-          }
-        }
-      ],
-      "path": "/v1/user/notifications/chimely/v1/inbox/{path}",
+      "method": "GET",
+      "operationId": "userInboxCounts",
+      "parameters": [],
+      "path": "/v1/user/notifications/chimely/v1/inbox/counts",
       "policy": {
-        "bodyLimit": 1000000,
+        "bodyLimit": 16384,
+        "bodyTimeoutMs": 2000,
+        "cookiePolicy": "reader",
+        "extension": {
+          "cacheControl": null,
+          "credentials": "include",
+          "requestHeaders": [
+            "Content-Type",
+            "X-CSRF-Token",
+            "If-None-Match"
+          ],
+          "timeoutMs": 15000
+        },
+        "handler": "forward",
+        "upstreamTimeoutMs": 45000
+      }
+    },
+    {
+      "method": "GET",
+      "operationId": "userInboxPreferencesRead",
+      "parameters": [],
+      "path": "/v1/user/notifications/chimely/v1/inbox/preferences",
+      "policy": {
+        "bodyLimit": 16384,
         "bodyTimeoutMs": 2000,
         "cookiePolicy": "reader",
         "extension": {
@@ -7079,19 +7086,398 @@
     },
     {
       "method": "PUT",
-      "operationId": "inbox_proxy_put_78d33e831323",
+      "operationId": "userInboxPreferencesUpdate",
+      "parameters": [],
+      "path": "/v1/user/notifications/chimely/v1/inbox/preferences",
+      "policy": {
+        "bodyLimit": 16384,
+        "bodyTimeoutMs": 2000,
+        "cookiePolicy": "reader",
+        "extension": {
+          "cacheControl": null,
+          "credentials": "include",
+          "requestHeaders": [
+            "Content-Type",
+            "X-CSRF-Token",
+            "If-None-Match"
+          ],
+          "timeoutMs": 15000
+        },
+        "handler": "forward",
+        "upstreamTimeoutMs": 45000
+      }
+    },
+    {
+      "method": "GET",
+      "operationId": "userInboxStream",
+      "parameters": [],
+      "path": "/v1/user/notifications/chimely/v1/inbox/stream",
+      "policy": {
+        "bodyLimit": 16384,
+        "bodyTimeoutMs": 2000,
+        "cookiePolicy": "reader",
+        "extension": {
+          "cacheControl": null,
+          "credentials": "include",
+          "requestHeaders": [
+            "Content-Type",
+            "X-CSRF-Token",
+            "If-None-Match"
+          ],
+          "timeoutMs": 15000
+        },
+        "handler": "forward",
+        "upstreamTimeoutMs": 45000
+      }
+    },
+    {
+      "method": "POST",
+      "operationId": "userInboxReadAll",
+      "parameters": [],
+      "path": "/v1/user/notifications/chimely/v1/inbox/read-all",
+      "policy": {
+        "bodyLimit": 16384,
+        "bodyTimeoutMs": 2000,
+        "cookiePolicy": "reader",
+        "extension": {
+          "cacheControl": null,
+          "credentials": "include",
+          "requestHeaders": [
+            "Content-Type",
+            "X-CSRF-Token",
+            "If-None-Match"
+          ],
+          "timeoutMs": 15000
+        },
+        "handler": "forward",
+        "upstreamTimeoutMs": 45000
+      }
+    },
+    {
+      "method": "POST",
+      "operationId": "userInboxSeenAll",
+      "parameters": [],
+      "path": "/v1/user/notifications/chimely/v1/inbox/seen-all",
+      "policy": {
+        "bodyLimit": 16384,
+        "bodyTimeoutMs": 2000,
+        "cookiePolicy": "reader",
+        "extension": {
+          "cacheControl": null,
+          "credentials": "include",
+          "requestHeaders": [
+            "Content-Type",
+            "X-CSRF-Token",
+            "If-None-Match"
+          ],
+          "timeoutMs": 15000
+        },
+        "handler": "forward",
+        "upstreamTimeoutMs": 45000
+      }
+    },
+    {
+      "method": "POST",
+      "operationId": "userInboxArchiveAll",
+      "parameters": [],
+      "path": "/v1/user/notifications/chimely/v1/inbox/archive-all",
+      "policy": {
+        "bodyLimit": 16384,
+        "bodyTimeoutMs": 2000,
+        "cookiePolicy": "reader",
+        "extension": {
+          "cacheControl": null,
+          "credentials": "include",
+          "requestHeaders": [
+            "Content-Type",
+            "X-CSRF-Token",
+            "If-None-Match"
+          ],
+          "timeoutMs": 15000
+        },
+        "handler": "forward",
+        "upstreamTimeoutMs": 45000
+      }
+    },
+    {
+      "method": "POST",
+      "operationId": "userInboxArchiveRead",
+      "parameters": [],
+      "path": "/v1/user/notifications/chimely/v1/inbox/archive-read",
+      "policy": {
+        "bodyLimit": 16384,
+        "bodyTimeoutMs": 2000,
+        "cookiePolicy": "reader",
+        "extension": {
+          "cacheControl": null,
+          "credentials": "include",
+          "requestHeaders": [
+            "Content-Type",
+            "X-CSRF-Token",
+            "If-None-Match"
+          ],
+          "timeoutMs": 15000
+        },
+        "handler": "forward",
+        "upstreamTimeoutMs": 45000
+      }
+    },
+    {
+      "method": "POST",
+      "operationId": "userInboxNotificationRead",
       "parameters": [
         {
-          "converter": "path",
-          "name": "path",
+          "converter": "str",
+          "name": "notification_id",
           "schema": {
+            "maxLength": 32,
+            "minLength": 32,
+            "pattern": "^notif_[a-z0-9]{26}$",
             "type": "string"
           }
         }
       ],
-      "path": "/v1/user/notifications/chimely/v1/inbox/{path}",
+      "path": "/v1/user/notifications/chimely/v1/inbox/notifications/{notification_id}/read",
       "policy": {
-        "bodyLimit": 1000000,
+        "bodyLimit": 16384,
+        "bodyTimeoutMs": 2000,
+        "cookiePolicy": "reader",
+        "extension": {
+          "cacheControl": null,
+          "credentials": "include",
+          "requestHeaders": [
+            "Content-Type",
+            "X-CSRF-Token",
+            "If-None-Match"
+          ],
+          "timeoutMs": 15000
+        },
+        "handler": "forward",
+        "upstreamTimeoutMs": 45000
+      }
+    },
+    {
+      "method": "POST",
+      "operationId": "userInboxNotificationUnread",
+      "parameters": [
+        {
+          "converter": "str",
+          "name": "notification_id",
+          "schema": {
+            "maxLength": 32,
+            "minLength": 32,
+            "pattern": "^notif_[a-z0-9]{26}$",
+            "type": "string"
+          }
+        }
+      ],
+      "path": "/v1/user/notifications/chimely/v1/inbox/notifications/{notification_id}/unread",
+      "policy": {
+        "bodyLimit": 16384,
+        "bodyTimeoutMs": 2000,
+        "cookiePolicy": "reader",
+        "extension": {
+          "cacheControl": null,
+          "credentials": "include",
+          "requestHeaders": [
+            "Content-Type",
+            "X-CSRF-Token",
+            "If-None-Match"
+          ],
+          "timeoutMs": 15000
+        },
+        "handler": "forward",
+        "upstreamTimeoutMs": 45000
+      }
+    },
+    {
+      "method": "POST",
+      "operationId": "userInboxNotificationArchive",
+      "parameters": [
+        {
+          "converter": "str",
+          "name": "notification_id",
+          "schema": {
+            "maxLength": 32,
+            "minLength": 32,
+            "pattern": "^notif_[a-z0-9]{26}$",
+            "type": "string"
+          }
+        }
+      ],
+      "path": "/v1/user/notifications/chimely/v1/inbox/notifications/{notification_id}/archive",
+      "policy": {
+        "bodyLimit": 16384,
+        "bodyTimeoutMs": 2000,
+        "cookiePolicy": "reader",
+        "extension": {
+          "cacheControl": null,
+          "credentials": "include",
+          "requestHeaders": [
+            "Content-Type",
+            "X-CSRF-Token",
+            "If-None-Match"
+          ],
+          "timeoutMs": 15000
+        },
+        "handler": "forward",
+        "upstreamTimeoutMs": 45000
+      }
+    },
+    {
+      "method": "POST",
+      "operationId": "userInboxNotificationUnarchive",
+      "parameters": [
+        {
+          "converter": "str",
+          "name": "notification_id",
+          "schema": {
+            "maxLength": 32,
+            "minLength": 32,
+            "pattern": "^notif_[a-z0-9]{26}$",
+            "type": "string"
+          }
+        }
+      ],
+      "path": "/v1/user/notifications/chimely/v1/inbox/notifications/{notification_id}/unarchive",
+      "policy": {
+        "bodyLimit": 16384,
+        "bodyTimeoutMs": 2000,
+        "cookiePolicy": "reader",
+        "extension": {
+          "cacheControl": null,
+          "credentials": "include",
+          "requestHeaders": [
+            "Content-Type",
+            "X-CSRF-Token",
+            "If-None-Match"
+          ],
+          "timeoutMs": 15000
+        },
+        "handler": "forward",
+        "upstreamTimeoutMs": 45000
+      }
+    },
+    {
+      "method": "POST",
+      "operationId": "userInboxBroadcastRead",
+      "parameters": [
+        {
+          "converter": "str",
+          "name": "broadcast_id",
+          "schema": {
+            "maxLength": 32,
+            "minLength": 32,
+            "pattern": "^bcast_[a-z0-9]{26}$",
+            "type": "string"
+          }
+        }
+      ],
+      "path": "/v1/user/notifications/chimely/v1/inbox/broadcasts/{broadcast_id}/read",
+      "policy": {
+        "bodyLimit": 16384,
+        "bodyTimeoutMs": 2000,
+        "cookiePolicy": "reader",
+        "extension": {
+          "cacheControl": null,
+          "credentials": "include",
+          "requestHeaders": [
+            "Content-Type",
+            "X-CSRF-Token",
+            "If-None-Match"
+          ],
+          "timeoutMs": 15000
+        },
+        "handler": "forward",
+        "upstreamTimeoutMs": 45000
+      }
+    },
+    {
+      "method": "POST",
+      "operationId": "userInboxBroadcastUnread",
+      "parameters": [
+        {
+          "converter": "str",
+          "name": "broadcast_id",
+          "schema": {
+            "maxLength": 32,
+            "minLength": 32,
+            "pattern": "^bcast_[a-z0-9]{26}$",
+            "type": "string"
+          }
+        }
+      ],
+      "path": "/v1/user/notifications/chimely/v1/inbox/broadcasts/{broadcast_id}/unread",
+      "policy": {
+        "bodyLimit": 16384,
+        "bodyTimeoutMs": 2000,
+        "cookiePolicy": "reader",
+        "extension": {
+          "cacheControl": null,
+          "credentials": "include",
+          "requestHeaders": [
+            "Content-Type",
+            "X-CSRF-Token",
+            "If-None-Match"
+          ],
+          "timeoutMs": 15000
+        },
+        "handler": "forward",
+        "upstreamTimeoutMs": 45000
+      }
+    },
+    {
+      "method": "POST",
+      "operationId": "userInboxBroadcastArchive",
+      "parameters": [
+        {
+          "converter": "str",
+          "name": "broadcast_id",
+          "schema": {
+            "maxLength": 32,
+            "minLength": 32,
+            "pattern": "^bcast_[a-z0-9]{26}$",
+            "type": "string"
+          }
+        }
+      ],
+      "path": "/v1/user/notifications/chimely/v1/inbox/broadcasts/{broadcast_id}/archive",
+      "policy": {
+        "bodyLimit": 16384,
+        "bodyTimeoutMs": 2000,
+        "cookiePolicy": "reader",
+        "extension": {
+          "cacheControl": null,
+          "credentials": "include",
+          "requestHeaders": [
+            "Content-Type",
+            "X-CSRF-Token",
+            "If-None-Match"
+          ],
+          "timeoutMs": 15000
+        },
+        "handler": "forward",
+        "upstreamTimeoutMs": 45000
+      }
+    },
+    {
+      "method": "POST",
+      "operationId": "userInboxBroadcastUnarchive",
+      "parameters": [
+        {
+          "converter": "str",
+          "name": "broadcast_id",
+          "schema": {
+            "maxLength": 32,
+            "minLength": 32,
+            "pattern": "^bcast_[a-z0-9]{26}$",
+            "type": "string"
+          }
+        }
+      ],
+      "path": "/v1/user/notifications/chimely/v1/inbox/broadcasts/{broadcast_id}/unarchive",
+      "policy": {
+        "bodyLimit": 16384,
         "bodyTimeoutMs": 2000,
         "cookiePolicy": "reader",
         "extension": {

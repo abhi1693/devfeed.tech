@@ -27,7 +27,8 @@ const parameters = {
   grant_id: "44444444-4444-4444-8444-444444444444",
   request_id: "disposable-request-id",
   username: "reader",
-  path: ["preferences"],
+  notification_id: `notif_${"a".repeat(26)}`,
+  broadcast_id: `bcast_${"b".repeat(26)}`,
 } satisfies Params;
 
 function routeFile(operation: GatewayOperation) {
@@ -60,6 +61,15 @@ describe("generated concrete reader operations", () => {
       [...new Set(operations.map(({ file }) => file))].sort(),
     );
     expect(Object.hasOwn(allApiRoutes, "../src/app/api/[...path]/route.ts")).toBe(false);
+    expect(
+      Object.hasOwn(
+        allApiRoutes,
+        "../src/app/api/v1/user/notifications/chimely/v1/inbox/[...path]/route.ts",
+      ),
+    ).toBe(false);
+    expect(
+      operations.filter(({ operation }) => operation.operationId.startsWith("userInbox")),
+    ).toHaveLength(17);
     expect(
       operations
         .filter(({ operation }) => operation.policy.cookiePolicy === "reader-attribution")

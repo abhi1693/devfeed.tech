@@ -173,20 +173,20 @@ test("all supported cookie policies serialize unchanged including explicitly omi
   }
 });
 
-test("hidden inbox methods generate one required catch-all while HEAD never becomes an implicit GET", async () => {
+test("export path-converter methods generate one required catch-all while HEAD never becomes an implicit GET", async () => {
   const input = document();
   input["x-devfeed-gateway-routes"].push(
     ...["GET", "POST", "PUT"].map((method) =>
       route({
-        operationId: `user_inbox_${method.toLowerCase()}`,
+        operationId: `user_exports_${method.toLowerCase()}`,
         method,
-        path: "/v1/user/notifications/chimely/v1/inbox/{path}",
+        path: "/v1/user/exports/{path}",
         parameters: [{ name: "path", converter: "path", schema: { type: "string" } }],
       }),
     ),
   );
   const result = await renderReaderRoutes(input);
-  const source = result.routes.get("notifications/chimely/v1/inbox/[...path]/route.ts");
+  const source = result.routes.get("exports/[...path]/route.ts");
   assert.match(source, /export const GET = bindReaderOperation/);
   assert.match(source, /export const POST = bindReaderOperation/);
   assert.match(source, /export const PUT = bindReaderOperation/);

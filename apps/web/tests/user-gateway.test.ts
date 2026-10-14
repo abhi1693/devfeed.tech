@@ -8,7 +8,9 @@ import * as profile from "@/app/api/v1/user/settings/profile/route";
 import * as avatar from "@/app/api/v1/user/settings/profile/avatar/route";
 import * as feed from "@/app/api/v1/user/feed/route";
 import * as articleOpen from "@/app/api/v1/user/articles/[article_id]/open/route";
-import * as inbox from "@/app/api/v1/user/notifications/chimely/v1/inbox/[...path]/route";
+import * as inboxStream from "@/app/api/v1/user/notifications/chimely/v1/inbox/stream/route";
+import * as notificationRead from "@/app/api/v1/user/notifications/chimely/v1/inbox/notifications/[notification_id]/read/route";
+import * as broadcastRead from "@/app/api/v1/user/notifications/chimely/v1/inbox/broadcasts/[broadcast_id]/read/route";
 import * as placements from "@/app/api/v1/user/partner-placements/query/route";
 
 vi.mock("@devfeed/telemetry/propagation", () => ({ traceHeaders: () => ({}) }));
@@ -56,7 +58,7 @@ describe("bound reader cookie and origin policies", () => {
       method: "POST",
       params: { article_id: articleId },
     },
-    { name: "inbox", handler: inbox.GET, method: "GET", params: { path: ["stream"] } },
+    { name: "inbox", handler: inboxStream.GET, method: "GET", params: {} },
   ])(
     "forwards only complete reader session-family cookies for $name",
     async ({ handler, method, params }) => {
@@ -262,7 +264,7 @@ describe("reader transport and concrete parameters", () => {
         new Response(null, { status: 304, headers: { ...allowed, "x-private": "secret" } }),
       );
     vi.stubGlobal("fetch", fetcher);
-    const response = await inbox.GET(
+    const response = await inboxStream.GET(
       new Request(`${origin}/api`, {
         headers: {
           "if-none-match": '"revision"',
@@ -271,7 +273,7 @@ describe("reader transport and concrete parameters", () => {
           "x-chimely-subscriber-hash": "forged",
         },
       }),
-      context({ path: ["stream"] }),
+      {},
     );
     expect(response.status).toBe(304);
     for (const [key, value] of Object.entries(allowed))
@@ -363,7 +365,7 @@ describe("reader transport and concrete parameters", () => {
           new Response(body, { headers: { "Content-Type": "text/event-stream" } }),
         ),
     );
-    const response = await inbox.GET(new Request(`${origin}/api`), context({ path: ["stream"] }));
+    const response = await inboxStream.GET(new Request(`${origin}/api`), {});
     const reader = response.body!.getReader();
     stream.enqueue(new TextEncoder().encode("data: hello\n\n"));
     expect(new TextDecoder().decode((await reader.read()).value)).toBe("data: hello\n\n");
@@ -371,6 +373,52 @@ describe("reader transport and concrete parameters", () => {
     expect((await reader.read()).done).toBe(true);
     reader.releaseLock();
   });
+
+  it.each([
+    { handler: notificationRead.POST, name: "notification_id", prefix: "notif_", other: "bcast_" },
+    { handler: broadcastRead.POST, name: "broadcast_id", prefix: "bcast_", other: "notif_" },
+  ])(
+    "binds $name only to its declared inbox action before reading a body",
+    async ({ handler, name, prefix, other }) => {
+      const fetcher = vi.fn().mockResolvedValue(Response.json({}));
+      vi.stubGlobal("fetch", fetcher);
+      for (const value of [
+        undefined,
+        "bad-id",
+        prefix + "a".repeat(25),
+        prefix + "A".repeat(26),
+        other + "a".repeat(26),
+      ]) {
+        const request = new Request(`${origin}/api`, {
+          method: "POST",
+          headers: { Origin: origin },
+          body: new ReadableStream<Uint8Array>(),
+          duplex: "half",
+        } as RequestInit);
+        expect(
+          (await handler(request, context(value === undefined ? {} : { [name]: value }))).status,
+        ).toBe(404);
+        expect(request.bodyUsed).toBe(false);
+        expect(fetcher).not.toHaveBeenCalled();
+      }
+      const id = prefix + "a".repeat(26);
+      expect(
+        (
+          await handler(
+            new Request(`${origin}/api`, {
+              method: "POST",
+              headers: { Origin: origin },
+              body: "{}",
+            }),
+            context({ [name]: id }),
+          )
+        ).status,
+      ).toBe(200);
+      expect(fetcher.mock.calls[0][0]).toBe(
+        `${api}/v1/user/notifications/chimely/v1/inbox/${name === "notification_id" ? "notifications" : "broadcasts"}/${id}/read`,
+      );
+    },
+  );
 
   it("fails privately without the configured user service", async () => {
     vi.stubEnv("DEVFEED_USER_API_URL", "");

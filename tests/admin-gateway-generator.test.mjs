@@ -137,17 +137,17 @@ test("backend converter and endpoint policy survive without UUID or upload path 
   assert.deepEqual(adminGatewayOperations(input)[0].policy, operation.policy);
 });
 
-test("hidden notification catch-all records remain explicit and do not synthesize HEAD or OPTIONS", () => {
-  const inbox = ["GET", "POST", "PUT"].map((method) =>
+test("export path-converter records remain explicit and do not synthesize HEAD or OPTIONS", () => {
+  const exports = ["GET", "POST", "PUT"].map((method) =>
     route({
-      operationId: `admin_inbox_${method.toLowerCase()}`,
+      operationId: `admin_exports_${method.toLowerCase()}`,
       method,
-      path: "/v1/admin/notifications/chimely/v1/inbox/{path}",
+      path: "/v1/admin/exports/{path}",
       parameters: [{ name: "path", converter: "path", schema: { type: "string" } }],
     }),
   );
   const input = document([route()]);
-  input["x-devfeed-gateway-routes"].push(...inbox);
+  input["x-devfeed-gateway-routes"].push(...exports);
   assert.deepEqual(
     adminGatewayOperations(input).map(({ method }) => method),
     ["GET", "GET", "POST", "PUT"],
