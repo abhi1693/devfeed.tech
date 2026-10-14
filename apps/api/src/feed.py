@@ -17,7 +17,7 @@ from devfeed_http.cursors import encode_cursor as encode_cursor
 from fastapi import APIRouter, HTTPException, Query
 from sqlalchemy import func, literal, literal_column, select, tuple_, union_all
 
-from devfeed_api.cache import CachedReadRoute
+from devfeed_api.cache import CachedReadRoute, CachePolicy
 from devfeed_api.dependencies import DB
 
 router = APIRouter(prefix="/v1", tags=["discovery"], route_class=CachedReadRoute)
@@ -72,7 +72,11 @@ def feed_conditions(
     return conditions
 
 
-@router.get("/feed/options", response_model=FeedOptionsOut)
+@router.get(
+    "/feed/options",
+    response_model=FeedOptionsOut,
+    openapi_extra=CachePolicy(namespace="feed-options", revision=1, ttl="content").openapi_extra(),
+)
 def feed_options(
     session: DB,
     q: TextInput | None = Query(None, min_length=1, max_length=200),
@@ -200,7 +204,11 @@ def _filtered_feed_options(session, *, q, topic, tag, languages, content_type, s
     return dict(content_types=sorted(types or []), sources=sources)
 
 
-@router.get("/feed", response_model=FeedPage)
+@router.get(
+    "/feed",
+    response_model=FeedPage,
+    openapi_extra=CachePolicy(namespace="feed", revision=1, ttl="content").openapi_extra(),
+)
 def feed(
     session: DB,
     limit: int = Query(30, ge=1, le=100),
@@ -294,7 +302,11 @@ def feed(
     )
 
 
-@router.get("/articles/{article_id}", response_model=ArticleOut)
+@router.get(
+    "/articles/{article_id}",
+    response_model=ArticleOut,
+    openapi_extra=CachePolicy(namespace="article", revision=1, ttl="content").openapi_extra(),
+)
 def article_detail(article_id: TextInput, session: DB):
     try:
         identity = Article.id == uuid.UUID(article_id)

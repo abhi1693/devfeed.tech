@@ -448,9 +448,12 @@ def test_wait_timeout_falls_back_without_overwriting_the_owner(
     cached_client, response_cache, monkeypatch
 ):
     from devfeed_api import cache as api_cache
+    from starlette.requests import Request
 
     client, _, calls, _, _ = cached_client
-    owner = response_cache.lookup("/v1/feed?", "public")
+    policy = api_cache.CachePolicy(namespace="feed", revision=1, ttl="content")
+    request = Request({"type": "http", "path_params": {}, "query_string": b""})
+    owner = response_cache.lookup(policy.identity(request), "public")
     monkeypatch.setattr(api_cache, "WAIT_SECONDS", 0)
     response = client.get("/v1/feed")
     assert response.status_code == 200 and len(calls) == 1
@@ -500,5 +503,215 @@ def test_oversized_response_is_not_stored(cached_client, response_cache, monkeyp
     )
     for _ in range(2):
         assert client.get("/v1/tags").headers["x-cache"] == "MISS"
+    assert len(calls) == 2
+    assert all(key.endswith(":generation") for key in response_cache.redis.values)
+
+
+def test_unmarked_routes_never_contact_cache_even_in_a_cached_router(response_cache, monkeypatch):
+    from devfeed_api import cache as api_cache
+    from fastapi import APIRouter, FastAPI
+    from fastapi.testclient import TestClient
+
+    monkeypatch.setattr(api_cache, "get_cache", lambda: pytest.fail("Unmarked route used cache"))
+    app = FastAPI()
+    router = APIRouter(route_class=api_cache.CachedReadRoute)
+    calls = []
+
+    @router.api_route("/v1/topics/unmarked", methods=["GET", "POST"])
+    def endpoint():
+        calls.append(True)
+        return {"call": len(calls)}
+
+    app.include_router(router)
+    with TestClient(app) as client:
+        for method in ("GET", "POST", "GET", "POST"):
+            response = client.request(method, "/v1/topics/unmarked")
+            assert response.status_code == 200
+            assert "x-cache" not in response.headers
+    assert len(calls) == 4 and response_cache.redis.values == {}
+
+
+def test_declared_ttl_is_independent_of_url_and_reads_current_settings(response_cache, monkeypatch):
+    from devfeed_api.cache import CachedReadRoute, CachePolicy
+    from fastapi import APIRouter, FastAPI
+    from fastapi.testclient import TestClient
+    from starlette.requests import Request
+
+    settings = get_settings()
+    monkeypatch.setattr(settings, "cache_ttl_seconds", 11)
+    monkeypatch.setattr(settings, "cache_metadata_ttl_seconds", 53)
+    app = FastAPI()
+    router = APIRouter(route_class=CachedReadRoute)
+    policies = (
+        ("/v1/topics/content", CachePolicy(namespace="content-test", revision=1, ttl="content")),
+        ("/renamed/reference", CachePolicy(namespace="metadata-test", revision=1, ttl="metadata")),
+    )
+
+    def endpoint():
+        return {"ok": True}
+
+    for path, policy in policies:
+        router.add_api_route(path, endpoint, methods=["GET"], openapi_extra=policy.openapi_extra())
+    app.include_router(router)
+    with TestClient(app) as client:
+        for query, expected in ((b"", (11, 53)), (b"changed=1", (17, 79))):
+            if query:
+                monkeypatch.setattr(settings, "cache_ttl_seconds", 17)
+                monkeypatch.setattr(settings, "cache_metadata_ttl_seconds", 79)
+            for (path, policy), ttl in zip(policies, expected, strict=True):
+                response = client.get(path, params=query.decode())
+                assert response.headers["x-cache"] == "MISS"
+                request = Request({"type": "http", "path_params": {}, "query_string": query})
+                lookup = response_cache.lookup(policy.identity(request), "public")
+                assert response_cache.redis.expires[lookup.key] - response_cache.redis.now == ttl
+
+
+def test_mounted_aliases_share_logical_cache_and_preserve_detail_and_prefix_parameters(
+    response_cache,
+):
+    from devfeed_api.cache import CachedReadRoute, CachePolicy
+    from fastapi import APIRouter, FastAPI
+    from fastapi.testclient import TestClient
+
+    policy = CachePolicy(namespace="tenant-record", revision=1, ttl="content")
+    app, mounted = FastAPI(), FastAPI()
+    router = APIRouter(route_class=CachedReadRoute)
+    calls = []
+
+    def endpoint(tenant_id: int, record_id: int):
+        calls.append((tenant_id, record_id))
+        return {"tenant": tenant_id, "record": record_id}
+
+    for path in ("/{tenant_id}/records/{record_id}", "/{tenant_id}/renamed/{record_id}"):
+        router.add_api_route(path, endpoint, methods=["GET"], openapi_extra=policy.openapi_extra())
+    app.include_router(router, prefix="/original")
+    mounted.include_router(router)
+    app.mount("/mounted", mounted)
+    with TestClient(app) as client:
+        assert client.get("/original/1/records/2").headers["x-cache"] == "MISS"
+        for path in ("/original/1/renamed/2", "/mounted/1/records/2", "/mounted/1/renamed/2"):
+            response = client.get(path)
+            assert response.headers["x-cache"] == "HIT"
+            assert response.json() == {"tenant": 1, "record": 2}
+        for path in ("/mounted/2/records/2", "/mounted/1/records/3"):
+            assert client.get(path).headers["x-cache"] == "MISS"
+        for _ in range(2):
+            response = client.get("/mounted/1/records/invalid")
+            assert response.status_code == 422
+        assert (
+            client.get("/mounted/1/records/2", params={"extra": "one"}).headers["x-cache"] == "MISS"
+        )
+        assert (
+            client.get("/mounted/1/records/2", params={"extra": "two"}).headers["x-cache"] == "MISS"
+        )
+    assert calls == [(1, 2), (2, 2), (1, 3), (1, 2), (1, 2)]
+
+
+def test_namespace_and_revision_isolate_responses_without_legacy_key_fallback(response_cache):
+    from devfeed_api.cache import CachedReadRoute, CachePolicy
+    from fastapi import APIRouter, FastAPI
+    from fastapi.testclient import TestClient
+
+    app = FastAPI()
+    router = APIRouter(route_class=CachedReadRoute)
+    calls = []
+
+    def endpoint():
+        calls.append(True)
+        return {"call": len(calls)}
+
+    policies = (
+        CachePolicy(namespace="record", revision=1, ttl="content"),
+        CachePolicy(namespace="record", revision=2, ttl="content"),
+        CachePolicy(namespace="other-record", revision=1, ttl="content"),
+    )
+    for index, policy in enumerate(policies):
+        router.add_api_route(
+            f"/legacy/{index}", endpoint, methods=["GET"], openapi_extra=policy.openapi_extra()
+        )
+        old = response_cache.lookup(f"managed-logos:v1:/legacy/{index}?", "public")
+        assert response_cache.publish(old, b'{"obsolete":true}', 60)
+    app.include_router(router)
+    with TestClient(app) as client:
+        for index in range(len(policies)):
+            first = client.get(f"/legacy/{index}")
+            second = client.get(f"/legacy/{index}")
+            assert first.headers["x-cache"] == "MISS" and second.headers["x-cache"] == "HIT"
+            assert first.json() == second.json() == {"call": index + 1}
+    assert len(calls) == 3
+
+
+def test_read_session_closes_before_cache_publication_and_hits_skip_dependencies(
+    response_cache, monkeypatch
+):
+    from typing import Annotated
+
+    from devfeed_api.cache import CachedReadRoute, CachePolicy
+    from fastapi import APIRouter, Depends, FastAPI, Request
+    from fastapi.testclient import TestClient
+
+    events = []
+    app = FastAPI()
+    router = APIRouter(route_class=CachedReadRoute)
+    session = SimpleNamespace(close=lambda: events.append("close"))
+    original = response_cache.publish
+
+    def publish(*args):
+        assert events[-1] == "close"
+        events.append("publish")
+        return original(*args)
+
+    monkeypatch.setattr(response_cache, "publish", publish)
+
+    def dependency(request: Request):
+        events.append("dependency")
+        request.state.public_read_session = session
+        yield session
+        events.append("teardown")
+
+    @router.get(
+        "/session",
+        openapi_extra=CachePolicy(namespace="session", revision=1, ttl="content").openapi_extra(),
+    )
+    def endpoint(value: Annotated[object, Depends(dependency)]):
+        assert value is session
+        events.append("endpoint")
+        return {"ok": True}
+
+    app.include_router(router)
+    with TestClient(app) as client:
+        assert client.get("/session").headers["x-cache"] == "MISS"
+        after_miss = events.copy()
+        assert client.get("/session").headers["x-cache"] == "HIT"
+    assert events == after_miss == ["dependency", "endpoint", "close", "publish", "teardown"]
+
+
+@pytest.mark.parametrize(
+    "headers", [{"Set-Cookie": "private=one"}, {"Vary": "Cookie"}, {"Cache-Control": "private"}]
+)
+def test_private_response_headers_prevent_shared_storage(headers, response_cache):
+    from devfeed_api.cache import CachedReadRoute, CachePolicy
+    from fastapi import APIRouter, FastAPI
+    from fastapi.responses import JSONResponse
+    from fastapi.testclient import TestClient
+
+    calls = []
+    app = FastAPI()
+    router = APIRouter(route_class=CachedReadRoute)
+
+    @router.get(
+        "/private-response",
+        openapi_extra=CachePolicy(
+            namespace="private-response", revision=1, ttl="content"
+        ).openapi_extra(),
+    )
+    def endpoint():
+        calls.append(True)
+        return JSONResponse({"call": len(calls)}, headers=headers)
+
+    app.include_router(router)
+    with TestClient(app) as client:
+        for _ in range(2):
+            assert client.get("/private-response").headers["x-cache"] == "MISS"
     assert len(calls) == 2
     assert all(key.endswith(":generation") for key in response_cache.redis.values)

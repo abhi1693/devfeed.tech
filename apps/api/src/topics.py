@@ -9,13 +9,17 @@ from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel
 from sqlalchemy import func, literal, select
 
-from devfeed_api.cache import CachedReadRoute
+from devfeed_api.cache import CachedReadRoute, CachePolicy
 from devfeed_api.dependencies import DB
 
 router = APIRouter(prefix="/v1/topics", tags=["topics"], route_class=CachedReadRoute)
 
 
-@router.get("", response_model=list[TopicOut])
+@router.get(
+    "",
+    response_model=list[TopicOut],
+    openapi_extra=CachePolicy(namespace="topics", revision=1, ttl="metadata").openapi_extra(),
+)
 def topics(
     session: DB,
     limit: int = Query(100, ge=1, le=500),
@@ -71,7 +75,11 @@ def topics(
     ).all()
 
 
-@router.get("/{slug}", response_model=TopicOut)
+@router.get(
+    "/{slug}",
+    response_model=TopicOut,
+    openapi_extra=CachePolicy(namespace="topic", revision=1, ttl="metadata").openapi_extra(),
+)
 def topic(slug: TextInput, session: DB):
     result = session.scalar(select(Topic).where(Topic.slug == slug, Topic.status == "active"))
     if result is None:
@@ -85,7 +93,13 @@ class TopicRelationOut(BaseModel):
     evidence_url: str | None
 
 
-@router.get("/{slug}/relations", response_model=list[TopicRelationOut])
+@router.get(
+    "/{slug}/relations",
+    response_model=list[TopicRelationOut],
+    openapi_extra=CachePolicy(
+        namespace="topic-relations", revision=1, ttl="metadata"
+    ).openapi_extra(),
+)
 def relations(slug: TextInput, session: DB):
     current = topic(slug, session)
     rows = session.execute(

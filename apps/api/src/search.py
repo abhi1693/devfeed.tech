@@ -25,7 +25,7 @@ from redis.exceptions import RedisError
 from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 
-from devfeed_api.cache import CachedReadRoute
+from devfeed_api.cache import CachedReadRoute, CachePolicy
 from devfeed_api.dependencies import DB, get_rate_limit_redis
 
 router = APIRouter(prefix="/v1/search", tags=["discovery"], route_class=CachedReadRoute)
@@ -66,7 +66,13 @@ def click_tokens() -> SearchClickTokens | None:
     return SearchClickTokens(key.get_secret_value()) if key else None
 
 
-@router.get("/suggestions", response_model=list[str])
+@router.get(
+    "/suggestions",
+    response_model=list[str],
+    openapi_extra=CachePolicy(
+        namespace="search-suggestions", revision=1, ttl="content"
+    ).openapi_extra(),
+)
 def suggestions(
     session: DB,
     q: str = Query("", max_length=200),
@@ -134,7 +140,11 @@ def successful_click(body: SearchClick, session: DB):
     return Response(status_code=204, headers=headers)
 
 
-@router.get("", response_model=SearchResponse)
+@router.get(
+    "",
+    response_model=SearchResponse,
+    openapi_extra=CachePolicy(namespace="search", revision=1, ttl="content").openapi_extra(),
+)
 def search(
     session: DB,
     q: str = Query("", max_length=200),

@@ -8,13 +8,17 @@ from devfeed_core.schemas import (
 from fastapi import APIRouter, Query
 from sqlalchemy import select
 
-from devfeed_api.cache import CachedReadRoute
+from devfeed_api.cache import CachedReadRoute, CachePolicy
 from devfeed_api.dependencies import DB
 
 router = APIRouter(prefix="/v1", tags=["taxonomy"], route_class=CachedReadRoute)
 
 
-@router.get("/tags", response_model=list[TagPublicOut])
+@router.get(
+    "/tags",
+    response_model=list[TagPublicOut],
+    openapi_extra=CachePolicy(namespace="tags", revision=1, ttl="metadata").openapi_extra(),
+)
 def tags(
     session: DB,
     limit: int = Query(100, ge=1, le=500),
@@ -29,7 +33,11 @@ def tags(
     return session.scalars(statement.order_by(Tag.slug).offset(offset).limit(limit)).all()
 
 
-@router.get("/tags/{slug}", response_model=TagPublicOut)
+@router.get(
+    "/tags/{slug}",
+    response_model=TagPublicOut,
+    openapi_extra=CachePolicy(namespace="tag", revision=1, ttl="metadata").openapi_extra(),
+)
 def tag(slug: TextInput, session: DB):
     from fastapi import HTTPException
 

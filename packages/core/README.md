@@ -24,6 +24,10 @@
   and HMAC headers stay server-side. `InboxProxy` reads bounded bodies after session authorization
   through the shared `RequestBodyReader`, and owns upstream cleanup through stream completion or
   disconnect. Generated gateways use these concrete operations instead of an inbox catch-all.
+- `devfeed_api.cache.CachePolicy` makes public response caching opt in on each registered
+  read through `x-devfeed-cache` metadata. The namespace and revision identify the response
+  contract; path parameters and ordered query values identify its inputs. Its `content` or
+  `metadata` TTL uses the existing cache settings, independently of the route's URL or mount.
 - `devfeed_partner_api.access.PartnerAccountAccess` binds a database session and verified
   identity. Portal, connection and workspace queries share its active-account and membership
   scope. Writes lock the account and the exact membership until commit, including preference

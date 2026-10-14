@@ -172,7 +172,12 @@ def test_public_cache_redis_calls_are_off_the_event_loop(monkeypatch):
         app = FastAPI()
         router = APIRouter(route_class=cache.CachedReadRoute)
 
-        @router.get("/cached")
+        @router.get(
+            "/cached",
+            openapi_extra=cache.CachePolicy(
+                namespace="async-safety", revision=1, ttl="content"
+            ).openapi_extra(),
+        )
         def endpoint():
             raise AssertionError("a cache hit must not load the endpoint")
 
