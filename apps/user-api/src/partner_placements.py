@@ -3,6 +3,7 @@
 from devfeed_core.config import get_settings
 from devfeed_core.partner_placements import deliver_placements
 from devfeed_core.rate_limits import RateLimitBudget, consume_rate_limits
+from devfeed_http.body_limits import BodyLimitedRoute
 from devfeed_http.operation_policies import ExtensionTransportPolicy, ReaderGatewayPolicy
 from devfeed_http.partner_placements import PlacementQuery, PlacementsOut
 from fastapi import APIRouter, HTTPException, Response
@@ -12,7 +13,9 @@ from sqlalchemy.exc import SQLAlchemyError
 from devfeed_user_api.auth import BrowserUser
 from devfeed_user_api.dependencies import DB, get_redis
 
-router = APIRouter(prefix="/v1/user/partner-placements", tags=["personalization"])
+router = APIRouter(
+    prefix="/v1/user/partner-placements", tags=["personalization"], route_class=BodyLimitedRoute
+)
 
 
 @router.post(
@@ -23,7 +26,7 @@ router = APIRouter(prefix="/v1/user/partner-placements", tags=["personalization"
         body_timeout_ms=2000,
         handler="placement-query",
         extension=ExtensionTransportPolicy(),
-    ).openapi_extra(),
+    ).bounded_openapi_extra(),
 )
 def placements(payload: PlacementQuery, user: BrowserUser, session: DB, response: Response):
     response.headers["Cache-Control"] = "no-store"

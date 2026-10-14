@@ -1,7 +1,6 @@
 """Private explicit product inventory; imports and qualification remain independent."""
 
 import hashlib
-import re
 from typing import Literal
 
 from devfeed_core.job_lifecycle import fail_or_retry
@@ -32,19 +31,6 @@ from sqlalchemy import select
 from devfeed_http.partner_portal import WorkspaceInventoryProductOut, inventory_product_view
 
 Pricing = Literal["free", "freemium", "paid", "unknown"]
-PRODUCT_PATH = re.compile(
-    r"/v1/(?:partner/accounts|admin/partner-accounts)/[0-9a-fA-F-]{36}"
-    r"/products(?P<detail>/[0-9a-fA-F-]{36})?"
-)
-
-
-def product_body_limit(method, path):
-    match = PRODUCT_PATH.fullmatch(path)
-    if match and (
-        (method == "POST" and not match["detail"]) or (method == "PATCH" and match["detail"])
-    ):
-        return 65536
-    return None
 
 
 def validate_manual_product_url(value):

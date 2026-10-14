@@ -12,6 +12,7 @@ from devfeed_core.partner_audiences import (
 )
 from devfeed_core.partner_promotions import request_promotion_enrollment
 from devfeed_core.text_search import text_search
+from devfeed_http.body_limits import BodyLimitedRoute
 from devfeed_http.operation_policies import GatewayPolicy
 from devfeed_http.partner_ad_images import (
     limit_ad_image_upload,
@@ -54,7 +55,12 @@ from devfeed_partner_api.access import PartnerAccountAccess
 from devfeed_partner_api.auth import Partner, require_partner
 from devfeed_partner_api.dependencies import DB, get_redis
 
-router = APIRouter(prefix="/v1/partner", tags=["partner"], dependencies=[Depends(require_partner)])
+router = APIRouter(
+    prefix="/v1/partner",
+    tags=["partner"],
+    dependencies=[Depends(require_partner)],
+    route_class=BodyLimitedRoute,
+)
 
 
 @router.post(
@@ -62,7 +68,7 @@ router = APIRouter(prefix="/v1/partner", tags=["partner"], dependencies=[Depends
     response_model=ProductDetailOut,
     status_code=201,
     operation_id="partnerProductCreate",
-    openapi_extra=GatewayPolicy(body_limit=65536).openapi_extra(),
+    openapi_extra=GatewayPolicy(body_limit=65536).bounded_openapi_extra(),
 )
 def create_product(
     account_id: uuid.UUID, payload: ManualProductInput, session: DB, partner: Partner
@@ -91,7 +97,7 @@ def get_product(account_id: uuid.UUID, product_id: uuid.UUID, session: DB, partn
     "/accounts/{account_id}/products/{product_id:uuid}",
     response_model=ProductDetailOut,
     operation_id="partnerProductUpdate",
-    openapi_extra=GatewayPolicy(body_limit=65536).openapi_extra(),
+    openapi_extra=GatewayPolicy(body_limit=65536).bounded_openapi_extra(),
 )
 def update_product(
     account_id: uuid.UUID,
@@ -308,7 +314,7 @@ def update_product_promotion(
     operation_id="partnerProductAdImageUpload",
     openapi_extra=GatewayPolicy(
         body_limit=5 * 1024 * 1024 + 65536, body_timeout_ms=10_000
-    ).openapi_extra(),
+    ).bounded_openapi_extra(rejection="image"),
 )
 def upload_ad_image(
     account_id: uuid.UUID,

@@ -18,6 +18,7 @@ from devfeed_core.search_suggestions import (
     query_hash,
     record_successful_query,
 )
+from devfeed_http.body_limits import RequestBodyPolicy
 from fastapi import APIRouter, HTTPException, Query, Response
 from pydantic import BaseModel, Field
 from redis.exceptions import RedisError
@@ -79,7 +80,12 @@ def suggestions(
         raise HTTPException(422, "Invalid search suggestion prefix") from None
 
 
-@router.post("/analytics/click", status_code=204, response_class=Response)
+@router.post(
+    "/analytics/click",
+    status_code=204,
+    response_class=Response,
+    openapi_extra=RequestBodyPolicy(body_limit=4096).openapi_extra(),
+)
 def successful_click(body: SearchClick, session: DB):
     headers = {"Cache-Control": "no-store"}
     try:

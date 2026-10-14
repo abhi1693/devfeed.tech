@@ -13,6 +13,7 @@ from devfeed_core.rate_limits import (
     consume_rate_limits,
     consume_reserved_rate_limits,
 )
+from devfeed_http.body_limits import BodyLimitedRoute, RequestBodyPolicy
 from fastapi import APIRouter, HTTPException, Request, Response
 from pydantic import BaseModel, ConfigDict, Field
 from redis.exceptions import RedisError
@@ -21,7 +22,9 @@ from sqlalchemy.exc import SQLAlchemyError
 from devfeed_api.dependencies import DB, get_rate_limit_redis
 from devfeed_api.partner_callers import partner_caller_key
 
-router = APIRouter(prefix="/v1/partner-tracking", tags=["partner-tracking"])
+router = APIRouter(
+    prefix="/v1/partner-tracking", tags=["partner-tracking"], route_class=BodyLimitedRoute
+)
 
 
 class PartnerEvent(BaseModel):
@@ -30,7 +33,12 @@ class PartnerEvent(BaseModel):
     kind: EventKind
 
 
-@router.post("/events", status_code=204, response_class=Response)
+@router.post(
+    "/events",
+    status_code=204,
+    response_class=Response,
+    openapi_extra=RequestBodyPolicy(body_limit=2048).openapi_extra(),
+)
 def track_event(body: PartnerEvent, request: Request, session: DB):
     headers = {"Cache-Control": "no-store"}
     key = get_settings().partner_tracking_key

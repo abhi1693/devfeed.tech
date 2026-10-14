@@ -7,8 +7,8 @@ from urllib.parse import urlencode
 import anyio
 from devfeed_core.cache import CacheUnavailable, get_cache, record_cache_read
 from devfeed_core.config import get_settings
+from devfeed_http.body_limits import BodyLimitedRoute
 from fastapi import Request, Response
-from fastapi.routing import APIRoute
 from starlette.concurrency import run_in_threadpool
 
 WAIT_SECONDS = 1.0
@@ -46,7 +46,7 @@ def tagged(
     return response
 
 
-class CachedReadRoute(APIRoute):
+class CachedReadRoute(BodyLimitedRoute):
     """Shared, non-personalized reads only; cookie-dependent endpoints must not opt in."""
 
     def get_route_handler(self):

@@ -22,6 +22,7 @@ from devfeed_core.partner_promotions import (
 )
 from devfeed_core.partner_tiers import TIER_BENEFITS, promotion_kind_allowed, tier_policy
 from devfeed_core.text_search import text_search
+from devfeed_http.body_limits import BodyLimitedRoute
 from devfeed_http.operation_policies import GatewayPolicy
 from devfeed_http.partner_ad_images import (
     limit_ad_image_upload,
@@ -85,6 +86,7 @@ router = APIRouter(
     prefix="/v1/admin/partner-accounts",
     tags=["admin-partner-accounts"],
     dependencies=[Depends(require_admin)],
+    route_class=BodyLimitedRoute,
 )
 
 
@@ -118,7 +120,7 @@ def write_manual_account(session, admin, account_id, *, product_id=None, url=Non
     response_model=ProductDetailOut,
     status_code=201,
     operation_id="adminPartnerProductCreate",
-    openapi_extra=GatewayPolicy(body_limit=65536).openapi_extra(),
+    openapi_extra=GatewayPolicy(body_limit=65536).bounded_openapi_extra(),
 )
 def create_product(
     account_id: uuid.UUID, payload: ManualProductInput, session: DB, superuser: Superuser
@@ -146,7 +148,7 @@ def get_product(account_id: uuid.UUID, product_id: uuid.UUID, session: DB, super
     "/{account_id}/products/{product_id:uuid}",
     response_model=ProductDetailOut,
     operation_id="adminPartnerProductUpdate",
-    openapi_extra=GatewayPolicy(body_limit=65536).openapi_extra(),
+    openapi_extra=GatewayPolicy(body_limit=65536).bounded_openapi_extra(),
 )
 def update_product(
     account_id: uuid.UUID,
@@ -601,7 +603,7 @@ def get_product_promotion(
     operation_id="adminPartnerProductAdImageUpload",
     openapi_extra=GatewayPolicy(
         body_limit=5 * 1024 * 1024 + 65536, body_timeout_ms=10_000
-    ).openapi_extra(),
+    ).bounded_openapi_extra(rejection="image"),
 )
 def upload_ad_image(
     account_id: uuid.UUID,

@@ -7,8 +7,6 @@ from devfeed_core.config import get_settings as core_settings
 from devfeed_core.db import database_revision
 from devfeed_core.logging import configure_logging
 from devfeed_core.version import SCHEMA_REVISION, __version__
-from devfeed_http.body_limits import RequestBodyLimitMiddleware
-from devfeed_http.image_uploads import ImageUploadBodyLimit
 from devfeed_http.operation_policies import (
     ExtensionTransportPolicy,
     ReaderGatewayPolicy,
@@ -61,20 +59,7 @@ def create_app() -> FastAPI:
         description="Optional personalization API. OIDC sessions and CSRF protection required.",
     )
     # No cross-origin cookie access: the Next.js user service proxies same-origin requests.
-    service.configure(
-        app,
-        settings,
-        private=True,
-        middleware=lambda app: app.add_middleware(
-            ImageUploadBodyLimit, paths=(avatars.router.prefix,)
-        ),
-    )
-    app.add_middleware(
-        RequestBodyLimitMiddleware,
-        limits={
-            ("POST", "/v1/user/partner-placements/query"): 8192,
-        },
-    )
+    service.configure(app, settings, private=True)
 
     service.register_health(
         app,

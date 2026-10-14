@@ -2,7 +2,6 @@
 
 import io
 import logging
-from collections.abc import Callable
 from threading import BoundedSemaphore
 from uuid import uuid4
 
@@ -11,10 +10,6 @@ from devfeed_core.image_processing import ImageProcessor
 from devfeed_core.object_storage import R2ConfigurationError, R2Storage
 from fastapi import HTTPException
 from PIL import Image, ImageOps, UnidentifiedImageError
-from starlette.responses import JSONResponse
-from starlette.types import ASGIApp, Receive, Scope, Send
-
-from devfeed_http.body_limits import BoundedRequestBodyMiddleware
 
 MAX_BYTES = 5 * 1024 * 1024
 MAX_REQUEST_BYTES = MAX_BYTES + 65536
@@ -150,37 +145,3 @@ class ImageUploadStorage(ImageProcessor):
                         logger.error("image_upload_rollback_failed")
         finally:
             self.storage.close()
-
-
-class ImageUploadBodyLimit(BoundedRequestBodyMiddleware):
-    """Limit bytes and total reading time before multipart parsing allocates or spools."""
-
-    def __init__(
-        self,
-        app: ASGIApp,
-        *,
-        paths=(),
-        path_predicate: Callable[[str], bool] | None = None,
-        timeout: float = 10,
-    ):
-        super().__init__(app, timeout=timeout)
-        self.paths, self.path_predicate = paths, path_predicate
-
-    def body_limit(self, scope: Scope) -> int | None:
-        path = scope.get("path", "")
-        if scope.get("method") == "POST" and (
-            path in self.paths or self.path_predicate and self.path_predicate(path)
-        ):
-            return MAX_REQUEST_BYTES
-        return None
-
-    def declared_oversize(self, scope: Scope, limit: int) -> bool:
-        try:
-            declared = int(dict(scope.get("headers", [])).get(b"content-length", b"0"))
-        except ValueError:
-            declared = 0
-        return declared > limit
-
-    async def reject(self, scope: Scope, receive: Receive, send: Send, status: int) -> None:
-        detail = "Choose an image under 5 MB" if status == 413 else "Image upload timed out"
-        await JSONResponse({"detail": detail}, status_code=status)(scope, receive, send)

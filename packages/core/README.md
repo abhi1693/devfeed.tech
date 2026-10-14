@@ -13,9 +13,11 @@
   validation, disclosure and enrollment. Routes authorize access, lock the account for writes
   and commit the transaction; the service only flushes, so sponsorship disclosure and enrollment
   remain atomic with the campaign save.
-- `devfeed_http.body_limits.BoundedRequestBodyMiddleware` owns body size/deadline checks and
-  replay. JSON and image-upload subclasses supply their route and error policies, preserving
-  their different limits, deadlines and responses.
+- `devfeed_http.body_limits.BodyLimitedRoute` enforces the registered endpoint's
+  `RequestBodyPolicy` before parsing or dependencies. `BoundedRequestBody` owns byte counting,
+  the total read deadline and replay; the policy supplies JSON or image-upload errors.
+  Gateway-backed endpoints use `bounded_openapi_extra()` to derive backend limits from
+  their existing transport policy, without maintaining another URL or method selector.
 - `devfeed_partner_api.access.PartnerAccountAccess` binds a database session and verified
   identity. Portal, connection and workspace queries share its active-account and membership
   scope. Writes lock the account and the exact membership until commit, including preference

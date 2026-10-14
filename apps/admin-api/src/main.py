@@ -9,11 +9,7 @@ from devfeed_core.config import get_settings as core_settings
 from devfeed_core.db import database_revision
 from devfeed_core.logging import configure_logging
 from devfeed_core.version import SCHEMA_REVISION, __version__
-from devfeed_http.body_limits import RequestBodyLimitMiddleware
-from devfeed_http.image_uploads import ImageUploadBodyLimit
 from devfeed_http.operation_policies import include_gateway_router
-from devfeed_http.partner_ad_images import ad_image_upload_path
-from devfeed_http.partner_products import product_body_limit
 from devfeed_http.schemas import ERROR_RESPONSES
 from devfeed_http.service import HTTPService
 from devfeed_http.telemetry import fastapi_telemetry
@@ -93,8 +89,6 @@ def create_app() -> FastAPI:
     app.state.overview_snapshots = {}
     app.state.overview_tasks = {}
     app.state.overview_retry_at = {}
-    app.add_middleware(ImageUploadBodyLimit, path_predicate=ad_image_upload_path)
-    app.add_middleware(RequestBodyLimitMiddleware, limits={}, limit_for=product_body_limit)
     # No cross-origin cookie access: the Next.js admin service proxies same-origin requests.
     service.configure(app, settings, private=True)
 

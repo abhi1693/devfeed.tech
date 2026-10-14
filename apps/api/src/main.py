@@ -6,7 +6,6 @@ from devfeed_core.db import database_revision
 from devfeed_core.feeds.validation import FeedValidationError
 from devfeed_core.logging import configure_logging
 from devfeed_core.version import SCHEMA_REVISION, __version__
-from devfeed_http.body_limits import RequestBodyLimitMiddleware
 from devfeed_http.schemas import (
     ERROR_RESPONSES,
     ErrorResponse,
@@ -63,14 +62,6 @@ def create_app() -> FastAPI:
             allow_credentials=False,
         )
 
-    app.add_middleware(
-        RequestBodyLimitMiddleware,
-        limits={
-            ("POST", "/v1/search/analytics/click"): 4096,
-            ("POST", "/v1/partner-tracking/events"): 2048,
-            ("POST", "/v1/partner-placements/query"): 8192,
-        },
-    )
     service.configure(app, settings, middleware=cors)
 
     @app.exception_handler(FeedValidationError)

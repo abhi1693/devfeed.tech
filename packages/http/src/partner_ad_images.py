@@ -40,18 +40,6 @@ class ProductAdImageStorage(ImageUploadStorage):
         super().__init__(prefix, self.sizes, storage=storage)
 
 
-def ad_image_upload_path(path):
-    import re
-
-    return bool(
-        re.fullmatch(
-            r"/v1/(?:partner/accounts|admin/partner-accounts)/[0-9a-fA-F-]{36}"
-            r"/products/[0-9a-fA-F-]{36}/ad-image",
-            path,
-        )
-    )
-
-
 def limit_ad_image_upload(redis, actor, account_id):
     caller = hashlib.sha256(f"{actor.issuer}\0{actor.subject}".encode()).hexdigest()
     try:

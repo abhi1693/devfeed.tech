@@ -177,21 +177,6 @@ def test_write_abuse_budget_is_actor_and_account_scoped(monkeypatch, status):
     assert budgets[1].key.endswith(str(account_id)) and budgets[1].limit == 100
 
 
-@pytest.mark.parametrize("prefix", ["/v1/partner/accounts", "/v1/admin/partner-accounts"])
-def test_body_limit_only_matches_product_mutations(prefix):
-    base = f"{prefix}/{uuid.uuid4()}/products"
-    assert products.product_body_limit("POST", base) == 65536
-    assert products.product_body_limit("PATCH", base + f"/{uuid.uuid4()}") == 65536
-    for method, path in [
-        ("GET", base),
-        ("PATCH", base),
-        ("POST", base + "/x"),
-        ("POST", base + "/preview"),
-        ("POST", "/unrelated"),
-    ]:
-        assert products.product_body_limit(method, path) is None
-
-
 @pytest.fixture
 def context(monkeypatch):
     account, session = NS(id=uuid.uuid4()), Mock()

@@ -9,6 +9,8 @@ from fastapi.routing import APIRoute, iter_route_contexts
 from pydantic import BaseModel, ConfigDict, Field, TypeAdapter
 from starlette.convertors import CONVERTOR_TYPES
 
+from devfeed_http.body_limits import RequestBodyPolicy
+
 GATEWAY_POLICY_EXTENSION = "x-devfeed-gateway"
 GATEWAY_ROUTES_EXTENSION = "x-devfeed-gateway-routes"
 
@@ -22,6 +24,15 @@ class GatewayPolicy(BaseModel):
 
     def openapi_extra(self) -> dict[str, Any]:
         return {GATEWAY_POLICY_EXTENSION: self.model_dump(by_alias=True)}
+
+    def bounded_openapi_extra(
+        self, *, rejection: Literal["json", "image"] = "json"
+    ) -> dict[str, Any]:
+        """Apply the same byte limit and deadline to the registered backend endpoint."""
+        body_policy = RequestBodyPolicy(
+            body_limit=self.body_limit, body_timeout_ms=self.body_timeout_ms, rejection=rejection
+        )
+        return {**self.openapi_extra(), **body_policy.openapi_extra()}
 
 
 class ExtensionTransportPolicy(BaseModel):

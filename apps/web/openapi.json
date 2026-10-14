@@ -4542,6 +4542,11 @@
           },
           "handler": "placement-query",
           "upstreamTimeoutMs": 45000
+        },
+        "x-devfeed-request-body": {
+          "bodyLimit": 8192,
+          "bodyTimeoutMs": 2000,
+          "rejection": "json"
         }
       }
     },
@@ -5984,6 +5989,11 @@
           },
           "handler": "forward",
           "upstreamTimeoutMs": 45000
+        },
+        "x-devfeed-request-body": {
+          "bodyLimit": 5308416,
+          "bodyTimeoutMs": 10000,
+          "rejection": "image"
         }
       }
     },

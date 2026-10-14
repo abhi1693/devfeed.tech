@@ -5837,6 +5837,11 @@
           "bodyLimit": 65536,
           "bodyTimeoutMs": 2000,
           "upstreamTimeoutMs": 45000
+        },
+        "x-devfeed-request-body": {
+          "bodyLimit": 65536,
+          "bodyTimeoutMs": 2000,
+          "rejection": "json"
         }
       }
     },
@@ -6085,6 +6090,11 @@
           "bodyLimit": 65536,
           "bodyTimeoutMs": 2000,
           "upstreamTimeoutMs": 45000
+        },
+        "x-devfeed-request-body": {
+          "bodyLimit": 65536,
+          "bodyTimeoutMs": 2000,
+          "rejection": "json"
         }
       }
     },
@@ -6178,6 +6188,11 @@
           "bodyLimit": 5308416,
           "bodyTimeoutMs": 10000,
           "upstreamTimeoutMs": 45000
+        },
+        "x-devfeed-request-body": {
+          "bodyLimit": 5308416,
+          "bodyTimeoutMs": 10000,
+          "rejection": "image"
         }
       }
     },

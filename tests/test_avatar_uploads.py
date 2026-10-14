@@ -10,7 +10,7 @@ from devfeed_core.config import get_settings
 from devfeed_core.models import UserAccount
 from devfeed_core.object_storage import R2Storage
 from devfeed_http import image_uploads
-from devfeed_http.image_uploads import CACHE_CONTROL, MAX_BYTES, MAX_REQUEST_BYTES
+from devfeed_http.image_uploads import CACHE_CONTROL, MAX_BYTES
 from devfeed_user_api import avatar_storage
 from devfeed_user_api.auth import UserIdentity, require_user
 from devfeed_user_api.main import create_app
@@ -234,38 +234,3 @@ def test_upload_configuration_is_required(monkeypatch):
     with pytest.raises(HTTPException) as error:
         image_uploads.image_upload_storage()
     assert error.value.status_code == 503
-
-
-def test_chunked_upload_is_bounded_before_form_parsing():
-    import asyncio
-
-    from devfeed_http.image_uploads import ImageUploadBodyLimit
-
-    messages = []
-
-    async def app(scope, receive, send):
-        pytest.fail("oversized body reached the parser")
-
-    async def receive():
-        return {
-            "type": "http.request",
-            "body": b"x" * (MAX_REQUEST_BYTES + 1),
-            "more_body": False,
-        }
-
-    async def send(message):
-        messages.append(message)
-
-    asyncio.run(
-        ImageUploadBodyLimit(app, paths=("/v1/user/settings/profile/avatar",))(
-            {
-                "type": "http",
-                "method": "POST",
-                "path": "/v1/user/settings/profile/avatar",
-                "headers": [(b"content-length", b"1")],
-            },
-            receive,
-            send,
-        )
-    )
-    assert messages[0]["status"] == 413
