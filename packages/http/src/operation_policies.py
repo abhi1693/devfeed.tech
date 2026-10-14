@@ -1,0 +1,97 @@
+"""Gateway transport policy belongs to registered operations, independently of URL spelling."""
+
+import copy
+import hashlib
+from typing import Any
+
+from fastapi import APIRouter, FastAPI
+from fastapi.routing import APIRoute, iter_route_contexts
+from pydantic import BaseModel, ConfigDict, Field, TypeAdapter
+from starlette.convertors import CONVERTOR_TYPES
+
+GATEWAY_POLICY_EXTENSION = "x-devfeed-gateway"
+GATEWAY_ROUTES_EXTENSION = "x-devfeed-gateway-routes"
+
+
+class GatewayPolicy(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid", strict=True, populate_by_name=True)
+
+    body_limit: int = Field(default=1_000_000, gt=0, alias="bodyLimit")
+    body_timeout_ms: int = Field(default=2000, gt=0, alias="bodyTimeoutMs")
+    upstream_timeout_ms: int = Field(default=45_000, gt=0, alias="upstreamTimeoutMs")
+
+    def openapi_extra(self) -> dict[str, Any]:
+        return {GATEWAY_POLICY_EXTENSION: self.model_dump(by_alias=True)}
+
+
+DEFAULT_GATEWAY_POLICY = GatewayPolicy()
+
+
+def include_gateway_router(app: FastAPI, router: APIRouter) -> None:
+    """Expose this router's operations, retaining endpoint overrides and unrelated metadata."""
+    for context in iter_route_contexts(router.routes):
+        route = context.original_route
+        if isinstance(route, APIRoute):
+            extra = dict(route.openapi_extra or {})
+            policy = GatewayPolicy.model_validate(
+                extra.get(GATEWAY_POLICY_EXTENSION, DEFAULT_GATEWAY_POLICY.model_dump())
+            )
+            route.openapi_extra = {**extra, **policy.openapi_extra()}
+    app.include_router(router)
+
+
+def export_gateway_document(app: FastAPI) -> dict[str, Any]:
+    """Export the schema plus exposed routes, including operations hidden from Swagger."""
+    document = copy.deepcopy(app.openapi())
+    operations = []
+    for context in iter_route_contexts(app.routes):
+        route = context.original_route
+        if not isinstance(route, APIRoute):
+            continue
+        extra = context.openapi_extra or {}
+        if GATEWAY_POLICY_EXTENSION not in extra:
+            continue
+        policy = GatewayPolicy.model_validate(extra[GATEWAY_POLICY_EXTENSION])
+        for method in sorted(context.methods or ()):
+            operation = (
+                document.get("paths", {}).get(context.path_format, {}).get(method.lower(), {})
+            )
+            path_fields = {
+                parameter["name"]: parameter["schema"]
+                for parameter in operation.get("parameters", [])
+                if parameter.get("in") == "path"
+            }
+            fields = {field.alias: field for field in context.dependant.path_params}
+            parameters = []
+            for name, converter in context.param_convertors.items():
+                converter_name = next(
+                    (
+                        kind
+                        for kind, registered in CONVERTOR_TYPES.items()
+                        if type(converter) is type(registered)
+                    ),
+                    None,
+                )
+                if converter_name is None:
+                    raise ValueError(f"Unsupported gateway path converter for {name}")
+                schema = path_fields.get(name)
+                if schema is None:
+                    if name not in fields:
+                        raise ValueError(f"Gateway path parameter {name} has no validation schema")
+                    schema = TypeAdapter(fields[name].field_info.rebuild_annotation()).json_schema()
+                parameters.append({"name": name, "schema": schema, "converter": converter_name})
+            identity = operation.get("operationId") or route.operation_id
+            if identity is None:
+                digest = hashlib.sha256(f"{method} {context.path_format}".encode()).hexdigest()[:12]
+                identity = f"{context.name}_{method.lower()}_{digest}"
+            operations.append(
+                {
+                    "operationId": identity,
+                    "method": method,
+                    "path": context.path_format,
+                    "parameters": parameters,
+                    "policy": policy.model_dump(by_alias=True),
+                }
+            )
+    document[GATEWAY_ROUTES_EXTENSION] = operations
+    return document

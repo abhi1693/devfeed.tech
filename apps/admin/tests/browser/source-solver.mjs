@@ -8,6 +8,7 @@ import { chromium } from "playwright";
 // Run after npm run admin:build. The API is a disposable local fixture.
 const root = fileURLToPath(new URL("../../../../", import.meta.url));
 const requests = [];
+const sourceId = "11111111-1111-4111-8111-111111111111";
 const feed = "https://publication.example/feed";
 const fixture = createServer(async (req, res) => {
   const path = new URL(req.url, "http://localhost").pathname;
@@ -47,9 +48,9 @@ const fixture = createServer(async (req, res) => {
         warnings: [],
       };
   }
-  if (path.endsWith("/sources/source-1"))
+  if (path.endsWith(`/sources/${sourceId}`))
     body = {
-      id: "source-1",
+      id: sourceId,
       name: "Existing source",
       feed_url: feed,
       source_type: "publisher",
@@ -149,18 +150,18 @@ try {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.screenshot({ path: `${root}/reports/source-solver/mobile-retry.png`, fullPage: true });
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
-  await page.goto(`${origin}/content/sources/source-1/edit`);
+  await page.goto(`${origin}/content/sources/${sourceId}/edit`);
   const lookup = page.getByRole("button", { name: "Fetch source details" });
   await lookup.waitFor();
   const beforeEdit = requests.length;
   await lookup.click();
   await retry.waitFor();
-  assert.equal(requests[beforeEdit].source_id, "source-1");
+  assert.equal(requests[beforeEdit].source_id, sourceId);
   assert.equal(requests[beforeEdit].use_solver, undefined);
   const solvedPreview = page.waitForResponse(
     (response) =>
       new URL(response.url()).pathname.endsWith("/sources/preview") &&
-      response.request().postDataJSON()?.source_id === "source-1" &&
+      response.request().postDataJSON()?.source_id === sourceId &&
       response.request().postDataJSON()?.use_solver === true &&
       response.ok(),
   );

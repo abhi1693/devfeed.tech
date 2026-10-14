@@ -255,12 +255,12 @@ try {
       );
       if (width === 1440) {
         const refreshPanel = await page
-          .getByText("Recommendation refresh", { exact: true })
-          .locator('xpath=ancestor::div[@data-slot="card"]')
+          .getByRole("heading", { name: "Recommendation refresh", exact: true })
+          .locator("xpath=ancestor::section[1]")
           .boundingBox();
         const activityPanel = await page
-          .getByText("Personalization", { exact: true })
-          .locator('xpath=ancestor::div[@data-slot="card"]')
+          .getByRole("heading", { name: "Personalization", exact: true })
+          .locator("xpath=ancestor::section[1]")
           .boundingBox();
         assert.ok(refreshPanel && activityPanel);
         assert.ok(Math.abs(refreshPanel.y - activityPanel.y) < 1);

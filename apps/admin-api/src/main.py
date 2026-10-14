@@ -11,6 +11,7 @@ from devfeed_core.logging import configure_logging
 from devfeed_core.version import SCHEMA_REVISION, __version__
 from devfeed_http.body_limits import RequestBodyLimitMiddleware
 from devfeed_http.image_uploads import ImageUploadBodyLimit
+from devfeed_http.operation_policies import include_gateway_router
 from devfeed_http.partner_ad_images import ad_image_upload_path
 from devfeed_http.partner_products import product_body_limit
 from devfeed_http.schemas import ERROR_RESPONSES
@@ -131,7 +132,7 @@ def create_app() -> FastAPI:
         notifications.router,
         workers.router,
     ):
-        app.include_router(router)
+        include_gateway_router(app, router)
     return app
 
 

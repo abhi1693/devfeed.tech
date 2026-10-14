@@ -1,51 +1,29 @@
 import { traceHeaders } from "@devfeed/telemetry/propagation";
+import { GatewayRouter } from "@devfeed/http/gateway";
 import {
   readRequestBody,
   RequestBodyTimeout,
   RequestBodyTooLarge,
 } from "@devfeed/http/request-body";
 import "server-only";
+import { adminGatewayOperations } from "../api/generated/gateway-operations";
 import { adminApiOrigin, adminWebOrigin } from "./config";
 
-// This is not a general-purpose proxy. Only the admin service's namespace is reachable.
-const privatePath = /^\/v1\/admin\/[a-zA-Z0-9_/-]+$/;
+const router = new GatewayRouter({ operations: adminGatewayOperations });
 const safe = new Set(["GET", "HEAD", "OPTIONS"]);
-const productAdImagePath =
-  /^\/v1\/admin\/partner-accounts\/[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}\/products\/[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}\/ad-image$/i;
-const productCollectionPath =
-  /^\/v1\/admin\/partner-accounts\/[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}\/products$/i;
-const productDetailPath =
-  /^\/v1\/admin\/partner-accounts\/[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}\/products\/[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/i;
-
-function upstreamTimeout(method: string, path: string): number {
-  // Each guarded download has a 60s deadline, but a final in-flight socket
-  // operation can take another 30s. Preview may fetch both the feed and website.
-  // Source forms also allow 95s for an explicitly requested solver attempt.
-  // Leave 30s for parsing/database work; ordinary calls and SSE stay bounded.
-  if (method === "POST") {
-    // GitHub discovery fetches the revision and a complete, size-limited archive.
-    // Its first request needs time for the download and parsing before batching.
-    if (path === "/v1/admin/topic-discovery/github") return 120_000;
-    if (
-      path === "/v1/admin/source-imports" ||
-      /^\/v1\/admin\/source-imports\/[^/]+\/review$/.test(path)
-    )
-      return 150_000;
-    if (path === "/v1/admin/sources") return 215_000;
-    if (path === "/v1/admin/sources/preview") return 305_000;
-  }
-  return 45_000;
-}
 
 export async function gateway(request: Request, segments: string[]) {
-  const path = "/" + segments.join("/");
-  const workerPath = /^\/v1\/admin\/workers\/[a-zA-Z0-9_.:-]{1,256}$/.test(path);
-  if (
-    (!privatePath.test(path) && !workerPath) ||
-    segments.some((part) => part === "." || part === "..")
-  ) {
+  const match = router.resolve(request.method, segments);
+  if (match.kind === "method-not-allowed")
+    return Response.json(
+      { detail: "Method not allowed" },
+      { status: 405, headers: { Allow: match.allowedMethods.join(", ") } },
+    );
+  if (match.kind !== "matched") {
     return Response.json({ detail: "Not found" }, { status: 404 });
   }
+  const { path, operation } = match;
+  const { policy } = operation;
   try {
     const origin = adminWebOrigin();
     const incoming = new URL(request.url);
@@ -65,20 +43,9 @@ export async function gateway(request: Request, segments: string[]) {
       const value = request.headers.get(name);
       if (value) headers.set(name, value);
     }
-    const imageUpload = productAdImagePath.test(path) && request.method === "POST";
-    const productWrite =
-      (productCollectionPath.test(path) && request.method === "POST") ||
-      (productDetailPath.test(path) && request.method === "PATCH");
-    const bodyLimit = imageUpload
-      ? 5 * 1024 * 1024 + 65536
-      : productWrite
-        ? 65536
-        : path === "/v1/admin/source-imports"
-          ? 6_100_000
-          : 1_000_000;
     let body: ArrayBuffer | undefined;
     if (!safe.has(request.method)) {
-      body = await readRequestBody(request, bodyLimit, bodyLimit > 1_000_000 ? 10_000 : 2000);
+      body = await readRequestBody(request, policy.bodyLimit, policy.bodyTimeoutMs);
     }
     request.signal.throwIfAborted();
     for (const [key, value] of Object.entries(traceHeaders())) headers.set(key, value);
@@ -88,10 +55,7 @@ export async function gateway(request: Request, segments: string[]) {
       body,
       redirect: "manual",
       cache: "no-store",
-      signal: AbortSignal.any([
-        request.signal,
-        AbortSignal.timeout(upstreamTimeout(request.method, path)),
-      ]),
+      signal: AbortSignal.any([request.signal, AbortSignal.timeout(policy.upstreamTimeoutMs)]),
     });
     const resultHeaders = new Headers({
       "Cache-Control": "no-store",

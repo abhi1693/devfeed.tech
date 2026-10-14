@@ -1,0 +1,267 @@
+import { readFile, writeFile } from "node:fs/promises";
+import { fileURLToPath, pathToFileURL } from "node:url";
+import { format } from "prettier";
+
+const methods = new Set(["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"]);
+const converters = new Set(["str", "uuid", "path"]);
+const policyFields = ["bodyLimit", "bodyTimeoutMs", "upstreamTimeoutMs"];
+const schemaFields = new Set(["type", "format", "enum", "minLength", "maxLength", "pattern"]);
+const annotations = new Set(["title", "description", "examples", "example"]);
+const input = new URL("../apps/admin/openapi.json", import.meta.url);
+const output = new URL(
+  "../apps/admin/src/lib/api/generated/gateway-operations.ts",
+  import.meta.url,
+);
+
+function object(value, label) {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error(`${label} must be an object`);
+  }
+  return value;
+}
+
+function keys(value, accepted, label) {
+  for (const key of Object.keys(value)) {
+    if (!accepted.has(key)) throw new Error(`${label} has unsupported field ${key}`);
+  }
+}
+
+function policy(value, label) {
+  object(value, label);
+  keys(value, new Set(policyFields), label);
+  const result = {};
+  for (const field of policyFields) {
+    if (!Number.isSafeInteger(value[field]) || value[field] <= 0) {
+      throw new Error(`${label}.${field} must be a positive safe integer`);
+    }
+    result[field] = value[field];
+  }
+  return result;
+}
+
+function resolveSchema(document, value, label, refs = new Set()) {
+  object(value, label);
+  if (!("$ref" in value)) return value;
+  keys(value, new Set(["$ref", ...annotations]), label);
+  const reference = value.$ref;
+  if (typeof reference !== "string" || !reference.startsWith("#/components/schemas/")) {
+    throw new Error(`${label} uses an unsupported schema reference`);
+  }
+  if (refs.has(reference)) throw new Error(`${label} has a cyclic schema reference`);
+  const name = reference.slice("#/components/schemas/".length);
+  if (!name || name.includes("/") || name.includes("~")) {
+    throw new Error(`${label} uses an unsupported schema reference`);
+  }
+  const next = new Set(refs).add(reference);
+  return resolveSchema(document, document.components?.schemas?.[name], label, next);
+}
+
+function schema(document, value, label) {
+  const resolved = resolveSchema(document, value, label);
+  keys(resolved, new Set([...schemaFields, ...annotations]), label);
+  if (resolved.type !== "string") throw new Error(`${label} must be a string schema`);
+  const result = { type: "string" };
+  if ("format" in resolved) {
+    if (resolved.format !== "uuid") throw new Error(`${label} uses an unsupported format`);
+    result.format = resolved.format;
+  }
+  if ("enum" in resolved) {
+    if (
+      !Array.isArray(resolved.enum) ||
+      !resolved.enum.length ||
+      resolved.enum.some((item) => typeof item !== "string") ||
+      new Set(resolved.enum).size !== resolved.enum.length
+    ) {
+      throw new Error(`${label} must have distinct string enum values`);
+    }
+    result.enum = [...resolved.enum];
+  }
+  for (const field of ["minLength", "maxLength"]) {
+    if (field in resolved) {
+      if (!Number.isSafeInteger(resolved[field]) || resolved[field] < 0) {
+        throw new Error(`${label}.${field} must be a nonnegative safe integer`);
+      }
+      result[field] = resolved[field];
+    }
+  }
+  if ((result.minLength ?? 0) > (result.maxLength ?? Infinity)) {
+    throw new Error(`${label} has contradictory string bounds`);
+  }
+  if ("pattern" in resolved) {
+    if (typeof resolved.pattern !== "string") throw new Error(`${label}.pattern must be a string`);
+    try {
+      new RegExp(resolved.pattern, "u");
+    } catch {
+      throw new Error(`${label} uses a pattern unsupported by JavaScript`);
+    }
+    result.pattern = resolved.pattern;
+  }
+  return result;
+}
+
+function template(path, label) {
+  if (
+    typeof path !== "string" ||
+    !path.startsWith("/v1/admin/") ||
+    /[\s\\%?#\x00-\x1f\x7f]/u.test(path)
+  ) {
+    throw new Error(`${label} must be an absolute admin route template`);
+  }
+  const parts = path.slice(1).split("/");
+  const names = [];
+  for (const part of parts) {
+    if (!part || part === "." || part === "..") throw new Error(`${label} has unsafe segments`);
+    const parameter = /^\{([A-Za-z_][A-Za-z0-9_]*)\}$/u.exec(part);
+    if (parameter) {
+      if (names.includes(parameter[1])) throw new Error(`${label} repeats a path parameter`);
+      names.push(parameter[1]);
+    } else if (/[{}]/u.test(part)) {
+      throw new Error(`${label} has an unsupported route template`);
+    }
+  }
+  return { names, parts };
+}
+
+/** Validate the ordered backend export without inferring endpoint policy from URLs. */
+export function adminGatewayOperations(document) {
+  object(document, "OpenAPI document");
+  const routes = document["x-devfeed-gateway-routes"];
+  if (!Array.isArray(routes) || !routes.length) throw new Error("Missing ordered gateway routes");
+  const signatures = new Set();
+  const ids = new Map();
+  const operations = routes.map((route, index) => {
+    const label = `Gateway route ${index}`;
+    object(route, label);
+    keys(route, new Set(["operationId", "method", "path", "parameters", "policy"]), label);
+    if (typeof route.operationId !== "string" || !route.operationId.length) {
+      throw new Error(`${label} needs an operationId`);
+    }
+    if (!methods.has(route.method)) throw new Error(`${label} uses an unsupported method`);
+    const { names, parts } = template(route.path, label);
+    if (!Array.isArray(route.parameters) || route.parameters.length !== names.length) {
+      throw new Error(`${label} has incomplete path parameters`);
+    }
+    const byName = new Map();
+    for (const parameter of route.parameters) {
+      object(parameter, `${label} parameter`);
+      keys(parameter, new Set(["name", "schema", "converter"]), `${label} parameter`);
+      if (!names.includes(parameter.name) || byName.has(parameter.name)) {
+        throw new Error(`${label} has an unknown or repeated path parameter`);
+      }
+      if (!converters.has(parameter.converter)) {
+        throw new Error(`${label} uses an unsupported path converter`);
+      }
+      if (parameter.converter === "path" && parts.at(-1) !== `{${parameter.name}}`) {
+        throw new Error(`${label} needs a terminal catch-all parameter`);
+      }
+      const normalized = schema(document, parameter.schema, `${label} parameter ${parameter.name}`);
+      if (parameter.converter === "uuid" && normalized.format !== "uuid") {
+        throw new Error(`${label} UUID converter needs a UUID schema`);
+      }
+      byName.set(parameter.name, {
+        name: parameter.name,
+        schema: normalized,
+        converter: parameter.converter,
+      });
+    }
+    const result = {
+      operationId: route.operationId,
+      method: route.method,
+      path: route.path,
+      parameters: names.map((name) => byName.get(name)),
+      policy: policy(route.policy, `${label} policy`),
+    };
+    const signature = `${route.method} ${route.path.replace(/\{[^}]+\}/gu, "{}")} ${result.parameters.map((item) => item.converter).join(",")}`;
+    if (signatures.has(signature)) throw new Error(`${label} repeats a method/route signature`);
+    signatures.add(signature);
+    const identity = JSON.stringify({ ...result, method: undefined });
+    if (ids.has(route.operationId) && ids.get(route.operationId) !== identity) {
+      throw new Error(`${label} reuses an operationId for another operation`);
+    }
+    ids.set(route.operationId, identity);
+    return result;
+  });
+  const byRoute = new Map(operations.map((item) => [`${item.method} ${item.path}`, item]));
+  for (const [path, pathItem] of Object.entries(object(document.paths, "OpenAPI paths"))) {
+    if (!path.startsWith("/v1/admin/")) continue;
+    for (const [method, operation] of Object.entries(object(pathItem, path))) {
+      if (!methods.has(method.toUpperCase())) continue;
+      object(operation, `${method} ${path}`);
+      const exported = byRoute.get(`${method.toUpperCase()} ${path}`);
+      if (!exported || exported.operationId !== operation.operationId) {
+        throw new Error(`Missing matching gateway export for ${method.toUpperCase()} ${path}`);
+      }
+      const declared = policy(operation["x-devfeed-gateway"], `${method} ${path} policy`);
+      if (JSON.stringify(exported.policy) !== JSON.stringify(declared)) {
+        throw new Error(`Gateway policy differs for ${method.toUpperCase()} ${path}`);
+      }
+      const declaredParameters = [...(pathItem.parameters ?? []), ...(operation.parameters ?? [])]
+        .filter((parameter) => parameter.in === "path")
+        .map((parameter) => ({
+          name: parameter.name,
+          schema: schema(document, parameter.schema, `${method} ${path} parameter`),
+        }));
+      if (
+        declaredParameters.length !== exported.parameters.length ||
+        exported.parameters.some(
+          (parameter) =>
+            !declaredParameters.some(
+              (declaredParameter) =>
+                declaredParameter.name === parameter.name &&
+                JSON.stringify(declaredParameter.schema) === JSON.stringify(parameter.schema),
+            ),
+        )
+      ) {
+        throw new Error(`Gateway parameters differ for ${method.toUpperCase()} ${path}`);
+      }
+    }
+  }
+  return operations;
+}
+
+export async function renderAdminGateway(document) {
+  const version = object(document.info, "OpenAPI info").version;
+  if (
+    typeof version !== "string" ||
+    version.trim() !== version ||
+    !/^(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)$/u.test(version)
+  ) {
+    throw new Error("OpenAPI info.version must be a release version MAJOR.MINOR.PATCH");
+  }
+  return format(
+    `/**\n` +
+      ` * Generated from the backend OpenAPI gateway contract.\n` +
+      ` * Do not edit manually.\n` +
+      ` * OpenAPI spec version: ${version}\n` +
+      ` */\n` +
+      `import type { GatewayOperation } from "@devfeed/http/gateway";\n\n` +
+      `export const adminGatewayOperations = ${JSON.stringify(adminGatewayOperations(document), null, 2)} as const satisfies readonly GatewayOperation[];\n`,
+    { parser: "typescript", printWidth: 100 },
+  );
+}
+
+export async function generateAdminGateway({
+  check = false,
+  source = input,
+  target = output,
+} = {}) {
+  const generated = await renderAdminGateway(JSON.parse(await readFile(source, "utf8")));
+  if (check) {
+    if ((await readFile(target, "utf8")) !== generated) {
+      throw new Error("Admin gateway operations are stale; run npm run admin:generate");
+    }
+  } else {
+    await writeFile(target, generated);
+  }
+}
+
+if (process.argv[1] && pathToFileURL(process.argv[1]).href === import.meta.url) {
+  const arguments_ = process.argv.slice(2);
+  if (arguments_.length > 1 || (arguments_.length === 1 && arguments_[0] !== "--check")) {
+    throw new Error("Usage: node scripts/generate_admin_gateway.mjs [--check]");
+  }
+  await generateAdminGateway({ check: arguments_.includes("--check") });
+  console.log(
+    `Admin gateway operations ${arguments_.length ? "checked" : "generated"}: ${fileURLToPath(output)}`,
+  );
+}

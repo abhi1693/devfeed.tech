@@ -22,6 +22,24 @@
   saves. Product and catalog locks precede these authorization locks; rate limits, external
   requests and transaction commits stay with their existing callers.
 
+## Admin gateway contract
+
+The admin service registers exposed routers with `include_gateway_router` from
+`devfeed_http.operation_policies`. This supplies the default `GatewayPolicy` and
+retains each endpoint's explicit `openapi_extra=GatewayPolicy(...).openapi_extra()`
+override. Health routes outside these routers remain unexposed.
+
+`npm run admin:generate` exports the ordered operation inventory and regenerates
+the browser client and gateway definitions. The inventory includes hidden inbox
+operations, actual path converters and parameter constraints. Generation rejects
+unsupported or inconsistent contracts; normal admin tests check the generated output.
+
+`@devfeed/http/gateway` matches an operation once in backend registration order,
+validates its parameters and encodes its upstream path. The admin gateway consumes
+that operation's body limit, body deadline and upstream deadline. Unknown paths and
+unsupported methods are rejected before body collection. Origin checks, credential
+and response-header forwarding, streaming and cancellation stay in the transport.
+
 ## Object storage
 
 `devfeed_core.object_storage.R2Storage` is the shared bucket-scoped R2 client. Install

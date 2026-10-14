@@ -32,6 +32,7 @@ from devfeed_core.source_preview import preview_source
 from devfeed_core.source_types import SourceType
 from devfeed_core.text_search import text_search
 from devfeed_core.urls import validate_public_url
+from devfeed_http.operation_policies import GatewayPolicy
 from devfeed_http.pagination import (
     Listing,
     Page,
@@ -138,7 +139,12 @@ def reject_duplicate_feed(session, feed_url: str, source_id: uuid.UUID | None = 
         )
 
 
-@router.post("/preview", response_model=SourcePreviewOut, operation_id="admin_source_preview")
+@router.post(
+    "/preview",
+    response_model=SourcePreviewOut,
+    operation_id="admin_source_preview",
+    openapi_extra=GatewayPolicy(upstream_timeout_ms=305_000).openapi_extra(),
+)
 def preview(body: SourcePreviewRequest, session: DB):
     # End the read transaction before network I/O. No source or ingestion records are created.
     with session.begin():
@@ -210,7 +216,13 @@ def detail(source_id: uuid.UUID, session: DB):
     return result
 
 
-@router.post("", response_model=SourceOut, status_code=201, operation_id="admin_source_create")
+@router.post(
+    "",
+    response_model=SourceOut,
+    status_code=201,
+    operation_id="admin_source_create",
+    openapi_extra=GatewayPolicy(upstream_timeout_ms=215_000).openapi_extra(),
+)
 def create(body: AdminSourceCreate, session: DB, admin: Admin):
     with session.begin():
         if body.feed_url:

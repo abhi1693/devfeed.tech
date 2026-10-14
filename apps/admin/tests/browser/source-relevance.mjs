@@ -7,6 +7,7 @@ import { chromium } from "playwright";
 
 // Run after npm run admin:build. The API is a disposable local fixture.
 const root = fileURLToPath(new URL("../../../../", import.meta.url));
+const sourceId = "11111111-1111-4111-8111-111111111111";
 const assessment = {
   version: "source-relevance-v5",
   relevance: "relevant",
@@ -50,9 +51,9 @@ const fixture = createServer(async (req, res) => {
   else if (path.endsWith("/settings"))
     body = { appearance: { theme: "light" }, defaults: { refresh_seconds: 0 } };
   else if (path.endsWith("/notifications/config")) body = { enabled: false };
-  else if (path.endsWith("/sources/source-1"))
+  else if (path.endsWith(`/sources/${sourceId}`))
     body = {
-      id: "source-1",
+      id: sourceId,
       name: "Engineering Leadership",
       slug: "engineering-leadership",
       feed_url: "https://newsletter.eng-leadership.com/feed",
@@ -116,7 +117,7 @@ try {
   const page = await context.newPage();
   const errors = [];
   page.on("pageerror", (error) => errors.push(error.message));
-  await page.goto(`${origin}/content/sources/source-1`);
+  await page.goto(`${origin}/content/sources/${sourceId}`);
   const tabs = page.getByRole("navigation", { name: "Object sections" });
   await tabs.waitFor();
   assert.deepEqual(await tabs.getByRole("link").allTextContents(), [
@@ -130,7 +131,7 @@ try {
     0,
   );
   await tabs.getByRole("link", { name: "Relevance", exact: true }).click();
-  await page.waitForURL("**/source-1/relevance");
+  await page.waitForURL(`**/${sourceId}/relevance`);
   await page.getByRole("heading", { name: "Evidence supports automatic approval" }).waitFor();
   await page.reload();
   await page.getByRole("heading", { name: "Evidence supports automatic approval" }).waitFor();
@@ -169,7 +170,7 @@ try {
   await page.screenshot({ path: `${root}/reports/source-relevance/mobile.png`, fullPage: true });
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
   await tabs.getByRole("link", { name: "Details", exact: true }).click();
-  await page.waitForURL("**/sources/source-1");
+  await page.waitForURL(`**/sources/${sourceId}`);
   assert.equal(
     await page.getByRole("heading", { name: "Evidence supports automatic approval" }).count(),
     0,

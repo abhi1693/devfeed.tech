@@ -17,6 +17,7 @@ from devfeed_core.topic_analysis import (
     request_topic_analysis,
 )
 from devfeed_core.topics import lock_topics
+from devfeed_http.operation_policies import GatewayPolicy
 from devfeed_http.pagination import Listing, Page, paginate, record
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from pydantic import BaseModel
@@ -317,6 +318,7 @@ def submit_enrichment(
     "/topic-discovery/github",
     response_model=github_topics.GitHubPullResult,
     operation_id="admin_topic_github_pull",
+    openapi_extra=GatewayPolicy(upstream_timeout_ms=120_000).openapi_extra(),
 )
 def github_pull(body: github_topics.GitHubPull, session: DB, admin: Admin):
     try:

@@ -94,7 +94,7 @@ describe("isolated API gateway", () => {
             headers: { origin: "https://admin.example" },
             body: new Uint8Array(1_100_000),
           }),
-          [...productAdImage, "extra"],
+          ["v1", "admin", "sources"],
         )
       ).status,
     ).toBe(413);
@@ -165,14 +165,12 @@ describe("isolated API gateway", () => {
   it.each([
     ["POST", "sources", 215_000],
     ["POST", "source-imports", 150_000],
-    ["POST", "source-imports/candidate-1/review", 150_000],
+    ["POST", `source-imports/${productAdImage[3]}/review`, 150_000],
     ["POST", "sources/preview", 305_000],
     ["POST", "topic-discovery/github", 120_000],
-    ["POST", "topic-discovery/github-extra", 45_000],
     ["GET", "sources", 45_000],
-    ["POST", "sources/source-1/fetch", 45_000],
-    ["PATCH", "sources/source-1", 45_000],
-    ["POST", "sources/preview-extra", 45_000],
+    ["POST", `sources/${productAdImage[3]}/fetch`, 45_000],
+    ["PATCH", `sources/${productAdImage[3]}`, 45_000],
   ])("uses the operation deadline for %s %s", async (method, resource, expected) => {
     const timeout = vi.spyOn(AbortSignal, "timeout");
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json({})));
@@ -184,6 +182,40 @@ describe("isolated API gateway", () => {
       ["v1", "admin", ...resource.split("/")],
     );
     expect(timeout).toHaveBeenCalledWith(expected);
+  });
+
+  it.each([
+    ["topic-discovery/github-extra", 404],
+    ["sources/preview-extra", 405],
+    ["missing", 404],
+  ])(
+    "rejects an unavailable operation before reading or forwarding its body: %s",
+    async (resource, status) => {
+      const fetcher = vi.fn();
+      vi.stubGlobal("fetch", fetcher);
+      const incoming = new Request(`https://admin.example/api/v1/admin/${resource}`, {
+        method: "POST",
+        headers: { Origin: "https://admin.example", "Content-Length": "9999999" },
+        body: "unread",
+      });
+      expect((await gateway(incoming, ["v1", "admin", ...resource.split("/")])).status).toBe(
+        status,
+      );
+      expect(incoming.bodyUsed).toBe(false);
+      expect(fetcher).not.toHaveBeenCalled();
+    },
+  );
+
+  it("rejects unsupported methods using the registered operation methods", async () => {
+    const fetcher = vi.fn();
+    vi.stubGlobal("fetch", fetcher);
+    const response = await gateway(
+      new Request("https://admin.example/api/v1/admin/workers/ai:host.1", { method: "DELETE" }),
+      ["v1", "admin", "workers", "ai:host.1"],
+    );
+    expect(response.status).toBe(405);
+    expect(response.headers.get("allow")).toBe("GET");
+    expect(fetcher).not.toHaveBeenCalled();
   });
 
   it.each([
@@ -495,7 +527,7 @@ it("allows worker registration names without allowing arbitrary proxy paths", as
   );
   expect(response.status).toBe(200);
   expect(fetcher.mock.calls[0][0]).toBe(
-    "http://admin-api.internal:8001/v1/admin/workers/ai:host.1",
+    "http://admin-api.internal:8001/v1/admin/workers/ai%3Ahost.1",
   );
   for (const name of ["..", ".", "evil?x", "evil#x", "a/../../auth", "%2e%2e", "a".repeat(257)]) {
     const rejected = await gateway(new Request("https://admin.example/api/test"), [
@@ -504,7 +536,7 @@ it("allows worker registration names without allowing arbitrary proxy paths", as
       "workers",
       name,
     ]);
-    // Ordinary long alphanumeric paths are validated by the API; traversal and delimiters never proxy.
-    if (name.length <= 256) expect(rejected.status).toBe(404);
+    expect(rejected.status).toBe(404);
   }
+  expect(fetcher).toHaveBeenCalledOnce();
 });
