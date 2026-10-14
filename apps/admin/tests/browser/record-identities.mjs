@@ -26,6 +26,11 @@ const runs = ["analysis", "topic-analysis"].map((kind) => ({
   error: "Fixture failure",
   details: { pipeline: kind },
 }));
+const enrichmentRun = {
+  ...runs[0],
+  kind: "article-enrichment",
+  target_name: "Enrichment subject",
+};
 const topics = [
   { id: topicId, name: "Frontend", slug: "frontend" },
   { id: relatedTopicId, name: "Runtime", slug: "runtime" },
@@ -112,7 +117,7 @@ const fixture = createServer(async (req, res) => {
     }
     body = relation;
   } else {
-    const run = runs.find((candidate) => {
+    const run = [...runs, enrichmentRun].find((candidate) => {
       const base = `/v1/admin/jobs/${candidate.kind}/${sharedId}`;
       return pathname === base || pathname === `${base}/logs` || pathname === `${base}/retry`;
     });
@@ -202,6 +207,93 @@ try {
   const errors = [];
   page.on("pageerror", (error) => errors.push(error.message));
 
+  const breadcrumb = page.getByRole("navigation", { name: "Breadcrumb", exact: true });
+  async function assertBreadcrumbs(trail) {
+    assert.deepEqual(
+      await breadcrumb.getByRole("link").evaluateAll((links) =>
+        links.map((link) => ({
+          label: link.textContent.trim(),
+          href: link.getAttribute("href"),
+        })),
+      ),
+      [{ label: "Home", href: "/" }, ...trail],
+    );
+  }
+  const enrichmentCards = [
+    { label: "Article enrichment", href: "/jobs/enrichment/articles" },
+    { label: "Images", href: "/jobs/enrichment/images" },
+    { label: "Source enrichment", href: "/jobs/enrichment/sources" },
+  ];
+  const groups = [
+    {
+      path: "/content",
+      title: "Content",
+      cards: [
+        { label: "Articles", href: "/content/articles" },
+        { label: "Sources", href: "/content/sources" },
+      ],
+      trail: [],
+    },
+    {
+      path: "/taxonomy",
+      title: "Taxonomy",
+      cards: [
+        { label: "Topics", href: "/taxonomy/topics" },
+        { label: "Tags", href: "/taxonomy/tags" },
+        { label: "Topic relationships", href: "/taxonomy/relationships" },
+      ],
+      trail: [],
+    },
+    {
+      path: "/jobs",
+      title: "Jobs",
+      cards: [
+        { label: "Feed ingestion", href: "/jobs/ingestion" },
+        ...enrichmentCards,
+        { label: "AI analysis", href: "/jobs/analysis" },
+        { label: "Notification delivery", href: "/jobs/notifications" },
+      ],
+      trail: [],
+    },
+    {
+      path: "/jobs/enrichment",
+      title: "Enrichment jobs",
+      cards: enrichmentCards,
+      trail: [{ label: "Jobs", href: "/jobs" }],
+    },
+  ];
+  for (const group of groups) {
+    await page.goto(`${origin}${group.path}`);
+    await page.getByRole("heading", { name: group.title, exact: true, level: 1 }).waitFor();
+    await page.waitForFunction(
+      (expected) => document.title === `${expected} · DevFeed Admin`,
+      group.title,
+    );
+    const cards = await page.locator("main section > div.grid > a").evaluateAll((links) =>
+      links.map((link) => ({
+        label: link.querySelector("div").textContent.trim(),
+        href: link.getAttribute("href"),
+      })),
+    );
+    assert.deepEqual(cards, group.cards, `${group.title} shows exactly its declared resources`);
+    assert.equal(new Set(cards.map((card) => card.label)).size, cards.length);
+    await assertBreadcrumbs(group.trail);
+  }
+  await breadcrumb.getByRole("link", { name: "Jobs", exact: true }).click();
+  await page.waitForURL(`${origin}/jobs`);
+  await page.getByRole("heading", { name: "Jobs", exact: true, level: 1 }).waitFor();
+
+  await page.goto(`${origin}/jobs/enrichment/articles/${sharedId}`);
+  await page.getByRole("heading", { name: `Run ${sharedId.slice(0, 8)}`, exact: true }).waitFor();
+  await assertBreadcrumbs([
+    { label: "Jobs", href: "/jobs" },
+    { label: "Enrichment jobs", href: "/jobs/enrichment" },
+    { label: "Article enrichment", href: "/jobs/enrichment/articles" },
+  ]);
+  await breadcrumb.getByRole("link", { name: "Enrichment jobs", exact: true }).click();
+  await page.waitForURL(`${origin}/jobs/enrichment`);
+  await page.getByRole("heading", { name: "Enrichment jobs", exact: true, level: 1 }).waitFor();
+
   for (const [section, kind, label] of [
     ["articles", "analysis", "Article"],
     ["topics", "topic-analysis", "Topic"],
@@ -213,6 +305,10 @@ try {
       (expected) => document.title.includes(expected),
       `${label} AI analysis`,
     );
+    await assertBreadcrumbs([
+      { label: "Jobs", href: "/jobs" },
+      { label: "AI analysis", href: "/jobs/analysis" },
+    ]);
     assert.equal(
       await page.getByRole("link", { name: "Logs", exact: true }).getAttribute("href"),
       `${path}/logs`,
@@ -277,6 +373,11 @@ try {
     const path = uiPath(relation);
     await page.goto(`${origin}${path}/edit`);
     await page.getByRole("heading", { name: "Edit topic relationship", exact: true }).waitFor();
+    await assertBreadcrumbs([
+      { label: "Taxonomy", href: "/taxonomy" },
+      { label: "Topic relationships", href: "/taxonomy/relationships" },
+      { label: relation.relation, href: path },
+    ]);
     const evidence = page.getByRole("textbox", { name: "Evidence URL", exact: true });
     await evidence.waitFor();
     assert.equal(
@@ -299,6 +400,10 @@ try {
     assert.equal(update.body.evidence_url, updated);
     await page.reload();
     await page.getByRole("heading", { name: "Depends on", exact: true }).waitFor();
+    await assertBreadcrumbs([
+      { label: "Taxonomy", href: "/taxonomy" },
+      { label: "Topic relationships", href: "/taxonomy/relationships" },
+    ]);
     await page.getByRole("link", { name: "Delete", exact: true }).click();
     await page.waitForURL(`${origin}${path}/delete`);
     await page.getByRole("textbox", { name: "Type DELETE to confirm", exact: true }).fill("DELETE");
@@ -316,7 +421,7 @@ try {
   assert.deepEqual(unexpected, []);
   assert.deepEqual(errors, []);
   console.log(
-    "Admin record identity browser checks passed: same-UUID pipelines, titles/tabs/logs/retries, directed relationship edits/deletes, and mobile layout.",
+    "Admin browser checks passed: declared group cards and titles, nested clickable breadcrumbs, same-UUID pipelines, titles/tabs/logs/retries, directed relationship edits/deletes, and mobile layout.",
   );
 } catch (error) {
   console.error(logs);

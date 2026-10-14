@@ -1,5 +1,5 @@
-import { groupLabels, type AdminRoute } from "./routes";
-import { humanize, resources } from "./resources";
+import type { AdminRoute } from "./routes";
+import { humanize, resourceGroups, resources } from "./resources";
 
 export const adminSiteTitle = "DevFeed Admin";
 export function pageTitle(title: string) {
@@ -11,7 +11,7 @@ export function adminRouteTitle(route: AdminRoute, recordName?: unknown): string
   const name = typeof recordName === "string" ? recordName.trim() : "";
   switch (route.view) {
     case "group":
-      return groupLabels[route.group];
+      return resourceGroups[route.group].label;
     case "source-import":
       return "Import sources";
     case "source-import-review":

@@ -130,7 +130,7 @@ export function Sidebar() {
                   </li>
                 ))}
               {resourceKeys
-                .filter((key) => resources[key].group === group)
+                .filter((key) => resources[key].sidebarGroup === group)
                 .map((key) => {
                   const Icon = icons[key];
                   const active =

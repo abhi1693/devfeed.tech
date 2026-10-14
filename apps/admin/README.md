@@ -23,6 +23,12 @@ Old bookmark tokens are decoded only at the redirect boundary in `lib/routes.ts`
 Validate with `npm run admin:test` and, after `npm run admin:build`,
 `node apps/admin/tests/browser/record-identities.mjs`.
 
+Resource definitions also own their canonical URL, landing-page groups, breadcrumb trail,
+and sidebar category. `navigation.groups` declares membership explicitly; a resource can
+belong to both Jobs and Enrichment jobs. `navigation.breadcrumbs` keeps the ordered links
+to their shared group definitions. Changing a URL does not change either relationship.
+Group pages use the same registry for their headings and parent breadcrumbs.
+
 ## Sidebar navigation
 
 The administration sidebar starts as a compact icon rail. Use **Expand sidebar** at the

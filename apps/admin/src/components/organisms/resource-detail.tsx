@@ -6,6 +6,7 @@ import {
   resourceHref,
   detailSections,
   resourceTrail,
+  recordHref,
   type DetailSection,
   type UserSection,
 } from "@/lib/routes";
@@ -25,7 +26,7 @@ import { RelatedRecords } from "./related-records";
 import { RecordHistory } from "./record-history";
 import { JobLogs } from "./job-logs";
 import { getRecord, jobKinds, type RecordData } from "@/lib/resource-api";
-import { type Resource, resources, humanize, recordHref } from "@/lib/resources";
+import { type Resource, resources, humanize } from "@/lib/resources";
 import {
   recordIdentityKey,
   type RecordIdentity,

@@ -15,6 +15,54 @@ export type Resource =
   | "analysis-jobs"
   | "notification-jobs";
 export type ContentResource = "articles" | "sources" | "topics" | "tags" | "topic-relations";
+export type RouteGroup = "content" | "taxonomy" | "jobs" | "enrichment";
+type Breadcrumb = { label: string; href: string };
+export type ResourceNavigation = {
+  href: string;
+  groups: readonly RouteGroup[];
+  breadcrumbs: readonly Breadcrumb[];
+};
+type ResourceGroupDefinition = Breadcrumb & { breadcrumbs: readonly Breadcrumb[] };
+
+const contentGroup: ResourceGroupDefinition = {
+  label: "Content",
+  href: "/content",
+  breadcrumbs: [],
+};
+const taxonomyGroup: ResourceGroupDefinition = {
+  label: "Taxonomy",
+  href: "/taxonomy",
+  breadcrumbs: [],
+};
+const jobsGroup: ResourceGroupDefinition = { label: "Jobs", href: "/jobs", breadcrumbs: [] };
+const enrichmentGroup: ResourceGroupDefinition = {
+  label: "Enrichment jobs",
+  href: "/jobs/enrichment",
+  breadcrumbs: [jobsGroup],
+};
+export const resourceGroups: Record<RouteGroup, ResourceGroupDefinition> = {
+  content: contentGroup,
+  taxonomy: taxonomyGroup,
+  jobs: jobsGroup,
+  enrichment: enrichmentGroup,
+};
+
+const contentNavigation = {
+  groups: ["content"],
+  breadcrumbs: [contentGroup],
+} satisfies Omit<ResourceNavigation, "href">;
+const taxonomyNavigation = {
+  groups: ["taxonomy"],
+  breadcrumbs: [taxonomyGroup],
+} satisfies Omit<ResourceNavigation, "href">;
+const jobsNavigation = {
+  groups: ["jobs"],
+  breadcrumbs: [jobsGroup],
+} satisfies Omit<ResourceNavigation, "href">;
+const enrichmentNavigation = {
+  groups: ["jobs", "enrichment"],
+  breadcrumbs: [jobsGroup, enrichmentGroup],
+} satisfies Omit<ResourceNavigation, "href">;
 export type FieldSpec = {
   key: string;
   label: string;
@@ -52,7 +100,8 @@ export type ResourceSpec = {
   label: string;
   singular: string;
   description: string;
-  group: string;
+  sidebarGroup: "Content" | "Taxonomy" | "Audience" | "Operations";
+  navigation: ResourceNavigation;
   title: string;
   defaultSort: string;
   columns: ColumnSpec[];
@@ -89,11 +138,16 @@ export const reviewChoices = ["pending", "approved", "rejected"];
 export const contentTypes = ["article", "news", "tutorial", "release", "comparison", "opinion"];
 export const contentFormats = ["article", "podcast", "video", "paper", "discussion"];
 export const relationKinds = ["uses_language", "depends_on", "implements", "part_of", "related_to"];
-const job = (label: string, resource: "articles" | "sources"): ResourceSpec => ({
+const job = (
+  label: string,
+  resource: "articles" | "sources",
+  navigation: ResourceNavigation,
+): ResourceSpec => ({
   label,
   singular: "Job",
   description: "View runs and retry failed jobs.",
-  group: "Operations",
+  sidebarGroup: "Operations",
+  navigation,
   title: "id",
   defaultSort: "-created_at",
   readonly: true,
@@ -121,7 +175,8 @@ export const resources: Record<Resource, ResourceSpec> = {
     label: "Users",
     singular: "User",
     description: "Inspect accounts, profiles, reading activity, and personalized recommendations.",
-    group: "Audience",
+    sidebarGroup: "Audience",
+    navigation: { href: "/users", groups: [], breadcrumbs: [] },
     title: "name",
     defaultSort: "-created_at",
     readonly: true,
@@ -149,7 +204,8 @@ export const resources: Record<Resource, ResourceSpec> = {
     label: "Articles",
     singular: "Article",
     description: "Manage articles, reviews, and publication.",
-    group: "Content",
+    sidebarGroup: "Content",
+    navigation: { href: "/content/articles", ...contentNavigation },
     title: "title",
     defaultSort: "-discovered_at",
     columns: [
@@ -222,7 +278,8 @@ export const resources: Record<Resource, ResourceSpec> = {
     label: "Sources",
     singular: "Source",
     description: "Manage sources and review submissions.",
-    group: "Content",
+    sidebarGroup: "Content",
+    navigation: { href: "/content/sources", ...contentNavigation },
     title: "name",
     defaultSort: "name",
     columns: [
@@ -299,7 +356,8 @@ export const resources: Record<Resource, ResourceSpec> = {
     label: "Topics",
     singular: "Topic",
     description: "Manage topics and review suggestions.",
-    group: "Taxonomy",
+    sidebarGroup: "Taxonomy",
+    navigation: { href: "/taxonomy/topics", ...taxonomyNavigation },
     title: "name",
     defaultSort: "name",
     columns: [
@@ -362,7 +420,8 @@ export const resources: Record<Resource, ResourceSpec> = {
     label: "Tags",
     singular: "Tag",
     description: "Manage tags and their topics.",
-    group: "Taxonomy",
+    sidebarGroup: "Taxonomy",
+    navigation: { href: "/taxonomy/tags", ...taxonomyNavigation },
     title: "name",
     defaultSort: "name",
     columns: [
@@ -388,7 +447,8 @@ export const resources: Record<Resource, ResourceSpec> = {
     label: "Topic relationships",
     singular: "Topic relationship",
     description: "Approved relationships and AI suggestions awaiting review.",
-    group: "Taxonomy",
+    sidebarGroup: "Taxonomy",
+    navigation: { href: "/taxonomy/relationships", ...taxonomyNavigation },
     title: "relation",
     defaultSort: "relation",
     columns: [
@@ -428,10 +488,19 @@ export const resources: Record<Resource, ResourceSpec> = {
       { key: "evidence_url", label: "Evidence URL", type: "url", max: 2048 },
     ],
   },
-  "ingestion-jobs": job("Feed ingestion", "sources"),
-  "article-jobs": job("Article enrichment", "articles"),
+  "ingestion-jobs": job("Feed ingestion", "sources", {
+    href: "/jobs/ingestion",
+    ...jobsNavigation,
+  }),
+  "article-jobs": job("Article enrichment", "articles", {
+    href: "/jobs/enrichment/articles",
+    ...enrichmentNavigation,
+  }),
   "image-jobs": {
-    ...job("Images", "articles"),
+    ...job("Images", "articles", {
+      href: "/jobs/enrichment/images",
+      ...enrichmentNavigation,
+    }),
     columns: [
       { key: "id", label: "Run" },
       { key: "status", label: "Status", kind: "pill", sort: true },
@@ -441,9 +510,15 @@ export const resources: Record<Resource, ResourceSpec> = {
       { key: "created_at", label: "Created", kind: "datetime", sort: true },
     ],
   },
-  "source-jobs": job("Source enrichment", "sources"),
+  "source-jobs": job("Source enrichment", "sources", {
+    href: "/jobs/enrichment/sources",
+    ...enrichmentNavigation,
+  }),
   "analysis-jobs": {
-    ...job("AI analysis", "articles"),
+    ...job("AI analysis", "articles", {
+      href: "/jobs/analysis",
+      ...jobsNavigation,
+    }),
     description: "Article analysis, topic enrichment, and relationship research.",
     columns: [
       { key: "id", label: "Run" },
@@ -455,7 +530,10 @@ export const resources: Record<Resource, ResourceSpec> = {
     ],
   },
   "notification-jobs": {
-    ...job("Notification delivery", "sources"),
+    ...job("Notification delivery", "sources", {
+      href: "/jobs/notifications",
+      ...jobsNavigation,
+    }),
     description: "View notification deliveries and retry failures.",
     columns: [
       { key: "id", label: "Run" },
@@ -469,4 +547,3 @@ export const resourceKeys = Object.keys(resources) as Resource[];
 export function humanize(value: string) {
   return value.replaceAll("_", " ").replace(/^./, (char) => char.toUpperCase());
 }
-export { recordHref, resourceHref } from "./routes";

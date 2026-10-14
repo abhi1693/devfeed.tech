@@ -1,21 +1,13 @@
-import type { Resource } from "./resources";
+import {
+  resourceGroups,
+  resourceKeys,
+  resources,
+  type Resource,
+  type RouteGroup,
+} from "./resources";
 import { RelationOutRelation } from "./api/generated/models/relationOutRelation";
 import type { RecordIdentity } from "./record-identities";
 
-export const resourcePaths: Record<Resource, string> = {
-  users: "/users",
-  articles: "/content/articles",
-  sources: "/content/sources",
-  topics: "/taxonomy/topics",
-  tags: "/taxonomy/tags",
-  "topic-relations": "/taxonomy/relationships",
-  "ingestion-jobs": "/jobs/ingestion",
-  "article-jobs": "/jobs/enrichment/articles",
-  "image-jobs": "/jobs/enrichment/images",
-  "source-jobs": "/jobs/enrichment/sources",
-  "analysis-jobs": "/jobs/analysis",
-  "notification-jobs": "/jobs/notifications",
-};
 export type AnalysisType = "articles" | "topics";
 export type UserSection =
   | "topics"
@@ -29,25 +21,12 @@ export type UserSection =
 export type DetailSection =
   UserSection | "analysis" | "details" | "related" | "history" | "evidence" | "logs" | "relevance";
 export type WorkflowAction = "review" | "classify" | "fetch";
-export type RouteGroup = "content" | "taxonomy" | "jobs" | "enrichment";
-export const groupPaths = {
-  content: "/content",
-  taxonomy: "/taxonomy",
-  jobs: "/jobs",
-  enrichment: "/jobs/enrichment",
-};
-export const groupLabels = {
-  content: "Content",
-  taxonomy: "Taxonomy",
-  jobs: "Jobs",
-  enrichment: "Enrichment jobs",
-};
 const content = new Set<Resource>(["articles", "sources", "topics", "tags", "topic-relations"]);
 const segment = /^[a-zA-Z0-9_-]+$/;
 
 export function resourceHref(resource: Resource, analysisType?: AnalysisType): string {
   return (
-    resourcePaths[resource] +
+    resources[resource].navigation.href +
     (resource === "analysis-jobs" && analysisType ? `/${analysisType}` : "")
   );
 }
@@ -63,14 +42,7 @@ export function recordHref(identity: RecordIdentity, section: DetailSection = "d
 }
 
 export function resourceTrail(resource: Resource) {
-  if (resource === "users") return [];
-  const root = resourcePaths[resource].split("/")[1] as "content" | "taxonomy" | "jobs";
-  return [
-    { label: groupLabels[root], href: groupPaths[root] },
-    ...(resourcePaths[resource].startsWith("/jobs/enrichment/")
-      ? [{ label: "Enrichment jobs", href: groupPaths.enrichment }]
-      : []),
-  ];
+  return resources[resource].navigation.breadcrumbs.map(({ label, href }) => ({ label, href }));
 }
 
 export function detailSections(resource: Resource): DetailSection[] {
@@ -118,10 +90,10 @@ export type AdminRoute =
 export function resolveAdminRoute(parts: string[]): AdminRoute | undefined {
   if (parts.some((part) => !segment.test(part))) return;
   const path = `/${parts.join("/")}`;
-  for (const [group, prefix] of Object.entries(groupPaths))
-    if (path === prefix) return { view: "group", group: group as RouteGroup };
-  for (const [key, prefix] of Object.entries(resourcePaths)) {
-    const resource = key as Resource;
+  for (const [group, definition] of Object.entries(resourceGroups))
+    if (path === definition.href) return { view: "group", group: group as RouteGroup };
+  for (const resource of resourceKeys) {
+    const prefix = resources[resource].navigation.href;
     if (path !== prefix && !path.startsWith(`${prefix}/`)) continue;
     const rest = parts.slice(prefix.split("/").length - 1);
     if (!rest.length) return { view: "list", resource };
@@ -207,9 +179,12 @@ export function canonicalAdminRedirect(
   const resource = parts[0] as Resource;
   let normalized = parts;
   let changed = false;
-  if (Object.hasOwn(resourcePaths, resource) && resourcePaths[resource] !== `/${resource}`) {
+  if (
+    Object.hasOwn(resources, resource) &&
+    resources[resource].navigation.href !== `/${resource}`
+  ) {
     changed = true;
-    const prefix = resourcePaths[resource].slice(1).split("/");
+    const prefix = resources[resource].navigation.href.slice(1).split("/");
     let rest = parts.slice(1);
     if (resource === "analysis-jobs" && rest.length) {
       const oldId = rest[0];

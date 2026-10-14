@@ -19,7 +19,8 @@ import {
   adminTopicProposalFilterOptions,
 } from "@/lib/api/generated/admin";
 import { formPayload, initialValues } from "@/lib/form-values";
-import { resources, resourceKeys, resourceHref } from "@/lib/resources";
+import { resources, resourceKeys } from "@/lib/resources";
+import { resourceHref } from "@/lib/routes";
 import { toast } from "sonner";
 import { normalizeSettings } from "@/lib/settings";
 vi.mock("sonner", () => ({

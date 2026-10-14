@@ -1,19 +1,19 @@
 import Link from "next/link";
 import { ArrowRight } from "lucide-react";
 import { ResourceHeading } from "@devfeed/ui/resource-layout";
-import { resourceKeys, resources } from "@/lib/resources";
-import { groupLabels, groupPaths, resourceHref, type RouteGroup } from "@/lib/routes";
+import { resourceGroups, resourceKeys, resources, type RouteGroup } from "@/lib/resources";
+import { resourceHref } from "@/lib/routes";
 
 export function ResourceGroup({ group }: { group: RouteGroup }) {
-  const prefix = groupPaths[group];
+  const definition = resourceGroups[group];
   const entries = resourceKeys.filter((resource) =>
-    resourceHref(resource).startsWith(`${prefix}/`),
+    resources[resource].navigation.groups.includes(group),
   );
   return (
     <section className="space-y-6">
       <ResourceHeading
-        title={groupLabels[group]}
-        trail={group === "enrichment" ? [{ label: "Jobs", href: groupPaths.jobs }] : []}
+        title={definition.label}
+        trail={definition.breadcrumbs.map(({ label, href }) => ({ label, href }))}
       />
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
         {entries.map((resource) => (
