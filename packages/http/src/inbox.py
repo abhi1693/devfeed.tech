@@ -19,6 +19,7 @@ from starlette.types import Receive, Scope, Send
 
 from devfeed_http.body_limits import RequestBodyPolicy, RequestBodyReader, RequestBodyTooLarge
 from devfeed_http.operation_policies import GatewayPolicy
+from devfeed_http.route_policies import RouteRuntimePolicy
 
 INBOX_POLICY_EXTENSION = "x-devfeed-inbox"
 MAX_BODY = 16_384
@@ -352,7 +353,13 @@ class InboxRouter(APIRouter):
                 include_in_schema=False,
                 response_class=Response,
                 response_model=None,
-                openapi_extra={**policy.openapi_extra(), **operation.openapi_extra()},
+                openapi_extra={
+                    **policy.openapi_extra(),
+                    **operation.openapi_extra(),
+                    **RouteRuntimePolicy(
+                        admission="stream" if operation.response_mode == "events" else "request"
+                    ).openapi_extra(),
+                },
             )
 
     @staticmethod

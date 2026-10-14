@@ -14700,7 +14700,12 @@
         "summary": "Live",
         "tags": [
           "health"
-        ]
+        ],
+        "x-devfeed-runtime": {
+          "admission": "exempt",
+          "logging_level": "debug",
+          "telemetry_excluded": true
+        }
       }
     },
     "/health/ready": {
@@ -14761,7 +14766,12 @@
         "summary": "Ready",
         "tags": [
           "health"
-        ]
+        ],
+        "x-devfeed-runtime": {
+          "admission": "request",
+          "logging_level": "debug",
+          "telemetry_excluded": true
+        }
       }
     },
     "/v1/admin/ai/connection": {

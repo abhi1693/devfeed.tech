@@ -28,6 +28,14 @@
   read through `x-devfeed-cache` metadata. The namespace and revision identify the response
   contract; path parameters and ordered query values identify its inputs. Its `content` or
   `metadata` TTL uses the existing cache settings, independently of the route's URL or mount.
+- `devfeed_http.route_policies.RouteRuntimePolicy` declares admission lane, telemetry
+  exclusion and successful-request logging level through `x-devfeed-runtime` metadata.
+  `install_runtime_policies()` binds these to native selected routes after registration,
+  including deferred router prefixes and mounts. Liveness is exempt; readiness retains
+  request admission. Only the inbox event operation uses stream admission. Slots remain
+  held through response and background cleanup, and undeclared operations use the request
+  lane. The native telemetry bridge starts observation at the same selected boundary;
+  framework redirects and CORS responses use the default policy without another router.
 - `devfeed_partner_api.access.PartnerAccountAccess` binds a database session and verified
   identity. Portal, connection and workspace queries share its active-account and membership
   scope. Writes lock the account and the exact membership until commit, including preference

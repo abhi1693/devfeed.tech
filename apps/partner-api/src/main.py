@@ -14,6 +14,7 @@ from devfeed_http.errors import register_error_handlers
 from devfeed_http.health import readiness_response
 from devfeed_http.logging import RequestLoggingMiddleware
 from devfeed_http.operation_policies import include_gateway_router
+from devfeed_http.route_policies import RouteRuntimePolicy, install_runtime_policies
 from devfeed_http.schemas import ERROR_RESPONSES, HealthResponse, UnhealthyResponse
 from devfeed_http.telemetry import fastapi_telemetry
 from fastapi import FastAPI
@@ -72,7 +73,14 @@ def create_app() -> FastAPI:
 
     register_error_handlers(app, logger, admin=True)
 
-    @app.get("/health/live", tags=["health"], response_model=HealthResponse)
+    @app.get(
+        "/health/live",
+        tags=["health"],
+        response_model=HealthResponse,
+        openapi_extra=RouteRuntimePolicy(
+            admission="exempt", telemetry_excluded=True, logging_level="debug"
+        ).openapi_extra(),
+    )
     async def live():
         return {"status": "ok"}
 
@@ -81,6 +89,9 @@ def create_app() -> FastAPI:
         tags=["health"],
         response_model=HealthResponse,
         responses={503: {"model": UnhealthyResponse, "description": "Not ready"}},
+        openapi_extra=RouteRuntimePolicy(
+            telemetry_excluded=True, logging_level="debug"
+        ).openapi_extra(),
     )
     def ready(session: DB):
         return readiness_response(
@@ -92,6 +103,7 @@ def create_app() -> FastAPI:
 
     for router in (auth.router, portal.router, connections.router, workspace.router):
         include_gateway_router(app, router)
+    install_runtime_policies(app)
     return app
 
 

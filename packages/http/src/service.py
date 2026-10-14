@@ -18,6 +18,7 @@ from devfeed_http.admission import AdmissionMiddleware
 from devfeed_http.errors import register_error_handlers
 from devfeed_http.health import readiness_response
 from devfeed_http.logging import RequestLoggingMiddleware
+from devfeed_http.route_policies import RouteRuntimePolicy
 from devfeed_http.schemas import HealthResponse, UnhealthyResponse
 
 
@@ -55,13 +56,13 @@ class HTTPService:
         private: bool = False,
         middleware: Callable[[FastAPI], None] | None = None,
     ) -> None:
+        if middleware is not None:
+            middleware(app)
         app.add_middleware(
             AdmissionMiddleware,
             requests=settings.api_max_concurrent_requests,
             streams=settings.api_max_concurrent_streams,
         )
-        if middleware is not None:
-            middleware(app)
         app.add_middleware(
             RequestLoggingMiddleware,
             service=self.name,
@@ -83,7 +84,14 @@ class HTTPService:
         revision_reader: Callable,
         schema_revision: str = SCHEMA_REVISION,
     ) -> None:
-        @app.get("/health/live", tags=["health"], response_model=HealthResponse)
+        @app.get(
+            "/health/live",
+            tags=["health"],
+            response_model=HealthResponse,
+            openapi_extra=RouteRuntimePolicy(
+                admission="exempt", telemetry_excluded=True, logging_level="debug"
+            ).openapi_extra(),
+        )
         async def live():
             return {"status": "ok"}
 
@@ -92,6 +100,9 @@ class HTTPService:
             tags=["health"],
             response_model=HealthResponse,
             responses={503: {"model": UnhealthyResponse, "description": "Not ready"}},
+            openapi_extra=RouteRuntimePolicy(
+                telemetry_excluded=True, logging_level="debug"
+            ).openapi_extra(),
         )
         def ready(session: Annotated[Session, session_dependency]):
             return readiness_response(

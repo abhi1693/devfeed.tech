@@ -12,6 +12,7 @@ from devfeed_http.operation_policies import (
     ReaderGatewayPolicy,
     include_gateway_router,
 )
+from devfeed_http.route_policies import install_runtime_policies
 from devfeed_http.schemas import ERROR_RESPONSES
 from devfeed_http.service import HTTPService
 from devfeed_http.telemetry import fastapi_telemetry
@@ -88,6 +89,7 @@ def create_app() -> FastAPI:
         include_gateway_router(
             app, router, default_policy=ReaderGatewayPolicy(extension=ExtensionTransportPolicy())
         )
+    install_runtime_policies(app)
     return app
 
 
