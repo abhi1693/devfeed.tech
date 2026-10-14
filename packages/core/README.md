@@ -18,6 +18,8 @@
   the total read deadline and replay; the policy supplies JSON or image-upload errors.
   Gateway-backed endpoints use `bounded_openapi_extra()` to derive backend limits from
   their existing transport policy, without maintaining another URL or method selector.
+  Matched endpoints remain bounded when identifiers fail typed validation. Native path
+  converters still return 404 for unmatched identifiers without reading a request body.
 - `devfeed_http.inbox.InboxRouter` registers the 17 supported inbox operations for the
   admin and reader APIs. Each `InboxOperation` declares its upstream target, JSON or event-stream
   response and transport bounds. The API supplies a verified `InboxSession`; subscriber identity
