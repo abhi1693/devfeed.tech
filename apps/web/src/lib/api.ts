@@ -3,11 +3,13 @@ import { traceHeaders } from "@devfeed/telemetry/propagation";
 import "server-only";
 import { cache } from "react";
 import { cookies } from "next/headers";
-import { userCookies } from "./server/gateway";
-import { userApiOrigin } from "./server/config";
+import { ReaderCookies } from "./server/reader-cookies";
+import { userApiOrigin, xPixelEnabled } from "./server/config";
 import type { Article, FeedPage, FeedOptions, Source, Topic } from "./types";
 import { publicReadCacheControl } from "./public-read-cache";
 import { contentTypes, feedParams, latestFeedParams, type FeedFilters } from "./feed-query";
+
+const readerCookies = new ReaderCookies(xPixelEnabled);
 
 export class UserApiError extends Error {
   constructor(public status: number) {
@@ -48,7 +50,7 @@ async function read<T>(
   }
 }
 export async function hasUserSession(): Promise<boolean> {
-  const cookie = userCookies((await cookies()).toString());
+  const cookie = readerCookies.filter((await cookies()).toString(), "reader");
   if (!/(?:^|; )(?:__Host-)?devfeed_user_session=/.test(cookie)) return false;
   try {
     const user = await read<{ user_id: string } | null>(
@@ -94,7 +96,10 @@ const resolveFeedPreferences = cache(async (cookie: string, signal?: AbortSignal
   }
 });
 export async function getReaderFeedPreferences(signal?: AbortSignal, cookieHeader?: string) {
-  return resolveFeedPreferences(userCookies(cookieHeader ?? (await cookies()).toString()), signal);
+  return resolveFeedPreferences(
+    readerCookies.filter(cookieHeader ?? (await cookies()).toString(), "reader"),
+    signal,
+  );
 }
 export async function getFeed(filters: FeedFilters, signal?: AbortSignal, cookieHeader?: string) {
   const params = latestFeedParams(filters);

@@ -48,6 +48,10 @@ This setting is read at runtime and is also exposed to Chrome and Edge through
 localhost fallback when it is unset. See the [MCP guide](../mcp/README.md).
 
 Run `npm run web:lint`, `npm run web:test`, and `npm run web:build` to validate.
+After user API route or transport-policy changes, run `npm run web:generate` and
+include the OpenAPI, operation definitions and concrete Next handlers together.
+`node apps/web/tests/browser/reader-gateway.mjs` checks the built gateway over real
+HTTP, including cookie isolation, placement validation and body-reading deadlines.
 
 On the public `devfeed.tech` host, requests forwarded by Cloudflare with
 `X-Forwarded-Proto: http` receive a permanent redirect to the same HTTPS path

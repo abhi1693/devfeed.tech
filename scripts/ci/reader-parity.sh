@@ -15,6 +15,7 @@ if npm run web:build; then
   run_check node apps/web/tests/browser/telemetry.mjs
   run_check node apps/web/tests/browser/x-attribution.mjs
   run_check node apps/web/tests/browser/profile.mjs
+  run_check node apps/web/tests/browser/reader-gateway.mjs
 else
   status=1
 fi

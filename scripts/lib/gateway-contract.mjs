@@ -16,15 +16,26 @@ function keys(value, accepted, label) {
   }
 }
 
-function policy(value, label) {
+function policy(value, label, namespace) {
   object(value, label);
-  keys(value, new Set(policyFields), label);
+  const reader = namespace === "user";
+  keys(value, new Set([...policyFields, ...(reader ? ["cookiePolicy", "handler"] : [])]), label);
   const result = {};
   for (const field of policyFields) {
     if (!Number.isSafeInteger(value[field]) || value[field] <= 0) {
       throw new Error(`${label}.${field} must be a positive safe integer`);
     }
     result[field] = value[field];
+  }
+  if (reader) {
+    if (!["reader", "reader-attribution", "omit"].includes(value.cookiePolicy)) {
+      throw new Error(`${label}.cookiePolicy must declare a supported reader cookie policy`);
+    }
+    if (!["forward", "placement-query"].includes(value.handler)) {
+      throw new Error(`${label}.handler must declare a supported reader handler`);
+    }
+    result.cookiePolicy = value.cookiePolicy;
+    result.handler = value.handler;
   }
   return result;
 }
@@ -162,8 +173,11 @@ export function gatewayOperations(document, { namespace }) {
       method: route.method,
       path: route.path,
       parameters: names.map((name) => byName.get(name)),
-      policy: policy(route.policy, `${label} policy`),
+      policy: policy(route.policy, `${label} policy`, namespace),
     };
+    if (result.policy.handler === "placement-query" && result.method !== "POST") {
+      throw new Error(`${label} placement-query handler requires POST`);
+    }
     const signature = `${route.method} ${route.path.replace(/\{[^}]+\}/gu, "{}")} ${result.parameters.map((item) => item.converter).join(",")}`;
     if (signatures.has(signature)) throw new Error(`${label} repeats a method/route signature`);
     signatures.add(signature);
@@ -184,7 +198,11 @@ export function gatewayOperations(document, { namespace }) {
       if (!exported || exported.operationId !== operation.operationId) {
         throw new Error(`Missing matching gateway export for ${method.toUpperCase()} ${path}`);
       }
-      const declared = policy(operation["x-devfeed-gateway"], `${method} ${path} policy`);
+      const declared = policy(
+        operation["x-devfeed-gateway"],
+        `${method} ${path} policy`,
+        namespace,
+      );
       if (JSON.stringify(exported.policy) !== JSON.stringify(declared)) {
         throw new Error(`Gateway policy differs for ${method.toUpperCase()} ${path}`);
       }

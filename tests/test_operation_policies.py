@@ -9,6 +9,7 @@ from devfeed_http.operation_policies import (
     GATEWAY_POLICY_EXTENSION,
     GATEWAY_ROUTES_EXTENSION,
     GatewayPolicy,
+    ReaderGatewayPolicy,
     export_gateway_document,
     include_gateway_router,
 )
@@ -35,6 +36,49 @@ def test_gateway_policy_has_fixed_defaults_and_rejects_unknown_fields():
         GatewayPolicy(path="/special")
     with pytest.raises(ValidationError):
         DEFAULT_GATEWAY_POLICY.body_limit = 1
+
+
+@pytest.mark.parametrize(
+    "field,value",
+    [
+        ("cookie_policy", "all"),
+        ("cookie_policy", None),
+        ("handler", "arbitrary-script"),
+        ("handler", None),
+    ],
+)
+def test_reader_policy_rejects_unknown_cookie_or_handler_modes(field, value):
+    with pytest.raises(ValidationError):
+        ReaderGatewayPolicy(**{field: value})
+
+
+def test_reader_router_uses_its_policy_subclass_for_defaults_and_hidden_overrides():
+    app, router = FastAPI(), APIRouter(prefix="/renamed")
+
+    @router.put("/settings", operation_id="ordinaryWrite")
+    def ordinary():
+        return {}
+
+    @router.api_route(
+        "/inbox/{path:path}",
+        methods=["GET", "POST"],
+        include_in_schema=False,
+        openapi_extra=ReaderGatewayPolicy(cookie_policy="omit").openapi_extra(),
+    )
+    def hidden(path: str):
+        return {}
+
+    include_gateway_router(app, router, default_policy=ReaderGatewayPolicy())
+    document = export_gateway_document(app, policy_type=ReaderGatewayPolicy)
+    policies = [operation["policy"] for operation in document[GATEWAY_ROUTES_EXTENSION]]
+    assert policies == [
+        ReaderGatewayPolicy().model_dump(by_alias=True),
+        ReaderGatewayPolicy(cookie_policy="omit").model_dump(by_alias=True),
+        ReaderGatewayPolicy(cookie_policy="omit").model_dump(by_alias=True),
+    ]
+    assert document["paths"]["/renamed/settings"]["put"]["operationId"] == "ordinaryWrite"
+    with pytest.raises(ValidationError):
+        export_gateway_document(app)
 
 
 def specimen():

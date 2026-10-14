@@ -26,6 +26,15 @@ export type GatewayOperation = {
   policy: GatewayPolicy;
 };
 
+export type GatewayCookiePolicy = "reader" | "reader-attribution" | "omit";
+
+export type ReaderGatewayOperation = GatewayOperation & {
+  policy: GatewayPolicy & {
+    cookiePolicy: GatewayCookiePolicy;
+    handler: "forward" | "placement-query";
+  };
+};
+
 export type GatewayMatch =
   | {
       kind: "matched";

@@ -6,7 +6,8 @@ from typing import Annotated
 from devfeed_core.cache import invalidate_public_cache
 from devfeed_core.models import UserAccount
 from devfeed_core.user_settings import UserProfileSettings
-from devfeed_http.image_uploads import MAX_BYTES
+from devfeed_http.image_uploads import MAX_BYTES, MAX_REQUEST_BYTES
+from devfeed_http.operation_policies import ReaderGatewayPolicy
 from fastapi import APIRouter, File, HTTPException, UploadFile
 
 from devfeed_user_api.auth import User
@@ -18,7 +19,13 @@ from devfeed_user_api.profile import profile_value
 router = APIRouter(prefix="/v1/user/settings/profile/avatar", tags=["user-profile"])
 
 
-@router.post("", response_model=UserProfileSettings)
+@router.post(
+    "",
+    response_model=UserProfileSettings,
+    openapi_extra=ReaderGatewayPolicy(
+        body_limit=MAX_REQUEST_BYTES, body_timeout_ms=10_000
+    ).openapi_extra(),
+)
 def upload_avatar(
     file: Annotated[UploadFile, File(description="JPEG, PNG or WebP, up to 5 MB")],
     user: User,

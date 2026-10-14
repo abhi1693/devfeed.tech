@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { POST } from "@/app/api/v1/partner-placements/query/route";
-import { gateway } from "@/lib/server/gateway";
+import * as personalized from "@/app/api/v1/user/partner-placements/query/route";
 import { placement } from "./partner-placement-fixtures";
 import { article } from "./fixtures";
 
@@ -325,10 +325,7 @@ it.each([
 
 it("bounds both public and authenticated query bodies before forwarding", async () => {
   expect((await POST(request(" ".repeat(8193)))).status).toBe(413);
-  expect(
-    (await gateway(request(" ".repeat(8193)), ["v1", "user", "partner-placements", "query"]))
-      .status,
-  ).toBe(413);
+  expect((await personalized.POST(request(" ".repeat(8193)), {})).status).toBe(413);
   expect(fetch).not.toHaveBeenCalled();
 });
 
@@ -370,17 +367,10 @@ it.each([null, "37"])(
 
 it("validates personalized contexts while retaining the session and CSRF boundary", async () => {
   expect(
-    (
-      await gateway(request({ surface: "feed", anything: "invalid" }), [
-        "v1",
-        "user",
-        "partner-placements",
-        "query",
-      ])
-    ).status,
+    (await personalized.POST(request({ surface: "feed", anything: "invalid" }), {})).status,
   ).toBe(422);
   expect(fetch).not.toHaveBeenCalled();
-  const personalized = new Request("https://devfeed.tech/api/v1/user/partner-placements/query", {
+  const incoming = new Request("https://devfeed.tech/api/v1/user/partner-placements/query", {
     method: "POST",
     body: JSON.stringify({ surface: "feed" }),
     headers: {
@@ -390,9 +380,7 @@ it("validates personalized contexts while retaining the session and CSRF boundar
       "Content-Type": "application/json",
     },
   });
-  expect((await gateway(personalized, ["v1", "user", "partner-placements", "query"])).status).toBe(
-    200,
-  );
+  expect((await personalized.POST(incoming, {})).status).toBe(200);
   const [url, init] = vi.mocked(fetch).mock.calls[0];
   expect(url).toBe("http://user-api:8002/v1/user/partner-placements/query");
   expect(new Headers(init?.headers).get("cookie")).toBe("devfeed_user_session=session");

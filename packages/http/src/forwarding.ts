@@ -2,12 +2,19 @@ import "server-only";
 import type { GatewayOperation } from "./gateway";
 import { readRequestBody, RequestBodyTimeout, RequestBodyTooLarge } from "./request-body";
 
-type TransportOptions = {
+type TransportOptions<Operation extends GatewayOperation> = {
   apiOrigin: () => string;
   webOrigin: () => string;
+  originAllowed?: (origin: string | null) => boolean;
+  filterCookies?: (value: string, operation: Operation) => string;
   traceHeaders: () => Record<string, string>;
   unavailableDetail: string;
 };
+
+export type GatewayBodyValidator = (
+  body: ArrayBuffer,
+) => Response | null | Promise<Response | null>;
+type ForwardOptions = { validateBody?: GatewayBodyValidator };
 
 const safe = new Set(["GET", "HEAD", "OPTIONS"]);
 
@@ -19,18 +26,28 @@ export function methodNotAllowed(allowedMethods: readonly string[]): Response {
 }
 
 /** Forward an already selected operation; routing and authorization stay with their owners. */
-export class GatewayTransport {
-  constructor(private readonly options: TransportOptions) {}
+export class GatewayTransport<Operation extends GatewayOperation = GatewayOperation> {
+  constructor(private readonly options: TransportOptions<Operation>) {}
 
-  async forward(request: Request, operation: GatewayOperation, path: string): Promise<Response> {
+  async forward(
+    request: Request,
+    operation: Operation,
+    path: string,
+    options: ForwardOptions = {},
+  ): Promise<Response> {
     if (request.method !== operation.method) return methodNotAllowed([operation.method]);
     const { policy } = operation;
     try {
       const origin = this.options.webOrigin();
       const incoming = new URL(request.url);
       // Host/proxy headers do not determine callback redirects or CSRF trust.
-      if (!safe.has(operation.method) && request.headers.get("origin") !== origin) {
-        return Response.json({ detail: "Invalid request origin" }, { status: 403 });
+      if (!safe.has(operation.method)) {
+        const requestOrigin = request.headers.get("origin");
+        const originAllowed = this.options.originAllowed
+          ? this.options.originAllowed(requestOrigin)
+          : requestOrigin === origin;
+        if (!originAllowed)
+          return Response.json({ detail: "Invalid request origin" }, { status: 403 });
       }
       const headers = new Headers({ Accept: "application/json" });
       for (const name of [
@@ -41,12 +58,16 @@ export class GatewayTransport {
         "if-none-match",
         "last-event-id",
       ]) {
-        const value = request.headers.get(name);
+        let value = request.headers.get(name);
+        if (name === "cookie" && value && this.options.filterCookies)
+          value = this.options.filterCookies(value, operation);
         if (value) headers.set(name, value);
       }
       let body: ArrayBuffer | undefined;
       if (!safe.has(operation.method)) {
         body = await readRequestBody(request, policy.bodyLimit, policy.bodyTimeoutMs);
+        const rejection = await options.validateBody?.(body);
+        if (rejection) return rejection;
       }
       request.signal.throwIfAborted();
       for (const [key, value] of Object.entries(this.options.traceHeaders()))

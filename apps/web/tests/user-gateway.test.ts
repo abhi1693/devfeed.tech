@@ -1,88 +1,39 @@
-import { afterEach, beforeEach, expect, it, vi } from "vitest";
-import { gateway, userCookies } from "@/lib/server/gateway";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import * as me from "@/app/api/v1/user/auth/me/route";
+import * as login from "@/app/api/v1/user/auth/login/route";
+import * as callback from "@/app/api/v1/user/auth/callback/route";
+import * as logout from "@/app/api/v1/user/auth/logout/route";
+import * as preferences from "@/app/api/v1/user/preferences/route";
+import * as profile from "@/app/api/v1/user/settings/profile/route";
+import * as avatar from "@/app/api/v1/user/settings/profile/avatar/route";
+import * as feed from "@/app/api/v1/user/feed/route";
+import * as articleOpen from "@/app/api/v1/user/articles/[article_id]/open/route";
+import * as inbox from "@/app/api/v1/user/notifications/chimely/v1/inbox/[...path]/route";
+import * as placements from "@/app/api/v1/user/partner-placements/query/route";
+
+vi.mock("@devfeed/telemetry/propagation", () => ({ traceHeaders: () => ({}) }));
+
+const origin = "https://user.example";
+const api = "http://user-api:8002";
+const articleId = "11111111-1111-4111-8111-111111111111";
+const sessionCookies =
+  "devfeed_user_session=one=two; __Host-devfeed_user_state=state; devfeed_user_visitor=visitor";
+const allCookies = `${sessionCookies}; __Host-devfeed_user_x_click=click-1; devfeed_user_x_click=click-2; _twclid=pixel-cookie; prefix_devfeed_user_session=bad; devfeed_user_session_extra=bad; __Host-devfeed_admin_session=private; devfeed_partner_session=private; other=private`;
+type Params = Record<string, string | string[]>;
+type CookieCase = {
+  name: string;
+  handler: typeof me.GET;
+  method: string;
+  params: Params;
+};
+const context = (params: Params = {}) =>
+  Object.keys(params).length ? { params: Promise.resolve(params) } : {};
 
 beforeEach(() => {
-  vi.stubEnv("DEVFEED_USER_BASE_URL", "https://user.example");
-  vi.stubEnv("DEVFEED_USER_API_URL", "http://user-api:8002");
-});
-
-it("rejects cookie name lookalikes while preserving the complete allowed values", () => {
-  expect(
-    userCookies(
-      "  devfeed_user_session=one=two; __Host-devfeed_user_state=state; devfeed_user_visitor=visitor; prefix_devfeed_user_session=bad; devfeed_user_session_extra=bad; __Host-devfeed_admin_session=private; _twclid=private",
-    ),
-  ).toBe(
-    "devfeed_user_session=one=two; __Host-devfeed_user_state=state; devfeed_user_visitor=visitor",
-  );
-});
-
-it.each(["GET", "HEAD", "OPTIONS"])(
-  "forwards safe %s requests without a body or origin",
-  async (method) => {
-    const fetcher = vi.fn().mockResolvedValue(new Response(null, { status: 204 }));
-    vi.stubGlobal("fetch", fetcher);
-    expect(
-      (
-        await gateway(new Request("https://user.example/api/v1/user/auth/me", { method }), [
-          "v1",
-          "user",
-          "auth",
-          "me",
-        ])
-      ).status,
-    ).toBe(204);
-    expect(fetcher.mock.calls[0][1]).toMatchObject({ method, body: undefined, cache: "no-store" });
-    expect(fetcher.mock.calls[0][1].headers.get("accept")).toBe("application/json");
-  },
-);
-
-it("preserves conditional, stream and correlation headers without forwarding private headers", async () => {
-  const allowed = {
-    "content-type": "text/event-stream",
-    "x-request-id": "request-id",
-    "x-devfeed-version": "1.2.3",
-    etag: '"revision"',
-    "x-accel-buffering": "no",
-    "retry-after": "30",
-  };
-  const fetcher = vi
-    .fn()
-    .mockResolvedValue(
-      new Response(null, { status: 304, headers: { ...allowed, "x-private": "secret" } }),
-    );
-  vi.stubGlobal("fetch", fetcher);
-  const response = await gateway(
-    new Request("https://user.example/api/v1/user/feed", {
-      headers: {
-        "if-none-match": '"revision"',
-        "last-event-id": "event-42",
-        "x-private": "secret",
-      },
-    }),
-    ["v1", "user", "feed"],
-  );
-  expect(response.status).toBe(304);
-  for (const [key, value] of Object.entries(allowed)) expect(response.headers.get(key)).toBe(value);
-  expect(response.headers.get("x-private")).toBeNull();
-  expect(fetcher.mock.calls[0][1].headers.get("if-none-match")).toBe('"revision"');
-  expect(fetcher.mock.calls[0][1].headers.get("last-event-id")).toBe("event-42");
-  expect(fetcher.mock.calls[0][1].headers.get("x-private")).toBeNull();
-});
-
-it("rejects an oversized declared body before reading it or contacting the API", async () => {
-  const fetcher = vi.fn();
-  vi.stubGlobal("fetch", fetcher);
-  const response = await gateway(
-    new Request("https://user.example/api/v1/user/preferences", {
-      method: "PUT",
-      headers: { Origin: "https://user.example", "content-length": "1000001" },
-      body: "{}",
-    }),
-    ["v1", "user", "preferences"],
-  );
-  expect(response.status).toBe(413);
-  expect(await response.json()).toEqual({ detail: "Request too large" });
-  expect(fetcher).not.toHaveBeenCalled();
+  vi.stubEnv("DEVFEED_USER_BASE_URL", origin);
+  vi.stubEnv("DEVFEED_USER_API_URL", api);
+  vi.stubEnv("DEVFEED_USER_EXTENSION_IDS", "[]");
+  vi.stubEnv("DEVFEED_X_PIXEL_ENABLED", "false");
 });
 afterEach(() => {
   vi.useRealTimers();
@@ -90,365 +41,588 @@ afterEach(() => {
   vi.unstubAllEnvs();
 });
 
-it("forwards click cookies only to login and only while X tracking is enabled", async () => {
-  const fetcher = vi.fn().mockResolvedValue(Response.json({}));
-  vi.stubGlobal("fetch", fetcher);
-  for (const flag of ["false", "true"]) {
-    vi.stubEnv("DEVFEED_X_PIXEL_ENABLED", flag);
-    for (const endpoint of ["auth/login", "auth/callback", "auth/me", "settings/profile"]) {
-      await gateway(
-        new Request(`https://user.example/api/v1/user/${endpoint}`, {
-          headers: {
-            Cookie:
-              "__Host-devfeed_user_x_click=click-1; _twclid=pixel-cookie; __Host-devfeed_user_session=session; other=private",
-          },
-        }),
-        ["v1", "user", ...endpoint.split("/")],
+describe("bound reader cookie and origin policies", () => {
+  it.each<CookieCase>([
+    { name: "identity", handler: me.GET, method: "GET", params: {} },
+    { name: "callback", handler: callback.GET, method: "GET", params: {} },
+    { name: "profile", handler: profile.GET, method: "GET", params: {} },
+    { name: "feed", handler: feed.GET, method: "GET", params: {} },
+    { name: "preferences", handler: preferences.PUT, method: "PUT", params: {} },
+    { name: "avatar", handler: avatar.POST, method: "POST", params: {} },
+    { name: "logout", handler: logout.POST, method: "POST", params: {} },
+    {
+      name: "anonymous article open",
+      handler: articleOpen.POST,
+      method: "POST",
+      params: { article_id: articleId },
+    },
+    { name: "inbox", handler: inbox.GET, method: "GET", params: { path: ["stream"] } },
+  ])(
+    "forwards only complete reader session-family cookies for $name",
+    async ({ handler, method, params }) => {
+      vi.stubEnv("DEVFEED_X_PIXEL_ENABLED", "true");
+      const fetcher = vi.fn().mockResolvedValue(Response.json({}));
+      vi.stubGlobal("fetch", fetcher);
+      expect(
+        (
+          await handler(
+            new Request(`${origin}/api`, {
+              method,
+              headers: {
+                Origin: origin,
+                Cookie: allCookies,
+                Authorization: "private",
+                "X-CSRF-Token": "csrf",
+              },
+              ...(!["GET", "HEAD"].includes(method) ? { body: "{}" } : {}),
+            }),
+            context(params),
+          )
+        ).status,
+      ).toBe(200);
+      const headers = fetcher.mock.calls[0][1].headers as Headers;
+      expect(headers.get("cookie")).toBe(sessionCookies);
+      expect(headers.get("authorization")).toBeNull();
+      expect(headers.get("x-csrf-token")).toBe("csrf");
+    },
+  );
+
+  it.each([undefined, "false", "true"])(
+    "adds attribution only to the login operation while its flag is %s",
+    async (flag) => {
+      vi.stubEnv("DEVFEED_X_PIXEL_ENABLED", flag);
+      const fetcher = vi.fn().mockImplementation(() => Response.json({}));
+      vi.stubGlobal("fetch", fetcher);
+      await login.GET(
+        new Request(`${origin}/api/v1/user/feed`, { headers: { Cookie: allCookies } }),
+        {},
       );
-      const cookie = fetcher.mock.calls.at(-1)![1].headers.get("cookie");
-      expect(cookie).toContain("__Host-devfeed_user_session=session");
-      expect(cookie.includes("click-1")).toBe(flag === "true" && endpoint === "auth/login");
-      expect(cookie.includes("pixel-cookie")).toBe(flag === "true" && endpoint === "auth/login");
-      expect(cookie).not.toContain("other=private");
-    }
-  }
-});
+      const loginCookies = fetcher.mock.calls[0][1].headers.get("cookie");
+      expect(loginCookies).toBe(
+        flag === "true"
+          ? `${sessionCookies}; __Host-devfeed_user_x_click=click-1; devfeed_user_x_click=click-2; _twclid=pixel-cookie`
+          : sessionCookies,
+      );
+      await me.GET(
+        new Request(`${origin}/api/v1/user/auth/login`, { headers: { Cookie: allCookies } }),
+        {},
+      );
+      expect(fetcher.mock.calls[1][1].headers.get("cookie")).toBe(sessionCookies);
+      expect(fetcher.mock.calls[0][0]).toBe(`${api}/v1/user/auth/login`);
+      expect(fetcher.mock.calls[1][0]).toBe(`${api}/v1/user/auth/me`);
+    },
+  );
 
-it("forwards only user cookies and preserves callback cookie rotation", async () => {
-  const upstream = new Response(null, {
-    status: 302,
-    headers: { Location: "https://user.example/" },
+  it.each([null, "https://admin.example", "https://evil.example"])(
+    "rejects mutation origin %s before consuming a body",
+    async (suppliedOrigin) => {
+      const fetcher = vi.fn();
+      vi.stubGlobal("fetch", fetcher);
+      const incoming = new Request(`${origin}/api`, {
+        method: "PUT",
+        headers: suppliedOrigin ? { Origin: suppliedOrigin } : {},
+        body: new ReadableStream<Uint8Array>(),
+        duplex: "half",
+      } as RequestInit);
+      expect((await preferences.PUT(incoming, {})).status).toBe(403);
+      expect(incoming.bodyUsed).toBe(false);
+      expect(fetcher).not.toHaveBeenCalled();
+    },
+  );
+
+  it("preserves an explicitly trusted extension origin, user cookie and CSRF", async () => {
+    const id = "a".repeat(32);
+    vi.stubEnv("DEVFEED_USER_EXTENSION_IDS", JSON.stringify([id]));
+    const fetcher = vi.fn().mockResolvedValue(new Response(null, { status: 204 }));
+    vi.stubGlobal("fetch", fetcher);
+    const response = await logout.POST(
+      new Request(`${origin}/api`, {
+        method: "POST",
+        headers: {
+          Origin: `chrome-extension://${id}`,
+          "X-CSRF-Token": "csrf-token",
+          Cookie: "__Host-devfeed_user_session=session; admin_session=private",
+        },
+      }),
+      {},
+    );
+    expect(response.status).toBe(204);
+    const headers = fetcher.mock.calls[0][1].headers as Headers;
+    expect(headers.get("origin")).toBe(`chrome-extension://${id}`);
+    expect(headers.get("x-csrf-token")).toBe("csrf-token");
+    expect(headers.get("cookie")).toBe("__Host-devfeed_user_session=session");
   });
-  upstream.headers.append(
-    "Set-Cookie",
-    "__Host-devfeed_user_session=opaque; Secure; HttpOnly; Path=/",
-  );
-  upstream.headers.append(
-    "Set-Cookie",
-    "__Host-devfeed_user_state=; Max-Age=0; Secure; HttpOnly; Path=/",
-  );
-  const fetcher = vi.fn().mockResolvedValue(upstream);
-  vi.stubGlobal("fetch", fetcher);
-  const result = await gateway(
-    new Request("https://user.example/api/v1/user/auth/callback?state=s&code=c", {
-      headers: {
-        Cookie:
-          "__Host-devfeed_admin_session=admin-secret; __Host-devfeed_user_state=browser; unrelated=private",
-        Authorization: "Bearer untrusted",
-        "X-Forwarded-Host": "evil.example",
-      },
-    }),
-    ["v1", "user", "auth", "callback"],
-  );
-  expect(result.status).toBe(302);
-  expect(result.headers.getSetCookie()).toHaveLength(2);
-  expect(result.headers.get("cache-control")).toBe("no-store");
-  expect(result.headers.get("referrer-policy")).toBe("no-referrer");
-  const [url, options] = fetcher.mock.calls[0];
-  expect(url).toBe("http://user-api:8002/v1/user/auth/callback?state=s&code=c");
-  expect(options.redirect).toBe("manual");
-  expect(options.headers.get("cookie")).toBe("__Host-devfeed_user_state=browser");
-  expect(options.headers.get("authorization")).toBeNull();
-  expect(options.headers.get("x-forwarded-host")).toBeNull();
-});
 
-it.each([
-  ["v1", "admin", "auth", "me"],
-  ["v1", "feed"],
-  ["v1", "user", "..", "auth"],
-  ["v1", "user", "%2e%2e", "auth"],
-])("rejects unrelated or traversal path %j", async (...path) => {
-  const fetcher = vi.fn();
-  vi.stubGlobal("fetch", fetcher);
-  expect((await gateway(new Request("https://user.example/api/test"), path)).status).toBe(404);
-  expect(fetcher).not.toHaveBeenCalled();
-});
-it.each([null, "https://admin.example", "https://evil.example"])(
-  "rejects mutation origin %s",
-  async (origin) => {
+  it.each([
+    `chrome-extension://${"b".repeat(32)}`,
+    `chrome-extension://${"a".repeat(32)}/`,
+    "null",
+  ])("rejects an untrusted extension-like origin: %s", async (suppliedOrigin) => {
+    vi.stubEnv("DEVFEED_USER_EXTENSION_IDS", JSON.stringify(["a".repeat(32)]));
     const fetcher = vi.fn();
     vi.stubGlobal("fetch", fetcher);
     expect(
       (
-        await gateway(
-          new Request("https://user.example/api/v1/user/preferences", {
-            method: "PUT",
-            headers: origin ? { Origin: origin } : {},
+        await logout.POST(
+          new Request(`${origin}/api`, {
+            method: "POST",
+            headers: { Origin: suppliedOrigin, "X-CSRF-Token": "valid-token" },
           }),
-          ["v1", "user", "preferences"],
+          {},
         )
       ).status,
     ).toBe(403);
     expect(fetcher).not.toHaveBeenCalled();
-  },
-);
-it("forwards bounded preference writes and CSRF", async () => {
-  const fetcher = vi.fn().mockResolvedValue(Response.json({ topic_ids: [] }));
-  vi.stubGlobal("fetch", fetcher);
-  const request = new Request("https://user.example/api/v1/user/preferences", {
-    method: "PUT",
-    headers: {
-      Origin: "https://user.example",
-      "X-CSRF-Token": "csrf",
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({ topic_ids: [] }),
   });
-  expect((await gateway(request, ["v1", "user", "preferences"])).status).toBe(200);
-  expect(fetcher.mock.calls[0][1].headers.get("x-csrf-token")).toBe("csrf");
-  expect(new TextDecoder().decode(fetcher.mock.calls[0][1].body)).toBe('{"topic_ids":[]}');
-});
-it("bounds request bodies before contacting the service", async () => {
-  const fetcher = vi.fn();
-  vi.stubGlobal("fetch", fetcher);
-  const request = new Request("https://user.example/api/v1/user/preferences", {
-    method: "PUT",
-    headers: { Origin: "https://user.example" },
-    body: "x".repeat(1_000_001),
-  });
-  expect((await gateway(request, ["v1", "user", "preferences"])).status).toBe(413);
-  expect(fetcher).not.toHaveBeenCalled();
-});
 
-it("forwards valid personalized placement contexts within the exact byte limit", async () => {
-  const fetcher = vi.fn().mockResolvedValue(Response.json({ items: [] }));
-  vi.stubGlobal("fetch", fetcher);
-  const body = JSON.stringify({ surface: "feed" }).padEnd(8192, " ");
-  const response = await gateway(
-    new Request("https://user.example/api/v1/user/partner-placements/query", {
-      method: "POST",
-      headers: {
-        Origin: "https://user.example",
-        "Content-Type": "application/json",
-        Cookie: "devfeed_user_session=session; admin_session=private",
-        "X-CSRF-Token": "csrf",
-      },
-      body,
-    }),
-    ["v1", "user", "partner-placements", "query"],
-  );
-  expect(response.status).toBe(200);
-  expect(await response.json()).toEqual({ items: [] });
-  const [url, options] = fetcher.mock.calls[0];
-  expect(url).toBe("http://user-api:8002/v1/user/partner-placements/query");
-  expect(options.method).toBe("POST");
-  expect(new TextDecoder().decode(options.body)).toBe(body);
-  expect(options.headers.get("cookie")).toBe("devfeed_user_session=session");
-  expect(options.headers.get("x-csrf-token")).toBe("csrf");
-  expect(options.cache).toBe("no-store");
-});
-
-it.each([
-  ["POST", "{"],
-  ["POST", JSON.stringify({ surface: "feed", user_id: "untrusted" })],
-  ["PUT", JSON.stringify({ surface: "feed" })],
-])("rejects invalid personalized placement %s bodies (%s)", async (method, body) => {
-  const fetcher = vi.fn();
-  vi.stubGlobal("fetch", fetcher);
-  const response = await gateway(
-    new Request("https://user.example/api/v1/user/partner-placements/query", {
-      method,
-      headers: { Origin: "https://user.example", "Content-Type": "application/json" },
-      body,
-    }),
-    ["v1", "user", "partner-placements", "query"],
-  );
-  expect(response.status).toBe(422);
-  expect(await response.json()).toEqual({ detail: "Invalid placement context" });
-  expect(response.headers.get("cache-control")).toBe("no-store");
-  expect(fetcher).not.toHaveBeenCalled();
-});
-
-it("rejects personalized placement bodies above 8192 bytes before forwarding", async () => {
-  const fetcher = vi.fn();
-  vi.stubGlobal("fetch", fetcher);
-  const response = await gateway(
-    new Request("https://user.example/api/v1/user/partner-placements/query", {
-      method: "POST",
-      headers: { Origin: "https://user.example" },
-      body: JSON.stringify({ surface: "feed" }).padEnd(8193, " "),
-    }),
-    ["v1", "user", "partner-placements", "query"],
-  );
-  expect(response.status).toBe(413);
-  expect(await response.json()).toEqual({ detail: "Request too large" });
-  expect(response.headers.get("cache-control")).toBe("no-store");
-  expect(fetcher).not.toHaveBeenCalled();
-});
-
-it("ends stalled personalized placement uploads at their two-second body deadline", async () => {
-  vi.useFakeTimers();
-  const fetcher = vi.fn();
-  const cancel = vi.fn();
-  vi.stubGlobal("fetch", fetcher);
-  const request = new Request("https://user.example/api/v1/user/partner-placements/query", {
-    method: "POST",
-    headers: { Origin: "https://user.example" },
-    body: new ReadableStream<Uint8Array>({ cancel }),
-    duplex: "half",
-  } as RequestInit);
-  let completed = false;
-  const pending = gateway(request, ["v1", "user", "partner-placements", "query"]).then(
-    (response) => {
-      completed = true;
-      return response;
+  it.each(['["*"]', "{invalid"])(
+    "fails closed for malformed extension-origin configuration: %s",
+    async (ids) => {
+      vi.stubEnv("DEVFEED_USER_EXTENSION_IDS", ids);
+      const fetcher = vi.fn();
+      vi.stubGlobal("fetch", fetcher);
+      expect(
+        (
+          await logout.POST(
+            new Request(`${origin}/api`, {
+              method: "POST",
+              headers: { Origin: `chrome-extension://${"a".repeat(32)}` },
+            }),
+            {},
+          )
+        ).status,
+      ).toBe(503);
+      expect(fetcher).not.toHaveBeenCalled();
     },
   );
-  await vi.advanceTimersByTimeAsync(1999);
-  expect(completed).toBe(false);
-  expect(fetcher).not.toHaveBeenCalled();
-  await vi.advanceTimersByTimeAsync(1);
-  const response = await pending;
-  expect(response.status).toBe(408);
-  expect(await response.json()).toEqual({ detail: "Incomplete request" });
-  expect(response.headers.get("cache-control")).toBe("no-store");
-  expect(cancel).toHaveBeenCalledOnce();
-  expect(fetcher).not.toHaveBeenCalled();
-});
 
-it("allows bounded multipart avatar uploads while keeping other request limits", async () => {
-  const fetcher = vi
-    .fn()
-    .mockResolvedValue(Response.json({ avatar_url: "https://images.test/avatar.webp" }));
-  vi.stubGlobal("fetch", fetcher);
-  const segments = ["v1", "user", "settings", "profile", "avatar"];
-  const body = new FormData();
-  body.append("file", new Blob([new Uint8Array(1_100_000)], { type: "image/png" }), "avatar.png");
-  const request = new Request("https://user.example/api/v1/user/settings/profile/avatar", {
-    method: "POST",
-    headers: { Origin: "https://user.example", "X-CSRF-Token": "csrf" },
-    body,
-  });
-  expect((await gateway(request, segments)).status).toBe(200);
-  expect(fetcher.mock.calls[0][1].headers.get("content-type")).toMatch(
-    /^multipart\/form-data; boundary=/,
+  it.each(['["*"]', "{invalid"])(
+    "does not consult mutation-only extension configuration for safe reads: %s",
+    async (ids) => {
+      vi.stubEnv("DEVFEED_USER_EXTENSION_IDS", ids);
+      const fetcher = vi.fn().mockResolvedValue(Response.json({}));
+      vi.stubGlobal("fetch", fetcher);
+      expect((await me.GET(new Request(`${origin}/api`), {})).status).toBe(200);
+      expect(fetcher).toHaveBeenCalledOnce();
+    },
   );
-  expect(fetcher.mock.calls[0][1].headers.get("x-csrf-token")).toBe("csrf");
-  fetcher.mockClear();
-  const excessive = new Request(request.url, {
-    method: "POST",
-    headers: { Origin: "https://user.example" },
-    body: new Uint8Array(5 * 1024 * 1024 + 65537),
-  });
-  expect((await gateway(excessive, segments)).status).toBe(413);
-  expect(fetcher).not.toHaveBeenCalled();
 });
 
-it("forwards anonymous article clicks and round-trips only the visitor cookie", async () => {
-  const visitor = "__Host-devfeed_user_visitor=opaque";
-  const upstream = Response.json({ article_id: "article", opens: 1, likes: 0, liked: false });
-  upstream.headers.append("Set-Cookie", `${visitor}; Secure; HttpOnly; SameSite=lax; Path=/`);
-  const fetcher = vi.fn().mockResolvedValue(upstream);
-  vi.stubGlobal("fetch", fetcher);
-  const response = await gateway(
-    new Request("https://user.example/api/v1/user/articles/article/open", {
-      method: "POST",
-      headers: { Origin: "https://user.example", Cookie: `${visitor}; unrelated=private` },
-    }),
-    ["v1", "user", "articles", "article", "open"],
+describe("reader transport and concrete parameters", () => {
+  it.each([{}, { params: undefined }])(
+    "handles real parameterless Next contexts: %j",
+    async (routeContext) => {
+      const fetcher = vi.fn().mockResolvedValue(new Response(null, { status: 204 }));
+      vi.stubGlobal("fetch", fetcher);
+      expect((await me.GET(new Request(`${origin}/api`), routeContext)).status).toBe(204);
+      expect(fetcher.mock.calls[0][1]).toMatchObject({
+        method: "GET",
+        body: undefined,
+        cache: "no-store",
+      });
+      expect(fetcher.mock.calls[0][1].headers.get("accept")).toBe("application/json");
+    },
   );
-  expect(response.status).toBe(200);
-  expect(response.headers.getSetCookie()).toEqual([
-    `${visitor}; Secure; HttpOnly; SameSite=lax; Path=/`,
-  ]);
-  const [url, options] = fetcher.mock.calls[0];
-  expect(url).toBe("http://user-api:8002/v1/user/articles/article/open");
-  expect(options.headers.get("cookie")).toBe(visitor);
-  expect(options.headers.get("x-csrf-token")).toBeNull();
-  expect(options.headers.get("origin")).toBe("https://user.example");
-  expect(response.headers.get("cache-control")).toBe("no-store");
-});
 
-it("preserves the anonymous tracking throttle and retry delay", async () => {
-  vi.stubGlobal(
-    "fetch",
-    vi
+  it.each([
+    {},
+    { article_id: "article" },
+    { article_id: "../auth" },
+    { article_id: "%2e%2e" },
+    { article_id: [articleId] },
+  ] as Params[])(
+    "rejects missing or unsafe article parameters before reading the body: %j",
+    async (params) => {
+      const fetcher = vi.fn();
+      vi.stubGlobal("fetch", fetcher);
+      const incoming = new Request(`${origin}/api`, {
+        method: "POST",
+        headers: { Origin: origin },
+        body: new ReadableStream<Uint8Array>(),
+        duplex: "half",
+      } as RequestInit);
+      expect((await articleOpen.POST(incoming, context(params))).status).toBe(404);
+      expect(incoming.bodyUsed).toBe(false);
+      expect(fetcher).not.toHaveBeenCalled();
+    },
+  );
+
+  it("preserves conditional, stream, correlation and retry headers while stripping private headers", async () => {
+    const allowed = {
+      "content-type": "text/event-stream",
+      "x-request-id": "request-id",
+      "x-devfeed-version": "1.2.3",
+      etag: '"revision"',
+      "x-accel-buffering": "no",
+      "retry-after": "30",
+    };
+    const fetcher = vi
       .fn()
       .mockResolvedValue(
-        Response.json(
-          { detail: "Too many article opens. Please try again later." },
-          { status: 429, headers: { "Retry-After": "45" } },
-        ),
+        new Response(null, { status: 304, headers: { ...allowed, "x-private": "secret" } }),
+      );
+    vi.stubGlobal("fetch", fetcher);
+    const response = await inbox.GET(
+      new Request(`${origin}/api`, {
+        headers: {
+          "if-none-match": '"revision"',
+          "last-event-id": "event-42",
+          "x-private": "secret",
+          "x-chimely-subscriber-hash": "forged",
+        },
+      }),
+      context({ path: ["stream"] }),
+    );
+    expect(response.status).toBe(304);
+    for (const [key, value] of Object.entries(allowed))
+      expect(response.headers.get(key)).toBe(value);
+    expect(response.headers.get("x-private")).toBeNull();
+    const headers = fetcher.mock.calls[0][1].headers as Headers;
+    expect(headers.get("if-none-match")).toBe('"revision"');
+    expect(headers.get("last-event-id")).toBe("event-42");
+    expect(headers.get("x-private")).toBeNull();
+    expect(headers.get("x-chimely-subscriber-hash")).toBeNull();
+  });
+
+  it("preserves callback redirects and independent session/state cookie rotation", async () => {
+    const upstream = new Response(null, { status: 302, headers: { Location: `${origin}/` } });
+    upstream.headers.append(
+      "Set-Cookie",
+      "__Host-devfeed_user_session=opaque; Secure; HttpOnly; Path=/",
+    );
+    upstream.headers.append(
+      "Set-Cookie",
+      "__Host-devfeed_user_state=; Max-Age=0; Secure; HttpOnly; Path=/",
+    );
+    const fetcher = vi.fn().mockResolvedValue(upstream);
+    vi.stubGlobal("fetch", fetcher);
+    const response = await callback.GET(
+      new Request(`${origin}/api?state=s&code=c`, {
+        headers: {
+          Cookie:
+            "__Host-devfeed_admin_session=secret; __Host-devfeed_user_state=browser; unrelated=private",
+          Authorization: "Bearer untrusted",
+          "X-Forwarded-Host": "evil.example",
+        },
+      }),
+      {},
+    );
+    expect(response.status).toBe(302);
+    expect(response.headers.getSetCookie()).toEqual(upstream.headers.getSetCookie());
+    expect(response.headers.get("cache-control")).toBe("no-store");
+    expect(response.headers.get("referrer-policy")).toBe("no-referrer");
+    const [url, options] = fetcher.mock.calls[0];
+    expect(url).toBe(`${api}/v1/user/auth/callback?state=s&code=c`);
+    expect(options.redirect).toBe("manual");
+    expect(options.headers.get("cookie")).toBe("__Host-devfeed_user_state=browser");
+    expect(options.headers.get("authorization")).toBeNull();
+    expect(options.headers.get("x-forwarded-host")).toBeNull();
+  });
+
+  it("round-trips the anonymous visitor cookie and article-open throttling", async () => {
+    const visitor = "__Host-devfeed_user_visitor=opaque";
+    const upstream = Response.json({ article_id: articleId, opens: 1, likes: 0, liked: false });
+    upstream.headers.append("Set-Cookie", `${visitor}; Secure; HttpOnly; SameSite=lax; Path=/`);
+    const fetcher = vi.fn().mockResolvedValue(upstream);
+    vi.stubGlobal("fetch", fetcher);
+    const incoming = () =>
+      new Request(`${origin}/api`, {
+        method: "POST",
+        headers: { Origin: origin, Cookie: `${visitor}; unrelated=private` },
+      });
+    const response = await articleOpen.POST(incoming(), context({ article_id: articleId }));
+    expect(response.status).toBe(200);
+    expect(response.headers.getSetCookie()).toEqual(upstream.headers.getSetCookie());
+    expect(fetcher.mock.calls[0][0]).toBe(`${api}/v1/user/articles/${articleId}/open`);
+    expect(fetcher.mock.calls[0][1].headers.get("cookie")).toBe(visitor);
+    expect(fetcher.mock.calls[0][1].headers.get("x-csrf-token")).toBeNull();
+    fetcher.mockResolvedValue(
+      Response.json(
+        { detail: "Too many article opens." },
+        { status: 429, headers: { "Retry-After": "45" } },
       ),
-  );
-  const response = await gateway(
-    new Request("https://user.example/api/v1/user/articles/article/open", {
-      method: "POST",
-      headers: { Origin: "https://user.example" },
-    }),
-    ["v1", "user", "articles", "article", "open"],
-  );
-  expect(response.status).toBe(429);
-  expect(response.headers.get("retry-after")).toBe("45");
-  expect(response.headers.get("cache-control")).toBe("no-store");
-});
-it("fails privately without configuration or a reachable user API", async () => {
-  vi.stubEnv("DEVFEED_USER_API_URL", "");
-  const result = await gateway(new Request("https://user.example/api/v1/user/auth/me"), [
-    "v1",
-    "user",
-    "auth",
-    "me",
-  ]);
-  expect(result.status).toBe(503);
-  expect(await result.json()).toEqual({ detail: "User service unavailable" });
-  expect(result.headers.get("cache-control")).toBe("no-store");
-});
+    );
+    const limited = await articleOpen.POST(incoming(), context({ article_id: articleId }));
+    expect(limited.status).toBe(429);
+    expect(limited.headers.get("retry-after")).toBe("45");
+    expect(limited.headers.get("cache-control")).toBe("no-store");
+  });
 
-it("forwards an explicitly trusted extension origin and CSRF without rewriting either", async () => {
-  const id = "a".repeat(32);
-  vi.stubEnv("DEVFEED_USER_EXTENSION_IDS", JSON.stringify([id]));
-  const fetcher = vi.fn().mockResolvedValue(new Response(null, { status: 204 }));
-  vi.stubGlobal("fetch", fetcher);
-  const response = await gateway(
-    new Request("https://user.example/api/v1/user/auth/logout", {
-      method: "POST",
-      headers: {
-        Origin: `chrome-extension://${id}`,
-        "X-CSRF-Token": "csrf-token",
-        Cookie: "__Host-devfeed_user_session=session; admin_session=private",
+  it("streams inbox data without waiting for the upstream body to finish", async () => {
+    let stream!: ReadableStreamDefaultController<Uint8Array>;
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) {
+        stream = controller;
       },
-    }),
-    ["v1", "user", "auth", "logout"],
-  );
-  expect(response.status).toBe(204);
-  expect(fetcher.mock.calls[0][1].headers.get("origin")).toBe(`chrome-extension://${id}`);
-  expect(fetcher.mock.calls[0][1].headers.get("x-csrf-token")).toBe("csrf-token");
-  expect(fetcher.mock.calls[0][1].headers.get("cookie")).toBe(
-    "__Host-devfeed_user_session=session",
-  );
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        .mockResolvedValue(
+          new Response(body, { headers: { "Content-Type": "text/event-stream" } }),
+        ),
+    );
+    const response = await inbox.GET(new Request(`${origin}/api`), context({ path: ["stream"] }));
+    const reader = response.body!.getReader();
+    stream.enqueue(new TextEncoder().encode("data: hello\n\n"));
+    expect(new TextDecoder().decode((await reader.read()).value)).toBe("data: hello\n\n");
+    stream.close();
+    expect((await reader.read()).done).toBe(true);
+    reader.releaseLock();
+  });
+
+  it("fails privately without the configured user service", async () => {
+    vi.stubEnv("DEVFEED_USER_API_URL", "");
+    const response = await me.GET(new Request(`${origin}/api`), {});
+    expect(response.status).toBe(503);
+    expect(await response.json()).toEqual({ detail: "User service unavailable" });
+    expect(response.headers.get("cache-control")).toBe("no-store");
+  });
 });
 
-it.each([
-  "chrome-extension://" + "b".repeat(32),
-  "chrome-extension://" + "a".repeat(32) + "/",
-  "null",
-])("rejects untrusted extension-like origins: %s", async (origin) => {
-  vi.stubEnv("DEVFEED_USER_EXTENSION_IDS", JSON.stringify(["a".repeat(32)]));
-  const fetcher = vi.fn();
-  vi.stubGlobal("fetch", fetcher);
-  const response = await gateway(
-    new Request("https://user.example/api/v1/user/auth/logout", {
+describe("reader body byte limits and total deadlines", () => {
+  it("preserves the exact multipart avatar boundary and bytes", async () => {
+    const fetcher = vi
+      .fn()
+      .mockResolvedValue(Response.json({ avatar_url: "https://images.test/avatar.webp" }));
+    vi.stubGlobal("fetch", fetcher);
+    const body = new FormData();
+    body.append("file", new Blob([new Uint8Array(1_100_000)], { type: "image/png" }), "avatar.png");
+    const incoming = new Request(`${origin}/api`, {
       method: "POST",
-      headers: { origin, "X-CSRF-Token": "valid-token" },
-    }),
-    ["v1", "user", "auth", "logout"],
+      headers: { Origin: origin, "X-CSRF-Token": "csrf" },
+      body,
+    });
+    const expected = await incoming.clone().arrayBuffer();
+    expect((await avatar.POST(incoming, {})).status).toBe(200);
+    expect(fetcher.mock.calls[0][1].headers.get("content-type")).toBe(
+      incoming.headers.get("content-type"),
+    );
+    expect(fetcher.mock.calls[0][1].headers.get("x-csrf-token")).toBe("csrf");
+    expect(Buffer.from(fetcher.mock.calls[0][1].body).equals(Buffer.from(expected))).toBe(true);
+  });
+
+  it.each([
+    { name: "ordinary preferences", handler: preferences.PUT, method: "PUT", limit: 1_000_000 },
+    { name: "avatar upload", handler: avatar.POST, method: "POST", limit: 5 * 1024 * 1024 + 65536 },
+    { name: "avatar removal", handler: avatar.DELETE, method: "DELETE", limit: 1_000_000 },
+  ])(
+    "accepts the exact byte boundary and rejects declared/actual oversize for $name",
+    async ({ handler, method, limit }) => {
+      const fetcher = vi.fn().mockImplementation(() => Response.json({}));
+      vi.stubGlobal("fetch", fetcher);
+      const exact = new Uint8Array(limit);
+      const accepted = await handler(
+        new Request(`${origin}/api`, { method, headers: { Origin: origin }, body: exact }),
+        {},
+      );
+      expect(accepted.status).toBe(200);
+      expect(fetcher.mock.calls[0][1].body.byteLength).toBe(limit);
+      expect(Buffer.from(fetcher.mock.calls[0][1].body).equals(Buffer.from(exact))).toBe(true);
+      fetcher.mockClear();
+      for (const declared of [true, false]) {
+        const response = await handler(
+          new Request(`${origin}/api`, {
+            method,
+            headers: {
+              Origin: origin,
+              ...(declared ? { "Content-Length": String(limit + 1) } : {}),
+            },
+            body: new Uint8Array(limit + 1),
+          }),
+          {},
+        );
+        expect(response.status).toBe(413);
+        expect(await response.json()).toEqual({ detail: "Request too large" });
+        expect(response.headers.get("cache-control")).toBe("no-store");
+      }
+      expect(fetcher).not.toHaveBeenCalled();
+    },
   );
-  expect(response.status).toBe(403);
-  expect(fetcher).not.toHaveBeenCalled();
+
+  it.each([
+    { name: "ordinary preferences", handler: preferences.PUT, method: "PUT", deadline: 2000 },
+    { name: "avatar upload", handler: avatar.POST, method: "POST", deadline: 10_000 },
+    { name: "avatar removal", handler: avatar.DELETE, method: "DELETE", deadline: 2000 },
+  ])(
+    "cancels and unlocks a stalled $name body at its total deadline",
+    async ({ handler, method, deadline }) => {
+      vi.useFakeTimers();
+      const fetcher = vi.fn();
+      const cancel = vi.fn();
+      vi.stubGlobal("fetch", fetcher);
+      const incoming = new Request(`${origin}/api`, {
+        method,
+        headers: { Origin: origin },
+        body: new ReadableStream<Uint8Array>({ cancel }),
+        duplex: "half",
+      } as RequestInit);
+      const completed = vi.fn();
+      const pending = handler(incoming, {});
+      void pending.then(completed);
+      await vi.advanceTimersByTimeAsync(deadline - 1);
+      expect(completed).not.toHaveBeenCalled();
+      await vi.advanceTimersByTimeAsync(1);
+      const response = await pending;
+      expect(response.status).toBe(408);
+      expect(await response.json()).toEqual({ detail: "Incomplete request" });
+      expect(response.headers.get("cache-control")).toBe("no-store");
+      expect(cancel).toHaveBeenCalledOnce();
+      expect(incoming.body!.locked).toBe(false);
+      expect(fetcher).not.toHaveBeenCalled();
+      expect(vi.getTimerCount()).toBe(0);
+    },
+  );
+
+  it("does not reset the ordinary deadline when partial chunks keep arriving", async () => {
+    vi.useFakeTimers();
+    const fetcher = vi.fn();
+    vi.stubGlobal("fetch", fetcher);
+    let stream!: ReadableStreamDefaultController<Uint8Array>;
+    const cancel = vi.fn();
+    const incoming = new Request(`${origin}/api`, {
+      method: "PUT",
+      headers: { Origin: origin },
+      body: new ReadableStream<Uint8Array>({
+        start(controller) {
+          stream = controller;
+        },
+        cancel,
+      }),
+      duplex: "half",
+    } as RequestInit);
+    const pending = preferences.PUT(incoming, {});
+    await vi.advanceTimersByTimeAsync(1000);
+    stream.enqueue(new TextEncoder().encode('{"topic_ids":'));
+    await vi.advanceTimersByTimeAsync(999);
+    stream.enqueue(new TextEncoder().encode("["));
+    expect(fetcher).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(1);
+    expect((await pending).status).toBe(408);
+    expect(cancel).toHaveBeenCalledOnce();
+    expect(incoming.body!.locked).toBe(false);
+  });
+
+  it.each(["stalls", "rejects"])(
+    "still returns 408 when body cancellation %s",
+    async (behavior) => {
+      vi.useFakeTimers();
+      const fetcher = vi.fn();
+      vi.stubGlobal("fetch", fetcher);
+      const cancel = vi.fn(() =>
+        behavior === "stalls"
+          ? new Promise<void>(() => {})
+          : Promise.reject(new Error("Private peer reason")),
+      );
+      const incoming = new Request(`${origin}/api`, {
+        method: "POST",
+        headers: { Origin: origin },
+        body: new ReadableStream<Uint8Array>({ cancel }),
+        duplex: "half",
+      } as RequestInit);
+      const pending = logout.POST(incoming, {});
+      await vi.advanceTimersByTimeAsync(2000);
+      expect((await pending).status).toBe(408);
+      expect(cancel).toHaveBeenCalledOnce();
+      expect(incoming.body!.locked).toBe(false);
+      expect(fetcher).not.toHaveBeenCalled();
+    },
+  );
+
+  it("forwards complete preference JSON and CSRF without adding fields", async () => {
+    const fetcher = vi.fn().mockResolvedValue(Response.json({ topic_ids: [] }));
+    vi.stubGlobal("fetch", fetcher);
+    const incoming = new Request(`${origin}/api`, {
+      method: "PUT",
+      headers: { Origin: origin, "X-CSRF-Token": "csrf", "Content-Type": "application/json" },
+      body: '{"topic_ids":[]}',
+    });
+    expect((await preferences.PUT(incoming, {})).status).toBe(200);
+    expect(fetcher.mock.calls[0][1].headers.get("x-csrf-token")).toBe("csrf");
+    expect(new TextDecoder().decode(fetcher.mock.calls[0][1].body)).toBe('{"topic_ids":[]}');
+  });
 });
 
-it("fails closed on wildcard or malformed extension configuration", async () => {
-  vi.stubEnv("DEVFEED_USER_EXTENSION_IDS", '["*"]');
-  const fetcher = vi.fn();
-  vi.stubGlobal("fetch", fetcher);
-  const response = await gateway(
-    new Request("https://user.example/api/v1/user/auth/logout", {
-      method: "POST",
-      headers: { origin: "chrome-extension://" + "a".repeat(32) },
-    }),
-    ["v1", "user", "auth", "logout"],
+describe("dedicated personalized placement handler", () => {
+  it("validates and forwards the exact 8192-byte context while keeping only session and CSRF", async () => {
+    const fetcher = vi.fn().mockResolvedValue(Response.json({ items: [] }));
+    vi.stubGlobal("fetch", fetcher);
+    const body = JSON.stringify({ surface: "feed" }).padEnd(8192, " ");
+    const response = await placements.POST(
+      new Request(`${origin}/api`, {
+        method: "POST",
+        headers: {
+          Origin: origin,
+          "Content-Type": "application/json",
+          Cookie: "devfeed_user_session=session; admin_session=private",
+          "X-CSRF-Token": "csrf",
+        },
+        body,
+      }),
+      {},
+    );
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ items: [] });
+    const [url, options] = fetcher.mock.calls[0];
+    expect(url).toBe(`${api}/v1/user/partner-placements/query`);
+    expect(new TextDecoder().decode(options.body)).toBe(body);
+    expect(options.headers.get("cookie")).toBe("devfeed_user_session=session");
+    expect(options.headers.get("x-csrf-token")).toBe("csrf");
+    expect(options.cache).toBe("no-store");
+  });
+
+  it.each([
+    "{",
+    JSON.stringify({ surface: "feed", user_id: "untrusted" }),
+    JSON.stringify({ surface: "article" }),
+  ])("rejects invalid placement context before forwarding: %s", async (body) => {
+    const fetcher = vi.fn();
+    vi.stubGlobal("fetch", fetcher);
+    const response = await placements.POST(
+      new Request(`${origin}/api`, { method: "POST", headers: { Origin: origin }, body }),
+      {},
+    );
+    expect(response.status).toBe(422);
+    expect(await response.json()).toEqual({ detail: "Invalid placement context" });
+    expect(response.headers.get("cache-control")).toBe("no-store");
+    expect(fetcher).not.toHaveBeenCalled();
+  });
+
+  it.each([true, false])(
+    "rejects oversized placement context before parsing (declared=%s)",
+    async (declared) => {
+      const fetcher = vi.fn();
+      vi.stubGlobal("fetch", fetcher);
+      const response = await placements.POST(
+        new Request(`${origin}/api`, {
+          method: "POST",
+          headers: { Origin: origin, ...(declared ? { "Content-Length": "8193" } : {}) },
+          body: " ".repeat(8193),
+        }),
+        {},
+      );
+      expect(response.status).toBe(413);
+      expect(fetcher).not.toHaveBeenCalled();
+    },
   );
-  expect(response.status).toBe(503);
-  expect(fetcher).not.toHaveBeenCalled();
+
+  it("ends a personalized placement body at two seconds and cancels its reader", async () => {
+    vi.useFakeTimers();
+    const fetcher = vi.fn();
+    const cancel = vi.fn();
+    vi.stubGlobal("fetch", fetcher);
+    const incoming = new Request(`${origin}/api`, {
+      method: "POST",
+      headers: { Origin: origin },
+      body: new ReadableStream<Uint8Array>({ cancel }),
+      duplex: "half",
+    } as RequestInit);
+    const pending = placements.POST(incoming, {});
+    await vi.advanceTimersByTimeAsync(2000);
+    expect((await pending).status).toBe(408);
+    expect(cancel).toHaveBeenCalledOnce();
+    expect(incoming.body!.locked).toBe(false);
+    expect(fetcher).not.toHaveBeenCalled();
+  });
 });

@@ -22,22 +22,25 @@
   saves. Product and catalog locks precede these authorization locks; rate limits, external
   requests and transaction commits stay with their existing callers.
 
-## Portal gateway contracts
+## Frontend gateway contracts
 
-The admin and partner services register exposed routers with `include_gateway_router` from
+The admin, partner and user services register exposed routers with `include_gateway_router` from
 `devfeed_http.operation_policies`. This supplies the default `GatewayPolicy` and
 retains each endpoint's explicit `openapi_extra=GatewayPolicy(...).openapi_extra()`
 override. Health routes outside these routers remain unexposed.
+The user service uses `ReaderGatewayPolicy`, which also declares the cookie policy and
+whether the operation requires the dedicated placement-query handler.
 
-`npm run admin:generate` and `npm run partner:generate` export the operation inventories
+`npm run admin:generate`, `npm run partner:generate` and `npm run web:generate` export the inventories
 and regenerate the clients and transport definitions. The inventory includes actual
 path converters, parameter constraints and any hidden operations. Generation rejects
-unsupported or inconsistent contracts; normal portal tests check the generated output.
+unsupported or inconsistent contracts; normal frontend tests check the generated output.
 
 The admin gateway matches an operation in backend registration order. The partner portal
-uses generated concrete Next route handlers under `apps/partner/src/app/api/v1/partner`.
+and reader use generated concrete Next route handlers under
+`apps/partner/src/app/api/v1/partner` and `apps/web/src/app/api/v1/user`.
 Next selects the route and method, and each handler binds one declared operation. There
-is no partner catch-all proxy or separate list of resource recognizers. Provider identifier
+is no partner or reader catch-all proxy or separate list of resource recognizers. Provider identifier
 bounds belong to the backend's shared `ProviderSlug` type.
 
 `GatewayRoute` from `@devfeed/http/gateway` validates parameters and encodes the upstream
@@ -45,6 +48,15 @@ path. `GatewayTransport` from `@devfeed/http/forwarding` shares origin checks, c
 and response-header forwarding, streaming, cancellation, and each operation's body and
 upstream deadlines. Unsupported requests are rejected before body collection; backend
 dependencies continue to enforce sessions, live membership and write permissions.
+
+Reader operations forward only reader session, state and visitor cookies. Login alone
+allows attribution cookies when the X pixel is enabled. Ordinary writes have a 1 MB
+body limit and a two-second total reading deadline; avatar uploads allow 5 MiB plus
+64 KiB of multipart overhead and ten seconds. Both use a 45-second upstream deadline.
+Placement queries use an 8 KiB body limit and two-second reading deadline, with body
+validation in their dedicated handler before forwarding. Public profile and leaderboard
+handlers remain separate and omit credentials. Configured Chrome and Edge origins use
+the same reader write-origin policy as the website.
 
 ## Object storage
 

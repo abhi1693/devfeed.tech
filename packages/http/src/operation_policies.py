@@ -2,7 +2,7 @@
 
 import copy
 import hashlib
-from typing import Any
+from typing import Any, Literal
 
 from fastapi import APIRouter, FastAPI
 from fastapi.routing import APIRoute, iter_route_contexts
@@ -24,23 +24,34 @@ class GatewayPolicy(BaseModel):
         return {GATEWAY_POLICY_EXTENSION: self.model_dump(by_alias=True)}
 
 
+class ReaderGatewayPolicy(GatewayPolicy):
+    cookie_policy: Literal["reader", "reader-attribution", "omit"] = Field(
+        default="reader", alias="cookiePolicy"
+    )
+    handler: Literal["forward", "placement-query"] = "forward"
+
+
 DEFAULT_GATEWAY_POLICY = GatewayPolicy()
 
 
-def include_gateway_router(app: FastAPI, router: APIRouter) -> None:
+def include_gateway_router(
+    app: FastAPI, router: APIRouter, *, default_policy: GatewayPolicy = DEFAULT_GATEWAY_POLICY
+) -> None:
     """Expose this router's operations, retaining endpoint overrides and unrelated metadata."""
     for context in iter_route_contexts(router.routes):
         route = context.original_route
         if isinstance(route, APIRoute):
             extra = dict(route.openapi_extra or {})
-            policy = GatewayPolicy.model_validate(
-                extra.get(GATEWAY_POLICY_EXTENSION, DEFAULT_GATEWAY_POLICY.model_dump())
+            policy = type(default_policy).model_validate(
+                extra.get(GATEWAY_POLICY_EXTENSION, default_policy.model_dump())
             )
             route.openapi_extra = {**extra, **policy.openapi_extra()}
     app.include_router(router)
 
 
-def export_gateway_document(app: FastAPI) -> dict[str, Any]:
+def export_gateway_document(
+    app: FastAPI, *, policy_type: type[GatewayPolicy] = GatewayPolicy
+) -> dict[str, Any]:
     """Export the schema plus exposed routes, including operations hidden from Swagger."""
     document = copy.deepcopy(app.openapi())
     operations = []
@@ -51,7 +62,7 @@ def export_gateway_document(app: FastAPI) -> dict[str, Any]:
         extra = context.openapi_extra or {}
         if GATEWAY_POLICY_EXTENSION not in extra:
             continue
-        policy = GatewayPolicy.model_validate(extra[GATEWAY_POLICY_EXTENSION])
+        policy = policy_type.model_validate(extra[GATEWAY_POLICY_EXTENSION])
         for method in sorted(context.methods or ()):
             operation = (
                 document.get("paths", {}).get(context.path_format, {}).get(method.lower(), {})

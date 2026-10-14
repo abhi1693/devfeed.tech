@@ -9,6 +9,7 @@ from devfeed_core.logging import configure_logging
 from devfeed_core.version import SCHEMA_REVISION, __version__
 from devfeed_http.body_limits import RequestBodyLimitMiddleware
 from devfeed_http.image_uploads import ImageUploadBodyLimit
+from devfeed_http.operation_policies import ReaderGatewayPolicy, include_gateway_router
 from devfeed_http.schemas import ERROR_RESPONSES
 from devfeed_http.service import HTTPService
 from devfeed_http.telemetry import fastapi_telemetry
@@ -79,20 +80,23 @@ def create_app() -> FastAPI:
         schema_revision=SCHEMA_REVISION,
     )
 
-    app.include_router(auth.router)
-    app.include_router(mcp.router)
-    app.include_router(preferences.router)
-    app.include_router(engagement.router)
-    app.include_router(bookmarks.router)
-    app.include_router(notifications.router)
-    app.include_router(profile.router)
-    app.include_router(profile.public_router)
-    app.include_router(avatars.router)
-    app.include_router(leaderboard.router)
-    app.include_router(recommendations.router)
-    app.include_router(partner_placements.router)
-    app.include_router(must_reads.router)
-    app.include_router(sources.router)
+    for router in (
+        auth.router,
+        mcp.router,
+        preferences.router,
+        engagement.router,
+        bookmarks.router,
+        notifications.router,
+        profile.router,
+        profile.public_router,
+        avatars.router,
+        leaderboard.router,
+        recommendations.router,
+        partner_placements.router,
+        must_reads.router,
+        sources.router,
+    ):
+        include_gateway_router(app, router, default_policy=ReaderGatewayPolicy())
     return app
 
 

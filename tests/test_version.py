@@ -76,15 +76,17 @@ def write_generated(root, value, app=None):
             path = root / client_name / relative
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text(f"/**\n * OpenAPI spec version: {value}\n */\n")
-        if name == "partner":
-            write_partner_route(root, "auth/config", value)
+        for route_app, _, _ in command.GENERATED_ROUTES:
+            if name == route_app:
+                write_generated_route(root, name, "auth/config", value)
 
 
-def write_partner_route(root, relative, value):
-    path = root / command.PARTNER_ROUTE_ROOT / relative / "route.ts"
+def write_generated_route(root, app, relative, value):
+    _, route_root, marker = next(item for item in command.GENERATED_ROUTES if item[0] == app)
+    path = root / route_root / relative / "route.ts"
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(
-        f"/**\n{command.PARTNER_ROUTE_MARKER}\n * OpenAPI spec version: {value}\n */\n"
+        f"/**\n{marker}\n * OpenAPI spec version: {value}\n */\n"
         "export const GET = generatedHandler;\n"
     )
     return path
@@ -147,6 +149,7 @@ def test_set_updates_only_project_versions_and_locks_once(workspace):
         (["uv", "sync", "--all-packages", "--locked", "--offline"], workspace, True),
         (["npm", "run", "admin:generate"], workspace, True),
         (["npm", "run", "partner:generate"], workspace, True),
+        (["npm", "run", "web:generate"], workspace, True),
     ]
     assert command.check(workspace) == "0.2.0"
     assert json.loads((workspace / "apps/admin/package.json").read_text())["version"] == "0.2.0"
@@ -181,7 +184,7 @@ def test_dry_run_does_not_write_or_invoke_uv(workspace):
             f"{client_name}/models/article.ts",
         )
     ]
-    + [f"{command.PARTNER_ROUTE_ROOT}/auth/config/route.ts"],
+    + [f"{relative}/auth/config/route.ts" for _, relative, _ in command.GENERATED_ROUTES],
 )
 def test_generated_version_drift_is_reported(workspace, relative):
     path = workspace / relative
@@ -200,7 +203,7 @@ def test_missing_generated_client_is_reported(workspace, relative):
         command.check(workspace)
 
 
-@pytest.mark.parametrize("failure", ["sync", "admin", "partner", "stale-output"])
+@pytest.mark.parametrize("failure", ["sync", "admin", "partner", "web", "stale-output"])
 def test_failed_bump_restores_manifests_locks_and_generated_artifacts(workspace, failure):
     before = {p: p.read_bytes() for p in workspace.rglob("*") if p.is_file()}
 
@@ -227,25 +230,28 @@ def test_failed_bump_restores_manifests_locks_and_generated_artifacts(workspace,
 
 
 @pytest.mark.parametrize("failure", ["generation", "stale-output", "interrupt"])
-def test_failed_bump_restores_only_generator_owned_partner_routes(workspace, failure):
-    modified = workspace / command.PARTNER_ROUTE_ROOT / "auth/config/route.ts"
-    deleted = write_partner_route(workspace, "inventory", "0.1.0")
-    handwritten = workspace / command.PARTNER_ROUTE_ROOT / "handwritten/route.ts"
+@pytest.mark.parametrize("app,route_root,marker", command.GENERATED_ROUTES)
+def test_failed_bump_restores_only_generator_owned_routes(
+    workspace, failure, app, route_root, marker
+):
+    modified = workspace / route_root / "auth/config/route.ts"
+    deleted = write_generated_route(workspace, app, "inventory", "0.1.0")
+    handwritten = workspace / route_root / "handwritten/route.ts"
     handwritten.parent.mkdir(parents=True)
     handwritten.write_text("export const GET = handwrittenHandler;\n")
     original_routes = {path: path.read_bytes() for path in (modified, deleted)}
-    new_generated = workspace / command.PARTNER_ROUTE_ROOT / "added/route.ts"
-    new_handwritten = workspace / command.PARTNER_ROUTE_ROOT / "manual/route.ts"
+    new_generated = workspace / route_root / "added/route.ts"
+    new_handwritten = workspace / route_root / "manual/route.ts"
 
     def run(args, *, cwd, check):
         if args == ["uv", "lock", "--offline"]:
             write_lock(workspace, "0.2.0")
         elif args[:2] == ["npm", "run"]:
-            app = args[2].split(":")[0]
-            write_generated(workspace, "0.2.0", app)
-            if app == "partner":
+            generated_app = args[2].split(":")[0]
+            write_generated(workspace, "0.2.0", generated_app)
+            if generated_app == app:
                 deleted.unlink()
-                write_partner_route(workspace, "added", "0.2.0")
+                write_generated_route(workspace, app, "added", "0.2.0")
                 handwritten.write_text("export const GET = independentlyUpdatedHandler;\n")
                 new_handwritten.parent.mkdir(parents=True)
                 new_handwritten.write_text("export const POST = newHandwrittenHandler;\n")
@@ -255,7 +261,7 @@ def test_failed_bump_restores_only_generator_owned_partner_routes(workspace, fai
                     raise KeyboardInterrupt
                 # Even a nominally successful generator must roll back if a
                 # concrete handler retains the old release's version stamp.
-                write_partner_route(workspace, "added", "0.1.0")
+                write_generated_route(workspace, app, "added", "0.1.0")
 
     with pytest.raises((subprocess.CalledProcessError, ValueError, KeyboardInterrupt)):
         command.set_version(workspace, "0.2.0", runner=run)

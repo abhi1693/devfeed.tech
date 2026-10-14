@@ -11,6 +11,7 @@ from datetime import UTC, datetime
 from typing import Annotated, Literal, cast
 from urllib.parse import parse_qsl, urlsplit
 
+from devfeed_http.operation_policies import ReaderGatewayPolicy
 from devfeed_http.schemas import OIDCCallbackQuery
 from fastapi import (
     APIRouter,
@@ -226,7 +227,11 @@ def valid_return_destination(destination: str) -> bool:
 
 
 @router.get(
-    "/login", operation_id="user_auth_login", response_class=RedirectResponse, status_code=302
+    "/login",
+    operation_id="user_auth_login",
+    response_class=RedirectResponse,
+    status_code=302,
+    openapi_extra=ReaderGatewayPolicy(cookie_policy="reader-attribution").openapi_extra(),
 )
 def login(
     request: Request,

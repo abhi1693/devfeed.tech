@@ -3,22 +3,43 @@ import { traceHeaders } from "@devfeed/telemetry/propagation";
 import { parsePartnerPlacements, validPlacementQuery } from "../partner-placements";
 import { publicApiOrigin } from "./config";
 import { partnerCallerHeaders } from "./partner-caller";
+import type { ReaderGatewayOperation } from "@devfeed/http/gateway";
+import { bindReaderOperation } from "./gateway";
 import {
   readRequestBody,
   RequestBodyTimeout,
   RequestBodyTooLarge,
 } from "@devfeed/http/request-body";
 
+function placementQuery(body: ArrayBuffer): unknown {
+  try {
+    return JSON.parse(new TextDecoder().decode(body));
+  } catch {
+    return null;
+  }
+}
+
+export function bindPersonalizedPartnerPlacements(operation: ReaderGatewayOperation) {
+  if (operation.method !== "POST" || operation.policy.handler !== "placement-query")
+    throw new Error("Personalized placements require a placement-query POST operation");
+  return bindReaderOperation(operation, (body) =>
+    validPlacementQuery(placementQuery(body))
+      ? null
+      : Response.json(
+          { detail: "Invalid placement context" },
+          {
+            status: 422,
+            headers: { "Cache-Control": "no-store", "Referrer-Policy": "no-referrer" },
+          },
+        ),
+  );
+}
+
 export async function partnerPlacements(request: Request) {
   const headers = { "Cache-Control": "no-store", "Referrer-Policy": "no-referrer" };
   try {
     const body = await readRequestBody(request, 8192, 2000);
-    let query: unknown;
-    try {
-      query = JSON.parse(new TextDecoder().decode(body));
-    } catch {
-      query = null;
-    }
+    const query = placementQuery(body);
     if (!validPlacementQuery(query))
       return Response.json({ detail: "Invalid placement context" }, { status: 422, headers });
     const upstream = await fetch(new URL("/v1/partner-placements/query", publicApiOrigin()), {
