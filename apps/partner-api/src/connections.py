@@ -17,6 +17,7 @@ from devfeed_core.partner_connections import (
     ConnectionOut,
     ConnectorPreviewOut,
     ConnectorResponseOut,
+    ProviderSlug,
     configure_connection,
     connection_views,
     update_connection_definition,
@@ -321,7 +322,7 @@ def draft_connector_response(
 )
 def existing_connector_preview(
     account_id: uuid.UUID,
-    provider: str,
+    provider: ProviderSlug,
     body: PartnerConnectionPreview,
     session: DB,
     partner: Partner,
@@ -336,7 +337,7 @@ def existing_connector_preview(
 )
 def existing_connector_response(
     account_id: uuid.UUID,
-    provider: str,
+    provider: ProviderSlug,
     body: PartnerConnectionPreview,
     session: DB,
     partner: Partner,
@@ -366,7 +367,7 @@ def list_connections(account_id: uuid.UUID, session: DB, partner: Partner, query
 
 
 @router.get("/{provider}", response_model=PartnerConnectionOut, operation_id="partnerConnectionGet")
-def get_connection(account_id: uuid.UUID, provider: str, session: DB, partner: Partner):
+def get_connection(account_id: uuid.UUID, provider: ProviderSlug, session: DB, partner: Partner):
     PartnerAccountAccess(session, partner).require(account_id)
     return partner_connection_views(session, [connection_access(session, account_id, provider)])[0]
 
@@ -423,7 +424,7 @@ def create_connection(
 )
 def update_connection(
     account_id: uuid.UUID,
-    provider: str,
+    provider: ProviderSlug,
     body: PartnerConnectionUpdate,
     session: DB,
     partner: Partner,
@@ -482,7 +483,7 @@ def update_connection(
 )
 def connection_action(
     account_id: uuid.UUID,
-    provider: str,
+    provider: ProviderSlug,
     body: PartnerConnectionAction,
     session: DB,
     partner: Partner,
@@ -509,7 +510,7 @@ def connection_action(
 )
 def disconnect_connection(
     account_id: uuid.UUID,
-    provider: str,
+    provider: ProviderSlug,
     body: PartnerConnectionDelete,
     session: DB,
     partner: Partner,
@@ -536,7 +537,7 @@ def disconnect_connection(
     operation_id="partnerConnectionJobs",
 )
 def connection_jobs(
-    account_id: uuid.UUID, provider: str, session: DB, partner: Partner, query: Listing
+    account_id: uuid.UUID, provider: ProviderSlug, session: DB, partner: Partner, query: Listing
 ):
     PartnerAccountAccess(session, partner).require(account_id)
     connection_access(session, account_id, provider)

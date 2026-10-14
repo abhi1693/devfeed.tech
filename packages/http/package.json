@@ -4,6 +4,7 @@
   "private": true,
   "type": "module",
   "exports": {
+    "./forwarding": "./src/forwarding.ts",
     "./gateway": "./src/gateway.ts",
     "./request-body": "./src/request-body.ts"
   },

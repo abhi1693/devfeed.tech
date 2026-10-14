@@ -4,9 +4,9 @@ import json
 import re
 import uuid
 from datetime import datetime, timedelta
-from typing import Literal
+from typing import Annotated, Literal
 
-from pydantic import Field, field_validator
+from pydantic import Field, StringConstraints, field_validator
 from sqlalchemy import and_, exists, func, or_, select
 from sqlalchemy.orm import aliased
 
@@ -42,6 +42,11 @@ from devfeed_core.research_evidence import normalized
 from devfeed_core.schemas import InputModel, ORMModel
 
 SYSTEM_ACTOR = {"subject": "partner-pipeline", "issuer": "devfeed", "organization_id": "system"}
+_PROVIDER_SLUG_PATTERN = r"[a-z0-9]+(?:-[a-z0-9]+)*"
+ProviderSlug = Annotated[
+    str,
+    StringConstraints(min_length=1, max_length=200, pattern=rf"^{_PROVIDER_SLUG_PATTERN}$"),
+]
 
 
 class PartnerJobOut(ORMModel):
@@ -73,7 +78,7 @@ class ConnectionCreate(InputModel):
     @field_validator("provider")
     @classmethod
     def provider_slug(cls, value):
-        if value == "new" or not re.fullmatch(r"[a-z0-9]+(?:-[a-z0-9]+)*", value):
+        if value == "new" or not re.fullmatch(_PROVIDER_SLUG_PATTERN, value):
             raise ValueError("Import connection identifier must be a lowercase slug")
         return value
 

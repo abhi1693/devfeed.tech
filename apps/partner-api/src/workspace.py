@@ -4,6 +4,7 @@ import uuid
 
 from devfeed_core.models import PartnerAccount, PartnerConnection
 from devfeed_core.partner_ad_formats import AdFormat
+from devfeed_core.partner_connections import ProviderSlug
 from devfeed_core.partner_credentials import credential_storage_available
 from devfeed_core.text_search import text_search
 from devfeed_http.pagination import Listing, Page
@@ -182,7 +183,7 @@ def connections(session: DB, partner: Partner, query: Listing, account_id: uuid.
     response_model=WorkspaceConnectionOut,
     operation_id="partnerWorkspaceConnectionGet",
 )
-def get_connection(provider: str, session: DB, partner: Partner):
+def get_connection(provider: ProviderSlug, session: DB, partner: Partner):
     connection, account_name = workspace_connection(session, partner, provider)
     return connection_view(session, connection, account_name)
 
@@ -192,7 +193,7 @@ def get_connection(provider: str, session: DB, partner: Partner):
     response_model=PartnerConnectionJobsOut,
     operation_id="partnerWorkspaceConnectionJobs",
 )
-def jobs(provider: str, session: DB, partner: Partner, query: Listing):
+def jobs(provider: ProviderSlug, session: DB, partner: Partner, query: Listing):
     connection, _ = workspace_connection(session, partner, provider)
     return connection_jobs(connection.account_id, provider, session, partner, query)
 

@@ -22,23 +22,29 @@
   saves. Product and catalog locks precede these authorization locks; rate limits, external
   requests and transaction commits stay with their existing callers.
 
-## Admin gateway contract
+## Portal gateway contracts
 
-The admin service registers exposed routers with `include_gateway_router` from
+The admin and partner services register exposed routers with `include_gateway_router` from
 `devfeed_http.operation_policies`. This supplies the default `GatewayPolicy` and
 retains each endpoint's explicit `openapi_extra=GatewayPolicy(...).openapi_extra()`
 override. Health routes outside these routers remain unexposed.
 
-`npm run admin:generate` exports the ordered operation inventory and regenerates
-the browser client and gateway definitions. The inventory includes hidden inbox
-operations, actual path converters and parameter constraints. Generation rejects
-unsupported or inconsistent contracts; normal admin tests check the generated output.
+`npm run admin:generate` and `npm run partner:generate` export the operation inventories
+and regenerate the clients and transport definitions. The inventory includes actual
+path converters, parameter constraints and any hidden operations. Generation rejects
+unsupported or inconsistent contracts; normal portal tests check the generated output.
 
-`@devfeed/http/gateway` matches an operation once in backend registration order,
-validates its parameters and encodes its upstream path. The admin gateway consumes
-that operation's body limit, body deadline and upstream deadline. Unknown paths and
-unsupported methods are rejected before body collection. Origin checks, credential
-and response-header forwarding, streaming and cancellation stay in the transport.
+The admin gateway matches an operation in backend registration order. The partner portal
+uses generated concrete Next route handlers under `apps/partner/src/app/api/v1/partner`.
+Next selects the route and method, and each handler binds one declared operation. There
+is no partner catch-all proxy or separate list of resource recognizers. Provider identifier
+bounds belong to the backend's shared `ProviderSlug` type.
+
+`GatewayRoute` from `@devfeed/http/gateway` validates parameters and encodes the upstream
+path. `GatewayTransport` from `@devfeed/http/forwarding` shares origin checks, credential
+and response-header forwarding, streaming, cancellation, and each operation's body and
+upstream deadlines. Unsupported requests are rejected before body collection; backend
+dependencies continue to enforce sessions, live membership and write permissions.
 
 ## Object storage
 

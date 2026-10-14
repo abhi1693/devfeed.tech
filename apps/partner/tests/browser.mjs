@@ -156,6 +156,7 @@ const dashboardRequests = [];
 const workspaceDashboardRequests = [];
 const accountPages = [];
 const accountLookups = [];
+const apiRequests = [];
 const logoutRequests = [];
 const preferenceWrites = [];
 const previewRequests = [];
@@ -189,6 +190,7 @@ const connectionFixture = createConnectionFixture({ account, origin: () => origi
 const mock = createServer(async (request, response) => {
   const url = new URL(request.url, "http://localhost");
   const path = url.pathname;
+  apiRequests.push({ path, method: request.method });
   const mode = /devfeed_partner_session=(\w+)/.exec(request.headers.cookie ?? "")?.[1] ?? "";
   response.setHeader("Content-Type", "application/json");
   if (path.endsWith("/auth/config")) {
@@ -628,6 +630,69 @@ next.stderr.on("data", (chunk) => {
   logs += chunk;
 });
 
+async function checkConcreteApiRoutes() {
+  for (const { path, method, status, allowed } of [
+    { path: "/api/v1/admin/accounts", method: "POST", status: 404 },
+    { path: "/api/v1/user/auth/me", method: "POST", status: 404 },
+    { path: "/api/v1/partner/unavailable-resource", method: "POST", status: 404 },
+    {
+      path: `/api/v1/partner/accounts/${account.id}/products/${previewProduct.id}/ad-image/extra`,
+      method: "POST",
+      status: 404,
+    },
+    { path: "/api/v1/partner/auth/me", method: "POST", status: 405 },
+    { path: "/api/v1/partner/connections", method: "PUT", status: 405 },
+    {
+      path: `/api/v1/partner/accounts/${account.id}/products/${previewProduct.id}/promotion`,
+      method: "POST",
+      status: 405,
+    },
+    { path: "/api/v1/partner/auth/me", method: "HEAD", status: 405, allowed: ["GET"] },
+    {
+      path: "/api/v1/partner/connections",
+      method: "OPTIONS",
+      status: 204,
+      allowed: ["GET", "HEAD", "OPTIONS", "POST"],
+    },
+  ]) {
+    const requestsBefore = apiRequests.length;
+    const response = await fetch(origin + path, {
+      method,
+      headers: {
+        Origin: origin,
+        Cookie: "devfeed_partner_session=partner",
+        "Content-Type": "application/json",
+      },
+      ...(!["GET", "HEAD", "OPTIONS"].includes(method)
+        ? { body: '{"gateway-boundary-fixture":true}' }
+        : {}),
+      redirect: "manual",
+      signal: AbortSignal.timeout(5000),
+    });
+    assert.equal(response.status, status, `${method} ${path}`);
+    if (allowed)
+      assert.deepEqual(
+        new Set(
+          response.headers
+            .get("allow")
+            .split(",")
+            .map((value) => value.trim()),
+        ),
+        new Set(allowed),
+        `${method} ${path} advertises its concrete method surface`,
+      );
+    await response.arrayBuffer();
+    assert.equal(
+      apiRequests.length,
+      requestsBefore,
+      `${method} ${path} must not reach the upstream fixture or its body collectors`,
+    );
+  }
+  console.log(
+    "Partner concrete API routes passed: namespace isolation, unknown routes, methods, HEAD, native OPTIONS, and no upstream requests.",
+  );
+}
+
 async function checkUploadDeadline() {
   const completedLogouts = logoutRequests.length;
   let upload;
@@ -808,19 +873,37 @@ async function checkPartnerSidebar(page) {
       `Sidebar toggle stays visible in a ${bounds.height}px viewport before interaction`,
     );
   }
-  await page.evaluate(() => window.scrollTo(0, 80));
-  await page.waitForFunction(() => {
-    const rect = document.getElementById("partner-sidebar").getBoundingClientRect();
-    return scrollY > 0 && rect.top <= 0.5 && Math.abs(rect.height - innerHeight) < 1;
+  const scrollRange = await page.evaluate(() => {
+    const natural = document.documentElement.scrollHeight - innerHeight;
+    const spacer = document.createElement("div");
+    spacer.dataset.sidebarScrollFixture = "true";
+    spacer.setAttribute("aria-hidden", "true");
+    spacer.style.height = `${innerHeight * 2}px`;
+    document.getElementById("main").append(spacer);
+    return { natural, controlled: document.documentElement.scrollHeight - innerHeight };
   });
-  const scrolledToggle = await page
-    .getByRole("button", { name: "Expand sidebar", exact: true })
-    .boundingBox();
-  assert.ok(
-    scrolledToggle.y >= 0 && scrolledToggle.y + scrolledToggle.height <= 600,
-    "Sidebar toggle remains visible after the header scrolls offscreen",
-  );
-  await page.evaluate(() => window.scrollTo(0, 0));
+  console.log("Partner sidebar scroll ranges:", JSON.stringify(scrollRange));
+  try {
+    assert.ok(scrollRange.controlled >= 80, "The scroll fixture can move the header offscreen");
+    await page.evaluate(() => window.scrollTo(0, 80));
+    await page.waitForFunction(() => {
+      const rect = document.getElementById("partner-sidebar").getBoundingClientRect();
+      return scrollY > 0 && rect.top <= 0.5 && Math.abs(rect.height - innerHeight) < 1;
+    });
+    assert.equal(Math.round(await page.evaluate(() => scrollY)), 80);
+    const scrolledToggle = await page
+      .getByRole("button", { name: "Expand sidebar", exact: true })
+      .boundingBox();
+    assert.ok(
+      scrolledToggle.y >= 0 && scrolledToggle.y + scrolledToggle.height <= 600,
+      "Sidebar toggle remains visible after the header scrolls offscreen",
+    );
+  } finally {
+    await page.evaluate(() => {
+      window.scrollTo(0, 0);
+      document.querySelector('[data-sidebar-scroll-fixture="true"]').remove();
+    });
+  }
   await page.setViewportSize({ width: 1440, height: 1100 });
   assert.equal(await sidebar.getAttribute("data-expanded"), "false");
   const products = navigation.getByRole("link", { name: "Products", exact: true });
@@ -959,6 +1042,7 @@ try {
     if (attempt === 99) throw new Error("Portal failed to start: " + logs);
     await new Promise((resolve) => setTimeout(resolve, 200));
   }
+  await checkConcreteApiRoutes();
   await checkUploadDeadline();
   browser = await chromium.launch({ headless: true });
   const context = await browser.newContext({ viewport: { width: 1440, height: 1100 } });

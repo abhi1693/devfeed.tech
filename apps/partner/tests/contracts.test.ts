@@ -1,9 +1,10 @@
 import { execFile } from "node:child_process";
 import { cp, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { promisify } from "node:util";
 import { describe, expect, it } from "vitest";
+import { generatePartnerRoutes } from "../../../scripts/generate_partner_routes.mjs";
 import {
   parseAccount,
   parseAudienceTopics,
@@ -106,7 +107,13 @@ it("generates deterministically twice without changing files outside generated o
     for (const name of ["orval.config.ts", "openapi.json", "package.json"]) {
       await cp(path.join(root, "apps/partner", name), path.join(workspace, name));
     }
-    const sentinels = ["src/app/keep.ts", "node_modules/keep.js", "README.md"];
+    const sentinels = [
+      "src/app/keep.ts",
+      "src/app/api/v1/other/route.ts",
+      "src/app/api/v1/partner/custom/keep.ts",
+      "node_modules/keep.js",
+      "README.md",
+    ];
     for (const name of sentinels) {
       await mkdir(path.dirname(path.join(workspace, name)), { recursive: true });
       await writeFile(path.join(workspace, name), "Preserve outside generated output\n");
@@ -116,12 +123,12 @@ it("generates deterministically twice without changing files outside generated o
         async (name) => [name, await readFile(path.join(workspace, name), "utf8")] as const,
       ),
     );
-    async function generatedContents(directory: string) {
+    async function generatedContents(directory: string, routesOnly = false) {
       const entries = await readdir(directory, { recursive: true, withFileTypes: true });
       return Object.fromEntries(
         await Promise.all(
           entries
-            .filter((entry) => entry.isFile())
+            .filter((entry) => entry.isFile() && (!routesOnly || entry.name === "route.ts"))
             .map(
               async (entry) =>
                 [
@@ -143,19 +150,34 @@ it("generates deterministically twice without changing files outside generated o
         ],
         { cwd: workspace },
       );
+      await generatePartnerRoutes({
+        source: pathToFileURL(path.join(workspace, "openapi.json")),
+        target: pathToFileURL(path.join(workspace, "src/lib/api/generated/partner-operations.ts")),
+        routesRoot: pathToFileURL(path.join(workspace, "src/app/api/v1/partner")),
+      });
       for (const [name, content] of preserved) {
         expect(await readFile(path.join(workspace, name), "utf8")).toBe(content);
       }
-      const generated = await generatedContents(path.join(workspace, "src/lib/api/generated"));
-      expect(generated).not.toHaveProperty("models-only.ts");
-      expect(generated["models/accountOut.ts"]).toContain("export interface AccountOut");
-      expect(generated["validators.ts"]).toContain("PartnerAccountPreferencesUpdateResponse");
-      expect(generated["validators.ts"]).toContain("PartnerConnectionPreviewResponse");
-      expect(generated["validators.ts"]).toContain("PartnerConnectorResponseResponse");
+      const generated = {
+        sdk: await generatedContents(path.join(workspace, "src/lib/api/generated")),
+        routes: await generatedContents(path.join(workspace, "src/app/api/v1/partner"), true),
+      };
+      expect(generated.sdk).not.toHaveProperty("models-only.ts");
+      expect(generated.sdk["models/accountOut.ts"]).toContain("export interface AccountOut");
+      expect(generated.sdk["validators.ts"]).toContain("PartnerAccountPreferencesUpdateResponse");
+      expect(generated.sdk["validators.ts"]).toContain("PartnerConnectionPreviewResponse");
+      expect(generated.sdk["validators.ts"]).toContain("PartnerConnectorResponseResponse");
+      expect(generated.sdk["partner-operations.ts"]).toContain("partnerGatewayOperations");
+      expect(generated.routes["accounts/[account_id]/products/[product_id]/route.ts"]).toContain(
+        "bindPartnerOperation",
+      );
       if (pass === 0) {
         first = generated;
-        expect(generated).toEqual(
+        expect(generated.sdk).toEqual(
           await generatedContents(path.join(root, "apps/partner/src/lib/api/generated")),
+        );
+        expect(generated.routes).toEqual(
+          await generatedContents(path.join(root, "apps/partner/src/app/api/v1/partner"), true),
         );
       } else expect(generated).toEqual(first);
     }

@@ -15,6 +15,7 @@ from devfeed_http.errors import register_error_handlers
 from devfeed_http.health import readiness_response
 from devfeed_http.image_uploads import ImageUploadBodyLimit
 from devfeed_http.logging import RequestLoggingMiddleware
+from devfeed_http.operation_policies import include_gateway_router
 from devfeed_http.partner_ad_images import ad_image_upload_path
 from devfeed_http.partner_products import product_body_limit
 from devfeed_http.schemas import ERROR_RESPONSES, HealthResponse, UnhealthyResponse
@@ -95,10 +96,8 @@ def create_app() -> FastAPI:
             schema_revision=SCHEMA_REVISION,
         )
 
-    app.include_router(auth.router)
-    app.include_router(portal.router)
-    app.include_router(connections.router)
-    app.include_router(workspace.router)
+    for router in (auth.router, portal.router, connections.router, workspace.router):
+        include_gateway_router(app, router)
     return app
 
 

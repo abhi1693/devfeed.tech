@@ -3929,7 +3929,12 @@
         "summary": "Accounts",
         "tags": [
           "partner"
-        ]
+        ],
+        "x-devfeed-gateway": {
+          "bodyLimit": 1000000,
+          "bodyTimeoutMs": 2000,
+          "upstreamTimeoutMs": 45000
+        }
       }
     },
     "/v1/partner/accounts/{account_id}": {
@@ -3997,7 +4002,12 @@
         "summary": "Get Account",
         "tags": [
           "partner"
-        ]
+        ],
+        "x-devfeed-gateway": {
+          "bodyLimit": 1000000,
+          "bodyTimeoutMs": 2000,
+          "upstreamTimeoutMs": 45000
+        }
       }
     },
     "/v1/partner/accounts/{account_id}/audience-topics": {
@@ -4130,7 +4140,12 @@
         "summary": "Audience Topics",
         "tags": [
           "partner"
-        ]
+        ],
+        "x-devfeed-gateway": {
+          "bodyLimit": 1000000,
+          "bodyTimeoutMs": 2000,
+          "upstreamTimeoutMs": 45000
+        }
       }
     },
     "/v1/partner/accounts/{account_id}/connections": {
@@ -4251,7 +4266,12 @@
         "summary": "List Connections",
         "tags": [
           "partner-connections"
-        ]
+        ],
+        "x-devfeed-gateway": {
+          "bodyLimit": 1000000,
+          "bodyTimeoutMs": 2000,
+          "upstreamTimeoutMs": 45000
+        }
       },
       "post": {
         "operationId": "partnerConnectionCreate",
@@ -4327,7 +4347,12 @@
         "summary": "Create Connection",
         "tags": [
           "partner-connections"
-        ]
+        ],
+        "x-devfeed-gateway": {
+          "bodyLimit": 1000000,
+          "bodyTimeoutMs": 2000,
+          "upstreamTimeoutMs": 45000
+        }
       }
     },
     "/v1/partner/accounts/{account_id}/connections/connector-preview": {
@@ -4405,7 +4430,12 @@
         "summary": "Draft Connector Preview",
         "tags": [
           "partner-connections"
-        ]
+        ],
+        "x-devfeed-gateway": {
+          "bodyLimit": 1000000,
+          "bodyTimeoutMs": 2000,
+          "upstreamTimeoutMs": 45000
+        }
       }
     },
     "/v1/partner/accounts/{account_id}/connections/connector-response": {
@@ -4483,7 +4513,12 @@
         "summary": "Draft Connector Response",
         "tags": [
           "partner-connections"
-        ]
+        ],
+        "x-devfeed-gateway": {
+          "bodyLimit": 1000000,
+          "bodyTimeoutMs": 2000,
+          "upstreamTimeoutMs": 45000
+        }
       }
     },
     "/v1/partner/accounts/{account_id}/connections/{provider}": {
@@ -4506,6 +4541,9 @@
             "name": "provider",
             "required": true,
             "schema": {
+              "maxLength": 200,
+              "minLength": 1,
+              "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
               "title": "Provider",
               "type": "string"
             }
@@ -4571,7 +4609,12 @@
         "summary": "Disconnect Connection",
         "tags": [
           "partner-connections"
-        ]
+        ],
+        "x-devfeed-gateway": {
+          "bodyLimit": 1000000,
+          "bodyTimeoutMs": 2000,
+          "upstreamTimeoutMs": 45000
+        }
       },
       "get": {
         "operationId": "partnerConnectionGet",
@@ -4591,6 +4634,9 @@
             "name": "provider",
             "required": true,
             "schema": {
+              "maxLength": 200,
+              "minLength": 1,
+              "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
               "title": "Provider",
               "type": "string"
             }
@@ -4646,7 +4692,12 @@
         "summary": "Get Connection",
         "tags": [
           "partner-connections"
-        ]
+        ],
+        "x-devfeed-gateway": {
+          "bodyLimit": 1000000,
+          "bodyTimeoutMs": 2000,
+          "upstreamTimeoutMs": 45000
+        }
       },
       "put": {
         "operationId": "partnerConnectionUpdate",
@@ -4666,6 +4717,9 @@
             "name": "provider",
             "required": true,
             "schema": {
+              "maxLength": 200,
+              "minLength": 1,
+              "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
               "title": "Provider",
               "type": "string"
             }
@@ -4731,7 +4785,12 @@
         "summary": "Update Connection",
         "tags": [
           "partner-connections"
-        ]
+        ],
+        "x-devfeed-gateway": {
+          "bodyLimit": 1000000,
+          "bodyTimeoutMs": 2000,
+          "upstreamTimeoutMs": 45000
+        }
       }
     },
     "/v1/partner/accounts/{account_id}/connections/{provider}/actions": {
@@ -4753,6 +4812,9 @@
             "name": "provider",
             "required": true,
             "schema": {
+              "maxLength": 200,
+              "minLength": 1,
+              "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
               "title": "Provider",
               "type": "string"
             }
@@ -4818,7 +4880,12 @@
         "summary": "Connection Action",
         "tags": [
           "partner-connections"
-        ]
+        ],
+        "x-devfeed-gateway": {
+          "bodyLimit": 1000000,
+          "bodyTimeoutMs": 2000,
+          "upstreamTimeoutMs": 45000
+        }
       }
     },
     "/v1/partner/accounts/{account_id}/connections/{provider}/connector-preview": {
@@ -4840,6 +4907,9 @@
             "name": "provider",
             "required": true,
             "schema": {
+              "maxLength": 200,
+              "minLength": 1,
+              "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
               "title": "Provider",
               "type": "string"
             }
@@ -4905,7 +4975,12 @@
         "summary": "Existing Connector Preview",
         "tags": [
           "partner-connections"
-        ]
+        ],
+        "x-devfeed-gateway": {
+          "bodyLimit": 1000000,
+          "bodyTimeoutMs": 2000,
+          "upstreamTimeoutMs": 45000
+        }
       }
     },
     "/v1/partner/accounts/{account_id}/connections/{provider}/connector-response": {
@@ -4927,6 +5002,9 @@
             "name": "provider",
             "required": true,
             "schema": {
+              "maxLength": 200,
+              "minLength": 1,
+              "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
               "title": "Provider",
               "type": "string"
             }
@@ -4992,7 +5070,12 @@
         "summary": "Existing Connector Response",
         "tags": [
           "partner-connections"
-        ]
+        ],
+        "x-devfeed-gateway": {
+          "bodyLimit": 1000000,
+          "bodyTimeoutMs": 2000,
+          "upstreamTimeoutMs": 45000
+        }
       }
     },
     "/v1/partner/accounts/{account_id}/connections/{provider}/jobs": {
@@ -5014,6 +5097,9 @@
             "name": "provider",
             "required": true,
             "schema": {
+              "maxLength": 200,
+              "minLength": 1,
+              "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
               "title": "Provider",
               "type": "string"
             }
@@ -5122,7 +5208,12 @@
         "summary": "Connection Jobs",
         "tags": [
           "partner-connections"
-        ]
+        ],
+        "x-devfeed-gateway": {
+          "bodyLimit": 1000000,
+          "bodyTimeoutMs": 2000,
+          "upstreamTimeoutMs": 45000
+        }
       }
     },
     "/v1/partner/accounts/{account_id}/creative-preview": {
@@ -5207,7 +5298,12 @@
         "summary": "Preview Creative",
         "tags": [
           "partner"
-        ]
+        ],
+        "x-devfeed-gateway": {
+          "bodyLimit": 1000000,
+          "bodyTimeoutMs": 2000,
+          "upstreamTimeoutMs": 45000
+        }
       }
     },
     "/v1/partner/accounts/{account_id}/dashboard": {
@@ -5362,7 +5458,12 @@
         "summary": "Dashboard",
         "tags": [
           "partner"
-        ]
+        ],
+        "x-devfeed-gateway": {
+          "bodyLimit": 1000000,
+          "bodyTimeoutMs": 2000,
+          "upstreamTimeoutMs": 45000
+        }
       }
     },
     "/v1/partner/accounts/{account_id}/destination-preview": {
@@ -5430,7 +5531,12 @@
         "summary": "Preview Destination",
         "tags": [
           "partner"
-        ]
+        ],
+        "x-devfeed-gateway": {
+          "bodyLimit": 1000000,
+          "bodyTimeoutMs": 2000,
+          "upstreamTimeoutMs": 45000
+        }
       }
     },
     "/v1/partner/accounts/{account_id}/inventory": {
@@ -5560,7 +5666,12 @@
         "summary": "Inventory",
         "tags": [
           "partner"
-        ]
+        ],
+        "x-devfeed-gateway": {
+          "bodyLimit": 1000000,
+          "bodyTimeoutMs": 2000,
+          "upstreamTimeoutMs": 45000
+        }
       }
     },
     "/v1/partner/accounts/{account_id}/preferences": {
@@ -5638,7 +5749,12 @@
         "summary": "Update Preferences",
         "tags": [
           "partner"
-        ]
+        ],
+        "x-devfeed-gateway": {
+          "bodyLimit": 1000000,
+          "bodyTimeoutMs": 2000,
+          "upstreamTimeoutMs": 45000
+        }
       }
     },
     "/v1/partner/accounts/{account_id}/products": {
@@ -5716,7 +5832,12 @@
         "summary": "Create Product",
         "tags": [
           "partner"
-        ]
+        ],
+        "x-devfeed-gateway": {
+          "bodyLimit": 65536,
+          "bodyTimeoutMs": 2000,
+          "upstreamTimeoutMs": 45000
+        }
       }
     },
     "/v1/partner/accounts/{account_id}/products/{product_id}": {
@@ -5787,7 +5908,12 @@
         "summary": "Archive Product",
         "tags": [
           "partner"
-        ]
+        ],
+        "x-devfeed-gateway": {
+          "bodyLimit": 65536,
+          "bodyTimeoutMs": 2000,
+          "upstreamTimeoutMs": 45000
+        }
       },
       "get": {
         "operationId": "partnerProductGet",
@@ -5863,7 +5989,12 @@
         "summary": "Get Product",
         "tags": [
           "partner"
-        ]
+        ],
+        "x-devfeed-gateway": {
+          "bodyLimit": 1000000,
+          "bodyTimeoutMs": 2000,
+          "upstreamTimeoutMs": 45000
+        }
       },
       "patch": {
         "operationId": "partnerProductUpdate",
@@ -5949,7 +6080,12 @@
         "summary": "Update Product",
         "tags": [
           "partner"
-        ]
+        ],
+        "x-devfeed-gateway": {
+          "bodyLimit": 65536,
+          "bodyTimeoutMs": 2000,
+          "upstreamTimeoutMs": 45000
+        }
       }
     },
     "/v1/partner/accounts/{account_id}/products/{product_id}/ad-image": {
@@ -6037,7 +6173,12 @@
         "summary": "Upload Ad Image",
         "tags": [
           "partner"
-        ]
+        ],
+        "x-devfeed-gateway": {
+          "bodyLimit": 5308416,
+          "bodyTimeoutMs": 10000,
+          "upstreamTimeoutMs": 45000
+        }
       }
     },
     "/v1/partner/accounts/{account_id}/products/{product_id}/promotion": {
@@ -6115,7 +6256,12 @@
         "summary": "Get Product Promotion",
         "tags": [
           "partner"
-        ]
+        ],
+        "x-devfeed-gateway": {
+          "bodyLimit": 1000000,
+          "bodyTimeoutMs": 2000,
+          "upstreamTimeoutMs": 45000
+        }
       },
       "put": {
         "operationId": "partnerProductPromotionUpdate",
@@ -6201,7 +6347,12 @@
         "summary": "Update Product Promotion",
         "tags": [
           "partner"
-        ]
+        ],
+        "x-devfeed-gateway": {
+          "bodyLimit": 1000000,
+          "bodyTimeoutMs": 2000,
+          "upstreamTimeoutMs": 45000
+        }
       }
     },
     "/v1/partner/auth/callback": {
@@ -6311,7 +6462,12 @@
         "summary": "Callback",
         "tags": [
           "partner-auth"
-        ]
+        ],
+        "x-devfeed-gateway": {
+          "bodyLimit": 1000000,
+          "bodyTimeoutMs": 2000,
+          "upstreamTimeoutMs": 45000
+        }
       }
     },
     "/v1/partner/auth/config": {
@@ -6362,7 +6518,12 @@
         "summary": "Config",
         "tags": [
           "partner-auth"
-        ]
+        ],
+        "x-devfeed-gateway": {
+          "bodyLimit": 1000000,
+          "bodyTimeoutMs": 2000,
+          "upstreamTimeoutMs": 45000
+        }
       }
     },
     "/v1/partner/auth/login": {
@@ -6438,7 +6599,12 @@
         "summary": "Login",
         "tags": [
           "partner-auth"
-        ]
+        ],
+        "x-devfeed-gateway": {
+          "bodyLimit": 1000000,
+          "bodyTimeoutMs": 2000,
+          "upstreamTimeoutMs": 45000
+        }
       }
     },
     "/v1/partner/auth/logout": {
@@ -6487,7 +6653,12 @@
         "summary": "Logout",
         "tags": [
           "partner-auth"
-        ]
+        ],
+        "x-devfeed-gateway": {
+          "bodyLimit": 1000000,
+          "bodyTimeoutMs": 2000,
+          "upstreamTimeoutMs": 45000
+        }
       }
     },
     "/v1/partner/auth/me": {
@@ -6543,7 +6714,12 @@
         "summary": "Me",
         "tags": [
           "partner-auth"
-        ]
+        ],
+        "x-devfeed-gateway": {
+          "bodyLimit": 1000000,
+          "bodyTimeoutMs": 2000,
+          "upstreamTimeoutMs": 45000
+        }
       }
     },
     "/v1/partner/connections": {
@@ -6671,7 +6847,12 @@
         "summary": "Connections",
         "tags": [
           "partner-workspace"
-        ]
+        ],
+        "x-devfeed-gateway": {
+          "bodyLimit": 1000000,
+          "bodyTimeoutMs": 2000,
+          "upstreamTimeoutMs": 45000
+        }
       },
       "post": {
         "operationId": "partnerWorkspaceConnectionCreate",
@@ -6735,7 +6916,12 @@
         "summary": "Add Connection",
         "tags": [
           "partner-workspace"
-        ]
+        ],
+        "x-devfeed-gateway": {
+          "bodyLimit": 1000000,
+          "bodyTimeoutMs": 2000,
+          "upstreamTimeoutMs": 45000
+        }
       }
     },
     "/v1/partner/connections/{provider}": {
@@ -6747,6 +6933,9 @@
             "name": "provider",
             "required": true,
             "schema": {
+              "maxLength": 200,
+              "minLength": 1,
+              "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
               "title": "Provider",
               "type": "string"
             }
@@ -6802,7 +6991,12 @@
         "summary": "Get Connection",
         "tags": [
           "partner-workspace"
-        ]
+        ],
+        "x-devfeed-gateway": {
+          "bodyLimit": 1000000,
+          "bodyTimeoutMs": 2000,
+          "upstreamTimeoutMs": 45000
+        }
       }
     },
     "/v1/partner/connections/{provider}/jobs": {
@@ -6814,6 +7008,9 @@
             "name": "provider",
             "required": true,
             "schema": {
+              "maxLength": 200,
+              "minLength": 1,
+              "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
               "title": "Provider",
               "type": "string"
             }
@@ -6922,7 +7119,12 @@
         "summary": "Jobs",
         "tags": [
           "partner-workspace"
-        ]
+        ],
+        "x-devfeed-gateway": {
+          "bodyLimit": 1000000,
+          "bodyTimeoutMs": 2000,
+          "upstreamTimeoutMs": 45000
+        }
       }
     },
     "/v1/partner/dashboard": {
@@ -7085,7 +7287,12 @@
         "summary": "Dashboard",
         "tags": [
           "partner-workspace"
-        ]
+        ],
+        "x-devfeed-gateway": {
+          "bodyLimit": 1000000,
+          "bodyTimeoutMs": 2000,
+          "upstreamTimeoutMs": 45000
+        }
       }
     },
     "/v1/partner/inventory": {
@@ -7222,7 +7429,12 @@
         "summary": "Inventory",
         "tags": [
           "partner-workspace"
-        ]
+        ],
+        "x-devfeed-gateway": {
+          "bodyLimit": 1000000,
+          "bodyTimeoutMs": 2000,
+          "upstreamTimeoutMs": 45000
+        }
       }
     }
   },
@@ -7230,5 +7442,819 @@
     "feed",
     "homepage_sponsorship",
     "engagement"
+  ],
+  "x-devfeed-gateway-routes": [
+    {
+      "method": "GET",
+      "operationId": "partner_auth_config",
+      "parameters": [],
+      "path": "/v1/partner/auth/config",
+      "policy": {
+        "bodyLimit": 1000000,
+        "bodyTimeoutMs": 2000,
+        "upstreamTimeoutMs": 45000
+      }
+    },
+    {
+      "method": "GET",
+      "operationId": "partner_auth_login",
+      "parameters": [],
+      "path": "/v1/partner/auth/login",
+      "policy": {
+        "bodyLimit": 1000000,
+        "bodyTimeoutMs": 2000,
+        "upstreamTimeoutMs": 45000
+      }
+    },
+    {
+      "method": "GET",
+      "operationId": "partner_auth_callback",
+      "parameters": [],
+      "path": "/v1/partner/auth/callback",
+      "policy": {
+        "bodyLimit": 1000000,
+        "bodyTimeoutMs": 2000,
+        "upstreamTimeoutMs": 45000
+      }
+    },
+    {
+      "method": "GET",
+      "operationId": "partner_auth_me",
+      "parameters": [],
+      "path": "/v1/partner/auth/me",
+      "policy": {
+        "bodyLimit": 1000000,
+        "bodyTimeoutMs": 2000,
+        "upstreamTimeoutMs": 45000
+      }
+    },
+    {
+      "method": "POST",
+      "operationId": "partner_auth_logout",
+      "parameters": [],
+      "path": "/v1/partner/auth/logout",
+      "policy": {
+        "bodyLimit": 1000000,
+        "bodyTimeoutMs": 2000,
+        "upstreamTimeoutMs": 45000
+      }
+    },
+    {
+      "method": "POST",
+      "operationId": "partnerProductCreate",
+      "parameters": [
+        {
+          "converter": "str",
+          "name": "account_id",
+          "schema": {
+            "format": "uuid",
+            "title": "Account Id",
+            "type": "string"
+          }
+        }
+      ],
+      "path": "/v1/partner/accounts/{account_id}/products",
+      "policy": {
+        "bodyLimit": 65536,
+        "bodyTimeoutMs": 2000,
+        "upstreamTimeoutMs": 45000
+      }
+    },
+    {
+      "method": "GET",
+      "operationId": "partnerProductGet",
+      "parameters": [
+        {
+          "converter": "str",
+          "name": "account_id",
+          "schema": {
+            "format": "uuid",
+            "title": "Account Id",
+            "type": "string"
+          }
+        },
+        {
+          "converter": "uuid",
+          "name": "product_id",
+          "schema": {
+            "format": "uuid",
+            "title": "Product Id",
+            "type": "string"
+          }
+        }
+      ],
+      "path": "/v1/partner/accounts/{account_id}/products/{product_id}",
+      "policy": {
+        "bodyLimit": 1000000,
+        "bodyTimeoutMs": 2000,
+        "upstreamTimeoutMs": 45000
+      }
+    },
+    {
+      "method": "PATCH",
+      "operationId": "partnerProductUpdate",
+      "parameters": [
+        {
+          "converter": "str",
+          "name": "account_id",
+          "schema": {
+            "format": "uuid",
+            "title": "Account Id",
+            "type": "string"
+          }
+        },
+        {
+          "converter": "uuid",
+          "name": "product_id",
+          "schema": {
+            "format": "uuid",
+            "title": "Product Id",
+            "type": "string"
+          }
+        }
+      ],
+      "path": "/v1/partner/accounts/{account_id}/products/{product_id}",
+      "policy": {
+        "bodyLimit": 65536,
+        "bodyTimeoutMs": 2000,
+        "upstreamTimeoutMs": 45000
+      }
+    },
+    {
+      "method": "DELETE",
+      "operationId": "partnerProductArchive",
+      "parameters": [
+        {
+          "converter": "str",
+          "name": "account_id",
+          "schema": {
+            "format": "uuid",
+            "title": "Account Id",
+            "type": "string"
+          }
+        },
+        {
+          "converter": "uuid",
+          "name": "product_id",
+          "schema": {
+            "format": "uuid",
+            "title": "Product Id",
+            "type": "string"
+          }
+        }
+      ],
+      "path": "/v1/partner/accounts/{account_id}/products/{product_id}",
+      "policy": {
+        "bodyLimit": 65536,
+        "bodyTimeoutMs": 2000,
+        "upstreamTimeoutMs": 45000
+      }
+    },
+    {
+      "method": "GET",
+      "operationId": "partnerAccountsList",
+      "parameters": [],
+      "path": "/v1/partner/accounts",
+      "policy": {
+        "bodyLimit": 1000000,
+        "bodyTimeoutMs": 2000,
+        "upstreamTimeoutMs": 45000
+      }
+    },
+    {
+      "method": "GET",
+      "operationId": "partnerAccountGet",
+      "parameters": [
+        {
+          "converter": "str",
+          "name": "account_id",
+          "schema": {
+            "format": "uuid",
+            "title": "Account Id",
+            "type": "string"
+          }
+        }
+      ],
+      "path": "/v1/partner/accounts/{account_id}",
+      "policy": {
+        "bodyLimit": 1000000,
+        "bodyTimeoutMs": 2000,
+        "upstreamTimeoutMs": 45000
+      }
+    },
+    {
+      "method": "GET",
+      "operationId": "dashboard_v1_partner_accounts__account_id__dashboard_get",
+      "parameters": [
+        {
+          "converter": "str",
+          "name": "account_id",
+          "schema": {
+            "format": "uuid",
+            "title": "Account Id",
+            "type": "string"
+          }
+        }
+      ],
+      "path": "/v1/partner/accounts/{account_id}/dashboard",
+      "policy": {
+        "bodyLimit": 1000000,
+        "bodyTimeoutMs": 2000,
+        "upstreamTimeoutMs": 45000
+      }
+    },
+    {
+      "method": "GET",
+      "operationId": "partnerDestinationPreview",
+      "parameters": [
+        {
+          "converter": "str",
+          "name": "account_id",
+          "schema": {
+            "format": "uuid",
+            "title": "Account Id",
+            "type": "string"
+          }
+        }
+      ],
+      "path": "/v1/partner/accounts/{account_id}/destination-preview",
+      "policy": {
+        "bodyLimit": 1000000,
+        "bodyTimeoutMs": 2000,
+        "upstreamTimeoutMs": 45000
+      }
+    },
+    {
+      "method": "PUT",
+      "operationId": "partnerAccountPreferencesUpdate",
+      "parameters": [
+        {
+          "converter": "str",
+          "name": "account_id",
+          "schema": {
+            "format": "uuid",
+            "title": "Account Id",
+            "type": "string"
+          }
+        }
+      ],
+      "path": "/v1/partner/accounts/{account_id}/preferences",
+      "policy": {
+        "bodyLimit": 1000000,
+        "bodyTimeoutMs": 2000,
+        "upstreamTimeoutMs": 45000
+      }
+    },
+    {
+      "method": "GET",
+      "operationId": "partnerAudienceTopics",
+      "parameters": [
+        {
+          "converter": "str",
+          "name": "account_id",
+          "schema": {
+            "format": "uuid",
+            "title": "Account Id",
+            "type": "string"
+          }
+        }
+      ],
+      "path": "/v1/partner/accounts/{account_id}/audience-topics",
+      "policy": {
+        "bodyLimit": 1000000,
+        "bodyTimeoutMs": 2000,
+        "upstreamTimeoutMs": 45000
+      }
+    },
+    {
+      "method": "GET",
+      "operationId": "partnerCreativePreview",
+      "parameters": [
+        {
+          "converter": "str",
+          "name": "account_id",
+          "schema": {
+            "format": "uuid",
+            "title": "Account Id",
+            "type": "string"
+          }
+        }
+      ],
+      "path": "/v1/partner/accounts/{account_id}/creative-preview",
+      "policy": {
+        "bodyLimit": 1000000,
+        "bodyTimeoutMs": 2000,
+        "upstreamTimeoutMs": 45000
+      }
+    },
+    {
+      "method": "GET",
+      "operationId": "partnerInventoryList",
+      "parameters": [
+        {
+          "converter": "str",
+          "name": "account_id",
+          "schema": {
+            "format": "uuid",
+            "title": "Account Id",
+            "type": "string"
+          }
+        }
+      ],
+      "path": "/v1/partner/accounts/{account_id}/inventory",
+      "policy": {
+        "bodyLimit": 1000000,
+        "bodyTimeoutMs": 2000,
+        "upstreamTimeoutMs": 45000
+      }
+    },
+    {
+      "method": "GET",
+      "operationId": "partnerProductPromotionGet",
+      "parameters": [
+        {
+          "converter": "str",
+          "name": "account_id",
+          "schema": {
+            "format": "uuid",
+            "title": "Account Id",
+            "type": "string"
+          }
+        },
+        {
+          "converter": "str",
+          "name": "product_id",
+          "schema": {
+            "format": "uuid",
+            "title": "Product Id",
+            "type": "string"
+          }
+        }
+      ],
+      "path": "/v1/partner/accounts/{account_id}/products/{product_id}/promotion",
+      "policy": {
+        "bodyLimit": 1000000,
+        "bodyTimeoutMs": 2000,
+        "upstreamTimeoutMs": 45000
+      }
+    },
+    {
+      "method": "PUT",
+      "operationId": "partnerProductPromotionUpdate",
+      "parameters": [
+        {
+          "converter": "str",
+          "name": "account_id",
+          "schema": {
+            "format": "uuid",
+            "title": "Account Id",
+            "type": "string"
+          }
+        },
+        {
+          "converter": "str",
+          "name": "product_id",
+          "schema": {
+            "format": "uuid",
+            "title": "Product Id",
+            "type": "string"
+          }
+        }
+      ],
+      "path": "/v1/partner/accounts/{account_id}/products/{product_id}/promotion",
+      "policy": {
+        "bodyLimit": 1000000,
+        "bodyTimeoutMs": 2000,
+        "upstreamTimeoutMs": 45000
+      }
+    },
+    {
+      "method": "POST",
+      "operationId": "partnerProductAdImageUpload",
+      "parameters": [
+        {
+          "converter": "str",
+          "name": "account_id",
+          "schema": {
+            "format": "uuid",
+            "title": "Account Id",
+            "type": "string"
+          }
+        },
+        {
+          "converter": "str",
+          "name": "product_id",
+          "schema": {
+            "format": "uuid",
+            "title": "Product Id",
+            "type": "string"
+          }
+        }
+      ],
+      "path": "/v1/partner/accounts/{account_id}/products/{product_id}/ad-image",
+      "policy": {
+        "bodyLimit": 5308416,
+        "bodyTimeoutMs": 10000,
+        "upstreamTimeoutMs": 45000
+      }
+    },
+    {
+      "method": "POST",
+      "operationId": "partnerConnectorPreview",
+      "parameters": [
+        {
+          "converter": "str",
+          "name": "account_id",
+          "schema": {
+            "format": "uuid",
+            "title": "Account Id",
+            "type": "string"
+          }
+        }
+      ],
+      "path": "/v1/partner/accounts/{account_id}/connections/connector-preview",
+      "policy": {
+        "bodyLimit": 1000000,
+        "bodyTimeoutMs": 2000,
+        "upstreamTimeoutMs": 45000
+      }
+    },
+    {
+      "method": "POST",
+      "operationId": "partnerConnectorResponse",
+      "parameters": [
+        {
+          "converter": "str",
+          "name": "account_id",
+          "schema": {
+            "format": "uuid",
+            "title": "Account Id",
+            "type": "string"
+          }
+        }
+      ],
+      "path": "/v1/partner/accounts/{account_id}/connections/connector-response",
+      "policy": {
+        "bodyLimit": 1000000,
+        "bodyTimeoutMs": 2000,
+        "upstreamTimeoutMs": 45000
+      }
+    },
+    {
+      "method": "POST",
+      "operationId": "partnerConnectionPreview",
+      "parameters": [
+        {
+          "converter": "str",
+          "name": "account_id",
+          "schema": {
+            "format": "uuid",
+            "title": "Account Id",
+            "type": "string"
+          }
+        },
+        {
+          "converter": "str",
+          "name": "provider",
+          "schema": {
+            "maxLength": 200,
+            "minLength": 1,
+            "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+            "title": "Provider",
+            "type": "string"
+          }
+        }
+      ],
+      "path": "/v1/partner/accounts/{account_id}/connections/{provider}/connector-preview",
+      "policy": {
+        "bodyLimit": 1000000,
+        "bodyTimeoutMs": 2000,
+        "upstreamTimeoutMs": 45000
+      }
+    },
+    {
+      "method": "POST",
+      "operationId": "partnerConnectionResponse",
+      "parameters": [
+        {
+          "converter": "str",
+          "name": "account_id",
+          "schema": {
+            "format": "uuid",
+            "title": "Account Id",
+            "type": "string"
+          }
+        },
+        {
+          "converter": "str",
+          "name": "provider",
+          "schema": {
+            "maxLength": 200,
+            "minLength": 1,
+            "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+            "title": "Provider",
+            "type": "string"
+          }
+        }
+      ],
+      "path": "/v1/partner/accounts/{account_id}/connections/{provider}/connector-response",
+      "policy": {
+        "bodyLimit": 1000000,
+        "bodyTimeoutMs": 2000,
+        "upstreamTimeoutMs": 45000
+      }
+    },
+    {
+      "method": "GET",
+      "operationId": "partnerConnectionsList",
+      "parameters": [
+        {
+          "converter": "str",
+          "name": "account_id",
+          "schema": {
+            "format": "uuid",
+            "title": "Account Id",
+            "type": "string"
+          }
+        }
+      ],
+      "path": "/v1/partner/accounts/{account_id}/connections",
+      "policy": {
+        "bodyLimit": 1000000,
+        "bodyTimeoutMs": 2000,
+        "upstreamTimeoutMs": 45000
+      }
+    },
+    {
+      "method": "GET",
+      "operationId": "partnerConnectionGet",
+      "parameters": [
+        {
+          "converter": "str",
+          "name": "account_id",
+          "schema": {
+            "format": "uuid",
+            "title": "Account Id",
+            "type": "string"
+          }
+        },
+        {
+          "converter": "str",
+          "name": "provider",
+          "schema": {
+            "maxLength": 200,
+            "minLength": 1,
+            "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+            "title": "Provider",
+            "type": "string"
+          }
+        }
+      ],
+      "path": "/v1/partner/accounts/{account_id}/connections/{provider}",
+      "policy": {
+        "bodyLimit": 1000000,
+        "bodyTimeoutMs": 2000,
+        "upstreamTimeoutMs": 45000
+      }
+    },
+    {
+      "method": "POST",
+      "operationId": "partnerConnectionCreate",
+      "parameters": [
+        {
+          "converter": "str",
+          "name": "account_id",
+          "schema": {
+            "format": "uuid",
+            "title": "Account Id",
+            "type": "string"
+          }
+        }
+      ],
+      "path": "/v1/partner/accounts/{account_id}/connections",
+      "policy": {
+        "bodyLimit": 1000000,
+        "bodyTimeoutMs": 2000,
+        "upstreamTimeoutMs": 45000
+      }
+    },
+    {
+      "method": "PUT",
+      "operationId": "partnerConnectionUpdate",
+      "parameters": [
+        {
+          "converter": "str",
+          "name": "account_id",
+          "schema": {
+            "format": "uuid",
+            "title": "Account Id",
+            "type": "string"
+          }
+        },
+        {
+          "converter": "str",
+          "name": "provider",
+          "schema": {
+            "maxLength": 200,
+            "minLength": 1,
+            "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+            "title": "Provider",
+            "type": "string"
+          }
+        }
+      ],
+      "path": "/v1/partner/accounts/{account_id}/connections/{provider}",
+      "policy": {
+        "bodyLimit": 1000000,
+        "bodyTimeoutMs": 2000,
+        "upstreamTimeoutMs": 45000
+      }
+    },
+    {
+      "method": "POST",
+      "operationId": "partnerConnectionAction",
+      "parameters": [
+        {
+          "converter": "str",
+          "name": "account_id",
+          "schema": {
+            "format": "uuid",
+            "title": "Account Id",
+            "type": "string"
+          }
+        },
+        {
+          "converter": "str",
+          "name": "provider",
+          "schema": {
+            "maxLength": 200,
+            "minLength": 1,
+            "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+            "title": "Provider",
+            "type": "string"
+          }
+        }
+      ],
+      "path": "/v1/partner/accounts/{account_id}/connections/{provider}/actions",
+      "policy": {
+        "bodyLimit": 1000000,
+        "bodyTimeoutMs": 2000,
+        "upstreamTimeoutMs": 45000
+      }
+    },
+    {
+      "method": "DELETE",
+      "operationId": "partnerConnectionDelete",
+      "parameters": [
+        {
+          "converter": "str",
+          "name": "account_id",
+          "schema": {
+            "format": "uuid",
+            "title": "Account Id",
+            "type": "string"
+          }
+        },
+        {
+          "converter": "str",
+          "name": "provider",
+          "schema": {
+            "maxLength": 200,
+            "minLength": 1,
+            "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+            "title": "Provider",
+            "type": "string"
+          }
+        }
+      ],
+      "path": "/v1/partner/accounts/{account_id}/connections/{provider}",
+      "policy": {
+        "bodyLimit": 1000000,
+        "bodyTimeoutMs": 2000,
+        "upstreamTimeoutMs": 45000
+      }
+    },
+    {
+      "method": "GET",
+      "operationId": "partnerConnectionJobs",
+      "parameters": [
+        {
+          "converter": "str",
+          "name": "account_id",
+          "schema": {
+            "format": "uuid",
+            "title": "Account Id",
+            "type": "string"
+          }
+        },
+        {
+          "converter": "str",
+          "name": "provider",
+          "schema": {
+            "maxLength": 200,
+            "minLength": 1,
+            "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+            "title": "Provider",
+            "type": "string"
+          }
+        }
+      ],
+      "path": "/v1/partner/accounts/{account_id}/connections/{provider}/jobs",
+      "policy": {
+        "bodyLimit": 1000000,
+        "bodyTimeoutMs": 2000,
+        "upstreamTimeoutMs": 45000
+      }
+    },
+    {
+      "method": "GET",
+      "operationId": "partnerWorkspaceDashboard",
+      "parameters": [],
+      "path": "/v1/partner/dashboard",
+      "policy": {
+        "bodyLimit": 1000000,
+        "bodyTimeoutMs": 2000,
+        "upstreamTimeoutMs": 45000
+      }
+    },
+    {
+      "method": "GET",
+      "operationId": "partnerWorkspaceInventory",
+      "parameters": [],
+      "path": "/v1/partner/inventory",
+      "policy": {
+        "bodyLimit": 1000000,
+        "bodyTimeoutMs": 2000,
+        "upstreamTimeoutMs": 45000
+      }
+    },
+    {
+      "method": "GET",
+      "operationId": "partnerWorkspaceConnections",
+      "parameters": [],
+      "path": "/v1/partner/connections",
+      "policy": {
+        "bodyLimit": 1000000,
+        "bodyTimeoutMs": 2000,
+        "upstreamTimeoutMs": 45000
+      }
+    },
+    {
+      "method": "GET",
+      "operationId": "partnerWorkspaceConnectionGet",
+      "parameters": [
+        {
+          "converter": "str",
+          "name": "provider",
+          "schema": {
+            "maxLength": 200,
+            "minLength": 1,
+            "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+            "title": "Provider",
+            "type": "string"
+          }
+        }
+      ],
+      "path": "/v1/partner/connections/{provider}",
+      "policy": {
+        "bodyLimit": 1000000,
+        "bodyTimeoutMs": 2000,
+        "upstreamTimeoutMs": 45000
+      }
+    },
+    {
+      "method": "GET",
+      "operationId": "partnerWorkspaceConnectionJobs",
+      "parameters": [
+        {
+          "converter": "str",
+          "name": "provider",
+          "schema": {
+            "maxLength": 200,
+            "minLength": 1,
+            "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+            "title": "Provider",
+            "type": "string"
+          }
+        }
+      ],
+      "path": "/v1/partner/connections/{provider}/jobs",
+      "policy": {
+        "bodyLimit": 1000000,
+        "bodyTimeoutMs": 2000,
+        "upstreamTimeoutMs": 45000
+      }
+    },
+    {
+      "method": "POST",
+      "operationId": "partnerWorkspaceConnectionCreate",
+      "parameters": [],
+      "path": "/v1/partner/connections",
+      "policy": {
+        "bodyLimit": 1000000,
+        "bodyTimeoutMs": 2000,
+        "upstreamTimeoutMs": 45000
+      }
+    }
   ]
 }
