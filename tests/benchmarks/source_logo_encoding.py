@@ -10,10 +10,10 @@ import hashlib
 import io
 import json
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 import httpx
-from devfeed_aggregator import image_storage, logo_storage
+from devfeed_aggregator import image_storage_base, logo_storage
 from devfeed_core.feeds.fetcher import FetchResult
 from devfeed_core.logos import SOURCE_LOGO_SIZES
 from PIL import Image
@@ -21,7 +21,7 @@ from PIL import Image
 ROOT = Path("reports/source-logos")
 
 
-def upload(client, key, body, mime):
+def upload(key, body, **policy):
     path = ROOT / key
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_bytes(body)
@@ -33,6 +33,11 @@ def transform(key, width, *, options=None):
 
 def main():
     results = []
+    storage = Mock()
+    storage.exists.side_effect = lambda key: (ROOT / key).exists()
+    storage.put.side_effect = upload
+    originals = logo_storage.LogoOriginalStore(storage)
+    variants = logo_storage.LogoVariantStore(storage, sizes=SOURCE_LOGO_SIZES)
     for path in sorted((ROOT / "inputs").glob("*.png")):
         body = path.read_bytes()
         metadata = (
@@ -44,21 +49,15 @@ def main():
             patch.object(
                 logo_storage, "fetch_topic_logo", return_value=FetchResult(200, body, str(path))
             ),
+            patch.object(image_storage_base.ImgproxyTransform, "url", side_effect=transform),
             patch.object(
-                image_storage, "exists", side_effect=lambda client, key: (ROOT / key).exists()
-            ),
-            patch.object(image_storage, "upload", side_effect=upload),
-            patch.object(image_storage, "signed_transform_url", side_effect=transform),
-            patch.object(
-                image_storage,
-                "transform_image",
+                image_storage_base.ImgproxyTransform,
+                "fetch",
                 side_effect=lambda url: httpx.get(url).raise_for_status().content,
             ),
         ):
-            asset = logo_storage.store_logo_original(None, str(path))
-            variants = [
-                logo_storage.store_logo_variant(None, asset, size) for size in SOURCE_LOGO_SIZES
-            ]
+            asset = originals.store(str(path))
+            stored = [variants.store(asset, size) for size in variants.sizes(asset)]
         results.append(
             {
                 "input": str(path.relative_to(ROOT)),
@@ -67,7 +66,7 @@ def main():
                 "sha256": hashlib.sha256(body).hexdigest(),
                 "dimensions": list(Image.open(io.BytesIO(body)).size),
                 "original_bytes": len(body),
-                "variants": [{**v, "bytes": (ROOT / v["key"]).stat().st_size} for v in variants],
+                "variants": [{**v, "bytes": (ROOT / v["key"]).stat().st_size} for v in stored],
             }
         )
     (ROOT / "encoding.json").write_text(json.dumps(results, indent=2) + "\n")

@@ -398,13 +398,16 @@ def test_manual_product_scheduler_repairs_missing_assessment_without_connection(
 def test_pending_manual_product_accepts_custom_image_upload_and_url(
     portal_client, database, managed_storage, monkeypatch
 ):
+    from devfeed_core.object_storage import R2Storage
     from devfeed_http import image_uploads
 
     client, identity = portal_client
     account_id = seed_account(database, identity)
     row = create(client, account_id)
     r2 = FakeR2()
-    monkeypatch.setattr(image_uploads, "image_upload_client", lambda: r2)
+    monkeypatch.setattr(
+        image_uploads, "image_upload_storage", lambda: R2Storage("manual-test-images", client=r2)
+    )
     base = f"/v1/partner/accounts/{account_id}/products/{row['id']}"
     uploaded = client.post(
         base + "/ad-image", files={"file": ("creative.png", picture(), "image/png")}

@@ -2,15 +2,13 @@
 
 import io
 import logging
-import warnings
 from collections.abc import Callable
 from threading import BoundedSemaphore
 from uuid import uuid4
 
-import boto3
-from botocore.config import Config
-from botocore.exceptions import ClientError
 from devfeed_core.config import get_settings
+from devfeed_core.image_processing import ImageProcessor
+from devfeed_core.object_storage import R2ConfigurationError, R2Storage
 from fastapi import HTTPException
 from PIL import Image, ImageOps, UnidentifiedImageError
 from starlette.responses import JSONResponse
@@ -26,138 +24,90 @@ logger = logging.getLogger(__name__)
 _normalization_slot = BoundedSemaphore(1)
 
 
-def normalize_image(body: bytes, sizes, *, square=False):
-    if not _normalization_slot.acquire(blocking=False):
-        raise HTTPException(
-            503, "Image processing is busy; try again shortly", headers={"Retry-After": "1"}
-        )
-    try:
-        return _normalize_image(body, sizes, square=square)
-    finally:
-        _normalization_slot.release()
-
-
-def _normalize_image(body: bytes, sizes, *, square=False):
-    if len(body) > MAX_BYTES:
-        raise HTTPException(413, "Choose an image under 5 MB")
-    try:
-        with warnings.catch_warnings():
-            warnings.simplefilter("error", Image.DecompressionBombWarning)
-            with Image.open(io.BytesIO(body)) as image:
-                if image.format not in {"JPEG", "PNG", "WEBP"}:
-                    raise ValueError("Unsupported format")
-                if image.width * image.height > MAX_PIXELS:
-                    raise ValueError("Image dimensions too large")
-                image.verify()
-            with Image.open(io.BytesIO(body)) as image:
-                ImageOps.exif_transpose(image, in_place=True)
-                if square:
-                    reduced = ImageOps.fit(
-                        image, (max(sizes), max(sizes)), Image.Resampling.LANCZOS
-                    )
-                else:
-                    image.thumbnail((max(sizes), max(sizes)), Image.Resampling.LANCZOS)
-                    reduced = image
-                master = reduced.convert("RGBA")
-                result, widths = {}, {}
-                for size in sizes:
-                    if square:
-                        variant = ImageOps.fit(master, (size, size), Image.Resampling.LANCZOS)
-                    else:
-                        variant = master.copy()
-                        variant.thumbnail((size, max(sizes)), Image.Resampling.LANCZOS)
-                    variant.info.clear()
-                    output = io.BytesIO()
-                    variant.save(output, format="WEBP", quality=85, method=4)
-                    result[size], widths[size] = output.getvalue(), variant.width
-                return result, widths
-    except (
-        ValueError,
-        OSError,
-        UnidentifiedImageError,
-        Image.DecompressionBombError,
-        Image.DecompressionBombWarning,
-    ) as exc:
-        raise HTTPException(
-            422, "Choose a valid JPEG, PNG or WebP image up to 20 megapixels"
-        ) from exc
-
-
-def image_upload_client():
+def image_upload_storage() -> R2Storage:
     settings = get_settings()
-    if not settings.image_storage_enabled or not all(
-        (
-            settings.image_storage_endpoint,
-            settings.image_storage_bucket,
-            settings.image_public_url,
-            settings.image_storage_access_key,
-            settings.image_storage_secret_key,
-        )
-    ):
+    if not settings.image_storage_enabled or not settings.image_public_url:
         raise HTTPException(503, "Image uploads are unavailable")
-    assert settings.image_storage_access_key and settings.image_storage_secret_key
-    return boto3.client(
-        "s3",
-        endpoint_url=settings.image_storage_endpoint,
-        region_name="auto",
-        aws_access_key_id=settings.image_storage_access_key.get_secret_value(),
-        aws_secret_access_key=settings.image_storage_secret_key.get_secret_value(),
-        config=Config(
-            connect_timeout=3,
-            read_timeout=5,
-            retries={"total_max_attempts": 1},
-            s3={"addressing_style": "path"},
-        ),
-    )
+    try:
+        return R2Storage.from_settings(settings, connect_timeout=3, read_timeout=5)
+    except R2ConfigurationError:
+        raise HTTPException(503, "Image uploads are unavailable") from None
 
 
-class FixedImageObjects:
-    """Snapshot fixed keys in memory so partial storage writes and failed DB commits roll back."""
+class ImageUploadStorage(ImageProcessor):
+    """Normalize one upload policy and compensate fixed-key changes if publication fails."""
 
-    def __init__(self, prefix, sizes, *, client=None):
-        self.client = client if client is not None else image_upload_client()
-        self.bucket = get_settings().image_storage_bucket
-        self.prefix, self.sizes = prefix, sizes
+    def __init__(self, prefix, sizes, *, square=False, storage: R2Storage | None = None):
+        super().__init__(max_pixels=MAX_PIXELS, formats={"JPEG", "PNG", "WEBP"}, orient_width=False)
+        self.storage = storage
+        self.prefix, self.sizes, self.square = prefix, tuple(sizes), square
         self.previous: dict[str, bytes | None] = {}
         self.changed: list[str] = []
         self.revision = uuid4().hex
 
+    def normalize(self, body: bytes):
+        if not _normalization_slot.acquire(blocking=False):
+            raise HTTPException(
+                503, "Image processing is busy; try again shortly", headers={"Retry-After": "1"}
+            )
+        try:
+            return self._normalize(body)
+        finally:
+            _normalization_slot.release()
+
+    def _normalize(self, body: bytes):
+        if len(body) > MAX_BYTES:
+            raise HTTPException(413, "Choose an image under 5 MB")
+        try:
+            self.inspect(body)
+            with Image.open(io.BytesIO(body)) as image:
+                ImageOps.exif_transpose(image, in_place=True)
+                if self.square:
+                    reduced = ImageOps.fit(
+                        image, (max(self.sizes), max(self.sizes)), Image.Resampling.LANCZOS
+                    )
+                else:
+                    image.thumbnail((max(self.sizes), max(self.sizes)), Image.Resampling.LANCZOS)
+                    reduced = image
+                master = reduced.convert("RGBA")
+                result, widths = {}, {}
+                for size in self.sizes:
+                    if self.square:
+                        variant = ImageOps.fit(master, (size, size), Image.Resampling.LANCZOS)
+                    else:
+                        variant = master.copy()
+                        variant.thumbnail((size, max(self.sizes)), Image.Resampling.LANCZOS)
+                    result[size] = self.encode(
+                        variant, format="WEBP", strip_metadata=True, quality=85, method=4
+                    )
+                    widths[size] = variant.width
+                return result, widths
+        except (
+            ValueError,
+            OSError,
+            UnidentifiedImageError,
+            Image.DecompressionBombError,
+            Image.DecompressionBombWarning,
+        ) as exc:
+            raise HTTPException(
+                422, "Choose a valid JPEG, PNG or WebP image up to 20 megapixels"
+            ) from exc
+
     def __enter__(self):
+        if self.storage is None:
+            self.storage = image_upload_storage()
         try:
             for size in self.sizes:
                 key = f"{self.prefix}/{size}.webp"
-                try:
-                    response = self.client.get_object(Bucket=self.bucket, Key=key)
-                except ClientError as exc:
-                    if exc.response.get("Error", {}).get("Code") in {
-                        "NoSuchKey",
-                        "404",
-                        "NotFound",
-                    }:
-                        self.previous[key] = None
-                        continue
-                    raise
-                stream = response["Body"]
-                try:
-                    body = stream.read(MAX_BYTES + 1)
-                    if len(body) > MAX_BYTES:
-                        raise ValueError("Oversized stored image")
-                    self.previous[key] = body
-                finally:
-                    stream.close()
+                self.previous[key] = self.storage.get(key, max_bytes=MAX_BYTES)
             return self
         except Exception as exc:
-            self.client.close()
+            self.storage.close()
             raise HTTPException(503, "Image storage is unavailable") from exc
 
     def put(self, key, body):
-        self.client.put_object(
-            Bucket=self.bucket,
-            Key=key,
-            Body=body,
-            ContentType="image/webp",
-            CacheControl=CACHE_CONTROL,
-        )
+        assert self.storage is not None
+        self.storage.put(key, body, content_type="image/webp", cache_control=CACHE_CONTROL)
 
     def replace(self, variants, *, widths=None):
         base = (get_settings().image_public_url or "").rstrip("/")
@@ -178,26 +128,28 @@ class FixedImageObjects:
         return urls
 
     def remove(self):
+        assert self.storage is not None
         try:
             for key in self.previous:
                 self.changed.append(key)
-                self.client.delete_object(Bucket=self.bucket, Key=key)
+                self.storage.delete(key)
         except Exception as exc:
             raise HTTPException(503, "Couldn’t remove the image. Try again") from exc
 
     def __exit__(self, exception_type, exception, traceback):
+        assert self.storage is not None
         try:
             if exception_type is not None:
                 for key in self.changed:
                     try:
                         if self.previous[key] is None:
-                            self.client.delete_object(Bucket=self.bucket, Key=key)
+                            self.storage.delete(key)
                         else:
                             self.put(key, self.previous[key])
                     except Exception:
                         logger.error("image_upload_rollback_failed")
         finally:
-            self.client.close()
+            self.storage.close()
 
 
 class ImageUploadBodyLimit(BoundedRequestBodyMiddleware):

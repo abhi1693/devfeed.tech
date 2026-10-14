@@ -24,6 +24,10 @@ dependencies = [
   "cryptography>=46,<51",
 ]
 
+[project.optional-dependencies]
+images = ["pillow>=11.3,<13"]
+storage = ["boto3>=1.40,<2"]
+
 [build-system]
 requires = ["setuptools>=80,<85"]
 build-backend = "setuptools.build_meta"

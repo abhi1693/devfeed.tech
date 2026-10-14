@@ -1,9 +1,7 @@
 """Checkpointed image storage shared by article photos and catalog logos."""
 
 import logging
-from contextlib import closing
 
-from devfeed_core.config import get_settings
 from devfeed_core.feeds.fetcher import FeedError
 from devfeed_core.job_lifecycle import clear_lease, fail_or_retry, finish_job
 from devfeed_core.jobs import owned_job
@@ -19,10 +17,9 @@ from devfeed_core.models import (
 from sqlalchemy import select
 
 from devfeed_aggregator.image_storage import (
+    ImageOriginalStore,
+    ThumbnailVariantStore,
     storage_client,
-    store_original,
-    store_variant,
-    variant_widths,
 )
 
 logger = logging.getLogger(__name__)
@@ -70,15 +67,14 @@ def store_image(factory, identifier, token, article_id, source):
         model=Article,
         source_field="image_url",
         asset_field="managed_image",
-        original=store_original,
-        variant=store_variant,
-        sizes=variant_widths,
+        original_store=ImageOriginalStore,
+        variant_store=ThumbnailVariantStore,
         method="r2-imgproxy",
     )
 
 
 def store_product_image(factory, identifier, token, product_id, source):
-    from devfeed_aggregator.product_image_storage import store_product_image_original
+    from devfeed_aggregator.product_image_storage import ProductImageOriginalStore
 
     _store_asset(
         factory,
@@ -89,9 +85,8 @@ def store_product_image(factory, identifier, token, product_id, source):
         model=PartnerProduct,
         source_field="product_url",
         asset_field="managed_image",
-        original=store_product_image_original,
-        variant=store_variant,
-        sizes=variant_widths,
+        original_store=ProductImageOriginalStore,
+        variant_store=ThumbnailVariantStore,
         method="r2-imgproxy",
     )
 
@@ -106,9 +101,8 @@ def store_product_ad_image(factory, identifier, token, account_id, product_id, s
         model=PartnerProductPromotion,
         source_field="ad_image_url",
         asset_field="managed_ad_image",
-        original=store_original,
-        variant=store_variant,
-        sizes=variant_widths,
+        original_store=ImageOriginalStore,
+        variant_store=ThumbnailVariantStore,
         method="r2-imgproxy",
     )
 
@@ -134,11 +128,9 @@ def cleanup_product_ad_image(factory, identifier, token, account_id, product_id)
             finish_job(job, "already_present", utcnow())
             return
         try:
-            with closing(storage_client()) as client:
+            with storage_client() as client:
                 for size in AD_IMAGE_SIZES:
-                    client.delete_object(
-                        Bucket=get_settings().image_storage_bucket, Key=f"{prefix}/{size}.webp"
-                    )
+                    client.delete(f"{prefix}/{size}.webp")
             policy.managed_ad_image = {}
             finish_job(job, "found", utcnow())
         except Exception as exc:
@@ -186,12 +178,13 @@ def publish_product_image_original(factory, identifier, token, product_id, sourc
 def store_logo(factory, identifier, token, subject_id, source, *, model):
     from devfeed_core.logos import logo_sizes
 
-    from devfeed_aggregator.logo_storage import store_logo_original, store_logo_variant
+    from devfeed_aggregator.logo_storage import LogoOriginalStore, LogoVariantStore
 
+    original_store = LogoOriginalStore
     if model is PartnerProduct:
-        from devfeed_aggregator.product_logo_storage import store_product_logo_original
+        from devfeed_aggregator.product_logo_storage import ProductLogoOriginalStore
 
-        store_logo_original = store_product_logo_original
+        original_store = ProductLogoOriginalStore
 
     _store_asset(
         factory,
@@ -202,9 +195,8 @@ def store_logo(factory, identifier, token, subject_id, source, *, model):
         model=model,
         source_field="product_url" if model is PartnerProduct else "logo_url",
         asset_field="managed_logo",
-        original=store_logo_original,
-        variant=store_logo_variant,
-        sizes=lambda asset: logo_sizes(model),
+        original_store=original_store,
+        variant_store=lambda storage: LogoVariantStore(storage, sizes=logo_sizes(model)),
         method="r2-logo",
     )
 
@@ -237,9 +229,8 @@ def _store_asset(
     model,
     source_field,
     asset_field,
-    original,
-    variant,
-    sizes,
+    original_store,
+    variant_store,
     method,
 ):
     try:
@@ -248,10 +239,12 @@ def _store_asset(
             if job is None or job.status != "running" or job.lease_token != token:
                 return
             asset = dict(job.storage or {})
-        with closing(storage_client()) as client:
+        with storage_client() as client:
+            original = original_store(client)
+            variants = variant_store(client)
             imported = not asset
             if imported:
-                asset = original(client, source)
+                asset = original.store(source)
                 if not checkpoint(factory, identifier, token, asset):
                     return
             if asset_field == "managed_logo" and not publish_logo_original(
@@ -268,10 +261,10 @@ def _store_asset(
                 )
             ):
                 return
-            for size in sizes(asset):
+            for size in variants.sizes(asset):
                 if any(item["width"] == size for item in asset["variants"]):
                     continue
-                item = variant(client, asset, size)
+                item = variants.store(asset, size)
                 asset = {**asset, "variants": [*asset["variants"], item]}
                 if not checkpoint(factory, identifier, token, asset):
                     return

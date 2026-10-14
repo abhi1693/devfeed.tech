@@ -5,11 +5,17 @@ from types import SimpleNamespace
 from unittest.mock import Mock
 from urllib.parse import parse_qs, urlsplit
 
+import boto3
 import pytest
 from botocore.exceptions import ClientError
+from devfeed_core.object_storage import R2Storage
 from devfeed_http import image_uploads
+from devfeed_http.partner_ad_images import ProductAdImageStorage
+from devfeed_user_api.avatar_storage import AvatarStorage
 from fastapi import HTTPException
+from PIL import Image
 from pydantic import SecretStr
+from test_avatar_uploads import picture
 
 PREFIX = "partner-ad-images/unit-product"
 SIZES = (400, 800, 1200)
@@ -74,7 +80,11 @@ def storage(monkeypatch):
     settings = upload_settings()
     monkeypatch.setattr(image_uploads, "get_settings", lambda: settings)
     client = MemoryStorage()
-    monkeypatch.setattr(image_uploads, "image_upload_client", lambda: client)
+    monkeypatch.setattr(
+        image_uploads,
+        "image_upload_storage",
+        lambda: R2Storage(settings.image_storage_bucket, client=client),
+    )
     return client, settings
 
 
@@ -86,11 +96,51 @@ def owned_objects(label):
     return {f"{PREFIX}/{size}.webp": body for size, body in variants(label).items()}
 
 
+def test_avatar_and_ad_geometry_share_validation_without_allocating_storage(monkeypatch):
+    create = Mock(side_effect=AssertionError("Normalization allocated object storage"))
+    monkeypatch.setattr(image_uploads, "image_upload_storage", create)
+    avatar = AvatarStorage("reader-account")
+    creative = ProductAdImageStorage(PREFIX)
+    assert avatar.prefix.startswith("avatars/") and "reader-account" not in avatar.prefix
+    assert creative.prefix == PREFIX
+    for upload in (avatar, creative):
+        encoded, widths = upload.normalize(picture(size=(80, 120)))
+        assert set(encoded) == set(upload.sizes)
+        for size, body in encoded.items():
+            with Image.open(io.BytesIO(body)) as image:
+                if upload is avatar:
+                    assert image.size == (size, size) and widths[size] == size
+                else:
+                    assert image.size == (80, 120) and widths[size] == 80
+        assert upload.storage is None
+    create.assert_not_called()
+
+
+@pytest.mark.parametrize("failure,status", [("invalid", 422), ("oversize", 413), ("busy", 503)])
+def test_failed_normalization_keeps_storage_unallocated(monkeypatch, failure, status):
+    create = Mock(side_effect=AssertionError("Invalid upload allocated object storage"))
+    monkeypatch.setattr(image_uploads, "image_upload_storage", create)
+    upload = AvatarStorage("reader-account")
+    if failure == "busy":
+        assert image_uploads._normalization_slot.acquire(blocking=False)
+    body = b"invalid" if failure != "oversize" else b"x" * (image_uploads.MAX_BYTES + 1)
+    try:
+        with pytest.raises(HTTPException) as error:
+            upload.normalize(body)
+    finally:
+        if failure == "busy":
+            image_uploads._normalization_slot.release()
+    assert error.value.status_code == status and upload.storage is None
+    create.assert_not_called()
+
+
 def test_successful_replacements_reuse_keys_with_new_versions_and_safe_storage_headers(storage):
     client, settings = storage
-    with image_uploads.FixedImageObjects(PREFIX, SIZES) as objects:
+    with image_uploads.ImageUploadStorage(PREFIX, SIZES) as objects:
         first = objects.replace(variants("first"))
-    with image_uploads.FixedImageObjects(PREFIX, SIZES, client=client) as objects:
+    with image_uploads.ImageUploadStorage(
+        PREFIX, SIZES, storage=R2Storage(settings.image_storage_bucket, client=client)
+    ) as objects:
         second = objects.replace(variants("second"), widths={400: 320, 800: 640, 1200: 960})
 
     assert client.objects == owned_objects("second")
@@ -122,7 +172,7 @@ def test_partial_write_timeout_restores_old_bytes_and_removes_new_orphans(storag
 
     with (
         pytest.raises(HTTPException) as error,
-        image_uploads.FixedImageObjects(PREFIX, SIZES) as objects,
+        image_uploads.ImageUploadStorage(PREFIX, SIZES) as objects,
     ):
         objects.replace(variants("new"))
 
@@ -142,7 +192,7 @@ def test_failed_database_publication_rolls_back_every_written_object(storage, ex
 
     with (
         pytest.raises(RuntimeError, match="Database commit failed"),
-        image_uploads.FixedImageObjects(PREFIX, SIZES) as objects,
+        image_uploads.ImageUploadStorage(PREFIX, SIZES) as objects,
     ):
         objects.replace(variants("new"))
         assert client.objects == owned_objects("new")
@@ -155,7 +205,7 @@ def test_successful_removal_deletes_only_owned_slots(storage):
     client, _ = storage
     unrelated = {"other-account/400.webp": b"preserve"}
     client.objects = {**owned_objects("old"), **unrelated}
-    with image_uploads.FixedImageObjects(PREFIX, SIZES) as objects:
+    with image_uploads.ImageUploadStorage(PREFIX, SIZES) as objects:
         objects.remove()
     assert client.objects == unrelated
     assert set(client.deletes) == set(owned_objects("old"))
@@ -170,7 +220,7 @@ def test_partial_delete_timeout_restores_removed_slots(storage):
 
     with (
         pytest.raises(HTTPException) as error,
-        image_uploads.FixedImageObjects(PREFIX, SIZES) as objects,
+        image_uploads.ImageUploadStorage(PREFIX, SIZES) as objects,
     ):
         objects.remove()
 
@@ -186,7 +236,7 @@ def test_database_failure_after_removal_restores_all_owned_bytes(storage):
     client.objects = dict(before)
     with (
         pytest.raises(RuntimeError, match="Database commit failed"),
-        image_uploads.FixedImageObjects(PREFIX, SIZES) as objects,
+        image_uploads.ImageUploadStorage(PREFIX, SIZES) as objects,
     ):
         objects.remove()
         assert client.objects == {}
@@ -198,15 +248,16 @@ def test_database_failure_after_removal_restores_all_owned_bytes(storage):
 def test_absent_object_codes_allow_first_upload(storage, code):
     client, _ = storage
     client.missing_code = code
-    with image_uploads.FixedImageObjects(PREFIX, SIZES) as objects:
+    with image_uploads.ImageUploadStorage(PREFIX, SIZES) as objects:
         objects.replace(variants("first"))
     assert client.objects == owned_objects("first") and client.closed == 1
 
 
-def test_storage_read_denial_closes_client_without_writing_or_exposing_details(storage):
+@pytest.mark.parametrize("code", ["AccessDenied", "NoSuchBucket", "ServiceUnavailable"])
+def test_storage_read_denial_closes_client_without_writing_or_exposing_details(storage, code):
     client, _ = storage
-    client.missing_code = "AccessDenied"
-    with pytest.raises(HTTPException) as error, image_uploads.FixedImageObjects(PREFIX, SIZES):
+    client.missing_code = code
+    with pytest.raises(HTTPException) as error, image_uploads.ImageUploadStorage(PREFIX, SIZES):
         pytest.fail("Storage read failure allowed publication")
     assert error.value.status_code == 503
     assert error.value.detail == "Image storage is unavailable"
@@ -218,7 +269,7 @@ def test_oversized_stored_object_is_bounded_and_closes_stream_and_client(storage
     client, _ = storage
     monkeypatch.setattr(image_uploads, "MAX_BYTES", 8)
     client.objects = {f"{PREFIX}/400.webp": b"x" * 9}
-    with pytest.raises(HTTPException) as error, image_uploads.FixedImageObjects(PREFIX, SIZES):
+    with pytest.raises(HTTPException) as error, image_uploads.ImageUploadStorage(PREFIX, SIZES):
         pytest.fail("Oversized rollback snapshot was accepted")
     assert error.value.status_code == 503
     assert client.streams[0].read_sizes == [9] and client.streams[0].closed
@@ -233,7 +284,7 @@ def test_snapshot_read_failure_closes_stream_and_client(storage, monkeypatch):
         raise OSError("Read interrupted")
 
     monkeypatch.setattr(StoredBody, "read", fail_read)
-    with pytest.raises(HTTPException) as error, image_uploads.FixedImageObjects(PREFIX, SIZES):
+    with pytest.raises(HTTPException) as error, image_uploads.ImageUploadStorage(PREFIX, SIZES):
         pytest.fail("Failed rollback snapshot was accepted")
     assert error.value.status_code == 503
     assert client.streams[0].closed and client.closed == 1
@@ -254,7 +305,7 @@ def test_rollback_failure_logs_safe_category_continues_restoration_and_closes(st
     client.put_object = fail_first_restore
     with (
         pytest.raises(RuntimeError, match="Database commit failed"),
-        image_uploads.FixedImageObjects(PREFIX, SIZES) as objects,
+        image_uploads.ImageUploadStorage(PREFIX, SIZES) as objects,
     ):
         objects.replace(variants("new"))
         raise RuntimeError("Database commit failed")
@@ -277,25 +328,25 @@ def test_rollback_failure_logs_safe_category_continues_restoration_and_closes(st
         ("image_storage_secret_key", None),
     ],
 )
-def test_upload_client_rejects_incomplete_configuration_before_creating_storage(
+def test_upload_storage_rejects_incomplete_configuration_before_creating_storage(
     monkeypatch, field, value
 ):
     settings = upload_settings()
     setattr(settings, field, value)
     monkeypatch.setattr(image_uploads, "get_settings", lambda: settings)
     create = Mock()
-    monkeypatch.setattr(image_uploads.boto3, "client", create)
+    monkeypatch.setattr(boto3, "client", create)
     with pytest.raises(HTTPException) as error:
-        image_uploads.image_upload_client()
+        image_uploads.image_upload_storage()
     assert error.value.status_code == 503 and not create.called
 
 
-def test_upload_client_uses_bounded_transport_without_implicit_retries(monkeypatch):
+def test_upload_storage_uses_bounded_transport_without_implicit_retries(monkeypatch):
     settings = upload_settings()
     monkeypatch.setattr(image_uploads, "get_settings", lambda: settings)
     create = Mock()
-    monkeypatch.setattr(image_uploads.boto3, "client", create)
-    assert image_uploads.image_upload_client() is create.return_value
+    monkeypatch.setattr(boto3, "client", create)
+    assert isinstance(image_uploads.image_upload_storage(), R2Storage)
     options = create.call_args.kwargs
     assert create.call_args.args == ("s3",)
     assert options["endpoint_url"] == settings.image_storage_endpoint

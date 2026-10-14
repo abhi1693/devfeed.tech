@@ -20,6 +20,7 @@ from devfeed_core.models import (
     PartnerProductPromotion,
     utcnow,
 )
+from devfeed_core.object_storage import R2Storage
 from devfeed_core.partner_catalog import merge_products, upsert_listing
 from devfeed_core.partner_product_images import product_image_url, product_image_variants
 from devfeed_core.partner_promotions import ensure_automatic_assets
@@ -67,17 +68,27 @@ def managed_storage(monkeypatch):
     monkeypatch.setenv("DEVFEED_IMAGE_PUBLIC_URL", PUBLIC)
     get_settings.cache_clear()
     monkeypatch.setattr(
-        image_storage_tasks, "storage_client", lambda: SimpleNamespace(close=lambda: None)
+        image_storage_tasks,
+        "storage_client",
+        lambda: R2Storage("test-images", client=SimpleNamespace(close=lambda: None)),
     )
     original = Mock(side_effect=lambda client, source: {**managed(source), "variants": []})
-    monkeypatch.setattr(image_storage_tasks, "store_original", original)
+    monkeypatch.setattr(
+        image_storage_tasks.ImageOriginalStore,
+        "store",
+        lambda self, *args: original(self.storage, *args),
+    )
     variant = Mock(
         side_effect=lambda client, asset, width: {
             "key": f"thumbnails/v2/{asset['hash']}/{width}.webp",
             "width": width,
         }
     )
-    monkeypatch.setattr(image_storage_tasks, "store_variant", variant)
+    monkeypatch.setattr(
+        image_storage_tasks.ThumbnailVariantStore,
+        "store",
+        lambda self, *args: variant(self.storage, *args),
+    )
     return original, variant
 
 
@@ -318,13 +329,13 @@ def test_late_image_io_cannot_restore_a_replaced_or_cleared_override(
     old = latest_job(database, account, product_id)
 
     def changed(client, source):
-        asset = original(client, source)
+        asset = original(client.storage, source)
         save(database, account, product_id, None if replacement == CUSTOM else replacement)
         if replacement == CUSTOM:
             save(database, account, product_id, CUSTOM)
         return asset
 
-    image_storage_tasks.store_original = changed
+    image_storage_tasks.ImageOriginalStore.store = changed
     image_tasks.enrich_image(str(old.id))
     with database() as session:
         policy = session.get(PartnerProductPromotion, (account, product_id))
@@ -352,7 +363,7 @@ def test_failed_custom_image_keeps_og_and_retry_resumes_variants(
             raise FeedError("Bad transform", reason="image_transform")
         return {"key": f"thumbnails/v2/custom/{width}.webp", "width": width}
 
-    monkeypatch.setattr(image_storage_tasks, "store_variant", variant)
+    monkeypatch.setattr(image_storage_tasks.ThumbnailVariantStore, "store", variant)
     save(database, account, product_id, CUSTOM)
     job = latest_job(database, account, product_id)
     image_tasks.enrich_image(str(job.id))

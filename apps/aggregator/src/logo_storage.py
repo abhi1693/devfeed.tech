@@ -1,6 +1,5 @@
 """Bounded logo normalization. Only sanitized SVG reaches the image renderer."""
 
-import hashlib
 import io
 import math
 import re
@@ -8,9 +7,10 @@ import xml.etree.ElementTree as ET
 
 from devfeed_core.feeds.fetcher import FeedError, fetch_topic_logo
 from devfeed_core.logos import LOGO_SIZES, LOGO_VERSION
+from devfeed_core.object_storage import R2Storage
 from PIL import Image, ImageOps
 
-from devfeed_aggregator import image_storage
+from devfeed_aggregator.image_storage_base import ImgproxyTransform, OriginalStore, VariantStore
 
 SVG_NS = "http://www.w3.org/2000/svg"
 SVG_TAGS = set(
@@ -104,59 +104,70 @@ def check_svg_css(value: str):
             raise ValueError("External SVG CSS reference")
 
 
-def store_logo_original(client, source: str) -> dict:
-    result = fetch_topic_logo(source)
-    body = result.body
-    if (result.content_type or "").split(";", 1)[0] == "image/svg+xml" or body.lstrip().startswith(
-        (b"<", b"\xef\xbb\xbf")
+class LogoOriginalStore(OriginalStore):
+    def store(self, source: str) -> dict:
+        result = fetch_topic_logo(source)
+        body = result.body
+        if (result.content_type or "").split(";", 1)[
+            0
+        ] == "image/svg+xml" or body.lstrip().startswith((b"<", b"\xef\xbb\xbf")):
+            from cairosvg import svg2png
+
+            try:
+                sanitized = sanitize_svg(body)
+                root = ET.fromstring(sanitized)
+                # CSS can override root attributes. Bound Cairo's output surface
+                # explicitly using the aspect ratio validated by the sanitizer.
+                dimensions = {
+                    f"output_{axis}": max(1, min(max(LOGO_SIZES), round(float(root.attrib[axis]))))
+                    for axis in ("width", "height")
+                }
+                body = svg2png(bytestring=sanitized, unsafe=False, **dimensions)
+            except FeedError:
+                raise
+            except Exception as exc:
+                raise FeedError("SVG logo conversion failed", reason="invalid_topic_logo") from exc
+        self.inspect(body)
+        # One normalized PNG master is displayable before variants are generated.
+        with Image.open(io.BytesIO(body)) as opened:
+            master = ImageOps.exif_transpose(opened).convert("RGBA")
+            master.thumbnail((max(LOGO_SIZES), max(LOGO_SIZES)), Image.Resampling.LANCZOS)
+            body = self.encode(master, format="PNG", optimize=True)
+        return self._save(
+            source,
+            body,
+            "image/png",
+            namespace=f"originals/topic-logos/{LOGO_VERSION}",
+            extension=".png",
+            version=LOGO_VERSION,
+        )
+
+
+class LogoVariantStore(VariantStore):
+    def __init__(
+        self,
+        storage: R2Storage,
+        *,
+        sizes=LOGO_SIZES,
+        transform: ImgproxyTransform | None = None,
     ):
-        from cairosvg import svg2png
+        super().__init__(storage, transform=transform)
+        self._sizes = tuple(sizes)
 
-        try:
-            sanitized = sanitize_svg(body)
-            root = ET.fromstring(sanitized)
-            # CSS can override root attributes. Bound Cairo's output surface
-            # explicitly using the aspect ratio validated by the sanitizer.
-            dimensions = {
-                f"output_{axis}": max(1, min(max(LOGO_SIZES), round(float(root.attrib[axis]))))
-                for axis in ("width", "height")
-            }
-            body = svg2png(bytestring=sanitized, unsafe=False, **dimensions)
-        except FeedError:
-            raise
-        except Exception as exc:
-            raise FeedError("SVG logo conversion failed", reason="invalid_topic_logo") from exc
-    image_storage.inspect_image(body)
-    # One normalized PNG master is displayable before variants are generated.
-    with Image.open(io.BytesIO(body)) as opened:
-        master = ImageOps.exif_transpose(opened).convert("RGBA")
-        master.thumbnail((max(LOGO_SIZES), max(LOGO_SIZES)), Image.Resampling.LANCZOS)
-        output = io.BytesIO()
-        master.save(output, format="PNG", optimize=True)
-        body, mime, extension = output.getvalue(), "image/png", "png"
-    digest = hashlib.sha256(body).hexdigest()
-    key = f"originals/topic-logos/{LOGO_VERSION}/{digest}.{extension}"
-    if not image_storage.exists(client, key):
-        image_storage.upload(client, key, body, mime)
-    return {
-        "source_url": source,
-        "hash": digest,
-        "original_key": key,
-        "version": LOGO_VERSION,
-        "variants": [],
-    }
+    def sizes(self, asset: dict) -> list[int]:
+        return list(self._sizes)
 
+    def _key(self, asset: dict, size: int) -> str:
+        return f"topic-logos/{LOGO_VERSION}/{asset['hash']}/{size}.webp"
 
-def store_logo_variant(client, asset: dict, size: int) -> dict:
-    key = f"topic-logos/{LOGO_VERSION}/{asset['hash']}/{size}.webp"
-    if not image_storage.exists(client, key):
+    def _render(self, asset: dict, size: int) -> bytes:
         # Fit every source to the same canvas fraction, including small rasters.
         # Otherwise the visible logo would shrink when a larger variant is selected.
-        url = image_storage.signed_transform_url(
+        url = self.transform.url(
             asset["original_key"], size, options=f"rs:fit:{size}:{size}:1/f:png"
         )
-        body = image_storage.transform_image(url)
-        image_storage.inspect_image(body)
+        body = self.transform.fetch(url)
+        self.inspect(body)
         with Image.open(io.BytesIO(body)) as image:
             if image.width > size or image.height > size:
                 raise FeedError("Oversized transformed logo", reason="image_transform")
@@ -164,7 +175,4 @@ def store_logo_variant(client, asset: dict, size: int) -> dict:
             canvas.alpha_composite(
                 image.convert("RGBA"), ((size - image.width) // 2, (size - image.height) // 2)
             )
-            output = io.BytesIO()
-            canvas.save(output, format="WEBP", lossless=True, method=6)
-        image_storage.upload(client, key, output.getvalue(), "image/webp")
-    return {"key": key, "width": size}
+            return self.encode(canvas, format="WEBP", lossless=True, method=6)

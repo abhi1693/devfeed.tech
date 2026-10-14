@@ -7,6 +7,7 @@ from urllib.parse import unquote, urlsplit
 from devfeed_core.config import get_settings
 from devfeed_core.managed_images import IMAGE_VERSION
 from devfeed_core.models import PartnerProduct, PartnerProductPromotion
+from devfeed_core.object_storage import R2Storage
 from devfeed_core.partner_product_images import (
     AD_IMAGE_SIZES,
     ad_image_prefix,
@@ -22,12 +23,21 @@ from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.exc import DBAPIError
 
-from devfeed_http.image_uploads import MAX_BYTES, FixedImageObjects, normalize_image
+from devfeed_http.image_uploads import MAX_BYTES, ImageUploadStorage
 from devfeed_http.partner_portal import (
     _product_promotion_policy,
     product_promotion,
     save_product_promotion,
 )
+
+
+class ProductAdImageStorage(ImageUploadStorage):
+    """Fixed artwork slots preserve aspect ratio for each owned product-image prefix."""
+
+    sizes = AD_IMAGE_SIZES
+
+    def __init__(self, prefix, *, storage: R2Storage | None = None):
+        super().__init__(prefix, self.sizes, storage=storage)
 
 
 def ad_image_upload_path(path):
@@ -114,7 +124,7 @@ def save_product_promotion_with_images(session, account, product_id, payload):
             )
     with ExitStack() as stack:
         if removing:
-            objects = stack.enter_context(FixedImageObjects(prefix, AD_IMAGE_SIZES))
+            objects = stack.enter_context(ProductAdImageStorage(prefix))
             objects.remove()
         result = save_product_promotion(session, account, product_id, payload)
         session.commit()
@@ -131,14 +141,15 @@ def upload_product_ad_image(session, account, product_id, file):
             raise ValueError("HTTPS required")
     except ValueError:
         raise HTTPException(503, "Public HTTPS image storage is required for ad uploads") from None
-    encoded, widths = normalize_image(file.file.read(MAX_BYTES + 1), AD_IMAGE_SIZES)
     prefix = ad_image_prefix(account.id, product_id)
+    upload = ProductAdImageStorage(prefix)
+    encoded, widths = upload.normalize(file.file.read(MAX_BYTES + 1))
     old_prefix = uploaded_ad_image_prefix(previous.managed_ad_image, account.id)
     with ExitStack() as stack:
         if old_prefix and old_prefix != prefix:
-            old = stack.enter_context(FixedImageObjects(old_prefix, AD_IMAGE_SIZES))
+            old = stack.enter_context(ProductAdImageStorage(old_prefix))
             old.remove()
-        objects = stack.enter_context(FixedImageObjects(prefix, AD_IMAGE_SIZES))
+        objects = stack.enter_context(upload)
         objects.replace(encoded, widths=widths)
         # Fixed slots stay bounded; actual widths are unique srcset descriptors.
         by_width = {

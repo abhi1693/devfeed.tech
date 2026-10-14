@@ -352,9 +352,13 @@ class PolicyTransaction:
 
 @pytest.fixture
 def upload_policy(policy_catalog, monkeypatch):
+    from devfeed_core.object_storage import R2Storage
+
     account, product, policy = policy_catalog
     r2 = FakeR2()
-    monkeypatch.setattr(image_uploads, "image_upload_client", lambda: r2)
+    monkeypatch.setattr(
+        image_uploads, "image_upload_storage", lambda: R2Storage("ad-test-images", client=r2)
+    )
     monkeypatch.setattr(
         partner_ad_images, "_product_promotion_policy", lambda *args, **kwargs: policy
     )

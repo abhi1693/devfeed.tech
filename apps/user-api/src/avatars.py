@@ -10,10 +10,7 @@ from devfeed_http.image_uploads import MAX_BYTES
 from fastapi import APIRouter, File, HTTPException, UploadFile
 
 from devfeed_user_api.auth import User
-from devfeed_user_api.avatar_storage import (
-    AvatarObjects,
-    normalize_avatar,
-)
+from devfeed_user_api.avatar_storage import AvatarStorage
 from devfeed_user_api.dependencies import DB
 from devfeed_user_api.preferences import lock_account
 from devfeed_user_api.profile import profile_value
@@ -32,9 +29,10 @@ def upload_avatar(
     assert account is not None
     if file.content_type not in {"image/jpeg", "image/png", "image/webp"}:
         raise HTTPException(415, "Choose a JPEG, PNG or WebP image")
-    variants = normalize_avatar(file.file.read(MAX_BYTES + 1))
-    with AvatarObjects(account_id) as objects:
-        urls = objects.replace(variants)
+    upload = AvatarStorage(account_id)
+    variants, widths = upload.normalize(file.file.read(MAX_BYTES + 1))
+    with upload as objects:
+        urls = objects.replace(variants, widths=widths)
         account.profile = {
             **account.profile,
             "avatar_url": next(item["url"] for item in urls if item["width"] == 256),
@@ -53,7 +51,7 @@ def remove_avatar(user: User, session: DB):
     account = session.get(UserAccount, account_id)
     assert account is not None
     with (
-        AvatarObjects(account_id)
+        AvatarStorage(account_id)
         if account.profile.get("avatar_variants")
         else nullcontext() as objects
     ):

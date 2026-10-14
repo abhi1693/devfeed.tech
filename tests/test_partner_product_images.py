@@ -10,6 +10,7 @@ from devfeed_core.feeds.fetcher import FeedError, FetchResult
 from devfeed_core.image_jobs import retry_image
 from devfeed_core.logos import request_logo
 from devfeed_core.models import ArticleImageJob, PartnerProduct
+from devfeed_core.object_storage import R2Storage
 from devfeed_core.partner_product_images import (
     backfill_product_images,
     product_image_url,
@@ -44,8 +45,12 @@ def test_product_preview_discovery_reuses_article_metadata_and_storage(
         lambda source: FetchResult(200, markup.encode(), PAGE, content_type="text/html"),
     )
     original = Mock(return_value={"source_url": expected, "variants": [], "hash": "hash"})
-    monkeypatch.setattr(product_image_storage, "store_original", original)
-    result = product_image_storage.store_product_image_original(None, PAGE)
+    monkeypatch.setattr(
+        product_image_storage.ImageOriginalStore,
+        "store",
+        lambda self, *args: original(self.storage, *args),
+    )
+    result = product_image_storage.ProductImageOriginalStore(None).store(PAGE)
     original.assert_called_once_with(None, expected)
     assert result["page_url"] == PAGE
     assert result["source_url"] == expected
@@ -68,9 +73,13 @@ def test_missing_or_unsafe_preview_never_fetches_an_arbitrary_image(monkeypatch,
         lambda source: FetchResult(200, markup.encode(), PAGE, content_type="text/html"),
     )
     original = Mock()
-    monkeypatch.setattr(product_image_storage, "store_original", original)
+    monkeypatch.setattr(
+        product_image_storage.ImageOriginalStore,
+        "store",
+        lambda self, *args: original(self.storage, *args),
+    )
     with pytest.raises(FeedError) as raised:
-        product_image_storage.store_product_image_original(None, PAGE)
+        product_image_storage.ProductImageOriginalStore(None).store(PAGE)
     assert raised.value.reason == "product_image_not_found"
     original.assert_not_called()
 
@@ -108,7 +117,9 @@ def image_catalog(database, catalog, monkeypatch):
     monkeypatch.setenv("DEVFEED_IMAGE_PUBLIC_URL", "https://images.example")
     get_settings.cache_clear()
     monkeypatch.setattr(
-        image_storage_tasks, "storage_client", lambda: SimpleNamespace(close=lambda: None)
+        image_storage_tasks,
+        "storage_client",
+        lambda: R2Storage("test-images", client=SimpleNamespace(close=lambda: None)),
     )
     original = Mock(
         side_effect=lambda client, source: {
@@ -128,8 +139,16 @@ def image_catalog(database, catalog, monkeypatch):
             "width": size,
         }
     )
-    monkeypatch.setattr(product_image_storage, "store_product_image_original", original)
-    monkeypatch.setattr(image_storage_tasks, "store_variant", variant)
+    monkeypatch.setattr(
+        product_image_storage.ProductImageOriginalStore,
+        "store",
+        lambda self, *args: original(self.storage, *args),
+    )
+    monkeypatch.setattr(
+        image_storage_tasks.ThumbnailVariantStore,
+        "store",
+        lambda self, *args: variant(self.storage, *args),
+    )
     return catalog, original, variant
 
 
@@ -170,8 +189,8 @@ def test_no_product_og_image_completes_once_and_keeps_logo_fallback(
 ):
     ids, _, _ = image_catalog
     monkeypatch.setattr(
-        product_image_storage,
-        "store_product_image_original",
+        product_image_storage.ProductImageOriginalStore,
+        "store",
         Mock(side_effect=FeedError("No preview", reason="product_image_not_found")),
     )
     identifier = ids["free_product"]
@@ -205,7 +224,7 @@ def test_product_image_retry_resumes_checkpointed_sizes_without_refetch(
             raise FeedError("Transform failed", reason="image_transform")
         return {"key": f"thumbnails/v2/product-image-hash/{size}.webp", "width": size}
 
-    monkeypatch.setattr(image_storage_tasks, "store_variant", variant)
+    monkeypatch.setattr(image_storage_tasks.ThumbnailVariantStore, "store", variant)
     job_id = image_job(database, ids["free_product"])
     image_tasks.enrich_image(str(job_id))
     with database.begin() as session:
@@ -225,12 +244,12 @@ def test_product_website_changes_during_image_io_fence_old_assets_and_queue_repl
     identifier = ids["free_product"]
 
     def changed(client, source):
-        asset = original(client, source)
+        asset = original(client.storage, source)
         with database.begin() as session:
             session.get(PartnerProduct, identifier).product_url = "https://replacement.example"
         return asset
 
-    monkeypatch.setattr(product_image_storage, "store_product_image_original", changed)
+    monkeypatch.setattr(product_image_storage.ProductImageOriginalStore, "store", changed)
     job_id = image_job(database, identifier)
     image_tasks.enrich_image(str(job_id))
     with database() as session:

@@ -10,6 +10,7 @@ from devfeed_core.feeds.fetcher import FeedError
 from devfeed_core.image_jobs import retry_image
 from devfeed_core.logos import logo_url
 from devfeed_core.models import ArticleImageJob, Source, Topic, utcnow
+from devfeed_core.object_storage import R2Storage
 from devfeed_core.schemas import SourceOut, SourcePublicOut
 from devfeed_core.source_logos import backfill_source_logos, request_source_logo
 from devfeed_core.topic_logos import backfill_topic_logos, request_topic_logo
@@ -52,11 +53,13 @@ def enabled(database, monkeypatch):
     monkeypatch.setenv("DEVFEED_IMAGE_PUBLIC_URL", "https://images.test")
     get_settings.cache_clear()
     monkeypatch.setattr(
-        image_storage_tasks, "storage_client", lambda: SimpleNamespace(close=lambda: None)
+        image_storage_tasks,
+        "storage_client",
+        lambda: R2Storage("test-images", client=SimpleNamespace(close=lambda: None)),
     )
     monkeypatch.setattr(
-        logo_storage,
-        "store_logo_original",
+        logo_storage.LogoOriginalStore,
+        "store",
         lambda client, url: {
             "source_url": url,
             "hash": "hash",
@@ -66,8 +69,8 @@ def enabled(database, monkeypatch):
         },
     )
     monkeypatch.setattr(
-        logo_storage,
-        "store_logo_variant",
+        logo_storage.LogoVariantStore,
+        "store",
         lambda client, asset, size: {"key": f"topic-logos/v1/hash/{size}.webp", "width": size},
     )
     return database
@@ -153,7 +156,7 @@ def test_retry_reuses_checkpoint_and_only_publishes_complete_asset(enabled, case
             raise FeedError("retry", reason="image_transform", retryable=True)
         return {"key": f"logo/{size}.webp", "width": size}
 
-    monkeypatch.setattr(logo_storage, "store_logo_variant", variant)
+    monkeypatch.setattr(logo_storage.LogoVariantStore, "store", variant)
     process_logo(enabled, job_id)
     with enabled.begin() as session:
         assert (
@@ -172,14 +175,14 @@ def test_retry_reuses_checkpoint_and_only_publishes_complete_asset(enabled, case
 
 def test_source_changes_during_processing_schedule_replacement(enabled, case, monkeypatch):
     identifier, job_id = subject(enabled, case)
-    original = logo_storage.store_logo_original
+    original = logo_storage.LogoOriginalStore.store
 
     def change(client, url):
         with enabled.begin() as session:
             session.get(case.model, identifier).logo_url = "https://remote.test/new.svg"
         return original(client, url)
 
-    monkeypatch.setattr(logo_storage, "store_logo_original", change)
+    monkeypatch.setattr(logo_storage.LogoOriginalStore, "store", change)
     process_logo(enabled, job_id)
     with enabled() as session:
         assert not session.get(case.model, identifier).managed_logo
@@ -201,7 +204,7 @@ def test_manual_retry_retains_completed_variants(enabled, case, monkeypatch):
             raise FeedError("bad", reason="image_transform", retryable=False)
         return {"key": f"logo/{size}.webp", "width": size}
 
-    monkeypatch.setattr(logo_storage, "store_logo_variant", variant)
+    monkeypatch.setattr(logo_storage.LogoVariantStore, "store", variant)
     process_logo(enabled, job_id)
     with enabled.begin() as session:
         old = session.get(ArticleImageJob, job_id)
@@ -222,7 +225,7 @@ def test_clear_and_replacement_failure_preserve_intent(enabled, case, monkeypatc
     def fail(*args):
         raise FeedError("invalid", reason="invalid_topic_logo", retryable=False)
 
-    monkeypatch.setattr(logo_storage, "store_logo_original", fail)
+    monkeypatch.setattr(logo_storage.LogoOriginalStore, "store", fail)
     with enabled() as session:
         replacement = session.scalar(
             select(ArticleImageJob.id).where(
@@ -362,13 +365,15 @@ def test_import_pass_saves_all_originals_before_variant_pass(enabled, case, monk
     first, first_job = subject(enabled, case)
     second, second_job = subject(enabled, case)
     calls = []
-    original = logo_storage.store_logo_original
-    variant = logo_storage.store_logo_variant
+    original = logo_storage.LogoOriginalStore.store
+    variant = logo_storage.LogoVariantStore.store
     monkeypatch.setattr(
-        logo_storage, "store_logo_original", lambda *a: (calls.append("original"), original(*a))[1]
+        logo_storage.LogoOriginalStore,
+        "store",
+        lambda *a: (calls.append("original"), original(*a))[1],
     )
     monkeypatch.setattr(
-        logo_storage, "store_logo_variant", lambda *a: (calls.append("variant"), variant(*a))[1]
+        logo_storage.LogoVariantStore, "store", lambda *a: (calls.append("variant"), variant(*a))[1]
     )
     for identifier in (first_job, second_job):
         image_tasks.enrich_image(str(identifier))
@@ -401,15 +406,15 @@ def test_explicit_refresh_imports_changed_artwork_at_same_url(enabled, case, mon
         refresh = request_source_logo(session, identifier, refresh=True)
         refreshed_id = refresh.id
         assert refresh.operation == "source-logo-refresh"
-    original = logo_storage.store_logo_original
+    original = logo_storage.LogoOriginalStore.store
     monkeypatch.setattr(
-        logo_storage,
-        "store_logo_original",
+        logo_storage.LogoOriginalStore,
+        "store",
         lambda client, url: {**original(client, url), "hash": "changed"},
     )
     monkeypatch.setattr(
-        logo_storage,
-        "store_logo_variant",
+        logo_storage.LogoVariantStore,
+        "store",
         lambda client, asset, size: {"key": f"logos/{asset['hash']}/{size}.webp", "width": size},
     )
     image_tasks.enrich_image(str(refreshed_id))

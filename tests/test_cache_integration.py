@@ -248,7 +248,7 @@ def test_profile_edit_reports_its_invalidation_cause(user_data, observed_runtime
 def test_avatar_causes_follow_successful_upload_and_removal(
     uploaded_reader, observed_runtime, monkeypatch
 ):
-    from devfeed_user_api.avatar_storage import avatar_prefix
+    from devfeed_user_api.avatar_storage import AvatarStorage
 
     runtime, _ = observed_runtime
     client, storage, _, identifier = uploaded_reader
@@ -258,7 +258,7 @@ def test_avatar_causes_follow_successful_upload_and_removal(
     assert (
         client.post(path, files={"file": ("avatar.png", picture(), "image/png")}).status_code == 200
     )
-    storage.fail_next = f"{avatar_prefix(identifier)}/128.webp"
+    storage.fail_next = f"{AvatarStorage(identifier).prefix}/128.webp"
     assert (
         client.post(path, files={"file": ("avatar.png", picture(), "image/png")}).status_code == 503
     )

@@ -11,6 +11,7 @@ from devfeed_core.feeds.fetcher import FeedError, FetchResult
 from devfeed_core.image_jobs import retry_image
 from devfeed_core.logos import backfill_logos, request_logo
 from devfeed_core.models import ArticleImageJob, PartnerListing, PartnerProduct, utcnow
+from devfeed_core.object_storage import R2Storage
 from devfeed_core.partner_product_logos import product_icon_urls, product_logo_url
 from sqlalchemy import func, select
 from test_partner_placements_integration import catalog as catalog
@@ -73,13 +74,17 @@ def test_official_discovery_falls_back_only_after_permanent_icon_failure(monkeyp
     )
     failure = FeedError("safe error", reason="invalid_topic_logo", retryable=retryable)
     store = Mock(side_effect=[failure, {"hash": "hash", "variants": []}])
-    monkeypatch.setattr(product_logo_storage, "store_logo_original", store)
+    monkeypatch.setattr(
+        product_logo_storage.LogoOriginalStore,
+        "store",
+        lambda self, *args: store(self.storage, *args),
+    )
     if retryable:
         with pytest.raises(FeedError) as raised:
-            product_logo_storage.store_product_logo_original(None, PAGE)
+            product_logo_storage.ProductLogoOriginalStore(None).store(PAGE)
         assert raised.value is failure and store.call_count == 1
     else:
-        result = product_logo_storage.store_product_logo_original(None, PAGE)
+        result = product_logo_storage.ProductLogoOriginalStore(None).store(PAGE)
         assert store.call_count == 2
         assert result["source_url"] == PAGE
         assert result["icon_url"] == "https://official.example/favicon.ico"
@@ -89,9 +94,13 @@ def test_official_discovery_falls_back_only_after_permanent_icon_failure(monkeyp
 def test_unavailable_official_pages_do_not_trigger_icon_fetches(monkeypatch, status, body):
     monkeypatch.setattr(product_logo_storage, "fetch_page", lambda url: page(body, status=status))
     store = Mock()
-    monkeypatch.setattr(product_logo_storage, "store_logo_original", store)
+    monkeypatch.setattr(
+        product_logo_storage.LogoOriginalStore,
+        "store",
+        lambda self, *args: store(self.storage, *args),
+    )
     with pytest.raises(FeedError, match="Product site unavailable"):
-        product_logo_storage.store_product_logo_original(None, PAGE)
+        product_logo_storage.ProductLogoOriginalStore(None).store(PAGE)
     store.assert_not_called()
 
 
@@ -122,7 +131,9 @@ def logo_catalog(database, catalog, monkeypatch):
     monkeypatch.setenv("DEVFEED_IMAGE_PUBLIC_URL", "https://images.example")
     get_settings.cache_clear()
     monkeypatch.setattr(
-        image_storage_tasks, "storage_client", lambda: SimpleNamespace(close=lambda: None)
+        image_storage_tasks,
+        "storage_client",
+        lambda: R2Storage("test-images", client=SimpleNamespace(close=lambda: None)),
     )
     original = Mock(
         side_effect=lambda client, source: {
@@ -140,8 +151,14 @@ def logo_catalog(database, catalog, monkeypatch):
             "width": size,
         }
     )
-    monkeypatch.setattr(product_logo_storage, "store_product_logo_original", original)
-    monkeypatch.setattr(logo_storage, "store_logo_variant", variant)
+    monkeypatch.setattr(
+        product_logo_storage.ProductLogoOriginalStore,
+        "store",
+        lambda self, *args: original(self.storage, *args),
+    )
+    monkeypatch.setattr(
+        logo_storage.LogoVariantStore, "store", lambda self, *args: variant(self.storage, *args)
+    )
     return catalog, original, variant
 
 
@@ -201,7 +218,7 @@ def test_product_checkpoint_retry_keeps_completed_sizes_and_resumes_without_refe
             raise FeedError("transform failed", reason="image_transform", retryable=retryable)
         return {"key": f"logos/product-hash/{size}.webp", "width": size}
 
-    monkeypatch.setattr(logo_storage, "store_logo_variant", variant)
+    monkeypatch.setattr(logo_storage.LogoVariantStore, "store", variant)
     identifier = ids["free_product"]
     job_id = request_product_job(database, identifier)
     process(job_id)
@@ -241,9 +258,9 @@ def test_product_url_change_during_import_cannot_publish_stale_branding(
     def change(client, source):
         with database.begin() as session:
             session.get(PartnerProduct, identifier).product_url = replacement
-        return original(client, source)
+        return original(client.storage, source)
 
-    monkeypatch.setattr(product_logo_storage, "store_product_logo_original", change)
+    monkeypatch.setattr(product_logo_storage.ProductLogoOriginalStore, "store", change)
     process(job_id)
     process(job_id)
     with database() as session:

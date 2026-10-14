@@ -11,6 +11,7 @@ from devfeed_core.models import (
     PartnerProduct,
     PartnerProductPromotion,
 )
+from devfeed_core.object_storage import R2Storage
 from devfeed_core.partner_catalog import merge_products
 from devfeed_core.partner_product_images import (
     AD_IMAGE_SIZES,
@@ -22,6 +23,7 @@ from devfeed_http.image_uploads import (
     CACHE_CONTROL,
     MAX_BYTES,
 )
+from devfeed_http.partner_ad_images import ProductAdImageStorage
 from PIL import Image
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -38,8 +40,12 @@ from test_partner_promotions import seed_catalog
 def upload_catalog(database, managed_storage, monkeypatch, portal_client, admin_portal_client):
     account, product = owned_catalog(database)
     r2 = FakeR2()
-    monkeypatch.setattr(image_uploads, "image_upload_client", lambda: r2)
-    monkeypatch.setattr(image_storage_tasks, "storage_client", lambda: r2)
+    monkeypatch.setattr(
+        image_uploads, "image_upload_storage", lambda: R2Storage("ad-test-images", client=r2)
+    )
+    monkeypatch.setattr(
+        image_storage_tasks, "storage_client", lambda: R2Storage("ad-test-images", client=r2)
+    )
     portal, identity = portal_client
     admin, admin_identity = admin_portal_client
     return account, product, portal, admin, r2, identity, admin_identity
@@ -132,7 +138,7 @@ def test_editing_owned_upload_url_preserves_bytes_and_policy(
         before = policy.ad_image_url, policy.ad_image_revision, dict(policy.managed_ad_image)
     storage = Mock(side_effect=AssertionError("edited upload URL reached storage"))
     with monkeypatch.context() as patch:
-        patch.setattr("devfeed_http.partner_ad_images.FixedImageObjects", storage)
+        patch.setattr("devfeed_http.partner_ad_images.ProductAdImageStorage", storage)
         rejected = client.put(policy_url, json={"ad_image_url": changed})
         assert rejected.status_code == 422, rejected.text
         assert "Upload a new file or use another image URL" in rejected.json()["detail"]
@@ -212,7 +218,7 @@ def test_invalid_foreign_and_revoked_uploads_never_decode_or_write(
     with database.begin() as session:
         _, foreign = seed_catalog(session, provider="foreign-upload")
     normalize = Mock(side_effect=AssertionError("foreign product was decoded"))
-    monkeypatch.setattr("devfeed_http.partner_ad_images.normalize_image", normalize)
+    monkeypatch.setattr(ProductAdImageStorage, "normalize", normalize)
     assert upload(client, account, foreign).status_code == 404
     identity.subject = "revoked"
     assert upload(client, account, product).status_code == 404
@@ -226,7 +232,7 @@ def test_invalid_foreign_and_revoked_uploads_never_decode_or_write(
 def test_upload_rate_limit_stops_decode_before_storage(upload_catalog, monkeypatch):
     account, product, client, _, r2, *_ = upload_catalog
     normalize = Mock(side_effect=AssertionError("rate limited upload was decoded"))
-    monkeypatch.setattr("devfeed_http.partner_ad_images.normalize_image", normalize)
+    monkeypatch.setattr(ProductAdImageStorage, "normalize", normalize)
     for _ in range(10):
         assert (
             upload(client, account, product, body=b"<svg/>", mime="image/svg+xml").status_code
@@ -247,12 +253,12 @@ def test_upload_invalidates_inflight_url_job_and_url_replace_removes_fixed_objec
     save(database, account, product, CUSTOM)
     old = latest_job(database, account, product)
 
-    def replaced(storage, source):
-        asset = original(storage, source)
+    def replaced(store, source):
+        asset = original(store.storage, source)
         assert upload(client, account, product).status_code == 200
         return asset
 
-    monkeypatch.setattr(image_storage_tasks, "store_original", replaced)
+    monkeypatch.setattr(image_storage_tasks.ImageOriginalStore, "store", replaced)
     image_tasks.enrich_image(str(old.id))
     with database() as session:
         policy = session.get(PartnerProductPromotion, (account, product))
