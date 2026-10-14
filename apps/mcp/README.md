@@ -132,8 +132,9 @@ Apply normal ingress rate limits for public access.
 The transport uses the official [MCP Python SDK](https://py.sdk.modelcontextprotocol.io/run/asgi/).
 Responses are JSON over Streamable HTTP, stateless for legacy clients too; replicas
 need no sticky sessions. There is no stdio or legacy SSE endpoint. Requests are
-limited to 32 KiB. Upstream calls have a total deadline and streamed size limit,
-and redirects are not followed.
+limited to 32 KiB. OAuth body uploads have a two-second total deadline, and token
+exchanges require `application/x-www-form-urlencoded`. Upstream calls have a total
+deadline and streamed size limit, and redirects are not followed.
 
 | Setting | Default |
 | --- | --- |
