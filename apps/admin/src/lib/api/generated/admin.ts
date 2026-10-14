@@ -1305,6 +1305,32 @@ return adminFetch<AssetOut>(getCreateAssetV1AdminPartnerAccountsAccountIdAssetsP
 
 
 
+export const getAdminPartnerAssetGetUrl = (accountId: string,
+    assetId: string,) => {
+
+
+
+
+  return `/v1/admin/partner-accounts/${accountId}/assets/${assetId}`
+}
+
+/**
+ * @summary Get Asset
+ */
+export const adminPartnerAssetGet = async (accountId: string,
+    assetId: string, options?: Parameters<typeof adminFetch>[1]): Promise<AssetOut> => {
+
+  return adminFetch<AssetOut>(getAdminPartnerAssetGetUrl(accountId,assetId),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
 export const getUpdateAssetV1AdminPartnerAccountsAccountIdAssetsAssetIdPutUrl = (accountId: string,
     assetId: string,) => {
 

@@ -18752,6 +18752,87 @@
       }
     },
     "/v1/admin/partner-accounts/{account_id}/assets/{asset_id}": {
+      "get": {
+        "operationId": "adminPartnerAssetGet",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "account_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Account Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "asset_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Asset Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AssetOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Request validation failed"
+          },
+          "4XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Invalid or unauthorized request"
+          },
+          "5XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service or dependency unavailable"
+          }
+        },
+        "security": [
+          {
+            "APIKeyCookie": []
+          }
+        ],
+        "summary": "Get Asset",
+        "tags": [
+          "admin-partner-accounts"
+        ],
+        "x-devfeed-gateway": {
+          "bodyLimit": 1000000,
+          "bodyTimeoutMs": 2000,
+          "upstreamTimeoutMs": 45000
+        }
+      },
       "put": {
         "operationId": "update_asset_v1_admin_partner_accounts__account_id__assets__asset_id__put",
         "parameters": [
@@ -30424,6 +30505,36 @@
         }
       ],
       "path": "/v1/admin/partner-accounts/{account_id}/assets",
+      "policy": {
+        "bodyLimit": 1000000,
+        "bodyTimeoutMs": 2000,
+        "upstreamTimeoutMs": 45000
+      }
+    },
+    {
+      "method": "GET",
+      "operationId": "adminPartnerAssetGet",
+      "parameters": [
+        {
+          "converter": "str",
+          "name": "account_id",
+          "schema": {
+            "format": "uuid",
+            "title": "Account Id",
+            "type": "string"
+          }
+        },
+        {
+          "converter": "str",
+          "name": "asset_id",
+          "schema": {
+            "format": "uuid",
+            "title": "Asset Id",
+            "type": "string"
+          }
+        }
+      ],
+      "path": "/v1/admin/partner-accounts/{account_id}/assets/{asset_id}",
       "policy": {
         "bodyLimit": 1000000,
         "bodyTimeoutMs": 2000,

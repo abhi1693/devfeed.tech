@@ -20,7 +20,7 @@ import {
 
 const root = fileURLToPath(new URL("../../../../", import.meta.url));
 const account = {
-  id: "11111111-1111-1111-1111-111111111111",
+  id: "11111111-aaaa-4bbb-8ccc-111111111111",
   name: "API Checker",
   tier: "gold",
   status: "active",
@@ -39,6 +39,7 @@ const account = {
   ad_formats: ["feed"],
   allowed_ad_formats: adFormats,
 };
+const otherAccountId = "99999999-9999-4999-8999-999999999999";
 let members = [{ subject: "alice", issuer: "https://identity.example" }];
 const writes = [];
 const memberUser = {
@@ -63,6 +64,9 @@ const previewRequests = [];
 const creativePreviewRequests = [];
 const sponsorArticleRequests = [];
 let assets = [];
+const assetRecords = new Map();
+const assetRequests = [];
+const dashboardRequests = [];
 const campaigns = [];
 let productExcluded = false;
 const productPolicy = { promotion_surfaces: null, ad_formats: null, ad_image_url: null };
@@ -327,15 +331,46 @@ const fixture = createServer(async (req, res) => {
     writes.push({ path, csrf: req.headers["x-csrf-token"], payload });
     body = { id: "22222222-2222-2222-2222-222222222222", ...payload };
     assets.push(body);
-  } else if (path.includes("/assets/") && req.method === "PUT") {
-    let raw = "";
-    for await (const chunk of req) raw += chunk;
-    const payload = JSON.parse(raw);
-    writes.push({ path, csrf: req.headers["x-csrf-token"], payload });
-    Object.assign(assets[0], payload);
-    body = assets[0];
-  } else if (path.endsWith("/dashboard")) body = { account, assets, asset_total: assets.length };
-  else if (path.endsWith("/members")) {
+    assetRecords.set(`${account.id}/${body.id}`, body);
+  } else if (path.includes("/assets/")) {
+    const segments = path.split("/");
+    const accountId = segments.at(-3);
+    const assetId = segments.at(-1);
+    const record = assetRecords.get(`${accountId.toLowerCase()}/${assetId.toLowerCase()}`);
+    assetRequests.push({ accountId, assetId, method: req.method, found: !!record });
+    if (!record) {
+      res.statusCode = 404;
+      body = { detail: "Asset not found in this partner account." };
+    } else if (req.method === "PUT") {
+      let raw = "";
+      for await (const chunk of req) raw += chunk;
+      const payload = JSON.parse(raw);
+      writes.push({ path, csrf: req.headers["x-csrf-token"], payload });
+      Object.assign(record, payload);
+      const report = assets.find((item) => item.id === assetId.toLowerCase());
+      if (report) Object.assign(report, payload);
+      body = record;
+    } else {
+      assert.equal(req.method, "GET");
+      body = record;
+    }
+  } else if (path.endsWith("/dashboard")) {
+    const params = new URL(req.url, "http://localhost").searchParams;
+    const offset = Number(params.get("offset") ?? 0);
+    const limit = Number(params.get("limit") ?? 100);
+    const accountId = path.split("/").at(-2).toLowerCase();
+    const scopedAssets = accountId === account.id ? assets : [];
+    const items = scopedAssets.slice(offset, offset + limit);
+    dashboardRequests.push({ offset, limit, ids: items.map((item) => item.id) });
+    body = {
+      account:
+        accountId === account.id
+          ? account
+          : { ...account, id: otherAccountId, name: "Other partner" },
+      assets: items,
+      asset_total: scopedAssets.length,
+    };
+  } else if (path.endsWith("/members")) {
     if (req.method === "PUT") {
       let raw = "";
       for await (const chunk of req) raw += chunk;
@@ -1101,10 +1136,37 @@ try {
   await page.goto(origin + `/partnerships/accounts/${account.id}/campaigns`);
   await page.setViewportSize({ width: 1440, height: 1100 });
   const manualAssetId = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
+  const automaticAssetId = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
+  const foreignAssetId = "dddddddd-dddd-4ddd-8ddd-dddddddddddd";
+  const missingAssetId = "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee";
+  const manualAsset = {
+    id: manualAssetId,
+    name: "Deep-linked manual asset",
+    kind: "ad",
+    status: "active",
+    automatic: false,
+    product_id: catalogProduct.id,
+    ad_format: "feed",
+    campaign_id: null,
+    article_id: null,
+  };
+  assetRecords.set(`${account.id}/${manualAssetId}`, manualAsset);
+  assetRecords.set(`${account.id}/${automaticAssetId}`, {
+    ...manualAsset,
+    id: automaticAssetId,
+    name: "Automatic attribution record",
+    automatic: true,
+    campaign_id: campaigns[0].id,
+  });
+  assetRecords.set(`${otherAccountId}/${foreignAssetId}`, {
+    ...manualAsset,
+    id: foreignAssetId,
+    name: "Other account asset",
+  });
   assets = [
-    {
-      id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
-      name: "Another reporting record",
+    ...Array.from({ length: 110 }, (_, index) => ({
+      id: `aaaaaaaa-aaaa-4aaa-8aaa-${String(index + 1).padStart(12, "0")}`,
+      name: `Another reporting record ${index + 1}`,
       kind: "ad",
       status: "paused",
       automatic: false,
@@ -1116,16 +1178,10 @@ try {
       clicks: 0,
       ctr: 0,
       measured_days: 1,
-    },
+    })),
     {
-      id: manualAssetId,
-      name: "Deep-linked manual asset",
-      kind: "ad",
-      status: "active",
-      automatic: false,
+      ...manualAsset,
       aggregated: false,
-      product_id: catalogProduct.id,
-      ad_format: "feed",
       ad_formats: ["feed"],
       impressions: 20,
       clicks: 1,
@@ -1133,16 +1189,85 @@ try {
       measured_days: 1,
     },
   ];
-  await page.goto(
-    origin + `/partnerships/accounts/${account.id}/assets/${manualAssetId}/edit?limit=2`,
-  );
+  const reportsBeforeBookmark = dashboardRequests.length;
+  const assetsBeforeBookmark = assetRequests.length;
+  await page.goto(origin + `/partnerships/accounts/${account.id}/assets/${manualAssetId}/edit`);
   await page.getByRole("heading", { name: "Edit Deep-linked manual asset", exact: true }).waitFor();
-  assert.equal(await page.getByLabel(/Asset name/).inputValue(), assets[1].name);
+  assert.equal(await page.getByLabel(/Asset name/).inputValue(), manualAsset.name);
   assert.equal(await page.getByRole("form", { name: "Asset settings", exact: true }).count(), 1);
   assert.equal(
     await page.getByRole("form", { name: "Partnership settings", exact: true }).count(),
     0,
   );
+  assert.ok(
+    assetRequests
+      .slice(assetsBeforeBookmark)
+      .some((request) => request.assetId === manualAssetId && request.found),
+    "the bookmarked asset resolves through its account-scoped detail request",
+  );
+  assert.ok(
+    dashboardRequests
+      .slice(reportsBeforeBookmark)
+      .every((request) => !request.ids.includes(manualAssetId)),
+    "the bookmarked asset remains editable outside the first 100 reporting rows",
+  );
+  await page.reload();
+  await page.getByRole("heading", { name: "Edit Deep-linked manual asset", exact: true }).waitFor();
+  assert.equal(await page.getByLabel(/Asset name/).inputValue(), manualAsset.name);
+  await page.goto(
+    origin +
+      `/partnerships/accounts/${account.id.toUpperCase()}/assets/${manualAssetId.toUpperCase()}/edit`,
+  );
+  await page.getByRole("heading", { name: "Edit Deep-linked manual asset", exact: true }).waitFor();
+  assert.equal(await page.getByLabel(/Asset name/).inputValue(), manualAsset.name);
+  const reportsBeforeOffset = dashboardRequests.length;
+  await page.goto(
+    origin + `/partnerships/accounts/${account.id}/assets/${manualAssetId}/edit?offset=20&limit=10`,
+  );
+  await page.getByRole("heading", { name: "Edit Deep-linked manual asset", exact: true }).waitFor();
+  assert.equal(await page.getByLabel(/Asset name/).inputValue(), manualAsset.name);
+  assert.ok(
+    dashboardRequests
+      .slice(reportsBeforeOffset)
+      .every((request) => !request.ids.includes(manualAssetId)),
+    "a different reporting slice cannot select or reject the edit target",
+  );
+  const writesBeforeAssetSave = writes.length;
+  await page.getByLabel(/Asset name/).fill("Saved bookmarked asset");
+  await page.getByRole("button", { name: "Save asset", exact: true }).click();
+  await page.waitForURL(`**/accounts/${account.id}/related`);
+  assert.equal(writes.length, writesBeforeAssetSave + 1);
+  assert.equal(
+    writes.at(-1).path,
+    `/v1/admin/partner-accounts/${account.id}/assets/${manualAssetId}`,
+  );
+  assert.equal(writes.at(-1).payload.name, "Saved bookmarked asset");
+  assert.equal(assets[0].name, "Another reporting record 1");
+  assert.equal(manualAsset.name, "Saved bookmarked asset");
+  for (const [accountId, assetId] of [
+    [account.id, missingAssetId],
+    [account.id, foreignAssetId],
+    [otherAccountId, manualAssetId],
+  ]) {
+    const unavailableResponse = page.waitForResponse(
+      (response) =>
+        response.url().endsWith(`/partner-accounts/${accountId}/assets/${assetId}`) &&
+        response.request().method() === "GET",
+    );
+    await page.goto(origin + `/partnerships/accounts/${accountId}/assets/${assetId}/edit`);
+    assert.equal((await unavailableResponse).status(), 404);
+    await page
+      .getByRole("alert")
+      .filter({ hasText: /asset.*unavailable/i })
+      .waitFor();
+    assert.equal(await page.getByRole("form", { name: "Asset settings", exact: true }).count(), 0);
+    assert.equal(await page.getByRole("button", { name: "Save asset", exact: true }).count(), 0);
+  }
+  await page.goto(origin + `/partnerships/accounts/${account.id}/assets/${automaticAssetId}/edit`);
+  await page.getByRole("alert").filter({ hasText: "managed automatically" }).waitFor();
+  assert.equal(await page.getByRole("form", { name: "Asset settings", exact: true }).count(), 0);
+  assert.equal(await page.getByRole("button", { name: "Save asset", exact: true }).count(), 0);
+  assert.equal(writes.length, writesBeforeAssetSave + 1);
   assets = [
     {
       id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
@@ -1178,7 +1303,7 @@ try {
     `/partnerships/accounts/${account.id}/edit`,
   );
   assert.equal(await page.getByRole("link", { name: "Associate asset", exact: true }).count(), 0);
-  assert.equal(writes.length, 16);
+  assert.equal(writes.length, 17);
   assert.ok(
     writes.every(
       (write) =>
@@ -1198,7 +1323,7 @@ try {
   });
   assert.deepEqual(errors, []);
   console.log(
-    "Admin account route 404s, asset/campaign deep links, defaults, automatic inventory search/pagination, readable desktop/mobile Products table, catalog inclusion/exclusion, paid campaign targeting and memberships passed; partner cookie denied.",
+    "Admin account route 404s, independent paginated asset deep links and scoped saves, asset ownership/read-only controls, campaign deep links, defaults, automatic inventory search/pagination, readable desktop/mobile Products table, catalog inclusion/exclusion, paid campaign targeting and memberships passed; partner cookie denied.",
   );
 } finally {
   await browser?.close();

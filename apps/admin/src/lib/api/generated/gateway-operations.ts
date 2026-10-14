@@ -845,6 +845,34 @@ export const adminGatewayOperations = [
     },
   },
   {
+    operationId: "adminPartnerAssetGet",
+    method: "GET",
+    path: "/v1/admin/partner-accounts/{account_id}/assets/{asset_id}",
+    parameters: [
+      {
+        name: "account_id",
+        schema: {
+          type: "string",
+          format: "uuid",
+        },
+        converter: "str",
+      },
+      {
+        name: "asset_id",
+        schema: {
+          type: "string",
+          format: "uuid",
+        },
+        converter: "str",
+      },
+    ],
+    policy: {
+      bodyLimit: 1000000,
+      bodyTimeoutMs: 2000,
+      upstreamTimeoutMs: 45000,
+    },
+  },
+  {
     operationId: "update_asset_v1_admin_partner_accounts__account_id__assets__asset_id__put",
     method: "PUT",
     path: "/v1/admin/partner-accounts/{account_id}/assets/{asset_id}",

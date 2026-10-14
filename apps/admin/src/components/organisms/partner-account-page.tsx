@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Pencil, Plus } from "lucide-react";
 import { Button } from "@devfeed/ui/button";
 import { ResourceHeading } from "@devfeed/ui/resource-layout";
@@ -26,6 +26,8 @@ import { PartnerCampaigns } from "./partner-campaigns";
 import { PartnerCampaignPage } from "./partner-campaign-form";
 import { PartnerInventory } from "./partner-inventory";
 import { ApiError, returnToLogin } from "@/lib/api/client";
+import { adminPartnerAssetGet } from "@/lib/api/generated/admin";
+import { useRequest } from "@/lib/use-request";
 
 type Member = MemberOut;
 export function PartnerAccountPage({
@@ -40,13 +42,35 @@ export function PartnerAccountPage({
   const admin = useAdmin();
   const accountId =
     route.resource === "account" && route.action === "create" ? undefined : route.accountId;
-  const [data, setData] = useState<Dashboard>();
+  const [dashboard, setDashboard] = useState<{ accountId: string; data: Dashboard }>();
+  const data =
+    dashboard?.accountId && dashboard.accountId === accountId ? dashboard.data : undefined;
   const [members, setMembers] = useState<Member[]>([]);
   const [error, setError] = useState<Error>();
   const [busy, setBusy] = useState(false);
   const [revision, setRevision] = useState(0);
   const [offset, setOffset] = useState(initialOffset);
   const [limit, setLimit] = useState(initialLimit);
+  const assetId =
+    route.resource === "asset" && route.action === "edit" ? route.identifier : undefined;
+  const [assetRevision, setAssetRevision] = useState(0);
+  const loadAsset = useCallback(
+    async (signal: AbortSignal) => {
+      if (!accountId || !assetId) return null;
+      try {
+        return await adminPartnerAssetGet(accountId, assetId, { signal });
+      } catch (reason) {
+        if (reason instanceof ApiError && [404, 422].includes(reason.status)) return null;
+        throw reason;
+      }
+    },
+    [accountId, assetId],
+  );
+  const assetResult = useRequest(
+    `partner-asset/${accountId}/${assetId}/${assetRevision}`,
+    loadAsset,
+  );
+  const asset = assetResult.data ?? undefined;
   useEffect(() => {
     if (!accountId) return;
     const controller = new AbortController();
@@ -74,7 +98,7 @@ export function PartnerAccountPage({
           responses.map((response) => response.json()),
         );
         if (!controller.signal.aborted) {
-          setData(dashboard);
+          setDashboard({ accountId, data: dashboard });
           setMembers(membership);
           setError(undefined);
         }
@@ -87,9 +111,6 @@ export function PartnerAccountPage({
   const href = accountId ? accountHref(accountId) : accountsPath;
   const editingAsset = route.resource === "asset" && route.action === "edit";
   const campaignForm = route.resource === "campaign" && route.action !== "list";
-  const assetId =
-    route.resource === "asset" && route.action === "edit" ? route.identifier : undefined;
-  const asset = editingAsset ? data?.assets.find((item) => item.id === assetId) : undefined;
   const form = route.action === "create" || route.action === "edit";
   const title =
     route.resource === "account" && route.action === "create"
@@ -264,14 +285,15 @@ export function PartnerAccountPage({
             }
           />
         ) : form ? (
-          editingAsset && !asset ? (
+          editingAsset && (assetResult.loading || assetResult.error) ? (
+            <RequestState
+              loading={assetResult.loading}
+              error={assetResult.error}
+              retry={() => setAssetRevision((value) => value + 1)}
+            />
+          ) : editingAsset && !asset ? (
             <p role="alert">
               This asset is unavailable. Return to related objects to select an asset.
-            </p>
-          ) : editingAsset && asset?.aggregated ? (
-            <p role="alert">
-              This product total combines multiple reporting records and cannot be edited as one
-              asset. Change promotion settings in the account defaults or its paid campaigns.
             </p>
           ) : editingAsset && asset?.automatic ? (
             <p role="alert">

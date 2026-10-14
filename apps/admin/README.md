@@ -236,8 +236,10 @@ resource, action, and edit identifier to the client; forms and tabs consume thos
 directly. Build links with `partnerAccountHref` from the same contract. Unsupported or
 unsafe segments use Next.js not-found handling, and the existing superuser check runs
 before route resolution.
-The contract supports opaque identifiers, including aggregate product reporting IDs;
-aggregated and automatic assets retain their read-only safeguards.
+The contract supports opaque route identifiers. Asset edit pages load the actual record
+from the account-scoped asset endpoint, independently of reporting pagination. Missing or
+foreign assets cannot open an edit form. Product totals link to account policy settings;
+automatic assets retain their read-only safeguards.
 
 The adapter follows cursor pagination, accepts the documented and live response envelopes,
 normalizes the platform listing and product website URLs, and selects the Developer Tools

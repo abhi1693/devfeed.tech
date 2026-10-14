@@ -10,7 +10,7 @@ import { Field } from "@/components/molecules/field";
 import { Select } from "@/components/molecules/select";
 import { RequestState } from "@/components/molecules/request-state";
 import { useAdmin } from "@/components/molecules/admin-session";
-import type { AccountOut, AssetMetrics } from "@/lib/api/generated/models";
+import type { AccountOut, AssetOut } from "@/lib/api/generated/models";
 import { type PartnershipTierOut, AccountInputTier } from "@/lib/api/generated/models";
 import { adminPartnerToolsList } from "@/lib/api/generated/admin";
 import { accountsPath, accountHref, partnerAccountHref } from "@/lib/partner-account-routes";
@@ -55,7 +55,7 @@ export function PartnerAccountManagement({
   mode,
 }: {
   account?: AccountOut;
-  asset?: AssetMetrics;
+  asset?: AssetOut;
   mode: "account" | "member" | "asset";
 }) {
   const admin = useAdmin();

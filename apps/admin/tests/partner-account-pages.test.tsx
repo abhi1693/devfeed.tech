@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, screen, waitFor } from "@testing-library/react";
 import { renderAdmin } from "./render-admin";
 import { PartnerAccounts } from "@/components/organisms/partner-accounts";
 import { PartnerAccountPage } from "@/components/organisms/partner-account-page";
@@ -8,6 +8,7 @@ import { PartnerAccountManagement } from "@/components/organisms/partner-account
 import { PartnerConnectionPage } from "@/components/organisms/partner-connection-page";
 import { PartnerRunDetail } from "@/components/organisms/partner-run-detail";
 import * as api from "@/lib/api/generated/admin";
+import * as client from "@/lib/api/client";
 import { ApiError } from "@/lib/api/client";
 import type {
   ConnectionOut,
@@ -15,6 +16,7 @@ import type {
   PartnerEvaluationDetail,
   AccountOut,
   CampaignOut,
+  AssetOut,
 } from "@/lib/api/generated/models";
 
 const push = vi.hoisted(() => vi.fn());
@@ -32,6 +34,7 @@ vi.mock("@/lib/api/generated/admin", () => ({
   adminPartnerCreativePreview: vi.fn().mockResolvedValue({ product: null }),
   adminPartnerSponsorArticles: vi.fn().mockResolvedValue({ items: [], total: 0 }),
   adminPartnerCampaignGet: vi.fn(),
+  adminPartnerAssetGet: vi.fn(),
   adminPartnerCampaignUpdate: vi.fn(),
   adminPartnerCampaignCreate: vi.fn(),
   adminPartnerCampaignsList: vi.fn().mockResolvedValue({ items: [], total: 0 }),
@@ -72,6 +75,13 @@ const asset = {
   clicks: 1,
   ctr: 1,
 };
+const assetRecord: AssetOut = {
+  id: asset.id,
+  name: asset.name,
+  kind: asset.kind,
+  status: asset.status,
+  product_id: asset.product_id,
+};
 const dashboard = {
   account,
   assets: [asset],
@@ -105,6 +115,10 @@ const connection = {
 const fetcher = vi.fn();
 beforeEach(() => {
   vi.clearAllMocks();
+  vi.mocked(api.adminPartnerAssetGet).mockImplementation(async (_accountId, assetId) => {
+    if (assetId === assetRecord.id) return assetRecord;
+    throw new ApiError(404);
+  });
   vi.mocked(api.adminPartnerProvidersList).mockResolvedValue([]);
   vi.mocked(api.adminPartnerCampaignsList).mockResolvedValue({ items: [], total: 0 });
   vi.mocked(api.adminPartnerInventoryList).mockResolvedValue({ items: [], total: 0 });
@@ -131,6 +145,7 @@ beforeEach(() => {
 });
 afterEach(() => {
   cleanup();
+  vi.restoreAllMocks();
   vi.unstubAllGlobals();
 });
 
@@ -192,7 +207,7 @@ it("shows all formats for a grouped product rather than its compatibility scalar
   expect(screen.queryByRole("columnheader", { name: "Type" })).toBeNull();
 });
 
-it("keeps aggregated mixed-product totals read-only while linking to account policy", async () => {
+it("links aggregated totals to account policy without restricting the real asset's edit page", async () => {
   fetcher.mockImplementation(async (input) =>
     String(input).includes("/dashboard")
       ? Response.json({ ...dashboard, assets: [{ ...asset, automatic: false, aggregated: true }] })
@@ -212,11 +227,14 @@ it("keeps aggregated mixed-product totals read-only while linking to account pol
       route={{ resource: "asset", action: "edit", accountId: account.id, identifier: asset.id }}
     />,
   );
-  await screen.findByText(/This product total combines multiple reporting records/);
-  expect(screen.queryByRole("form", { name: "Asset settings" })).toBeNull();
+  expect(((await screen.findByLabelText(/Asset name/)) as HTMLInputElement).value).toBe(
+    assetRecord.name,
+  );
+  expect(screen.getByRole("form", { name: "Asset settings" })).toBeTruthy();
 });
 
-it("fails closed when an asset edit URL is outside the account", async () => {
+it.each([404, 422])("fails closed for an unavailable asset (%s)", async (status) => {
+  vi.mocked(api.adminPartnerAssetGet).mockRejectedValue(new ApiError(status));
   renderAdmin(
     <PartnerAccountPage
       route={{ resource: "asset", action: "edit", accountId: account.id, identifier: "other" }}
@@ -224,6 +242,267 @@ it("fails closed when an asset edit URL is outside the account", async () => {
   );
   expect((await screen.findByRole("alert")).textContent).toContain("This asset is unavailable");
   expect(screen.queryByRole("form", { name: "Asset settings" })).toBeNull();
+});
+
+it.each([
+  { assets: [], asset_total: 150, offset: 125 },
+  {
+    assets: [{ ...asset, id: "other", name: "Another reporting record" }],
+    asset_total: 150,
+    offset: 50,
+  },
+])("loads asset details independently of the reporting page at offset $offset", async (page) => {
+  fetcher.mockImplementation(async (input) =>
+    String(input).includes("/dashboard")
+      ? Response.json({ ...dashboard, assets: page.assets, asset_total: page.asset_total })
+      : Response.json([]),
+  );
+  renderAdmin(
+    <PartnerAccountPage
+      route={{ resource: "asset", action: "edit", accountId: account.id, identifier: asset.id }}
+      initialOffset={page.offset}
+      initialLimit={25}
+    />,
+  );
+  expect(((await screen.findByLabelText(/Asset name/)) as HTMLInputElement).value).toBe(
+    assetRecord.name,
+  );
+  expect(api.adminPartnerAssetGet).toHaveBeenCalledExactlyOnceWith(
+    account.id,
+    asset.id,
+    expect.objectContaining({ signal: expect.any(AbortSignal) }),
+  );
+  expect(fetcher).toHaveBeenCalledWith(
+    `/api/v1/admin/partner-accounts/${account.id}/dashboard?offset=${page.offset}&limit=25`,
+    expect.anything(),
+  );
+});
+
+it("does not refetch an asset when report pagination parameters change", async () => {
+  const route = {
+    resource: "asset" as const,
+    action: "edit" as const,
+    accountId: account.id,
+    identifier: asset.id,
+  };
+  const view = renderAdmin(
+    <PartnerAccountPage route={route} initialOffset={100} initialLimit={25} />,
+  );
+  await screen.findByRole("form", { name: "Asset settings" });
+  view.rerender(<PartnerAccountPage route={route} initialOffset={250} initialLimit={50} />);
+  expect(screen.getByRole("form", { name: "Asset settings" })).toBeTruthy();
+  expect(api.adminPartnerAssetGet).toHaveBeenCalledTimes(1);
+});
+
+it("keeps the edit form hidden while asset details are loading", async () => {
+  let resolve!: (value: AssetOut) => void;
+  vi.mocked(api.adminPartnerAssetGet).mockReturnValue(
+    new Promise<AssetOut>((done) => {
+      resolve = done;
+    }),
+  );
+  renderAdmin(
+    <PartnerAccountPage
+      route={{ resource: "asset", action: "edit", accountId: account.id, identifier: asset.id }}
+    />,
+  );
+  await waitFor(() => expect(api.adminPartnerAssetGet).toHaveBeenCalledTimes(1));
+  expect(screen.getByRole("status").textContent).toContain("Loading");
+  expect(screen.queryByRole("alert")).toBeNull();
+  expect(screen.queryByRole("form", { name: "Asset settings" })).toBeNull();
+  await act(async () => resolve(assetRecord));
+  expect(await screen.findByRole("form", { name: "Asset settings" })).toBeTruthy();
+});
+
+it("retries failed asset requests without refetching the reporting page", async () => {
+  vi.mocked(api.adminPartnerAssetGet)
+    .mockRejectedValueOnce(new ApiError(503))
+    .mockResolvedValueOnce(assetRecord);
+  renderAdmin(
+    <PartnerAccountPage
+      route={{ resource: "asset", action: "edit", accountId: account.id, identifier: asset.id }}
+    />,
+  );
+  await screen.findByText("The admin service is unavailable. Try again.");
+  expect(screen.queryByText(/This asset is unavailable/)).toBeNull();
+  expect(screen.queryByRole("form", { name: "Asset settings" })).toBeNull();
+  const dashboardRequests = fetcher.mock.calls.filter(([path]) =>
+    String(path).includes("/dashboard"),
+  ).length;
+  fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+  await screen.findByRole("form", { name: "Asset settings" });
+  expect(api.adminPartnerAssetGet).toHaveBeenCalledTimes(2);
+  expect(fetcher.mock.calls.filter(([path]) => String(path).includes("/dashboard"))).toHaveLength(
+    dashboardRequests,
+  );
+});
+
+it("retries failed account details without refetching the loaded asset", async () => {
+  let dashboardAttempts = 0;
+  fetcher.mockImplementation(async (input) => {
+    if (String(input).includes("/dashboard")) {
+      dashboardAttempts += 1;
+      return dashboardAttempts === 1
+        ? new Response(null, { status: 503 })
+        : Response.json({ ...dashboard, assets: [] });
+    }
+    return Response.json([]);
+  });
+  renderAdmin(
+    <PartnerAccountPage
+      route={{ resource: "asset", action: "edit", accountId: account.id, identifier: asset.id }}
+    />,
+  );
+  await screen.findByText("Could not load partner account details.");
+  fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+  await screen.findByRole("form", { name: "Asset settings" });
+  expect(dashboardAttempts).toBe(2);
+  expect(api.adminPartnerAssetGet).toHaveBeenCalledTimes(1);
+});
+
+it("keeps automatic assets read-only even when they are absent from the reporting page", async () => {
+  vi.mocked(api.adminPartnerAssetGet).mockResolvedValue({ ...assetRecord, automatic: true });
+  fetcher.mockImplementation(async (input) =>
+    String(input).includes("/dashboard")
+      ? Response.json({ ...dashboard, assets: [] })
+      : Response.json([]),
+  );
+  renderAdmin(
+    <PartnerAccountPage
+      route={{ resource: "asset", action: "edit", accountId: account.id, identifier: asset.id }}
+    />,
+  );
+  expect((await screen.findByRole("alert")).textContent).toContain("managed automatically");
+  expect(screen.queryByRole("form", { name: "Asset settings" })).toBeNull();
+});
+
+it("redirects an expired asset-read session to sign-in", async () => {
+  const login = vi.spyOn(client, "returnToLogin").mockImplementation(() => {});
+  vi.mocked(api.adminPartnerAssetGet).mockRejectedValue(new ApiError(401));
+  renderAdmin(
+    <PartnerAccountPage
+      route={{ resource: "asset", action: "edit", accountId: account.id, identifier: asset.id }}
+    />,
+  );
+  await waitFor(() => expect(login).toHaveBeenCalledOnce());
+  expect(screen.queryByRole("form", { name: "Asset settings" })).toBeNull();
+  expect(screen.queryByText(/This asset is unavailable/)).toBeNull();
+});
+
+it("aborts previous asset reads and ignores their late responses after navigation", async () => {
+  const other = { ...assetRecord, id: "asset-2", name: "Other placement" };
+  let resolveFirst!: (value: AssetOut) => void;
+  let resolveOther!: (value: AssetOut) => void;
+  vi.mocked(api.adminPartnerAssetGet).mockImplementation(
+    (_accountId, assetId) =>
+      new Promise<AssetOut>((resolve) => {
+        if (assetId === asset.id) resolveFirst = resolve;
+        else resolveOther = resolve;
+      }),
+  );
+  const view = renderAdmin(
+    <PartnerAccountPage
+      route={{ resource: "asset", action: "edit", accountId: account.id, identifier: asset.id }}
+    />,
+  );
+  await waitFor(() => expect(api.adminPartnerAssetGet).toHaveBeenCalledTimes(1));
+  const firstSignal = vi.mocked(api.adminPartnerAssetGet).mock.calls[0][2]?.signal;
+  view.rerender(
+    <PartnerAccountPage
+      route={{ resource: "asset", action: "edit", accountId: account.id, identifier: other.id }}
+    />,
+  );
+  await waitFor(() => expect(api.adminPartnerAssetGet).toHaveBeenCalledTimes(2));
+  expect(firstSignal?.aborted).toBe(true);
+  await act(async () => resolveFirst(assetRecord));
+  expect(screen.queryByRole("form", { name: "Asset settings" })).toBeNull();
+  expect(screen.queryByRole("heading", { name: `Edit ${assetRecord.name}` })).toBeNull();
+  await act(async () => resolveOther(other));
+  expect(((await screen.findByLabelText(/Asset name/)) as HTMLInputElement).value).toBe(other.name);
+  view.unmount();
+  const currentSignal = vi.mocked(api.adminPartnerAssetGet).mock.calls[1][2]?.signal;
+  expect(currentSignal?.aborted).toBe(true);
+});
+
+it("waits for the routed account before mounting a newly loaded asset form", async () => {
+  const otherAccount = { ...account, id: "account-2", name: "Other partner" };
+  const otherAsset = { ...assetRecord, id: "asset-2", name: "Other partner asset" };
+  let resolveDashboard!: (value: Response) => void;
+  fetcher.mockImplementation(async (input) => {
+    const path = String(input);
+    if (path.includes(`/partner-accounts/${otherAccount.id}/dashboard`))
+      return new Promise<Response>((resolve) => {
+        resolveDashboard = resolve;
+      });
+    if (path.includes("/dashboard")) return Response.json(dashboard);
+    return Response.json([]);
+  });
+  vi.mocked(api.adminPartnerAssetGet).mockImplementation(async (accountId) =>
+    accountId === account.id ? assetRecord : otherAsset,
+  );
+  const view = renderAdmin(
+    <PartnerAccountPage
+      route={{ resource: "asset", action: "edit", accountId: account.id, identifier: asset.id }}
+    />,
+  );
+  await screen.findByRole("form", { name: "Asset settings" });
+  view.rerender(
+    <PartnerAccountPage
+      route={{
+        resource: "asset",
+        action: "edit",
+        accountId: otherAccount.id,
+        identifier: otherAsset.id,
+      }}
+    />,
+  );
+  await waitFor(() =>
+    expect(api.adminPartnerAssetGet).toHaveBeenCalledWith(
+      otherAccount.id,
+      otherAsset.id,
+      expect.anything(),
+    ),
+  );
+  expect(screen.queryByRole("form", { name: "Asset settings" })).toBeNull();
+  await act(async () =>
+    resolveDashboard(Response.json({ ...dashboard, account: otherAccount, assets: [] })),
+  );
+  expect(((await screen.findByLabelText(/Asset name/)) as HTMLInputElement).value).toBe(
+    otherAsset.name,
+  );
+  fireEvent.submit(screen.getByRole("form", { name: "Asset settings" }));
+  await waitFor(() =>
+    expect(fetcher).toHaveBeenCalledWith(
+      `/api/v1/admin/partner-accounts/${otherAccount.id}/assets/${otherAsset.id}`,
+      expect.objectContaining({ method: "PUT" }),
+    ),
+  );
+});
+
+it("loads an uppercase account UUID when the response returns its canonical lowercase ID", async () => {
+  const requestedId = "B75DE541-8E35-4000-AA0D-4533F0A38110";
+  const canonicalAccount = { ...account, id: requestedId.toLowerCase() };
+  fetcher.mockImplementation(async (input) =>
+    String(input).includes("/dashboard")
+      ? Response.json({ ...dashboard, account: canonicalAccount, assets: [] })
+      : Response.json([]),
+  );
+  renderAdmin(
+    <PartnerAccountPage
+      route={{ resource: "asset", action: "edit", accountId: requestedId, identifier: asset.id }}
+    />,
+  );
+  expect(((await screen.findByLabelText(/Asset name/)) as HTMLInputElement).value).toBe(
+    assetRecord.name,
+  );
+  expect(api.adminPartnerAssetGet).toHaveBeenCalledWith(requestedId, asset.id, expect.anything());
+  fireEvent.submit(screen.getByRole("form", { name: "Asset settings" }));
+  await waitFor(() =>
+    expect(fetcher).toHaveBeenCalledWith(
+      `/api/v1/admin/partner-accounts/${canonicalAccount.id}/assets/${asset.id}`,
+      expect.objectContaining({ method: "PUT" }),
+    ),
+  );
 });
 
 it("shows promotion defaults without displaying a legacy product exposure limit", async () => {
@@ -301,6 +580,9 @@ it.each([
 
 it("selects and remounts asset edits by the declared identifier", async () => {
   const other = { ...asset, id: "asset-2", name: "Other placement" };
+  vi.mocked(api.adminPartnerAssetGet).mockImplementation(async (_accountId, assetId) =>
+    assetId === asset.id ? assetRecord : other,
+  );
   fetcher.mockImplementation(async (input) =>
     String(input).includes("/dashboard")
       ? Response.json({ ...dashboard, assets: [asset, other], asset_total: 2 })
@@ -323,12 +605,13 @@ it("selects and remounts asset edits by the declared identifier", async () => {
   expect((screen.getByLabelText(/Asset name/) as HTMLInputElement).value).toBe(other.name);
 });
 
-it("keeps synthetic product totals read-only when routed with their real identifier", async () => {
+it("rejects synthetic product reporting IDs instead of editing an aggregate", async () => {
   const aggregate = {
     ...asset,
     id: "product:123e4567-e89b-12d3-a456-426614174000",
     aggregated: true,
   };
+  vi.mocked(api.adminPartnerAssetGet).mockRejectedValue(new ApiError(422));
   fetcher.mockImplementation(async (input) =>
     String(input).includes("/dashboard")
       ? Response.json({ ...dashboard, assets: [aggregate] })
@@ -339,7 +622,7 @@ it("keeps synthetic product totals read-only when routed with their real identif
       route={{ resource: "asset", action: "edit", accountId: account.id, identifier: aggregate.id }}
     />,
   );
-  expect((await screen.findByRole("alert")).textContent).toContain("cannot be edited as one asset");
+  expect((await screen.findByRole("alert")).textContent).toContain("This asset is unavailable");
   expect(screen.queryByRole("form", { name: "Asset settings" })).toBeNull();
 });
 

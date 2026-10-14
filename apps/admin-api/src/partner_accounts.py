@@ -425,6 +425,16 @@ def create_asset(account_id: uuid.UUID, payload: AssetInput, superuser: Superuse
     return asset
 
 
+@router.get(
+    "/{account_id}/assets/{asset_id}",
+    response_model=AssetOut,
+    operation_id="adminPartnerAssetGet",
+)
+def get_asset(account_id: uuid.UUID, asset_id: uuid.UUID, session: DB, superuser: Superuser):
+    account_access(session, superuser, account_id)
+    return asset_access(session, account_id, asset_id)
+
+
 @router.put("/{account_id}/assets/{asset_id}", response_model=AssetOut)
 def update_asset(
     account_id: uuid.UUID,
