@@ -16,6 +16,11 @@
 - `devfeed_http.body_limits.BoundedRequestBodyMiddleware` owns body size/deadline checks and
   replay. JSON and image-upload subclasses supply their route and error policies, preserving
   their different limits, deadlines and responses.
+- `devfeed_partner_api.access.PartnerAccountAccess` binds a database session and verified
+  identity. Portal, connection and workspace queries share its active-account and membership
+  scope. Writes lock the account and the exact membership until commit, including preference
+  saves. Product and catalog locks precede these authorization locks; rate limits, external
+  requests and transaction commits stay with their existing callers.
 
 ## Object storage
 

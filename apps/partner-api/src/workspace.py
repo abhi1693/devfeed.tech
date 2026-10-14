@@ -18,6 +18,7 @@ from devfeed_http.partner_portal import (
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import func, select
 
+from devfeed_partner_api.access import PartnerAccountAccess
 from devfeed_partner_api.auth import Partner, require_partner
 from devfeed_partner_api.connections import (
     PartnerConnectionCreate,
@@ -28,7 +29,6 @@ from devfeed_partner_api.connections import (
     partner_connection_views,
 )
 from devfeed_partner_api.dependencies import DB
-from devfeed_partner_api.portal import account_access, visible_accounts
 
 router = APIRouter(
     prefix="/v1/partner", tags=["partner-workspace"], dependencies=[Depends(require_partner)]
@@ -49,14 +49,6 @@ class WorkspaceConnectionCreate(PartnerConnectionCreate):
     account_id: uuid.UUID
 
 
-def workspace_accounts(session, partner, account_id=None):
-    scope = visible_accounts(partner)
-    if account_id is not None:
-        account_access(session, partner, account_id)
-        scope = scope.where(PartnerAccount.id == account_id)
-    return scope
-
-
 @router.get(
     "/dashboard", response_model=WorkspaceDashboard, operation_id="partnerWorkspaceDashboard"
 )
@@ -71,7 +63,7 @@ def dashboard(
     order: SortOrder = Query("asc"),
     ad_format: AdFormat | None = None,
 ):
-    scope = workspace_accounts(session, partner, account_id)
+    scope = PartnerAccountAccess(session, partner).query(account_id)
     return {
         **reporting_metrics(
             session, scope, days, limit, offset, sort=sort, order=order, ad_format=ad_format
@@ -95,7 +87,7 @@ def inventory(
 ):
     return inventory_page(
         session,
-        workspace_accounts(session, partner, account_id),
+        PartnerAccountAccess(session, partner).query(account_id),
         q=q,
         product_id=product_id,
         limit=limit,
@@ -104,20 +96,22 @@ def inventory(
     )
 
 
-def connection_query(partner):
+def connection_query(access: PartnerAccountAccess):
     return (
         select(PartnerConnection, PartnerAccount.name.label("account_name"))
         .join(PartnerAccount, PartnerAccount.id == PartnerConnection.account_id)
         .where(
             PartnerConnection.archived_at.is_(None),
-            PartnerAccount.id.in_(visible_accounts(partner).with_only_columns(PartnerAccount.id)),
+            PartnerAccount.id.in_(access.query().with_only_columns(PartnerAccount.id)),
         )
     )
 
 
 def workspace_connection(session, partner, provider):
     row = session.execute(
-        connection_query(partner).where(PartnerConnection.provider == provider)
+        connection_query(PartnerAccountAccess(session, partner)).where(
+            PartnerConnection.provider == provider
+        )
     ).one_or_none()
     if row is None:
         raise HTTPException(404, "Import connection not found")
@@ -139,9 +133,10 @@ def connection_view(session, connection, account_name):
     operation_id="partnerWorkspaceConnections",
 )
 def connections(session: DB, partner: Partner, query: Listing, account_id: uuid.UUID | None = None):
+    access = PartnerAccountAccess(session, partner)
     if account_id is not None:
-        account_access(session, partner, account_id)
-    statement = connection_query(partner)
+        access.require(account_id)
+    statement = connection_query(access)
     if account_id is not None:
         statement = statement.where(PartnerConnection.account_id == account_id)
     if query.q:
@@ -213,7 +208,7 @@ def add_connection(body: WorkspaceConnectionCreate, session: DB, partner: Partne
         {field: getattr(body, field) for field in PartnerConnectionCreate.model_fields}
     )
     view = create_connection(body.account_id, payload, session, partner)
-    account = account_access(session, partner, body.account_id)
+    account = PartnerAccountAccess(session, partner).require(body.account_id)
     return WorkspaceConnectionOut(
         **view.model_dump(),
         account_name=account.name,

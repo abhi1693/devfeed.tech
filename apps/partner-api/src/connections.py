@@ -8,9 +8,7 @@ from typing import Literal
 from urllib.parse import urlsplit
 
 from devfeed_core.models import (
-    PartnerAccount,
     PartnerConnection,
-    PartnerMembership,
     PartnerPipelineJob,
     utcnow,
 )
@@ -45,9 +43,9 @@ from pydantic import Field, SecretStr, field_validator
 from redis.exceptions import RedisError
 from sqlalchemy import func, select
 
+from devfeed_partner_api.access import PartnerAccountAccess
 from devfeed_partner_api.auth import Partner, actor, require_partner
 from devfeed_partner_api.dependencies import DB, get_redis
-from devfeed_partner_api.portal import account_access, visible_accounts
 
 router = APIRouter(
     prefix="/v1/partner/accounts/{account_id}/connections",
@@ -199,7 +197,8 @@ def connection_access(session, account_id, provider):
 
 
 def write_account(session, partner, account_id, *, creating=False):
-    account_access(session, partner, account_id)
+    access = PartnerAccountAccess(session, partner)
+    access.require(account_id)
     caller = hashlib.sha256(f"{partner.issuer}\0{partner.subject}".encode()).hexdigest()
     budgets = [
         RateLimitBudget(key=f"partner-import-caller:{caller}", limit=30, window=60),
@@ -217,24 +216,9 @@ def write_account(session, partner, account_id, *, creating=False):
         raise HTTPException(
             429, "Too many import changes; try again shortly", headers={"Retry-After": str(retry)}
         )
-    # Match worker lock order. Hold the membership row until commit so a completed
-    # revocation cannot race a successful write authenticated against an old snapshot.
+    # Match worker lock order; account/membership locks remain held through commit.
     lock_catalog(session)
-    account = session.scalar(
-        visible_accounts(partner).where(PartnerAccount.id == account_id).with_for_update()
-    )
-    member = session.scalar(
-        select(PartnerMembership)
-        .where(
-            PartnerMembership.account_id == account_id,
-            PartnerMembership.issuer == partner.issuer,
-            PartnerMembership.subject == partner.subject,
-        )
-        .with_for_update(read=True)
-    )
-    if account is None or member is None:
-        raise HTTPException(404, "Partner account not found")
-    return account
+    return access.lock(account_id)
 
 
 def check_revision(connection, expected):
@@ -260,7 +244,7 @@ def log_change(event, connection, partner):
 
 def preview_context(session, partner, account_id, body, *, provider=None):
     """Authorize a read-only draft without holding database locks during API calls."""
-    account_access(session, partner, account_id)
+    PartnerAccountAccess(session, partner).require(account_id)
     caller = hashlib.sha256(f"{partner.issuer}\0{partner.subject}".encode()).hexdigest()
     try:
         retry = consume_rate_limits(
@@ -362,7 +346,7 @@ def existing_connector_response(
 
 @router.get("", response_model=PartnerConnectionsOut, operation_id="partnerConnectionsList")
 def list_connections(account_id: uuid.UUID, session: DB, partner: Partner, query: Listing):
-    account_access(session, partner, account_id)
+    PartnerAccountAccess(session, partner).require(account_id)
     statement = select(PartnerConnection).where(
         PartnerConnection.account_id == account_id, PartnerConnection.archived_at.is_(None)
     )
@@ -383,7 +367,7 @@ def list_connections(account_id: uuid.UUID, session: DB, partner: Partner, query
 
 @router.get("/{provider}", response_model=PartnerConnectionOut, operation_id="partnerConnectionGet")
 def get_connection(account_id: uuid.UUID, provider: str, session: DB, partner: Partner):
-    account_access(session, partner, account_id)
+    PartnerAccountAccess(session, partner).require(account_id)
     return partner_connection_views(session, [connection_access(session, account_id, provider)])[0]
 
 
@@ -554,7 +538,7 @@ def disconnect_connection(
 def connection_jobs(
     account_id: uuid.UUID, provider: str, session: DB, partner: Partner, query: Listing
 ):
-    account_access(session, partner, account_id)
+    PartnerAccountAccess(session, partner).require(account_id)
     connection_access(session, account_id, provider)
     statement = select(PartnerPipelineJob).where(PartnerPipelineJob.provider == provider)
     if query.q:

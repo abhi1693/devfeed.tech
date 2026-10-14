@@ -105,7 +105,7 @@ def test_optional_account_filters_authorize_before_reading_data(api, monkeypatch
     client, session, _ = api
     own = uuid.uuid4()
     access = Mock(return_value=NS(id=own))
-    monkeypatch.setattr(workspace, "account_access", access)
+    monkeypatch.setattr(workspace.PartnerAccountAccess, "require", access)
     reader = Mock(return_value={"items": [], "total": 0, "limit": 100, "offset": 0})
     monkeypatch.setattr(workspace, "inventory_page", reader)
     result = client.get(
@@ -192,7 +192,9 @@ def test_global_create_forwards_only_connection_fields_to_locked_account_service
     account_id = uuid.uuid4()
     create = Mock(return_value=connection_payload(account_id))
     monkeypatch.setattr(workspace, "create_connection", create)
-    monkeypatch.setattr(workspace, "account_access", lambda *_: NS(name="Authorized account"))
+    monkeypatch.setattr(
+        workspace.PartnerAccountAccess, "require", lambda *_: NS(name="Authorized account")
+    )
     body = {
         "account_id": str(account_id),
         "name": "Catalog",

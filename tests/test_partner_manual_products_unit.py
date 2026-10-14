@@ -440,8 +440,16 @@ def test_private_crud_routes_authorize_scope_apply_write_limits_and_commit(
         expires_at=2**31,
         csrf_token="test",
     )
-    monkeypatch.setattr(routes, "account_access", Mock(return_value=account))
-    monkeypatch.setattr(routes, "write_manual_account", Mock(return_value=(account, row)))
+    if service == "partner":
+        access = Mock(return_value=account)
+        monkeypatch.setattr(routes.PartnerAccountAccess, "require", access)
+        monkeypatch.setattr(
+            routes.PartnerAccountAccess, "lock_manual", Mock(return_value=(account, row))
+        )
+    else:
+        access = Mock(return_value=account)
+        monkeypatch.setattr(routes, "account_access", access)
+        monkeypatch.setattr(routes, "write_manual_account", Mock(return_value=(account, row)))
     monkeypatch.setattr(routes, "limit_product_write", limiter)
     monkeypatch.setattr(routes, "get_redis", lambda: redis)
     for name in (
@@ -477,7 +485,7 @@ def test_private_crud_routes_authorize_scope_apply_write_limits_and_commit(
             ),
         )
     assert response.status_code == {"post": 201, "delete": 204}.get(method, 200), response.text
-    routes.account_access.assert_called()
+    access.assert_called()
     if method == "get":
         limiter.assert_not_called()
         session.commit.assert_not_called()
