@@ -6,7 +6,7 @@
     "dev": "next dev --hostname 0.0.0.0 --port 3000",
     "build": "next build",
     "start": "next start --hostname 0.0.0.0 --port 3000",
-    "generate": "node ../../scripts/generate_reader_routes.mjs",
+    "generate": "node ../../scripts/generate_reader_routes.mjs && node ../../scripts/generate_extension_operations.mjs",
     "lint": "eslint . && tsc --noEmit",
     "test": "vitest run",
     "analyze": "next analyze"

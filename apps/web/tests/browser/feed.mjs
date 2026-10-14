@@ -84,6 +84,7 @@ const fixtureBundle = await build({
 const { article, topic, source } = await import(
   `data:text/javascript;base64,${Buffer.from(fixtureBundle.outputFiles[0].text).toString("base64")}`
 );
+topic.id = "55555555-5555-4555-8555-555555555555";
 withManagedImage(article);
 withManagedSourceLogo(article.sources[0]);
 const mustReadsFixture = dailyFixture(article);

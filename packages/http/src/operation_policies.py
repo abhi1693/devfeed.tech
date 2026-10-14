@@ -24,11 +24,25 @@ class GatewayPolicy(BaseModel):
         return {GATEWAY_POLICY_EXTENSION: self.model_dump(by_alias=True)}
 
 
+class ExtensionTransportPolicy(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid", strict=True, populate_by_name=True)
+
+    credentials: Literal["include", "omit"] = "include"
+    cache_control: Literal["public-read", "no-store"] | None = Field(
+        default=None, alias="cacheControl"
+    )
+    request_headers: tuple[Literal["Content-Type", "X-CSRF-Token", "If-None-Match"], ...] = Field(
+        default=("Content-Type", "X-CSRF-Token", "If-None-Match"), alias="requestHeaders"
+    )
+    timeout_ms: int = Field(default=15_000, gt=0, alias="timeoutMs")
+
+
 class ReaderGatewayPolicy(GatewayPolicy):
     cookie_policy: Literal["reader", "reader-attribution", "omit"] = Field(
         default="reader", alias="cookiePolicy"
     )
     handler: Literal["forward", "placement-query"] = "forward"
+    extension: ExtensionTransportPolicy | None = None
 
 
 DEFAULT_GATEWAY_POLICY = GatewayPolicy()
@@ -67,6 +81,11 @@ def export_gateway_document(
             operation = (
                 document.get("paths", {}).get(context.path_format, {}).get(method.lower(), {})
             )
+            resolved_policy = policy.model_dump(by_alias=True, mode="json")
+            if operation:
+                # FastAPI excludes nested nulls from OpenAPI. A denied extension
+                # and an unset cache header must remain explicit transport policy.
+                operation[GATEWAY_POLICY_EXTENSION] = copy.deepcopy(resolved_policy)
             path_fields = {
                 parameter["name"]: parameter["schema"]
                 for parameter in operation.get("parameters", [])
@@ -101,7 +120,7 @@ def export_gateway_document(
                     "method": method,
                     "path": context.path_format,
                     "parameters": parameters,
-                    "policy": policy.model_dump(by_alias=True),
+                    "policy": resolved_policy,
                 }
             )
     document[GATEWAY_ROUTES_EXTENSION] = operations

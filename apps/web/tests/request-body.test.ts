@@ -6,11 +6,12 @@ import {
 } from "@devfeed/http/request-body";
 
 const encoder = new TextEncoder();
-const request = (body?: BodyInit, headers?: HeadersInit) =>
+const request = (body?: BodyInit, headers?: HeadersInit, signal?: AbortSignal) =>
   new Request("https://devfeed.tech/api/event", {
     method: "POST",
     body,
     headers,
+    signal,
     duplex: "half",
   } as RequestInit);
 
@@ -207,3 +208,139 @@ it("allows reads without a deadline to continue until their body completes", asy
   controller!.close();
   expect(new TextDecoder().decode(await pending)).toBe("later body");
 });
+
+it("rejects an already aborted request before reading or canceling its body", async () => {
+  const controller = new AbortController();
+  const reason = new DOMException("Reader left", "AbortError");
+  controller.abort(reason);
+  const cancel = vi.fn();
+  const incoming = request(
+    new ReadableStream<Uint8Array>({ cancel }),
+    undefined,
+    controller.signal,
+  );
+  const read = vi.spyOn(incoming.body!, "getReader");
+  await expect(readRequestBody(incoming, 2048, 2000)).rejects.toBe(reason);
+  expect(read).not.toHaveBeenCalled();
+  expect(cancel).not.toHaveBeenCalled();
+  expect(incoming.bodyUsed).toBe(false);
+});
+
+it.each([undefined, 2000])(
+  "interrupts a pending read through its request signal with deadline %s",
+  async (deadline) => {
+    vi.useFakeTimers();
+    const controller = new AbortController();
+    const cancel = vi.fn();
+    const incoming = request(
+      new ReadableStream<Uint8Array>({ cancel }),
+      undefined,
+      controller.signal,
+    );
+    const remove = vi.spyOn(incoming.signal, "removeEventListener");
+    const pending = readRequestBody(incoming, 2048, deadline);
+    const reason = new DOMException("Account changed", "AbortError");
+    const rejected = expect(pending).rejects.toBe(reason);
+    controller.abort(reason);
+    await rejected;
+    expect(cancel).toHaveBeenCalledOnce();
+    expect(incoming.body!.locked).toBe(false);
+    expect(remove).toHaveBeenCalledWith("abort", expect.any(Function));
+    expect(vi.getTimerCount()).toBe(0);
+  },
+);
+
+it.each(["stall", "fail"])(
+  "returns caller cancellation even when the stream's cancellation can %s",
+  async (behavior) => {
+    vi.useFakeTimers();
+    const controller = new AbortController();
+    const cancel = vi.fn(() =>
+      behavior === "stall"
+        ? new Promise<void>(() => {})
+        : Promise.reject(new Error("Peer already disconnected")),
+    );
+    const incoming = request(
+      new ReadableStream<Uint8Array>({ cancel }),
+      undefined,
+      controller.signal,
+    );
+    const pending = readRequestBody(incoming, 2048, 2000);
+    const reason = new DOMException("Reader left", "AbortError");
+    const rejected = expect(pending).rejects.toBe(reason);
+    controller.abort(reason);
+    await rejected;
+    expect(cancel).toHaveBeenCalledOnce();
+    expect(incoming.body!.locked).toBe(false);
+    expect(vi.getTimerCount()).toBe(0);
+  },
+);
+
+it("uses an explicit fourth signal instead of the original request signal", async () => {
+  vi.useFakeTimers();
+  const original = new AbortController();
+  const override = new AbortController();
+  const cancel = vi.fn();
+  const incoming = request(new ReadableStream<Uint8Array>({ cancel }), undefined, original.signal);
+  const remove = vi.spyOn(override.signal, "removeEventListener");
+  const pending = readRequestBody(incoming, 2048, 2000, override.signal);
+  original.abort();
+  await vi.advanceTimersByTimeAsync(1);
+  expect(cancel).not.toHaveBeenCalled();
+  const reason = new DOMException("Overall deadline", "TimeoutError");
+  const rejected = expect(pending).rejects.toBe(reason);
+  override.abort(reason);
+  await rejected;
+  expect(cancel).toHaveBeenCalledOnce();
+  expect(remove).toHaveBeenCalledWith("abort", expect.any(Function));
+  expect(vi.getTimerCount()).toBe(0);
+});
+
+it("rejects an already aborted override while leaving the original body untouched", async () => {
+  const controller = new AbortController();
+  controller.abort();
+  const incoming = request("{}", undefined);
+  await expect(readRequestBody(incoming, 2048, 2000, controller.signal)).rejects.toBe(
+    controller.signal.reason,
+  );
+  expect(incoming.signal.aborted).toBe(false);
+  expect(incoming.bodyUsed).toBe(false);
+});
+
+it.each(["complete", "read failure", "oversize", "deadline"])(
+  "removes the cancellation listener after a %s outcome",
+  async (outcome) => {
+    vi.useFakeTimers();
+    const controller = new AbortController();
+    const cancel = vi.fn();
+    const failure = new Error("Disconnected body");
+    const stream = new ReadableStream<Uint8Array>({
+      start(value) {
+        if (outcome === "read failure") value.error(failure);
+        else if (outcome !== "deadline") {
+          value.enqueue(new Uint8Array(outcome === "oversize" ? 2049 : 2048));
+          if (outcome === "complete") value.close();
+        }
+      },
+      cancel,
+    });
+    const incoming = request(stream, undefined, controller.signal);
+    const remove = vi.spyOn(incoming.signal, "removeEventListener");
+    const pending = readRequestBody(incoming, 2048, 2000);
+    if (outcome === "complete") expect((await pending).byteLength).toBe(2048);
+    else if (outcome === "read failure") await expect(pending).rejects.toBe(failure);
+    else if (outcome === "oversize")
+      await expect(pending).rejects.toBeInstanceOf(RequestBodyTooLarge);
+    else {
+      const rejected = expect(pending).rejects.toBeInstanceOf(RequestBodyTimeout);
+      await vi.advanceTimersByTimeAsync(2000);
+      await rejected;
+    }
+    expect(remove).toHaveBeenCalledWith("abort", expect.any(Function));
+    expect(vi.getTimerCount()).toBe(0);
+    const cancellations = cancel.mock.calls.length;
+    controller.abort();
+    expect(cancel).toHaveBeenCalledTimes(cancellations);
+    expect(incoming.body!.locked).toBe(false);
+  },
+);

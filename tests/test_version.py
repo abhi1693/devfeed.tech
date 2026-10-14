@@ -195,7 +195,11 @@ def test_generated_version_drift_is_reported(workspace, relative):
 
 @pytest.mark.parametrize(
     "relative",
-    [f"{client_name}/{required[0]}" for _, _, client_name, required in command.API_ARTIFACTS],
+    [
+        f"{client_name}/{name}"
+        for _, _, client_name, required in command.API_ARTIFACTS
+        for name in required
+    ],
 )
 def test_missing_generated_client_is_reported(workspace, relative):
     (workspace / relative).unlink()

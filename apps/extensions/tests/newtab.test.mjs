@@ -14,10 +14,10 @@ async function bundled(path) {
     format: "cjs",
     external: ["react"],
   });
-  const module = { exports: {} };
+  const output = { exports: {} };
   runInNewContext(compiled.outputFiles[0].text, {
-    module,
-    exports: module.exports,
+    module: output,
+    exports: output.exports,
     require,
     URL,
     URLSearchParams,
@@ -26,9 +26,9 @@ async function bundled(path) {
     Response,
     AbortSignal,
   });
-  return module.exports;
+  return output.exports;
 }
-const { createReaderTransport } = await bundled("../src/transport.ts");
+const { ExtensionReaderTransport } = await bundled("../src/transport.ts");
 const { linkDestination } = await bundled("../src/navigation.tsx");
 const { extensionRoute } = await bundled("../src/routes.ts");
 const { guestFeedFilters, searchParamsFromUrl, feedParams, feedHref } = await bundled(
@@ -118,10 +118,10 @@ test("one route registry classifies every extension-owned page", () => {
 
 test("public reads use the website API, use the browser session, and propagate cancellation", async () => {
   const calls = [];
-  const request = createReaderTransport(async (...args) => {
+  const request = new ExtensionReaderTransport(async (...args) => {
     calls.push(args);
     return Response.json({ items: [], next_cursor: null });
-  });
+  }).request;
   const controller = new AbortController();
   const response = await request("/api/v1/feed?q=python%26rust&cursor=next%2Bpage", {
     signal: controller.signal,
@@ -141,10 +141,10 @@ test("public reads use the website API, use the browser session, and propagate c
 
 test("account requests preserve JSON and CSRF while rejecting other APIs and credential headers", async () => {
   const calls = [];
-  const request = createReaderTransport(async (...args) => {
+  const request = new ExtensionReaderTransport(async (...args) => {
     calls.push(args);
     return Response.json({ user_id: "reader" });
-  });
+  }).request;
   assert.equal((await (await request("/api/v1/user/auth/me")).json()).user_id, "reader");
   await request("/api/v1/user/settings/feed", {
     method: "PUT",
@@ -174,10 +174,10 @@ test("account requests preserve JSON and CSRF while rejecting other APIs and cre
 
 test("avatar uploads preserve multipart bodies and CSRF for both reader extensions", async () => {
   const calls = [];
-  const request = createReaderTransport(async (...args) => {
+  const request = new ExtensionReaderTransport(async (...args) => {
     calls.push(args);
     return Response.json({ avatar_url: null, avatar_variants: [] });
-  });
+  }).request;
   const body = new FormData();
   body.append("file", new Blob(["image"], { type: "image/png" }), "avatar.png");
   await request("/api/v1/user/settings/profile/avatar", {
@@ -210,20 +210,21 @@ test("content tabs and search stay in the new tab; articles stay local and login
 });
 
 test("network failures and HTTP errors remain visible to the reader retry controls", async () => {
-  const unavailable = createReaderTransport(async () => Response.json({}, { status: 503 }));
+  const unavailable = new ExtensionReaderTransport(async () => Response.json({}, { status: 503 }))
+    .request;
   assert.equal((await unavailable("/api/v1/feed")).status, 503);
-  const offline = createReaderTransport(async () => {
+  const offline = new ExtensionReaderTransport(async () => {
     throw new Error("Offline");
-  });
+  }).request;
   await assert.rejects(offline("/api/v1/feed"), /Offline/);
 });
 
 test("search click analytics remains an allowed public write", async () => {
   const calls = [];
-  const request = createReaderTransport(async (...args) => {
+  const request = new ExtensionReaderTransport(async (...args) => {
     calls.push(args);
     return new Response(null, { status: 204 });
-  });
+  }).request;
   const response = await request("/api/v1/search/analytics/click", {
     method: "POST",
     headers: { "Content-Type": "application/json", Authorization: "secret" },
@@ -247,12 +248,12 @@ for (const detail of [
   "Feed validation failed: The feed must contain at least 1 entry dated within the last 3 months.",
 ]) {
   test(`Chrome/Edge source submissions preserve admission rejection: ${detail}`, async () => {
-    const request = createReaderTransport(async (url, init) => {
+    const request = new ExtensionReaderTransport(async (url, init) => {
       assert.equal(url, "https://devfeed.tech/api/v1/user/sources/suggestions");
       assert.equal(init.method, "POST");
       assert.equal(init.headers.get("x-csrf-token"), "csrf");
       return Response.json({ detail }, { status: 422 });
-    });
+    }).request;
     const response = await request("/api/v1/user/sources/suggestions", {
       method: "POST",
       headers: { "Content-Type": "application/json", "X-CSRF-Token": "csrf" },
@@ -265,10 +266,10 @@ for (const detail of [
 
 test("catalog detail reads use one bounded public GET and cannot access other paths", async () => {
   const calls = [];
-  const request = createReaderTransport(async (url, init) => {
+  const request = new ExtensionReaderTransport(async (url, init) => {
     calls.push({ url, init });
     return Response.json({ id: "one", slug: "late-topic" });
-  });
+  }).request;
   for (const kind of ["topics", "sources"]) {
     assert.equal((await request(`/api/v1/${kind}/late-topic`)).status, 200);
     assert.equal(calls.at(-1).url, `https://devfeed.tech/api/v1/${kind}/late-topic`);
@@ -280,10 +281,10 @@ test("catalog detail reads use one bounded public GET and cannot access other pa
 
 test("catalog logo export is no longer exposed through the reader transport", async () => {
   const calls = [];
-  const transport = createReaderTransport(async (url, options) => {
+  const transport = new ExtensionReaderTransport(async (url, options) => {
     calls.push({ url, options });
     return Response.json({ image: "data:image/webp;base64,AAAA" });
-  });
+  }).request;
   assert.equal((await transport("/api/v1/topics/rancher/logo")).status, 403);
   assert.equal((await transport("/api/v1/topics/rancher/logo", { method: "POST" })).status, 403);
   assert.equal((await transport("/api/v1/topics/rancher/logo/extra")).status, 403);
@@ -292,10 +293,10 @@ test("catalog logo export is no longer exposed through the reader transport", as
 
 test("MCP configuration reads bypass feed caching and reject mutations", async () => {
   const calls = [];
-  const request = createReaderTransport(async (...args) => {
+  const request = new ExtensionReaderTransport(async (...args) => {
     calls.push(args);
     return Response.json({ url: "https://mcp.ingress.test/devfeed/mcp" });
-  });
+  }).request;
   const response = await request("/api/v1/mcp/config");
   assert.equal((await response.json()).url, "https://mcp.ingress.test/devfeed/mcp");
   assert.equal(calls[0][0], "https://devfeed.tech/api/v1/mcp/config");
@@ -307,10 +308,10 @@ test("MCP configuration reads bypass feed caching and reject mutations", async (
 
 test("public leaderboard reads bypass caching and reject mutations", async () => {
   const calls = [];
-  const request = createReaderTransport(async (...args) => {
+  const request = new ExtensionReaderTransport(async (...args) => {
     calls.push(args);
     return Response.json({ longest_streak: [], reading_days: [] });
-  });
+  }).request;
   assert.equal((await request("/api/v1/leaderboard")).status, 200);
   assert.equal(calls[0][0], "https://devfeed.tech/api/v1/leaderboard");
   assert.equal(calls[0][1].credentials, "omit");
@@ -323,10 +324,10 @@ test("public leaderboard reads bypass caching and reject mutations", async () =>
 
 test("partner impression and click events omit credentials and cannot proxy partner administration", async () => {
   const calls = [];
-  const request = createReaderTransport(async (...args) => {
+  const request = new ExtensionReaderTransport(async (...args) => {
     calls.push(args);
     return new Response(null, { status: 204 });
-  });
+  }).request;
   for (const kind of ["impression", "click"]) {
     const body = JSON.stringify({ kind, receipt: "signed-receipt" });
     assert.equal(
@@ -360,10 +361,10 @@ test("partner impression and click events omit credentials and cannot proxy part
 
 test("contextual placements are anonymous writes while personalized placement queries retain session CSRF", async () => {
   const calls = [];
-  const request = createReaderTransport(async (...args) => {
+  const request = new ExtensionReaderTransport(async (...args) => {
     calls.push(args);
     return Response.json({ items: [] });
-  });
+  }).request;
   const body = JSON.stringify({ surface: "feed", exclude_product_ids: [] });
   const headers = {
     "Content-Type": "application/json",
@@ -394,10 +395,10 @@ test("contextual placements are anonymous writes while personalized placement qu
 
 test("public profile visibility checks omit credentials and request fresh responses", async () => {
   const calls = [];
-  const request = createReaderTransport(async (...args) => {
+  const request = new ExtensionReaderTransport(async (...args) => {
     calls.push(args);
     return Response.json({ profile: null });
-  });
+  }).request;
   await request("/api/v1/users/reader?include_activity=false", { credentials: "same-origin" });
   assert.equal(calls[0][1].credentials, "omit");
   assert.equal(calls[0][1].cache, "no-store");

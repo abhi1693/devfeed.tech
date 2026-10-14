@@ -52,6 +52,7 @@ const extension = path.resolve(import.meta.dirname, `../dist/${browser}`);
 const newTab = browser === "edge" ? "edge://newtab" : "chrome://newtab";
 const cookieName = "__Host-devfeed_user_session";
 const xClickCookie = "__Host-devfeed_user_x_click";
+const topicId = "55555555-5555-4555-8555-555555555555";
 const user = {
   user_id: "11111111-1111-4111-8111-111111111111",
   name: "Test Reader",
@@ -119,7 +120,7 @@ test(
     let rejectOnboardingPage = true;
     let rejectTopics = true;
     let rejectTopicFollow = true;
-    let savedTopicIds = ["typescript"];
+    let savedTopicIds = [topicId];
     let savedSourceIds = [];
     let rejectSourceFollow = true;
     const errors = [];
@@ -211,7 +212,7 @@ test(
         checkedWrites++;
         if (url.pathname === "/api/v1/user/must-reads/presentation")
           return send(await mustReadsFixture.response(true));
-        if (url.pathname === "/api/v1/user/preferences/topics/typescript") {
+        if (url.pathname === `/api/v1/user/preferences/topics/${topicId}`) {
           const payload = route.request().postDataJSON();
           assert.deepEqual(Object.keys(payload), ["followed"]);
           if (payload.followed && rejectTopicFollow) {
@@ -219,8 +220,8 @@ test(
             return send({}, 503);
           }
           savedTopicIds = payload.followed
-            ? [...savedTopicIds, "typescript"]
-            : savedTopicIds.filter((id) => id !== "typescript");
+            ? [...savedTopicIds, topicId]
+            : savedTopicIds.filter((id) => id !== topicId);
           return send({ followed: payload.followed });
         }
         if (url.pathname.startsWith("/api/v1/user/preferences/sources/")) {
@@ -238,7 +239,7 @@ test(
         }
         if (url.pathname === "/api/v1/user/preferences") {
           const payload = route.request().postDataJSON();
-          assert.deepEqual(payload, { topic_ids: ["typescript", "onboarding-0", "onboarding-1"] });
+          assert.deepEqual(payload, { topic_ids: [topicId, "onboarding-0", "onboarding-1"] });
           if (rejectTopics) {
             rejectTopics = false;
             return send({}, 503);
@@ -301,7 +302,7 @@ test(
       }
       if (url.pathname === "/api/v1/topics/typescript")
         return send({
-          id: "typescript",
+          id: topicId,
           name: "TypeScript",
           slug: "typescript",
           kind: "language",
@@ -314,7 +315,7 @@ test(
       if (url.pathname === "/api/v1/topics" && url.searchParams.get("q"))
         return send({
           items: onboardingTopics({
-            id: "typescript",
+            id: topicId,
             name: "TypeScript",
             slug: "typescript",
             kind: "language",
@@ -341,7 +342,7 @@ test(
           items:
             onboarding || onboardingSaved
               ? onboardingTopics({
-                  id: "typescript",
+                  id: topicId,
                   name: "TypeScript",
                   slug: "typescript",
                   kind: "language",
@@ -934,10 +935,8 @@ test(
         path.resolve(extension, `../${browser}-onboarding`),
       );
       assert.ok(onboardingSaved);
-      assert.deepEqual(savedTopicIds, ["typescript", "onboarding-0", "onboarding-1"]);
-      article.topics = [
-        { id: "typescript", name: "TypeScript", slug: "typescript", kind: "language" },
-      ];
+      assert.deepEqual(savedTopicIds, [topicId, "onboarding-0", "onboarding-1"]);
+      article.topics = [{ id: topicId, name: "TypeScript", slug: "typescript", kind: "language" }];
       const localBase = personalUrl.split("#")[0];
       await checkTopicFollow(
         page,

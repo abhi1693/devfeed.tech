@@ -28,17 +28,29 @@ export type GatewayOperation = {
 
 export type GatewayCookiePolicy = "reader" | "reader-attribution" | "omit";
 
+export type ExtensionTransportPolicy = {
+  credentials: "include" | "omit";
+  cacheControl: "public-read" | "no-store" | null;
+  requestHeaders: readonly ("Content-Type" | "X-CSRF-Token" | "If-None-Match")[];
+  timeoutMs: number;
+};
+
 export type ReaderGatewayOperation = GatewayOperation & {
   policy: GatewayPolicy & {
     cookiePolicy: GatewayCookiePolicy;
     handler: "forward" | "placement-query";
+    extension: ExtensionTransportPolicy | null;
   };
 };
 
-export type GatewayMatch =
+export type ExtensionGatewayOperation = GatewayOperation & {
+  policy: GatewayPolicy & { extension: ExtensionTransportPolicy };
+};
+
+export type GatewayMatch<Operation extends GatewayOperation = GatewayOperation> =
   | {
       kind: "matched";
-      operation: GatewayOperation;
+      operation: Operation;
       path: string;
       parameters: Record<string, string>;
     }
@@ -59,10 +71,10 @@ function safeSegment(part: string): boolean {
 }
 
 /** A declared operation's path, usable after a framework has already selected its handler. */
-export class GatewayRoute {
+export class GatewayRoute<Operation extends GatewayOperation = GatewayOperation> {
   private readonly parts: RoutePart[];
 
-  constructor(readonly operation: GatewayOperation) {
+  constructor(readonly operation: Operation) {
     this.parts = operation.path
       .slice(1)
       .split("/")
@@ -143,14 +155,14 @@ export class GatewayRoute {
   }
 }
 
-export class GatewayRouter {
-  private readonly routes: GatewayRoute[];
+export class GatewayRouter<Operation extends GatewayOperation = GatewayOperation> {
+  private readonly routes: GatewayRoute<Operation>[];
 
-  constructor({ operations }: { operations: readonly GatewayOperation[] }) {
+  constructor({ operations }: { operations: readonly Operation[] }) {
     this.routes = operations.map((operation) => new GatewayRoute(operation));
   }
 
-  resolve(method: string, segments: readonly string[]): GatewayMatch {
+  resolve(method: string, segments: readonly string[]): GatewayMatch<Operation> {
     if (!segments.length || !segments.every(safeSegment)) return { kind: "not-found" };
     const allowedMethods = new Set<string>();
     for (const route of this.routes) {

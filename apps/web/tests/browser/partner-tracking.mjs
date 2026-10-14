@@ -20,9 +20,9 @@ try {
         contents: `
           import { observePartnerPlacement } from "./apps/web/src/lib/partner-tracking";
           import { configureReaderRuntime } from "./apps/web/src/lib/reader-runtime";
-          import { createReaderTransport } from "./apps/extensions/src/transport";
+          import { ExtensionReaderTransport } from "./apps/extensions/src/transport";
           if (location.protocol === "chrome-extension:") {
-            configureReaderRuntime({ request: createReaderTransport(fetch), publicOrigin: "https://devfeed.tech" });
+            configureReaderRuntime({ request: new ExtensionReaderTransport(fetch).request, publicOrigin: "https://devfeed.tech" });
           }
           observePartnerPlacement(document.querySelector("#placement"), ${JSON.stringify(receipt)});
           if (new URLSearchParams(location.search).has("expired")) {

@@ -51,7 +51,7 @@ API_ARTIFACTS = (
         "web",
         "apps/web/openapi.json",
         "apps/web/src/lib/api/generated",
-        ("user-operations.ts",),
+        ("user-operations.ts", "extension-operations.ts"),
     ),
 )
 GENERATED_ROUTES = (

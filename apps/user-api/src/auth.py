@@ -11,7 +11,7 @@ from datetime import UTC, datetime
 from typing import Annotated, Literal, cast
 from urllib.parse import parse_qsl, urlsplit
 
-from devfeed_http.operation_policies import ReaderGatewayPolicy
+from devfeed_http.operation_policies import ExtensionTransportPolicy, ReaderGatewayPolicy
 from devfeed_http.schemas import OIDCCallbackQuery
 from fastapi import (
     APIRouter,
@@ -161,7 +161,12 @@ User = Annotated[UserIdentity, Depends(require_user)]
 BrowserUser = Annotated[UserIdentity, Depends(require_browser_user)]
 
 
-@router.get("/config", response_model=AuthConfig, operation_id="user_auth_config")
+@router.get(
+    "/config",
+    response_model=AuthConfig,
+    operation_id="user_auth_config",
+    openapi_extra=ReaderGatewayPolicy(extension=ExtensionTransportPolicy()).openapi_extra(),
+)
 def config():
     settings = get_settings()
     providers = [
@@ -337,7 +342,12 @@ def callback(
     return response
 
 
-@router.get("/me", response_model=UserIdentity | None, operation_id="user_auth_me")
+@router.get(
+    "/me",
+    response_model=UserIdentity | None,
+    operation_id="user_auth_me",
+    openapi_extra=ReaderGatewayPolicy(extension=ExtensionTransportPolicy()).openapi_extra(),
+)
 def me(request: Request):
     # Anonymous browsing is normal; protected routes still use require_user.
     try:
@@ -388,6 +398,7 @@ def me(request: Request):
     operation_id="user_auth_logout",
     response_class=Response,
     response_model=None,
+    openapi_extra=ReaderGatewayPolicy(extension=ExtensionTransportPolicy()).openapi_extra(),
 )
 def logout(
     request: Request,

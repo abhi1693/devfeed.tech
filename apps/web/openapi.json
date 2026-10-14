@@ -2791,6 +2791,16 @@
           "bodyLimit": 1000000,
           "bodyTimeoutMs": 2000,
           "cookiePolicy": "reader",
+          "extension": {
+            "cacheControl": null,
+            "credentials": "include",
+            "requestHeaders": [
+              "Content-Type",
+              "X-CSRF-Token",
+              "If-None-Match"
+            ],
+            "timeoutMs": 15000
+          },
           "handler": "forward",
           "upstreamTimeoutMs": 45000
         }
@@ -2876,6 +2886,16 @@
           "bodyLimit": 1000000,
           "bodyTimeoutMs": 2000,
           "cookiePolicy": "reader",
+          "extension": {
+            "cacheControl": null,
+            "credentials": "include",
+            "requestHeaders": [
+              "Content-Type",
+              "X-CSRF-Token",
+              "If-None-Match"
+            ],
+            "timeoutMs": 15000
+          },
           "handler": "forward",
           "upstreamTimeoutMs": 45000
         }
@@ -2946,6 +2966,16 @@
           "bodyLimit": 1000000,
           "bodyTimeoutMs": 2000,
           "cookiePolicy": "reader",
+          "extension": {
+            "cacheControl": null,
+            "credentials": "include",
+            "requestHeaders": [
+              "Content-Type",
+              "X-CSRF-Token",
+              "If-None-Match"
+            ],
+            "timeoutMs": 15000
+          },
           "handler": "forward",
           "upstreamTimeoutMs": 45000
         }
@@ -3063,6 +3093,7 @@
           "bodyLimit": 1000000,
           "bodyTimeoutMs": 2000,
           "cookiePolicy": "reader",
+          "extension": null,
           "handler": "forward",
           "upstreamTimeoutMs": 45000
         }
@@ -3121,6 +3152,16 @@
           "bodyLimit": 1000000,
           "bodyTimeoutMs": 2000,
           "cookiePolicy": "reader",
+          "extension": {
+            "cacheControl": null,
+            "credentials": "include",
+            "requestHeaders": [
+              "Content-Type",
+              "X-CSRF-Token",
+              "If-None-Match"
+            ],
+            "timeoutMs": 15000
+          },
           "handler": "forward",
           "upstreamTimeoutMs": 45000
         }
@@ -3214,6 +3255,7 @@
           "bodyLimit": 1000000,
           "bodyTimeoutMs": 2000,
           "cookiePolicy": "reader-attribution",
+          "extension": null,
           "handler": "forward",
           "upstreamTimeoutMs": 45000
         }
@@ -3270,6 +3312,16 @@
           "bodyLimit": 1000000,
           "bodyTimeoutMs": 2000,
           "cookiePolicy": "reader",
+          "extension": {
+            "cacheControl": null,
+            "credentials": "include",
+            "requestHeaders": [
+              "Content-Type",
+              "X-CSRF-Token",
+              "If-None-Match"
+            ],
+            "timeoutMs": 15000
+          },
           "handler": "forward",
           "upstreamTimeoutMs": 45000
         }
@@ -3336,6 +3388,16 @@
           "bodyLimit": 1000000,
           "bodyTimeoutMs": 2000,
           "cookiePolicy": "reader",
+          "extension": {
+            "cacheControl": null,
+            "credentials": "include",
+            "requestHeaders": [
+              "Content-Type",
+              "X-CSRF-Token",
+              "If-None-Match"
+            ],
+            "timeoutMs": 15000
+          },
           "handler": "forward",
           "upstreamTimeoutMs": 45000
         }
@@ -3430,6 +3492,16 @@
           "bodyLimit": 1000000,
           "bodyTimeoutMs": 2000,
           "cookiePolicy": "reader",
+          "extension": {
+            "cacheControl": null,
+            "credentials": "include",
+            "requestHeaders": [
+              "Content-Type",
+              "X-CSRF-Token",
+              "If-None-Match"
+            ],
+            "timeoutMs": 15000
+          },
           "handler": "forward",
           "upstreamTimeoutMs": 45000
         }
@@ -3509,6 +3581,16 @@
           "bodyLimit": 1000000,
           "bodyTimeoutMs": 2000,
           "cookiePolicy": "reader",
+          "extension": {
+            "cacheControl": null,
+            "credentials": "include",
+            "requestHeaders": [
+              "Content-Type",
+              "X-CSRF-Token",
+              "If-None-Match"
+            ],
+            "timeoutMs": 15000
+          },
           "handler": "forward",
           "upstreamTimeoutMs": 45000
         }
@@ -3676,6 +3758,16 @@
           "bodyLimit": 1000000,
           "bodyTimeoutMs": 2000,
           "cookiePolicy": "reader",
+          "extension": {
+            "cacheControl": null,
+            "credentials": "include",
+            "requestHeaders": [
+              "Content-Type",
+              "X-CSRF-Token",
+              "If-None-Match"
+            ],
+            "timeoutMs": 15000
+          },
           "handler": "forward",
           "upstreamTimeoutMs": 45000
         }
@@ -3734,6 +3826,16 @@
           "bodyLimit": 1000000,
           "bodyTimeoutMs": 2000,
           "cookiePolicy": "reader",
+          "extension": {
+            "cacheControl": null,
+            "credentials": "include",
+            "requestHeaders": [
+              "Content-Type",
+              "X-CSRF-Token",
+              "If-None-Match"
+            ],
+            "timeoutMs": 15000
+          },
           "handler": "forward",
           "upstreamTimeoutMs": 45000
         }
@@ -3797,6 +3899,16 @@
           "bodyLimit": 1000000,
           "bodyTimeoutMs": 2000,
           "cookiePolicy": "reader",
+          "extension": {
+            "cacheControl": null,
+            "credentials": "include",
+            "requestHeaders": [
+              "Content-Type",
+              "X-CSRF-Token",
+              "If-None-Match"
+            ],
+            "timeoutMs": 15000
+          },
           "handler": "forward",
           "upstreamTimeoutMs": 45000
         }
@@ -3855,6 +3967,16 @@
           "bodyLimit": 1000000,
           "bodyTimeoutMs": 2000,
           "cookiePolicy": "reader",
+          "extension": {
+            "cacheControl": null,
+            "credentials": "include",
+            "requestHeaders": [
+              "Content-Type",
+              "X-CSRF-Token",
+              "If-None-Match"
+            ],
+            "timeoutMs": 15000
+          },
           "handler": "forward",
           "upstreamTimeoutMs": 45000
         }
@@ -3917,6 +4039,16 @@
           "bodyLimit": 1000000,
           "bodyTimeoutMs": 2000,
           "cookiePolicy": "reader",
+          "extension": {
+            "cacheControl": null,
+            "credentials": "include",
+            "requestHeaders": [
+              "Content-Type",
+              "X-CSRF-Token",
+              "If-None-Match"
+            ],
+            "timeoutMs": 15000
+          },
           "handler": "forward",
           "upstreamTimeoutMs": 45000
         }
@@ -3986,6 +4118,16 @@
           "bodyLimit": 1000000,
           "bodyTimeoutMs": 2000,
           "cookiePolicy": "reader",
+          "extension": {
+            "cacheControl": null,
+            "credentials": "include",
+            "requestHeaders": [
+              "Content-Type",
+              "X-CSRF-Token",
+              "If-None-Match"
+            ],
+            "timeoutMs": 15000
+          },
           "handler": "forward",
           "upstreamTimeoutMs": 45000
         }
@@ -4063,6 +4205,16 @@
           "bodyLimit": 1000000,
           "bodyTimeoutMs": 2000,
           "cookiePolicy": "reader",
+          "extension": {
+            "cacheControl": null,
+            "credentials": "include",
+            "requestHeaders": [
+              "Content-Type",
+              "X-CSRF-Token",
+              "If-None-Match"
+            ],
+            "timeoutMs": 15000
+          },
           "handler": "forward",
           "upstreamTimeoutMs": 45000
         }
@@ -4139,6 +4291,16 @@
           "bodyLimit": 1000000,
           "bodyTimeoutMs": 2000,
           "cookiePolicy": "reader",
+          "extension": {
+            "cacheControl": null,
+            "credentials": "include",
+            "requestHeaders": [
+              "Content-Type",
+              "X-CSRF-Token",
+              "If-None-Match"
+            ],
+            "timeoutMs": 15000
+          },
           "handler": "forward",
           "upstreamTimeoutMs": 45000
         }
@@ -4212,6 +4374,16 @@
           "bodyLimit": 1000000,
           "bodyTimeoutMs": 2000,
           "cookiePolicy": "reader",
+          "extension": {
+            "cacheControl": null,
+            "credentials": "include",
+            "requestHeaders": [
+              "Content-Type",
+              "X-CSRF-Token",
+              "If-None-Match"
+            ],
+            "timeoutMs": 15000
+          },
           "handler": "forward",
           "upstreamTimeoutMs": 45000
         }
@@ -4275,6 +4447,16 @@
           "bodyLimit": 1000000,
           "bodyTimeoutMs": 2000,
           "cookiePolicy": "reader",
+          "extension": {
+            "cacheControl": null,
+            "credentials": "include",
+            "requestHeaders": [
+              "Content-Type",
+              "X-CSRF-Token",
+              "If-None-Match"
+            ],
+            "timeoutMs": 15000
+          },
           "handler": "forward",
           "upstreamTimeoutMs": 45000
         }
@@ -4348,6 +4530,16 @@
           "bodyLimit": 8192,
           "bodyTimeoutMs": 2000,
           "cookiePolicy": "reader",
+          "extension": {
+            "cacheControl": null,
+            "credentials": "include",
+            "requestHeaders": [
+              "Content-Type",
+              "X-CSRF-Token",
+              "If-None-Match"
+            ],
+            "timeoutMs": 15000
+          },
           "handler": "placement-query",
           "upstreamTimeoutMs": 45000
         }
@@ -4411,6 +4603,16 @@
           "bodyLimit": 1000000,
           "bodyTimeoutMs": 2000,
           "cookiePolicy": "reader",
+          "extension": {
+            "cacheControl": null,
+            "credentials": "include",
+            "requestHeaders": [
+              "Content-Type",
+              "X-CSRF-Token",
+              "If-None-Match"
+            ],
+            "timeoutMs": 15000
+          },
           "handler": "forward",
           "upstreamTimeoutMs": 45000
         }
@@ -4482,6 +4684,16 @@
           "bodyLimit": 1000000,
           "bodyTimeoutMs": 2000,
           "cookiePolicy": "reader",
+          "extension": {
+            "cacheControl": null,
+            "credentials": "include",
+            "requestHeaders": [
+              "Content-Type",
+              "X-CSRF-Token",
+              "If-None-Match"
+            ],
+            "timeoutMs": 15000
+          },
           "handler": "forward",
           "upstreamTimeoutMs": 45000
         }
@@ -4545,6 +4757,16 @@
           "bodyLimit": 1000000,
           "bodyTimeoutMs": 2000,
           "cookiePolicy": "reader",
+          "extension": {
+            "cacheControl": null,
+            "credentials": "include",
+            "requestHeaders": [
+              "Content-Type",
+              "X-CSRF-Token",
+              "If-None-Match"
+            ],
+            "timeoutMs": 15000
+          },
           "handler": "forward",
           "upstreamTimeoutMs": 45000
         }
@@ -4616,6 +4838,16 @@
           "bodyLimit": 1000000,
           "bodyTimeoutMs": 2000,
           "cookiePolicy": "reader",
+          "extension": {
+            "cacheControl": null,
+            "credentials": "include",
+            "requestHeaders": [
+              "Content-Type",
+              "X-CSRF-Token",
+              "If-None-Match"
+            ],
+            "timeoutMs": 15000
+          },
           "handler": "forward",
           "upstreamTimeoutMs": 45000
         }
@@ -4701,6 +4933,16 @@
           "bodyLimit": 1000000,
           "bodyTimeoutMs": 2000,
           "cookiePolicy": "reader",
+          "extension": {
+            "cacheControl": null,
+            "credentials": "include",
+            "requestHeaders": [
+              "Content-Type",
+              "X-CSRF-Token",
+              "If-None-Match"
+            ],
+            "timeoutMs": 15000
+          },
           "handler": "forward",
           "upstreamTimeoutMs": 45000
         }
@@ -4786,6 +5028,16 @@
           "bodyLimit": 1000000,
           "bodyTimeoutMs": 2000,
           "cookiePolicy": "reader",
+          "extension": {
+            "cacheControl": null,
+            "credentials": "include",
+            "requestHeaders": [
+              "Content-Type",
+              "X-CSRF-Token",
+              "If-None-Match"
+            ],
+            "timeoutMs": 15000
+          },
           "handler": "forward",
           "upstreamTimeoutMs": 45000
         }
@@ -4855,6 +5107,16 @@
           "bodyLimit": 1000000,
           "bodyTimeoutMs": 2000,
           "cookiePolicy": "reader",
+          "extension": {
+            "cacheControl": null,
+            "credentials": "include",
+            "requestHeaders": [
+              "Content-Type",
+              "X-CSRF-Token",
+              "If-None-Match"
+            ],
+            "timeoutMs": 15000
+          },
           "handler": "forward",
           "upstreamTimeoutMs": 45000
         }
@@ -4940,6 +5202,16 @@
           "bodyLimit": 1000000,
           "bodyTimeoutMs": 2000,
           "cookiePolicy": "reader",
+          "extension": {
+            "cacheControl": null,
+            "credentials": "include",
+            "requestHeaders": [
+              "Content-Type",
+              "X-CSRF-Token",
+              "If-None-Match"
+            ],
+            "timeoutMs": 15000
+          },
           "handler": "forward",
           "upstreamTimeoutMs": 45000
         }
@@ -5003,6 +5275,16 @@
           "bodyLimit": 1000000,
           "bodyTimeoutMs": 2000,
           "cookiePolicy": "reader",
+          "extension": {
+            "cacheControl": null,
+            "credentials": "include",
+            "requestHeaders": [
+              "Content-Type",
+              "X-CSRF-Token",
+              "If-None-Match"
+            ],
+            "timeoutMs": 15000
+          },
           "handler": "forward",
           "upstreamTimeoutMs": 45000
         }
@@ -5074,6 +5356,16 @@
           "bodyLimit": 1000000,
           "bodyTimeoutMs": 2000,
           "cookiePolicy": "reader",
+          "extension": {
+            "cacheControl": null,
+            "credentials": "include",
+            "requestHeaders": [
+              "Content-Type",
+              "X-CSRF-Token",
+              "If-None-Match"
+            ],
+            "timeoutMs": 15000
+          },
           "handler": "forward",
           "upstreamTimeoutMs": 45000
         }
@@ -5137,6 +5429,16 @@
           "bodyLimit": 1000000,
           "bodyTimeoutMs": 2000,
           "cookiePolicy": "reader",
+          "extension": {
+            "cacheControl": null,
+            "credentials": "include",
+            "requestHeaders": [
+              "Content-Type",
+              "X-CSRF-Token",
+              "If-None-Match"
+            ],
+            "timeoutMs": 15000
+          },
           "handler": "forward",
           "upstreamTimeoutMs": 45000
         }
@@ -5208,6 +5510,16 @@
           "bodyLimit": 1000000,
           "bodyTimeoutMs": 2000,
           "cookiePolicy": "reader",
+          "extension": {
+            "cacheControl": null,
+            "credentials": "include",
+            "requestHeaders": [
+              "Content-Type",
+              "X-CSRF-Token",
+              "If-None-Match"
+            ],
+            "timeoutMs": 15000
+          },
           "handler": "forward",
           "upstreamTimeoutMs": 45000
         }
@@ -5271,6 +5583,16 @@
           "bodyLimit": 1000000,
           "bodyTimeoutMs": 2000,
           "cookiePolicy": "reader",
+          "extension": {
+            "cacheControl": null,
+            "credentials": "include",
+            "requestHeaders": [
+              "Content-Type",
+              "X-CSRF-Token",
+              "If-None-Match"
+            ],
+            "timeoutMs": 15000
+          },
           "handler": "forward",
           "upstreamTimeoutMs": 45000
         }
@@ -5342,6 +5664,16 @@
           "bodyLimit": 1000000,
           "bodyTimeoutMs": 2000,
           "cookiePolicy": "reader",
+          "extension": {
+            "cacheControl": null,
+            "credentials": "include",
+            "requestHeaders": [
+              "Content-Type",
+              "X-CSRF-Token",
+              "If-None-Match"
+            ],
+            "timeoutMs": 15000
+          },
           "handler": "forward",
           "upstreamTimeoutMs": 45000
         }
@@ -5405,6 +5737,16 @@
           "bodyLimit": 1000000,
           "bodyTimeoutMs": 2000,
           "cookiePolicy": "reader",
+          "extension": {
+            "cacheControl": null,
+            "credentials": "include",
+            "requestHeaders": [
+              "Content-Type",
+              "X-CSRF-Token",
+              "If-None-Match"
+            ],
+            "timeoutMs": 15000
+          },
           "handler": "forward",
           "upstreamTimeoutMs": 45000
         }
@@ -5476,6 +5818,16 @@
           "bodyLimit": 1000000,
           "bodyTimeoutMs": 2000,
           "cookiePolicy": "reader",
+          "extension": {
+            "cacheControl": null,
+            "credentials": "include",
+            "requestHeaders": [
+              "Content-Type",
+              "X-CSRF-Token",
+              "If-None-Match"
+            ],
+            "timeoutMs": 15000
+          },
           "handler": "forward",
           "upstreamTimeoutMs": 45000
         }
@@ -5539,6 +5891,16 @@
           "bodyLimit": 1000000,
           "bodyTimeoutMs": 2000,
           "cookiePolicy": "reader",
+          "extension": {
+            "cacheControl": null,
+            "credentials": "include",
+            "requestHeaders": [
+              "Content-Type",
+              "X-CSRF-Token",
+              "If-None-Match"
+            ],
+            "timeoutMs": 45000
+          },
           "handler": "forward",
           "upstreamTimeoutMs": 45000
         }
@@ -5610,6 +5972,16 @@
           "bodyLimit": 5308416,
           "bodyTimeoutMs": 10000,
           "cookiePolicy": "reader",
+          "extension": {
+            "cacheControl": null,
+            "credentials": "include",
+            "requestHeaders": [
+              "Content-Type",
+              "X-CSRF-Token",
+              "If-None-Match"
+            ],
+            "timeoutMs": 45000
+          },
           "handler": "forward",
           "upstreamTimeoutMs": 45000
         }
@@ -5691,6 +6063,16 @@
           "bodyLimit": 1000000,
           "bodyTimeoutMs": 2000,
           "cookiePolicy": "reader",
+          "extension": {
+            "cacheControl": null,
+            "credentials": "include",
+            "requestHeaders": [
+              "Content-Type",
+              "X-CSRF-Token",
+              "If-None-Match"
+            ],
+            "timeoutMs": 15000
+          },
           "handler": "forward",
           "upstreamTimeoutMs": 45000
         }
@@ -5754,6 +6136,16 @@
           "bodyLimit": 1000000,
           "bodyTimeoutMs": 2000,
           "cookiePolicy": "reader",
+          "extension": {
+            "cacheControl": null,
+            "credentials": "include",
+            "requestHeaders": [
+              "Content-Type",
+              "X-CSRF-Token",
+              "If-None-Match"
+            ],
+            "timeoutMs": 15000
+          },
           "handler": "forward",
           "upstreamTimeoutMs": 45000
         }
@@ -5827,6 +6219,16 @@
           "bodyLimit": 1000000,
           "bodyTimeoutMs": 2000,
           "cookiePolicy": "reader",
+          "extension": {
+            "cacheControl": null,
+            "credentials": "include",
+            "requestHeaders": [
+              "Content-Type",
+              "X-CSRF-Token",
+              "If-None-Match"
+            ],
+            "timeoutMs": 15000
+          },
           "handler": "forward",
           "upstreamTimeoutMs": 45000
         }
@@ -5900,6 +6302,16 @@
           "bodyLimit": 1000000,
           "bodyTimeoutMs": 2000,
           "cookiePolicy": "reader",
+          "extension": {
+            "cacheControl": null,
+            "credentials": "include",
+            "requestHeaders": [
+              "Content-Type",
+              "X-CSRF-Token",
+              "If-None-Match"
+            ],
+            "timeoutMs": 15000
+          },
           "handler": "forward",
           "upstreamTimeoutMs": 45000
         }
@@ -5984,6 +6396,16 @@
           "bodyLimit": 1000000,
           "bodyTimeoutMs": 2000,
           "cookiePolicy": "reader",
+          "extension": {
+            "cacheControl": null,
+            "credentials": "include",
+            "requestHeaders": [
+              "Content-Type",
+              "X-CSRF-Token",
+              "If-None-Match"
+            ],
+            "timeoutMs": 15000
+          },
           "handler": "forward",
           "upstreamTimeoutMs": 45000
         }
@@ -6000,6 +6422,16 @@
         "bodyLimit": 1000000,
         "bodyTimeoutMs": 2000,
         "cookiePolicy": "reader",
+        "extension": {
+          "cacheControl": null,
+          "credentials": "include",
+          "requestHeaders": [
+            "Content-Type",
+            "X-CSRF-Token",
+            "If-None-Match"
+          ],
+          "timeoutMs": 15000
+        },
         "handler": "forward",
         "upstreamTimeoutMs": 45000
       }
@@ -6013,6 +6445,7 @@
         "bodyLimit": 1000000,
         "bodyTimeoutMs": 2000,
         "cookiePolicy": "reader-attribution",
+        "extension": null,
         "handler": "forward",
         "upstreamTimeoutMs": 45000
       }
@@ -6026,6 +6459,7 @@
         "bodyLimit": 1000000,
         "bodyTimeoutMs": 2000,
         "cookiePolicy": "reader",
+        "extension": null,
         "handler": "forward",
         "upstreamTimeoutMs": 45000
       }
@@ -6039,6 +6473,16 @@
         "bodyLimit": 1000000,
         "bodyTimeoutMs": 2000,
         "cookiePolicy": "reader",
+        "extension": {
+          "cacheControl": null,
+          "credentials": "include",
+          "requestHeaders": [
+            "Content-Type",
+            "X-CSRF-Token",
+            "If-None-Match"
+          ],
+          "timeoutMs": 15000
+        },
         "handler": "forward",
         "upstreamTimeoutMs": 45000
       }
@@ -6052,6 +6496,16 @@
         "bodyLimit": 1000000,
         "bodyTimeoutMs": 2000,
         "cookiePolicy": "reader",
+        "extension": {
+          "cacheControl": null,
+          "credentials": "include",
+          "requestHeaders": [
+            "Content-Type",
+            "X-CSRF-Token",
+            "If-None-Match"
+          ],
+          "timeoutMs": 15000
+        },
         "handler": "forward",
         "upstreamTimeoutMs": 45000
       }
@@ -6074,6 +6528,16 @@
         "bodyLimit": 1000000,
         "bodyTimeoutMs": 2000,
         "cookiePolicy": "reader",
+        "extension": {
+          "cacheControl": null,
+          "credentials": "include",
+          "requestHeaders": [
+            "Content-Type",
+            "X-CSRF-Token",
+            "If-None-Match"
+          ],
+          "timeoutMs": 15000
+        },
         "handler": "forward",
         "upstreamTimeoutMs": 45000
       }
@@ -6096,6 +6560,16 @@
         "bodyLimit": 1000000,
         "bodyTimeoutMs": 2000,
         "cookiePolicy": "reader",
+        "extension": {
+          "cacheControl": null,
+          "credentials": "include",
+          "requestHeaders": [
+            "Content-Type",
+            "X-CSRF-Token",
+            "If-None-Match"
+          ],
+          "timeoutMs": 15000
+        },
         "handler": "forward",
         "upstreamTimeoutMs": 45000
       }
@@ -6109,6 +6583,16 @@
         "bodyLimit": 1000000,
         "bodyTimeoutMs": 2000,
         "cookiePolicy": "reader",
+        "extension": {
+          "cacheControl": null,
+          "credentials": "include",
+          "requestHeaders": [
+            "Content-Type",
+            "X-CSRF-Token",
+            "If-None-Match"
+          ],
+          "timeoutMs": 15000
+        },
         "handler": "forward",
         "upstreamTimeoutMs": 45000
       }
@@ -6131,6 +6615,16 @@
         "bodyLimit": 1000000,
         "bodyTimeoutMs": 2000,
         "cookiePolicy": "reader",
+        "extension": {
+          "cacheControl": null,
+          "credentials": "include",
+          "requestHeaders": [
+            "Content-Type",
+            "X-CSRF-Token",
+            "If-None-Match"
+          ],
+          "timeoutMs": 15000
+        },
         "handler": "forward",
         "upstreamTimeoutMs": 45000
       }
@@ -6144,6 +6638,16 @@
         "bodyLimit": 1000000,
         "bodyTimeoutMs": 2000,
         "cookiePolicy": "reader",
+        "extension": {
+          "cacheControl": null,
+          "credentials": "include",
+          "requestHeaders": [
+            "Content-Type",
+            "X-CSRF-Token",
+            "If-None-Match"
+          ],
+          "timeoutMs": 15000
+        },
         "handler": "forward",
         "upstreamTimeoutMs": 45000
       }
@@ -6157,6 +6661,16 @@
         "bodyLimit": 1000000,
         "bodyTimeoutMs": 2000,
         "cookiePolicy": "reader",
+        "extension": {
+          "cacheControl": null,
+          "credentials": "include",
+          "requestHeaders": [
+            "Content-Type",
+            "X-CSRF-Token",
+            "If-None-Match"
+          ],
+          "timeoutMs": 15000
+        },
         "handler": "forward",
         "upstreamTimeoutMs": 45000
       }
@@ -6180,6 +6694,16 @@
         "bodyLimit": 1000000,
         "bodyTimeoutMs": 2000,
         "cookiePolicy": "reader",
+        "extension": {
+          "cacheControl": null,
+          "credentials": "include",
+          "requestHeaders": [
+            "Content-Type",
+            "X-CSRF-Token",
+            "If-None-Match"
+          ],
+          "timeoutMs": 15000
+        },
         "handler": "forward",
         "upstreamTimeoutMs": 45000
       }
@@ -6193,6 +6717,16 @@
         "bodyLimit": 1000000,
         "bodyTimeoutMs": 2000,
         "cookiePolicy": "reader",
+        "extension": {
+          "cacheControl": null,
+          "credentials": "include",
+          "requestHeaders": [
+            "Content-Type",
+            "X-CSRF-Token",
+            "If-None-Match"
+          ],
+          "timeoutMs": 15000
+        },
         "handler": "forward",
         "upstreamTimeoutMs": 45000
       }
@@ -6206,6 +6740,16 @@
         "bodyLimit": 1000000,
         "bodyTimeoutMs": 2000,
         "cookiePolicy": "reader",
+        "extension": {
+          "cacheControl": null,
+          "credentials": "include",
+          "requestHeaders": [
+            "Content-Type",
+            "X-CSRF-Token",
+            "If-None-Match"
+          ],
+          "timeoutMs": 15000
+        },
         "handler": "forward",
         "upstreamTimeoutMs": 45000
       }
@@ -6229,6 +6773,16 @@
         "bodyLimit": 1000000,
         "bodyTimeoutMs": 2000,
         "cookiePolicy": "reader",
+        "extension": {
+          "cacheControl": null,
+          "credentials": "include",
+          "requestHeaders": [
+            "Content-Type",
+            "X-CSRF-Token",
+            "If-None-Match"
+          ],
+          "timeoutMs": 15000
+        },
         "handler": "forward",
         "upstreamTimeoutMs": 45000
       }
@@ -6242,6 +6796,16 @@
         "bodyLimit": 1000000,
         "bodyTimeoutMs": 2000,
         "cookiePolicy": "reader",
+        "extension": {
+          "cacheControl": null,
+          "credentials": "include",
+          "requestHeaders": [
+            "Content-Type",
+            "X-CSRF-Token",
+            "If-None-Match"
+          ],
+          "timeoutMs": 15000
+        },
         "handler": "forward",
         "upstreamTimeoutMs": 45000
       }
@@ -6265,6 +6829,16 @@
         "bodyLimit": 1000000,
         "bodyTimeoutMs": 2000,
         "cookiePolicy": "reader",
+        "extension": {
+          "cacheControl": null,
+          "credentials": "include",
+          "requestHeaders": [
+            "Content-Type",
+            "X-CSRF-Token",
+            "If-None-Match"
+          ],
+          "timeoutMs": 15000
+        },
         "handler": "forward",
         "upstreamTimeoutMs": 45000
       }
@@ -6288,6 +6862,16 @@
         "bodyLimit": 1000000,
         "bodyTimeoutMs": 2000,
         "cookiePolicy": "reader",
+        "extension": {
+          "cacheControl": null,
+          "credentials": "include",
+          "requestHeaders": [
+            "Content-Type",
+            "X-CSRF-Token",
+            "If-None-Match"
+          ],
+          "timeoutMs": 15000
+        },
         "handler": "forward",
         "upstreamTimeoutMs": 45000
       }
@@ -6301,6 +6885,16 @@
         "bodyLimit": 1000000,
         "bodyTimeoutMs": 2000,
         "cookiePolicy": "reader",
+        "extension": {
+          "cacheControl": null,
+          "credentials": "include",
+          "requestHeaders": [
+            "Content-Type",
+            "X-CSRF-Token",
+            "If-None-Match"
+          ],
+          "timeoutMs": 15000
+        },
         "handler": "forward",
         "upstreamTimeoutMs": 45000
       }
@@ -6324,6 +6918,16 @@
         "bodyLimit": 1000000,
         "bodyTimeoutMs": 2000,
         "cookiePolicy": "reader",
+        "extension": {
+          "cacheControl": null,
+          "credentials": "include",
+          "requestHeaders": [
+            "Content-Type",
+            "X-CSRF-Token",
+            "If-None-Match"
+          ],
+          "timeoutMs": 15000
+        },
         "handler": "forward",
         "upstreamTimeoutMs": 45000
       }
@@ -6337,6 +6941,16 @@
         "bodyLimit": 1000000,
         "bodyTimeoutMs": 2000,
         "cookiePolicy": "reader",
+        "extension": {
+          "cacheControl": null,
+          "credentials": "include",
+          "requestHeaders": [
+            "Content-Type",
+            "X-CSRF-Token",
+            "If-None-Match"
+          ],
+          "timeoutMs": 15000
+        },
         "handler": "forward",
         "upstreamTimeoutMs": 45000
       }
@@ -6350,6 +6964,16 @@
         "bodyLimit": 1000000,
         "bodyTimeoutMs": 2000,
         "cookiePolicy": "reader",
+        "extension": {
+          "cacheControl": null,
+          "credentials": "include",
+          "requestHeaders": [
+            "Content-Type",
+            "X-CSRF-Token",
+            "If-None-Match"
+          ],
+          "timeoutMs": 15000
+        },
         "handler": "forward",
         "upstreamTimeoutMs": 45000
       }
@@ -6371,6 +6995,16 @@
         "bodyLimit": 1000000,
         "bodyTimeoutMs": 2000,
         "cookiePolicy": "reader",
+        "extension": {
+          "cacheControl": null,
+          "credentials": "include",
+          "requestHeaders": [
+            "Content-Type",
+            "X-CSRF-Token",
+            "If-None-Match"
+          ],
+          "timeoutMs": 15000
+        },
         "handler": "forward",
         "upstreamTimeoutMs": 45000
       }
@@ -6392,6 +7026,16 @@
         "bodyLimit": 1000000,
         "bodyTimeoutMs": 2000,
         "cookiePolicy": "reader",
+        "extension": {
+          "cacheControl": null,
+          "credentials": "include",
+          "requestHeaders": [
+            "Content-Type",
+            "X-CSRF-Token",
+            "If-None-Match"
+          ],
+          "timeoutMs": 15000
+        },
         "handler": "forward",
         "upstreamTimeoutMs": 45000
       }
@@ -6413,6 +7057,16 @@
         "bodyLimit": 1000000,
         "bodyTimeoutMs": 2000,
         "cookiePolicy": "reader",
+        "extension": {
+          "cacheControl": null,
+          "credentials": "include",
+          "requestHeaders": [
+            "Content-Type",
+            "X-CSRF-Token",
+            "If-None-Match"
+          ],
+          "timeoutMs": 15000
+        },
         "handler": "forward",
         "upstreamTimeoutMs": 45000
       }
@@ -6426,6 +7080,16 @@
         "bodyLimit": 1000000,
         "bodyTimeoutMs": 2000,
         "cookiePolicy": "reader",
+        "extension": {
+          "cacheControl": null,
+          "credentials": "include",
+          "requestHeaders": [
+            "Content-Type",
+            "X-CSRF-Token",
+            "If-None-Match"
+          ],
+          "timeoutMs": 15000
+        },
         "handler": "forward",
         "upstreamTimeoutMs": 45000
       }
@@ -6439,6 +7103,16 @@
         "bodyLimit": 1000000,
         "bodyTimeoutMs": 2000,
         "cookiePolicy": "reader",
+        "extension": {
+          "cacheControl": null,
+          "credentials": "include",
+          "requestHeaders": [
+            "Content-Type",
+            "X-CSRF-Token",
+            "If-None-Match"
+          ],
+          "timeoutMs": 15000
+        },
         "handler": "forward",
         "upstreamTimeoutMs": 45000
       }
@@ -6452,6 +7126,16 @@
         "bodyLimit": 1000000,
         "bodyTimeoutMs": 2000,
         "cookiePolicy": "reader",
+        "extension": {
+          "cacheControl": null,
+          "credentials": "include",
+          "requestHeaders": [
+            "Content-Type",
+            "X-CSRF-Token",
+            "If-None-Match"
+          ],
+          "timeoutMs": 15000
+        },
         "handler": "forward",
         "upstreamTimeoutMs": 45000
       }
@@ -6465,6 +7149,16 @@
         "bodyLimit": 1000000,
         "bodyTimeoutMs": 2000,
         "cookiePolicy": "reader",
+        "extension": {
+          "cacheControl": null,
+          "credentials": "include",
+          "requestHeaders": [
+            "Content-Type",
+            "X-CSRF-Token",
+            "If-None-Match"
+          ],
+          "timeoutMs": 15000
+        },
         "handler": "forward",
         "upstreamTimeoutMs": 45000
       }
@@ -6478,6 +7172,16 @@
         "bodyLimit": 1000000,
         "bodyTimeoutMs": 2000,
         "cookiePolicy": "reader",
+        "extension": {
+          "cacheControl": null,
+          "credentials": "include",
+          "requestHeaders": [
+            "Content-Type",
+            "X-CSRF-Token",
+            "If-None-Match"
+          ],
+          "timeoutMs": 15000
+        },
         "handler": "forward",
         "upstreamTimeoutMs": 45000
       }
@@ -6491,6 +7195,16 @@
         "bodyLimit": 1000000,
         "bodyTimeoutMs": 2000,
         "cookiePolicy": "reader",
+        "extension": {
+          "cacheControl": null,
+          "credentials": "include",
+          "requestHeaders": [
+            "Content-Type",
+            "X-CSRF-Token",
+            "If-None-Match"
+          ],
+          "timeoutMs": 15000
+        },
         "handler": "forward",
         "upstreamTimeoutMs": 45000
       }
@@ -6504,6 +7218,16 @@
         "bodyLimit": 1000000,
         "bodyTimeoutMs": 2000,
         "cookiePolicy": "reader",
+        "extension": {
+          "cacheControl": null,
+          "credentials": "include",
+          "requestHeaders": [
+            "Content-Type",
+            "X-CSRF-Token",
+            "If-None-Match"
+          ],
+          "timeoutMs": 15000
+        },
         "handler": "forward",
         "upstreamTimeoutMs": 45000
       }
@@ -6517,6 +7241,16 @@
         "bodyLimit": 1000000,
         "bodyTimeoutMs": 2000,
         "cookiePolicy": "reader",
+        "extension": {
+          "cacheControl": null,
+          "credentials": "include",
+          "requestHeaders": [
+            "Content-Type",
+            "X-CSRF-Token",
+            "If-None-Match"
+          ],
+          "timeoutMs": 15000
+        },
         "handler": "forward",
         "upstreamTimeoutMs": 45000
       }
@@ -6530,6 +7264,16 @@
         "bodyLimit": 1000000,
         "bodyTimeoutMs": 2000,
         "cookiePolicy": "reader",
+        "extension": {
+          "cacheControl": null,
+          "credentials": "include",
+          "requestHeaders": [
+            "Content-Type",
+            "X-CSRF-Token",
+            "If-None-Match"
+          ],
+          "timeoutMs": 15000
+        },
         "handler": "forward",
         "upstreamTimeoutMs": 45000
       }
@@ -6543,6 +7287,16 @@
         "bodyLimit": 1000000,
         "bodyTimeoutMs": 2000,
         "cookiePolicy": "reader",
+        "extension": {
+          "cacheControl": null,
+          "credentials": "include",
+          "requestHeaders": [
+            "Content-Type",
+            "X-CSRF-Token",
+            "If-None-Match"
+          ],
+          "timeoutMs": 15000
+        },
         "handler": "forward",
         "upstreamTimeoutMs": 45000
       }
@@ -6565,6 +7319,16 @@
         "bodyLimit": 1000000,
         "bodyTimeoutMs": 2000,
         "cookiePolicy": "reader",
+        "extension": {
+          "cacheControl": null,
+          "credentials": "include",
+          "requestHeaders": [
+            "Content-Type",
+            "X-CSRF-Token",
+            "If-None-Match"
+          ],
+          "timeoutMs": 15000
+        },
         "handler": "forward",
         "upstreamTimeoutMs": 45000
       }
@@ -6587,6 +7351,16 @@
         "bodyLimit": 1000000,
         "bodyTimeoutMs": 2000,
         "cookiePolicy": "reader",
+        "extension": {
+          "cacheControl": null,
+          "credentials": "include",
+          "requestHeaders": [
+            "Content-Type",
+            "X-CSRF-Token",
+            "If-None-Match"
+          ],
+          "timeoutMs": 15000
+        },
         "handler": "forward",
         "upstreamTimeoutMs": 45000
       }
@@ -6600,6 +7374,16 @@
         "bodyLimit": 5308416,
         "bodyTimeoutMs": 10000,
         "cookiePolicy": "reader",
+        "extension": {
+          "cacheControl": null,
+          "credentials": "include",
+          "requestHeaders": [
+            "Content-Type",
+            "X-CSRF-Token",
+            "If-None-Match"
+          ],
+          "timeoutMs": 45000
+        },
         "handler": "forward",
         "upstreamTimeoutMs": 45000
       }
@@ -6613,6 +7397,16 @@
         "bodyLimit": 1000000,
         "bodyTimeoutMs": 2000,
         "cookiePolicy": "reader",
+        "extension": {
+          "cacheControl": null,
+          "credentials": "include",
+          "requestHeaders": [
+            "Content-Type",
+            "X-CSRF-Token",
+            "If-None-Match"
+          ],
+          "timeoutMs": 45000
+        },
         "handler": "forward",
         "upstreamTimeoutMs": 45000
       }
@@ -6626,6 +7420,16 @@
         "bodyLimit": 1000000,
         "bodyTimeoutMs": 2000,
         "cookiePolicy": "reader",
+        "extension": {
+          "cacheControl": null,
+          "credentials": "include",
+          "requestHeaders": [
+            "Content-Type",
+            "X-CSRF-Token",
+            "If-None-Match"
+          ],
+          "timeoutMs": 15000
+        },
         "handler": "forward",
         "upstreamTimeoutMs": 45000
       }
@@ -6639,6 +7443,16 @@
         "bodyLimit": 1000000,
         "bodyTimeoutMs": 2000,
         "cookiePolicy": "reader",
+        "extension": {
+          "cacheControl": null,
+          "credentials": "include",
+          "requestHeaders": [
+            "Content-Type",
+            "X-CSRF-Token",
+            "If-None-Match"
+          ],
+          "timeoutMs": 15000
+        },
         "handler": "forward",
         "upstreamTimeoutMs": 45000
       }
@@ -6652,6 +7466,16 @@
         "bodyLimit": 1000000,
         "bodyTimeoutMs": 2000,
         "cookiePolicy": "reader",
+        "extension": {
+          "cacheControl": null,
+          "credentials": "include",
+          "requestHeaders": [
+            "Content-Type",
+            "X-CSRF-Token",
+            "If-None-Match"
+          ],
+          "timeoutMs": 15000
+        },
         "handler": "forward",
         "upstreamTimeoutMs": 45000
       }
@@ -6665,6 +7489,16 @@
         "bodyLimit": 8192,
         "bodyTimeoutMs": 2000,
         "cookiePolicy": "reader",
+        "extension": {
+          "cacheControl": null,
+          "credentials": "include",
+          "requestHeaders": [
+            "Content-Type",
+            "X-CSRF-Token",
+            "If-None-Match"
+          ],
+          "timeoutMs": 15000
+        },
         "handler": "placement-query",
         "upstreamTimeoutMs": 45000
       }
@@ -6678,6 +7512,16 @@
         "bodyLimit": 1000000,
         "bodyTimeoutMs": 2000,
         "cookiePolicy": "reader",
+        "extension": {
+          "cacheControl": null,
+          "credentials": "include",
+          "requestHeaders": [
+            "Content-Type",
+            "X-CSRF-Token",
+            "If-None-Match"
+          ],
+          "timeoutMs": 15000
+        },
         "handler": "forward",
         "upstreamTimeoutMs": 45000
       }
@@ -6691,6 +7535,16 @@
         "bodyLimit": 1000000,
         "bodyTimeoutMs": 2000,
         "cookiePolicy": "reader",
+        "extension": {
+          "cacheControl": null,
+          "credentials": "include",
+          "requestHeaders": [
+            "Content-Type",
+            "X-CSRF-Token",
+            "If-None-Match"
+          ],
+          "timeoutMs": 15000
+        },
         "handler": "forward",
         "upstreamTimeoutMs": 45000
       }
@@ -6704,6 +7558,16 @@
         "bodyLimit": 1000000,
         "bodyTimeoutMs": 2000,
         "cookiePolicy": "reader",
+        "extension": {
+          "cacheControl": null,
+          "credentials": "include",
+          "requestHeaders": [
+            "Content-Type",
+            "X-CSRF-Token",
+            "If-None-Match"
+          ],
+          "timeoutMs": 15000
+        },
         "handler": "forward",
         "upstreamTimeoutMs": 45000
       }
@@ -6717,9 +7581,121 @@
         "bodyLimit": 1000000,
         "bodyTimeoutMs": 2000,
         "cookiePolicy": "reader",
+        "extension": {
+          "cacheControl": null,
+          "credentials": "include",
+          "requestHeaders": [
+            "Content-Type",
+            "X-CSRF-Token",
+            "If-None-Match"
+          ],
+          "timeoutMs": 15000
+        },
         "handler": "forward",
         "upstreamTimeoutMs": 45000
       }
+    }
+  ],
+  "x-devfeed-public-operations": [
+    {
+      "method": "GET",
+      "operationId": "live_health_live_get",
+      "path": "/health/live"
+    },
+    {
+      "method": "GET",
+      "operationId": "ready_health_ready_get",
+      "path": "/health/ready"
+    },
+    {
+      "method": "GET",
+      "operationId": "article_detail_v1_articles__article_id__get",
+      "path": "/v1/articles/{article_id}"
+    },
+    {
+      "method": "GET",
+      "operationId": "feed_v1_feed_get",
+      "path": "/v1/feed"
+    },
+    {
+      "method": "GET",
+      "operationId": "feed_options_v1_feed_options_get",
+      "path": "/v1/feed/options"
+    },
+    {
+      "method": "POST",
+      "operationId": "placements_v1_partner_placements_query_post",
+      "path": "/v1/partner-placements/query"
+    },
+    {
+      "method": "POST",
+      "operationId": "track_event_v1_partner_tracking_events_post",
+      "path": "/v1/partner-tracking/events"
+    },
+    {
+      "method": "GET",
+      "operationId": "search_v1_search_get",
+      "path": "/v1/search"
+    },
+    {
+      "method": "POST",
+      "operationId": "successful_click_v1_search_analytics_click_post",
+      "path": "/v1/search/analytics/click"
+    },
+    {
+      "method": "GET",
+      "operationId": "suggestions_v1_search_suggestions_get",
+      "path": "/v1/search/suggestions"
+    },
+    {
+      "method": "GET",
+      "operationId": "sitemap_index_v1_sitemaps_get",
+      "path": "/v1/sitemaps"
+    },
+    {
+      "method": "GET",
+      "operationId": "sitemap_part_v1_sitemaps__kind___page__get",
+      "path": "/v1/sitemaps/{kind}/{page}"
+    },
+    {
+      "method": "GET",
+      "operationId": "sources_v1_sources_get",
+      "path": "/v1/sources"
+    },
+    {
+      "method": "GET",
+      "operationId": "source_detail_v1_sources__source_id__get",
+      "path": "/v1/sources/{source_id}"
+    },
+    {
+      "method": "GET",
+      "operationId": "tags_v1_tags_get",
+      "path": "/v1/tags"
+    },
+    {
+      "method": "GET",
+      "operationId": "tag_v1_tags__slug__get",
+      "path": "/v1/tags/{slug}"
+    },
+    {
+      "method": "GET",
+      "operationId": "topics_v1_topics_get",
+      "path": "/v1/topics"
+    },
+    {
+      "method": "GET",
+      "operationId": "topic_v1_topics__slug__get",
+      "path": "/v1/topics/{slug}"
+    },
+    {
+      "method": "GET",
+      "operationId": "relations_v1_topics__slug__relations_get",
+      "path": "/v1/topics/{slug}/relations"
+    },
+    {
+      "method": "GET",
+      "operationId": "app_version_version_get",
+      "path": "/version"
     }
   ]
 }

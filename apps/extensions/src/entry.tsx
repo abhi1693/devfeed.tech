@@ -27,7 +27,7 @@ import {
 } from "../../web/src/lib/feed-query";
 import { parseSearchOptions, normalizeSearch, type SearchResponse } from "../../web/src/lib/search";
 import type { FeedPage, FeedOptions, Topic, Source } from "../../web/src/lib/types";
-import { createReaderTransport, publicOrigin } from "./transport";
+import { ExtensionReaderTransport, publicOrigin } from "./transport";
 import { linkDestination, useRoute } from "./navigation";
 import { LocalPage, PublicProfilePage } from "./pages";
 import { catalogItem } from "./catalog";
@@ -44,7 +44,7 @@ import { ReaderNavigationRecovery } from "../../web/src/components/reader-naviga
 import { extensionRoute, type ExtensionRoute } from "./routes";
 
 configureReaderRuntime({
-  request: createReaderTransport(fetch),
+  request: new ExtensionReaderTransport(fetch).request,
   signedOut,
   reload: (href) => {
     window.history.replaceState(null, "", linkDestination(href));

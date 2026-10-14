@@ -74,13 +74,25 @@ def test_reader_cookie_and_body_policy_is_explicit_for_every_operation():
         "upstreamTimeoutMs": 45_000,
         "cookiePolicy": "reader",
         "handler": "forward",
+        "extension": {
+            "credentials": "include",
+            "cacheControl": None,
+            "requestHeaders": ["Content-Type", "X-CSRF-Token", "If-None-Match"],
+            "timeoutMs": 15_000,
+        },
     }
     overrides = {
-        "user_auth_login": {**default, "cookiePolicy": "reader-attribution"},
+        "user_auth_login": {**default, "cookiePolicy": "reader-attribution", "extension": None},
+        "user_auth_callback": {**default, "extension": None},
         "upload_avatar_v1_user_settings_profile_avatar_post": {
             **default,
             "bodyLimit": 5 * 1024 * 1024 + 65536,
             "bodyTimeoutMs": 10_000,
+            "extension": {**default["extension"], "timeoutMs": 45_000},
+        },
+        "remove_avatar_v1_user_settings_profile_avatar_delete": {
+            **default,
+            "extension": {**default["extension"], "timeoutMs": 45_000},
         },
         "placements_v1_user_partner_placements_query_post": {
             **default,
@@ -91,6 +103,66 @@ def test_reader_cookie_and_body_policy_is_explicit_for_every_operation():
     for operation in operations:
         assert operation["policy"] == overrides.get(operation["operationId"], default)
     assert {operation["operationId"] for operation in operations} >= overrides.keys()
+
+
+def test_extension_auth_grants_keep_oidc_navigation_out_of_fetch_transport():
+    operations = exporter.build_contract()[GATEWAY_ROUTES_EXTENSION]
+    denied = {
+        operation["operationId"]
+        for operation in operations
+        if operation["policy"]["extension"] is None
+    }
+    assert denied == {"user_auth_login", "user_auth_callback"}
+    auth = [operation for operation in operations if operation["path"].startswith("/v1/user/auth/")]
+    assert [operation["operationId"] for operation in operations[:5]] == [
+        "user_auth_config",
+        "user_auth_login",
+        "user_auth_callback",
+        "user_auth_me",
+        "user_auth_logout",
+    ]
+    assert {
+        (operation["operationId"], operation["method"])
+        for operation in auth
+        if operation["policy"]["extension"] is not None
+    } == {("user_auth_config", "GET"), ("user_auth_me", "GET"), ("user_auth_logout", "POST")}
+    assert sum(operation["policy"]["extension"] is not None for operation in operations) == 45
+
+
+def test_public_operation_provenance_catalog_is_complete_unique_and_deterministic():
+    document = exporter.build_contract()
+    operations = document["x-devfeed-public-operations"]
+    native = exporter.create_public_app().openapi()
+    documented = {
+        (path, method.upper()): operation["operationId"]
+        for path, methods in native["paths"].items()
+        for method, operation in methods.items()
+    }
+    actual = {
+        (operation["path"], operation["method"]): operation["operationId"]
+        for operation in operations
+    }
+    assert actual == documented
+    assert len(actual) == len(operations) == 20
+    assert len({operation["operationId"] for operation in operations}) == len(operations)
+    assert all(set(operation) == {"operationId", "method", "path"} for operation in operations)
+    assert operations == sorted(
+        operations,
+        key=lambda operation: (operation["path"], operation["method"], operation["operationId"]),
+    )
+    assert (
+        actual[("/v1/articles/{article_id}", "GET")]
+        == "article_detail_v1_articles__article_id__get"
+    )
+    assert actual[("/v1/sources/{source_id}", "GET")] == "source_detail_v1_sources__source_id__get"
+    assert (
+        actual[("/v1/partner-placements/query", "POST")]
+        == "placements_v1_partner_placements_query_post"
+    )
+    assert (
+        actual[("/v1/partner-tracking/events", "POST")]
+        == "track_event_v1_partner_tracking_events_post"
+    )
 
 
 def test_reader_export_keeps_uuid_validation_and_strict_placement_input():

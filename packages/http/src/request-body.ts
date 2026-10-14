@@ -1,5 +1,3 @@
-import "server-only";
-
 export class RequestBodyTooLarge extends Error {
   constructor() {
     super("Request body exceeds limit");
@@ -38,12 +36,14 @@ async function collectBody(reader: ReadableStreamDefaultReader<Uint8Array>, limi
   return buffer.buffer;
 }
 
-/** Bound bytes before decoding or parsing, optionally with a total body-read deadline. */
+/** Bound bytes before decoding or parsing, with cancellation and a total read deadline. */
 export async function readRequestBody(
   request: Request,
   limit: number,
   timeoutMs?: number,
+  signal: AbortSignal = request.signal,
 ): Promise<ArrayBuffer> {
+  signal.throwIfAborted();
   if (Number(request.headers.get("content-length")) > limit) {
     void request.body?.cancel().catch(() => undefined);
     throw new RequestBodyTooLarge();
@@ -51,19 +51,33 @@ export async function readRequestBody(
   const reader = request.body?.getReader();
   if (!reader) return new ArrayBuffer(0);
   let timer: ReturnType<typeof setTimeout> | undefined;
+  let abort: (() => void) | undefined;
   try {
     const body = collectBody(reader, limit);
-    if (timeoutMs === undefined) return await body;
-    const deadline = new Promise<never>((_resolve, reject) => {
-      timer = setTimeout(() => {
-        reject(new RequestBodyTimeout());
-        // An unresponsive peer's cancellation must not delay the deadline response.
+    const cancellation = new Promise<never>((_resolve, reject) => {
+      abort = () => {
+        reject(signal.reason);
         void reader.cancel().catch(() => undefined);
-      }, timeoutMs);
+      };
+      signal.addEventListener("abort", abort, { once: true });
+      if (signal.aborted) abort();
     });
-    return await Promise.race([body, deadline]);
+    const pending = [body, cancellation];
+    if (timeoutMs !== undefined) {
+      pending.push(
+        new Promise<never>((_resolve, reject) => {
+          timer = setTimeout(() => {
+            reject(new RequestBodyTimeout());
+            // An unresponsive peer must not delay the deadline response.
+            void reader.cancel().catch(() => undefined);
+          }, timeoutMs);
+        }),
+      );
+    }
+    return await Promise.race(pending);
   } finally {
     if (timer !== undefined) clearTimeout(timer);
+    if (abort) signal.removeEventListener("abort", abort);
     reader.releaseLock();
   }
 }

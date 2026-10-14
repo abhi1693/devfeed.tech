@@ -30,11 +30,22 @@ retains each endpoint's explicit `openapi_extra=GatewayPolicy(...).openapi_extra
 override. Health routes outside these routers remain unexposed.
 The user service uses `ReaderGatewayPolicy`, which also declares the cookie policy and
 whether the operation requires the dedicated placement-query handler.
+Its nullable `extension` policy controls extension eligibility, browser credentials,
+request cache headers, forwarded headers and the total request timeout. An absent
+extension policy denies the operation. Authentication routers default to denial;
+identity, configuration and logout explicitly enable extension transport, while login
+and callback run through the website sign-in flow.
 
 `npm run admin:generate`, `npm run partner:generate` and `npm run web:generate` export the inventories
 and regenerate the clients and transport definitions. The inventory includes actual
 path converters, parameter constraints and any hidden operations. Generation rejects
 unsupported or inconsistent contracts; normal frontend tests check the generated output.
+Reader generation also compiles extension operations. Public reader adapters are
+declared in `apps/web/src/lib/api/reader-bindings.json`, with distinct reader identities
+and backend operation references. Generation derives their paths from concrete Next
+files, validates method exports and backend references, and preserves their response
+composition. The exported public operation catalogue records those backend identities
+without exposing additional operations to the extension.
 
 The admin gateway matches an operation in backend registration order. The partner portal
 and reader use generated concrete Next route handlers under
@@ -57,6 +68,11 @@ Placement queries use an 8 KiB body limit and two-second reading deadline, with 
 validation in their dedicated handler before forwarding. Public profile and leaderboard
 handlers remain separate and omit credentials. Configured Chrome and Edge origins use
 the same reader write-origin policy as the website.
+Extensions compile the same parameter constraints and method declarations through
+`GatewayRouter`. Their transport retains browser-managed HttpOnly sessions and never
+copies cookies, credentials or provider tokens into extension storage. Request-body
+collection observes cancellation and the declared body deadline before network fetch;
+the extension's total timeout includes that collection time.
 
 ## Object storage
 

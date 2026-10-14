@@ -16,6 +16,7 @@ const ordinary = {
   upstreamTimeoutMs: 45_000,
   cookiePolicy: "reader",
   handler: "forward",
+  extension: null,
 };
 
 function route(overrides = {}) {

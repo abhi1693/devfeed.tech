@@ -9,6 +9,16 @@ and all six settings sections use local hash routes. Publisher links and website
 sign-in open a separate tab. Chrome's own new-tab footer is browser UI and is not
 part of the extension's layout.
 
+Transport eligibility and request policies come from generated operation definitions.
+Run `npm run web:generate` after user API or public reader binding changes. Private
+operations reuse the reader gateway identities; public adapters have explicit bindings
+in `apps/web/src/lib/api/reader-bindings.json`. Unknown operations, unsupported methods
+and direct login/callback requests are rejected before reading bodies or sending requests.
+Each eligible operation declares browser credentials, request cache headers, forwarded
+headers and a total timeout. Avatar operations retain a 45-second timeout; other reader
+operations use 15 seconds. Collecting an original `Request` body also has a byte limit,
+a reading deadline and caller cancellation. The browser supplies HttpOnly cookies.
+
 Article previews retain the current feed, saved articles, or search results underneath
 them. Opening, navigating, and closing a preview keeps the loaded list in place without
 reloading the background page.

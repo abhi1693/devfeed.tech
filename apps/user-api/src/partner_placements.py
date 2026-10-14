@@ -3,7 +3,7 @@
 from devfeed_core.config import get_settings
 from devfeed_core.partner_placements import deliver_placements
 from devfeed_core.rate_limits import RateLimitBudget, consume_rate_limits
-from devfeed_http.operation_policies import ReaderGatewayPolicy
+from devfeed_http.operation_policies import ExtensionTransportPolicy, ReaderGatewayPolicy
 from devfeed_http.partner_placements import PlacementQuery, PlacementsOut
 from fastapi import APIRouter, HTTPException, Response
 from redis.exceptions import RedisError
@@ -19,7 +19,10 @@ router = APIRouter(prefix="/v1/user/partner-placements", tags=["personalization"
     "/query",
     response_model=PlacementsOut,
     openapi_extra=ReaderGatewayPolicy(
-        body_limit=8192, body_timeout_ms=2000, handler="placement-query"
+        body_limit=8192,
+        body_timeout_ms=2000,
+        handler="placement-query",
+        extension=ExtensionTransportPolicy(),
     ).openapi_extra(),
 )
 def placements(payload: PlacementQuery, user: BrowserUser, session: DB, response: Response):

@@ -9,7 +9,11 @@ from devfeed_core.logging import configure_logging
 from devfeed_core.version import SCHEMA_REVISION, __version__
 from devfeed_http.body_limits import RequestBodyLimitMiddleware
 from devfeed_http.image_uploads import ImageUploadBodyLimit
-from devfeed_http.operation_policies import ReaderGatewayPolicy, include_gateway_router
+from devfeed_http.operation_policies import (
+    ExtensionTransportPolicy,
+    ReaderGatewayPolicy,
+    include_gateway_router,
+)
 from devfeed_http.schemas import ERROR_RESPONSES
 from devfeed_http.service import HTTPService
 from devfeed_http.telemetry import fastapi_telemetry
@@ -80,8 +84,8 @@ def create_app() -> FastAPI:
         schema_revision=SCHEMA_REVISION,
     )
 
+    include_gateway_router(app, auth.router, default_policy=ReaderGatewayPolicy())
     for router in (
-        auth.router,
         mcp.router,
         preferences.router,
         engagement.router,
@@ -96,7 +100,9 @@ def create_app() -> FastAPI:
         must_reads.router,
         sources.router,
     ):
-        include_gateway_router(app, router, default_policy=ReaderGatewayPolicy())
+        include_gateway_router(
+            app, router, default_policy=ReaderGatewayPolicy(extension=ExtensionTransportPolicy())
+        )
     return app
 
 

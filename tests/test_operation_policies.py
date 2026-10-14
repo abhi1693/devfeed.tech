@@ -8,6 +8,7 @@ from devfeed_http.operation_policies import (
     DEFAULT_GATEWAY_POLICY,
     GATEWAY_POLICY_EXTENSION,
     GATEWAY_ROUTES_EXTENSION,
+    ExtensionTransportPolicy,
     GatewayPolicy,
     ReaderGatewayPolicy,
     export_gateway_document,
@@ -50,6 +51,39 @@ def test_gateway_policy_has_fixed_defaults_and_rejects_unknown_fields():
 def test_reader_policy_rejects_unknown_cookie_or_handler_modes(field, value):
     with pytest.raises(ValidationError):
         ReaderGatewayPolicy(**{field: value})
+
+
+@pytest.mark.parametrize(
+    "field,value",
+    [
+        ("credentials", "same-origin"),
+        ("cache_control", "max-age=600"),
+        ("request_headers", ("Cookie",)),
+        ("request_headers", ("Authorization",)),
+        ("request_headers", ["Content-Type"]),
+        ("timeout_ms", 0),
+        ("timeout_ms", True),
+        ("timeout_ms", "15000"),
+    ],
+)
+def test_extension_policy_rejects_unsupported_capabilities_and_non_strict_values(field, value):
+    with pytest.raises(ValidationError):
+        ExtensionTransportPolicy(**{field: value})
+
+
+def test_extension_policy_is_frozen_and_reader_policy_denies_access_without_an_explicit_grant():
+    policy = ExtensionTransportPolicy()
+    assert policy.model_dump(by_alias=True, mode="json") == {
+        "credentials": "include",
+        "cacheControl": None,
+        "requestHeaders": ["Content-Type", "X-CSRF-Token", "If-None-Match"],
+        "timeoutMs": 15_000,
+    }
+    assert ReaderGatewayPolicy().openapi_extra()[GATEWAY_POLICY_EXTENSION]["extension"] is None
+    with pytest.raises(ValidationError):
+        policy.timeout_ms = 1
+    with pytest.raises(ValidationError):
+        ExtensionTransportPolicy(allowed=True)
 
 
 def test_reader_router_uses_its_policy_subclass_for_defaults_and_hidden_overrides():

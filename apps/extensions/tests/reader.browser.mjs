@@ -108,7 +108,7 @@ test(
     const analytics = [];
     const feedItems = Array.from({ length: 24 }, (_, index) => ({
       ...article,
-      id: `${article.id}-${index}`,
+      id: `11111111-1111-4111-8111-${String(index).padStart(12, "0")}`,
       slug: `${article.slug}-${index}`,
     }));
     let engagementPagination = false;

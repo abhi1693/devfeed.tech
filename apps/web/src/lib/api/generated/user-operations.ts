@@ -16,6 +16,12 @@ export const userGatewayOperations = {
       upstreamTimeoutMs: 45000,
       cookiePolicy: "reader",
       handler: "forward",
+      extension: {
+        credentials: "include",
+        cacheControl: null,
+        requestHeaders: ["Content-Type", "X-CSRF-Token", "If-None-Match"],
+        timeoutMs: 15000,
+      },
     },
   },
   ["user_auth_login"]: {
@@ -29,6 +35,7 @@ export const userGatewayOperations = {
       upstreamTimeoutMs: 45000,
       cookiePolicy: "reader-attribution",
       handler: "forward",
+      extension: null,
     },
   },
   ["user_auth_callback"]: {
@@ -42,6 +49,7 @@ export const userGatewayOperations = {
       upstreamTimeoutMs: 45000,
       cookiePolicy: "reader",
       handler: "forward",
+      extension: null,
     },
   },
   ["user_auth_me"]: {
@@ -55,6 +63,12 @@ export const userGatewayOperations = {
       upstreamTimeoutMs: 45000,
       cookiePolicy: "reader",
       handler: "forward",
+      extension: {
+        credentials: "include",
+        cacheControl: null,
+        requestHeaders: ["Content-Type", "X-CSRF-Token", "If-None-Match"],
+        timeoutMs: 15000,
+      },
     },
   },
   ["user_auth_logout"]: {
@@ -68,6 +82,12 @@ export const userGatewayOperations = {
       upstreamTimeoutMs: 45000,
       cookiePolicy: "reader",
       handler: "forward",
+      extension: {
+        credentials: "include",
+        cacheControl: null,
+        requestHeaders: ["Content-Type", "X-CSRF-Token", "If-None-Match"],
+        timeoutMs: 15000,
+      },
     },
   },
   ["pending_v1_user_mcp_requests__request_id__get"]: {
@@ -81,6 +101,12 @@ export const userGatewayOperations = {
       upstreamTimeoutMs: 45000,
       cookiePolicy: "reader",
       handler: "forward",
+      extension: {
+        credentials: "include",
+        cacheControl: null,
+        requestHeaders: ["Content-Type", "X-CSRF-Token", "If-None-Match"],
+        timeoutMs: 15000,
+      },
     },
   },
   ["approve_v1_user_mcp_requests__request_id__post"]: {
@@ -94,6 +120,12 @@ export const userGatewayOperations = {
       upstreamTimeoutMs: 45000,
       cookiePolicy: "reader",
       handler: "forward",
+      extension: {
+        credentials: "include",
+        cacheControl: null,
+        requestHeaders: ["Content-Type", "X-CSRF-Token", "If-None-Match"],
+        timeoutMs: 15000,
+      },
     },
   },
   ["connections_v1_user_mcp_connections_get"]: {
@@ -107,6 +139,12 @@ export const userGatewayOperations = {
       upstreamTimeoutMs: 45000,
       cookiePolicy: "reader",
       handler: "forward",
+      extension: {
+        credentials: "include",
+        cacheControl: null,
+        requestHeaders: ["Content-Type", "X-CSRF-Token", "If-None-Match"],
+        timeoutMs: 15000,
+      },
     },
   },
   ["disconnect_v1_user_mcp_connections__grant_id__delete"]: {
@@ -120,6 +158,12 @@ export const userGatewayOperations = {
       upstreamTimeoutMs: 45000,
       cookiePolicy: "reader",
       handler: "forward",
+      extension: {
+        credentials: "include",
+        cacheControl: null,
+        requestHeaders: ["Content-Type", "X-CSRF-Token", "If-None-Match"],
+        timeoutMs: 15000,
+      },
     },
   },
   ["preferences_v1_user_preferences_get"]: {
@@ -133,6 +177,12 @@ export const userGatewayOperations = {
       upstreamTimeoutMs: 45000,
       cookiePolicy: "reader",
       handler: "forward",
+      extension: {
+        credentials: "include",
+        cacheControl: null,
+        requestHeaders: ["Content-Type", "X-CSRF-Token", "If-None-Match"],
+        timeoutMs: 15000,
+      },
     },
   },
   ["save_preferences_v1_user_preferences_put"]: {
@@ -146,6 +196,12 @@ export const userGatewayOperations = {
       upstreamTimeoutMs: 45000,
       cookiePolicy: "reader",
       handler: "forward",
+      extension: {
+        credentials: "include",
+        cacheControl: null,
+        requestHeaders: ["Content-Type", "X-CSRF-Token", "If-None-Match"],
+        timeoutMs: 15000,
+      },
     },
   },
   ["follow_topic_v1_user_preferences_topics__topic_id__put"]: {
@@ -161,6 +217,12 @@ export const userGatewayOperations = {
       upstreamTimeoutMs: 45000,
       cookiePolicy: "reader",
       handler: "forward",
+      extension: {
+        credentials: "include",
+        cacheControl: null,
+        requestHeaders: ["Content-Type", "X-CSRF-Token", "If-None-Match"],
+        timeoutMs: 15000,
+      },
     },
   },
   ["source_preferences_v1_user_preferences_sources_get"]: {
@@ -174,6 +236,12 @@ export const userGatewayOperations = {
       upstreamTimeoutMs: 45000,
       cookiePolicy: "reader",
       handler: "forward",
+      extension: {
+        credentials: "include",
+        cacheControl: null,
+        requestHeaders: ["Content-Type", "X-CSRF-Token", "If-None-Match"],
+        timeoutMs: 15000,
+      },
     },
   },
   ["save_source_preferences_v1_user_preferences_sources_put"]: {
@@ -187,6 +255,12 @@ export const userGatewayOperations = {
       upstreamTimeoutMs: 45000,
       cookiePolicy: "reader",
       handler: "forward",
+      extension: {
+        credentials: "include",
+        cacheControl: null,
+        requestHeaders: ["Content-Type", "X-CSRF-Token", "If-None-Match"],
+        timeoutMs: 15000,
+      },
     },
   },
   ["follow_source_v1_user_preferences_sources__source_id__put"]: {
@@ -202,6 +276,12 @@ export const userGatewayOperations = {
       upstreamTimeoutMs: 45000,
       cookiePolicy: "reader",
       handler: "forward",
+      extension: {
+        credentials: "include",
+        cacheControl: null,
+        requestHeaders: ["Content-Type", "X-CSRF-Token", "If-None-Match"],
+        timeoutMs: 15000,
+      },
     },
   },
   ["engagement_v1_user_engagement_get"]: {
@@ -215,6 +295,12 @@ export const userGatewayOperations = {
       upstreamTimeoutMs: 45000,
       cookiePolicy: "reader",
       handler: "forward",
+      extension: {
+        credentials: "include",
+        cacheControl: null,
+        requestHeaders: ["Content-Type", "X-CSRF-Token", "If-None-Match"],
+        timeoutMs: 15000,
+      },
     },
   },
   ["like_v1_user_articles__article_id__like_put"]: {
@@ -230,6 +316,12 @@ export const userGatewayOperations = {
       upstreamTimeoutMs: 45000,
       cookiePolicy: "reader",
       handler: "forward",
+      extension: {
+        credentials: "include",
+        cacheControl: null,
+        requestHeaders: ["Content-Type", "X-CSRF-Token", "If-None-Match"],
+        timeoutMs: 15000,
+      },
     },
   },
   ["opened_v1_user_articles__article_id__open_post"]: {
@@ -245,6 +337,12 @@ export const userGatewayOperations = {
       upstreamTimeoutMs: 45000,
       cookiePolicy: "reader",
       handler: "forward",
+      extension: {
+        credentials: "include",
+        cacheControl: null,
+        requestHeaders: ["Content-Type", "X-CSRF-Token", "If-None-Match"],
+        timeoutMs: 15000,
+      },
     },
   },
   ["trending_v1_user_trending_get"]: {
@@ -258,6 +356,12 @@ export const userGatewayOperations = {
       upstreamTimeoutMs: 45000,
       cookiePolicy: "reader",
       handler: "forward",
+      extension: {
+        credentials: "include",
+        cacheControl: null,
+        requestHeaders: ["Content-Type", "X-CSRF-Token", "If-None-Match"],
+        timeoutMs: 15000,
+      },
     },
   },
   ["bookmark_v1_user_articles__article_id__bookmark_put"]: {
@@ -273,6 +377,12 @@ export const userGatewayOperations = {
       upstreamTimeoutMs: 45000,
       cookiePolicy: "reader",
       handler: "forward",
+      extension: {
+        credentials: "include",
+        cacheControl: null,
+        requestHeaders: ["Content-Type", "X-CSRF-Token", "If-None-Match"],
+        timeoutMs: 15000,
+      },
     },
   },
   ["bookmarks_v1_user_bookmarks_get"]: {
@@ -286,6 +396,12 @@ export const userGatewayOperations = {
       upstreamTimeoutMs: 45000,
       cookiePolicy: "reader",
       handler: "forward",
+      extension: {
+        credentials: "include",
+        cacheControl: null,
+        requestHeaders: ["Content-Type", "X-CSRF-Token", "If-None-Match"],
+        timeoutMs: 15000,
+      },
     },
   },
   ["config_v1_user_notifications_config_get"]: {
@@ -299,6 +415,12 @@ export const userGatewayOperations = {
       upstreamTimeoutMs: 45000,
       cookiePolicy: "reader",
       handler: "forward",
+      extension: {
+        credentials: "include",
+        cacheControl: null,
+        requestHeaders: ["Content-Type", "X-CSRF-Token", "If-None-Match"],
+        timeoutMs: 15000,
+      },
     },
   },
   ["inbox_proxy_get_6cdbab7ed73d"]: {
@@ -312,6 +434,12 @@ export const userGatewayOperations = {
       upstreamTimeoutMs: 45000,
       cookiePolicy: "reader",
       handler: "forward",
+      extension: {
+        credentials: "include",
+        cacheControl: null,
+        requestHeaders: ["Content-Type", "X-CSRF-Token", "If-None-Match"],
+        timeoutMs: 15000,
+      },
     },
   },
   ["inbox_proxy_post_4336b7494364"]: {
@@ -325,6 +453,12 @@ export const userGatewayOperations = {
       upstreamTimeoutMs: 45000,
       cookiePolicy: "reader",
       handler: "forward",
+      extension: {
+        credentials: "include",
+        cacheControl: null,
+        requestHeaders: ["Content-Type", "X-CSRF-Token", "If-None-Match"],
+        timeoutMs: 15000,
+      },
     },
   },
   ["inbox_proxy_put_78d33e831323"]: {
@@ -338,6 +472,12 @@ export const userGatewayOperations = {
       upstreamTimeoutMs: 45000,
       cookiePolicy: "reader",
       handler: "forward",
+      extension: {
+        credentials: "include",
+        cacheControl: null,
+        requestHeaders: ["Content-Type", "X-CSRF-Token", "If-None-Match"],
+        timeoutMs: 15000,
+      },
     },
   },
   ["profile_v1_user_settings_profile_get"]: {
@@ -351,6 +491,12 @@ export const userGatewayOperations = {
       upstreamTimeoutMs: 45000,
       cookiePolicy: "reader",
       handler: "forward",
+      extension: {
+        credentials: "include",
+        cacheControl: null,
+        requestHeaders: ["Content-Type", "X-CSRF-Token", "If-None-Match"],
+        timeoutMs: 15000,
+      },
     },
   },
   ["reading_heatmap_v1_user_settings_reading_heatmap_get"]: {
@@ -364,6 +510,12 @@ export const userGatewayOperations = {
       upstreamTimeoutMs: 45000,
       cookiePolicy: "reader",
       handler: "forward",
+      extension: {
+        credentials: "include",
+        cacheControl: null,
+        requestHeaders: ["Content-Type", "X-CSRF-Token", "If-None-Match"],
+        timeoutMs: 15000,
+      },
     },
   },
   ["reading_week_v1_user_settings_reading_week_get"]: {
@@ -377,6 +529,12 @@ export const userGatewayOperations = {
       upstreamTimeoutMs: 45000,
       cookiePolicy: "reader",
       handler: "forward",
+      extension: {
+        credentials: "include",
+        cacheControl: null,
+        requestHeaders: ["Content-Type", "X-CSRF-Token", "If-None-Match"],
+        timeoutMs: 15000,
+      },
     },
   },
   ["save_profile_v1_user_settings_profile_put"]: {
@@ -390,6 +548,12 @@ export const userGatewayOperations = {
       upstreamTimeoutMs: 45000,
       cookiePolicy: "reader",
       handler: "forward",
+      extension: {
+        credentials: "include",
+        cacheControl: null,
+        requestHeaders: ["Content-Type", "X-CSRF-Token", "If-None-Match"],
+        timeoutMs: 15000,
+      },
     },
   },
   ["notification_settings_v1_user_settings_notifications_get"]: {
@@ -403,6 +567,12 @@ export const userGatewayOperations = {
       upstreamTimeoutMs: 45000,
       cookiePolicy: "reader",
       handler: "forward",
+      extension: {
+        credentials: "include",
+        cacheControl: null,
+        requestHeaders: ["Content-Type", "X-CSRF-Token", "If-None-Match"],
+        timeoutMs: 15000,
+      },
     },
   },
   ["save_notification_settings_v1_user_settings_notifications_put"]: {
@@ -416,6 +586,12 @@ export const userGatewayOperations = {
       upstreamTimeoutMs: 45000,
       cookiePolicy: "reader",
       handler: "forward",
+      extension: {
+        credentials: "include",
+        cacheControl: null,
+        requestHeaders: ["Content-Type", "X-CSRF-Token", "If-None-Match"],
+        timeoutMs: 15000,
+      },
     },
   },
   ["feed_settings_v1_user_settings_feed_get"]: {
@@ -429,6 +605,12 @@ export const userGatewayOperations = {
       upstreamTimeoutMs: 45000,
       cookiePolicy: "reader",
       handler: "forward",
+      extension: {
+        credentials: "include",
+        cacheControl: null,
+        requestHeaders: ["Content-Type", "X-CSRF-Token", "If-None-Match"],
+        timeoutMs: 15000,
+      },
     },
   },
   ["save_feed_settings_v1_user_settings_feed_put"]: {
@@ -442,6 +624,12 @@ export const userGatewayOperations = {
       upstreamTimeoutMs: 45000,
       cookiePolicy: "reader",
       handler: "forward",
+      extension: {
+        credentials: "include",
+        cacheControl: null,
+        requestHeaders: ["Content-Type", "X-CSRF-Token", "If-None-Match"],
+        timeoutMs: 15000,
+      },
     },
   },
   ["appearance_settings_v1_user_settings_appearance_get"]: {
@@ -455,6 +643,12 @@ export const userGatewayOperations = {
       upstreamTimeoutMs: 45000,
       cookiePolicy: "reader",
       handler: "forward",
+      extension: {
+        credentials: "include",
+        cacheControl: null,
+        requestHeaders: ["Content-Type", "X-CSRF-Token", "If-None-Match"],
+        timeoutMs: 15000,
+      },
     },
   },
   ["save_appearance_settings_v1_user_settings_appearance_put"]: {
@@ -468,6 +662,12 @@ export const userGatewayOperations = {
       upstreamTimeoutMs: 45000,
       cookiePolicy: "reader",
       handler: "forward",
+      extension: {
+        credentials: "include",
+        cacheControl: null,
+        requestHeaders: ["Content-Type", "X-CSRF-Token", "If-None-Match"],
+        timeoutMs: 15000,
+      },
     },
   },
   ["public_profile_v1_user_profiles__username__get"]: {
@@ -481,6 +681,12 @@ export const userGatewayOperations = {
       upstreamTimeoutMs: 45000,
       cookiePolicy: "reader",
       handler: "forward",
+      extension: {
+        credentials: "include",
+        cacheControl: null,
+        requestHeaders: ["Content-Type", "X-CSRF-Token", "If-None-Match"],
+        timeoutMs: 15000,
+      },
     },
   },
   ["public_heatmap_v1_user_profiles__username__reading_heatmap_get"]: {
@@ -494,6 +700,12 @@ export const userGatewayOperations = {
       upstreamTimeoutMs: 45000,
       cookiePolicy: "reader",
       handler: "forward",
+      extension: {
+        credentials: "include",
+        cacheControl: null,
+        requestHeaders: ["Content-Type", "X-CSRF-Token", "If-None-Match"],
+        timeoutMs: 15000,
+      },
     },
   },
   ["upload_avatar_v1_user_settings_profile_avatar_post"]: {
@@ -507,6 +719,12 @@ export const userGatewayOperations = {
       upstreamTimeoutMs: 45000,
       cookiePolicy: "reader",
       handler: "forward",
+      extension: {
+        credentials: "include",
+        cacheControl: null,
+        requestHeaders: ["Content-Type", "X-CSRF-Token", "If-None-Match"],
+        timeoutMs: 45000,
+      },
     },
   },
   ["remove_avatar_v1_user_settings_profile_avatar_delete"]: {
@@ -520,6 +738,12 @@ export const userGatewayOperations = {
       upstreamTimeoutMs: 45000,
       cookiePolicy: "reader",
       handler: "forward",
+      extension: {
+        credentials: "include",
+        cacheControl: null,
+        requestHeaders: ["Content-Type", "X-CSRF-Token", "If-None-Match"],
+        timeoutMs: 45000,
+      },
     },
   },
   ["leaderboard_v1_user_leaderboard_get"]: {
@@ -533,6 +757,12 @@ export const userGatewayOperations = {
       upstreamTimeoutMs: 45000,
       cookiePolicy: "reader",
       handler: "forward",
+      extension: {
+        credentials: "include",
+        cacheControl: null,
+        requestHeaders: ["Content-Type", "X-CSRF-Token", "If-None-Match"],
+        timeoutMs: 15000,
+      },
     },
   },
   ["my_ranks_v1_user_leaderboard_me_get"]: {
@@ -546,6 +776,12 @@ export const userGatewayOperations = {
       upstreamTimeoutMs: 45000,
       cookiePolicy: "reader",
       handler: "forward",
+      extension: {
+        credentials: "include",
+        cacheControl: null,
+        requestHeaders: ["Content-Type", "X-CSRF-Token", "If-None-Match"],
+        timeoutMs: 15000,
+      },
     },
   },
   ["feed_v1_user_feed_get"]: {
@@ -559,6 +795,12 @@ export const userGatewayOperations = {
       upstreamTimeoutMs: 45000,
       cookiePolicy: "reader",
       handler: "forward",
+      extension: {
+        credentials: "include",
+        cacheControl: null,
+        requestHeaders: ["Content-Type", "X-CSRF-Token", "If-None-Match"],
+        timeoutMs: 15000,
+      },
     },
   },
   ["placements_v1_user_partner_placements_query_post"]: {
@@ -572,6 +814,12 @@ export const userGatewayOperations = {
       upstreamTimeoutMs: 45000,
       cookiePolicy: "reader",
       handler: "placement-query",
+      extension: {
+        credentials: "include",
+        cacheControl: null,
+        requestHeaders: ["Content-Type", "X-CSRF-Token", "If-None-Match"],
+        timeoutMs: 15000,
+      },
     },
   },
   ["daily_v1_user_must_reads_get"]: {
@@ -585,6 +833,12 @@ export const userGatewayOperations = {
       upstreamTimeoutMs: 45000,
       cookiePolicy: "reader",
       handler: "forward",
+      extension: {
+        credentials: "include",
+        cacheControl: null,
+        requestHeaders: ["Content-Type", "X-CSRF-Token", "If-None-Match"],
+        timeoutMs: 15000,
+      },
     },
   },
   ["present_v1_user_must_reads_presentation_post"]: {
@@ -598,6 +852,12 @@ export const userGatewayOperations = {
       upstreamTimeoutMs: 45000,
       cookiePolicy: "reader",
       handler: "forward",
+      extension: {
+        credentials: "include",
+        cacheControl: null,
+        requestHeaders: ["Content-Type", "X-CSRF-Token", "If-None-Match"],
+        timeoutMs: 15000,
+      },
     },
   },
   ["user_source_preview"]: {
@@ -611,6 +871,12 @@ export const userGatewayOperations = {
       upstreamTimeoutMs: 45000,
       cookiePolicy: "reader",
       handler: "forward",
+      extension: {
+        credentials: "include",
+        cacheControl: null,
+        requestHeaders: ["Content-Type", "X-CSRF-Token", "If-None-Match"],
+        timeoutMs: 15000,
+      },
     },
   },
   ["user_source_suggest"]: {
@@ -624,6 +890,12 @@ export const userGatewayOperations = {
       upstreamTimeoutMs: 45000,
       cookiePolicy: "reader",
       handler: "forward",
+      extension: {
+        credentials: "include",
+        cacheControl: null,
+        requestHeaders: ["Content-Type", "X-CSRF-Token", "If-None-Match"],
+        timeoutMs: 15000,
+      },
     },
   },
 } as const satisfies Readonly<Record<string, ReaderGatewayOperation>>;

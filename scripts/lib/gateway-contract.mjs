@@ -16,10 +16,42 @@ function keys(value, accepted, label) {
   }
 }
 
-function policy(value, label, namespace) {
+export function extensionTransportPolicy(value, label = "Extension policy") {
+  object(value, label);
+  keys(value, new Set(["credentials", "cacheControl", "requestHeaders", "timeoutMs"]), label);
+  if (!["include", "omit"].includes(value.credentials)) {
+    throw new Error(`${label}.credentials must declare include or omit`);
+  }
+  if (!["public-read", "no-store", null].includes(value.cacheControl)) {
+    throw new Error(`${label}.cacheControl must declare a supported cache policy`);
+  }
+  const headers = new Set(["Content-Type", "X-CSRF-Token", "If-None-Match"]);
+  if (
+    !Array.isArray(value.requestHeaders) ||
+    value.requestHeaders.some((header) => !headers.has(header)) ||
+    new Set(value.requestHeaders).size !== value.requestHeaders.length
+  ) {
+    throw new Error(`${label}.requestHeaders must declare distinct supported headers`);
+  }
+  if (!Number.isSafeInteger(value.timeoutMs) || value.timeoutMs <= 0) {
+    throw new Error(`${label}.timeoutMs must be a positive safe integer`);
+  }
+  return {
+    credentials: value.credentials,
+    cacheControl: value.cacheControl,
+    requestHeaders: [...value.requestHeaders],
+    timeoutMs: value.timeoutMs,
+  };
+}
+
+export function gatewayPolicy(value, label, namespace) {
   object(value, label);
   const reader = namespace === "user";
-  keys(value, new Set([...policyFields, ...(reader ? ["cookiePolicy", "handler"] : [])]), label);
+  keys(
+    value,
+    new Set([...policyFields, ...(reader ? ["cookiePolicy", "handler", "extension"] : [])]),
+    label,
+  );
   const result = {};
   for (const field of policyFields) {
     if (!Number.isSafeInteger(value[field]) || value[field] <= 0) {
@@ -36,6 +68,13 @@ function policy(value, label, namespace) {
     }
     result.cookiePolicy = value.cookiePolicy;
     result.handler = value.handler;
+    if (!("extension" in value)) {
+      throw new Error(`${label}.extension must explicitly declare eligibility or null`);
+    }
+    result.extension =
+      value.extension === null
+        ? null
+        : extensionTransportPolicy(value.extension, `${label}.extension`);
   }
   return result;
 }
@@ -57,7 +96,7 @@ function resolveSchema(document, value, label, refs = new Set()) {
   return resolveSchema(document, document.components?.schemas?.[name], label, next);
 }
 
-function schema(document, value, label) {
+export function gatewayParameterSchema(document, value, label) {
   const resolved = resolveSchema(document, value, label);
   keys(resolved, new Set([...schemaFields, ...annotations]), label);
   if (resolved.type !== "string") throw new Error(`${label} must be a string schema`);
@@ -158,7 +197,11 @@ export function gatewayOperations(document, { namespace }) {
       if (parameter.converter === "path" && parts.at(-1) !== `{${parameter.name}}`) {
         throw new Error(`${label} needs a terminal catch-all parameter`);
       }
-      const normalized = schema(document, parameter.schema, `${label} parameter ${parameter.name}`);
+      const normalized = gatewayParameterSchema(
+        document,
+        parameter.schema,
+        `${label} parameter ${parameter.name}`,
+      );
       if (parameter.converter === "uuid" && normalized.format !== "uuid") {
         throw new Error(`${label} UUID converter needs a UUID schema`);
       }
@@ -173,7 +216,7 @@ export function gatewayOperations(document, { namespace }) {
       method: route.method,
       path: route.path,
       parameters: names.map((name) => byName.get(name)),
-      policy: policy(route.policy, `${label} policy`, namespace),
+      policy: gatewayPolicy(route.policy, `${label} policy`, namespace),
     };
     if (result.policy.handler === "placement-query" && result.method !== "POST") {
       throw new Error(`${label} placement-query handler requires POST`);
@@ -198,7 +241,7 @@ export function gatewayOperations(document, { namespace }) {
       if (!exported || exported.operationId !== operation.operationId) {
         throw new Error(`Missing matching gateway export for ${method.toUpperCase()} ${path}`);
       }
-      const declared = policy(
+      const declared = gatewayPolicy(
         operation["x-devfeed-gateway"],
         `${method} ${path} policy`,
         namespace,
@@ -210,7 +253,7 @@ export function gatewayOperations(document, { namespace }) {
         .filter((parameter) => parameter.in === "path")
         .map((parameter) => ({
           name: parameter.name,
-          schema: schema(document, parameter.schema, `${method} ${path} parameter`),
+          schema: gatewayParameterSchema(document, parameter.schema, `${method} ${path} parameter`),
         }));
       if (
         declaredParameters.length !== exported.parameters.length ||
