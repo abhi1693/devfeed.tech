@@ -26,6 +26,10 @@ import { checkSidebarGitHub } from "../../../../scripts/testing/sidebar-github.m
 import { checkCollapsibleSidebar } from "../../../../scripts/testing/collapsible-sidebar.mjs";
 import { checkBrowserTheme } from "../../../../scripts/testing/browser-theme.mjs";
 import {
+  checkUserMutations,
+  userMutationFixture,
+} from "../../../../scripts/testing/user-mutations.mjs";
+import {
   engagementFeed,
   engagementRows,
   checkEngagementPagination,
@@ -89,6 +93,7 @@ withManagedImage(article);
 withManagedSourceLogo(article.sources[0]);
 const mustReadsFixture = dailyFixture(article);
 const readingFixture = readingStreakFixture();
+const mutationFixture = userMutationFixture({ articles: [article], topic });
 let mode = "ready";
 const defaultAllRequests = [];
 let compactArticles = false;
@@ -112,6 +117,19 @@ let rejectSourceFollow = true;
 const fixture = createServer(async (req, res) => {
   const requestUrl = new URL(req.url, "http://localhost");
   const path = requestUrl.pathname;
+  if (mutationFixture.handles(path, req.method)) {
+    const chunks = [];
+    for await (const chunk of req) chunks.push(chunk);
+    if (req.method === "PUT") assert.equal(req.headers["x-csrf-token"], "test");
+    const { status, json } = mutationFixture.respond(
+      path,
+      req.method,
+      chunks.length ? JSON.parse(Buffer.concat(chunks).toString()) : undefined,
+    );
+    res.writeHead(status, { "Content-Type": "application/json" });
+    res.end(JSON.stringify(json));
+    return;
+  }
   // Collection indexing fixtures: metadata and page content use the same feed.
   const collection = requestUrl.searchParams.get("tag") || requestUrl.searchParams.get("topic");
   if (/^\/v1\/(?:tags|topics)\/seo-/.test(path)) {
@@ -504,6 +522,25 @@ async function runReaderChecks() {
     }
   }
   browser = await chromium.launch({ headless: true });
+  const mutationContext = await browser.newContext({ reducedMotion: "reduce" });
+  try {
+    await mutationContext.addCookies([
+      { name: "devfeed_user_session", value: "valid", url: origin },
+    ]);
+    await mockManagedImages(mutationContext);
+    await mockSourceLogos(mutationContext);
+    const mutationPage = await mutationContext.newPage();
+    const mutationErrors = [];
+    mutationPage.on("pageerror", (error) => mutationErrors.push(error.message));
+    await checkUserMutations(mutationPage, (path) => origin + path, mutationFixture);
+    assert.deepEqual(mutationErrors, []);
+  } finally {
+    await mutationContext.close();
+  }
+  if (process.env.DEVFEED_READER_MUTATIONS_ONLY === "1") {
+    console.log("Semantic mutation effects passed against the production web bundle.");
+    return;
+  }
   if (
     process.env.DEVFEED_READER_SIDEBAR_ONLY === "1" ||
     process.env.DEVFEED_READER_THEME_ONLY === "1"

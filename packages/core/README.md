@@ -96,6 +96,13 @@ copies cookies, credentials or provider tokens into extension storage. Request-b
 collection observes cancellation and the declared body deadline before network fetch;
 the extension's total timeout includes that collection time.
 
+Reader writes use the named functions in `apps/web/src/lib/user-mutations.ts` on the
+website and both extensions. Each function declares its acknowledgement, interest
+invalidation and semantic analytics; `userRequest()` handles HTTP without interpreting
+endpoint paths. Effects run after body parsing and acknowledgement validation, and
+cancelled account-scoped writes emit no success effects. Analytics include explicit
+identifiers, counts and enums rather than request bodies or profile information.
+
 ## Object storage
 
 `devfeed_core.object_storage.R2Storage` is the shared bucket-scoped R2 client. Install

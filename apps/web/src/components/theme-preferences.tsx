@@ -1,13 +1,13 @@
 "use client";
 
 import { createContext, useContext, useEffect, useRef, useState } from "react";
-import { defaultDateTimePreferences, type DateTimePreferences } from "@devfeed/ui/date-format";
+import { defaultDateTimePreferences } from "@devfeed/ui/date-format";
 import type { ThemeMode } from "@devfeed/ui/theme-toggle";
 import { setBrowserTheme, useBrowserTheme } from "@devfeed/ui/browser-theme";
-import { userRequest } from "@/lib/user";
+import { userRequest, type Appearance } from "@/lib/user";
+import { saveAppearanceSettings } from "@/lib/user-mutations";
 import { useUser } from "./user-account";
 
-export type Appearance = DateTimePreferences & { theme: ThemeMode };
 const defaults: Appearance = { ...defaultDateTimePreferences, theme: "system" };
 const Context = createContext({
   appearance: defaults,
@@ -76,12 +76,10 @@ export function ThemePreferencesProvider({ children }: { children: React.ReactNo
     setSaving(owner);
     setFailure(null);
     try {
-      const value = await userRequest<Appearance>("settings/appearance", {
-        method: "PUT",
-        headers: { "Content-Type": "application/json", "X-CSRF-Token": user.csrf_token },
-        body: JSON.stringify({ ...current?.appearance, ...patch }),
-        signal: controller.signal,
-      });
+      const value = await saveAppearanceSettings(
+        { ...current?.appearance, ...patch },
+        { csrfToken: user.csrf_token, signal: controller.signal },
+      );
       if (controller.signal.aborted) return false;
       setBrowserTheme(value.theme);
       setState({ owner, unavailable: false, appearance: { ...defaults, ...value } });

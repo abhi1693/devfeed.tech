@@ -5,6 +5,7 @@ import { Gem, X, Check, Bookmark } from "lucide-react";
 import { usePathname } from "next/navigation";
 import { useUser } from "./user-account";
 import { userRequest } from "@/lib/user";
+import { claimMustReadsPresentation, setArticleBookmark } from "@/lib/user-mutations";
 import { openMustReadsEvent } from "@/lib/reading-streak";
 import type { Article } from "@/lib/types";
 import { ArticleCard } from "./article-card";
@@ -43,6 +44,12 @@ function DailyMustReads() {
   const loadedDay = useRef<string | undefined>(undefined);
   const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
   const latestPath = useRef(pathname);
+  const mutations = useRef<AbortController | null>(null);
+  useEffect(() => {
+    const controller = new AbortController();
+    mutations.current = controller;
+    return () => controller.abort();
+  }, []);
   useEffect(() => {
     latestPath.current = pathname;
   }, [pathname]);
@@ -107,11 +114,10 @@ function DailyMustReads() {
     const timer = setInterval(() => {
       if (busy.current || !eligible() || presentPending()) return;
       busy.current = true;
-      void userRequest<{ claimed: boolean }>("must-reads/presentation", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "X-CSRF-Token": user!.csrf_token },
-        body: JSON.stringify({ date: selection.date, timezone, automatic: true }),
-      })
+      void claimMustReadsPresentation(
+        { date: selection.date, timezone, automatic: true },
+        { csrfToken: user!.csrf_token, signal: mutations.current?.signal },
+      )
         .then(({ claimed }) => {
           // A newer day must never inherit an older request's presentation claim.
           if (loadedDay.current !== selection.date) return;
@@ -143,11 +149,10 @@ function DailyMustReads() {
   useEffect(() => {
     if (!open || !manualRequested.current || !selection?.items.length) return;
     manualRequested.current = false;
-    void userRequest("must-reads/presentation", {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "X-CSRF-Token": user!.csrf_token },
-      body: JSON.stringify({ date: selection.date, timezone, automatic: false }),
-    })
+    void claimMustReadsPresentation(
+      { date: selection.date, timezone, automatic: false },
+      { csrfToken: user!.csrf_token, signal: mutations.current?.signal },
+    )
       .then(() => setSelection((value) => (value ? { ...value, presented: true } : value)))
       .catch(() => {});
   }, [open, selection, timezone, user]);
@@ -169,14 +174,13 @@ function DailyMustReads() {
       for (const article of selection.items.filter(
         (item) => !selection.read_ids.includes(item.id),
       )) {
-        await userRequest(`articles/${article.id}/bookmark`, {
-          method: "PUT",
-          headers: { "Content-Type": "application/json", "X-CSRF-Token": user!.csrf_token },
-          body: JSON.stringify({ bookmarked: true }),
+        const result = await setArticleBookmark(article.id, true, {
+          csrfToken: user!.csrf_token,
+          signal: mutations.current?.signal,
         });
         window.dispatchEvent(
           new CustomEvent(bookmarkChanged, {
-            detail: { article_id: article.id, bookmarked: true, owner: user!.user_id },
+            detail: { ...result, owner: user!.user_id },
           }),
         );
       }

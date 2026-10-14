@@ -1,5 +1,7 @@
 import type { CardTheme, CardAccent } from "@devfeed/theme/dev-card";
-import { trackUserMutation } from "./analytics";
+import type { DateTimePreferences } from "@devfeed/ui/date-format";
+import type { ThemeMode } from "@devfeed/ui/theme-toggle";
+import type { contentTypes } from "./feed-query";
 import { readerRequest } from "./reader-runtime";
 
 export type UserIdentity = {
@@ -60,6 +62,13 @@ export type ReadingStreak = {
   last_read_date: string | null;
 };
 export type Preferences = { topic_ids: string[] };
+export type FeedDisplay = {
+  view: "cards" | "compact";
+  languages: string[];
+  content_types: (typeof contentTypes)[number][];
+};
+export type Appearance = DateTimePreferences & { theme: ThemeMode };
+export type NotificationDisplay = { show_badge: boolean; sound: boolean };
 
 export class AccountError extends Error {
   constructor(public status: number) {
@@ -67,20 +76,21 @@ export class AccountError extends Error {
   }
 }
 export async function userRequest<T>(path: string, init?: RequestInit): Promise<T> {
+  const signal = init?.signal ?? AbortSignal.timeout(15000);
+  signal.throwIfAborted();
   const response = await readerRequest(`/api/v1/user/${path}`, {
     ...init,
     credentials: "same-origin",
     cache: "no-store",
-    signal: init?.signal ?? AbortSignal.timeout(15000),
+    signal,
   });
+  signal.throwIfAborted();
   if (!response.ok) {
     if (response.status === 401 && typeof window !== "undefined")
       window.dispatchEvent(new Event("devfeed:user-session-expired"));
     throw new AccountError(response.status);
   }
-  if (init?.method === "PUT" && (path.startsWith("preferences") || path === "settings/feed"))
-    window.dispatchEvent(new Event("devfeed:interests-changed"));
   const result = response.status === 204 ? undefined : await response.json();
-  trackUserMutation(path, init?.method, result, init?.body);
+  signal.throwIfAborted();
   return result as T;
 }

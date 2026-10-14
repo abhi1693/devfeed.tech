@@ -16,6 +16,7 @@ import {
   Suspense,
 } from "react";
 import { AccountError, userRequest, type UserIdentity, type UserProfile } from "@/lib/user";
+import { logOut, saveProfileSettings } from "@/lib/user-mutations";
 import { profileLinkFromUrl } from "@/lib/profile-links";
 import { ReaderQueryProvider } from "./reader-query-provider";
 
@@ -65,6 +66,14 @@ export function UserProvider({
   } | null>(null);
   const [profileVersion, setProfileVersion] = useState(0);
   const userId = user?.user_id;
+  const profileWrites = useRef(new Set<AbortController>());
+  useEffect(() => {
+    const pending = profileWrites.current;
+    return () => {
+      for (const controller of pending) controller.abort();
+      pending.clear();
+    };
+  }, [userId]);
   useLayoutEffect(() => {
     if (loading) return;
     const target = restoreFocus.current;
@@ -122,40 +131,43 @@ export function UserProvider({
   }, [userId, profileVersion, sessionRevision]);
   async function saveProfile(value: UserProfile) {
     if (!user) throw new AccountError(401);
-    const saved = await userRequest<UserProfile>("settings/profile", {
-      method: "PUT",
-      headers: {
-        "Content-Type": "application/json",
-        "X-CSRF-Token": user.csrf_token,
-      },
-      body: JSON.stringify({
-        display_name: value.display_name,
-        ...(!value.avatar_variants?.some((variant) => variant.url === value.avatar_url) && {
-          avatar_url: value.avatar_url,
-        }),
-        ...(value.username !== undefined && { username: value.username }),
-        ...(value.bio !== undefined && { bio: value.bio }),
-        ...(value.location !== undefined && { location: value.location }),
-        ...(value.about !== undefined && { about: value.about }),
-        ...(value.experience_level !== undefined && { experience_level: value.experience_level }),
-        ...(value.links !== undefined && {
-          links: value.links
-            .filter((link) => link.url.trim())
-            .map((link) => profileLinkFromUrl(link.url)),
-        }),
-        ...(value.stack !== undefined && {
-          stack: value.stack.map(({ topic_id, section, since_year }) => ({
-            topic_id,
-            section,
-            since_year,
-          })),
-        }),
-        ...(value.visibility !== undefined && { visibility: value.visibility }),
-        ...(value.dev_card !== undefined && { dev_card: value.dev_card }),
-      }),
-    });
-    setProfileState({ owner: user.user_id, value: saved, unavailable: false });
-    return saved;
+    const controller = new AbortController();
+    profileWrites.current.add(controller);
+    try {
+      const saved = await saveProfileSettings(
+        {
+          display_name: value.display_name,
+          ...(!value.avatar_variants?.some((variant) => variant.url === value.avatar_url) && {
+            avatar_url: value.avatar_url,
+          }),
+          ...(value.username !== undefined && { username: value.username }),
+          ...(value.bio !== undefined && { bio: value.bio }),
+          ...(value.location !== undefined && { location: value.location }),
+          ...(value.about !== undefined && { about: value.about }),
+          ...(value.experience_level !== undefined && { experience_level: value.experience_level }),
+          ...(value.links !== undefined && {
+            links: value.links
+              .filter((link) => link.url.trim())
+              .map((link) => profileLinkFromUrl(link.url)),
+          }),
+          ...(value.stack !== undefined && {
+            stack: value.stack.map(({ topic_id, section, since_year }) => ({
+              topic_id,
+              section,
+              since_year,
+            })),
+          }),
+          ...(value.visibility !== undefined && { visibility: value.visibility }),
+          ...(value.dev_card !== undefined && { dev_card: value.dev_card }),
+        },
+        { csrfToken: user.csrf_token, signal: controller.signal },
+      );
+      if (!controller.signal.aborted)
+        setProfileState({ owner: user.user_id, value: saved, unavailable: false });
+      return saved;
+    } finally {
+      profileWrites.current.delete(controller);
+    }
   }
   useEffect(() => {
     const controller = new AbortController();
@@ -185,10 +197,7 @@ export function UserProvider({
     };
   }, [refreshKey, activityRevision]);
   async function signOut() {
-    await userRequest("auth/logout", {
-      method: "POST",
-      headers: { "X-CSRF-Token": user?.csrf_token ?? "" },
-    });
+    await logOut({ csrfToken: user?.csrf_token ?? "" });
     setUser(null);
     // Clear all rendered personal data and the client router cache on sign-out.
     readerSignedOut();

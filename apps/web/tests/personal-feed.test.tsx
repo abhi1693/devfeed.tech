@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
-import { userRequest } from "@/lib/user";
+import { setArticleLike } from "@/lib/user-mutations";
 import { PersonalFeed } from "@/components/personal-feed";
 import type { ReactNode } from "react";
 
@@ -222,20 +222,22 @@ it("pins an open feed across session and interest changes", async () => {
 });
 
 it("keeps the open feed unchanged after liking and unliking", async () => {
-  const fetcher = vi
-    .fn()
-    .mockImplementation((path: string) =>
-      Promise.resolve(Response.json(path.includes("/like") ? { liked: true } : ready)),
+  const fetcher = vi.fn().mockImplementation((path: string, init?: RequestInit) => {
+    const liked = JSON.parse((init?.body as string) || "{}").liked;
+    return Promise.resolve(
+      Response.json(
+        path.includes("/like")
+          ? { article_id: "article-id", likes: liked ? 1 : 0, opens: 2, liked, bookmarked: false }
+          : ready,
+      ),
     );
+  });
   vi.stubGlobal("fetch", fetcher);
   render(<PersonalFeed />);
   await screen.findByText("Recommended article");
   for (const liked of [true, false]) {
     await act(async () => {
-      await userRequest("articles/article-id/like", {
-        method: "PUT",
-        body: JSON.stringify({ liked }),
-      });
+      await setArticleLike("article-id", liked, { csrfToken: "test" });
     });
   }
   expect(fetcher.mock.calls.filter(([path]) => path.includes("/feed?"))).toHaveLength(1);

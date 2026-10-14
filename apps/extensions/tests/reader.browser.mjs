@@ -21,6 +21,10 @@ import { checkSidebarGitHub } from "../../../scripts/testing/sidebar-github.mjs"
 import { checkCollapsibleSidebar } from "../../../scripts/testing/collapsible-sidebar.mjs";
 import { checkBrowserTheme } from "../../../scripts/testing/browser-theme.mjs";
 import {
+  checkUserMutations,
+  userMutationFixture,
+} from "../../../scripts/testing/user-mutations.mjs";
+import {
   engagementFeed,
   engagementRows,
   checkEngagementPagination,
@@ -82,7 +86,9 @@ test(
     ? "shared theme persists and follows system settings inside built new tabs"
     : process.env.DEVFEED_READER_SIDEBAR_ONLY === "1"
       ? "shared sidebar persists and adapts inside built new tabs"
-      : "shared reader works inside new tabs at desktop and mobile sizes",
+      : process.env.DEVFEED_READER_MUTATIONS_ONLY === "1"
+        ? "semantic mutation effects work inside built new tabs"
+        : "shared reader works inside new tabs at desktop and mobile sizes",
   { timeout: 180000 },
   async () => {
     const profile = await mkdtemp(path.join(tmpdir(), "devfeed-reader-test-"));
@@ -111,6 +117,10 @@ test(
       id: `11111111-1111-4111-8111-${String(index).padStart(12, "0")}`,
       slug: `${article.slug}-${index}`,
     }));
+    const mutationFixture = userMutationFixture({
+      articles: feedItems,
+      topic: { ...article.topics[0], id: "ABCDEF00-0000-4000-8000-000000000001" },
+    });
     let engagementPagination = false;
     let defaultAll = false;
     let compactArticles = false;
@@ -130,6 +140,18 @@ test(
     );
     await context.route("https://devfeed.tech/api/**", async (route) => {
       const url = new URL(route.request().url());
+      const mutationPath = url.pathname.slice("/api".length);
+      if (mutationFixture.handles(mutationPath, route.request().method())) {
+        if (route.request().method() === "PUT")
+          assert.equal(route.request().headers()["x-csrf-token"], "test");
+        return route.fulfill(
+          mutationFixture.respond(
+            mutationPath,
+            route.request().method(),
+            route.request().postData() ? route.request().postDataJSON() : undefined,
+          ),
+        );
+      }
       if (
         listingGate &&
         ["/api/v1/feed", "/api/v1/feed/options", "/api/v1/topics", "/api/v1/sources"].includes(
@@ -304,6 +326,23 @@ test(
       });
       await page.goto(newTab);
       await page.locator(".article-card").first().waitFor();
+      const mutationPage = await context.newPage();
+      mutationPage.on("pageerror", (error) => errors.push(error.message));
+      try {
+        await checkUserMutations(
+          mutationPage,
+          (path) => page.url().split("#")[0] + "#" + path,
+          mutationFixture,
+        );
+      } finally {
+        await mutationPage.close();
+      }
+      if (process.env.DEVFEED_READER_MUTATIONS_ONLY === "1") {
+        assert.deepEqual(errors, []);
+        console.log(`Semantic mutation effects passed against the installed ${browser} extension.`);
+        return;
+      }
+      await page.bringToFront();
       if (
         process.env.DEVFEED_READER_SIDEBAR_ONLY === "1" ||
         process.env.DEVFEED_READER_THEME_ONLY === "1"
