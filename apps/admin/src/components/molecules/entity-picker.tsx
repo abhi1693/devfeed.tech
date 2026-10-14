@@ -1,5 +1,6 @@
 "use client";
 
+import { recordIdentity, type SimpleResource } from "@/lib/record-identities";
 import { useCallback, useEffect, useState } from "react";
 import { ChevronLeftIcon, ChevronRightIcon } from "lucide-react";
 import { Button } from "@devfeed/ui/button";
@@ -11,7 +12,7 @@ import {
   type RecordPage,
   type RecordData,
 } from "@/lib/resource-api";
-import { type Resource, resources, humanize } from "@/lib/resources";
+import { resources, humanize } from "@/lib/resources";
 import { useRequest } from "@/lib/use-request";
 
 export type EntityPickerSource = {
@@ -25,7 +26,7 @@ type Props = Omit<ComboboxProps, "options" | "label"> & {
   exclude?: string;
   status?: string;
 } & (
-    | { resource: Resource; source?: EntityPickerSource; catalog?: never }
+    | { resource: SimpleResource; source?: EntityPickerSource; catalog?: never }
     | { resource?: never; source: EntityPickerSource; catalog: PickerCatalog }
   );
 
@@ -65,7 +66,7 @@ export function EntityPicker({
       props.value
         ? source
           ? source.get(props.value, signal)
-          : getRecord(resource!, props.value, signal)
+          : getRecord(recordIdentity(resource!, { id: props.value }), signal)
         : Promise.resolve(null),
     [resource, props.value, source],
   );

@@ -1,4 +1,6 @@
 import type { Resource } from "./resources";
+import { RelationOutRelation } from "./api/generated/models/relationOutRelation";
+import type { RecordIdentity } from "./record-identities";
 
 export const resourcePaths: Record<Resource, string> = {
   users: "/users",
@@ -50,20 +52,13 @@ export function resourceHref(resource: Resource, analysisType?: AnalysisType): s
   );
 }
 
-export function recordHref(
-  resource: Resource,
-  record: { id: string; kind?: unknown },
-  section: DetailSection = "details",
-): string {
-  let path = resourceHref(resource);
-  if (resource === "analysis-jobs") {
-    const topic = record.kind === "topic-analysis" || record.id.startsWith("topic-analysis~");
-    const id = record.id.replace(/^topic-analysis~/, "");
-    path += `/${topic ? "topics" : "articles"}/${encodeURIComponent(id)}`;
-  } else if (resource === "topic-relations") {
-    const [from, to, relation] = record.id.split("~");
-    path += `/${encodeURIComponent(from)}/${encodeURIComponent(relation)}/${encodeURIComponent(to)}`;
-  } else path += `/${encodeURIComponent(record.id)}`;
+export function recordHref(identity: RecordIdentity, section: DetailSection = "details"): string {
+  let path = resourceHref(identity.resource);
+  if (identity.resource === "analysis-jobs") {
+    path += `/${identity.kind === "topic-analysis" ? "topics" : "articles"}/${encodeURIComponent(identity.id)}`;
+  } else if (identity.resource === "topic-relations") {
+    path += `/${encodeURIComponent(identity.topicId)}/${identity.relation}/${encodeURIComponent(identity.relatedTopicId)}`;
+  } else path += `/${encodeURIComponent(identity.id)}`;
   return path + (section === "details" ? "" : `/${section}`);
 }
 
@@ -105,9 +100,13 @@ export type AdminRoute =
   | { view: "group"; group: RouteGroup }
   | { view: "list"; resource: Resource; analysisType?: AnalysisType }
   | { view: "new"; resource: Resource }
-  | { view: "detail"; resource: Resource; id: string; section: DetailSection }
-  | { view: "edit" | "delete"; resource: Resource; id: string }
-  | { view: "workflow"; resource: "articles" | "sources"; id: string; action: WorkflowAction }
+  | { view: "detail"; identity: RecordIdentity; section: DetailSection }
+  | { view: "edit" | "delete"; identity: RecordIdentity }
+  | {
+      view: "workflow";
+      identity: Extract<RecordIdentity, { resource: "articles" | "sources" }>;
+      action: WorkflowAction;
+    }
   | { view: "relationship-discover" | "relationship-proposals" }
   | { view: "relationship-proposal"; id: string }
   | { view: "import" }
@@ -115,7 +114,7 @@ export type AdminRoute =
   | { view: "source-import-review"; id: string }
   | { view: "proposal" | "enrich"; id: string };
 
-/** Decode browser paths once; resource keys and composite IDs remain API adapter details. */
+/** Decode browser paths once; record identities retain their native fields. */
 export function resolveAdminRoute(parts: string[]): AdminRoute | undefined {
   if (parts.some((part) => !segment.test(part))) return;
   const path = `/${parts.join("/")}`;
@@ -148,34 +147,44 @@ export function resolveAdminRoute(parts: string[]): AdminRoute | undefined {
     }
     if (rest.length === 1 && rest[0] === "new")
       return content.has(resource) ? { view: "new", resource } : undefined;
-    let id: string;
+    let identity: RecordIdentity;
     let tail: string[];
     if (resource === "analysis-jobs") {
       if (rest[0] !== "articles" && rest[0] !== "topics") return;
       if (rest.length === 1) return { view: "list", resource, analysisType: rest[0] };
-      id = rest[0] === "topics" ? `topic-analysis~${rest[1]}` : rest[1];
+      identity = {
+        resource,
+        kind: rest[0] === "topics" ? "topic-analysis" : "analysis",
+        id: rest[1],
+      };
       tail = rest.slice(2);
     } else if (resource === "topic-relations") {
       if (rest.length < 3) return;
-      id = `${rest[0]}~${rest[2]}~${rest[1]}`;
+      if (!Object.hasOwn(RelationOutRelation, rest[1])) return;
+      identity = {
+        resource,
+        topicId: rest[0],
+        relatedTopicId: rest[2],
+        relation: rest[1] as RelationOutRelation,
+      };
       tail = rest.slice(3);
     } else {
-      id = rest[0];
+      identity = { resource, id: rest[0] };
       tail = rest.slice(1);
     }
     if (tail.length > 1) return;
     const action = tail[0] ?? "details";
     if (detailSections(resource).includes(action as DetailSection))
-      return { view: "detail", resource, id, section: action as DetailSection };
+      return { view: "detail", identity, section: action as DetailSection };
     if (content.has(resource) && (action === "edit" || action === "delete"))
-      return { view: action, resource, id };
+      return { view: action, identity };
     if (
-      (resource === "articles" || resource === "sources") &&
+      (identity.resource === "articles" || identity.resource === "sources") &&
       (action === "review" ||
-        (resource === "articles" && action === "classify") ||
-        (resource === "sources" && action === "fetch"))
+        (identity.resource === "articles" && action === "classify") ||
+        (identity.resource === "sources" && action === "fetch"))
     )
-      return { view: "workflow", resource, id, action };
+      return { view: "workflow", identity, action };
     return;
   }
 }
@@ -189,39 +198,34 @@ export function routeSearchParams(search: RouteSearch): URLSearchParams {
   return params;
 }
 
-/** Keep old bookmarks, notifications and tab links usable without generating them anew. */
+/** Decode retired URL tokens only at the bookmark redirect boundary. */
 export function canonicalAdminRedirect(
   parts: string[],
   search: RouteSearch = {},
 ): string | undefined {
   const query = routeSearchParams(search);
-  let path = `/${parts.map(encodeURIComponent).join("/")}`;
   const resource = parts[0] as Resource;
+  let normalized = parts;
   let changed = false;
   if (Object.hasOwn(resourcePaths, resource) && resourcePaths[resource] !== `/${resource}`) {
     changed = true;
-    if (parts.length > 1 && (resource === "analysis-jobs" || resource === "topic-relations")) {
-      if (resource === "topic-relations" && parts[1] === "new") {
-        if (parts.length !== 2) return;
-        path = `${resourceHref(resource)}/new`;
-      } else {
-        if (
-          resource === "topic-relations" &&
-          (parts[1].split("~").length !== 3 ||
-            parts[1].split("~").some((part) => !segment.test(part)))
-        )
-          return;
-        path =
-          recordHref(resource, { id: parts[1] }) +
-          (parts.length > 2 ? `/${parts.slice(2).map(encodeURIComponent).join("/")}` : "");
-      }
-    } else
-      path =
-        resourceHref(resource) +
-        (parts.length > 1 ? `/${parts.slice(1).map(encodeURIComponent).join("/")}` : "");
+    const prefix = resourcePaths[resource].slice(1).split("/");
+    let rest = parts.slice(1);
+    if (resource === "analysis-jobs" && rest.length) {
+      const oldId = rest[0];
+      const topic = oldId.startsWith("topic-analysis~");
+      const id = topic ? oldId.slice("topic-analysis~".length) : oldId;
+      rest = [topic ? "topics" : "articles", id, ...rest.slice(1)];
+    } else if (resource === "topic-relations" && rest.length && rest[0] !== "new") {
+      const [from, to, relation, extra] = rest[0].split("~");
+      if (!from || !to || !relation || extra !== undefined) return;
+      rest = [from, relation, to, ...rest.slice(1)];
+    }
+    normalized = [...prefix, ...rest];
   }
-  let route = resolveAdminRoute(path.slice(1).split("/").map(decodeURIComponent));
+  const route = resolveAdminRoute(normalized);
   if (!route) return;
+  let path = `/${normalized.map(encodeURIComponent).join("/")}`;
   if (route.view === "list" && route.resource === "analysis-jobs" && query.has("analysis_type")) {
     const kind = query.get("analysis_type");
     if (kind === "articles" || kind === "topics") {
@@ -230,18 +234,18 @@ export function canonicalAdminRedirect(
       changed = true;
     }
   }
-  route = resolveAdminRoute(path.slice(1).split("/"));
-  if (route?.view === "detail" && query.has("tab")) {
-    const section = query.get("tab") as DetailSection;
-    if (detailSections(route.resource).includes(section)) {
-      path = recordHref(route.resource, { id: route.id }, section);
-      query.delete("tab");
-      changed = true;
+  if (route.view === "detail") {
+    let section = route.section;
+    if (query.has("tab")) {
+      const tab = query.get("tab") as DetailSection;
+      if (detailSections(route.identity.resource).includes(tab)) {
+        section = tab;
+        query.delete("tab");
+        changed = true;
+      }
     }
-  }
-  if (route?.view === "detail" && path.endsWith("/details")) {
-    path = path.slice(0, -"/details".length);
-    changed = true;
+    if (normalized.at(-1) === "details") changed = true;
+    path = recordHref(route.identity, section);
   }
   return changed ? path + (query.size ? `?${query}` : "") : undefined;
 }

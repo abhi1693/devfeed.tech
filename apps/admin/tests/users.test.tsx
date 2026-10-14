@@ -113,7 +113,7 @@ it("uses the standard user table without add, edit or delete actions", async () 
   );
 });
 it("shows account information and links to existing-style detail sections", async () => {
-  renderAdmin(<ResourceDetail resource="users" id="user-1" />);
+  renderAdmin(<ResourceDetail identity={{ resource: "users", id: "user-1" }} />);
   expect(await screen.findByRole("heading", { name: "Ada" })).toBeTruthy();
   expect(screen.getByText("Ada Lovelace")).toBeTruthy();
   expect(screen.getByText("Recommendation refresh")).toBeTruthy();
@@ -145,7 +145,7 @@ it.each([null, undefined, "", "   "])(
   "omits profile and Dev Card details when the username is %j",
   async (username) => {
     vi.mocked(getRecord).mockResolvedValue({ ...user, username });
-    renderAdmin(<ResourceDetail resource="users" id="user-1" />);
+    renderAdmin(<ResourceDetail identity={{ resource: "users", id: "user-1" }} />);
     await screen.findByText("Account");
     expect(screen.queryByText("Reader profile")).toBeNull();
     expect(screen.queryByText("Dev Card styling")).toBeNull();
@@ -262,12 +262,15 @@ it("shows a reading day and keeps deleted articles in click history", async () =
 });
 it("uses user titles", () => {
   expect(
-    adminRouteTitle({ view: "detail", resource: "users", id: "user-1", section: "details" }, "Ada"),
+    adminRouteTitle(
+      { view: "detail", identity: { resource: "users", id: "user-1" }, section: "details" },
+      "Ada",
+    ),
   ).toBe("Ada · User");
 });
 it("queues user analysis with CSRF and refreshes the displayed user", async () => {
   vi.mocked(adminUserAnalysis).mockResolvedValue({ ...user, feed_status: "refreshing" });
-  renderAdmin(<ResourceDetail resource="users" id="user-1" />);
+  renderAdmin(<ResourceDetail identity={{ resource: "users", id: "user-1" }} />);
   const button = await screen.findByRole("button", { name: "Rerun analysis" });
   await act(async () => {
     fireEvent.click(button);
@@ -331,7 +334,7 @@ it("replaces the old top-five preview with the user's saved daily Must Reads", a
       },
     ],
   });
-  renderAdmin(<ResourceDetail resource="users" id="user-1" section="analysis" />);
+  renderAdmin(<ResourceDetail identity={{ resource: "users", id: "user-1" }} section="analysis" />);
   expect(await screen.findByRole("heading", { name: "User analysis" })).toBeTruthy();
   const interests = within(screen.getByRole("region", { name: "Strongest topic interests" }));
   expect((await interests.findByRole("link", { name: "FastAPI" })).getAttribute("href")).toBe(
@@ -412,7 +415,7 @@ it("skips analysis when every personalization count is zero", async () => {
     interests: 0,
     recommendations: 0,
   });
-  renderAdmin(<ResourceDetail resource="users" id="user-1" section="analysis" />);
+  renderAdmin(<ResourceDetail identity={{ resource: "users", id: "user-1" }} section="analysis" />);
   const button = await screen.findByRole("button", { name: "Rerun analysis" });
   expect((button as HTMLButtonElement).disabled).toBe(true);
   fireEvent.click(button);
@@ -437,14 +440,14 @@ it.each([
     recommendations: 0,
     [field]: 1,
   });
-  renderAdmin(<ResourceDetail resource="users" id="user-1" />);
+  renderAdmin(<ResourceDetail identity={{ resource: "users", id: "user-1" }} />);
   expect(
     ((await screen.findByRole("button", { name: "Rerun analysis" })) as HTMLButtonElement).disabled,
   ).toBe(false);
 });
 
 it("groups essential user details and collapses secondary settings", async () => {
-  renderAdmin(<ResourceDetail resource="users" id="user-1" />);
+  renderAdmin(<ResourceDetail identity={{ resource: "users", id: "user-1" }} />);
   await screen.findByText("Account");
   expect(screen.getByText("Reading activity")).toBeTruthy();
   for (const title of ["Dev Card styling", "Reader preferences", "Technical identifiers"]) {

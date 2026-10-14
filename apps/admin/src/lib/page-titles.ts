@@ -29,25 +29,28 @@ export function adminRouteTitle(route: AdminRoute, recordName?: unknown): string
     case "relationship-proposal":
       return name ? `Review ${name} · Relationship proposals` : "Review relationship";
   }
-  const spec = resources[route.resource];
+  const resource = "identity" in route ? route.identity.resource : route.resource;
+  const spec = resources[resource];
   const label =
-    route.resource === "analysis-jobs"
+    resource === "analysis-jobs"
       ? route.view === "list"
         ? route.analysisType
           ? `${route.analysisType === "articles" ? "Article" : "Topic"} AI analysis`
           : spec.label
-        : "id" in route
-          ? `${route.id.startsWith("topic-analysis~") ? "Topic" : "Article"} AI analysis`
+        : "identity" in route && route.identity.resource === "analysis-jobs"
+          ? `${route.identity.kind === "topic-analysis" ? "Topic" : "Article"} AI analysis`
           : spec.label
       : spec.label;
   if (route.view === "list") return label;
   if (route.view === "new") return `Add ${spec.singular.toLowerCase()}`;
   const subject =
-    spec.readonly && route.resource !== "users"
-      ? `Run ${route.id.replace(/^topic-analysis~/, "").slice(0, 8)} · ${label}`
-      : name
-        ? `${name} · ${spec.singular}`
-        : spec.singular;
+    spec.readonly && resource !== "users" && "id" in route.identity
+      ? `Run ${route.identity.id.slice(0, 8)} · ${label}`
+      : route.identity.resource === "topic-relations"
+        ? `${humanize(route.identity.relation)} · ${spec.singular}`
+        : name
+          ? `${name} · ${spec.singular}`
+          : spec.singular;
   if (route.view === "detail")
     return route.section === "details"
       ? subject

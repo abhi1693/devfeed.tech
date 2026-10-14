@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { recordIdentity } from "@/lib/record-identities";
 import { renderAdmin } from "./render-admin";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, render, screen } from "@testing-library/react";
@@ -174,6 +175,7 @@ describe("shared colored status pills", () => {
         page={{
           items: Object.keys(states).map((status) => ({
             id: `job-${status}`,
+            kind: "analysis",
             status,
             attempts: 1,
           })),
@@ -206,7 +208,11 @@ describe("shared colored status pills", () => {
         topics: [],
         tags: [],
       });
-      renderAdmin(<ResourceDetail resource={resource} id="record-1" />);
+      renderAdmin(
+        <ResourceDetail
+          identity={recordIdentity(resource, { id: "record-1", kind: "analysis" })}
+        />,
+      );
       await screen.findByRole("heading", { level: 1, name: "Example" });
       for (const [status, tone] of Object.entries({
         active: "success",

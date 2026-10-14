@@ -1,4 +1,5 @@
 "use client";
+import { recordIdentity } from "@/lib/record-identities";
 
 import { useCallback, useState } from "react";
 import Link from "next/link";
@@ -81,8 +82,10 @@ function jobHref(job: WorkerJob, logs = false) {
   const resource = job.kind ? resourcesByKind[job.kind] : undefined;
   return resource && job.id
     ? recordHref(
-        resource,
-        { id: job.id, kind: job.kind === "research-verification" ? "topic-analysis" : job.kind },
+        recordIdentity(resource, {
+          id: job.id,
+          kind: job.kind === "research-verification" ? "topic-analysis" : job.kind,
+        }),
         logs ? "logs" : "details",
       )
     : undefined;

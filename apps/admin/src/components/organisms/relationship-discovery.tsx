@@ -1,4 +1,5 @@
 "use client";
+import { recordIdentity } from "@/lib/record-identities";
 
 import Link from "next/link";
 import { useCallback, useState } from "react";
@@ -44,7 +45,7 @@ export function RelationshipDiscovery() {
         { headers: { "X-CSRF-Token": admin.csrf_token } },
       );
       notify.success("Relationship research queued");
-      router.push(recordHref("analysis-jobs", job));
+      router.push(recordHref(recordIdentity("analysis-jobs", job)));
     } catch (error) {
       setError(error instanceof Error ? error : new Error("Could not start research"));
       notifyFailure(error, "Could not start relationship research");

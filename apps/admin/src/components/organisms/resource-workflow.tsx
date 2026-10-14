@@ -10,6 +10,7 @@ import { ResourceHeading } from "@devfeed/ui/resource-layout";
 import { RequestState } from "@/components/molecules/request-state";
 import { useAdmin } from "@/components/molecules/admin-session";
 import { getRecord, type RecordData } from "@/lib/resource-api";
+import { recordIdentityKey, type RecordIdentity } from "@/lib/record-identities";
 import { resources, humanize } from "@/lib/resources";
 import { useRequest } from "@/lib/use-request";
 import { adminArticleReview, adminSourceReview, adminSourceFetch } from "@/lib/api/generated/admin";
@@ -18,27 +19,24 @@ import { ClassificationForm } from "./classification-form";
 import { ValidationErrors } from "@/components/molecules/validation-errors";
 import { notify, notifyFailure } from "@/lib/notifications";
 import { StatusBadge } from "@/components/molecules/status-badge";
+type WorkflowIdentity = Extract<RecordIdentity, { resource: "articles" | "sources" }>;
 export type Workflow = "review" | "classify" | "fetch";
 export function ResourceWorkflow({
-  resource,
-  id,
+  identity,
   action,
 }: {
-  resource: "articles" | "sources";
-  id: string;
+  identity: WorkflowIdentity;
   action: Workflow;
 }) {
-  const load = useCallback(
-    (signal: AbortSignal) => getRecord(resource, id, signal),
-    [resource, id],
-  );
-  const result = useRequest(`${resource}/${id}`, load);
+  const resource = identity.resource;
+  const load = useCallback((signal: AbortSignal) => getRecord(identity, signal), [identity]);
+  const result = useRequest(recordIdentityKey(identity), load);
   return (
     <section className="max-w-4xl space-y-6">
       <ResourceHeading
         title={`${humanize(action)} ${resources[resource].singular.toLowerCase()}`}
         browserTitle={adminRouteTitle(
-          { view: "workflow", resource, id, action },
+          { view: "workflow", identity, action },
           result.data?.[resources[resource].title],
         )}
         trail={[
@@ -46,7 +44,7 @@ export function ResourceWorkflow({
           { label: resources[resource].label, href: resourceHref(resource) },
           {
             label: result.data ? String(result.data[resources[resource].title]) : "Object",
-            href: recordHref(resource, { id }),
+            href: recordHref(identity),
           },
         ]}
       />
@@ -55,10 +53,10 @@ export function ResourceWorkflow({
         (action === "classify" ? (
           <ClassificationForm article={result.data as unknown as AdminArticleOut} />
         ) : (
-          <Decision resource={resource} record={result.data} action={action} />
+          <Decision identity={identity} record={result.data} action={action} />
         ))}
       <Button variant="outline" asChild>
-        <Link prefetch={false} href={recordHref(resource, { id })}>
+        <Link prefetch={false} href={recordHref(identity)}>
           Back to object
         </Link>
       </Button>
@@ -66,14 +64,15 @@ export function ResourceWorkflow({
   );
 }
 function Decision({
-  resource,
+  identity,
   record,
   action,
 }: {
-  resource: "articles" | "sources";
+  identity: WorkflowIdentity;
   record: RecordData;
   action: "review" | "fetch";
 }) {
+  const resource = identity.resource;
   const admin = useAdmin();
   const router = useRouter();
   const [decision, setDecision] = useState(resource === "articles" ? "approve" : "approved");
@@ -88,15 +87,15 @@ function Decision({
     const options = { headers: { "X-CSRF-Token": admin.csrf_token } };
     try {
       if (action === "fetch") {
-        const job = await adminSourceFetch(record.id, options);
+        const job = await adminSourceFetch(identity.id, options);
         notify.success("Feed fetch requested", {
           description: "Open the run to follow its progress.",
         });
-        router.replace(`/jobs/ingestion/${job.id}`);
+        router.replace(recordHref({ resource: "ingestion-jobs", id: job.id }));
       } else {
         if (resource === "articles")
           await adminArticleReview(
-            record.id,
+            identity.id,
             {
               action: decision as ReviewArticle["action"],
               expected_revision: Number(record.editorial_revision),
@@ -106,7 +105,7 @@ function Decision({
           );
         else
           await adminSourceReview(
-            record.id,
+            identity.id,
             { decision: decision as ReviewSource["decision"], note: note || null },
             options,
           );
@@ -120,7 +119,7 @@ function Decision({
             } as Record<string, string>
           )[decision] ?? decision;
         notify.success(`${resources[resource].singular} ${outcome}`);
-        router.replace(recordHref(resource, record));
+        router.replace(recordHref(identity));
       }
       router.refresh();
     } catch (error) {

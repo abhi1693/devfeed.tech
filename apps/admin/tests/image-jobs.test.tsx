@@ -79,7 +79,7 @@ it("identifies product image and logo jobs by operation and product subject", as
 });
 
 it("links a product image run to the product rather than an absent article", async () => {
-  renderAdmin(<ResourceDetail resource="image-jobs" id={image.id} />);
+  renderAdmin(<ResourceDetail identity={{ resource: "image-jobs", id: image.id }} />);
   await screen.findByRole("heading", { name: "Run aaaaaaaa" });
   expect(screen.getByRole("link", { name: "API Checker" }).getAttribute("href")).toBe(
     `/partnerships/products/${productId}`,

@@ -1,4 +1,5 @@
 "use client";
+import { recordIdentity, recordRowKey } from "@/lib/record-identities";
 
 import { ColumnValue } from "@/components/molecules/column-value";
 import Link from "next/link";
@@ -155,7 +156,7 @@ export function RecordTable({
               { expected_input_hash: proposal.content_hash, expected_status: proposal.status },
               options,
             )
-          : deleteRecord(resource, row.id, admin.csrf_token);
+          : deleteRecord(recordIdentity(resource, row), admin.csrf_token);
       },
     });
   const columns: DataTableColumn<RecordData>[] =
@@ -232,7 +233,7 @@ export function RecordTable({
                 return (
                   <Link
                     prefetch={false}
-                    href={recordHref(resource, row.original)}
+                    href={recordHref(recordIdentity(resource, row.original))}
                     className="block max-w-lg break-words font-medium text-blue-700 dark:text-blue-400 hover:underline"
                   >
                     <ColumnValue
@@ -252,7 +253,7 @@ export function RecordTable({
                   header: "Actions",
                   enableSorting: false,
                   cell: ({ row }: { row: { original: RecordData } }) => (
-                    <RecordActions resource={resource} id={row.original.id} />
+                    <RecordActions identity={recordIdentity(resource, row.original)} />
                   ),
                 },
               ]
@@ -278,7 +279,7 @@ export function RecordTable({
             }
           : undefined
       }
-      getRowId={(row) => (resource === "analysis-jobs" ? `${row.kind}/${row.id}` : row.id)}
+      getRowId={(row) => recordRowKey(resource, row)}
       getRowLabel={(row) =>
         resource === "topic-relations" && row.topic_name && row.related_topic_name
           ? relationshipLabel(row as unknown as RelationshipProposalOut)

@@ -1,5 +1,7 @@
 "use client";
 
+import { recordIdentity } from "@/lib/record-identities";
+
 import { useEffect, useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@devfeed/ui/button";
@@ -29,7 +31,7 @@ import {
 const memberUsers: EntityPickerSource = {
   key: "partner-member-users",
   list: (params, signal) => listRecords("users", { ...params, identity_only: "true" }, signal),
-  get: (id, signal) => getRecord("users", id, signal),
+  get: (id, signal) => getRecord(recordIdentity("users", { id }), signal),
 };
 
 const productCatalog = { label: "Products", singular: "Catalog product", title: "name" };

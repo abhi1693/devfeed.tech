@@ -1,5 +1,6 @@
 /** UI descriptions, not domain data: topic/tag choices always come from the API. */
 import type { ColumnPresentation } from "./column-kinds";
+import type { SimpleResource } from "./record-identities";
 export type Resource =
   | "users"
   | "articles"
@@ -35,7 +36,7 @@ export type FieldSpec = {
   min?: number;
   step?: number;
   choices?: string[];
-  resource?: Resource;
+  resource?: SimpleResource;
   help?: string;
   tooltip?: string;
   createOnly?: boolean;
@@ -45,7 +46,7 @@ export type ColumnSpec = ColumnPresentation & {
   key: string;
   label: string;
   sort?: boolean;
-  resource?: Resource;
+  resource?: SimpleResource;
 };
 export type ResourceSpec = {
   label: string;

@@ -1,4 +1,5 @@
 "use client";
+import { recordIdentity } from "@/lib/record-identities";
 
 import Link from "next/link";
 import { useCallback, useState } from "react";
@@ -19,7 +20,7 @@ const columns: DataTableColumn<AdminUserMustRead>[] = [
     cell: ({ row }) => (
       <Link
         className="text-blue-700 hover:underline dark:text-blue-400"
-        href={recordHref("articles", row.original)}
+        href={recordHref(recordIdentity("articles", row.original))}
       >
         {row.original.title}
       </Link>

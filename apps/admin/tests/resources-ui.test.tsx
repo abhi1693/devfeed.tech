@@ -386,7 +386,7 @@ describe("dedicated object forms", () => {
       topic_id: "topic-1",
       auto_link_topic: true,
     });
-    withAdmin(<ResourceForm resource="tags" id="tag-1" />);
+    withAdmin(<ResourceForm resource="tags" identity={{ resource: "tags", id: "tag-1" }} />);
     const automatic = await screen.findByRole("checkbox", { name: "Discover topic automatically" });
     const selector = screen.getByRole("combobox", { name: "Topic" }) as HTMLButtonElement;
     expect((automatic as HTMLInputElement).checked).toBe(true);
@@ -398,11 +398,11 @@ describe("dedicated object forms", () => {
         "tags",
         expect.objectContaining({ auto_link_topic: true, topic_id: "topic-1" }),
         "test-csrf",
-        "tag-1",
+        { resource: "tags", id: "tag-1" },
       ),
     );
     cleanup();
-    withAdmin(<ResourceForm resource="tags" id="tag-1" />);
+    withAdmin(<ResourceForm resource="tags" identity={{ resource: "tags", id: "tag-1" }} />);
     fireEvent.click(await screen.findByRole("checkbox", { name: "Discover topic automatically" }));
     expect((screen.getByRole("combobox", { name: "Topic" }) as HTMLButtonElement).disabled).toBe(
       false,
@@ -413,7 +413,7 @@ describe("dedicated object forms", () => {
         "tags",
         expect.objectContaining({ auto_link_topic: false, topic_id: "topic-1" }),
         "test-csrf",
-        "tag-1",
+        { resource: "tags", id: "tag-1" },
       ),
     );
   });
@@ -421,7 +421,9 @@ describe("dedicated object forms", () => {
     { id: undefined, label: "Create topic", cancelHref: "/taxonomy/topics" },
     { id: "topic-1", label: "Save changes", cancelHref: "/taxonomy/topics/topic-1" },
   ])("right-aligns form actions with $label after Cancel", async ({ id, label, cancelHref }) => {
-    withAdmin(<ResourceForm resource="topics" id={id} />);
+    withAdmin(
+      <ResourceForm resource="topics" identity={id ? { resource: "topics", id } : undefined} />,
+    );
     const submit = await screen.findByRole("button", { name: label });
     const cancel = screen.getByRole("link", { name: "Cancel" });
     expect(submit.parentElement!.className).toContain("justify-end");
@@ -609,7 +611,7 @@ describe("dedicated object forms", () => {
     expect(router.replace).toHaveBeenCalledWith("/taxonomy/tags/topic-1");
   });
   it("loads existing object values on the edit page", async () => {
-    withAdmin(<ResourceForm resource="topics" id="topic-1" />);
+    withAdmin(<ResourceForm resource="topics" identity={{ resource: "topics", id: "topic-1" }} />);
     const name = (await screen.findByLabelText(/Name/)) as HTMLInputElement;
     expect(name.value).toBe("Languages");
     fireEvent.change(name, { target: { value: "Programming languages" } });
@@ -620,7 +622,7 @@ describe("dedicated object forms", () => {
         "topics",
         expect.objectContaining({ name: "Programming languages", slug: "languages" }),
         "test-csrf",
-        "topic-1",
+        { resource: "topics", id: "topic-1" },
       ),
     );
     expect(toast.success).toHaveBeenCalledWith("Topic updated");
@@ -629,7 +631,7 @@ describe("dedicated object forms", () => {
     vi.mocked(deleteRecord).mockRejectedValue(
       new ApiError(409, "Linked records are being updated. Try again."),
     );
-    withAdmin(<ResourceDelete resource="topics" id="topic-1" />);
+    withAdmin(<ResourceDelete identity={{ resource: "topics", id: "topic-1" }} />);
     const button = (await screen.findByRole("button", {
       name: "Delete permanently",
     })) as HTMLButtonElement;
@@ -644,7 +646,7 @@ describe("dedicated object forms", () => {
         expect.objectContaining({ description: "Linked records are being updated. Try again." }),
       ),
     );
-    expect(deleteRecord).toHaveBeenCalledWith("topics", "topic-1", "test-csrf");
+    expect(deleteRecord).toHaveBeenCalledWith({ resource: "topics", id: "topic-1" }, "test-csrf");
     expect(router.replace).not.toHaveBeenCalled();
     expect(
       (screen.getByRole("textbox", { name: "Type DELETE to confirm" }) as HTMLInputElement).value,
@@ -660,7 +662,7 @@ describe("dedicated object forms", () => {
           resolve = done;
         }),
     );
-    withAdmin(<ResourceDelete resource="topics" id="topic-1" />);
+    withAdmin(<ResourceDelete identity={{ resource: "topics", id: "topic-1" }} />);
     fireEvent.change(await screen.findByRole("textbox", { name: "Type DELETE to confirm" }), {
       target: { value: "DELETE" },
     });
@@ -689,7 +691,7 @@ describe("dedicated object forms", () => {
         limit: 25,
         offset: 0,
       });
-      withAdmin(<ResourceDelete resource="topics" id="topic-1" />);
+      withAdmin(<ResourceDelete identity={{ resource: "topics", id: "topic-1" }} />);
       const table = await screen.findByRole("table", { name: "Deletion impact" });
       expect(
         within(table).getByRole("row", { name: "Linked articles 3 Unpublish and unlink" }),
@@ -716,7 +718,11 @@ describe("dedicated object forms", () => {
       });
       fireEvent.click(screen.getByRole("button", { name: "Delete permanently" }));
       await waitFor(() =>
-        expect(deleteRecord).toHaveBeenCalledWith("topics", "topic-1", "test-csrf", "replacement"),
+        expect(deleteRecord).toHaveBeenCalledWith(
+          { resource: "topics", id: "topic-1" },
+          "test-csrf",
+          "replacement",
+        ),
       );
     },
   );
@@ -742,7 +748,7 @@ describe("dedicated object forms", () => {
       status: "pending",
       proposed: { name: "Vercel", slug: "vercel", kind: "platform" },
     } as Awaited<ReturnType<typeof adminTopicProposalGet>>);
-    withAdmin(<ResourceDelete resource="topics" id="topic-1" />);
+    withAdmin(<ResourceDelete identity={{ resource: "topics", id: "topic-1" }} />);
     fireEvent.click(await screen.findByRole("combobox", { name: "Replacement topic" }));
     fireEvent.click(await screen.findByRole("option", { name: /Vercel.*Pending/ }));
     expect(screen.getByText(/Pending proposals stay inactive until approved/)).toBeDefined();
@@ -752,8 +758,7 @@ describe("dedicated object forms", () => {
     fireEvent.click(screen.getByRole("button", { name: "Delete permanently" }));
     await waitFor(() =>
       expect(deleteRecord).toHaveBeenCalledWith(
-        "topics",
-        "topic-1",
+        { resource: "topics", id: "topic-1" },
         "test-csrf",
         "proposal:pending-1",
       ),
@@ -769,7 +774,7 @@ describe("dedicated object forms", () => {
       research_jobs: 0,
       pending_topic_proposals: 0,
     });
-    withAdmin(<ResourceDelete resource="topics" id="topic-1" />);
+    withAdmin(<ResourceDelete identity={{ resource: "topics", id: "topic-1" }} />);
     const table = await screen.findByRole("table", { name: "Deletion impact" });
     expect(within(table).getAllByRole("row")).toHaveLength(3);
     expect(
@@ -797,13 +802,13 @@ describe("dedicated object forms", () => {
       research_jobs: 0,
       pending_topic_proposals: 0,
     });
-    withAdmin(<ResourceDelete resource="topics" id="topic-1" />);
+    withAdmin(<ResourceDelete identity={{ resource: "topics", id: "topic-1" }} />);
     await screen.findByRole("textbox", { name: "Type DELETE to confirm" });
     expect(screen.queryByRole("table", { name: "Deletion impact" })).toBeNull();
   });
   it("does not offer deletion when its impact cannot be loaded", async () => {
     vi.mocked(adminTopicDeletePreview).mockRejectedValueOnce(new ApiError(503, "Unavailable"));
-    withAdmin(<ResourceDelete resource="topics" id="topic-1" />);
+    withAdmin(<ResourceDelete identity={{ resource: "topics", id: "topic-1" }} />);
     await waitFor(() => expect(toast.error).toHaveBeenCalled());
     expect(screen.queryByRole("button", { name: "Delete permanently" })).toBeNull();
     expect(deleteRecord).not.toHaveBeenCalled();

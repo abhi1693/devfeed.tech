@@ -26,6 +26,11 @@ import { RecordHistory } from "./record-history";
 import { JobLogs } from "./job-logs";
 import { getRecord, jobKinds, type RecordData } from "@/lib/resource-api";
 import { type Resource, resources, humanize, recordHref } from "@/lib/resources";
+import {
+  recordIdentityKey,
+  type RecordIdentity,
+  type SimpleResource,
+} from "@/lib/record-identities";
 import { useRefreshInterval } from "@/lib/use-refresh-interval";
 import { useRequest } from "@/lib/use-request";
 import { adminArticleContent } from "@/lib/api/generated/admin";
@@ -45,27 +50,26 @@ import type { AdminUserDetail } from "@/lib/api/generated/models";
 import { AutomationHistory } from "./automation-history";
 
 export function ResourceDetail({
-  resource,
-  id,
+  identity,
   section = "details",
 }: {
-  resource: Resource;
-  id: string;
+  identity: RecordIdentity;
   section?: DetailSection;
 }) {
   const refreshSeconds = useRefreshInterval();
   const [revision, setRevision] = useState(0);
-  const load = useCallback(
-    (signal: AbortSignal) => getRecord(resource, id, signal),
-    [resource, id],
+  const load = useCallback((signal: AbortSignal) => getRecord(identity, signal), [identity]);
+  const result = useRequest(
+    `${recordIdentityKey(identity)}/${revision}`,
+    load,
+    refreshSeconds * 1000,
   );
-  const result = useRequest(`${resource}/${id}/${revision}`, load, refreshSeconds * 1000);
   return (
     <>
       <RequestState loading={result.loading} error={result.error} />
       {result.data && (
         <Details
-          resource={resource}
+          identity={identity}
           record={result.data}
           tab={section}
           onAnalysisQueued={() => setRevision((value) => value + 1)}
@@ -75,21 +79,25 @@ export function ResourceDetail({
   );
 }
 function Details({
-  resource,
+  identity,
   record,
   tab,
   onAnalysisQueued,
 }: {
-  resource: Resource;
+  identity: RecordIdentity;
   record: RecordData;
   tab: DetailSection;
   onAnalysisQueued: () => void;
 }) {
+  const resource = identity.resource;
   const spec = resources[resource];
-  const kind =
-    resource === "analysis-jobs" && record.kind === "topic-analysis"
-      ? "topic-analysis"
-      : jobKinds[resource];
+  const kind = identity.resource === "analysis-jobs" ? identity.kind : jobKinds[resource];
+  const title =
+    identity.resource === "topic-relations"
+      ? humanize(identity.relation)
+      : kind
+        ? `Run ${identity.id.slice(0, 8)}`
+        : String(record[spec.title]);
   const tabs = detailSections(resource);
   const logoField = spec.fields.find((field) => field.type === "logo-url");
   const logo =
@@ -160,23 +168,19 @@ function Details({
     "available_at",
     "finished_at",
     "error",
-  ].filter((key) => key in record);
+  ].filter((key) => key in record && (resource !== "topic-relations" || key !== "id"));
   return (
     <section className="space-y-6">
       <ResourceHeading
         browserTitle={adminRouteTitle(
           {
             view: "detail",
-            resource,
-            id:
-              resource === "analysis-jobs" && record.kind === "topic-analysis"
-                ? `topic-analysis~${record.id}`
-                : record.id,
+            identity,
             section: tab,
           },
-          record[spec.title],
+          identity.resource === "topic-relations" ? title : record[spec.title],
         )}
-        title={kind ? `Run ${record.id.slice(0, 8)}` : String(record[spec.title])}
+        title={title}
         leading={logo ? <ImagePreviewLink value={logo} kind="logo" variant="heading" /> : undefined}
         trail={[...resourceTrail(resource), { label: spec.label, href: resourceHref(resource) }]}
         description={spec.readonly ? spec.description : undefined}
@@ -199,14 +203,14 @@ function Details({
             onQueued={onAnalysisQueued}
           />
         )}
-        <RecordActions resource={resource} id={record.id} detail />
+        <RecordActions identity={identity} detail />
       </ResourceHeading>
       <nav aria-label="Object sections" className="flex gap-5 overflow-x-auto border-b">
         {tabs.map((item) => (
           <Link
             prefetch={false}
             key={item}
-            href={recordHref(resource, record, item)}
+            href={recordHref(identity, item)}
             aria-current={tab === item ? "page" : undefined}
             className={`whitespace-nowrap border-b-2 px-1 pb-3 text-sm ${tab === item ? "border-primary font-medium" : "border-transparent text-muted-foreground hover:text-foreground"}`}
           >
@@ -396,11 +400,13 @@ function Details({
         </>
       )}
       {tab === "evidence" && resource === "articles" && <Evidence id={record.id} />}
-      {kind && (tab === "details" || tab === "logs") && <JobLogs kind={kind} id={record.id} />}
+      {kind && identity.resource !== "topic-relations" && (tab === "details" || tab === "logs") && (
+        <JobLogs kind={kind} id={identity.id} />
+      )}
     </section>
   );
 }
-function LinkedItems({ resource, items }: { resource: Resource; items: unknown }) {
+function LinkedItems({ resource, items }: { resource: SimpleResource; items: unknown }) {
   const rows = (items ?? []) as Record<string, unknown>[];
   return rows.length ? (
     <ul className="space-y-2">

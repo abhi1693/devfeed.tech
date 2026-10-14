@@ -1,4 +1,5 @@
 "use client";
+import { recordIdentity } from "@/lib/record-identities";
 
 import Link from "next/link";
 import { useCallback, useState } from "react";
@@ -120,7 +121,7 @@ export function UserActivitySummary({ user }: { user: AdminUserDetail }) {
           <Link
             key={section}
             className="rounded-md border p-3 hover:bg-muted focus-visible:outline-2 focus-visible:outline-ring"
-            href={recordHref("users", user, section)}
+            href={recordHref(recordIdentity("users", user), section)}
           >
             <span className="block text-lg font-semibold tabular-nums">{count ?? 0}</span>
             <span className="text-xs text-muted-foreground">{labels[section]}</span>
@@ -198,7 +199,7 @@ export function UserDetailsOverview({ user }: { user: AdminUserDetail }) {
               value: (
                 <Link
                   className="text-blue-700 hover:underline dark:text-blue-400"
-                  href={recordHref("users", user, "reads")}
+                  href={recordHref(recordIdentity("users", user), "reads")}
                 >
                   {user.reads ?? 0} · View
                 </Link>
@@ -332,7 +333,7 @@ export function UserProfileDetails({ user }: { user: AdminUserDetail }) {
                       <li key={item.id}>
                         <Link
                           className="text-blue-700 hover:underline dark:text-blue-400"
-                          href={recordHref("topics", item)}
+                          href={recordHref(recordIdentity("topics", item))}
                         >
                           {item.name}
                         </Link>
@@ -445,7 +446,7 @@ function UserInterestPreview({ user }: { user: AdminUserDetail }) {
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h3 className="font-semibold">{title}</h3>
         <Button variant="outline" size="sm" asChild>
-          <Link href={recordHref("users", user, section)}>View all {section}</Link>
+          <Link href={recordHref(recordIdentity("users", user), section)}>View all {section}</Link>
         </Button>
       </div>
       <p className="text-sm text-muted-foreground">
@@ -475,7 +476,7 @@ function topicLink(id: unknown, name: unknown) {
     <Link
       prefetch={false}
       className="break-words text-blue-700 hover:underline dark:text-blue-400"
-      href={recordHref("topics", { id: String(id) })}
+      href={recordHref(recordIdentity("topics", { id: String(id) }))}
     >
       {String(name)}
     </Link>
@@ -519,7 +520,9 @@ function columns(section: UserSection): DataTableColumn<RecordData>[] {
       enableSorting: true,
       cell: ({ row }) =>
         section === "sources" ? (
-          <Link href={recordHref("sources", row.original)}>{String(row.original.name)}</Link>
+          <Link href={recordHref(recordIdentity("sources", row.original))}>
+            {String(row.original.name)}
+          </Link>
         ) : topics ? (
           topicLink(row.original.id, row.original.name)
         ) : section === "reads" && !row.original.title ? (
@@ -528,9 +531,11 @@ function columns(section: UserSection): DataTableColumn<RecordData>[] {
           <Link
             prefetch={false}
             className="block max-w-lg break-words font-medium text-blue-700 hover:underline dark:text-blue-400"
-            href={recordHref("articles", {
-              id: String(row.original.article_id ?? row.original.id),
-            })}
+            href={recordHref(
+              recordIdentity("articles", {
+                id: String(row.original.article_id ?? row.original.id),
+              }),
+            )}
           >
             {String(row.original.title)}
           </Link>
@@ -602,7 +607,11 @@ function columns(section: UserSection): DataTableColumn<RecordData>[] {
             enableSorting: false,
             cell: ({ row }: { row: { original: RecordData } }) =>
               row.original.source_id ? (
-                <Link href={recordHref("sources", { id: String(row.original.source_id) })}>
+                <Link
+                  href={recordHref(
+                    recordIdentity("sources", { id: String(row.original.source_id) }),
+                  )}
+                >
                   {String(row.original.source_name ?? "Source")}
                 </Link>
               ) : (
@@ -686,9 +695,12 @@ function UserRecordsTable({
       if (value) params.set(key, value);
       else params.delete(key);
     }
-    router[replace ? "replace" : "push"](`${recordHref("users", user, section)}?${params}`, {
-      scroll: false,
-    });
+    router[replace ? "replace" : "push"](
+      `${recordHref(recordIdentity("users", user), section)}?${params}`,
+      {
+        scroll: false,
+      },
+    );
   }
   return (
     <section className="min-w-0 space-y-4">

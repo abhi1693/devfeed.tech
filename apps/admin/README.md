@@ -7,6 +7,22 @@ Traefik ingress also redirects HTTP to HTTPS.
 
 See [configuration, authentication, service boundaries and commands](../../docs/admin.md).
 
+## Record identities
+
+`lib/record-identities.ts` defines the identities passed from routes to API calls,
+forms, actions, titles, tabs, and logs. Analysis runs keep their native ID and explicit
+job kind; relationships keep their source topic, target topic, and relationship type.
+Construct identities from API rows with `recordIdentity`, and build URLs with
+`recordHref`. API calls receive the structured identity rather than a URL token.
+
+Use `recordRowKey` for table selection and `recordIdentityKey` for request state.
+These serialized keys are never decoded or used as API identifiers. Relationship
+rows retain native fields; their adapter-provided `id` serves only as a UI key.
+Old bookmark tokens are decoded only at the redirect boundary in `lib/routes.ts`.
+
+Validate with `npm run admin:test` and, after `npm run admin:build`,
+`node apps/admin/tests/browser/record-identities.mjs`.
+
 ## Sidebar navigation
 
 The administration sidebar starts as a compact icon rail. Use **Expand sidebar** at the

@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { recordIdentity } from "@/lib/record-identities";
 import { renderAdmin } from "./render-admin";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
@@ -90,7 +91,7 @@ describe("clickable read-only image previews", () => {
       logo_variants: [],
       logo_storage_status: "queued",
     });
-    renderAdmin(<ResourceDetail resource="topics" id="record-1" />);
+    renderAdmin(<ResourceDetail identity={{ resource: "topics", id: "record-1" }} />);
     await screen.findByRole("group", { name: "Record actions" });
     expect(screen.getByRole("link", { name: "Open logo in a new tab" }).getAttribute("href")).toBe(
       original,
@@ -138,7 +139,11 @@ describe("clickable read-only image previews", () => {
         tags: [],
         sources: [],
       });
-      renderAdmin(<ResourceDetail resource={resource} id="record-1" />);
+      renderAdmin(
+        <ResourceDetail
+          identity={recordIdentity(resource, { id: "record-1", kind: "analysis" })}
+        />,
+      );
       await screen.findByRole("group", { name: "Record actions" });
       if (resource !== "articles") {
         const logoLink = screen.getByRole("link", { name: "Open logo in a new tab" });
@@ -179,7 +184,7 @@ describe("clickable read-only image previews", () => {
         name: "Cloudflare AI",
         logo_url: value,
       });
-      renderAdmin(<ResourceDetail resource="sources" id="record-1" />);
+      renderAdmin(<ResourceDetail identity={{ resource: "sources", id: "record-1" }} />);
       await screen.findByRole("heading", { level: 1, name: "Cloudflare AI" });
       expect(screen.queryByRole("link", { name: "Open logo in a new tab" })).toBeNull();
       expect(screen.queryByText("Logo URL")).toBeNull();
@@ -193,7 +198,7 @@ describe("clickable read-only image previews", () => {
       name: "Cloudflare AI",
       logo_url: logo,
     });
-    renderAdmin(<ResourceDetail resource="sources" id="record-1" />);
+    renderAdmin(<ResourceDetail identity={{ resource: "sources", id: "record-1" }} />);
     await screen.findByRole("heading", { level: 1, name: "Cloudflare AI" });
     fireEvent.error(screen.getByAltText("Logo preview"));
     expect(screen.getByRole("status", { name: "Preview unavailable" })).toBeTruthy();

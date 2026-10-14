@@ -97,7 +97,11 @@ it("lists both pipelines with subject links and a type filter", async () => {
 });
 
 it("opens the correct topic run and retains its pipeline in logs navigation", async () => {
-  render(<ResourceDetail resource="analysis-jobs" id="topic-analysis~topic-job" />);
+  render(
+    <ResourceDetail
+      identity={{ resource: "analysis-jobs", kind: "topic-analysis", id: "topic-job" }}
+    />,
+  );
   await screen.findByRole("heading", { name: "Run topic-jo" });
   expect(adminJobGet).toHaveBeenCalledWith("topic-analysis", "topic-job", {
     signal: expect.any(AbortSignal),
@@ -119,12 +123,54 @@ it("opens the correct topic run and retains its pipeline in logs navigation", as
 });
 
 it("keeps article run URLs and related-article filtering compatible", async () => {
-  await getRecord("analysis-jobs", "article-job");
+  await getRecord({ resource: "analysis-jobs", kind: "analysis", id: "article-job" });
   expect(adminJobGet).toHaveBeenCalledWith("analysis", "article-job", { signal: undefined });
   await listRecords("analysis-jobs", { article_id: "article-1", offset: 25, limit: 25 });
   expect(adminAiAnalysisJobsList).toHaveBeenCalledWith(
     { article_id: "article-1", offset: 25, limit: 25 },
     { signal: undefined },
+  );
+});
+
+it("switches pipeline requests, logs and tabs when both runs use the same UUID", async () => {
+  const id = "22222222-2222-4222-8222-222222222222";
+  vi.mocked(adminJobGet).mockImplementation(async (kind) => ({
+    ...(kind === "topic-analysis" ? topic : article),
+    id,
+  }));
+  const view = render(
+    <ResourceDetail identity={{ resource: "analysis-jobs", kind: "analysis", id }} />,
+  );
+  await screen.findByRole("heading", { name: "Run 22222222" });
+  const articleSignal = vi.mocked(adminJobGet).mock.calls[0][2]!.signal!;
+  await waitFor(() =>
+    expect(adminJobLogs).toHaveBeenCalledWith("analysis", id, expect.anything(), expect.anything()),
+  );
+  expect(screen.getByRole("link", { name: "Logs" }).getAttribute("href")).toBe(
+    `/jobs/analysis/articles/${id}/logs`,
+  );
+  view.rerender(
+    <ResourceDetail identity={{ resource: "analysis-jobs", kind: "topic-analysis", id }} />,
+  );
+  await waitFor(() =>
+    expect(adminJobGet).toHaveBeenLastCalledWith("topic-analysis", id, {
+      signal: expect.any(AbortSignal),
+    }),
+  );
+  expect(articleSignal.aborted).toBe(true);
+  await waitFor(() =>
+    expect(adminJobLogs).toHaveBeenLastCalledWith(
+      "topic-analysis",
+      id,
+      expect.anything(),
+      expect.anything(),
+    ),
+  );
+  expect(screen.getByRole("link", { name: "Logs" }).getAttribute("href")).toBe(
+    `/jobs/analysis/topics/${id}/logs`,
+  );
+  expect(screen.getByRole("link", { name: "Details" }).getAttribute("href")).toBe(
+    `/jobs/analysis/topics/${id}`,
   );
 });
 

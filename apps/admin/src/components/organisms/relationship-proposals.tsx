@@ -1,4 +1,5 @@
 "use client";
+import { recordIdentity } from "@/lib/record-identities";
 
 import { DateTime } from "@/components/molecules/date-time";
 
@@ -353,7 +354,11 @@ function Review({ initial }: { initial: Proposal }) {
         description={humanize(proposal.status)}
       >
         <Button variant="outline" size="sm" asChild>
-          <Link href={recordHref("analysis-jobs", { id: proposal.job_id, kind: "topic-analysis" })}>
+          <Link
+            href={recordHref(
+              recordIdentity("analysis-jobs", { id: proposal.job_id, kind: "topic-analysis" }),
+            )}
+          >
             Research run
           </Link>
         </Button>
