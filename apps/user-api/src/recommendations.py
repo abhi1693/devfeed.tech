@@ -30,6 +30,7 @@ from devfeed_core.publication import visible_article
 from devfeed_core.recommendations import has_recommendation_work
 from devfeed_core.schemas import ArticleOut, ContentType, FeedPage
 from devfeed_core.user_settings import FeedSettings
+from devfeed_http.agent_permissions import AgentAccessPolicy
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, Field
 from sqlalchemy import func, or_, select, text, update
@@ -134,7 +135,11 @@ def decode_position(cursor, user_id, scope):
         raise HTTPException(422, "Invalid recommendation cursor") from exc
 
 
-@router.get("/feed", response_model=RecommendationPage)
+@router.get(
+    "/feed",
+    response_model=RecommendationPage,
+    openapi_extra=AgentAccessPolicy(scope="devfeed:read").openapi_extra(),
+)
 def feed(
     user: User,
     session: DB,

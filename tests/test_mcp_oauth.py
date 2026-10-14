@@ -11,13 +11,17 @@ from urllib.parse import parse_qs, urlsplit
 
 import httpx
 import pytest
+from devfeed_http.agent_permissions import AgentAccessPolicy
 from devfeed_mcp.config import Settings
 from devfeed_mcp.main import create_app
 from devfeed_user_api import auth, mcp, oidc
 from devfeed_user_api.config import Settings as UserSettings
 from devfeed_user_api.main import create_app as create_user_app
+from fastapi.routing import APIRoute, iter_route_contexts
 from fastapi.testclient import TestClient
 from redis import Redis
+from starlette.requests import Request
+from starlette.routing import Match
 from test_mcp import ARTICLE, ID
 
 pytestmark = pytest.mark.integration
@@ -27,6 +31,22 @@ ISSUER = "https://mcp.example"
 WEB = "https://reader.example"
 USER_ID = "00000000-0000-4000-8000-000000000001"
 HEADERS = {"Accept": "application/json, text/event-stream", "Mcp-Protocol-Version": "2025-11-25"}
+
+
+def registered_request(app, path, token, method="GET"):
+    scope = {
+        "type": "http",
+        "method": method,
+        "path": path,
+        "headers": [(b"authorization", ("Bearer " + token).encode())],
+    }
+    for context in iter_route_contexts(app.routes):
+        route = context.original_route
+        if isinstance(route, APIRoute):
+            matched, child = route.matches(scope)
+            if matched == Match.FULL:
+                return Request({**scope, **child})
+    pytest.fail(f"No registered {method} route for {path}")
 
 
 @pytest.fixture
@@ -399,7 +419,6 @@ def test_user_api_binds_identity_and_denies_other_endpoints(flow, monkeypatch):
 
     from devfeed_core import db
     from fastapi import HTTPException
-    from starlette.requests import Request
 
     token, _ = tokens(flow)
 
@@ -416,15 +435,9 @@ def test_user_api_binds_identity_and_denies_other_endpoints(flow, monkeypatch):
     monkeypatch.setattr(db, "session_factory", lambda: Session)
 
     def request(path, method="GET"):
-        return Request(
-            {
-                "type": "http",
-                "method": method,
-                "path": path,
-                "headers": [(b"authorization", ("Bearer " + token["access_token"]).encode())],
-            }
-        )
+        return registered_request(flow.user.app, path, token["access_token"], method)
 
+    assert AgentAccessPolicy.from_request(request("/v1/user/bookmarks")).scope == "devfeed:read"
     assert auth.require_user(request("/v1/user/bookmarks")).user_id == USER_ID
     assert auth.require_user(request("/v1/user/must-reads")).user_id == USER_ID
     for path, method in [
@@ -615,7 +628,6 @@ def test_expired_idle_grant_and_revoked_grant_cannot_be_renewed(flow):
 )
 def test_read_only_selection_limits_code_tokens_refresh_and_all_writes(flow, name, args, path):
     from fastapi import HTTPException
-    from starlette.requests import Request
 
     form = approve(flow, start(flow, "devfeed:read devfeed:write offline_access"), "read-only")
     code = json.loads(flow.store.get(mcp.key("code", form["code"])))
@@ -646,14 +658,8 @@ def test_read_only_selection_limits_code_tokens_refresh_and_all_writes(flow, nam
         response = call(flow, access, name, args)
         assert response.json()["result"]["isError"]
         assert not flow.requests
-        request = Request(
-            {
-                "type": "http",
-                "method": "PUT",
-                "path": path,
-                "headers": [(b"authorization", ("Bearer " + access).encode())],
-            }
-        )
+        request = registered_request(flow.user.app, path, access, "PUT")
+        assert AgentAccessPolicy.from_request(request).scope == mcp.WRITE
         with pytest.raises(HTTPException) as error:
             mcp.require_agent_user(request)
         assert error.value.status_code == 403

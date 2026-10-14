@@ -167,12 +167,13 @@ and discovers the six tools without requiring an upstream API.
 ## Signed-in tools and OAuth
 
 The single `/mcp` endpoint supports anonymous public tools and, when OAuth is configured,
-eight account tools. All fourteen tools are discoverable without sign-in; calling an
+nine account tools. All fifteen tools are discoverable without sign-in; calling an
 account tool requires OAuth:
 
 | Tool | Permission | Behavior |
 | --- | --- | --- |
 | `get_my_feed` | `devfeed:read` | Read your personalized feed; preserve cursor and generation between pages. |
+| `get_my_must_reads` | `devfeed:read` | Preview today's personalized Must Reads without marking articles read or consuming the reader's daily popup. |
 | `list_my_bookmarks` | `devfeed:read` | Read your saved published articles. |
 | `list_my_followed_topics` | `devfeed:read` | Read your followed topic IDs. |
 | `list_my_followed_sources` | `devfeed:read` | Read your followed source IDs. |
@@ -273,5 +274,10 @@ and issued tokens while retaining requested renewal scopes such as `offline_acce
 Read-only agents can read their personal feed, bookmarks, and followed topics and
 sources. Read-write agents can also change bookmarks, topic/source follows, and
 article likes. Both the MCP tools and user API enforce the token permissions.
+The user API declares the required agent scope on each permitted endpoint and
+resolves it from the route selected by FastAPI, including prefixes and mounts.
+Endpoints without a valid agent declaration deny agent access. The required scope
+must appear in both the access token and its live grant. Browser-only endpoints
+authenticate with their session cookies and retain origin and CSRF checks.
 Refresh cannot add write access to a read-only connection. Reconnect and approve
 read-write access to enable changes; existing connections keep their approved scopes.

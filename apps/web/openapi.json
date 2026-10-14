@@ -2787,6 +2787,9 @@
         "tags": [
           "bookmarks"
         ],
+        "x-devfeed-agent": {
+          "scope": "devfeed:write"
+        },
         "x-devfeed-gateway": {
           "bodyLimit": 1000000,
           "bodyTimeoutMs": 2000,
@@ -2882,6 +2885,9 @@
         "tags": [
           "article-engagement"
         ],
+        "x-devfeed-agent": {
+          "scope": "devfeed:write"
+        },
         "x-devfeed-gateway": {
           "bodyLimit": 1000000,
           "bodyTimeoutMs": 2000,
@@ -3488,6 +3494,9 @@
         "tags": [
           "bookmarks"
         ],
+        "x-devfeed-agent": {
+          "scope": "devfeed:read"
+        },
         "x-devfeed-gateway": {
           "bodyLimit": 1000000,
           "bodyTimeoutMs": 2000,
@@ -3754,6 +3763,9 @@
         "tags": [
           "personalization"
         ],
+        "x-devfeed-agent": {
+          "scope": "devfeed:read"
+        },
         "x-devfeed-gateway": {
           "bodyLimit": 1000000,
           "bodyTimeoutMs": 2000,
@@ -4287,6 +4299,9 @@
         "tags": [
           "personalization"
         ],
+        "x-devfeed-agent": {
+          "scope": "devfeed:read"
+        },
         "x-devfeed-gateway": {
           "bodyLimit": 1000000,
           "bodyTimeoutMs": 2000,
@@ -4604,6 +4619,9 @@
         "tags": [
           "personalization"
         ],
+        "x-devfeed-agent": {
+          "scope": "devfeed:read"
+        },
         "x-devfeed-gateway": {
           "bodyLimit": 1000000,
           "bodyTimeoutMs": 2000,
@@ -4758,6 +4776,9 @@
         "tags": [
           "personalization"
         ],
+        "x-devfeed-agent": {
+          "scope": "devfeed:read"
+        },
         "x-devfeed-gateway": {
           "bodyLimit": 1000000,
           "bodyTimeoutMs": 2000,
@@ -4934,6 +4955,9 @@
         "tags": [
           "personalization"
         ],
+        "x-devfeed-agent": {
+          "scope": "devfeed:write"
+        },
         "x-devfeed-gateway": {
           "bodyLimit": 1000000,
           "bodyTimeoutMs": 2000,
@@ -5029,6 +5053,9 @@
         "tags": [
           "personalization"
         ],
+        "x-devfeed-agent": {
+          "scope": "devfeed:write"
+        },
         "x-devfeed-gateway": {
           "bodyLimit": 1000000,
           "bodyTimeoutMs": 2000,

@@ -18,6 +18,7 @@ from devfeed_core.models import (
 from devfeed_core.publication import visible_article
 from devfeed_core.reading_streaks import record_reading_day
 from devfeed_core.schemas import ArticleOut, FeedPage
+from devfeed_http.agent_permissions import AgentAccessPolicy
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy import delete, func, literal, select, union_all
@@ -122,7 +123,11 @@ def engagement(
     return engagement_rows(session, article_id, viewer)
 
 
-@router.put("/articles/{article_id}/like", response_model=EngagementOut)
+@router.put(
+    "/articles/{article_id}/like",
+    response_model=EngagementOut,
+    openapi_extra=AgentAccessPolicy(scope="devfeed:write").openapi_extra(),
+)
 def like(article_id: uuid.UUID, payload: LikeInput, user: User, session: DB):
     public_article(session, article_id)
     values = {"article_id": article_id, "user_id": uuid.UUID(user.user_id)}
