@@ -27,7 +27,7 @@ import {
 import type { AccountOut, CampaignInput, CampaignOut } from "@/lib/api/generated/models";
 import { ApiError, returnToLogin } from "@/lib/api/client";
 import { useRequest } from "@/lib/use-request";
-import { accountHref } from "./partner-accounts";
+import { partnerAccountHref } from "@/lib/partner-account-routes";
 import { audienceValue } from "@devfeed/ui/audience-targeting";
 import { PartnerAudience } from "./partner-audience";
 import { PartnerCreativePreview } from "./partner-ad-formats";
@@ -80,7 +80,14 @@ export function PartnerCampaignPage({
           includes accepted imported products. Its settings are managed through the partner account.
         </p>
         <Button asChild variant="outline">
-          <Link href={`${accountHref(account.id)}/edit`} prefetch={false}>
+          <Link
+            href={partnerAccountHref({
+              resource: "account",
+              action: "edit",
+              accountId: account.id,
+            })}
+            prefetch={false}
+          >
             Edit account defaults
           </Link>
         </Button>
@@ -99,7 +106,14 @@ export function PartnerCampaignPage({
             : "This account’s current tier supports product recommendations. Change its partnership tier to create a sponsored campaign."}
         </p>
         <Button asChild variant="outline">
-          <Link href={`${accountHref(account.id)}/edit`} prefetch={false}>
+          <Link
+            href={partnerAccountHref({
+              resource: "account",
+              action: "edit",
+              accountId: account.id,
+            })}
+            prefetch={false}
+          >
             Edit account defaults
           </Link>
         </Button>
@@ -176,7 +190,11 @@ function PartnerCampaignForm({
     }),
     [account.id],
   );
-  const cancel = `${accountHref(account.id)}/campaigns`;
+  const cancel = partnerAccountHref({
+    resource: "campaign",
+    action: "list",
+    accountId: account.id,
+  });
   const articleSource = useMemo<EntityPickerSource>(
     () => ({
       key: `sponsor-articles/${account.id}`,

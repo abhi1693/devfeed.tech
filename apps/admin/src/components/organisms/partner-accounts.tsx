@@ -7,10 +7,8 @@ import { Button } from "@devfeed/ui/button";
 import { ResourceHeading } from "@devfeed/ui/resource-layout";
 import { DataTable, type DataTableColumn } from "@/components/molecules/data-table";
 import type { AccountOut, AccountsOut } from "@/lib/api/generated/models";
+import { accountHref, accountsTrail, partnerAccountHref } from "@/lib/partner-account-routes";
 
-export const accountsPath = "/partnerships/accounts";
-export const accountHref = (id: string) => `${accountsPath}/${encodeURIComponent(id)}`;
-export const accountsTrail = [{ label: "Partnerships", href: "/partnerships" }];
 const columns: DataTableColumn<AccountOut>[] = [
   {
     accessorKey: "name",
@@ -37,7 +35,11 @@ const columns: DataTableColumn<AccountOut>[] = [
     cell: ({ row }) => (
       <Button asChild variant="outline" size="sm">
         <Link
-          href={`${accountHref(row.original.id)}/edit`}
+          href={partnerAccountHref({
+            resource: "account",
+            action: "edit",
+            accountId: row.original.id,
+          })}
           prefetch={false}
           aria-label={`Edit ${row.original.name}`}
         >
@@ -87,7 +89,10 @@ export function PartnerAccounts() {
         trail={accountsTrail}
       >
         <Button asChild size="sm">
-          <Link href={`${accountsPath}/new`} prefetch={false}>
+          <Link
+            href={partnerAccountHref({ resource: "account", action: "create" })}
+            prefetch={false}
+          >
             <Plus aria-hidden />
             Create partner account
           </Link>

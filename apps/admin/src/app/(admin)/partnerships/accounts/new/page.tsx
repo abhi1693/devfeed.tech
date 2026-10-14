@@ -5,5 +5,5 @@ export const metadata = { title: "Create partner account" };
 export default async function Page() {
   const admin = await requireAdmin();
   if (!admin.roles.includes("superuser")) redirect("/");
-  return <PartnerAccountPage />;
+  return <PartnerAccountPage route={{ resource: "account", action: "create" }} />;
 }

@@ -1,9 +1,7 @@
 import { notFound, redirect } from "next/navigation";
 import { requireAdmin } from "@/lib/server/session";
-import {
-  PartnerAccountPage,
-  type AccountSection,
-} from "@/components/organisms/partner-account-page";
+import { PartnerAccountPage } from "@/components/organisms/partner-account-page";
+import { partnerAccountHref, resolvePartnerAccountRoute } from "@/lib/partner-account-routes";
 export const metadata = { title: "Partner account" };
 export default async function Page({
   params,
@@ -15,21 +13,8 @@ export default async function Page({
   const admin = await requireAdmin();
   if (!admin.roles.includes("superuser")) redirect("/");
   const { id, section: segments } = await params;
-  const section = segments?.join("/") ?? "details";
-  if (
-    ![
-      "details",
-      "edit",
-      "related",
-      "products",
-      "campaigns",
-      "campaigns/new",
-      "members/new",
-      "assets/new",
-    ].includes(section) &&
-    !/^(?:assets|campaigns)\/[^/]+\/edit$/.test(section)
-  )
-    notFound();
+  const route = resolvePartnerAccountRoute(id, segments);
+  if (!route) notFound();
   const query = await searchParams;
   const offset = Number(query.offset ?? 0);
   const limit = Number(query.limit ?? 100);
@@ -37,11 +22,10 @@ export default async function Page({
   if (!Number.isSafeInteger(limit) || limit < 1 || limit > 200) notFound();
   return (
     <PartnerAccountPage
-      key={`${id}/${section}`}
-      id={id}
+      key={partnerAccountHref(route)}
+      route={route}
       initialOffset={offset}
       initialLimit={limit}
-      section={section as AccountSection}
     />
   );
 }

@@ -415,6 +415,23 @@ try {
   await page.goto(origin + "/partnerships/accounts");
   await page.waitForURL("**/login");
   await context.addCookies([{ name: "devfeed_admin_session", value: "admin", url: origin }]);
+  for (const section of [
+    "unknown",
+    "edit/extra",
+    "campaigns/new/extra",
+    "campaigns/campaign%2Fextra/edit",
+    `assets/${catalogProduct.id}/edit/extra`,
+  ]) {
+    const response = await page.goto(origin + `/partnerships/accounts/${account.id}/${section}`);
+    // Next may have streamed the authenticated shell before notFound() runs.
+    assert.ok([200, 404].includes(response.status()), `Unrecognized account route ${section}`);
+    await page.getByRole("heading", { name: "404", exact: true }).waitFor();
+    await page.locator('meta[name="robots"][content*="noindex"]').first().waitFor({
+      state: "attached",
+    });
+    assert.equal(await page.getByRole("form").count(), 0);
+    assert.equal(await page.getByLabel(/Campaign name/).count(), 0);
+  }
   await page.goto(origin + "/partnerships/accounts");
   await page.getByRole("heading", { name: "Partner accounts", exact: true }).waitFor();
   await page.getByRole("link", { name: "API Checker", exact: true }).click();
@@ -959,8 +976,9 @@ try {
   );
   assert.deepEqual(writes.at(-1).payload.surfaces, ["article", "topic"]);
   await page.getByRole("link", { name: "October catalog promotion", exact: true }).click();
-  await page.waitForURL("**/campaigns/*/edit");
+  await page.waitForURL(`**/campaigns/${campaigns[0].id}/edit`);
   await page.reload();
+  assert.equal(await page.getByLabel(/Campaign name/).inputValue(), campaigns[0].name);
   await page.getByRole("combobox", { name: "Product targeting", exact: true }).click();
   await page.getByRole("option", { name: "Selected account products", exact: true }).click();
   await page.getByRole("combobox", { name: "Add account product", exact: true }).click();
@@ -1048,9 +1066,10 @@ try {
   assert.equal(writes.at(-1).payload.article_id, sponsoredArticle.id);
   assert.deepEqual(writes.at(-1).payload.surfaces, ["feed"]);
   await page.getByRole("link", { name: "API reliability sponsored article", exact: true }).click();
-  await page.waitForURL("**/campaigns/*/edit");
+  await page.waitForURL(`**/campaigns/${campaigns[2].id}/edit`);
   const articleRequestsBeforeReload = sponsorArticleRequests.length;
   await page.reload();
+  assert.equal(await page.getByLabel(/Campaign name/).inputValue(), campaigns[2].name);
   assert.match(
     await page.getByRole("combobox", { name: "Ad format", exact: true }).innerText(),
     /Sponsored content/,
@@ -1081,6 +1100,49 @@ try {
   );
   await page.goto(origin + `/partnerships/accounts/${account.id}/campaigns`);
   await page.setViewportSize({ width: 1440, height: 1100 });
+  const manualAssetId = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
+  assets = [
+    {
+      id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+      name: "Another reporting record",
+      kind: "ad",
+      status: "paused",
+      automatic: false,
+      aggregated: false,
+      product_id: catalogProduct.id,
+      ad_format: "feed",
+      ad_formats: ["feed"],
+      impressions: 10,
+      clicks: 0,
+      ctr: 0,
+      measured_days: 1,
+    },
+    {
+      id: manualAssetId,
+      name: "Deep-linked manual asset",
+      kind: "ad",
+      status: "active",
+      automatic: false,
+      aggregated: false,
+      product_id: catalogProduct.id,
+      ad_format: "feed",
+      ad_formats: ["feed"],
+      impressions: 20,
+      clicks: 1,
+      ctr: 5,
+      measured_days: 1,
+    },
+  ];
+  await page.goto(
+    origin + `/partnerships/accounts/${account.id}/assets/${manualAssetId}/edit?limit=2`,
+  );
+  await page.getByRole("heading", { name: "Edit Deep-linked manual asset", exact: true }).waitFor();
+  assert.equal(await page.getByLabel(/Asset name/).inputValue(), assets[1].name);
+  assert.equal(await page.getByRole("form", { name: "Asset settings", exact: true }).count(), 1);
+  assert.equal(
+    await page.getByRole("form", { name: "Partnership settings", exact: true }).count(),
+    0,
+  );
   assets = [
     {
       id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
@@ -1098,6 +1160,7 @@ try {
       measured_days: 1,
     },
   ];
+  await page.goto(origin + `/partnerships/accounts/${account.id}/campaigns`);
   await page.getByRole("link", { name: "Related objects", exact: true }).click();
   await page.getByText("Product totals", { exact: true }).waitFor();
   assert.equal(
@@ -1135,7 +1198,7 @@ try {
   });
   assert.deepEqual(errors, []);
   console.log(
-    "Admin account defaults, automatic inventory search/pagination, readable desktop/mobile Products table, catalog inclusion/exclusion, paid campaign targeting and memberships passed; partner cookie denied.",
+    "Admin account route 404s, asset/campaign deep links, defaults, automatic inventory search/pagination, readable desktop/mobile Products table, catalog inclusion/exclusion, paid campaign targeting and memberships passed; partner cookie denied.",
   );
 } finally {
   await browser?.close();

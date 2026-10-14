@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, screen, waitFor, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { renderAdmin } from "./render-admin";
 import { PartnerConnectionForm } from "@/components/organisms/partner-connection-form";
 import { PartnerConnections } from "@/components/organisms/partner-connections";
@@ -167,8 +168,15 @@ const shipyardProvider = {
 };
 
 async function selectAccount() {
-  fireEvent.click(screen.getByRole("combobox", { name: "Partner account" }));
-  fireEvent.click(await screen.findByRole("option", { name: new RegExp(account.name) }));
+  const user = userEvent.setup();
+  const trigger = screen.getByRole("combobox", { name: "Partner account" });
+  await user.click(trigger);
+  await user.click(await screen.findByRole("option", { name: new RegExp(account.name) }));
+  expect(trigger.getAttribute("aria-expanded")).toBe("false");
+  expect(trigger.textContent).toContain(account.name);
+  expect((document.querySelector('select[name="account_id"]') as HTMLSelectElement).value).toBe(
+    account.id,
+  );
 }
 
 const customMappingPaths = {
@@ -1016,6 +1024,7 @@ it.each(["preview", "save"])(
 );
 
 it("offers no empty connector choices while preserving explicit no-pagination and no-auth modes", async () => {
+  vi.mocked(api.adminPartnerConnectionCreate).mockResolvedValue(connection);
   renderAdmin(
     <PartnerConnectionForm providers={[provider]} onSaved={vi.fn()} onCancel={vi.fn()} />,
   );

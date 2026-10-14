@@ -15,36 +15,31 @@ import { DataTable, type DataTableColumn } from "@/components/molecules/data-tab
 import { useAdmin } from "@/components/molecules/admin-session";
 import type { Dashboard, AssetMetrics, MemberOut } from "@/lib/api/generated/models";
 import { PartnerAccountManagement } from "./partner-account-management";
-import { accountsPath, accountHref, accountsTrail } from "./partner-accounts";
+import {
+  accountsPath,
+  accountHref,
+  accountsTrail,
+  partnerAccountHref,
+  type PartnerAccountRoute,
+} from "@/lib/partner-account-routes";
 import { PartnerCampaigns } from "./partner-campaigns";
 import { PartnerCampaignPage } from "./partner-campaign-form";
 import { PartnerInventory } from "./partner-inventory";
 import { ApiError, returnToLogin } from "@/lib/api/client";
 
 type Member = MemberOut;
-export type AccountSection =
-  | "details"
-  | "edit"
-  | "related"
-  | "products"
-  | "campaigns"
-  | "campaigns/new"
-  | `campaigns/${string}/edit`
-  | "members/new"
-  | "assets/new"
-  | `assets/${string}/edit`;
 export function PartnerAccountPage({
-  id,
-  section = "details",
+  route,
   initialOffset = 0,
   initialLimit = 100,
 }: {
-  id?: string;
-  section?: AccountSection;
+  route: PartnerAccountRoute;
   initialOffset?: number;
   initialLimit?: number;
 }) {
   const admin = useAdmin();
+  const accountId =
+    route.resource === "account" && route.action === "create" ? undefined : route.accountId;
   const [data, setData] = useState<Dashboard>();
   const [members, setMembers] = useState<Member[]>([]);
   const [error, setError] = useState<Error>();
@@ -53,14 +48,17 @@ export function PartnerAccountPage({
   const [offset, setOffset] = useState(initialOffset);
   const [limit, setLimit] = useState(initialLimit);
   useEffect(() => {
-    if (!id) return;
+    if (!accountId) return;
     const controller = new AbortController();
     Promise.all([
-      fetch(`/api/v1/admin/partner-accounts/${id}/dashboard?offset=${offset}&limit=${limit}`, {
-        cache: "no-store",
-        signal: controller.signal,
-      }),
-      fetch(`/api/v1/admin/partner-accounts/${id}/members`, {
+      fetch(
+        `/api/v1/admin/partner-accounts/${accountId}/dashboard?offset=${offset}&limit=${limit}`,
+        {
+          cache: "no-store",
+          signal: controller.signal,
+        },
+      ),
+      fetch(`/api/v1/admin/partner-accounts/${accountId}/members`, {
         cache: "no-store",
         signal: controller.signal,
       }),
@@ -85,40 +83,36 @@ export function PartnerAccountPage({
         if (!controller.signal.aborted) setError(reason);
       });
     return () => controller.abort();
-  }, [id, offset, limit, revision]);
-  const href = id ? accountHref(id) : accountsPath;
-  const editingAsset = section.startsWith("assets/") && section.endsWith("/edit");
-  const campaignForm = section === "campaigns/new" || /^campaigns\/[^/]+\/edit$/.test(section);
-  const asset = editingAsset
-    ? data?.assets.find((item) => item.id === section.split("/")[1])
-    : undefined;
-  const form =
-    !id ||
-    section === "edit" ||
-    section === "members/new" ||
-    section === "assets/new" ||
-    campaignForm ||
-    editingAsset;
-  const title = !id
-    ? "Create partner account"
-    : section === "edit"
-      ? `Edit ${data?.account.name ?? "partner account"}`
-      : section === "members/new"
-        ? "Add member"
-        : campaignForm
-          ? section === "campaigns/new"
-            ? "Create paid campaign"
-            : "Edit paid campaign"
-          : section === "assets/new"
-            ? "Associate asset"
-            : editingAsset
-              ? `Edit ${asset?.name ?? "asset"}`
-              : (data?.account.name ?? "Partner account");
+  }, [accountId, offset, limit, revision]);
+  const href = accountId ? accountHref(accountId) : accountsPath;
+  const editingAsset = route.resource === "asset" && route.action === "edit";
+  const campaignForm = route.resource === "campaign" && route.action !== "list";
+  const assetId =
+    route.resource === "asset" && route.action === "edit" ? route.identifier : undefined;
+  const asset = editingAsset ? data?.assets.find((item) => item.id === assetId) : undefined;
+  const form = route.action === "create" || route.action === "edit";
+  const title =
+    route.resource === "account" && route.action === "create"
+      ? "Create partner account"
+      : route.resource === "account" && route.action === "edit"
+        ? `Edit ${data?.account.name ?? "partner account"}`
+        : route.resource === "member"
+          ? "Add member"
+          : campaignForm
+            ? route.action === "create"
+              ? "Create paid campaign"
+              : "Edit paid campaign"
+            : route.resource === "asset" && route.action === "create"
+              ? "Associate asset"
+              : editingAsset
+                ? `Edit ${asset?.name ?? "asset"}`
+                : (data?.account.name ?? "Partner account");
   async function removeMember(subject: string) {
+    if (!accountId) return;
     setBusy(true);
     try {
       const response = await fetch(
-        `/api/v1/admin/partner-accounts/${id}/members/${encodeURIComponent(subject)}`,
+        `/api/v1/admin/partner-accounts/${accountId}/members/${encodeURIComponent(subject)}`,
         { method: "DELETE", headers: { "x-csrf-token": admin.csrf_token } },
       );
       if (!response.ok) throw new Error("Could not remove membership.");
@@ -197,12 +191,26 @@ export function PartnerAccountPage({
           <Link
             href={
               row.original.aggregated
-                ? `${href}/edit`
+                ? partnerAccountHref({ resource: "account", action: "edit", accountId: accountId! })
                 : row.original.automatic
                   ? row.original.campaign_id
-                    ? `${href}/campaigns/${row.original.campaign_id}/edit`
-                    : `${href}/edit`
-                  : `${href}/assets/${row.original.id}/edit?offset=${offset}&limit=${limit}`
+                    ? partnerAccountHref({
+                        resource: "campaign",
+                        action: "edit",
+                        accountId: accountId!,
+                        identifier: row.original.campaign_id,
+                      })
+                    : partnerAccountHref({
+                        resource: "account",
+                        action: "edit",
+                        accountId: accountId!,
+                      })
+                  : `${partnerAccountHref({
+                      resource: "asset",
+                      action: "edit",
+                      accountId: accountId!,
+                      identifier: row.original.id,
+                    })}?offset=${offset}&limit=${limit}`
             }
             prefetch={false}
             aria-label={
@@ -227,9 +235,12 @@ export function PartnerAccountPage({
           ...(form && data ? [{ label: data.account.name, href }] : []),
         ]}
       >
-        {id && data && !form && (
+        {accountId && data && !form && (
           <Button asChild variant="outline" size="sm">
-            <Link href={`${href}/edit`} prefetch={false}>
+            <Link
+              href={partnerAccountHref({ resource: "account", action: "edit", accountId })}
+              prefetch={false}
+            >
               <Pencil aria-hidden />
               Edit
             </Link>
@@ -237,16 +248,20 @@ export function PartnerAccountPage({
         )}
       </ResourceHeading>
       <RequestState
-        loading={!!id && !data && !error}
+        loading={!!accountId && !data && !error}
         error={error}
         retry={() => setRevision((n) => n + 1)}
       />
       {!error &&
-        (!id || data) &&
+        (!accountId || data) &&
         (campaignForm && data ? (
           <PartnerCampaignPage
             account={data.account}
-            campaignId={section === "campaigns/new" ? undefined : section.split("/")[1]}
+            campaignId={
+              route.resource === "campaign" && route.action === "edit"
+                ? route.identifier
+                : undefined
+            }
           />
         ) : form ? (
           editingAsset && !asset ? (
@@ -265,13 +280,13 @@ export function PartnerAccountPage({
             </p>
           ) : (
             <PartnerAccountManagement
-              key={`${id ?? "new"}/${section}`}
+              key={partnerAccountHref(route)}
               account={data?.account}
               asset={asset}
               mode={
-                section === "members/new"
+                route.resource === "member"
                   ? "member"
-                  : section.startsWith("assets/")
+                  : route.resource === "asset"
                     ? "asset"
                     : "account"
               }
@@ -280,30 +295,30 @@ export function PartnerAccountPage({
         ) : (
           <>
             <nav aria-label="Object sections" className="flex gap-5 overflow-x-auto border-b">
-              {(["details", "products", "campaigns", "related"] as const).map((tab) => (
+              {(
+                [
+                  { label: "Details", resource: "account", action: "view" },
+                  { label: "Products", resource: "product", action: "list" },
+                  { label: "Campaigns", resource: "campaign", action: "list" },
+                  { label: "Related objects", resource: "related", action: "list" },
+                ] as const
+              ).map((tab) => (
                 <Link
-                  key={tab}
+                  key={tab.resource}
                   prefetch={false}
-                  href={href + (tab === "details" ? "" : `/${tab}`)}
-                  aria-current={section === tab ? "page" : undefined}
-                  className={`whitespace-nowrap border-b-2 px-1 pb-3 text-sm ${section === tab ? "border-primary font-medium" : "border-transparent text-muted-foreground hover:text-foreground"}`}
+                  href={partnerAccountHref({ ...tab, accountId: accountId! })}
+                  aria-current={route.resource === tab.resource ? "page" : undefined}
+                  className={`whitespace-nowrap border-b-2 px-1 pb-3 text-sm ${route.resource === tab.resource ? "border-primary font-medium" : "border-transparent text-muted-foreground hover:text-foreground"}`}
                 >
-                  {
-                    {
-                      details: "Details",
-                      products: "Products",
-                      campaigns: "Campaigns",
-                      related: "Related objects",
-                    }[tab]
-                  }
+                  {tab.label}
                 </Link>
               ))}
             </nav>
-            {section === "products" ? (
+            {route.resource === "product" ? (
               <PartnerInventory account={data!.account} />
-            ) : section === "campaigns" ? (
+            ) : route.resource === "campaign" ? (
               <PartnerCampaigns account={data!.account} />
-            ) : section === "related" ? (
+            ) : route.resource === "related" ? (
               <div className="space-y-6">
                 <DataTable
                   label="Account members"
@@ -313,7 +328,14 @@ export function PartnerAccountPage({
                   empty="No members added yet."
                   toolbar={
                     <Button asChild size="sm">
-                      <Link href={`${href}/members/new`} prefetch={false}>
+                      <Link
+                        href={partnerAccountHref({
+                          resource: "member",
+                          action: "create",
+                          accountId: accountId!,
+                        })}
+                        prefetch={false}
+                      >
                         <Plus aria-hidden />
                         Add member
                       </Link>
@@ -430,7 +452,7 @@ export function PartnerAccountPage({
                 <ResourcePanel
                   title="Record information"
                   fields={[
-                    { label: "ID", value: <DataValue value={id} /> },
+                    { label: "ID", value: <DataValue value={accountId} /> },
                     {
                       label: "Members",
                       value: (

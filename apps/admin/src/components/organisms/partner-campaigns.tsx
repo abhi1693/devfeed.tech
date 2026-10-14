@@ -10,7 +10,7 @@ import { StatusBadge } from "@/components/molecules/status-badge";
 import { adminPartnerCampaignsList } from "@/lib/api/generated/admin";
 import type { AccountOut, CampaignOut } from "@/lib/api/generated/models";
 import { useRequest } from "@/lib/use-request";
-import { accountHref } from "./partner-accounts";
+import { partnerAccountHref } from "@/lib/partner-account-routes";
 import { hasAudience } from "@devfeed/ui/audience-targeting";
 import { adFormatLabel } from "@devfeed/ui/advertising-formats";
 
@@ -37,8 +37,13 @@ export function PartnerCampaigns({ account }: { account: AccountOut }) {
         <Link
           href={
             row.original.managed
-              ? `${accountHref(accountId)}/edit`
-              : `${accountHref(accountId)}/campaigns/${row.original.id}/edit`
+              ? partnerAccountHref({ resource: "account", action: "edit", accountId })
+              : partnerAccountHref({
+                  resource: "campaign",
+                  action: "edit",
+                  accountId,
+                  identifier: row.original.id,
+                })
           }
           prefetch={false}
           className="text-primary hover:underline"
@@ -146,7 +151,10 @@ export function PartnerCampaigns({ account }: { account: AccountOut }) {
         toolbar={
           canCreate ? (
             <Button asChild size="sm">
-              <Link href={`${accountHref(accountId)}/campaigns/new`} prefetch={false}>
+              <Link
+                href={partnerAccountHref({ resource: "campaign", action: "create", accountId })}
+                prefetch={false}
+              >
                 <Plus aria-hidden />
                 Create paid campaign
               </Link>

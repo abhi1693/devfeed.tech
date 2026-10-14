@@ -230,6 +230,15 @@ Validate account defaults, inclusion/exclusion, all/selected/filtered campaigns,
 product pickers, and desktop/mobile layouts with `npm run admin:test` and, after
 `npm run admin:build`, `node apps/admin/tests/browser/partner-accounts.mjs`.
 
+Account pages decode Next.js path segments on the server with
+`lib/partner-account-routes.ts`. The resulting `PartnerAccountRoute` carries the account,
+resource, action, and edit identifier to the client; forms and tabs consume those fields
+directly. Build links with `partnerAccountHref` from the same contract. Unsupported or
+unsafe segments use Next.js not-found handling, and the existing superuser check runs
+before route resolution.
+The contract supports opaque identifiers, including aggregate product reporting IDs;
+aggregated and automatic assets retain their read-only safeguards.
+
 The adapter follows cursor pagination, accepts the documented and live response envelopes,
 normalizes the platform listing and product website URLs, and selects the Developer Tools
 category. Discovery saves its page cursor and queues one durable job per product. Each

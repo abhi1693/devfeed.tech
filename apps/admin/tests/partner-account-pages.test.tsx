@@ -14,6 +14,7 @@ import type {
   PartnerPipelineOut,
   PartnerEvaluationDetail,
   AccountOut,
+  CampaignOut,
 } from "@/lib/api/generated/models";
 
 const push = vi.hoisted(() => vi.fn());
@@ -30,6 +31,11 @@ vi.mock("@/lib/api/generated/admin", () => ({
   adminPartnerAudienceTopicsCatalog: vi.fn().mockResolvedValue({ items: [], total: 0 }),
   adminPartnerCreativePreview: vi.fn().mockResolvedValue({ product: null }),
   adminPartnerSponsorArticles: vi.fn().mockResolvedValue({ items: [], total: 0 }),
+  adminPartnerCampaignGet: vi.fn(),
+  adminPartnerCampaignUpdate: vi.fn(),
+  adminPartnerCampaignCreate: vi.fn(),
+  adminPartnerCampaignsList: vi.fn().mockResolvedValue({ items: [], total: 0 }),
+  adminPartnerInventoryList: vi.fn().mockResolvedValue({ items: [], total: 0 }),
   adminPartnerProductPromotionGet: vi.fn(),
   adminPartnerProductPromotionUpdate: vi.fn(),
   adminPartnerConnectionsList: vi.fn(),
@@ -100,6 +106,8 @@ const fetcher = vi.fn();
 beforeEach(() => {
   vi.clearAllMocks();
   vi.mocked(api.adminPartnerProvidersList).mockResolvedValue([]);
+  vi.mocked(api.adminPartnerCampaignsList).mockResolvedValue({ items: [], total: 0 });
+  vi.mocked(api.adminPartnerInventoryList).mockResolvedValue({ items: [], total: 0 });
   push.mockReset();
   fetcher.mockReset();
   vi.stubGlobal("fetch", fetcher);
@@ -140,11 +148,15 @@ it("lists accounts with detail and edit links and recovers from a failed request
 });
 
 it("shows account details and related memberships and removes an encoded subject with CSRF", async () => {
-  const view = renderAdmin(<PartnerAccountPage id={account.id} />);
+  const view = renderAdmin(
+    <PartnerAccountPage route={{ resource: "account", action: "view", accountId: account.id }} />,
+  );
   await screen.findByRole("heading", { name: "Example partner" });
   expect(screen.getByText("Partner access")).toBeTruthy();
   view.unmount();
-  renderAdmin(<PartnerAccountPage id={account.id} section="related" />);
+  renderAdmin(
+    <PartnerAccountPage route={{ resource: "related", action: "list", accountId: account.id }} />,
+  );
   await screen.findByRole("link", { name: "Alice" });
   expect(
     screen.getByRole("link", { name: "Edit Example placement" }).getAttribute("href"),
@@ -173,7 +185,9 @@ it("shows all formats for a grouped product rather than its compatibility scalar
         })
       : Response.json([]),
   );
-  renderAdmin(<PartnerAccountPage id={account.id} section="related" />);
+  renderAdmin(
+    <PartnerAccountPage route={{ resource: "related", action: "list", accountId: account.id }} />,
+  );
   expect(await screen.findByText("Engagement · Feed · Homepage sponsorship")).toBeTruthy();
   expect(screen.queryByRole("columnheader", { name: "Type" })).toBeNull();
 });
@@ -184,20 +198,30 @@ it("keeps aggregated mixed-product totals read-only while linking to account pol
       ? Response.json({ ...dashboard, assets: [{ ...asset, automatic: false, aggregated: true }] })
       : Response.json([]),
   );
-  const view = renderAdmin(<PartnerAccountPage id={account.id} section="related" />);
+  const view = renderAdmin(
+    <PartnerAccountPage route={{ resource: "related", action: "list", accountId: account.id }} />,
+  );
   await screen.findByText("Product totals");
   expect(
     screen.getByRole("link", { name: `View policy for ${asset.name}` }).getAttribute("href"),
   ).toBe(`/partnerships/accounts/${account.id}/edit`);
   expect(screen.queryByRole("link", { name: `Edit ${asset.name}` })).toBeNull();
   view.unmount();
-  renderAdmin(<PartnerAccountPage id={account.id} section={`assets/${asset.id}/edit`} />);
+  renderAdmin(
+    <PartnerAccountPage
+      route={{ resource: "asset", action: "edit", accountId: account.id, identifier: asset.id }}
+    />,
+  );
   await screen.findByText(/This product total combines multiple reporting records/);
   expect(screen.queryByRole("form", { name: "Asset settings" })).toBeNull();
 });
 
 it("fails closed when an asset edit URL is outside the account", async () => {
-  renderAdmin(<PartnerAccountPage id={account.id} section="assets/other/edit" />);
+  renderAdmin(
+    <PartnerAccountPage
+      route={{ resource: "asset", action: "edit", accountId: account.id, identifier: "other" }}
+    />,
+  );
   expect((await screen.findByRole("alert")).textContent).toContain("This asset is unavailable");
   expect(screen.queryByRole("form", { name: "Asset settings" })).toBeNull();
 });
@@ -206,12 +230,190 @@ it("shows promotion defaults without displaying a legacy product exposure limit"
   fetcher.mockImplementation(async () =>
     Response.json({ ...dashboard, account: { ...account, frequency_cap: 20 } }),
   );
-  renderAdmin(<PartnerAccountPage id={account.id} />);
+  renderAdmin(
+    <PartnerAccountPage route={{ resource: "account", action: "view", accountId: account.id }} />,
+  );
   await screen.findByRole("heading", { name: account.name });
   expect(screen.getByText("Promotion defaults")).toBeTruthy();
   expect(screen.getByText("Automatic product inclusion")).toBeTruthy();
   expect(screen.queryByText(/Product exposure limit|Frequency cap/i)).toBeNull();
   expect(screen.queryByText(/per reader installation per UTC day/i)).toBeNull();
+});
+
+it.each([
+  {
+    route: { resource: "account" as const, action: "edit" as const, accountId: account.id },
+    title: `Edit ${account.name}`,
+    form: "Partnership settings",
+  },
+  {
+    route: { resource: "member" as const, action: "create" as const, accountId: account.id },
+    title: "Add member",
+    form: "Partner membership",
+  },
+  {
+    route: { resource: "asset" as const, action: "create" as const, accountId: account.id },
+    title: "Associate asset",
+    form: "Asset settings",
+  },
+])("opens the declared $route.resource/$route.action form", async ({ route, title, form }) => {
+  renderAdmin(<PartnerAccountPage route={route} />);
+  await screen.findByRole("heading", { name: title });
+  expect(screen.getByRole("form", { name: form })).toBeTruthy();
+  expect(screen.queryByRole("navigation", { name: "Object sections" })).toBeNull();
+});
+
+it("opens an account creation form without fetching a nonexistent account", async () => {
+  renderAdmin(<PartnerAccountPage route={{ resource: "account", action: "create" }} />);
+  expect(await screen.findByRole("heading", { name: "Create partner account" })).toBeTruthy();
+  expect(screen.getByRole("form", { name: "Partnership settings" })).toBeTruthy();
+  expect(fetcher.mock.calls.some(([input]) => String(input).includes("/dashboard"))).toBe(false);
+  expect(fetcher.mock.calls.some(([input]) => String(input).includes("/members"))).toBe(false);
+});
+
+it.each([
+  {
+    resource: "product" as const,
+    region: "Account products",
+    apiMethod: "adminPartnerInventoryList" as const,
+  },
+  {
+    resource: "campaign" as const,
+    region: "Paid campaigns",
+    apiMethod: "adminPartnerCampaignsList" as const,
+  },
+])("opens the declared $resource list for the account", async ({ resource, region, apiMethod }) => {
+  renderAdmin(<PartnerAccountPage route={{ resource, action: "list", accountId: account.id }} />);
+  expect(await screen.findByRole("region", { name: region })).toBeTruthy();
+  await waitFor(() =>
+    expect(api[apiMethod]).toHaveBeenCalledWith(
+      account.id,
+      expect.objectContaining({ offset: 0, limit: 25 }),
+      expect.objectContaining({ signal: expect.any(AbortSignal) }),
+    ),
+  );
+  expect(
+    screen
+      .getByRole("link", { name: resource === "product" ? "Products" : "Campaigns" })
+      .getAttribute("aria-current"),
+  ).toBe("page");
+});
+
+it("selects and remounts asset edits by the declared identifier", async () => {
+  const other = { ...asset, id: "asset-2", name: "Other placement" };
+  fetcher.mockImplementation(async (input) =>
+    String(input).includes("/dashboard")
+      ? Response.json({ ...dashboard, assets: [asset, other], asset_total: 2 })
+      : Response.json([]),
+  );
+  const view = renderAdmin(
+    <PartnerAccountPage
+      route={{ resource: "asset", action: "edit", accountId: account.id, identifier: asset.id }}
+    />,
+  );
+  const name = await screen.findByLabelText(/Asset name/);
+  expect((name as HTMLInputElement).value).toBe(asset.name);
+  fireEvent.change(name, { target: { value: "Unsaved edit" } });
+  view.rerender(
+    <PartnerAccountPage
+      route={{ resource: "asset", action: "edit", accountId: account.id, identifier: other.id }}
+    />,
+  );
+  expect(await screen.findByRole("heading", { name: `Edit ${other.name}` })).toBeTruthy();
+  expect((screen.getByLabelText(/Asset name/) as HTMLInputElement).value).toBe(other.name);
+});
+
+it("keeps synthetic product totals read-only when routed with their real identifier", async () => {
+  const aggregate = {
+    ...asset,
+    id: "product:123e4567-e89b-12d3-a456-426614174000",
+    aggregated: true,
+  };
+  fetcher.mockImplementation(async (input) =>
+    String(input).includes("/dashboard")
+      ? Response.json({ ...dashboard, assets: [aggregate] })
+      : Response.json([]),
+  );
+  renderAdmin(
+    <PartnerAccountPage
+      route={{ resource: "asset", action: "edit", accountId: account.id, identifier: aggregate.id }}
+    />,
+  );
+  expect((await screen.findByRole("alert")).textContent).toContain("cannot be edited as one asset");
+  expect(screen.queryByRole("form", { name: "Asset settings" })).toBeNull();
+});
+
+it("opens campaign creation without loading an edit identifier", async () => {
+  fetcher.mockImplementation(async (input) =>
+    String(input).includes("/dashboard")
+      ? Response.json({
+          ...dashboard,
+          account: { ...account, allowed_promotion_kinds: ["product", "ad"] },
+        })
+      : Response.json([]),
+  );
+  renderAdmin(
+    <PartnerAccountPage
+      route={{ resource: "campaign", action: "create", accountId: account.id }}
+    />,
+  );
+  expect(await screen.findByRole("form", { name: "Paid campaign settings" })).toBeTruthy();
+  expect(screen.getByRole("heading", { name: "Create paid campaign", level: 1 })).toBeTruthy();
+  expect(api.adminPartnerCampaignGet).not.toHaveBeenCalled();
+});
+
+it("forwards campaign edit identity and discards previous unsaved fields on navigation", async () => {
+  const campaign: CampaignOut = {
+    account_id: account.id,
+    id: "campaign:primary_1",
+    name: "First campaign",
+    starts_at: "2026-10-01T00:00:00Z",
+    ends_at: "2026-10-31T00:00:00Z",
+    status: "draft",
+  };
+  const other = { ...campaign, id: "campaign:primary_2", name: "Second campaign" };
+  fetcher.mockImplementation(async (input) =>
+    String(input).includes("/dashboard")
+      ? Response.json({
+          ...dashboard,
+          account: { ...account, allowed_promotion_kinds: ["product", "ad"] },
+        })
+      : Response.json([]),
+  );
+  vi.mocked(api.adminPartnerCampaignGet).mockImplementation(async (_accountId, campaignId) =>
+    campaignId === campaign.id ? campaign : other,
+  );
+  const view = renderAdmin(
+    <PartnerAccountPage
+      route={{
+        resource: "campaign",
+        action: "edit",
+        accountId: account.id,
+        identifier: campaign.id,
+      }}
+    />,
+  );
+  const name = await screen.findByLabelText(/Campaign name/);
+  expect((name as HTMLInputElement).value).toBe(campaign.name);
+  expect(api.adminPartnerCampaignGet).toHaveBeenCalledWith(
+    account.id,
+    campaign.id,
+    expect.objectContaining({ signal: expect.any(AbortSignal) }),
+  );
+  fireEvent.change(name, { target: { value: "Unsaved campaign edit" } });
+  view.rerender(
+    <PartnerAccountPage
+      route={{ resource: "campaign", action: "edit", accountId: account.id, identifier: other.id }}
+    />,
+  );
+  await waitFor(() =>
+    expect((screen.getByLabelText(/Campaign name/) as HTMLInputElement).value).toBe(other.name),
+  );
+  expect(api.adminPartnerCampaignGet).toHaveBeenCalledWith(
+    account.id,
+    other.id,
+    expect.objectContaining({ signal: expect.any(AbortSignal) }),
+  );
 });
 
 it("creates an account with selected benefits and navigates to the saved record", async () => {

@@ -13,7 +13,7 @@ import { useAdmin } from "@/components/molecules/admin-session";
 import type { AccountOut, AssetMetrics } from "@/lib/api/generated/models";
 import { type PartnershipTierOut, AccountInputTier } from "@/lib/api/generated/models";
 import { adminPartnerToolsList } from "@/lib/api/generated/admin";
-import { accountsPath, accountHref } from "./partner-accounts";
+import { accountsPath, accountHref, partnerAccountHref } from "@/lib/partner-account-routes";
 import { PartnerDestinationPreview } from "./partner-destination-preview";
 import { ApiError, returnToLogin } from "@/lib/api/client";
 import { audienceValue } from "@devfeed/ui/audience-targeting";
@@ -120,7 +120,9 @@ export function PartnerAccountManagement({
   const promotionName = (value: string) =>
     value === "ad" ? "Sponsored" : "Product recommendation";
   const cancel = account
-    ? accountHref(account.id) + (mode === "account" ? "" : "/related")
+    ? mode === "account"
+      ? accountHref(account.id)
+      : partnerAccountHref({ resource: "related", action: "list", accountId: account.id })
     : accountsPath;
   async function save(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
