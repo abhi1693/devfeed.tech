@@ -451,7 +451,7 @@ function ProductDetails({
               ? "Remove the manually added product while preserving its reporting."
               : edit
                 ? "Inherit account defaults or limit where this product can appear. Excluding a product preserves its restrictions."
-                : "Review this product’s availability, placement policy, and native creative."
+                : undefined
         }
         trail={[
           { label: "Products", href: listHref },
@@ -495,7 +495,7 @@ function ProductDetails({
         )}
       </ResourceHeading>
       <p className="text-sm text-muted-foreground">
-        Partner account:{" "}
+        Account:{" "}
         <Link
           href={accountSettingsPath(account.id)}
           prefetch={false}
@@ -503,13 +503,15 @@ function ProductDetails({
         >
           {account.name}
         </Link>
-        .{" "}
+        <span className="mx-2" aria-hidden>
+          ·
+        </span>
         <Link
           href={productPath(productId, { edit, action, query })}
           prefetch={false}
           className="text-primary hover:underline"
         >
-          View all account policies
+          Account policies
         </Link>
       </p>
       {writeError && (
@@ -652,54 +654,52 @@ function ProductDetails({
                 },
                 { label: "Technologies", value: product.technologies.join(", ") || "—" },
               ]}
-            />
-            {product.assessment.reason && (
-              <p className="text-sm text-muted-foreground">{product.assessment.reason}</p>
-            )}
-            {product.source === "manual" && !product.editable && (
-              <p className="text-sm text-muted-foreground">
-                This website is already in the shared DevFeed catalog. DevFeed manages its product
-                facts; your account controls its placements.
-              </p>
-            )}
+            >
+              {product.assessment.reason && (
+                <details
+                  className="mt-3 border-t pt-3 text-sm"
+                  open={["attention", "irrelevant", "withdrawn"].includes(
+                    product.assessment.state ?? "waiting",
+                  )}
+                >
+                  <summary className="cursor-pointer font-medium">Review details</summary>
+                  <p className="mt-2 text-muted-foreground">{product.assessment.reason}</p>
+                </details>
+              )}
+              {product.source === "manual" && !product.editable && (
+                <p className="mt-3 text-sm text-muted-foreground">
+                  Product details are managed by DevFeed.
+                </p>
+              )}
+            </ResourcePanel>
             <ResourcePanel
-              title="Placement policy"
+              title="Placements"
+              actions={
+                <Link
+                  href={accountSettingsPath(account.id)}
+                  prefetch={false}
+                  className="text-xs text-primary hover:underline"
+                >
+                  Account settings
+                </Link>
+              }
               fields={[
-                {
-                  label: "Availability",
-                  value: product.excluded
-                    ? "Excluded from this account’s placements"
-                    : "Allowed by product policy",
-                },
                 {
                   label: "Formats",
                   value:
                     product.ad_formats == null
-                      ? "Inherit account defaults"
+                      ? "Account defaults"
                       : product.ad_formats.map(adFormatLabel).join(", ") || "None",
                 },
                 {
                   label: "Locations",
                   value:
                     product.promotion_surfaces == null
-                      ? "Inherit account defaults"
+                      ? "Account defaults"
                       : product.promotion_surfaces.join(", ") || "None",
                 },
               ]}
-            >
-              <p className="mt-3 text-sm text-muted-foreground">
-                Delivery also depends on approval, relevance, audience, account status, and
-                available capacity.{" "}
-                <Link
-                  href={accountSettingsPath(account.id)}
-                  prefetch={false}
-                  className="text-primary hover:underline"
-                >
-                  View account settings
-                </Link>
-                .
-              </p>
-            </ResourcePanel>
+            />
           </div>
           {product.active && (
             <ResourcePanel title="Creative preview">

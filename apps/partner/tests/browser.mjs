@@ -70,6 +70,8 @@ const previewProduct = {
   listing_url:
     "https://catalog.partner.example/api-checker?utm_source=devfeed&utm_medium=sponsored",
 };
+const productReviewReason =
+  "The product supports a concrete software development workflow: monitoring production APIs, investigating failed requests, and diagnosing service reliability. Its documentation demonstrates integration with Kubernetes services and explains how developers can use those results to resolve production incidents.";
 const assets = [
   {
     id: "33333333-3333-3333-3333-333333333333",
@@ -333,7 +335,7 @@ const mock = createServer(async (request, response) => {
               product_url: "https://api-checker.example/",
               tagline: creativeProduct(previewProduct).tagline,
               pricing: "freemium",
-              assessment: { state: "qualified", reason: "" },
+              assessment: { state: "qualified", reason: productReviewReason },
               revision: 1,
               source: "imported",
               manual_active: null,
@@ -385,7 +387,7 @@ const mock = createServer(async (request, response) => {
         product_url: "https://api-checker.example/",
         tagline: creativeProduct(previewProduct).tagline,
         pricing: "freemium",
-        assessment: { state: "qualified", reason: "" },
+        assessment: { state: "qualified", reason: productReviewReason },
         revision: 1,
         source: "imported",
         manual_active: null,
@@ -1558,6 +1560,46 @@ try {
     name: "Product preview format",
     exact: true,
   });
+  const reviewSummary = page.locator("summary").filter({ hasText: "Review details" });
+  const reviewDetails = reviewSummary.locator("..");
+  const reviewReason = reviewDetails.getByText(productReviewReason, { exact: true });
+  assert.equal(await reviewDetails.evaluate((element) => element.open), false);
+  assert.equal(await reviewReason.isVisible(), false);
+  const originalDark = await page.evaluate(() =>
+    document.documentElement.classList.contains("dark"),
+  );
+  for (const theme of ["light", "dark"]) {
+    await page.evaluate(
+      (dark) => document.documentElement.classList.toggle("dark", dark),
+      theme === "dark",
+    );
+    for (const [size, width, height] of [
+      ["desktop", 1440, 1000],
+      ["mobile", 390, 844],
+    ]) {
+      await page.setViewportSize({ width, height });
+      assert.equal(
+        await page.evaluate(() => document.documentElement.scrollWidth > innerWidth),
+        false,
+      );
+      await page.screenshot({
+        path: root + `reports/partner/product-detail-${size}-${theme}.png`,
+        fullPage: true,
+      });
+    }
+  }
+  await reviewSummary.press("Enter");
+  await reviewReason.waitFor({ state: "visible" });
+  await page.screenshot({
+    path: root + "reports/partner/product-review-expanded-mobile-dark.png",
+    fullPage: true,
+  });
+  await reviewSummary.click();
+  assert.equal(await reviewReason.isVisible(), false);
+  await page.evaluate(
+    (dark) => document.documentElement.classList.toggle("dark", dark),
+    originalDark,
+  );
   await productPreviewFormat.click();
   await page.getByRole("option", { name: "Engagement", exact: true }).click();
   await productCreative.getByText(previewProduct.name, { exact: true }).waitFor();

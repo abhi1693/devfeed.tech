@@ -73,6 +73,8 @@ shared with the reader. The sign-in page retains its light partner palette.
   The optional `account_id` query selects an account's policy
   for a shared product and is authorized independently. Previews appear inline. Cancel discards
   the draft; a confirmed save returns to the product record.
+  Product records keep review explanations under **Review details**, expanded automatically when
+  the assessment needs attention, is not relevant, or is withdrawn.
 - `/connections`: imports across accessible accounts, with full-page detail, create, edit and
   disconnect workflows. The account relationship is selected when creating a connection.
 - `/settings`: a searchable, paginated account table. `/settings/<account-id>` opens that account's
