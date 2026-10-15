@@ -12,6 +12,8 @@ const styles = [
   "border-fuchsia-600 bg-fuchsia-500/10 text-fuchsia-800 dark:text-fuchsia-200",
   "border-teal-600 bg-teal-500/10 text-teal-800 dark:text-teal-200",
 ];
+export const mappingStyle = (index: number) => styles[index % styles.length];
+
 export type ResponseMapping = {
   field: string;
   label: string;
@@ -74,7 +76,7 @@ export function responseMappings(
       false,
     ],
   ];
-  return definitions.map(([field, label, paths, perProduct], index) => {
+  const mappings = definitions.map(([field, label, paths, perProduct], index) => {
     const addresses: string[] = [];
     for (const [position, root] of (perProduct ? products : [data]).entries()) {
       const path = paths.find((candidate) => valid(at(root, candidate)));
@@ -86,6 +88,47 @@ export function responseMappings(
           ]),
         );
     }
-    return { field, label, style: styles[index], addresses };
+    return { field, label, style: mappingStyle(index), addresses };
   });
+  const normalizedFilter = (value: unknown) =>
+    typeof value === "string" || typeof value === "number" || typeof value === "boolean"
+      ? String(value).toLowerCase().replaceAll("-", " ").trim()
+      : undefined;
+  for (const [index, filter] of (config.filters ?? []).entries()) {
+    const field = `filters.${index}`;
+    const style = mappingStyle(index);
+    const pathAddresses: string[] = [];
+    const valueAddresses: string[] = [];
+    const allowed = new Set(filter.values.map(normalizedFilter));
+    for (const [position, product] of products.entries()) {
+      if (!filter.path) continue;
+      const sample = at(product, filter.path);
+      if (!valid(sample)) continue;
+      const address = [...base, String(position), ...filter.path.split(".")];
+      pathAddresses.push(JSON.stringify(address));
+      const choices = Array.isArray(sample) ? sample : [sample];
+      for (const [choiceIndex, choice] of choices.entries()) {
+        const normalized = normalizedFilter(choice);
+        if (normalized !== undefined && allowed.has(normalized))
+          valueAddresses.push(
+            JSON.stringify(Array.isArray(sample) ? [...address, String(choiceIndex)] : address),
+          );
+      }
+    }
+    mappings.push(
+      {
+        field: `${field}.path`,
+        label: `Filter ${index + 1} path`,
+        style,
+        addresses: pathAddresses,
+      },
+      {
+        field: `${field}.values`,
+        label: `Filter ${index + 1} values`,
+        style,
+        addresses: valueAddresses,
+      },
+    );
+  }
+  return mappings;
 }

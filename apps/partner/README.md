@@ -115,8 +115,10 @@ Import authentication and pagination use the shared keyboard-accessible dropdown
 imports and credential replacement use the shared checkboxes. Unavailable authentication choices
 remain visible and disabled when credential storage is not configured.
 The connection editor shares the admin configuration fields and shows a live API response beside
-the form. Colored checks link each mapped field to its JSON path; paths absent from a sample are
-identified without being treated as invalid. Mapping edits reuse the current sample. Request and
+the form. Colored checks link each mapped field to its JSON path, including filter paths and
+observed matching values within arrays. Paths or values absent from a sample are identified
+without being treated as invalid. Query parameter names and values share a color and are
+identified as request configuration. Mapping edits reuse the current sample. Request and
 authentication changes clear stale samples, and changing the API origin clears a draft credential.
 “Test import connection” previews up to three mapped products without saving settings, enrolling
 products or queuing imports. Both previews use account-scoped, CSRF-protected endpoints with

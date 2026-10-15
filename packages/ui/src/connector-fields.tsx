@@ -8,7 +8,7 @@ import { Button } from "./button";
 import { Checkbox } from "./choice-controls";
 import { InfoTip } from "./info-tip";
 import { Select } from "./select";
-import type { ResponseMapping } from "./connector-response-mappings";
+import { mappingStyle, type ResponseMapping } from "./connector-response-mappings";
 import type {
   ConnectorDefinition,
   ConnectorFieldProps,
@@ -287,8 +287,10 @@ export function ConnectorFields<C extends ConnectorDefinition>({
     change: (value: string) => void,
     tooltip?: string,
     required = false,
+    field = fieldPaths[label],
+    configured?: { style: string; label: string },
   ) {
-    const mapping = mappings.find((item) => item.field === fieldPaths[label]);
+    const mapping = mappings.find((item) => item.field === field);
     const matched = !!mapping?.addresses.length;
     return (
       <Field
@@ -297,35 +299,37 @@ export function ConnectorFields<C extends ConnectorDefinition>({
         disabled={disabled}
         required={required}
         tooltip={tooltip}
-        error={fieldError(
-          fieldPaths[label] ??
-            (label.startsWith("Filter ")
-              ? `filters.${Number(label.split(" ")[1]) - 1}.${label.endsWith("path") ? "path" : "values"}`
-              : label.startsWith("Parameter ")
-                ? `parameters.${Object.keys(value.parameters ?? {})[Number(label.split(" ")[1]) - 1]}`
-                : ""),
-        )}
+        error={fieldError(field)}
       >
         {(control) => (
           <div className="relative">
             <ConnectorTextInput
               {...control}
               aria-describedby={
-                [control["aria-describedby"], mapping && `${control.id}-mapping`]
+                [
+                  control["aria-describedby"],
+                  mapping && `${control.id}-mapping`,
+                  configured && `${control.id}-configured`,
+                ]
                   .filter(Boolean)
                   .join(" ") || undefined
               }
-              className={cn(matched && mapping?.style, mapping && "pr-9")}
+              className={cn(configured?.style, matched && mapping?.style, mapping && "pr-9")}
               title={
                 mapping
                   ? matched
                     ? `${mapping.label}: found in sample`
                     : "Not found in this sample"
-                  : undefined
+                  : configured?.label
               }
               value={current}
               onChange={change}
             />
+            {configured && (
+              <span id={`${control.id}-configured`} className="sr-only">
+                {configured.label}
+              </span>
+            )}
             {mapping && (
               <span
                 id={`${control.id}-mapping`}
@@ -644,19 +648,33 @@ export function ConnectorFields<C extends ConnectorDefinition>({
             key={index}
             className="grid items-end gap-[var(--connector-field-gap,1.5rem)] sm:grid-cols-2"
           >
-            {text(`Filter ${index + 1} path`, filter.path, (path) =>
-              onChange({
-                ...value,
-                filters: value.filters!.map((item, i) => (i === index ? { ...item, path } : item)),
-              }),
+            {text(
+              `Filter ${index + 1} path`,
+              filter.path,
+              (path) =>
+                onChange({
+                  ...value,
+                  filters: value.filters!.map((item, i) =>
+                    i === index ? { ...item, path } : item,
+                  ),
+                }),
+              undefined,
+              false,
+              `filters.${index}.path`,
             )}
-            {text(`Filter ${index + 1} values`, filter.values.join(", "), (input) =>
-              onChange({
-                ...value,
-                filters: value.filters!.map((item, i) =>
-                  i === index ? { ...item, values: paths(input) } : item,
-                ),
-              }),
+            {text(
+              `Filter ${index + 1} values`,
+              filter.values.join(", "),
+              (input) =>
+                onChange({
+                  ...value,
+                  filters: value.filters!.map((item, i) =>
+                    i === index ? { ...item, values: paths(input) } : item,
+                  ),
+                }),
+              undefined,
+              false,
+              `filters.${index}.values`,
             )}
             <Field
               label={`Filter ${index + 1}: include missing values`}
@@ -704,41 +722,63 @@ export function ConnectorFields<C extends ConnectorDefinition>({
         >
           Add filter
         </Button>
-        {Object.entries(value.parameters ?? {}).map(([key, parameter], index) => (
-          <div
-            key={index}
-            className="grid items-end gap-[var(--connector-field-gap,1.5rem)] sm:grid-cols-2"
-          >
-            {text(`Parameter ${index + 1} name`, key, (next) =>
-              onChange({
-                ...value,
-                parameters: Object.fromEntries(
-                  Object.entries(value.parameters ?? {}).map(([name, input], i) => [
-                    i === index ? next : name,
-                    input,
-                  ]),
-                ),
-              }),
-            )}
-            {text(`Parameter ${index + 1} value`, String(parameter), (input) =>
-              onChange({ ...value, parameters: { ...value.parameters, [key]: input } }),
-            )}
-            <Button
-              variant="outline"
-              disabled={disabled}
-              onClick={() =>
-                onChange({
-                  ...value,
-                  parameters: Object.fromEntries(
-                    Object.entries(value.parameters ?? {}).filter(([name]) => name !== key),
-                  ),
-                })
+        {Object.entries(value.parameters ?? {}).map(([key, parameter], index) => {
+          const configured = key.trim()
+            ? {
+                style: mappingStyle((value.filters?.length ?? 0) + index),
+                label: `Query parameter ${index + 1}: configured for requests`,
               }
+            : undefined;
+          return (
+            <div
+              key={index}
+              className="grid items-end gap-[var(--connector-field-gap,1.5rem)] sm:grid-cols-2"
             >
-              Remove parameter {index + 1}
-            </Button>
-          </div>
-        ))}
+              {text(
+                `Parameter ${index + 1} name`,
+                key,
+                (next) =>
+                  onChange({
+                    ...value,
+                    parameters: Object.fromEntries(
+                      Object.entries(value.parameters ?? {}).map(([name, input], i) => [
+                        i === index ? next : name,
+                        input,
+                      ]),
+                    ),
+                  }),
+                undefined,
+                false,
+                `parameters.${key}`,
+                configured,
+              )}
+              {text(
+                `Parameter ${index + 1} value`,
+                String(parameter),
+                (input) =>
+                  onChange({ ...value, parameters: { ...value.parameters, [key]: input } }),
+                undefined,
+                false,
+                `parameters.${key}`,
+                configured,
+              )}
+              <Button
+                variant="outline"
+                disabled={disabled}
+                onClick={() =>
+                  onChange({
+                    ...value,
+                    parameters: Object.fromEntries(
+                      Object.entries(value.parameters ?? {}).filter(([name]) => name !== key),
+                    ),
+                  })
+                }
+              >
+                Remove parameter {index + 1}
+              </Button>
+            </div>
+          );
+        })}
         <Button
           variant="outline"
           disabled={disabled || Object.keys(value.parameters ?? {}).length >= 20}

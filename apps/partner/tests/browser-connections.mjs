@@ -16,6 +16,7 @@ import {
   saveConnectionFromEditedLogoUrl,
 } from "../../../scripts/testing/connection-logos.mjs";
 import { assertSelectMenu } from "../../../scripts/testing/select-menus.mjs";
+import { assertConnectorFilterColors } from "../../../scripts/testing/connector-filters.mjs";
 
 export function createConnectionFixture({ account, origin }) {
   assert.match(account.id, /^[a-f0-9-]{36}$/i);
@@ -77,6 +78,7 @@ export function createConnectionFixture({ account, origin }) {
         listing_url: "https://catalog.example/products/browser-preview-product",
         tagline: "A developer product shown only in the import preview.",
         pricing: "free",
+        categories: ["Developer Tools", "Productivity"],
       };
       json(
         response,
@@ -567,6 +569,11 @@ export async function assertConnectionJourneys({ page, origin, account, fixture,
   await page.setViewportSize({ width: 1440, height: 1000 });
   await noOverflowOrDialog(page);
   await assertConnectorPreview(page, fixture);
+  await assertConnectorFilterColors(page, {
+    responseCount: () =>
+      fixture.previews.filter((item) => item.kind === "connector-response").length,
+    screenshotPrefix: join(artifactDir, "connection-filter-colors"),
+  });
   await page.screenshot({
     path: join(artifactDir, "partner-connection-create-desktop.png"),
     fullPage: true,

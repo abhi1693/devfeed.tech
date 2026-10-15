@@ -4,6 +4,7 @@ import { spawn } from "node:child_process";
 import { mkdir } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { chromium } from "playwright";
+import { assertConnectorFilterColors } from "../../../../scripts/testing/connector-filters.mjs";
 import {
   logoSource,
   managedLogo,
@@ -444,6 +445,7 @@ const fixture = createServer(async (req, res) => {
             listing_url: "https://shipyard.example/products/checker",
             tagline: "Check API compatibility before deploying software.",
             pricing: "free",
+            categories: ["Developer Tools", "Productivity"],
           },
         ],
         nextCursor: "next-page",
@@ -1312,6 +1314,11 @@ try {
     ).includes("border-violet-600"),
   );
   await page.screenshot({ path: `${output}/custom-connector-preview-desktop.png`, fullPage: true });
+  await assertConnectorFilterColors(page, {
+    responseCount: () =>
+      mutations.filter((entry) => entry.path.endsWith("/connector-response")).length,
+    screenshotPrefix: `${output}/connection-filter-colors`,
+  });
   const firstCredential = "admin-browser-fixture-only-token-one";
   const replacementCredential = "admin-browser-fixture-only-token-two";
   await page.getByRole("combobox", { name: "Authentication method", exact: true }).click();
