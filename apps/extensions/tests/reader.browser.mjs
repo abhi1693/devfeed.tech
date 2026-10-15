@@ -40,6 +40,7 @@ import {
   checkEngagementPagination,
 } from "../../web/tests/browser/engagement-pagination.mjs";
 import { checkPreviewBackground } from "../../../scripts/testing/preview-background.mjs";
+import { checkExtensionRouteAnalytics } from "../../../scripts/testing/route-analytics.mjs";
 import { blockedFeed, checkArticleFirst } from "../../web/tests/browser/article-first.mjs";
 import {
   searchFixture,
@@ -92,21 +93,23 @@ const filterSource = { ...article.sources[0], id: "99999999-9999-4999-8999-99999
 // Run against a real unpacked extension; browser requests are deterministic and
 // never depend on the production feed or mutate visitor/account data.
 test(
-  process.env.DEVFEED_READER_NAVIGATION_ONLY === "1"
-    ? "typed article overlays and inbox navigation work inside built new tabs"
-    : process.env.DEVFEED_READER_CONTEXT_ONLY === "1"
-      ? "article context and prompt eligibility work inside built new tabs"
-      : process.env.DEVFEED_READER_FEED_MODE_ONLY === "1"
-        ? "feed modes and placement capabilities work inside built new tabs"
-        : process.env.DEVFEED_READER_ROUTES_ONLY === "1"
-          ? "reader route validation and recovery work inside built new tabs"
-          : process.env.DEVFEED_READER_THEME_ONLY === "1"
-            ? "shared theme persists and follows system settings inside built new tabs"
-            : process.env.DEVFEED_READER_SIDEBAR_ONLY === "1"
-              ? "shared sidebar persists and adapts inside built new tabs"
-              : process.env.DEVFEED_READER_MUTATIONS_ONLY === "1"
-                ? "semantic mutation effects work inside built new tabs"
-                : "shared reader works inside new tabs at desktop and mobile sizes",
+  process.env.DEVFEED_TELEMETRY_LABELS_ONLY === "1"
+    ? "approved screen labels work inside built new tabs without exposing private routes"
+    : process.env.DEVFEED_READER_NAVIGATION_ONLY === "1"
+      ? "typed article overlays and inbox navigation work inside built new tabs"
+      : process.env.DEVFEED_READER_CONTEXT_ONLY === "1"
+        ? "article context and prompt eligibility work inside built new tabs"
+        : process.env.DEVFEED_READER_FEED_MODE_ONLY === "1"
+          ? "feed modes and placement capabilities work inside built new tabs"
+          : process.env.DEVFEED_READER_ROUTES_ONLY === "1"
+            ? "reader route validation and recovery work inside built new tabs"
+            : process.env.DEVFEED_READER_THEME_ONLY === "1"
+              ? "shared theme persists and follows system settings inside built new tabs"
+              : process.env.DEVFEED_READER_SIDEBAR_ONLY === "1"
+                ? "shared sidebar persists and adapts inside built new tabs"
+                : process.env.DEVFEED_READER_MUTATIONS_ONLY === "1"
+                  ? "semantic mutation effects work inside built new tabs"
+                  : "shared reader works inside new tabs at desktop and mobile sizes",
   { timeout: 180000 },
   async () => {
     const profile = await mkdtemp(path.join(tmpdir(), "devfeed-reader-test-"));
@@ -258,6 +261,8 @@ test(
           json: { url: testMcpEndpoint },
         });
       }
+      if (url.pathname === "/api/v1/leaderboard")
+        return route.fulfill({ json: { longest_streak: [], reading_days: [] } });
       if (url.pathname === "/api/v1/extension/analytics") {
         if (route.request().method() === "POST") {
           analytics.push(route.request().postDataJSON());
@@ -371,6 +376,17 @@ test(
       });
       await page.goto(newTab);
       await page.locator(".article-card").first().waitFor();
+      if (process.env.DEVFEED_TELEMETRY_LABELS_ONLY === "1") {
+        await checkExtensionRouteAnalytics(
+          page,
+          (path) => page.url().split("#")[0] + "#" + path,
+          analytics,
+        );
+        assert.ok(analytics.every((event) => event.client_platform === `${browser}_extension`));
+        assert.deepEqual(errors, []);
+        console.log(`Private route labels passed against the installed ${browser} extension.`);
+        return;
+      }
       if (
         ![
           "DEVFEED_READER_CONTEXT_ONLY",

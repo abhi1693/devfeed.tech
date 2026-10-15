@@ -23,45 +23,39 @@ function safeSegment(value: string): boolean {
   );
 }
 
+/** The account section router owns the finite templates consumed by telemetry generation. */
+export const partnerAccountSections = [
+  { segments: [], resource: "account", action: "view" },
+  { segments: ["details"], resource: "account", action: "view" },
+  { segments: ["edit"], resource: "account", action: "edit" },
+  { segments: ["related"], resource: "related", action: "list" },
+  { segments: ["products"], resource: "product", action: "list" },
+  { segments: ["campaigns"], resource: "campaign", action: "list" },
+  { segments: ["campaigns", "new"], resource: "campaign", action: "create" },
+  { segments: ["members", "new"], resource: "member", action: "create" },
+  { segments: ["assets", "new"], resource: "asset", action: "create" },
+  { segments: ["campaigns", ":identifier", "edit"], resource: "campaign", action: "edit" },
+  { segments: ["assets", ":identifier", "edit"], resource: "asset", action: "edit" },
+] as const;
+
 /** Decode Next's path segments once, before passing a serializable route to the client. */
 export function resolvePartnerAccountRoute(
   accountId: string,
   segments: readonly string[] = [],
 ): PartnerAccountRoute | undefined {
   if (!safeSegment(accountId) || segments.some((value) => !safeSegment(value))) return;
-  if (segments.length === 0) return { resource: "account", action: "view", accountId };
-  if (segments.length === 1) {
-    switch (segments[0]) {
-      case "details":
-        return { resource: "account", action: "view", accountId };
-      case "edit":
-        return { resource: "account", action: "edit", accountId };
-      case "related":
-        return { resource: "related", action: "list", accountId };
-      case "products":
-        return { resource: "product", action: "list", accountId };
-      case "campaigns":
-        return { resource: "campaign", action: "list", accountId };
-    }
-  }
-  if (segments.length === 2 && segments[1] === "new") {
-    switch (segments[0]) {
-      case "campaigns":
-        return { resource: "campaign", action: "create", accountId };
-      case "members":
-        return { resource: "member", action: "create", accountId };
-      case "assets":
-        return { resource: "asset", action: "create", accountId };
-    }
-  }
-  if (segments.length === 3 && segments[2] === "edit") {
-    switch (segments[0]) {
-      case "campaigns":
-        return { resource: "campaign", action: "edit", accountId, identifier: segments[1] };
-      case "assets":
-        return { resource: "asset", action: "edit", accountId, identifier: segments[1] };
-    }
-  }
+  const definition = partnerAccountSections.find(
+    (candidate) =>
+      candidate.segments.length === segments.length &&
+      candidate.segments.every(
+        (segment, index) => segment === ":identifier" || segment === segments[index],
+      ),
+  );
+  if (!definition) return;
+  const { resource, action } = definition;
+  if ((resource === "asset" || resource === "campaign") && action === "edit")
+    return { resource, action, accountId, identifier: segments[1] };
+  return { resource, action, accountId } as PartnerAccountRoute;
 }
 
 /** Links and React remount keys use the decoded meaning, never an unchecked section string. */

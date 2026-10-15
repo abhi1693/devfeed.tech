@@ -1,5 +1,9 @@
 export type PortalSection = "overview" | "performance" | "products" | "connections" | "settings";
-export type AccountSettingsSection = "general" | "destination" | "formats" | "audience";
+export const accountSettingsSections = ["destination", "formats", "audience"] as const;
+export type AccountSettingsSection = "general" | (typeof accountSettingsSections)[number];
+export function resolveAccountSettingsSection(value: string) {
+  return accountSettingsSections.find((section) => section === value);
+}
 export type ProductRoute = {
   view: "list" | "create" | "detail" | "placements" | "edit" | "archive";
   productId?: string;

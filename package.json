@@ -26,6 +26,7 @@
     "admin:test:browser": "node apps/admin/tests/browser/overview.mjs",
     "admin:generate": "uv run python scripts/export_admin_openapi.py && npm run generate --workspace @devfeed/admin",
     "web:generate": "uv run python scripts/export_user_openapi.py && npm run generate --workspace @devfeed/web",
+    "telemetry:generate": "node scripts/generate_page_routes.mjs",
     "web:dev": "npm run dev --workspace @devfeed/web",
     "web:build": "npm run build --workspace @devfeed/web",
     "web:start": "npm run start --workspace @devfeed/web",

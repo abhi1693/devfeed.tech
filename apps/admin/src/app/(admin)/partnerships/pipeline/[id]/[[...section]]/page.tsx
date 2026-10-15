@@ -1,8 +1,6 @@
 import { notFound } from "next/navigation";
-import {
-  PartnerRunDetail,
-  type PartnerRunSection,
-} from "@/components/organisms/partner-run-detail";
+import { PartnerRunDetail } from "@/components/organisms/partner-run-detail";
+import { resolvePartnerDetailSection } from "@/lib/partner-detail-routes";
 export const metadata = { title: "Pipeline jobs run" };
 export default async function Page({
   params,
@@ -10,7 +8,7 @@ export default async function Page({
   params: Promise<{ id: string; section?: string[] }>;
 }) {
   const { id, section } = await params;
-  const tab = section?.[0] ?? "details";
-  if ((section?.length ?? 0) > 1 || !["details", "related", "logs"].includes(tab)) notFound();
-  return <PartnerRunDetail key={id} kind="pipeline" id={id} section={tab as PartnerRunSection} />;
+  const tab = resolvePartnerDetailSection("pipeline", section);
+  if (!tab) notFound();
+  return <PartnerRunDetail key={id} kind="pipeline" id={id} section={tab} />;
 }

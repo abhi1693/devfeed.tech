@@ -11,9 +11,10 @@ export function BrowserTelemetry(settings: BrowserSettings) {
   const pathname = usePathname();
   useEffect(() => {
     if (!pathname || !instance) return;
-    instance.api.setView({ name: routeName(pathname) });
-    instance.api.pushEvent("route_change", { url: pathname });
-  }, [pathname]);
+    const route = routeName(pathname, settings.app);
+    instance.api.setView({ name: route });
+    instance.api.pushEvent("route_change", { route });
+  }, [pathname, settings.app]);
   useEffect(() => {
     if (!settings.enabled || initialized || navigator.doNotTrack === "1") return;
     initialized = true;

@@ -291,7 +291,10 @@ Origin checks and per-process rate limits mitigate abuse; they do not authentica
 arbitrary HTTP clients. An upstream failure is dropped without retries.
 
 Page views use normalized paths under the reporting-only hostname
-`extension.devfeed.tech`. Raw searches, query strings, article titles, account IDs,
+`extension.devfeed.tech`. Approved screen labels come from the same reader route
+descriptors used for navigation. Public profiles report `/users/profile`, article
+previews report `/articles`, and unsupported routes report `/other`. Raw searches,
+query strings, article titles, account IDs,
 emails, session cookies and CSRF tokens are not sent. Events include article opens,
 likes, bookmarks, follows, source suggestions, and preference changes. Active,
 focused reading time is reported with a shared 30-minute inactivity session and a
@@ -310,6 +313,16 @@ collection when enabled.
 The automated browser tests send only to a disposable local relay fixture. Google's
 `/debug/mp/collect` endpoint can validate payloads without recording test events;
 an HTTP 2xx from `/mp/collect` alone does not prove GA4 processed an event.
+
+After fresh web, partner and extension builds, check the actual Faro views, partner
+request metrics and extension page-view envelopes with:
+
+```sh
+node apps/web/tests/browser/telemetry.mjs web
+node apps/web/tests/browser/telemetry.mjs partner
+DEVFEED_TELEMETRY_LABELS_ONLY=1 node --test apps/extensions/tests/reader.browser.mjs
+DEVFEED_EXTENSION_BROWSER=edge DEVFEED_TELEMETRY_LABELS_ONLY=1 node --test apps/extensions/tests/reader.browser.mjs
+```
 
 Search result type, article order and date filters apply immediately in both
 extensions and the web reader. Search displays a visible loading message while

@@ -20,7 +20,17 @@ export type UserSection =
   | "recommendations";
 export type DetailSection =
   UserSection | "analysis" | "details" | "related" | "history" | "evidence" | "logs" | "relevance";
-export type WorkflowAction = "review" | "classify" | "fetch";
+export const workflowActions = ["review", "classify", "fetch"] as const;
+export type WorkflowAction = (typeof workflowActions)[number];
+const specialSegments = {
+  sourceImport: "import",
+  sourceImportReview: "imports",
+  topicImport: "import",
+  topicProposals: "proposals",
+  topicEnrich: "enrich",
+  relationshipDiscover: "discover",
+  relationshipProposals: "proposals",
+} as const;
 const content = new Set<Resource>(["articles", "sources", "topics", "tags", "topic-relations"]);
 const segment = /^[a-zA-Z0-9_-]+$/;
 
@@ -98,19 +108,22 @@ export function resolveAdminRoute(parts: string[]): AdminRoute | undefined {
     const rest = parts.slice(prefix.split("/").length - 1);
     if (!rest.length) return { view: "list", resource };
     if (resource === "sources") {
-      if (rest.length === 1 && rest[0] === "import") return { view: "source-import" };
-      if (rest.length === 2 && rest[0] === "imports")
+      if (rest.length === 1 && rest[0] === specialSegments.sourceImport)
+        return { view: "source-import" };
+      if (rest.length === 2 && rest[0] === specialSegments.sourceImportReview)
         return { view: "source-import-review", id: rest[1] };
     }
     if (resource === "topics") {
-      if (rest.length === 1 && rest[0] === "import") return { view: "import" };
-      if (rest[0] === "proposals")
+      if (rest.length === 1 && rest[0] === specialSegments.topicImport) return { view: "import" };
+      if (rest[0] === specialSegments.topicProposals)
         return rest.length === 2 ? { view: "proposal", id: rest[1] } : undefined;
-      if (rest.length === 2 && rest[1] === "enrich") return { view: "enrich", id: rest[0] };
+      if (rest.length === 2 && rest[1] === specialSegments.topicEnrich)
+        return { view: "enrich", id: rest[0] };
     }
     if (resource === "topic-relations") {
-      if (rest.length === 1 && rest[0] === "discover") return { view: "relationship-discover" };
-      if (rest[0] === "proposals")
+      if (rest.length === 1 && rest[0] === specialSegments.relationshipDiscover)
+        return { view: "relationship-discover" };
+      if (rest[0] === specialSegments.relationshipProposals)
         return rest.length === 1
           ? { view: "relationship-proposals" }
           : rest.length === 2
@@ -159,6 +172,69 @@ export function resolveAdminRoute(parts: string[]): AdminRoute | undefined {
       return { view: "workflow", identity, action };
     return;
   }
+}
+
+/** Expand the catch-all page from the same resources, sections, and identities it renders. */
+export function adminTelemetryDefinitions(): { route: string; label: string }[] {
+  const definitions = Object.values(resourceGroups).map(({ href }) => ({
+    route: href,
+    label: href,
+  }));
+  const identifier = "telemetry-placeholder";
+  const add = (route: string, label = route.replaceAll(identifier, ":id")) => {
+    if (resolveAdminRoute(route.slice(1).split("/")))
+      definitions.push({ route: route.replaceAll(identifier, "[id]"), label });
+  };
+  for (const resource of resourceKeys) {
+    const base = resourceHref(resource);
+    add(base);
+    add(`${base}/new`);
+    const identities: RecordIdentity[] =
+      resource === "analysis-jobs"
+        ? [
+            { resource, kind: "analysis", id: identifier },
+            { resource, kind: "topic-analysis", id: identifier },
+          ]
+        : resource === "topic-relations"
+          ? Object.values(RelationOutRelation).map((relation) => ({
+              resource,
+              relation,
+              topicId: identifier,
+              relatedTopicId: identifier,
+            }))
+          : [{ resource, id: identifier }];
+    if (resource === "analysis-jobs") {
+      add(resourceHref(resource, "articles"));
+      add(resourceHref(resource, "topics"));
+    }
+    for (const identity of identities) {
+      const path = recordHref(identity);
+      const label =
+        identity.resource === "topic-relations"
+          ? `${base}/:id/:type/:id`
+          : path.replaceAll(identifier, ":id");
+      add(path, label);
+      for (const section of detailSections(resource))
+        add(`${path}/${section}`, `${label}/${section}`);
+      for (const action of ["edit", "delete", ...workflowActions])
+        add(`${path}/${action}`, `${label}/${action}`);
+    }
+  }
+  const sources = resourceHref("sources");
+  const topics = resourceHref("topics");
+  const relationships = resourceHref("topic-relations");
+  for (const path of [
+    `${sources}/${specialSegments.sourceImport}`,
+    `${sources}/${specialSegments.sourceImportReview}/${identifier}`,
+    `${topics}/${specialSegments.topicImport}`,
+    `${topics}/${specialSegments.topicProposals}/${identifier}`,
+    `${topics}/${identifier}/${specialSegments.topicEnrich}`,
+    `${relationships}/${specialSegments.relationshipDiscover}`,
+    `${relationships}/${specialSegments.relationshipProposals}`,
+    `${relationships}/${specialSegments.relationshipProposals}/${identifier}`,
+  ])
+    add(path);
+  return definitions;
 }
 
 export type RouteSearch = Record<string, string | string[] | undefined>;

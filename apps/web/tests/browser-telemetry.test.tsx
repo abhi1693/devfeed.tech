@@ -32,7 +32,13 @@ it("honors disabled/DNT, initializes once, then tracks client navigation", async
     view.rerender(<BrowserTelemetry {...settings} enabled />);
     expect(mocks.setView).toHaveBeenCalledWith({ name: "/topics" });
   });
-  expect(mocks.pushEvent).toHaveBeenCalledWith("route_change", { url: "/topics" });
+  expect(mocks.pushEvent).toHaveBeenCalledWith("route_change", { route: "/topics" });
+  mocks.pathname = "/users/private-reader?code=private-code";
+  view.rerender(<BrowserTelemetry {...settings} enabled />);
+  expect(mocks.setView).toHaveBeenLastCalledWith({ name: "/users/:username" });
+  expect(mocks.pushEvent).toHaveBeenLastCalledWith("route_change", {
+    route: "/users/:username",
+  });
   cleanup();
   vi.unstubAllGlobals();
   vi.restoreAllMocks();

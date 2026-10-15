@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { collectionRoute, resolveReaderRoute } from "@/lib/reader-routes";
+import {
+  collectionRoute,
+  readerRouteLabels,
+  readerScreenNames,
+  resolveReaderRoute,
+} from "@/lib/reader-routes";
 import { readerFeeds } from "@/lib/reader-feed";
 
 describe("shared reader route boundaries", () => {
@@ -61,5 +66,79 @@ describe("shared reader route boundaries", () => {
     "/legal/privacy",
   ])("leaves unsupported reader path %s unresolved", (path) => {
     expect(resolveReaderRoute(path)).toBeNull();
+  });
+});
+
+describe("privacy-safe reader route labels", () => {
+  it.each([
+    ["/", "/", "/"],
+    ["/latest", "/latest", "/latest"],
+    ["/search", "/search", "/search"],
+    ["/read-later", "/read-later", "/read-later"],
+    ["/trending", "/trending", "/trending"],
+    ["/topics", "/topics", "/topics"],
+    ["/sources", "/sources", "/sources"],
+    ["/sources/suggest", "/sources/suggest", "/sources/suggest"],
+    ["/mcp", "/mcp", "/mcp"],
+    ["/mcp/authorize", "/mcp/authorize", "/mcp/authorize"],
+    ["/leaderboard", "/leaderboard", "/leaderboard"],
+    ["/dev-card", "/dev-card", "/dev-card"],
+    ["/settings", "/settings/profile", "/settings/profile"],
+    ["/settings/profile", "/settings/profile", "/settings/profile"],
+    ["/settings/appearance", "/settings/appearance", "/settings/appearance"],
+    ["/settings/feed", "/settings/feed", "/settings/feed"],
+    ["/settings/notifications", "/settings/notifications", "/settings/notifications"],
+    ["/settings/topics", "/settings/topics", "/settings/topics"],
+    ["/settings/sources", "/settings/sources", "/settings/sources"],
+    ["/articles/private-article", "/articles/:id", "/articles"],
+    ["/articles/%70rivate-article/", "/articles/:id", "/articles"],
+    ["/users/private_username", "/users/:username", "/users/profile"],
+    ["/topics/%70rivate-topic", "/topics/:id", "/topics/detail"],
+    ["/topics/private-topic/tutorials", "/topics/:id/:type", "/topics/detail"],
+    ["/sources/private-source", "/sources/:id", "/sources/detail"],
+    ["/sources/private-source/news", "/sources/:id/:type", "/sources/detail"],
+    ["/articles", "/articles", "/articles"],
+    ["/news", "/news", "/news"],
+    ["/tutorials", "/tutorials", "/tutorials"],
+    ["/releases", "/releases", "/releases"],
+    ["/comparisons", "/comparisons", "/comparisons"],
+    ["/opinions", "/opinions", "/opinions"],
+  ])("projects %s through its resolved route", (path, telemetry, screen) => {
+    expect(readerRouteLabels(resolveReaderRoute(path))).toEqual({ telemetry, screen });
+    expect(readerScreenNames).toContain(screen);
+    expect(`${telemetry} ${screen}`).not.toContain("private");
+  });
+
+  it.each([
+    "/topics/private-topic/unknown",
+    "/sources/private-source/unknown",
+    "/topics/private-topic/news/extra",
+    "/users/private_username/settings",
+    "/mcp/authorize/private-client",
+    "/settings/private-field",
+    "/search?q=private@example.test",
+    "/articles/%2Fsecret",
+    "/users/%2570rivate_username",
+    "/topics/%GG",
+  ])("does not classify invalid route %s by a familiar prefix", (path) => {
+    expect(readerRouteLabels(resolveReaderRoute(path))).toBeNull();
+  });
+
+  it("projects semantic descriptors without retaining identity fields", () => {
+    expect(readerRouteLabels({ type: "article", slug: "private@example.test" })).toEqual({
+      telemetry: "/articles/:id",
+      screen: "/articles",
+    });
+    expect(readerRouteLabels({ type: "profile", username: "private@example.test" })).toEqual({
+      telemetry: "/users/:username",
+      screen: "/users/profile",
+    });
+    expect(
+      readerRouteLabels({
+        type: "reader",
+        feed: readerFeeds.contextual,
+        detail: { kind: "topics", slug: "private@example.test", contentType: "opinion" },
+      }),
+    ).toEqual({ telemetry: "/topics/:id/:type", screen: "/topics/detail" });
   });
 });

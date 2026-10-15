@@ -1,5 +1,6 @@
 import { notFound } from "next/navigation";
 import { PortalPage, type PortalSearchParams } from "@/lib/server/portal-page";
+import { resolveAccountSettingsSection } from "@/lib/routes";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Account settings" };
@@ -12,9 +13,7 @@ export default async function Page({
   searchParams: Promise<PortalSearchParams>;
 }) {
   const { accountId, settingsSection } = await params;
-  const section = (["destination", "formats", "audience"] as const).find(
-    (value) => value === settingsSection,
-  );
+  const section = resolveAccountSettingsSection(settingsSection);
   if (!section) notFound();
   return (
     <PortalPage

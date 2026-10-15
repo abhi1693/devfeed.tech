@@ -6,9 +6,9 @@
     "dev": "next dev --port 3001",
     "build": "next build",
     "start": "next start --port 3001",
-    "lint": "eslint . && tsc --noEmit",
+    "lint": "node ../../scripts/generate_page_routes.mjs --check && eslint . && tsc --noEmit",
     "test": "vitest run",
-    "generate": "orval --config orval.config.ts && node ../../scripts/generate_admin_gateway.mjs",
+    "generate": "orval --config orval.config.ts && node ../../scripts/generate_admin_gateway.mjs && node ../../scripts/generate_page_routes.mjs",
     "analyze": "next analyze"
   },
   "dependencies": {

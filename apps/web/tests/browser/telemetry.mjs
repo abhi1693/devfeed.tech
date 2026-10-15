@@ -8,7 +8,7 @@ import { chromium } from "playwright";
 
 const root = fileURLToPath(new URL("../../../../", import.meta.url));
 const appName = process.argv[2] || "web";
-assert.ok(["web", "admin"].includes(appName));
+assert.ok(["web", "admin", "partner"].includes(appName));
 const { version } = JSON.parse(await readFile(`${root}/apps/${appName}/package.json`, "utf8"));
 const serverKey = "synthetic-server-only-collector-key";
 const forwarded = [];
@@ -59,8 +59,10 @@ const app = spawn(
       DEVFEED_PUBLIC_API_URL: upstream,
       DEVFEED_USER_API_URL: upstream,
       DEVFEED_ADMIN_API_URL: upstream,
+      DEVFEED_PARTNER_API_URL: upstream,
       DEVFEED_USER_BASE_URL: origin,
       DEVFEED_ADMIN_BASE_URL: origin,
+      DEVFEED_PARTNER_BASE_URL: origin,
       DEVFEED_FARO_ENABLED: "true",
       DEVFEED_FARO_COLLECTOR_URL: `${upstream}/collect`,
       DEVFEED_FARO_API_KEY: serverKey,
@@ -77,6 +79,7 @@ const app = spawn(
   },
 );
 let logs = "";
+const browserErrors = [];
 app.stdout.on("data", (data) => (logs += data));
 app.stderr.on("data", (data) => (logs += data));
 let browser;
@@ -103,87 +106,208 @@ try {
   );
   page.on("pageerror", (error) => {
     logs += `\nbrowser: ${error.message}`;
+    browserErrors.push(error.message);
   });
   page.on("console", (message) => {
     if (message.type() === "error" || message.type() === "warn")
       logs += `\nbrowser: ${message.text()}`;
+    if (message.type() === "error" && /Content Security Policy|Refused to/.test(message.text()))
+      browserErrors.push(message.text());
   });
-  // Select a sampled session deterministically in this test only. Production stays at 10%.
-  await page.addInitScript(() => {
-    Math.random = () => 0.01;
-    const randomValues = crypto.getRandomValues.bind(crypto);
-    crypto.getRandomValues = (array) => {
-      if (array instanceof Uint32Array && array.length === 1) return array.fill(0);
-      return randomValues(array);
-    };
-  });
-  const delivered = page.waitForResponse(
-    (response) =>
-      response.url() === `${origin}/telemetry/collect` &&
-      response.request().method() === "POST" &&
-      response
-        .request()
-        .postDataJSON()
-        .events?.some((event) => event.name === "telemetry_ready"),
-    { timeout: 20_000 },
-  );
-  await page.goto(`${origin}${path}`);
-  const response = await delivered;
-  assert.equal(response.status(), 202);
-  const request = response.request();
-  assert.equal(await request.headerValue("origin"), origin);
-  assert.equal(await request.headerValue("content-encoding"), null);
-  assert.equal(await request.headerValue("x-api-key"), null);
-  const sent = request.postDataJSON();
-  assert.deepEqual(sent.meta.app, {
-    name: `devfeed-${appName}`,
-    version,
-    environment: "production",
-  });
-  assert.ok(sent.events?.some((event) => event.name === "telemetry_ready"));
-  assert.ok(!JSON.stringify(sent).includes(serverKey));
-  assert.ok(forwarded.length > 0);
-  for (const batch of forwarded) {
-    assert.equal(batch.headers["x-api-key"], serverKey);
-    assert.equal(batch.headers.origin, origin);
-    assert.deepEqual(batch.body.meta.app, sent.meta.app);
+  if (appName === "partner") {
+    const account = "11111111-1111-4111-8111-111111111111";
+    const product = "22222222-2222-4222-8222-222222222222";
+    const connection = "33333333-3333-4333-8333-333333333333";
+    const query = "private-route-query";
+    const requests = [
+      ["/products", "/products"],
+      [`/products/${product}`, "/products/:id"],
+      [`/products/${product}/edit`, "/products/:id/edit"],
+      [`/products/${product}/placements`, "/products/:id/placements"],
+      [`/products/${product}/archive`, "/products/:id/archive"],
+      [`/settings/${account}`, "/settings/:id"],
+      [`/settings/${account}/destination`, "/settings/:id/destination"],
+      [`/settings/${account}/formats`, "/settings/:id/formats"],
+      [`/settings/${account}/audience`, "/settings/:id/audience"],
+      [`/connections/${connection}/edit`, "/connections/:id/edit"],
+      [`/connections/${connection}/disconnect`, "/connections/:id/disconnect"],
+      [`/settings/${account}/unknown-section`, "unmatched"],
+      [`/products/${product}/unknown-action`, "unmatched"],
+      [`/api/v1/partner/accounts/${account}/products`, "/v1/partner/accounts/:id/products"],
+      [
+        `/api/v1/partner/accounts/${account}/products/${product}`,
+        "/v1/partner/accounts/:id/products/:id",
+      ],
+    ];
+    for (const [requestPath] of requests) {
+      await page.goto(`${origin}${requestPath}?account_id=${account}&q=${query}`);
+    }
+    const metrics = await (await fetch(`http://127.0.0.1:${metricsPort}/metrics`)).text();
+    const recorded = metrics
+      .split("\n")
+      .filter((line) => line.startsWith("devfeed_http_requests_total{"));
+    for (const [, label] of requests)
+      assert.ok(
+        recorded.some((line) => line.includes(`route=${JSON.stringify(label)},`)),
+        `${label}: production partner request metrics use the approved route template`,
+      );
+    for (const privateValue of [account, product, connection, query])
+      assert.equal(
+        metrics.includes(privateValue),
+        false,
+        "private route values never label metrics",
+      );
+    console.log("partner: production requests use bounded labels, private IDs and queries omitted");
+  } else {
+    // Select a sampled session deterministically in this test only. Production stays at 10%.
+    await page.addInitScript(() => {
+      Math.random = () => 0.01;
+      const randomValues = crypto.getRandomValues.bind(crypto);
+      crypto.getRandomValues = (array) => {
+        if (array instanceof Uint32Array && array.length === 1) return array.fill(0);
+        return randomValues(array);
+      };
+    });
+    const delivered = page.waitForResponse(
+      (response) =>
+        response.url() === `${origin}/telemetry/collect` &&
+        response.request().method() === "POST" &&
+        response
+          .request()
+          .postDataJSON()
+          .events?.some((event) => event.name === "telemetry_ready"),
+      { timeout: 20_000 },
+    );
+    await page.goto(`${origin}${path}`);
+    const response = await delivered;
+    assert.equal(response.status(), 202);
+    const request = response.request();
+    assert.equal(await request.headerValue("origin"), origin);
+    assert.equal(await request.headerValue("content-encoding"), null);
+    assert.equal(await request.headerValue("x-api-key"), null);
+    const sent = request.postDataJSON();
+    assert.deepEqual(sent.meta.app, {
+      name: `devfeed-${appName}`,
+      version,
+      environment: "production",
+    });
+    assert.ok(sent.events?.some((event) => event.name === "telemetry_ready"));
+    assert.ok(!JSON.stringify(sent).includes(serverKey));
+    assert.ok(forwarded.length > 0);
+    for (const batch of forwarded) {
+      assert.equal(batch.headers["x-api-key"], serverKey);
+      assert.equal(batch.headers.origin, origin);
+      assert.deepEqual(batch.body.meta.app, sent.meta.app);
+    }
+    const before = forwarded.length;
+    const spoofed = await page.evaluate(
+      async () =>
+        (
+          await fetch("/telemetry/collect", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              meta: {
+                app: { name: "spoofed", version: "development", environment: "development" },
+                view: { name: "/users/private-collector-reader" },
+              },
+              events: [
+                {
+                  name: "route_change",
+                  attributes: {
+                    route: "/users/private-collector-reader",
+                    url: "/users/private-collector-reader?q=private-collector-search",
+                  },
+                },
+              ],
+            }),
+          })
+        ).status,
+    );
+    assert.equal(spoofed, 202);
+    assert.ok(forwarded.length > before);
+    assert.deepEqual(forwarded.at(-1).body.meta.app, sent.meta.app);
+    assert.equal(forwarded.at(-1).body.meta.view.name, "unmatched");
+    assert.deepEqual(forwarded.at(-1).body.events[0].attributes, { route: "unmatched" });
+    assert.equal(JSON.stringify(forwarded.at(-1).body).includes("private-collector"), false);
+    const rejected = await fetch(`${origin}/telemetry/collect`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: "{}",
+    });
+    assert.equal(rejected.status, 403);
+    const metrics = await (await fetch(`http://127.0.0.1:${metricsPort}/metrics`)).text();
+    assert.match(
+      metrics,
+      /devfeed_faro_deliveries_total\{status="202",outcome="accepted",service="(?:web|admin)"\} [1-9]/,
+    );
+    assert.match(
+      metrics,
+      /devfeed_faro_deliveries_total\{status="403",outcome="origin_missing",service="(?:web|admin)"\} 1/,
+    );
+    assert.ok(metrics.includes('devfeed_request_kind="request"'));
+    assert.ok(metrics.includes('http_response_status_code="200"'));
+    if (appName === "web") {
+      const privateQuery = "private-telemetry-query";
+      for (const [requestPath, label] of [
+        ["/trending", "/trending"],
+        ["/leaderboard", "/leaderboard"],
+        ["/dev-card", "/dev-card"],
+        ["/mcp", "/mcp"],
+        ["/mcp/authorize", "/mcp/authorize"],
+        ["/users/private-reader", "/users/:username"],
+        ["/articles/private-article", "/articles/:id"],
+      ]) {
+        const nextBatch = page.waitForResponse(
+          (candidate) =>
+            candidate.url() === `${origin}/telemetry/collect` &&
+            candidate.request().method() === "POST" &&
+            candidate
+              .request()
+              .postDataJSON()
+              .events?.some((event) => event.name === "telemetry_ready"),
+          { timeout: 20_000 },
+        );
+        await page.goto(`${origin}${requestPath}?q=${privateQuery}&request=${privateQuery}`);
+        const batch = (await nextBatch).request().postDataJSON();
+        assert.equal(
+          batch.meta.view.name,
+          label,
+          "the real Faro view uses a safe descriptor label",
+        );
+        assert.equal(batch.meta.view.name.includes(privateQuery), false);
+      }
+      const changed = page.waitForResponse(
+        (candidate) =>
+          candidate.url() === `${origin}/telemetry/collect` &&
+          candidate.request().method() === "POST" &&
+          candidate
+            .request()
+            .postDataJSON()
+            .events?.some((event) => event.name === "route_change"),
+        { timeout: 20_000 },
+      );
+      // Next's native history integration updates usePathname without reloading Faro.
+      await page.evaluate((query) => {
+        history.pushState(null, "", `/users/another-private-reader?q=${query}`);
+      }, privateQuery);
+      const changedBatch = (await changed).request().postDataJSON();
+      const changedEvent = changedBatch.events.find((event) => event.name === "route_change");
+      assert.deepEqual(changedEvent.attributes, { route: "/users/:username" });
+      assert.equal(changedBatch.meta.view.name, "/users/:username");
+      const finalMetrics = await (await fetch(`http://127.0.0.1:${metricsPort}/metrics`)).text();
+      for (const privateValue of [privateQuery, "private-reader", "private-article"])
+        assert.equal(
+          finalMetrics.includes(privateValue),
+          false,
+          "private routes never label metrics",
+        );
+    }
+    console.log(
+      `${appName}: sampled real Faro browser batch accepted, build metadata authoritative, bounded rejection metrics recorded`,
+    );
   }
-  const before = forwarded.length;
-  const spoofed = await page.evaluate(
-    async () =>
-      (
-        await fetch("/telemetry/collect", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            meta: { app: { name: "spoofed", version: "development", environment: "development" } },
-          }),
-        })
-      ).status,
-  );
-  assert.equal(spoofed, 202);
-  assert.ok(forwarded.length > before);
-  assert.deepEqual(forwarded.at(-1).body.meta.app, sent.meta.app);
-  const rejected = await fetch(`${origin}/telemetry/collect`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: "{}",
-  });
-  assert.equal(rejected.status, 403);
-  const metrics = await (await fetch(`http://127.0.0.1:${metricsPort}/metrics`)).text();
-  assert.match(
-    metrics,
-    /devfeed_faro_deliveries_total\{status="202",outcome="accepted",service="(?:web|admin)"\} [1-9]/,
-  );
-  assert.match(
-    metrics,
-    /devfeed_faro_deliveries_total\{status="403",outcome="origin_missing",service="(?:web|admin)"\} 1/,
-  );
-  assert.ok(metrics.includes('devfeed_request_kind="request"'));
-  assert.ok(metrics.includes('http_response_status_code="200"'));
-  console.log(
-    `${appName}: sampled real Faro browser batch accepted, build metadata authoritative, bounded rejection metrics recorded`,
-  );
+  assert.deepEqual(browserErrors, [], "actual browser has no runtime or CSP errors");
 } catch (error) {
   console.error(logs);
   throw error;
