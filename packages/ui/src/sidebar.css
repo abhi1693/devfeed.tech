@@ -29,6 +29,36 @@
   overflow-x: hidden;
   overflow-y: auto;
   overscroll-behavior: contain;
+  scrollbar-width: thin;
+  scrollbar-color: transparent transparent;
+}
+.shared-sidebar:is(:hover, :focus-within) .shared-sidebar-content {
+  scrollbar-color: color-mix(in srgb, var(--muted-foreground) 40%, transparent) transparent;
+}
+@supports not (scrollbar-width: thin) {
+  .shared-sidebar-content::-webkit-scrollbar {
+    width: 4px;
+  }
+  .shared-sidebar-content::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  .shared-sidebar-content::-webkit-scrollbar-button {
+    display: none;
+  }
+  .shared-sidebar-content::-webkit-scrollbar-thumb {
+    border-radius: 999px;
+    background: transparent;
+  }
+  .shared-sidebar:is(:hover, :focus-within) .shared-sidebar-content::-webkit-scrollbar-thumb {
+    background: color-mix(in srgb, var(--muted-foreground) 40%, transparent);
+  }
+}
+@media (forced-colors: active) {
+  .shared-sidebar .shared-sidebar-content,
+  .shared-sidebar:is(:hover, :focus-within) .shared-sidebar-content {
+    scrollbar-width: auto;
+    scrollbar-color: auto;
+  }
 }
 .shared-sidebar-content > nav {
   flex-shrink: 0;
