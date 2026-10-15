@@ -171,9 +171,21 @@ def test_sponsored_article_destination_ignores_unavailable_product_destination()
 def test_account_creative_uses_the_copy_for_its_selected_destination(destination):
     session = Mock()
     session.execute.return_value = [
-        SimpleNamespace(tagline="First owned source copy", listing_url=""),
         SimpleNamespace(
-            tagline="Copy for the working link", listing_url="https://catalog.example/tool"
+            tagline="First owned source copy",
+            listing_url="",
+            provider="first",
+            name="First platform",
+            logo_url=None,
+            managed_logo={},
+        ),
+        SimpleNamespace(
+            tagline="Copy for the working link",
+            listing_url="https://catalog.example/tool",
+            provider="second",
+            name="Working platform",
+            logo_url=None,
+            managed_logo={},
         ),
     ]
     account = SimpleNamespace(id="account", outbound_destination=destination)
@@ -181,6 +193,7 @@ def test_account_creative_uses_the_copy_for_its_selected_destination(destination
     creative = account_product_creative(session, account, product)
     assert creative.tagline == "Copy for the working link"
     assert creative.listing_url == "https://catalog.example/tool?utm_source=devfeed"
+    assert creative.platform.name == "Working platform"
     session.execute.assert_called_once()
 
 

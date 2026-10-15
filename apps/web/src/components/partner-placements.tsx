@@ -27,6 +27,7 @@ import { useReaderPromptCoordinator } from "./reader-prompts";
 import { displayHost } from "@/lib/feed-query";
 import { ArticleImage } from "./article-image";
 import { ArticleCard } from "./article-card";
+import { CatalogIcon } from "./catalog-icon";
 import { EngagementProvider } from "./article-engagement";
 
 // Simultaneously mounted feed/article contexts must never show the same catalog product twice.
@@ -101,6 +102,7 @@ function Placement({
   const table = layout === "table" && item.ad_format === "feed";
   const card = preserveSpace && !["homepage_sponsorship", "engagement"].includes(item.ad_format);
   const image = item.image_url ?? item.image_variants[0]?.url;
+  const platformName = item.platform?.name ?? item.partner_name;
   const sponsorshipId = useId();
   useEffect(() => {
     const target = content ? article.current : link.current;
@@ -166,7 +168,7 @@ function Placement({
           </a>
         </td>
         <td className="source-column">
-          <span title={item.partner_name}>{item.partner_name}</span>
+          <span title={platformName}>{platformName}</span>
         </td>
         <td className="date-column">
           <span
@@ -226,7 +228,17 @@ function Placement({
               </div>
               {item.tagline && <p className="partner-placement-description">{item.tagline}</p>}
               <div className="card-meta-row">
-                <span className="card-source">{item.partner_name}</span>
+                <span className="card-source">
+                  <span className="source-avatar" aria-hidden="true">
+                    <CatalogIcon
+                      url={item.platform?.logo_url ?? null}
+                      variants={item.platform?.logo_variants}
+                      displaySize={12}
+                      source
+                    />
+                  </span>
+                  <span title={platformName}>{platformName}</span>
+                </span>
                 <span
                   id={sponsorshipId}
                   className="content-type card-meta-type partner-placement-label"

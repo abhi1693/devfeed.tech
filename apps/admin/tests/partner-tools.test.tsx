@@ -29,6 +29,8 @@ vi.mock("@/lib/api/generated/admin", () => ({
   adminPartnerConnectorPreview: vi.fn(),
   adminPartnerConnectorResponse: vi.fn().mockResolvedValue({ data: { items: [] }, sampled: false }),
   adminPartnerConnectionUpdate: vi.fn(),
+  adminPartnerConnectionLogoUpload: vi.fn(),
+  adminPartnerConnectionLogoUpdate: vi.fn(),
   adminPartnerConnectionAction: vi.fn(),
   adminPartnerProductAction: vi.fn(),
   adminPartnerToolsEvaluations: vi.fn(),
@@ -444,6 +446,204 @@ it("edits enabled with revision protection and keeps provider fixed", async () =
       },
       { headers: { "X-CSRF-Token": "test-csrf" } },
     ),
+  );
+});
+
+it("imports and removes logo URLs immediately without saving unrelated draft fields", async () => {
+  const stored = { ...connection, logo_url: "https://cdn.example/old.webp" };
+  const imported = {
+    ...stored,
+    revision: 2,
+    logo_url: "https://cdn.example/new.webp",
+    logo_variants: [{ url: "https://cdn.example/new.webp", width: 64 }],
+  };
+  vi.mocked(api.adminPartnerConnectionLogoUpdate)
+    .mockResolvedValueOnce(imported)
+    .mockResolvedValueOnce({ ...stored, revision: 3, logo_url: null, logo_variants: [] });
+  vi.mocked(api.adminPartnerConnectionUpdate).mockResolvedValue({ ...stored, revision: 4 });
+  renderAdmin(
+    <PartnerConnectionForm
+      providers={[provider]}
+      connection={stored}
+      onSaved={vi.fn()}
+      onCancel={vi.fn()}
+    />,
+  );
+  fireEvent.change(screen.getByRole("textbox", { name: "Name" }), {
+    target: { value: "Unsaved platform name" },
+  });
+  const input = screen.getByRole("textbox", { name: "Logo URL" }) as HTMLInputElement;
+  fireEvent.change(input, { target: { value: "https://remote.example/new.png" } });
+  fireEvent.blur(input);
+  await waitFor(() => expect(input.value).toBe(imported.logo_url));
+  expect(api.adminPartnerConnectionUpdate).not.toHaveBeenCalled();
+  expect((screen.getByRole("textbox", { name: "Name" }) as HTMLInputElement).value).toBe(
+    "Unsaved platform name",
+  );
+  fireEvent.click(screen.getByRole("button", { name: "Remove logo" }));
+  await waitFor(() =>
+    expect(api.adminPartnerConnectionLogoUpdate).toHaveBeenLastCalledWith(
+      connection.provider,
+      { logo_url: null, expected_revision: 2 },
+      expect.anything(),
+    ),
+  );
+  await screen.findByText("Logo removed.");
+  fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+  await waitFor(() => expect(api.adminPartnerConnectionUpdate).toHaveBeenCalled());
+  const payload = vi.mocked(api.adminPartnerConnectionUpdate).mock.calls[0][1];
+  expect(payload).toMatchObject({ name: "Unsaved platform name", expected_revision: 3 });
+  expect(payload).not.toHaveProperty("logo_url");
+});
+
+it("saves a newly typed logo URL and other draft settings on the first Save click", async () => {
+  const user = userEvent.setup();
+  const saved = vi.fn();
+  const result = {
+    ...connection,
+    name: "Edited name",
+    revision: 2,
+    logo_url: "https://cdn.example/saved.webp",
+    logo_variants: [{ url: "https://cdn.example/saved.webp", width: 64 }],
+  };
+  vi.mocked(api.adminPartnerConnectionUpdate).mockResolvedValue(result);
+  renderAdmin(
+    <PartnerConnectionForm
+      providers={[provider]}
+      connection={connection}
+      onSaved={saved}
+      onCancel={vi.fn()}
+    />,
+  );
+  const name = screen.getByRole("textbox", { name: "Name" });
+  await user.clear(name);
+  await user.type(name, "Edited name");
+  const logo = screen.getByRole("textbox", { name: "Logo URL" });
+  await user.type(logo, "https://remote.example/logo.png");
+  await user.click(screen.getByRole("button", { name: "Save changes" }));
+  await waitFor(() => expect(saved).toHaveBeenCalledExactlyOnceWith(result));
+  expect(api.adminPartnerConnectionLogoUpdate).not.toHaveBeenCalled();
+  expect(api.adminPartnerConnectionLogoUpload).not.toHaveBeenCalled();
+  expect(api.adminPartnerConnectionUpdate).toHaveBeenCalledExactlyOnceWith(
+    connection.provider,
+    expect.objectContaining({
+      name: "Edited name",
+      logo_url: "https://remote.example/logo.png",
+      expected_revision: 1,
+    }),
+    expect.anything(),
+  );
+});
+
+it("uploads a saved connection logo immediately and keeps a separate name edit dirty", async () => {
+  const uploaded = {
+    ...connection,
+    revision: 2,
+    logo_url: "https://cdn.example/upload.webp",
+    logo_variants: [{ url: "https://cdn.example/upload.webp", width: 64 }],
+  };
+  vi.mocked(api.adminPartnerConnectionLogoUpload).mockResolvedValue(uploaded);
+  vi.mocked(api.adminPartnerConnectionUpdate).mockResolvedValue({ ...uploaded, revision: 3 });
+  renderAdmin(
+    <PartnerConnectionForm
+      providers={[provider]}
+      connection={connection}
+      onSaved={vi.fn()}
+      onCancel={vi.fn()}
+    />,
+  );
+  fireEvent.change(screen.getByRole("textbox", { name: "Name" }), {
+    target: { value: "Draft name" },
+  });
+  const file = new File(["image"], "platform.png", { type: "image/png" });
+  fireEvent.change(screen.getByLabelText("Logo image file"), { target: { files: [file] } });
+  await screen.findByText("Logo updated.");
+  expect((screen.getByRole("textbox", { name: "Logo URL" }) as HTMLInputElement).value).toBe(
+    uploaded.logo_url,
+  );
+  expect((screen.getByRole("textbox", { name: "Name" }) as HTMLInputElement).value).toBe(
+    "Draft name",
+  );
+  expect(api.adminPartnerConnectionUpdate).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+  await waitFor(() => expect(api.adminPartnerConnectionUpdate).toHaveBeenCalled());
+  expect(vi.mocked(api.adminPartnerConnectionUpdate).mock.calls[0][1]).toMatchObject({
+    name: "Draft name",
+    expected_revision: 2,
+  });
+  expect(vi.mocked(api.adminPartnerConnectionUpdate).mock.calls[0][1]).not.toHaveProperty(
+    "logo_url",
+  );
+});
+
+it("blocks invalid logo submissions and allows saving again after removal", async () => {
+  vi.mocked(api.adminPartnerConnectionUpdate).mockResolvedValue(connection);
+  renderAdmin(
+    <PartnerConnectionForm
+      providers={[provider]}
+      connection={connection}
+      onSaved={vi.fn()}
+      onCancel={vi.fn()}
+    />,
+  );
+  fireEvent.change(screen.getByLabelText("Logo image file"), {
+    target: { files: [new File(["<svg/>"], "invalid.svg", { type: "image/svg+xml" })] },
+  });
+  const submit = screen.getByRole("button", { name: "Save changes" }) as HTMLButtonElement;
+  expect(submit.disabled).toBe(true);
+  fireEvent.submit(submit.closest("form")!);
+  expect(api.adminPartnerConnectionUpdate).not.toHaveBeenCalled();
+  expect(api.adminPartnerConnectionLogoUpload).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole("button", { name: "Remove logo" }));
+  expect(screen.queryByRole("alert")).toBeNull();
+  expect(submit.disabled).toBe(false);
+  fireEvent.click(submit);
+  await waitFor(() => expect(api.adminPartnerConnectionUpdate).toHaveBeenCalledOnce());
+});
+
+it("keeps a newly created connection and retries its upload without creating a duplicate", async () => {
+  const saved = vi.fn();
+  const created = { ...connection, enabled: true, revision: 2 };
+  const uploaded = {
+    ...created,
+    revision: 4,
+    logo_url: "https://cdn.example/platform.webp",
+    logo_variants: [{ url: "https://cdn.example/platform.webp", width: 64 }],
+  };
+  vi.mocked(api.adminPartnerConnectionCreate).mockResolvedValue(created);
+  vi.mocked(api.adminPartnerConnectionUpdate).mockResolvedValue({ ...created, revision: 3 });
+  vi.mocked(api.adminPartnerConnectionLogoUpload)
+    .mockRejectedValueOnce(new Error("Storage temporarily unavailable"))
+    .mockResolvedValueOnce(uploaded);
+  renderAdmin(<PartnerConnectionForm providers={[provider]} onSaved={saved} onCancel={vi.fn()} />);
+  await selectAccount();
+  const file = new File(["image"], "platform.png", { type: "image/png" });
+  fireEvent.change(screen.getByLabelText("Logo image file"), { target: { files: [file] } });
+  fireEvent.click(screen.getByRole("button", { name: "Create import connection" }));
+  expect((await screen.findByRole("alert")).textContent).toContain(
+    "Connection settings saved, but the logo was not uploaded",
+  );
+  expect(saved).not.toHaveBeenCalled();
+  expect(screen.getByText("platform.png")).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+  await waitFor(() => expect(saved).toHaveBeenCalledWith(uploaded));
+  expect(api.adminPartnerConnectionCreate).toHaveBeenCalledOnce();
+  expect(api.adminPartnerConnectionUpdate).toHaveBeenCalledWith(
+    created.provider,
+    expect.objectContaining({ expected_revision: 2 }),
+    expect.anything(),
+  );
+  expect(api.adminPartnerConnectionLogoUpload).toHaveBeenNthCalledWith(
+    1,
+    created.provider,
+    { file, expected_revision: 2 },
+    { headers: { "X-CSRF-Token": "test-csrf" } },
+  );
+  expect(api.adminPartnerConnectionLogoUpload).toHaveBeenNthCalledWith(
+    2,
+    created.provider,
+    { file, expected_revision: 3 },
+    expect.anything(),
   );
 });
 

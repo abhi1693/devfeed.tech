@@ -8,6 +8,7 @@ import { Select } from "@/components/molecules/select";
 import { EntityPicker, type EntityPickerSource } from "@/components/molecules/entity-picker";
 import { PartnerApiResponse } from "./partner-api-response";
 import { ConnectorFields } from "@devfeed/ui/connector-fields";
+import { ConnectionLogoField, type ConnectionLogoChange } from "@devfeed/ui/connection-logo";
 import { responseMappings } from "@devfeed/ui/connector-response-mappings";
 import { connectorDefaults } from "@/lib/partner-connectors";
 import { ApiError } from "@/lib/api/client";
@@ -19,6 +20,8 @@ import {
   dashboardV1AdminPartnerAccountsAccountIdDashboardGet,
   adminPartnerConnectionCreate,
   adminPartnerConnectionUpdate,
+  adminPartnerConnectionLogoUpload,
+  adminPartnerConnectionLogoUpdate,
   adminPartnerConnectorPreview,
 } from "@/lib/api/generated/admin";
 import type {
@@ -66,6 +69,13 @@ export function PartnerConnectionForm({
   );
   const [customId, setCustomId] = useState(connection?.provider ?? "");
   const [name, setName] = useState(connection?.name ?? providers[0]?.name ?? "");
+  const [savedDraft, setSavedDraft] = useState<ConnectionOut>();
+  const current = savedDraft ?? connection;
+  const [logoUrl, setLogoUrl] = useState(connection?.logo_url ?? "");
+  const [logoFile, setLogoFile] = useState<File | null>(null);
+  const [logoChanged, setLogoChanged] = useState(false);
+  const [logoError, setLogoError] = useState("");
+  const [logoBusy, setLogoBusy] = useState(false);
   const [connector, setConnector] = useState<ConnectorConfig>(
     connection?.connector ?? connectorDefaults(provider),
   );
@@ -104,6 +114,7 @@ export function PartnerConnectionForm({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<Error>();
   const errors = error instanceof ApiError ? error.fields : {};
+  const busy = saving || testing || logoBusy;
   useEffect(() => {
     const invalid = form.current?.querySelectorAll<HTMLElement>('[aria-invalid="true"]');
     invalid?.forEach((control) => {
@@ -118,7 +129,7 @@ export function PartnerConnectionForm({
 
   async function save(event: FormEvent) {
     event.preventDefault();
-    if (saving || testing) return;
+    if (busy || logoError) return;
     if (!accountId) {
       setError(
         new ApiError(422, "Please correct the highlighted fields.", {
@@ -142,18 +153,21 @@ export function PartnerConnectionForm({
     }
     setSaving(true);
     setError(undefined);
+    let settingsSaved = false;
     try {
       const options = { headers: { "X-CSRF-Token": admin.csrf_token } };
-      const result = connection
+      const logo = logoChanged && !logoFile ? { logo_url: logoUrl.trim() || null } : {};
+      let result = current
         ? await adminPartnerConnectionUpdate(
-            connection.provider,
+            current.provider,
             {
               account_id: accountId || null,
               enabled,
               sync_interval_minutes,
-              expected_revision: connection.revision,
+              expected_revision: current.revision,
               name,
               connector,
+              ...logo,
             },
             options,
           )
@@ -165,19 +179,77 @@ export function PartnerConnectionForm({
               account_id: accountId || null,
               enabled,
               sync_interval_minutes,
+              ...logo,
             },
             options,
           );
+      setSavedDraft(result);
+      settingsSaved = true;
+      if (logoFile) {
+        const uploaded = await adminPartnerConnectionLogoUpload(
+          result.provider,
+          { file: logoFile, expected_revision: result.revision },
+          options,
+        );
+        if (
+          uploaded.provider !== result.provider ||
+          uploaded.account_id !== result.account_id ||
+          !uploaded.logo_url ||
+          !uploaded.logo_variants?.length ||
+          uploaded.revision <= result.revision
+        )
+          throw new Error("Could not confirm the uploaded logo. Refresh before trying again.");
+        setSavedDraft(uploaded);
+        result = uploaded;
+      }
       onSaved(result);
     } catch (error) {
-      setError(
+      const reason =
         error instanceof Error
           ? error
-          : new Error("Could not save import connection settings. Try again."),
+          : new Error("Could not save import connection settings. Try again.");
+      setError(
+        settingsSaved
+          ? new Error(
+              `Connection settings saved, but the logo was not uploaded. ${reason.message} Save changes again to retry this connection.`,
+            )
+          : reason,
       );
     } finally {
       setSaving(false);
     }
+  }
+
+  async function saveLogo(change: ConnectionLogoChange, signal: AbortSignal) {
+    if (!current) throw new Error("Create this connection before updating its logo.");
+    const options = { signal, headers: { "X-CSRF-Token": admin.csrf_token } };
+    const result =
+      "file" in change
+        ? await adminPartnerConnectionLogoUpload(
+            current.provider,
+            { file: change.file, expected_revision: current.revision },
+            options,
+          )
+        : await adminPartnerConnectionLogoUpdate(
+            current.provider,
+            { logo_url: change.logo_url, expected_revision: current.revision },
+            options,
+          );
+    if (
+      result.provider !== current.provider ||
+      result.account_id !== current.account_id ||
+      result.revision < current.revision
+    )
+      throw new Error("Could not confirm the updated logo. Refresh before trying again.");
+    if (
+      ("file" in change || change.logo_url) &&
+      (!result.logo_url || !result.logo_variants?.length)
+    )
+      throw new Error("Could not confirm the uploaded logo. Refresh before trying again.");
+    if (!("file" in change) && change.logo_url === null && result.logo_url !== null)
+      throw new Error("Could not confirm logo removal. Refresh before trying again.");
+    setSavedDraft(result);
+    return result;
   }
 
   return (
@@ -185,7 +257,7 @@ export function PartnerConnectionForm({
       <form
         ref={form}
         aria-label="Import connection settings"
-        aria-busy={saving || testing}
+        aria-busy={busy}
         onSubmit={(event) => void save(event)}
         className="space-y-6 rounded-lg border bg-card p-6"
       >
@@ -195,7 +267,7 @@ export function PartnerConnectionForm({
           <Field
             label="Platform"
             required
-            disabled={saving || testing || !!connection}
+            disabled={busy || !!current}
             error={provider === "__custom__" ? undefined : errors.provider}
           >
             {(control) => (
@@ -222,9 +294,9 @@ export function PartnerConnectionForm({
             label="Partner account"
             name="account_id"
             required
-            disabled={saving || testing}
+            disabled={busy}
             error={errors.account_id}
-            subtext="Select the partner account that owns this import connection. Imported products inherit its acceptance policy, promotion type, and click destination."
+            tooltip="Imported products belong to this account and inherit its promotion settings."
           >
             {(control) => (
               <EntityPicker
@@ -236,17 +308,24 @@ export function PartnerConnectionForm({
               />
             )}
           </Field>
-          <Field label="Name" required disabled={saving || testing} error={errors.name}>
+          <Field
+            label="Name"
+            required
+            disabled={busy}
+            error={errors.name}
+            className="sm:col-span-2"
+          >
             {(control) => (
               <Input {...control} value={name} onChange={(event) => setName(event.target.value)} />
             )}
           </Field>
+
           {provider === "__custom__" && (
             <Field
               label="Identifier"
               error={errors.provider}
               required
-              disabled={saving || testing}
+              disabled={busy}
               tooltip="Unique lowercase slug, for example shipyard."
             >
               {(control) => (
@@ -263,7 +342,7 @@ export function PartnerConnectionForm({
           <Field
             label="Sync interval (minutes)"
             required
-            disabled={saving || testing}
+            disabled={busy}
             error={errors.sync_interval_minutes}
           >
             {(control) => (
@@ -278,7 +357,7 @@ export function PartnerConnectionForm({
               />
             )}
           </Field>
-          <Field label="Enabled" disabled={saving || testing} error={errors.enabled}>
+          <Field label="Enabled" disabled={busy} error={errors.enabled}>
             {(control) => (
               <input
                 {...control}
@@ -290,6 +369,30 @@ export function PartnerConnectionForm({
             )}
           </Field>
         </div>
+        <div>
+          <ConnectionLogoField
+            name={name}
+            value={logoUrl}
+            file={logoFile}
+            variants={current?.logo_variants}
+            savedUrl={current?.logo_url}
+            disabled={busy}
+            onCommit={current ? saveLogo : undefined}
+            onSaved={(saved) => {
+              setLogoUrl(saved.logo_url ?? "");
+              setLogoFile(null);
+              setLogoChanged(false);
+            }}
+            onBusyChange={setLogoBusy}
+            onValidationChange={setLogoError}
+            error={errors.logo_url}
+            onChange={(url, file) => {
+              setLogoChanged(true);
+              setLogoUrl(url);
+              setLogoFile(file);
+            }}
+          />
+        </div>
         <ConnectorFields
           key={provider}
           Field={Field}
@@ -298,7 +401,7 @@ export function PartnerConnectionForm({
           errors={errors}
           mappings={mappings}
           onChange={changeConnector}
-          disabled={saving || testing}
+          disabled={busy}
         />
         {preview && (
           <div role="status" className="space-y-3 rounded-lg border p-4 text-sm">
@@ -326,18 +429,23 @@ export function PartnerConnectionForm({
         <div className="flex flex-wrap justify-end gap-2 border-t pt-5">
           <Button
             variant="outline"
-            disabled={saving || testing || !identifier || !connector.base_url}
+            disabled={busy || !identifier || !connector.base_url}
             loading={testing}
             loadingText="Testing…"
             onClick={() => void test()}
           >
             Test import connection
           </Button>
-          <Button variant="outline" disabled={saving || testing} onClick={onCancel}>
+          <Button variant="outline" disabled={busy} onClick={onCancel}>
             Cancel
           </Button>
-          <Button type="submit" loading={saving} loadingText="Saving…" disabled={testing}>
-            {connection ? "Save changes" : "Create import connection"}
+          <Button
+            type="submit"
+            loading={saving}
+            loadingText="Saving…"
+            disabled={testing || logoBusy || !!logoError}
+          >
+            {current ? "Save changes" : "Create import connection"}
           </Button>
         </div>
       </form>

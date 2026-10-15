@@ -7,6 +7,7 @@ import { useRefreshInterval } from "@/lib/use-refresh-interval";
 import Link from "next/link";
 import { Pencil, RefreshCw } from "lucide-react";
 import { ResourcePanel, DataValue } from "@devfeed/ui/resource-layout";
+import { ConnectionLogo } from "@devfeed/ui/connection-logo";
 import { DateTime } from "@/components/molecules/date-time";
 import { StatusBadge } from "@/components/molecules/status-badge";
 import { PartnerRelated } from "./partner-related";
@@ -201,7 +202,19 @@ export function PartnerConnectionPage({
                 <ResourcePanel
                   title="Import connection"
                   fields={[
-                    { label: "Name", value: <DataValue value={connection.name} /> },
+                    {
+                      label: "Name",
+                      value: (
+                        <span className="inline-flex items-center gap-3">
+                          <ConnectionLogo
+                            name={connection.name}
+                            url={connection.logo_url}
+                            variants={connection.logo_variants}
+                          />
+                          <DataValue value={connection.name} />
+                        </span>
+                      ),
+                    },
                     { label: "Type", value: "Launch platform" },
                     {
                       label: "Partner account",

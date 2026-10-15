@@ -4,7 +4,7 @@ import hashlib
 import logging
 import uuid
 from datetime import datetime
-from typing import Literal
+from typing import Annotated, Literal
 from urllib.parse import urlsplit
 
 from devfeed_core.models import (
@@ -13,6 +13,7 @@ from devfeed_core.models import (
     utcnow,
 )
 from devfeed_core.partner_catalog import lock_catalog
+from devfeed_core.partner_connection_logos import ConnectionLogoInput, ConnectionLogoUpdate
 from devfeed_core.partner_connections import (
     ConnectionOut,
     ConnectorPreviewOut,
@@ -37,9 +38,13 @@ from devfeed_core.partner_tools import ShortText
 from devfeed_core.rate_limits import RateLimitBudget, consume_rate_limits
 from devfeed_core.schemas import InputModel, ORMModel
 from devfeed_core.text_search import text_search
+from devfeed_http.body_limits import BodyLimitedRoute
+from devfeed_http.image_uploads import MAX_REQUEST_BYTES, limit_image_upload
+from devfeed_http.operation_policies import GatewayPolicy
 from devfeed_http.pagination import Listing, Page, paginate
+from devfeed_http.partner_connection_logos import ConnectionLogoEdit
 from devfeed_http.partner_connector_previews import ConnectorPreviewService
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from pydantic import Field, SecretStr, field_validator
 from redis.exceptions import RedisError
 from sqlalchemy import func, select
@@ -49,6 +54,7 @@ from devfeed_partner_api.auth import Partner, actor, require_partner
 from devfeed_partner_api.dependencies import DB, get_redis
 
 router = APIRouter(
+    route_class=BodyLimitedRoute,
     prefix="/v1/partner/accounts/{account_id}/connections",
     tags=["partner-connections"],
     dependencies=[Depends(require_partner)],
@@ -78,7 +84,7 @@ class PartnerConnectorConfig(ConnectorConfig):
     max_pages: int = Field(default=100, ge=1, le=100)
 
 
-class PartnerConnectionCreate(InputModel):
+class PartnerConnectionCreate(ConnectionLogoInput):
     name: ShortText
     connector: PartnerConnectorConfig
     credential: SecretStr | None = Field(default=None, json_schema_extra={"writeOnly": True})
@@ -88,7 +94,7 @@ class PartnerConnectionCreate(InputModel):
     _connector = field_validator("connector")(validate_partner_connector)
 
 
-class PartnerConnectionUpdate(InputModel):
+class PartnerConnectionUpdate(ConnectionLogoInput):
     name: ShortText | None = None
     connector: PartnerConnectorConfig | None = None
     credential: SecretStr | None = Field(default=None, json_schema_extra={"writeOnly": True})
@@ -184,20 +190,21 @@ def partner_connection_views(session, connections):
     return result
 
 
-def connection_access(session, account_id, provider):
-    connection = session.scalar(
-        select(PartnerConnection).where(
-            PartnerConnection.provider == provider,
-            PartnerConnection.account_id == account_id,
-            PartnerConnection.archived_at.is_(None),
-        )
+def connection_access(session, account_id, provider, *, lock=False):
+    statement = select(PartnerConnection).where(
+        PartnerConnection.provider == provider,
+        PartnerConnection.account_id == account_id,
+        PartnerConnection.archived_at.is_(None),
     )
+    if lock:
+        statement = statement.with_for_update()
+    connection = session.scalar(statement.execution_options(populate_existing=True))
     if connection is None:
         raise HTTPException(404, "Import connection not found")
     return connection
 
 
-def write_account(session, partner, account_id, *, creating=False):
+def authorize_connection_write(session, partner, account_id, *, creating=False):
     access = PartnerAccountAccess(session, partner)
     access.require(account_id)
     caller = hashlib.sha256(f"{partner.issuer}\0{partner.subject}".encode()).hexdigest()
@@ -217,6 +224,11 @@ def write_account(session, partner, account_id, *, creating=False):
         raise HTTPException(
             429, "Too many import changes; try again shortly", headers={"Retry-After": str(retry)}
         )
+    return access
+
+
+def write_account(session, partner, account_id, *, creating=False):
+    access = authorize_connection_write(session, partner, account_id, creating=creating)
     # Match worker lock order; account/membership locks remain held through commit.
     lock_catalog(session)
     return access.lock(account_id)
@@ -378,7 +390,7 @@ def get_connection(account_id: uuid.UUID, provider: ProviderSlug, session: DB, p
 def create_connection(
     account_id: uuid.UUID, body: PartnerConnectionCreate, session: DB, partner: Partner
 ):
-    write_account(session, partner, account_id, creating=True)
+    access = authorize_connection_write(session, partner, account_id, creating=True)
     if (
         session.scalar(
             select(func.count())
@@ -400,21 +412,42 @@ def create_connection(
         sync_interval_minutes=body.sync_interval_minutes,
         updated_by=actor(partner),
     )
-    if body.connector.auth.mode != "none":
-        if body.credential is None:
-            raise HTTPException(422, "Provide an import API credential")
-        try:
-            connection.encrypted_credential = encrypt_credential(
-                connection, body.connector, body.credential.get_secret_value()
+    prepared = ConnectionLogoEdit(connection, source_url=body.logo_url)
+    if prepared.changed:
+        limit_image_upload(get_redis(), partner, account_id)
+    session.rollback()
+    prepared.prepare()
+    with prepared.stage(session, lambda: access.require(account_id)):
+        lock_catalog(session)
+        access.lock(account_id)
+        if (
+            session.scalar(
+                select(func.count())
+                .select_from(PartnerConnection)
+                .where(
+                    PartnerConnection.account_id == account_id,
+                    PartnerConnection.archived_at.is_(None),
+                )
             )
-        except CredentialUnavailable as exc:
-            raise safe_credential_error(exc) from None
-    elif body.credential is not None:
-        raise HTTPException(422, "Select authentication before providing a credential")
-    session.add(connection)
-    session.flush()
-    configure_connection(session, connection, body.enabled)
-    session.commit()
+            or 0
+        ) >= MAX_CONNECTIONS:
+            raise HTTPException(409, "This account has reached its 25 import connection limit")
+        if body.connector.auth.mode != "none":
+            if body.credential is None:
+                raise HTTPException(422, "Provide an import API credential")
+            try:
+                connection.encrypted_credential = encrypt_credential(
+                    connection, body.connector, body.credential.get_secret_value()
+                )
+            except CredentialUnavailable as exc:
+                raise safe_credential_error(exc) from None
+        elif body.credential is not None:
+            raise HTTPException(422, "Select authentication before providing a credential")
+        session.add(connection)
+        session.flush()
+        configure_connection(session, connection, body.enabled)
+        prepared.apply(connection)
+        session.commit()
     log_change("partner_import_added", connection, partner)
     return partner_connection_views(session, [connection])[0]
 
@@ -429,51 +462,138 @@ def update_connection(
     session: DB,
     partner: Partner,
 ):
-    write_account(session, partner, account_id)
-    connection = connection_access(session, account_id, provider)
-    check_revision(connection, body.expected_revision)
-    current = ConnectorConfig.model_validate(connector_snapshot(connection))
-    managed = current.auth.mode != "none" and current.auth.source == "environment"
-    if managed and (body.connector is not None or body.credential is not None):
-        raise HTTPException(403, "This connection's authentication is managed by an administrator")
-    config = body.connector or current
-    credential_changed = False
-    if not managed:
-        if config.auth.mode == "none":
-            if body.credential is not None:
-                raise HTTPException(422, "Select authentication before providing a credential")
-            credential_changed = bool(connection.encrypted_credential)
-            connection.encrypted_credential = None
-        elif body.credential is not None:
-            try:
-                connection.encrypted_credential = encrypt_credential(
-                    connection, config, body.credential.get_secret_value()
-                )
-            except CredentialUnavailable as exc:
-                raise safe_credential_error(exc) from None
-            credential_changed = True
-        else:
-            try:
-                connection_credential(connection, config)
-            except CredentialUnavailable as exc:
-                raise safe_credential_error(exc) from None
-    changed = update_connection_definition(
-        session, connection, config, credential_changed=credential_changed
+    access = authorize_connection_write(session, partner, account_id)
+
+    def authorize():
+        access.require(account_id)
+        connection = connection_access(session, account_id, provider)
+        check_revision(connection, body.expected_revision)
+        return connection
+
+    connection = authorize()
+    prepared = (
+        ConnectionLogoEdit(connection, source_url=body.logo_url)
+        if "logo_url" in body.model_fields_set
+        else ConnectionLogoEdit(connection)
     )
-    if body.name is not None and body.name != connection.name:
-        connection.name = body.name
-        connection.revision += 1
-    configure_connection(
-        session,
-        connection,
-        body.enabled,
-        sync=changed,
-        sync_interval_minutes=body.sync_interval_minutes,
-    )
-    connection.updated_by = actor(partner)
-    session.commit()
+    if prepared.changed:
+        limit_image_upload(get_redis(), partner, account_id)
+    session.rollback()
+    prepared.prepare()
+    with prepared.stage(session, authorize):
+        lock_catalog(session)
+        access.lock(account_id)
+        connection = connection_access(session, account_id, provider, lock=True)
+        check_revision(connection, body.expected_revision)
+        current = ConnectorConfig.model_validate(connector_snapshot(connection))
+        managed = current.auth.mode != "none" and current.auth.source == "environment"
+        if managed and (body.connector is not None or body.credential is not None):
+            raise HTTPException(
+                403, "This connection's authentication is managed by an administrator"
+            )
+        config = body.connector or current
+        credential_changed = False
+        if not managed:
+            if config.auth.mode == "none":
+                if body.credential is not None:
+                    raise HTTPException(422, "Select authentication before providing a credential")
+                credential_changed = bool(connection.encrypted_credential)
+                connection.encrypted_credential = None
+            elif body.credential is not None:
+                try:
+                    connection.encrypted_credential = encrypt_credential(
+                        connection, config, body.credential.get_secret_value()
+                    )
+                except CredentialUnavailable as exc:
+                    raise safe_credential_error(exc) from None
+                credential_changed = True
+            else:
+                try:
+                    connection_credential(connection, config)
+                except CredentialUnavailable as exc:
+                    raise safe_credential_error(exc) from None
+        changed = update_connection_definition(
+            session, connection, config, credential_changed=credential_changed
+        )
+        if body.name is not None and body.name != connection.name:
+            connection.name = body.name
+            connection.revision += 1
+        configure_connection(
+            session,
+            connection,
+            body.enabled,
+            sync=changed,
+            sync_interval_minutes=body.sync_interval_minutes,
+        )
+        connection.updated_by = actor(partner)
+        prepared.apply(connection)
+        session.commit()
     log_change("partner_import_updated", connection, partner)
     return partner_connection_views(session, [connection])[0]
+
+
+def save_connection_logo(account_id, provider, expected_revision, session, partner, **values):
+    access = authorize_connection_write(session, partner, account_id)
+
+    def authorize():
+        access.require(account_id)
+        connection = connection_access(session, account_id, provider)
+        check_revision(connection, expected_revision)
+        return connection
+
+    connection = authorize()
+    prepared = ConnectionLogoEdit(connection, **values)
+    limit_image_upload(get_redis(), partner, account_id)
+    session.rollback()
+    prepared.prepare()
+    with prepared.stage(session, authorize):
+        access.lock(account_id)
+        connection = connection_access(session, account_id, provider, lock=True)
+        check_revision(connection, expected_revision)
+        prepared.apply(connection)
+        connection.updated_by = actor(partner)
+        session.commit()
+    log_change("partner_import_logo_updated", connection, partner)
+    return partner_connection_views(session, [connection])[0]
+
+
+@router.post(
+    "/{provider}/logo",
+    response_model=PartnerConnectionOut,
+    operation_id="partnerConnectionLogoUpload",
+    openapi_extra=GatewayPolicy(
+        body_limit=MAX_REQUEST_BYTES, body_timeout_ms=10_000
+    ).bounded_openapi_extra(rejection="image"),
+)
+def upload_connection_logo(
+    account_id: uuid.UUID,
+    provider: ProviderSlug,
+    expected_revision: Annotated[int, Form(ge=1)],
+    file: Annotated[UploadFile, File(description="JPEG, PNG or WebP, up to 5 MB")],
+    session: DB,
+    partner: Partner,
+):
+    return save_connection_logo(
+        account_id, provider, expected_revision, session, partner, file=file
+    )
+
+
+@router.put(
+    "/{provider}/logo",
+    response_model=PartnerConnectionOut,
+    operation_id="partnerConnectionLogoUpdate",
+    openapi_extra=GatewayPolicy(body_limit=65_536, body_timeout_ms=2000).bounded_openapi_extra(),
+)
+def update_connection_logo(
+    account_id: uuid.UUID,
+    provider: ProviderSlug,
+    body: ConnectionLogoUpdate,
+    session: DB,
+    partner: Partner,
+):
+    return save_connection_logo(
+        account_id, provider, body.expected_revision, session, partner, source_url=body.logo_url
+    )
 
 
 @router.post(

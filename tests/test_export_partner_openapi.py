@@ -78,6 +78,10 @@ def test_partner_gateway_exposes_registered_operations_with_endpoint_owned_limit
         "partnerProductAdImageUpload": GatewayPolicy(
             body_limit=5 * 1024 * 1024 + 65536, body_timeout_ms=10_000
         ),
+        "partnerConnectionLogoUpload": GatewayPolicy(
+            body_limit=5 * 1024 * 1024 + 65536, body_timeout_ms=10_000
+        ),
+        "partnerConnectionLogoUpdate": GatewayPolicy(body_limit=65536),
     }
     for key, operation in actual.items():
         original = documented[key]
@@ -113,13 +117,26 @@ def test_partner_gateway_preserves_route_precedence_and_distinct_parameter_conve
         for parameter in operation["parameters"]
         if parameter["name"] == "provider"
     ]
-    assert len(provider_parameters) == 9
+    assert len(provider_parameters) == 11
     for parameter in provider_parameters:
         assert parameter["converter"] == "str"
         assert parameter["schema"] == {
             **TypeAdapter(ProviderSlug).json_schema(),
             "title": "Provider",
         }
+    for identity, method in (
+        ("partnerConnectionLogoUpload", "POST"),
+        ("partnerConnectionLogoUpdate", "PUT"),
+    ):
+        operation = by_id[identity]
+        assert operation["path"] == "/v1/partner/accounts/{account_id}/connections/{provider}/logo"
+        assert operation["method"] == method
+        assert [parameter["name"] for parameter in operation["parameters"]] == [
+            "account_id",
+            "provider",
+        ]
+        assert [parameter["converter"] for parameter in operation["parameters"]] == ["str", "str"]
+        assert operation["parameters"][0]["schema"]["format"] == "uuid"
 
 
 @pytest.mark.parametrize("provider", ["custom-api", "account-abc-123", "a" * 200, "new"])

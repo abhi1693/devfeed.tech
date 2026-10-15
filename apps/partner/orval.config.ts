@@ -27,6 +27,7 @@ const responsePaths = new Set([
   "/v1/partner/accounts/{account_id}/connections/{provider}/connector-response",
   "/v1/partner/accounts/{account_id}/connections/{provider}/connector-preview",
   "/v1/partner/accounts/{account_id}/connections/{provider}",
+  "/v1/partner/accounts/{account_id}/connections/{provider}/logo",
   "/v1/partner/accounts/{account_id}/connections/{provider}/actions",
   "/v1/partner/accounts/{account_id}/connections/{provider}/jobs",
 ]);

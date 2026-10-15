@@ -291,6 +291,44 @@ export const partnerGatewayOperations = {
     ],
     policy: { bodyLimit: 1000000, bodyTimeoutMs: 2000, upstreamTimeoutMs: 45000 },
   },
+  ["partnerConnectionLogoUpload"]: {
+    operationId: "partnerConnectionLogoUpload",
+    method: "POST",
+    path: "/v1/partner/accounts/{account_id}/connections/{provider}/logo",
+    parameters: [
+      { name: "account_id", schema: { type: "string", format: "uuid" }, converter: "str" },
+      {
+        name: "provider",
+        schema: {
+          type: "string",
+          minLength: 1,
+          maxLength: 200,
+          pattern: "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+        },
+        converter: "str",
+      },
+    ],
+    policy: { bodyLimit: 5308416, bodyTimeoutMs: 10000, upstreamTimeoutMs: 45000 },
+  },
+  ["partnerConnectionLogoUpdate"]: {
+    operationId: "partnerConnectionLogoUpdate",
+    method: "PUT",
+    path: "/v1/partner/accounts/{account_id}/connections/{provider}/logo",
+    parameters: [
+      { name: "account_id", schema: { type: "string", format: "uuid" }, converter: "str" },
+      {
+        name: "provider",
+        schema: {
+          type: "string",
+          minLength: 1,
+          maxLength: 200,
+          pattern: "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+        },
+        converter: "str",
+      },
+    ],
+    policy: { bodyLimit: 65536, bodyTimeoutMs: 2000, upstreamTimeoutMs: 45000 },
+  },
   ["partnerConnectionAction"]: {
     operationId: "partnerConnectionAction",
     method: "POST",

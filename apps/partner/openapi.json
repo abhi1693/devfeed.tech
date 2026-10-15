@@ -454,6 +454,27 @@
         "title": "AuthConfig",
         "type": "object"
       },
+      "Body_partnerConnectionLogoUpload": {
+        "properties": {
+          "expected_revision": {
+            "minimum": 1.0,
+            "title": "Expected Revision",
+            "type": "integer"
+          },
+          "file": {
+            "contentMediaType": "application/octet-stream",
+            "description": "JPEG, PNG or WebP, up to 5 MB",
+            "title": "File",
+            "type": "string"
+          }
+        },
+        "required": [
+          "expected_revision",
+          "file"
+        ],
+        "title": "Body_partnerConnectionLogoUpload",
+        "type": "object"
+      },
       "Body_partnerProductAdImageUpload": {
         "properties": {
           "file": {
@@ -467,6 +488,52 @@
           "file"
         ],
         "title": "Body_partnerProductAdImageUpload",
+        "type": "object"
+      },
+      "ConnectionLogoUpdate": {
+        "additionalProperties": false,
+        "properties": {
+          "expected_revision": {
+            "minimum": 1.0,
+            "title": "Expected Revision",
+            "type": "integer"
+          },
+          "logo_url": {
+            "anyOf": [
+              {
+                "maxLength": 2048,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Logo Url"
+          }
+        },
+        "required": [
+          "logo_url",
+          "expected_revision"
+        ],
+        "title": "ConnectionLogoUpdate",
+        "type": "object"
+      },
+      "ConnectionLogoVariant": {
+        "properties": {
+          "url": {
+            "title": "Url",
+            "type": "string"
+          },
+          "width": {
+            "title": "Width",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "url",
+          "width"
+        ],
+        "title": "ConnectionLogoVariant",
         "type": "object"
       },
       "ConnectorAuth": {
@@ -975,6 +1042,16 @@
           "name": {
             "title": "Name",
             "type": "string"
+          },
+          "platform": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PlacementPlatform"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "product_url": {
             "title": "Product Url",
@@ -1659,6 +1736,18 @@
             "title": "Enabled",
             "type": "boolean"
           },
+          "logo_url": {
+            "anyOf": [
+              {
+                "maxLength": 2048,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Logo Url"
+          },
           "name": {
             "maxLength": 200,
             "minLength": 1,
@@ -1903,6 +1992,24 @@
             ],
             "title": "Last Sync At"
           },
+          "logo_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Logo Url"
+          },
+          "logo_variants": {
+            "items": {
+              "$ref": "#/components/schemas/ConnectionLogoVariant"
+            },
+            "title": "Logo Variants",
+            "type": "array"
+          },
           "name": {
             "title": "Name",
             "type": "string"
@@ -2054,6 +2161,18 @@
             "minimum": 1.0,
             "title": "Expected Revision",
             "type": "integer"
+          },
+          "logo_url": {
+            "anyOf": [
+              {
+                "maxLength": 2048,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Logo Url"
           },
           "name": {
             "anyOf": [
@@ -2408,6 +2527,38 @@
           }
         },
         "title": "PartnerPreferencesInput",
+        "type": "object"
+      },
+      "PlacementPlatform": {
+        "properties": {
+          "logo_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Logo Url"
+          },
+          "logo_variants": {
+            "items": {
+              "$ref": "#/components/schemas/ConnectionLogoVariant"
+            },
+            "title": "Logo Variants",
+            "type": "array"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "logo_url"
+        ],
+        "title": "PlacementPlatform",
         "type": "object"
       },
       "ProductAssessment": {
@@ -3179,6 +3330,18 @@
             "title": "Enabled",
             "type": "boolean"
           },
+          "logo_url": {
+            "anyOf": [
+              {
+                "maxLength": 2048,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Logo Url"
+          },
           "name": {
             "maxLength": 200,
             "minLength": 1,
@@ -3313,6 +3476,24 @@
               }
             ],
             "title": "Last Sync At"
+          },
+          "logo_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Logo Url"
+          },
+          "logo_variants": {
+            "items": {
+              "$ref": "#/components/schemas/ConnectionLogoVariant"
+            },
+            "title": "Logo Variants",
+            "type": "array"
           },
           "name": {
             "title": "Name",
@@ -5237,6 +5418,204 @@
           "bodyLimit": 1000000,
           "bodyTimeoutMs": 2000,
           "upstreamTimeoutMs": 45000
+        }
+      }
+    },
+    "/v1/partner/accounts/{account_id}/connections/{provider}/logo": {
+      "post": {
+        "operationId": "partnerConnectionLogoUpload",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "account_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Account Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "provider",
+            "required": true,
+            "schema": {
+              "maxLength": 200,
+              "minLength": 1,
+              "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+              "title": "Provider",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_partnerConnectionLogoUpload"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PartnerConnectionOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Request validation failed"
+          },
+          "4XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Invalid or unauthorized request"
+          },
+          "5XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service or dependency unavailable"
+          }
+        },
+        "security": [
+          {
+            "APIKeyCookie": []
+          }
+        ],
+        "summary": "Upload Connection Logo",
+        "tags": [
+          "partner-connections"
+        ],
+        "x-devfeed-gateway": {
+          "bodyLimit": 5308416,
+          "bodyTimeoutMs": 10000,
+          "upstreamTimeoutMs": 45000
+        },
+        "x-devfeed-request-body": {
+          "bodyLimit": 5308416,
+          "bodyTimeoutMs": 10000,
+          "rejection": "image"
+        }
+      },
+      "put": {
+        "operationId": "partnerConnectionLogoUpdate",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "account_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Account Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "provider",
+            "required": true,
+            "schema": {
+              "maxLength": 200,
+              "minLength": 1,
+              "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+              "title": "Provider",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ConnectionLogoUpdate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PartnerConnectionOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Request validation failed"
+          },
+          "4XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Invalid or unauthorized request"
+          },
+          "5XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service or dependency unavailable"
+          }
+        },
+        "security": [
+          {
+            "APIKeyCookie": []
+          }
+        ],
+        "summary": "Update Connection Logo",
+        "tags": [
+          "partner-connections"
+        ],
+        "x-devfeed-gateway": {
+          "bodyLimit": 65536,
+          "bodyTimeoutMs": 2000,
+          "upstreamTimeoutMs": 45000
+        },
+        "x-devfeed-request-body": {
+          "bodyLimit": 65536,
+          "bodyTimeoutMs": 2000,
+          "rejection": "json"
         }
       }
     },
@@ -8105,6 +8484,70 @@
       "path": "/v1/partner/accounts/{account_id}/connections/{provider}",
       "policy": {
         "bodyLimit": 1000000,
+        "bodyTimeoutMs": 2000,
+        "upstreamTimeoutMs": 45000
+      }
+    },
+    {
+      "method": "POST",
+      "operationId": "partnerConnectionLogoUpload",
+      "parameters": [
+        {
+          "converter": "str",
+          "name": "account_id",
+          "schema": {
+            "format": "uuid",
+            "title": "Account Id",
+            "type": "string"
+          }
+        },
+        {
+          "converter": "str",
+          "name": "provider",
+          "schema": {
+            "maxLength": 200,
+            "minLength": 1,
+            "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+            "title": "Provider",
+            "type": "string"
+          }
+        }
+      ],
+      "path": "/v1/partner/accounts/{account_id}/connections/{provider}/logo",
+      "policy": {
+        "bodyLimit": 5308416,
+        "bodyTimeoutMs": 10000,
+        "upstreamTimeoutMs": 45000
+      }
+    },
+    {
+      "method": "PUT",
+      "operationId": "partnerConnectionLogoUpdate",
+      "parameters": [
+        {
+          "converter": "str",
+          "name": "account_id",
+          "schema": {
+            "format": "uuid",
+            "title": "Account Id",
+            "type": "string"
+          }
+        },
+        {
+          "converter": "str",
+          "name": "provider",
+          "schema": {
+            "maxLength": 200,
+            "minLength": 1,
+            "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+            "title": "Provider",
+            "type": "string"
+          }
+        }
+      ],
+      "path": "/v1/partner/accounts/{account_id}/connections/{provider}/logo",
+      "policy": {
+        "bodyLimit": 65536,
         "bodyTimeoutMs": 2000,
         "upstreamTimeoutMs": 45000
       }

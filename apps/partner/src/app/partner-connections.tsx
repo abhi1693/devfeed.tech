@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Pencil, Plus, RefreshCw } from "lucide-react";
 import { ResourcePanel, ResourceHeading } from "@devfeed/ui/resource-layout";
+import { ConnectionLogo, type ConnectionLogoChange } from "@devfeed/ui/connection-logo";
 import { formatDate, defaultDateTimePreferences } from "@devfeed/ui/date-format";
 import { portalPath, accountSettingsPath } from "@/lib/routes";
 import { Button } from "@devfeed/ui/button";
@@ -102,6 +103,7 @@ export function PartnerConnections({
   const request = usePartnerRequest({ onUnavailable });
   const [page, setPage] = useState<WorkspaceConnectionsOut>();
   const [connection, setConnection] = useState<WorkspaceConnectionOut>();
+  const [savedDraft, setSavedDraft] = useState<PartnerConnectionOut & { account_id: string }>();
   const [jobs, setJobs] = useState<PartnerConnectionJobsOut>();
   const [jobsError, setJobsError] = useState("");
   const [credentialsAvailable, setCredentialsAvailable] = useState(false);
@@ -127,6 +129,7 @@ export function PartnerConnections({
       setError("");
       setJobsError("");
       setConnection(undefined);
+      setSavedDraft(undefined);
       setPage(undefined);
       setJobs(undefined);
       try {
@@ -197,15 +200,20 @@ export function PartnerConnections({
     if (busy) return;
     setBusy(true);
     setError("");
+    const current = savedDraft ?? connection;
+    const { logo_file, ...settings } = input;
+    let settingsSaved = false;
     try {
-      const result = await (connection ? accountRequest : request)(
-        connection ? `connections/${encodeURIComponent(connection.provider)}` : "connections",
+      const result = await request(
+        current
+          ? `accounts/${encodeURIComponent(current.account_id)}/connections/${encodeURIComponent(current.provider)}`
+          : "connections",
         {
-          method: connection ? "PUT" : "POST",
+          method: current ? "PUT" : "POST",
           headers: { "content-type": "application/json", "x-csrf-token": csrfToken },
           body: JSON.stringify({
-            ...input,
-            ...(connection ? { expected_revision: connection.revision } : {}),
+            ...settings,
+            ...(current ? { expected_revision: current.revision } : {}),
           }),
           unavailableOnNotFound: false,
           statusMessages: {
@@ -216,8 +224,8 @@ export function PartnerConnections({
           invalidMessage:
             "Could not confirm the saved import connection. Refresh to check its status.",
           parse: (value) => {
-            const saved = connection
-              ? parseConnectionWrite(value, connection.account_id, connection.provider)
+            const saved = current
+              ? parseConnectionWrite(value, current.account_id, current.provider)
               : parseConnection(value);
             if (input.account_id && saved.account_id !== input.account_id)
               throw new Error("Unexpected saved account.");
@@ -233,13 +241,100 @@ export function PartnerConnections({
           },
         },
       );
+      setSavedDraft(result);
+      settingsSaved = true;
+      if (logo_file) {
+        const body = new FormData();
+        body.append("file", logo_file);
+        body.append("expected_revision", String(result.revision));
+        const uploaded = await request(
+          `accounts/${encodeURIComponent(result.account_id)}/connections/${encodeURIComponent(result.provider)}/logo`,
+          {
+            method: "POST",
+            body,
+            headers: { "x-csrf-token": csrfToken },
+            unavailableOnNotFound: false,
+            errorMessage: "Could not upload the logo. Please try again.",
+            invalidMessage: "Could not confirm the uploaded logo. Refresh before trying again.",
+            statusMessages: {
+              409: conflictMessage,
+              413: "Choose an image under 5 MB.",
+              415: "Choose a valid JPEG, PNG or WebP image.",
+              422: "Choose a valid JPEG, PNG or WebP image.",
+            },
+            parse: (value) => {
+              const saved = parseConnectionWrite(value, result.account_id, result.provider);
+              if (
+                !saved.logo_url ||
+                !saved.logo_variants?.length ||
+                saved.revision <= result.revision
+              )
+                throw new Error("Unexpected logo upload result.");
+              return saved;
+            },
+          },
+        );
+        setSavedDraft(uploaded);
+      }
       router.push(connectionPath(result.provider));
     } catch (reason) {
-      if (!isPartnerRequestCancelled(reason))
-        setError(reason instanceof Error ? reason.message : "Could not save this connection.");
+      if (!isPartnerRequestCancelled(reason)) {
+        const message =
+          reason instanceof Error ? reason.message : "Could not save this connection.";
+        setError(
+          settingsSaved
+            ? `Connection settings saved, but the logo was not uploaded. ${message} Save changes again to retry this connection.`
+            : message,
+        );
+      }
     } finally {
       setBusy(false);
     }
+  }
+
+  async function saveLogo(change: ConnectionLogoChange, signal: AbortSignal) {
+    const current = savedDraft ?? connection;
+    if (!current) throw new Error("Create this connection before updating its logo.");
+    const body = "file" in change ? new FormData() : undefined;
+    if (body && "file" in change) {
+      body.append("file", change.file);
+      body.append("expected_revision", String(current.revision));
+    }
+    const result = await request(
+      `accounts/${encodeURIComponent(current.account_id)}/connections/${encodeURIComponent(current.provider)}/logo`,
+      {
+        method: body ? "POST" : "PUT",
+        signal,
+        body: body ?? JSON.stringify({ ...change, expected_revision: current.revision }),
+        headers: {
+          "x-csrf-token": csrfToken,
+          ...(body ? {} : { "content-type": "application/json" }),
+        },
+        unavailableOnNotFound: false,
+        statusMessages: {
+          409: conflictMessage,
+          413: "Choose an image under 5 MB.",
+          415: "Choose a valid JPEG, PNG or WebP image.",
+          422: "Choose a public HTTPS JPEG, PNG or WebP image.",
+        },
+        errorMessage: "Could not update the logo. Please try again.",
+        invalidMessage: "Could not confirm the updated logo. Refresh before trying again.",
+        parse: (value) => {
+          const saved = parseConnectionWrite(value, current.account_id, current.provider);
+          if (
+            ("file" in change || change.logo_url) &&
+            (!saved.logo_url || !saved.logo_variants?.length)
+          )
+            throw new Error("Unexpected logo result.");
+          if (!("file" in change) && change.logo_url === null && saved.logo_url !== null)
+            throw new Error("Unexpected logo removal result.");
+          if (saved.revision < current.revision) throw new Error("Stale logo result.");
+          return saved;
+        },
+      },
+    );
+    setSavedDraft(result);
+    return result;
   }
 
   async function act(action: "sync" | "pause" | "resume" | "disconnect") {
@@ -451,16 +546,25 @@ export function PartnerConnections({
                   {page.items.map((item) => (
                     <TableRow key={item.provider}>
                       <TableCell>
-                        <Link
-                          href={connectionPath(item.provider)}
-                          prefetch={false}
-                          className="font-medium text-primary hover:underline"
-                        >
-                          {item.name}
-                        </Link>
-                        <span className="mt-1 block text-xs text-muted-foreground">
-                          {item.api_url}
-                        </span>
+                        <div className="flex items-center gap-3">
+                          <ConnectionLogo
+                            name={item.name}
+                            url={item.logo_url}
+                            variants={item.logo_variants}
+                          />
+                          <div className="min-w-0">
+                            <Link
+                              href={connectionPath(item.provider)}
+                              prefetch={false}
+                              className="font-medium text-primary hover:underline"
+                            >
+                              {item.name}
+                            </Link>
+                            <span className="mt-1 block text-xs text-muted-foreground">
+                              {item.api_url}
+                            </span>
+                          </div>
+                        </div>
                       </TableCell>
                       <TableCell>
                         <Link
@@ -551,13 +655,14 @@ export function PartnerConnections({
       {!loading && (view === "create" || (view === "edit" && connection)) && (
         <PartnerConnectionForm
           key={`${connection?.provider ?? "new"}:${connection?.revision ?? 0}`}
-          connection={connection}
+          connection={savedDraft ?? connection}
           csrfToken={csrfToken}
           credentialsAvailable={credentialsAvailable}
           cancelHref={detailPath}
           saving={busy}
           error={error}
           onSave={save}
+          onLogoSave={savedDraft || connection ? saveLogo : undefined}
           onUnavailable={onUnavailable}
         />
       )}
@@ -589,7 +694,19 @@ export function PartnerConnections({
             <ResourcePanel
               title="Import connection"
               fields={[
-                { label: "Name", value: connection.name },
+                {
+                  label: "Name",
+                  value: (
+                    <span className="inline-flex items-center gap-3">
+                      <ConnectionLogo
+                        name={connection.name}
+                        url={connection.logo_url}
+                        variants={connection.logo_variants}
+                      />
+                      {connection.name}
+                    </span>
+                  ),
+                },
                 {
                   label: "Partner account",
                   value: (

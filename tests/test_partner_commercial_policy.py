@@ -458,7 +458,16 @@ def test_outbound_selection_preserves_query_and_fragment_and_overwrites_only_dev
     raw = "https://catalog.example/item?a=1&a=2&utm_source=old&utm_medium=referral#features"
     product = NS(id=uuid.uuid4(), product_url=raw)
     session = Mock()
-    session.execute.return_value = [NS(tagline="Owned source copy", listing_url=raw)]
+    session.execute.return_value = [
+        NS(
+            tagline="Owned source copy",
+            listing_url=raw,
+            provider="owned-platform",
+            name="Owned launch platform",
+            logo_url=None,
+            managed_logo={},
+        )
+    ]
     creative = account_product_creative(session, account, product, lock=True)
     result = urlsplit(creative.destination(account, product))
     assert parse_qs(result.query) == {
@@ -467,6 +476,7 @@ def test_outbound_selection_preserves_query_and_fragment_and_overwrites_only_dev
         "utm_medium": ["referral"],
     }
     assert result.fragment == "features"
+    assert creative.platform.name == "Owned launch platform" and creative.platform.logo_url is None
     statement = session.execute.call_args.args[0].compile(dialect=dialect())
     assert account.id in statement.params.values() and product.id in statement.params.values()
     assert "partner_connections.enabled IS true" in str(statement)

@@ -5,6 +5,7 @@
  * Partner analytics API with role-gated sessions and live memberships.
  * OpenAPI spec version: 0.0.52
  */
+import type { ConnectionLogoVariant } from './connectionLogoVariant';
 import type { ConnectorConfig } from './connectorConfig';
 import type { PartnerConnectionOutApprovalMode } from './partnerConnectionOutApprovalMode';
 import type { PartnerConnectionOutAuthMode } from './partnerConnectionOutAuthMode';
@@ -27,6 +28,8 @@ export interface PartnerConnectionOut {
   error: string | null;
   excluded: number;
   last_sync_at: string | null;
+  logo_url?: string | null;
+  logo_variants?: ConnectionLogoVariant[];
   name: string;
   needs_attention: number;
   next_sync_at: string | null;

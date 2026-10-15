@@ -111,6 +111,7 @@ def test_listing_destination_uses_direct_website_without_fabricating_platform_pr
     assert (
         creative.listing_url == "https://monitor.example/start?ref=docs&utm_source=devfeed#install"
     )
+    assert creative.platform is None
     source = session.execute.call_args.args[0]
     assert "partner_manual_products.active IS true" in sql(source)
     assert str(account_id) in sql(source)
@@ -137,13 +138,21 @@ def test_direct_destination_cannot_resurrect_an_archived_or_unsafe_product(websi
 def test_real_owned_listing_remains_preferred_over_the_direct_website():
     session = Mock()
     session.execute.return_value = [
-        NS(tagline="Owned source copy", listing_url="https://launch.example/products/monitor")
+        NS(
+            tagline="Owned source copy",
+            listing_url="https://launch.example/products/monitor",
+            provider="owned-platform",
+            name="Actual launch platform",
+            logo_url=None,
+            managed_logo={},
+        )
     ]
     creative = partner_placement_destinations.account_product_creative(
         session, NS(id=uuid.uuid4()), NS(id=uuid.uuid4())
     )
     assert creative.listing_url == "https://launch.example/products/monitor?utm_source=devfeed"
     assert creative.tagline == "Owned source copy"
+    assert creative.platform.name == "Actual launch platform" and creative.platform.logo_url is None
     session.execute.assert_called_once()
 
 

@@ -25,6 +25,11 @@ from devfeed_core.models import (
     utcnow,
 )
 from devfeed_core.partner_catalog import active_provider, product_has_active_source
+from devfeed_core.partner_connection_logos import (
+    ConnectionLogoInput,
+    ConnectionLogoVariant,
+    connection_platform,
+)
 from devfeed_core.partner_connectors import (
     CONNECTOR_PRESETS,
     ConnectorConfig,
@@ -68,7 +73,7 @@ class ConnectionAction(InputModel):
     action: Literal["connect", "pause", "sync"]
 
 
-class ConnectionCreate(InputModel):
+class ConnectionCreate(ConnectionLogoInput):
     account_id: uuid.UUID | None = None
     sync_interval_minutes: int = Field(default=360, ge=1, le=10080, strict=True)
     provider: ShortText
@@ -84,7 +89,7 @@ class ConnectionCreate(InputModel):
         return value
 
 
-class ConnectionSettings(InputModel):
+class ConnectionSettings(ConnectionLogoInput):
     name: ShortText | None = None
     connector: ConnectorConfig | None = None
     account_id: uuid.UUID | None = None
@@ -99,6 +104,8 @@ class ProductAction(InputModel):
 
 
 class ConnectionOut(ORMModel):
+    logo_url: str | None = None
+    logo_variants: list[ConnectionLogoVariant] = Field(default_factory=list)
     commercial_approved: int = 0
     approval_mode: Literal["qualified", "trusted"] | None = None
     account_id: uuid.UUID | None = None
@@ -463,7 +470,10 @@ def _connection_view(connection, statistics, *, ai_enabled):
         else None
     )
 
+    platform = connection_platform(connection)
     return ConnectionOut(
+        logo_url=platform.logo_url,
+        logo_variants=platform.logo_variants,
         commercial_approved=statistics.commercial_approved,
         approval_mode=statistics.approval_mode,
         provider=provider,

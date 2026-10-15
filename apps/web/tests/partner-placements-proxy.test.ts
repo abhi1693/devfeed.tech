@@ -8,6 +8,38 @@ vi.mock("@devfeed/telemetry/propagation", () => ({ traceHeaders: () => ({}) }));
 const query = { surface: "article", article_id: placement.product_id, exclude_product_ids: [] };
 const sponsoredArticle = { ...article, topics: [], sponsor_names: ["Example partner"] };
 
+it("projects only public platform identity and safe responsive logo variants", async () => {
+  const platform = {
+    name: "Launch platform",
+    logo_url: "https://images.example/platform/32.webp?v=one",
+    logo_variants: [
+      { url: "https://images.example/platform/16.webp?v=one", width: 16 },
+      { url: "https://images.example/platform/32.webp?v=one", width: 32 },
+      { url: "javascript:alert(1)", width: 64 },
+      { url: "https://secret@images.example/private.webp", width: 96 },
+    ],
+    provider: "private-provider-id",
+    source_url: "https://remote.example/private-logo.png",
+    encrypted_credential: "private",
+  };
+  vi.mocked(fetch).mockResolvedValue(Response.json({ items: [{ ...placement, platform }] }));
+  const response = await POST(request(query));
+  expect(response.status).toBe(200);
+  expect((await response.json()).items[0].platform).toEqual({
+    name: platform.name,
+    logo_url: platform.logo_url,
+    logo_variants: platform.logo_variants.slice(0, 2),
+  });
+});
+
+it.each([undefined, {}, { name: "" }, { name: "x".repeat(201) }])(
+  "rejects malformed platform metadata (%j)",
+  async (platform) => {
+    vi.mocked(fetch).mockResolvedValue(Response.json({ items: [{ ...placement, platform }] }));
+    expect((await POST(request(query))).status).toBe(503);
+  },
+);
+
 it.each(["AI", "x".repeat(161)])("rejects an invalid product tagline (%s)", async (tagline) => {
   vi.mocked(fetch).mockResolvedValue(Response.json({ items: [{ ...placement, tagline }] }));
   expect((await POST(request(query))).status).toBe(503);

@@ -11,6 +11,7 @@ export interface PartnerConnectionCreate {
   connector: PartnerConnectorConfig;
   credential?: string | null;
   enabled?: boolean;
+  logo_url?: string | null;
   /**
      * @minLength 1
      * @maxLength 200

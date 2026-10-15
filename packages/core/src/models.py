@@ -1645,6 +1645,8 @@ class PartnerConnection(Base):
     )
     provider: Mapped[str] = mapped_column(String(200), primary_key=True)
     name: Mapped[str] = mapped_column(String(200), default="", server_default="")
+    logo_url: Mapped[str | None] = mapped_column(String(2048))
+    managed_logo: Mapped[dict] = mapped_column(JSONB, default=dict, server_default="{}")
     connector: Mapped[dict] = mapped_column(JSONB, default=dict, server_default="{}")
     encrypted_credential: Mapped[str | None] = mapped_column(Text)
     archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

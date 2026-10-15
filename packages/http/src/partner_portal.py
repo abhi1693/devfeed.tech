@@ -25,6 +25,7 @@ from devfeed_core.partner_ad_formats import (
     validate_product_formats,
 )
 from devfeed_core.partner_audiences import AudienceInput
+from devfeed_core.partner_connection_logos import PlacementPlatform
 from devfeed_core.partner_placement_destinations import (
     account_product_creative,
     devfeed_outbound_url,
@@ -192,6 +193,7 @@ class CreativePreviewProduct(DestinationPreviewProduct):
     tagline: Tagline
     logo_url: str | None
     image_url: str | None
+    platform: PlacementPlatform | None = None
 
 
 class CreativePreviewOut(BaseModel):
@@ -284,6 +286,7 @@ def creative_preview(session, account, product_id=None) -> CreativePreviewOut:
             product_url=product_url,
             listing_url=creative.listing_url,
             logo_url=product_logo_url(product),
+            platform=creative.platform,
             image_url=product_image_url(product, policy),
             ad_image_status=product_ad_image_status(session, policy),
         )

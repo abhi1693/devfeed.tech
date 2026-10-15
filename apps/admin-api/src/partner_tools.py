@@ -2,7 +2,7 @@
 
 import logging
 import uuid
-from typing import Literal
+from typing import Annotated, Literal
 
 from devfeed_core.job_lifecycle import fail_or_retry
 from devfeed_core.models import (
@@ -20,6 +20,7 @@ from devfeed_core.partner_catalog import (
     lock_catalog,
     product_has_active_source,
 )
+from devfeed_core.partner_connection_logos import ConnectionLogoUpdate
 from devfeed_core.partner_connections import (
     ConnectionAction,
     ConnectionCreate,
@@ -30,6 +31,7 @@ from devfeed_core.partner_connections import (
     ConnectorResponseOut,
     PartnerJobOut,
     ProductAction,
+    ProviderSlug,
     configure_connection,
     connection_view,
     connection_views,
@@ -50,18 +52,23 @@ from devfeed_core.partner_tools import (
     snapshot_current,
 )
 from devfeed_core.text_search import text_search
+from devfeed_http.body_limits import BodyLimitedRoute
+from devfeed_http.image_uploads import MAX_REQUEST_BYTES, limit_image_upload
+from devfeed_http.operation_policies import GatewayPolicy
 from devfeed_http.pagination import Listing, Page, paginate, record
+from devfeed_http.partner_connection_logos import ConnectionLogoEdit
 from devfeed_http.partner_connector_previews import ConnectorPreviewService
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from sqlalchemy import String, cast, exists, or_, select
 from sqlalchemy.dialects.postgresql import insert
 
 from devfeed_admin_api.auth import Admin, actor, require_admin
-from devfeed_admin_api.dependencies import DB
+from devfeed_admin_api.dependencies import DB, get_redis
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(
+    route_class=BodyLimitedRoute,
     prefix="/v1/admin/partner-tools",
     tags=["admin-partner-tools"],
     dependencies=[Depends(require_admin)],
@@ -154,17 +161,19 @@ def log_connection(event, connection, admin, affected_jobs):
     operation_id="admin_partner_connection_create",
 )
 def create_connection(body: ConnectionCreate, session: DB, admin: Admin):
-    lock_catalog(session)
-    if body.connector is None and body.provider not in CONNECTOR_PRESETS:
-        raise HTTPException(422, "Provide an API connector definition")
-    if body.name is None and body.provider not in PARTNER_PRESETS:
-        raise HTTPException(422, "Provide an import connection name")
-    if session.get(PartnerConnection, body.provider):
-        raise HTTPException(409, "This import connection already exists; edit its settings")
-    if body.account_id is not None and session.get(PartnerAccount, body.account_id) is None:
-        raise HTTPException(422, "Partner account not found")
-    if body.connector is not None and body.connector.auth.source == "connection":
-        raise HTTPException(422, "Configure account credentials in the partner portal")
+    def validate_creation():
+        if body.connector is None and body.provider not in CONNECTOR_PRESETS:
+            raise HTTPException(422, "Provide an API connector definition")
+        if body.name is None and body.provider not in PARTNER_PRESETS:
+            raise HTTPException(422, "Provide an import connection name")
+        if session.get(PartnerConnection, body.provider):
+            raise HTTPException(409, "This import connection already exists; edit its settings")
+        if body.account_id is not None and session.get(PartnerAccount, body.account_id) is None:
+            raise HTTPException(422, "Partner account not found")
+        if body.connector is not None and body.connector.auth.source == "connection":
+            raise HTTPException(422, "Configure account credentials in the partner portal")
+
+    validate_creation()
     connection = PartnerConnection(
         account_id=body.account_id,
         provider=body.provider,
@@ -176,12 +185,35 @@ def create_connection(body: ConnectionCreate, session: DB, admin: Admin):
         updated_by=actor(admin),
         sync_interval_minutes=body.sync_interval_minutes,
     )
-    session.add(connection)
-    session.flush()
-    affected_jobs = configure_connection(session, connection, body.enabled)
-    session.commit()
+    prepared = ConnectionLogoEdit(connection, source_url=body.logo_url)
+    if prepared.changed:
+        limit_image_upload(get_redis(), admin, body.account_id or body.provider)
+    session.rollback()
+    prepared.prepare()
+    with prepared.stage(session, validate_creation):
+        lock_catalog(session)
+        validate_creation()
+        session.add(connection)
+        session.flush()
+        affected_jobs = configure_connection(session, connection, body.enabled)
+        prepared.apply(connection)
+        session.commit()
     log_connection("partner_connection_added", connection, admin, affected_jobs)
     return connection_view(session, connection)
+
+
+def current_connection(session, provider, expected_revision, *, lock=False):
+    statement = select(PartnerConnection).where(
+        PartnerConnection.provider == provider, PartnerConnection.archived_at.is_(None)
+    )
+    if lock:
+        statement = statement.with_for_update()
+    connection = session.scalar(statement.execution_options(populate_existing=True))
+    if connection is None:
+        raise HTTPException(404, "Import connection not found")
+    if connection.revision != expected_revision:
+        raise HTTPException(409, "Import connection changed; refresh to load the latest settings")
+    return connection
 
 
 @router.put(
@@ -190,50 +222,121 @@ def create_connection(body: ConnectionCreate, session: DB, admin: Admin):
     operation_id="admin_partner_connection_update",
 )
 def update_connection(provider: str, body: ConnectionSettings, session: DB, admin: Admin):
-    lock_catalog(session)
-    connection = session.get(PartnerConnection, provider)
-    if not connection or connection.archived_at is not None:
-        raise HTTPException(404, "Import connection not found")
-    if connection.revision != body.expected_revision:
-        raise HTTPException(
-            409, "Import connection settings changed; reopen the form to load the latest settings"
-        )
-    if "account_id" in body.model_fields_set and body.account_id != connection.account_id:
-        if connection.encrypted_credential:
-            raise HTTPException(
-                409, "Remove the account-bound credential before moving this connection"
-            )
-        if body.account_id is not None and session.get(PartnerAccount, body.account_id) is None:
-            raise HTTPException(422, "Partner account not found")
-        connection.account_id = body.account_id
-        connection.revision += 1
-    definition_changed = False
-    if body.name is not None and body.name != connection.name:
-        connection.name = body.name
-        connection.revision += 1
-    if body.connector is not None:
-        current = ConnectorConfig.model_validate(connector_snapshot(connection))
-        if body.connector.auth.source == "connection" and body.connector.auth.mode != "none":
-            if not connection.encrypted_credential or (
-                current.base_url != body.connector.base_url or current.auth != body.connector.auth
-            ):
-                raise HTTPException(
-                    409, "Update the account-bound credential in the partner portal"
-                )
-        elif body.connector.auth.mode == "none":
-            connection.encrypted_credential = None
-        definition_changed = update_connection_definition(session, connection, body.connector)
-    affected_jobs = configure_connection(
-        session,
-        connection,
-        body.enabled,
-        sync_interval_minutes=body.sync_interval_minutes,
-        sync=definition_changed,
+    def authorize():
+        return current_connection(session, provider, body.expected_revision)
+
+    connection = authorize()
+    prepared = (
+        ConnectionLogoEdit(connection, source_url=body.logo_url)
+        if "logo_url" in body.model_fields_set
+        else ConnectionLogoEdit(connection)
     )
-    connection.updated_by = actor(admin)
-    session.commit()
+    if prepared.changed:
+        limit_image_upload(get_redis(), admin, connection.account_id or provider)
+    session.rollback()
+    prepared.prepare()
+    with prepared.stage(session, authorize):
+        lock_catalog(session)
+        connection = current_connection(session, provider, body.expected_revision, lock=True)
+        if "account_id" in body.model_fields_set and body.account_id != connection.account_id:
+            if connection.encrypted_credential:
+                raise HTTPException(
+                    409, "Remove the account-bound credential before moving this connection"
+                )
+            if body.account_id is not None and session.get(PartnerAccount, body.account_id) is None:
+                raise HTTPException(422, "Partner account not found")
+            connection.account_id = body.account_id
+            connection.revision += 1
+        definition_changed = False
+        if body.name is not None and body.name != connection.name:
+            connection.name = body.name
+            connection.revision += 1
+        if body.connector is not None:
+            current = ConnectorConfig.model_validate(connector_snapshot(connection))
+            if body.connector.auth.source == "connection" and body.connector.auth.mode != "none":
+                if not connection.encrypted_credential or (
+                    current.base_url != body.connector.base_url
+                    or current.auth != body.connector.auth
+                ):
+                    raise HTTPException(
+                        409, "Update the account-bound credential in the partner portal"
+                    )
+            elif body.connector.auth.mode == "none":
+                connection.encrypted_credential = None
+            definition_changed = update_connection_definition(session, connection, body.connector)
+        affected_jobs = configure_connection(
+            session,
+            connection,
+            body.enabled,
+            sync_interval_minutes=body.sync_interval_minutes,
+            sync=definition_changed,
+        )
+        connection.updated_by = actor(admin)
+        prepared.apply(connection)
+        session.commit()
     log_connection("partner_connection_settings_updated", connection, admin, affected_jobs)
     return connection_view(session, connection)
+
+
+def save_connection_logo(provider, expected_revision, session, admin, **values):
+    def authorize():
+        return current_connection(session, provider, expected_revision)
+
+    connection = authorize()
+    prepared = ConnectionLogoEdit(connection, **values)
+    limit_image_upload(get_redis(), admin, connection.account_id or provider)
+    session.rollback()
+    prepared.prepare()
+    with prepared.stage(session, authorize):
+        # Logo-only writes keep the ordinary account -> connection lock order.
+        connection = authorize()
+        account_id = connection.account_id
+        if account_id is not None:
+            session.scalar(
+                select(PartnerAccount.id).where(PartnerAccount.id == account_id).with_for_update()
+            )
+        connection = current_connection(session, provider, expected_revision, lock=True)
+        if connection.account_id != account_id:
+            raise HTTPException(
+                409, "Import connection changed; refresh to load the latest settings"
+            )
+        prepared.apply(connection)
+        connection.updated_by = actor(admin)
+        session.commit()
+    log_connection("partner_connection_logo_updated", connection, admin, [])
+    return connection_view(session, connection)
+
+
+@router.post(
+    "/connections/{provider}/logo",
+    response_model=ConnectionOut,
+    operation_id="adminPartnerConnectionLogoUpload",
+    openapi_extra=GatewayPolicy(
+        body_limit=MAX_REQUEST_BYTES, body_timeout_ms=10_000
+    ).bounded_openapi_extra(rejection="image"),
+)
+def upload_connection_logo(
+    provider: ProviderSlug,
+    expected_revision: Annotated[int, Form(ge=1)],
+    file: Annotated[UploadFile, File(description="JPEG, PNG or WebP, up to 5 MB")],
+    session: DB,
+    admin: Admin,
+):
+    return save_connection_logo(provider, expected_revision, session, admin, file=file)
+
+
+@router.put(
+    "/connections/{provider}/logo",
+    response_model=ConnectionOut,
+    operation_id="adminPartnerConnectionLogoUpdate",
+    openapi_extra=GatewayPolicy(body_limit=65_536, body_timeout_ms=2000).bounded_openapi_extra(),
+)
+def update_connection_logo(
+    provider: ProviderSlug, body: ConnectionLogoUpdate, session: DB, admin: Admin
+):
+    return save_connection_logo(
+        provider, body.expected_revision, session, admin, source_url=body.logo_url
+    )
 
 
 @router.post(

@@ -96,6 +96,44 @@ it("previews a feed without a hero using compact product branding", () => {
   expect(screen.getByText("Sponsored")).toBeTruthy();
 });
 
+it.each([null, product.image_url])(
+  "previews the importing platform's managed source logo with hero %s",
+  (image_url) => {
+    const platform = {
+      name: "Launch platform",
+      logo_url: "https://images.example/platform/64.webp?v=one",
+      logo_variants: [16, 32, 64, 96].map((width) => ({
+        width,
+        url: `https://images.example/platform/${width}.webp?v=one`,
+      })),
+    };
+    const view = render(
+      <AdCreativePreview format="feed" product={{ ...product, image_url, platform }} />,
+    );
+    const logo = view.container.querySelector(`img[src="${platform.logo_url}"]`)!;
+    expect(screen.getByText(platform.name)).toBeTruthy();
+    expect(logo.getAttribute("sizes")).toBe("16px");
+    expect(logo.getAttribute("srcset")).toContain("/16.webp?v=one 16w");
+    expect(logo.getAttribute("referrerpolicy")).toBe("no-referrer");
+    fireEvent.error(logo);
+    expect(view.container.querySelector(`img[src="${platform.logo_url}"]`)).toBeNull();
+    expect(screen.getByText(platform.name)).toBeTruthy();
+    expect(screen.getByText("Sponsored")).toBeTruthy();
+  },
+);
+
+it.each([
+  {},
+  { name: "Platform", logo_url: null, logo_variants: "invalid" },
+  {
+    name: "Platform",
+    logo_url: null,
+    logo_variants: [{ url: "https://images.example/logo.webp", width: 0 }],
+  },
+])("rejects malformed preview platform metadata (%j)", (platform) => {
+  expect(() => parseCreativePreview({ product: { ...product, platform } })).toThrow();
+});
+
 it("previews the approved article's internal destination and title", () => {
   render(
     <AdCreativePreview

@@ -424,6 +424,24 @@
         "title": "Connection",
         "type": "object"
       },
+      "ConnectionLogoVariant": {
+        "properties": {
+          "url": {
+            "title": "Url",
+            "type": "string"
+          },
+          "width": {
+            "title": "Width",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "url",
+          "width"
+        ],
+        "title": "ConnectionLogoVariant",
+        "type": "object"
+      },
       "ConnectionsPage": {
         "properties": {
           "items": {
@@ -1120,6 +1138,16 @@
             "title": "Partner Name",
             "type": "string"
           },
+          "platform": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PlacementPlatform"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "product_id": {
             "format": "uuid",
             "title": "Product Id",
@@ -1161,6 +1189,38 @@
           "receipt"
         ],
         "title": "PlacementOut",
+        "type": "object"
+      },
+      "PlacementPlatform": {
+        "properties": {
+          "logo_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Logo Url"
+          },
+          "logo_variants": {
+            "items": {
+              "$ref": "#/components/schemas/ConnectionLogoVariant"
+            },
+            "title": "Logo Variants",
+            "type": "array"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "logo_url"
+        ],
+        "title": "PlacementPlatform",
         "type": "object"
       },
       "PlacementQuery": {

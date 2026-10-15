@@ -11,6 +11,7 @@ from devfeed_core.models import (
     PartnerManualProduct,
     PartnerProduct,
 )
+from devfeed_core.partner_connection_logos import PlacementPlatform, connection_platform
 from devfeed_core.urls import validate_public_url
 
 LISTING_LIMIT = 20
@@ -63,6 +64,7 @@ def account_listings(account_id, product_id, *, lock=False):
 class AccountProductCreative:
     tagline: str
     listing_url: str | None
+    platform: PlacementPlatform | None = None
 
     def destination(self, account, product):
         if account.outbound_destination == "listing_url":
@@ -81,7 +83,12 @@ def account_product_creative(session, account, product, *, lock=False):
     listing_url = None
     for row in session.execute(
         account_listings(account.id, product.id, lock=lock).with_only_columns(
-            PartnerListing.tagline, PartnerListing.listing_url
+            PartnerListing.tagline,
+            PartnerListing.listing_url,
+            PartnerConnection.provider,
+            PartnerConnection.name,
+            PartnerConnection.logo_url,
+            PartnerConnection.managed_logo,
         )
     ):
         selected = selected or row
@@ -100,7 +107,11 @@ def account_product_creative(session, account, product, *, lock=False):
         if direct is not None:
             listing_url = devfeed_outbound_url(direct.product_url)
             return AccountProductCreative(direct.tagline, listing_url)
-    return AccountProductCreative(selected.tagline, listing_url) if selected is not None else None
+    return (
+        AccountProductCreative(selected.tagline, listing_url, connection_platform(selected))
+        if selected is not None
+        else None
+    )
 
 
 def devfeed_outbound_url(destination):

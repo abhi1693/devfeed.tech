@@ -248,6 +248,204 @@ it("creates a structured public API connection with write protection and navigat
   });
 });
 
+it("imports a logo URL through the normal connection save", async () => {
+  const save = form(connection());
+  fireEvent.change(screen.getByRole("textbox", { name: "Logo URL" }), {
+    target: { value: "https://platform.example/logo.png" },
+  });
+  fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+  await waitFor(() =>
+    expect(save).toHaveBeenCalledWith(
+      expect.objectContaining({ logo_url: "https://platform.example/logo.png" }),
+    ),
+  );
+});
+
+it("updates a saved logo immediately, preserves other draft edits and saves with its latest revision", async () => {
+  const existing = connection({ logo_url: null, logo_variants: [] });
+  let revision = 1;
+  const fetcher = vi.fn<typeof fetch>().mockImplementation(async (url, init) => {
+    if (String(url).endsWith("/logo")) {
+      revision++;
+      const removing = init?.method === "PUT" && JSON.parse(String(init.body)).logo_url === null;
+      return Response.json({
+        ...existing,
+        revision,
+        logo_url: removing ? null : "https://cdn.example/logo.webp",
+        logo_variants: removing ? [] : [{ url: "https://cdn.example/logo.webp", width: 64 }],
+      });
+    }
+    if (init?.method === "PUT")
+      return Response.json({ ...existing, name: "Draft catalog name", revision: 5 });
+    return Response.json(existing);
+  });
+  vi.stubGlobal("fetch", fetcher);
+  render(
+    <PartnerConnections
+      csrfToken="csrf"
+      onUnavailable={unavailable}
+      route={{ view: "edit", connectionId: existing.provider }}
+    />,
+  );
+  const name = (await screen.findByRole("textbox", {
+    name: /Connection name/,
+  })) as HTMLInputElement;
+  fireEvent.change(name, { target: { value: "Draft catalog name" } });
+  const api = screen.getByRole("textbox", { name: /API base URL/ }) as HTMLInputElement;
+  fireEvent.change(api, { target: { value: "https://draft-api.example" } });
+  const input = screen.getByRole("textbox", { name: "Logo URL" }) as HTMLInputElement;
+  fireEvent.change(input, { target: { value: "https://remote.example/logo.png" } });
+  fireEvent.blur(input);
+  await waitFor(() => expect(input.value).toBe("https://cdn.example/logo.webp"));
+  expect(name.value).toBe("Draft catalog name");
+  expect(api.value).toBe("https://draft-api.example");
+  fireEvent.click(screen.getByRole("button", { name: "Remove logo" }));
+  await screen.findByText("Logo removed.");
+  const file = new File(["image"], "platform.png", { type: "image/png" });
+  fireEvent.change(screen.getByLabelText("Logo image file"), { target: { files: [file] } });
+  await screen.findByText("Logo updated.");
+  expect(name.value).toBe("Draft catalog name");
+  expect(api.value).toBe("https://draft-api.example");
+  expect(
+    fetcher.mock.calls.filter(
+      ([url, init]) => init?.method === "PUT" && !String(url).endsWith("/logo"),
+    ),
+  ).toHaveLength(0);
+  fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+  await waitFor(() => expect(router.push).toHaveBeenCalledWith(connectionPath(existing.provider)));
+  const write = fetcher.mock.calls.find(
+    ([url, init]) => init?.method === "PUT" && !String(url).endsWith("/logo"),
+  )!;
+  const payload = JSON.parse(String(write[1]!.body));
+  expect(payload).toMatchObject({
+    name: "Draft catalog name",
+    expected_revision: 4,
+    connector: { base_url: "https://draft-api.example" },
+  });
+  expect(payload).not.toHaveProperty("logo_url");
+  expect(payload).not.toHaveProperty("logo_file");
+});
+
+it("saves a typed logo URL and name together on the first Save click without a competing logo request", async () => {
+  const user = userEvent.setup();
+  const existing = connection();
+  const fetcher = vi.fn<typeof fetch>().mockImplementation(async (_url, init) =>
+    Response.json(
+      init?.method === "PUT"
+        ? {
+            ...existing,
+            name: "Edited catalog",
+            revision: 2,
+            logo_url: "https://cdn.example/saved.webp",
+            logo_variants: [{ url: "https://cdn.example/saved.webp", width: 64 }],
+          }
+        : existing,
+    ),
+  );
+  vi.stubGlobal("fetch", fetcher);
+  render(
+    <PartnerConnections
+      csrfToken="csrf"
+      onUnavailable={unavailable}
+      route={{ view: "edit", connectionId: existing.provider }}
+    />,
+  );
+  const name = await screen.findByRole("textbox", { name: /Connection name/ });
+  await user.clear(name);
+  await user.type(name, "Edited catalog");
+  await user.type(
+    screen.getByRole("textbox", { name: "Logo URL" }),
+    "https://remote.example/logo.png",
+  );
+  await user.click(screen.getByRole("button", { name: "Save changes" }));
+  await waitFor(() => expect(router.push).toHaveBeenCalledWith(connectionPath(existing.provider)));
+  const writes = fetcher.mock.calls.filter(
+    ([url, init]) =>
+      init?.method === "PUT" || (init?.method === "POST" && String(url).endsWith("/logo")),
+  );
+  expect(writes).toHaveLength(1);
+  expect(String(writes[0][0])).toBe(
+    `/api/v1/partner/accounts/${account.id}/connections/${existing.provider}`,
+  );
+  expect(JSON.parse(String(writes[0][1]!.body))).toMatchObject({
+    name: "Edited catalog",
+    logo_url: "https://remote.example/logo.png",
+    expected_revision: 1,
+  });
+});
+
+it("retries a failed logo upload against the saved identity without creating another connection", async () => {
+  let logoAttempts = 0;
+  const saved = connection({ name: "My catalog", revision: 2 });
+  const fetcher = vi.fn<typeof fetch>().mockImplementation(async (url, init) => {
+    const path = String(url);
+    if (path.endsWith("/logo")) {
+      logoAttempts++;
+      return logoAttempts === 1
+        ? Response.json({ detail: "private storage failure" }, { status: 503 })
+        : Response.json({
+            ...saved,
+            revision: 4,
+            logo_url: "https://cdn.example/logo.webp",
+            logo_variants: [{ url: "https://cdn.example/logo.webp", width: 64 }],
+          });
+    }
+    if (init?.method === "POST") return Response.json(saved);
+    if (init?.method === "PUT") return Response.json({ ...saved, revision: 3 });
+    return Response.json(path.includes("/accounts?") ? { items: [account], total: 1 } : list());
+  });
+  vi.stubGlobal("fetch", fetcher);
+  render(
+    <PartnerConnections
+      csrfToken="csrf-value"
+      onUnavailable={unavailable}
+      route={{ view: "create" }}
+    />,
+  );
+  await screen.findByRole("textbox", { name: /Connection name/ });
+  await fillNew();
+  const file = new File(["image"], "platform.png", { type: "image/png" });
+  fireEvent.change(screen.getByLabelText("Logo image file"), { target: { files: [file] } });
+  fireEvent.click(screen.getByRole("button", { name: "Create connection" }));
+  expect((await screen.findByRole("alert")).textContent).toContain(
+    "Connection settings saved, but the logo was not uploaded",
+  );
+  expect(screen.getByRole("alert").textContent).not.toContain("private storage failure");
+  expect(screen.getByText("platform.png")).toBeTruthy();
+  expect(router.push).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+  await waitFor(() => expect(router.push).toHaveBeenCalledWith(connectionPath(saved.provider)));
+  const creates = fetcher.mock.calls.filter(
+    ([url, init]) => String(url) === "/api/v1/partner/connections" && init?.method === "POST",
+  );
+  expect(creates).toHaveLength(1);
+  expect(JSON.parse(String(creates[0][1]!.body))).not.toHaveProperty("logo_file");
+  const update = fetcher.mock.calls.find(([, init]) => init?.method === "PUT")!;
+  expect(JSON.parse(String(update[1]!.body)).expected_revision).toBe(2);
+  const uploads = fetcher.mock.calls.filter(([url]) => String(url).endsWith("/logo"));
+  expect(uploads).toHaveLength(2);
+  expect((uploads[0][1]!.body as FormData).get("expected_revision")).toBe("2");
+  expect((uploads[1][1]!.body as FormData).get("expected_revision")).toBe("3");
+  expect((uploads[1][1]!.body as FormData).get("file")).toBe(file);
+  expect(uploads[1][1]!.headers).toMatchObject({ "x-csrf-token": "csrf-value" });
+});
+
+it("blocks saving an invalid logo until it is replaced or removed", async () => {
+  const save = form(connection());
+  fireEvent.change(screen.getByLabelText("Logo image file"), {
+    target: { files: [new File(["<svg/>"], "invalid.svg", { type: "image/svg+xml" })] },
+  });
+  const submit = screen.getByRole("button", { name: "Save changes" }) as HTMLButtonElement;
+  expect(submit.disabled).toBe(true);
+  fireEvent.submit(submit.closest("form")!);
+  expect(save).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole("button", { name: "Remove logo" }));
+  expect(screen.queryByRole("alert")).toBeNull();
+  expect(submit.disabled).toBe(false);
+  fireEvent.click(submit);
+  await waitFor(() => expect(save).toHaveBeenCalledOnce());
+});
+
 it("keeps the draft and gives refresh instructions after a revision conflict", async () => {
   const existing = connection();
   vi.stubGlobal(

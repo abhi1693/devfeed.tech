@@ -286,16 +286,16 @@ def test_private_upload_budgets_are_actor_and_account_scoped(policy_catalog, mon
             raise RedisError("private connection")
         return outcome
 
-    monkeypatch.setattr(partner_ad_images, "consume_rate_limits", charge)
+    monkeypatch.setattr(image_uploads, "consume_rate_limits", charge)
     actor = SimpleNamespace(issuer="https://identity.example", subject="reader-private")
     if outcome:
         with pytest.raises(HTTPException) as error:
-            partner_ad_images.limit_ad_image_upload(object(), actor, account.id)
+            image_uploads.limit_image_upload(object(), actor, account.id)
         assert error.value.status_code == (503 if outcome == "unavailable" else 429)
         if outcome == 17:
             assert error.value.headers["Retry-After"] == "17"
     else:
-        partner_ad_images.limit_ad_image_upload(object(), actor, account.id)
+        image_uploads.limit_image_upload(object(), actor, account.id)
     assert [(budget.limit, budget.window) for budget in captured] == [(10, 60), (30, 3600)]
     assert str(account.id) in captured[1].key and actor.subject not in captured[0].key
 

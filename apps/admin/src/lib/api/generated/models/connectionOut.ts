@@ -5,6 +5,7 @@
  * Private administration API. OIDC sessions and CSRF protection required.
  * OpenAPI spec version: 0.0.52
  */
+import type { ConnectionLogoVariant } from './connectionLogoVariant';
 import type { ConnectionOutApprovalMode } from './connectionOutApprovalMode';
 import type { ConnectionOutState } from './connectionOutState';
 import type { ConnectorConfig } from './connectorConfig';
@@ -21,6 +22,8 @@ export interface ConnectionOut {
   error: string | null;
   excluded: number;
   last_sync_at: string | null;
+  logo_url?: string | null;
+  logo_variants?: ConnectionLogoVariant[];
   name: string;
   needs_attention: number;
   next_sync_at: string | null;

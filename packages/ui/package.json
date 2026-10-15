@@ -23,6 +23,7 @@
     "./audience-targeting": "./src/audience-targeting.tsx",
     "./advertising-formats": "./src/advertising-formats.tsx",
     "./connector-fields": "./src/connector-fields.tsx",
+    "./connection-logo": "./src/connection-logo.tsx",
     "./connector-response": "./src/connector-response.tsx",
     "./connector-response-mappings": "./src/connector-response-mappings.ts",
     "./markdown": "./src/markdown.tsx",

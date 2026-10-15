@@ -74,6 +74,7 @@ import type {
   AssetOut,
   AudienceTopicsOut,
   AuthConfig,
+  BodyAdminPartnerConnectionLogoUpload,
   BodyAdminPartnerProductAdImageUpload,
   CampaignInput,
   CampaignOut,
@@ -83,6 +84,7 @@ import type {
   CodexStatus,
   ConnectionAction,
   ConnectionCreate,
+  ConnectionLogoUpdate,
   ConnectionOut,
   ConnectionSettings,
   ConnectorPreview,
@@ -2312,6 +2314,73 @@ export const adminPartnerConnectionJobs = async (provider: string,
     method: 'GET'
 
 
+  }
+);}
+
+
+
+export const getAdminPartnerConnectionLogoUploadUrl = (provider: string,) => {
+
+
+
+
+  return `/v1/admin/partner-tools/connections/${provider}/logo`
+}
+
+/**
+ * @summary Upload Connection Logo
+ */
+export const adminPartnerConnectionLogoUpload = async (provider: string,
+    bodyAdminPartnerConnectionLogoUpload: BodyAdminPartnerConnectionLogoUpload, options?: Parameters<typeof adminFetch>[1]): Promise<ConnectionOut> => {
+    const formData = new FormData();
+formData.append(`expected_revision`, bodyAdminPartnerConnectionLogoUpload.expected_revision.toString())
+formData.append(`file`, bodyAdminPartnerConnectionLogoUpload.file);
+
+  return adminFetch<ConnectionOut>(getAdminPartnerConnectionLogoUploadUrl(provider),
+  {
+    ...options,
+    method: 'POST'
+    ,
+    body: formData
+  }
+);}
+
+
+
+export const getAdminPartnerConnectionLogoUpdateUrl = (provider: string,) => {
+
+
+
+
+  return `/v1/admin/partner-tools/connections/${provider}/logo`
+}
+
+/**
+ * @summary Update Connection Logo
+ */
+export const adminPartnerConnectionLogoUpdate = async (provider: string,
+    connectionLogoUpdate: ConnectionLogoUpdate, options?: Parameters<typeof adminFetch>[1]): Promise<ConnectionOut> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
+  };
+return adminFetch<ConnectionOut>(getAdminPartnerConnectionLogoUpdateUrl(provider),
+  {
+    ...options,
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(connectionLogoUpdate)
   }
 );}
 

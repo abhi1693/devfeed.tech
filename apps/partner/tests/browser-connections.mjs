@@ -1,5 +1,20 @@
 import assert from "node:assert/strict";
 import { join } from "node:path";
+import {
+  logoSource,
+  managedLogo,
+  uploadedLogo,
+  connectionLogo,
+  readLogoUpload,
+  readLogoUrl,
+  installConnectionLogoMedia,
+  assertManagedConnectionLogo,
+  selectConnectionLogo,
+  assertConnectionLogoEditor,
+  assertInvalidConnectionLogo,
+  removeConnectionLogoFromEditedUrl,
+  saveConnectionFromEditedLogoUrl,
+} from "../../../scripts/testing/connection-logos.mjs";
 import { assertSelectMenu } from "../../../scripts/testing/select-menus.mjs";
 
 export function createConnectionFixture({ account, origin }) {
@@ -10,6 +25,10 @@ export function createConnectionFixture({ account, origin }) {
   const runs = new Map();
   const writes = [];
   const previews = [];
+  const logoUploads = [];
+  const logoWrites = [];
+  let failLogoUpload = false;
+  let logoUploadGate = null;
   let sequence = 0;
 
   function json(response, value, status = 200) {
@@ -83,7 +102,7 @@ export function createConnectionFixture({ account, origin }) {
       return true;
     }
     const scoped =
-      /^\/v1\/partner\/accounts\/([^/]+)\/connections(?:\/([^/]+))?(?:\/(actions|jobs))?$/.exec(
+      /^\/v1\/partner\/accounts\/([^/]+)\/connections(?:\/([^/]+))?(?:\/(actions|jobs|logo))?$/.exec(
         url.pathname,
       );
     const workspace = /^\/v1\/partner\/connections(?:\/([^/]+))?(?:\/(jobs))?$/.exec(url.pathname);
@@ -137,6 +156,36 @@ export function createConnectionFixture({ account, origin }) {
       json(response, output(record));
       return true;
     }
+    if (subresource === "logo" && request.method === "PUT") {
+      const input = await readLogoUrl(request, "test-csrf", origin());
+      assert.equal(
+        input.expected_revision,
+        record.revision,
+        "Immediate logo edits use the latest revision",
+      );
+      logoWrites.push({ provider, ...input });
+      Object.assign(record, connectionLogo(input.logo_url), { revision: record.revision + 1 });
+      json(response, output(record));
+      return true;
+    }
+    if (subresource === "logo" && request.method === "POST") {
+      const input = await readLogoUpload(request, "test-csrf", origin());
+      logoUploads.push({ provider, ...input });
+      if (logoUploadGate) await logoUploadGate;
+      assert.equal(
+        input.expected_revision,
+        record.revision,
+        "Logo upload uses the latest saved revision",
+      );
+      if (failLogoUpload) {
+        failLogoUpload = false;
+        json(response, { detail: "Logo storage temporarily unavailable." }, 503);
+      } else {
+        Object.assign(record, connectionLogo(null, true), { revision: record.revision + 1 });
+        json(response, output(record));
+      }
+      return true;
+    }
     const input = await body(request);
     writes.push({ method: request.method, provider, subresource, input: structuredClone(input) });
     if (record && input.expected_revision !== record.revision) {
@@ -160,6 +209,7 @@ export function createConnectionFixture({ account, origin }) {
         account_name: owner.name,
         credentials_available: true,
         name: input.name,
+        ...connectionLogo(input.logo_url ?? null),
         api_url: `${connector.base_url}${connector.list_path}`,
         connector,
         enabled: input.enabled,
@@ -188,6 +238,7 @@ export function createConnectionFixture({ account, origin }) {
       return true;
     }
     if (request.method === "PUT" && !subresource) {
+      if (Object.hasOwn(input, "logo_url")) Object.assign(record, connectionLogo(input.logo_url));
       record.name = input.name ?? record.name;
       record.enabled = input.enabled;
       record.sync_interval_minutes = input.sync_interval_minutes ?? record.sync_interval_minutes;
@@ -257,7 +308,27 @@ export function createConnectionFixture({ account, origin }) {
       record.last_sync_at = "2026-10-13T02:01:00Z";
     }
   }
-  return { handle, writes, previews, completeRuns };
+  return {
+    handle,
+    writes,
+    previews,
+    logoUploads,
+    logoWrites,
+    completeRuns,
+    holdLogoUpload() {
+      let release;
+      logoUploadGate = new Promise((resolve) => {
+        release = resolve;
+      });
+      return () => {
+        logoUploadGate = null;
+        release();
+      };
+    },
+    failNextLogoUpload() {
+      failLogoUpload = true;
+    },
+  };
 }
 
 async function noOverflowOrDialog(page) {
@@ -371,6 +442,12 @@ async function assertConnectorPreview(page, fixture, { exerciseMappings = true }
 
 export async function assertConnectionJourneys({ page, origin, account, fixture, artifactDir }) {
   const base = `${origin}/connections`;
+  const logoCounts = () => ({
+    url: fixture.logoWrites.length,
+    upload: fixture.logoUploads.length,
+    settings: fixture.writes.filter((item) => item.method === "PUT" && !item.subresource).length,
+  });
+  await installConnectionLogoMedia(page.context());
   const firstCredential = "browser-fixture-only-token-one";
   const replacementCredential = "browser-fixture-only-token-two";
   await page.setViewportSize({ width: 1440, height: 1000 });
@@ -382,6 +459,7 @@ export async function assertConnectionJourneys({ page, origin, account, fixture,
   await page.getByRole("option", { name: account.name, exact: true }).click();
   await page.getByRole("textbox", { name: /Connection name/ }).fill("Connected product catalog");
   await page.getByRole("textbox", { name: /API base URL/ }).fill("https://catalog.example");
+  await page.getByRole("textbox", { name: "Logo URL", exact: true }).fill(logoSource);
   const scheduled = page.getByRole("checkbox", { name: "Enable scheduled imports", exact: true });
   assert.equal(await scheduled.evaluate((node) => node.tagName), "BUTTON");
   assert.match(await scheduled.getAttribute("class"), /shared-checkbox/);
@@ -487,6 +565,7 @@ export async function assertConnectionJourneys({ page, origin, account, fixture,
   await page.getByRole("button", { name: "Create connection", exact: true }).click();
   await page.waitForURL(/\/connections\/partner-browser-connection-1$/);
   const created = fixture.writes.find((item) => item.method === "POST" && !item.subresource);
+  assert.equal(created.input.logo_url, logoSource);
   assert.equal(created.input.enabled, true);
   assert.equal(created.input.connector.auth.mode, "bearer");
   assert.equal(created.input.connector.pagination.mode, "cursor");
@@ -496,6 +575,7 @@ export async function assertConnectionJourneys({ page, origin, account, fixture,
   assert.equal(created.input.connector.pagination.page_size, 25);
   const detail = page.url();
   await page.getByRole("heading", { name: "Connected product catalog", exact: true }).waitFor();
+  await assertManagedConnectionLogo(page.getByRole("main"), managedLogo);
   await page.getByText("Bearer token configured", { exact: true }).waitFor();
   assert.equal((await page.locator("body").innerText()).includes(firstCredential), false);
   assert.equal(await page.locator('input[type="password"]').count(), 0);
@@ -515,6 +595,53 @@ export async function assertConnectionJourneys({ page, origin, account, fixture,
   });
   await page.getByRole("link", { name: "Edit", exact: true }).click();
   await page.getByRole("textbox", { name: /Connection name/ }).fill("Renamed product catalog");
+  assert.equal(
+    await page.getByRole("textbox", { name: "Logo URL", exact: true }).inputValue(),
+    managedLogo,
+  );
+  await assertManagedConnectionLogo(
+    page.getByRole("form", { name: "Import connection settings" }),
+    managedLogo,
+  );
+  await page.getByRole("textbox", { name: "API response JSON", exact: true }).waitFor();
+  await assertConnectionLogoEditor(page, artifactDir, "partner");
+  const logoUrl = page.getByRole("textbox", { name: "Logo URL", exact: true });
+  await logoUrl.fill(logoSource);
+  await logoUrl.blur();
+  await page.getByRole("status").filter({ hasText: "Logo updated." }).waitFor();
+  assert.equal(
+    await logoUrl.inputValue(),
+    managedLogo,
+    "URL imports replace the input with the canonical R2 URL",
+  );
+  assert.equal(fixture.logoWrites.at(-1).logo_url, logoSource);
+  await assertInvalidConnectionLogo(
+    page,
+    () => fixture.writes.length + fixture.logoUploads.length + fixture.logoWrites.length,
+  );
+  const beforeUploadClick = logoCounts();
+  const releaseLogo = fixture.holdLogoUpload();
+  try {
+    await selectConnectionLogo(page, { immediate: true });
+    await page.screenshot({
+      path: join(artifactDir, "partner-connection-logo-local-preview.png"),
+      fullPage: true,
+    });
+  } finally {
+    releaseLogo();
+  }
+  await page.getByRole("status").filter({ hasText: "Logo updated." }).waitFor();
+  assert.equal(await logoUrl.inputValue(), uploadedLogo);
+  assert.deepEqual(
+    logoCounts(),
+    { ...beforeUploadClick, upload: beforeUploadClick.upload + 1 },
+    "The first Upload click from an edited URL sends only the selected file",
+  );
+  assert.equal(
+    await page.getByRole("textbox", { name: /Connection name/ }).inputValue(),
+    "Renamed product catalog",
+    "Immediate logo updates preserve the unsaved connection name",
+  );
   assert.equal(await page.locator('input[type="password"]').count(), 0);
   const { json: editJson } = await assertConnectorPreview(page, fixture, {
     exerciseMappings: false,
@@ -547,10 +674,12 @@ export async function assertConnectionJourneys({ page, origin, account, fixture,
     fullPage: true,
   });
   await page.setViewportSize({ width: 1440, height: 1000 });
-  await page.getByRole("button", { name: "Save changes", exact: true }).click();
-  await page.waitForURL(detail);
+  await saveConnectionFromEditedLogoUrl(page, detail, logoCounts);
   await page.getByRole("heading", { name: "Renamed product catalog", exact: true }).waitFor();
+  await assertManagedConnectionLogo(page.getByRole("main"), managedLogo);
+  assert.equal(fixture.logoUploads.length, 1);
   let write = fixture.writes.filter((item) => item.method === "PUT").at(-1);
+  assert.equal(write.input.logo_url, logoSource, "Same-form Save consumes the unsaved URL draft");
   assert.equal(
     Object.hasOwn(write.input, "credential"),
     false,
@@ -574,6 +703,13 @@ export async function assertConnectionJourneys({ page, origin, account, fixture,
   const responseJson = page.getByRole("textbox", { name: "API response JSON", exact: true });
   await responseJson.waitFor();
   await apiBase.fill("https://other-catalog.example");
+  await removeConnectionLogoFromEditedUrl(page, logoCounts);
+  assert.equal(fixture.logoWrites.at(-1).logo_url, null);
+  assert.equal(
+    await apiBase.inputValue(),
+    "https://other-catalog.example",
+    "Immediate logo removal preserves the unsaved API origin",
+  );
   assert.equal(await page.getByLabel(/^Bearer token/).inputValue(), "");
   assert.equal(
     await responseJson.count(),
@@ -588,6 +724,12 @@ export async function assertConnectionJourneys({ page, origin, account, fixture,
   await page.getByText("Bearer token configured", { exact: true }).waitFor();
   write = fixture.writes.filter((item) => item.method === "PUT").at(-1);
   assert.equal(write.input.credential, replacementCredential);
+  assert.equal(
+    Object.hasOwn(write.input, "logo_url"),
+    false,
+    "Settings saves do not reimport the independently saved logo",
+  );
+  assert.equal(await page.getByRole("main").locator(`img[src="${uploadedLogo}"]`).count(), 0);
   assert.equal((await page.locator("body").innerText()).includes(replacementCredential), false);
   await page.getByRole("link", { name: "Edit", exact: true }).click();
   await page.getByRole("combobox", { name: "Authentication method", exact: true }).click();
@@ -649,4 +791,55 @@ export async function assertConnectionJourneys({ page, origin, account, fixture,
       .map((item) => item.input.action),
     ["sync", "pause", "resume"],
   );
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto(`${base}/new`);
+  await page.getByRole("combobox", { name: "Partner account", exact: true }).click();
+  await page.getByRole("option", { name: account.name, exact: true }).click();
+  await page.getByRole("textbox", { name: /Connection name/ }).fill("Retry-safe logo catalog");
+  await page.getByRole("textbox", { name: /API base URL/ }).fill("https://catalog.example");
+  await selectConnectionLogo(page);
+  fixture.failNextLogoUpload();
+  const createsBefore = fixture.writes.filter(
+    (item) => item.method === "POST" && !item.subresource,
+  ).length;
+  await page.getByRole("button", { name: "Create connection", exact: true }).click();
+  await page
+    .getByRole("alert")
+    .filter({ hasText: "Connection settings saved, but the logo was not uploaded." })
+    .waitFor();
+  assert.equal(
+    await page.getByRole("textbox", { name: /Connection name/ }).inputValue(),
+    "Retry-safe logo catalog",
+  );
+  assert.equal(
+    await page.getByRole("textbox", { name: /API base URL/ }).inputValue(),
+    "https://catalog.example",
+  );
+  await page
+    .getByRole("img", { name: "Platform logo preview", exact: true })
+    .locator('img[src^="blob:"]')
+    .waitFor();
+  await noOverflowOrDialog(page);
+  await page.screenshot({
+    path: join(artifactDir, "partner-connection-logo-retry-mobile.png"),
+    fullPage: true,
+  });
+  await page.getByRole("button", { name: "Save changes", exact: true }).click();
+  await page.waitForURL(/\/connections\/partner-browser-connection-2$/);
+  assert.equal(
+    fixture.writes.filter((item) => item.method === "POST" && !item.subresource).length,
+    createsBefore + 1,
+    "Retry after a failed logo upload updates the saved connection without creating a duplicate",
+  );
+  assert.equal(fixture.logoUploads.at(-1).provider, "partner-browser-connection-2");
+  assert.equal(fixture.logoUploads.at(-1).expected_revision, 2);
+  await assertManagedConnectionLogo(page.getByRole("main"), uploadedLogo);
+  await page.goto(base);
+  const retryLink = page.getByRole("link", { name: "Retry-safe logo catalog", exact: true });
+  await retryLink.waitFor();
+  await assertManagedConnectionLogo(page.getByRole("row").filter({ has: retryLink }), uploadedLogo);
+  await page.screenshot({
+    path: join(artifactDir, "partner-connection-logo-list-mobile.png"),
+    fullPage: true,
+  });
 }

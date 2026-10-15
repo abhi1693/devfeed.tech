@@ -67,6 +67,14 @@ const ordinary = {
     { url: "https://assets.partner.example/og/validator-800.svg", width: 800 },
   ],
   partner_name: "Free partner",
+  platform: {
+    name: "Developer Launchpad",
+    logo_url: "https://assets.partner.example/platforms/launchpad.svg",
+    logo_variants: [
+      { url: "https://assets.partner.example/platforms/launchpad-32.svg", width: 32 },
+      { url: "https://assets.partner.example/platforms/launchpad-64.svg", width: 64 },
+    ],
+  },
   sponsored: false,
   reason: "Supports the TypeScript validation task in this article.",
   receipt: placementReceipt(
@@ -127,6 +135,8 @@ let queries = [];
 let events = [];
 let deliveryGate = null;
 let mediaMode = "standard";
+let platformMode = "managed";
+let platformLogoGate = null;
 let experienceLevel = null;
 let profileWrites = [];
 let nativeMode = null;
@@ -183,6 +193,113 @@ async function assertNoPlacementHistory(page, label) {
     { reads: 0, writes: 0, removals: 0 },
     `${label}: placement delivery and tracking never access abandoned local history`,
   );
+}
+
+async function assertPlacementPlatform(card, { mode = "managed", label }) {
+  const source = card.locator(".card-source");
+  const icon = source.locator(".source-avatar");
+  await icon.waitFor();
+  assert.equal(
+    (await source.textContent()).trim(),
+    mode === "manual" ? ordinary.partner_name : ordinary.platform.name,
+    `${label}: attribution uses the selected platform or the manual product's partner`,
+  );
+  if (mode === "managed") {
+    const image = icon.locator("img");
+    await image.waitFor();
+    await image.evaluate((element) => element.decode());
+    assert.equal(await image.getAttribute("src"), ordinary.platform.logo_url);
+    assert.equal(await image.getAttribute("alt"), "");
+    assert.equal(await image.getAttribute("referrerpolicy"), "no-referrer");
+    assert.equal(
+      await image.getAttribute("srcset"),
+      ordinary.platform.logo_variants.map(({ url, width }) => `${url} ${width}w`).join(", "),
+    );
+    const rendered = await image.boundingBox();
+    assert.equal(rendered.width, 12, `${label}: platform logos match organic source icons`);
+    assert.equal(rendered.height, 12);
+  } else {
+    await icon.locator("svg").waitFor();
+    assert.equal(
+      await icon.locator("img").count(),
+      0,
+      `${label}: unavailable logos use a fallback`,
+    );
+  }
+  const geometry = await source.evaluate((element) => {
+    const rect = (node) => node.getBoundingClientRect().toJSON();
+    return {
+      source: rect(element),
+      icon: rect(element.querySelector(".source-avatar")),
+      badge: rect(element.parentElement.querySelector(".partner-placement-label")),
+    };
+  });
+  assert.equal(geometry.icon.width, 16, `${label}: the source icon keeps its reserved width`);
+  assert.equal(geometry.icon.height, 16);
+  assert.ok(
+    Math.abs(
+      geometry.icon.y + geometry.icon.height / 2 - geometry.source.y - geometry.source.height / 2,
+    ) <= 2,
+    `${label}: icon and platform name share a baseline`,
+  );
+  assert.ok(geometry.source.right <= geometry.badge.x + 1, `${label}: disclosure stays separate`);
+}
+
+async function assertPlatformFallbacks(page, base, platform) {
+  mediaMode = "custom";
+  try {
+    for (const theme of ["light", "dark"]) {
+      for (const width of [1280, 390]) {
+        await page.setViewportSize({ width, height: width === 390 ? 844 : 900 });
+        for (const mode of ["missing", "broken", "manual"]) {
+          platformMode = mode;
+          let release;
+          if (mode === "broken")
+            platformLogoGate = new Promise((resolve) => {
+              release = resolve;
+            });
+          try {
+            await page.evaluate((value) => localStorage.setItem("devfeed:theme", value), theme);
+            await page.goto("about:blank");
+            await page.goto(`${base}/?q=typescript`);
+            const card = page.locator(
+              `.article-grid > .partner-placement[data-product-id="${ordinary.product_id}"]`,
+            );
+            await card.waitFor();
+            await card.scrollIntoViewIfNeeded();
+            await page.mouse.move(0, 0);
+            const before = await card.evaluate((element) => ({
+              card: element.getBoundingClientRect().toJSON(),
+              source: element.querySelector(".card-meta-row").getBoundingClientRect().toJSON(),
+            }));
+            platformLogoGate = null;
+            release?.();
+            const label = `${platform}/${theme}/${width}: ${mode} platform logo`;
+            await assertPlacementPlatform(card, { mode, label });
+            const after = await card.evaluate((element) => ({
+              card: element.getBoundingClientRect().toJSON(),
+              source: element.querySelector(".card-meta-row").getBoundingClientRect().toJSON(),
+            }));
+            assert.ok(Math.abs(before.card.height - after.card.height) <= 2);
+            assert.ok(Math.abs(before.source.height - after.source.height) <= 1);
+            assert.ok(
+              await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth),
+              `${label}: the fallback stays within the native card`,
+            );
+            await page.screenshot({
+              path: `${reportDirectory}/${platform}-platform-logo-${mode}-${theme}-${width}.png`,
+            });
+          } finally {
+            platformLogoGate = null;
+            release?.();
+          }
+        }
+      }
+    }
+  } finally {
+    platformMode = "managed";
+    platformLogoGate = null;
+  }
 }
 
 async function assertCompactSidebar(page, selector, label, expected) {
@@ -962,6 +1079,11 @@ async function assertCompactFeedTable(context, base, platform) {
           );
           for (const [index, item] of [ordinary, sponsored].entries()) {
             const row = rows.nth(index);
+            assert.equal(
+              (await row.locator(".source-column").textContent()).trim(),
+              item.platform.name,
+              `${label}: table attribution uses the selected launch platform`,
+            );
             await row.scrollIntoViewIfNeeded();
             const badge = row.locator(".partner-placement-label:visible");
             assert.equal(
@@ -1215,7 +1337,22 @@ function deliveryItems(items, query) {
           )
         : item.receipt;
     acceptedTrackingReceipts.add(receipt);
-    return { ...productMedia(item), receipt };
+    return {
+      ...productMedia(item),
+      platform:
+        platformMode === "manual"
+          ? null
+          : platformMode === "missing"
+            ? { ...item.platform, logo_url: null, logo_variants: [] }
+            : platformMode === "broken"
+              ? {
+                  ...item.platform,
+                  logo_url: "https://assets.partner.example/platforms/broken.png",
+                  logo_variants: [],
+                }
+              : item.platform,
+      receipt,
+    };
   });
 }
 
@@ -1903,19 +2040,23 @@ try {
           );
         });
       }
-      await context.route("https://assets.partner.example/**", (route) =>
-        route.request().url().endsWith("broken.png")
+      await context.route("https://assets.partner.example/**", async (route) => {
+        if (route.request().url().includes("/platforms/broken.png") && platformLogoGate)
+          await platformLogoGate;
+        return route.request().url().endsWith("broken.png")
           ? route.fulfill({ status: 404, body: "Missing" })
           : route.fulfill({
               contentType: "image/svg+xml",
-              body: route.request().url().includes("/ads/")
-                ? '<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="675"><rect width="1200" height="675" fill="#173b35"/><text x="100" y="280" fill="#b7f3c8" font-size="64" font-family="sans-serif">A custom product creative</text><text x="100" y="390" fill="white" font-size="42" font-family="sans-serif">Built for native placements.</text></svg>'
-                : route.request().url().includes("/og/") ||
-                    route.request().url().includes("/articles/")
-                  ? '<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="675"><defs><linearGradient id="bg"><stop stop-color="#122b5c"/><stop offset="1" stop-color="#3178c6"/></linearGradient></defs><rect width="1200" height="675" fill="url(#bg)"/><text x="100" y="270" fill="white" font-size="68" font-family="sans-serif">TypeScript Validator</text><text x="100" y="390" fill="#a5d8ff" font-size="42" font-family="sans-serif">Safe inputs. Confident applications.</text></svg>'
-                  : '<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48"><rect width="48" height="48" rx="10" fill="#3178c6"/><text x="8" y="33" fill="white" font-size="24">TS</text></svg>',
-            }),
-      );
+              body: route.request().url().includes("/platforms/")
+                ? '<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64"><rect width="64" height="64" rx="12" fill="#7c3aed"/><text x="11" y="44" fill="white" font-size="32">LP</text></svg>'
+                : route.request().url().includes("/ads/")
+                  ? '<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="675"><rect width="1200" height="675" fill="#173b35"/><text x="100" y="280" fill="#b7f3c8" font-size="64" font-family="sans-serif">A custom product creative</text><text x="100" y="390" fill="white" font-size="42" font-family="sans-serif">Built for native placements.</text></svg>'
+                  : route.request().url().includes("/og/") ||
+                      route.request().url().includes("/articles/")
+                    ? '<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="675"><defs><linearGradient id="bg"><stop stop-color="#122b5c"/><stop offset="1" stop-color="#3178c6"/></linearGradient></defs><rect width="1200" height="675" fill="url(#bg)"/><text x="100" y="270" fill="white" font-size="68" font-family="sans-serif">TypeScript Validator</text><text x="100" y="390" fill="#a5d8ff" font-size="42" font-family="sans-serif">Safe inputs. Confident applications.</text></svg>'
+                    : '<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48"><rect width="48" height="48" rx="10" fill="#3178c6"/><text x="8" y="33" fill="white" font-size="24">TS</text></svg>',
+            });
+      });
       await context.route("https://partner.example/**", (route) =>
         route.fulfill({ contentType: "text/html", body: "<p>Partner destination</p>" }),
       );
@@ -2571,6 +2712,9 @@ try {
             await card.scrollIntoViewIfNeeded();
             await page.mouse.move(5, 5);
             await waitForVisibleProductLogos(page);
+            await assertPlacementPlatform(card, {
+              label: `${platform}/${theme}/${width}/${mode}: managed platform logo`,
+            });
             const geometry = await card.evaluate((product) => {
               const top = product.getBoundingClientRect().top;
               const neighbor =
@@ -2708,6 +2852,7 @@ try {
           assert.equal(await card.locator(".partner-placement-logo").textContent(), "TV");
         }
       }
+      await assertPlatformFallbacks(page, base, platform);
       mediaMode = "standard";
       await page.setViewportSize({ width: 1280, height: 900 });
       signedIn = true;

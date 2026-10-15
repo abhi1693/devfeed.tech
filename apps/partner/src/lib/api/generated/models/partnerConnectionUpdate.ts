@@ -13,6 +13,7 @@ export interface PartnerConnectionUpdate {
   enabled: boolean;
   /** @minimum 1 */
   expected_revision: number;
+  logo_url?: string | null;
   name?: string | null;
   sync_interval_minutes?: number | null;
 }

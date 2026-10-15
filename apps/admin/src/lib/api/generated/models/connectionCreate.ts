@@ -11,6 +11,7 @@ export interface ConnectionCreate {
   account_id?: string | null;
   connector?: ConnectorConfig | null;
   enabled?: boolean;
+  logo_url?: string | null;
   name?: string | null;
   /**
      * @minLength 1

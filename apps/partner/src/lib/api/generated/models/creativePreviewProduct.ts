@@ -6,6 +6,7 @@
  * OpenAPI spec version: 0.0.52
  */
 import type { CreativePreviewProductAdImageStatus } from './creativePreviewProductAdImageStatus';
+import type { PlacementPlatform } from './placementPlatform';
 
 export interface CreativePreviewProduct {
   ad_image_status: CreativePreviewProductAdImageStatus;
@@ -14,6 +15,7 @@ export interface CreativePreviewProduct {
   listing_url: string | null;
   logo_url: string | null;
   name: string;
+  platform?: PlacementPlatform | null;
   product_url: string;
   /**
      * @minLength 3

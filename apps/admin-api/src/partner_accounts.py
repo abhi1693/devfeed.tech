@@ -23,9 +23,9 @@ from devfeed_core.partner_promotions import (
 from devfeed_core.partner_tiers import TIER_BENEFITS, promotion_kind_allowed, tier_policy
 from devfeed_core.text_search import text_search
 from devfeed_http.body_limits import BodyLimitedRoute
+from devfeed_http.image_uploads import limit_image_upload
 from devfeed_http.operation_policies import GatewayPolicy
 from devfeed_http.partner_ad_images import (
-    limit_ad_image_upload,
     lock_image_account,
     lock_image_product,
     save_product_promotion_with_images,
@@ -623,7 +623,7 @@ def upload_ad_image(
     superuser: Superuser,
 ):
     account_access(session, superuser, account_id)
-    limit_ad_image_upload(get_redis(), superuser, account_id)
+    limit_image_upload(get_redis(), superuser, account_id)
     lock_image_product(session, account_id, product_id)
     account = lock_image_account(
         session, select(PartnerAccount).where(PartnerAccount.id == account_id)

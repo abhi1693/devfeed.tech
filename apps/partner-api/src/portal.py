@@ -13,9 +13,9 @@ from devfeed_core.partner_audiences import (
 from devfeed_core.partner_promotions import request_promotion_enrollment
 from devfeed_core.text_search import text_search
 from devfeed_http.body_limits import BodyLimitedRoute
+from devfeed_http.image_uploads import limit_image_upload
 from devfeed_http.operation_policies import GatewayPolicy
 from devfeed_http.partner_ad_images import (
-    limit_ad_image_upload,
     save_product_promotion_with_images,
     upload_product_ad_image,
 )
@@ -325,6 +325,6 @@ def upload_ad_image(
 ):
     access = PartnerAccountAccess(session, partner)
     access.require(account_id)
-    limit_ad_image_upload(get_redis(), partner, account_id)
+    limit_image_upload(get_redis(), partner, account_id)
     account = access.lock_product(account_id, product_id)
     return upload_product_ad_image(session, account, product_id, file)

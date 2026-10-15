@@ -1,6 +1,5 @@
 """Private product image uploads share avatar storage and account-scoped placement policy."""
 
-import hashlib
 from contextlib import ExitStack
 from urllib.parse import unquote, urlsplit
 
@@ -15,10 +14,8 @@ from devfeed_core.partner_product_images import (
     uploaded_ad_image_prefix,
 )
 from devfeed_core.partner_promotions import associated_products_query
-from devfeed_core.rate_limits import RateLimitBudget, consume_rate_limits
 from devfeed_core.urls import validate_public_url
 from fastapi import HTTPException
-from redis.exceptions import RedisError
 from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.exc import DBAPIError
@@ -38,24 +35,6 @@ class ProductAdImageStorage(ImageUploadStorage):
 
     def __init__(self, prefix, *, storage: R2Storage | None = None):
         super().__init__(prefix, self.sizes, storage=storage)
-
-
-def limit_ad_image_upload(redis, actor, account_id):
-    caller = hashlib.sha256(f"{actor.issuer}\0{actor.subject}".encode()).hexdigest()
-    try:
-        retry = consume_rate_limits(
-            redis,
-            [
-                RateLimitBudget(key=f"partner-image-caller:{caller}", limit=10, window=60),
-                RateLimitBudget(key=f"partner-image-account:{account_id}", limit=30, window=3600),
-            ],
-        )
-    except RedisError:
-        raise HTTPException(503, "Image uploads are temporarily unavailable") from None
-    if retry:
-        raise HTTPException(
-            429, "Too many image uploads; try again shortly", headers={"Retry-After": str(retry)}
-        )
 
 
 def lock_image_product(session, account_id, product_id):

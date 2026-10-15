@@ -893,6 +893,7 @@ def deliver_placements(session, query, key, *, user_id=None, now=None):
                         image_variants=product_image_variants(product, policy),
                         url=url,
                         partner_name=account.name,
+                        platform=creative.platform,
                         sponsored=sponsored,
                         ad_format=ad_format,
                         article=ArticleOut.from_article(article) if article else None,

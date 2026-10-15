@@ -277,6 +277,17 @@ pagination and a sync interval of 15 minutes to seven days. Imports run in the b
 the detail record shows connection state, product counts and recent runs. Sync, pause and resume
 actions check the current revision, and conflicting edits preserve the draft for review.
 
+Connection branding accepts a public HTTPS logo URL or a JPEG, PNG or WebP upload up to 5 MB.
+Both inputs are normalized into transparent 16, 32, 64 and 96-pixel WebP variants in R2;
+reader cards load these managed variants rather than contacting the original image host.
+The full mark is preserved without cropping. Replacing or removing a logo checks the saved
+connection revision, and storage or database failures preserve the previous logo.
+On an existing connection, image changes save immediately and replace the logo field with the
+managed R2 URL while preserving any other unsaved connection settings. A new connection's logo
+is applied after its initial creation; a failed upload can be retried without creating it again.
+Product grids show the logo and name of the same active, account-owned connection that supplied
+their listing and tagline. Products created without a connection keep their account attribution.
+
 Connections support public endpoints, bearer tokens and API keys. Tokens are write-only:
 editing a connection never retrieves the saved value. Keeping authentication unchanged preserves
 the token; changing the origin or authentication requires a replacement. Selecting no authentication

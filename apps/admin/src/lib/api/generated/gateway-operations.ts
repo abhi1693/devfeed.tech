@@ -1305,6 +1305,50 @@ export const adminGatewayOperations = [
     },
   },
   {
+    operationId: "adminPartnerConnectionLogoUpload",
+    method: "POST",
+    path: "/v1/admin/partner-tools/connections/{provider}/logo",
+    parameters: [
+      {
+        name: "provider",
+        schema: {
+          type: "string",
+          minLength: 1,
+          maxLength: 200,
+          pattern: "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+        },
+        converter: "str",
+      },
+    ],
+    policy: {
+      bodyLimit: 5308416,
+      bodyTimeoutMs: 10000,
+      upstreamTimeoutMs: 45000,
+    },
+  },
+  {
+    operationId: "adminPartnerConnectionLogoUpdate",
+    method: "PUT",
+    path: "/v1/admin/partner-tools/connections/{provider}/logo",
+    parameters: [
+      {
+        name: "provider",
+        schema: {
+          type: "string",
+          minLength: 1,
+          maxLength: 200,
+          pattern: "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+        },
+        converter: "str",
+      },
+    ],
+    policy: {
+      bodyLimit: 65536,
+      bodyTimeoutMs: 2000,
+      upstreamTimeoutMs: 45000,
+    },
+  },
+  {
     operationId: "admin_partner_connection_action",
     method: "POST",
     path: "/v1/admin/partner-tools/connections/{provider}",

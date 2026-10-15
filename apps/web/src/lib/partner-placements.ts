@@ -29,6 +29,11 @@ export type PartnerPlacement = {
   image_variants: { url: string; width: number }[];
   url: string;
   partner_name: string;
+  platform: {
+    name: string;
+    logo_url: string | null;
+    logo_variants: { url: string; width: number }[];
+  } | null;
   sponsored: boolean;
   reason: string;
   receipt: string;
@@ -172,6 +177,7 @@ export function parsePartnerPlacements(value: unknown): PartnerPlacement[] {
       image_variants: safeImageVariants(item.image_variants),
       url: item.url,
       partner_name: item.partner_name,
+      platform: parsePlatform(item.platform),
       sponsored: item.sponsored,
       reason: item.reason,
       receipt: item.receipt,
@@ -179,6 +185,17 @@ export function parsePartnerPlacements(value: unknown): PartnerPlacement[] {
       article,
     };
   });
+}
+
+function parsePlatform(value: unknown): PartnerPlacement["platform"] {
+  if (value === null) return null;
+  if (!record(value) || !text(value.name, 200))
+    throw new Error("Invalid partner placement platform");
+  return {
+    name: value.name,
+    logo_url: safeLogoUrl(value.logo_url),
+    logo_variants: safeImageVariants(value.logo_variants),
+  };
 }
 
 /** Project approved editorial content, never operational fields, into the reader model. */

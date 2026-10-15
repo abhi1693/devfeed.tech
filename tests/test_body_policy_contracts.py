@@ -37,11 +37,15 @@ EXPECTED = {
         "adminPartnerProductCreate": (65_536, 2000, "json"),
         "adminPartnerProductUpdate": (65_536, 2000, "json"),
         "adminPartnerProductAdImageUpload": (5_308_416, 10_000, "image"),
+        "adminPartnerConnectionLogoUpload": (5_308_416, 10_000, "image"),
+        "adminPartnerConnectionLogoUpdate": (65_536, 2000, "json"),
     },
     "partner": {
         "partnerProductCreate": (65_536, 2000, "json"),
         "partnerProductUpdate": (65_536, 2000, "json"),
         "partnerProductAdImageUpload": (5_308_416, 10_000, "image"),
+        "partnerConnectionLogoUpload": (5_308_416, 10_000, "image"),
+        "partnerConnectionLogoUpdate": (65_536, 2000, "json"),
     },
 }
 
@@ -60,7 +64,7 @@ def protected_routes(app):
     ]
 
 
-def test_only_the_previously_protected_service_operations_acquire_a_body_policy(application):
+def test_registered_service_operations_retain_their_explicit_body_policies(application):
     service, app = application
     actual = {}
     for context in protected_routes(app):

@@ -412,6 +412,8 @@ def upgrade():
         ),
         sa.Column("provider", sa.String(200), nullable=False),
         sa.Column("name", sa.String(200), server_default="", nullable=False),
+        sa.Column("logo_url", sa.String(2048), nullable=True),
+        sa.Column("managed_logo", postgresql.JSONB(), server_default="{}", nullable=False),
         sa.Column(
             "connector",
             postgresql.JSONB(),

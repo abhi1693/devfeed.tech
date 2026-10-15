@@ -10,6 +10,7 @@ import { useRouter } from "next/navigation";
 import { Plus } from "lucide-react";
 import { Button } from "@devfeed/ui/button";
 import { ResourceHeading } from "@devfeed/ui/resource-layout";
+import { ConnectionLogo } from "@devfeed/ui/connection-logo";
 import { SearchField, searchScope } from "@/components/molecules/search-field";
 import { useRequest } from "@/lib/use-request";
 import { useTableQuery } from "@/lib/use-table-query";
@@ -28,13 +29,20 @@ const columns: DataTableColumn<ConnectionOut>[] = [
     header: "Name",
     enableSorting: true,
     cell: ({ row }) => (
-      <Link
-        prefetch={false}
-        href={importConnectionHref(row.original.provider)}
-        className="font-medium text-primary hover:underline"
-      >
-        {row.original.name}
-      </Link>
+      <span className="inline-flex items-center gap-3">
+        <ConnectionLogo
+          name={row.original.name}
+          url={row.original.logo_url}
+          variants={row.original.logo_variants}
+        />
+        <Link
+          prefetch={false}
+          href={importConnectionHref(row.original.provider)}
+          className="font-medium text-primary hover:underline"
+        >
+          {row.original.name}
+        </Link>
+      </span>
     ),
   },
   { id: "type", header: "Type", cell: () => "Launch platform" },

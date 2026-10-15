@@ -3,6 +3,7 @@
 import uuid
 
 from devfeed_core.partner_ad_formats import AdFormat, default_ad_formats
+from devfeed_core.partner_connection_logos import PlacementPlatform
 from devfeed_core.partner_surfaces import PromotionSurface
 from devfeed_core.partner_taglines import Tagline
 from devfeed_core.schemas import ArticleOut
@@ -62,6 +63,7 @@ class PlacementOut(BaseModel):
     image_variants: list[PlacementImageVariant] = Field(default_factory=list)
     url: str
     partner_name: str
+    platform: PlacementPlatform | None = None
     # Campaign backing for allocation/reporting; all reader placements must display
     # Sponsored and omit dismissal controls regardless of this value.
     sponsored: bool

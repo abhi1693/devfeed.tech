@@ -54,6 +54,51 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
+it("shows the importing platform's responsive logo beside its name in native grid metadata", async () => {
+  const platform = {
+    name: "Launch platform",
+    logo_url: "https://images.example/platform/32.webp?v=one",
+    logo_variants: [16, 32, 64, 96].map((width) => ({
+      width,
+      url: `https://images.example/platform/${width}.webp?v=one`,
+    })),
+  };
+  vi.mocked(readerRequest).mockResolvedValueOnce(
+    Response.json({ items: [{ ...placement, platform }] }),
+  );
+  render(<PartnerPlacements surface="feed">{(cards) => <div>{cards}</div>}</PartnerPlacements>);
+  const card = (await screen.findByRole("link", { name: placement.name })).closest("article")!;
+  const source = card.querySelector(".card-source")!;
+  const logo = source.querySelector("img")!;
+  expect(source.textContent).toBe(platform.name);
+  expect(source.textContent).not.toContain(placement.partner_name);
+  expect(logo.getAttribute("src")).toBe(platform.logo_url);
+  expect(logo.getAttribute("srcset")).toBe(
+    platform.logo_variants.map(({ url, width }) => `${url} ${width}w`).join(", "),
+  );
+  expect(logo.getAttribute("sizes")).toBe("12px");
+  expect(logo.getAttribute("alt")).toBe("");
+  expect(logo.getAttribute("referrerpolicy")).toBe("no-referrer");
+  expect(source.querySelector(".source-avatar")?.getAttribute("aria-hidden")).toBe("true");
+  fireEvent.error(logo);
+  expect(source.querySelector("img")).toBeNull();
+  expect(source.querySelector("svg")).toBeTruthy();
+  expect(source.textContent).toBe(platform.name);
+  expect(card.querySelector(".partner-placement-logo img")?.getAttribute("src")).toBe(
+    placement.logo_url,
+  );
+});
+
+it("keeps a manual product's account attribution and a neutral source icon without a platform", async () => {
+  vi.mocked(readerRequest).mockResolvedValueOnce(Response.json({ items: [placement] }));
+  render(<PartnerPlacements surface="feed">{(cards) => <div>{cards}</div>}</PartnerPlacements>);
+  const card = (await screen.findByRole("link", { name: placement.name })).closest("article")!;
+  const source = card.querySelector(".card-source")!;
+  expect(source.textContent).toBe(placement.partner_name);
+  expect(source.querySelector("img")).toBeNull();
+  expect(source.querySelector("svg")).toBeTruthy();
+});
+
 it("keeps Engagement linked and tracked through the whole card with a hostname-only footer", async () => {
   vi.mocked(readerRequest).mockResolvedValueOnce(
     Response.json({ items: [{ ...placement, ad_format: "engagement" }] }),

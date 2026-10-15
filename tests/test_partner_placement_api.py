@@ -296,6 +296,7 @@ def test_responses_preserve_noncampaign_attribution_without_private_metadata(mon
         "image_variants": [],
         "url": "https://partner.example/validator",
         "partner_name": "Partner",
+        "platform": None,
         "sponsored": False,
         "reason": "Verified TypeScript support.",
         "receipt": "signed-delivery-receipt",

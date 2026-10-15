@@ -476,6 +476,10 @@ export const pageRouteCatalogs = {
       label: "/v1/admin/partner-tools/connections/:id/jobs",
     },
     {
+      path: "/api/v1/admin/partner-tools/connections/:id/logo",
+      label: "/v1/admin/partner-tools/connections/:id/logo",
+    },
+    {
       path: "/api/v1/admin/topics/:id/enrichment/preview",
       label: "/v1/admin/topics/:id/enrichment/preview",
     },
@@ -654,6 +658,10 @@ export const pageRouteCatalogs = {
     {
       path: "/v1/admin/partner-tools/connections/:id/jobs",
       label: "/v1/admin/partner-tools/connections/:id/jobs",
+    },
+    {
+      path: "/v1/admin/partner-tools/connections/:id/logo",
+      label: "/v1/admin/partner-tools/connections/:id/logo",
     },
     {
       path: "/v1/admin/topics/:id/enrichment/preview",
@@ -1251,6 +1259,10 @@ export const pageRouteCatalogs = {
       label: "/v1/partner/accounts/:id/connections/:id/jobs",
     },
     {
+      path: "/api/v1/partner/accounts/:id/connections/:id/logo",
+      label: "/v1/partner/accounts/:id/connections/:id/logo",
+    },
+    {
       path: "/api/v1/partner/accounts/:id/products/:id/ad-image",
       label: "/v1/partner/accounts/:id/products/:id/ad-image",
     },
@@ -1289,6 +1301,10 @@ export const pageRouteCatalogs = {
     {
       path: "/v1/partner/accounts/:id/connections/:id/jobs",
       label: "/v1/partner/accounts/:id/connections/:id/jobs",
+    },
+    {
+      path: "/v1/partner/accounts/:id/connections/:id/logo",
+      label: "/v1/partner/accounts/:id/connections/:id/logo",
     },
     {
       path: "/v1/partner/accounts/:id/products/:id/ad-image",

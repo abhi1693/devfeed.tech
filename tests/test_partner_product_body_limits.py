@@ -32,7 +32,7 @@ def service(request, monkeypatch):
             for dependency in context.dependant.dependencies:
                 if dependency.call is not None:
                     app.dependency_overrides[dependency.call] = unexpected_work
-    for name in ("get_redis", "limit_product_write", "limit_ad_image_upload"):
+    for name in ("get_redis", "limit_product_write", "limit_image_upload"):
         monkeypatch.setattr(module, name, unexpected_work)
     monkeypatch.setattr(Request, "json", unexpected_work)
     monkeypatch.setattr(Request, "form", unexpected_work)
@@ -144,3 +144,38 @@ def test_converter_invalid_product_preserves_native_404_without_body_reads(servi
     assert response.json() == {"detail": "Not Found"}
     assert reads == 0
     assert cancellations == []
+
+
+@pytest.mark.parametrize("body_kind", ["declared", "chunked", "stalled"])
+@pytest.mark.parametrize("method", ["POST", "PUT"])
+def test_connection_logo_upload_limits_apply_before_invalid_identifiers_and_form_parsing(
+    service, monkeypatch, body_kind, method
+):
+    app, prefix = service
+    path = (
+        "/v1/partner/accounts/not-a-uuid/connections/not!valid/logo"
+        if prefix == "/v1/partner/accounts"
+        else "/v1/admin/partner-tools/connections/not!valid/logo"
+    )
+    fail_after = body_limits.anyio.fail_after
+    requested = []
+
+    def short_deadline(delay, *, shield=False):
+        requested.append(delay)
+        return fail_after(0.01 if body_kind == "stalled" else delay, shield=shield)
+
+    monkeypatch.setattr(body_limits.anyio, "fail_after", short_deadline)
+    response, reads, cancellations = exchange(
+        app,
+        path,
+        method,
+        body_kind=body_kind,
+        limit=5_308_416 if method == "POST" else 65_536,
+        content_type="multipart/form-data; boundary=fixture"
+        if method == "POST"
+        else "application/json",
+    )
+    assert response.status_code == (408 if body_kind == "stalled" else 413)
+    assert reads == {"declared": 0, "chunked": 2, "stalled": 1}[body_kind]
+    assert cancellations == ([True] if body_kind == "stalled" else [])
+    assert requested == ([] if body_kind == "declared" else [10 if method == "POST" else 2])

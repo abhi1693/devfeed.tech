@@ -8,6 +8,7 @@ import { Select } from "./select";
 import { Input } from "./input";
 import { Button } from "./button";
 import { useDebouncedImagePreview } from "./use-debounced-image-preview";
+import { ConnectionLogo, type ConnectionLogoVariant } from "./connection-logo";
 
 export const adFormats = [
   {
@@ -105,6 +106,11 @@ export type CreativePreviewProduct = {
   image_url: string | null;
   product_url: string;
   listing_url: string | null;
+  platform?: {
+    name: string;
+    logo_url: string | null;
+    logo_variants?: ConnectionLogoVariant[];
+  } | null;
   ad_image_status?: ProductAdImageStatus;
 };
 export type CreativePreviewArticle = {
@@ -882,6 +888,31 @@ export function parseCreativePreview(value: unknown): CreativePreviewProduct | n
     (product.ad_image_status !== undefined && !validAdImageStatus(product.ad_image_status))
   )
     throw new Error("Invalid creative preview.");
+  const platform = product.platform;
+  if (
+    platform !== undefined &&
+    platform !== null &&
+    (typeof platform !== "object" ||
+      !("name" in platform) ||
+      typeof platform.name !== "string" ||
+      !platform.name.trim() ||
+      platform.name.length > 200 ||
+      !("logo_url" in platform) ||
+      !(platform.logo_url === null || typeof platform.logo_url === "string") ||
+      ("logo_variants" in platform &&
+        platform.logo_variants !== undefined &&
+        (!Array.isArray(platform.logo_variants) ||
+          platform.logo_variants.length > 20 ||
+          !platform.logo_variants.every(
+            (variant) =>
+              variant &&
+              typeof variant === "object" &&
+              typeof variant.url === "string" &&
+              Number.isSafeInteger(variant.width) &&
+              variant.width > 0,
+          ))))
+  )
+    throw new Error("Invalid creative preview platform.");
   return product as CreativePreviewProduct;
 }
 
@@ -1029,6 +1060,25 @@ export function AdCreativePreview({
       Sponsored
     </span>
   );
+  const platform = product?.platform;
+  const feedMetadata = (
+    <div className="flex min-w-0 items-center justify-between gap-2">
+      {platform && (
+        <span className="flex min-w-0 items-center gap-1 text-xs text-muted-foreground">
+          <ConnectionLogo
+            name={platform.name}
+            url={platform.logo_url}
+            variants={platform.logo_variants}
+            size={16}
+          />
+          <span className="truncate" title={platform.name}>
+            {platform.name}
+          </span>
+        </span>
+      )}
+      {disclosure}
+    </div>
+  );
   return (
     <section aria-label="Creative preview" aria-busy={loading} className="min-w-0 space-y-3">
       <h3 className="text-sm font-medium">{adFormatLabel(format)}</h3>
@@ -1116,7 +1166,7 @@ export function AdCreativePreview({
               {format === "feed" && (
                 <>
                   {copy && <p className="line-clamp-2 text-xs text-muted-foreground">{copy}</p>}
-                  {disclosure}
+                  {feedMetadata}
                   <div className="border-t pt-3 text-xs text-muted-foreground">
                     <span className="block truncate">{host}</span>
                   </div>
@@ -1132,9 +1182,10 @@ export function AdCreativePreview({
                 name={title}
               />
               <div className="space-y-3 p-4">
-                {disclosure}
+                {content && disclosure}
                 <h4 className="line-clamp-2 text-lg leading-snug font-semibold">{title}</h4>
                 {copy && <p className="line-clamp-3 text-sm text-muted-foreground">{copy}</p>}
+                {!content && feedMetadata}
                 <div className="border-t pt-3 text-xs">
                   <span className="block truncate text-muted-foreground">{host}</span>
                 </div>

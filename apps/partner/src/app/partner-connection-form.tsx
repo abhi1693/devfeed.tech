@@ -8,6 +8,11 @@ import { Button } from "@devfeed/ui/button";
 import { Select } from "@devfeed/ui/select";
 import { Checkbox } from "@devfeed/ui/choice-controls";
 import { ConnectorFields } from "@devfeed/ui/connector-fields";
+import {
+  ConnectionLogoField,
+  type ConnectionLogoChange,
+  type ConnectionLogoState,
+} from "@devfeed/ui/connection-logo";
 import { responseMappings } from "@devfeed/ui/connector-response-mappings";
 import { usePartnerRequest, isPartnerRequestCancelled } from "@/lib/partner-request";
 import { PartnerAccountPicker } from "./partner-account-picker";
@@ -31,6 +36,8 @@ export type ConnectionFormInput = {
   sync_interval_minutes?: number;
   connector?: PartnerConnectorConfig;
   credential?: string;
+  logo_url?: string | null;
+  logo_file?: File;
 };
 
 const limits = {
@@ -85,6 +92,7 @@ export function PartnerConnectionForm({
   error,
   onSave,
   onUnavailable,
+  onLogoSave,
 }: {
   connection?: PartnerConnectionOut;
   credentialsAvailable: boolean;
@@ -94,9 +102,15 @@ export function PartnerConnectionForm({
   error: string;
   onSave: (input: ConnectionFormInput) => Promise<void>;
   onUnavailable: () => void;
+  onLogoSave?: (change: ConnectionLogoChange, signal: AbortSignal) => Promise<ConnectionLogoState>;
 }) {
   const [account, setAccount] = useState<Account>();
   const [name, setName] = useState(connection?.name ?? "");
+  const [logoUrl, setLogoUrl] = useState(connection?.logo_url ?? "");
+  const [logoFile, setLogoFile] = useState<File | null>(null);
+  const [logoChanged, setLogoChanged] = useState(false);
+  const [logoError, setLogoError] = useState("");
+  const [logoBusy, setLogoBusy] = useState(false);
   const [enabled, setEnabled] = useState(connection?.enabled ?? true);
   const [interval, setInterval] = useState(String(connection?.sync_interval_minutes ?? 360));
   const [connector, setConnectorState] = useState(connection?.connector ?? defaultConnector());
@@ -122,7 +136,7 @@ export function PartnerConnectionForm({
   const credentialReady =
     auth === "none" || (credentialsAvailable && (!needsCredential || Boolean(credential.trim())));
   const intervalChanged = !connection || interval !== String(connection.sync_interval_minutes);
-  const busy = saving || testing;
+  const busy = saving || testing || logoBusy;
   const accountId = connection?.account_id ?? account?.id;
   const request = usePartnerRequest({ accountId, onUnavailable });
   const definition = useMemo<PartnerConnectorConfig>(
@@ -216,7 +230,7 @@ export function PartnerConnectionForm({
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (busy) return;
+    if (busy || logoError) return;
     if (!connection && !account) {
       setValidation("Choose the partner account that owns this connection.");
       return;
@@ -241,6 +255,8 @@ export function PartnerConnectionForm({
       name: name.trim(),
       ...(!connection ? { account_id: account!.id } : {}),
       enabled,
+      ...(logoChanged && !logoFile ? { logo_url: logoUrl.trim() || null } : {}),
+      ...(logoFile ? { logo_file: logoFile } : {}),
       ...(intervalChanged ? { sync_interval_minutes: minutes } : {}),
       ...(editable && (!connection || connectorDirty) ? { connector: definition } : {}),
       ...(needsCredential ? { credential } : {}),
@@ -411,6 +427,29 @@ export function PartnerConnectionForm({
               />
               Enable scheduled imports
             </label>
+            <div className="sm:col-span-2">
+              <ConnectionLogoField
+                name={name}
+                value={logoUrl}
+                file={logoFile}
+                variants={connection?.logo_variants}
+                savedUrl={connection?.logo_url}
+                disabled={busy}
+                onCommit={onLogoSave}
+                onSaved={(saved) => {
+                  setLogoUrl(saved.logo_url ?? "");
+                  setLogoFile(null);
+                  setLogoChanged(false);
+                }}
+                onBusyChange={setLogoBusy}
+                onValidationChange={setLogoError}
+                onChange={(url, file) => {
+                  setLogoChanged(true);
+                  setLogoUrl(url);
+                  setLogoFile(file);
+                }}
+              />
+            </div>
           </div>
           {editable ? (
             <ConnectorFields
@@ -490,7 +529,7 @@ export function PartnerConnectionForm({
               Cancel
             </Link>
           </Button>
-          <Button type="submit" loading={saving} disabled={testing}>
+          <Button type="submit" loading={saving} disabled={testing || logoBusy || !!logoError}>
             {connection ? "Save changes" : "Create connection"}
           </Button>
         </div>

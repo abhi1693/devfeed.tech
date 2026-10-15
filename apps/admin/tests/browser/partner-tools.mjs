@@ -4,6 +4,21 @@ import { spawn } from "node:child_process";
 import { mkdir } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { chromium } from "playwright";
+import {
+  logoSource,
+  managedLogo,
+  uploadedLogo,
+  connectionLogo,
+  readLogoUpload,
+  readLogoUrl,
+  installConnectionLogoMedia,
+  assertManagedConnectionLogo,
+  selectConnectionLogo,
+  assertConnectionLogoEditor,
+  assertInvalidConnectionLogo,
+  removeConnectionLogoFromEditedUrl,
+  saveConnectionFromEditedLogoUrl,
+} from "../../../../scripts/testing/connection-logos.mjs";
 
 const root = fileURLToPath(new URL("../../../../", import.meta.url));
 const partnerAccounts = [
@@ -141,6 +156,7 @@ const connection = {
   partnership_type: "launch_platform",
   provider: "nick-launches",
   name: "Nick Launches",
+  ...connectionLogo(),
   api_url: "https://nicklaunches.com/api/v1/products/",
   revision: 1,
   sync_interval_minutes: 360,
@@ -223,6 +239,17 @@ const pipelineJobs = [
   },
 ];
 const mutations = [];
+const logoUploads = [];
+const logoWrites = [];
+const logoCounts = () => ({
+  url: logoWrites.length,
+  upload: logoUploads.length,
+  settings: mutations.filter(
+    (entry) => entry.path === "/v1/admin/partner-tools/connections/nick-launches",
+  ).length,
+});
+let failLogoUpload = false;
+let logoUploadGate = null;
 const productRequests = [];
 const imageJobs = ["product-image", "product-logo"].map((operation, index) => ({
   id: index ? "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb" : "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
@@ -241,6 +268,42 @@ const imageJobs = ["product-image", "product-logo"].map((operation, index) => ({
 const fixture = createServer(async (req, res) => {
   const { pathname: path, searchParams: params } = new URL(req.url, "http://localhost");
   if (path.endsWith("/partner-tools")) productRequests.push(params.toString());
+  if (path.endsWith("/logo") && ["POST", "PUT"].includes(req.method)) {
+    const provider = decodeURIComponent(path.split("/").at(-2));
+    const record = connectionInventory().find((item) => item.provider === provider);
+    assert.ok(record, "Logo upload is scoped to a saved connection");
+    if (req.method === "PUT") {
+      const input = await readLogoUrl(req, "fixture", origin);
+      assert.equal(
+        input.expected_revision,
+        record.revision,
+        "Immediate logo edits use the latest revision",
+      );
+      logoWrites.push({ provider, ...input });
+      Object.assign(record, connectionLogo(input.logo_url), { revision: record.revision + 1 });
+      res.writeHead(200, { "content-type": "application/json" });
+      res.end(JSON.stringify(record));
+      return;
+    }
+    const input = await readLogoUpload(req, "fixture", origin);
+    logoUploads.push({ provider, ...input });
+    if (logoUploadGate) await logoUploadGate;
+    assert.equal(
+      input.expected_revision,
+      record.revision,
+      "Logo upload uses the latest saved revision",
+    );
+    if (failLogoUpload) {
+      failLogoUpload = false;
+      res.writeHead(503, { "content-type": "application/json" });
+      res.end(JSON.stringify({ detail: "Logo storage temporarily unavailable." }));
+    } else {
+      Object.assign(record, connectionLogo(null, true), { revision: record.revision + 1 });
+      res.writeHead(200, { "content-type": "application/json" });
+      res.end(JSON.stringify(record));
+    }
+    return;
+  }
   let body = {};
   if (["POST", "PUT"].includes(req.method)) {
     let raw = "";
@@ -422,6 +485,7 @@ const fixture = createServer(async (req, res) => {
         const custom = {
           ...connection,
           ...body,
+          ...connectionLogo(body.logo_url ?? null),
           api_url: body.connector.base_url + body.connector.list_path,
           state: "disconnected",
           products: 0,
@@ -434,6 +498,7 @@ const fixture = createServer(async (req, res) => {
         return;
       }
       added = true;
+      Object.assign(connection, connectionLogo(body.logo_url ?? null));
       connection.connector = body.connector;
       connection.name = body.name;
       connection.account_id = body.account_id;
@@ -458,6 +523,14 @@ const fixture = createServer(async (req, res) => {
       result = { items: items.slice(offset, offset + limit), total: items.length, offset, limit };
     }
   } else if (path.endsWith("/partner-tools/connections/nick-launches")) {
+    if (req.method === "PUT") {
+      assert.equal(
+        body.expected_revision,
+        connection.revision,
+        "Settings use the revision returned by immediate logo edits",
+      );
+      if (Object.hasOwn(body, "logo_url")) Object.assign(connection, connectionLogo(body.logo_url));
+    }
     Object.assign(connection, {
       name: body.name ?? connection.name,
       connector: body.connector ?? connection.connector,
@@ -472,6 +545,17 @@ const fixture = createServer(async (req, res) => {
     connection.state = connection.enabled ? "idle" : "disconnected";
     product.listings[0].connection_enabled = connection.enabled;
     result = connection;
+  } else if (path.includes("/partner-tools/connections/") && req.method === "PUT") {
+    const record = customConnections.find((item) => path.endsWith(`/${item.provider}`));
+    assert.ok(record);
+    assert.equal(body.expected_revision, record.revision);
+    assert.equal(
+      Object.hasOwn(body, "logo_url"),
+      false,
+      "Settings do not reimport the independently saved logo",
+    );
+    Object.assign(record, body, { revision: record.revision + 1 });
+    result = record;
   } else if (path.endsWith("/partner-tools")) {
     const items = [
       ...(connection.products ? [product] : []),
@@ -550,6 +634,7 @@ try {
     reducedMotion: "reduce",
   });
   await context.addCookies([{ name: "devfeed_admin_session", value: "fixture", url: origin }]);
+  await installConnectionLogoMedia(context);
   const page = await context.newPage();
   const errors = [];
   page.on("pageerror", (error) => errors.push(error.message));
@@ -705,6 +790,7 @@ try {
   await page.setViewportSize({ width: 1440, height: 1000 });
   await page.getByPlaceholder("Search partner accounts…").fill("Alpha");
   await page.getByRole("option", { name: /Alpha account/ }).click();
+  await page.getByRole("textbox", { name: "Logo URL", exact: true }).fill(logoSource);
   await page.getByRole("checkbox", { name: "Enabled", exact: true }).uncheck();
   await page.screenshot({ path: `${output}/create-partner-desktop.png`, fullPage: true });
   await page.setViewportSize({ width: 390, height: 844 });
@@ -735,6 +821,8 @@ try {
   await page.waitForURL("**/partnerships/connections/nick-launches");
   await page.getByText("Disabled", { exact: true }).waitFor();
   assert.equal(connection.account_id, partnerAccounts[0].id);
+  assert.equal(connection.logo_url, managedLogo);
+  await assertManagedConnectionLogo(page.getByRole("main"), managedLogo);
   assert.equal(
     await page.getByRole("link", { name: "Alpha account", exact: true }).getAttribute("href"),
     `/partnerships/accounts/${partnerAccounts[0].id}`,
@@ -761,12 +849,86 @@ try {
   await page.getByRole("option", { name: /Beta account/ }).click();
   await page.getByRole("checkbox", { name: "Enabled", exact: true }).check();
   await page.getByRole("spinbutton", { name: "Sync interval (minutes)", exact: true }).fill("90");
+  assert.equal(
+    await page.getByRole("textbox", { name: "Logo URL", exact: true }).inputValue(),
+    managedLogo,
+  );
+  await assertConnectionLogoEditor(page, output, "admin");
+  const draftName = page.getByRole("textbox", { name: "Name", exact: true });
+  const draftApi = page.getByRole("textbox", { name: "API base URL", exact: true });
+  const originalApi = await draftApi.inputValue();
+  await draftName.fill("Unsaved platform name");
+  await draftApi.fill("https://draft-catalog.example");
+  const logoUrl = page.getByRole("textbox", { name: "Logo URL", exact: true });
+  await logoUrl.fill(logoSource);
+  await logoUrl.blur();
+  await page.getByRole("status").filter({ hasText: "Logo updated." }).waitFor();
+  assert.equal(
+    await logoUrl.inputValue(),
+    managedLogo,
+    "URL imports replace the draft with the canonical R2 URL",
+  );
+  assert.equal(logoWrites.at(-1).logo_url, logoSource);
+  await assertInvalidConnectionLogo(
+    page,
+    () =>
+      mutations.filter(
+        (entry) =>
+          !entry.path.endsWith("/connector-preview") && !entry.path.endsWith("/connector-response"),
+      ).length +
+      logoUploads.length +
+      logoWrites.length,
+  );
+  const beforeUploadClick = logoCounts();
+  let releaseLogo;
+  logoUploadGate = new Promise((resolve) => {
+    releaseLogo = resolve;
+  });
+  try {
+    await selectConnectionLogo(page, { immediate: true });
+    assert.equal(await draftName.inputValue(), "Unsaved platform name");
+    assert.equal(await draftApi.inputValue(), "https://draft-catalog.example");
+    await page.screenshot({ path: `${output}/connection-logo-local-preview.png`, fullPage: true });
+  } finally {
+    logoUploadGate = null;
+    releaseLogo();
+  }
+  await page.getByRole("status").filter({ hasText: "Logo updated." }).waitFor();
+  assert.equal(await logoUrl.inputValue(), uploadedLogo);
+  assert.deepEqual(
+    logoCounts(),
+    { ...beforeUploadClick, upload: beforeUploadClick.upload + 1 },
+    "The first Upload click from an edited URL only uploads the selected file",
+  );
+  assert.equal(
+    await draftName.inputValue(),
+    "Unsaved platform name",
+    "Immediate logo upload preserves unsaved name",
+  );
+  assert.equal(
+    await draftApi.inputValue(),
+    "https://draft-catalog.example",
+    "Immediate logo upload preserves unsaved API settings",
+  );
+  await draftName.fill("Nick Launches");
+  await draftApi.fill(originalApi);
   await page.screenshot({ path: `${output}/partner-interval-mobile.png`, fullPage: true });
-  await page.getByRole("button", { name: "Save changes" }).click();
-  await page.waitForURL("**/partnerships/connections/nick-launches");
+  await saveConnectionFromEditedLogoUrl(
+    page,
+    `${origin}/partnerships/connections/nick-launches`,
+    logoCounts,
+  );
+  assert.equal(
+    mutations.filter((entry) => entry.path.endsWith("/connections/nick-launches")).at(-1).body
+      .logo_url,
+    logoSource,
+  );
   await page.getByText("Enabled", { exact: true }).last().waitFor();
   await page.getByText("Every 90 minutes", { exact: true }).waitFor();
   assert.equal(connection.account_id, partnerAccounts[1].id);
+  assert.equal(logoUploads.length, 1);
+  assert.equal(connection.logo_url, managedLogo);
+  await assertManagedConnectionLogo(page.getByRole("main"), managedLogo);
   assert.equal(
     await page.getByRole("link", { name: "Beta account", exact: true }).getAttribute("href"),
     `/partnerships/accounts/${partnerAccounts[1].id}`,
@@ -932,6 +1094,8 @@ try {
   await page.getByRole("button", { name: "Exclude product" }).click();
   await page.getByRole("button", { name: "Include and recheck" }).waitFor();
   await page.goto(`${origin}/partnerships/connections/nick-launches/edit`);
+  await removeConnectionLogoFromEditedUrl(page, logoCounts);
+  assert.equal(logoWrites.at(-1).logo_url, null);
   await page.getByRole("checkbox", { name: "Enabled", exact: true }).uncheck();
   await page.getByRole("button", { name: "Save changes" }).click();
   await page.waitForURL("**/partnerships/connections/nick-launches");
@@ -950,6 +1114,10 @@ try {
   );
   assert.ok(mutations.some((entry) => entry.body.sync_interval_minutes === 90));
   assert.equal(connection.sync_interval_minutes, 90);
+  assert.deepEqual(connectionLogo(), {
+    logo_url: connection.logo_url,
+    logo_variants: connection.logo_variants,
+  });
   assert.ok(mutations.every((entry) => entry.csrf === "fixture"));
   await page.goto(`${origin}/partnerships/connections/new`);
   await page.getByRole("combobox", { name: "Platform", exact: true }).click();
@@ -1100,8 +1268,41 @@ try {
     ).includes("border-violet-600"),
   );
   await page.screenshot({ path: `${output}/custom-connector-preview-desktop.png`, fullPage: true });
+  await selectConnectionLogo(page);
+  failLogoUpload = true;
+  const createsBefore = mutations.filter((entry) => entry.path.endsWith("/connections")).length;
   await page.getByRole("button", { name: "Create import connection", exact: true }).click();
+  await page
+    .getByRole("alert")
+    .filter({ hasText: "Connection settings saved, but the logo was not uploaded." })
+    .waitFor();
+  assert.equal(customConnections.length, 1);
+  assert.equal(
+    await page.getByRole("textbox", { name: "Name", exact: true }).inputValue(),
+    "Shipyard",
+  );
+  assert.equal(
+    await page.getByRole("textbox", { name: "Products endpoint", exact: true }).inputValue(),
+    "/v4/products",
+  );
+  await page
+    .getByRole("img", { name: "Platform logo preview", exact: true })
+    .locator('img[src^="blob:"]')
+    .waitFor();
+  await page.setViewportSize({ width: 390, height: 844 });
+  assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1));
+  await page.screenshot({ path: `${output}/connection-logo-retry-mobile.png`, fullPage: true });
+  await page.getByRole("button", { name: "Save changes", exact: true }).click();
   await page.waitForURL("**/partnerships/connections/shipyard");
+  assert.equal(
+    mutations.filter((entry) => entry.path.endsWith("/connections")).length,
+    createsBefore + 1,
+    "Retry after logo upload failure never creates a second connection",
+  );
+  assert.equal(logoUploads.at(-1).provider, "shipyard");
+  assert.equal(logoUploads.at(-1).expected_revision, 2);
+  await assertManagedConnectionLogo(page.getByRole("main"), uploadedLogo);
+  await page.screenshot({ path: `${output}/connection-logo-detail-mobile.png`, fullPage: true });
   await page.getByRole("heading", { name: "Shipyard", exact: true }).waitFor();
   assert.equal(customConnections.length, 1);
   assert.equal(customConnections[0].account_id, partnerAccounts[0].id);

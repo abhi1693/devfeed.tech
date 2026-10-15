@@ -1,15 +1,19 @@
 """Bounded raster uploads and rollback-capable fixed object storage for private APIs."""
 
+import hashlib
 import io
 import logging
 from threading import BoundedSemaphore
+from typing import Literal
 from uuid import uuid4
 
 from devfeed_core.config import get_settings
 from devfeed_core.image_processing import ImageProcessor
 from devfeed_core.object_storage import R2ConfigurationError, R2Storage
+from devfeed_core.rate_limits import RateLimitBudget, consume_rate_limits
 from fastapi import HTTPException
 from PIL import Image, ImageOps, UnidentifiedImageError
+from redis.exceptions import RedisError
 
 MAX_BYTES = 5 * 1024 * 1024
 MAX_REQUEST_BYTES = MAX_BYTES + 65536
@@ -29,13 +33,40 @@ def image_upload_storage() -> R2Storage:
         raise HTTPException(503, "Image uploads are unavailable") from None
 
 
+def limit_image_upload(redis, actor, account_id):
+    caller = hashlib.sha256(f"{actor.issuer}\0{actor.subject}".encode()).hexdigest()
+    try:
+        retry = consume_rate_limits(
+            redis,
+            [
+                RateLimitBudget(key=f"partner-image-caller:{caller}", limit=10, window=60),
+                RateLimitBudget(key=f"partner-image-account:{account_id}", limit=30, window=3600),
+            ],
+        )
+    except RedisError:
+        raise HTTPException(503, "Image uploads are temporarily unavailable") from None
+    if retry:
+        raise HTTPException(
+            429, "Too many image uploads; try again shortly", headers={"Retry-After": str(retry)}
+        )
+
+
 class ImageUploadStorage(ImageProcessor):
     """Normalize one upload policy and compensate fixed-key changes if publication fails."""
 
-    def __init__(self, prefix, sizes, *, square=False, storage: R2Storage | None = None):
+    def __init__(
+        self,
+        prefix,
+        sizes,
+        *,
+        square=False,
+        fit: Literal["cover", "contain"] = "cover",
+        storage: R2Storage | None = None,
+    ):
         super().__init__(max_pixels=MAX_PIXELS, formats={"JPEG", "PNG", "WEBP"}, orient_width=False)
         self.storage = storage
         self.prefix, self.sizes, self.square = prefix, tuple(sizes), square
+        self.fit = fit
         self.previous: dict[str, bytes | None] = {}
         self.changed: list[str] = []
         self.revision = uuid4().hex
@@ -58,9 +89,7 @@ class ImageUploadStorage(ImageProcessor):
             with Image.open(io.BytesIO(body)) as image:
                 ImageOps.exif_transpose(image, in_place=True)
                 if self.square:
-                    reduced = ImageOps.fit(
-                        image, (max(self.sizes), max(self.sizes)), Image.Resampling.LANCZOS
-                    )
+                    reduced = self._square(image, max(self.sizes))
                 else:
                     image.thumbnail((max(self.sizes), max(self.sizes)), Image.Resampling.LANCZOS)
                     reduced = image
@@ -68,7 +97,7 @@ class ImageUploadStorage(ImageProcessor):
                 result, widths = {}, {}
                 for size in self.sizes:
                     if self.square:
-                        variant = ImageOps.fit(master, (size, size), Image.Resampling.LANCZOS)
+                        variant = self._square(master, size)
                     else:
                         variant = master.copy()
                         variant.thumbnail((size, max(self.sizes)), Image.Resampling.LANCZOS)
@@ -87,6 +116,16 @@ class ImageUploadStorage(ImageProcessor):
             raise HTTPException(
                 422, "Choose a valid JPEG, PNG or WebP image up to 20 megapixels"
             ) from exc
+
+    def _square(self, image, size):
+        if self.fit == "contain":
+            return ImageOps.pad(
+                image.convert("RGBA"),
+                (size, size),
+                Image.Resampling.LANCZOS,
+                color=(0, 0, 0, 0),
+            )
+        return ImageOps.fit(image, (size, size), Image.Resampling.LANCZOS)
 
     def __enter__(self):
         if self.storage is None:
