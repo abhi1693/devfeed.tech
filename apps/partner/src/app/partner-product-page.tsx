@@ -503,16 +503,6 @@ function ProductDetails({
         >
           {account.name}
         </Link>
-        <span className="mx-2" aria-hidden>
-          ·
-        </span>
-        <Link
-          href={productPath(productId, { edit, action, query })}
-          prefetch={false}
-          className="text-primary hover:underline"
-        >
-          Account policies
-        </Link>
       </p>
       {writeError && (
         <p role="alert" className="notice">
