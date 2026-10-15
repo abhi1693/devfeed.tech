@@ -30,6 +30,10 @@ import {
   userMutationFixture,
 } from "../../../../scripts/testing/user-mutations.mjs";
 import {
+  checkReaderRoutes,
+  readerRoutesFixture,
+} from "../../../../scripts/testing/reader-routes.mjs";
+import {
   engagementFeed,
   engagementRows,
   checkEngagementPagination,
@@ -94,6 +98,7 @@ withManagedSourceLogo(article.sources[0]);
 const mustReadsFixture = dailyFixture(article);
 const readingFixture = readingStreakFixture();
 const mutationFixture = userMutationFixture({ articles: [article], topic });
+const routeFixture = readerRoutesFixture(article);
 let mode = "ready";
 const defaultAllRequests = [];
 let compactArticles = false;
@@ -117,6 +122,13 @@ let rejectSourceFollow = true;
 const fixture = createServer(async (req, res) => {
   const requestUrl = new URL(req.url, "http://localhost");
   const path = requestUrl.pathname;
+  routeFixture.record(requestUrl);
+  if (routeFixture.handles(requestUrl)) {
+    const { status, json } = routeFixture.respond(requestUrl);
+    res.writeHead(status, { "Content-Type": "application/json" });
+    res.end(JSON.stringify(json));
+    return;
+  }
   if (mutationFixture.handles(path, req.method)) {
     const chunks = [];
     for await (const chunk of req) chunks.push(chunk);
@@ -522,6 +534,31 @@ async function runReaderChecks() {
     }
   }
   browser = await chromium.launch({ headless: true });
+  const routeContext = await browser.newContext({ reducedMotion: "reduce" });
+  try {
+    await mockManagedImages(routeContext);
+    await mockSourceLogos(routeContext);
+    const routePage = await routeContext.newPage();
+    const errors = [];
+    routePage.on("pageerror", (error) => errors.push(error.message));
+    routePage.on("console", (message) => {
+      if (message.type() === "error" && /Content Security Policy|Refused to/.test(message.text()))
+        errors.push(message.text());
+    });
+    await checkReaderRoutes(
+      routePage,
+      (path) => origin + path,
+      routeFixture,
+      `${root}/reports/reader-routes/web`,
+    );
+    assert.deepEqual(errors, []);
+  } finally {
+    await routeContext.close();
+  }
+  if (process.env.DEVFEED_READER_ROUTES_ONLY === "1") {
+    console.log("Reader route validation passed against the production web bundle.");
+    return;
+  }
   const mutationContext = await browser.newContext({ reducedMotion: "reduce" });
   try {
     await mutationContext.addCookies([

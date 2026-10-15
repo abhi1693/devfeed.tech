@@ -1,11 +1,11 @@
 import { useSyncExternalStore } from "react";
 import { publicOrigin } from "./transport";
-import { extensionRoute } from "./routes";
+import { resolveReaderRoute } from "../../web/src/lib/reader-routes";
 import { saveHistoryScroll } from "../../web/src/lib/history-scroll";
 
 export function isLocalRoute(href: string) {
   const url = new URL(href, publicOrigin);
-  return url.origin === publicOrigin && extensionRoute(url.pathname) !== null;
+  return url.origin === publicOrigin && resolveReaderRoute(url.pathname) !== null;
 }
 
 export function linkDestination(href: string) {
@@ -15,7 +15,12 @@ export function linkDestination(href: string) {
 }
 
 const changed = "devfeed:extension-route";
-const snapshot = () => window.location.hash.slice(1) || "/";
+const snapshot = () => {
+  const route = window.location.hash.slice(1) || "/";
+  if (!route.startsWith("/") || route.startsWith("//") || route.includes("\\"))
+    return "/__missing__";
+  return route;
+};
 function subscribe(listener: () => void) {
   window.addEventListener("hashchange", listener);
   window.addEventListener(changed, listener);
@@ -33,10 +38,14 @@ function navigate(href: string, replace = false, scroll = true) {
     window.open(destination, "_blank", "noopener,noreferrer");
     return;
   }
-  const article = destination.startsWith("#/articles/");
+  const article =
+    resolveReaderRoute(new URL(destination.slice(1), publicOrigin).pathname)?.type === "article";
+  const current = snapshot();
   const background = article
     ? (window.history.state?.readerBackground ??
-      (snapshot().startsWith("/articles/") ? undefined : snapshot()))
+      (resolveReaderRoute(new URL(current, publicOrigin).pathname)?.type === "article"
+        ? undefined
+        : current))
     : undefined;
   if (destination === `#${snapshot()}`) router.refresh();
   saveHistoryScroll();

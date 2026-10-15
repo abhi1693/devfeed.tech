@@ -30,14 +30,15 @@ async function bundled(path) {
 }
 const { ExtensionReaderTransport } = await bundled("../src/transport.ts");
 const { linkDestination } = await bundled("../src/navigation.tsx");
-const { extensionRoute } = await bundled("../src/routes.ts");
+const { resolveReaderRoute } = await bundled("../../web/src/lib/reader-routes.ts");
+const { resolveReaderBackground } = await bundled("../src/reader-background.ts");
 const { guestFeedFilters, searchParamsFromUrl, feedParams, feedHref } = await bundled(
   "../../web/src/lib/feed-query.ts",
 );
 
 test("extension guest home and Latest default to All without an implicit API content type", () => {
   for (const pathname of ["/", "/latest"]) {
-    assert.equal(extensionRoute(pathname).contentType, undefined);
+    assert.equal(resolveReaderRoute(pathname).contentType, undefined);
     for (const query of ["", "content_type=", "content_type=invalid", "q=rust&cursor=next"]) {
       const filters = guestFeedFilters(searchParamsFromUrl(new URLSearchParams(query)));
       assert.equal(filters.content_type, "");
@@ -47,7 +48,7 @@ test("extension guest home and Latest default to All without an implicit API con
 });
 
 test("extension Articles remains explicit and All clears the type without losing scope or sorting", () => {
-  assert.equal(extensionRoute("/articles").contentType, "article");
+  assert.equal(resolveReaderRoute("/articles").contentType, "article");
   const filters = guestFeedFilters({
     content_type: "article",
     topic: "rust",
@@ -69,7 +70,7 @@ test("extension Articles remains explicit and All clears the type without losing
 });
 
 test("one route registry classifies every extension-owned page", () => {
-  const route = (pathname) => JSON.stringify(extensionRoute(pathname));
+  const route = (pathname) => JSON.stringify(resolveReaderRoute(pathname));
   assert.equal(route("/trending"), JSON.stringify({ type: "reader", page: "trending" }));
   assert.equal(route("/mcp/authorize"), JSON.stringify({ type: "local", page: "mcp-authorize" }));
   assert.equal(route("/mcp"), JSON.stringify({ type: "local", page: "mcp" }));
@@ -112,8 +113,125 @@ test("one route registry classifies every extension-owned page", () => {
     }),
   );
   assert.equal(route("/users/reader_1"), JSON.stringify({ type: "profile", username: "reader_1" }));
-  assert.equal(extensionRoute("/users/a"), null);
-  assert.equal(extensionRoute("/legal/privacy"), null);
+  assert.equal(resolveReaderRoute("/users/a"), null);
+  assert.equal(resolveReaderRoute("/legal/privacy"), null);
+});
+
+test("every catalog content suffix retains its filter for both catalog kinds", () => {
+  const types = {
+    articles: "article",
+    news: "news",
+    tutorials: "tutorial",
+    releases: "release",
+    comparisons: "comparison",
+    opinions: "opinion",
+  };
+  for (const kind of ["topics", "sources"]) {
+    assert.equal(resolveReaderRoute(`/${kind}/javascript`).detail.contentType, undefined);
+    for (const [suffix, contentType] of Object.entries(types)) {
+      const result = resolveReaderRoute(`/${kind}/javascript/${suffix}`);
+      assert.equal(result.type, "reader");
+      assert.equal(result.detail.kind, kind);
+      assert.equal(result.detail.slug, "javascript");
+      assert.equal(result.detail.contentType, contentType);
+    }
+    for (const suffix of ["invalid", "article", "tutorial", "news/extra", "NEWS", "-"]) {
+      assert.equal(resolveReaderRoute(`/${kind}/javascript/${suffix}`), null);
+    }
+  }
+});
+
+test("unknown settings, routes, and malformed decoded slugs cannot become a feed", () => {
+  for (const route of [
+    "/missing",
+    "/latest/extra",
+    "/settings/missing",
+    "/settings/profile/extra",
+    "/mcp/unknown",
+    "/articles/rust/extra",
+    "/users/reader/extra",
+    "/topics/rust/invalid",
+    "/sources/devfeed/invalid",
+  ]) {
+    assert.equal(resolveReaderRoute(route), null, route);
+  }
+  for (const slug of ["%", "%ZZ", "%2F", "%5C", "%00"]) {
+    for (const prefix of ["topics", "sources", "articles", "users"]) {
+      const route = `/${prefix}/${slug}`;
+      assert.equal(resolveReaderRoute(route), null, route);
+    }
+  }
+  for (const slug of ["%252F", "bad%20slug", "c%2B%2B", "c%23", ".net"]) {
+    for (const prefix of ["topics", "sources", "articles", "users"]) {
+      const route = `/${prefix}/${slug}`;
+      assert.equal(resolveReaderRoute(route), null, route);
+    }
+  }
+});
+
+test("catalog identifiers decode once while retaining their valid slug grammar", () => {
+  for (const [encoded, slug] of [
+    ["%72ust", "rust"],
+    ["rust%2Drelease", "rust-release"],
+  ]) {
+    for (const kind of ["topics", "sources"]) {
+      const result = resolveReaderRoute(`/${kind}/${encoded}/articles`);
+      assert.equal(result.type, "reader");
+      assert.equal(result.detail.kind, kind);
+      assert.equal(result.detail.slug, slug);
+      assert.equal(result.detail.contentType, "article");
+      assert.equal(resolveReaderRoute(`/${kind}/%2572ust/articles`), null);
+    }
+  }
+});
+
+test("article previews retain reader background identity and query filters", () => {
+  for (const [route, page] of [
+    ["/", "personal"],
+    ["/latest?cursor=next&content_type=news", "feed"],
+    ["/search?q=rust", "search"],
+    ["/read-later?cursor=next", "bookmarks"],
+    ["/trending", "trending"],
+  ]) {
+    const background = resolveReaderBackground(route);
+    assert.equal(background.route, route);
+    assert.equal(background.match.type, "reader");
+    assert.equal(background.match.page, page);
+  }
+  const route = "/topics/javascript/tutorials?cursor=next&tag=react";
+  const background = resolveReaderBackground(route);
+  assert.equal(background.route, route);
+  assert.equal(background.match.detail.kind, "topics");
+  assert.equal(background.match.detail.slug, "javascript");
+  assert.equal(background.match.detail.contentType, "tutorial");
+});
+
+test("only an absent article background receives the direct-entry Latest page", () => {
+  for (const value of [undefined, null]) {
+    const background = resolveReaderBackground(value);
+    assert.equal(background.route, "/latest");
+    assert.equal(background.match.page, "feed");
+  }
+  for (const value of [
+    "",
+    "/unknown",
+    "/topics/rust/unknown",
+    "/sources/devfeed/unknown",
+    "/settings/profile",
+    "/topics",
+    "/users/reader",
+    "/articles/rust",
+    "https://outside.test/latest",
+    "//outside.test/latest",
+    "http://[",
+    "javascript:alert(1)",
+    "/latest#unexpected",
+    42,
+    {},
+    [],
+  ]) {
+    assert.equal(resolveReaderBackground(value), null, String(value));
+  }
 });
 
 test("public reads use the website API, use the browser session, and propagate cancellation", async () => {

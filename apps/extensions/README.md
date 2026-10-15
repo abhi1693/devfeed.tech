@@ -23,6 +23,13 @@ Article previews retain the current feed, saved articles, or search results unde
 them. Opening, navigating, and closing a preview keeps the loaded list in place without
 reloading the background page.
 
+Web collection pages and both extensions share route validation in
+`apps/web/src/lib/reader-routes.ts`. An absent content suffix selects All; an unknown
+suffix or route shows the shared missing page before catalog or feed requests.
+Extension dispatch consumes the resolved route, including article-preview backgrounds.
+Invalid saved backgrounds show the missing page; direct article entries use Latest.
+Unsupported website pages remain external links.
+
 ## Build and install
 
 From the repository root, with Node.js 22.13+:
@@ -145,6 +152,17 @@ npm run reader:test:parity
 CI runs this gate on Linux x86_64 with Chromium and Microsoft Edge installed.
 Pre-commit also checks extension types, unit tests and both builds whenever reader
 or shared UI code changes. Store uploads remain separate from website deployment.
+
+After fresh web and extension builds, run the focused route browser journeys with:
+
+```sh
+DEVFEED_READER_ROUTES_ONLY=1 node apps/web/tests/browser/feed.mjs
+DEVFEED_READER_ROUTES_ONLY=1 node --test apps/extensions/tests/reader.browser.mjs
+DEVFEED_EXTENSION_BROWSER=edge DEVFEED_READER_ROUTES_ONLY=1 node --test apps/extensions/tests/reader.browser.mjs
+```
+
+These checks cover missing pages, recovery links, every content suffix, catalog scope,
+and retained article previews. Screenshots stay under ignored `reports/reader-routes/`.
 
 ## Validate and package
 

@@ -41,7 +41,9 @@ import { NotificationPreferencesProvider } from "../../web/src/components/notifi
 import { SignupNudge } from "../../web/src/components/signup-nudge";
 import { ReaderPromptsProvider } from "../../web/src/components/reader-prompts";
 import { ReaderNavigationRecovery } from "../../web/src/components/reader-navigation-recovery";
-import { extensionRoute, type ExtensionRoute } from "./routes";
+import { ReaderNotFound } from "../../web/src/components/reader-not-found";
+import { resolveReaderRoute, type ReaderRoute } from "../../web/src/lib/reader-routes";
+import { resolveReaderBackground } from "./reader-background";
 
 configureReaderRuntime({
   request: new ExtensionReaderTransport(fetch).request,
@@ -66,7 +68,7 @@ function Reader({
   match,
 }: {
   route: string;
-  match: Extract<ExtensionRoute, { type: "reader" }>;
+  match: Extract<ReaderRoute, { type: "reader" }>;
 }) {
   const { user, loading: sessionLoading } = useUser();
   const [revision, setRevision] = useState(0);
@@ -99,6 +101,7 @@ function Reader({
     feed?: FeedContentProps;
     search?: SearchResponse | null;
     trending?: PromiseSettledResult<FeedPage>;
+    missing?: boolean;
   }>();
   useEffect(() => {
     if (sessionLoading || personal || bookmarks || state?.key === key) return;
@@ -130,7 +133,10 @@ function Reader({
         try {
           const kind = detail.kind;
           item = await catalogItem(kind, detail.slug, signal);
-          if (!item) throw new Error("Not found");
+          if (!item) {
+            if (!signal.aborted) setState({ key, missing: true });
+            return;
+          }
           resolvedFilters =
             kind === "topics"
               ? { ...filters, topic: item.slug }
@@ -183,6 +189,7 @@ function Reader({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [key, sessionLoading]);
 
+  if (state?.key === key && state.missing) return <ReaderNotFound />;
   if (personal && !user && !(state?.key === key && state.feed))
     return (
       <UserShell section="personal">
@@ -249,22 +256,30 @@ function Reader({
 function ExtensionReader() {
   const route = useRoute();
   const pathname = new URL(route, publicOrigin).pathname;
-  const match = extensionRoute(pathname);
-  if (match?.type === "profile") return <PublicProfilePage username={match.username} />;
-  if (match?.type === "local") return <LocalPage key={route} route={route} />;
-  const article = match?.type === "article" ? match : undefined;
-  const background = article ? window.history.state?.readerBackground : undefined;
-  const readerRoute = article ? (background ?? "/latest") : route;
-  // A preview changes the foreground URL, not the kind of reader retained behind it.
-  const backgroundMatch = extensionRoute(new URL(readerRoute, publicOrigin).pathname);
-  const readerMatch: Extract<ExtensionRoute, { type: "reader" }> =
-    backgroundMatch?.type === "reader" ? backgroundMatch : { type: "reader", page: "feed" };
-  return (
-    <>
-      <Reader route={readerRoute} match={readerMatch} />
-      {article && <Preview slug={article.slug} direct={!background} />}
-    </>
-  );
+  const match = resolveReaderRoute(pathname);
+  if (!match) return <ReaderNotFound />;
+  switch (match.type) {
+    case "profile":
+      return <PublicProfilePage username={match.username} />;
+    case "local":
+      return <LocalPage key={route} route={route} match={match} />;
+    case "reader":
+      return (
+        <>
+          <Reader route={route} match={match} />
+        </>
+      );
+    case "article": {
+      const background = window.history.state?.readerBackground;
+      const reader = resolveReaderBackground(background);
+      return (
+        <>
+          {reader ? <Reader route={reader.route} match={reader.match} /> : <ReaderNotFound />}
+          <Preview slug={match.slug} direct={background == null} />
+        </>
+      );
+    }
+  }
 }
 
 function ExtensionSignupNudge() {
