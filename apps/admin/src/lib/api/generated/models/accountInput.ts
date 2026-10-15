@@ -30,7 +30,7 @@ export interface AccountInput {
   promotion_kind?: AccountInputPromotionKind;
   /**
      * @minItems 1
-     * @maxItems 3
+     * @maxItems 4
      */
   promotion_surfaces?: AccountInputPromotionSurfacesItem[];
   status?: AccountInputStatus;

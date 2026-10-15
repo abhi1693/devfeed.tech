@@ -13,4 +13,5 @@ export const AccountOutPromotionSurfacesItem = {
   article: 'article',
   topic: 'topic',
   feed: 'feed',
+  search: 'search',
 } as const;

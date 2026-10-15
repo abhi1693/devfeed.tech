@@ -54,6 +54,28 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
+it("keeps Engagement linked and tracked through the whole card with a hostname-only footer", async () => {
+  vi.mocked(readerRequest).mockResolvedValueOnce(
+    Response.json({ items: [{ ...placement, ad_format: "engagement" }] }),
+  );
+  render(
+    <PartnerPlacements
+      surface="article"
+      article_id={placement.product_id}
+      ad_formats={["engagement"]}
+    />,
+  );
+  const link = await screen.findByRole("link", { name: placement.name });
+  const footer = link.querySelector(".partner-placement-destination")!;
+  expect(footer.textContent).toBe("partner.example");
+  expect(footer.querySelector("svg")).toBeNull();
+  expect(link.textContent).not.toContain("Explore");
+  expect(link.getAttribute("href")).toBe(placement.url);
+  expect(link.getAttribute("rel")).toBe("sponsored noopener noreferrer");
+  expect(link.closest("article")?.querySelectorAll("a")).toHaveLength(1);
+  expect(observePartnerPlacement).toHaveBeenCalledWith(link, placement.receipt, expect.any(Object));
+});
+
 it("expires continuously mounted compact products without refetching or a parent rerender", async () => {
   usePlacementClock();
   const stopTracking = vi.fn();

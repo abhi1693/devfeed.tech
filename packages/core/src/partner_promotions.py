@@ -21,10 +21,10 @@ from .models import (
     PartnerPromotionEnrollment,
 )
 from .partner_ad_formats import AUTOMATIC_AD_FORMATS, ad_format_allowed
+from .partner_surfaces import default_campaign_surfaces
 from .partner_tiers import effective_promotion_kind, promotion_kind_allowed
 from .partner_tools import eligible
 
-PROMOTION_SURFACES = ("article", "topic", "feed")
 PROMOTION_BATCH_SIZE = 200
 PROMOTION_INSERT_BATCH_SIZE = 500
 
@@ -187,7 +187,7 @@ def ensure_managed_campaign(session, account, now, ad_format="feed"):
             product_ids=[],
             topic_ids=[],
             technologies=[],
-            surfaces=["feed"] if ad_format == "homepage_sponsorship" else list(PROMOTION_SURFACES),
+            surfaces=default_campaign_surfaces(ad_format),
             starts_at=now,
             ends_at=datetime(9999, 12, 31, tzinfo=UTC),
             priority=1,

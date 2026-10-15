@@ -16,5 +16,5 @@ export interface ProductPromotionOut {
   excluded: boolean;
   image_url: string | null;
   product_id: string;
-  promotion_surfaces?: ('article' | 'topic' | 'feed')[] | null;
+  promotion_surfaces?: ('article' | 'topic' | 'feed' | 'search')[] | null;
 }

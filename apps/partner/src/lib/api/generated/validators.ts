@@ -20,7 +20,7 @@ export const partnerAccountsListResponseItemsItemAudienceToolTopicIdsMax = 100;
 
 export const partnerAccountsListResponseItemsItemNameMax = 200;
 
-export const partnerAccountsListResponseItemsItemPromotionSurfacesMax = 3;
+export const partnerAccountsListResponseItemsItemPromotionSurfacesMax = 4;
 
 
 
@@ -45,7 +45,7 @@ export const PartnerAccountsListResponse = zod.object({
   "outbound_destination": zod.enum(['product_url', 'listing_url']),
   "promotion_kind": zod.union([zod.enum(['product', 'ad']),zod.null()]),
   "promotion_kind_source": zod.enum(['tier', 'account']),
-  "promotion_surfaces": zod.array(zod.enum(['article', 'topic', 'feed'])).min(1).max(partnerAccountsListResponseItemsItemPromotionSurfacesMax),
+  "promotion_surfaces": zod.array(zod.enum(['article', 'topic', 'feed', 'search'])).min(1).max(partnerAccountsListResponseItemsItemPromotionSurfacesMax),
   "status": zod.enum(['active', 'paused']),
   "tier": zod.enum(['bronze', 'silver', 'gold', 'platinum', 'diamond'])
 })),
@@ -1477,7 +1477,7 @@ export const dashboardV1PartnerAccountsAccountIdDashboardGetResponseAccountAudie
 
 export const dashboardV1PartnerAccountsAccountIdDashboardGetResponseAccountNameMax = 200;
 
-export const dashboardV1PartnerAccountsAccountIdDashboardGetResponseAccountPromotionSurfacesMax = 3;
+export const dashboardV1PartnerAccountsAccountIdDashboardGetResponseAccountPromotionSurfacesMax = 4;
 
 export const dashboardV1PartnerAccountsAccountIdDashboardGetResponseAssetsItemAdFormatDefault = `feed`;
 export const dashboardV1PartnerAccountsAccountIdDashboardGetResponseAssetsItemAggregatedDefault = false;
@@ -1507,7 +1507,7 @@ export const DashboardV1PartnerAccountsAccountIdDashboardGetResponse = zod.objec
   "outbound_destination": zod.enum(['product_url', 'listing_url']),
   "promotion_kind": zod.union([zod.enum(['product', 'ad']),zod.null()]),
   "promotion_kind_source": zod.enum(['tier', 'account']),
-  "promotion_surfaces": zod.array(zod.enum(['article', 'topic', 'feed'])).min(1).max(dashboardV1PartnerAccountsAccountIdDashboardGetResponseAccountPromotionSurfacesMax),
+  "promotion_surfaces": zod.array(zod.enum(['article', 'topic', 'feed', 'search'])).min(1).max(dashboardV1PartnerAccountsAccountIdDashboardGetResponseAccountPromotionSurfacesMax),
   "status": zod.enum(['active', 'paused']),
   "tier": zod.enum(['bronze', 'silver', 'gold', 'platinum', 'diamond'])
 }),
@@ -1596,7 +1596,7 @@ export const PartnerInventoryListResponse = zod.object({
   "name": zod.string(),
   "pricing": zod.enum(['free', 'freemium', 'paid', 'unknown']),
   "product_url": zod.string(),
-  "promotion_surfaces": zod.union([zod.array(zod.enum(['article', 'topic', 'feed'])),zod.null()]).optional(),
+  "promotion_surfaces": zod.union([zod.array(zod.enum(['article', 'topic', 'feed', 'search'])),zod.null()]).optional(),
   "revision": zod.int(),
   "source": zod.enum(['manual', 'imported']),
   "status": zod.string(),
@@ -1620,7 +1620,7 @@ export const partnerAccountPreferencesUpdateResponseAudienceToolTopicIdsMax = 10
 
 export const partnerAccountPreferencesUpdateResponseNameMax = 200;
 
-export const partnerAccountPreferencesUpdateResponsePromotionSurfacesMax = 3;
+export const partnerAccountPreferencesUpdateResponsePromotionSurfacesMax = 4;
 
 
 
@@ -1644,7 +1644,7 @@ export const PartnerAccountPreferencesUpdateResponse = zod.object({
   "outbound_destination": zod.enum(['product_url', 'listing_url']),
   "promotion_kind": zod.union([zod.enum(['product', 'ad']),zod.null()]),
   "promotion_kind_source": zod.enum(['tier', 'account']),
-  "promotion_surfaces": zod.array(zod.enum(['article', 'topic', 'feed'])).min(1).max(partnerAccountPreferencesUpdateResponsePromotionSurfacesMax),
+  "promotion_surfaces": zod.array(zod.enum(['article', 'topic', 'feed', 'search'])).min(1).max(partnerAccountPreferencesUpdateResponsePromotionSurfacesMax),
   "status": zod.enum(['active', 'paused']),
   "tier": zod.enum(['bronze', 'silver', 'gold', 'platinum', 'diamond'])
 })
@@ -1681,7 +1681,7 @@ export const PartnerProductCreateResponse = zod.object({
   "name": zod.string(),
   "pricing": zod.enum(['free', 'freemium', 'paid', 'unknown']),
   "product_url": zod.string(),
-  "promotion_surfaces": zod.union([zod.array(zod.enum(['article', 'topic', 'feed'])),zod.null()]).optional(),
+  "promotion_surfaces": zod.union([zod.array(zod.enum(['article', 'topic', 'feed', 'search'])),zod.null()]).optional(),
   "revision": zod.int(),
   "source": zod.enum(['manual', 'imported']),
   "status": zod.string(),
@@ -1727,7 +1727,7 @@ export const PartnerProductGetResponse = zod.object({
   "name": zod.string(),
   "pricing": zod.enum(['free', 'freemium', 'paid', 'unknown']),
   "product_url": zod.string(),
-  "promotion_surfaces": zod.union([zod.array(zod.enum(['article', 'topic', 'feed'])),zod.null()]).optional(),
+  "promotion_surfaces": zod.union([zod.array(zod.enum(['article', 'topic', 'feed', 'search'])),zod.null()]).optional(),
   "revision": zod.int(),
   "source": zod.enum(['manual', 'imported']),
   "status": zod.string(),
@@ -1767,7 +1767,7 @@ export const PartnerProductUpdateResponse = zod.object({
   "name": zod.string(),
   "pricing": zod.enum(['free', 'freemium', 'paid', 'unknown']),
   "product_url": zod.string(),
-  "promotion_surfaces": zod.union([zod.array(zod.enum(['article', 'topic', 'feed'])),zod.null()]).optional(),
+  "promotion_surfaces": zod.union([zod.array(zod.enum(['article', 'topic', 'feed', 'search'])),zod.null()]).optional(),
   "revision": zod.int(),
   "source": zod.enum(['manual', 'imported']),
   "status": zod.string(),
@@ -2507,7 +2507,7 @@ export const PartnerWorkspaceInventoryResponse = zod.object({
   "name": zod.string(),
   "pricing": zod.enum(['free', 'freemium', 'paid', 'unknown']),
   "product_url": zod.string(),
-  "promotion_surfaces": zod.union([zod.array(zod.enum(['article', 'topic', 'feed'])),zod.null()]).optional(),
+  "promotion_surfaces": zod.union([zod.array(zod.enum(['article', 'topic', 'feed', 'search'])),zod.null()]).optional(),
   "revision": zod.int(),
   "source": zod.enum(['manual', 'imported']),
   "status": zod.string(),

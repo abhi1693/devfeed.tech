@@ -94,6 +94,65 @@ it.each([
   expect(fetch).not.toHaveBeenCalled();
 });
 
+it("forwards an Engagement-only Search context with up to 24 visible article IDs", async () => {
+  const body = {
+    surface: "search",
+    ad_formats: ["engagement"],
+    allow_sponsored_fallback: false,
+    article_ids: Array.from(
+      { length: 24 },
+      (_, index) => `aaaaaaaa-aaaa-4aaa-8aaa-${String(index).padStart(12, "0")}`,
+    ),
+  };
+  vi.mocked(fetch).mockResolvedValue(
+    Response.json({ items: [{ ...placement, ad_format: "engagement" }] }),
+  );
+  const response = await POST(request(body));
+  expect(response.status).toBe(200);
+  expect((await response.json()).items[0].ad_format).toBe("engagement");
+  expect(JSON.parse(String(vi.mocked(fetch).mock.calls[0][1]?.body))).toEqual(body);
+});
+
+it("allows an empty Search context to return no products", async () => {
+  vi.mocked(fetch).mockResolvedValue(Response.json({ items: [] }));
+  const response = await POST(request({ surface: "search", ad_formats: ["engagement"] }));
+  expect(response.status).toBe(200);
+  expect(await response.json()).toEqual({ items: [] });
+});
+
+it.each([
+  { ad_formats: undefined },
+  { ad_formats: ["feed"] },
+  { ad_formats: ["homepage_sponsorship"] },
+  { ad_formats: ["sponsored_content"] },
+  { ad_formats: ["engagement", "feed"] },
+  { allow_sponsored_fallback: true },
+  { article_id: placement.product_id },
+  { topic_id: placement.product_id },
+  { article_ids: Array(25).fill(placement.product_id) },
+  { article_ids: ["not-an-article-id"] },
+])("rejects invalid Search contexts before forwarding (%j)", async (overrides) => {
+  const body = {
+    surface: "search",
+    ad_formats: ["engagement"],
+    article_ids: [placement.product_id],
+    ...overrides,
+  };
+  expect((await POST(request(body))).status).toBe(422);
+  expect(fetch).not.toHaveBeenCalled();
+});
+
+it.each([
+  { surface: "article", article_id: placement.product_id },
+  { surface: "topic", topic_id: placement.product_id },
+  { surface: "search", ad_formats: ["engagement"] },
+])("preserves explicit false fallback on non-feed contexts (%j)", async (context) => {
+  vi.mocked(fetch).mockResolvedValue(Response.json({ items: [] }));
+  const body = { ...context, allow_sponsored_fallback: false };
+  expect((await POST(request(body))).status).toBe(200);
+  expect(JSON.parse(String(vi.mocked(fetch).mock.calls[0][1]?.body))).toEqual(body);
+});
+
 it.each([
   { ad_format: "agent", article: null },
   { ad_format: "sponsored_content", article: null },
@@ -228,14 +287,13 @@ it.each([
   { surface: "topic", topic_id: placement.product_id, article_ids: [placement.product_id] },
   { surface: "feed", allow_sponsored_fallback: "true" },
   { surface: "feed", allow_sponsored_fallback: 1 },
-  { surface: "article", article_id: placement.product_id, allow_sponsored_fallback: false },
   { surface: "topic", topic_id: placement.product_id, allow_sponsored_fallback: true },
 ])("rejects invalid contexts before reaching the upstream (%j)", async (body) => {
   expect((await POST(request(body))).status).toBe(422);
   expect(fetch).not.toHaveBeenCalled();
 });
 
-it("forwards the bounded visible article context for anonymous feed and search relevance", async () => {
+it("forwards the bounded visible article context for anonymous feed relevance", async () => {
   const context = {
     surface: "feed",
     article_ids: [placement.product_id, sponsoredId],

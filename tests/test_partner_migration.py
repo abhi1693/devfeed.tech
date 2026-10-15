@@ -435,7 +435,7 @@ def assert_enrollment_and_image_jobs(connection):
     ).one() == (
         True,
         True,
-        ["article", "topic", "feed"],
+        ["article", "topic", "feed", "search"],
         ["feed"],
         {},
     )

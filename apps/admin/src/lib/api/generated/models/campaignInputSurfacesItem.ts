@@ -13,4 +13,5 @@ export const CampaignInputSurfacesItem = {
   article: 'article',
   topic: 'topic',
   feed: 'feed',
+  search: 'search',
 } as const;

@@ -4,7 +4,7 @@ import { rememberReaderArticles } from "@/lib/reader-runtime";
 import type { Article } from "@/lib/types";
 import { EngagementProvider } from "./article-engagement";
 import { ArticleCard } from "./article-card";
-import { ArticleTable } from "./article-table";
+import { ArticleTableFrame, ArticleTableRow } from "./article-table";
 import { useFeedPreferences } from "./feed-preferences";
 import { DevCardPromo } from "./dev-card-promo";
 import { LoadingSkeleton } from "./loading-skeleton";
@@ -37,14 +37,24 @@ export function ArticleGrid({
 }) {
   const { view, loading } = useFeedPreferences();
   const sponsorship = useHomepageSponsorship();
-  const placementFormats = placements?.ad_formats?.filter(
-    (format) => format !== "homepage_sponsorship" || sponsorship.available,
+  const compact = view === "compact";
+  const requestedFormats: PartnerPlacement["ad_format"][] = placements?.ad_formats ?? ["feed"];
+  const placementFormats = requestedFormats.filter(
+    (format) =>
+      format !== "engagement" &&
+      (format !== "homepage_sponsorship" || sponsorship.available) &&
+      (!compact || format === "feed" || format === "homepage_sponsorship"),
   );
   const placementsReady =
     placements &&
+    !loading &&
     (sponsorship.ready || !placements.ad_formats?.includes("homepage_sponsorship")) &&
-    (!placementFormats || placementFormats.length > 0);
-  const { ref: gridRef, beforeDisplay, afterDisplay } = useReadingAnchor(".article-card");
+    placementFormats.length > 0;
+  const {
+    ref: gridRef,
+    beforeDisplay,
+    afterDisplay,
+  } = useReadingAnchor(".article-card, .article-list-row:not(.partner-placement)");
   useEffect(() => rememberReaderArticles(articles), [articles]);
   const recommendations = Object.fromEntries(
     Object.entries(reasons ?? {}).map(([id, reason]) => [
@@ -61,42 +71,52 @@ export function ArticleGrid({
   const slots = count >= 4 ? [4, ...(count >= 12 ? [12] : [])] : [];
   const grid = (cards: ReactNode[] = [], items: PartnerPlacement[] = [], expired = false) => {
     const promoted = new Set(
-      expired ? [] : items.flatMap((item) => (item.article ? [item.article.id] : [])),
+      expired || compact ? [] : items.flatMap((item) => (item.article ? [item.article.id] : [])),
     );
-    const cells = cards.filter((_, index) => items[index]?.ad_format !== "homepage_sponsorship");
+    const cells = cards.filter((_, index) =>
+      compact
+        ? items[index]?.ad_format === "feed"
+        : items[index]?.ad_format === "feed" || items[index]?.ad_format === "sponsored_content",
+    );
+    const rows = articles
+      .filter((article) => !promoted.has(article.id))
+      .flatMap((article, index) => {
+        const slot = slots.indexOf(index + 1);
+        return [
+          compact ? (
+            <ArticleTableRow key={article.id} article={article} />
+          ) : (
+            <ArticleCard
+              key={article.id}
+              article={article}
+              recommendation={recommendations[article.id]}
+              priority={priority && index === 0}
+            />
+          ),
+          ...(slot >= 0 && cells[slot] ? [cells[slot]] : []),
+        ];
+      });
     return (
       <div ref={gridRef} className="article-placement-feed">
         <HomepageSponsorship>
           {cards.filter((_, index) => items[index]?.ad_format === "homepage_sponsorship")}
         </HomepageSponsorship>
-        <div className="article-grid">
-          {articles
-            .filter((article) => !promoted.has(article.id))
-            .flatMap((article, index) => {
-              const slot = slots.indexOf(index + 1);
-              return [
-                <ArticleCard
-                  key={article.id}
-                  article={article}
-                  recommendation={recommendations[article.id]}
-                  priority={priority && index === 0}
-                />,
-                ...(slot >= 0 && cells[slot] ? [cells[slot]] : []),
-              ];
-            })}
-        </div>
+        {compact ? (
+          <ArticleTableFrame showHeader={priority}>{rows}</ArticleTableFrame>
+        ) : (
+          <div className="article-grid">{rows}</div>
+        )}
       </div>
     );
   };
   if (waitForPreferences && loading) return <LoadingSkeleton />;
   return (
     <EngagementProvider articleIds={articles.map((article) => article.id)}>
-      {view === "compact" ? (
-        <ArticleTable articles={articles} showHeader={priority} />
-      ) : placements ? (
+      {placements ? (
         <PartnerPlacements
           {...placements}
           ad_formats={placementFormats}
+          layout={compact ? "table" : undefined}
           maxItems={placementsReady ? slots.length : 0}
           beforeDisplay={beforeDisplay}
           afterDisplay={afterDisplay}

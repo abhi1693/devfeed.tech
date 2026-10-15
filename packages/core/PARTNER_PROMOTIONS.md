@@ -29,7 +29,7 @@ In **Partnerships → Partner accounts**, set **Promotion defaults**:
 - Import acceptance: independently qualified by default, or trusted partner imports.
 - Relevant recommendations: enabled by default for the ordinary promotion type.
 - Automatically include approved products: enabled by default, including future imports.
-- Allowed surfaces: articles, topic pages, and personalized feeds by default.
+- Allowed surfaces: articles, topic pages, personalized feeds and search results by default.
 
 The **Products** tab lists that account's catalog with qualification and exclusion state.
 Exclude a product to suppress every appearance for that account, including selected campaigns.
@@ -173,16 +173,20 @@ evidence and the publisher's original article text. Broad marketing categories a
 qualify. Current validated AI evaluation positives and negatives take precedence over lexical
 matches for the same inputs. Those evaluations are prepared privately, never on a reader request.
 
-Topic pages use prepared product/topic relevance. Main feed and search grids send at most 24
+Topic pages use prepared product/topic relevance. Main feeds and article search send at most 24
 visible article IDs. The server resolves their current approved primary/supporting topics and
 matches current prepared product topics; clients cannot supply topic claims or private articles.
+The Search surface accepts only Engagement placements and requires a verified direct product/topic
+match within that visible context. It never broadens to sponsored fallback or personal interests.
+Search represents the collection's technology context; article previews and Engagement in feeds
+retain their stricter tutorial task-matching requirements.
 Signed-in feed interests can strengthen those topics without introducing unrelated products.
 Anonymous requests use the same visible context and never manufacture an interest profile.
 Anonymous feed requests without context return no products unless the main feed explicitly enables
 `allow_sponsored_fallback`. This permits an inherited Sponsored Feed or Homepage sponsorship placement when no eligible contextual placement of that format can be delivered. Engagement and sponsored articles always require relevance. Search, category and filtered feeds keep fallback
 disabled; organic slots and article previews always require relevance. Source-filtered, saved, trending,
-cursor and compact table views suppress product cards. News and opinion previews receive no
-tutorial placements.
+and cursor views suppress product placements. Compact feed tables use native sponsored rows.
+News and opinion previews receive no tutorial placements.
 
 Requests fetch prepared candidates in bounded batches and recheck current product, listing, account,
 campaign and exclusion state. Audience and campaign eligibility are filtered before attribution
@@ -215,15 +219,34 @@ that cell prefers the eligible sponsored result when present. Articles retain th
 keyboard focus and viewport position when product responses arrive or cards are hidden. Infinite
 scroll does not add more product slots. Opening a preview suspends background delivery and
 restores the same grid cards afterward, without refreshing the reading session.
+Compact feed tables use the same initial placement slots with a compact `Name | Tagline` row and
+a subtle border. Sponsored appears in the date column, or beside the name when that column is
+hidden on narrow screens. They do not render image cards inside table rows.
 
-Engagement placements remain compact and contextual in feeds, topic pages and article previews.
-Article previews show these cards at the top of the sidebar, outside the article text. On
-narrow screens that sidebar follows the article copy. Product copy is a single-line tagline of
+Engagement placements remain compact and contextual in search, topic, source and article-preview
+sidebars. Topic feeds use the current verified topic; source feeds use grounded tutorial matches
+from at most 24 initially visible articles, with at least four stories and no sponsored fallback.
+Collection sidebars appear to the right on wide screens and after articles on narrow screens;
+empty selections leave the full article width available.
+Grid feeds and topic pages request full Feed cards or sponsored articles, while compact tables
+request native Feed rows. Engagement cards never occupy these grid cells or table rows.
+Article previews show these cards below the topic information in the sidebar, outside
+the article text. On narrow screens that sidebar follows the article copy. Search requests one Engagement placement
+above Topics in its right sidebar when at least four initial article results supply context.
+Article-only search filters retain that ad rail without adding catalog sections; catalog-only
+search filters request no placements. Narrow screens stack the rail after article results and
+before Topics. Search and article sidebars do not request Feed or sponsored-content cards.
+Product copy is a single-line tagline of
 3–160 characters. Cards show a logo, name, tagline and destination. Homepage sponsorship instead
 uses the global header described above and never occupies these card slots. Every product
 placement shows **Sponsored**, has no dismissal control and uses
 `rel="sponsored noopener noreferrer"` on its destination link. There is no promotional banner,
 automatic popup, matching explanation or ordinary-recommendation label.
+
+Imported ad copy comes from the serving partner's active, resolved listing. Creative previews
+use the same source, and listing destinations stay paired with that listing's tagline. Shared
+canonical product facts continue to qualify relevance. Directly managed products use their approved
+product tagline when their active manual ownership supplies the placement.
 
 The scheduler queues bounded logo discovery for qualified, active products through the durable
 Images queue. Workers inspect official-site icon declarations (with the standard favicon as a
@@ -266,7 +289,9 @@ not reserve campaign delivery or record impressions and clicks.
 ## Delivery and reporting
 
 `POST /v1/partner-placements/query` accepts a surface, its article/topic context or up to 24
-visible feed article IDs, and up to 100 excluded product IDs. `POST /v1/user/partner-placements/query` additionally uses the
+visible feed or search article IDs, and up to 100 excluded product IDs. Search requires
+`ad_formats: ["engagement"]` and does not accept sponsored fallback.
+`POST /v1/user/partner-placements/query` additionally uses the
 authenticated browser reader's interests and requires its normal origin/CSRF checks. Clients
 cannot supply another user's identity. Both return `Cache-Control: no-store` and fresh signed
 delivery receipts. The shared web/Chrome/Edge component requests and tracks placements separately

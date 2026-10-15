@@ -721,7 +721,7 @@ it("creates an account with selected benefits and navigates to the saved record"
         status: "active",
         organic_enabled: true,
         auto_include_products: true,
-        promotion_surfaces: ["article", "topic", "feed"],
+        promotion_surfaces: ["article", "topic", "feed", "search"],
         promotion_kind: null,
         approval_mode: "qualified",
         outbound_destination: "product_url",

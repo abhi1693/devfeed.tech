@@ -24,7 +24,20 @@ vi.mock("@/components/article-card", () => ({
     </article>
   ),
 }));
-vi.mock("@/components/article-table", () => ({ ArticleTable: () => <table /> }));
+vi.mock("@/components/article-table", () => ({
+  ArticleTableFrame: ({ children }: { children: ReactNode }) => (
+    <table>
+      <tbody>{children}</tbody>
+    </table>
+  ),
+  ArticleTableRow: ({ article: item }: { article: Article }) => (
+    <tr className="article-list-row">
+      <td>
+        <a href={`/articles/${item.slug}`}>{item.title}</a>
+      </td>
+    </tr>
+  ),
+}));
 vi.mock("@/lib/reader-runtime", () => ({
   readerRequest: vi.fn(),
   rememberReaderArticles: vi.fn(),
@@ -100,12 +113,14 @@ it.each([0, 1, 2, 3])(
   },
 );
 
-it("suppresses products in a compact article table without fetching", async () => {
+it("requests only Feed placements for a compact article table", async () => {
   preferences.view = "compact";
   const view = render(<ArticleGrid articles={articles} placements={context} />);
-  await act(async () => {});
-  expect(readerRequest).not.toHaveBeenCalled();
-  expect(view.container.querySelectorAll(".partner-placement")).toHaveLength(0);
+  await screen.findByRole("link", { name: sponsoredPlacement.name });
+  expect(JSON.parse(String(vi.mocked(readerRequest).mock.calls[0][1]?.body)).ad_formats).toEqual([
+    "feed",
+  ]);
+  expect(view.container.querySelectorAll("tr.partner-placement")).toHaveLength(2);
   expect(view.container.querySelector("table")).toBeTruthy();
 });
 
@@ -166,8 +181,54 @@ it("uses the full article card structure with a managed OG hero and truthful pro
   expect(hero.getAttribute("loading")).toBe("lazy");
   expect(hero.getAttribute("referrerpolicy")).toBe("no-referrer");
   expect(card.querySelector("time")).toBeNull();
+  expect(JSON.parse(String(vi.mocked(readerRequest).mock.calls[0][1]?.body)).ad_formats).toEqual([
+    "feed",
+  ]);
   expect(screen.queryByRole("button", { name: /Like article|Save article for later/ })).toBeNull();
   expect(screen.queryByText(placement.reason)).toBeNull();
+});
+
+it("rejects Engagement from an overbroad grid context and keeps Feed as a full image card", async () => {
+  const image = "https://assets.partner.example/full-feed-card.webp";
+  vi.mocked(readerRequest).mockResolvedValueOnce(
+    Response.json({
+      items: [
+        { ...placement, ad_format: "engagement" },
+        { ...sponsoredPlacement, image_url: image },
+      ],
+    }),
+  );
+  const view = render(
+    <ArticleGrid
+      articles={articles}
+      placements={{
+        ...context,
+        ad_formats: ["feed", "engagement", "sponsored_content"],
+      }}
+    />,
+  );
+  const card = (await screen.findByRole("link", { name: sponsoredPlacement.name })).closest(
+    "article",
+  )!;
+  expect(JSON.parse(String(vi.mocked(readerRequest).mock.calls[0][1]?.body)).ad_formats).toEqual([
+    "feed",
+    "sponsored_content",
+  ]);
+  expect(card.className).toContain("partner-placement--card");
+  expect(card.querySelector(".card-image img")?.getAttribute("src")).toBe(image);
+  expect(view.container.querySelector('[data-ad-format="engagement"]')).toBeNull();
+  expect(screen.queryByRole("link", { name: placement.name })).toBeNull();
+  expect(view.container.querySelectorAll(".article-card:not(.partner-placement)")).toHaveLength(24);
+});
+
+it("does not request inventory when an overbroad grid configuration offers only Engagement", async () => {
+  const view = render(
+    <ArticleGrid articles={articles} placements={{ ...context, ad_formats: ["engagement"] }} />,
+  );
+  await act(async () => {});
+  expect(readerRequest).not.toHaveBeenCalled();
+  expect(view.container.querySelector(".partner-placement")).toBeNull();
+  expect(view.container.querySelectorAll(".article-card")).toHaveLength(24);
 });
 
 it("falls back from a failed OG hero to the product logo and then initials inside the same hero frame", async () => {

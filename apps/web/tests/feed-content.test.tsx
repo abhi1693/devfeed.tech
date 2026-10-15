@@ -22,6 +22,19 @@ vi.mock("@/components/infinite-feed", () => ({
     <div data-testid="infinite-feed" data-placements={JSON.stringify(placements)} />
   ),
 }));
+vi.mock("@/components/collection-feed-placements", () => ({
+  CollectionFeedPlacements: ({
+    context,
+    children,
+  }: {
+    context?: PlacementQuery;
+    children: ReactNode;
+  }) => (
+    <div data-testid="collection" data-context={JSON.stringify(context)}>
+      {children}
+    </div>
+  ),
+}));
 afterEach(cleanup);
 
 const firstPage: PromiseSettledResult<FeedPage> = {
@@ -57,7 +70,7 @@ it.each([readerFeeds.home, readerFeeds.latest])(
     expect(placementContext(descriptor)).toEqual({
       surface: "feed",
       allow_sponsored_fallback: true,
-      ad_formats: ["feed", "homepage_sponsorship", "sponsored_content", "engagement"],
+      ad_formats: ["feed", "homepage_sponsorship", "sponsored_content"],
     });
   },
 );
@@ -66,7 +79,7 @@ it("uses contextual formats when the descriptor does not grant sponsored fallbac
   expect(placementContext(readerFeeds.contextual)).toEqual({
     surface: "feed",
     allow_sponsored_fallback: false,
-    ad_formats: ["feed", "sponsored_content", "engagement"],
+    ad_formats: ["feed", "sponsored_content"],
   });
 });
 
@@ -76,7 +89,7 @@ it.each([{ q: "rust" }, { topic: "rust" }, { tag: "rust" }, { content_type: "new
     expect(placementContext(readerFeeds.latest, query)).toEqual({
       surface: "feed",
       allow_sponsored_fallback: false,
-      ad_formats: ["feed", "sponsored_content", "engagement"],
+      ad_formats: ["feed", "sponsored_content"],
     });
   },
 );
@@ -91,7 +104,7 @@ it("uses the resolved topic as placement context", () => {
   ).toEqual({
     surface: "topic",
     topic_id: "11111111-1111-4111-8111-111111111111",
-    ad_formats: ["feed", "engagement"],
+    ad_formats: ["feed"],
   });
 });
 
@@ -105,7 +118,7 @@ it("keeps searched topic results contextual to their visible articles", () => {
   ).toEqual({
     surface: "feed",
     allow_sponsored_fallback: false,
-    ad_formats: ["feed", "sponsored_content", "engagement"],
+    ad_formats: ["feed", "sponsored_content"],
   });
 });
 
@@ -123,6 +136,64 @@ it.each([
 it("honors disabled placement capability even for an unfiltered feed", () => {
   expect(placementContext(readerFeeds.bookmarks)).toBeUndefined();
 });
+
+it("uses the resolved topic for a separate Engagement sidebar without changing grid formats", () => {
+  expect(
+    placementContext(
+      readerFeeds.contextual,
+      { topic: "rust" },
+      {
+        section: "topics",
+        topicId: "11111111-1111-4111-8111-111111111111",
+      },
+    )?.ad_formats,
+  ).toEqual(["feed"]);
+  expect(JSON.parse(screen.getByTestId("collection").getAttribute("data-context")!)).toEqual({
+    surface: "topic",
+    topic_id: "11111111-1111-4111-8111-111111111111",
+    ad_formats: ["engagement"],
+  });
+});
+
+it("uses only the initial24 visible source articles for strict Engagement while leaving source grid ads disabled", () => {
+  const articles = Array.from({ length: 30 }, (_, index) => ({
+    ...article,
+    id: `aaaaaaaa-aaaa-4aaa-8aaa-${String(index).padStart(12, "0")}`,
+  }));
+  render(
+    <FeedContent
+      filters={parseFilters({ source_id: "11111111-1111-4111-8111-111111111111" })}
+      section="sources"
+      feedDescriptor={readerFeeds.contextual}
+      options={options}
+      feed={{ status: "fulfilled", value: { items: articles, next_cursor: "2" } }}
+    />,
+  );
+  expect(screen.getByTestId("infinite-feed").getAttribute("data-placements")).toBeNull();
+  expect(JSON.parse(screen.getByTestId("collection").getAttribute("data-context")!)).toEqual({
+    surface: "feed",
+    article_ids: articles.slice(0, 24).map((item) => item.id),
+    ad_formats: ["engagement"],
+    allow_sponsored_fallback: false,
+  });
+});
+
+it.each([
+  ["sources", {}, readerFeeds.contextual],
+  ["sources", { source_id: "11111111-1111-4111-8111-111111111111" }, readerFeeds.contextual],
+  ["topics", { cursor: "2", topic: "rust" }, readerFeeds.contextual],
+  ["topics", { topic: "rust" }, readerFeeds.bookmarks],
+  ["feed", {}, readerFeeds.latest],
+] as const)(
+  "does not request unrelated, sparse, paginated or disabled collection inventory (%s,%j)",
+  (section, query, descriptor) => {
+    placementContext(descriptor, query, {
+      section,
+      topicId: "11111111-1111-4111-8111-111111111111",
+    });
+    expect(screen.getByTestId("collection").getAttribute("data-context")).toBeNull();
+  },
+);
 
 it("preserves the source tab, sort and pagination in the sign-in destination", () => {
   render(

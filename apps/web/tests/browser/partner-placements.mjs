@@ -134,6 +134,7 @@ let organicCount = 24;
 let promotedArrival = false;
 let organicPagesDelivered = 0;
 let placementLimited = false;
+let duplicateCollectionProduct = false;
 let isolateArticleReceipts = false;
 let articleReceiptSequence = 0;
 const acceptedTrackingReceipts = new Set([ordinary.receipt, sponsored.receipt]);
@@ -182,6 +183,65 @@ async function assertNoPlacementHistory(page, label) {
     { reads: 0, writes: 0, removals: 0 },
     `${label}: placement delivery and tracking never access abandoned local history`,
   );
+}
+
+async function assertCompactSidebar(page, selector, label, expected) {
+  const sidebar = page.locator(selector);
+  const placements = sidebar.locator(".partner-placement");
+  assert.equal(await placements.count(), expected, `${label}: compact placement count`);
+  assert.deepEqual(
+    await placements.evaluateAll((cards) => cards.map((card) => card.dataset.adFormat)),
+    Array(expected).fill("engagement"),
+    `${label}: sidebars use Engagement inventory only`,
+  );
+  assert.equal(
+    await sidebar
+      .locator('.card-image,[data-ad-format="feed"],[data-ad-format="sponsored_content"]')
+      .count(),
+    0,
+    `${label}: no Feed artwork or sponsored article cards in the sidebar`,
+  );
+  for (const card of await placements.all()) {
+    const geometry = await card.boundingBox();
+    assert.ok(geometry.height < 220, `${label}: Engagement stays compact`);
+    assert.equal(await card.locator("button").count(), 0);
+    assert.equal(
+      await card.locator(".partner-placement-action,.partner-placement-destination svg").count(),
+      0,
+      `${label}: Engagement has no extra action text or arrow`,
+    );
+    assert.equal(
+      (await card.locator(".partner-placement-destination").textContent()).trim(),
+      "partner.example",
+      `${label}: the linked card retains its destination host`,
+    );
+    assert.equal(await card.locator(".partner-placement-label").textContent(), "Sponsored");
+  }
+  if (await sidebar.evaluate((node) => node.matches(".preview-sidebar"))) {
+    await sidebar.locator(".topic-brief:not(.source-brief)").waitFor();
+    const order = await sidebar.evaluate((node) => {
+      const briefs = [...node.querySelectorAll(":scope > .topic-brief")];
+      const firstPlacement = node.querySelector(".partner-placement");
+      return {
+        contextSections: briefs.length,
+        followsContext: briefs.every((brief) =>
+          Boolean(brief.compareDocumentPosition(firstPlacement) & Node.DOCUMENT_POSITION_FOLLOWING),
+        ),
+        contextBottom: Math.max(...briefs.map((brief) => brief.getBoundingClientRect().bottom)),
+        placementTop: firstPlacement.getBoundingClientRect().top,
+      };
+    });
+    assert.equal(order.contextSections, 2, `${label}: source and topic context remain present`);
+    assert.equal(
+      order.followsContext,
+      true,
+      `${label}: Engagement follows source and topic context`,
+    );
+    assert.ok(
+      order.placementTop >= order.contextBottom + 23,
+      `${label}: Engagement has breathing room below the topic section`,
+    );
+  }
 }
 
 async function assertFeedPlacementContinuity(page, base, platform) {
@@ -488,117 +548,594 @@ async function assertMountedPlacementExpiry(context, base, platform) {
     }
   }
   await assertOrganicRestoration(context, base, platform);
+  await assertSearchSidebarExpiry(context, base, platform);
+  await assertCompactFeedTable(context, base, platform);
 }
 
 async function assertOrganicRestoration(context, base, platform) {
-  for (const surface of ["grid", "search"]) {
-    await context.clock.setSystemTime(receiptIssuedAt * 1000);
-    nativeMode = "sponsored-content";
-    promotedArrival = true;
-    const delivered = organicPagesDelivered;
-    const page = await context.newPage();
-    await page.addInitScript(() => {
-      sessionStorage.setItem("devfeed:dev-card-promo-dismissed", "true");
+  await context.clock.setSystemTime(receiptIssuedAt * 1000);
+  nativeMode = "sponsored-content";
+  promotedArrival = true;
+  const delivered = organicPagesDelivered;
+  const page = await context.newPage();
+  await page.addInitScript(() => {
+    sessionStorage.setItem("devfeed:dev-card-promo-dismissed", "true");
+  });
+  try {
+    await page.goto(`${base}/latest?q=typescript`);
+    const promoted = page.locator('[data-ad-format="sponsored_content"]');
+    await promoted.waitFor();
+    await page.locator('.pagination[data-has-more="true"]').first().scrollIntoViewIfNeeded();
+    await page.locator('.pagination[data-has-more="false"]').first().waitFor({ state: "attached" });
+    assert.equal(
+      organicPagesDelivered,
+      delivered + 1,
+      `${platform}/grid: a later page really returns the promoted article organically`,
+    );
+    assert.equal(
+      await page.getByRole("link", { name: promotedArticle.title, exact: true }).count(),
+      1,
+    );
+    const selector = ".article-grid > .article-card:not(.partner-placement) .card-open-link";
+    // Wait for the article list itself to settle after pagination before
+    // measuring layout; the pagination marker alone does not assert its contents.
+    await page.waitForFunction(
+      (selector) => document.querySelectorAll(selector).length === 24,
+      selector,
+    );
+    assert.deepEqual(
+      await page.locator(selector).allTextContents(),
+      feedArticles.map((item) => item.title),
+      `${platform}/grid: pagination retains the original articles exactly once`,
+    );
+    const reading = page.locator(selector).nth(8);
+    await reading.scrollIntoViewIfNeeded();
+    await reading.focus();
+    await reading.evaluate((node) => node.setAttribute("data-organic-restoration-anchor", "true"));
+    const before = await reading.boundingBox();
+    const requests = queries.length;
+    await page.clock.fastForward(60 * 60_000 + 1000);
+    await page.waitForFunction(
+      () =>
+        document
+          .querySelector('[data-ad-format="sponsored_content"]')
+          ?.getAttribute("data-suspended") === "true",
+    );
+    const organic = page.getByRole("link", { name: promotedArticle.title, exact: true });
+    await organic.waitFor();
+    assert.equal(await organic.count(), 1);
+    assert.equal(
+      await organic.evaluate((node) =>
+        node.closest("article").classList.contains("partner-placement"),
+      ),
+      false,
+    );
+    await page.waitForFunction(
+      (selector) => document.querySelectorAll(selector).length === 25,
+      selector,
+    );
+    assert.deepEqual(
+      await page.locator(selector).allTextContents(),
+      [...feedArticles, promotedArticle].map((item) => item.title),
+      `${platform}/grid: expiry restores the organic article exactly once in page order`,
+    );
+    const after = await reading.boundingBox();
+    assert.ok(
+      Math.abs(after.y - before.y) <= 2,
+      `${platform}/grid: organic restoration preserves viewport reading position`,
+    );
+    assert.equal(
+      await reading.evaluate(
+        (node) =>
+          node === document.activeElement && node.hasAttribute("data-organic-restoration-anchor"),
+      ),
+      true,
+    );
+    assert.equal(await promoted.getAttribute("aria-hidden"), "true");
+    assert.equal(await promoted.evaluate((node) => node.hasAttribute("inert")), true);
+    assert.equal(
+      queries.length,
+      requests,
+      `${platform}/grid: organic restoration does not request new placements`,
+    );
+    await assertNoPlacementHistory(page, `${platform}/grid: organic restoration`);
+    await page.screenshot({
+      path: `${reportDirectory}/${platform}-grid-organic-restoration.png`,
     });
+  } finally {
+    await page.close();
+    promotedArrival = false;
+    nativeMode = null;
+  }
+}
+
+async function assertSearchSidebarExpiry(context, base, platform) {
+  nativeMode = null;
+  for (const width of [1280, 390]) {
+    await context.clock.setSystemTime(receiptIssuedAt * 1000);
+    const page = await context.newPage();
+    await page.setViewportSize({ width, height: width === 390 ? 844 : 900 });
     try {
-      await page.goto(
-        `${base}/${surface === "search" ? "search?q=typescript&section=articles" : "latest?q=typescript"}`,
-      );
-      const promoted = page.locator('[data-ad-format="sponsored_content"]');
-      await promoted.waitFor();
-      await page.locator('.pagination[data-has-more="true"]').first().scrollIntoViewIfNeeded();
-      // Completed search pagination is intentionally hidden when its end message is empty.
-      await page
-        .locator('.pagination[data-has-more="false"]')
-        .first()
-        .waitFor({ state: "attached" });
-      assert.equal(
-        organicPagesDelivered,
-        delivered + 1,
-        `${platform}/${surface}: a later page really returns the promoted article organically`,
-      );
-      assert.equal(
-        await page.getByRole("link", { name: promotedArticle.title, exact: true }).count(),
-        1,
-      );
-      const selector =
-        surface === "grid"
-          ? ".article-grid > .article-card:not(.partner-placement) .card-open-link"
-          : ".search-section-articles .search-result-link";
-      // Wait for the article list itself to settle after pagination before
-      // measuring layout; the pagination marker alone does not assert its contents.
-      await page.waitForFunction(
-        (selector) => document.querySelectorAll(selector).length === 24,
-        selector,
-      );
-      assert.deepEqual(
-        await page.locator(selector).allTextContents(),
-        feedArticles.map((item) => item.title),
-        `${platform}/${surface}: pagination retains the original articles exactly once`,
-      );
-      const reading = page.locator(selector).nth(8);
+      const previousImpressions = impressionCount(ordinary.receipt);
+      await page.goto(`${base}/search?q=typescript`);
+      const card = page.locator('.search-sidebar [data-ad-format="engagement"]');
+      await card.waitFor();
+      await card.scrollIntoViewIfNeeded();
+      await waitForImpression(page, ordinary.receipt, previousImpressions);
+      const reading = page.locator(".search-section-topics .search-result-link").first();
       await reading.scrollIntoViewIfNeeded();
       await reading.focus();
-      await reading.evaluate((node) =>
-        node.setAttribute("data-organic-restoration-anchor", "true"),
-      );
+      await reading.evaluate((node) => {
+        window.__searchExpiryAnchor = node;
+      });
       const before = await reading.boundingBox();
-      const requests = queries.length;
+      const cardBefore = await card.boundingBox();
+      const beforeQueries = queries.length;
+      const beforeEvents = events.length;
       await page.clock.fastForward(60 * 60_000 + 1000);
       await page.waitForFunction(
         () =>
-          document
-            .querySelector('[data-ad-format="sponsored_content"]')
-            ?.getAttribute("data-suspended") === "true",
+          document.querySelector(".search-sidebar .partner-placement")?.dataset.suspended ===
+          "true",
       );
-      const organic = page.getByRole("link", { name: promotedArticle.title, exact: true });
-      await organic.waitFor();
-      assert.equal(await organic.count(), 1);
       assert.equal(
-        await organic.evaluate((node) =>
-          node.closest("article").classList.contains("partner-placement"),
-        ),
+        await card.isVisible(),
         false,
+        `${platform}/${width}: expired sidebar creative is hidden`,
       );
-      await page.waitForFunction(
-        (selector) => document.querySelectorAll(selector).length === 25,
-        selector,
-      );
-      assert.deepEqual(
-        await page.locator(selector).allTextContents(),
-        [...feedArticles, promotedArticle].map((item) => item.title),
-        `${platform}/${surface}: expiry restores the organic article exactly once in page order`,
+      const cardAfter = await card.evaluate((node) => node.getBoundingClientRect().toJSON());
+      assert.ok(
+        Math.abs(cardAfter.height - cardBefore.height) <= 1,
+        `${platform}/${width}: expiry retains sidebar geometry`,
       );
       const after = await reading.boundingBox();
       assert.ok(
         Math.abs(after.y - before.y) <= 2,
-        `${platform}/${surface}: organic restoration preserves viewport reading position`,
+        `${platform}/${width}: expiry preserves the related result being read`,
       );
       assert.equal(
         await reading.evaluate(
-          (node) =>
-            node === document.activeElement && node.hasAttribute("data-organic-restoration-anchor"),
+          (node) => node === window.__searchExpiryAnchor && node === document.activeElement,
         ),
         true,
       );
-      assert.equal(await promoted.getAttribute("aria-hidden"), "true");
-      assert.equal(await promoted.evaluate((node) => node.hasAttribute("inert")), true);
+      assert.deepEqual(
+        await page.locator(".search-section-articles .search-result-link").allTextContents(),
+        feedArticles.map((item) => item.title),
+      );
+      await card.locator(".partner-placement-link").evaluate((link) => {
+        link.addEventListener("click", (event) => event.preventDefault(), { once: true });
+        link.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
+      });
+      await page.clock.runFor(2000);
       assert.equal(
         queries.length,
-        requests,
-        `${platform}/${surface}: organic restoration does not request new placements`,
+        beforeQueries,
+        `${platform}/${width}: expiry never refreshes search inventory`,
       );
-      await assertNoPlacementHistory(page, `${platform}/${surface}: organic restoration`);
+      assert.equal(
+        events.length,
+        beforeEvents,
+        `${platform}/${width}: expired sidebar stops measurements`,
+      );
       await page.screenshot({
-        path: `${reportDirectory}/${platform}-${surface}-organic-restoration.png`,
+        path: `${reportDirectory}/${platform}-search-sidebar-expiry-${width}.png`,
       });
     } finally {
       await page.close();
-      promotedArrival = false;
-      nativeMode = null;
     }
   }
 }
+
+async function assertCollectionFeedSidebars(page, base, platform) {
+  const selector = ".collection-feed-sidebar";
+  nativeMode = null;
+  mediaMode = "standard";
+  try {
+    for (const width of [1280, 390]) {
+      await page.setViewportSize({ width, height: width === 390 ? 844 : 900 });
+      for (const kind of ["topic", "source"]) {
+        const route = kind === "topic" ? "/topics/typescript" : "/sources/engineering";
+        const label = `${platform}/${width}: ${kind} detail`;
+        queries = [];
+        let release;
+        deliveryGate = new Promise((resolve) => {
+          release = resolve;
+        });
+        try {
+          await page.goto("about:blank");
+          await page.goto(`${base}${route}`);
+          const reading = page.locator(".collection-feed-articles .card-open-link").nth(8);
+          await reading.waitFor();
+          await page.mouse.move(0, 0);
+          await reading.scrollIntoViewIfNeeded();
+          await reading.focus();
+          await reading.evaluate(async (node) => {
+            window.__collectionReadingResult = node;
+            await Promise.all(
+              node
+                .closest(".article-card")
+                .getAnimations()
+                .map((animation) => animation.finished.catch(() => {})),
+            );
+          });
+          const before = await reading.boundingBox();
+          deliveryGate = null;
+          release();
+          await page.locator(`${selector} .partner-placement`).waitFor();
+          if (kind === "topic")
+            await page.locator(".article-grid > .partner-placement").nth(1).waitFor();
+          await assertCompactSidebar(page, selector, label, 1);
+          assert.equal(
+            await page.locator('.article-grid [data-ad-format="engagement"]').count(),
+            0,
+            `${label}: compact Engagement remains outside the article grid`,
+          );
+          const gridFormats = await page
+            .locator(".article-grid > .partner-placement")
+            .evaluateAll((cards) => cards.map((card) => card.dataset.adFormat));
+          assert.deepEqual(gridFormats, kind === "topic" ? ["feed", "feed"] : []);
+          assert.deepEqual(
+            await page.locator(".collection-feed-articles .card-open-link").allTextContents(),
+            feedArticles.map((item) => item.title),
+            `${label}: delivery preserves all organic articles in order`,
+          );
+          assert.equal(
+            await reading.evaluate(
+              (node) =>
+                node === window.__collectionReadingResult && node === document.activeElement,
+            ),
+            true,
+            `${label}: asynchronous rail delivery keeps the focused article node`,
+          );
+          const after = await reading.boundingBox();
+          assert.ok(
+            Math.abs(after.y - before.y) <= 2,
+            `${label}: rail delivery preserves reading position (${before.y} -> ${after.y})`,
+          );
+          const selection = queries.find(
+            (query) => JSON.stringify(query.body.ad_formats) === JSON.stringify(["engagement"]),
+          );
+          assert.ok(selection, `${label}: compact sidebar makes its own contextual request`);
+          assert.equal(selection.body.allow_sponsored_fallback ?? false, false);
+          if (kind === "topic") {
+            assert.equal(selection.body.surface, "topic");
+            assert.equal(selection.body.topic_id, topic.id);
+          } else {
+            assert.equal(selection.body.surface, "feed");
+            assert.deepEqual(
+              selection.body.article_ids,
+              feedArticles.map((item) => item.id),
+            );
+            assert.equal(queries.length, 1, `${label}: source has only one sidebar selection`);
+          }
+          const geometry = await page.locator(selector).evaluate((sidebar) => {
+            const rect = (node) => node.getBoundingClientRect().toJSON();
+            return {
+              semantic: sidebar.tagName,
+              sidebar: rect(sidebar),
+              articles: rect(document.querySelector(".collection-feed-articles")),
+              overflow: document.documentElement.scrollWidth > innerWidth,
+            };
+          });
+          assert.equal(geometry.semantic, "ASIDE");
+          if (width > 1100)
+            assert.ok(
+              geometry.sidebar.x >= geometry.articles.right,
+              `${label}: desktop right rail`,
+            );
+          else
+            assert.ok(
+              geometry.sidebar.y >= geometry.articles.bottom - 1,
+              `${label}: narrow layouts stack Engagement after articles`,
+            );
+          assert.equal(geometry.overflow, false);
+          const products = await page
+            .locator(".partner-placement")
+            .evaluateAll((cards) => cards.map((card) => card.dataset.productId));
+          assert.equal(new Set(products).size, products.length, `${label}: products stay unique`);
+          await page.locator(selector).scrollIntoViewIfNeeded();
+          await waitForVisibleProductLogos(page);
+          await page.screenshot({
+            path: `${reportDirectory}/${platform}-${kind}-sidebar-${width}.png`,
+            animations: "disabled",
+          });
+        } finally {
+          deliveryGate = null;
+          release();
+        }
+      }
+    }
+    duplicateCollectionProduct = true;
+    await page.setViewportSize({ width: 1280, height: 900 });
+    await page.goto("about:blank");
+    const selections = ["feed", "engagement"].map((format) =>
+      page.waitForResponse((response) => {
+        if (!new URL(response.url()).pathname.endsWith("/partner-placements/query")) return false;
+        const query = response.request().postDataJSON();
+        return query?.surface === "topic" && query.ad_formats?.includes(format);
+      }),
+    );
+    await page.goto(`${base}/topics/typescript`);
+    await Promise.all(selections.map(async (response) => (await response).json()));
+    await page.locator(".article-grid .card-open-link").first().waitFor();
+    await page.evaluate(
+      () => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))),
+    );
+    assert.equal(
+      await page.locator(`.partner-placement[data-product-id="${ordinary.product_id}"]`).count(),
+      1,
+      `${platform}: concurrent topic Feed and Engagement selections display a product only once`,
+    );
+    assert.equal(await page.locator('.article-grid [data-ad-format="engagement"]').count(), 0);
+    await page.screenshot({
+      path: `${reportDirectory}/${platform}-topic-sidebar-deduplication.png`,
+      animations: "disabled",
+    });
+    duplicateCollectionProduct = false;
+    organicCount = 3;
+    queries = [];
+    await page.goto("about:blank");
+    await page.goto(`${base}/sources/engineering`);
+    await page.locator(".article-grid .card-open-link").first().waitFor();
+    await page.waitForTimeout(200);
+    assert.equal(queries.length, 0, `${platform}: sparse source pages reserve no inventory`);
+    assert.equal(await page.locator(selector).count(), 0);
+    organicCount = 24;
+    for (const route of ["/topics/typescript", "/sources/engineering"]) {
+      queries = [];
+      await page.goto("about:blank");
+      await page.goto(`${base}${route}?cursor=next-page`);
+      await page.locator(".article-grid .card-open-link").first().waitFor();
+      await page.waitForTimeout(200);
+      assert.equal(queries.length, 0, `${platform}: ${route} cursor pages reserve no inventory`);
+      assert.equal(await page.locator(selector).count(), 0);
+    }
+  } finally {
+    organicCount = 24;
+    duplicateCollectionProduct = false;
+    deliveryGate = null;
+  }
+}
+
+async function assertCompactFeedTable(context, base, platform) {
+  const originalSignedIn = signedIn;
+  signedIn = false;
+  try {
+    for (const width of [1280, 390]) {
+      for (const theme of ["light", "dark"]) {
+        await context.clock.setSystemTime(receiptIssuedAt * 1000);
+        const page = await context.newPage();
+        await page.setViewportSize({ width, height: width === 390 ? 844 : 900 });
+        await page.addInitScript((theme) => {
+          localStorage.setItem("devfeed:feed-view:guest", "compact");
+          localStorage.setItem("devfeed:theme", theme);
+        }, theme);
+        const label = `${platform}/${width}/${theme}: compact Feed`;
+        nativeMode = null;
+        queries = [];
+        const previousImpressions = [ordinary, sponsored].map((item) =>
+          impressionCount(item.receipt),
+        );
+        try {
+          await page.goto(`${base}/latest`);
+          const rows = page.locator('.article-table tbody > [data-ad-format="feed"]');
+          await rows.nth(1).waitFor();
+          const structure = await page.locator(".article-table tbody").evaluate((body) =>
+            [...body.children].map((row) => ({
+              tag: row.tagName,
+              cells: row.children.length,
+              format: row.dataset.adFormat,
+            })),
+          );
+          assert.equal(structure.length, 26, `${label}: two promotions retain all24article rows`);
+          assert.ok(
+            structure.every((row) => row.tag === "TR" && row.cells === 4),
+            `${label}: valid four-column table structure`,
+          );
+          assert.equal(structure[4].format, "feed");
+          assert.equal(structure[13].format, "feed");
+          assert.equal(structure.filter((row) => row.format).length, 2);
+          assert.equal(
+            await page
+              .locator(
+                '.article-table [data-ad-format="engagement"],.article-table .card-image,.article-table .article-card,.article-grid',
+              )
+              .count(),
+            0,
+          );
+          const organic = page.locator(
+            ".article-table tbody > tr:not(.partner-placement) .article-list-title",
+          );
+          assert.deepEqual(
+            await organic.allTextContents(),
+            feedArticles.map((item) => item.title),
+          );
+          const selection = queries.find((query) => query.body.surface === "feed");
+          assert.deepEqual(
+            selection.body.ad_formats,
+            width >= 1280 ? ["feed", "homepage_sponsorship"] : ["feed"],
+          );
+          assert.deepEqual(
+            selection.body.article_ids,
+            feedArticles.map((item) => item.id),
+          );
+          for (const [index, item] of [ordinary, sponsored].entries()) {
+            const row = rows.nth(index);
+            await row.scrollIntoViewIfNeeded();
+            const badge = row.locator(".partner-placement-label:visible");
+            assert.equal(
+              await badge.count(),
+              1,
+              `${label}: exactly one sponsorship disclosure is visible`,
+            );
+            assert.equal(
+              await badge.isVisible(),
+              true,
+              `${label}: Sponsored remains visible at every viewport`,
+            );
+            assert.equal(await badge.textContent(), "Sponsored");
+            assert.equal(
+              await row.locator("img,.card-image,button").count(),
+              0,
+              `${label}: table promotion has no hero or card controls`,
+            );
+            const geometry = await row.boundingBox();
+            const rowLayout = await row.evaluate((node) => {
+              const bounds = (element) => element.getBoundingClientRect().toJSON();
+              const main = node.querySelector(".article-list-main");
+              const title = main.querySelector("strong");
+              const tagline = main.querySelector(".partner-placement-description");
+              const badge = [...node.querySelectorAll(".partner-placement-label")].find(
+                (element) => element.getBoundingClientRect().width > 0,
+              );
+              return {
+                name: bounds(title),
+                tagline: bounds(tagline),
+                badgeCell: badge.closest("td").className,
+                neighborHeight: node.previousElementSibling.getBoundingClientRect().height,
+                icons: main.querySelectorAll("svg").length,
+              };
+            });
+            const center = (rect) => rect.y + rect.height / 2;
+            assert.ok(
+              Math.abs(center(rowLayout.name) - center(rowLayout.tagline)) <= 3,
+              `${label}: name and tagline share one line`,
+            );
+            assert.ok(
+              rowLayout.tagline.x >= rowLayout.name.right,
+              `${label}: tagline follows the name`,
+            );
+            assert.ok(
+              geometry.height <= rowLayout.neighborHeight * 1.4,
+              `${label}: promotion matches the table row density`,
+            );
+            assert.ok(
+              rowLayout.badgeCell.includes(width >= 1280 ? "date-column" : "article-list-main"),
+              `${label}: disclosure uses the date cell with a visible mobile fallback`,
+            );
+            assert.equal(rowLayout.icons, 0, `${label}: no extra outbound icon`);
+            assert.equal(
+              await row.locator(".partner-placement-description").textContent(),
+              item.tagline,
+            );
+            await waitForImpression(page, item.receipt, previousImpressions[index]);
+          }
+          const clicksBefore = events.filter(
+            (event) => event.kind === "click" && event.receipt === ordinary.receipt,
+          ).length;
+          const popupEvent = context.waitForEvent("page");
+          await rows.first().locator(".partner-placement-link").click();
+          const popup = await popupEvent;
+          await popup.close();
+          await page.waitForTimeout(100);
+          assert.equal(
+            events.filter((event) => event.kind === "click" && event.receipt === ordinary.receipt)
+              .length,
+            clicksBefore + 1,
+            `${label}: signed row click is measured`,
+          );
+          assert.ok(
+            await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth),
+            `${label}: table has no page overflow`,
+          );
+          await page.screenshot({
+            path: `${reportDirectory}/${platform}-feed-table-${theme}-${width}.png`,
+          });
+          const reading = organic.nth(8);
+          await reading.scrollIntoViewIfNeeded();
+          await reading.focus();
+          await reading.evaluate((node) => {
+            window.__tableReadingAnchor = node;
+          });
+          const before = await reading.boundingBox();
+          const beforeRows = await rows.evaluateAll((nodes) => {
+            window.__retainedFeedRows = nodes;
+            return nodes.map((node) => node.getBoundingClientRect().height);
+          });
+          const beforeQueries = queries.length;
+          const beforeEvents = events.length;
+          await page.clock.fastForward(60 * 60_000 + 1000);
+          await page.waitForFunction(() =>
+            [...document.querySelectorAll(".article-table .partner-placement")].every(
+              (row) => row.dataset.suspended === "true",
+            ),
+          );
+          assert.equal(
+            await page.locator('.article-table tbody > [data-ad-format="feed"]:visible').count(),
+            0,
+            `${label}: expired Feed rows stop displaying`,
+          );
+          const retained = await rows.evaluateAll((nodes) =>
+            nodes.map((node, index) => ({
+              same: node === window.__retainedFeedRows[index],
+              inert: node.hasAttribute("inert"),
+              height: node.getBoundingClientRect().height,
+            })),
+          );
+          assert.equal(
+            retained.length,
+            beforeRows.length,
+            `${label}: expired rows retain their table slots`,
+          );
+          retained.forEach((row, index) => {
+            assert.equal(row.same, true, `${label}: expiry retains the original TR`);
+            assert.equal(row.inert, true);
+            assert.ok(Math.abs(row.height - beforeRows[index]) <= 1);
+          });
+          assert.equal(
+            await reading.evaluate(
+              (node) => node === window.__tableReadingAnchor && node === document.activeElement,
+            ),
+            true,
+          );
+          assert.ok(
+            Math.abs((await reading.boundingBox()).y - before.y) <= 2,
+            `${label}: expiry preserves reading position`,
+          );
+          await rows.locator(".partner-placement-link").evaluateAll((links) =>
+            links.forEach((link) => {
+              link.addEventListener("click", (event) => event.preventDefault(), { once: true });
+              link.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
+            }),
+          );
+          await page.clock.runFor(2000);
+          assert.equal(queries.length, beforeQueries, `${label}: expiry never refreshes inventory`);
+          assert.equal(events.length, beforeEvents, `${label}: expired rows stop measurements`);
+          await context.clock.setSystemTime(receiptIssuedAt * 1000);
+          nativeMode = "table-home";
+          queries = [];
+          await page.goto(`${base}/`);
+          await page.reload();
+          await page.locator('.article-table tbody > [data-ad-format="feed"]').waitFor();
+          assert.equal(
+            await page.locator('.article-table [data-ad-format="homepage_sponsorship"]').count(),
+            0,
+          );
+          assert.equal(
+            await page.locator('.topbar [data-ad-format="homepage_sponsorship"]').count(),
+            width >= 1280 ? 1 : 0,
+            `${label}: homepage credit stays in the global header`,
+          );
+          assert.ok(
+            queries.every((query) => !query.body.ad_formats.includes("engagement")),
+            `${label}: table never reserves Engagement inventory`,
+          );
+          await page.screenshot({
+            path: `${reportDirectory}/${platform}-feed-table-homepage-${theme}-${width}.png`,
+          });
+        } finally {
+          await page.evaluate(() => localStorage.removeItem("devfeed:feed-view:guest"));
+          await page.close();
+        }
+      }
+    }
+  } finally {
+    signedIn = originalSignedIn;
+    nativeMode = null;
+  }
+}
+
 const promotedArticle = {
   ...article,
   id: "dddddddd-dddd-4ddd-8ddd-dddddddddddd",
@@ -618,6 +1155,16 @@ const sponsoredContent = {
   url: `/articles/${promotedArticle.slug}`,
 };
 const engagementPlacement = { ...ordinary, ad_format: "engagement" };
+const collectionEngagement = {
+  ...engagementPlacement,
+  product_id: "abababab-abab-4bab-8bab-abababababab",
+  asset_id: "cdcdcdcd-cdcd-4dcd-8dcd-cdcdcdcdcdcd",
+  name: "TypeScript developer tools",
+  receipt: placementReceipt(
+    "cdcdcdcd-cdcd-4dcd-8dcd-cdcdcdcdcdcd",
+    "dededede-dede-4ede-8ede-dededededede",
+  ),
+};
 
 function organicPage(url) {
   const nextCursor = url.pathname.endsWith("/search") ? "2" : "promoted";
@@ -734,7 +1281,8 @@ async function assertSingleSponsoredPill(page, badge, label, articleBadge) {
     const background = luminance(style.backgroundColor);
     return {
       destination: {
-        text: footer.textContent.trim(),
+        text: footer.firstElementChild.textContent.trim(),
+        action: footer.querySelector(".partner-placement-action")?.textContent.trim() ?? null,
         icons: footer.querySelectorAll("svg").length,
         withinCardLink: !!footer.closest("a.partner-placement-link[href]"),
       },
@@ -772,9 +1320,14 @@ async function assertSingleSponsoredPill(page, badge, label, articleBadge) {
   assert.equal(
     treatment.destination.text,
     "partner.example",
-    `${label}: only the destination domain remains`,
+    `${label}: destination identifies the product domain`,
   );
-  assert.equal(treatment.destination.icons, 0, `${label}: footer has no arrow`);
+  assert.equal(treatment.destination.icons, 0, `${label}: the destination has no extra arrow`);
+  assert.equal(
+    treatment.destination.action,
+    null,
+    `${label}: the destination has no extra action text`,
+  );
   assert.ok(treatment.destination.withinCardLink, `${label}: whole product card remains linked`);
   assert.ok(parseFloat(treatment.shared.borderRadius) > 0, `${label}: rounded badge`);
   assert.ok(parseFloat(treatment.shared.borderTopWidth) > 0, `${label}: visible badge border`);
@@ -951,6 +1504,14 @@ function response(requestPath, body, headers = {}, extension = false) {
       "Selection sends context only, never reader identity or audience attributes",
     );
     queries.push({ pathname, body });
+    if (
+      ["feed", "topic"].includes(body.surface) &&
+      body.ad_formats?.some((format) => format !== "engagement")
+    )
+      assert.ok(
+        !body.ad_formats?.includes("engagement"),
+        "Grid and table feeds request native Feed cards without sidebar Engagement",
+      );
     if (nativeMode) {
       assert.ok(Array.isArray(body.ad_formats), "Native formats are explicitly requested");
       if (!body.allow_sponsored_fallback)
@@ -959,33 +1520,71 @@ function response(requestPath, body, headers = {}, extension = false) {
       const items =
         nativeMode === "disclosure"
           ? []
-          : nativeMode === "sponsored-content"
-            ? [sponsoredContent]
-            : nativeMode === "home" && body.allow_sponsored_fallback
-              ? [homepageSponsor, sponsoredContent]
-              : [engagementPlacement, sponsored];
+          : nativeMode === "table-home"
+            ? [homepageSponsor, sponsored]
+            : nativeMode === "sponsored-content"
+              ? [sponsoredContent]
+              : nativeMode === "home" && body.allow_sponsored_fallback
+                ? [homepageSponsor, sponsoredContent]
+                : [engagementPlacement, sponsored];
       return {
         items: deliveryItems(
-          items.filter(
-            (item) =>
-              body.ad_formats.includes(item.ad_format ?? "feed") &&
-              !body.exclude_product_ids?.includes(item.product_id),
-          ),
+          nativeMode === "unexpected-engagement"
+            ? [engagementPlacement]
+            : items.filter(
+                (item) =>
+                  body.ad_formats.includes(item.ad_format ?? "feed") &&
+                  !body.exclude_product_ids?.includes(item.product_id),
+              ),
           body,
         ),
       };
     }
+    if (body.surface === "article")
+      assert.deepEqual(
+        body.ad_formats,
+        ["engagement"],
+        "Article sidebars request compact Engagement only",
+      );
+    if (body.surface === "search") {
+      assert.deepEqual(
+        body.ad_formats,
+        ["engagement"],
+        "Search collections request Engagement only",
+      );
+      assert.notEqual(
+        body.allow_sponsored_fallback,
+        true,
+        "Search collections never permit generic sponsorship",
+      );
+      assert.ok(body.article_ids.length >= 4 && body.article_ids.length <= 24);
+    }
+    if (
+      ["topic", "feed"].includes(body.surface) &&
+      JSON.stringify(body.ad_formats) === JSON.stringify(["engagement"])
+    )
+      return {
+        items: deliveryItems(
+          body.surface === "topic" || body.article_ids?.includes(article.id)
+            ? [duplicateCollectionProduct ? engagementPlacement : collectionEngagement]
+            : [],
+          body,
+        ),
+      };
     const eligible =
       body.surface === "topic" ||
       (pathname.includes("/user/") && body.surface === "feed") ||
-      (body.surface === "feed" && body.article_ids?.includes(article.id)) ||
+      (["feed", "search"].includes(body.surface) && body.article_ids?.includes(article.id)) ||
       (body.surface === "article" && feedArticles.some((item) => item.id === body.article_id));
     return {
       items: deliveryItems(
         eligible
-          ? [ordinary, sponsored].filter(
-              (item) => !body.exclude_product_ids?.includes(item.product_id),
-            )
+          ? (body.ad_formats?.length === 1 && body.ad_formats[0] === "engagement"
+              ? body.surface === "article"
+                ? [engagementPlacement, { ...sponsored, ad_format: "engagement" }]
+                : [engagementPlacement]
+              : [ordinary, sponsored]
+            ).filter((item) => !body.exclude_product_ids?.includes(item.product_id))
           : [],
         body,
       ),
@@ -1118,6 +1717,7 @@ function response(requestPath, body, headers = {}, extension = false) {
   if (pathname === "/v1/topics") return extension ? { items: [topic], next_offset: null } : [topic];
   if (pathname === "/v1/sources")
     return extension ? { items: [source], next_offset: null } : [source];
+  if ([`/v1/sources/${source.slug}`, `/v1/sources/${source.id}`].includes(pathname)) return source;
   if (pathname.startsWith("/v1/articles/")) {
     const selected = pathname.endsWith(promotedArticle.slug)
       ? promotedArticle
@@ -1136,7 +1736,7 @@ const fixture = createServer(async (req, res) => {
     let raw = "";
     for await (const part of req) raw += part;
     const body = raw ? JSON.parse(raw) : undefined;
-    if (body?.surface === "feed" && deliveryGate) await deliveryGate;
+    if (["feed", "search", "topic"].includes(body?.surface) && deliveryGate) await deliveryGate;
     const json = response(req.url, body, req.headers);
     const pathname = new URL(req.url, "http://fixture").pathname;
     if (placementLimited && pathname === "/v1/partner-placements/query") {
@@ -1295,7 +1895,8 @@ try {
             });
             return;
           }
-          if (body?.surface === "feed" && deliveryGate) await deliveryGate;
+          if (["feed", "search", "topic"].includes(body?.surface) && deliveryGate)
+            await deliveryGate;
           const json = response(request.url(), body, request.headers(), true);
           await route.fulfill(
             request.url().endsWith("/partner-tracking/events") ? { status: 204 } : { json },
@@ -1398,7 +1999,15 @@ try {
       assert.equal(await page.getByText("Relevant product", { exact: true }).count(), 0);
       assert.equal(await page.getByText(ordinary.reason, { exact: true }).count(), 0);
       assert.equal(await page.locator(".preview-copy .partner-placement").count(), 0);
-      assert.equal(await page.locator(".preview-sidebar .partner-placement").count(), 2);
+      await assertCompactSidebar(page, ".preview-sidebar", `${platform}: desktop article`, 2);
+      assert.ok(
+        queries
+          .filter((query) => query.body.surface === "article")
+          .every(
+            (query) => JSON.stringify(query.body.ad_formats) === JSON.stringify(["engagement"]),
+          ),
+        `${platform}: article previews request Engagement inventory only`,
+      );
       const successfulLogo = page.locator(
         `.partner-placement[data-product-id="${ordinary.product_id}"] img`,
       );
@@ -1495,9 +2104,9 @@ try {
           `${platform}: ${label} second product follows twelve articles`,
         );
         assert.equal(
-          await page.locator(".partner-placements").count(),
+          await page.locator(".article-grid .partner-placements").count(),
           0,
-          `${platform}: ${label} has no separate recommendation banner`,
+          `${platform}: ${label} grid has no separate recommendation banner`,
         );
         assert.equal(await page.getByText("Relevant product", { exact: true }).count(), 0);
         assert.equal(await page.getByText(ordinary.reason, { exact: true }).count(), 0);
@@ -1514,6 +2123,13 @@ try {
         assert.deepEqual(
           await page.locator(".article-grid .partner-placement-label").allTextContents(),
           ["Sponsored", "Sponsored"],
+        );
+        assert.deepEqual(
+          await page
+            .locator(".article-grid > .partner-placement")
+            .evaluateAll((cards) => cards.map((card) => card.dataset.adFormat)),
+          ["feed", "feed"],
+          `${platform}: ${label} uses full Feed cards in the article grid`,
         );
         assert.equal(await page.locator(".partner-placement button").count(), 0);
         await assertSponsoredPill(
@@ -1570,6 +2186,12 @@ try {
       const impressionsBeforePreview = impressionCount(ordinary.receipt);
       await previewedArticle.click();
       await page.locator(".article-modal .preview-sidebar .partner-placement").first().waitFor();
+      await assertCompactSidebar(
+        page,
+        ".article-modal .preview-sidebar",
+        `${platform}: modal article`,
+        2,
+      );
       await assertSponsoredPill(
         page,
         ".article-modal .preview-sidebar .partner-placement-label",
@@ -1654,6 +2276,7 @@ try {
       );
       await page.goto(`${base}/articles/${article.slug}`);
       await page.locator(".preview-sidebar .partner-placement").first().waitFor();
+      await assertCompactSidebar(page, ".preview-sidebar", `${platform}: mobile article`, 2);
       await assertSponsoredPill(
         page,
         ".preview-sidebar .partner-placement-label",
@@ -1758,81 +2381,132 @@ try {
           });
         }
       }
-      await page.setViewportSize({ width: 1280, height: 900 });
       for (const width of [1280, 390]) {
         await page.setViewportSize({ width, height: width === 390 ? 844 : 900 });
-        queries = [];
-        let release;
-        deliveryGate = new Promise((resolve) => {
-          release = resolve;
-        });
-        // Reopen the packaged reader for the second viewport too; navigating to
-        // an unchanged extension hash deliberately retains the current delivery.
-        await page.goto("about:blank");
-        await page.goto(`${base}/search?q=typescript`);
-        const readingResult = page.locator(".search-section-articles .search-result-link").nth(8);
-        await readingResult.waitFor();
-        await readingResult.scrollIntoViewIfNeeded();
-        await readingResult.focus();
-        await page.evaluate(
-          () =>
-            new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))),
-        );
-        const before = await readingResult.boundingBox();
-        deliveryGate = null;
-        release();
-        await page
-          .locator(".search-section-articles .search-result-list > .partner-placement")
-          .first()
-          .waitFor();
-        const rows = await page
-          .locator(".search-section-articles .search-result-list > *")
-          .evaluateAll((elements) =>
-            elements.map((element) =>
-              element.classList.contains("partner-placement") ? "product" : "article",
-            ),
+        for (const filtered of [false, true]) {
+          queries = [];
+          let release;
+          deliveryGate = new Promise((resolve) => {
+            release = resolve;
+          });
+          const route = filtered
+            ? "/search?q=typescript&section=articles&content_types=tutorial&sort=newest&date_from=2026-10-01&date_to=2026-10-13"
+            : "/search?q=typescript";
+          await page.goto("about:blank");
+          await page.goto(`${base}${route}`);
+          const readingResult = page.locator(".search-section-articles .search-result-link").nth(8);
+          await readingResult.waitFor();
+          await readingResult.scrollIntoViewIfNeeded();
+          await readingResult.focus();
+          await readingResult.evaluate((node) => {
+            window.__searchReadingResult = node;
+          });
+          await page.evaluate(
+            () =>
+              new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))),
           );
-        assert.equal(
-          rows.filter((row) => row === "product").length,
-          2,
-          `${platform}: actual search maximum two products`,
-        );
-        assert.equal(rows[4], "product");
-        assert.equal(rows[13], "product");
-        assert.equal(await page.locator(".search-related-results .partner-placement").count(), 0);
-        assert.equal(await page.locator(".partner-placements").count(), 0);
-        assert.equal(await page.getByText(ordinary.reason, { exact: true }).count(), 0);
-        assert.equal(await page.getByText("Relevant product", { exact: true }).count(), 0);
-        assert.equal(
-          await readingResult.evaluate((element) => element === document.activeElement),
-          true,
-        );
-        const after = await readingResult.boundingBox();
-        assert.ok(
-          Math.abs(after.y - before.y) <= 2,
-          `${platform}: actual search keeps scrolled result position (${before.y} -> ${after.y})`,
-        );
-        const searchQuery = queries.find((query) => query.body.surface === "feed");
-        assert.equal(searchQuery.pathname, "/v1/partner-placements/query");
-        assert.equal(
-          searchQuery.body.allow_sponsored_fallback,
-          false,
-          `${platform}: actual search stays contextual`,
-        );
-        assert.deepEqual(
-          searchQuery.body.article_ids,
-          feedArticles.map((item) => item.id),
-        );
-        await page
-          .locator(".search-section-articles .search-result-list > .partner-placement")
-          .first()
-          .scrollIntoViewIfNeeded();
-        await page.mouse.move(5, 5);
-        await waitForVisibleProductLogos(page);
-        await page.screenshot({
-          path: `${reportDirectory}/${platform}-actual-search-${width === 390 ? "mobile" : "desktop"}.png`,
-        });
-        assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
+          const before = await readingResult.boundingBox();
+          deliveryGate = null;
+          release();
+          const engagement = page.locator('.search-sidebar [data-ad-format="engagement"]');
+          await engagement.waitFor();
+          const label = `${platform}: ${width}px ${filtered ? "filtered articles" : "all results"} search`;
+          await assertCompactSidebar(page, ".search-sidebar", label, 1);
+          assert.equal(
+            await page.locator(".search-section-articles .partner-placement").count(),
+            0,
+          );
+          assert.deepEqual(
+            await page.locator(".search-section-articles .search-result-link").allTextContents(),
+            feedArticles.map((item) => item.title),
+            `${label}: sidebar delivery retains every organic result in order`,
+          );
+          assert.equal(
+            await readingResult.evaluate(
+              (node) => node === window.__searchReadingResult && node === document.activeElement,
+            ),
+            true,
+            `${label}: asynchronous delivery preserves the original focused result`,
+          );
+          const after = await readingResult.boundingBox();
+          assert.ok(
+            Math.abs(after.y - before.y) <= 2,
+            `${label}: delivery preserves reading position`,
+          );
+          const searchQuery = queries.find((query) => query.body.surface === "search");
+          assert.equal(searchQuery.pathname, "/v1/partner-placements/query");
+          assert.deepEqual(searchQuery.body.ad_formats, ["engagement"]);
+          assert.equal(
+            searchQuery.body.allow_sponsored_fallback ?? false,
+            false,
+            `${label}: stays contextual`,
+          );
+          assert.deepEqual(
+            searchQuery.body.article_ids,
+            feedArticles.map((item) => item.id),
+          );
+          assert.equal(
+            await page
+              .locator(
+                '[data-ad-format="homepage_sponsorship"],[data-ad-format="feed"],[data-ad-format="sponsored_content"]',
+              )
+              .count(),
+            0,
+          );
+          assert.equal(await page.getByText(ordinary.reason, { exact: true }).count(), 0);
+          const geometry = await page.locator(".search-sidebar").evaluate((sidebar) => {
+            const rect = (node) => node?.getBoundingClientRect().toJSON();
+            const articleResults = document.querySelector(".search-section-articles");
+            const topics = sidebar.querySelector(".search-section-topics");
+            const placement = sidebar.querySelector(".partner-placement");
+            return {
+              semantic: sidebar.tagName,
+              sidebar: rect(sidebar),
+              articles: rect(articleResults),
+              placement: rect(placement),
+              topics: rect(topics),
+              beforeTopics:
+                !topics ||
+                Boolean(
+                  placement.compareDocumentPosition(topics) & Node.DOCUMENT_POSITION_FOLLOWING,
+                ),
+            };
+          });
+          assert.equal(geometry.semantic, "ASIDE");
+          assert.equal(geometry.beforeTopics, true, `${label}: compact sponsor precedes Topics`);
+          if (filtered)
+            assert.equal(
+              geometry.topics,
+              undefined,
+              `${label}: article filter does not add catalog sections`,
+            );
+          else
+            assert.ok(
+              geometry.placement.bottom <= geometry.topics.y,
+              `${label}: card sits above Topics`,
+            );
+          if (width >= 1024)
+            assert.ok(
+              geometry.sidebar.x >= geometry.articles.right,
+              `${label}: compact card belongs in the right rail`,
+            );
+          else
+            assert.ok(
+              geometry.sidebar.y >= geometry.articles.bottom - 1,
+              `${label}: mobile stacks the rail after article results`,
+            );
+          await engagement.scrollIntoViewIfNeeded();
+          await page.mouse.move(5, 5);
+          await waitForVisibleProductLogos(page);
+          assert.equal(await engagement.locator("img").getAttribute("src"), ordinary.logo_url);
+          assert.ok(
+            await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth),
+            `${label}: no horizontal overflow`,
+          );
+          await page.screenshot({
+            path: `${reportDirectory}/${platform}-actual-search-${filtered ? "filtered-" : ""}${width === 390 ? "mobile" : "desktop"}.png`,
+          });
+        }
       }
       for (const section of ["topics", "sources", "tags"]) {
         queries = [];
@@ -1881,6 +2555,7 @@ try {
         }
       }
       organicCount = 24;
+      await assertCollectionFeedSidebars(page, base, platform);
       for (const theme of ["light", "dark"]) {
         for (const width of [1280, 390]) {
           for (const mode of ["custom", "standard", "no-og"]) {
@@ -1897,7 +2572,14 @@ try {
             await page.mouse.move(5, 5);
             await waitForVisibleProductLogos(page);
             const geometry = await card.evaluate((product) => {
-              const neighbor = product.previousElementSibling;
+              const top = product.getBoundingClientRect().top;
+              const neighbor =
+                [...product.parentElement.children].find(
+                  (node) =>
+                    node.classList.contains("article-card") &&
+                    !node.classList.contains("partner-placement") &&
+                    Math.abs(node.getBoundingClientRect().top - top) <= 1,
+                ) ?? product.previousElementSibling;
               const box = (node) => {
                 const rect = node.getBoundingClientRect();
                 return { width: rect.width, height: rect.height };
@@ -2070,7 +2752,7 @@ try {
         for (const [route, surface] of [
           [`/articles/${article.slug}`, "article"],
           ["/topics/typescript", "topic"],
-          ["/search?q=typescript", "feed"],
+          ["/search?q=typescript", "search"],
           ["/?q=typescript", "feed"],
         ]) {
           queries = [];
@@ -2085,8 +2767,14 @@ try {
             `${platform}: ${route} uses the authenticated endpoint`,
           );
           assert.ok(queries.some((query) => query.body.surface === surface));
-          if (surface === "feed")
+          if (surface === "feed" || surface === "search")
             assert.ok(queries.every((query) => !query.body.allow_sponsored_fallback));
+          if (surface === "search")
+            assert.ok(
+              queries.every(
+                (query) => JSON.stringify(query.body.ad_formats) === JSON.stringify(["engagement"]),
+              ),
+            );
           assert.equal(
             await page.evaluate(() => document.documentElement.scrollWidth > innerWidth),
             false,
@@ -2233,8 +2921,8 @@ try {
         assert.deepEqual(
           queries.at(-1).body.ad_formats,
           width >= 1280
-            ? ["feed", "homepage_sponsorship", "sponsored_content", "engagement"]
-            : ["feed", "sponsored_content", "engagement"],
+            ? ["feed", "homepage_sponsorship", "sponsored_content"]
+            : ["feed", "sponsored_content"],
           `${platform}: delivery only requests formats that can be displayed`,
         );
         if (width >= 1280) {
@@ -2375,50 +3063,43 @@ try {
             .count(),
           0,
         );
-        nativeMode = "engagement";
+        nativeMode = "unexpected-engagement";
         queries = [];
+        await page.goto("about:blank");
+        const unexpectedSelection = page.waitForResponse((response) => {
+          if (!new URL(response.url()).pathname.endsWith("/partner-placements/query")) return false;
+          return response.request().postDataJSON()?.surface === "feed";
+        });
         await page.goto(`${base}/?q=typescript`);
-        await page.reload();
-        const engagement = page.locator('.article-grid > [data-ad-format="engagement"]');
-        await engagement.waitFor();
-        assert.equal(await engagement.locator(".card-image,button").count(), 0);
-        assert.equal(
-          (await engagement.locator(".partner-placement-action").textContent()).trim(),
-          "Explore",
-        );
-        assert.equal(await engagement.locator(".partner-placement-action svg").count(), 1);
-        assert.equal(
-          await engagement
-            .locator(".partner-placement-link")
-            .evaluate((node) => getComputedStyle(node).display),
-          "grid",
-        );
-        const compact = await engagement.boundingBox();
-        assert.ok(compact.height < 220, `${platform}: engagement stays compact at ${width}px`);
-        await engagement.locator(".partner-placement-link").focus();
-        assert.equal(
-          await engagement
-            .locator(".partner-placement-link")
-            .evaluate((node) => node.matches(":focus-visible")),
-          true,
+        await page.locator(".article-grid .card-open-link").first().waitFor();
+        await unexpectedSelection;
+        await page.evaluate(
+          () =>
+            new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))),
         );
         assert.equal(
-          await engagement.locator(".partner-placement-label").textContent(),
-          "Sponsored",
+          await page.locator(".partner-placement").count(),
+          0,
+          `${platform}/${width}: unrequested Engagement inventory never renders in a feed grid`,
         );
-        assert.equal(await page.locator('[data-ad-format="homepage_sponsorship"]').count(), 0);
+        assert.deepEqual(
+          await page.locator(".article-grid .card-open-link").allTextContents(),
+          feedArticles.map((item) => item.title),
+          `${platform}/${width}: rejecting sidebar inventory preserves all organic grid cards`,
+        );
         assert.ok(
-          queries.every(
-            (query) =>
-              !query.body.allow_sponsored_fallback &&
-              !query.body.ad_formats.includes("homepage_sponsorship"),
-          ),
+          queries.length &&
+            queries.every(
+              (query) =>
+                query.body.surface === "feed" &&
+                !query.body.allow_sponsored_fallback &&
+                JSON.stringify(query.body.ad_formats) ===
+                  JSON.stringify(["feed", "sponsored_content"]),
+            ),
+          `${platform}/${width}: filtered grids request Feed and sponsored articles only`,
         );
-        await engagement.scrollIntoViewIfNeeded();
-        await waitForVisibleProductLogos(page);
-        assert.equal(await engagement.locator("img").getAttribute("src"), ordinary.logo_url);
         await page.screenshot({
-          path: `${reportDirectory}/${platform}-engagement-${width === 390 ? "mobile" : "desktop"}.png`,
+          path: `${reportDirectory}/${platform}-grid-rejects-engagement-${width === 390 ? "mobile" : "desktop"}.png`,
           animations: "disabled",
         });
         nativeMode = "disclosure";
@@ -2486,7 +3167,7 @@ try {
           `${platform}: production gateway preserves distinct caller identity for ${pathname}`,
         );
       console.log(
-        `${platform}: built web/extension desktop header sponsorship, narrow inventory gating, search, category and topic cards; managed custom product creatives, clearing to default OG, responsive sources and failed-image fallback; compact formats preserve logos and sponsored content preserves its article image; every product disclosed with distinct amber Sponsored pills and no dismissal; branded preview sidebar; unchanged feed nodes, receipts and tracking through article overlays; focus/layout stability; signed campaign and non-campaign tracking; configured production gateway caller proofs, credential isolation and placement429 retry guidance; mounted receipt expiry and background wake preserve reading position without refreshing or tracking; viewable placements never read, write or remove abandoned local history; private session routing; optional private experience save/reload/clear; article priority passed`,
+        `${platform}: built web/extension desktop header sponsorship, narrow inventory gating, compact search and article sidebars, category and topic cards; managed custom product creatives, clearing to default OG, responsive sources and failed-image fallback; compact formats preserve logos and sponsored content preserves its article image; every product disclosed as Sponsored with quiet header text and amber card pills; no dismissal; compact preview sidebar; unchanged feed nodes, receipts and tracking through article overlays; focus/layout stability; signed campaign and non-campaign tracking; configured production gateway caller proofs, credential isolation and placement429 retry guidance; mounted receipt expiry and background wake preserve reading position without refreshing or tracking; viewable placements never read, write or remove abandoned local history; private session routing; optional private experience save/reload/clear; article priority passed`,
       );
     } catch (error) {
       const page = context.pages().findLast((page) => page.url() !== "about:blank");

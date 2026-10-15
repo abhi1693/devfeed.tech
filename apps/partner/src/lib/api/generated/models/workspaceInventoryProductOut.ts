@@ -27,7 +27,7 @@ export interface WorkspaceInventoryProductOut {
   name: string;
   pricing: WorkspaceInventoryProductOutPricing;
   product_url: string;
-  promotion_surfaces?: ('article' | 'topic' | 'feed')[] | null;
+  promotion_surfaces?: ('article' | 'topic' | 'feed' | 'search')[] | null;
   revision: number;
   source: WorkspaceInventoryProductOutSource;
   status: string;

@@ -156,6 +156,10 @@ function PartnerCampaignForm({
   const [surfaces, setSurfaces] = useState<PromotionSurface[]>(
     campaign?.surfaces ?? account.promotion_surfaces ?? [...promotionSurfaces],
   );
+  const allowedSurfaces = promotionSurfaces.filter(
+    (surface) => adFormat === "engagement" || surface !== "search",
+  );
+  const campaignSurfaces = surfaces.filter((surface) => allowedSurfaces.includes(surface));
   const [error, setError] = useState<Error>();
   const [busy, setBusy] = useState(false);
   const [dates] = useState(() => {
@@ -238,7 +242,7 @@ function PartnerCampaignForm({
       setError(new Error("Choose an end date after the start date."));
       return;
     }
-    if (!feedOnly && !surfaces.length) {
+    if (!feedOnly && !campaignSurfaces.length) {
       setError(new Error("Select at least one placement surface."));
       return;
     }
@@ -261,7 +265,7 @@ function PartnerCampaignForm({
       product_ids: targeting === "selected" ? products : [],
       topic_ids: targeting === "filters" ? topics : [],
       technologies: targeting === "filters" ? technologies : [],
-      surfaces: feedOnly ? ["feed"] : surfaces,
+      surfaces: feedOnly ? ["feed"] : campaignSurfaces,
       ad_format: adFormat,
       article_id: sponsoredContent ? articleId : null,
       starts_at: start.toISOString(),
@@ -311,7 +315,11 @@ function PartnerCampaignForm({
               {...control}
               label="Ad format"
               value={adFormat}
-              onChange={(value) => setAdFormat(value as typeof adFormat)}
+              onChange={(value) => {
+                setAdFormat(value as typeof adFormat);
+                if (value !== "engagement")
+                  setSurfaces((current) => current.filter((surface) => surface !== "search"));
+              }}
               options={adFormats
                 .filter((option) => (account.allowed_ad_formats ?? ["feed"]).includes(option.value))
                 .map(({ value, label }) => ({ value, label }))}
@@ -550,7 +558,12 @@ function PartnerCampaignForm({
             : "Homepage sponsorship appears on the main homepage only."}
         </p>
       ) : (
-        <PromotionSurfaces value={surfaces} onChange={setSurfaces} disabled={busy} />
+        <PromotionSurfaces
+          value={campaignSurfaces}
+          onChange={setSurfaces}
+          disabled={busy}
+          allowed={allowedSurfaces}
+        />
       )}
       {feedOnly && !account.promotion_surfaces?.includes("feed") && (
         <p className="text-sm text-muted-foreground">

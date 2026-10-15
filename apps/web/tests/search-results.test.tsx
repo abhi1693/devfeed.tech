@@ -79,6 +79,12 @@ it("shows articles first and waits for a section boundary before fetching", () =
     "Tags",
   ]);
   expect(screen.getByRole("heading", { name: "Articles", level: 2 }).className).toBe("sr-only");
+  const sidebar = document.querySelector("aside.search-sidebar")!;
+  expect(sidebar).toBeTruthy();
+  expect(sidebar.contains(screen.getByRole("heading", { name: "Articles" }))).toBe(false);
+  for (const name of ["Topics", "Sources", "Tags"]) {
+    expect(sidebar.contains(screen.getByRole("heading", { name }))).toBe(true);
+  }
   expect(screen.getByRole("link", { name: /tags/ }).getAttribute("href")).toBe("/tags/kubernetes");
   expect(
     document.querySelector(".search-result-meta .content-type")?.getAttribute("data-content-type"),

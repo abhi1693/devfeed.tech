@@ -49,7 +49,7 @@ it.each(["feed", "homepage_sponsorship", "engagement"] as const)(
         : within(preview).getByText("rust.example", { exact: true }),
     ).toBeTruthy();
     expect(preview.textContent).not.toMatch(/Visit website|Read article/);
-    expect(preview.textContent?.includes("Explore ↗")).toBe(format === "engagement");
+    expect(preview.textContent).not.toContain("Explore");
     expect(preview.querySelectorAll("img").length).toBe(1);
   },
 );
@@ -76,13 +76,13 @@ it("shows homepage sponsorship as a quiet credit in the desktop app header", () 
   expect(within(preview).queryByRole("button")).toBeNull();
 });
 
-it("explains contextual engagement placement and retains its product tagline and action", () => {
+it("explains contextual engagement placement and retains its product tagline and hostname", () => {
   render(<AdCreativePreview format="engagement" product={product} />);
   const preview = screen.getByRole("region", { name: "Creative preview" });
-  expect(within(preview).getByText(/article-preview sidebars/)).toBeTruthy();
+  expect(within(preview).getByText(/search and article sidebars/)).toBeTruthy();
   expect(within(preview).getByText(product.tagline)).toBeTruthy();
   expect(within(preview).getByText("rust.example", { exact: true })).toBeTruthy();
-  expect(within(preview).getByText("Explore ↗")).toBeTruthy();
+  expect(within(preview).queryByText(/Explore/)).toBeNull();
   expect(within(preview).queryByText("DevFeed")).toBeNull();
 });
 
@@ -260,6 +260,38 @@ it("explicitly resets saved custom policy to account inheritance", async () => {
   await waitFor(() =>
     expect(save).toHaveBeenCalledWith(
       { excluded: false, ad_formats: null, promotion_surfaces: null, ad_image_url: null },
+      expect.any(AbortSignal),
+    ),
+  );
+});
+
+it("saves an explicit Search-only product placement restriction", async () => {
+  const policy: ProductPlacementPolicy = {
+    excluded: false,
+    ad_formats: ["engagement"],
+    promotion_surfaces: [],
+    ad_image_url: null,
+  };
+  const save = vi.fn(async (next: ProductPlacementPolicy) => next);
+  render(
+    <ProductPlacementDialog
+      name={product.name}
+      allowedFormats={allowed}
+      accountFormats={["engagement"]}
+      accountSurfaces={["search"]}
+      loadPolicy={async () => policy}
+      savePolicy={save}
+    />,
+  );
+  await userEvent.click(
+    screen.getByRole("button", { name: `Edit placements for ${product.name}` }),
+  );
+  await userEvent.click(await screen.findByRole("checkbox", { name: "Search results" }));
+  expect(screen.getByText("Allowed locations after saving: Search results.")).toBeTruthy();
+  await userEvent.click(screen.getByRole("button", { name: "Save product placements" }));
+  await waitFor(() =>
+    expect(save).toHaveBeenCalledWith(
+      { ...policy, promotion_surfaces: ["search"] },
       expect.any(AbortSignal),
     ),
   );

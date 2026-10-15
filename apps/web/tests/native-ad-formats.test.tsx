@@ -238,23 +238,18 @@ it("does not replace an already visible article with a paid duplicate", async ()
   expect(view.container.querySelectorAll(".partner-placement")).toHaveLength(0);
 });
 
-it("renders engagement as a compact contextual cell with signed tracking", async () => {
+it("keeps Engagement out of the article grid even when an upstream response includes it", async () => {
   vi.mocked(readerRequest).mockResolvedValue(
     Response.json({ items: [{ ...placement, ad_format: "engagement" }] }),
   );
   const view = renderFeed(<ArticleGrid articles={articles} placements={context} />);
-  const link = await screen.findByRole("link", { name: placement.name });
-  expect(link.closest("article")?.className).toContain("partner-placement--compact");
-  expect(link.querySelector(".card-image")).toBeNull();
-  expect(view.container.querySelectorAll(".article-grid > .partner-placement")).toHaveLength(1);
-  expect(screen.getByText("Sponsored")).toBeTruthy();
-  expect(link.querySelector(".partner-placement-action")?.textContent).toContain("Explore");
-  expect(link.querySelector(".partner-placement-action svg")).toBeTruthy();
-  expect(link.querySelector(".partner-placement-destination")?.textContent).toContain(
-    "partner.example",
-  );
-  expect(link.getAttribute("rel")).toBe("sponsored noopener noreferrer");
-  expect(link.querySelector("button")).toBeNull();
+  await waitFor(() => expect(readerRequest).toHaveBeenCalled());
+  await act(async () => {});
+  expect(
+    JSON.parse(String(vi.mocked(readerRequest).mock.calls[0][1]?.body)).ad_formats,
+  ).not.toContain("engagement");
+  expect(view.container.querySelector(".partner-placement")).toBeNull();
+  expect(view.container.querySelectorAll(".article-grid > .article-card")).toHaveLength(24);
 });
 
 it("rejects a homepage creative outside the unfiltered homepage contract", async () => {

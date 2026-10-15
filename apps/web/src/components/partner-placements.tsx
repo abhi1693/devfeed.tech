@@ -10,7 +10,6 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { ArrowUpRight } from "lucide-react";
 import { readerRequest, rememberReaderArticles } from "@/lib/reader-runtime";
 import { userRequest } from "@/lib/user";
 import {
@@ -18,7 +17,10 @@ import {
   type PartnerPlacement,
   type PlacementQuery,
 } from "@/lib/partner-placements";
-import { observePartnerPlacement } from "@/lib/partner-tracking";
+import {
+  observePartnerPlacement,
+  type PartnerPlacementTrackingState,
+} from "@/lib/partner-tracking";
 import { PARTNER_RECEIPT_TTL_MS, partnerReceiptExpiresAt } from "@/lib/partner-receipts";
 import { useUser } from "./user-account";
 import { useReaderPromptCoordinator } from "./reader-prompts";
@@ -33,6 +35,7 @@ const displayed = new Set<string>();
 export type PartnerPlacementContext = PlacementQuery;
 type Props = PartnerPlacementContext & {
   maxItems?: number;
+  layout?: "table";
   children?: (cards: ReactNode[], items: PartnerPlacement[], expired: boolean) => ReactNode;
   beforeDisplay?: () => void;
   afterDisplay?: () => void;
@@ -41,6 +44,7 @@ type Delivery = {
   context: string;
   owner: string;
   items: PartnerPlacement[];
+  tracking: Map<string, PartnerPlacementTrackingState>;
   expiresAt: number;
   expired: boolean;
 };
@@ -81,40 +85,101 @@ function Placement({
   active,
   visible,
   preserveSpace,
+  layout,
+  tracking,
 }: {
   item: PartnerPlacement;
   active: boolean;
   visible: boolean;
   preserveSpace: boolean;
+  layout?: "table";
+  tracking?: PartnerPlacementTrackingState;
 }) {
   const link = useRef<HTMLAnchorElement>(null);
   const article = useRef<HTMLElement>(null);
   const content = item.ad_format === "sponsored_content" ? item.article : null;
+  const table = layout === "table" && item.ad_format === "feed";
   const card = preserveSpace && !["homepage_sponsorship", "engagement"].includes(item.ad_format);
   const image = item.image_url ?? item.image_variants[0]?.url;
   const sponsorshipId = useId();
-  const tracking = useRef({
-    receipt: item.receipt,
-    completed: new Set<string>(),
-    pending: new Set<string>(),
-  });
   useEffect(() => {
     const target = content ? article.current : link.current;
-    if (!active || !target) return;
-    if (tracking.current.receipt !== item.receipt)
-      tracking.current = {
-        receipt: item.receipt,
-        completed: new Set<string>(),
-        pending: new Set<string>(),
-      };
-    const args = [target, item.receipt, tracking.current] as const;
+    if (!active || !target || !tracking) return;
+    const args = [target, item.receipt, tracking] as const;
     return content
       ? observePartnerPlacement(...args, "a.card-open-link, a.article-read-link")
       : observePartnerPlacement(...args);
-  }, [item, active, content]);
+  }, [item, active, content, table, tracking]);
   useEffect(() => {
     if (content) rememberReaderArticles([content]);
   }, [content]);
+  const stateProps = {
+    "data-product-id": item.product_id,
+    "data-ad-format": item.ad_format,
+    "data-suspended": !visible && preserveSpace ? "true" : undefined,
+    hidden: !visible && !preserveSpace,
+    "aria-hidden": !active || undefined,
+    inert: !active,
+  };
+  const linkProps = {
+    ref: link,
+    href: item.url,
+    target: "_blank",
+    rel: "sponsored noopener noreferrer",
+    "aria-label": item.name,
+    "aria-describedby": sponsorshipId,
+    title:
+      item.ad_format === "homepage_sponsorship"
+        ? `${item.name} · ${displayHost(item.url)}`
+        : table
+          ? item.name
+          : undefined,
+    referrerPolicy: "no-referrer" as const,
+  };
+  if (table)
+    return (
+      <tr
+        className="article-list-row partner-placement partner-placement--row partner-placement--feed"
+        {...stateProps}
+      >
+        <td className="article-list-main">
+          <a {...linkProps} className="partner-placement-link">
+            <span id={sponsorshipId} className="sr-only">
+              Sponsored
+            </span>
+            <span className="partner-placement-title">
+              <strong>{item.name}</strong>
+              <span className="partner-placement-separator" aria-hidden="true">
+                |
+              </span>
+              <span className="partner-placement-description" title={item.tagline}>
+                {item.tagline}
+              </span>
+              <span
+                className="content-type card-meta-type partner-placement-label partner-placement-mobile-label"
+                data-promotion-kind="sponsored"
+                aria-hidden="true"
+              >
+                Sponsored
+              </span>
+            </span>
+          </a>
+        </td>
+        <td className="source-column">
+          <span title={item.partner_name}>{item.partner_name}</span>
+        </td>
+        <td className="date-column">
+          <span
+            className="content-type card-meta-type partner-placement-label"
+            data-promotion-kind="sponsored"
+            aria-hidden="true"
+          >
+            Sponsored
+          </span>
+        </td>
+        <td className="bookmark-column" />
+      </tr>
+    );
   if (content)
     return (
       <EngagementProvider articleIds={[content.id]}>
@@ -133,28 +198,9 @@ function Placement({
   return (
     <article
       className={`partner-placement ${card ? "partner-placement--card" : "partner-placement--compact"}${card && !image ? " partner-placement--branded" : ""} partner-placement--${item.ad_format}`}
-      data-product-id={item.product_id}
-      data-ad-format={item.ad_format}
-      data-suspended={!visible && preserveSpace ? "true" : undefined}
-      hidden={!visible && !preserveSpace}
-      aria-hidden={!active || undefined}
-      inert={!active}
+      {...stateProps}
     >
-      <a
-        ref={link}
-        href={item.url}
-        target="_blank"
-        rel="sponsored noopener noreferrer"
-        className="partner-placement-link"
-        aria-label={item.name}
-        aria-describedby={sponsorshipId}
-        title={
-          item.ad_format === "homepage_sponsorship"
-            ? `${item.name} · ${displayHost(item.url)}`
-            : undefined
-        }
-        referrerPolicy="no-referrer"
-      >
+      <a {...linkProps} className="partner-placement-link">
         {card ? (
           <>
             {image && (
@@ -220,11 +266,6 @@ function Placement({
             {item.ad_format !== "homepage_sponsorship" && (
               <span className="partner-placement-destination">
                 <span>{displayHost(item.url)}</span>
-                {item.ad_format === "engagement" && (
-                  <span className="partner-placement-action" aria-hidden="true">
-                    Explore <ArrowUpRight size={14} />
-                  </span>
-                )}
               </span>
             )}
           </>
@@ -255,6 +296,7 @@ function PlacementDelivery({
   ad_formats,
   topic_id,
   maxItems = 2,
+  layout,
   active,
   children,
   beforeDisplay,
@@ -267,7 +309,7 @@ function PlacementDelivery({
       surface,
       article_id,
       article_ids,
-      ...(surface === "feed" ? { allow_sponsored_fallback } : {}),
+      ...(surface === "feed" || surface === "search" ? { allow_sponsored_fallback } : {}),
       ad_formats,
       topic_id,
     } satisfies PlacementQuery,
@@ -392,6 +434,12 @@ function PlacementDelivery({
           context,
           owner: identity,
           items,
+          tracking: new Map(
+            items.map((item) => [
+              item.receipt,
+              { completed: new Set<string>(), pending: new Set<string>() },
+            ]),
+          ),
           expiresAt: Math.min(
             loadedAt + PARTNER_RECEIPT_TTL_MS,
             ...items.map((item) => partnerReceiptExpiresAt(item.receipt)),
@@ -425,6 +473,8 @@ function PlacementDelivery({
       active={active && !loading && visible}
       visible={visible}
       preserveSpace={!!children}
+      layout={layout}
+      tracking={result?.tracking.get(item.receipt)}
     />
   ));
   if (children) return children(cards, items, result?.expired ?? true);

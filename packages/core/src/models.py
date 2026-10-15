@@ -25,6 +25,7 @@ from sqlalchemy import (
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
+from devfeed_core.partner_surfaces import default_campaign_surfaces, default_promotion_surfaces
 from devfeed_core.topic_kinds import TOPIC_KINDS
 
 
@@ -1724,8 +1725,8 @@ class PartnerAccount(Base):
         ),
         CheckConstraint(
             "jsonb_typeof(promotion_surfaces) = 'array' AND "
-            "jsonb_array_length(promotion_surfaces) BETWEEN 1 AND 3 AND "
-            'promotion_surfaces <@ \'["article","topic","feed"]\'::jsonb',
+            "jsonb_array_length(promotion_surfaces) BETWEEN 1 AND 4 AND "
+            'promotion_surfaces <@ \'["article","topic","feed","search"]\'::jsonb',
             name="ck_partner_promotion_surfaces",
         ),
         CheckConstraint(
@@ -1745,8 +1746,8 @@ class PartnerAccount(Base):
     )
     promotion_surfaces: Mapped[list] = mapped_column(
         JSONB,
-        default=lambda: ["article", "topic", "feed"],
-        server_default='["article","topic","feed"]',
+        default=default_promotion_surfaces,
+        server_default='["article","topic","feed","search"]',
     )
     promotion_kind: Mapped[str | None] = mapped_column(String(20))
     approval_mode: Mapped[str] = mapped_column(
@@ -1872,8 +1873,9 @@ class PartnerCampaign(Base):
             name="ck_partner_campaign_daily_limit",
         ),
         CheckConstraint(
-            "jsonb_typeof(surfaces) = 'array' AND jsonb_array_length(surfaces) BETWEEN 1 AND 3 AND "
-            'surfaces <@ \'["article","topic","feed"]\'::jsonb',
+            "jsonb_typeof(surfaces) = 'array' AND jsonb_array_length(surfaces) BETWEEN 1 AND 4 AND "
+            'surfaces <@ \'["article","topic","feed","search"]\'::jsonb AND '
+            "(ad_format = 'engagement' OR NOT surfaces @> '[\"search\"]'::jsonb)",
             name="ck_partner_campaign_surfaces",
         ),
         CheckConstraint(
@@ -1913,7 +1915,9 @@ class PartnerCampaign(Base):
     audience: Mapped[dict | None] = mapped_column(JSONB(none_as_null=True))
     surfaces: Mapped[list] = mapped_column(
         JSONB,
-        default=lambda: ["article", "topic", "feed"],
+        default=lambda context: default_campaign_surfaces(
+            context.get_current_parameters().get("ad_format", "feed")
+        ),
         server_default='["article","topic","feed"]',
     )
     starts_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
@@ -1931,8 +1935,8 @@ class PartnerProductPromotion(Base):
     __table_args__ = (
         CheckConstraint(
             "promotion_surfaces IS NULL OR (jsonb_typeof(promotion_surfaces) = 'array' AND "
-            "jsonb_array_length(promotion_surfaces) <= 3 AND "
-            'promotion_surfaces <@ \'["article","topic","feed"]\'::jsonb)',
+            "jsonb_array_length(promotion_surfaces) <= 4 AND "
+            'promotion_surfaces <@ \'["article","topic","feed","search"]\'::jsonb)',
             name="ck_partner_product_surfaces",
         ),
         CheckConstraint(
@@ -2113,7 +2117,7 @@ class PartnerPlacementDelivery(Base):
     __table_args__ = (
         Index("ix_partner_delivery_asset_issued", "asset_id", "issued_at"),
         CheckConstraint(
-            "surface IS NULL OR surface IN ('article','topic','feed')",
+            "surface IS NULL OR surface IN ('article','topic','feed','search')",
             name="ck_partner_delivery_surface",
         ),
     )

@@ -27,7 +27,7 @@ export interface ProductDetailOut {
   name: string;
   pricing: ProductDetailOutPricing;
   product_url: string;
-  promotion_surfaces?: ('article' | 'topic' | 'feed')[] | null;
+  promotion_surfaces?: ('article' | 'topic' | 'feed' | 'search')[] | null;
   revision: number;
   source: ProductDetailOutSource;
   status: string;

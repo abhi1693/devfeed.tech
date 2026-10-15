@@ -1,0 +1,20 @@
+.collection-feed-layout,
+.collection-feed-articles,
+.collection-feed-sidebar {
+  min-width: 0;
+}
+.collection-feed-layout--sidebar {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 300px;
+  align-items: start;
+  gap: 24px;
+}
+.collection-feed-sidebar .partner-placements {
+  margin: 0;
+}
+@media (max-width: 1100px) {
+  .collection-feed-layout--sidebar {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 20px;
+  }
+}

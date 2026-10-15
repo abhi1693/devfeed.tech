@@ -289,6 +289,38 @@ it("saves promotion defaults once on the account without requiring a product typ
   expect(screen.queryByRole("combobox", { name: "Type" })).toBeNull();
 });
 
+it.each([false, true])(
+  "saves campaign Search only while Engagement remains selected (%s)",
+  async (changeFormat) => {
+    vi.mocked(api.adminPartnerCampaignGet).mockResolvedValue({
+      ...campaign,
+      ad_format: "engagement",
+      surfaces: ["feed", "search"],
+    });
+    renderAdmin(<PartnerCampaignPage account={paidAccount} campaignId={campaign.id} />);
+    const search = await screen.findByRole("checkbox", { name: "Search results" });
+    expect(search).toHaveProperty("checked", true);
+    if (changeFormat) {
+      fireEvent.click(screen.getByRole("combobox", { name: "Ad format" }));
+      fireEvent.click(screen.getByRole("option", { name: "Feed" }));
+      expect(screen.queryByRole("checkbox", { name: "Search results" })).toBeNull();
+      fireEvent.click(screen.getByRole("combobox", { name: "Ad format" }));
+      fireEvent.click(screen.getByRole("option", { name: "Engagement" }));
+      expect(screen.getByRole("checkbox", { name: "Search results" })).toHaveProperty(
+        "checked",
+        false,
+      );
+      fireEvent.click(screen.getByRole("combobox", { name: "Ad format" }));
+      fireEvent.click(screen.getByRole("option", { name: "Feed" }));
+    }
+    fireEvent.submit(screen.getByRole("form", { name: "Paid campaign settings" }));
+    await waitFor(() => expect(api.adminPartnerCampaignUpdate).toHaveBeenCalledOnce());
+    expect(vi.mocked(api.adminPartnerCampaignUpdate).mock.calls[0][2].surfaces).toEqual(
+      changeFormat ? ["feed"] : ["feed", "search"],
+    );
+  },
+);
+
 const structuredTiers = [
   {
     tier: "bronze",

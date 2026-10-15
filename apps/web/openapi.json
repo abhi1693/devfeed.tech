@@ -1220,7 +1220,8 @@
             "enum": [
               "article",
               "topic",
-              "feed"
+              "feed",
+              "search"
             ],
             "title": "Surface",
             "type": "string"

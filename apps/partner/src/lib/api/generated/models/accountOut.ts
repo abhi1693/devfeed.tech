@@ -41,7 +41,7 @@ export interface AccountOut {
   promotion_kind_source: AccountOutPromotionKindSource;
   /**
      * @minItems 1
-     * @maxItems 3
+     * @maxItems 4
      */
   promotion_surfaces?: AccountOutPromotionSurfacesItem[];
   status?: AccountOutStatus;

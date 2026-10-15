@@ -70,8 +70,8 @@ it.each([
       surface: "feed",
       allow_sponsored_fallback: fallback,
       ad_formats: fallback
-        ? ["feed", "homepage_sponsorship", "sponsored_content", "engagement"]
-        : ["feed", "sponsored_content", "engagement"],
+        ? ["feed", "homepage_sponsorship", "sponsored_content"]
+        : ["feed", "sponsored_content"],
     });
   },
 );

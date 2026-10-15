@@ -1,9 +1,9 @@
 """Strict context-only placement requests shared by public and personalized APIs."""
 
 import uuid
-from typing import Literal
 
 from devfeed_core.partner_ad_formats import AdFormat, default_ad_formats
+from devfeed_core.partner_surfaces import PromotionSurface
 from devfeed_core.partner_taglines import Tagline
 from devfeed_core.schemas import ArticleOut
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -11,7 +11,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 class PlacementQuery(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    surface: Literal["article", "topic", "feed"]
+    surface: PromotionSurface
     ad_formats: list[AdFormat] = Field(
         default_factory=default_ad_formats, min_length=1, max_length=4
     )
@@ -25,6 +25,8 @@ class PlacementQuery(BaseModel):
     def valid_context(self):
         if len(self.ad_formats) != len(set(self.ad_formats)):
             raise ValueError("Ad format selections must be unique")
+        if self.surface == "search" and self.ad_formats != ["engagement"]:
+            raise ValueError("Search supports only contextual Engagement placements")
         if "sponsored_content" in self.ad_formats and self.surface != "feed":
             raise ValueError("Sponsored content is only supported in feeds")
         if "homepage_sponsorship" in self.ad_formats and (
@@ -37,8 +39,8 @@ class PlacementQuery(BaseModel):
             raise ValueError("Supply exactly the context required by the selected surface")
         if self.allow_sponsored_fallback and self.surface != "feed":
             raise ValueError("Sponsored fallback is only supported for the feed surface")
-        if self.article_ids and self.surface != "feed":
-            raise ValueError("Visible article context is only supported for the feed surface")
+        if self.article_ids and self.surface not in {"feed", "search"}:
+            raise ValueError("Visible article context is only supported for feed and search")
         return self
 
 

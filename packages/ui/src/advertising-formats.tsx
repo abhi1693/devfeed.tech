@@ -13,8 +13,7 @@ export const adFormats = [
   {
     value: "feed",
     label: "Feed",
-    description:
-      "Product cards among relevant feed, search and topic results, with compact cards beside articles.",
+    description: "Native product cards in grid feeds and sponsored rows in compact feed tables.",
   },
   {
     value: "homepage_sponsorship",
@@ -25,14 +24,12 @@ export const adFormats = [
   {
     value: "sponsored_content",
     label: "Sponsored content",
-    description:
-      "An approved sponsored article in relevant feed and search results, opened inside the reader.",
+    description: "An approved sponsored article in relevant grid feeds, opened inside the reader.",
   },
   {
     value: "engagement",
     label: "Engagement",
-    description:
-      "Compact recommendations among relevant feed, search and topic results, or in article-preview sidebars.",
+    description: "Compact product recommendations in topic, source, search and article sidebars.",
   },
 ] as const;
 export type AdFormat = (typeof adFormats)[number]["value"];
@@ -123,6 +120,7 @@ export const placementSurfaces = [
   { value: "article", label: "Article pages" },
   { value: "topic", label: "Topic and category pages" },
   { value: "feed", label: "Reader feeds" },
+  { value: "search", label: "Search results" },
 ] as const;
 export type PlacementSurface = (typeof placementSurfaces)[number]["value"];
 export type ProductPlacementRestrictions = {
@@ -1111,10 +1109,7 @@ export function AdCreativePreview({
                     <p className="line-clamp-2 text-xs text-muted-foreground">{copy}</p>
                   )}
                   {format === "engagement" && (
-                    <div className="flex items-center justify-between gap-3 text-xs text-muted-foreground">
-                      <span className="truncate">{host}</span>
-                      <span className="shrink-0">Explore ↗</span>
-                    </div>
+                    <p className="truncate text-xs text-muted-foreground">{host}</p>
                   )}
                 </div>
               </div>

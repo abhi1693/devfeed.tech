@@ -9,7 +9,7 @@ import { RequestState } from "@/components/molecules/request-state";
 import { ResourcePanel, DataValue } from "@devfeed/ui/resource-layout";
 import { audienceValue } from "@devfeed/ui/audience-targeting";
 import { PartnerAudience } from "./partner-audience";
-import { adFormatLabel } from "@devfeed/ui/advertising-formats";
+import { adFormatLabel, placementSurfaces } from "@devfeed/ui/advertising-formats";
 import { StatusBadge } from "@/components/molecules/status-badge";
 import { DataTable, type DataTableColumn } from "@/components/molecules/data-table";
 import { useAdmin } from "@/components/molecules/admin-session";
@@ -444,7 +444,10 @@ export function PartnerAccountPage({
                         label: "Allowed placements",
                         value: (
                           <DataValue
-                            value={data!.account.promotion_surfaces ?? ["article", "topic", "feed"]}
+                            value={
+                              data!.account.promotion_surfaces ??
+                              placementSurfaces.map((surface) => surface.value)
+                            }
                           />
                         ),
                       },

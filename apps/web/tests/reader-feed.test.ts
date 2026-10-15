@@ -64,7 +64,7 @@ describe("shared native feed eligibility", () => {
         expect(feedPlacements(descriptor, parseFilters({ sort }))).toEqual({
           surface: "feed",
           allow_sponsored_fallback: true,
-          ad_formats: ["feed", "homepage_sponsorship", "sponsored_content", "engagement"],
+          ad_formats: ["feed", "homepage_sponsorship", "sponsored_content"],
         });
     },
   );
@@ -75,7 +75,7 @@ describe("shared native feed eligibility", () => {
       expect(feedPlacements(readerFeeds.latest, parseFilters(query))).toEqual({
         surface: "feed",
         allow_sponsored_fallback: false,
-        ad_formats: ["feed", "sponsored_content", "engagement"],
+        ad_formats: ["feed", "sponsored_content"],
       });
     },
   );
@@ -99,7 +99,7 @@ describe("shared native feed eligibility", () => {
       expect(feedPlacements(descriptor, parseFilters({}))).toEqual({
         surface: "feed",
         allow_sponsored_fallback: false,
-        ad_formats: ["feed", "sponsored_content", "engagement"],
+        ad_formats: ["feed", "sponsored_content"],
       });
   });
 
@@ -111,7 +111,7 @@ describe("shared native feed eligibility", () => {
         parseFilters({ topic: "rust", content_type: "news" }),
         context,
       ),
-    ).toEqual({ surface: "topic", topic_id: "topic-id", ad_formats: ["feed", "engagement"] });
+    ).toEqual({ surface: "topic", topic_id: "topic-id", ad_formats: ["feed"] });
     expect(feedPlacements(readerFeeds.home, parseFilters({ q: "rust" }), context)).toMatchObject({
       surface: "feed",
       allow_sponsored_fallback: false,

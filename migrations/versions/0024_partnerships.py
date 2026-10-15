@@ -81,7 +81,7 @@ def upgrade():
         sa.Column(
             "promotion_surfaces",
             postgresql.JSONB(),
-            server_default='["article","topic","feed"]',
+            server_default='["article","topic","feed","search"]',
             nullable=False,
         ),
         sa.Column("promotion_kind", sa.String(20), nullable=True),
@@ -134,8 +134,8 @@ def upgrade():
         sa.CheckConstraint(
             (
                 "jsonb_typeof(promotion_surfaces) = 'array' AND "
-                "jsonb_array_length(promotion_surfaces) BETWEEN 1 AND 3 AND "
-                'promotion_surfaces <@ \'["article","topic","feed"]\'::jsonb'
+                "jsonb_array_length(promotion_surfaces) BETWEEN 1 AND 4 AND "
+                'promotion_surfaces <@ \'["article","topic","feed","search"]\'::jsonb'
             ),
             name="ck_partner_promotion_surfaces",
         ),
@@ -371,8 +371,9 @@ def upgrade():
         sa.CheckConstraint(
             (
                 "jsonb_typeof(surfaces) = 'array' AND "
-                "jsonb_array_length(surfaces) BETWEEN 1 AND 3 AND surfaces <@ "
-                '\'["article","topic","feed"]\'::jsonb'
+                "jsonb_array_length(surfaces) BETWEEN 1 AND 4 AND surfaces <@ "
+                '\'["article","topic","feed","search"]\'::jsonb AND '
+                "(ad_format = 'engagement' OR NOT surfaces @> '[\"search\"]'::jsonb)"
             ),
             name="ck_partner_campaign_surfaces",
         ),
@@ -543,8 +544,8 @@ def upgrade():
         sa.CheckConstraint(
             (
                 "promotion_surfaces IS NULL OR (jsonb_typeof(promotion_surfaces) "
-                "= 'array' AND jsonb_array_length(promotion_surfaces) <= 3 AND "
-                'promotion_surfaces <@ \'["article","topic","feed"]\'::jsonb)'
+                "= 'array' AND jsonb_array_length(promotion_surfaces) <= 4 AND "
+                'promotion_surfaces <@ \'["article","topic","feed","search"]\'::jsonb)'
             ),
             name="ck_partner_product_surfaces",
         ),
@@ -834,7 +835,7 @@ def upgrade():
         sa.Column("issued_at", sa.DateTime(timezone=True), nullable=False),
         sa.Column("surface", sa.String(20), nullable=True),
         sa.CheckConstraint(
-            "surface IS NULL OR surface IN ('article','topic','feed')",
+            "surface IS NULL OR surface IN ('article','topic','feed','search')",
             name="ck_partner_delivery_surface",
         ),
         sa.ForeignKeyConstraint(["asset_id"], ["partner_assets.id"], ondelete="RESTRICT"),

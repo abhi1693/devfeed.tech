@@ -59,7 +59,7 @@ def test_campaign_requires_finite_explicit_paid_scope(fields):
 def test_account_defaults_allow_free_recommendations_and_do_not_imply_payment():
     payload = AccountInput(name="Free partner", tier="bronze")
     assert payload.organic_enabled and payload.auto_include_products
-    assert payload.promotion_surfaces == ["article", "topic", "feed"]
+    assert payload.promotion_surfaces == ["article", "topic", "feed", "search"]
     assert "frequency_cap" not in payload.model_dump()
     with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
         AccountInput(name="Free partner", tier="bronze", frequency_cap=3)

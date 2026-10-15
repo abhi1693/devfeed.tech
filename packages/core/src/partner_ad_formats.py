@@ -42,6 +42,8 @@ def validate_product_formats(tier: str, formats: Sequence[str] | None, *, previo
 def placement_format_allowed(ad_format: str, query) -> bool:
     if ad_format not in query.ad_formats:
         return False
+    if query.surface == "search":
+        return ad_format == "engagement"
     if ad_format == "homepage_sponsorship":
         return query.surface == "feed" and query.allow_sponsored_fallback
     if ad_format == "sponsored_content":

@@ -131,11 +131,12 @@
               "enum": [
                 "article",
                 "topic",
-                "feed"
+                "feed",
+                "search"
               ],
               "type": "string"
             },
-            "maxItems": 3,
+            "maxItems": 4,
             "minItems": 1,
             "title": "Promotion Surfaces",
             "type": "array"
@@ -1389,7 +1390,8 @@
                   "enum": [
                     "article",
                     "topic",
-                    "feed"
+                    "feed",
+                    "search"
                   ],
                   "type": "string"
                 },
@@ -2554,7 +2556,8 @@
                   "enum": [
                     "article",
                     "topic",
-                    "feed"
+                    "feed",
+                    "search"
                   ],
                   "type": "string"
                 },
@@ -2754,11 +2757,12 @@
                   "enum": [
                     "article",
                     "topic",
-                    "feed"
+                    "feed",
+                    "search"
                   ],
                   "type": "string"
                 },
-                "maxItems": 3,
+                "maxItems": 4,
                 "type": "array"
               },
               {
@@ -2861,11 +2865,12 @@
                   "enum": [
                     "article",
                     "topic",
-                    "feed"
+                    "feed",
+                    "search"
                   ],
                   "type": "string"
                 },
-                "maxItems": 3,
+                "maxItems": 4,
                 "type": "array"
               },
               {
@@ -3654,7 +3659,8 @@
                   "enum": [
                     "article",
                     "topic",
-                    "feed"
+                    "feed",
+                    "search"
                   ],
                   "type": "string"
                 },

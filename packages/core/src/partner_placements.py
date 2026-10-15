@@ -347,11 +347,11 @@ def contextual_candidates(session, query, now, user_id=None, *, as_query=False):
             .with_for_update(read=True, skip_locked=True)
         )
         weights = {topic.id: 100} if topic else {}
-    elif query.article_ids:
+    elif query.article_ids or query.surface == "search":
         weights = feed_topic_weights(session, query.article_ids)
-        if user_id and weights:
+        if user_id and weights and query.surface != "search":
             interests = personal_topic_weights(session, user_id, now)
-            # Search/category context remains authoritative. Personalization can
+            # Visible feed context remains authoritative. Personalization can
             # strengthen existing topics but cannot introduce unrelated inventory.
             weights = {
                 topic_id: min(100, weight + interests.get(topic_id, 0) // 10)
@@ -369,14 +369,19 @@ def contextual_candidates(session, query, now, user_id=None, *, as_query=False):
             else_=0,
         )
     ).op("/")(100)
-    conditions = (
+    conditions = [
         PartnerProductTopic.topic_id.in_(weights),
         Topic.status == "active",
         PartnerProductTopic.topic_updated_at == Topic.updated_at,
         PartnerProductTopic.product_revision == PartnerProduct.revision,
         PartnerProductTopic.product_updated_at == PartnerProduct.updated_at,
         weighted_score >= 40,
-    )
+    ]
+    if query.surface == "search":
+        # Search describes a visible collection, not an individual tutorial task.
+        # Only verified direct capability support can qualify; relationship-based
+        # adjacency and personal interests cannot broaden the requested context.
+        conditions.append(PartnerProductTopic.score == 100)
     if as_query:
         # Reduce multiple approved context edges to the strongest edge per product
         # before joining assets. There is no pre-policy terminal candidate cutoff.
@@ -499,7 +504,7 @@ def placement_format_candidates(session, query, matches):
             groups.append(
                 engagement.add_columns(
                     literal(True).label("engagement"),
-                    literal(1 if query.surface == "topic" else 2).label("intent"),
+                    literal(1 if query.surface in {"topic", "search"} else 2).label("intent"),
                 )
             )
     if not groups:
@@ -713,8 +718,8 @@ def deliver_placements(session, query, key, *, user_id=None, now=None):
     """Issue up to two placements after relevance and locked live-policy checks.
 
     Article placements and feed Engagement require current grounded tutorial tasks;
-    task intent ranks ahead of broader prepared topic support. Topic Engagement
-    requires direct support. Generic Feed sponsorship is limited to contextless
+    task intent ranks ahead of broader prepared topic support. Topic and Search
+    Engagement require direct support. Generic Feed sponsorship is limited to contextless
     requests, while explicit Homepage sponsorship may serve alongside page context.
     """
     now = now or utcnow()
@@ -725,6 +730,7 @@ def deliver_placements(session, query, key, *, user_id=None, now=None):
     matches = placement_format_candidates(session, query, matches)
     signer = PartnerTrackingTokens(key, clock=lambda: now.timestamp())
     selected: list[dict[str, Any]] = []
+    delivery_limit = 1 if query.surface == "search" else 2
     seen: set[uuid.UUID] = set()
     selected_formats: set[str] = set()
     selected_articles = set(query.article_ids)
@@ -765,7 +771,7 @@ def deliver_placements(session, query, key, *, user_id=None, now=None):
             updated_at,
             story_matches,
         ) in phase_rows:
-            if len(selected) >= 2:
+            if len(selected) >= delivery_limit:
                 break
             ad_format = asset.ad_format
             if not placement_format_allowed(ad_format, query) or (
@@ -909,6 +915,6 @@ def deliver_placements(session, query, key, *, user_id=None, now=None):
             if not sponsored or phase_formats <= selected_formats:
                 break
         phase_rows.close()
-        if len(selected) >= 2:
+        if len(selected) >= delivery_limit:
             break
     return sorted(selected, key=lambda item: item["sponsored"])

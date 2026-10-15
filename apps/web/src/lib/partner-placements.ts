@@ -9,7 +9,7 @@ export const adFormats = [
 ] as const;
 export type AdFormat = (typeof adFormats)[number];
 export type PlacementQuery = {
-  surface: "article" | "topic" | "feed";
+  surface: "article" | "topic" | "feed" | "search";
   article_id?: string;
   topic_id?: string;
   article_ids?: string[];
@@ -73,13 +73,21 @@ export function validPlacementQuery(value: unknown): value is PlacementQuery {
   )
     return false;
   if (
+    value.surface === "search" &&
+    (!Array.isArray(value.ad_formats) ||
+      value.ad_formats.length !== 1 ||
+      value.ad_formats[0] !== "engagement")
+  )
+    return false;
+  if (
     value.allow_sponsored_fallback !== undefined &&
-    (value.surface !== "feed" || typeof value.allow_sponsored_fallback !== "boolean")
+    (typeof value.allow_sponsored_fallback !== "boolean" ||
+      (value.surface !== "feed" && value.allow_sponsored_fallback))
   )
     return false;
   if (
     value.article_ids !== undefined &&
-    (value.surface !== "feed" ||
+    ((value.surface !== "feed" && value.surface !== "search") ||
       !Array.isArray(value.article_ids) ||
       value.article_ids.length > 24 ||
       !value.article_ids.every((id) => typeof id === "string" && uuid.test(id)))
@@ -104,7 +112,11 @@ export function validPlacementQuery(value: unknown): value is PlacementQuery {
       uuid.test(value.topic_id) &&
       value.article_id === undefined
     );
-  return value.surface === "feed" && value.article_id === undefined && value.topic_id === undefined;
+  return (
+    (value.surface === "feed" || value.surface === "search") &&
+    value.article_id === undefined &&
+    value.topic_id === undefined
+  );
 }
 
 function text(value: unknown, limit: number, required = true): value is string {

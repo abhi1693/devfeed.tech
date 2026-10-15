@@ -154,9 +154,10 @@ it("distinguishes the homepage app-header credit from contextual engagement when
   await userEvent.click(screen.getByRole("combobox", { name: "Preview format" }));
   await userEvent.click(screen.getByRole("option", { name: "Engagement" }));
   await within(preview).findByRole("heading", { name: "Engagement" });
-  expect(within(preview).getByText(/article-preview sidebars/)).toBeTruthy();
+  expect(within(preview).getByText(/search and article sidebars/)).toBeTruthy();
   expect(within(preview).getByText(product.tagline)).toBeTruthy();
-  expect(within(preview).getByText("Explore ↗")).toBeTruthy();
+  expect(within(preview).getByText("cronwatch.example", { exact: true })).toBeTruthy();
+  expect(within(preview).queryByText(/Explore/)).toBeNull();
   expect(within(preview).queryByText("DevFeed")).toBeNull();
 });
 it.each([401, 404])("clears unavailable accounts after an ad format save (%s)", async (status) => {

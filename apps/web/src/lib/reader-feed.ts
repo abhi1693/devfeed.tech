@@ -51,7 +51,7 @@ export function feedPlacements(
   )
     return undefined;
   if (section === "topics" && topicId && !filters.q)
-    return { surface: "topic", topic_id: topicId, ad_formats: ["feed", "engagement"] };
+    return { surface: "topic", topic_id: topicId, ad_formats: ["feed"] };
   const fallback =
     descriptor.capabilities.sponsoredFallback &&
     section === "feed" &&
@@ -64,7 +64,7 @@ export function feedPlacements(
     surface: "feed",
     allow_sponsored_fallback: fallback,
     ad_formats: fallback
-      ? ["feed", "homepage_sponsorship", "sponsored_content", "engagement"]
-      : ["feed", "sponsored_content", "engagement"],
+      ? ["feed", "homepage_sponsorship", "sponsored_content"]
+      : ["feed", "sponsored_content"],
   };
 }

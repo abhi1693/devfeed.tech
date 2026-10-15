@@ -177,11 +177,29 @@ engagement formats. Automatic formats default to Feed until another format is en
 Homepage sponsorship appears in the global header on wide screens in unfiltered Home and Latest
 feeds. It shows a 32-pixel product logo, name, muted Sponsored disclosure and a short tagline;
 it does not occupy a feed card or a strip above the feed. Engagement placements use grounded task
-matches or direct topic support in existing grid and preview areas. They do not interrupt article
-reading or replace reader actions.
-A Feed card without managed artwork uses compact product branding; Engagement uses a compact
-logo, product copy and an Explore affordance. Feed and article-search
-lists with fewer than four organic stories omit in-list placements.
+matches in article previews or verified direct topic support in search and topic sidebars.
+Source-feed sidebars use grounded tutorial matches from the initial visible articles, with no
+sponsored fallback. Topic and source pages keep their articles full-width when no Engagement
+product qualifies; narrow screens place the sidebar after the articles. Grid feeds and
+topic pages use full Feed cards or sponsored articles; compact tables use native Feed rows.
+Engagement does not occupy grid cells or table rows, interrupt article reading or replace reader
+actions. Article-preview Engagement cards sit below the topic information
+in the sidebar, after the source brief when no topic is available.
+A Feed card without managed artwork uses compact product branding. Compact feed tables render
+Feed placements as compact `Name | Tagline` rows, with Sponsored in the date column (beside the
+name when the date column is hidden). Engagement uses a compact
+logo, product copy and the destination hostname. The whole card opens the product. Search shows
+one Engagement placement in its right
+sidebar above Topics, with context from at least four initial article results. Its dedicated Search
+surface requires a current verified direct product/topic match in those results, without sponsored
+fallback or personal-interest expansion. Article previews retain their tutorial task requirements.
+Search and article
+sidebars do not request Feed cards. On narrow screens, the search rail follows article results and
+precedes Topics. Feeds and article searches with fewer than four stories omit product placements.
+
+Imported creatives and previews use the serving account's active listing tagline. A listing
+destination uses that same source. Shared canonical product facts still qualify relevance;
+directly managed products use their approved tagline through active manual ownership.
 
 Sponsored content requires a dated campaign linked to an existing approved, visible article.
 Its card uses that article's title, image, topics and publisher and opens the article preview.

@@ -41,6 +41,12 @@ from devfeed_core.partner_promotions import (
     associated_products_query,
     ensure_automatic_assets,
 )
+from devfeed_core.partner_surfaces import (
+    PROMOTION_SURFACES,
+    PromotionSurface,
+    default_campaign_surfaces,
+    default_promotion_surfaces,
+)
 from devfeed_core.partner_taglines import Tagline
 from devfeed_core.partner_tiers import PartnerTier, PromotionKind, tier_policy
 from devfeed_core.partner_tools import ProductAssessment, eligible
@@ -75,15 +81,10 @@ from sqlalchemy.dialects.postgresql import aggregate_order_by, array, insert
 
 Name = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=200)]
 
-PromotionSurface = Literal["article", "topic", "feed"]
 AssetSort = Literal["name", "impressions", "clicks", "ctr"]
 WorkspaceAssetSort = Literal["name", "account", "impressions", "clicks", "ctr"]
 SortOrder = Literal["asc", "desc"]
 AdImageStatus = Literal["default", "queued", "running", "ready", "failed"]
-
-
-def default_promotion_surfaces() -> list[PromotionSurface]:
-    return ["article", "topic", "feed"]
 
 
 MemberSubject = Annotated[
@@ -112,7 +113,7 @@ class AccountInput(BaseModel):
     organic_enabled: bool = True
     auto_include_products: bool = True
     promotion_surfaces: list[PromotionSurface] = Field(
-        default_factory=default_promotion_surfaces, min_length=1, max_length=3
+        default_factory=default_promotion_surfaces, min_length=1, max_length=len(PROMOTION_SURFACES)
     )
     promotion_kind: PromotionKind | None = None
     approval_mode: Literal["qualified", "trusted"] = "qualified"
@@ -345,7 +346,7 @@ class CampaignInput(BaseModel):
         Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=100)]
     ] = Field(default_factory=list, max_length=100)
     surfaces: list[PromotionSurface] = Field(
-        default_factory=default_promotion_surfaces, min_length=1, max_length=3
+        default_factory=default_promotion_surfaces, min_length=1, max_length=len(PROMOTION_SURFACES)
     )
     starts_at: AwareDatetime
     ends_at: AwareDatetime
@@ -356,11 +357,14 @@ class CampaignInput(BaseModel):
     def valid_agreement(self):
         if (self.ad_format == "sponsored_content") != (self.article_id is not None):
             raise ValueError("Supply an article only for sponsored content campaigns")
-        if self.ad_format in {"homepage_sponsorship", "sponsored_content"}:
-            if "surfaces" not in self.model_fields_set:
-                self.surfaces = ["feed"]
-            elif self.surfaces != ["feed"]:
-                raise ValueError("This ad format is only supported in feeds")
+        if "surfaces" not in self.model_fields_set:
+            self.surfaces = default_campaign_surfaces(self.ad_format)
+        if self.ad_format != "engagement" and "search" in self.surfaces:
+            raise ValueError("Search placements require the Engagement ad format")
+        if self.ad_format in {"homepage_sponsorship", "sponsored_content"} and self.surfaces != [
+            "feed"
+        ]:
+            raise ValueError("This ad format is only supported in feeds")
         if self.ends_at <= self.starts_at:
             raise ValueError("Campaign end must follow its start")
         for values in (self.product_ids, self.topic_ids, self.technologies, self.surfaces):
@@ -398,7 +402,9 @@ class CampaignsOut(BaseModel):
 class ProductPromotionInput(BaseModel):
     model_config = ConfigDict(extra="forbid")
     excluded: bool | None = None
-    promotion_surfaces: list[PromotionSurface] | None = Field(default=None, max_length=3)
+    promotion_surfaces: list[PromotionSurface] | None = Field(
+        default=None, max_length=len(PROMOTION_SURFACES)
+    )
     ad_formats: list[AdFormat] | None = Field(default=None, max_length=4)
 
     ad_image_url: str | None = Field(default=None, max_length=2048)
