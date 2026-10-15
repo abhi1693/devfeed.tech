@@ -10,9 +10,16 @@ const userState = vi.hoisted(() => ({
   loading: false,
   unavailable: false,
 }));
+const readerState = vi.hoisted(() => ({
+  currentArticle: null as { id: string; slug: string } | null,
+  promptEligibility: { signup: true, mustReads: true },
+}));
 
 vi.mock("@/components/user-account", () => ({
   useUser: () => userState,
+}));
+vi.mock("@/components/reader-context", () => ({
+  useReaderContext: () => readerState,
 }));
 
 beforeEach(() => {
@@ -20,6 +27,8 @@ beforeEach(() => {
   userState.user = null;
   userState.loading = false;
   userState.unavailable = false;
+  readerState.currentArticle = null;
+  readerState.promptEligibility = { signup: true, mustReads: true };
 });
 
 afterEach(() => {
@@ -32,32 +41,42 @@ function qualify() {
   sessionStorage.setItem("devfeed:signup-nudge-articles", JSON.stringify(["one", "two", "three"]));
 }
 
+function view(slug?: string) {
+  readerState.currentArticle = slug ? { id: slug, slug } : null;
+  return render(<SignupNudge />);
+}
+
+function visit(reader: ReturnType<typeof render>, slug?: string) {
+  readerState.currentArticle = slug ? { id: slug, slug } : null;
+  reader.rerender(<SignupNudge />);
+}
+
 it("remembers keyboard dismissal across routes and remounts for the session", async () => {
   qualify();
-  const reader = view("/latest");
+  const reader = view();
   const keyboard = userEvent.setup();
   screen.getByRole("button", { name: "Not now" }).focus();
   await keyboard.keyboard("{Enter}");
   expect(screen.queryByRole("complementary", { name: "Create a DevFeed account" })).toBeNull();
   expect(sessionStorage.getItem(anonymousInvitationDismissedKey)).toBe("true");
-  reader.rerender(<SignupNudge pathname="/articles/four" />);
+  visit(reader, "four");
   expect(screen.queryByRole("button", { name: "Not now" })).toBeNull();
   reader.unmount();
-  view("/latest");
+  view();
   expect(screen.queryByRole("button", { name: "Not now" })).toBeNull();
 });
 
 it("respects existing anonymous Dev Card dismissal", () => {
   qualify();
   sessionStorage.setItem(anonymousInvitationDismissedKey, "true");
-  view("/latest");
+  view();
   expect(screen.queryByRole("link", { name: "Create account" })).toBeNull();
 });
 
 it("does not apply another account's Dev Card dismissal to a guest", () => {
   qualify();
   sessionStorage.setItem(`${anonymousInvitationDismissedKey}:other-reader`, "true");
-  view("/latest");
+  view();
   expect(screen.getByRole("link", { name: "Create account" })).toBeTruthy();
 });
 
@@ -66,21 +85,48 @@ it.each(["loading", "unavailable"] as const)(
   (status) => {
     qualify();
     userState[status] = true;
-    view("/articles/four");
+    view("four");
     expect(screen.queryByRole("link", { name: "Create account" })).toBeNull();
     expect(JSON.parse(sessionStorage.getItem("devfeed:signup-nudge-articles")!)).toHaveLength(3);
   },
 );
 
-it("counts distinct valid article routes and ignores malformed stored values", () => {
+it("counts distinct loaded articles and ignores malformed stored values", () => {
   sessionStorage.setItem("devfeed:signup-nudge-articles", JSON.stringify([null, {}, "bad/slug"]));
-  const reader = view("/articles/one");
-  reader.rerender(<SignupNudge pathname="/latest" />);
-  reader.rerender(<SignupNudge pathname="/articles/one" />);
-  reader.rerender(<SignupNudge pathname="/articles/two" />);
+  const reader = view("one");
+  visit(reader);
+  visit(reader, "one");
+  visit(reader, "two");
   expect(screen.queryByRole("link", { name: "Create account" })).toBeNull();
-  reader.rerender(<SignupNudge pathname="/articles/three" />);
+  visit(reader, "three");
   expect(screen.getByRole("link", { name: "Create account" })).toBeTruthy();
+  expect(JSON.parse(sessionStorage.getItem("devfeed:signup-nudge-articles")!)).toEqual([
+    "one",
+    "two",
+    "three",
+  ]);
+});
+
+it("does not count article-shaped URLs without a current article", () => {
+  window.history.replaceState({}, "", "/articles/missing");
+  const reader = view();
+  expect(sessionStorage.getItem("devfeed:signup-nudge-articles")).toBeNull();
+  window.history.replaceState({}, "", "/articles/still-loading");
+  reader.rerender(<SignupNudge />);
+  expect(sessionStorage.getItem("devfeed:signup-nudge-articles")).toBeNull();
+});
+
+it("counts the semantic current article independently of the transport URL", () => {
+  window.history.replaceState({}, "", "/search?preview=one");
+  const reader = view("one");
+  visit(reader, "two");
+  visit(reader, "three");
+  expect(screen.getByRole("link", { name: "Create account" })).toBeTruthy();
+  expect(JSON.parse(sessionStorage.getItem("devfeed:signup-nudge-articles")!)).toEqual([
+    "one",
+    "two",
+    "three",
+  ]);
 });
 
 it("retains article progress and dismissal in memory when storage is blocked", () => {
@@ -90,61 +136,89 @@ it("retains article progress and dismissal in memory when storage is blocked", (
   vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
     throw new Error("blocked");
   });
-  const reader = view("/articles/one");
-  reader.rerender(<SignupNudge pathname="/articles/two" />);
-  reader.rerender(<SignupNudge pathname="/articles/three" />);
+  const reader = view("one");
+  visit(reader, "two");
+  visit(reader, "three");
   fireEvent.click(screen.getByRole("button", { name: "Not now" }));
-  reader.rerender(<SignupNudge pathname="/articles/four" />);
+  visit(reader, "four");
   expect(screen.queryByRole("link", { name: "Create account" })).toBeNull();
 });
 
 it("keeps the current article and filters in the sign-in return link", () => {
   qualify();
   window.history.replaceState({}, "", "/articles/three?topic=python&sort=latest");
-  view("/articles/three");
+  view("three");
   const href = screen.getByRole("link", { name: "Create account" }).getAttribute("href")!;
   expect(new URL(href, window.location.origin).searchParams.get("return_to")).toBe(
     "/articles/three?topic=python&sort=latest",
   );
 });
 
-function view(pathname: string) {
-  return render(<SignupNudge pathname={pathname} />);
-}
+it.each(["click", "keyboard", "auxclick", "contextmenu", "control", "meta"] as const)(
+  "refreshes the sign-in destination on %s without requiring a context render",
+  async (activation) => {
+    qualify();
+    window.history.replaceState({}, "", "/latest?topic=typescript");
+    view();
+    const link = screen.getByRole("link", { name: "Create account" });
+    const initialHref = link.getAttribute("href");
+    window.history.replaceState({}, "", "/search?q=python&source=engineering");
+    expect(link.getAttribute("href")).toBe(initialHref);
+    // Keep jsdom on the current page while the component prepares native navigation.
+    link.addEventListener("click", (event) => event.preventDefault());
+    if (activation === "keyboard") {
+      link.focus();
+      await userEvent.setup().keyboard("{Enter}");
+    } else if (activation === "auxclick") {
+      fireEvent(link, new MouseEvent("auxclick", { bubbles: true, button: 1 }));
+    } else if (activation === "contextmenu") {
+      fireEvent.contextMenu(link);
+    } else {
+      fireEvent.click(link, {
+        ctrlKey: activation === "control",
+        metaKey: activation === "meta",
+      });
+    }
+    expect(
+      new URL(link.getAttribute("href")!, window.location.origin).searchParams.get("return_to"),
+    ).toBe("/search?q=python&source=engineering");
+  },
+);
 
 it("appears after three distinct public articles", () => {
-  const viewOne = view("/articles/one");
-  viewOne.rerender(<SignupNudge pathname="/articles/two" />);
-  viewOne.rerender(<SignupNudge pathname="/articles/three" />);
+  const reader = view("one");
+  visit(reader, "two");
+  visit(reader, "three");
   expect(screen.getByRole("complementary", { name: "Create a DevFeed account" })).toBeTruthy();
   expect(screen.getByText("Create your DevFeed account.")).toBeTruthy();
 });
 
 it("does not show for signed-in readers", () => {
   userState.user = { user_id: "reader" };
-  const viewOne = view("/articles/one");
-  viewOne.rerender(<SignupNudge pathname="/articles/two" />);
-  viewOne.rerender(<SignupNudge pathname="/articles/three" />);
+  const reader = view("one");
+  visit(reader, "two");
+  visit(reader, "three");
   expect(screen.queryByRole("complementary", { name: "Create a DevFeed account" })).toBeNull();
+  expect(sessionStorage.getItem("devfeed:signup-nudge-articles")).toBeNull();
 });
 
-it.each(["/login", "/login/", "/register", "/extension/login-complete"])(
-  "hides the nudge on %s after the article threshold is reached",
+it.each(["/login", "/register", "/extension/login-complete", "/missing", "/latest"])(
+  "obeys prompt eligibility rather than recognizing %s",
   (pathname) => {
-    const reader = view("/articles/one");
-    reader.rerender(<SignupNudge pathname="/articles/two" />);
-    reader.rerender(<SignupNudge pathname="/articles/three" />);
+    qualify();
+    const reader = view();
     expect(screen.getByRole("link", { name: "Create account" })).toBeTruthy();
 
-    window.history.replaceState({}, "", `${pathname}?return_to=%2Farticles%2Fthree`);
-    reader.rerender(<SignupNudge pathname={pathname} />);
+    window.history.replaceState({}, "", pathname);
+    readerState.promptEligibility.signup = false;
+    reader.rerender(<SignupNudge />);
     expect(screen.queryByRole("complementary", { name: "Create a DevFeed account" })).toBeNull();
-    expect(screen.queryByRole("link", { name: "Create account" })).toBeNull();
 
-    window.history.replaceState({}, "", "/articles/three");
-    reader.rerender(<SignupNudge pathname="/articles/three" />);
+    readerState.promptEligibility.signup = true;
+    reader.rerender(<SignupNudge />);
     expect(screen.getByRole("link", { name: "Create account" }).getAttribute("href")).toBe(
-      "/login?return_to=%2Farticles%2Fthree",
+      `/login?return_to=${encodeURIComponent(pathname)}`,
     );
+    expect(sessionStorage.getItem(anonymousInvitationDismissedKey)).toBeNull();
   },
 );

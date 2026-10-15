@@ -23,7 +23,8 @@ import { NotificationPreferencesProvider } from "@/components/notification-prefe
 import { UserProvider } from "@/components/user-account";
 import { ThemePreferencesProvider } from "@/components/theme-preferences";
 import { FeedPreferencesProvider } from "@/components/feed-preferences";
-import { WebSignupNudge } from "@/components/web-signup-nudge";
+import { SignupNudge } from "@/components/signup-nudge";
+import { ReaderContextProvider } from "@/components/reader-context";
 import { ReaderPromptsProvider } from "@/components/reader-prompts";
 import { ReaderNavigationRecovery } from "@/components/reader-navigation-recovery";
 export async function generateMetadata(): Promise<Metadata> {
@@ -72,23 +73,25 @@ export default async function RootLayout({
         <BrowserTelemetry {...browserSettings("web")} />
         <JsonLd data={siteStructuredData(brandMark.src)} />
         <UserProvider>
-          <ReaderPromptsProvider>
-            <ThemePreferencesProvider>
-              <NotificationPreferencesProvider>
-                <FeedPreferencesProvider>
-                  <ArticleNavigationProvider>
-                    <SourceFollowsProvider>
-                      <TopicFollowsProvider>
-                        {children}
-                        {modal}
-                      </TopicFollowsProvider>
-                    </SourceFollowsProvider>
-                    <WebSignupNudge />
-                  </ArticleNavigationProvider>
-                </FeedPreferencesProvider>
-              </NotificationPreferencesProvider>
-            </ThemePreferencesProvider>
-          </ReaderPromptsProvider>
+          <ReaderContextProvider>
+            <ReaderPromptsProvider>
+              <ThemePreferencesProvider>
+                <NotificationPreferencesProvider>
+                  <FeedPreferencesProvider>
+                    <ArticleNavigationProvider>
+                      <SourceFollowsProvider>
+                        <TopicFollowsProvider>
+                          {children}
+                          {modal}
+                        </TopicFollowsProvider>
+                      </SourceFollowsProvider>
+                      <SignupNudge />
+                    </ArticleNavigationProvider>
+                  </FeedPreferencesProvider>
+                </NotificationPreferencesProvider>
+              </ThemePreferencesProvider>
+            </ReaderPromptsProvider>
+          </ReaderContextProvider>
         </UserProvider>
         {gaId && <DeferredGoogleAnalytics gaId={gaId} />}
         {clarityId && <DeferredClarity projectId={clarityId} />}

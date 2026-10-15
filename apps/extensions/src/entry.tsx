@@ -35,6 +35,7 @@ import { TrendingContent } from "../../web/src/components/trending-content";
 import { NotificationPreferencesProvider } from "../../web/src/components/notification-preferences-provider";
 import { SignupNudge } from "../../web/src/components/signup-nudge";
 import { ReaderPromptsProvider } from "../../web/src/components/reader-prompts";
+import { ReaderContextProvider } from "../../web/src/components/reader-context";
 import { ReaderNavigationRecovery } from "../../web/src/components/reader-navigation-recovery";
 import { ReaderNotFound } from "../../web/src/components/reader-not-found";
 import { resolveReaderRoute, type ReaderRoute } from "../../web/src/lib/reader-routes";
@@ -270,31 +271,28 @@ function ExtensionReader() {
   }
 }
 
-function ExtensionSignupNudge() {
-  const route = useRoute();
-  return <SignupNudge pathname={new URL(route, publicOrigin).pathname} />;
-}
-
 startExtensionAnalytics();
 
 createRoot(document.getElementById("root")!).render(
   <AccountSession>
-    <ReaderPromptsProvider>
-      <ReaderNavigationRecovery />
-      <ThemePreferencesProvider>
-        <NotificationPreferencesProvider>
-          <FeedPreferencesProvider>
-            <ArticleNavigationProvider>
-              <SourceFollowsProvider>
-                <TopicFollowsProvider>
-                  <ExtensionReader />
-                  <ExtensionSignupNudge />
-                </TopicFollowsProvider>
-              </SourceFollowsProvider>
-            </ArticleNavigationProvider>
-          </FeedPreferencesProvider>
-        </NotificationPreferencesProvider>
-      </ThemePreferencesProvider>
-    </ReaderPromptsProvider>
+    <ReaderContextProvider>
+      <ReaderPromptsProvider>
+        <ReaderNavigationRecovery />
+        <ThemePreferencesProvider>
+          <NotificationPreferencesProvider>
+            <FeedPreferencesProvider>
+              <ArticleNavigationProvider>
+                <SourceFollowsProvider>
+                  <TopicFollowsProvider>
+                    <ExtensionReader />
+                    <SignupNudge />
+                  </TopicFollowsProvider>
+                </SourceFollowsProvider>
+              </ArticleNavigationProvider>
+            </FeedPreferencesProvider>
+          </NotificationPreferencesProvider>
+        </ThemePreferencesProvider>
+      </ReaderPromptsProvider>
+    </ReaderContextProvider>
   </AccountSession>,
 );

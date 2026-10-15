@@ -5,6 +5,7 @@ import { ArticleCard } from "@/components/article-card";
 import { EngagementProvider } from "@/components/article-engagement";
 import type { Article } from "@/lib/types";
 import { userRequest } from "@/lib/user";
+import { source, topic } from "./fixtures";
 
 vi.mock("@/components/user-account", () => ({
   useUser: () => ({ user: null, loading: false }),
@@ -94,4 +95,20 @@ it("shows the original article as a read overlay and updates the open counter", 
 it("does not expose an unsafe publisher URL as an outbound action", () => {
   render(<ArticleCard article={{ ...article, canonical_url: "javascript:alert(1)" }} />);
   expect(screen.queryByRole("link", { name: "Read original article in a new tab" })).toBeNull();
+});
+
+it("reports title activation without treating other card actions as opening the preview", () => {
+  const onOpen = vi.fn();
+  render(
+    <div onClick={(event) => event.preventDefault()}>
+      <ArticleCard article={{ ...article, sources: [source], topics: [topic] }} onOpen={onOpen} />
+    </div>,
+  );
+  fireEvent.click(screen.getByRole("link", { name: "Sign in to save article for later" }));
+  fireEvent.click(screen.getByRole("link", { name: source.name }));
+  fireEvent.click(screen.getByRole("link", { name: `#${topic.name}` }));
+  fireEvent.click(screen.getByRole("link", { name: "Read original article in a new tab" }));
+  expect(onOpen).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole("link", { name: article.title }));
+  expect(onOpen).toHaveBeenCalledTimes(1);
 });

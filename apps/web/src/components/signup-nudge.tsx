@@ -1,7 +1,9 @@
 "use client";
 
-import { useEffect, useState, useSyncExternalStore } from "react";
-import { readerLoginLink } from "@/lib/reader-runtime";
+import { useEffect, useState, useSyncExternalStore, type MouseEvent } from "react";
+import { readerLocation, readerLoginLink } from "@/lib/reader-runtime";
+import { isArticleSlug } from "@/lib/reader-routes";
+import { useReaderContext } from "./reader-context";
 import { useUser } from "./user-account";
 import {
   invitationDismissed,
@@ -12,14 +14,21 @@ import {
 import styles from "./signup-nudge.module.css";
 
 const seenKey = "devfeed:signup-nudge-articles";
-const articlePath = /^\/articles\/([a-z0-9][a-z0-9-]{0,199})$/i;
-const authPath = /^\/(?:login|register|extension\/login-complete)(?:\/|$)/;
 const threshold = 3;
 const changedEvent = "devfeed:signup-nudge-changed";
 
 function subscribe(listener: () => void) {
   window.addEventListener(changedEvent, listener);
   return () => window.removeEventListener(changedEvent, listener);
+}
+
+function currentSignupLink() {
+  const location = readerLocation();
+  return readerLoginLink(`${location.pathname}${location.search}`);
+}
+
+function refreshSignupLink(event: MouseEvent<HTMLAnchorElement>) {
+  event.currentTarget.href = currentSignupLink().href;
 }
 
 function createVisitStore() {
@@ -30,7 +39,7 @@ function createVisitStore() {
       const value = JSON.parse(sessionStorage.getItem(seenKey) ?? "[]");
       if (Array.isArray(value))
         for (const item of value.slice(-20))
-          if (typeof item === "string" && articlePath.test(`/articles/${item}`)) seen.add(item);
+          if (typeof item === "string" && isArticleSlug(item)) seen.add(item);
     } catch {
       // Keep navigation and dismissal usable when browser storage is blocked.
     }
@@ -60,8 +69,10 @@ function createVisitStore() {
   };
 }
 
-export function SignupNudge({ pathname }: { pathname: string }) {
+export function SignupNudge() {
   const { user, loading, unavailable } = useUser();
+  const { currentArticle, promptEligibility } = useReaderContext();
+  const articleSlug = currentArticle?.slug;
   const [visit] = useState(createVisitStore);
   const seenCount = useSyncExternalStore(subscribe, visit.count, () => 0);
   const dismissed = useSyncExternalStore(subscribe, visit.dismissed, () => false);
@@ -74,20 +85,17 @@ export function SignupNudge({ pathname }: { pathname: string }) {
     !dismissed &&
     !prompts?.guestDismissed &&
     !prompts?.modalOpen &&
-    !authPath.test(pathname);
+    promptEligibility.signup;
   const shown = useReaderPrompt("signup", eligible);
 
   useEffect(() => {
     if (loading || unavailable || user) return;
-    const slug = articlePath.exec(pathname)?.[1];
-    if (!slug) return;
-    visit.visit(slug);
-  }, [loading, unavailable, pathname, user, visit]);
+    if (articleSlug) visit.visit(articleSlug);
+  }, [articleSlug, loading, unavailable, user, visit]);
 
   if (!shown) return null;
 
-  const returnTo = `${pathname}${typeof window !== "undefined" ? window.location.search : ""}`;
-  const link = readerLoginLink(returnTo);
+  const link = currentSignupLink();
 
   return (
     <aside className={styles.nudge} aria-label="Create a DevFeed account">
@@ -106,7 +114,13 @@ export function SignupNudge({ pathname }: { pathname: string }) {
         >
           Not now
         </button>
-        <a className={`button primary ${styles.signup}`} {...link}>
+        <a
+          className={`button primary ${styles.signup}`}
+          {...link}
+          onClick={refreshSignupLink}
+          onAuxClick={refreshSignupLink}
+          onContextMenu={refreshSignupLink}
+        >
           Create account
         </a>
       </div>

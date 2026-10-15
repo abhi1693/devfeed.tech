@@ -22,12 +22,14 @@ export function ArticleCard({
   recommendation,
   promotion,
   containerRef,
+  onOpen,
 }: {
   article: Article;
   priority?: boolean;
   recommendation?: string;
   promotion?: { productId: string; active: boolean; preserveSpace: boolean };
   containerRef?: Ref<HTMLElement>;
+  onOpen?: () => void;
 }) {
   const href = `/articles/${article.slug}`;
   const image = safeExternalUrl(article.image_url);
@@ -85,6 +87,7 @@ export function ArticleCard({
             className="card-open-link"
             rel={sponsored ? "sponsored" : undefined}
             aria-describedby={sponsored ? sponsorshipId : undefined}
+            onClick={onOpen}
           >
             <span>{article.title}</span>
           </TruncatedLink>

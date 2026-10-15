@@ -48,6 +48,10 @@ const catalogSlug = /^[a-z0-9][a-z0-9-]{0,199}$/i;
 const username = /^[a-z0-9][a-z0-9_-]{1,28}[a-z0-9]$/i;
 const collectionSeparator = /[\u0000-\u001f\u007f/\\]/;
 
+export function isArticleSlug(slug: string): boolean {
+  return catalogSlug.test(slug);
+}
+
 /** Accept decoded collection parameters, preserving technology tags such as c++ and c#. */
 export function collectionRoute<Kind extends CollectionKind>(
   kind: Kind,
@@ -89,7 +93,7 @@ export function resolveReaderRoute(pathname: string): ReaderRoute | null {
     const detail = collectionRoute(resource, slug, suffix);
     return detail ? { type: "reader", feed: readerFeeds.contextual, detail } : null;
   }
-  if (resource === "articles" && segments.length === 2 && catalogSlug.test(slug))
+  if (resource === "articles" && segments.length === 2 && isArticleSlug(slug))
     return { type: "article", slug };
   if (resource === "users" && segments.length === 2 && username.test(slug))
     return { type: "profile", username: slug };

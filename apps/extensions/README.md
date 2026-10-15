@@ -36,6 +36,14 @@ placements. `apps/web/src/lib/reader-feed.ts` shares filter normalization and pl
 eligibility with web pages, including sponsored fallback, native formats, and source/cursor
 exclusions. Changing a route URL does not change these behaviors.
 
+Rendered reader pages and active previews publish prompt eligibility through the shared
+reader context. Signup progress counts loaded articles, including cached previews;
+loading or unavailable articles add no visit. Foreground previews suppress automatic
+invitations and Must Reads until reading ends. Settings, consent, authentication,
+and missing pages stay quiet; manual Must Reads remains available while reading.
+Session checks pause presentation and actions while preserving the current account's
+pending daily claim. Logout and account changes clear that state.
+
 ## Build and install
 
 From the repository root, with Node.js 22.13+:
@@ -172,6 +180,9 @@ and retained article previews. Screenshots stay under ignored `reports/reader-ro
 
 Use `DEVFEED_READER_FEED_MODE_ONLY=1` with the same browser runners for focused guest
 and signed-in feed-mode checks, placement request policies, and preview retention.
+
+Use `DEVFEED_READER_CONTEXT_ONLY=1` to check loaded-article visit counting, prompt
+suppression, manual Must Reads, and deferred presentation claims in all three runtimes.
 
 ## Validate and package
 

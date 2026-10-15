@@ -9,6 +9,12 @@ import {
   type ArticleSequence,
 } from "@/components/article-navigation";
 import { ArticleModal } from "@/components/article-modal";
+import {
+  ReaderContextProvider,
+  ReaderSurface,
+  useReaderContext,
+} from "@/components/reader-context";
+import { readerPromptPolicies, type ArticleIdentity } from "@/lib/reader-context";
 const { back, replace } = vi.hoisted(() => ({
   back: vi.fn(),
   replace: vi.fn(),
@@ -301,4 +307,62 @@ it("keeps a parser-opened native dialog open throughout hydration", () => {
   expect(show).not.toHaveBeenCalled();
   expect(close).not.toHaveBeenCalled();
   expect(document.querySelector("dialog")?.dataset.hydrated).toBe("true");
+});
+
+function ReaderState() {
+  return <output data-testid="reader-state">{JSON.stringify(useReaderContext())}</output>;
+}
+
+it("publishes only a loaded foreground article and restores the retained page on unmount", () => {
+  function Page({ article, preview = true }: { article?: ArticleIdentity; preview?: boolean }) {
+    return (
+      <ReaderContextProvider>
+        {preview && <ArticleModal article={article}>Preview</ArticleModal>}
+        <ReaderSurface promptEligibility={readerPromptPolicies.browsing} />
+        <ReaderState />
+      </ReaderContextProvider>
+    );
+  }
+  const state = () => JSON.parse(screen.getByTestId("reader-state").textContent ?? "null");
+  const view = render(<Page />);
+  expect(state()).toMatchObject({
+    currentArticle: null,
+    promptEligibility: readerPromptPolicies.quiet,
+  });
+  view.rerender(<Page article={{ id: "first-id", slug: "first" }} />);
+  expect(state()).toMatchObject({
+    currentArticle: { id: "first-id", slug: "first" },
+    promptEligibility: readerPromptPolicies.quiet,
+  });
+  view.rerender(<Page article={{ id: "second-id", slug: "second" }} />);
+  expect(state().currentArticle).toEqual({ id: "second-id", slug: "second" });
+  view.rerender(<Page />);
+  expect(state()).toMatchObject({
+    currentArticle: null,
+    promptEligibility: readerPromptPolicies.quiet,
+  });
+  view.rerender(<Page preview={false} />);
+  expect(state()).toMatchObject({
+    currentArticle: null,
+    promptEligibility: readerPromptPolicies.browsing,
+  });
+});
+
+it("keeps a hidden direct-entry article out of reader context while a routed preview is active", () => {
+  render(
+    <ReaderContextProvider>
+      <ArticleNavigationProvider>
+        <ArticleModal direct slug="first" article={{ id: "original-id", slug: "first" }}>
+          Original direct preview
+        </ArticleModal>
+        <ArticleModal article={{ id: "routed-id", slug: "first" }}>Routed preview</ArticleModal>
+        <ReaderState />
+      </ArticleNavigationProvider>
+    </ReaderContextProvider>,
+  );
+  expect(screen.queryByText("Original direct preview")).toBeNull();
+  expect(JSON.parse(screen.getByTestId("reader-state").textContent ?? "null")).toMatchObject({
+    currentArticle: { id: "routed-id", slug: "first" },
+    promptEligibility: readerPromptPolicies.quiet,
+  });
 });

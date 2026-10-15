@@ -8,7 +8,7 @@ it("shares the reader missing page and its runtime-aware recovery link", () => {
   const page = ReaderNotFound();
   expect(page.type).toBe("main");
   expect(page.props.className).toBe("standalone-state");
-  expect(page.props.children[1].props.children).toBe("Page not found");
+  expect(page.props.children[2].props.children).toBe("Page not found");
   const recovery = page.props.children.at(-1);
   expect(recovery.type).toBe(ReaderLink);
   expect(recovery.props).toMatchObject({ href: "/", children: "Discover something else" });

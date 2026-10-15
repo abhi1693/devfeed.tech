@@ -35,6 +35,10 @@ import {
 } from "../../../../scripts/testing/reader-routes.mjs";
 import { checkFeedMode, feedModeFixture } from "../../../../scripts/testing/feed-mode.mjs";
 import {
+  checkReaderContext,
+  readerContextFixture,
+} from "../../../../scripts/testing/reader-context.mjs";
+import {
   engagementFeed,
   engagementRows,
   checkEngagementPagination,
@@ -101,6 +105,7 @@ const readingFixture = readingStreakFixture();
 const mutationFixture = userMutationFixture({ articles: [article], topic });
 const routeFixture = readerRoutesFixture(article);
 const feedMode = feedModeFixture(article);
+const readerContext = readerContextFixture(article);
 let mode = "ready";
 const defaultAllRequests = [];
 let compactArticles = false;
@@ -124,6 +129,17 @@ let rejectSourceFollow = true;
 const fixture = createServer(async (req, res) => {
   const requestUrl = new URL(req.url, "http://localhost");
   const path = requestUrl.pathname;
+  if (readerContext.handles(requestUrl)) {
+    const chunks = [];
+    for await (const chunk of req) chunks.push(chunk);
+    const { status, json } = await readerContext.respond(
+      requestUrl,
+      chunks.length ? JSON.parse(Buffer.concat(chunks).toString()) : undefined,
+    );
+    res.writeHead(status, { "Content-Type": "application/json" });
+    res.end(JSON.stringify(json));
+    return;
+  }
   if (feedMode.handles(requestUrl)) {
     const chunks = [];
     for await (const chunk of req) chunks.push(chunk);
@@ -547,6 +563,41 @@ async function runReaderChecks() {
     }
   }
   browser = await chromium.launch({ headless: true });
+  if (
+    ![
+      "DEVFEED_READER_FEED_MODE_ONLY",
+      "DEVFEED_READER_ROUTES_ONLY",
+      "DEVFEED_READER_THEME_ONLY",
+      "DEVFEED_READER_SIDEBAR_ONLY",
+      "DEVFEED_READER_MUTATIONS_ONLY",
+    ].some((flag) => process.env[flag] === "1")
+  ) {
+    const promptContext = await browser.newContext({ reducedMotion: "reduce" });
+    try {
+      await mockManagedImages(promptContext);
+      await mockSourceLogos(promptContext);
+      const promptPage = await promptContext.newPage();
+      const errors = [];
+      promptPage.on("pageerror", (error) => errors.push(error.message));
+      promptPage.on("console", (message) => {
+        if (message.type() === "error" && /Content Security Policy|Refused to/.test(message.text()))
+          errors.push(message.text());
+      });
+      await checkReaderContext(
+        promptPage,
+        (path) => origin + path,
+        readerContext,
+        `${root}/reports/reader-context/web`,
+      );
+      assert.deepEqual(errors, []);
+    } finally {
+      await promptContext.close();
+    }
+  }
+  if (process.env.DEVFEED_READER_CONTEXT_ONLY === "1") {
+    console.log("Reader context prompts passed against the production web bundle.");
+    return;
+  }
   const modeContext = await browser.newContext({ reducedMotion: "reduce" });
   try {
     await mockManagedImages(modeContext);

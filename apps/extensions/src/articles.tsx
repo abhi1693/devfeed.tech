@@ -72,6 +72,9 @@ export function Preview({ slug, direct }: { slug: string; direct: boolean }) {
     <ArticleModal
       direct={direct}
       slug={slug}
+      article={
+        current?.article ? { id: current.article.id, slug: current.article.slug } : undefined
+      }
       canonical={`${publicOrigin}/articles/${encodeURIComponent(slug)}`}
     >
       {current?.article ? (

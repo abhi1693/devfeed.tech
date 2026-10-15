@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Gem, X, Check, Bookmark } from "lucide-react";
-import { usePathname } from "next/navigation";
+import { useReaderContext } from "./reader-context";
 import { useUser } from "./user-account";
 import { userRequest } from "@/lib/user";
 import { claimMustReadsPresentation, setArticleBookmark } from "@/lib/user-mutations";
@@ -21,19 +21,24 @@ type Selection = {
   presented: boolean;
   preparing: boolean;
 };
+type Presentation = { mode: "manual" } | { mode: "automatic"; date: string };
 
 export function MustReads() {
-  const { user, loading } = useUser();
-  return user && !loading ? <DailyMustReads key={user.user_id} /> : null;
+  const { user } = useUser();
+  return user ? <DailyMustReads key={user.user_id} /> : null;
 }
 
 function DailyMustReads() {
-  const { user } = useUser();
-  const pathname = usePathname();
+  const { user, loading } = useUser();
+  const { currentArticle, promptEligibility } = useReaderContext();
+  const automaticAllowed = !loading && promptEligibility.mustReads && !currentArticle;
   const dialog = useRef<HTMLDialogElement>(null);
   const trigger = useRef<HTMLButtonElement>(null);
   const [selection, setSelection] = useState<Selection>();
-  const [open, setOpen] = useState(false);
+  const [presentation, setPresentation] = useState<Presentation>();
+  const open = Boolean(presentation);
+  const manualPresentation = presentation?.mode === "manual";
+  const shown = open && !loading && (manualPresentation || automaticAllowed);
   const [error, setError] = useState(false);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
@@ -43,17 +48,32 @@ function DailyMustReads() {
   const manualRequested = useRef(false);
   const loadedDay = useRef<string | undefined>(undefined);
   const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
-  const latestPath = useRef(pathname);
+  const latestEligibility = useRef(automaticAllowed);
+  const latestLoading = useRef(loading);
+  const previousArticle = useRef(currentArticle?.id);
   const mutations = useRef<AbortController | null>(null);
+  if (presentation?.mode === "automatic" && !automaticAllowed) {
+    setPresentation(undefined);
+    setPendingPresentation(presentation.date);
+  }
   useEffect(() => {
     const controller = new AbortController();
     mutations.current = controller;
     return () => controller.abort();
   }, []);
   useEffect(() => {
-    latestPath.current = pathname;
-  }, [pathname]);
+    latestEligibility.current = automaticAllowed;
+    latestLoading.current = loading;
+  }, [automaticAllowed, loading]);
   useEffect(() => {
+    if (currentArticle && currentArticle.id !== previousArticle.current) {
+      manualRequested.current = false;
+      setPresentation(undefined);
+    }
+    previousArticle.current = currentArticle?.id;
+  }, [currentArticle]);
+  useEffect(() => {
+    if (loading) return;
     let disposed = false;
     let timer: ReturnType<typeof setTimeout>;
     const load = async () => {
@@ -95,19 +115,19 @@ function DailyMustReads() {
       window.removeEventListener("focus", focus);
       document.removeEventListener("visibilitychange", focus);
     };
-  }, [timezone, retry]);
+  }, [timezone, retry, loading]);
   useEffect(() => {
-    if (!selection?.items.length || open) return;
+    if (!selection?.items.length || open || !automaticAllowed) return;
     const pending = pendingPresentation === selection.date;
     if (selection.presented && !pending) return;
     const eligible = () =>
       document.visibilityState === "visible" &&
-      !latestPath.current?.startsWith("/articles/") &&
+      latestEligibility.current &&
       !document.querySelector('dialog[open], [role="dialog"], [data-state="open"][role="menu"]');
     const presentPending = () => {
       if (!pending || !eligible()) return false;
       setPendingPresentation(undefined);
-      setOpen(true);
+      setPresentation({ mode: "automatic", date: selection.date });
       return true;
     };
     if (presentPending()) return;
@@ -132,9 +152,9 @@ function DailyMustReads() {
         });
     }, 2500);
     return () => clearInterval(timer);
-  }, [selection, open, timezone, user, pendingPresentation]);
+  }, [selection, open, timezone, user, pendingPresentation, automaticAllowed]);
   useEffect(() => {
-    if (!open) return;
+    if (!shown) return;
     const node = dialog.current;
     const returnFocus = trigger.current;
     node?.showModal();
@@ -145,9 +165,10 @@ function DailyMustReads() {
       document.body.style.overflow = previous;
       returnFocus?.focus();
     };
-  }, [open]);
+  }, [shown]);
   useEffect(() => {
-    if (!open || !manualRequested.current || !selection?.items.length) return;
+    if (!shown || !manualPresentation || !manualRequested.current || !selection?.items.length)
+      return;
     manualRequested.current = false;
     void claimMustReadsPresentation(
       { date: selection.date, timezone, automatic: false },
@@ -155,25 +176,27 @@ function DailyMustReads() {
     )
       .then(() => setSelection((value) => (value ? { ...value, presented: true } : value)))
       .catch(() => {});
-  }, [open, selection, timezone, user]);
+  }, [shown, manualPresentation, selection, timezone, user]);
   const show = useCallback(() => {
+    if (loading) return;
     setPendingPresentation(undefined);
     manualRequested.current = true;
-    setOpen(true);
+    setPresentation({ mode: "manual" });
     setRetry((value) => value + 1);
-  }, []);
+  }, [loading]);
   useEffect(() => {
     window.addEventListener(openMustReadsEvent, show);
     return () => window.removeEventListener(openMustReadsEvent, show);
   }, [show]);
   async function saveUnread() {
-    if (!selection || saving) return;
+    if (loading || !selection || saving) return;
     setSaving(true);
     setError(false);
     try {
       for (const article of selection.items.filter(
         (item) => !selection.read_ids.includes(item.id),
       )) {
+        if (latestLoading.current || mutations.current?.signal.aborted) return;
         const result = await setArticleBookmark(article.id, true, {
           csrfToken: user!.csrf_token,
           signal: mutations.current?.signal,
@@ -200,18 +223,19 @@ function DailyMustReads() {
         onClick={show}
         aria-label="Today’s Must Reads"
         title="Today’s Must Reads"
+        disabled={loading}
       >
         <Gem size={19} aria-hidden="true" />
         {!!selection?.items.length && !selection.presented && <span className={styles.dot} />}
       </button>
-      {open && (
+      {shown && (
         <dialog
           ref={dialog}
           className={styles.modal}
           aria-labelledby="must-reads-title"
-          onCancel={() => setOpen(false)}
+          onCancel={() => setPresentation(undefined)}
           onClick={(event) => {
-            if (event.target === event.currentTarget) setOpen(false);
+            if (event.target === event.currentTarget) setPresentation(undefined);
           }}
         >
           <div className={styles.heading}>
@@ -221,7 +245,11 @@ function DailyMustReads() {
               </p>
               <h2 id="must-reads-title">Today’s Must Reads</h2>
             </div>
-            <button autoFocus onClick={() => setOpen(false)} aria-label="Close Must Reads">
+            <button
+              autoFocus
+              onClick={() => setPresentation(undefined)}
+              aria-label="Close Must Reads"
+            >
               <X size={22} />
             </button>
           </div>
@@ -241,13 +269,7 @@ function DailyMustReads() {
           )}
           {!!selection?.items.length && (
             <EngagementProvider articleIds={selection.items.map((item) => item.id)}>
-              <div
-                className={styles.grid}
-                onClickCapture={(event) => {
-                  if ((event.target as HTMLElement).closest('a[href*="/articles/"]'))
-                    setOpen(false);
-                }}
-              >
+              <div className={styles.grid}>
                 {selection.items.map((article, index) => (
                   <div key={article.id} className={styles.pick}>
                     <div className={styles.rank}>
@@ -258,7 +280,14 @@ function DailyMustReads() {
                         </span>
                       )}
                     </div>
-                    <ArticleCard article={article} recommendation={selection.reasons[article.id]} />
+                    <ArticleCard
+                      article={article}
+                      recommendation={selection.reasons[article.id]}
+                      onOpen={() => {
+                        manualRequested.current = false;
+                        setPresentation(undefined);
+                      }}
+                    />
                   </div>
                 ))}
                 <div className={styles.briefing}>

@@ -6,17 +6,21 @@ import { ChevronLeft, ChevronRight, X } from "lucide-react";
 import { animateReader } from "@/lib/reader-motion";
 import { cycleDialogFocus, restoreDialogFocus } from "@/lib/dialog-focus";
 import { useArticleNavigation } from "./article-navigation";
+import { useReaderSurface } from "./reader-context";
+import { readerPromptPolicies, type ArticleIdentity } from "@/lib/reader-context";
 
 export function ArticleModal({
   children,
   direct = false,
   slug,
   canonical,
+  article,
 }: {
   children: React.ReactNode;
   direct?: boolean;
   slug?: string;
   canonical?: string;
+  article?: ArticleIdentity;
 }) {
   const dialog = useRef<HTMLDialogElement>(null);
   const operation = useRef(0);
@@ -32,6 +36,10 @@ export function ArticleModal({
   const [pending, startTransition] = useTransition();
   const [waiting, setWaiting] = useState(false);
   const active = !direct || (!hideDirect && (!slug || pathname === `/articles/${slug}`));
+  useReaderSurface(
+    { currentArticle: article ?? null, promptEligibility: readerPromptPolicies.quiet },
+    { active, priority: "foreground" },
+  );
   const current = pathname?.split("/").pop();
   const index = sequence?.slugs.indexOf(current ?? "") ?? -1;
   const previous = index > 0 ? sequence?.slugs[index - 1] : undefined;

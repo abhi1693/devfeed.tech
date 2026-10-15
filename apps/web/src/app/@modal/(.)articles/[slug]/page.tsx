@@ -18,7 +18,10 @@ export default async function Preview({ params }: { params: Promise<{ slug: stri
       </ArticleModal>
     );
   return (
-    <ArticleModal canonical={canonicalUrl(`/articles/${encodeURIComponent(article.slug)}`)}>
+    <ArticleModal
+      article={{ id: article.id, slug: article.slug }}
+      canonical={canonicalUrl(`/articles/${encodeURIComponent(article.slug)}`)}
+    >
       <ArticlePreview article={article} />
     </ArticleModal>
   );

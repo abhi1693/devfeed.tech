@@ -11,6 +11,36 @@ import { legalPages } from "@/lib/legal";
 import { UserSearch } from "./user-search";
 import { SkipToContent } from "./skip-to-content";
 import type { FeedFilters } from "@/lib/feed-query";
+import { ReaderSurface } from "./reader-context";
+import { readerPromptPolicies, type ReaderPromptEligibility } from "@/lib/reader-context";
+
+type ReaderSection =
+  | "feed"
+  | "topics"
+  | "article"
+  | "sources"
+  | "account"
+  | "personal"
+  | "bookmarks"
+  | "trending"
+  | "search"
+  | "legal"
+  | "mcp"
+  | "leaderboard";
+const promptPolicies: Record<ReaderSection, ReaderPromptEligibility> = {
+  feed: readerPromptPolicies.browsing,
+  topics: readerPromptPolicies.browsing,
+  article: readerPromptPolicies.quiet,
+  sources: readerPromptPolicies.browsing,
+  account: readerPromptPolicies.quiet,
+  personal: readerPromptPolicies.browsing,
+  bookmarks: readerPromptPolicies.browsing,
+  trending: readerPromptPolicies.browsing,
+  search: readerPromptPolicies.browsing,
+  legal: readerPromptPolicies.quiet,
+  mcp: readerPromptPolicies.quiet,
+  leaderboard: readerPromptPolicies.browsing,
+};
 
 export function UserShell({
   children,
@@ -21,22 +51,11 @@ export function UserShell({
   children: React.ReactNode;
   filters?: FeedFilters;
   searchQuery?: string;
-  section?:
-    | "feed"
-    | "topics"
-    | "article"
-    | "sources"
-    | "account"
-    | "personal"
-    | "bookmarks"
-    | "trending"
-    | "search"
-    | "legal"
-    | "mcp"
-    | "leaderboard";
+  section?: ReaderSection;
 }) {
   return (
     <>
+      <ReaderSurface promptEligibility={promptPolicies[section]} />
       <SkipToContent />
       <header className="topbar">
         <Link href="/" className="brand devfeed-brand" aria-label="DevFeed home">
