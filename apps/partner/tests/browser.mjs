@@ -16,6 +16,7 @@ import {
   adFormats,
   creativeProduct,
   installCreativeMedia,
+  checkHomepageSponsorshipPreview,
 } from "../../../scripts/testing/native-ad-formats.mjs";
 
 import { createConnectionFixture, assertConnectionJourneys } from "./browser-connections.mjs";
@@ -1279,6 +1280,15 @@ try {
   await actualCreative.locator("img").evaluate((img) => img.decode());
   assert.equal(await actualCreative.getByText("Sponsored", { exact: true }).count(), 1);
   assert.equal(await actualCreative.getByText("Visit website", { exact: true }).count(), 0);
+  await formatSection.getByRole("combobox", { name: "Preview format", exact: true }).click();
+  await page.getByRole("option", { name: "Homepage sponsorship", exact: true }).click();
+  await actualCreative
+    .getByRole("heading", { name: "Homepage sponsorship", exact: true })
+    .waitFor();
+  await checkHomepageSponsorshipPreview(page, actualCreative, {
+    product: previewProduct,
+    toggle: formatSection.locator("summary").filter({ hasText: "Creative preview" }),
+  });
   assert.equal(
     await preview.count(),
     0,

@@ -16,6 +16,7 @@ import {
   creativeProduct,
   installCreativeMedia,
   sponsoredArticle,
+  checkHomepageSponsorshipPreview,
 } from "../../../../scripts/testing/native-ad-formats.mjs";
 
 const root = fileURLToPath(new URL("../../../../", import.meta.url));
@@ -590,6 +591,10 @@ try {
     .waitFor();
   await creativePreview.getByText("Sponsored", { exact: true }).waitFor();
   assert.equal(await creativePreview.getByText("Visit website", { exact: true }).count(), 0);
+  await checkHomepageSponsorshipPreview(page, creativePreview, {
+    product: destinationProduct,
+    toggle: formatControls.locator("summary").filter({ hasText: "Creative preview" }),
+  });
   for (const width of [1280, 390]) {
     await page.setViewportSize({ width, height: width === 390 ? 844 : 1100 });
     assert.equal(

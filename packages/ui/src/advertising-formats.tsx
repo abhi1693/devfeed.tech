@@ -1012,7 +1012,7 @@ export function AdCreativePreview({
     /* A destination may be unavailable. */
   }
   const disclosure = (
-    <span className="inline-flex rounded-full border border-amber-300 bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-900 dark:border-amber-700 dark:bg-amber-950 dark:text-amber-200">
+    <span className="inline-flex shrink-0 rounded-full border border-amber-300 bg-amber-100 px-2 py-0.5 text-xs font-semibold whitespace-nowrap text-amber-900 dark:border-amber-700 dark:bg-amber-950 dark:text-amber-200">
       Sponsored
     </span>
   );
@@ -1035,13 +1035,13 @@ export function AdCreativePreview({
       ) : title ? (
         <article className="max-w-md overflow-hidden rounded-xl border bg-card text-card-foreground">
           {format === "homepage_sponsorship" ? (
-            <div className="flex items-center gap-3 p-4">
+            <div className="flex flex-wrap items-center gap-2 p-3 sm:gap-3 sm:p-4">
               <PreviewMedia key={product?.id} logo={product?.logo_url} name={title} compact />
-              <div className="min-w-0 flex-1">
-                {disclosure}
-                <p className="mt-2 truncate font-semibold">{title}</p>
+              <div className="min-w-20 flex-1">
+                <p className="truncate font-semibold">{title}</p>
                 {host && <p className="truncate text-xs text-muted-foreground">{host}</p>}
               </div>
+              <div className="ml-auto flex shrink-0">{disclosure}</div>
             </div>
           ) : format === "engagement" || (format === "feed" && !safeImage(product?.image_url)) ? (
             <div className="space-y-3 p-4">
