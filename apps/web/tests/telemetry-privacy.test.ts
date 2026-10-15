@@ -243,6 +243,41 @@ it("bounds telemetry arrays and drops malformed entries while preserving valid d
   });
 });
 
+it.each(["exceptions", "measurements", "events", "logs"] as const)(
+  "drops malformed %s while retaining redacted structured diagnostics",
+  (collection) => {
+    const diagnostic = { name: "public", message: "code=private&topic=typescript" };
+    const result = normalizeBody(
+      { [collection]: [null, [], "bad", 42, false, diagnostic] },
+      settings,
+    );
+    expect(result[collection]).toEqual([
+      { name: "public", message: "code=[REDACTED]&topic=typescript" },
+    ]);
+    expect(diagnostic.message).toBe("code=private&topic=typescript");
+  },
+);
+
+it.each(["exception", "measurement", "log"])(
+  "preserves ordinary route_change diagnostics of type %s",
+  (type) => {
+    const diagnostic = {
+      name: "route_change",
+      attributes: { route: "/articles/private-slug", component: "router" },
+    };
+    expect(normalizePayload(type, diagnostic, settings)).toEqual(diagnostic);
+  },
+);
+
+it.each([undefined, null, "invalid", {}, 42])(
+  "does not invent trace spans from malformed resourceSpans: %j",
+  (resourceSpans) => {
+    expect(normalizePayload("trace", { resourceSpans }, settings)).toEqual({
+      resourceSpans: [],
+    });
+  },
+);
+
 it("uses trusted deployment labels for traces and preserves custom attributes", () => {
   const spoofed = ["service.name", "service.version", "deployment.environment.name"].map((key) => ({
     key,

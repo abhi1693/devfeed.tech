@@ -1,8 +1,9 @@
-import { lstat, mkdir, readFile, readdir, unlink, writeFile } from "node:fs/promises";
+import { mkdir, readFile, readdir, unlink } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { format } from "prettier";
 import { gatewayOperations, releaseVersion } from "./gateway-contract.mjs";
+import { readRegularFile, writeGeneratedFile } from "./generated-files.mjs";
 
 export function createRouteGenerator(config) {
   const marker = config.marker;
@@ -151,7 +152,7 @@ export function createRouteGenerator(config) {
         throw new Error(`Cannot manage symlinked ${config.name} route ${path}`);
       if (entry.isDirectory()) await existingRoutes(root, path, files);
       else if (entry.isFile() && entry.name === "route.ts") {
-        files.set(path, await readFile(join(root, path), "utf8"));
+        files.set(path, await readRegularFile(join(root, path), `${config.name} route ${path}`));
       }
     }
     return files;
@@ -159,10 +160,7 @@ export function createRouteGenerator(config) {
 
   async function previousOperationSource(target) {
     try {
-      if (!(await lstat(target)).isFile()) {
-        throw new Error(`Cannot manage non-file ${config.name} operation definition`);
-      }
-      return await readFile(target, "utf8");
+      return await readRegularFile(target, `${config.name} operation definition`);
     } catch (error) {
       if (error.code === "ENOENT") return undefined;
       throw error;
@@ -211,11 +209,17 @@ export function createRouteGenerator(config) {
     }
     const targetPath = target instanceof URL ? fileURLToPath(target) : target;
     await mkdir(dirname(targetPath), { recursive: true });
-    await writeFile(targetPath, generated.operations);
+    await writeGeneratedFile(targetPath, generated.operations, {
+      marker,
+      label: `${config.name} operation definition`,
+    });
     for (const [filename, content] of generated.routes) {
       const destination = join(root, filename);
       await mkdir(dirname(destination), { recursive: true });
-      await writeFile(destination, content);
+      await writeGeneratedFile(destination, content, {
+        marker,
+        label: `${config.name} route ${filename}`,
+      });
     }
     for (const filename of obsolete) await unlink(join(root, filename));
   }

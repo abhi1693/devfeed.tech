@@ -218,8 +218,11 @@ export function decodeReaderLoginDestination(href: string): ReaderDestinationRec
     separatorIndex < 0 ? href : href.slice(0, separatorIndex),
   );
   if (!matched?.definition.login) return null;
+  const profile = readerDestinationContract.queryProfiles[matched.definition.query];
+  if (!profile) return null;
+  const fieldNames = Object.keys(profile.fields);
   const rawQuery = separatorIndex < 0 ? "" : href.slice(separatorIndex + 1);
-  const query: Record<string, string> = {};
+  const values = new Map<string, string>();
   if (rawQuery) {
     for (const pair of rawQuery.split("&")) {
       const equalIndex = pair.indexOf("=");
@@ -232,15 +235,12 @@ export function decodeReaderLoginDestination(href: string): ReaderDestinationRec
       } catch {
         return null;
       }
-      if (Object.hasOwn(query, name)) return null;
-      Object.defineProperty(query, name, {
-        value,
-        enumerable: true,
-        configurable: true,
-        writable: true,
-      });
+      const fieldName = fieldNames.find((field) => field === name);
+      if (fieldName === undefined || values.has(fieldName)) return null;
+      values.set(fieldName, value);
     }
   }
+  const query = Object.fromEntries(values);
   const destination = { ...matched.destination, query };
   return validQuery(query, matched.definition) && serializeReaderLoginDestination(destination)
     ? destination
@@ -291,7 +291,7 @@ export function serializeReaderDestination(destination: ReaderDestinationRecord)
 
 /** Authentication requires an explicitly approved destination in addition to a valid route. */
 export function serializeReaderLoginDestination(
-  destination: ReaderDestinationRecord,
+  destination: ReaderDestinationRecord | null,
 ): string | null {
   if (
     !destination ||
@@ -306,5 +306,5 @@ export function serializeReaderLoginDestination(
 /** Invalid UI links fall back to the reader home; direct API inputs remain strict. */
 export function readerSignInDestination(value: string | ReaderDestinationRecord): string {
   const destination = typeof value === "string" ? decodeReaderLoginDestination(value) : value;
-  return destination ? (serializeReaderLoginDestination(destination) ?? "/") : "/";
+  return serializeReaderLoginDestination(destination) ?? "/";
 }

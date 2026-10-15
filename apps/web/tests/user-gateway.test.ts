@@ -211,6 +211,35 @@ describe("bound reader cookie and origin policies", () => {
 });
 
 describe("reader transport and concrete parameters", () => {
+  it("rejects a mismatched method before resolving route parameters or consuming a body", async () => {
+    const fetcher = vi.fn();
+    vi.stubGlobal("fetch", fetcher);
+    const incoming = new Request(`${origin}/api`, {
+      method: "POST",
+      headers: { Origin: origin },
+      body: new ReadableStream<Uint8Array>(),
+      duplex: "half",
+    } as RequestInit);
+    const params = vi.fn(() => {
+      throw new Error("A rejected method must not resolve route parameters");
+    });
+    const routeContext = Object.defineProperty({}, "params", { get: params });
+    const response = await me.GET(incoming, routeContext);
+    expect(response.status).toBe(405);
+    expect(response.headers.get("allow")).toBe("GET");
+    expect(await response.json()).toEqual({ detail: "Method not allowed" });
+    expect(params).not.toHaveBeenCalled();
+    expect(incoming.bodyUsed).toBe(false);
+    expect(fetcher).not.toHaveBeenCalled();
+  });
+
+  it("rejects the generated identity HEAD handler with its documented method", async () => {
+    const response = me.HEAD();
+    expect(response.status).toBe(405);
+    expect(response.headers.get("allow")).toBe("GET");
+    expect(await response.json()).toEqual({ detail: "Method not allowed" });
+  });
+
   it.each([{}, { params: undefined }])(
     "handles real parameterless Next contexts: %j",
     async (routeContext) => {
@@ -243,7 +272,9 @@ describe("reader transport and concrete parameters", () => {
         body: new ReadableStream<Uint8Array>(),
         duplex: "half",
       } as RequestInit);
-      expect((await articleOpen.POST(incoming, context(params))).status).toBe(404);
+      const response = await articleOpen.POST(incoming, context(params));
+      expect(response.status).toBe(404);
+      expect(await response.json()).toEqual({ detail: "Not found" });
       expect(incoming.bodyUsed).toBe(false);
       expect(fetcher).not.toHaveBeenCalled();
     },

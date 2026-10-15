@@ -89,6 +89,7 @@ test("Python and reader navigation resolve every declared login destination iden
     "/search?q=" + encodeURIComponent("🐍".repeat(100)),
     "/search?q=https%3A%2F%2Fexample.com%2F&sort=newest",
     "/search?q=%5Cd+C%3A%5CWindows&sort=newest",
+    "/latest?sort=newest&q=cursor&cursor=next%2Bpage",
     "/sources?offset=00020",
     "/topics?offset=1000000",
     "/search?date_from=0001-01-01",
@@ -202,5 +203,65 @@ test("stored destination records require the same exact structure in both runtim
   for (const [index, record] of records.entries()) {
     assert.equal(reader.serializeReaderLoginDestination(record), null, JSON.stringify(record));
     assert.equal(actual.records[index], null, JSON.stringify(record));
+  }
+});
+
+test("query names come only from the matched route's declared fields", () => {
+  const names = [
+    "__proto__",
+    "constructor",
+    "prototype",
+    "hasOwnProperty",
+    "toString",
+    "valueOf",
+    "__defineGetter__",
+    "q.__proto__",
+    "q[__proto__]",
+    "__proto__[polluted]",
+  ];
+  const paths = names.flatMap((name) => [
+    `/search?${encodeURIComponent(name)}=injected`,
+    `/search?q=valid&${encodeURIComponent(name)}=injected`,
+    `/search?${encodeURIComponent(name)}=injected&q=valid`,
+  ]);
+  const actual = python(paths);
+  for (const [index, path] of paths.entries()) {
+    assert.equal(reader.decodeReaderLoginDestination(path), null, path);
+    assert.equal(actual.destinations[index], null, path);
+    assert.equal(reader.readerSignInDestination(path), "/", path);
+  }
+
+  for (const value of names) {
+    const path = `/search?q=${encodeURIComponent(value)}`;
+    const destination = reader.decodeReaderLoginDestination(path);
+    assert.deepEqual(destination?.query, { q: value }, path);
+    assert.equal(reader.readerSignInDestination(path), path, path);
+  }
+});
+
+test("sign-in always validates destinations and safely recovers invalid input", () => {
+  const invalid = [
+    null,
+    false,
+    [],
+    {},
+    "/login",
+    "//evil.example/latest",
+    "/search?q=one&%71=two",
+    "/mcp/authorize?request=short",
+    { routeId: "login", parameters: {}, query: {} },
+    { routeId: "unknown", parameters: {}, query: {} },
+    { routeId: "article", parameters: { slug: "../login" }, query: {} },
+    { routeId: "latest", parameters: {}, query: { next: "//evil.example" } },
+    { routeId: "latest", parameters: {}, query: {}, href: "//evil.example" },
+  ];
+  for (const value of invalid)
+    assert.equal(reader.readerSignInDestination(value), "/", JSON.stringify(value));
+
+  for (const path of declared) {
+    const destination = reader.decodeReaderLoginDestination(path);
+    const canonical = reader.serializeReaderLoginDestination(destination);
+    assert.equal(reader.readerSignInDestination(path), canonical, path);
+    assert.equal(reader.readerSignInDestination(destination), canonical, path);
   }
 });

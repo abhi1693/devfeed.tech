@@ -997,35 +997,35 @@ def product_promotion(session, account, product_id):
 
 
 def list_product_promotions(session, account_id):
-    """Admin policy list keeps managed previews and current jobs in two grouped reads."""
+    """Read policy, artwork and latest revision-bound image jobs in one grouped query."""
+    statuses = (
+        select(ArticleImageJob.product_id, ArticleImageJob.status)
+        .join(
+            PartnerProductPromotion,
+            (PartnerProductPromotion.account_id == ArticleImageJob.account_id)
+            & (PartnerProductPromotion.product_id == ArticleImageJob.product_id)
+            & (PartnerProductPromotion.ad_image_revision == ArticleImageJob.subject_revision),
+        )
+        .where(
+            ArticleImageJob.account_id == account_id,
+            ArticleImageJob.operation == "product-ad-image",
+            PartnerProductPromotion.ad_image_url.is_not(None),
+        )
+        .distinct(ArticleImageJob.product_id)
+        .order_by(
+            ArticleImageJob.product_id,
+            ArticleImageJob.created_at.desc(),
+            ArticleImageJob.id.desc(),
+        )
+        .subquery()
+    )
     rows = session.execute(
-        select(PartnerProductPromotion, PartnerProduct)
+        select(PartnerProductPromotion, PartnerProduct, statuses.c.status)
         .join(PartnerProduct, PartnerProduct.id == PartnerProductPromotion.product_id)
+        .outerjoin(statuses, statuses.c.product_id == PartnerProductPromotion.product_id)
         .where(PartnerProductPromotion.account_id == account_id)
         .order_by(PartnerProductPromotion.product_id)
     ).all()
-    statuses = dict(
-        session.execute(
-            select(ArticleImageJob.product_id, ArticleImageJob.status)
-            .join(
-                PartnerProductPromotion,
-                (PartnerProductPromotion.account_id == ArticleImageJob.account_id)
-                & (PartnerProductPromotion.product_id == ArticleImageJob.product_id)
-                & (PartnerProductPromotion.ad_image_revision == ArticleImageJob.subject_revision),
-            )
-            .where(
-                ArticleImageJob.account_id == account_id,
-                ArticleImageJob.operation == "product-ad-image",
-                PartnerProductPromotion.ad_image_url.is_not(None),
-            )
-            .distinct(ArticleImageJob.product_id)
-            .order_by(
-                ArticleImageJob.product_id,
-                ArticleImageJob.created_at.desc(),
-                ArticleImageJob.id.desc(),
-            )
-        ).all()
-    )
     return [
         _product_promotion_out(
             session,
@@ -1035,11 +1035,11 @@ def list_product_promotions(session, account_id):
             if not policy.ad_image_url
             else "ready"
             if product_ad_image_current(policy)
-            else statuses[product.id]
-            if statuses.get(product.id) in {"queued", "running"}
+            else status
+            if status in {"queued", "running"}
             else "failed",
         )
-        for policy, product in rows
+        for policy, product, status in rows
     ]
 
 

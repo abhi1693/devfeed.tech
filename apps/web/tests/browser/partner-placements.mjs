@@ -349,7 +349,17 @@ async function assertOrganicRestoration(context, base, platform) {
         surface === "grid"
           ? ".article-grid > .article-card:not(.partner-placement) .card-open-link"
           : ".search-section-articles .search-result-link";
-      assert.equal(await page.locator(selector).count(), 24);
+      // Wait for the article list itself to settle after pagination before
+      // measuring layout; the pagination marker alone does not assert its contents.
+      await page.waitForFunction(
+        (selector) => document.querySelectorAll(selector).length === 24,
+        selector,
+      );
+      assert.deepEqual(
+        await page.locator(selector).allTextContents(),
+        feedArticles.map((item) => item.title),
+        `${platform}/${surface}: pagination retains the original articles exactly once`,
+      );
       const reading = page.locator(selector).nth(8);
       await reading.scrollIntoViewIfNeeded();
       await reading.focus();
@@ -374,7 +384,15 @@ async function assertOrganicRestoration(context, base, platform) {
         ),
         false,
       );
-      assert.equal(await page.locator(selector).count(), 25);
+      await page.waitForFunction(
+        (selector) => document.querySelectorAll(selector).length === 25,
+        selector,
+      );
+      assert.deepEqual(
+        await page.locator(selector).allTextContents(),
+        [...feedArticles, promotedArticle].map((item) => item.title),
+        `${platform}/${surface}: expiry restores the organic article exactly once in page order`,
+      );
       const after = await reading.boundingBox();
       assert.ok(
         Math.abs(after.y - before.y) <= 2,
@@ -1040,6 +1058,11 @@ try {
         ? [`--disable-extensions-except=${extension}`, `--load-extension=${extension}`]
         : [],
     });
+    const browserErrors = [];
+    context.on("weberror", (error) => browserErrors.push(error.error().stack));
+    context.on("requestfailed", (request) =>
+      browserErrors.push(`${request.method()} ${request.url()}: ${request.failure()?.errorText}`),
+    );
     try {
       let base = origin;
       if (extension) {
@@ -1110,6 +1133,13 @@ try {
         const historyKey = "devfeed:partner-placement-preferences:v1";
         const accesses = { reads: 0, writes: 0, removals: 0 };
         window.__placementHistoryAccess = accesses;
+        let local;
+        try {
+          local = localStorage;
+        } catch {
+          // Fresh-document navigation also initializes an opaque about:blank page.
+          return;
+        }
         for (const [method, operation] of [
           ["getItem", "reads"],
           ["setItem", "writes"],
@@ -1117,11 +1147,11 @@ try {
         ]) {
           const original = Storage.prototype[method];
           Storage.prototype[method] = function (key, ...args) {
-            if (key === historyKey && this === localStorage) accesses[operation]++;
+            if (key === historyKey && this === local) accesses[operation]++;
             return original.call(this, key, ...args);
           };
         }
-        localStorage.setItem("devfeed:dev-card-promo-seen", "1");
+        local.setItem("devfeed:dev-card-promo-seen", "true");
       });
       const page = await context.newPage();
       await page.goto(`${base}/articles/${article.slug}`);
@@ -1906,8 +1936,13 @@ try {
       }
       signedIn = false;
       queries = [];
-      await page.goto(`${base}/articles/${article.slug}`);
-      await page.reload();
+      // A fresh document verifies the new session without racing a hash navigation
+      // against an immediate reload of the previous extension page.
+      const signedOutArticle = `${base}/articles/${article.slug}`;
+      await page.goto("about:blank");
+      await page.goto(signedOutArticle);
+      await page.getByRole("heading", { name: article.title, level: 1, exact: true }).waitFor();
+      assert.equal(page.url(), signedOutArticle, `${platform}: signed-out article entry`);
       await page.locator(".partner-placement:visible").first().waitFor();
       assert.ok(
         queries.length &&
@@ -2176,6 +2211,26 @@ try {
       console.log(
         `${platform}: built web/extension in-grid homepage, search, category and topic cards; managed custom product creatives, clearing to default OG, responsive sources and failed-image fallback; compact formats preserve logos and sponsored content preserves its article image; every product disclosed with distinct amber Sponsored pills and no dismissal; branded preview sidebar; focus/layout stability; signed campaign and non-campaign tracking; configured production gateway caller proofs, credential isolation and placement429 retry guidance; mounted receipt expiry and background wake preserve reading position without refreshing or tracking; viewable placements never read, write or remove abandoned local history; private session routing; optional private experience save/reload/clear; article priority passed`,
       );
+    } catch (error) {
+      const page = context.pages().findLast((page) => page.url() !== "about:blank");
+      console.error("Placement browser failure", platform, {
+        signedIn,
+        nativeMode,
+        queries,
+        browserErrors: browserErrors.slice(-20),
+        pages: context.pages().map((page) => page.url()),
+        page: page
+          ? {
+              url: page.url(),
+              text: await page.locator("body").innerText(),
+              placements: await page
+                .locator(".partner-placement")
+                .evaluateAll((nodes) => nodes.map((node) => node.outerHTML)),
+            }
+          : null,
+      });
+      await page?.screenshot({ path: `${reportDirectory}/${platform}-failure.png` });
+      throw error;
     } finally {
       await context.close();
     }

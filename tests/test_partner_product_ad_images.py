@@ -502,4 +502,118 @@ def test_admin_promotion_image_metadata_uses_a_constant_query_count(database, ma
             assert rows[0].ad_image_status == "queued"
     finally:
         event.remove(engine, "before_cursor_execute", count)
-    assert len(statements) == 2
+    assert len(statements) == 1
+
+
+@pytest.mark.integration
+def test_admin_promotion_list_keeps_latest_jobs_account_scoped_and_revision_bound(
+    database, managed_storage
+):
+    account_id, _ = owned_catalog(database)
+    now = utcnow()
+    expected = {
+        "default": "default",
+        "ready": "ready",
+        "missing-job": "failed",
+        "stale-revision": "failed",
+        "foreign-job": "failed",
+        "latest-failed": "failed",
+        "latest-running": "running",
+        "equal-timestamps": "queued",
+        "other-operation": "failed",
+    }
+    products = {}
+    with database.begin() as session:
+        foreign = PartnerAccount(name="Independent artwork owner", tier="silver")
+        session.add(foreign)
+        session.flush()
+        foreign_id = foreign.id
+        for name in [*expected, "foreign-policy-only"]:
+            product = PartnerProduct(
+                name=name,
+                product_url=f"https://{name}.example/",
+                description="Product artwork status fixture",
+            )
+            product.managed_image = {
+                **managed(CUSTOM, digest=f"og-{name}"),
+                "page_url": product.product_url,
+            }
+            session.add(product)
+            session.flush()
+            products[name] = product.id
+            session.add(
+                PartnerProductPromotion(
+                    account_id=foreign_id if name == "foreign-policy-only" else account_id,
+                    product_id=product.id,
+                    ad_image_url=None if name == "default" else CUSTOM,
+                    ad_image_revision=2,
+                    managed_ad_image=managed(CUSTOM, revision=2) if name == "ready" else {},
+                )
+            )
+        session.add(
+            PartnerProductPromotion(
+                account_id=foreign_id,
+                product_id=products["equal-timestamps"],
+                ad_image_url=OTHER,
+                ad_image_revision=2,
+                managed_ad_image=managed(OTHER, digest="foreign", revision=2),
+            )
+        )
+        jobs = [
+            ("default", "running", account_id, 2, now),
+            ("ready", "failed", account_id, 2, now),
+            ("stale-revision", "running", account_id, 1, now),
+            ("foreign-job", "running", foreign_id, 2, now),
+            ("latest-failed", "running", account_id, 2, now - timedelta(seconds=1)),
+            ("latest-failed", "failed", account_id, 2, now),
+            ("latest-running", "failed", account_id, 2, now - timedelta(seconds=1)),
+            ("latest-running", "running", account_id, 2, now),
+            ("equal-timestamps", "failed", account_id, 2, now),
+            ("equal-timestamps", "queued", account_id, 2, now),
+            ("equal-timestamps", "running", foreign_id, 2, now + timedelta(seconds=1)),
+        ]
+        for index, (name, status, owner, revision, created_at) in enumerate(jobs, start=1):
+            session.add(
+                ArticleImageJob(
+                    id=uuid.UUID(int=index),
+                    account_id=owner,
+                    product_id=products[name],
+                    subject_revision=revision,
+                    operation="product-ad-image",
+                    status=status,
+                    created_at=created_at,
+                )
+            )
+        session.add(
+            ArticleImageJob(
+                product_id=products["other-operation"], operation="product-image", status="queued"
+            )
+        )
+    statements = []
+    engine = database.kw["bind"]
+
+    def count(connection, cursor, statement, parameters, context, many):
+        statements.append(statement)
+
+    event.listen(engine, "before_cursor_execute", count)
+    try:
+        with database() as session:
+            rows = list_product_promotions(session, account_id)
+    finally:
+        event.remove(engine, "before_cursor_execute", count)
+    assert len(statements) == 1
+    assert {row.product_id for row in rows} == {products[name] for name in expected}
+    by_product = {row.product_id: row for row in rows}
+    for name, status in expected.items():
+        row = by_product[products[name]]
+        assert row.account_id == account_id
+        assert row.ad_image_status == status, name
+        assert row.default_image_url == f"{PUBLIC}/thumbnails/v2/og-{name}/640.webp"
+        assert row.image_url == (
+            f"{PUBLIC}/thumbnails/v2/custom/640.webp" if name == "ready" else row.default_image_url
+        )
+    with database() as session:
+        foreign_rows = {row.product_id: row for row in list_product_promotions(session, foreign_id)}
+    foreign_image = foreign_rows[products["equal-timestamps"]]
+    assert foreign_image.ad_image_status == "ready"
+    assert foreign_image.image_url == f"{PUBLIC}/thumbnails/v2/foreign/640.webp"

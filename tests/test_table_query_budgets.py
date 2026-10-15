@@ -27,6 +27,7 @@ from devfeed_core.models import (
     PartnerConnection,
     PartnerEvaluation,
     PartnerListing,
+    PartnerManualProduct,
     PartnerMembership,
     PartnerPipelineJob,
     PartnerProduct,
@@ -396,19 +397,20 @@ def table_data(profile_data):  # noqa: F811 - imported pytest fixture
                 evidence=[],
             )
             c.execute(insert(PartnerProduct), [dict(id=identity("partner", i), **facts)])
-            c.execute(
-                insert(PartnerListing),
-                [
-                    dict(
-                        id=identity("listing", i),
-                        product_id=identity("partner", i),
-                        provider="nick-launches",
-                        external_id=f"product-{i}",
-                        listing_url=f"https://nicklaunches.com/products/product-{i}",
-                        **facts,
-                    )
-                ],
-            )
+            if i:
+                c.execute(
+                    insert(PartnerListing),
+                    [
+                        dict(
+                            id=identity("listing", i),
+                            product_id=identity("partner", i),
+                            provider="nick-launches",
+                            external_id=f"product-{i}",
+                            listing_url=f"https://nicklaunches.com/products/product-{i}",
+                            **facts,
+                        )
+                    ],
+                )
             c.execute(
                 insert(PartnerPipelineJob),
                 [
@@ -440,6 +442,17 @@ def table_data(profile_data):  # noqa: F811 - imported pytest fixture
                     )
                 ],
             )
+        # Product zero has only a direct registration; later products mix both sources.
+        c.execute(
+            insert(PartnerManualProduct),
+            [
+                dict(
+                    account_id=identity("partner-account", 0),
+                    product_id=identity("partner", i),
+                )
+                for i in range(0, size, 3)
+            ],
+        )
         c.execute(
             insert(PartnerProductPromotion),
             [
@@ -503,7 +516,7 @@ def tables():
     )
     yield Table(
         "/v1/admin/partner-tools",
-        3,
+        4,  # Fixed count, page, imported sources and direct registrations; independent of rows.
         {
             "provider": provider,
             "product_id": [partner_id, missing],
