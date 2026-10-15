@@ -54,6 +54,13 @@ reservation and UTC impression accounting with the final locked capacity check.
 direct-product fallback as the locked resolver; sponsored articles use their internal preview.
 These advisory checks never replace the final locked policy, destination and capacity reads.
 
+Contextual issuance reruns the prepared-match query after locking the product and
+returns the current relevance reason. It holds the matching worker's shared taxonomy
+barrier until delivery commits, so relationship invalidation cannot remove a verified
+match between the final read and reservation. A busy taxonomy editor stops the contextual
+phase after one attempt; candidate rollback releases the new locks. Explicit fallback keeps its separate
+context-independent eligibility contract.
+
 The placement query-budget integration tests cover 105- and 205-product rejections,
 later eligible inventory, lock release, and edits committed after preflight.
 

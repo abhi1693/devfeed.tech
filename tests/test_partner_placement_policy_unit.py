@@ -7,8 +7,10 @@ from unittest.mock import Mock
 
 import pytest
 from devfeed_core import partner_placements as placements
+from devfeed_core.models import PartnerProductTopic
 from devfeed_core.partner_tracking import BusyPartnerAsset, PartnerTrackingTokens
 from devfeed_http.partner_placements import PlacementQuery
+from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import dialect
 
 NOW = datetime(2026, 10, 11, 0, 15, tzinfo=UTC)
@@ -285,7 +287,16 @@ def test_funded_canonical_product_appears_once_with_independent_best_organic_slo
         (assets[3], account, products[1]),
     ]
     session = Mock()
-    monkeypatch.setattr(placements, "contextual_candidates", lambda *_, **__: None)
+    matches = select(
+        PartnerProductTopic.product_id,
+        PartnerProductTopic.score,
+        PartnerProductTopic.reason,
+        PartnerProductTopic.product_revision,
+        PartnerProductTopic.product_updated_at,
+    )
+    monkeypatch.setattr(placements, "contextual_candidates", lambda *_, **__: matches)
+    # Each winning slot obtains the taxonomy fence and a current relevance reason.
+    session.scalar.side_effect = [True, "Specific task", True, "Specific task"]
 
     def ranked_rows(*_, phase, **__):
         # The SQL layer supplies relevance/priority-ranked rows. This unit checks

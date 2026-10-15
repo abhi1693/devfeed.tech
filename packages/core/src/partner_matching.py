@@ -22,6 +22,9 @@ from devfeed_core.models import (
 from devfeed_core.partner_promotions import ensure_automatic_assets
 from devfeed_core.partner_tools import article_snapshot
 
+# Shared by topic publication, placement issuance, and taxonomy invalidation triggers.
+TAXONOMY_LOCK_KEY = 832604285
+
 BROAD = {"ai", "developer tools", "productivity", "software", "technology", "development"}
 STOP_WORDS = set(
     [
@@ -418,7 +421,7 @@ def _prepare_job(session, job, *, article_limit, now):
     if product_job and (job.kind == "topics" or job.cursor is None):
         # Serialize topic publication with atomic taxonomy invalidation without
         # waiting on the editor's row/queue locks.
-        if not session.scalar(select(func.pg_try_advisory_xact_lock_shared(832604285))):
+        if not session.scalar(select(func.pg_try_advisory_xact_lock_shared(TAXONOMY_LOCK_KEY))):
             return 0, False
         if prepare_topics(session, source, now) is None:
             return 0, False

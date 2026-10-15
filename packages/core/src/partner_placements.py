@@ -34,7 +34,7 @@ from devfeed_core.partner_audiences import (
     audience_topics_current,
     effective_audience,
 )
-from devfeed_core.partner_matching import article_fingerprint
+from devfeed_core.partner_matching import TAXONOMY_LOCK_KEY, article_fingerprint
 from devfeed_core.partner_placement_capacity import campaign_capacity
 from devfeed_core.partner_placement_destinations import placement_destination
 from devfeed_core.partner_placement_preflight import (
@@ -802,28 +802,38 @@ def deliver_placements(session, query, key, *, user_id=None, now=None):
                     continue
                 if (product.revision, product.updated_at) != (revision, updated_at):
                     continue
-                if not automatic_asset_available(
-                    session, asset, account, product, now, surface=query.surface
-                ):
-                    continue
-                if query.surface == "article" or (
-                    ad_format == "engagement" and query.surface == "feed"
-                ):
-                    # A validated negative may commit after candidate ranking but
-                    # before this product lock. Recheck the task edge now; the
-                    # lock then serializes later rule/evaluation publications.
+                if phase != "fallback":
+                    # Taxonomy invalidation deletes prepared topic edges without
+                    # locking their products. Share its publication barrier through
+                    # issuance so an edit cannot invalidate a successful recheck.
+                    # A busy editor blocks the whole contextual phase; do not
+                    # retry the same barrier and attribution locks per product.
+                    if not session.scalar(
+                        select(func.pg_try_advisory_xact_lock_shared(TAXONOMY_LOCK_KEY))
+                    ):
+                        break
+                    # Ranking is an earlier snapshot. Recheck every contextual
+                    # placement and use its current reason, including ordinary
+                    # topic/feed matches. Product locks also fence task evaluations.
+                    task_match = query.surface == "article" or (
+                        ad_format == "engagement" and query.surface == "feed"
+                    )
                     current = matches.subquery()
                     reason = session.scalar(
                         select(current.c.reason)
                         .where(
                             current.c.product_id == product.id,
                             current.c.engagement == (ad_format == "engagement"),
-                            current.c.intent == 2,
+                            current.c.intent == (2 if task_match else 1),
                         )
                         .limit(1)
                     )
                     if reason is None:
                         continue
+                if not automatic_asset_available(
+                    session, asset, account, product, now, surface=query.surface
+                ):
+                    continue
                 audience = effective_audience(account, campaign)
                 if audience is None:
                     continue
