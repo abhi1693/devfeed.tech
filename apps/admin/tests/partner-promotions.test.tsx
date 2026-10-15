@@ -52,7 +52,7 @@ const paidAccount: AccountOut = {
   tier: "gold",
   allowed_promotion_kinds: ["product", "ad"],
   effective_promotion_kind: "ad",
-  allowed_ad_formats: ["feed", "homepage_sponsorship", "sponsored_content", "engagement"],
+  allowed_ad_formats: ["feed", "header_sponsorship", "sponsored_content", "engagement"],
 };
 const product = {
   id: "product-1",
@@ -739,7 +739,7 @@ it("saves Silver automatic format defaults without fetching creatives eagerly", 
   expect(api.adminPartnerCreativePreview).not.toHaveBeenCalled();
   await openSettingsTab("Ad formats");
   expect(api.adminPartnerCreativePreview).not.toHaveBeenCalled();
-  fireEvent.click(screen.getByRole("checkbox", { name: /^Homepage sponsorship/ }));
+  fireEvent.click(screen.getByRole("checkbox", { name: /^Header sponsorship/ }));
   fireEvent.click(screen.getByRole("checkbox", { name: /^Engagement/ }));
   expect(screen.queryByRole("checkbox", { name: /^Sponsored content/ })).toBeNull();
   fireEvent.submit(screen.getByRole("form", { name: "Partner account settings" }));
@@ -747,7 +747,7 @@ it("saves Silver automatic format defaults without fetching creatives eagerly", 
   const write = fetcher.mock.calls.find(([, init]) => init?.method === "PUT");
   expect(JSON.parse(String(write?.[1]?.body)).ad_formats).toEqual([
     "feed",
-    "homepage_sponsorship",
+    "header_sponsorship",
     "engagement",
   ]);
 });
@@ -783,7 +783,7 @@ it("selects a real approved article for Silver sponsored content while retaining
   fireEvent.click(screen.getByRole("combobox", { name: "Ad format" }));
   expect(screen.getAllByRole("option").map((option) => option.textContent)).toEqual([
     "Feed",
-    "Homepage sponsorship",
+    "Header sponsorship",
     "Sponsored content",
     "Engagement",
   ]);
@@ -817,7 +817,7 @@ it("selects a real approved article for Silver sponsored content while retaining
   );
 });
 
-it("saves homepage sponsorship with feed-only surfaces and clears obsolete article selection", async () => {
+it("saves header sponsorship in its own placement and clears obsolete article selection", async () => {
   vi.mocked(api.adminPartnerCampaignGet).mockResolvedValue({
     ...campaign,
     ad_format: "sponsored_content",
@@ -826,20 +826,77 @@ it("saves homepage sponsorship with feed-only surfaces and clears obsolete artic
   renderAdmin(<PartnerCampaignPage account={paidAccount} campaignId={campaign.id} />);
   await screen.findByDisplayValue(campaign.name);
   fireEvent.click(screen.getByRole("combobox", { name: "Ad format" }));
-  fireEvent.click(screen.getByRole("option", { name: "Homepage sponsorship" }));
+  fireEvent.click(screen.getByRole("option", { name: "Header sponsorship" }));
   expect(screen.queryByRole("combobox", { name: "Sponsored article" })).toBeNull();
+  expect(screen.getByText(/top navigation across pages on wide screens/)).toBeTruthy();
+  expect(screen.queryByRole("group", { name: "Allowed placements" })).toBeNull();
+  expect(screen.getByText(/Header placements are disabled/)).toBeTruthy();
   fireEvent.submit(screen.getByRole("form", { name: "Paid campaign settings" }));
   await waitFor(() => expect(api.adminPartnerCampaignUpdate).toHaveBeenCalled());
   expect(api.adminPartnerCampaignUpdate).toHaveBeenCalledWith(
     account.id,
     campaign.id,
     expect.objectContaining({
-      ad_format: "homepage_sponsorship",
+      ad_format: "header_sponsorship",
       article_id: null,
-      surfaces: ["feed"],
+      surfaces: ["header"],
     }),
     expect.anything(),
   );
+});
+
+it.each(["feed", "engagement"] as const)(
+  "clears a Header campaign's hidden placement when changing to %s",
+  async (format) => {
+    vi.mocked(api.adminPartnerCampaignGet).mockResolvedValue({
+      ...campaign,
+      ad_format: "header_sponsorship",
+      surfaces: ["header"],
+    });
+    renderAdmin(<PartnerCampaignPage account={paidAccount} campaignId={campaign.id} />);
+    await screen.findByDisplayValue(campaign.name);
+    fireEvent.click(screen.getByRole("combobox", { name: "Ad format" }));
+    fireEvent.click(
+      screen.getByRole("option", { name: format === "feed" ? "Feed" : "Engagement" }),
+    );
+    const placements = screen.getByRole("group", { name: "Allowed placements" });
+    expect(within(placements).queryByRole("checkbox", { name: /Header/ })).toBeNull();
+    expect(within(placements).queryByRole("checkbox", { name: "Search results" }) !== null).toBe(
+      format === "engagement",
+    );
+    expect(
+      within(placements)
+        .getAllByRole("checkbox")
+        .every((checkbox) => !(checkbox as HTMLInputElement).checked),
+    ).toBe(true);
+    fireEvent.submit(screen.getByRole("form", { name: "Paid campaign settings" }));
+    expect(await screen.findByText("Select at least one placement surface.")).toBeTruthy();
+    expect(api.adminPartnerCampaignUpdate).not.toHaveBeenCalled();
+    fireEvent.click(within(placements).getByRole("checkbox", { name: "Reader feeds" }));
+    fireEvent.submit(screen.getByRole("form", { name: "Paid campaign settings" }));
+    await waitFor(() => expect(api.adminPartnerCampaignUpdate).toHaveBeenCalledOnce());
+    expect(vi.mocked(api.adminPartnerCampaignUpdate).mock.calls[0][2]).toMatchObject({
+      ad_format: format,
+      surfaces: ["feed"],
+      article_id: null,
+    });
+  },
+);
+
+it("does not warn about Header delivery when its account placement is enabled", async () => {
+  vi.mocked(api.adminPartnerCampaignGet).mockResolvedValue({
+    ...campaign,
+    ad_format: "header_sponsorship",
+    surfaces: ["header"],
+  });
+  renderAdmin(
+    <PartnerCampaignPage
+      account={{ ...paidAccount, promotion_surfaces: ["header"] }}
+      campaignId={campaign.id}
+    />,
+  );
+  await screen.findByText(/top navigation across pages on wide screens/);
+  expect(screen.queryByText(/Header placements are disabled/)).toBeNull();
 });
 
 it("updates product restrictions with admin CSRF without toggling its exclusion", async () => {

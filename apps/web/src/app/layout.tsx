@@ -1,3 +1,4 @@
+import { HeaderSponsorshipProvider } from "@/components/header-sponsorship";
 import { TopicFollowsProvider } from "@/components/topic-follows";
 import { BrowserTelemetry } from "@devfeed/telemetry/browser";
 import { browserSettings } from "@devfeed/telemetry/receiver";
@@ -77,21 +78,23 @@ export default async function RootLayout({
         <UserProvider>
           <ReaderContextProvider>
             <ReaderPromptsProvider>
-              <ThemePreferencesProvider>
-                <NotificationPreferencesProvider>
-                  <FeedPreferencesProvider>
-                    <WebArticleNavigationProvider>
-                      <SourceFollowsProvider>
-                        <TopicFollowsProvider>
-                          {children}
-                          {modal}
-                        </TopicFollowsProvider>
-                      </SourceFollowsProvider>
-                      <SignupNudge />
-                    </WebArticleNavigationProvider>
-                  </FeedPreferencesProvider>
-                </NotificationPreferencesProvider>
-              </ThemePreferencesProvider>
+              <HeaderSponsorshipProvider>
+                <ThemePreferencesProvider>
+                  <NotificationPreferencesProvider>
+                    <FeedPreferencesProvider>
+                      <WebArticleNavigationProvider>
+                        <SourceFollowsProvider>
+                          <TopicFollowsProvider>
+                            {children}
+                            {modal}
+                          </TopicFollowsProvider>
+                        </SourceFollowsProvider>
+                        <SignupNudge />
+                      </WebArticleNavigationProvider>
+                    </FeedPreferencesProvider>
+                  </NotificationPreferencesProvider>
+                </ThemePreferencesProvider>
+              </HeaderSponsorshipProvider>
             </ReaderPromptsProvider>
           </ReaderContextProvider>
         </UserProvider>

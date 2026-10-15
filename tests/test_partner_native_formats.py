@@ -32,7 +32,7 @@ from test_partner_placements_integration import KEY, deliver
 from test_partner_placements_integration import catalog as catalog
 from test_partner_portal import admin_portal_client as admin_portal_client
 
-FORMATS = ["feed", "homepage_sponsorship", "sponsored_content", "engagement"]
+FORMATS = ["feed", "header_sponsorship", "sponsored_content", "engagement"]
 
 
 @pytest.mark.parametrize("tier", ["bronze", "silver", "gold", "platinum", "diamond"])
@@ -53,12 +53,12 @@ def test_native_format_entitlements_start_at_silver_without_expanding_audience(t
         {"surface": "feed", "ad_formats": []},
         {"surface": "feed", "ad_formats": ["feed", "feed"]},
         {"surface": "feed", "ad_formats": ["newsletter"]},
-        {"surface": "feed", "ad_formats": ["homepage_sponsorship"]},
+        {"surface": "feed", "ad_formats": ["header_sponsorship"]},
         {"surface": "topic", "topic_id": str(uuid.uuid4()), "ad_formats": ["sponsored_content"]},
         {
             "surface": "article",
             "article_id": str(uuid.uuid4()),
-            "ad_formats": ["homepage_sponsorship"],
+            "ad_formats": ["header_sponsorship"],
         },
     ],
 )
@@ -67,8 +67,10 @@ def test_request_formats_reject_ambiguous_or_unsupported_surfaces(payload):
         PlacementQuery(**payload)
 
 
-@pytest.mark.parametrize("kind", ["homepage_sponsorship", "sponsored_content"])
-def test_feed_only_campaigns_have_safe_surface_defaults(kind):
+@pytest.mark.parametrize(
+    "kind,surfaces", [("header_sponsorship", ["header"]), ("sponsored_content", ["feed"])]
+)
+def test_fixed_location_campaigns_have_safe_surface_defaults(kind, surfaces):
     values = dict(
         name="Native agreement",
         ad_format=kind,
@@ -77,7 +79,7 @@ def test_feed_only_campaigns_have_safe_surface_defaults(kind):
     )
     if kind == "sponsored_content":
         values["article_id"] = uuid.uuid4()
-    assert CampaignInput(**values).surfaces == ["feed"]
+    assert CampaignInput(**values).surfaces == surfaces
     with pytest.raises(ValidationError):
         CampaignInput(**values, surfaces=["article"])
 
@@ -103,12 +105,15 @@ def feed_request(catalog, formats, *, fallback=False):
 
 
 @pytest.mark.integration
-@pytest.mark.parametrize("kind", ["feed", "homepage_sponsorship", "engagement"])
+@pytest.mark.parametrize("kind", ["feed", "header_sponsorship", "engagement"])
 def test_automatic_native_formats_deliver_owned_relevant_inventory(database, feed_catalog, kind):
     native_account(database, feed_catalog, [kind])
-    rows = deliver(
-        database, feed_request(feed_catalog, [kind], fallback=kind == "homepage_sponsorship")
+    payload = (
+        PlacementQuery(surface="header", ad_formats=[kind], article_ids=[feed_catalog["article"]])
+        if kind == "header_sponsorship"
+        else feed_request(feed_catalog, [kind])
     )
+    rows = deliver(database, payload)
     assert len(rows) == (2 if kind == "feed" else 1)
     rows = [row for row in rows if row["sponsored"]]
     assert rows[0]["product_id"] == feed_catalog["paid_product"]
@@ -117,24 +122,25 @@ def test_automatic_native_formats_deliver_owned_relevant_inventory(database, fee
     assert rows[0]["article"] is None
     with database() as session:
         reservation = session.scalar(select(PartnerPlacementDelivery))
-        assert reservation.surface == "feed"
+        assert reservation.surface == ("header" if kind == "header_sponsorship" else "feed")
 
 
 @pytest.mark.integration
 def test_engagement_never_uses_unrelated_fallback_and_total_formats_are_bounded(
     database, feed_catalog
 ):
-    native_account(database, feed_catalog, ["feed", "homepage_sponsorship", "engagement"])
+    native_account(database, feed_catalog, ["feed", "header_sponsorship", "engagement"])
     empty = PlacementQuery(surface="feed", ad_formats=["engagement"], allow_sponsored_fallback=True)
     assert deliver(database, empty) == []
     rows = deliver(
         database,
-        feed_request(feed_catalog, ["feed", "homepage_sponsorship", "engagement"], fallback=True),
+        feed_request(feed_catalog, ["feed", "engagement"], fallback=True),
     )
     assert len(rows) == 2
     assert len({row["product_id"] for row in rows}) == 2
     assert len({row["ad_format"] for row in rows}) == 2
-    assert all(row["sponsored"] for row in rows)
+    assert [row["ad_format"] for row in rows] == ["feed", "engagement"]
+    assert [row["sponsored"] for row in rows] == [False, True]
 
 
 @pytest.mark.integration

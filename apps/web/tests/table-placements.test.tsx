@@ -3,10 +3,7 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testi
 import type { ReactNode } from "react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { ArticleGrid } from "@/components/article-grid";
-import {
-  HomepageSponsorshipProvider,
-  HomepageSponsorshipSlot,
-} from "@/components/homepage-sponsorship";
+import { HeaderSponsorshipProvider, HeaderSponsorshipSlot } from "@/components/header-sponsorship";
 import { readerRequest } from "@/lib/reader-runtime";
 import type { PartnerPlacement } from "@/lib/partner-placements";
 import { article } from "./fixtures";
@@ -40,12 +37,7 @@ const context = {
   surface: "feed" as const,
   allow_sponsored_fallback: true,
   article_ids: articles.map((item) => item.id),
-  ad_formats: [
-    "feed",
-    "homepage_sponsorship",
-    "engagement",
-    "sponsored_content",
-  ] as PartnerPlacement["ad_format"][],
+  ad_formats: ["feed", "engagement", "sponsored_content"] as PartnerPlacement["ad_format"][],
 };
 const observed = new Map<
   Element,
@@ -207,7 +199,7 @@ it("keeps unsupported Engagement and sponsored article creatives out of the tabl
   expect(screen.queryByRole("link", { name: placement.name })).toBeNull();
 });
 
-it("shares a delivery with the global header sponsor while keeping only Feed rows inside tbody", async () => {
+it("uses independent delivery for the global header sponsor while keeping only Feed rows inside tbody", async () => {
   vi.spyOn(window, "matchMedia").mockReturnValue({
     matches: true,
     media: "(min-width: 1280px)",
@@ -218,29 +210,34 @@ it("shares a delivery with the global header sponsor while keeping only Feed row
     removeListener: vi.fn(),
     dispatchEvent: vi.fn(),
   });
-  vi.mocked(readerRequest).mockResolvedValue(
+  vi.mocked(readerRequest).mockImplementation(async (_, init) =>
     Response.json({
-      items: [{ ...placement, ad_format: "homepage_sponsorship" }, sponsoredPlacement],
+      items:
+        JSON.parse(String(init?.body)).surface === "header"
+          ? [{ ...placement, ad_format: "header_sponsorship" }]
+          : [sponsoredPlacement],
     }),
   );
   render(
-    <HomepageSponsorshipProvider>
+    <HeaderSponsorshipProvider>
       <header className="topbar">
-        <HomepageSponsorshipSlot />
+        <HeaderSponsorshipSlot />
       </header>
       <ArticleGrid articles={articles} placements={context} />
-    </HomepageSponsorshipProvider>,
+    </HeaderSponsorshipProvider>,
   );
   const homepage = await screen.findByRole("link", { name: placement.name });
   expect(homepage.closest("header")?.className).toBe("topbar");
   expect(screen.getByRole("link", { name: sponsoredPlacement.name }).closest("tr")).toBe(
     tableRows()[4],
   );
-  expect(document.querySelector("tbody [data-ad-format='homepage_sponsorship']")).toBeNull();
-  expect(JSON.parse(String(queries()[0][1]?.body)).ad_formats).toEqual([
-    "feed",
-    "homepage_sponsorship",
-  ]);
+  expect(document.querySelector("tbody [data-ad-format='header_sponsorship']")).toBeNull();
+  expect(queries().map(([, init]) => JSON.parse(String(init?.body)))).toEqual(
+    expect.arrayContaining([
+      expect.objectContaining({ surface: "feed", ad_formats: ["feed"] }),
+      expect.objectContaining({ surface: "header", ad_formats: ["header_sponsorship"] }),
+    ]),
+  );
 });
 
 it("preserves organic row nodes and focus while delayed placements arrive and later pages append", async () => {

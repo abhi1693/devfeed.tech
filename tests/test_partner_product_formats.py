@@ -129,7 +129,7 @@ def test_product_formats_respect_tier_and_retain_saved_rules_on_downgrade(databa
         session.commit()
     assert portal.get(path).json()["ad_formats"] == ["engagement"]
     assert portal.put(path, json={"excluded": True}).status_code == 200
-    denied = portal.put(path, json={"ad_formats": ["homepage_sponsorship"]})
+    denied = portal.put(path, json={"ad_formats": ["header_sponsorship"]})
     assert denied.status_code == 422, denied.text
     reset = portal.put(path, json={"ad_formats": None})
     assert reset.status_code == 200, reset.text

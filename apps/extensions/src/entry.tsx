@@ -1,3 +1,4 @@
+import { HeaderSponsorshipProvider } from "../../web/src/components/header-sponsorship";
 import { TopicFollowsProvider } from "../../web/src/components/topic-follows";
 import "./newtab.css";
 import { startExtensionAnalytics } from "./analytics";
@@ -19,7 +20,7 @@ import { SearchFilters } from "../../web/src/components/search-filters";
 import { LoadingSkeleton } from "../../web/src/components/loading-skeleton";
 import { configureReaderRuntime, readerRequest } from "../../web/src/lib/reader-runtime";
 import { feedParams, searchParamsFromUrl, latestFeedParams } from "../../web/src/lib/feed-query";
-import { resolveFeed } from "../../web/src/lib/reader-feed";
+import { readerFeeds, resolveFeed } from "../../web/src/lib/reader-feed";
 import { parseSearchOptions, normalizeSearch, type SearchResponse } from "../../web/src/lib/search";
 import type { FeedPage, FeedOptions, Topic, Source } from "../../web/src/lib/types";
 import { ExtensionReaderTransport, publicOrigin } from "./transport";
@@ -77,14 +78,20 @@ function Reader({
   }, []);
   const key = `${route}:${revision}:${user?.user_id ?? "guest"}:${user?.csrf_token ?? ""}`;
   const url = new URL(route, publicOrigin);
-  const detail = match.detail;
+  const routeDetail = match.detail;
   const queryParams = searchParamsFromUrl(url.searchParams);
   const { mode, filters } = resolveFeed(
     match.feed,
     queryParams,
     sessionLoading || Boolean(user),
-    detail?.contentType ?? match.contentType,
+    routeDetail?.contentType ?? match.contentType,
   );
+  const detail =
+    routeDetail ??
+    (match.feed.mode === "latest" && !filters.topic && filters.source_id
+      ? { kind: "sources" as const, slug: filters.source_id }
+      : undefined);
+  const feedDescriptor = detail ? readerFeeds.contextual : match.feed;
   const search = mode === "search";
   const trending = mode === "trending";
   const personal = mode === "personal";
@@ -141,7 +148,7 @@ function Reader({
             setState({
               key,
               feed: {
-                feedDescriptor: match.feed,
+                feedDescriptor,
                 filters,
                 feed: { status: "rejected", reason },
                 options: { status: "rejected", reason },
@@ -159,7 +166,7 @@ function Reader({
         setState({
           key,
           feed: {
-            feedDescriptor: match.feed,
+            feedDescriptor,
             feed,
             options,
             filters: resolvedFilters,
@@ -284,21 +291,23 @@ createRoot(document.getElementById("root")!).render(
   <AccountSession>
     <ReaderContextProvider>
       <ReaderPromptsProvider>
-        <ReaderNavigationRecovery />
-        <ThemePreferencesProvider>
-          <NotificationPreferencesProvider>
-            <FeedPreferencesProvider>
-              <ArticleNavigationProvider>
-                <SourceFollowsProvider>
-                  <TopicFollowsProvider>
-                    <ExtensionReader />
-                    <SignupNudge />
-                  </TopicFollowsProvider>
-                </SourceFollowsProvider>
-              </ArticleNavigationProvider>
-            </FeedPreferencesProvider>
-          </NotificationPreferencesProvider>
-        </ThemePreferencesProvider>
+        <HeaderSponsorshipProvider>
+          <ReaderNavigationRecovery />
+          <ThemePreferencesProvider>
+            <NotificationPreferencesProvider>
+              <FeedPreferencesProvider>
+                <ArticleNavigationProvider>
+                  <SourceFollowsProvider>
+                    <TopicFollowsProvider>
+                      <ExtensionReader />
+                      <SignupNudge />
+                    </TopicFollowsProvider>
+                  </SourceFollowsProvider>
+                </ArticleNavigationProvider>
+              </FeedPreferencesProvider>
+            </NotificationPreferencesProvider>
+          </ThemePreferencesProvider>
+        </HeaderSponsorshipProvider>
       </ReaderPromptsProvider>
     </ReaderContextProvider>
   </AccountSession>,

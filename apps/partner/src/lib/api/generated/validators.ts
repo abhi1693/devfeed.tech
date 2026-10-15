@@ -20,15 +20,15 @@ export const partnerAccountsListResponseItemsItemAudienceToolTopicIdsMax = 100;
 
 export const partnerAccountsListResponseItemsItemNameMax = 200;
 
-export const partnerAccountsListResponseItemsItemPromotionSurfacesMax = 4;
+export const partnerAccountsListResponseItemsItemPromotionSurfacesMax = 5;
 
 
 
 export const PartnerAccountsListResponse = zod.object({
   "items": zod.array(zod.object({
-  "ad_formats": zod.array(zod.enum(['feed', 'homepage_sponsorship', 'engagement'])).max(partnerAccountsListResponseItemsItemAdFormatsMax),
+  "ad_formats": zod.array(zod.enum(['feed', 'header_sponsorship', 'engagement'])).max(partnerAccountsListResponseItemsItemAdFormatsMax),
   "advanced_targeting": zod.boolean(),
-  "allowed_ad_formats": zod.array(zod.enum(['feed', 'homepage_sponsorship', 'sponsored_content', 'engagement'])),
+  "allowed_ad_formats": zod.array(zod.enum(['feed', 'header_sponsorship', 'sponsored_content', 'engagement'])),
   "allowed_promotion_kinds": zod.array(zod.enum(['product', 'ad'])),
   "approval_mode": zod.enum(['qualified', 'trusted']),
   "audience": zod.object({
@@ -45,7 +45,7 @@ export const PartnerAccountsListResponse = zod.object({
   "outbound_destination": zod.enum(['product_url', 'listing_url']),
   "promotion_kind": zod.union([zod.enum(['product', 'ad']),zod.null()]),
   "promotion_kind_source": zod.enum(['tier', 'account']),
-  "promotion_surfaces": zod.array(zod.enum(['article', 'topic', 'feed', 'search'])).min(1).max(partnerAccountsListResponseItemsItemPromotionSurfacesMax),
+  "promotion_surfaces": zod.array(zod.enum(['article', 'topic', 'feed', 'search', 'header'])).min(1).max(partnerAccountsListResponseItemsItemPromotionSurfacesMax),
   "status": zod.enum(['active', 'paused']),
   "tier": zod.enum(['bronze', 'silver', 'gold', 'platinum', 'diamond'])
 })),
@@ -1933,7 +1933,7 @@ export const dashboardV1PartnerAccountsAccountIdDashboardGetResponseAccountAudie
 
 export const dashboardV1PartnerAccountsAccountIdDashboardGetResponseAccountNameMax = 200;
 
-export const dashboardV1PartnerAccountsAccountIdDashboardGetResponseAccountPromotionSurfacesMax = 4;
+export const dashboardV1PartnerAccountsAccountIdDashboardGetResponseAccountPromotionSurfacesMax = 5;
 
 export const dashboardV1PartnerAccountsAccountIdDashboardGetResponseAssetsItemAdFormatDefault = `feed`;
 export const dashboardV1PartnerAccountsAccountIdDashboardGetResponseAssetsItemAggregatedDefault = false;
@@ -1944,9 +1944,9 @@ export const dashboardV1PartnerAccountsAccountIdDashboardGetResponseAssetsItemSt
 
 export const DashboardV1PartnerAccountsAccountIdDashboardGetResponse = zod.object({
   "account": zod.object({
-  "ad_formats": zod.array(zod.enum(['feed', 'homepage_sponsorship', 'engagement'])).max(dashboardV1PartnerAccountsAccountIdDashboardGetResponseAccountAdFormatsMax),
+  "ad_formats": zod.array(zod.enum(['feed', 'header_sponsorship', 'engagement'])).max(dashboardV1PartnerAccountsAccountIdDashboardGetResponseAccountAdFormatsMax),
   "advanced_targeting": zod.boolean(),
-  "allowed_ad_formats": zod.array(zod.enum(['feed', 'homepage_sponsorship', 'sponsored_content', 'engagement'])),
+  "allowed_ad_formats": zod.array(zod.enum(['feed', 'header_sponsorship', 'sponsored_content', 'engagement'])),
   "allowed_promotion_kinds": zod.array(zod.enum(['product', 'ad'])),
   "approval_mode": zod.enum(['qualified', 'trusted']),
   "audience": zod.object({
@@ -1963,14 +1963,14 @@ export const DashboardV1PartnerAccountsAccountIdDashboardGetResponse = zod.objec
   "outbound_destination": zod.enum(['product_url', 'listing_url']),
   "promotion_kind": zod.union([zod.enum(['product', 'ad']),zod.null()]),
   "promotion_kind_source": zod.enum(['tier', 'account']),
-  "promotion_surfaces": zod.array(zod.enum(['article', 'topic', 'feed', 'search'])).min(1).max(dashboardV1PartnerAccountsAccountIdDashboardGetResponseAccountPromotionSurfacesMax),
+  "promotion_surfaces": zod.array(zod.enum(['article', 'topic', 'feed', 'search', 'header'])).min(1).max(dashboardV1PartnerAccountsAccountIdDashboardGetResponseAccountPromotionSurfacesMax),
   "status": zod.enum(['active', 'paused']),
   "tier": zod.enum(['bronze', 'silver', 'gold', 'platinum', 'diamond'])
 }),
   "asset_total": zod.int(),
   "assets": zod.array(zod.object({
-  "ad_format": zod.enum(['feed', 'homepage_sponsorship', 'sponsored_content', 'engagement']).default(dashboardV1PartnerAccountsAccountIdDashboardGetResponseAssetsItemAdFormatDefault),
-  "ad_formats": zod.array(zod.enum(['feed', 'homepage_sponsorship', 'sponsored_content', 'engagement'])).optional(),
+  "ad_format": zod.enum(['feed', 'header_sponsorship', 'sponsored_content', 'engagement']).default(dashboardV1PartnerAccountsAccountIdDashboardGetResponseAssetsItemAdFormatDefault),
+  "ad_formats": zod.array(zod.enum(['feed', 'header_sponsorship', 'sponsored_content', 'engagement'])).optional(),
   "aggregated": zod.boolean().default(dashboardV1PartnerAccountsAccountIdDashboardGetResponseAssetsItemAggregatedDefault),
   "article_id": zod.union([zod.uuid(),zod.null()]).optional(),
   "automatic": zod.boolean().default(dashboardV1PartnerAccountsAccountIdDashboardGetResponseAssetsItemAutomaticDefault),
@@ -1987,7 +1987,7 @@ export const DashboardV1PartnerAccountsAccountIdDashboardGetResponse = zod.objec
 })),
   "end": zod.iso.date(),
   "format_totals": zod.array(zod.object({
-  "ad_format": zod.enum(['feed', 'homepage_sponsorship', 'sponsored_content', 'engagement']),
+  "ad_format": zod.enum(['feed', 'header_sponsorship', 'sponsored_content', 'engagement']),
   "clicks": zod.int(),
   "ctr": zod.union([zod.number(),zod.null()]),
   "impressions": zod.int(),
@@ -2036,7 +2036,7 @@ export const partnerInventoryListResponseItemsItemTaglineMax = 160;
 export const PartnerInventoryListResponse = zod.object({
   "items": zod.array(zod.object({
   "active": zod.boolean(),
-  "ad_formats": zod.union([zod.array(zod.enum(['feed', 'homepage_sponsorship', 'sponsored_content', 'engagement'])),zod.null()]).optional(),
+  "ad_formats": zod.union([zod.array(zod.enum(['feed', 'header_sponsorship', 'sponsored_content', 'engagement'])),zod.null()]).optional(),
   "ad_image_url": zod.union([zod.string(),zod.null()]).optional(),
   "approval_source": zod.union([zod.enum(['qualified', 'trusted']),zod.null()]).optional(),
   "assessment": zod.object({
@@ -2052,7 +2052,7 @@ export const PartnerInventoryListResponse = zod.object({
   "name": zod.string(),
   "pricing": zod.enum(['free', 'freemium', 'paid', 'unknown']),
   "product_url": zod.string(),
-  "promotion_surfaces": zod.union([zod.array(zod.enum(['article', 'topic', 'feed', 'search'])),zod.null()]).optional(),
+  "promotion_surfaces": zod.union([zod.array(zod.enum(['article', 'topic', 'feed', 'search', 'header'])),zod.null()]).optional(),
   "revision": zod.int(),
   "source": zod.enum(['manual', 'imported']),
   "status": zod.string(),
@@ -2076,14 +2076,14 @@ export const partnerAccountPreferencesUpdateResponseAudienceToolTopicIdsMax = 10
 
 export const partnerAccountPreferencesUpdateResponseNameMax = 200;
 
-export const partnerAccountPreferencesUpdateResponsePromotionSurfacesMax = 4;
+export const partnerAccountPreferencesUpdateResponsePromotionSurfacesMax = 5;
 
 
 
 export const PartnerAccountPreferencesUpdateResponse = zod.object({
-  "ad_formats": zod.array(zod.enum(['feed', 'homepage_sponsorship', 'engagement'])).max(partnerAccountPreferencesUpdateResponseAdFormatsMax),
+  "ad_formats": zod.array(zod.enum(['feed', 'header_sponsorship', 'engagement'])).max(partnerAccountPreferencesUpdateResponseAdFormatsMax),
   "advanced_targeting": zod.boolean(),
-  "allowed_ad_formats": zod.array(zod.enum(['feed', 'homepage_sponsorship', 'sponsored_content', 'engagement'])),
+  "allowed_ad_formats": zod.array(zod.enum(['feed', 'header_sponsorship', 'sponsored_content', 'engagement'])),
   "allowed_promotion_kinds": zod.array(zod.enum(['product', 'ad'])),
   "approval_mode": zod.enum(['qualified', 'trusted']),
   "audience": zod.object({
@@ -2100,7 +2100,7 @@ export const PartnerAccountPreferencesUpdateResponse = zod.object({
   "outbound_destination": zod.enum(['product_url', 'listing_url']),
   "promotion_kind": zod.union([zod.enum(['product', 'ad']),zod.null()]),
   "promotion_kind_source": zod.enum(['tier', 'account']),
-  "promotion_surfaces": zod.array(zod.enum(['article', 'topic', 'feed', 'search'])).min(1).max(partnerAccountPreferencesUpdateResponsePromotionSurfacesMax),
+  "promotion_surfaces": zod.array(zod.enum(['article', 'topic', 'feed', 'search', 'header'])).min(1).max(partnerAccountPreferencesUpdateResponsePromotionSurfacesMax),
   "status": zod.enum(['active', 'paused']),
   "tier": zod.enum(['bronze', 'silver', 'gold', 'platinum', 'diamond'])
 })
@@ -2121,7 +2121,7 @@ export const PartnerProductCreateResponse = zod.object({
   "account_id": zod.uuid(),
   "account_name": zod.string(),
   "active": zod.boolean(),
-  "ad_formats": zod.union([zod.array(zod.enum(['feed', 'homepage_sponsorship', 'sponsored_content', 'engagement'])),zod.null()]).optional(),
+  "ad_formats": zod.union([zod.array(zod.enum(['feed', 'header_sponsorship', 'sponsored_content', 'engagement'])),zod.null()]).optional(),
   "ad_image_url": zod.union([zod.string(),zod.null()]).optional(),
   "approval_source": zod.union([zod.enum(['qualified', 'trusted']),zod.null()]).optional(),
   "assessment": zod.object({
@@ -2137,7 +2137,7 @@ export const PartnerProductCreateResponse = zod.object({
   "name": zod.string(),
   "pricing": zod.enum(['free', 'freemium', 'paid', 'unknown']),
   "product_url": zod.string(),
-  "promotion_surfaces": zod.union([zod.array(zod.enum(['article', 'topic', 'feed', 'search'])),zod.null()]).optional(),
+  "promotion_surfaces": zod.union([zod.array(zod.enum(['article', 'topic', 'feed', 'search', 'header'])),zod.null()]).optional(),
   "revision": zod.int(),
   "source": zod.enum(['manual', 'imported']),
   "status": zod.string(),
@@ -2167,7 +2167,7 @@ export const PartnerProductGetResponse = zod.object({
   "account_id": zod.uuid(),
   "account_name": zod.string(),
   "active": zod.boolean(),
-  "ad_formats": zod.union([zod.array(zod.enum(['feed', 'homepage_sponsorship', 'sponsored_content', 'engagement'])),zod.null()]).optional(),
+  "ad_formats": zod.union([zod.array(zod.enum(['feed', 'header_sponsorship', 'sponsored_content', 'engagement'])),zod.null()]).optional(),
   "ad_image_url": zod.union([zod.string(),zod.null()]).optional(),
   "approval_source": zod.union([zod.enum(['qualified', 'trusted']),zod.null()]).optional(),
   "assessment": zod.object({
@@ -2183,7 +2183,7 @@ export const PartnerProductGetResponse = zod.object({
   "name": zod.string(),
   "pricing": zod.enum(['free', 'freemium', 'paid', 'unknown']),
   "product_url": zod.string(),
-  "promotion_surfaces": zod.union([zod.array(zod.enum(['article', 'topic', 'feed', 'search'])),zod.null()]).optional(),
+  "promotion_surfaces": zod.union([zod.array(zod.enum(['article', 'topic', 'feed', 'search', 'header'])),zod.null()]).optional(),
   "revision": zod.int(),
   "source": zod.enum(['manual', 'imported']),
   "status": zod.string(),
@@ -2207,7 +2207,7 @@ export const PartnerProductUpdateResponse = zod.object({
   "account_id": zod.uuid(),
   "account_name": zod.string(),
   "active": zod.boolean(),
-  "ad_formats": zod.union([zod.array(zod.enum(['feed', 'homepage_sponsorship', 'sponsored_content', 'engagement'])),zod.null()]).optional(),
+  "ad_formats": zod.union([zod.array(zod.enum(['feed', 'header_sponsorship', 'sponsored_content', 'engagement'])),zod.null()]).optional(),
   "ad_image_url": zod.union([zod.string(),zod.null()]).optional(),
   "approval_source": zod.union([zod.enum(['qualified', 'trusted']),zod.null()]).optional(),
   "assessment": zod.object({
@@ -2223,7 +2223,7 @@ export const PartnerProductUpdateResponse = zod.object({
   "name": zod.string(),
   "pricing": zod.enum(['free', 'freemium', 'paid', 'unknown']),
   "product_url": zod.string(),
-  "promotion_surfaces": zod.union([zod.array(zod.enum(['article', 'topic', 'feed', 'search'])),zod.null()]).optional(),
+  "promotion_surfaces": zod.union([zod.array(zod.enum(['article', 'topic', 'feed', 'search', 'header'])),zod.null()]).optional(),
   "revision": zod.int(),
   "source": zod.enum(['manual', 'imported']),
   "status": zod.string(),
@@ -2906,8 +2906,8 @@ export const PartnerWorkspaceDashboardResponse = zod.object({
   "assets": zod.array(zod.object({
   "account_id": zod.uuid(),
   "account_name": zod.string(),
-  "ad_format": zod.enum(['feed', 'homepage_sponsorship', 'sponsored_content', 'engagement']).default(partnerWorkspaceDashboardResponseAssetsItemAdFormatDefault),
-  "ad_formats": zod.array(zod.enum(['feed', 'homepage_sponsorship', 'sponsored_content', 'engagement'])).optional(),
+  "ad_format": zod.enum(['feed', 'header_sponsorship', 'sponsored_content', 'engagement']).default(partnerWorkspaceDashboardResponseAssetsItemAdFormatDefault),
+  "ad_formats": zod.array(zod.enum(['feed', 'header_sponsorship', 'sponsored_content', 'engagement'])).optional(),
   "aggregated": zod.boolean().default(partnerWorkspaceDashboardResponseAssetsItemAggregatedDefault),
   "article_id": zod.union([zod.uuid(),zod.null()]).optional(),
   "automatic": zod.boolean().default(partnerWorkspaceDashboardResponseAssetsItemAutomaticDefault),
@@ -2924,7 +2924,7 @@ export const PartnerWorkspaceDashboardResponse = zod.object({
 })),
   "end": zod.iso.date(),
   "format_totals": zod.array(zod.object({
-  "ad_format": zod.enum(['feed', 'homepage_sponsorship', 'sponsored_content', 'engagement']),
+  "ad_format": zod.enum(['feed', 'header_sponsorship', 'sponsored_content', 'engagement']),
   "clicks": zod.int(),
   "ctr": zod.union([zod.number(),zod.null()]),
   "impressions": zod.int(),
@@ -2962,7 +2962,7 @@ export const PartnerWorkspaceInventoryResponse = zod.object({
   "account_id": zod.uuid(),
   "account_name": zod.string(),
   "active": zod.boolean(),
-  "ad_formats": zod.union([zod.array(zod.enum(['feed', 'homepage_sponsorship', 'sponsored_content', 'engagement'])),zod.null()]).optional(),
+  "ad_formats": zod.union([zod.array(zod.enum(['feed', 'header_sponsorship', 'sponsored_content', 'engagement'])),zod.null()]).optional(),
   "ad_image_url": zod.union([zod.string(),zod.null()]).optional(),
   "approval_source": zod.union([zod.enum(['qualified', 'trusted']),zod.null()]).optional(),
   "assessment": zod.object({
@@ -2978,7 +2978,7 @@ export const PartnerWorkspaceInventoryResponse = zod.object({
   "name": zod.string(),
   "pricing": zod.enum(['free', 'freemium', 'paid', 'unknown']),
   "product_url": zod.string(),
-  "promotion_surfaces": zod.union([zod.array(zod.enum(['article', 'topic', 'feed', 'search'])),zod.null()]).optional(),
+  "promotion_surfaces": zod.union([zod.array(zod.enum(['article', 'topic', 'feed', 'search', 'header'])),zod.null()]).optional(),
   "revision": zod.int(),
   "source": zod.enum(['manual', 'imported']),
   "status": zod.string(),

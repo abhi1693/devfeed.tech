@@ -11,7 +11,7 @@ export type WorkspaceAssetMetricsAdFormat = typeof WorkspaceAssetMetricsAdFormat
 
 export const WorkspaceAssetMetricsAdFormat = {
   feed: 'feed',
-  homepage_sponsorship: 'homepage_sponsorship',
+  header_sponsorship: 'header_sponsorship',
   sponsored_content: 'sponsored_content',
   engagement: 'engagement',
 } as const;

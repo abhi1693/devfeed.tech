@@ -18,7 +18,7 @@ TIER_POLICIES: dict[str, TierPolicy] = {
         "allowed_promotion_kinds": ("product", "ad") if paid else ("product",),
         "default_promotion_kind": "ad" if paid else "product",
         "advanced_targeting": tier in {"platinum", "diamond"},
-        "allowed_ad_formats": ("feed", "homepage_sponsorship", "sponsored_content", "engagement")
+        "allowed_ad_formats": ("feed", "header_sponsorship", "sponsored_content", "engagement")
         if paid
         else ("feed",),
     }

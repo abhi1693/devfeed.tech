@@ -205,20 +205,20 @@ def test_campaign_priority_cannot_outrank_a_stronger_engagement_task(database, f
 
 
 def test_task_intent_outranks_topic_score_in_a_mixed_format_request(database, feed_catalog):
-    native_account(database, feed_catalog, ["feed", "homepage_sponsorship", "engagement"])
+    native_account(database, feed_catalog, ["feed", "header_sponsorship", "engagement"])
     with database.begin() as session:
         weaker = session.get(PartnerProduct, feed_catalog["unrelated"])
         support_kubernetes(session, weaker)
     rows = deliver(
         database,
-        feed_request(feed_catalog, ["feed", "homepage_sponsorship", "engagement"], fallback=True),
+        feed_request(feed_catalog, ["feed", "engagement"], fallback=True),
     )
     assert len(rows) == 2 and len({row["product_id"] for row in rows}) == 2
     engagement = next(row for row in rows if row["ad_format"] == "engagement")
     assert engagement["product_id"] == feed_catalog["paid_product"]
     assert "tutorial's task" in engagement["reason"]
     topic_placement = next(row for row in rows if row["ad_format"] != "engagement")
-    assert topic_placement["ad_format"] in {"feed", "homepage_sponsorship"}
+    assert topic_placement["ad_format"] == "feed"
     assert topic_placement["reason"] == "Verified support for Kubernetes."
 
 

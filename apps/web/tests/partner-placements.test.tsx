@@ -449,17 +449,11 @@ it("discloses every compact product as sponsored while retaining its signed asse
   });
 });
 
-it("keeps homepage sponsorship compact with a destination title", async () => {
+it("keeps header sponsorship compact with a destination title", async () => {
   vi.mocked(readerRequest).mockResolvedValueOnce(
-    Response.json({ items: [{ ...placement, ad_format: "homepage_sponsorship" }] }),
+    Response.json({ items: [{ ...placement, ad_format: "header_sponsorship" }] }),
   );
-  render(
-    <PartnerPlacements
-      surface="feed"
-      ad_formats={["homepage_sponsorship"]}
-      allow_sponsored_fallback
-    />,
-  );
+  render(<PartnerPlacements surface="header" ad_formats={["header_sponsorship"]} />);
   const link = await screen.findByRole("link", { name: placement.name });
   expect(link.querySelector(".partner-placement-description")?.textContent).toBe(placement.tagline);
   expect(link.querySelector(".partner-placement-destination")).toBeNull();

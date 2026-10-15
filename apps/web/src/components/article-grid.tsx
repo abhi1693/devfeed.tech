@@ -11,7 +11,6 @@ import { LoadingSkeleton } from "./loading-skeleton";
 import { PartnerPlacements, type PartnerPlacementContext } from "./partner-placements";
 import { useReadingAnchor } from "./use-reading-anchor";
 import type { PartnerPlacement } from "@/lib/partner-placements";
-import { HomepageSponsorship, useHomepageSponsorship } from "./homepage-sponsorship";
 export type RecommendationReason = {
   kind: "followed_topic" | "liked_topic" | "related_topic" | "followed_source";
   topic_id?: string | null;
@@ -36,20 +35,12 @@ export function ArticleGrid({
   placementArticleCount?: number;
 }) {
   const { view, loading } = useFeedPreferences();
-  const sponsorship = useHomepageSponsorship();
   const compact = view === "compact";
   const requestedFormats: PartnerPlacement["ad_format"][] = placements?.ad_formats ?? ["feed"];
   const placementFormats = requestedFormats.filter(
-    (format) =>
-      format !== "engagement" &&
-      (format !== "homepage_sponsorship" || sponsorship.available) &&
-      (!compact || format === "feed" || format === "homepage_sponsorship"),
+    (format) => format === "feed" || (!compact && format === "sponsored_content"),
   );
-  const placementsReady =
-    placements &&
-    !loading &&
-    (sponsorship.ready || !placements.ad_formats?.includes("homepage_sponsorship")) &&
-    placementFormats.length > 0;
+  const placementsReady = placements && !loading && placementFormats.length > 0;
   const {
     ref: gridRef,
     beforeDisplay,
@@ -98,9 +89,6 @@ export function ArticleGrid({
       });
     return (
       <div ref={gridRef} className="article-placement-feed">
-        <HomepageSponsorship>
-          {cards.filter((_, index) => items[index]?.ad_format === "homepage_sponsorship")}
-        </HomepageSponsorship>
         {compact ? (
           <ArticleTableFrame showHeader={priority}>{rows}</ArticleTableFrame>
         ) : (

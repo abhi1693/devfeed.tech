@@ -146,7 +146,8 @@ function PartnerCampaignForm({
   );
   const [articleId, setArticleId] = useState(campaign?.article_id ?? "");
   const sponsoredContent = adFormat === "sponsored_content";
-  const feedOnly = sponsoredContent || adFormat === "homepage_sponsorship";
+  const headerSponsorship = adFormat === "header_sponsorship";
+  const fixedSurface = sponsoredContent ? "feed" : headerSponsorship ? "header" : null;
   const [audienceMode, setAudienceMode] = useState(
     campaign?.audience == null ? "inherit" : "custom",
   );
@@ -157,7 +158,7 @@ function PartnerCampaignForm({
     campaign?.surfaces ?? account.promotion_surfaces ?? [...promotionSurfaces],
   );
   const allowedSurfaces = promotionSurfaces.filter(
-    (surface) => adFormat === "engagement" || surface !== "search",
+    (surface) => surface !== "header" && (adFormat === "engagement" || surface !== "search"),
   );
   const campaignSurfaces = surfaces.filter((surface) => allowedSurfaces.includes(surface));
   const [error, setError] = useState<Error>();
@@ -242,7 +243,7 @@ function PartnerCampaignForm({
       setError(new Error("Choose an end date after the start date."));
       return;
     }
-    if (!feedOnly && !campaignSurfaces.length) {
+    if (!fixedSurface && !campaignSurfaces.length) {
       setError(new Error("Select at least one placement surface."));
       return;
     }
@@ -265,7 +266,7 @@ function PartnerCampaignForm({
       product_ids: targeting === "selected" ? products : [],
       topic_ids: targeting === "filters" ? topics : [],
       technologies: targeting === "filters" ? technologies : [],
-      surfaces: feedOnly ? ["feed"] : campaignSurfaces,
+      surfaces: fixedSurface ? [fixedSurface] : campaignSurfaces,
       ad_format: adFormat,
       article_id: sponsoredContent ? articleId : null,
       starts_at: start.toISOString(),
@@ -317,8 +318,12 @@ function PartnerCampaignForm({
               value={adFormat}
               onChange={(value) => {
                 setAdFormat(value as typeof adFormat);
-                if (value !== "engagement")
-                  setSurfaces((current) => current.filter((surface) => surface !== "search"));
+                setSurfaces((current) =>
+                  current.filter(
+                    (surface) =>
+                      surface !== "header" && (value === "engagement" || surface !== "search"),
+                  ),
+                );
               }}
               options={adFormats
                 .filter((option) => (account.allowed_ad_formats ?? ["feed"]).includes(option.value))
@@ -551,11 +556,11 @@ function PartnerCampaignForm({
           </div>
         )}
       </section>
-      {feedOnly ? (
+      {fixedSurface ? (
         <p className="text-sm text-muted-foreground">
           {sponsoredContent
             ? "Sponsored content appears in reader feeds."
-            : "Homepage sponsorship appears on the main homepage only."}
+            : "Header sponsorship appears in the reader’s top navigation across pages on wide screens."}
         </p>
       ) : (
         <PromotionSurfaces
@@ -565,12 +570,14 @@ function PartnerCampaignForm({
           allowed={allowedSurfaces}
         />
       )}
-      {feedOnly && !account.promotion_surfaces?.includes("feed") && (
-        <p className="text-sm text-muted-foreground">
-          Reader feeds are disabled in this account’s defaults. Enable Reader feeds before this
-          format can appear.
-        </p>
-      )}
+      {fixedSurface &&
+        !(account.promotion_surfaces ?? promotionSurfaces).includes(fixedSurface) && (
+          <p className="text-sm text-muted-foreground">
+            {headerSponsorship
+              ? "Header placements are disabled in this account’s defaults. Enable Header before this format can appear."
+              : "Reader feeds are disabled in this account’s defaults. Enable Reader feeds before this format can appear."}
+          </p>
+        )}
       <PartnerCreativePreview
         accountId={account.id}
         format={adFormat}

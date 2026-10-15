@@ -105,7 +105,7 @@ it("shows visual format totals independently of grouped product results", async 
         format_totals: [
           { ad_format: "feed", impressions: 90, clicks: 3, ctr: 3.33, measured_days: 1 },
           {
-            ad_format: "homepage_sponsorship",
+            ad_format: "header_sponsorship",
             impressions: 10,
             clicks: 2,
             ctr: 20,
@@ -117,7 +117,7 @@ it("shows visual format totals independently of grouped product results", async 
   );
   portal({ section: "performance" });
   const formats = await screen.findByRole("region", { name: "Format comparison" });
-  expect(within(formats).getByText("Homepage sponsorship")).toBeTruthy();
+  expect(within(formats).getByText("Header sponsorship")).toBeTruthy();
   expect(within(formats).getByText(/20.00% CTR/)).toBeTruthy();
   expect(within(formats).getAllByRole("listitem")).toHaveLength(2);
 });

@@ -11,7 +11,7 @@ export type AssetMetricsAdFormat = typeof AssetMetricsAdFormat[keyof typeof Asse
 
 export const AssetMetricsAdFormat = {
   feed: 'feed',
-  homepage_sponsorship: 'homepage_sponsorship',
+  header_sponsorship: 'header_sponsorship',
   sponsored_content: 'sponsored_content',
   engagement: 'engagement',
 } as const;

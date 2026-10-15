@@ -16,7 +16,7 @@ import {
   adFormats,
   creativeProduct,
   installCreativeMedia,
-  checkHomepageSponsorshipPreview,
+  checkHeaderSponsorshipPreview,
 } from "../../../scripts/testing/native-ad-formats.mjs";
 
 import { createConnectionFixture, assertConnectionJourneys } from "./browser-connections.mjs";
@@ -1263,14 +1263,14 @@ try {
   await page.waitForURL((url) => url.pathname === `/settings/${account.id}/formats`);
   const formatSettings = page.getByRole("form", { name: "Ad format settings", exact: true });
   assert.equal(await formatSettings.getByRole("checkbox", { name: /^Feed/ }).isChecked(), true);
-  await formatSettings.getByRole("checkbox", { name: /^Homepage sponsorship/ }).check();
+  await formatSettings.getByRole("checkbox", { name: /^Header sponsorship/ }).check();
   await formatSettings.getByRole("checkbox", { name: /^Engagement/ }).check();
   const destinationBeforeFormats = account.outbound_destination;
   const audienceBeforeFormats = structuredClone(account.audience);
   await formatSettings.getByRole("button", { name: "Save ad formats", exact: true }).click();
   await page.getByRole("status").filter({ hasText: "Ad formats saved." }).waitFor();
   assert.deepEqual(preferenceWrites.at(-1), {
-    ad_formats: ["feed", "homepage_sponsorship", "engagement"],
+    ad_formats: ["feed", "header_sponsorship", "engagement"],
   });
   assert.equal(account.outbound_destination, destinationBeforeFormats);
   assert.deepEqual(account.audience, audienceBeforeFormats);
@@ -1282,7 +1282,7 @@ try {
     "page",
   );
   assert.equal(
-    await formatSettings.getByRole("checkbox", { name: /^Homepage sponsorship/ }).isChecked(),
+    await formatSettings.getByRole("checkbox", { name: /^Header sponsorship/ }).isChecked(),
     true,
   );
   assert.equal(
@@ -1300,11 +1300,9 @@ try {
   assert.equal(await actualCreative.getByText("Sponsored", { exact: true }).count(), 1);
   assert.equal(await actualCreative.getByText("Visit website", { exact: true }).count(), 0);
   await formatSection.getByRole("combobox", { name: "Preview format", exact: true }).click();
-  await page.getByRole("option", { name: "Homepage sponsorship", exact: true }).click();
-  await actualCreative
-    .getByRole("heading", { name: "Homepage sponsorship", exact: true })
-    .waitFor();
-  await checkHomepageSponsorshipPreview(page, actualCreative, {
+  await page.getByRole("option", { name: "Header sponsorship", exact: true }).click();
+  await actualCreative.getByRole("heading", { name: "Header sponsorship", exact: true }).waitFor();
+  await checkHeaderSponsorshipPreview(page, actualCreative, {
     product: previewProduct,
     toggle: formatSection.locator("summary").filter({ hasText: "Creative preview" }),
   });
@@ -1393,7 +1391,7 @@ try {
   await page.getByText("Unsaved changes", { exact: true }).waitFor();
   await page.getByRole("combobox", { name: "Product formats", exact: true }).click();
   await page.getByRole("option", { name: "Choose product formats", exact: true }).click();
-  for (const name of ["Feed", "Homepage sponsorship", "Sponsored content"])
+  for (const name of ["Feed", "Header sponsorship", "Sponsored content"])
     await page.getByRole("checkbox", { name, exact: true }).uncheck();
   await page.getByRole("checkbox", { name: "Engagement", exact: true }).check();
   await page.getByRole("combobox", { name: "Product placements", exact: true }).click();
@@ -1401,6 +1399,7 @@ try {
   await page.getByLabel("Article pages", { exact: true }).uncheck();
   await page.getByLabel("Topic and category pages", { exact: true }).uncheck();
   await page.getByLabel("Search results", { exact: true }).uncheck();
+  await page.getByLabel("Header", { exact: true }).uncheck();
   await page.getByLabel("Reader feeds", { exact: true }).check();
   await page.screenshot({
     path: root + "reports/partner/product-placements-mobile.png",

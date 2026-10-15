@@ -304,7 +304,7 @@ it("shows all formats for a grouped product rather than its compatibility scalar
   vi.mocked(api.dashboardV1AdminPartnerAccountsAccountIdDashboardGet).mockResolvedValue({
     ...dashboard,
     assets: [
-      { ...asset, ad_format: "feed", ad_formats: ["engagement", "feed", "homepage_sponsorship"] },
+      { ...asset, ad_format: "feed", ad_formats: ["engagement", "feed", "header_sponsorship"] },
     ],
   });
   renderAdmin(
@@ -312,7 +312,7 @@ it("shows all formats for a grouped product rather than its compatibility scalar
       route={{ resource: "performance", action: "list", accountId: account.id }}
     />,
   );
-  expect(await screen.findByText("Engagement · Feed · Homepage sponsorship")).toBeTruthy();
+  expect(await screen.findByText("Engagement · Feed · Header sponsorship")).toBeTruthy();
   expect(screen.queryByRole("columnheader", { name: "Type" })).toBeNull();
 });
 
@@ -787,7 +787,7 @@ it("creates an account with selected benefits and navigates to the saved record"
         status: "active",
         organic_enabled: true,
         auto_include_products: true,
-        promotion_surfaces: ["article", "topic", "feed", "search"],
+        promotion_surfaces: ["header", "article", "topic", "feed", "search"],
         promotion_kind: null,
         approval_mode: "qualified",
         outbound_destination: "product_url",

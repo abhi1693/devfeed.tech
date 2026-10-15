@@ -337,7 +337,7 @@ def contextual_candidates(session, query, now, user_id=None, *, as_query=False):
                 ).limit(100)
             )
         }
-    if query.surface == "topic":
+    if query.surface == "topic" or (query.surface == "header" and query.topic_id is not None):
         topic = session.scalar(
             select(Topic)
             .where(
@@ -347,8 +347,10 @@ def contextual_candidates(session, query, now, user_id=None, *, as_query=False):
             .with_for_update(read=True, skip_locked=True)
         )
         weights = {topic.id: 100} if topic else {}
-    elif query.article_ids or query.surface == "search":
-        weights = feed_topic_weights(session, query.article_ids)
+    elif query.article_ids or query.article_id is not None or query.surface == "search":
+        weights = feed_topic_weights(
+            session, [query.article_id] if query.article_id is not None else query.article_ids
+        )
         if user_id and weights and query.surface != "search":
             interests = personal_topic_weights(session, user_id, now)
             # Visible feed context remains authoritative. Personalization can
@@ -513,10 +515,12 @@ def placement_format_candidates(session, query, matches):
 
 
 def fallback_formats(query, *, feed_context):
-    """Feed standing sponsorship is contextless; Homepage is an explicit brand placement."""
+    """Header is explicit branding; ordinary Feed fallback remains contextless."""
+    if query.surface == "header":
+        return set(query.ad_formats) & {"header_sponsorship"}
     if query.surface != "feed" or not query.allow_sponsored_fallback:
         return set()
-    formats = set(query.ad_formats) & {"feed", "homepage_sponsorship"}
+    formats = set(query.ad_formats) & {"feed"}
     if feed_context or query.article_ids:
         formats.discard("feed")
     return formats
@@ -613,18 +617,24 @@ def ranked_placement_rows(
         if not formats:
             return
         statement = placement_rows_query(query, now).where(
-            PartnerCampaign.managed.is_(True),
+            PartnerAsset.campaign_id.is_not(None),
             PartnerCampaign.status == "active",
             PartnerCampaign.starts_at <= now,
             PartnerCampaign.ends_at > now,
-            PartnerAccount.tier.in_(["silver", "gold", "platinum", "diamond"]),
-            or_(PartnerAccount.promotion_kind.is_(None), PartnerAccount.promotion_kind == "ad"),
-            PartnerAccount.auto_include_products.is_(True),
-            PartnerAccount.ad_formats.bool_op("@>")(func.jsonb_build_array(PartnerAsset.ad_format)),
-            PartnerCampaign.surfaces.contains(["feed"]),
+            PartnerCampaign.surfaces.contains([query.surface]),
             PartnerAsset.ad_format.in_(formats),
             PartnerProduct.id.not_in(seen),
         )
+        if query.surface == "feed":
+            statement = statement.where(
+                PartnerCampaign.managed.is_(True),
+                PartnerAccount.tier.in_(["silver", "gold", "platinum", "diamond"]),
+                or_(PartnerAccount.promotion_kind.is_(None), PartnerAccount.promotion_kind == "ad"),
+                PartnerAccount.auto_include_products.is_(True),
+                PartnerAccount.ad_formats.bool_op("@>")(
+                    func.jsonb_build_array(PartnerAsset.ad_format)
+                ),
+            )
         score = literal(0).label("score")
         intent = literal(0)
         reason = literal("Sponsored by this partner").label("reason")
@@ -720,7 +730,7 @@ def deliver_placements(session, query, key, *, user_id=None, now=None):
     Article placements and feed Engagement require current grounded tutorial tasks;
     task intent ranks ahead of broader prepared topic support. Topic and Search
     Engagement require direct support. Generic Feed sponsorship is limited to contextless
-    requests, while explicit Homepage sponsorship may serve alongside page context.
+    requests. Header sponsorship ranks current page relevance before explicit branding.
     """
     now = now or utcnow()
     if not key:
@@ -730,7 +740,7 @@ def deliver_placements(session, query, key, *, user_id=None, now=None):
     matches = placement_format_candidates(session, query, matches)
     signer = PartnerTrackingTokens(key, clock=lambda: now.timestamp())
     selected: list[dict[str, Any]] = []
-    delivery_limit = 1 if query.surface == "search" else 2
+    delivery_limit = 1 if query.surface in {"search", "header"} else 2
     seen: set[uuid.UUID] = set()
     selected_formats: set[str] = set()
     selected_articles = set(query.article_ids)
@@ -809,16 +819,17 @@ def deliver_placements(session, query, key, *, user_id=None, now=None):
                     continue
                 if (product.revision, product.updated_at) != (revision, updated_at):
                     continue
+                # Taxonomy invalidation deletes prepared topic edges without
+                # locking their products. Header branding also needs current
+                # topic-filtered campaign scope. Hold the publication barrier
+                # through issuance so neither final check can be invalidated.
+                # A busy editor blocks the whole phase; do not retry the same
+                # barrier and attribution locks for every product.
+                if (phase != "fallback" or query.surface == "header") and not session.scalar(
+                    select(func.pg_try_advisory_xact_lock_shared(TAXONOMY_LOCK_KEY))
+                ):
+                    break
                 if phase != "fallback":
-                    # Taxonomy invalidation deletes prepared topic edges without
-                    # locking their products. Share its publication barrier through
-                    # issuance so an edit cannot invalidate a successful recheck.
-                    # A busy editor blocks the whole contextual phase; do not
-                    # retry the same barrier and attribution locks per product.
-                    if not session.scalar(
-                        select(func.pg_try_advisory_xact_lock_shared(TAXONOMY_LOCK_KEY))
-                    ):
-                        break
                     # Ranking is an earlier snapshot. Recheck every contextual
                     # placement and use its current reason, including ordinary
                     # topic/feed matches. Product locks also fence task evaluations.

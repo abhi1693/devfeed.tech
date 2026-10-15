@@ -81,7 +81,7 @@ def upgrade():
         sa.Column(
             "promotion_surfaces",
             postgresql.JSONB(),
-            server_default='["article","topic","feed","search"]',
+            server_default='["article","topic","feed","search","header"]',
             nullable=False,
         ),
         sa.Column("promotion_kind", sa.String(20), nullable=True),
@@ -127,15 +127,15 @@ def upgrade():
             (
                 "jsonb_typeof(ad_formats) = 'array' AND "
                 "jsonb_array_length(ad_formats) <= 3 AND ad_formats <@ "
-                '\'["feed","homepage_sponsorship","engagement"]\'::jsonb'
+                '\'["feed","header_sponsorship","engagement"]\'::jsonb'
             ),
             name="ck_partner_account_ad_formats",
         ),
         sa.CheckConstraint(
             (
                 "jsonb_typeof(promotion_surfaces) = 'array' AND "
-                "jsonb_array_length(promotion_surfaces) BETWEEN 1 AND 4 AND "
-                'promotion_surfaces <@ \'["article","topic","feed","search"]\'::jsonb'
+                "jsonb_array_length(promotion_surfaces) BETWEEN 1 AND 5 AND "
+                'promotion_surfaces <@ \'["article","topic","feed","search","header"]\'::jsonb'
             ),
             name="ck_partner_promotion_surfaces",
         ),
@@ -331,7 +331,7 @@ def upgrade():
             name="ck_partner_campaign_article",
         ),
         sa.CheckConstraint(
-            "ad_format IN ('feed','homepage_sponsorship','sponsored_content','engagement')",
+            "ad_format IN ('feed','header_sponsorship','sponsored_content','engagement')",
             name="ck_partner_campaign_ad_format",
         ),
         sa.CheckConstraint(
@@ -371,9 +371,11 @@ def upgrade():
         sa.CheckConstraint(
             (
                 "jsonb_typeof(surfaces) = 'array' AND "
-                "jsonb_array_length(surfaces) BETWEEN 1 AND 4 AND surfaces <@ "
-                '\'["article","topic","feed","search"]\'::jsonb AND '
-                "(ad_format = 'engagement' OR NOT surfaces @> '[\"search\"]'::jsonb)"
+                "jsonb_array_length(surfaces) BETWEEN 1 AND 5 AND surfaces <@ "
+                '\'["article","topic","feed","search","header"]\'::jsonb AND '
+                "(ad_format = 'engagement' OR NOT surfaces @> '[\"search\"]'::jsonb) AND "
+                "((ad_format = 'header_sponsorship' AND surfaces = '[\"header\"]'::jsonb) OR "
+                "(ad_format != 'header_sponsorship' AND NOT surfaces @> '[\"header\"]'::jsonb))"
             ),
             name="ck_partner_campaign_surfaces",
         ),
@@ -538,7 +540,7 @@ def upgrade():
             (
                 "ad_formats IS NULL OR (jsonb_typeof(ad_formats) = 'array' AND "
                 "jsonb_array_length(ad_formats) <= 4 AND ad_formats <@ "
-                '\'["feed","homepage_sponsorship","sponsored_content","engagement"]'
+                '\'["feed","header_sponsorship","sponsored_content","engagement"]'
                 "'::jsonb)"
             ),
             name="ck_partner_product_ad_formats",
@@ -546,8 +548,8 @@ def upgrade():
         sa.CheckConstraint(
             (
                 "promotion_surfaces IS NULL OR (jsonb_typeof(promotion_surfaces) "
-                "= 'array' AND jsonb_array_length(promotion_surfaces) <= 4 AND "
-                'promotion_surfaces <@ \'["article","topic","feed","search"]\'::jsonb)'
+                "= 'array' AND jsonb_array_length(promotion_surfaces) <= 5 AND "
+                'promotion_surfaces <@ \'["article","topic","feed","search","header"]\'::jsonb)'
             ),
             name="ck_partner_product_surfaces",
         ),
@@ -651,7 +653,7 @@ def upgrade():
             name="ck_partner_automatic_asset_identity",
         ),
         sa.CheckConstraint(
-            "ad_format IN ('feed','homepage_sponsorship','sponsored_content','engagement')",
+            "ad_format IN ('feed','header_sponsorship','sponsored_content','engagement')",
             name="ck_partner_asset_ad_format",
         ),
         sa.CheckConstraint(
@@ -837,7 +839,7 @@ def upgrade():
         sa.Column("issued_at", sa.DateTime(timezone=True), nullable=False),
         sa.Column("surface", sa.String(20), nullable=True),
         sa.CheckConstraint(
-            "surface IS NULL OR surface IN ('article','topic','feed','search')",
+            "surface IS NULL OR surface IN ('article','topic','feed','search','header')",
             name="ck_partner_delivery_surface",
         ),
         sa.ForeignKeyConstraint(["asset_id"], ["partner_assets.id"], ondelete="RESTRICT"),

@@ -13,7 +13,7 @@ import { SkipToContent } from "./skip-to-content";
 import type { FeedFilters } from "@/lib/feed-query";
 import { ReaderSurface } from "./reader-context";
 import { readerPromptPolicies, type ReaderPromptEligibility } from "@/lib/reader-context";
-import { HomepageSponsorshipProvider, HomepageSponsorshipSlot } from "./homepage-sponsorship";
+import { HeaderSponsorshipSlot } from "./header-sponsorship";
 
 type ReaderSection =
   | "feed"
@@ -55,7 +55,7 @@ export function UserShell({
   section?: ReaderSection;
 }) {
   return (
-    <HomepageSponsorshipProvider>
+    <>
       <ReaderSurface promptEligibility={promptPolicies[section]} />
       <SkipToContent />
       <header className="topbar">
@@ -71,7 +71,7 @@ export function UserShell({
           <span>devfeed.</span>
         </Link>
         <UserSearch filters={filters} query={searchQuery} />
-        <HomepageSponsorshipSlot />
+        <HeaderSponsorshipSlot />
         <div className="header-actions">
           <ReadingTools />
           <ThemeToggle />
@@ -190,6 +190,6 @@ export function UserShell({
           Sources
         </Link>
       </nav>
-    </HomepageSponsorshipProvider>
+    </>
   );
 }

@@ -1,13 +1,10 @@
 // @vitest-environment jsdom
 import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
-import { useLayoutEffect, type ReactElement, type ReactNode } from "react";
+import { useLayoutEffect, type ReactNode } from "react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { ArticleGrid } from "@/components/article-grid";
 import { PartnerPlacements } from "@/components/partner-placements";
-import {
-  HomepageSponsorshipProvider,
-  HomepageSponsorshipSlot,
-} from "@/components/homepage-sponsorship";
+import { HeaderSponsorshipProvider, HeaderSponsorshipSlot } from "@/components/header-sponsorship";
 import { readerRequest } from "@/lib/reader-runtime";
 import { observePartnerPlacement } from "@/lib/partner-tracking";
 import type { PartnerPlacement } from "@/lib/partner-placements";
@@ -56,31 +53,29 @@ const content: PartnerPlacement = {
   article: promoted,
   url: `/articles/${promoted.slug}`,
 };
-const homepage: PartnerPlacement = { ...placement, ad_format: "homepage_sponsorship" };
+const homepage: PartnerPlacement = { ...placement, ad_format: "header_sponsorship" };
 const context = {
   surface: "feed" as const,
   allow_sponsored_fallback: true,
   article_ids: articles.map((item) => item.id),
   ad_formats: [
     "feed",
-    "homepage_sponsorship",
+    "header_sponsorship",
     "sponsored_content",
     "engagement",
   ] as PartnerPlacement["ad_format"][],
 };
 function Header({ children }: { children: ReactNode }) {
   return (
-    <HomepageSponsorshipProvider>
+    <HeaderSponsorshipProvider>
       <header className="topbar">
-        <HomepageSponsorshipSlot />
+        <HeaderSponsorshipSlot />
       </header>
       {children}
-    </HomepageSponsorshipProvider>
+    </HeaderSponsorshipProvider>
   );
 }
-function renderFeed(ui: ReactElement) {
-  return render(ui, { wrapper: Header });
-}
+const renderFeed = render;
 beforeEach(() => {
   vi.spyOn(window, "matchMedia").mockReturnValue({
     matches: true,
@@ -92,7 +87,11 @@ beforeEach(() => {
     removeListener: vi.fn(),
     dispatchEvent: vi.fn(),
   });
-  vi.mocked(readerRequest).mockResolvedValue(Response.json({ items: [homepage, content] }));
+  vi.mocked(readerRequest).mockImplementation(async (_, init) =>
+    Response.json({
+      items: JSON.parse(String(init?.body)).surface === "header" ? [homepage] : [content],
+    }),
+  );
 });
 afterEach(() => {
   cleanup();
@@ -101,11 +100,13 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-it("shares two deliveries between the header sponsor and an editorial grid card", async () => {
-  const view = renderFeed(<ArticleGrid articles={articles} placements={context} />);
+it("loads header sponsorship independently of an editorial grid card", async () => {
+  const view = render(<ArticleGrid articles={articles} placements={context} />, {
+    wrapper: Header,
+  });
   const title = await screen.findByRole("link", { name: promoted.title });
   const strip = screen.getByRole("link", { name: homepage.name }).closest("article")!;
-  expect(strip.getAttribute("data-ad-format")).toBe("homepage_sponsorship");
+  expect(strip.getAttribute("data-ad-format")).toBe("header_sponsorship");
   expect(strip.closest("header")?.className).toBe("topbar");
   expect(view.container.querySelector(".article-placement-feed > .partner-placement")).toBeNull();
   expect(strip.querySelector(".card-image")).toBeNull();
@@ -138,7 +139,7 @@ it("preserves the initial article nodes when header eligibility becomes ready", 
     }, []);
     return <ArticleGrid articles={articles} placements={context} />;
   }
-  renderFeed(<InitialFeed />);
+  render(<InitialFeed />, { wrapper: Header });
   await screen.findByRole("link", { name: homepage.name });
   expect(initialArticle).not.toBeNull();
   expect(document.querySelector(".article-grid .article-card")).toBe(initialArticle);
@@ -157,34 +158,26 @@ it("deduplicates a promoted article when a later organic page returns it", async
   expect(screen.getAllByRole("link", { name: promoted.title })).toHaveLength(1);
 });
 
-it("suspends a loaded homepage sponsor at zero slots and restores its valid delivery without refetching", async () => {
-  const stopTracking = vi.fn();
-  vi.mocked(observePartnerPlacement).mockReturnValue(stopTracking);
-  vi.mocked(readerRequest).mockResolvedValue(
-    Response.json({
-      items: [{ ...sponsoredPlacement, ad_format: "homepage_sponsorship" }],
-    }),
+it("keeps header delivery stable when the feed has too few articles for a placement", async () => {
+  vi.mocked(readerRequest).mockImplementation(async (_, init) =>
+    Response.json({ items: JSON.parse(String(init?.body)).surface === "header" ? [homepage] : [] }),
   );
-  const view = renderFeed(<ArticleGrid articles={articles.slice(0, 4)} placements={context} />);
-  await screen.findByRole("link", { name: sponsoredPlacement.name });
+  const view = render(<ArticleGrid articles={articles.slice(0, 4)} placements={context} />, {
+    wrapper: Header,
+  });
+  const sponsor = await screen.findByRole("link", { name: homepage.name });
   const reading = screen.getByRole("link", { name: articles[0].title });
   reading.focus();
-
   view.rerender(<ArticleGrid articles={articles.slice(0, 3)} placements={context} />);
   await act(async () => {});
-
-  expect(view.container.querySelector(".partner-placement")).toBeNull();
-  expect(stopTracking).toHaveBeenCalledTimes(1);
+  expect(screen.getByRole("link", { name: homepage.name })).toBe(sponsor);
   expect(screen.getByRole("link", { name: articles[0].title })).toBe(reading);
   expect(document.activeElement).toBe(reading);
-  expect(readerRequest).toHaveBeenCalledTimes(1);
-
-  view.rerender(<ArticleGrid articles={articles.slice(0, 4)} placements={context} />);
-  await screen.findByRole("link", { name: sponsoredPlacement.name });
-  expect(readerRequest).toHaveBeenCalledTimes(1);
-  expect(observePartnerPlacement).toHaveBeenCalledTimes(2);
-  expect(screen.getByRole("link", { name: articles[0].title })).toBe(reading);
-  expect(document.activeElement).toBe(reading);
+  expect(
+    vi
+      .mocked(readerRequest)
+      .mock.calls.filter(([, init]) => JSON.parse(String(init?.body)).surface === "header"),
+  ).toHaveLength(1);
 });
 
 it("restores an organically returned article when its promoted copy expires", async () => {
@@ -252,7 +245,8 @@ it("keeps Engagement out of the article grid even when an upstream response incl
   expect(view.container.querySelectorAll(".article-grid > .article-card")).toHaveLength(24);
 });
 
-it("rejects a homepage creative outside the unfiltered homepage contract", async () => {
+it("rejects a header creative in contextual inventory", async () => {
+  vi.mocked(readerRequest).mockResolvedValue(Response.json({ items: [homepage] }));
   renderFeed(
     <PartnerPlacements
       surface="topic"

@@ -17,7 +17,7 @@ const account: Account = partnerAccount({
   benefits: [],
   status: "active",
   ad_formats: ["feed"],
-  allowed_ad_formats: ["feed", "homepage_sponsorship", "sponsored_content", "engagement"],
+  allowed_ad_formats: ["feed", "header_sponsorship", "sponsored_content", "engagement"],
 });
 const product = {
   id: "33333333-3333-4333-8333-333333333333",
@@ -107,10 +107,10 @@ it("retains downgraded formats without exposing saveable controls", () => {
     ...account,
     tier: "bronze",
     allowed_ad_formats: ["feed"],
-    ad_formats: ["homepage_sponsorship"],
+    ad_formats: ["header_sponsorship"],
   });
   const choice = screen.getByRole("checkbox", {
-    name: /^Homepage sponsorship/,
+    name: /^Header sponsorship/,
   }) as HTMLInputElement;
   expect(choice.checked).toBe(true);
   expect(choice.disabled).toBe(true);
@@ -132,17 +132,17 @@ it("loads creative previews only on request and keeps them separate from destina
     expect.objectContaining({ cache: "no-store", signal: expect.any(AbortSignal) }),
   );
 });
-it("distinguishes the homepage app-header credit from contextual engagement when changing formats", async () => {
+it("distinguishes the global app-header credit from contextual engagement when changing formats", async () => {
   vi.stubGlobal(
     "fetch",
     vi.fn().mockImplementation(() => Response.json({ product })),
   );
-  formats({ ...account, ad_formats: ["homepage_sponsorship", "engagement"] });
+  formats({ ...account, ad_formats: ["header_sponsorship", "engagement"] });
   await userEvent.click(screen.getByText("Creative preview"));
   const preview = await screen.findByRole("region", { name: "Creative preview" });
   await within(preview).findByText(product.name);
   expect(
-    within(preview).getByText(/top navigation of unfiltered Home and Latest feeds/),
+    within(preview).getByText(/reader’s top navigation across pages on wide screens/),
   ).toBeTruthy();
   expect(within(preview).getByRole("article", { name: "Desktop navigation preview" })).toBeTruthy();
   expect(within(preview).getByText("Sponsored")).toBeTruthy();

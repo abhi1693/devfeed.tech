@@ -22,7 +22,7 @@
     0 6px 20px -8px color-mix(in srgb, var(--sponsored-border) 24%, transparent);
 }
 @media (hover: hover) and (pointer: fine) {
-  .partner-placement:not(.partner-placement--homepage_sponsorship, .partner-placement--row):hover {
+  .partner-placement:not(.partner-placement--header_sponsorship, .partner-placement--row):hover {
     border-color: var(--sponsored-border);
     box-shadow:
       0 0 0 1px color-mix(in srgb, var(--sponsored-border) 12%, transparent),
@@ -48,11 +48,11 @@
   visibility: hidden;
   pointer-events: none;
 }
-.topbar-sponsorship:empty {
+.topbar-sponsorship:not(:has(.partner-placement:not([hidden]))) {
   display: none;
 }
 @media (min-width: 1280px) {
-  .topbar:has(.topbar-sponsorship > .partner-placement) {
+  .topbar:has(.topbar-sponsorship .partner-placement) {
     grid-template-columns: var(--sidebar) minmax(220px, 668px) minmax(208px, 1fr) auto;
   }
   .topbar-sponsorship {
@@ -69,24 +69,24 @@
     display: none;
   }
 }
-.partner-placement--homepage_sponsorship {
+.partner-placement--header_sponsorship {
   margin: 0;
   border: 0;
   border-radius: var(--radius-control);
   background: transparent;
 }
-.partner-placement--homepage_sponsorship .partner-placement-link {
+.partner-placement--header_sponsorship .partner-placement-link {
   gap: 0;
   height: auto;
   padding: 4px 8px;
   border-radius: var(--radius-control);
 }
-.partner-placement--homepage_sponsorship .partner-placement-identity {
+.partner-placement--header_sponsorship .partner-placement-identity {
   min-width: 0;
   gap: 10px;
   padding: 0;
 }
-.partner-placement--homepage_sponsorship .partner-placement-identity > div {
+.partner-placement--header_sponsorship .partner-placement-identity > div {
   display: flex;
   flex-direction: column;
   align-items: stretch;
@@ -100,16 +100,16 @@
   gap: 4px 8px;
   min-width: 0;
 }
-.partner-placement--homepage_sponsorship .partner-placement-title {
+.partner-placement--header_sponsorship .partner-placement-title {
   flex-wrap: nowrap;
 }
-.partner-placement--homepage_sponsorship .partner-placement-identity strong {
+.partner-placement--header_sponsorship .partner-placement-identity strong {
   overflow: hidden;
   font-size: 14px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.partner-placement--homepage_sponsorship .partner-placement-logo {
+.partner-placement--header_sponsorship .partner-placement-logo {
   flex-basis: 32px;
   width: 32px;
   height: 32px;
@@ -117,7 +117,7 @@
   border-radius: 6px;
   font-size: 11px;
 }
-.partner-placement--homepage_sponsorship .partner-placement-description {
+.partner-placement--header_sponsorship .partner-placement-description {
   display: block;
   overflow: hidden;
   font-size: 12px;
@@ -125,7 +125,7 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.partner-placement--homepage_sponsorship .partner-placement-label {
+.partner-placement--header_sponsorship .partner-placement-label {
   flex: 0 0 auto;
   margin: 0;
   padding: 0;
@@ -137,7 +137,7 @@
   letter-spacing: 0;
   text-transform: none;
 }
-.partner-placement--homepage_sponsorship .partner-placement-label::before {
+.partner-placement--header_sponsorship .partner-placement-label::before {
   content: "·";
   margin-right: 8px;
 }
@@ -414,4 +414,8 @@
 .preview-sidebar .partner-placement-description {
   -webkit-line-clamp: 2;
   font-size: 12px;
+}
+
+.topbar-sponsorship-content {
+  display: contents;
 }

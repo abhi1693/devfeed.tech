@@ -9,7 +9,7 @@ import type { AudienceInput } from './audienceInput';
 import type { PartnerPreferencesInputOutboundDestination } from './partnerPreferencesInputOutboundDestination';
 
 export interface PartnerPreferencesInput {
-  ad_formats?: ('feed' | 'homepage_sponsorship' | 'sponsored_content' | 'engagement')[] | null;
+  ad_formats?: ('feed' | 'header_sponsorship' | 'sponsored_content' | 'engagement')[] | null;
   audience?: AudienceInput | null;
   outbound_destination?: PartnerPreferencesInputOutboundDestination;
 }

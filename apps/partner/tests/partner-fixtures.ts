@@ -19,7 +19,7 @@ export function partnerAccount(overrides: Partial<Account> = {}): Account {
     advanced_targeting: false,
     audience: { experience_levels: [], language_topic_ids: [], tool_topic_ids: [] },
     ad_formats: ["feed"],
-    allowed_ad_formats: ["feed", "homepage_sponsorship", "engagement", "sponsored_content"],
+    allowed_ad_formats: ["feed", "header_sponsorship", "engagement", "sponsored_content"],
     ...overrides,
   };
 }

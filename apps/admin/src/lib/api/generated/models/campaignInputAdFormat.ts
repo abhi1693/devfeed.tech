@@ -11,7 +11,7 @@ export type CampaignInputAdFormat = typeof CampaignInputAdFormat[keyof typeof Ca
 
 export const CampaignInputAdFormat = {
   feed: 'feed',
-  homepage_sponsorship: 'homepage_sponsorship',
+  header_sponsorship: 'header_sponsorship',
   sponsored_content: 'sponsored_content',
   engagement: 'engagement',
 } as const;

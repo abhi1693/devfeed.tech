@@ -14,7 +14,7 @@ export interface ProductDetailOut {
   account_id: string;
   account_name: string;
   active: boolean;
-  ad_formats?: ('feed' | 'homepage_sponsorship' | 'sponsored_content' | 'engagement')[] | null;
+  ad_formats?: ('feed' | 'header_sponsorship' | 'sponsored_content' | 'engagement')[] | null;
   ad_image_url?: string | null;
   approval_source?: ProductDetailOutApprovalSource;
   assessment: ProductAssessment;
@@ -27,7 +27,7 @@ export interface ProductDetailOut {
   name: string;
   pricing: ProductDetailOutPricing;
   product_url: string;
-  promotion_surfaces?: ('article' | 'topic' | 'feed' | 'search')[] | null;
+  promotion_surfaces?: ('article' | 'topic' | 'feed' | 'search' | 'header')[] | null;
   revision: number;
   source: ProductDetailOutSource;
   status: string;

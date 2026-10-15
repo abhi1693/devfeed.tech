@@ -100,7 +100,7 @@ function Placement({
   const article = useRef<HTMLElement>(null);
   const content = item.ad_format === "sponsored_content" ? item.article : null;
   const table = layout === "table" && item.ad_format === "feed";
-  const card = preserveSpace && !["homepage_sponsorship", "engagement"].includes(item.ad_format);
+  const card = preserveSpace && !["header_sponsorship", "engagement"].includes(item.ad_format);
   const image = item.image_url ?? item.image_variants[0]?.url;
   const platformName = item.platform?.name ?? item.partner_name;
   const sponsorshipId = useId();
@@ -131,7 +131,7 @@ function Placement({
     "aria-label": item.name,
     "aria-describedby": sponsorshipId,
     title:
-      item.ad_format === "homepage_sponsorship"
+      item.ad_format === "header_sponsorship"
         ? `${item.name} · ${displayHost(item.url)}`
         : table
           ? item.name
@@ -267,15 +267,15 @@ function Placement({
                     Sponsored
                   </span>
                 </div>
-                {item.ad_format === "homepage_sponsorship" && item.tagline && (
+                {item.ad_format === "header_sponsorship" && item.tagline && (
                   <p className="partner-placement-description">{item.tagline}</p>
                 )}
               </div>
             </div>
-            {item.ad_format !== "homepage_sponsorship" && item.tagline && (
+            {item.ad_format !== "header_sponsorship" && item.tagline && (
               <p className="partner-placement-description">{item.tagline}</p>
             )}
-            {item.ad_format !== "homepage_sponsorship" && (
+            {item.ad_format !== "header_sponsorship" && (
               <span className="partner-placement-destination">
                 <span>{displayHost(item.url)}</span>
               </span>
@@ -432,8 +432,7 @@ function PlacementDelivery({
             (!activity.current || !displayed.has(item.product_id)) &&
             partnerReceiptExpiresAt(item.receipt) > loadedAt &&
             requested.includes(item.ad_format) &&
-            (item.ad_format !== "homepage_sponsorship" ||
-              (selection.surface === "feed" && selection.allow_sponsored_fallback)) &&
+            (item.ad_format !== "header_sponsorship" || selection.surface === "header") &&
             (item.ad_format !== "sponsored_content" ||
               (selection.surface === "feed" &&
                 item.article &&

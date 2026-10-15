@@ -11,7 +11,7 @@ export type AccountOutAdFormatsItem = typeof AccountOutAdFormatsItem[keyof typeo
 
 export const AccountOutAdFormatsItem = {
   feed: 'feed',
-  homepage_sponsorship: 'homepage_sponsorship',
+  header_sponsorship: 'header_sponsorship',
   sponsored_content: 'sponsored_content',
   engagement: 'engagement',
 } as const;

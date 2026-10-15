@@ -33,7 +33,7 @@ export interface CampaignInput {
   status?: CampaignInputStatus;
   /**
      * @minItems 1
-     * @maxItems 4
+     * @maxItems 5
      */
   surfaces?: CampaignInputSurfacesItem[];
   targeting?: CampaignInputTargeting;

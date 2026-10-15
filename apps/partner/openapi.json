@@ -8,7 +8,7 @@
             "items": {
               "enum": [
                 "feed",
-                "homepage_sponsorship",
+                "header_sponsorship",
                 "sponsored_content",
                 "engagement"
               ],
@@ -26,7 +26,7 @@
             "items": {
               "enum": [
                 "feed",
-                "homepage_sponsorship",
+                "header_sponsorship",
                 "sponsored_content",
                 "engagement"
               ],
@@ -132,11 +132,12 @@
                 "article",
                 "topic",
                 "feed",
-                "search"
+                "search",
+                "header"
               ],
               "type": "string"
             },
-            "maxItems": 4,
+            "maxItems": 5,
             "minItems": 1,
             "title": "Promotion Surfaces",
             "type": "array"
@@ -203,7 +204,7 @@
             "default": "feed",
             "enum": [
               "feed",
-              "homepage_sponsorship",
+              "header_sponsorship",
               "sponsored_content",
               "engagement"
             ],
@@ -214,7 +215,7 @@
             "items": {
               "enum": [
                 "feed",
-                "homepage_sponsorship",
+                "header_sponsorship",
                 "sponsored_content",
                 "engagement"
               ],
@@ -1278,7 +1279,7 @@
           "ad_format": {
             "enum": [
               "feed",
-              "homepage_sponsorship",
+              "header_sponsorship",
               "sponsored_content",
               "engagement"
             ],
@@ -1366,7 +1367,7 @@
                 "items": {
                   "enum": [
                     "feed",
-                    "homepage_sponsorship",
+                    "header_sponsorship",
                     "sponsored_content",
                     "engagement"
                   ],
@@ -1468,7 +1469,8 @@
                     "article",
                     "topic",
                     "feed",
-                    "search"
+                    "search",
+                    "header"
                   ],
                   "type": "string"
                 },
@@ -2485,7 +2487,7 @@
                 "items": {
                   "enum": [
                     "feed",
-                    "homepage_sponsorship",
+                    "header_sponsorship",
                     "sponsored_content",
                     "engagement"
                   ],
@@ -2606,7 +2608,7 @@
                 "items": {
                   "enum": [
                     "feed",
-                    "homepage_sponsorship",
+                    "header_sponsorship",
                     "sponsored_content",
                     "engagement"
                   ],
@@ -2708,7 +2710,8 @@
                     "article",
                     "topic",
                     "feed",
-                    "search"
+                    "search",
+                    "header"
                   ],
                   "type": "string"
                 },
@@ -2863,7 +2866,7 @@
                 "items": {
                   "enum": [
                     "feed",
-                    "homepage_sponsorship",
+                    "header_sponsorship",
                     "sponsored_content",
                     "engagement"
                   ],
@@ -2909,11 +2912,12 @@
                     "article",
                     "topic",
                     "feed",
-                    "search"
+                    "search",
+                    "header"
                   ],
                   "type": "string"
                 },
-                "maxItems": 4,
+                "maxItems": 5,
                 "type": "array"
               },
               {
@@ -2940,7 +2944,7 @@
                 "items": {
                   "enum": [
                     "feed",
-                    "homepage_sponsorship",
+                    "header_sponsorship",
                     "sponsored_content",
                     "engagement"
                   ],
@@ -3017,11 +3021,12 @@
                     "article",
                     "topic",
                     "feed",
-                    "search"
+                    "search",
+                    "header"
                   ],
                   "type": "string"
                 },
-                "maxItems": 4,
+                "maxItems": 5,
                 "type": "array"
               },
               {
@@ -3166,7 +3171,7 @@
             "default": "feed",
             "enum": [
               "feed",
-              "homepage_sponsorship",
+              "header_sponsorship",
               "sponsored_content",
               "engagement"
             ],
@@ -3177,7 +3182,7 @@
             "items": {
               "enum": [
                 "feed",
-                "homepage_sponsorship",
+                "header_sponsorship",
                 "sponsored_content",
                 "engagement"
               ],
@@ -3739,7 +3744,7 @@
                 "items": {
                   "enum": [
                     "feed",
-                    "homepage_sponsorship",
+                    "header_sponsorship",
                     "sponsored_content",
                     "engagement"
                   ],
@@ -3841,7 +3846,8 @@
                     "article",
                     "topic",
                     "feed",
-                    "search"
+                    "search",
+                    "header"
                   ],
                   "type": "string"
                 },
@@ -5797,7 +5803,7 @@
                 {
                   "enum": [
                     "feed",
-                    "homepage_sponsorship",
+                    "header_sponsorship",
                     "sponsored_content",
                     "engagement"
                   ],
@@ -7641,7 +7647,7 @@
                 {
                   "enum": [
                     "feed",
-                    "homepage_sponsorship",
+                    "header_sponsorship",
                     "sponsored_content",
                     "engagement"
                   ],
@@ -7858,7 +7864,7 @@
   },
   "x-devfeed-automatic-ad-formats": [
     "feed",
-    "homepage_sponsorship",
+    "header_sponsorship",
     "engagement"
   ],
   "x-devfeed-gateway-routes": [

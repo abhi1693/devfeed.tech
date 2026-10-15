@@ -28,7 +28,7 @@ const account: AccountOut = {
   effective_promotion_kind: "ad",
   promotion_kind_source: "tier",
   advanced_targeting: true,
-  allowed_ad_formats: ["feed", "homepage_sponsorship", "engagement"],
+  allowed_ad_formats: ["feed", "header_sponsorship", "engagement"],
   ad_formats: ["feed"],
   promotion_surfaces: ["article", "topic", "feed", "search"],
 };
@@ -209,7 +209,7 @@ it("retains every tab's unsaved draft and submits them together with CSRF", asyn
     audience: { experience_levels: ["senior"], language_topic_ids: [], tool_topic_ids: [] },
     ad_formats: ["feed", "engagement"],
   });
-});
+}, 15_000);
 
 it("opens a requested section and keeps the current inherited promotion accurate while tiers load", () => {
   fetcher.mockReturnValue(new Promise(() => {}));

@@ -69,7 +69,7 @@ it("forwards only the requested native formats and projects a real sponsored art
   vi.mocked(fetch).mockResolvedValue(Response.json({ items: [item] }));
   const body = {
     surface: "feed",
-    ad_formats: ["feed", "homepage_sponsorship", "sponsored_content", "engagement"],
+    ad_formats: ["feed", "sponsored_content", "engagement"],
     allow_sponsored_fallback: true,
   };
   const response = await POST(request(body));
@@ -118,9 +118,9 @@ it.each([
   { surface: "feed", ad_formats: [] },
   { surface: "feed", ad_formats: ["newsletter"] },
   { surface: "feed", ad_formats: ["feed", "feed"] },
-  { surface: "feed", ad_formats: ["homepage_sponsorship"] },
+  { surface: "feed", ad_formats: ["header_sponsorship"] },
   { surface: "article", article_id: placement.product_id, ad_formats: ["sponsored_content"] },
-  { surface: "topic", topic_id: placement.product_id, ad_formats: ["homepage_sponsorship"] },
+  { surface: "topic", topic_id: placement.product_id, ad_formats: ["header_sponsorship"] },
 ])("rejects unsupported or misplaced native format queries (%j)", async (body) => {
   expect((await POST(request(body))).status).toBe(422);
   expect(fetch).not.toHaveBeenCalled();
@@ -153,9 +153,51 @@ it("allows an empty Search context to return no products", async () => {
 });
 
 it.each([
+  {},
+  { article_id: placement.product_id },
+  { topic_id: placement.product_id },
+  { article_ids: [placement.product_id] },
+])("forwards Header sponsorship independently of feed fallback (%j)", async (context) => {
+  const body = { surface: "header", ad_formats: ["header_sponsorship"], ...context };
+  vi.mocked(fetch).mockResolvedValue(
+    Response.json({ items: [{ ...placement, ad_format: "header_sponsorship" }] }),
+  );
+  const response = await POST(request(body));
+  expect(response.status).toBe(200);
+  expect((await response.json()).items[0].ad_format).toBe("header_sponsorship");
+  expect(JSON.parse(String(vi.mocked(fetch).mock.calls[0][1]?.body))).toEqual(body);
+});
+
+it.each([
   { ad_formats: undefined },
   { ad_formats: ["feed"] },
+  { ad_formats: ["header_sponsorship", "engagement"] },
   { ad_formats: ["homepage_sponsorship"] },
+  { allow_sponsored_fallback: true },
+  { article_id: "invalid" },
+  { topic_id: "invalid" },
+  { article_ids: Array(25).fill(placement.product_id) },
+  { article_id: placement.product_id, topic_id: placement.product_id },
+  { article_id: placement.product_id, article_ids: [placement.product_id] },
+])("rejects invalid Header contexts before forwarding (%j)", async (overrides) => {
+  expect(
+    (
+      await POST(
+        request({
+          surface: "header",
+          ad_formats: ["header_sponsorship"],
+          ...overrides,
+        }),
+      )
+    ).status,
+  ).toBe(422);
+  expect(fetch).not.toHaveBeenCalled();
+});
+
+it.each([
+  { ad_formats: undefined },
+  { ad_formats: ["feed"] },
+  { ad_formats: ["header_sponsorship"] },
   { ad_formats: ["sponsored_content"] },
   { ad_formats: ["engagement", "feed"] },
   { allow_sponsored_fallback: true },

@@ -49,7 +49,7 @@ function AccountAdFormats({ account, csrfToken, onSaved, onUnavailable }: Props)
   const allowed =
     account.allowed_ad_formats ??
     (account.tier === "bronze" ? ["feed"] : adFormats.map((format) => format.value));
-  const eligible = allowed.includes("homepage_sponsorship");
+  const eligible = allowed.includes("header_sponsorship");
   const [previewFormat, setPreviewFormat] = useState<AdFormat>(value[0] ?? "feed");
   const format = value.includes(previewFormat) ? previewFormat : (value[0] ?? "feed");
   const [previewOpen, setPreviewOpen] = useState(false);

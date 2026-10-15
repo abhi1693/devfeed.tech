@@ -149,6 +149,7 @@ export async function checkFeedMode(page, destination, fixture, output, extensio
     surface = "feed",
     type,
     personal = false,
+    formats,
   }) => {
     fixture.requests.length = 0;
     fixture.queries.length = 0;
@@ -185,15 +186,19 @@ export async function checkFeedMode(page, destination, fixture, output, extensio
     if (disabled) {
       await page.waitForTimeout(200);
       assert.deepEqual(
-        fixture.queries,
+        fixture.queries.filter((query) => query.body.surface !== "header"),
         [],
-        `${path}: source and paginated routes do not request placements`,
+        `${path}: source and paginated routes do not request contextual placements`,
       );
     } else {
       await page.waitForFunction(
         () => document.querySelectorAll('.reader-loading-reveal[data-loading="true"]').length === 0,
       );
-      for (let attempt = 0; attempt < 100 && !fixture.queries.length; attempt++)
+      for (
+        let attempt = 0;
+        attempt < 100 && !fixture.queries.some((query) => query.body.surface === surface);
+        attempt++
+      )
         await page.waitForTimeout(20);
       const query = fixture.queries.find((query) => query.body.surface === surface);
       assert.ok(query, `${path}: ${surface} placement policy requested`);
@@ -208,11 +213,48 @@ export async function checkFeedMode(page, destination, fixture, output, extensio
         `${path}: sponsored fallback eligibility`,
       );
       assert.equal(
-        query.body.ad_formats.includes("homepage_sponsorship"),
-        fallback,
-        `${path}: homepage format eligibility`,
+        query.body.ad_formats.includes("header_sponsorship"),
+        false,
+        `${path}: contextual inventory excludes Header sponsorship`,
       );
       if (surface === "topic") assert.equal(query.body.topic_id, fixture.topic.id);
+      if (formats) {
+        assert.deepEqual(query.body.ad_formats, formats, `${path}: sidebar inventory is explicit`);
+        assert.equal(
+          fixture.queries.filter((query) => query.body.surface !== "header").length,
+          1,
+          `${path}: one contextual sidebar query without Feed grid inventory`,
+        );
+        assert.deepEqual(
+          query.body.article_ids,
+          fixture.articles.slice(0, 24).map((item) => item.id),
+        );
+      }
+    }
+    const wide = page.viewportSize().width >= 1280;
+    if (wide) {
+      for (
+        let attempt = 0;
+        attempt < 100 && !fixture.queries.some((query) => query.body.surface === "header");
+        attempt++
+      )
+        await page.waitForTimeout(20);
+      const headers = fixture.queries.filter((query) => query.body.surface === "header");
+      assert.equal(headers.length, 1, `${path}: independent sitewide Header selection`);
+      const { exclude_product_ids, ...selection } = headers[0].body;
+      assert.deepEqual(selection, { surface: "header", ad_formats: ["header_sponsorship"] });
+      assert.ok(Array.isArray(exclude_product_ids));
+      assert.equal(
+        headers[0].path,
+        fixture.signedIn ? "/v1/user/partner-placements/query" : "/v1/partner-placements/query",
+        `${path}: Header selection uses the same session boundary`,
+      );
+    } else {
+      assert.equal(
+        fixture.queries.filter((query) => query.body.surface === "header").length,
+        0,
+        `${path}: narrow navigation reserves no Header inventory`,
+      );
     }
     assert.equal(
       await page.evaluate(() => document.documentElement.scrollWidth > innerWidth),
@@ -235,10 +277,10 @@ export async function checkFeedMode(page, destination, fixture, output, extensio
       { path: "/latest?tag=typescript", fallback: false },
       { path: "/topics/javascript", fallback: false, surface: "topic" },
       { path: "/topics/javascript/news", fallback: false, surface: "topic", type: "news" },
-      { path: "/sources/publisher", disabled: true },
-      { path: `/latest?source_id=${fixture.source.id}`, disabled: true },
+      { path: "/sources/publisher", fallback: false, formats: ["engagement"] },
+      { path: `/latest?source_id=${fixture.source.id}`, fallback: false, formats: ["engagement"] },
       { path: "/latest?cursor=next-page", disabled: true },
-      { path: "/search?q=typescript", fallback: false },
+      { path: "/search?q=typescript", fallback: false, surface: "search", formats: ["engagement"] },
     ])
       await check(options);
     // A preview must retain the validated mode and its loaded background, including contextual routes.

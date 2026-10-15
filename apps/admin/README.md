@@ -233,13 +233,16 @@ placements require a relevant match. Expiring an additional campaign restores ac
 Dated campaigns on lower tiers remain available for reporting; sponsored delivery and campaign
 changes require Silver or higher.
 
-Silver and higher tiers support Feed, Homepage sponsorship, Sponsored content and Engagement.
+Silver and higher tiers support Feed, Header sponsorship, Sponsored content and Engagement.
 Automatic formats default to Feed; choose additional channels in account defaults or partner
 preferences. Sponsored content requires a campaign with a currently approved visible article and
 an eligible account product. The article itself must share active approved topics with the feed;
 untagged or unrelated stories are not delivered. It never publishes or rewrites the article. Its sponsor disclosure
-remains after the campaign ends. Homepage sponsorship is main-feed-only; Engagement and sponsored
-articles always require contextual relevance. Newsletter and Agent Ads are not included.
+remains after the campaign ends. Header sponsorship appears in the global navigation across
+reader pages when the header has room on wide screens. Engagement and sponsored articles
+always require contextual relevance. Header campaigns use the separate Header placement; sponsored
+content remains feed-only. Feed and Engagement campaigns cannot select Header. Newsletter and
+Agent Ads are not included.
 Product settings restrict formats and locations across automatic and explicit campaigns. Inherit
 uses the account policy, while an empty allowlist blocks that dimension; tier and exclusions win.
 

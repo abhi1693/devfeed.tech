@@ -34,17 +34,17 @@ async function chooseCustomImage() {
   await userEvent.click(screen.getByRole("option", { name: "Custom image" }));
 }
 
-it.each(["feed", "homepage_sponsorship", "engagement"] as const)(
+it.each(["feed", "header_sponsorship", "engagement"] as const)(
   "previews actual %s creative with a Sponsored pill and no visit CTA",
   (format) => {
     render(<AdCreativePreview format={format} product={product} />);
     const preview = screen.getByRole("region", { name: "Creative preview" });
     expect(within(preview).getByText(product.name)).toBeTruthy();
     expect(within(preview).getByText("Sponsored").className).toContain(
-      format === "homepage_sponsorship" ? "text-muted-foreground" : "rounded-full",
+      format === "header_sponsorship" ? "text-muted-foreground" : "rounded-full",
     );
     expect(
-      format === "homepage_sponsorship"
+      format === "header_sponsorship"
         ? within(preview).getByTitle("rust.example")
         : within(preview).getByText("rust.example", { exact: true }),
     ).toBeTruthy();
@@ -54,11 +54,11 @@ it.each(["feed", "homepage_sponsorship", "engagement"] as const)(
   },
 );
 
-it("shows homepage sponsorship as a quiet credit in the desktop app header", () => {
-  render(<AdCreativePreview format="homepage_sponsorship" product={product} />);
+it("shows header sponsorship as a quiet credit in the desktop app header", () => {
+  render(<AdCreativePreview format="header_sponsorship" product={product} />);
   const preview = screen.getByRole("region", { name: "Creative preview" });
   expect(
-    within(preview).getByText(/top navigation of unfiltered Home and Latest feeds/),
+    within(preview).getByText(/reader’s top navigation across pages on wide screens/),
   ).toBeTruthy();
   expect(within(preview).getByRole("article", { name: "Desktop navigation preview" })).toBeTruthy();
   for (const label of ["DevFeed", "Search", "Sign in"])

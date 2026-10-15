@@ -28,20 +28,30 @@ class PlacementQuery(BaseModel):
             raise ValueError("Ad format selections must be unique")
         if self.surface == "search" and self.ad_formats != ["engagement"]:
             raise ValueError("Search supports only contextual Engagement placements")
+        if self.surface == "header" and self.ad_formats != ["header_sponsorship"]:
+            raise ValueError("Header supports only Header sponsorship placements")
         if "sponsored_content" in self.ad_formats and self.surface != "feed":
             raise ValueError("Sponsored content is only supported in feeds")
-        if "homepage_sponsorship" in self.ad_formats and (
-            self.surface != "feed" or not self.allow_sponsored_fallback
-        ):
-            raise ValueError("Homepage sponsorship requires the unfiltered main feed")
-        if (self.article_id is not None) != (self.surface == "article") or (
+        if "header_sponsorship" in self.ad_formats and self.surface != "header":
+            raise ValueError("Header sponsorship requires the header surface")
+        if self.surface == "header":
+            contexts = (
+                self.article_id is not None,
+                self.topic_id is not None,
+                bool(self.article_ids),
+            )
+            if sum(contexts) > 1:
+                raise ValueError("Supply at most one header context")
+        elif (self.article_id is not None) != (self.surface == "article") or (
             self.topic_id is not None
         ) != (self.surface == "topic"):
             raise ValueError("Supply exactly the context required by the selected surface")
         if self.allow_sponsored_fallback and self.surface != "feed":
             raise ValueError("Sponsored fallback is only supported for the feed surface")
-        if self.article_ids and self.surface not in {"feed", "search"}:
-            raise ValueError("Visible article context is only supported for feed and search")
+        if self.article_ids and self.surface not in {"feed", "search", "header"}:
+            raise ValueError(
+                "Visible article context is only supported for feed, search and header"
+            )
         return self
 
 

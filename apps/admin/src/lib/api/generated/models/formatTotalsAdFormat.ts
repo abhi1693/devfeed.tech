@@ -11,7 +11,7 @@ export type FormatTotalsAdFormat = typeof FormatTotalsAdFormat[keyof typeof Form
 
 export const FormatTotalsAdFormat = {
   feed: 'feed',
-  homepage_sponsorship: 'homepage_sponsorship',
+  header_sponsorship: 'header_sponsorship',
   sponsored_content: 'sponsored_content',
   engagement: 'engagement',
 } as const;

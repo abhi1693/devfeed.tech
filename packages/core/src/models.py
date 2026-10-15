@@ -1727,13 +1727,13 @@ class PartnerAccount(Base):
         ),
         CheckConstraint(
             "jsonb_typeof(promotion_surfaces) = 'array' AND "
-            "jsonb_array_length(promotion_surfaces) BETWEEN 1 AND 4 AND "
-            'promotion_surfaces <@ \'["article","topic","feed","search"]\'::jsonb',
+            "jsonb_array_length(promotion_surfaces) BETWEEN 1 AND 5 AND "
+            'promotion_surfaces <@ \'["article","topic","feed","search","header"]\'::jsonb',
             name="ck_partner_promotion_surfaces",
         ),
         CheckConstraint(
             "jsonb_typeof(ad_formats) = 'array' AND jsonb_array_length(ad_formats) <= 3 AND "
-            'ad_formats <@ \'["feed","homepage_sponsorship","engagement"]\'::jsonb',
+            'ad_formats <@ \'["feed","header_sponsorship","engagement"]\'::jsonb',
             name="ck_partner_account_ad_formats",
         ),
     )
@@ -1749,7 +1749,7 @@ class PartnerAccount(Base):
     promotion_surfaces: Mapped[list] = mapped_column(
         JSONB,
         default=default_promotion_surfaces,
-        server_default='["article","topic","feed","search"]',
+        server_default='["article","topic","feed","search","header"]',
     )
     promotion_kind: Mapped[str | None] = mapped_column(String(20))
     approval_mode: Mapped[str] = mapped_column(
@@ -1852,7 +1852,7 @@ class PartnerCampaign(Base):
             name="ck_partner_campaign_audience",
         ),
         CheckConstraint(
-            "ad_format IN ('feed','homepage_sponsorship','sponsored_content','engagement')",
+            "ad_format IN ('feed','header_sponsorship','sponsored_content','engagement')",
             name="ck_partner_campaign_ad_format",
         ),
         CheckConstraint(
@@ -1875,9 +1875,11 @@ class PartnerCampaign(Base):
             name="ck_partner_campaign_daily_limit",
         ),
         CheckConstraint(
-            "jsonb_typeof(surfaces) = 'array' AND jsonb_array_length(surfaces) BETWEEN 1 AND 4 AND "
-            'surfaces <@ \'["article","topic","feed","search"]\'::jsonb AND '
-            "(ad_format = 'engagement' OR NOT surfaces @> '[\"search\"]'::jsonb)",
+            "jsonb_typeof(surfaces) = 'array' AND jsonb_array_length(surfaces) BETWEEN 1 AND 5 AND "
+            'surfaces <@ \'["article","topic","feed","search","header"]\'::jsonb AND '
+            "(ad_format = 'engagement' OR NOT surfaces @> '[\"search\"]'::jsonb) AND "
+            "((ad_format = 'header_sponsorship' AND surfaces = '[\"header\"]'::jsonb) OR "
+            "(ad_format != 'header_sponsorship' AND NOT surfaces @> '[\"header\"]'::jsonb))",
             name="ck_partner_campaign_surfaces",
         ),
         CheckConstraint(
@@ -1937,14 +1939,14 @@ class PartnerProductPromotion(Base):
     __table_args__ = (
         CheckConstraint(
             "promotion_surfaces IS NULL OR (jsonb_typeof(promotion_surfaces) = 'array' AND "
-            "jsonb_array_length(promotion_surfaces) <= 4 AND "
-            'promotion_surfaces <@ \'["article","topic","feed","search"]\'::jsonb)',
+            "jsonb_array_length(promotion_surfaces) <= 5 AND "
+            'promotion_surfaces <@ \'["article","topic","feed","search","header"]\'::jsonb)',
             name="ck_partner_product_surfaces",
         ),
         CheckConstraint(
             "ad_formats IS NULL OR (jsonb_typeof(ad_formats) = 'array' AND "
             "jsonb_array_length(ad_formats) <= 4 AND "
-            'ad_formats <@ \'["feed","homepage_sponsorship",'
+            'ad_formats <@ \'["feed","header_sponsorship",'
             '"sponsored_content","engagement"]\'::jsonb)',
             name="ck_partner_product_ad_formats",
         ),
@@ -2052,7 +2054,7 @@ class PartnerAsset(Base):
     __table_args__ = (
         CheckConstraint("kind IN ('product','ad')", name="ck_partner_asset_kind"),
         CheckConstraint(
-            "ad_format IN ('feed','homepage_sponsorship','sponsored_content','engagement')",
+            "ad_format IN ('feed','header_sponsorship','sponsored_content','engagement')",
             name="ck_partner_asset_ad_format",
         ),
         CheckConstraint(
@@ -2119,7 +2121,7 @@ class PartnerPlacementDelivery(Base):
     __table_args__ = (
         Index("ix_partner_delivery_asset_issued", "asset_id", "issued_at"),
         CheckConstraint(
-            "surface IS NULL OR surface IN ('article','topic','feed','search')",
+            "surface IS NULL OR surface IN ('article','topic','feed','search','header')",
             name="ck_partner_delivery_surface",
         ),
     )

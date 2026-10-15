@@ -5,7 +5,7 @@ from typing import Literal, get_args
 
 from .partner_tiers import tier_policy
 
-AdFormat = Literal["feed", "homepage_sponsorship", "sponsored_content", "engagement"]
+AdFormat = Literal["feed", "header_sponsorship", "sponsored_content", "engagement"]
 
 
 def default_ad_formats() -> list[AdFormat]:
@@ -13,7 +13,7 @@ def default_ad_formats() -> list[AdFormat]:
 
 
 AD_FORMATS = get_args(AdFormat)
-AUTOMATIC_AD_FORMATS = ("feed", "homepage_sponsorship", "engagement")
+AUTOMATIC_AD_FORMATS = ("feed", "header_sponsorship", "engagement")
 
 
 def ad_format_allowed(account, ad_format: str) -> bool:
@@ -42,10 +42,12 @@ def validate_product_formats(tier: str, formats: Sequence[str] | None, *, previo
 def placement_format_allowed(ad_format: str, query) -> bool:
     if ad_format not in query.ad_formats:
         return False
+    if query.surface == "header":
+        return ad_format == "header_sponsorship"
     if query.surface == "search":
         return ad_format == "engagement"
-    if ad_format == "homepage_sponsorship":
-        return query.surface == "feed" and query.allow_sponsored_fallback
+    if ad_format == "header_sponsorship":
+        return False
     if ad_format == "sponsored_content":
         return query.surface == "feed"
     return ad_format in {"feed", "engagement"}

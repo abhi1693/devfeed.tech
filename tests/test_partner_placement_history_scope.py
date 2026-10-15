@@ -250,7 +250,7 @@ def test_rotation_uses_latest_receipt_across_manual_paused_and_other_account_ass
                 status="paused",
                 automatic=False,
             )
-            for ad_format in ("homepage_sponsorship", "engagement")
+            for ad_format in ("header_sponsorship", "engagement")
         ]
         session.add_all(siblings)
         session.flush()

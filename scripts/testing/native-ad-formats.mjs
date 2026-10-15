@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 
-export const adFormats = ["feed", "homepage_sponsorship", "sponsored_content", "engagement"];
+export const adFormats = ["feed", "header_sponsorship", "sponsored_content", "engagement"];
 
 export const sponsoredArticle = {
   id: "99999999-9999-4999-8999-999999999999",
@@ -52,7 +52,7 @@ export async function installCreativeMedia(context) {
   );
 }
 
-export async function checkHomepageSponsorshipPreview(page, preview, { product, toggle }) {
+export async function checkHeaderSponsorshipPreview(page, preview, { product, toggle }) {
   const originalName = product.name;
   const originalViewport = page.viewportSize();
   const longName = "API Checker Cloud developer workflow observability and reliability platform "
@@ -110,7 +110,7 @@ export async function checkHomepageSponsorshipPreview(page, preview, { product, 
           },
           { name, tagline: product.tagline },
         );
-        const label = `${width}px ${name === originalName ? "normal" : "long"} homepage preview`;
+        const label = `${width}px ${name === originalName ? "normal" : "long"} header preview`;
         assert.ok(layout, `${label} shows its credit within an example global header`);
         assert.ok(layout.logo.right <= layout.title.x, `${label} places the logo before the name`);
         assert.equal(layout.logo.width, 32, `${label} uses a recognizable header-sized logo`);

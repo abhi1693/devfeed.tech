@@ -14,4 +14,5 @@ export const CampaignOutSurfacesItem = {
   topic: 'topic',
   feed: 'feed',
   search: 'search',
+  header: 'header',
 } as const;

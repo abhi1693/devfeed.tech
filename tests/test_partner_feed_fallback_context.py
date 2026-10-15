@@ -1,4 +1,4 @@
-"""Generic Feed sponsorship cannot bypass known context; Homepage is explicit branding."""
+"""Generic Feed sponsorship cannot bypass known context; Header is separate branding."""
 
 import uuid
 
@@ -15,7 +15,7 @@ pytestmark = pytest.mark.integration
 
 @pytest.fixture
 def unmatched_sponsor(database, feed_catalog):
-    native_account(database, feed_catalog, ["feed", "homepage_sponsorship"])
+    native_account(database, feed_catalog, ["feed", "header_sponsorship"])
     with database.begin() as session:
         session.add(
             PartnerProductPromotion(
@@ -38,10 +38,15 @@ def test_known_feed_context_does_not_fall_back_to_an_unrelated_feed_sponsor(
     rows = deliver(database, PlacementQuery(**payload, ad_formats=["feed"]))
     assert len(rows) == 1 and not rows[0]["sponsored"]
     assert rows[0]["product_id"] == unmatched_sponsor["free_product"]
-    rows = deliver(database, PlacementQuery(**payload, ad_formats=["feed", "homepage_sponsorship"]))
-    assert len(rows) == 2
-    sponsorship = next(row for row in rows if row["sponsored"])
-    assert sponsorship["ad_format"] == "homepage_sponsorship"
+    rows = deliver(
+        database,
+        PlacementQuery(
+            surface="header", article_ids=payload["article_ids"], ad_formats=["header_sponsorship"]
+        ),
+    )
+    assert len(rows) == 1
+    sponsorship = rows[0]
+    assert sponsorship["ad_format"] == "header_sponsorship"
     assert sponsorship["product_id"] == unmatched_sponsor["unrelated"]
 
 
@@ -60,8 +65,13 @@ def test_invalid_supplied_context_cannot_enable_generic_feed_fallback(
                 session.get(Source, unmatched_sponsor["source"]).approval_status = "pending"
     payload = dict(surface="feed", article_ids=[article_id], allow_sponsored_fallback=True)
     assert deliver(database, PlacementQuery(**payload, ad_formats=["feed"])) == []
-    branding = deliver(database, PlacementQuery(**payload, ad_formats=["homepage_sponsorship"]))
-    assert len(branding) == 1 and branding[0]["ad_format"] == "homepage_sponsorship"
+    branding = deliver(
+        database,
+        PlacementQuery(
+            surface="header", article_ids=[article_id], ad_formats=["header_sponsorship"]
+        ),
+    )
+    assert len(branding) == 1 and branding[0]["ad_format"] == "header_sponsorship"
     assert branding[0]["article"] is None
 
 
@@ -86,7 +96,7 @@ def test_resolved_personal_context_prevents_generic_feed_fallback(database, unma
     assert len(rows) == 1 and not rows[0]["sponsored"]
     branding = deliver(
         database,
-        PlacementQuery(**payload, ad_formats=["homepage_sponsorship"]),
+        PlacementQuery(surface="header", ad_formats=["header_sponsorship"]),
         user_id=unmatched_sponsor["user"],
     )
-    assert len(branding) == 1 and branding[0]["ad_format"] == "homepage_sponsorship"
+    assert len(branding) == 1 and branding[0]["ad_format"] == "header_sponsorship"

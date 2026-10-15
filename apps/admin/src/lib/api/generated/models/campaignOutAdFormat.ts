@@ -11,7 +11,7 @@ export type CampaignOutAdFormat = typeof CampaignOutAdFormat[keyof typeof Campai
 
 export const CampaignOutAdFormat = {
   feed: 'feed',
-  homepage_sponsorship: 'homepage_sponsorship',
+  header_sponsorship: 'header_sponsorship',
   sponsored_content: 'sponsored_content',
   engagement: 'engagement',
 } as const;

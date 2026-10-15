@@ -39,7 +39,7 @@ export interface CampaignOut {
   status?: CampaignOutStatus;
   /**
      * @minItems 1
-     * @maxItems 4
+     * @maxItems 5
      */
   surfaces?: CampaignOutSurfacesItem[];
   targeting?: CampaignOutTargeting;

@@ -17,10 +17,10 @@ export const adFormats = [
     description: "Native product cards in grid feeds and sponsored rows in compact feed tables.",
   },
   {
-    value: "homepage_sponsorship",
-    label: "Homepage sponsorship",
+    value: "header_sponsorship",
+    label: "Header sponsorship",
     description:
-      "In the top navigation of unfiltered Home and Latest feeds on wide screens. Hidden when the header has no room.",
+      "A compact sponsor placement in the reader’s top navigation across pages on wide screens.",
   },
   {
     value: "sponsored_content",
@@ -34,7 +34,7 @@ export const adFormats = [
   },
 ] as const;
 export type AdFormat = (typeof adFormats)[number]["value"];
-export const automaticAdFormats: AdFormat[] = ["feed", "homepage_sponsorship", "engagement"];
+export const automaticAdFormats: AdFormat[] = ["feed", "header_sponsorship", "engagement"];
 export const adFormatLabel = (format: string) =>
   adFormats.find((item) => item.value === format)?.label ?? format.replaceAll("_", " ");
 
@@ -123,6 +123,7 @@ export type CreativePreviewArticle = {
 };
 
 export const placementSurfaces = [
+  { value: "header", label: "Header" },
   { value: "article", label: "Article pages" },
   { value: "topic", label: "Topic and category pages" },
   { value: "feed", label: "Reader feeds" },
@@ -1052,7 +1053,7 @@ export function AdCreativePreview({
   const disclosure = (
     <span
       className={
-        format === "homepage_sponsorship"
+        format === "header_sponsorship"
           ? "shrink-0 text-[11px] font-normal whitespace-nowrap text-muted-foreground"
           : "inline-flex shrink-0 rounded-full border border-amber-300 bg-amber-100 px-2 py-0.5 text-xs font-semibold whitespace-nowrap text-amber-900 dark:border-amber-700 dark:bg-amber-950 dark:text-amber-200"
       }
@@ -1100,10 +1101,10 @@ export function AdCreativePreview({
         </div>
       ) : title ? (
         <article
-          aria-label={format === "homepage_sponsorship" ? "Desktop navigation preview" : undefined}
-          className={`${format === "homepage_sponsorship" ? "w-full" : "max-w-md"} overflow-hidden rounded-xl border bg-card text-card-foreground`}
+          aria-label={format === "header_sponsorship" ? "Desktop navigation preview" : undefined}
+          className={`${format === "header_sponsorship" ? "w-full" : "max-w-md"} overflow-hidden rounded-xl border bg-card text-card-foreground`}
         >
-          {format === "homepage_sponsorship" ? (
+          {format === "header_sponsorship" ? (
             <div className="flex flex-wrap items-center gap-3 p-2 sm:p-3">
               <span aria-hidden className="text-sm font-semibold">
                 DevFeed

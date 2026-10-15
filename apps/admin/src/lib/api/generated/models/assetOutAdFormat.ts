@@ -11,7 +11,7 @@ export type AssetOutAdFormat = typeof AssetOutAdFormat[keyof typeof AssetOutAdFo
 
 export const AssetOutAdFormat = {
   feed: 'feed',
-  homepage_sponsorship: 'homepage_sponsorship',
+  header_sponsorship: 'header_sponsorship',
   sponsored_content: 'sponsored_content',
   engagement: 'engagement',
 } as const;

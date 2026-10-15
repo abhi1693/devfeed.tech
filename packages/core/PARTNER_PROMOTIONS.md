@@ -29,7 +29,8 @@ In **Partnerships → Partner accounts**, set **Promotion defaults**:
 - Import acceptance: independently qualified by default, or trusted partner imports.
 - Relevant recommendations: enabled by default for the ordinary promotion type.
 - Automatically include approved products: enabled by default, including future imports.
-- Allowed surfaces: articles, topic pages, personalized feeds and search results by default.
+- Allowed surfaces: articles, topic pages, personalized feeds, search results and the global header
+  by default.
 
 The **Products** tab lists that account's catalog with qualification and exclusion state.
 Exclude a product to suppress every appearance for that account, including selected campaigns.
@@ -83,18 +84,23 @@ silently enter the new automatic delivery pipeline.
 
 ## Native ad formats and product controls
 
-Silver and higher accounts can use Feed, Homepage sponsorship, Sponsored content and Engagement.
+Silver and higher accounts can use Feed, Header sponsorship, Sponsored content and Engagement.
 Existing accounts retain Feed as their only automatic format. Account defaults and partner-portal
-preferences can enable Feed, Homepage sponsorship and Engagement; an empty selection stops all
+preferences can enable Feed, Header sponsorship and Engagement; an empty selection stops all
 standing sponsored channels. Sponsored content requires a dated campaign and a selected approved,
 visible article. It never publishes an article, rewrites its text or changes its byline.
 Newsletter delivery is not included; Agent Ads remain deferred.
 
-Homepage sponsorship appears in the global header only on wide, unfiltered Home and Latest feeds
-that enable sponsored fallback. It shows a 32-pixel logo, product name, muted Sponsored disclosure
-and a tagline, without occupying a feed card or a strip above the feed.
-Engagement remains strictly contextual on supported article, topic and feed locations. Feed and
-Homepage sponsorship may use the explicit main-feed fallback. Sponsored content is feed-only,
+Header sponsorship appears in the global reader navigation wherever its wide layout has room.
+It shows a 32-pixel logo, product name, muted Sponsored disclosure and a tagline, without occupying
+a feed card or a strip above the feed. It uses the independent `header` placement surface and
+issues at most one campaign-backed receipt. The reader keeps its credit mounted while navigating
+between pages or opening article previews. Optional approved article, collection or topic context,
+or current reader interests, ranks relevant products first; Header's explicit brand inventory can
+fill the remaining opportunity. Its account, product and campaign controls must all permit Header.
+Header campaigns target only Header; other campaign formats cannot select that surface.
+Engagement remains strictly contextual on supported article, topic, search and feed locations.
+Only contextless main-feed requests can use generic Feed fallback. Sponsored content is feed-only,
 uses the campaign's relevant account product for eligibility, requires its own approved topics to match
 the current feed, and opens the actual article preview. The article picker offers only visible
 stories with active primary/supporting topics; untagged or unrelated stories fail closed.
@@ -183,7 +189,10 @@ retain their stricter tutorial task-matching requirements.
 Signed-in feed interests can strengthen those topics without introducing unrelated products.
 Anonymous requests use the same visible context and never manufacture an interest profile.
 Anonymous feed requests without context return no products unless the main feed explicitly enables
-`allow_sponsored_fallback`. This permits an inherited Sponsored Feed or Homepage sponsorship placement when no eligible contextual placement of that format can be delivered. Engagement and sponsored articles always require relevance. Search, category and filtered feeds keep fallback
+`allow_sponsored_fallback`. This permits an inherited Sponsored Feed placement when no contextual
+or personal feed context exists. Engagement and sponsored articles always require relevance.
+Header sponsorship uses its independent explicit brand inventory and does not enable Feed fallback.
+Search, category and filtered feeds keep Feed fallback
 disabled; organic slots and article previews always require relevance. Source-filtered, saved, trending,
 and cursor views suppress product placements. Compact feed tables use native sponsored rows.
 News and opinion previews receive no tutorial placements.
@@ -237,7 +246,7 @@ Article-only search filters retain that ad rail without adding catalog sections;
 search filters request no placements. Narrow screens stack the rail after article results and
 before Topics. Search and article sidebars do not request Feed or sponsored-content cards.
 Product copy is a single-line tagline of
-3–160 characters. Cards show a logo, name, tagline and destination. Homepage sponsorship instead
+3–160 characters. Cards show a logo, name, tagline and destination. Header sponsorship instead
 uses the global header described above and never occupies these card slots. Every product
 placement shows **Sponsored**, has no dismissal control and uses
 `rel="sponsored noopener noreferrer"` on its destination link. There is no promotional banner,

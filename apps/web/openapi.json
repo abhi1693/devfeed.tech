@@ -1067,7 +1067,7 @@
             "default": "feed",
             "enum": [
               "feed",
-              "homepage_sponsorship",
+              "header_sponsorship",
               "sponsored_content",
               "engagement"
             ],
@@ -1230,7 +1230,7 @@
             "items": {
               "enum": [
                 "feed",
-                "homepage_sponsorship",
+                "header_sponsorship",
                 "sponsored_content",
                 "engagement"
               ],
@@ -1281,7 +1281,8 @@
               "article",
               "topic",
               "feed",
-              "search"
+              "search",
+              "header"
             ],
             "title": "Surface",
             "type": "string"

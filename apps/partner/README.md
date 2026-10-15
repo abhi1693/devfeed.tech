@@ -171,11 +171,11 @@ Revenue, conversions, and financial ROI are not claimed by these metrics.
 
 ### Native advertising formats
 
-Silver, Gold, Platinum and Diamond support native feed cards, homepage sponsorship, sponsored
-content and contextual engagement ads. Account settings choose automatic feed, homepage and
-engagement formats. Automatic formats default to Feed until another format is enabled.
-Homepage sponsorship appears in the global header on wide screens in unfiltered Home and Latest
-feeds. It shows a 32-pixel product logo, name, muted Sponsored disclosure and a short tagline;
+Silver, Gold, Platinum and Diamond support native feed cards, header sponsorship, sponsored
+content and contextual engagement ads. Account settings choose automatic Feed, Header sponsorship and
+Engagement formats. Automatic formats default to Feed until another format is enabled.
+Header sponsorship appears in the global navigation across reader pages when the header has
+room on wide screens. It shows a 32-pixel product logo, name, muted Sponsored disclosure and a short tagline;
 it does not occupy a feed card or a strip above the feed. Engagement placements use grounded task
 matches in article previews or verified direct topic support in search and topic sidebars.
 Source-feed sidebars use grounded tutorial matches from the initial visible articles, with no
@@ -208,15 +208,16 @@ article cards and previews after the campaign ends. Campaign creation does not p
 The sponsored article is omitted when it is already present in the visible feed.
 
 All product placements show a Sponsored disclosure, regardless of tier or internal promotion
-kind, and cannot be dismissed. Homepage sponsorship uses muted text in the global header; other
-product formats use a distinct pill. The formats share the existing maximum of two placements per
-delivery response. Article, topic, category and search contexts require a relevant match.
+kind, and cannot be dismissed. Header sponsorship uses muted text in the global header; other
+product formats use a distinct pill. Header sponsorship requests one placement independently of
+feed delivery; other placement responses retain the maximum of two placements. Article, topic, category and search contexts require a relevant match.
 Generic Feed sponsorship may fall back only on the unfiltered home feed without supplied article
 context or resolved reader interests; failed contextual matching cannot broaden into unrelated
-Feed inventory. Explicit Homepage sponsorship remains a separate brand placement in the global
-header of wide, unfiltered Home and Latest feeds and may appear alongside page context. Audience
+Feed inventory. Explicit Header sponsorship remains a separate brand placement in the global
+header across wide reader pages and may appear alongside page context. Audience
 restrictions also apply to fallback delivery. Formats have separate assets and attribution while
 the product performance table combines the same product's formats within each account into one row.
+The Header placement can be enabled or restricted separately from feeds and sidebars.
 
 **Creative preview** shows a real accepted product or approved sponsored article for the selected
 format without reserving delivery or recording measurements. From a product's placement page,

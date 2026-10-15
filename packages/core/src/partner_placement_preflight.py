@@ -27,6 +27,8 @@ def automatic_configuration_available(asset, account, campaign, now, *, surface=
     if surface is not None and surface not in account.promotion_surfaces:
         return False
     if asset.campaign_id is None:
+        if surface == "header":
+            return False
         return (
             audience_entitled(account)
             and account.organic_enabled

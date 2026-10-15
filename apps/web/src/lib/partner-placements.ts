@@ -1,15 +1,10 @@
 import type { Article } from "./types";
 import { safeExternalUrl } from "./feed-query";
 
-export const adFormats = [
-  "feed",
-  "homepage_sponsorship",
-  "sponsored_content",
-  "engagement",
-] as const;
+export const adFormats = ["feed", "header_sponsorship", "sponsored_content", "engagement"] as const;
 export type AdFormat = (typeof adFormats)[number];
 export type PlacementQuery = {
-  surface: "article" | "topic" | "feed" | "search";
+  surface: "article" | "topic" | "feed" | "search" | "header";
   article_id?: string;
   topic_id?: string;
   article_ids?: string[];
@@ -69,19 +64,15 @@ export function validPlacementQuery(value: unknown): value is PlacementQuery {
       value.ad_formats.length > 4 ||
       new Set(value.ad_formats).size !== value.ad_formats.length ||
       !value.ad_formats.every((format) => adFormats.includes(format as AdFormat)) ||
-      (value.surface !== "feed" &&
-        value.ad_formats.some(
-          (format) => format === "homepage_sponsorship" || format === "sponsored_content",
-        )) ||
-      (value.ad_formats.includes("homepage_sponsorship") &&
-        value.allow_sponsored_fallback !== true))
+      (value.surface !== "feed" && value.ad_formats.includes("sponsored_content")) ||
+      (value.surface !== "header" && value.ad_formats.includes("header_sponsorship")))
   )
     return false;
   if (
-    value.surface === "search" &&
+    (value.surface === "search" || value.surface === "header") &&
     (!Array.isArray(value.ad_formats) ||
       value.ad_formats.length !== 1 ||
-      value.ad_formats[0] !== "engagement")
+      value.ad_formats[0] !== (value.surface === "header" ? "header_sponsorship" : "engagement"))
   )
     return false;
   if (
@@ -92,7 +83,7 @@ export function validPlacementQuery(value: unknown): value is PlacementQuery {
     return false;
   if (
     value.article_ids !== undefined &&
-    ((value.surface !== "feed" && value.surface !== "search") ||
+    (!["feed", "search", "header"].includes(String(value.surface)) ||
       !Array.isArray(value.article_ids) ||
       value.article_ids.length > 24 ||
       !value.article_ids.every((id) => typeof id === "string" && uuid.test(id)))
@@ -105,6 +96,18 @@ export function validPlacementQuery(value: unknown): value is PlacementQuery {
       !value.exclude_product_ids.every((id) => typeof id === "string" && uuid.test(id)))
   )
     return false;
+  if (value.surface === "header")
+    return (
+      (value.article_id === undefined ||
+        (typeof value.article_id === "string" && uuid.test(value.article_id))) &&
+      (value.topic_id === undefined ||
+        (typeof value.topic_id === "string" && uuid.test(value.topic_id))) &&
+      [
+        value.article_id !== undefined,
+        value.topic_id !== undefined,
+        Array.isArray(value.article_ids) && value.article_ids.length > 0,
+      ].filter(Boolean).length <= 1
+    );
   if (value.surface === "article")
     return (
       typeof value.article_id === "string" &&

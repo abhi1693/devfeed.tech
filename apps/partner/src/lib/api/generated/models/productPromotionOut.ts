@@ -9,12 +9,12 @@ import type { ProductPromotionOutAdImageStatus } from './productPromotionOutAdIm
 
 export interface ProductPromotionOut {
   account_id: string;
-  ad_formats?: ('feed' | 'homepage_sponsorship' | 'sponsored_content' | 'engagement')[] | null;
+  ad_formats?: ('feed' | 'header_sponsorship' | 'sponsored_content' | 'engagement')[] | null;
   ad_image_status: ProductPromotionOutAdImageStatus;
   ad_image_url?: string | null;
   default_image_url: string | null;
   excluded: boolean;
   image_url: string | null;
   product_id: string;
-  promotion_surfaces?: ('article' | 'topic' | 'feed' | 'search')[] | null;
+  promotion_surfaces?: ('article' | 'topic' | 'feed' | 'search' | 'header')[] | null;
 }

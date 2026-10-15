@@ -64,7 +64,7 @@ describe("shared native feed eligibility", () => {
         expect(feedPlacements(descriptor, parseFilters({ sort }))).toEqual({
           surface: "feed",
           allow_sponsored_fallback: true,
-          ad_formats: ["feed", "homepage_sponsorship", "sponsored_content"],
+          ad_formats: ["feed", "sponsored_content"],
         });
     },
   );

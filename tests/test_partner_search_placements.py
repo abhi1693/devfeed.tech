@@ -56,7 +56,7 @@ def test_search_contract_accepts_only_bounded_public_article_identifiers(count):
     "change",
     [
         {"ad_formats": ["feed"]},
-        {"ad_formats": ["homepage_sponsorship"]},
+        {"ad_formats": ["header_sponsorship"]},
         {"ad_formats": ["sponsored_content"]},
         {"ad_formats": ["engagement", "feed"]},
         {"allow_sponsored_fallback": True},
@@ -111,14 +111,14 @@ def test_search_context_cannot_be_expanded_by_personal_interests(monkeypatch):
 
 
 def test_surface_defaults_keep_search_exclusive_to_engagement_campaigns():
-    full = ["article", "topic", "feed", "search"]
+    full = ["article", "topic", "feed", "search", "header"]
     assert default_promotion_surfaces() == full
     assert AccountInput(name="Partner", tier="gold").promotion_surfaces == full
     assert ProductPromotionInput(promotion_surfaces=["search"]).promotion_surfaces == ["search"]
     for ad_format, expected in [
         ("feed", full[:3]),
-        ("engagement", full),
-        ("homepage_sponsorship", ["feed"]),
+        ("engagement", full[:4]),
+        ("header_sponsorship", ["header"]),
     ]:
         values = dict(
             name="Campaign",

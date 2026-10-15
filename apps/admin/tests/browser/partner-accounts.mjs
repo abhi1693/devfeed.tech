@@ -16,7 +16,7 @@ import {
   creativeProduct,
   installCreativeMedia,
   sponsoredArticle,
-  checkHomepageSponsorshipPreview,
+  checkHeaderSponsorshipPreview,
 } from "../../../../scripts/testing/native-ad-formats.mjs";
 
 const root = fileURLToPath(new URL("../../../../", import.meta.url));
@@ -24,7 +24,7 @@ const tierBenefits = [
   "Partner portal access",
   "Product and ad performance reporting",
   "Relevant product recommendations",
-  "Native feed ads, homepage sponsorship, sponsored content and engagement ads",
+  "Native feed ads, header sponsorship, sponsored content and engagement ads",
   "Product promotion planning",
   "Priority campaign support",
   "Custom partnership and campaign planning",
@@ -789,7 +789,7 @@ try {
   await page.getByRole("option", { name: "Silver", exact: true }).click();
   await settingsTab("Ad formats");
   assert.equal(await page.getByRole("checkbox", { name: /^Feed/ }).isChecked(), true);
-  await page.getByRole("checkbox", { name: /^Homepage sponsorship/ }).check();
+  await page.getByRole("checkbox", { name: /^Header sponsorship/ }).check();
   await page.getByRole("checkbox", { name: /^Engagement/ }).check();
   await settingsTab("Audience");
   assert.equal(await page.getByLabel("Senior", { exact: true }).count(), 0);
@@ -800,7 +800,7 @@ try {
   await settingsTab("General");
   await page
     .getByLabel("Selected tier benefits", { exact: true })
-    .getByText("Native feed ads, homepage sponsorship, sponsored content and engagement ads", {
+    .getByText("Native feed ads, header sponsorship, sponsored content and engagement ads", {
       exact: true,
     })
     .waitFor();
@@ -831,11 +831,7 @@ try {
   assert.equal(writes.at(-1).payload.auto_include_products, true);
   assert.equal("frequency_cap" in writes.at(-1).payload, false);
   assert.equal(writes.at(-1).payload.promotion_kind, null);
-  assert.deepEqual(writes.at(-1).payload.ad_formats, [
-    "feed",
-    "homepage_sponsorship",
-    "engagement",
-  ]);
+  assert.deepEqual(writes.at(-1).payload.ad_formats, ["feed", "header_sponsorship", "engagement"]);
   // Older cached account responses must not restore or normalize a removed setting.
   account.frequency_cap = 20;
   await accountReport();
@@ -890,10 +886,7 @@ try {
   );
   await page.reload();
   await settingsTab("Ad formats");
-  assert.equal(
-    await page.getByRole("checkbox", { name: /^Homepage sponsorship/ }).isChecked(),
-    true,
-  );
+  assert.equal(await page.getByRole("checkbox", { name: /^Header sponsorship/ }).isChecked(), true);
   assert.equal(await page.getByRole("checkbox", { name: /^Engagement/ }).isChecked(), true);
   await settingsTab("General");
   await page.getByRole("combobox", { name: "Partnership tier" }).click();
@@ -913,13 +906,11 @@ try {
     true,
   );
   await formatControls.getByRole("combobox", { name: "Preview format", exact: true }).click();
-  await page.getByRole("option", { name: "Homepage sponsorship", exact: true }).click();
-  await creativePreview
-    .getByRole("heading", { name: "Homepage sponsorship", exact: true })
-    .waitFor();
+  await page.getByRole("option", { name: "Header sponsorship", exact: true }).click();
+  await creativePreview.getByRole("heading", { name: "Header sponsorship", exact: true }).waitFor();
   await creativePreview.getByText("Sponsored", { exact: true }).waitFor();
   assert.equal(await creativePreview.getByText("Visit website", { exact: true }).count(), 0);
-  await checkHomepageSponsorshipPreview(page, creativePreview, {
+  await checkHeaderSponsorshipPreview(page, creativePreview, {
     product: destinationProduct,
     toggle: formatControls.locator("summary").filter({ hasText: "Creative preview" }),
   });
@@ -1059,6 +1050,7 @@ try {
   await settingsTab("Delivery");
   await page.getByLabel("Reader feeds", { exact: true }).uncheck();
   await page.getByLabel("Search results", { exact: true }).uncheck();
+  await page.getByLabel("Header", { exact: true }).uncheck();
   assert.equal(await page.getByLabel("Product exposure limit", { exact: false }).count(), 0);
   await page.getByRole("button", { name: "Save partnership" }).click();
   await page.waitForURL(`**/accounts/${account.id}`);
@@ -1206,7 +1198,7 @@ try {
   await productDialog.getByText("Unsaved changes", { exact: true }).waitFor();
   await productDialog.getByRole("combobox", { name: "Product formats", exact: true }).click();
   await page.getByRole("option", { name: "Choose product formats", exact: true }).click();
-  for (const name of ["Feed", "Homepage sponsorship", "Sponsored content"])
+  for (const name of ["Feed", "Header sponsorship", "Sponsored content"])
     await productDialog.getByRole("checkbox", { name, exact: true }).uncheck();
   await productDialog.getByRole("checkbox", { name: "Engagement", exact: true }).check();
   await productDialog.getByRole("combobox", { name: "Product placements", exact: true }).click();
@@ -1215,6 +1207,7 @@ try {
   await productDialog.getByLabel("Topic and category pages", { exact: true }).uncheck();
   await productDialog.getByLabel("Reader feeds", { exact: true }).check();
   await productDialog.getByLabel("Search results", { exact: true }).uncheck();
+  await productDialog.getByLabel("Header", { exact: true }).uncheck();
   await productDialog.getByRole("button", { name: "Save product placements", exact: true }).click();
   await productDialog.waitFor({ state: "hidden" });
   assert.deepEqual(writes.at(-1).payload, {
@@ -1416,7 +1409,7 @@ try {
   await page.getByRole("combobox", { name: "Ad format", exact: true }).click();
   assert.deepEqual(await page.getByRole("option").allTextContents(), [
     "Feed",
-    "Homepage sponsorship",
+    "Header sponsorship",
     "Sponsored content",
     "Engagement",
   ]);
@@ -1639,7 +1632,7 @@ try {
       aggregated: true,
       product_id: catalogProduct.id,
       ad_format: "feed",
-      ad_formats: ["feed", "homepage_sponsorship", "engagement"],
+      ad_formats: ["feed", "header_sponsorship", "engagement"],
       impressions: 100,
       clicks: 5,
       ctr: 5,
@@ -1651,7 +1644,7 @@ try {
   await accountReport();
   await page.getByText("Product totals", { exact: true }).waitFor();
   assert.equal(
-    await page.getByText("Feed · Homepage sponsorship · Engagement", { exact: true }).count(),
+    await page.getByText("Feed · Header sponsorship · Engagement", { exact: true }).count(),
     1,
   );
   assert.equal(

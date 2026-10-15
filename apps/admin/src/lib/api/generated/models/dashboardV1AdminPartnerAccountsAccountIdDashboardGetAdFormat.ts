@@ -11,7 +11,7 @@ export type DashboardV1AdminPartnerAccountsAccountIdDashboardGetAdFormat = typeo
 
 export const DashboardV1AdminPartnerAccountsAccountIdDashboardGetAdFormat = {
   feed: 'feed',
-  homepage_sponsorship: 'homepage_sponsorship',
+  header_sponsorship: 'header_sponsorship',
   sponsored_content: 'sponsored_content',
   engagement: 'engagement',
 } as const;

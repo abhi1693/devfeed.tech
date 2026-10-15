@@ -49,7 +49,7 @@ def product_report(database):
         session.flush()
         session.add(PartnerMembership(account_id=account.id, issuer=ISSUER, subject="alice"))
         campaigns = {}
-        for ad_format in ("engagement", "homepage_sponsorship"):
+        for ad_format in ("engagement", "header_sponsorship"):
             campaign = PartnerCampaign(
                 account_id=account.id,
                 name=ad_format,
@@ -90,8 +90,8 @@ def product_report(database):
                 kind="ad",
                 automatic=True,
                 status="active",
-                ad_format="homepage_sponsorship",
-                campaign_id=campaigns["homepage_sponsorship"],
+                ad_format="header_sponsorship",
+                campaign_id=campaigns["header_sponsorship"],
             ),
             PartnerAsset(
                 id=uuid.UUID(int=4),
@@ -148,7 +148,7 @@ def test_formats_and_merged_identities_make_one_product_row_before_metric_sortin
     assert row["name"] == "CronWatch"
     assert row["aggregated"] is True
     assert row["product_id"] == str(product)
-    assert row["ad_formats"] == ["engagement", "feed", "homepage_sponsorship"]
+    assert row["ad_formats"] == ["engagement", "feed", "header_sponsorship"]
     assert row["impressions"] == 400
     assert row["clicks"] == 20
     assert row["ctr"] == 5
@@ -176,7 +176,7 @@ def test_format_filter_preserves_canonical_grouping_and_ledger_breakdown(
     assert formats["feed"]["impressions"] == 450
     assert formats["feed"]["clicks"] == 11
     assert formats["engagement"]["impressions"] == 200
-    assert formats["homepage_sponsorship"]["impressions"] == 50
+    assert formats["header_sponsorship"]["impressions"] == 50
 
 
 def test_mixed_manual_and_automatic_product_totals_are_explicitly_aggregated(

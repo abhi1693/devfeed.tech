@@ -69,9 +69,7 @@ it.each([
     expect(JSON.parse(placements!)).toMatchObject({
       surface: "feed",
       allow_sponsored_fallback: fallback,
-      ad_formats: fallback
-        ? ["feed", "homepage_sponsorship", "sponsored_content"]
-        : ["feed", "sponsored_content"],
+      ad_formats: ["feed", "sponsored_content"],
     });
   },
 );

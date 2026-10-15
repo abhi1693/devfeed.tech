@@ -132,6 +132,8 @@ await mkdir(reportDirectory, { recursive: true });
 console.log(`Placement browser artifacts: ${reportDirectory}`);
 let signedIn = false;
 let queries = [];
+let headerQueries = [];
+let headerInventory = false;
 let events = [];
 let deliveryGate = null;
 let mediaMode = "standard";
@@ -534,6 +536,274 @@ async function assertFeedPlacementContinuity(page, base, platform) {
   }
 }
 
+async function assertSitewideHeader(context, base, platform) {
+  const previousSignedIn = signedIn;
+  headerInventory = true;
+  signedIn = true;
+  const page = await context.newPage();
+  const selector = ".topbar .partner-placement--header_sponsorship";
+  const header = page.locator(selector);
+  const inspect = async (label) => {
+    await header.waitFor();
+    assert.equal(await header.count(), 1, `${label}: exactly one Header sponsorship`);
+    assert.equal(
+      await header.locator(".partner-placement-title > strong").textContent(),
+      headerSponsor.name,
+    );
+    assert.equal(
+      await header.locator(".partner-placement-description").textContent(),
+      headerSponsor.tagline,
+    );
+    assert.equal(await header.locator(".partner-placement-label").textContent(), "Sponsored");
+    assert.equal(
+      await header.locator(".card-image,.partner-placement-destination,button").count(),
+      0,
+    );
+    assert.equal(
+      await page.locator('.main-content [data-ad-format="header_sponsorship"]').count(),
+      0,
+    );
+    const geometry = await header.evaluate((node) => {
+      const bounds = (element) => element.getBoundingClientRect().toJSON();
+      const shell = node.closest(".topbar");
+      return {
+        credit: bounds(node),
+        shell: bounds(shell),
+        peers: [
+          shell.querySelector(".brand"),
+          shell.querySelector(".search"),
+          shell.querySelector(".header-actions"),
+        ].map(bounds),
+        overflow: document.documentElement.scrollWidth > innerWidth,
+      };
+    });
+    assert.equal(geometry.overflow, false, `${label}: no page overflow`);
+    assert.ok(
+      geometry.credit.height <= 48 && geometry.shell.height <= 80,
+      `${label}: no extra header row`,
+    );
+    for (const peer of geometry.peers)
+      assert.ok(
+        geometry.credit.right <= peer.x + 1 ||
+          geometry.credit.x >= peer.right - 1 ||
+          geometry.credit.bottom <= peer.y + 1 ||
+          geometry.credit.y >= peer.bottom - 1,
+        `${label}: credit never overlaps navigation`,
+      );
+  };
+  try {
+    // Every route starts as a real document so delivery cannot accidentally depend
+    // on a previously visited feed or an already selected Feed card.
+    for (const [width, theme] of [
+      [1440, "light"],
+      [1906, "dark"],
+    ]) {
+      await page.setViewportSize({ width, height: 1000 });
+      await page.emulateMedia({ colorScheme: theme });
+      await page.addInitScript((theme) => localStorage.setItem("devfeed:theme", theme), theme);
+      for (const [path, marker] of [
+        ["/latest", ".article-grid .card-open-link"],
+        ["/search?q=typescript&section=topics", ".search-section-topics .search-result-link"],
+        ["/topics", ".topic-card-link"],
+        ["/topics/typescript", ".collection-feed-articles .card-open-link"],
+        ["/sources/engineering", ".collection-feed-articles .card-open-link"],
+        [`/articles/${article.slug}`, ".article-modal #article-preview-title"],
+        ["/read-later", ".article-grid .card-open-link"],
+        ["/users/fixture-reader", ".public-profile h1"],
+        ["/settings/profile", ".profile-settings-nav"],
+        ["/settings/feed", '[aria-label="Feed preferences"]'],
+      ]) {
+        await page.goto("about:blank");
+        headerQueries = [];
+        await page.goto(`${base}${path}`);
+        await page.locator(marker).first().waitFor();
+        if (path.startsWith("/articles/")) {
+          const before = impressionCount(headerSponsor.receipt);
+          await page.waitForTimeout(1200);
+          assert.equal(
+            headerQueries.length,
+            0,
+            `${platform}: direct article defers covered Header inventory`,
+          );
+          assert.equal(
+            impressionCount(headerSponsor.receipt),
+            before,
+            `${platform}: covered Header earns no impression`,
+          );
+          assert.equal(await header.count(), 0);
+          await page.screenshot({
+            path: `${reportDirectory}/${platform}-header-covered-direct-article-${theme}.png`,
+            animations: "disabled",
+          });
+          await page.getByRole("button", { name: "Close preview", exact: true }).click();
+          await page.locator(".article-modal[open]").waitFor({ state: "detached" });
+        }
+        await inspect(`${platform}/${theme}/${path}`);
+        assert.equal(headerQueries.length, 1, `${path}: one independent Header selection`);
+        assert.equal(headerQueries[0].pathname, "/v1/user/partner-placements/query");
+        await page.screenshot({
+          path: `${reportDirectory}/${platform}-header-sitewide-${path.split("?")[0].replaceAll("/", "-").slice(1)}-${theme}.png`,
+          animations: "disabled",
+        });
+      }
+    }
+    await page.setViewportSize({ width: 1440, height: 1000 });
+    await page.goto("about:blank");
+    headerQueries = [];
+    const previous = impressionCount(headerSponsor.receipt);
+    await page.goto(`${base}/latest`);
+    await inspect(`${platform}: initial persistent Header`);
+    await header.evaluate((node) => {
+      window.__persistentHeader = node;
+      window.__persistentHeaderLink = node.querySelector(".partner-placement-link");
+    });
+    await waitForImpression(page, headerSponsor.receipt, previous);
+    const impressions = impressionCount(headerSponsor.receipt);
+    const selections = headerQueries.length;
+    const continuity = async (label) => {
+      await inspect(label);
+      assert.equal(
+        await header.evaluate(
+          (node) =>
+            node === window.__persistentHeader &&
+            node.querySelector(".partner-placement-link") === window.__persistentHeaderLink,
+        ),
+        true,
+        `${label}: original credit and signed link DOM stay mounted`,
+      );
+      assert.equal(headerQueries.length, selections, `${label}: navigation does not select again`);
+      assert.equal(
+        impressionCount(headerSponsor.receipt),
+        impressions,
+        `${label}: navigation does not repeat the receipt impression`,
+      );
+    };
+    await page.getByRole("link", { name: "Read later", exact: true }).first().click();
+    await page.getByRole("heading", { name: "Read later", exact: true }).waitFor();
+    await continuity(`${platform}: saved articles`);
+    await page.getByRole("link", { name: "Explore topics", exact: true }).first().click();
+    await page.locator(".topic-card-link").first().waitFor();
+    await continuity(`${platform}: topic catalog`);
+    await page.locator(".topic-card-link").first().click();
+    await page.locator(".collection-feed-articles .card-open-link").first().waitFor();
+    await continuity(`${platform}: topic detail`);
+    await page
+      .locator("a.nav-item")
+      .filter({ hasText: /^Sources$/ })
+      .click();
+    await page.locator(".source-card-link").first().waitFor();
+    await page.locator(".source-card-link").first().click();
+    await page.locator(".collection-feed-articles .card-open-link").first().waitFor();
+    await continuity(`${platform}: source detail`);
+    await page.locator(".topbar .search input").fill("typescript");
+    await page.locator(".search-section-articles .search-result-link").first().waitFor();
+    await continuity(`${platform}: search results`);
+    await page.locator(".search-section-articles .search-result-link").first().click();
+    await page.locator(".article-modal[open]").waitFor();
+    assert.equal(
+      await header.evaluate((node) => node === window.__persistentHeader),
+      true,
+      `${platform}: opening article retains Header DOM`,
+    );
+    assert.equal(headerQueries.length, selections);
+    assert.equal(
+      await header.getAttribute("aria-hidden"),
+      "true",
+      `${platform}: modal removes covered Header from accessibility tree`,
+    );
+    assert.equal(await header.evaluate((node) => node.hasAttribute("inert")), true);
+    assert.equal(await header.isVisible(), true, `${platform}: covered Header keeps its pixels`);
+    const coveredEvents = events.filter((event) => event.receipt === headerSponsor.receipt).length;
+    await header.locator(".partner-placement-link").evaluate((link) => {
+      link.addEventListener("click", (event) => event.preventDefault(), { once: true });
+      link.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
+    });
+    await page.waitForTimeout(1200);
+    assert.equal(
+      events.filter((event) => event.receipt === headerSponsor.receipt).length,
+      coveredEvents,
+      `${platform}: covered Header stops signed measurements`,
+    );
+    await page.getByRole("button", { name: "Close preview", exact: true }).click();
+    await page.locator(".article-modal[open]").waitFor({ state: "detached" });
+    await continuity(`${platform}: article close`);
+    await page.locator(".search-section-articles .search-result-link").first().click();
+    await page.locator(".article-modal[open]").waitFor();
+    await page.goBack();
+    await page.locator(".article-modal[open]").waitFor({ state: "detached" });
+    await continuity(`${platform}: article Back`);
+    await page.getByRole("button", { name: "User menu: Reader", exact: true }).click();
+    await page.getByRole("menuitem", { name: "Your Dev Card", exact: true }).click();
+    await page.locator(".profile-settings-nav").waitFor();
+    await continuity(`${platform}: profile settings`);
+    await page
+      .getByRole("navigation", { name: "Settings sections" })
+      .getByRole("link", { name: "Feed", exact: true })
+      .click();
+    await page.getByRole("region", { name: "Feed preferences" }).waitFor();
+    await continuity(`${platform}: feed settings`);
+    await page.getByRole("button", { name: "User menu: Reader", exact: true }).click();
+    await page.getByRole("menuitem", { name: "Your Profile", exact: true }).click();
+    await page.locator(".public-profile h1").waitFor();
+    await continuity(`${platform}: public profile`);
+    const clickCount = events.filter(
+      (event) => event.receipt === headerSponsor.receipt && event.kind === "click",
+    ).length;
+    const popupEvent = context.waitForEvent("page");
+    await header.locator(".partner-placement-link").click();
+    await (await popupEvent).close();
+    await page.waitForTimeout(100);
+    assert.equal(
+      events.filter((event) => event.receipt === headerSponsor.receipt && event.kind === "click")
+        .length,
+      clickCount + 1,
+      `${platform}: same Header receipt records the eventual signed click`,
+    );
+    for (const width of [1279, 390]) {
+      await page.setViewportSize({ width, height: 844 });
+      await page.goto("about:blank");
+      headerQueries = [];
+      await page.goto(`${base}/settings/feed`);
+      await page.getByRole("region", { name: "Feed preferences" }).waitFor();
+      assert.equal(
+        await header.count(),
+        0,
+        `${platform}/${width}: narrow headers hide sponsorship`,
+      );
+      assert.equal(
+        headerQueries.length,
+        0,
+        `${platform}/${width}: hidden Header reserves no delivery`,
+      );
+      assert.equal(
+        await page.evaluate(() => document.documentElement.scrollWidth > innerWidth),
+        false,
+      );
+      await page.screenshot({
+        path: `${reportDirectory}/${platform}-header-sitewide-narrow-${width}.png`,
+        animations: "disabled",
+      });
+    }
+    signedIn = false;
+    await page.setViewportSize({ width: 1440, height: 1000 });
+    await page.goto("about:blank");
+    headerQueries = [];
+    await page.goto(`${base}/topics`);
+    await inspect(`${platform}: anonymous catalog Header`);
+    assert.equal(headerQueries.length, 1);
+    assert.equal(
+      headerQueries[0].pathname,
+      "/v1/partner-placements/query",
+      `${platform}: signed-out Header uses public transport`,
+    );
+    await assertNoPlacementHistory(page, `${platform}: sitewide Header`);
+  } finally {
+    await page.close();
+    headerInventory = false;
+    signedIn = previousSignedIn;
+  }
+}
+
 async function assertMountedPlacementExpiry(context, base, platform) {
   // Playwright's clock applies to the entire context. Finish the ordinary UI
   // scenarios before replacing its pages and installing controlled timers.
@@ -667,6 +937,102 @@ async function assertMountedPlacementExpiry(context, base, platform) {
   await assertOrganicRestoration(context, base, platform);
   await assertSearchSidebarExpiry(context, base, platform);
   await assertCompactFeedTable(context, base, platform);
+  await assertHeaderExpiry(context, base, platform);
+}
+
+async function assertHeaderExpiry(context, base, platform) {
+  const previousSignedIn = signedIn;
+  signedIn = true;
+  headerInventory = true;
+  try {
+    for (const mode of ["foreground", "background-wake"]) {
+      await context.clock.setSystemTime(receiptIssuedAt * 1000);
+      const page = await context.newPage();
+      await page.setViewportSize({ width: 1440, height: 1000 });
+      try {
+        headerQueries = [];
+        await page.goto(`${base}/settings/feed`);
+        const header = page.locator(".topbar .partner-placement--header_sponsorship");
+        await header.waitFor();
+        const reading = page.getByRole("radio", { name: "Cards", exact: true });
+        await reading.waitFor();
+        await reading.focus();
+        await header.evaluate((node) => {
+          window.__expiringHeader = node;
+        });
+        await page.clock.fastForward(59 * 60_000);
+        assert.equal(
+          await header.isVisible(),
+          true,
+          `${platform}/${mode}: Header receipt is valid before deadline`,
+        );
+        const before = await reading.boundingBox();
+        const shell = await page.locator(".topbar").boundingBox();
+        const requests = headerQueries.length;
+        const measurements = events.filter(
+          (event) => event.receipt === headerSponsor.receipt,
+        ).length;
+        if (mode === "foreground") await page.clock.fastForward(61_000);
+        else {
+          await page.evaluate(() =>
+            Object.defineProperty(document, "visibilityState", {
+              configurable: true,
+              value: "hidden",
+            }),
+          );
+          await page.clock.setSystemTime((receiptIssuedAt + 3601) * 1000);
+          await page.evaluate(() => {
+            Object.defineProperty(document, "visibilityState", {
+              configurable: true,
+              value: "visible",
+            });
+            document.dispatchEvent(new Event("visibilitychange"));
+          });
+        }
+        await page.waitForFunction(() => {
+          const node = window.__expiringHeader;
+          return !node.isConnected || node.hidden || getComputedStyle(node).visibility === "hidden";
+        });
+        assert.equal(
+          await page.getByRole("link", { name: headerSponsor.name, exact: true }).count(),
+          0,
+          `${platform}/${mode}: expired Header cannot be activated`,
+        );
+        assert.equal(
+          headerQueries.length,
+          requests,
+          `${platform}/${mode}: expiry does not rotate global sponsorship`,
+        );
+        const after = await reading.boundingBox();
+        assert.ok(
+          Math.abs(after.y - before.y) <= 2,
+          `${platform}/${mode}: Header expiry keeps the settings focus position`,
+        );
+        assert.equal(await reading.evaluate((node) => node === document.activeElement), true);
+        assert.equal((await page.locator(".topbar").boundingBox()).height, shell.height);
+        await page.evaluate(() => {
+          const link = window.__expiringHeader.querySelector("a");
+          link.addEventListener("click", (event) => event.preventDefault(), { once: true });
+          link.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
+        });
+        await page.clock.runFor(1200);
+        assert.equal(
+          events.filter((event) => event.receipt === headerSponsor.receipt).length,
+          measurements,
+          `${platform}/${mode}: stale Header receipt cannot emit tracking`,
+        );
+        await page.screenshot({
+          path: `${reportDirectory}/${platform}-header-expiry-${mode}.png`,
+          animations: "disabled",
+        });
+      } finally {
+        await page.close();
+      }
+    }
+  } finally {
+    signedIn = previousSignedIn;
+    headerInventory = false;
+  }
 }
 
 async function assertOrganicRestoration(context, base, platform) {
@@ -1069,10 +1435,7 @@ async function assertCompactFeedTable(context, base, platform) {
             feedArticles.map((item) => item.title),
           );
           const selection = queries.find((query) => query.body.surface === "feed");
-          assert.deepEqual(
-            selection.body.ad_formats,
-            width >= 1280 ? ["feed", "homepage_sponsorship"] : ["feed"],
-          );
+          assert.deepEqual(selection.body.ad_formats, ["feed"]);
           assert.deepEqual(
             selection.body.article_ids,
             feedArticles.map((item) => item.id),
@@ -1225,26 +1588,28 @@ async function assertCompactFeedTable(context, base, platform) {
           assert.equal(queries.length, beforeQueries, `${label}: expiry never refreshes inventory`);
           assert.equal(events.length, beforeEvents, `${label}: expired rows stop measurements`);
           await context.clock.setSystemTime(receiptIssuedAt * 1000);
-          nativeMode = "table-home";
+          nativeMode = "table-header";
           queries = [];
           await page.goto(`${base}/`);
           await page.reload();
           await page.locator('.article-table tbody > [data-ad-format="feed"]').waitFor();
+          if (width >= 1280)
+            await page.locator('.topbar [data-ad-format="header_sponsorship"]').waitFor();
           assert.equal(
-            await page.locator('.article-table [data-ad-format="homepage_sponsorship"]').count(),
+            await page.locator('.article-table [data-ad-format="header_sponsorship"]').count(),
             0,
           );
           assert.equal(
-            await page.locator('.topbar [data-ad-format="homepage_sponsorship"]').count(),
+            await page.locator('.topbar [data-ad-format="header_sponsorship"]').count(),
             width >= 1280 ? 1 : 0,
-            `${label}: homepage credit stays in the global header`,
+            `${label}: Header credit stays in the global header`,
           );
           assert.ok(
             queries.every((query) => !query.body.ad_formats.includes("engagement")),
             `${label}: table never reserves Engagement inventory`,
           );
           await page.screenshot({
-            path: `${reportDirectory}/${platform}-feed-table-homepage-${theme}-${width}.png`,
+            path: `${reportDirectory}/${platform}-feed-table-header-${theme}-${width}.png`,
           });
         } finally {
           await page.evaluate(() => localStorage.removeItem("devfeed:feed-view:guest"));
@@ -1268,7 +1633,17 @@ const promotedArticle = {
   summary: "A practical tutorial about validating TypeScript application inputs. ".repeat(500),
   sponsor_names: [sponsored.partner_name],
 };
-const homepageSponsor = { ...ordinary, ad_format: "homepage_sponsorship" };
+const headerSponsor = {
+  ...ordinary,
+  product_id: "12121212-1212-4212-8212-121212121212",
+  asset_id: "34343434-3434-4434-8434-343434343434",
+  name: "TypeScript platform",
+  ad_format: "header_sponsorship",
+  receipt: placementReceipt(
+    "34343434-3434-4434-8434-343434343434",
+    "56565656-5656-4656-8656-565656565656",
+  ),
+};
 const sponsoredContent = {
   ...sponsored,
   ...customProductImage,
@@ -1640,7 +2015,26 @@ function response(requestPath, body, headers = {}, extension = false) {
       ),
       "Selection sends context only, never reader identity or audience attributes",
     );
+    if (body.surface === "header") {
+      headerQueries.push({ pathname, body });
+      assert.deepEqual(body.ad_formats, ["header_sponsorship"]);
+      const { exclude_product_ids, ...selection } = body;
+      assert.deepEqual(selection, { surface: "header", ad_formats: ["header_sponsorship"] });
+      assert.ok(Array.isArray(exclude_product_ids));
+      return {
+        items: deliveryItems(
+          headerInventory || ["header-gallery", "table-header"].includes(nativeMode)
+            ? [headerSponsor]
+            : [],
+          body,
+        ),
+      };
+    }
     queries.push({ pathname, body });
+    assert.ok(
+      !body.ad_formats?.includes("header_sponsorship"),
+      "Contextual placements never reserve global header inventory",
+    );
     if (
       ["feed", "topic"].includes(body.surface) &&
       body.ad_formats?.some((format) => format !== "engagement")
@@ -1651,18 +2045,16 @@ function response(requestPath, body, headers = {}, extension = false) {
       );
     if (nativeMode) {
       assert.ok(Array.isArray(body.ad_formats), "Native formats are explicitly requested");
-      if (!body.allow_sponsored_fallback)
-        assert.ok(!body.ad_formats.includes("homepage_sponsorship"));
       if (body.surface !== "feed") assert.ok(!body.ad_formats.includes("sponsored_content"));
       const items =
         nativeMode === "disclosure"
           ? []
-          : nativeMode === "table-home"
-            ? [homepageSponsor, sponsored]
+          : nativeMode === "table-header"
+            ? [sponsored]
             : nativeMode === "sponsored-content"
               ? [sponsoredContent]
-              : nativeMode === "home" && body.allow_sponsored_fallback
-                ? [homepageSponsor, sponsoredContent]
+              : nativeMode === "header-gallery" && body.allow_sponsored_fallback
+                ? [sponsoredContent]
                 : [engagementPlacement, sponsored];
       return {
         items: deliveryItems(
@@ -1759,8 +2151,40 @@ function response(requestPath, body, headers = {}, extension = false) {
       links: [],
       stack: [],
       experience_level: experienceLevel,
+      visibility: {
+        public: true,
+        location: false,
+        stack: false,
+        heatmap: false,
+        achievements: false,
+      },
     };
   }
+  if (pathname === "/v1/user/profiles/fixture-reader")
+    return {
+      display_name: "Reader",
+      username: "fixture-reader",
+      avatar_url: null,
+      links: [],
+      stack: [],
+      visibility: {
+        public: true,
+        location: false,
+        stack: false,
+        heatmap: false,
+        achievements: false,
+      },
+    };
+  if (pathname === "/v1/user/profiles/fixture-reader/reading-heatmap")
+    return { year: 2026, timezone: "UTC", days: [] };
+  if (pathname === "/v1/users/fixture-reader")
+    return {
+      profile: response("/v1/user/profiles/fixture-reader"),
+      activity: null,
+    };
+  if (pathname === "/v1/user/bookmarks") return { items: feedArticles, next_cursor: null };
+  if (pathname === "/v1/user/settings/appearance")
+    return { theme: "system", timezone: "UTC", date_format: "locale", time_format: "24" };
   if (pathname === "/v1/user/settings/feed")
     return { view: "cards", content_types: ["tutorial", "news"], languages: ["en"] };
   if (["/v1/user/preferences", "/v1/user/preferences/topics"].includes(pathname))
@@ -1873,7 +2297,8 @@ const fixture = createServer(async (req, res) => {
     let raw = "";
     for await (const part of req) raw += part;
     const body = raw ? JSON.parse(raw) : undefined;
-    if (["feed", "search", "topic"].includes(body?.surface) && deliveryGate) await deliveryGate;
+    if (["feed", "search", "topic", "header"].includes(body?.surface) && deliveryGate)
+      await deliveryGate;
     const json = response(req.url, body, req.headers);
     const pathname = new URL(req.url, "http://fixture").pathname;
     if (placementLimited && pathname === "/v1/partner-placements/query") {
@@ -1971,6 +2396,8 @@ try {
     observedCallerProofs.clear();
     signedIn = false;
     queries = [];
+    headerQueries = [];
+    headerInventory = false;
     events = [];
     mediaMode = "standard";
     experienceLevel = null;
@@ -2032,7 +2459,7 @@ try {
             });
             return;
           }
-          if (["feed", "search", "topic"].includes(body?.surface) && deliveryGate)
+          if (["feed", "search", "topic", "header"].includes(body?.surface) && deliveryGate)
             await deliveryGate;
           const json = response(request.url(), body, request.headers(), true);
           await route.fulfill(
@@ -2093,6 +2520,7 @@ try {
         local.setItem("devfeed:dev-card-promo-seen", "true");
       });
       const page = await context.newPage();
+      await assertSitewideHeader(context, base, platform);
       await page.goto(`${base}/articles/${article.slug}`);
       const free = page.getByRole("link", { name: ordinary.name, exact: true });
       await free.waitFor();
@@ -2589,7 +3017,7 @@ try {
           assert.equal(
             await page
               .locator(
-                '[data-ad-format="homepage_sponsorship"],[data-ad-format="feed"],[data-ad-format="sponsored_content"]',
+                '[data-ad-format="header_sponsorship"],[data-ad-format="feed"],[data-ad-format="sponsored_content"]',
               )
               .count(),
             0,
@@ -2980,17 +3408,18 @@ try {
         `${platform}: signed-out visitors retain anonymous contextual products`,
       );
       for (const width of [1280, 390]) {
+        await page.goto("about:blank");
         await page.setViewportSize({ width, height: width === 390 ? 844 : 900 });
         mediaMode = "custom";
-        nativeMode = "home";
+        nativeMode = "header-gallery";
         queries = [];
+        headerQueries = [];
         events = [];
         let releaseNative;
         deliveryGate = new Promise((resolve) => {
           releaseNative = resolve;
         });
         await page.goto(`${base}/`);
-        await page.reload();
         const reading = page
           .locator(".article-grid > .article-card:not(.partner-placement) .card-open-link")
           .nth(8);
@@ -3019,7 +3448,7 @@ try {
         }));
         deliveryGate = null;
         releaseNative();
-        const credit = page.locator(".topbar .partner-placement--homepage_sponsorship");
+        const credit = page.locator(".topbar .partner-placement--header_sponsorship");
         const promoted = page.locator(
           '.article-grid > .article-card[data-ad-format="sponsored_content"]',
         );
@@ -3057,20 +3486,19 @@ try {
         assert.equal(
           await page
             .locator(
-              '.article-placement-feed > [data-ad-format="homepage_sponsorship"], .article-grid > [data-ad-format="homepage_sponsorship"]',
+              '.article-placement-feed > [data-ad-format="header_sponsorship"], .article-grid > [data-ad-format="header_sponsorship"]',
             )
             .count(),
           0,
-          `${platform}: homepage sponsorship never adds a banner or feed card`,
+          `${platform}: header sponsorship never adds a banner or feed card`,
         );
         assert.deepEqual(
-          queries.at(-1).body.ad_formats,
-          width >= 1280
-            ? ["feed", "homepage_sponsorship", "sponsored_content"]
-            : ["feed", "sponsored_content"],
+          queries.find((query) => query.body.surface === "feed").body.ad_formats,
+          ["feed", "sponsored_content"],
           `${platform}: delivery only requests formats that can be displayed`,
         );
         if (width >= 1280) {
+          assert.equal(headerQueries.length, 1, `${platform}: one independent Header query`);
           await credit.scrollIntoViewIfNeeded();
           await waitForVisibleProductLogos(page);
           assert.equal(await credit.locator("img").getAttribute("src"), ordinary.logo_url);
@@ -3129,13 +3557,13 @@ try {
           );
         } else {
           assert.equal(
-            await page.locator('[data-ad-format="homepage_sponsorship"]').count(),
+            await page.locator('[data-ad-format="header_sponsorship"]').count(),
             0,
-            `${platform}: narrow headers have no homepage sponsorship`,
+            `${platform}: narrow headers have no header sponsorship`,
           );
           assert.ok(
-            queries.every((query) => !query.body.ad_formats.includes("homepage_sponsorship")),
-            `${platform}: narrow screens never reserve unavailable homepage inventory`,
+            headerQueries.length === 0,
+            `${platform}: narrow screens never reserve unavailable Header inventory`,
           );
           const headerAfter = await page.locator(".topbar").evaluate((header) => ({
             height: header.getBoundingClientRect().height,
@@ -3149,7 +3577,7 @@ try {
           );
         }
         await page.screenshot({
-          path: `${reportDirectory}/${platform}-homepage-sponsorship-${width === 390 ? "mobile" : "desktop"}.png`,
+          path: `${reportDirectory}/${platform}-header-sponsorship-${width === 390 ? "mobile" : "desktop"}.png`,
           animations: "disabled",
         });
         assert.equal(
@@ -3203,7 +3631,7 @@ try {
         assert.equal(
           await page
             .locator(
-              '.preview-sidebar [data-ad-format="homepage_sponsorship"],.preview-sidebar [data-ad-format="sponsored_content"]',
+              '.preview-sidebar [data-ad-format="header_sponsorship"],.preview-sidebar [data-ad-format="sponsored_content"]',
             )
             .count(),
           0,
@@ -3312,7 +3740,7 @@ try {
           `${platform}: production gateway preserves distinct caller identity for ${pathname}`,
         );
       console.log(
-        `${platform}: built web/extension desktop header sponsorship, narrow inventory gating, compact search and article sidebars, category and topic cards; managed custom product creatives, clearing to default OG, responsive sources and failed-image fallback; compact formats preserve logos and sponsored content preserves its article image; every product disclosed as Sponsored with quiet header text and amber card pills; no dismissal; compact preview sidebar; unchanged feed nodes, receipts and tracking through article overlays; focus/layout stability; signed campaign and non-campaign tracking; configured production gateway caller proofs, credential isolation and placement429 retry guidance; mounted receipt expiry and background wake preserve reading position without refreshing or tracking; viewable placements never read, write or remove abandoned local history; private session routing; optional private experience save/reload/clear; article priority passed`,
+        `${platform}: built web/extension sitewide Header sponsorship, stable header DOM and signed receipts through page navigation and article overlays, independent Header expiry, narrow inventory gating, compact search and article sidebars, category and topic cards; managed custom product creatives, clearing to default OG, responsive sources and failed-image fallback; compact formats preserve logos and sponsored content preserves its article image; every product disclosed as Sponsored with quiet header text and amber card pills; no dismissal; compact preview sidebar; unchanged feed nodes, receipts and tracking through article overlays; focus/layout stability; signed campaign and non-campaign tracking; configured production gateway caller proofs, credential isolation and placement429 retry guidance; mounted receipt expiry and background wake preserve reading position without refreshing or tracking; viewable placements never read, write or remove abandoned local history; private session routing; optional private experience save/reload/clear; article priority passed`,
       );
     } catch (error) {
       const page = context.pages().findLast((page) => page.url() !== "about:blank");
@@ -3320,6 +3748,7 @@ try {
         signedIn,
         nativeMode,
         queries,
+        headerQueries,
         browserErrors: browserErrors.slice(-20),
         pages: context.pages().map((page) => page.url()),
         page: page

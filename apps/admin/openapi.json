@@ -8,7 +8,7 @@
             "items": {
               "enum": [
                 "feed",
-                "homepage_sponsorship",
+                "header_sponsorship",
                 "sponsored_content",
                 "engagement"
               ],
@@ -76,11 +76,12 @@
                 "article",
                 "topic",
                 "feed",
-                "search"
+                "search",
+                "header"
               ],
               "type": "string"
             },
-            "maxItems": 4,
+            "maxItems": 5,
             "minItems": 1,
             "title": "Promotion Surfaces",
             "type": "array"
@@ -120,7 +121,7 @@
             "items": {
               "enum": [
                 "feed",
-                "homepage_sponsorship",
+                "header_sponsorship",
                 "sponsored_content",
                 "engagement"
               ],
@@ -138,7 +139,7 @@
             "items": {
               "enum": [
                 "feed",
-                "homepage_sponsorship",
+                "header_sponsorship",
                 "sponsored_content",
                 "engagement"
               ],
@@ -244,11 +245,12 @@
                 "article",
                 "topic",
                 "feed",
-                "search"
+                "search",
+                "header"
               ],
               "type": "string"
             },
-            "maxItems": 4,
+            "maxItems": 5,
             "minItems": 1,
             "title": "Promotion Surfaces",
             "type": "array"
@@ -3122,7 +3124,7 @@
             "default": "feed",
             "enum": [
               "feed",
-              "homepage_sponsorship",
+              "header_sponsorship",
               "sponsored_content",
               "engagement"
             ],
@@ -3133,7 +3135,7 @@
             "items": {
               "enum": [
                 "feed",
-                "homepage_sponsorship",
+                "header_sponsorship",
                 "sponsored_content",
                 "engagement"
               ],
@@ -3260,7 +3262,7 @@
             "default": "feed",
             "enum": [
               "feed",
-              "homepage_sponsorship",
+              "header_sponsorship",
               "sponsored_content",
               "engagement"
             ],
@@ -3646,7 +3648,7 @@
             "default": "feed",
             "enum": [
               "feed",
-              "homepage_sponsorship",
+              "header_sponsorship",
               "sponsored_content",
               "engagement"
             ],
@@ -3737,11 +3739,12 @@
                 "article",
                 "topic",
                 "feed",
-                "search"
+                "search",
+                "header"
               ],
               "type": "string"
             },
-            "maxItems": 4,
+            "maxItems": 5,
             "minItems": 1,
             "title": "Surfaces",
             "type": "array"
@@ -3796,7 +3799,7 @@
             "default": "feed",
             "enum": [
               "feed",
-              "homepage_sponsorship",
+              "header_sponsorship",
               "sponsored_content",
               "engagement"
             ],
@@ -3918,11 +3921,12 @@
                 "article",
                 "topic",
                 "feed",
-                "search"
+                "search",
+                "header"
               ],
               "type": "string"
             },
-            "maxItems": 4,
+            "maxItems": 5,
             "minItems": 1,
             "title": "Surfaces",
             "type": "array"
@@ -5920,7 +5924,7 @@
           "ad_format": {
             "enum": [
               "feed",
-              "homepage_sponsorship",
+              "header_sponsorship",
               "sponsored_content",
               "engagement"
             ],
@@ -6884,7 +6888,7 @@
                 "items": {
                   "enum": [
                     "feed",
-                    "homepage_sponsorship",
+                    "header_sponsorship",
                     "sponsored_content",
                     "engagement"
                   ],
@@ -6986,7 +6990,8 @@
                     "article",
                     "topic",
                     "feed",
-                    "search"
+                    "search",
+                    "header"
                   ],
                   "type": "string"
                 },
@@ -10026,7 +10031,7 @@
             "items": {
               "enum": [
                 "feed",
-                "homepage_sponsorship",
+                "header_sponsorship",
                 "sponsored_content",
                 "engagement"
               ],
@@ -10419,7 +10424,7 @@
                 "items": {
                   "enum": [
                     "feed",
-                    "homepage_sponsorship",
+                    "header_sponsorship",
                     "sponsored_content",
                     "engagement"
                   ],
@@ -10521,7 +10526,8 @@
                     "article",
                     "topic",
                     "feed",
-                    "search"
+                    "search",
+                    "header"
                   ],
                   "type": "string"
                 },
@@ -10850,7 +10856,7 @@
                 "items": {
                   "enum": [
                     "feed",
-                    "homepage_sponsorship",
+                    "header_sponsorship",
                     "sponsored_content",
                     "engagement"
                   ],
@@ -10896,11 +10902,12 @@
                     "article",
                     "topic",
                     "feed",
-                    "search"
+                    "search",
+                    "header"
                   ],
                   "type": "string"
                 },
-                "maxItems": 4,
+                "maxItems": 5,
                 "type": "array"
               },
               {
@@ -10927,7 +10934,7 @@
                 "items": {
                   "enum": [
                     "feed",
-                    "homepage_sponsorship",
+                    "header_sponsorship",
                     "sponsored_content",
                     "engagement"
                   ],
@@ -11004,11 +11011,12 @@
                     "article",
                     "topic",
                     "feed",
-                    "search"
+                    "search",
+                    "header"
                   ],
                   "type": "string"
                 },
-                "maxItems": 4,
+                "maxItems": 5,
                 "type": "array"
               },
               {
@@ -19886,7 +19894,7 @@
                 {
                   "enum": [
                     "feed",
-                    "homepage_sponsorship",
+                    "header_sponsorship",
                     "sponsored_content",
                     "engagement"
                   ],

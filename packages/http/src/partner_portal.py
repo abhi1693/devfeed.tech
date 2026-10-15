@@ -364,9 +364,11 @@ class CampaignInput(BaseModel):
             self.surfaces = default_campaign_surfaces(self.ad_format)
         if self.ad_format != "engagement" and "search" in self.surfaces:
             raise ValueError("Search placements require the Engagement ad format")
-        if self.ad_format in {"homepage_sponsorship", "sponsored_content"} and self.surfaces != [
-            "feed"
-        ]:
+        if self.ad_format == "header_sponsorship" and self.surfaces != ["header"]:
+            raise ValueError("Header sponsorship campaigns require the header surface")
+        if self.ad_format != "header_sponsorship" and "header" in self.surfaces:
+            raise ValueError("Header placements require the Header sponsorship ad format")
+        if self.ad_format == "sponsored_content" and self.surfaces != ["feed"]:
             raise ValueError("This ad format is only supported in feeds")
         if self.ends_at <= self.starts_at:
             raise ValueError("Campaign end must follow its start")
