@@ -55,6 +55,27 @@ the public reader bindings in `src/lib/api/reader-bindings.json`.
 `node apps/web/tests/browser/reader-gateway.mjs` checks the built gateway over real
 HTTP, including cookie isolation, placement validation and body-reading deadlines.
 
+Server JSON reads use `PublicApiClient` or `PrivateApiClient` from
+`src/lib/server/api-client.ts`. The public client binds the configured public API
+origin and requests `max-age=600` upstream, while Next fetch storage uses
+`no-store`. The private client binds the user API origin, requests `no-store`
+even for anonymous reads, and forwards only reader cookies. Select a client by
+operation ownership. Endpoint names do not select credentials or cache policy.
+Sitemap inventory uses a public client configured for fresh reads and a
+55-second deadline.
+
+The shared reader destination definitions declare sitemap inclusion, priority,
+change frequency, and publication metadata. Legal pages also take their titles,
+descriptions, paths, and update dates from those definitions. Sitemap handlers
+serialize declared destinations and serve the backend's retained inventory.
+
+After building web, Chrome, and Edge, set `DEVFEED_SERVER_READS_ONLY=1` when
+running `node apps/web/tests/browser/feed.mjs` or
+`node --test apps/extensions/tests/reader.browser.mjs` to check public/private
+reads and sitemap responses. Set `DEVFEED_EXTENSION_BROWSER=edge` for Edge.
+The web checks record actual server requests to separate local upstreams;
+browser screenshots stay under ignored `reports/server-reads/`.
+
 On the public `devfeed.tech` host, requests forwarded by Cloudflare with
 `X-Forwarded-Proto: http` receive a permanent redirect to the same HTTPS path
 and query. HTTPS responses include HSTS and a per-request script nonce.

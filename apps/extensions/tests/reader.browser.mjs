@@ -59,6 +59,7 @@ import {
   checkLoginDestinations,
   loginDestinationsFixture,
 } from "../../../scripts/testing/login-destinations.mjs";
+import { checkServerReads, serverReadFixture } from "../../../scripts/testing/server-reads.mjs";
 import assert from "node:assert/strict";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -97,25 +98,27 @@ const filterSource = { ...article.sources[0], id: "99999999-9999-4999-8999-99999
 // Run against a real unpacked extension; browser requests are deterministic and
 // never depend on the production feed or mutate visitor/account data.
 test(
-  process.env.DEVFEED_LOGIN_DESTINATIONS_ONLY === "1"
-    ? "shared login destinations work inside built new tabs"
-    : process.env.DEVFEED_TELEMETRY_LABELS_ONLY === "1"
-      ? "approved screen labels work inside built new tabs without exposing private routes"
-      : process.env.DEVFEED_READER_NAVIGATION_ONLY === "1"
-        ? "typed article overlays and inbox navigation work inside built new tabs"
-        : process.env.DEVFEED_READER_CONTEXT_ONLY === "1"
-          ? "article context and prompt eligibility work inside built new tabs"
-          : process.env.DEVFEED_READER_FEED_MODE_ONLY === "1"
-            ? "feed modes and placement capabilities work inside built new tabs"
-            : process.env.DEVFEED_READER_ROUTES_ONLY === "1"
-              ? "reader route validation and recovery work inside built new tabs"
-              : process.env.DEVFEED_READER_THEME_ONLY === "1"
-                ? "shared theme persists and follows system settings inside built new tabs"
-                : process.env.DEVFEED_READER_SIDEBAR_ONLY === "1"
-                  ? "shared sidebar persists and adapts inside built new tabs"
-                  : process.env.DEVFEED_READER_MUTATIONS_ONLY === "1"
-                    ? "semantic mutation effects work inside built new tabs"
-                    : "shared reader works inside new tabs at desktop and mobile sizes",
+  process.env.DEVFEED_SERVER_READS_ONLY === "1"
+    ? "public and private reader operations retain explicit transport policy in built new tabs"
+    : process.env.DEVFEED_LOGIN_DESTINATIONS_ONLY === "1"
+      ? "shared login destinations work inside built new tabs"
+      : process.env.DEVFEED_TELEMETRY_LABELS_ONLY === "1"
+        ? "approved screen labels work inside built new tabs without exposing private routes"
+        : process.env.DEVFEED_READER_NAVIGATION_ONLY === "1"
+          ? "typed article overlays and inbox navigation work inside built new tabs"
+          : process.env.DEVFEED_READER_CONTEXT_ONLY === "1"
+            ? "article context and prompt eligibility work inside built new tabs"
+            : process.env.DEVFEED_READER_FEED_MODE_ONLY === "1"
+              ? "feed modes and placement capabilities work inside built new tabs"
+              : process.env.DEVFEED_READER_ROUTES_ONLY === "1"
+                ? "reader route validation and recovery work inside built new tabs"
+                : process.env.DEVFEED_READER_THEME_ONLY === "1"
+                  ? "shared theme persists and follows system settings inside built new tabs"
+                  : process.env.DEVFEED_READER_SIDEBAR_ONLY === "1"
+                    ? "shared sidebar persists and adapts inside built new tabs"
+                    : process.env.DEVFEED_READER_MUTATIONS_ONLY === "1"
+                      ? "semantic mutation effects work inside built new tabs"
+                      : "shared reader works inside new tabs at desktop and mobile sizes",
   { timeout: 180000 },
   async () => {
     const profile = await mkdtemp(path.join(tmpdir(), "devfeed-reader-test-"));
@@ -153,6 +156,7 @@ test(
     const readerContext = readerContextFixture(article);
     const readerDestinations = readerDestinationsFixture(article);
     const loginDestinations = loginDestinationsFixture(article);
+    const serverReads = serverReadFixture();
     let engagementPagination = false;
     let defaultAll = false;
     let compactArticles = false;
@@ -172,6 +176,7 @@ test(
     );
     await context.route("https://devfeed.tech/api/**", async (route) => {
       const url = new URL(route.request().url());
+      serverReads.record(url.href, route.request().headers(), url.origin);
       if (loginDestinations.handles(url)) return route.fulfill(loginDestinations.respond(url));
       if (readerDestinations.handles(url))
         return route.fulfill(
@@ -384,6 +389,24 @@ test(
       });
       await page.goto(newTab);
       await page.locator(".article-card").first().waitFor();
+      if (process.env.DEVFEED_SERVER_READS_ONLY === "1") {
+        await checkServerReads(
+          page,
+          (path) => page.url().split("#")[0] + "#" + path,
+          serverReads,
+          path.resolve(import.meta.dirname, `../../../reports/server-reads/${browser}`),
+          {
+            publicOrigin: "https://devfeed.tech",
+            userOrigin: "https://devfeed.tech",
+            extension: true,
+          },
+        );
+        assert.deepEqual(errors, []);
+        console.log(
+          `Explicit public/private operation policies passed against the installed ${browser} extension.`,
+        );
+        return;
+      }
       if (
         process.env.DEVFEED_LOGIN_DESTINATIONS_ONLY === "1" ||
         ![

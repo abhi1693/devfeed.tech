@@ -3,7 +3,7 @@ import {
   readerDestinationContract,
   validReaderParameter,
   type ReaderDestinationDefinition,
-  type ReaderLoginDestination,
+  type ReaderDestinationRecord,
   type ReaderSettingsSection,
 } from "@devfeed/http/reader-destinations";
 import { contentTypeFromRoute, type ContentType } from "./feed-query";
@@ -176,7 +176,7 @@ export function collectionRoute<Kind extends CollectionKind>(
 
 function navigationRoute(
   definition: ReaderDestinationDefinition,
-  destination: ReaderLoginDestination,
+  destination: ReaderDestinationRecord,
 ): ReaderRoute | null {
   const navigation = definition.navigation;
   const parameters = destination.parameters;

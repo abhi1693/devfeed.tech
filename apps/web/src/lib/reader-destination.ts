@@ -1,7 +1,7 @@
 import { isArticleSlug, resolveReaderRoute, type ReaderRoute } from "./reader-routes";
 import {
   readerSignInDestination,
-  type ReaderLoginDestination,
+  type ReaderDestinationRecord,
 } from "@devfeed/http/reader-destinations";
 
 export type ReaderScroll = "reset" | "preserve";
@@ -22,7 +22,7 @@ export type ReaderDestination = ReaderPageDestination | ReaderArticleDestination
 export type ReaderNavigationMode = "push" | "replace";
 
 export function readerReturnDestination(
-  value: string | ReaderDestination | ReaderLoginDestination,
+  value: string | ReaderDestination | ReaderDestinationRecord,
 ): string {
   return readerSignInDestination(
     typeof value === "string" || !("href" in value) ? value : value.href,

@@ -6,11 +6,11 @@ import { useEffect, useState } from "react";
 import brandMark from "@devfeed/theme/assets/devfeed-mark.png";
 import { SignIn, type SignInConfig, type SignInProvider } from "@devfeed/ui/sign-in";
 import { readerReturnDestination, type ReaderDestination } from "@/lib/reader-destination";
-import type { ReaderLoginDestination } from "@devfeed/http/reader-destinations";
+import type { ReaderDestinationRecord } from "@devfeed/http/reader-destinations";
 
 function loginHref(
   provider: SignInProvider | null,
-  returnTo: string | ReaderDestination | ReaderLoginDestination,
+  returnTo: string | ReaderDestination | ReaderDestinationRecord,
 ) {
   const params = new URLSearchParams();
   if (provider) params.set("provider", provider);
@@ -22,7 +22,7 @@ export function UserLogin({
   returnTo = "/",
   error = false,
 }: {
-  returnTo?: string | ReaderDestination | ReaderLoginDestination;
+  returnTo?: string | ReaderDestination | ReaderDestinationRecord;
   error?: boolean;
 }) {
   const [config, setConfig] = useState<SignInConfig | null>(null);

@@ -79,6 +79,12 @@ import {
   checkLoginDestinations,
   loginDestinationsFixture,
 } from "../../../../scripts/testing/login-destinations.mjs";
+import {
+  checkServerReads,
+  checkSitemapPolicy,
+  checkLegalMetadata,
+  serverReadFixture,
+} from "../../../../scripts/testing/server-reads.mjs";
 import assert from "node:assert/strict";
 import { createServer, request as httpRequest } from "node:http";
 import { spawn } from "node:child_process";
@@ -116,6 +122,7 @@ const feedMode = feedModeFixture(article);
 const readerContext = readerContextFixture(article);
 const readerDestinations = readerDestinationsFixture(article);
 const loginDestinations = loginDestinationsFixture(article);
+const serverReads = serverReadFixture();
 let mode = "ready";
 const defaultAllRequests = [];
 let compactArticles = false;
@@ -139,6 +146,13 @@ let rejectSourceFollow = true;
 const fixture = createServer(async (req, res) => {
   const requestUrl = new URL(req.url, "http://localhost");
   const path = requestUrl.pathname;
+  serverReads.record(req.url, req.headers, `http://${req.headers.host}`);
+  if (serverReads.handles(requestUrl)) {
+    const { status, json } = serverReads.respond(requestUrl);
+    res.writeHead(status, { "Content-Type": "application/json" });
+    res.end(JSON.stringify(json));
+    return;
+  }
   if (loginDestinations.handles(requestUrl)) {
     const { status, json } = loginDestinations.respond(requestUrl);
     res.writeHead(status, { "Content-Type": "application/json" });
@@ -547,12 +561,15 @@ const fixture = createServer(async (req, res) => {
   res.end(JSON.stringify(body));
 });
 await new Promise((resolve) => fixture.listen(0, "127.0.0.1", resolve));
+const userFixture = createServer((req, res) => fixture.emit("request", req, res));
+await new Promise((resolve) => userFixture.listen(0, "127.0.0.1", resolve));
 const probe = createServer();
 await new Promise((resolve) => probe.listen(0, "127.0.0.1", resolve));
 const port = probe.address().port;
 await new Promise((resolve) => probe.close(resolve));
 const origin = `http://127.0.0.1:${port}`;
 const upstream = `http://127.0.0.1:${fixture.address().port}`;
+const userUpstream = `http://127.0.0.1:${userFixture.address().port}`;
 const env = Object.fromEntries(
   Object.entries(process.env).filter(([key]) => !key.startsWith("DEVFEED_")),
 );
@@ -572,7 +589,7 @@ const app = spawn(
       ...env,
       DEVFEED_PUBLIC_API_URL: upstream,
       DEVFEED_MCP_PUBLIC_URL: testMcpEndpoint,
-      DEVFEED_USER_API_URL: upstream,
+      DEVFEED_USER_API_URL: process.env.DEVFEED_SERVER_READS_ONLY === "1" ? userUpstream : upstream,
       DEVFEED_USER_BASE_URL: origin,
     },
     stdio: "pipe",
@@ -592,6 +609,36 @@ async function runReaderChecks() {
     }
   }
   browser = await chromium.launch({ headless: true });
+  if (process.env.DEVFEED_SERVER_READS_ONLY === "1") {
+    const context = await browser.newContext({ reducedMotion: "reduce" });
+    try {
+      await mockManagedImages(context);
+      await mockSourceLogos(context);
+      const page = await context.newPage();
+      const errors = [];
+      page.on("pageerror", (error) => errors.push(error.message));
+      page.on("console", (message) => {
+        if (message.type() === "error" && /Content Security Policy|Refused to/.test(message.text()))
+          errors.push(message.text());
+      });
+      await checkServerReads(
+        page,
+        (path) => origin + path,
+        serverReads,
+        `${root}/reports/server-reads/web`,
+        { publicOrigin: upstream, userOrigin: userUpstream },
+      );
+      await checkSitemapPolicy(context.request, origin, serverReads);
+      await checkLegalMetadata(page, origin);
+      assert.deepEqual(errors, []);
+    } finally {
+      await context.close();
+    }
+    console.log(
+      "Explicit public/private server reads and sitemap page metadata passed against the production web bundle.",
+    );
+    return;
+  }
   if (
     process.env.DEVFEED_LOGIN_DESTINATIONS_ONLY === "1" ||
     ![
@@ -1228,4 +1275,5 @@ try {
   await browser?.close();
   app.kill("SIGTERM");
   fixture.close();
+  userFixture.close();
 }

@@ -149,6 +149,12 @@
     {
       "id": "latest",
       "segments": ["latest"],
+      "sitemap": {
+        "kind": "page",
+        "changefreq": "hourly",
+        "priority": 1,
+        "publication": { "source": "inventory", "key": "articles" }
+      },
       "query": "feed",
       "login": true,
       "embedded": true,
@@ -209,6 +215,12 @@
     {
       "id": "topics",
       "segments": ["topics"],
+      "sitemap": {
+        "kind": "page",
+        "changefreq": "daily",
+        "priority": 0.7,
+        "publication": { "source": "inventory", "key": "topics" }
+      },
       "query": "catalog",
       "login": true,
       "embedded": true,
@@ -225,6 +237,12 @@
     {
       "id": "sources",
       "segments": ["sources"],
+      "sitemap": {
+        "kind": "page",
+        "changefreq": "daily",
+        "priority": 0.7,
+        "publication": { "source": "inventory", "key": "sources" }
+      },
       "query": "catalog",
       "login": true,
       "embedded": true,
@@ -346,6 +364,12 @@
     },
     {
       "id": "article",
+      "sitemap": {
+        "kind": "inventory",
+        "collection": "articles",
+        "changefreq": "monthly",
+        "priority": 0.8
+      },
       "segments": [
         "articles",
         {
@@ -388,6 +412,12 @@
     },
     {
       "id": "topics-detail",
+      "sitemap": {
+        "kind": "inventory",
+        "collection": "topics",
+        "changefreq": "daily",
+        "priority": 0.6
+      },
       "segments": [
         "topics",
         {
@@ -439,6 +469,12 @@
     },
     {
       "id": "sources-detail",
+      "sitemap": {
+        "kind": "inventory",
+        "collection": "sources",
+        "changefreq": "daily",
+        "priority": 0.6
+      },
       "segments": [
         "sources",
         {
@@ -490,6 +526,12 @@
     },
     {
       "id": "tags-detail",
+      "sitemap": {
+        "kind": "inventory",
+        "collection": "tags",
+        "changefreq": "daily",
+        "priority": 0.6
+      },
       "segments": [
         "tags",
         {
@@ -541,6 +583,12 @@
     },
     {
       "id": "content",
+      "sitemap": {
+        "kind": "page",
+        "changefreq": "hourly",
+        "priority": 0.7,
+        "publication": { "source": "inventory", "key": "feed", "parameter": "contentType" }
+      },
       "segments": [
         {
           "name": "contentType",
@@ -563,6 +611,19 @@
     {
       "id": "legal-privacy",
       "segments": ["legal", "privacy"],
+      "page": {
+        "section": "legal",
+        "title": "Privacy Policy",
+        "description": "How DevFeed processes account information, preferences and usage data, and how to contact us about your privacy.",
+        "updated": "2026-09-14",
+        "order": 1
+      },
+      "sitemap": {
+        "kind": "page",
+        "changefreq": "monthly",
+        "priority": 0.2,
+        "publication": { "source": "page" }
+      },
       "query": "none",
       "login": true,
       "embedded": false
@@ -570,6 +631,19 @@
     {
       "id": "legal-terms",
       "segments": ["legal", "terms"],
+      "page": {
+        "section": "legal",
+        "title": "Terms of Service",
+        "description": "The terms for using DevFeed to discover developer news, follow topics and sources, and share source suggestions.",
+        "updated": "2026-09-13",
+        "order": 0
+      },
+      "sitemap": {
+        "kind": "page",
+        "changefreq": "monthly",
+        "priority": 0.2,
+        "publication": { "source": "page" }
+      },
       "query": "none",
       "login": true,
       "embedded": false

@@ -6,7 +6,7 @@ import {
   type ReaderDestination,
   type ReaderNavigationMode,
 } from "./reader-destination";
-import type { ReaderLoginDestination } from "@devfeed/http/reader-destinations";
+import type { ReaderDestinationRecord } from "@devfeed/http/reader-destinations";
 
 type ReaderRuntime = {
   request: typeof fetch;
@@ -76,7 +76,7 @@ export function readerWebsiteLink(href: string) {
  * to their requested page; bundled readers return to a completion page that
  * closes the tab and lets focus refresh their session.
  */
-export function readerLoginLink(returnTo?: string | ReaderDestination | ReaderLoginDestination) {
+export function readerLoginLink(returnTo?: string | ReaderDestination | ReaderDestinationRecord) {
   const params = new URLSearchParams();
   params.set(
     "return_to",

@@ -40,6 +40,23 @@ export type ReaderDestinationDefinition = {
   embedded: boolean;
   navigation?: ReaderNavigationDefinition;
   labels?: { telemetry: string; screen: string };
+  page?: {
+    section: "legal";
+    title: string;
+    description: string;
+    updated: string;
+    order: number;
+  };
+  sitemap?: {
+    changefreq: "hourly" | "daily" | "monthly";
+    priority: number;
+  } & (
+    | {
+        kind: "page";
+        publication: { source: "inventory"; key: string; parameter?: string } | { source: "page" };
+      }
+    | { kind: "inventory"; collection: string }
+  );
 };
 type DestinationContract = {
   version: number;
@@ -57,14 +74,14 @@ export const readerSettingsRoutes = contract.parameters.settings.values;
 export type ReaderSettingsSection = keyof typeof readerSettingsRoutes;
 
 /** The same bounded record is stored in authentication state and used by navigation. */
-export type ReaderLoginDestination = {
+export type ReaderDestinationRecord = {
   routeId: string;
   parameters: Record<string, string>;
   query: Record<string, string>;
 };
 export type MatchedReaderDestination = {
   definition: ReaderDestinationDefinition;
-  destination: ReaderLoginDestination;
+  destination: ReaderDestinationRecord;
 };
 
 const unsafeText = /[\u0000-\u001f\u007f]/;
@@ -186,7 +203,7 @@ function validQuery(
 }
 
 /** Decode untrusted return_to only at the authentication boundary. */
-export function decodeReaderLoginDestination(href: string): ReaderLoginDestination | null {
+export function decodeReaderLoginDestination(href: string): ReaderDestinationRecord | null {
   if (
     typeof href !== "string" ||
     href.length > readerDestinationContract.maxLength ||
@@ -231,9 +248,7 @@ export function decodeReaderLoginDestination(href: string): ReaderLoginDestinati
 }
 
 /** Validate again when serializing records received from storage or other runtimes. */
-export function serializeReaderLoginDestination(
-  destination: ReaderLoginDestination,
-): string | null {
+export function serializeReaderDestination(destination: ReaderDestinationRecord): string | null {
   if (
     !destination ||
     typeof destination !== "object" ||
@@ -251,7 +266,7 @@ export function serializeReaderLoginDestination(
   const definition = readerDestinationContract.routes.find(
     (route) => route.id === destination.routeId,
   );
-  if (!definition?.login || !validQuery(destination.query, definition)) return null;
+  if (!definition || !validQuery(destination.query, definition)) return null;
   const names = definition.segments.flatMap((segment) =>
     typeof segment === "string" ? [] : [segment.name],
   );
@@ -274,8 +289,22 @@ export function serializeReaderLoginDestination(
   return href.length <= readerDestinationContract.maxLength ? href : null;
 }
 
+/** Authentication requires an explicitly approved destination in addition to a valid route. */
+export function serializeReaderLoginDestination(
+  destination: ReaderDestinationRecord,
+): string | null {
+  if (
+    !destination ||
+    !readerDestinationContract.routes.some(
+      (definition) => definition.id === destination.routeId && definition.login,
+    )
+  )
+    return null;
+  return serializeReaderDestination(destination);
+}
+
 /** Invalid UI links fall back to the reader home; direct API inputs remain strict. */
-export function readerSignInDestination(value: string | ReaderLoginDestination): string {
+export function readerSignInDestination(value: string | ReaderDestinationRecord): string {
   const destination = typeof value === "string" ? decodeReaderLoginDestination(value) : value;
   return destination ? (serializeReaderLoginDestination(destination) ?? "/") : "/";
 }
