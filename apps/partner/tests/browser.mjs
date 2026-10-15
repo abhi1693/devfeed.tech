@@ -22,6 +22,7 @@ import {
 import { createConnectionFixture, assertConnectionJourneys } from "./browser-connections.mjs";
 import { createManualProductFixture, assertManualProductJourneys } from "./browser-products.mjs";
 import { assertPartnerThemeJourneys } from "./browser-theme.mjs";
+import { assertPartnerRecoveryJourneys } from "./browser-recovery.mjs";
 const manualProducts = createManualProductFixture();
 
 const root = fileURLToPath(new URL("../../../", import.meta.url));
@@ -176,6 +177,7 @@ const customImage = "https://assets.partner.example/custom-hero.svg";
 const managedCustomImage = "https://assets.partner.example/managed-custom-hero.svg";
 const uploadedImage = "https://assets.partner.example/partner-ad-images/800.webp?v=upload-1";
 const productImageUploads = [];
+let unavailableSession = null;
 function productAdImage() {
   return {
     default_image_url: websiteImage,
@@ -216,6 +218,11 @@ const mock = createServer(async (request, response) => {
   if (!mode || mode === "denied") {
     response.writeHead(403);
     response.end("{}");
+    return;
+  }
+  if (path === unavailableSession?.path) {
+    response.writeHead(503);
+    response.end(JSON.stringify({ detail: unavailableSession.detail }));
     return;
   }
   if (path.endsWith("/auth/me")) {
@@ -1047,6 +1054,17 @@ try {
   await checkConcreteApiRoutes();
   await checkUploadDeadline();
   browser = await chromium.launch({ headless: true });
+  await mkdir(root + "reports/partner", { recursive: true });
+  await assertPartnerRecoveryJourneys({
+    browser,
+    origin,
+    root,
+    productName: previewProduct.name,
+    unavailable: (path, detail) => {
+      unavailableSession = path ? { path, detail } : null;
+    },
+    requestCount: (path) => apiRequests.filter((request) => request.path === path).length,
+  });
   const context = await browser.newContext({ viewport: { width: 1440, height: 1100 } });
   await installCreativeMedia(context);
   const page = await context.newPage();
@@ -1382,6 +1400,7 @@ try {
   await page.getByRole("option", { name: "Choose product placements", exact: true }).click();
   await page.getByLabel("Article pages", { exact: true }).uncheck();
   await page.getByLabel("Topic and category pages", { exact: true }).uncheck();
+  await page.getByLabel("Search results", { exact: true }).uncheck();
   await page.getByLabel("Reader feeds", { exact: true }).check();
   await page.screenshot({
     path: root + "reports/partner/product-placements-mobile.png",

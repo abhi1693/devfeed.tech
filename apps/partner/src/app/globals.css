@@ -1,5 +1,6 @@
 @import "tailwindcss";
 @import "tw-animate-css";
+@import "@devfeed/theme/retry-button.css";
 @import "@devfeed/ui/content.css";
 @import "@devfeed/ui/choice-controls.css";
 @import "@devfeed/ui/info-tip.css";

@@ -371,6 +371,9 @@ cover the standard account list/detail/create/edit pages and related membership/
 are written to `reports/partner/`. Python auth tests validate signed mock-provider flows;
 reporting and migration tests use disposable PostgreSQL/Redis.
 
+Portal recovery checks force server failures and verify that repeated retries request fresh data,
+preserve the current page and filters, and recover in light/dark themes on desktop/mobile.
+
 The unpublished partnership migration `0024` creates accounts, memberships, catalog, import
 connections, campaigns, promotion policies, audiences, native formats, prepared matches and daily
 reporting after master's source-logo revision `0023`. It also adds managed product logos/images,
