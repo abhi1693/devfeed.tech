@@ -9,7 +9,6 @@ import {
   outboundArticleUrl,
   displayHost,
   parseFilters,
-  guestFeedFilters,
   searchParamsFromUrl,
   safeExternalUrl,
 } from "@/lib/feed-query";
@@ -187,9 +186,8 @@ describe("guest entry filters", () => {
     { q: "engineering", cursor: "next", sort: "oldest" },
     { content_type: "invalid" },
   ])("defaults an unscoped guest to All without an API content-type filter: %j", (query) => {
-    const filters = guestFeedFilters(query);
+    const filters = parseFilters(query);
     expect(filters.content_type).toBe("");
-    expect(filters).toEqual(parseFilters(query));
     expect(feedParams(filters).has("content_type")).toBe(false);
     expect(latestFeedParams(filters).has("content_type")).toBe(false);
   });
@@ -200,11 +198,11 @@ describe("guest entry filters", () => {
     { content_type: "article" },
     { content_type: "news" },
   ])("preserves an explicit scope: %j", (query) => {
-    expect(guestFeedFilters(query)).toEqual(parseFilters(query));
+    expect(parseFilters(query)).toMatchObject(query);
   });
 
   it("keeps explicit Articles selected until All clears the type and stale pagination", () => {
-    const filters = guestFeedFilters({
+    const filters = parseFilters({
       content_type: "article",
       q: "engineering",
       cursor: "old",
@@ -216,7 +214,7 @@ describe("guest entry filters", () => {
     const all = new URL(feedHref(filters, { content_type: "" }), "https://devfeed.test");
     expect(all.pathname).toBe("/latest");
     expect(Object.fromEntries(all.searchParams)).toEqual({ q: "engineering", sort: "oldest" });
-    const next = guestFeedFilters(searchParamsFromUrl(all.searchParams));
+    const next = parseFilters(searchParamsFromUrl(all.searchParams));
     expect(next.content_type).toBe("");
     expect(feedParams(next).has("content_type")).toBe(false);
   });
@@ -238,18 +236,18 @@ describe("extension URL search parameters", () => {
     const params = new URLSearchParams(
       "content_type=news&content_type=article&topic=rust&topic=javascript",
     );
-    expect(guestFeedFilters(searchParamsFromUrl(params))).toEqual(
-      guestFeedFilters({ content_type: ["news", "article"], topic: ["rust", "javascript"] }),
+    expect(parseFilters(searchParamsFromUrl(params))).toEqual(
+      parseFilters({ content_type: ["news", "article"], topic: ["rust", "javascript"] }),
     );
-    expect(
-      guestFeedFilters(searchParamsFromUrl(new URLSearchParams("q=c%2B%2B"))).content_type,
-    ).toBe("");
+    expect(parseFilters(searchParamsFromUrl(new URLSearchParams("q=c%2B%2B"))).content_type).toBe(
+      "",
+    );
   });
 
   it.each(["", "content_type=", "content_type=invalid", "q=c%2B%2B&cursor=next&sort=newest"])(
     "defaults extension guest URL parameters to All without filtering the API: %s",
     (query) => {
-      const filters = guestFeedFilters(searchParamsFromUrl(new URLSearchParams(query)));
+      const filters = parseFilters(searchParamsFromUrl(new URLSearchParams(query)));
       expect(filters.content_type).toBe("");
       expect(feedParams(filters).has("content_type")).toBe(false);
     },

@@ -4,6 +4,7 @@ import { getTag, UserApiError } from "@/lib/api";
 import { FeedView } from "@/components/feed-view";
 import { feedHref, parseFilters, type SearchParams } from "@/lib/feed-query";
 import { collectionRoute } from "@/lib/reader-routes";
+import { readerFeeds } from "@/lib/reader-feed";
 import { collectionFeedMetadata } from "@/lib/server/collection-feed-metadata";
 export const dynamic = "force-dynamic";
 type Props = {
@@ -44,5 +45,10 @@ export default async function Page({ params, searchParams }: Props) {
     (route.contentType && "content_type" in query)
   )
     permanentRedirect(feedHref(filters, { cursor: filters.cursor }));
-  return FeedView({ filters, title: tag.name, description: `Articles tagged ${tag.name}.` });
+  return FeedView({
+    filters,
+    feedDescriptor: readerFeeds.contextual,
+    title: tag.name,
+    description: `Articles tagged ${tag.name}.`,
+  });
 }

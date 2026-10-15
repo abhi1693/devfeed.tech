@@ -12,10 +12,20 @@ type Props = {
 };
 const resolve = cache((contentType: string) => {
   const route = resolveReaderRoute(`/${encodeURIComponent(contentType)}`);
-  if (route?.type !== "reader" || route.page !== "feed" || !route.contentType || route.detail)
+  if (
+    route?.type !== "reader" ||
+    route.feed.mode !== "latest" ||
+    !route.contentType ||
+    route.detail
+  )
     notFound();
   const name = contentTypeRoutes[route.contentType];
-  return { type: route.contentType, name, title: name[0].toUpperCase() + name.slice(1) };
+  return {
+    type: route.contentType,
+    name,
+    title: name[0].toUpperCase() + name.slice(1),
+    feedDescriptor: route.feed,
+  };
 });
 
 export async function generateMetadata({ params, searchParams }: Props) {
@@ -28,10 +38,10 @@ export async function generateMetadata({ params, searchParams }: Props) {
 
 export default async function ContentFeed({ params, searchParams }: Props) {
   const { contentType } = await params;
-  const { type, title } = resolve(contentType);
+  const { type, title, feedDescriptor } = resolve(contentType);
   const query = await searchParams;
   const filters = parseFilters({ ...query, content_type: type });
   if (filters.topic || filters.source_id || filters.tag || "content_type" in query)
     permanentRedirect(feedHref(filters, { cursor: filters.cursor }));
-  return FeedView({ filters, title });
+  return FeedView({ filters, title, feedDescriptor });
 }

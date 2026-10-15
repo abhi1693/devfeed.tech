@@ -33,6 +33,7 @@ import {
   checkReaderRoutes,
   readerRoutesFixture,
 } from "../../../../scripts/testing/reader-routes.mjs";
+import { checkFeedMode, feedModeFixture } from "../../../../scripts/testing/feed-mode.mjs";
 import {
   engagementFeed,
   engagementRows,
@@ -99,6 +100,7 @@ const mustReadsFixture = dailyFixture(article);
 const readingFixture = readingStreakFixture();
 const mutationFixture = userMutationFixture({ articles: [article], topic });
 const routeFixture = readerRoutesFixture(article);
+const feedMode = feedModeFixture(article);
 let mode = "ready";
 const defaultAllRequests = [];
 let compactArticles = false;
@@ -122,6 +124,17 @@ let rejectSourceFollow = true;
 const fixture = createServer(async (req, res) => {
   const requestUrl = new URL(req.url, "http://localhost");
   const path = requestUrl.pathname;
+  if (feedMode.handles(requestUrl)) {
+    const chunks = [];
+    for await (const chunk of req) chunks.push(chunk);
+    const { status, json } = feedMode.respond(
+      requestUrl,
+      chunks.length ? JSON.parse(Buffer.concat(chunks).toString()) : undefined,
+    );
+    res.writeHead(status, { "Content-Type": "application/json" });
+    res.end(JSON.stringify(json));
+    return;
+  }
   routeFixture.record(requestUrl);
   if (routeFixture.handles(requestUrl)) {
     const { status, json } = routeFixture.respond(requestUrl);
@@ -534,6 +547,31 @@ async function runReaderChecks() {
     }
   }
   browser = await chromium.launch({ headless: true });
+  const modeContext = await browser.newContext({ reducedMotion: "reduce" });
+  try {
+    await mockManagedImages(modeContext);
+    await mockSourceLogos(modeContext);
+    const modePage = await modeContext.newPage();
+    const errors = [];
+    modePage.on("pageerror", (error) => errors.push(error.message));
+    modePage.on("console", (message) => {
+      if (message.type() === "error" && /Content Security Policy|Refused to/.test(message.text()))
+        errors.push(message.text());
+    });
+    await checkFeedMode(
+      modePage,
+      (path) => origin + path,
+      feedMode,
+      `${root}/reports/feed-mode/web`,
+    );
+    assert.deepEqual(errors, []);
+  } finally {
+    await modeContext.close();
+  }
+  if (process.env.DEVFEED_READER_FEED_MODE_ONLY === "1") {
+    console.log("Feed modes and placement capabilities passed against the production web bundle.");
+    return;
+  }
   const routeContext = await browser.newContext({ reducedMotion: "reduce" });
   try {
     await mockManagedImages(routeContext);

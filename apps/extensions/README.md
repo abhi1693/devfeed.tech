@@ -30,6 +30,12 @@ Extension dispatch consumes the resolved route, including article-preview backgr
 Invalid saved backgrounds show the missing page; direct article entries use Latest.
 Unsupported website pages remain external links.
 
+Each reader route declares its feed mode and placement capabilities. Home uses Personal
+for signed-in readers and Latest for guests; typed and catalog routes use contextual
+placements. `apps/web/src/lib/reader-feed.ts` shares filter normalization and placement
+eligibility with web pages, including sponsored fallback, native formats, and source/cursor
+exclusions. Changing a route URL does not change these behaviors.
+
 ## Build and install
 
 From the repository root, with Node.js 22.13+:
@@ -163,6 +169,9 @@ DEVFEED_EXTENSION_BROWSER=edge DEVFEED_READER_ROUTES_ONLY=1 node --test apps/ext
 
 These checks cover missing pages, recovery links, every content suffix, catalog scope,
 and retained article previews. Screenshots stay under ignored `reports/reader-routes/`.
+
+Use `DEVFEED_READER_FEED_MODE_ONLY=1` with the same browser runners for focused guest
+and signed-in feed-mode checks, placement request policies, and preview retention.
 
 ## Validate and package
 

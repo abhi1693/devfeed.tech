@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { collectionRoute, resolveReaderRoute } from "@/lib/reader-routes";
+import { readerFeeds } from "@/lib/reader-feed";
 
 describe("shared reader route boundaries", () => {
   it.each(["c++", "c#", ".net", "日本語", "two words", "%2F"])(
@@ -16,7 +17,7 @@ describe("shared reader route boundaries", () => {
   it("decodes dynamic topic names exactly once", () => {
     expect(resolveReaderRoute("/topics/%72ust/tutorials")).toEqual({
       type: "reader",
-      page: "feed",
+      feed: readerFeeds.contextual,
       detail: { kind: "topics", slug: "rust", contentType: "tutorial" },
     });
     expect(resolveReaderRoute("/topics/%2572ust/tutorials")).toBeNull();

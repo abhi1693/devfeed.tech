@@ -32,24 +32,76 @@ const { ExtensionReaderTransport } = await bundled("../src/transport.ts");
 const { linkDestination } = await bundled("../src/navigation.tsx");
 const { resolveReaderRoute } = await bundled("../../web/src/lib/reader-routes.ts");
 const { resolveReaderBackground } = await bundled("../src/reader-background.ts");
-const { guestFeedFilters, searchParamsFromUrl, feedParams, feedHref } = await bundled(
+const { parseFilters, searchParamsFromUrl, feedParams, feedHref } = await bundled(
   "../../web/src/lib/feed-query.ts",
 );
+const { readerFeeds, resolveFeed } = await bundled("../../web/src/lib/reader-feed.ts");
 
 test("extension guest home and Latest default to All without an implicit API content type", () => {
   for (const pathname of ["/", "/latest"]) {
-    assert.equal(resolveReaderRoute(pathname).contentType, undefined);
+    const route = resolveReaderRoute(pathname);
+    assert.equal(route.contentType, undefined);
     for (const query of ["", "content_type=", "content_type=invalid", "q=rust&cursor=next"]) {
-      const filters = guestFeedFilters(searchParamsFromUrl(new URLSearchParams(query)));
+      const { mode, filters } = resolveFeed(
+        route.feed,
+        searchParamsFromUrl(new URLSearchParams(query)),
+        false,
+        route.contentType,
+      );
+      assert.equal(mode, "latest");
       assert.equal(filters.content_type, "");
       assert.equal(feedParams(filters).has("content_type"), false);
     }
   }
 });
 
+test("extension feed dispatch follows descriptor modes across session changes", () => {
+  for (const [path, signedOutMode, signedInMode] of [
+    ["/", "latest", "personal"],
+    ["/latest", "latest", "latest"],
+    ["/articles", "latest", "latest"],
+    ["/topics/rust", "latest", "latest"],
+    ["/sources/devfeed", "latest", "latest"],
+    ["/search", "search", "search"],
+    ["/read-later", "bookmarks", "bookmarks"],
+    ["/trending", "trending", "trending"],
+  ]) {
+    const route = resolveReaderRoute(path);
+    assert.equal(route.type, "reader");
+    for (const [authenticated, expected] of [
+      [false, signedOutMode],
+      [true, signedInMode],
+    ]) {
+      const result = resolveFeed(route.feed, {}, authenticated, route.contentType);
+      assert.equal(result.mode, expected, `${path}: authenticated=${authenticated}`);
+    }
+  }
+});
+
+test("preview backgrounds retain their feed capabilities and explicit content filters", () => {
+  for (const [path, contentType] of [
+    ["/?q=rust", ""],
+    ["/latest?content_type=news", "news"],
+    ["/topics/rust/tutorials?content_type=news", "tutorial"],
+    ["/sources/devfeed/releases?content_type=news", "release"],
+  ]) {
+    const background = resolveReaderBackground(path);
+    const route = resolveReaderRoute(new URL(path, "https://devfeed.tech").pathname);
+    assert.equal(JSON.stringify(background.match.feed), JSON.stringify(route.feed));
+    const result = resolveFeed(
+      background.match.feed,
+      searchParamsFromUrl(new URL(path, "https://devfeed.tech").searchParams),
+      false,
+      background.match.detail?.contentType ?? background.match.contentType,
+    );
+    assert.equal(result.mode, "latest");
+    assert.equal(result.filters.content_type, contentType);
+  }
+});
+
 test("extension Articles remains explicit and All clears the type without losing scope or sorting", () => {
   assert.equal(resolveReaderRoute("/articles").contentType, "article");
-  const filters = guestFeedFilters({
+  const filters = parseFilters({
     content_type: "article",
     topic: "rust",
     tag: "backend",
@@ -61,9 +113,7 @@ test("extension Articles remains explicit and All clears the type without losing
   const all = feedHref(filters, { content_type: "" });
   assert.equal(all, "/topics/rust?q=traits&sort=oldest&tag=backend");
   assert.equal(linkDestination(all), "#/topics/rust?q=traits&sort=oldest&tag=backend");
-  const next = guestFeedFilters(
-    searchParamsFromUrl(new URL(all, "https://devfeed.tech").searchParams),
-  );
+  const next = parseFilters(searchParamsFromUrl(new URL(all, "https://devfeed.tech").searchParams));
   assert.equal(next.content_type, "");
   assert.equal(feedParams(next).has("content_type"), false);
   assert.equal(next.cursor, "");
@@ -71,7 +121,7 @@ test("extension Articles remains explicit and All clears the type without losing
 
 test("one route registry classifies every extension-owned page", () => {
   const route = (pathname) => JSON.stringify(resolveReaderRoute(pathname));
-  assert.equal(route("/trending"), JSON.stringify({ type: "reader", page: "trending" }));
+  assert.equal(route("/trending"), JSON.stringify({ type: "reader", feed: readerFeeds.trending }));
   assert.equal(route("/mcp/authorize"), JSON.stringify({ type: "local", page: "mcp-authorize" }));
   assert.equal(route("/mcp"), JSON.stringify({ type: "local", page: "mcp" }));
   assert.equal(route("/leaderboard"), JSON.stringify({ type: "local", page: "leaderboard" }));
@@ -101,7 +151,7 @@ test("one route registry classifies every extension-owned page", () => {
     route("/topics/javascript/tutorials"),
     JSON.stringify({
       type: "reader",
-      page: "feed",
+      feed: readerFeeds.contextual,
       detail: { kind: "topics", slug: "javascript", contentType: "tutorial" },
     }),
   );
@@ -186,9 +236,9 @@ test("catalog identifiers decode once while retaining their valid slug grammar",
 });
 
 test("article previews retain reader background identity and query filters", () => {
-  for (const [route, page] of [
+  for (const [route, mode] of [
     ["/", "personal"],
-    ["/latest?cursor=next&content_type=news", "feed"],
+    ["/latest?cursor=next&content_type=news", "latest"],
     ["/search?q=rust", "search"],
     ["/read-later?cursor=next", "bookmarks"],
     ["/trending", "trending"],
@@ -196,7 +246,7 @@ test("article previews retain reader background identity and query filters", () 
     const background = resolveReaderBackground(route);
     assert.equal(background.route, route);
     assert.equal(background.match.type, "reader");
-    assert.equal(background.match.page, page);
+    assert.equal(background.match.feed.mode, mode);
   }
   const route = "/topics/javascript/tutorials?cursor=next&tag=react";
   const background = resolveReaderBackground(route);
@@ -210,7 +260,7 @@ test("only an absent article background receives the direct-entry Latest page", 
   for (const value of [undefined, null]) {
     const background = resolveReaderBackground(value);
     assert.equal(background.route, "/latest");
-    assert.equal(background.match.page, "feed");
+    assert.equal(background.match.feed.mode, "latest");
   }
   for (const value of [
     "",

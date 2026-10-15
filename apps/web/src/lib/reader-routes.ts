@@ -1,6 +1,6 @@
-import { contentTypeFromRoute, type contentTypes } from "./feed-query";
+import { contentTypeFromRoute, type ContentType } from "./feed-query";
+import { readerFeeds, type FeedDescriptor } from "./reader-feed";
 
-type ContentType = (typeof contentTypes)[number];
 export type CatalogKind = "topics" | "sources";
 type CollectionKind = CatalogKind | "tags";
 export type SettingsPage =
@@ -17,17 +17,17 @@ export type ReaderRoute =
   | { type: "profile"; username: string }
   | {
       type: "reader";
-      page: "personal" | "bookmarks" | "search" | "feed" | "trending";
+      feed: FeedDescriptor;
       detail?: { kind: CatalogKind; slug: string; contentType?: ContentType };
       contentType?: ContentType;
     };
 
 const routes = new Map<string, ReaderRoute>([
-  ["/", { type: "reader", page: "personal" }],
-  ["/latest", { type: "reader", page: "feed" }],
-  ["/search", { type: "reader", page: "search" }],
-  ["/read-later", { type: "reader", page: "bookmarks" }],
-  ["/trending", { type: "reader", page: "trending" }],
+  ["/", { type: "reader", feed: readerFeeds.home }],
+  ["/latest", { type: "reader", feed: readerFeeds.latest }],
+  ["/search", { type: "reader", feed: readerFeeds.search }],
+  ["/read-later", { type: "reader", feed: readerFeeds.bookmarks }],
+  ["/trending", { type: "reader", feed: readerFeeds.trending }],
   ["/topics", { type: "local", page: "catalog", catalog: "topics" }],
   ["/sources", { type: "local", page: "catalog", catalog: "sources" }],
   ["/sources/suggest", { type: "local", page: "source-suggestion" }],
@@ -87,12 +87,12 @@ export function resolveReaderRoute(pathname: string): ReaderRoute | null {
     segments.length <= 3
   ) {
     const detail = collectionRoute(resource, slug, suffix);
-    return detail ? { type: "reader", page: "feed", detail } : null;
+    return detail ? { type: "reader", feed: readerFeeds.contextual, detail } : null;
   }
   if (resource === "articles" && segments.length === 2 && catalogSlug.test(slug))
     return { type: "article", slug };
   if (resource === "users" && segments.length === 2 && username.test(slug))
     return { type: "profile", username: slug };
   const contentType = segments.length === 1 ? contentTypeFromRoute(segments[0]) : undefined;
-  return contentType ? { type: "reader", page: "feed", contentType } : null;
+  return contentType ? { type: "reader", feed: readerFeeds.contextual, contentType } : null;
 }

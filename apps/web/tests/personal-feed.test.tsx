@@ -3,6 +3,9 @@ import { afterEach, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { setArticleLike } from "@/lib/user-mutations";
 import { PersonalFeed } from "@/components/personal-feed";
+import { parseFilters } from "@/lib/feed-query";
+import { readerFeeds } from "@/lib/reader-feed";
+import type { PlacementQuery } from "@/lib/partner-placements";
 import type { ReactNode } from "react";
 
 vi.mock("@/components/feed-onboarding", () => ({ FeedOnboarding: () => null }));
@@ -14,8 +17,14 @@ vi.mock("@/components/user-account", () => ({
   useUser: () => ({ user: null, loading: true, sessionRevision: 0 }),
 }));
 vi.mock("@/components/article-grid", () => ({
-  ArticleGrid: ({ articles }: { articles: { title: string }[] }) => (
-    <div>
+  ArticleGrid: ({
+    articles,
+    placements,
+  }: {
+    articles: { title: string }[];
+    placements?: PlacementQuery;
+  }) => (
+    <div data-testid="article-grid" data-placements={JSON.stringify(placements)}>
       {articles.map((article) => (
         <p key={article.title}>{article.title}</p>
       ))}
@@ -35,6 +44,51 @@ const ready = {
   next_cursor: null,
   reasons: {},
 };
+
+it.each([
+  [{}, undefined, true, true],
+  [{ q: "rust" }, undefined, true, false],
+  [{ topic: "rust" }, undefined, true, false],
+  [{ tag: "rust" }, undefined, true, false],
+  [{ content_type: "news" }, undefined, true, false],
+  [{ sort: "most_liked" }, undefined, true, true],
+  [{}, "next", false, false],
+  [{ cursor: "next" }, undefined, false, false],
+  [{ source_id: "11111111-1111-4111-8111-111111111111" }, undefined, false, false],
+] as const)(
+  "applies shared placement eligibility to personal filters %j and cursor %s",
+  async (query, cursor, eligible, fallback) => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json(ready)));
+    render(<PersonalFeed filters={parseFilters(query)} cursor={cursor} />);
+    const grid = await screen.findByTestId("article-grid");
+    const placements = grid.getAttribute("data-placements");
+    if (!eligible) {
+      expect(placements).toBeNull();
+      return;
+    }
+    expect(JSON.parse(placements!)).toMatchObject({
+      surface: "feed",
+      allow_sponsored_fallback: fallback,
+      ad_formats: fallback
+        ? ["feed", "homepage_sponsorship", "sponsored_content", "engagement"]
+        : ["feed", "sponsored_content", "engagement"],
+    });
+  },
+);
+
+it("honors a descriptor with placements disabled in personal feed", async () => {
+  vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json(ready)));
+  render(
+    <PersonalFeed
+      feedDescriptor={{
+        ...readerFeeds.home,
+        capabilities: { placements: false, sponsoredFallback: false },
+      }}
+    />,
+  );
+  const grid = await screen.findByTestId("article-grid");
+  expect(grid.getAttribute("data-placements")).toBeNull();
+});
 
 it("keeps the card promotion available while an empty feed is preparing", async () => {
   vi.stubGlobal(

@@ -5,6 +5,7 @@ import { loadArticle } from "@/lib/article";
 import { FeedView } from "@/components/feed-view";
 import { ArticleModal } from "@/components/article-modal";
 import { parseFilters } from "@/lib/feed-query";
+import { readerFeeds } from "@/lib/reader-feed";
 import { ArticlePreview } from "@/components/article-preview";
 import { articleMetadata } from "@/lib/metadata";
 import { Suspense, type ReactNode } from "react";
@@ -68,7 +69,11 @@ export default async function ArticlePage({ params }: Props) {
           </UserShell>
         }
       >
-        <FeedView filters={parseFilters({})} structuredData={false} />
+        <FeedView
+          filters={parseFilters({})}
+          feedDescriptor={readerFeeds.latest}
+          structuredData={false}
+        />
       </Suspense>
     </>
   );

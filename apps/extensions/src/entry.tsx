@@ -18,13 +18,8 @@ import {
 import { SearchFilters } from "../../web/src/components/search-filters";
 import { LoadingSkeleton } from "../../web/src/components/loading-skeleton";
 import { configureReaderRuntime, readerRequest } from "../../web/src/lib/reader-runtime";
-import {
-  feedParams,
-  guestFeedFilters,
-  searchParamsFromUrl,
-  latestFeedParams,
-  parseFilters,
-} from "../../web/src/lib/feed-query";
+import { feedParams, searchParamsFromUrl, latestFeedParams } from "../../web/src/lib/feed-query";
+import { resolveFeed } from "../../web/src/lib/reader-feed";
 import { parseSearchOptions, normalizeSearch, type SearchResponse } from "../../web/src/lib/search";
 import type { FeedPage, FeedOptions, Topic, Source } from "../../web/src/lib/types";
 import { ExtensionReaderTransport, publicOrigin } from "./transport";
@@ -79,21 +74,18 @@ function Reader({
   }, []);
   const key = `${route}:${revision}:${user?.user_id ?? "guest"}:${user?.csrf_token ?? ""}`;
   const url = new URL(route, publicOrigin);
-  const search = match.page === "search";
-  const trending = match.page === "trending";
-  const personal = match.page === "personal" && (sessionLoading || Boolean(user));
-  const bookmarks = match.page === "bookmarks";
   const detail = match.detail;
   const queryParams = searchParamsFromUrl(url.searchParams);
-  const parsedFilters = parseFilters({
-    ...queryParams,
-    content_type:
-      detail?.contentType ?? match.contentType ?? url.searchParams.get("content_type") ?? "",
-  });
-  const filters =
-    ["/", "/latest"].includes(url.pathname) && !sessionLoading && !user
-      ? guestFeedFilters(queryParams)
-      : parsedFilters;
+  const { mode, filters } = resolveFeed(
+    match.feed,
+    queryParams,
+    sessionLoading || Boolean(user),
+    detail?.contentType ?? match.contentType,
+  );
+  const search = mode === "search";
+  const trending = mode === "trending";
+  const personal = mode === "personal";
+  const bookmarks = mode === "bookmarks";
   const query = normalizeSearch(url.searchParams.get("q") ?? "");
   const searchOptions = parseSearchOptions(url.searchParams);
   const [state, setState] = useState<{
@@ -146,6 +138,7 @@ function Reader({
             setState({
               key,
               feed: {
+                feedDescriptor: match.feed,
                 filters,
                 feed: { status: "rejected", reason },
                 options: { status: "rejected", reason },
@@ -163,6 +156,7 @@ function Reader({
         setState({
           key,
           feed: {
+            feedDescriptor: match.feed,
             feed,
             options,
             filters: resolvedFilters,
@@ -172,13 +166,6 @@ function Reader({
             logoUrl: item?.logo_url,
             logoVariants: item?.logo_variants,
             section: detail?.kind ?? "feed",
-            allowSponsoredFallback:
-              ["/", "/latest"].includes(url.pathname) &&
-              !parsedFilters.q &&
-              !parsedFilters.topic &&
-              !parsedFilters.source_id &&
-              !parsedFilters.content_type &&
-              !parsedFilters.tag,
           },
         });
     }
@@ -201,10 +188,11 @@ function Reader({
       <UserShell section={personal ? "personal" : "bookmarks"}>
         {personal ? (
           <PersonalFeed
-            filters={parseFilters(Object.fromEntries(url.searchParams))}
+            feedDescriptor={match.feed}
+            filters={filters}
             key={user?.user_id}
             refreshKey={revision}
-            cursor={url.searchParams.get("cursor") ?? undefined}
+            cursor={filters.cursor || undefined}
           />
         ) : (
           <ReadLater key={key} cursor={url.searchParams.get("cursor") ?? undefined} />

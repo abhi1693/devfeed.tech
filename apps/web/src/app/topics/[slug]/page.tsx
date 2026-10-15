@@ -4,6 +4,7 @@ import { getTopic, UserApiError } from "@/lib/api";
 import { FeedView } from "@/components/feed-view";
 import { feedHref, parseFilters, type SearchParams } from "@/lib/feed-query";
 import { collectionRoute } from "@/lib/reader-routes";
+import { readerFeeds } from "@/lib/reader-feed";
 import { collectionFeedMetadata } from "@/lib/server/collection-feed-metadata";
 export const dynamic = "force-dynamic";
 type Props = {
@@ -46,6 +47,7 @@ export default async function Page({ params, searchParams }: Props) {
     permanentRedirect(feedHref(filters, { cursor: filters.cursor }));
   return FeedView({
     filters,
+    feedDescriptor: readerFeeds.contextual,
     title: item.name,
     topicId: item.id,
     logoUrl: item.logo_url,

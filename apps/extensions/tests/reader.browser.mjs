@@ -25,6 +25,7 @@ import {
   userMutationFixture,
 } from "../../../scripts/testing/user-mutations.mjs";
 import { checkReaderRoutes, readerRoutesFixture } from "../../../scripts/testing/reader-routes.mjs";
+import { checkFeedMode, feedModeFixture } from "../../../scripts/testing/feed-mode.mjs";
 import {
   engagementFeed,
   engagementRows,
@@ -83,15 +84,17 @@ const filterSource = { ...article.sources[0], id: "99999999-9999-4999-8999-99999
 // Run against a real unpacked extension; browser requests are deterministic and
 // never depend on the production feed or mutate visitor/account data.
 test(
-  process.env.DEVFEED_READER_ROUTES_ONLY === "1"
-    ? "reader route validation and recovery work inside built new tabs"
-    : process.env.DEVFEED_READER_THEME_ONLY === "1"
-      ? "shared theme persists and follows system settings inside built new tabs"
-      : process.env.DEVFEED_READER_SIDEBAR_ONLY === "1"
-        ? "shared sidebar persists and adapts inside built new tabs"
-        : process.env.DEVFEED_READER_MUTATIONS_ONLY === "1"
-          ? "semantic mutation effects work inside built new tabs"
-          : "shared reader works inside new tabs at desktop and mobile sizes",
+  process.env.DEVFEED_READER_FEED_MODE_ONLY === "1"
+    ? "feed modes and placement capabilities work inside built new tabs"
+    : process.env.DEVFEED_READER_ROUTES_ONLY === "1"
+      ? "reader route validation and recovery work inside built new tabs"
+      : process.env.DEVFEED_READER_THEME_ONLY === "1"
+        ? "shared theme persists and follows system settings inside built new tabs"
+        : process.env.DEVFEED_READER_SIDEBAR_ONLY === "1"
+          ? "shared sidebar persists and adapts inside built new tabs"
+          : process.env.DEVFEED_READER_MUTATIONS_ONLY === "1"
+            ? "semantic mutation effects work inside built new tabs"
+            : "shared reader works inside new tabs at desktop and mobile sizes",
   { timeout: 180000 },
   async () => {
     const profile = await mkdtemp(path.join(tmpdir(), "devfeed-reader-test-"));
@@ -125,6 +128,7 @@ test(
       topic: { ...article.topics[0], id: "ABCDEF00-0000-4000-8000-000000000001" },
     });
     const routeFixture = readerRoutesFixture(article);
+    const feedMode = feedModeFixture(article);
     let engagementPagination = false;
     let defaultAll = false;
     let compactArticles = false;
@@ -144,6 +148,13 @@ test(
     );
     await context.route("https://devfeed.tech/api/**", async (route) => {
       const url = new URL(route.request().url());
+      if (feedMode.handles(url))
+        return route.fulfill(
+          feedMode.respond(
+            url,
+            route.request().postData() ? route.request().postDataJSON() : undefined,
+          ),
+        );
       routeFixture.record(url);
       if (routeFixture.handles(url)) return route.fulfill(routeFixture.respond(url));
       const mutationPath = url.pathname.slice("/api".length);
@@ -332,6 +343,30 @@ test(
       });
       await page.goto(newTab);
       await page.locator(".article-card").first().waitFor();
+      const modePage = await context.newPage();
+      modePage.on("pageerror", (error) => errors.push(error.message));
+      modePage.on("console", (message) => {
+        if (message.type() === "error" && /Content Security Policy|Refused to/.test(message.text()))
+          errors.push(message.text());
+      });
+      try {
+        await checkFeedMode(
+          modePage,
+          (path) => page.url().split("#")[0] + "#" + path,
+          feedMode,
+          path.resolve(import.meta.dirname, `../../../reports/feed-mode/${browser}`),
+          true,
+        );
+      } finally {
+        await modePage.close();
+      }
+      if (process.env.DEVFEED_READER_FEED_MODE_ONLY === "1") {
+        assert.deepEqual(errors, []);
+        console.log(
+          `Feed modes and placement capabilities passed against the installed ${browser} extension.`,
+        );
+        return;
+      }
       const routePage = await context.newPage();
       routePage.on("pageerror", (error) => errors.push(error.message));
       routePage.on("console", (message) => {

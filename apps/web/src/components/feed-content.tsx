@@ -10,6 +10,7 @@ import { UserShell } from "@/components/user-shell";
 import { InfiniteFeed } from "@/components/infinite-feed";
 import { FeedFiltersBar } from "@/components/feed-filters";
 import { RetryFeed } from "@/components/retry-feed";
+import { feedPlacements, type FeedDescriptor } from "@/lib/reader-feed";
 
 import type { ReactNode } from "react";
 import type { FeedPage, FeedOptions } from "@/lib/types";
@@ -27,8 +28,7 @@ export type FeedContentProps = {
   children?: ReactNode;
   /** PublicPage owns the persistent shell for streamed listings. */
   withShell?: boolean;
-  /** Main feed may fill an unmatched product slot with a sponsored placement. */
-  allowSponsoredFallback?: boolean;
+  feedDescriptor: FeedDescriptor;
 };
 
 export function FeedContent({
@@ -43,11 +43,7 @@ export function FeedContent({
   options,
   children,
   withShell = true,
-  allowSponsoredFallback = !filters.q &&
-    !filters.topic &&
-    !filters.content_type &&
-    !filters.source_id &&
-    !filters.tag,
+  feedDescriptor,
 }: FeedContentProps) {
   const filtered = Object.entries(filters).some(
     ([key, value]) => key !== "cursor" && key !== "source_slug" && value,
@@ -132,21 +128,7 @@ export function FeedContent({
             key={feedParams(filters).toString()}
             initialPage={feed.value}
             filters={filters}
-            placements={
-              !filters.cursor && section !== "sources" && !filters.source_id
-                ? section === "topics" && topicId && !filters.q
-                  ? { surface: "topic", topic_id: topicId, ad_formats: ["feed", "engagement"] }
-                  : {
-                      surface: "feed",
-                      allow_sponsored_fallback:
-                        section === "feed" && !topicId && allowSponsoredFallback,
-                      ad_formats:
-                        section === "feed" && !topicId && allowSponsoredFallback
-                          ? ["feed", "homepage_sponsorship", "sponsored_content", "engagement"]
-                          : ["feed", "sponsored_content", "engagement"],
-                    }
-                : undefined
-            }
+            placements={feedPlacements(feedDescriptor, filters, { section, topicId })}
           />
           {filters.cursor && (
             <div className="pagination">
