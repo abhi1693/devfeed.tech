@@ -1,6 +1,8 @@
 import { ChimelyClient } from "@chimely/client";
 import { createInboxFetch } from "@devfeed/ui/inbox-fetch";
 import { readerPublicOrigin, readerRequest } from "./reader-runtime";
+import { resolveReaderRoute } from "./reader-routes";
+import { articleDestination } from "./reader-destination";
 
 export type InboxConfig = {
   enabled: boolean;
@@ -29,8 +31,8 @@ export function createInboxClient(config: InboxConfig, csrf: string) {
   });
 }
 
-export function notificationArticle(value: unknown): string | null {
-  return typeof value === "string" && /^\/articles\/[a-z0-9][a-z0-9-]{0,199}$/i.test(value)
-    ? value
-    : null;
+/** Notification payloads may open a registered article route, never an arbitrary URL. */
+export function notificationArticle(value: unknown) {
+  const route = typeof value === "string" ? resolveReaderRoute(value) : null;
+  return route?.type === "article" ? articleDestination(route.slug) : null;
 }

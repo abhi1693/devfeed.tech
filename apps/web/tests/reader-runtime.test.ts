@@ -66,3 +66,22 @@ it("uses the extension route for search and the website origin for sharing", asy
     rel: "noopener noreferrer",
   });
 });
+
+it("serializes and forwards typed navigation only when a runtime supplies an adapter", async () => {
+  const { articleDestination } = await import("@/lib/reader-destination");
+  const { configureReaderRuntime, readerDestinationHref, readerNavigate } =
+    await import("@/lib/reader-runtime");
+  const destination = articleDestination("rust");
+  expect(readerDestinationHref(destination)).toBe("/articles/rust");
+  expect(readerNavigate(destination, "push")).toBe(false);
+  const navigate = vi.fn();
+  configureReaderRuntime({
+    request: fetch,
+    publicOrigin: "https://devfeed.tech",
+    navigate,
+    destinationHref: (value) => `#${value.href}`,
+  });
+  expect(readerDestinationHref(destination)).toBe("#/articles/rust");
+  expect(readerNavigate(destination, "replace")).toBe(true);
+  expect(navigate).toHaveBeenCalledExactlyOnceWith(destination, "replace");
+});

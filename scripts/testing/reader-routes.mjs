@@ -252,7 +252,23 @@ export async function checkReaderRoutes(page, destination, fixture, output, exte
       const before = fixture.requests.length;
       await page.evaluate((slug) => {
         history.pushState(
-          { readerBackground: "/topics/javascript/unknown-format" },
+          {
+            readerNavigation: {
+              kind: "article",
+              destination: {
+                kind: "article",
+                slug,
+                href: `/articles/${slug}`,
+                scroll: "preserve",
+              },
+              background: {
+                kind: "page",
+                href: "/topics/javascript/unknown-format",
+                route: null,
+                scroll: "reset",
+              },
+            },
+          },
           "",
           `#/articles/${slug}`,
         );

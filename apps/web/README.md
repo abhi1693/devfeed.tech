@@ -73,6 +73,23 @@ are marked noindex; missing articles still return 404 and unexpected exceptions
 still reach the error boundary. Chrome and Edge share the error content and retry
 control. The browser suites exercise failure followed by successful retry.
 
+Reader cards and inbox actions pass `articleDestination(slug)` to navigation;
+page actions use `pageDestination(href)` with their scroll policy. `ReaderLink`
+serializes these destinations for native links, and `useReaderRouter` forwards
+them through the website or extension adapter. Requested article identity and
+overlay ownership come from the registered Next route slots or extension history
+state, including while the article is loading or unavailable. Preview components
+do not recover that state from URL strings. Extensions retain the resolved
+background page across preview navigation and browser history.
+
+After building web, Chrome, and Edge, set `DEVFEED_READER_NAVIGATION_ONLY=1` when
+running `node apps/web/tests/browser/feed.mjs` or
+`node --test apps/extensions/tests/reader.browser.mjs` for the navigation journey.
+Use `DEVFEED_EXTENSION_BROWSER=edge` for the Edge run. It checks retained feed
+DOM and scroll, direct and intercepted previews, Back/Forward, retry, and inbox
+article and settings navigation. Evidence stays under ignored
+`reports/reader-destinations/`.
+
 ## Reader loading and pagination
 
 Reader pages must not exhaust a catalog or feed to render the first screen. The shared web reader and Chrome/Edge extensions use the same incremental choices and scrolling controls.

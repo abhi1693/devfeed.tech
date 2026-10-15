@@ -68,7 +68,7 @@ export default async function ArticlePage({ params }: Props) {
     );
   return (
     <>
-      <DirectArticle slug={article.slug} article={{ id: article.id, slug: article.slug }}>
+      <DirectArticle slug={slug} article={{ id: article.id, slug: article.slug }}>
         <ArticlePreview article={article} />
       </DirectArticle>
       <Suspense

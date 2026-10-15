@@ -3,7 +3,7 @@ import { BrowserTelemetry } from "@devfeed/telemetry/browser";
 import { browserSettings } from "@devfeed/telemetry/receiver";
 import { DeferredGoogleAnalytics } from "@/components/deferred-google-analytics";
 import { DeferredClarity } from "@/components/deferred-clarity";
-import { ArticleNavigationProvider } from "@/components/article-navigation";
+import { WebArticleNavigationProvider } from "@/components/web-article-navigation";
 import { SourceFollowsProvider } from "@/components/source-follow";
 import type { Metadata } from "next";
 import { JsonLd } from "@/components/json-ld";
@@ -27,6 +27,7 @@ import { SignupNudge } from "@/components/signup-nudge";
 import { ReaderContextProvider } from "@/components/reader-context";
 import { ReaderPromptsProvider } from "@/components/reader-prompts";
 import { ReaderNavigationRecovery } from "@/components/reader-navigation-recovery";
+import { NotificationStyles } from "@devfeed/ui/notifications";
 export async function generateMetadata(): Promise<Metadata> {
   await connection();
   return {
@@ -67,6 +68,7 @@ export default async function RootLayout({
           title="AI reading guide and public content"
         />
         <script nonce={nonce} dangerouslySetInnerHTML={{ __html: themeScript }} />
+        <NotificationStyles nonce={nonce} />
       </head>
       <body>
         <ReaderNavigationRecovery />
@@ -78,7 +80,7 @@ export default async function RootLayout({
               <ThemePreferencesProvider>
                 <NotificationPreferencesProvider>
                   <FeedPreferencesProvider>
-                    <ArticleNavigationProvider>
+                    <WebArticleNavigationProvider>
                       <SourceFollowsProvider>
                         <TopicFollowsProvider>
                           {children}
@@ -86,7 +88,7 @@ export default async function RootLayout({
                         </TopicFollowsProvider>
                       </SourceFollowsProvider>
                       <SignupNudge />
-                    </ArticleNavigationProvider>
+                    </WebArticleNavigationProvider>
                   </FeedPreferencesProvider>
                 </NotificationPreferencesProvider>
               </ThemePreferencesProvider>

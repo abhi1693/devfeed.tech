@@ -15,6 +15,7 @@ import { ArticleImage } from "./article-image";
 import { CatalogIcon } from "./catalog-icon";
 import { TruncatedLink } from "./truncated-link";
 import { ArticleSponsorship } from "./article-sponsorship";
+import { articleDestination } from "@/lib/reader-destination";
 
 export function ArticleCard({
   article,
@@ -31,7 +32,7 @@ export function ArticleCard({
   containerRef?: Ref<HTMLElement>;
   onOpen?: () => void;
 }) {
-  const href = `/articles/${article.slug}`;
+  const destination = articleDestination(article.slug);
   const image = safeExternalUrl(article.image_url);
   const original = outboundArticleUrl(article.canonical_url);
   const source = article.sources[0];
@@ -81,8 +82,7 @@ export function ArticleCard({
       <div className="card-copy">
         <h2>
           <TruncatedLink
-            href={href}
-            scroll={false}
+            href={destination}
             prefetch={false}
             className="card-open-link"
             rel={sponsored ? "sponsored" : undefined}

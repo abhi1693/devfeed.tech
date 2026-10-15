@@ -29,9 +29,11 @@ async function bundled(path) {
   return output.exports;
 }
 const { ExtensionReaderTransport } = await bundled("../src/transport.ts");
-const { linkDestination } = await bundled("../src/navigation.tsx");
+const { linkDestination, resolveReaderNavigation } = await bundled("../src/navigation.tsx");
 const { resolveReaderRoute } = await bundled("../../web/src/lib/reader-routes.ts");
-const { resolveReaderBackground } = await bundled("../src/reader-background.ts");
+const { articleDestination, pageDestination } = await bundled(
+  "../../web/src/lib/reader-destination.ts",
+);
 const { parseFilters, searchParamsFromUrl, feedParams, feedHref } = await bundled(
   "../../web/src/lib/feed-query.ts",
 );
@@ -85,14 +87,14 @@ test("preview backgrounds retain their feed capabilities and explicit content fi
     ["/topics/rust/tutorials?content_type=news", "tutorial"],
     ["/sources/devfeed/releases?content_type=news", "release"],
   ]) {
-    const background = resolveReaderBackground(path);
+    const background = pageDestination(path);
     const route = resolveReaderRoute(new URL(path, "https://devfeed.tech").pathname);
-    assert.equal(JSON.stringify(background.match.feed), JSON.stringify(route.feed));
+    assert.equal(JSON.stringify(background.route.feed), JSON.stringify(route.feed));
     const result = resolveFeed(
-      background.match.feed,
+      background.route.feed,
       searchParamsFromUrl(new URL(path, "https://devfeed.tech").searchParams),
       false,
-      background.match.detail?.contentType ?? background.match.contentType,
+      background.route.detail?.contentType ?? background.route.contentType,
     );
     assert.equal(result.mode, "latest");
     assert.equal(result.filters.content_type, contentType);
@@ -243,45 +245,39 @@ test("article previews retain reader background identity and query filters", () 
     ["/read-later?cursor=next", "bookmarks"],
     ["/trending", "trending"],
   ]) {
-    const background = resolveReaderBackground(route);
-    assert.equal(background.route, route);
-    assert.equal(background.match.type, "reader");
-    assert.equal(background.match.feed.mode, mode);
+    const background = pageDestination(route);
+    assert.equal(background.href, route);
+    assert.equal(background.route.type, "reader");
+    assert.equal(background.route.feed.mode, mode);
   }
   const route = "/topics/javascript/tutorials?cursor=next&tag=react";
-  const background = resolveReaderBackground(route);
-  assert.equal(background.route, route);
-  assert.equal(background.match.detail.kind, "topics");
-  assert.equal(background.match.detail.slug, "javascript");
-  assert.equal(background.match.detail.contentType, "tutorial");
+  const background = pageDestination(route);
+  assert.equal(background.href, route);
+  assert.equal(background.route.detail.kind, "topics");
+  assert.equal(background.route.detail.slug, "javascript");
+  assert.equal(background.route.detail.contentType, "tutorial");
 });
 
-test("only an absent article background receives the direct-entry Latest page", () => {
-  for (const value of [undefined, null]) {
-    const background = resolveReaderBackground(value);
-    assert.equal(background.route, "/latest");
-    assert.equal(background.match.feed.mode, "latest");
+test("direct article hashes have no background; typed history retains every page kind", () => {
+  const article = articleDestination("rust");
+  for (const value of [undefined, null, {}, 42, { kind: "unknown" }]) {
+    const state = resolveReaderNavigation(article.href, value);
+    assert.equal(state.kind, "article");
+    assert.equal(state.destination.slug, "rust");
+    assert.equal(state.background, null);
   }
-  for (const value of [
-    "",
-    "/unknown",
-    "/topics/rust/unknown",
-    "/sources/devfeed/unknown",
-    "/settings/profile",
-    "/topics",
-    "/users/reader",
-    "/articles/rust",
-    "https://outside.test/latest",
-    "//outside.test/latest",
-    "http://[",
-    "javascript:alert(1)",
-    "/latest#unexpected",
-    42,
-    {},
-    [],
-  ]) {
-    assert.equal(resolveReaderBackground(value), null, String(value));
+  for (const href of ["/latest?cursor=next", "/topics", "/settings/profile", "/users/reader"]) {
+    const background = pageDestination(href);
+    const saved = { kind: "article", destination: article, background };
+    assert.equal(
+      JSON.stringify(resolveReaderNavigation(article.href, saved)),
+      JSON.stringify(saved),
+    );
   }
+  const saved = { kind: "article", destination: article, background: pageDestination("/latest") };
+  const state = resolveReaderNavigation("/articles/other", saved);
+  assert.equal(state.destination.slug, "other");
+  assert.equal(state.background, null);
 });
 
 test("public reads use the website API, use the browser session, and propagate cancellation", async () => {

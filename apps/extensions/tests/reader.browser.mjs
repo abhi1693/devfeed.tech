@@ -31,6 +31,10 @@ import {
   readerContextFixture,
 } from "../../../scripts/testing/reader-context.mjs";
 import {
+  checkReaderDestinations,
+  readerDestinationsFixture,
+} from "../../../scripts/testing/reader-destinations.mjs";
+import {
   engagementFeed,
   engagementRows,
   checkEngagementPagination,
@@ -88,19 +92,21 @@ const filterSource = { ...article.sources[0], id: "99999999-9999-4999-8999-99999
 // Run against a real unpacked extension; browser requests are deterministic and
 // never depend on the production feed or mutate visitor/account data.
 test(
-  process.env.DEVFEED_READER_CONTEXT_ONLY === "1"
-    ? "article context and prompt eligibility work inside built new tabs"
-    : process.env.DEVFEED_READER_FEED_MODE_ONLY === "1"
-      ? "feed modes and placement capabilities work inside built new tabs"
-      : process.env.DEVFEED_READER_ROUTES_ONLY === "1"
-        ? "reader route validation and recovery work inside built new tabs"
-        : process.env.DEVFEED_READER_THEME_ONLY === "1"
-          ? "shared theme persists and follows system settings inside built new tabs"
-          : process.env.DEVFEED_READER_SIDEBAR_ONLY === "1"
-            ? "shared sidebar persists and adapts inside built new tabs"
-            : process.env.DEVFEED_READER_MUTATIONS_ONLY === "1"
-              ? "semantic mutation effects work inside built new tabs"
-              : "shared reader works inside new tabs at desktop and mobile sizes",
+  process.env.DEVFEED_READER_NAVIGATION_ONLY === "1"
+    ? "typed article overlays and inbox navigation work inside built new tabs"
+    : process.env.DEVFEED_READER_CONTEXT_ONLY === "1"
+      ? "article context and prompt eligibility work inside built new tabs"
+      : process.env.DEVFEED_READER_FEED_MODE_ONLY === "1"
+        ? "feed modes and placement capabilities work inside built new tabs"
+        : process.env.DEVFEED_READER_ROUTES_ONLY === "1"
+          ? "reader route validation and recovery work inside built new tabs"
+          : process.env.DEVFEED_READER_THEME_ONLY === "1"
+            ? "shared theme persists and follows system settings inside built new tabs"
+            : process.env.DEVFEED_READER_SIDEBAR_ONLY === "1"
+              ? "shared sidebar persists and adapts inside built new tabs"
+              : process.env.DEVFEED_READER_MUTATIONS_ONLY === "1"
+                ? "semantic mutation effects work inside built new tabs"
+                : "shared reader works inside new tabs at desktop and mobile sizes",
   { timeout: 180000 },
   async () => {
     const profile = await mkdtemp(path.join(tmpdir(), "devfeed-reader-test-"));
@@ -136,6 +142,7 @@ test(
     const routeFixture = readerRoutesFixture(article);
     const feedMode = feedModeFixture(article);
     const readerContext = readerContextFixture(article);
+    const readerDestinations = readerDestinationsFixture(article);
     let engagementPagination = false;
     let defaultAll = false;
     let compactArticles = false;
@@ -155,6 +162,13 @@ test(
     );
     await context.route("https://devfeed.tech/api/**", async (route) => {
       const url = new URL(route.request().url());
+      if (readerDestinations.handles(url))
+        return route.fulfill(
+          await readerDestinations.respond(
+            url,
+            route.request().postData() ? route.request().postDataJSON() : undefined,
+          ),
+        );
       if (readerContext.handles(url))
         return route.fulfill(
           await readerContext.respond(
@@ -357,6 +371,42 @@ test(
       });
       await page.goto(newTab);
       await page.locator(".article-card").first().waitFor();
+      if (
+        ![
+          "DEVFEED_READER_CONTEXT_ONLY",
+          "DEVFEED_READER_FEED_MODE_ONLY",
+          "DEVFEED_READER_ROUTES_ONLY",
+          "DEVFEED_READER_THEME_ONLY",
+          "DEVFEED_READER_SIDEBAR_ONLY",
+          "DEVFEED_READER_MUTATIONS_ONLY",
+        ].some((flag) => process.env[flag] === "1")
+      ) {
+        const navigationPage = await context.newPage();
+        navigationPage.on("pageerror", (error) => errors.push(error.message));
+        navigationPage.on("console", (message) => {
+          if (
+            message.type() === "error" &&
+            /Content Security Policy|Refused to/.test(message.text())
+          )
+            errors.push(message.text());
+        });
+        try {
+          await checkReaderDestinations(
+            navigationPage,
+            (path) => page.url().split("#")[0] + "#" + path,
+            readerDestinations,
+            path.resolve(import.meta.dirname, `../../../reports/reader-destinations/${browser}`),
+            true,
+          );
+        } finally {
+          await navigationPage.close();
+        }
+      }
+      if (process.env.DEVFEED_READER_NAVIGATION_ONLY === "1") {
+        assert.deepEqual(errors, []);
+        console.log(`Typed navigation passed against the installed ${browser} extension.`);
+        return;
+      }
       if (
         ![
           "DEVFEED_READER_FEED_MODE_ONLY",

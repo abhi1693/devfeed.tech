@@ -190,6 +190,7 @@ it("provides the actual loaded article identity for intercepted previews", async
   expect(html).toContain('data-article-id="article-id"');
   expect(html).toContain('data-article-slug="requested-article"');
   expect(html).toContain("Requested article");
+  expect(html).toContain('data-slug="requested-article"');
   expect(getFeed).not.toHaveBeenCalled();
 });
 
@@ -198,6 +199,7 @@ it("does not publish an article visit when an intercepted preview is unavailable
   const stream = await renderToReadableStream(await InterceptedArticle(params()));
   const html = await new Response(stream).text();
   expect(html).toContain("Article temporarily unavailable");
+  expect(html).toContain('data-slug="requested-article"');
   expect(html).not.toContain("data-article-id");
   expect(html).not.toContain("data-article-slug");
 });

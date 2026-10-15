@@ -23,7 +23,7 @@ import { resolveFeed } from "../../web/src/lib/reader-feed";
 import { parseSearchOptions, normalizeSearch, type SearchResponse } from "../../web/src/lib/search";
 import type { FeedPage, FeedOptions, Topic, Source } from "../../web/src/lib/types";
 import { ExtensionReaderTransport, publicOrigin } from "./transport";
-import { linkDestination, useRoute } from "./navigation";
+import { destinationHref, linkDestination, navigate, useNavigationState } from "./navigation";
 import { LocalPage, PublicProfilePage } from "./pages";
 import { catalogItem } from "./catalog";
 import { Preview } from "./articles";
@@ -38,8 +38,8 @@ import { ReaderPromptsProvider } from "../../web/src/components/reader-prompts";
 import { ReaderContextProvider } from "../../web/src/components/reader-context";
 import { ReaderNavigationRecovery } from "../../web/src/components/reader-navigation-recovery";
 import { ReaderNotFound } from "../../web/src/components/reader-not-found";
-import { resolveReaderRoute, type ReaderRoute } from "../../web/src/lib/reader-routes";
-import { resolveReaderBackground } from "./reader-background";
+import type { ReaderRoute } from "../../web/src/lib/reader-routes";
+import { pageDestination, type ReaderPageDestination } from "../../web/src/lib/reader-destination";
 
 configureReaderRuntime({
   request: new ExtensionReaderTransport(fetch).request,
@@ -49,6 +49,8 @@ configureReaderRuntime({
     window.location.reload();
   },
   rememberArticles,
+  navigate,
+  destinationHref,
   publicOrigin,
   location: () => new URL(window.location.hash.slice(1) || "/", publicOrigin),
 });
@@ -242,10 +244,9 @@ function Reader({
   );
 }
 
-function ExtensionReader() {
-  const route = useRoute();
-  const pathname = new URL(route, publicOrigin).pathname;
-  const match = resolveReaderRoute(pathname);
+function ExtensionPage({ destination }: { destination: ReaderPageDestination }) {
+  const route = destination.href;
+  const match = destination.route;
   if (!match) return <ReaderNotFound />;
   switch (match.type) {
     case "profile":
@@ -258,17 +259,23 @@ function ExtensionReader() {
           <Reader route={route} match={match} />
         </>
       );
-    case "article": {
-      const background = window.history.state?.readerBackground;
-      const reader = resolveReaderBackground(background);
-      return (
-        <>
-          {reader ? <Reader route={reader.route} match={reader.match} /> : <ReaderNotFound />}
-          <Preview slug={match.slug} direct={background == null} />
-        </>
-      );
-    }
   }
+}
+
+const directBackground = pageDestination("/latest");
+
+function ExtensionReader() {
+  const state = useNavigationState();
+  const background =
+    state.kind === "article" ? (state.background ?? directBackground) : state.destination;
+  return (
+    <>
+      <ExtensionPage destination={background} />
+      {state.kind === "article" && (
+        <Preview slug={state.destination.slug} direct={state.background === null} />
+      )}
+    </>
+  );
 }
 
 startExtensionAnalytics();

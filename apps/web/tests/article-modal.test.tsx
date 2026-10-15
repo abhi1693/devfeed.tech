@@ -9,21 +9,25 @@ import {
   type ArticleSequence,
 } from "@/components/article-navigation";
 import { ArticleModal } from "@/components/article-modal";
+import { WebArticleNavigationProvider } from "@/components/web-article-navigation";
 import {
   ReaderContextProvider,
   ReaderSurface,
   useReaderContext,
 } from "@/components/reader-context";
 import { readerPromptPolicies, type ArticleIdentity } from "@/lib/reader-context";
-const { back, replace } = vi.hoisted(() => ({
+const { back, replace, slots } = vi.hoisted(() => ({
   back: vi.fn(),
   replace: vi.fn(),
+  slots: { page: [] as string[], modal: [] as string[] },
 }));
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ back, replace }),
-  usePathname: () => "/articles/first",
+  useSelectedLayoutSegments: (slot?: string) => (slot === "modal" ? slots.modal : slots.page),
 }));
 beforeEach(() => {
+  slots.page = [];
+  slots.modal = [];
   Object.defineProperty(HTMLDialogElement.prototype, "showModal", {
     configurable: true,
     value: function (this: HTMLDialogElement) {
@@ -60,7 +64,7 @@ it("opens a native modal and restores scrolling and focus on dismissal", () => {
   document.body.append(trigger);
   trigger.focus();
   const view = render(
-    <ArticleModal>
+    <ArticleModal active slug="first">
       <h1>Article</h1>
     </ArticleModal>,
   );
@@ -82,7 +86,11 @@ it("releases an invisible modal even when the exit animation never finishes", as
     value: () => ({ finished: new Promise(() => {}), cancel: vi.fn() }),
   });
   try {
-    render(<ArticleModal>Preview</ArticleModal>);
+    render(
+      <ArticleModal active slug="first">
+        Preview
+      </ArticleModal>,
+    );
     fireEvent.click(screen.getByRole("button", { name: "Close preview" }));
     expect(document.querySelector("dialog[open]")).not.toBeNull();
     await act(async () => vi.advanceTimersByTime(200));
@@ -100,7 +108,11 @@ it("handles Escape through browser history", () => {
     this.setAttribute("open", "");
   });
   vi.spyOn(HTMLDialogElement.prototype, "close").mockImplementation(() => {});
-  render(<ArticleModal>Preview</ArticleModal>);
+  render(
+    <ArticleModal active slug="first">
+      Preview
+    </ArticleModal>,
+  );
   fireEvent(screen.getByRole("dialog"), new Event("cancel", { bubbles: true, cancelable: true }));
   expect(back).toHaveBeenCalledOnce();
 });
@@ -108,7 +120,7 @@ it("handles Escape through browser history", () => {
 it("contains Tab and Shift+Tab focus, including repeated keys", () => {
   vi.spyOn(HTMLElement.prototype, "getClientRects").mockReturnValue([{}] as unknown as DOMRectList);
   render(
-    <ArticleModal>
+    <ArticleModal active slug="first">
       <button>Save</button>
     </ArticleModal>,
   );
@@ -124,9 +136,13 @@ it("contains Tab and Shift+Tab focus, including repeated keys", () => {
 });
 
 it("closes direct article links onto the feed instead of leaving the site", () => {
-  render(<ArticleModal direct>Preview</ArticleModal>);
+  render(
+    <ArticleModal active direct slug="first">
+      Preview
+    </ArticleModal>,
+  );
   fireEvent.click(screen.getByRole("button", { name: "Close preview" }));
-  expect(replace).toHaveBeenCalledWith("/");
+  expect(replace).toHaveBeenCalledWith("/", { scroll: true });
   expect(back).not.toHaveBeenCalled();
 });
 
@@ -143,9 +159,11 @@ function preview(
   hasMore = false,
 ) {
   return render(
-    <ArticleNavigationProvider>
+    <ArticleNavigationProvider
+      overlay={{ slug: "first", entry: "intercepted", dismiss: "history" }}
+    >
       <Sequence value={{ slugs, hasMore, loading: false, loadMore }}>
-        <ArticleModal>
+        <ArticleModal active slug="first">
           <h1>First</h1>
           <input aria-label="Search topics" />
         </ArticleModal>
@@ -201,17 +219,17 @@ it("loads the next feed page before navigating and does not reopen a dismissed p
 });
 it("keeps the original direct-route modal hidden when navigation returns to its slug", () => {
   render(
-    <ArticleNavigationProvider>
+    <ArticleNavigationProvider overlay={{ slug: "first", entry: "intercepted", dismiss: "feed" }}>
       <ArticleModal direct slug="first">
         Original direct preview
       </ArticleModal>
-      <ArticleModal>Routed preview</ArticleModal>
+      <ArticleModal slug="first">Routed preview</ArticleModal>
     </ArticleNavigationProvider>,
   );
   expect(screen.getAllByRole("dialog")).toHaveLength(1);
   expect(screen.queryByText("Original direct preview")).toBeNull();
   fireEvent.click(screen.getByRole("button", { name: "Close preview" }));
-  expect(replace).toHaveBeenCalledWith("/");
+  expect(replace).toHaveBeenCalledWith("/", { scroll: true });
 });
 
 it("updates the intercepted article canonical and restores the retained feed on close", () => {
@@ -221,12 +239,16 @@ it("updates the intercepted article canonical and restores the retained feed on 
   document.head.append(link);
   try {
     const view = render(
-      <ArticleModal canonical="https://devfeed.tech/articles/first">Preview</ArticleModal>,
+      <ArticleModal active slug="first" canonical="https://devfeed.tech/articles/first">
+        Preview
+      </ArticleModal>,
     );
     expect(document.head.querySelectorAll('link[rel="canonical"]')).toHaveLength(1);
     expect(link.href).toBe("https://devfeed.tech/articles/first");
     view.rerender(
-      <ArticleModal canonical="https://devfeed.tech/articles/second">Preview</ArticleModal>,
+      <ArticleModal active slug="first" canonical="https://devfeed.tech/articles/second">
+        Preview
+      </ArticleModal>,
     );
     expect(link.href).toBe("https://devfeed.tech/articles/second");
     view.unmount();
@@ -253,7 +275,11 @@ it("dismisses once after the exit animation, and never navigates after unmount",
         cancel,
       }) as unknown as Animation,
   );
-  const view = render(<ArticleModal>Preview</ArticleModal>);
+  const view = render(
+    <ArticleModal active slug="first">
+      Preview
+    </ArticleModal>,
+  );
   fireEvent.click(screen.getByRole("button", { name: "Close preview" }));
   fireEvent.click(screen.getByRole("button", { name: "Close preview" }));
   expect(back).not.toHaveBeenCalled();
@@ -261,7 +287,11 @@ it("dismisses once after the exit animation, and never navigates after unmount",
   expect(back).toHaveBeenCalledOnce();
   view.unmount();
   back.mockClear();
-  const second = render(<ArticleModal>Preview</ArticleModal>);
+  const second = render(
+    <ArticleModal active slug="first">
+      Preview
+    </ArticleModal>,
+  );
   fireEvent.click(screen.getByRole("button", { name: "Close preview" }));
   second.unmount();
   await act(async () => finish());
@@ -270,11 +300,19 @@ it("dismisses once after the exit animation, and never navigates after unmount",
 });
 
 it("renders direct-entry content visibly in server HTML without opening intercepted previews", () => {
-  const direct = renderToString(<ArticleModal direct>Early summary</ArticleModal>);
+  const direct = renderToString(
+    <ArticleModal active direct slug="first">
+      Early summary
+    </ArticleModal>,
+  );
   expect(direct).toContain('open=""');
   expect(direct).toContain('data-direct-entry="true"');
   expect(direct).toContain("Early summary");
-  const intercepted = renderToString(<ArticleModal>Intercepted summary</ArticleModal>);
+  const intercepted = renderToString(
+    <ArticleModal active slug="first">
+      Intercepted summary
+    </ArticleModal>,
+  );
   expect(intercepted).not.toContain('open=""');
 });
 
@@ -287,7 +325,11 @@ it("upgrades the server-open direct dialog without an opacity entrance animation
     expect(this.open).toBe(false);
     this.setAttribute("open", "");
   });
-  render(<ArticleModal direct>Early summary</ArticleModal>);
+  render(
+    <ArticleModal active direct slug="first">
+      Early summary
+    </ArticleModal>,
+  );
   expect(show).toHaveBeenCalledOnce();
   expect(animate).not.toHaveBeenCalled();
   expect(document.querySelector("dialog[open]")).toBeTruthy();
@@ -303,7 +345,11 @@ it("keeps a parser-opened native dialog open throughout hydration", () => {
   });
   const show = vi.spyOn(HTMLDialogElement.prototype, "showModal");
   const close = vi.spyOn(HTMLDialogElement.prototype, "close");
-  render(<ArticleModal direct>Early summary</ArticleModal>);
+  render(
+    <ArticleModal active direct slug="first">
+      Early summary
+    </ArticleModal>,
+  );
   expect(show).not.toHaveBeenCalled();
   expect(close).not.toHaveBeenCalled();
   expect(document.querySelector("dialog")?.dataset.hydrated).toBe("true");
@@ -317,7 +363,11 @@ it("publishes only a loaded foreground article and restores the retained page on
   function Page({ article, preview = true }: { article?: ArticleIdentity; preview?: boolean }) {
     return (
       <ReaderContextProvider>
-        {preview && <ArticleModal article={article}>Preview</ArticleModal>}
+        {preview && (
+          <ArticleModal active slug="first" article={article}>
+            Preview
+          </ArticleModal>
+        )}
         <ReaderSurface promptEligibility={readerPromptPolicies.browsing} />
         <ReaderState />
       </ReaderContextProvider>
@@ -351,11 +401,13 @@ it("publishes only a loaded foreground article and restores the retained page on
 it("keeps a hidden direct-entry article out of reader context while a routed preview is active", () => {
   render(
     <ReaderContextProvider>
-      <ArticleNavigationProvider>
+      <ArticleNavigationProvider overlay={{ slug: "first", entry: "intercepted", dismiss: "feed" }}>
         <ArticleModal direct slug="first" article={{ id: "original-id", slug: "first" }}>
           Original direct preview
         </ArticleModal>
-        <ArticleModal article={{ id: "routed-id", slug: "first" }}>Routed preview</ArticleModal>
+        <ArticleModal slug="first" article={{ id: "routed-id", slug: "first" }}>
+          Routed preview
+        </ArticleModal>
         <ReaderState />
       </ArticleNavigationProvider>
     </ReaderContextProvider>,
@@ -365,4 +417,221 @@ it("keeps a hidden direct-entry article out of reader context while a routed pre
     currentArticle: { id: "routed-id", slug: "first" },
     promptEligibility: readerPromptPolicies.quiet,
   });
+});
+
+it("selects one overlay from framework slots through direct, intercepted, Back and Forward entries", () => {
+  function Page() {
+    return (
+      <ReaderContextProvider>
+        <WebArticleNavigationProvider>
+          <ArticleModal direct slug="first" article={{ id: "first-id", slug: "first" }}>
+            Original direct preview
+          </ArticleModal>
+          <ArticleModal
+            article={
+              slots.modal.length ? { id: "routed-id", slug: slots.modal.at(-1)! } : undefined
+            }
+          >
+            Routed preview
+          </ArticleModal>
+          <ReaderState />
+        </WebArticleNavigationProvider>
+      </ReaderContextProvider>
+    );
+  }
+  slots.page = ["(reader)", "articles", "first"];
+  const view = render(<Page />);
+  expect(screen.getAllByRole("dialog")).toHaveLength(1);
+  expect(screen.getByText("Original direct preview")).toBeTruthy();
+  slots.modal = ["(__SLOT__)", "(.)articles", "second"];
+  view.rerender(<Page />);
+  expect(screen.getAllByRole("dialog")).toHaveLength(1);
+  expect(screen.queryByText("Original direct preview")).toBeNull();
+  expect(
+    JSON.parse(screen.getByTestId("reader-state").textContent ?? "null").currentArticle,
+  ).toEqual({
+    id: "routed-id",
+    slug: "second",
+  });
+  slots.modal = ["(__SLOT__)", "(.)articles", "first"];
+  view.rerender(<Page />);
+  expect(screen.getAllByRole("dialog")).toHaveLength(1);
+  expect(screen.queryByText("Original direct preview")).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "Close preview" }));
+  expect(replace).toHaveBeenCalledWith("/", { scroll: true });
+  slots.modal = [];
+  view.rerender(<Page />);
+  expect(screen.getAllByRole("dialog")).toHaveLength(1);
+  expect(screen.getByText("Original direct preview")).toBeTruthy();
+  slots.modal = ["(__SLOT__)", "(.)articles", "second"];
+  view.rerender(<Page />);
+  expect(screen.getAllByRole("dialog")).toHaveLength(1);
+  slots.page = ["bookmarks"];
+  slots.modal = ["(__SLOT__)", "bookmarks"];
+  view.rerender(<Page />);
+  expect(screen.queryByRole("dialog")).toBeNull();
+  expect(document.body.style.overflow).toBe("");
+});
+
+it("uses the requested overlay slug for navigation before an article loads or when it is unavailable", () => {
+  slots.page = ["topics", "python"];
+  slots.modal = ["(__SLOT__)", "(.)articles", "second"];
+  render(
+    <ReaderContextProvider>
+      <WebArticleNavigationProvider>
+        <Sequence
+          value={{
+            slugs: ["first", "second", "third"],
+            hasMore: false,
+            loading: false,
+            loadMore: async () => undefined,
+          }}
+        >
+          <ArticleModal>
+            <p>Article unavailable</p>
+          </ArticleModal>
+          <ReaderState />
+        </Sequence>
+      </WebArticleNavigationProvider>
+    </ReaderContextProvider>,
+  );
+  expect(
+    JSON.parse(screen.getByTestId("reader-state").textContent ?? "null").currentArticle,
+  ).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "Previous article" }));
+  expect(replace).toHaveBeenLastCalledWith("/articles/first", { scroll: false });
+  fireEvent.click(screen.getByRole("button", { name: "Next article" }));
+  expect(replace).toHaveBeenLastCalledWith("/articles/third", { scroll: false });
+  fireEvent.click(screen.getByRole("button", { name: "Close preview" }));
+  expect(back).toHaveBeenCalledOnce();
+});
+
+it("does not activate an unregistered article overlay", () => {
+  render(<ArticleModal slug="first">Retained article</ArticleModal>);
+  expect(screen.queryByRole("dialog")).toBeNull();
+  expect(document.body.style.overflow).toBe("");
+});
+
+it("does not treat an article word inside another registered route as an article overlay", () => {
+  slots.page = ["(reader)", "tags", "articles", "tutorials"];
+  slots.modal = ["(__SLOT__)", "tags/articles/tutorials"];
+  render(
+    <WebArticleNavigationProvider>
+      <ArticleModal direct>Retained direct article</ArticleModal>
+      <ArticleModal>Retained intercepted article</ArticleModal>
+    </WebArticleNavigationProvider>,
+  );
+  expect(screen.queryByRole("dialog")).toBeNull();
+  expect(document.body.style.overflow).toBe("");
+});
+
+it("invalidates a pending next-page move when the retained dialog receives another requested article", async () => {
+  let finish!: (slug: string) => void;
+  const loadMore = vi.fn(
+    () =>
+      new Promise<string>((resolve) => {
+        finish = resolve;
+      }),
+  );
+  const sequence = { slugs: ["first", "second"], hasMore: true, loading: false, loadMore };
+  function Page({ slug }: { slug: string }) {
+    return (
+      <ArticleNavigationProvider overlay={{ slug, entry: "intercepted", dismiss: "history" }}>
+        <Sequence value={sequence}>
+          <ArticleModal slug={slug}>Requested article</ArticleModal>
+        </Sequence>
+      </ArticleNavigationProvider>
+    );
+  }
+  const view = render(<Page slug="second" />);
+  fireEvent.click(screen.getByRole("button", { name: "Next article" }));
+  expect(loadMore).toHaveBeenCalledOnce();
+  view.rerender(<Page slug="first" />);
+  expect(screen.getByRole("button", { name: "Next article" }).hasAttribute("disabled")).toBe(false);
+  await act(async () => finish("third"));
+  expect(replace).not.toHaveBeenCalled();
+});
+
+it("cancels an unfinished dismissal when the retained dialog receives another requested article", async () => {
+  vi.useFakeTimers();
+  const animations: { finish: () => void; cancel: ReturnType<typeof vi.fn> }[] = [];
+  Object.defineProperty(Element.prototype, "animate", {
+    configurable: true,
+    value: () => {
+      let finish!: () => void;
+      const finished = new Promise<void>((resolve) => {
+        finish = resolve;
+      });
+      const cancel = vi.fn();
+      animations.push({ finish, cancel });
+      return { finished, cancel };
+    },
+  });
+  const show = vi.spyOn(HTMLDialogElement.prototype, "showModal");
+  const close = vi.spyOn(HTMLDialogElement.prototype, "close");
+  try {
+    const view = render(
+      <ArticleModal active slug="first">
+        First article
+      </ArticleModal>,
+    );
+    const element = screen.getByRole("dialog");
+    fireEvent.click(screen.getByRole("button", { name: "Close preview" }));
+    const staleExit = animations.at(-1)!;
+    expect(element.dataset.closing).toBe("true");
+    view.rerender(
+      <ArticleModal active slug="second">
+        Second article
+      </ArticleModal>,
+    );
+    expect(screen.getByRole("dialog")).toBe(element);
+    expect(staleExit.cancel).toHaveBeenCalledOnce();
+    expect(element.dataset.closing).toBeUndefined();
+    expect(show).toHaveBeenCalledOnce();
+    expect(close).not.toHaveBeenCalled();
+    await act(async () => {
+      staleExit.finish();
+      await vi.advanceTimersByTimeAsync(200);
+    });
+    expect(back).not.toHaveBeenCalled();
+    expect(document.body.style.overflow).toBe("hidden");
+    expect(document.querySelector("dialog[open]")).toBe(element);
+    fireEvent.click(screen.getByRole("button", { name: "Close preview" }));
+    const currentExit = animations.at(-1)!;
+    expect(currentExit).not.toBe(staleExit);
+    await act(async () => currentExit.finish());
+    expect(back).toHaveBeenCalledOnce();
+    expect(document.querySelector("dialog[open]")).toBeNull();
+    expect(document.body.style.overflow).toBe("");
+  } finally {
+    vi.useRealTimers();
+  }
+});
+
+it("resets preview scroll for requested article changes rather than article loading", () => {
+  const scroll = vi.fn();
+  Object.defineProperty(HTMLElement.prototype, "scrollTo", { configurable: true, value: scroll });
+  try {
+    const view = render(
+      <ArticleModal active slug="first">
+        <div className="preview-scroll" />
+      </ArticleModal>,
+    );
+    expect(scroll).toHaveBeenCalledOnce();
+    view.rerender(
+      <ArticleModal active slug="first" article={{ id: "first-id", slug: "first" }}>
+        <div className="preview-scroll" />
+      </ArticleModal>,
+    );
+    expect(scroll).toHaveBeenCalledOnce();
+    view.rerender(
+      <ArticleModal active slug="second">
+        <div className="preview-scroll" />
+      </ArticleModal>,
+    );
+    expect(scroll).toHaveBeenCalledTimes(2);
+    expect(scroll).toHaveBeenLastCalledWith({ top: 0 });
+  } finally {
+    Reflect.deleteProperty(HTMLElement.prototype, "scrollTo");
+  }
 });

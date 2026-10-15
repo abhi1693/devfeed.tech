@@ -15,39 +15,39 @@ export type ArticleSequence = {
   loading: boolean;
   loadMore: () => Promise<string | undefined>;
 };
+export type ArticleOverlay = {
+  slug: string;
+  entry: "direct" | "intercepted";
+  dismiss: "feed" | "history";
+};
 const Context = createContext<{
   motionRef: RefObject<{ target: string; direction: -1 | 1; at: number } | null>;
   sequence: ArticleSequence | null;
   setSequence: Dispatch<SetStateAction<ArticleSequence | null>>;
-  hideDirect: boolean;
-  setHideDirect: Dispatch<SetStateAction<boolean>>;
-  directEntry: boolean;
-  setDirectEntry: Dispatch<SetStateAction<boolean>>;
+  overlay: ArticleOverlay | null;
 }>({
   motionRef: { current: null },
   sequence: null,
   setSequence: () => {},
-  hideDirect: false,
-  setHideDirect: () => {},
-  directEntry: false,
-  setDirectEntry: () => {},
+  overlay: null,
 });
 export const useArticleNavigation = () => useContext(Context);
-export function ArticleNavigationProvider({ children }: { children: React.ReactNode }) {
+export function ArticleNavigationProvider({
+  children,
+  overlay = null,
+}: {
+  children: React.ReactNode;
+  overlay?: ArticleOverlay | null;
+}) {
   const motionRef = useRef<{ target: string; direction: -1 | 1; at: number } | null>(null);
   const [sequence, setSequence] = useState<ArticleSequence | null>(null);
-  const [hideDirect, setHideDirect] = useState(false);
-  const [directEntry, setDirectEntry] = useState(false);
   return (
     <Context.Provider
       value={{
         motionRef,
         sequence,
         setSequence,
-        directEntry,
-        setDirectEntry,
-        hideDirect,
-        setHideDirect,
+        overlay,
       }}
     >
       {children}

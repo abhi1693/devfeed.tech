@@ -39,6 +39,10 @@ import {
   readerContextFixture,
 } from "../../../../scripts/testing/reader-context.mjs";
 import {
+  checkReaderDestinations,
+  readerDestinationsFixture,
+} from "../../../../scripts/testing/reader-destinations.mjs";
+import {
   engagementFeed,
   engagementRows,
   checkEngagementPagination,
@@ -106,6 +110,7 @@ const mutationFixture = userMutationFixture({ articles: [article], topic });
 const routeFixture = readerRoutesFixture(article);
 const feedMode = feedModeFixture(article);
 const readerContext = readerContextFixture(article);
+const readerDestinations = readerDestinationsFixture(article);
 let mode = "ready";
 const defaultAllRequests = [];
 let compactArticles = false;
@@ -129,6 +134,19 @@ let rejectSourceFollow = true;
 const fixture = createServer(async (req, res) => {
   const requestUrl = new URL(req.url, "http://localhost");
   const path = requestUrl.pathname;
+  if (readerDestinations.handles(requestUrl)) {
+    const chunks = [];
+    for await (const chunk of req) chunks.push(chunk);
+    const response = await readerDestinations.respond(
+      requestUrl,
+      chunks.length ? JSON.parse(Buffer.concat(chunks).toString()) : undefined,
+    );
+    res.writeHead(response.status, {
+      "Content-Type": response.contentType ?? "application/json",
+    });
+    res.end(response.body ?? JSON.stringify(response.json));
+    return;
+  }
   if (readerContext.handles(requestUrl)) {
     const chunks = [];
     for await (const chunk of req) chunks.push(chunk);
@@ -563,6 +581,42 @@ async function runReaderChecks() {
     }
   }
   browser = await chromium.launch({ headless: true });
+  if (
+    ![
+      "DEVFEED_READER_CONTEXT_ONLY",
+      "DEVFEED_READER_FEED_MODE_ONLY",
+      "DEVFEED_READER_ROUTES_ONLY",
+      "DEVFEED_READER_THEME_ONLY",
+      "DEVFEED_READER_SIDEBAR_ONLY",
+      "DEVFEED_READER_MUTATIONS_ONLY",
+    ].some((flag) => process.env[flag] === "1")
+  ) {
+    const navigationContext = await browser.newContext({ reducedMotion: "reduce" });
+    try {
+      await mockManagedImages(navigationContext);
+      await mockSourceLogos(navigationContext);
+      const navigationPage = await navigationContext.newPage();
+      const errors = [];
+      navigationPage.on("pageerror", (error) => errors.push(error.message));
+      navigationPage.on("console", (message) => {
+        if (message.type() === "error" && /Content Security Policy|Refused to/.test(message.text()))
+          errors.push(message.text());
+      });
+      await checkReaderDestinations(
+        navigationPage,
+        (path) => origin + path,
+        readerDestinations,
+        `${root}/reports/reader-destinations/web`,
+      );
+      assert.deepEqual(errors, []);
+    } finally {
+      await navigationContext.close();
+    }
+  }
+  if (process.env.DEVFEED_READER_NAVIGATION_ONLY === "1") {
+    console.log("Typed navigation passed against the production web bundle.");
+    return;
+  }
   if (
     ![
       "DEVFEED_READER_FEED_MODE_ONLY",

@@ -2,6 +2,12 @@
 import assert from "node:assert/strict";
 import { it as test, vi } from "vitest";
 import { startHistoryScroll, saveHistoryScroll } from "@/lib/history-scroll";
+import { pageDestination } from "@/lib/reader-destination";
+
+const navigationState = {
+  kind: "page",
+  destination: pageDestination("/latest?language=fr"),
+};
 
 function fixture(navigation = "navigate", position: unknown = [0, 650]) {
   vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
@@ -18,7 +24,7 @@ function fixture(navigation = "navigate", position: unknown = [0, 650]) {
   });
   const history = {
     state: {
-      readerBackground: "/latest?language=fr",
+      readerNavigation: navigationState,
       ...(navigation !== "navigate" ? { readerScroll: position } : {}),
     } as Record<string, unknown>,
     scrollRestoration: "auto",
@@ -81,7 +87,7 @@ function fixture(navigation = "navigate", position: unknown = [0, 650]) {
 test("restores entry coordinates after asynchronous content grows without storing reader data", () => {
   const f = fixture();
   try {
-    f.history.state = { readerBackground: "/latest?language=fr", readerScroll: [0, 650] };
+    f.history.state = { readerNavigation: navigationState, readerScroll: [0, 650] };
     f.window.dispatchEvent(new Event("popstate"));
     f.tick();
     f.tick();
@@ -98,7 +104,7 @@ test("restores entry coordinates after asynchronous content grows without storin
     f.window.scrollY = 900;
     saveHistoryScroll();
     assert.deepEqual(f.history.state, {
-      readerBackground: "/latest?language=fr",
+      readerNavigation: navigationState,
       readerScroll: [0, 900],
     });
   } finally {
@@ -173,7 +179,7 @@ test("bounds history writes during sustained scrolling and saves the latest posi
     vi.advanceTimersByTime(500);
     assert.ok(writes.mock.calls.length <= 20);
     assert.deepEqual(f.history.state, {
-      readerBackground: "/latest?language=fr",
+      readerNavigation: navigationState,
       readerScroll: [0, 1000],
     });
     f.window.dispatchEvent(new Event("scroll"));

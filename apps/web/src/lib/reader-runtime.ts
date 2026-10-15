@@ -1,6 +1,7 @@
 // The website uses its own origin and fetch. Bundled clients supply their transport
 // once at startup; presentation components stay identical on both platforms.
 import type { Article } from "./types";
+import type { ReaderDestination, ReaderNavigationMode } from "./reader-destination";
 
 type ReaderRuntime = {
   request: typeof fetch;
@@ -9,6 +10,8 @@ type ReaderRuntime = {
   signedOut?: () => void;
   reload?: (href: string) => void;
   rememberArticles?: (articles: Article[]) => void;
+  navigate?: (destination: ReaderDestination, mode: ReaderNavigationMode) => void;
+  destinationHref?: (destination: ReaderDestination) => string;
 };
 
 let runtime: ReaderRuntime | undefined;
@@ -26,6 +29,16 @@ export function readerPublicOrigin() {
 
 export function readerLocation() {
   return runtime?.location?.() ?? new URL(window.location.href);
+}
+
+export function readerNavigate(destination: ReaderDestination, mode: ReaderNavigationMode) {
+  if (!runtime?.navigate) return false;
+  runtime.navigate(destination, mode);
+  return true;
+}
+
+export function readerDestinationHref(destination: ReaderDestination) {
+  return runtime?.destinationHref?.(destination) ?? destination.href;
 }
 
 export function readerSignedOut() {

@@ -126,3 +126,38 @@ it("also recovers programmatic navigation from search and notifications", () => 
   act(() => vi.advanceTimersByTime(10_000));
   expect(reload).toHaveBeenCalledExactlyOnceWith("/sources");
 });
+
+it("uses typed destinations for identity and declared scroll behavior", async () => {
+  const { articleDestination, pageDestination } = await import("@/lib/reader-destination");
+  function Navigation() {
+    const router = useReaderRouter();
+    return (
+      <>
+        <button onClick={() => router.push(articleDestination("rust"))}>Open article</button>
+        <button onClick={() => router.replace(pageDestination("/settings/notifications"))}>
+          Open settings
+        </button>
+      </>
+    );
+  }
+  render(<Navigation />);
+  fireEvent.click(screen.getByRole("button", { name: "Open article" }));
+  expect(route.push).toHaveBeenCalledWith("/articles/rust", { scroll: false });
+  fireEvent.click(screen.getByRole("button", { name: "Open settings" }));
+  expect(route.replace).toHaveBeenCalledWith("/settings/notifications", { scroll: true });
+});
+
+it("passes typed destinations directly to an embedded reader adapter", async () => {
+  const { articleDestination } = await import("@/lib/reader-destination");
+  const destination = articleDestination("rust");
+  const navigate = vi.fn();
+  configureReaderRuntime({ request: fetch, publicOrigin: location.origin, navigate });
+  function Navigation() {
+    const router = useReaderRouter();
+    return <button onClick={() => router.push(destination)}>Open article</button>;
+  }
+  render(<Navigation />);
+  fireEvent.click(screen.getByRole("button", { name: "Open article" }));
+  expect(navigate).toHaveBeenCalledExactlyOnceWith(destination, "push");
+  expect(route.push).not.toHaveBeenCalled();
+});

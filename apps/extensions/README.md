@@ -23,6 +23,13 @@ Article previews retain the current feed, saved articles, or search results unde
 them. Opening, navigating, and closing a preview keeps the loaded list in place without
 reloading the background page.
 
+Navigation carries typed page or article destinations with explicit scroll policy.
+Article overlays receive the requested slug and entry/dismissal state independently of
+loaded content. Extension history records the validated background destination;
+opening an article from a notification retains the contextual page and reading position.
+Notification settings links use the reader's native web or local hash destination and
+reset scroll when moving to settings.
+
 Web collection pages and both extensions share route validation in
 `apps/web/src/lib/reader-routes.ts`. An absent content suffix selects All; an unknown
 suffix or route shows the shared missing page before catalog or feed requests.
@@ -183,6 +190,11 @@ and signed-in feed-mode checks, placement request policies, and preview retentio
 
 Use `DEVFEED_READER_CONTEXT_ONLY=1` to check loaded-article visit counting, prompt
 suppression, manual Must Reads, and deferred presentation claims in all three runtimes.
+
+Use `DEVFEED_READER_NAVIGATION_ONLY=1` for typed navigation and overlay checks:
+scrolled feeds, sequential previews, Back/Forward replay, direct and failed article
+entries, inbox article actions, and native settings links. Screenshots stay under
+ignored `reports/reader-destinations/`.
 
 ## Validate and package
 

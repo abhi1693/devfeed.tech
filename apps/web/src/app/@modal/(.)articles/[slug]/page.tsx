@@ -11,7 +11,7 @@ export default async function Preview({ params }: { params: Promise<{ slug: stri
   const article = await loadArticle(slug);
   if (!article)
     return (
-      <ArticleModal>
+      <ArticleModal slug={slug}>
         <ArticleUnavailable>
           <RetryFeed />
         </ArticleUnavailable>
@@ -19,6 +19,7 @@ export default async function Preview({ params }: { params: Promise<{ slug: stri
     );
   return (
     <ArticleModal
+      slug={slug}
       article={{ id: article.id, slug: article.slug }}
       canonical={canonicalUrl(`/articles/${encodeURIComponent(article.slug)}`)}
     >
