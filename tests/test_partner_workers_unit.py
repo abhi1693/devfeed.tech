@@ -88,9 +88,12 @@ def test_evaluation_rejects_stale_or_unowned_results(monkeypatch, mode):
 @pytest.mark.parametrize("enabled,failed", [(False, False), (True, False), (True, True)])
 def test_evaluation_dispatch_closes_queue_even_on_delivery_failure(monkeypatch, enabled, failed):
     session, queue = Mock(), Mock()
+    queue.count = 0
     job = leased_job()
-    session.scalars.return_value.all.return_value = [job]
-    monkeypatch.setattr(evaluations, "get_settings", lambda: NS(ai_enabled=enabled))
+    session.scalars.side_effect = [NS(all=lambda: [job]), NS(all=lambda: [])]
+    monkeypatch.setattr(
+        evaluations, "get_settings", lambda: NS(ai_enabled=enabled, scheduler_batch_size=100)
+    )
     monkeypatch.setattr(evaluations, "get_queue", lambda _: queue)
     monkeypatch.setattr(evaluations, "lock_catalog", Mock())
     if failed:
@@ -203,11 +206,19 @@ def test_pipeline_routes_api_work_to_standard_worker_and_closes_queue(
     monkeypatch, operation, enabled, failed
 ):
     session, queue = Mock(), Mock()
+    queue.count = 0
     job = leased_job(operation=operation)
-    session.scalars.return_value.all.return_value = [job]
+    session.scalars.side_effect = [
+        NS(all=lambda: [] if operation == "assess" else [job]),
+        NS(all=lambda: []),
+        NS(all=lambda: [job] if operation == "assess" else []),
+        NS(all=lambda: []),
+    ]
     monkeypatch.setattr(pipeline, "schedule_partner_syncs", Mock())
     monkeypatch.setattr(pipeline, "lock_catalog", Mock())
-    monkeypatch.setattr(pipeline, "get_settings", lambda: NS(ai_enabled=enabled))
+    monkeypatch.setattr(
+        pipeline, "get_settings", lambda: NS(ai_enabled=enabled, scheduler_batch_size=100)
+    )
     lookup = Mock(return_value=queue)
     monkeypatch.setattr(pipeline, "get_queue", lookup)
     if failed:
@@ -219,9 +230,11 @@ def test_pipeline_routes_api_work_to_standard_worker_and_closes_queue(
         assert pipeline.dispatch_partner_pipeline(transaction_factory(session)) == 1
         assert job.dispatched_at is not None
     expected = "source-analysis" if operation == "assess" else "ingestion"
-    lookup.assert_called_once_with(expected)
+    assert [call.args[0] for call in lookup.call_args_list] == ["ingestion"] + (
+        ["source-analysis"] if enabled else []
+    )
     assert expected in queue.enqueue.call_args.kwargs["job_id"]
-    queue.connection.close.assert_called_once()
+    assert queue.connection.close.call_count == 1 + int(enabled)
 
 
 @pytest.mark.parametrize("created", [False, True])

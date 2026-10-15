@@ -35,6 +35,7 @@ from devfeed_core.version import __version__
 from sqlalchemy import select
 
 from devfeed_aggregator.discovery_tasks import dispatch_discovery
+from devfeed_aggregator.partner_dispatcher import partner_dispatcher
 from devfeed_aggregator.partner_sync_tasks import dispatch_partner_pipeline
 from devfeed_aggregator.partner_tasks import dispatch_partner_evaluations
 from devfeed_aggregator.queue import get_queue
@@ -206,8 +207,8 @@ def _tick() -> dict[str, int]:
     now = utcnow()  # Include jobs created during the scheduling transaction above.
     try:
         dispatch_discovery(factory, min(batch, 10))
-        dispatch_partner_pipeline(factory)
-        dispatch_partner_evaluations(factory)
+        partner_pipeline_dispatched = dispatch_partner_pipeline(factory, limit=batch)
+        partner_evaluations_dispatched = dispatch_partner_evaluations(factory, limit=batch)
         try:
             sync_partner_promotions(factory)
             refresh_partner_matches(factory)
@@ -292,6 +293,8 @@ def _tick() -> dict[str, int]:
         **automation,
         "recommendation_users_queued": recommendation_users_queued,
         "recommendations_dispatched": recommendations_dispatched,
+        "partner_pipeline_dispatched": partner_pipeline_dispatched,
+        "partner_evaluations_dispatched": partner_evaluations_dispatched,
         "scheduled": scheduled,
         "dispatched": dispatched,
         "recovered": recovered,
@@ -367,6 +370,7 @@ def run() -> None:
             with (
                 scheduler_health() as health,
                 recommendation_dispatcher(session_factory(), get_queue),
+                partner_dispatcher(session_factory()),
                 sitemap_refresher(),
             ):
                 while not stop.is_set():

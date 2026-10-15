@@ -43,6 +43,7 @@ from sqlalchemy import and_, func, or_, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import aliased
 
+from devfeed_aggregator.partner_outbox import PartnerOutbox
 from devfeed_aggregator.queue import get_queue
 
 logger = logging.getLogger(__name__)
@@ -605,22 +606,21 @@ def schedule_partner_syncs(factory):
             )
 
 
-def dispatch_partner_pipeline(factory, limit=2):
-    schedule_partner_syncs(factory)
+def dispatch_partner_pipeline(factory, limit=None, *, schedule=True):
+    if limit is not None and limit < 1:
+        raise ValueError("Partner dispatch limit must be positive")
+    if schedule:
+        schedule_partner_syncs(factory)
     now, dispatched = utcnow(), 0
-    with factory.begin() as session:
-        lock_catalog(session)
-        statement = select(PartnerPipelineJob).where(
+    child = aliased(PartnerPipelineJob)
+    statement = (
+        select(PartnerPipelineJob)
+        .where(
             runnable(now),
             or_(
                 PartnerPipelineJob.dispatched_at.is_(None),
                 PartnerPipelineJob.dispatched_at < now - timedelta(seconds=60),
             ),
-        )
-        if not get_settings().ai_enabled:
-            statement = statement.where(PartnerPipelineJob.operation.in_(["sync", "sync_product"]))
-        child = aliased(PartnerPipelineJob)
-        statement = statement.where(
             ~(
                 (PartnerPipelineJob.operation == "sync")
                 & PartnerPipelineJob.payload["discovery_complete"].astext.is_not_distinct_from(
@@ -632,42 +632,45 @@ def dispatch_partner_pipeline(factory, limit=2):
                     child.status.in_(["queued", "running"]),
                 )
                 .exists()
-            )
+            ),
         )
-        jobs = session.scalars(
-            statement.order_by(PartnerPipelineJob.created_at)
-            .limit(limit)
-            .with_for_update(skip_locked=True)
-        ).all()
-        for job in jobs:
-            # API ingestion must run with the standard background worker. Source
-            # discovery has an optional dedicated worker excluded from that group.
-            queue_name = "ingestion" if job.operation != "assess" else "source-analysis"
-            queue = get_queue(queue_name)
-            try:
-                queue.enqueue(
-                    "devfeed_aggregator.partner_sync_tasks.process_pipeline",
-                    str(job.id),
-                    # Include routing so a delivery stranded on the old optional
-                    # queue cannot suppress publication to the active worker.
-                    job_id=(
-                        f"partner-pipeline-{queue_name}-{job.id}-{job.payload.get('pages', 0)}-"
-                        f"{job.payload.get('finalize_batches', 0)}-{job.attempts}"
-                    ),
-                    unique=True,
-                    job_timeout=300,
-                    result_ttl=0,
-                    failure_ttl=60,
-                )
-                job.dispatched_at = now
-                dispatched += 1
-                logger.info(
-                    "partner_pipeline_dispatched",
-                    extra={
-                        **job_fields(job),
-                        "queue": queue_name,
-                    },
-                )
-            finally:
-                queue.connection.close()
+        .order_by(
+            PartnerPipelineJob.dispatched_at.asc().nulls_first(),
+            PartnerPipelineJob.available_at,
+            PartnerPipelineJob.created_at,
+            PartnerPipelineJob.id,
+        )
+    )
+    settings = get_settings()
+    outbox = PartnerOutbox(factory, get_queue, batch_size=settings.scheduler_batch_size, now=now)
+    lanes = [("ingestion", ["sync", "sync_product"])]
+    if settings.ai_enabled:
+        lanes.append(("source-analysis", ["assess"]))
+    error = None
+    for queue_name, operations in lanes:
+
+        def delivery_id(job: PartnerPipelineJob, queue_name: str = queue_name) -> str:
+            # Routing keeps an old optional-queue delivery from suppressing active workers.
+            return (
+                f"partner-pipeline-{queue_name}-{job.id}-{job.payload.get('pages', 0)}-"
+                f"{job.payload.get('finalize_batches', 0)}-{job.attempts}"
+            )
+
+        try:
+            dispatched += outbox.publish(
+                queue_name,
+                statement.where(PartnerPipelineJob.operation.in_(operations)),
+                model=PartnerPipelineJob,
+                limit=limit,
+                handler="devfeed_aggregator.partner_sync_tasks.process_pipeline",
+                delivery_id=delivery_id,
+                event="partner_pipeline_dispatched",
+                fields=job_fields,
+            )
+        except Exception as exc:
+            # A broken network queue must not consume the AI lane's publication budget.
+            if error is None:
+                error = exc
+    if error is not None:
+        raise error
     return dispatched

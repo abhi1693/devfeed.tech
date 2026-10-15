@@ -19,6 +19,7 @@ from devfeed_core.partner_tools import (
 )
 from sqlalchemy import or_, select
 
+from devfeed_aggregator.partner_outbox import PartnerOutbox
 from devfeed_aggregator.queue import get_queue
 
 logger = logging.getLogger(__name__)
@@ -139,49 +140,41 @@ def _process_evaluation(job_id: str, *, factory=None, assessor=None):
             )
 
 
-def dispatch_partner_evaluations(factory, limit=2):
+def dispatch_partner_evaluations(factory, limit=None):
+    if limit is not None and limit < 1:
+        raise ValueError("Partner dispatch limit must be positive")
     if not get_settings().ai_enabled:
         return 0
     now = utcnow()
-    queue = get_queue("source-analysis")
-    dispatched = 0
-    try:
-        with factory.begin() as session:
-            lock_catalog(session)
-            jobs = session.scalars(
-                select(PartnerEvaluation)
-                .where(
-                    runnable(now),
-                    or_(
-                        PartnerEvaluation.dispatched_at.is_(None),
-                        PartnerEvaluation.dispatched_at < now - timedelta(seconds=60),
-                    ),
-                )
-                .order_by(PartnerEvaluation.created_at)
-                .limit(limit)
-                .with_for_update(skip_locked=True)
-            ).all()
-            for job in jobs:
-                queue.enqueue(
-                    "devfeed_aggregator.partner_tasks.process_evaluation",
-                    str(job.id),
-                    job_id=f"partner-evaluation-{job.id}-{job.attempts}",
-                    unique=True,
-                    job_timeout=300,
-                    result_ttl=0,
-                    failure_ttl=60,
-                )
-                job.dispatched_at = now
-                dispatched += 1
-                logger.info(
-                    "partner_evaluation_dispatched",
-                    extra={
-                        "job_kind": "partner-evaluation",
-                        "job_id": str(job.id),
-                        "product_id": str(job.product_id),
-                        "queue": "source-analysis",
-                    },
-                )
-    finally:
-        queue.connection.close()
-    return dispatched
+    statement = (
+        select(PartnerEvaluation)
+        .where(
+            runnable(now),
+            or_(
+                PartnerEvaluation.dispatched_at.is_(None),
+                PartnerEvaluation.dispatched_at < now - timedelta(seconds=60),
+            ),
+        )
+        .order_by(
+            PartnerEvaluation.dispatched_at.asc().nulls_first(),
+            PartnerEvaluation.available_at,
+            PartnerEvaluation.created_at,
+            PartnerEvaluation.id,
+        )
+    )
+    return PartnerOutbox(
+        factory, get_queue, batch_size=get_settings().scheduler_batch_size, now=now
+    ).publish(
+        "source-analysis",
+        statement,
+        model=PartnerEvaluation,
+        limit=limit,
+        handler="devfeed_aggregator.partner_tasks.process_evaluation",
+        delivery_id=lambda job: f"partner-evaluation-{job.id}-{job.attempts}",
+        event="partner_evaluation_dispatched",
+        fields=lambda job: {
+            "job_kind": "partner-evaluation",
+            "job_id": str(job.id),
+            "product_id": str(job.product_id),
+        },
+    )

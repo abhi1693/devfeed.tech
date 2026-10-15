@@ -239,6 +239,8 @@ def test_tick_dispatches_outside_transactions_and_preserves_cleanup(monkeypatch,
         )
     assert prune.call_count == int(mode != "overview-failed")
     partner_retention.assert_called_once_with(factory)
+    scheduler.dispatch_partner_pipeline.assert_called_once_with(factory, limit=5)
+    scheduler.dispatch_partner_evaluations.assert_called_once_with(factory, limit=5)
     promotions.assert_called_once_with(factory)
     if mode != "partner-promotion-failed":
         scheduler.refresh_partner_matches.assert_called_once_with(factory)
@@ -264,6 +266,7 @@ def test_scheduler_heartbeat_only_advances_after_successful_cycles(
     monkeypatch.setattr(scheduler, "scheduler_health", health_context)
     monkeypatch.setattr(scheduler, "session_factory", Mock())
     monkeypatch.setattr(scheduler, "recommendation_dispatcher", lambda *_: nullcontext())
+    monkeypatch.setattr(scheduler, "partner_dispatcher", lambda *_: nullcontext())
     monkeypatch.setattr(scheduler, "sitemap_refresher", lambda: nullcontext())
 
     def tick():

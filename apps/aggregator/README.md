@@ -45,6 +45,28 @@ separate scheduling and queue delays from computation; they are not a promised
 user-facing ETA. End-to-end production latency still requires observing these
 logs alongside browser requests after deployment.
 
+## Partner catalog processing
+
+A separate one-second dispatcher refills partner import, qualification and evaluation work
+without waiting for the main scheduler's ingestion cycle. Each physical queue has its own
+`DEVFEED_SCHEDULER_BATCH_SIZE` publication budget (100 by default). Partner publication pauses
+when a queue has two batches waiting and resumes as workers consume them; other publishers
+can also add work to these shared queues. Worker concurrency controls actual execution.
+
+Qualification and evaluation alternate first access to their shared analysis queue. Each
+refill reserves a quarter of its slots for delivery recovery, with the rest for new work;
+either path can use the other's empty share. Redis connections are reused within a batch.
+Queue-specific publication locks and job row locks protect retries without holding the
+catalog lock during Redis I/O. Failed
+publication remains in the PostgreSQL outbox and unique delivery IDs prevent duplicate work.
+The main scheduler retains bounded dispatch as a fallback and schedules source imports and
+qualification renewal separately from the fast refill loop.
+
+`partner_pipeline_dispatched` and `partner_evaluations_dispatched` count fallback publication
+in scheduler tick logs; `partner_pipeline_refilled` and `partner_evaluation_refilled` report
+the independent dispatcher. These counts measure publication, not completed imports or a
+promised processing time for a large catalog.
+
 ## Managed publisher logos
 
 Publisher and topic logos share a guarded importer: bounded public-URL fetching,
