@@ -508,6 +508,57 @@ try {
     assert.notEqual(curves[0].stroke, curves[1].stroke);
     assert.ok(curves[1].dash, "Clicks retain their distinct dashed series");
     assert.ok(curves.every((curve) => curve.path && !curve.path.includes("NaN")));
+    const formats = report.getByRole("region", { name: "Format comparison", exact: true });
+    const controls = formats.getByRole("group", { name: "Format metric", exact: true });
+    const impressions = controls.getByRole("button", { name: "Impressions", exact: true });
+    const clicks = controls.getByRole("button", { name: "Clicks", exact: true });
+    await impressions.click();
+    const impressionShare = formats.getByRole("figure", {
+      name: "Impression share by format",
+      exact: true,
+    });
+    await impressionShare.locator(".recharts-pie-sector").nth(1).waitFor();
+    const legend = formats.getByRole("list", { name: "Format totals", exact: true });
+    await legend
+      .getByRole("listitem")
+      .filter({ hasText: "Feed" })
+      .getByText("66.7%", { exact: false })
+      .waitFor();
+    await clicks.focus();
+    await page.keyboard.press("Enter");
+    assert.equal(await clicks.getAttribute("aria-pressed"), "true");
+    const clickShare = formats.getByRole("figure", { name: "Click share by format", exact: true });
+    await clickShare.locator(".recharts-pie-sector").nth(1).waitFor();
+    await legend
+      .getByRole("listitem")
+      .filter({ hasText: "Feed" })
+      .getByText("40.0%", { exact: false })
+      .waitFor();
+    await legend
+      .getByRole("listitem")
+      .filter({ hasText: "Engagement" })
+      .getByText("6.00% CTR", { exact: false })
+      .waitFor();
+    await impressions.click();
+    const chartCards = await Promise.all(
+      ["Delivery trend", "Click-through trend", "Format comparison"].map((name) =>
+        report.getByRole("region", { name, exact: true }).boundingBox(),
+      ),
+    );
+    if (page.viewportSize().width >= 1280) {
+      assert.ok(
+        chartCards[1].x >= chartCards[0].x + chartCards[0].width &&
+          chartCards[2].x >= chartCards[1].x + chartCards[1].width &&
+          Math.abs(chartCards[0].y - chartCards[2].y) < 1,
+        "Admin shares the same delivery, CTR and format chart row",
+      );
+    } else {
+      assert.ok(
+        chartCards[1].y >= chartCards[0].y + chartCards[0].height &&
+          chartCards[2].y >= chartCards[1].y + chartCards[1].height,
+        "Admin charts stack in order on mobile",
+      );
+    }
     return report;
   }
   async function captureAccountPage(view) {
@@ -591,8 +642,8 @@ try {
                 "Policy summaries stack on mobile",
               );
               assert.ok(
-                layout.height < 2200,
-                "Mobile overview stays shorter than the2365px baseline",
+                layout.height < 2500,
+                `Mobile overview stays bounded with all three charts stacked (${layout.height}px)`,
               );
             }
           }

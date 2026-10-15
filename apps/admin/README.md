@@ -129,8 +129,9 @@ Screenshots: [desktop](screenshots/article-page-kind-desktop.png),
 
 Account pages have Overview, Performance, Products, Campaigns, Members and Settings sections.
 Overview shows measured delivery, compact promotion and audience summaries, and links to the
-relevant settings tab. Performance contains daily impression/click charts, CTR, CSV export and
-paginated placement records; reporting periods are preserved in the URL. Membership management
+relevant settings tab. Performance places delivery, CTR and format-share charts together, with a
+donut that switches between impressions and clicks while retaining counts and CTR in its legend.
+CSV export and paginated placement records preserve the reporting period in the URL. Membership management
 is separate from reporting. Account details load independently, so a failed report does not block
 settings, products or campaigns.
 

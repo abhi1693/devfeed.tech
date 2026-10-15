@@ -84,6 +84,9 @@ shared with the reader. The sign-in page retains its light partner palette.
 
 Delivery charts overlay impressions and clicks with labeled left and right scales, a shared
 tooltip and distinct line styles. Unmeasured days remain gaps in both series.
+Delivery, CTR and format performance share a three-chart row on wide screens and stack on mobile.
+The format donut switches between impression share and click share; its legend retains each
+measured format's count and CTR, including formats with zero clicks. Empty periods show no slices.
 Product placement settings can override the website's OG image with a public HTTPS image URL
 or a JPEG, PNG or WebP upload up to 5 MB. Select Custom image to use either option;
 Website image hides both controls and uses the default OG image.
@@ -104,7 +107,7 @@ Uploads use the existing `DEVFEED_IMAGE_STORAGE_*` settings and `DEVFEED_IMAGE_P
 Compose passes storage credentials only to the images worker and private upload APIs;
 frontends and the public reader API receive no storage credentials. The public image URL must
 use HTTPS. No additional upload environment variables are required.
-The dashboard keeps totals, delivery trends and the format breakdown together in a compact
+The dashboard keeps totals, delivery trends, CTR and the format breakdown together in a compact
 laptop layout. Related settings and import forms share desktop columns and stack on mobile.
 Forms use full pages. Headings, record panels, tables, controls and charts are imported directly
 from `@devfeed/ui` by both applications. Obsolete account-prefixed frontend routes are removed.

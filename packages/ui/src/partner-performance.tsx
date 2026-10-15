@@ -1,11 +1,22 @@
 "use client";
 
+import { useState } from "react";
 import Link from "next/link";
 import { Download, Eye, MousePointerClick, TrendingUp } from "lucide-react";
-import { CartesianGrid, Line, LineChart, Tooltip, XAxis, YAxis } from "recharts";
-import { ChartContainer, ChartTooltip } from "./chart";
+import {
+  CartesianGrid,
+  Cell,
+  Line,
+  LineChart,
+  Pie,
+  PieChart,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from "recharts";
+import { ChartContainer, ChartTooltip, DistributionTooltip } from "./chart";
 import { Button } from "./button";
-import { adFormatLabel } from "./advertising-formats";
+import { adFormatLabel, adFormats } from "./advertising-formats";
 import {
   metricCount,
   metricPercent,
@@ -204,6 +215,10 @@ function DeliveryTrend({ rows, compact }: { rows: PerformanceDay[]; compact: boo
   );
 }
 
+const formatColors = new Map<string, string>(
+  adFormats.map((format, index) => [format.value, `var(--chart-${index + 1})`]),
+);
+
 function FormatPerformance({
   data,
   compact = false,
@@ -211,37 +226,126 @@ function FormatPerformance({
   data: PerformanceReport;
   compact?: boolean;
 }) {
+  const [metric, setMetric] = useState<"impressions" | "clicks">("impressions");
   const measured = (data.format_totals ?? []).filter((row) => row.measured_days > 0);
-  const max = Math.max(1, ...measured.map((row) => row.impressions));
+  const formats = measured.map((row) => ({
+    ...row,
+    name: adFormatLabel(row.ad_format),
+    value: row[metric],
+    color: formatColors.get(row.ad_format) ?? "var(--chart-5)",
+  }));
+  const total = formats.reduce((sum, row) => sum + row.value, 0);
+  const slices = formats.filter((row) => row.value > 0);
+  const label = metric === "impressions" ? "Impression share by format" : "Click share by format";
   return (
     <section aria-label="Format comparison" className="min-w-0 rounded-lg border bg-card p-4">
-      <h3 className="text-sm font-semibold">Performance by format</h3>
-      <p className="mt-1 text-xs text-muted-foreground">Measured impressions, clicks and CTR</p>
-      {measured.length ? (
-        <ul
-          className={compact ? "mt-3 grid gap-3" : "mt-3 grid gap-3 sm:grid-cols-2 xl:grid-cols-4"}
+      <header className="mb-3 flex flex-wrap items-start justify-between gap-2">
+        <div>
+          <h3 className="text-sm font-semibold">Performance by format</h3>
+          <p className="mt-1 text-xs text-muted-foreground">Share of {metric}</p>
+        </div>
+        <div
+          role="group"
+          aria-label="Format metric"
+          className="inline-flex shrink-0 gap-0.5 rounded-md bg-muted p-0.5"
         >
-          {measured.map((row) => (
-            <li key={row.ad_format} className="min-w-0 space-y-1.5">
-              <div className="flex flex-wrap justify-between gap-x-4 gap-y-1 text-sm">
-                <span className="font-medium">{adFormatLabel(row.ad_format)}</span>
-                <span className="tabular-nums">{metricCount(row.impressions)} impressions</span>
-              </div>
-              <div className="h-2 overflow-hidden rounded-full bg-muted" aria-hidden="true">
-                <div
-                  className="h-full rounded-full bg-[var(--chart-1)]"
-                  style={{ width: `${(100 * row.impressions) / max}%` }}
-                />
-              </div>
-              <p className="text-xs text-muted-foreground tabular-nums">
-                {metricCount(row.clicks)} clicks ·{" "}
-                {row.ctr === null ? "CTR unavailable" : `${metricPercent(row.ctr)} CTR`}
-              </p>
-            </li>
+          {(["impressions", "clicks"] as const).map((value) => (
+            <Button
+              key={value}
+              size="xs"
+              variant="ghost"
+              aria-pressed={metric === value}
+              className={metric === value ? "bg-card shadow-xs" : "text-muted-foreground"}
+              onClick={() => setMetric(value)}
+            >
+              {value === "impressions" ? "Impressions" : "Clicks"}
+            </Button>
           ))}
-        </ul>
+        </div>
+      </header>
+      {measured.length ? (
+        <div
+          style={{ minHeight: compact ? 176 : 192 }}
+          className="flex flex-wrap items-center justify-center gap-x-3 gap-y-4"
+        >
+          <div className="relative w-32 shrink-0">
+            {total > 0 ? (
+              <ChartContainer label={label} height={144}>
+                <PieChart accessibilityLayer>
+                  <Pie
+                    data={slices}
+                    dataKey="value"
+                    nameKey="name"
+                    innerRadius="72%"
+                    outerRadius="100%"
+                    stroke="var(--card)"
+                    strokeWidth={3}
+                    isAnimationActive={false}
+                  >
+                    {slices.map((row) => (
+                      <Cell key={row.ad_format} fill={row.color} />
+                    ))}
+                  </Pie>
+                  <Tooltip
+                    content={(props) => (
+                      <DistributionTooltip {...props} total={total} formatValue={metricCount} />
+                    )}
+                  />
+                </PieChart>
+              </ChartContainer>
+            ) : (
+              <div className="flex h-36 items-center justify-center" aria-hidden="true">
+                <div className="size-28 rounded-full border-[14px] border-muted" />
+              </div>
+            )}
+            <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center">
+              <strong title={metricCount(total)} className="text-xl font-semibold tabular-nums">
+                {total.toLocaleString("en", { notation: "compact", maximumFractionDigits: 1 })}
+              </strong>
+              <span className="text-xs text-muted-foreground">{metric}</span>
+            </div>
+          </div>
+          <div className="min-w-0 flex-1 basis-32">
+            {total === 0 && (
+              <p className="mb-3 text-xs text-muted-foreground">
+                No {metric} recorded in this period.
+              </p>
+            )}
+            <ul aria-label="Format totals" className="space-y-3">
+              {formats.map((row) => (
+                <li key={row.ad_format} className="flex min-w-0 items-start gap-2 text-xs">
+                  <span
+                    aria-hidden="true"
+                    className="mt-1 size-2 shrink-0 rounded-full"
+                    style={{ background: row.color }}
+                  />
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-baseline justify-between gap-2">
+                      <span className="truncate font-medium" title={row.name}>
+                        {row.name}
+                      </span>
+                      <strong
+                        aria-label={`${metricCount(row.value)} ${metric}`}
+                        className="shrink-0 font-medium tabular-nums"
+                      >
+                        {metricCount(row.value)}
+                      </strong>
+                    </div>
+                    <p className="mt-1 text-muted-foreground tabular-nums">
+                      {total > 0 ? `${((100 * row.value) / total).toFixed(1)}%` : "—"} ·{" "}
+                      {row.ctr === null ? "CTR unavailable" : `${metricPercent(row.ctr)} CTR`}
+                    </p>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          </div>
+        </div>
       ) : (
-        <p className="mt-3 text-sm text-muted-foreground">
+        <p
+          style={{ minHeight: compact ? 176 : 192 }}
+          className="flex items-center justify-center px-4 text-center text-sm text-muted-foreground"
+        >
           Format comparisons appear after your first delivery measurements.
         </p>
       )}
@@ -284,32 +388,24 @@ export function PartnerPerformance({
         ) : null}
       </header>
       <Metrics data={data} />
-      <div
-        className={
-          compact
-            ? "grid min-w-0 items-start gap-3 lg:grid-cols-[minmax(0,2fr)_minmax(16rem,1fr)]"
-            : "grid min-w-0 gap-3 lg:grid-cols-2"
-        }
-      >
+      <div className="grid min-w-0 gap-3 xl:grid-cols-3">
         <DeliveryTrend rows={rows} compact={compact} />
-        {compact ? (
-          <FormatPerformance data={data} compact />
-        ) : (
-          <section
-            aria-label="Click-through trend"
-            className="min-w-0 rounded-lg border bg-card p-4"
-          >
-            <header className="mb-3">
-              <h3 className="text-sm font-semibold">Click-through rate</h3>
-              <p className="mt-1 text-xs text-muted-foreground">
-                Daily clicks divided by impressions
-              </p>
-            </header>
-            <TrendChart rows={rows} metric="ctr" label="Click-through rate" />
-          </section>
-        )}
+        <section aria-label="Click-through trend" className="min-w-0 rounded-lg border bg-card p-4">
+          <header className="mb-3">
+            <h3 className="text-sm font-semibold">Click-through rate</h3>
+            <p className="mt-1 text-xs text-muted-foreground">
+              Daily clicks divided by impressions
+            </p>
+          </header>
+          <TrendChart
+            rows={rows}
+            metric="ctr"
+            label="Click-through rate"
+            height={compact ? 176 : 192}
+          />
+        </section>
+        <FormatPerformance data={data} compact={compact} />
       </div>
-      {!compact && <FormatPerformance data={data} />}
       <p className="text-xs text-muted-foreground">
         {data.totals.measured_days} of {rows.length} days have measurements. Missing days are gaps;
         today may be incomplete. CTR uses total clicks divided by total impressions.

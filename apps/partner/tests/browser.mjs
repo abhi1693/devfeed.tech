@@ -156,6 +156,7 @@ assets.forEach((asset, index) => {
   asset.id = `66666666-6666-4666-8666-${String(index + 1).padStart(12, "0")}`;
 });
 const dashboardRequests = [];
+let reportMeasurement = "measured";
 const workspaceDashboardRequests = [];
 const accountPages = [];
 const accountLookups = [];
@@ -512,24 +513,52 @@ const mock = createServer(async (request, response) => {
     assert.equal(limit, 25, "Performance uses the same bounded page size as CRUD lists");
     dashboardRequests.push({ days, sort, order, offset });
     workspaceDashboardRequests.push({ mode, accountIds: scope.map((item) => item.id) });
-    const impressions = scope.reduce(
-      (total, item) =>
-        total +
-        (mode === "many"
-          ? 8100 + manyAccounts.indexOf(item)
-          : item.id === account.id
-            ? days === "7"
-              ? 700
-              : 2400
-            : 600),
-      0,
-    );
-    const clicks = scope.reduce(
-      (total, item) =>
-        total + (mode === "many" ? 10 : item.id === account.id ? (days === "7" ? 35 : 120) : 6),
-      0,
-    );
-    const measured = scope.length > 0;
+    const impressions =
+      reportMeasurement === "unmeasured"
+        ? 0
+        : scope.reduce(
+            (total, item) =>
+              total +
+              (mode === "many"
+                ? 8100 + manyAccounts.indexOf(item)
+                : item.id === account.id
+                  ? days === "7"
+                    ? 700
+                    : 2400
+                  : 600),
+            0,
+          );
+    const clicks =
+      reportMeasurement !== "measured"
+        ? 0
+        : scope.reduce(
+            (total, item) =>
+              total +
+              (mode === "many" ? 10 : item.id === account.id ? (days === "7" ? 35 : 120) : 6),
+            0,
+          );
+    const measured = scope.length > 0 && reportMeasurement !== "unmeasured";
+    const formatTotals = [
+      {
+        ad_format: "feed",
+        impressions: Math.floor(impressions * 0.6),
+        clicks: Math.floor(clicks * 0.75),
+      },
+      {
+        ad_format: "header_sponsorship",
+        impressions: Math.floor(impressions * 0.3),
+        clicks: clicks - Math.floor(clicks * 0.75),
+      },
+      {
+        ad_format: "engagement",
+        impressions: impressions - Math.floor(impressions * 0.6) - Math.floor(impressions * 0.3),
+        clicks: 0,
+      },
+    ].map((row) => ({
+      ...row,
+      ctr: row.impressions ? (100 * row.clicks) / row.impressions : null,
+      measured_days: 3,
+    }));
     const owner = mode === "many" ? bookmarkedAccount : account;
     const scopedAssets = scope.some((item) => item.id === owner.id)
       ? assets.map((asset, index) => ({
@@ -584,17 +613,7 @@ const mock = createServer(async (request, response) => {
           : [],
         assets: sortedAssets.slice(offset, offset + limit),
         asset_total: sortedAssets.length,
-        format_totals: measured
-          ? [
-              {
-                ad_format: "feed",
-                impressions,
-                clicks,
-                ctr: (100 * clicks) / impressions,
-                measured_days: 3,
-              },
-            ]
-          : [],
+        format_totals: measured ? formatTotals : [],
       }),
     );
     return;
@@ -851,6 +870,104 @@ async function checkDeliveryChart(page, { impressions, clicks }) {
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
 }
 
+async function checkFormatChart(page, { impressions, clicks }) {
+  const formats = page.getByRole("region", { name: "Format comparison", exact: true });
+  const controls = formats.getByRole("group", { name: "Format metric", exact: true });
+  const legend = formats.getByRole("list", { name: "Format totals", exact: true });
+  const rows = legend.getByRole("listitem");
+  const impressionButton = controls.getByRole("button", { name: "Impressions", exact: true });
+  const clickButton = controls.getByRole("button", { name: "Clicks", exact: true });
+  await impressionButton.click();
+  assert.equal(await impressionButton.getAttribute("aria-pressed"), "true");
+  assert.equal(await clickButton.getAttribute("aria-pressed"), "false");
+  const impressionChart = formats.getByRole("figure", {
+    name: "Impression share by format",
+    exact: true,
+  });
+  await impressionChart.locator(".recharts-pie-sector").nth(2).waitFor();
+  const sectors = await impressionChart
+    .locator(".recharts-sector")
+    .evaluateAll((nodes) =>
+      nodes.map((node) => ({ path: node.getAttribute("d"), fill: node.getAttribute("fill") })),
+    );
+  assert.equal(sectors.length, 3, "All three measured formats have visible impression shares");
+  assert.equal(new Set(sectors.map((sector) => sector.fill)).size, 3);
+  assert.ok(sectors.every((sector) => sector.path && !sector.path.includes("NaN")));
+  assert.equal(await rows.count(), 3);
+  for (const name of ["Feed", "Header sponsorship", "Engagement"])
+    await rows.filter({ hasText: name }).waitFor();
+  const feed = rows.filter({ hasText: "Feed" });
+  await feed
+    .getByText(Math.floor(impressions * 0.6).toLocaleString("en"), { exact: true })
+    .waitFor();
+  await feed.getByText("60.0%", { exact: false }).waitFor();
+  const firstSlice = impressionChart.locator(".recharts-sector").first();
+  await firstSlice.scrollIntoViewIfNeeded();
+  const hoverPoint = await firstSlice.evaluate((path) => {
+    const box = path.getBBox();
+    const candidates = [];
+    for (let row = 1; row < 10; row++) {
+      for (let column = 1; column < 10; column++) {
+        const x = box.x + (box.width * column) / 10;
+        const y = box.y + (box.height * row) / 10;
+        if (
+          [
+            [0, 0],
+            [-2, 0],
+            [2, 0],
+            [0, -2],
+            [0, 2],
+          ].every(([dx, dy]) => path.isPointInFill(new DOMPoint(x + dx, y + dy)))
+        )
+          candidates.push({ x, y });
+      }
+    }
+    candidates.sort(
+      (left, right) =>
+        Math.hypot(left.x - box.x - box.width / 2, left.y - box.y - box.height / 2) -
+        Math.hypot(right.x - box.x - box.width / 2, right.y - box.y - box.height / 2),
+    );
+    if (!candidates.length) throw new Error("No visible interior point in the format sector");
+    const point = new DOMPoint(candidates[0].x, candidates[0].y).matrixTransform(
+      path.getScreenCTM(),
+    );
+    return { x: point.x, y: point.y };
+  });
+  await page.mouse.move(hoverPoint.x, hoverPoint.y);
+  const tooltip = impressionChart.getByRole("status");
+  await tooltip.getByText("Feed", { exact: true }).waitFor();
+  await tooltip.getByText("60.0%", { exact: true }).waitFor();
+  await tooltip
+    .getByText(Math.floor(impressions * 0.6).toLocaleString("en"), { exact: true })
+    .waitFor();
+  const tooltipBox = await tooltip.boundingBox();
+  assert.ok(
+    tooltipBox.x >= 0 && tooltipBox.x + tooltipBox.width <= page.viewportSize().width,
+    "The sector tooltip fits inside the viewport",
+  );
+  await formats.screenshot({
+    path: root + `reports/partner/performance-format-tooltip-${page.viewportSize().width}.png`,
+  });
+  await page.mouse.move(0, 0);
+  await clickButton.click();
+  assert.equal(await clickButton.getAttribute("aria-pressed"), "true");
+  assert.equal(await impressionButton.getAttribute("aria-pressed"), "false");
+  const clickChart = formats.getByRole("figure", { name: "Click share by format", exact: true });
+  await clickChart.locator(".recharts-pie-sector").nth(1).waitFor();
+  assert.equal(
+    await clickChart.locator(".recharts-pie-sector").count(),
+    2,
+    "Formats without clicks keep their legend row without inventing a donut sector",
+  );
+  await feed.getByText(Math.floor(clicks * 0.75).toLocaleString("en"), { exact: true }).waitFor();
+  const engagement = rows.filter({ hasText: "Engagement" });
+  await engagement.getByText("0", { exact: true }).waitFor();
+  await engagement.getByText("0.0%", { exact: false }).waitFor();
+  await engagement.getByText("0.00% CTR", { exact: false }).waitFor();
+  assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
+  await impressionButton.click();
+}
+
 async function checkPartnerSidebar(page) {
   const initialUrl = page.url();
   const sidebar = page.locator("#partner-sidebar");
@@ -997,6 +1114,9 @@ async function checkDashboardDensity(page) {
   const trend = await page
     .getByRole("region", { name: "Delivery trend", exact: true })
     .boundingBox();
+  const clickThrough = await page
+    .getByRole("region", { name: "Click-through trend", exact: true })
+    .boundingBox();
   const formats = await page
     .getByRole("region", { name: "Format comparison", exact: true })
     .boundingBox();
@@ -1011,8 +1131,11 @@ async function checkDashboardDensity(page) {
     "The dashboard chart leaves room for the format breakdown and actions",
   );
   assert.ok(
-    formats.x >= trend.x + trend.width,
-    "Delivery and format comparison share the desktop row",
+    clickThrough.x >= trend.x + trend.width &&
+      formats.x >= clickThrough.x + clickThrough.width &&
+      Math.abs(trend.y - formats.y) < 1 &&
+      Math.abs(trend.y - clickThrough.y) < 1,
+    "Delivery, click-through rate and format comparison share the desktop row",
   );
   assert.ok(
     overview.y + overview.height <= 760,
@@ -1024,7 +1147,21 @@ async function checkDashboardDensity(page) {
     .boundingBox();
   assert.ok(Math.abs(period.y - heading.y) < 40, "Reporting controls share the page heading row");
   await checkDeliveryChart(page, { impressions: 2400, clicks: 120 });
+  await checkFormatChart(page, { impressions: 2400, clicks: 120 });
   await page.screenshot({ path: root + "reports/partner/dashboard-laptop.png", fullPage: true });
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await checkFormatChart(page, { impressions: 2400, clicks: 120 });
+  const boundaryCards = await Promise.all(
+    ["Delivery trend", "Click-through trend", "Format comparison"].map((name) =>
+      page.getByRole("region", { name, exact: true }).boundingBox(),
+    ),
+  );
+  assert.ok(
+    boundaryCards[1].x >= boundaryCards[0].x + boundaryCards[0].width &&
+      boundaryCards[2].x >= boundaryCards[1].x + boundaryCards[1].width,
+    "The three charts fit at the desktop breakpoint",
+  );
+  await page.screenshot({ path: root + "reports/partner/dashboard-1280.png", fullPage: true });
   await page.setViewportSize({ width: 390, height: 844 });
   await page.waitForFunction(() => document.documentElement.scrollWidth <= window.innerWidth);
   const metrics = await Promise.all(
@@ -1037,6 +1174,17 @@ async function checkDashboardDensity(page) {
     "Mobile totals remain visible together",
   );
   await checkDeliveryChart(page, { impressions: 2400, clicks: 120 });
+  await checkFormatChart(page, { impressions: 2400, clicks: 120 });
+  const mobileCards = await Promise.all(
+    ["Delivery trend", "Click-through trend", "Format comparison"].map((name) =>
+      page.getByRole("region", { name, exact: true }).boundingBox(),
+    ),
+  );
+  assert.ok(
+    mobileCards[1].y >= mobileCards[0].y + mobileCards[0].height &&
+      mobileCards[2].y >= mobileCards[1].y + mobileCards[1].height,
+    "All three chart cards stack in order on mobile",
+  );
   await page.screenshot({ path: root + "reports/partner/dashboard-mobile.png", fullPage: true });
   await page.setViewportSize({ width: 1440, height: 1100 });
 }
@@ -1333,7 +1481,7 @@ try {
     .getByRole("region", { name: "Impressions", exact: true })
     .getByText("2,400", { exact: true })
     .waitFor();
-  assert.equal(await page.getByRole("figure").count(), 2);
+  assert.equal(await page.getByRole("figure").count(), 3);
   await page.getByRole("link", { name: "Export daily CSV", exact: true }).waitFor();
   await page.getByRole("combobox", { name: "Reporting period" }).click();
   await page.getByRole("option", { name: "Last 7 days" }).click();
@@ -1342,11 +1490,36 @@ try {
   await page.getByRole("option", { name: "Last 30 days" }).click();
   await page.getByText("2,400", { exact: true }).first().waitFor();
   await checkDeliveryChart(page, { impressions: 2400, clicks: 120 });
+  await checkFormatChart(page, { impressions: 2400, clicks: 120 });
   await mkdir(root + "reports/partner", { recursive: true });
   await page
     .getByRole("region", { name: "Ad performance", exact: true })
     .screenshot({ path: root + "reports/partner/performance-charts-desktop.png" });
   await page.screenshot({ path: root + "reports/partner/desktop.png", fullPage: true });
+  const formatChart = page.getByRole("region", { name: "Format comparison", exact: true });
+  reportMeasurement = "zero-clicks";
+  await page.reload();
+  await formatChart.getByRole("button", { name: "Clicks", exact: true }).click();
+  await formatChart.getByText("No clicks recorded in this period.", { exact: true }).waitFor();
+  assert.equal(await formatChart.getByRole("figure").count(), 0);
+  assert.equal(await formatChart.getByRole("listitem").count(), 3);
+  assert.equal(await formatChart.getByText("—", { exact: false }).count(), 3);
+  await formatChart.screenshot({
+    path: root + "reports/partner/performance-format-zero-clicks.png",
+  });
+  reportMeasurement = "unmeasured";
+  await page.reload();
+  await formatChart
+    .getByText("Format comparisons appear after your first delivery measurements.", { exact: true })
+    .waitFor();
+  assert.equal(await formatChart.getByRole("figure").count(), 0);
+  assert.equal(await formatChart.getByRole("listitem").count(), 0);
+  await formatChart.screenshot({
+    path: root + "reports/partner/performance-format-unmeasured.png",
+  });
+  reportMeasurement = "measured";
+  await page.reload();
+  await checkFormatChart(page, { impressions: 2400, clicks: 120 });
   await page.setViewportSize({ width: 390, height: 844 });
   await page.getByRole("button", { name: "Navigation" }).click();
   await page
@@ -1748,6 +1921,7 @@ try {
   assert.equal(new URL(page.url()).searchParams.get("order"), "desc");
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
   await checkDeliveryChart(page, { impressions: 700, clicks: 35 });
+  await checkFormatChart(page, { impressions: 700, clicks: 35 });
   await page
     .getByRole("region", { name: "Ad performance", exact: true })
     .screenshot({ path: root + "reports/partner/performance-charts-mobile.png" });

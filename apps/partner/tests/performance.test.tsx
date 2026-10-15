@@ -36,6 +36,12 @@ function dashboard(overrides: Partial<WorkspaceDashboard> = {}): WorkspaceDashbo
   };
 }
 
+const measuredFormats = [
+  { ad_format: "feed", impressions: 60, clicks: 6, ctr: 10, measured_days: 2 },
+  { ad_format: "header_sponsorship", impressions: 20, clicks: 4, ctr: 20, measured_days: 2 },
+  { ad_format: "engagement", impressions: 20, clicks: 0, ctr: 0, measured_days: 1 },
+] satisfies NonNullable<WorkspaceDashboard["format_totals"]>;
+
 describe("reporting days", () => {
   it("keeps an unmeasured day distinct from a recorded zero", () => {
     const rows = performanceDays(
@@ -177,6 +183,13 @@ describe("partner performance", () => {
     expect(
       screen.getByText("Click-through rate appears after the first measured impression."),
     ).toBeTruthy();
+    const formats = screen.getByRole("region", { name: "Format comparison" });
+    expect(
+      within(formats).getByText(
+        "Format comparisons appear after your first delivery measurements.",
+      ),
+    ).toBeTruthy();
+    expect(within(formats).queryByRole("figure")).toBeNull();
   });
 
   it("shows recorded zero counts and leaves zero-impression CTR unavailable", () => {
@@ -216,8 +229,112 @@ describe("partner performance", () => {
     expect(screen.getByRole("link", { name: "View performance" }).getAttribute("href")).toBe(
       "/performance?days=7",
     );
+    expect(screen.getByRole("region", { name: "Delivery trend" })).toBeTruthy();
+    expect(screen.getByRole("region", { name: "Click-through trend" })).toBeTruthy();
     expect(screen.getByRole("region", { name: "Format comparison" })).toBeTruthy();
     expect(screen.queryByRole("link", { name: "Export daily CSV" })).toBeNull();
+  });
+
+  it("compares measured impression shares while keeping each format's CTR separate", () => {
+    render(
+      <PartnerPerformance
+        data={dashboard({
+          format_totals: [
+            ...measuredFormats,
+            {
+              ad_format: "sponsored_content",
+              impressions: 999,
+              clicks: 99,
+              ctr: 9.91,
+              measured_days: 0,
+            },
+          ],
+        })}
+      />,
+    );
+    const formats = screen.getByRole("region", { name: "Format comparison" });
+    const selector = within(formats).getByRole("group", { name: "Format metric" });
+    expect(
+      within(selector).getByRole("button", { name: "Impressions" }).getAttribute("aria-pressed"),
+    ).toBe("true");
+    const figure = within(formats).getByRole("figure", { name: "Impression share by format" });
+    expect(figure.querySelectorAll(".recharts-pie-sector")).toHaveLength(3);
+    const rows = within(within(formats).getByRole("list", { name: "Format totals" })).getAllByRole(
+      "listitem",
+    );
+    expect(rows).toHaveLength(3);
+    const feed = rows.find((row) => within(row).queryByText("Feed"))!;
+    expect(within(feed).getByLabelText("60 impressions")).toBeTruthy();
+    expect(within(feed).getByText("60.0% · 10.00% CTR")).toBeTruthy();
+    const header = rows.find((row) => within(row).queryByText("Header sponsorship"))!;
+    expect(within(header).getByLabelText("20 impressions")).toBeTruthy();
+    expect(within(header).getByText("20.0% · 20.00% CTR")).toBeTruthy();
+    expect(within(formats).queryByText("Sponsored content")).toBeNull();
+  });
+
+  it("switches to click shares without dropping measured formats that have no clicks", async () => {
+    const user = userEvent.setup();
+    render(<PartnerPerformance data={dashboard({ format_totals: measuredFormats })} />);
+    const formats = screen.getByRole("region", { name: "Format comparison" });
+    const selector = within(formats).getByRole("group", { name: "Format metric" });
+    await user.click(within(selector).getByRole("button", { name: "Clicks" }));
+    expect(
+      within(selector).getByRole("button", { name: "Clicks" }).getAttribute("aria-pressed"),
+    ).toBe("true");
+    expect(
+      within(selector).getByRole("button", { name: "Impressions" }).getAttribute("aria-pressed"),
+    ).toBe("false");
+    expect(
+      within(formats).queryByRole("figure", { name: "Impression share by format" }),
+    ).toBeNull();
+    const figure = within(formats).getByRole("figure", { name: "Click share by format" });
+    expect(figure.querySelectorAll(".recharts-pie-sector")).toHaveLength(2);
+    const rows = within(within(formats).getByRole("list", { name: "Format totals" })).getAllByRole(
+      "listitem",
+    );
+    expect(rows).toHaveLength(3);
+    const header = rows.find((row) => within(row).queryByText("Header sponsorship"))!;
+    expect(within(header).getByLabelText("4 clicks")).toBeTruthy();
+    expect(within(header).getByText("40.0% · 20.00% CTR")).toBeTruthy();
+    const engagement = rows.find((row) => within(row).queryByText("Engagement"))!;
+    expect(within(engagement).getByLabelText("0 clicks")).toBeTruthy();
+    expect(within(engagement).getByText("0.0% · 0.00% CTR")).toBeTruthy();
+  });
+
+  it("shows measured zero clicks without inventing a distribution", async () => {
+    const user = userEvent.setup();
+    render(
+      <PartnerPerformance
+        data={dashboard({
+          format_totals: [
+            { ad_format: "feed", impressions: 50, clicks: 0, ctr: 0, measured_days: 1 },
+            {
+              ad_format: "engagement",
+              impressions: 0,
+              clicks: 0,
+              ctr: null,
+              measured_days: 1,
+            },
+          ],
+        })}
+      />,
+    );
+    const formats = screen.getByRole("region", { name: "Format comparison" });
+    const selector = within(formats).getByRole("group", { name: "Format metric" });
+    await user.click(within(selector).getByRole("button", { name: "Clicks" }));
+    expect(within(formats).getByText("No clicks recorded in this period.")).toBeTruthy();
+    expect(within(formats).queryByRole("figure")).toBeNull();
+    expect(formats.querySelectorAll(".recharts-pie-sector")).toHaveLength(0);
+    const rows = within(within(formats).getByRole("list", { name: "Format totals" })).getAllByRole(
+      "listitem",
+    );
+    expect(rows).toHaveLength(2);
+    for (const row of rows) {
+      expect(within(row).getByLabelText("0 clicks")).toBeTruthy();
+      expect(within(row).getByText(/^— · /)).toBeTruthy();
+    }
+    const engagement = rows.find((row) => within(row).queryByText("Engagement"))!;
+    expect(within(engagement).getByText(/CTR unavailable/)).toBeTruthy();
   });
 
   it("retains an explicitly selected account filter in the performance link", () => {
