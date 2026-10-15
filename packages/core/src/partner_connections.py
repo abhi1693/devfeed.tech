@@ -31,6 +31,7 @@ from devfeed_core.partner_connectors import (
     connector_snapshot,
 )
 from devfeed_core.partner_tools import (
+    QUALIFICATION_TTL,
     Evidence,
     ProductInput,
     ShortText,
@@ -219,7 +220,7 @@ def request_sync(session, connection):
     return job
 
 
-def request_assessment(session, product):
+def request_assessment(session, product, *, renewal=False):
     active = session.scalar(
         select(PartnerPipelineJob.id).where(
             PartnerPipelineJob.product_id == product.id,
@@ -236,13 +237,20 @@ def request_assessment(session, product):
         or product.status == "withdrawn"
     ):
         return
-    product.status = "pending"
-    product.assessment_revision = 0
-    product.verified_at = None
-    product.assessment = {
-        "state": "checking",
-        "reason": "Checking product capabilities automatically.",
-    }
+    # Refresh unchanged evidence without interrupting its existing, bounded approval.
+    if not (
+        renewal
+        and product.status == "approved"
+        and product.assessment_revision == product.revision
+        and product.verified_at is not None
+    ):
+        product.status = "pending"
+        product.assessment_revision = 0
+        product.verified_at = None
+        product.assessment = {
+            "state": "checking",
+            "reason": "Checking product capabilities automatically.",
+        }
     session.add(
         PartnerPipelineJob(
             provider=provider,
@@ -382,7 +390,7 @@ def connection_views(session, connections):
         or_(
             and_(
                 PartnerProduct.status == "approved",
-                PartnerProduct.verified_at >= utcnow() - timedelta(days=90),
+                PartnerProduct.verified_at >= utcnow() - QUALIFICATION_TTL,
             ),
             and_(
                 PartnerAccount.approval_mode == "trusted",

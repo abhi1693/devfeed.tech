@@ -36,16 +36,18 @@ from devfeed_core.partner_connections import (
 )
 from devfeed_core.partner_connectors import ConnectorClient, ProductCandidate, connector_snapshot
 from devfeed_core.partner_credentials import connection_credential
-from devfeed_core.partner_tools import ProductInput, product_snapshot
+from devfeed_core.partner_tools import QUALIFICATION_TTL, ProductInput, product_snapshot
 from devfeed_core.research_evidence import fetched_page
 from devfeed_core.urls import canonicalize_url, fingerprint
-from sqlalchemy import func, or_, select
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import aliased
 
 from devfeed_aggregator.queue import get_queue
 
 logger = logging.getLogger(__name__)
+ASSESSMENT_RENEWAL_LEAD_TIME = timedelta(days=7)
+ASSESSMENT_RENEWAL_RETRY_INTERVAL = timedelta(days=1)
 
 
 def job_fields(job):
@@ -541,6 +543,7 @@ def _process_pipeline(job_id: str, *, factory=None, reader=None, page_fetcher=No
 
 
 def schedule_partner_syncs(factory):
+    now = utcnow()
     with factory.begin() as session:
         lock_catalog(session)
         connections = session.scalars(
@@ -549,7 +552,7 @@ def schedule_partner_syncs(factory):
             .with_for_update(skip_locked=True)
         ).all()
         for connection in connections:
-            if connection.next_sync_at <= utcnow():
+            if connection.next_sync_at <= now:
                 job = request_sync(session, connection)
                 created = job in session.new
                 session.flush()
@@ -558,6 +561,17 @@ def schedule_partner_syncs(factory):
                         "partner_sync_scheduled", extra={**job_fields(job), "trigger": "schedule"}
                     )
         # Qualification belongs to products, independent of whichever platform synced first.
+        recent_failure = (
+            select(PartnerPipelineJob.id)
+            .where(
+                PartnerPipelineJob.product_id == PartnerProduct.id,
+                PartnerPipelineJob.operation == "assess",
+                PartnerPipelineJob.status == "failed",
+                PartnerPipelineJob.payload["revision"].as_integer() == PartnerProduct.revision,
+                PartnerPipelineJob.finished_at > now - ASSESSMENT_RENEWAL_RETRY_INTERVAL,
+            )
+            .exists()
+        )
         products = session.scalars(
             select(PartnerProduct)
             .where(
@@ -565,7 +579,15 @@ def schedule_partner_syncs(factory):
                 has_active_source(),
                 PartnerProduct.excluded.is_(False),
                 PartnerProduct.status != "withdrawn",
-                PartnerProduct.assessment_revision != PartnerProduct.revision,
+                or_(
+                    PartnerProduct.assessment_revision != PartnerProduct.revision,
+                    and_(
+                        PartnerProduct.status == "approved",
+                        PartnerProduct.verified_at
+                        <= now - (QUALIFICATION_TTL - ASSESSMENT_RENEWAL_LEAD_TIME),
+                        ~recent_failure,
+                    ),
+                ),
                 ~select(PartnerPipelineJob.id)
                 .where(
                     PartnerPipelineJob.product_id == PartnerProduct.id,
@@ -578,7 +600,9 @@ def schedule_partner_syncs(factory):
             .limit(100)
         ).all()
         for product in products:
-            request_assessment(session, product)
+            request_assessment(
+                session, product, renewal=product.assessment_revision == product.revision
+            )
 
 
 def dispatch_partner_pipeline(factory, limit=2):

@@ -48,6 +48,7 @@ from devfeed_core.partner_promotions import (
     campaign_matches_product,
     commercially_eligible,
 )
+from devfeed_core.partner_tools import QUALIFICATION_TTL
 from devfeed_core.partner_tracking import (
     BusyPartnerAsset,
     PartnerTrackingTokens,
@@ -571,7 +572,7 @@ def placement_rows_query(query, now):
             or_(
                 and_(
                     PartnerProduct.status == "approved",
-                    PartnerProduct.verified_at >= now - timedelta(days=90),
+                    PartnerProduct.verified_at >= now - QUALIFICATION_TTL,
                 ),
                 and_(
                     PartnerAccount.approval_mode == "trusted",

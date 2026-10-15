@@ -46,6 +46,14 @@
 
 ## Placement serving
 
+Active products queue qualification renewal seven days before its 90-day expiry, including
+manual products without an import connection. Each scheduler pass queues at most 100
+assessments and skips products with a queued or running assessment. Unchanged products retain their
+approval and prepared matches while renewal runs; evidence still expires on schedule if
+the worker cannot renew it. A failed renewal cycle waits one day before another cycle.
+Changed product facts still require immediate reassessment, and a negative result clears
+the previous qualification.
+
 `PlacementPreflight` checks campaign capacity and destination availability in bounded
 candidate batches before attribution locks. Exhausted campaigns and unavailable account/product
 pairs are remembered only for that request. `campaign_delivery_usage()` shares receipt

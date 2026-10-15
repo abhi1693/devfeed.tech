@@ -51,7 +51,7 @@ def test_default_custom_disabled_and_validation(admin_client, database):
 def test_interval_change_recalculates_next_sync_and_is_partner_specific(
     admin_client, database, product_payload, monkeypatch
 ):
-    from devfeed_admin_api import partner_tools
+    from devfeed_core import partner_connections
 
     synced(admin_client, database, product_payload)
     now = utcnow()
@@ -68,7 +68,7 @@ def test_interval_change_recalculates_next_sync_and_is_partner_specific(
             )
         )
         before = session.scalar(select(func.count()).select_from(PartnerPipelineJob))
-    monkeypatch.setattr(partner_tools, "utcnow", lambda: now)
+    monkeypatch.setattr(partner_connections, "utcnow", lambda: now)
     assert settings(admin_client, sync_interval_minutes=1440).status_code == 200
     with database() as session:
         assert session.get(PartnerConnection, "nick-launches").next_sync_at == last + timedelta(

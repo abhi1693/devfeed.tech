@@ -21,6 +21,7 @@ from devfeed_core.urls import validate_public_url
 
 Status = Literal["pending", "approved", "rejected", "paused", "withdrawn"]
 ShortText = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=200)]
+QUALIFICATION_TTL = timedelta(days=90)
 
 
 class Evidence(InputModel):
@@ -169,7 +170,7 @@ def eligible(product, now=None):
         and not product.excluded
         and product.status == "approved"
         and product.verified_at
-        and product.verified_at >= (now or utcnow()) - timedelta(days=90)
+        and product.verified_at >= (now or utcnow()) - QUALIFICATION_TTL
     )
 
 

@@ -232,7 +232,7 @@ def test_scheduling_keeps_future_connections_and_qualifies_products(monkeypatch,
     job = leased_job(operation="sync")
     due = NS(next_sync_at=utcnow() - timedelta(seconds=1))
     future = NS(next_sync_at=utcnow() + timedelta(hours=1))
-    product = NS(id=uuid.uuid4())
+    product = NS(id=uuid.uuid4(), revision=1, assessment_revision=0)
     session.scalars.side_effect = [NS(all=lambda: [due, future]), NS(all=lambda: [product])]
     session.new = [job] if created else []
     request = Mock(return_value=job)
@@ -242,5 +242,5 @@ def test_scheduling_keeps_future_connections_and_qualifies_products(monkeypatch,
     monkeypatch.setattr(pipeline, "lock_catalog", Mock())
     pipeline.schedule_partner_syncs(transaction_factory(session))
     request.assert_called_once_with(session, due)
-    assess.assert_called_once_with(session, product)
+    assess.assert_called_once_with(session, product, renewal=False)
     session.flush.assert_called_once()
