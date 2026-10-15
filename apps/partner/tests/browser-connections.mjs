@@ -23,6 +23,7 @@ export function createConnectionFixture({ account, origin }) {
   const archived = new Set();
   const credentials = new Map();
   const runs = new Map();
+  const jobReads = [];
   const writes = [];
   const previews = [];
   const logoUploads = [];
@@ -148,6 +149,7 @@ export function createConnectionFixture({ account, origin }) {
     }
     if (request.method === "GET" && subresource === "jobs") {
       const items = runs.get(provider) ?? [];
+      jobReads.push(provider);
       json(response, { items, total: items.length, limit: 10, offset: 0 });
       return true;
     }
@@ -288,6 +290,15 @@ export function createConnectionFixture({ account, origin }) {
     return true;
   }
 
+  function startRuns() {
+    for (const jobs of runs.values()) {
+      for (const job of jobs) {
+        job.status = "running";
+        job.attempts = 1;
+      }
+    }
+  }
+
   function completeRuns() {
     for (const [provider, jobs] of runs) {
       for (const job of jobs) {
@@ -310,6 +321,8 @@ export function createConnectionFixture({ account, origin }) {
     previews,
     logoUploads,
     logoWrites,
+    jobReads,
+    startRuns,
     completeRuns,
     holdLogoUpload() {
       let release;
@@ -576,10 +589,64 @@ export async function assertConnectionJourneys({ page, origin, account, fixture,
   assert.equal((await page.locator("body").innerText()).includes(firstCredential), false);
   assert.equal(await page.locator('input[type="password"]').count(), 0);
   await page.getByRole("button", { name: "Sync now", exact: true }).click();
-  await page.getByText("queued", { exact: true }).waitFor();
+  const syncRun = page.getByRole("row").filter({
+    has: page.getByRole("cell", { name: "Catalog sync", exact: true }),
+  });
+  await syncRun.getByRole("cell", { name: "queued", exact: true }).waitFor();
+  await syncRun.getByRole("cell", { name: "Queued", exact: true }).waitFor();
+  await page.evaluate(() => {
+    Object.defineProperty(document, "visibilityState", { configurable: true, value: "hidden" });
+    document.dispatchEvent(new Event("visibilitychange"));
+  });
+  const readsWhileHidden = fixture.jobReads.length;
+  fixture.startRuns();
+  await page.waitForTimeout(3500);
+  assert.equal(
+    fixture.jobReads.length,
+    readsWhileHidden,
+    "Import polling pauses while the browser visibility event reports a hidden page",
+  );
+  await page.evaluate(() => {
+    delete document.visibilityState;
+    document.dispatchEvent(new Event("visibilitychange"));
+  });
+  await syncRun.getByRole("cell", { name: "running", exact: true }).waitFor();
+  await syncRun.getByRole("cell", { name: "In progress", exact: true }).waitFor();
+  await page.screenshot({
+    path: join(artifactDir, "partner-connection-running-desktop.png"),
+    fullPage: true,
+  });
+  await page.getByRole("link", { name: "Edit", exact: true }).click();
+  await page.waitForURL(`${detail}/edit`);
+  await page.getByRole("textbox", { name: /Connection name/ }).waitFor();
+  const readsAfterNavigation = fixture.jobReads.length;
+  await page.waitForTimeout(3500);
+  assert.equal(
+    fixture.jobReads.length,
+    readsAfterNavigation,
+    "Leaving the connection details stops polling its import runs",
+  );
+  await page.goto(detail);
+  await syncRun.getByRole("cell", { name: "running", exact: true }).waitFor();
   fixture.completeRuns();
-  await page.getByRole("button", { name: "Refresh", exact: true }).click();
-  await page.getByText("succeeded", { exact: true }).waitFor();
+  await syncRun.getByRole("cell", { name: "succeeded", exact: true }).waitFor();
+  await syncRun.locator('time[datetime="2026-10-13T02:01:00Z"]').waitFor();
+  await page.getByText("Ready", { exact: true }).waitFor();
+  assert.equal(
+    await page.getByRole("link", { name: "12", exact: true }).count(),
+    1,
+    "Finishing a run automatically refreshes the connection's product totals",
+  );
+  const readsAfterCompletion = fixture.jobReads.length;
+  await page.waitForTimeout(3500);
+  assert.equal(
+    fixture.jobReads.length,
+    readsAfterCompletion,
+    "Completed imports stop automatic polling",
+  );
+  console.log(
+    "Connection imports update queued/running/finished status and product totals automatically; polling stops after completion/navigation and pauses on simulated hidden-page visibility.",
+  );
   await page.getByRole("button", { name: "Pause imports", exact: true }).click();
   await page.getByRole("button", { name: "Resume imports", exact: true }).waitFor();
   await page.getByRole("button", { name: "Resume imports", exact: true }).click();

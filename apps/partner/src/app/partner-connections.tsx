@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Pencil, Plus, RefreshCw } from "lucide-react";
@@ -11,6 +11,7 @@ import { portalPath, accountSettingsPath } from "@/lib/routes";
 import { Button } from "@devfeed/ui/button";
 import { Input } from "@devfeed/ui/input";
 import { Badge } from "@devfeed/ui/badge";
+import { usePolling } from "@devfeed/ui/use-polling";
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from "@devfeed/ui/table";
 import { usePartnerRequest, isPartnerRequestCancelled } from "@/lib/partner-request";
 import type {
@@ -120,6 +121,27 @@ export function PartnerConnections({
     Number.isSafeInteger(route.offset) && (route.offset ?? 0) >= 0 ? (route.offset ?? 0) : 0;
   const basePath = connectionPath();
   const detailPath = connectionId ? connectionPath(connectionId) : basePath;
+  const readConnection = useCallback(
+    (signal: AbortSignal) =>
+      request(`connections/${encodeURIComponent(connectionId!)}`, {
+        signal,
+        unavailableOnNotFound: false,
+        errorMessage:
+          "Could not load this import connection. It may no longer belong to this account.",
+        parse: (value) => parseConnection(value, connectionId),
+      }),
+    [connectionId, request],
+  );
+  const readJobs = useCallback(
+    (signal: AbortSignal) =>
+      request(`connections/${encodeURIComponent(connectionId!)}/jobs?limit=10&offset=0`, {
+        signal,
+        unavailableOnNotFound: false,
+        errorMessage: "Could not load import runs. Refresh to try again.",
+        parse: (value) => PartnerWorkspaceConnectionJobsResponse.parse(value),
+      }),
+    [connectionId, request],
+  );
 
   useEffect(() => {
     const controller = new AbortController();
@@ -148,12 +170,7 @@ export function PartnerConnections({
         }
         if (view !== "list" && view !== "create") {
           if (!connectionId) throw new Error("Import connection not found.");
-          const result = await request(`connections/${encodeURIComponent(connectionId)}`, {
-            ...common,
-            errorMessage:
-              "Could not load this import connection. It may no longer belong to this account.",
-            parse: (value) => parseConnection(value, connectionId),
-          });
+          const result = await readConnection(controller.signal);
           if (controller.signal.aborted) return;
           setConnection(result);
           setCredentialsAvailable(result.credentials_available);
@@ -167,22 +184,14 @@ export function PartnerConnections({
     }
     void load();
     return () => controller.abort();
-  }, [connectionId, offset, query, refresh, request, view]);
+  }, [connectionId, offset, query, readConnection, refresh, request, view]);
 
   useEffect(() => {
     if (view !== "detail" || !connectionId) return;
     const controller = new AbortController();
     async function loadJobs() {
       try {
-        const result = await request(
-          `connections/${encodeURIComponent(connectionId!)}/jobs?limit=10&offset=0`,
-          {
-            signal: controller.signal,
-            unavailableOnNotFound: false,
-            errorMessage: "Could not load import runs. Refresh to try again.",
-            parse: (value) => PartnerWorkspaceConnectionJobsResponse.parse(value),
-          },
-        );
+        const result = await readJobs(controller.signal);
         if (!controller.signal.aborted) {
           setJobs(result);
           setJobsError("");
@@ -194,7 +203,33 @@ export function PartnerConnections({
     }
     void loadJobs();
     return () => controller.abort();
-  }, [connectionId, refresh, request, view]);
+  }, [connectionId, readJobs, refresh, view]);
+
+  const followRun =
+    view === "detail" &&
+    Boolean(connection) &&
+    !busy &&
+    !loading &&
+    (jobs !== undefined || jobsError !== "") &&
+    (connection?.state === "syncing" ||
+      jobs?.items.some((job) => job.status === "queued" || job.status === "running"));
+  usePolling(
+    async (signal) => {
+      const [record, runs] = await Promise.allSettled([readConnection(signal), readJobs(signal)]);
+      if (signal.aborted) return;
+      if (record.status === "fulfilled" && runs.status === "fulfilled") {
+        setConnection(record.value);
+        setJobs(runs.value);
+        setJobsError("");
+      } else {
+        const rejected = [record, runs].find((result) => result.status === "rejected");
+        if (rejected?.status === "rejected" && !isPartnerRequestCancelled(rejected.reason))
+          setJobsError("Could not refresh import status. Refresh to try again.");
+      }
+    },
+    followRun ? 3000 : 0,
+    connectionId,
+  );
 
   async function save(input: ConnectionFormInput) {
     if (busy) return;
@@ -364,7 +399,7 @@ export function PartnerConnections({
       else {
         setNotice(
           action === "sync"
-            ? "Sync request accepted. Refresh import runs to follow its progress."
+            ? "Sync request accepted. Progress updates automatically."
             : action === "pause"
               ? "Scheduled imports paused."
               : "Scheduled imports enabled.",
@@ -778,11 +813,12 @@ export function PartnerConnections({
             </dl>
           </ResourcePanel>
           <ResourcePanel title="Recent import runs">
-            {jobsError ? (
+            {jobsError && (
               <p role="alert" className="text-sm">
                 {jobsError}
               </p>
-            ) : !jobs ? (
+            )}
+            {!jobs ? (
               <p role="status" className="text-sm text-muted-foreground">
                 Loading import runs…
               </p>

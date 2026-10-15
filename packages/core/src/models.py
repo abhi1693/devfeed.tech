@@ -20,10 +20,17 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
     Uuid,
+    and_,
+    case,
+    func,
+    literal,
+    or_,
     text,
 )
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB
+from sqlalchemy.ext.hybrid import hybrid_property
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
+from sqlalchemy.sql.elements import ColumnElement
 
 from devfeed_core.partner_surfaces import default_campaign_surfaces, default_promotion_surfaces
 from devfeed_core.topic_kinds import TOPIC_KINDS
@@ -1696,6 +1703,42 @@ class PartnerPipelineJob(LeasedJobMixin, Base):
     external_id: Mapped[str | None] = mapped_column(String(200))
     payload: Mapped[dict] = mapped_column(JSONB, default=dict)
     error: Mapped[str | None] = mapped_column(Text)
+
+    @hybrid_property
+    def display_status(self) -> str:
+        """A catalog operation stays in progress while its page/child tasks requeue."""
+        if self.operation == "sync" and self.status == "queued":
+            payload = self.payload if isinstance(self.payload, dict) else {}
+            pages = payload.get("pages")
+            if (
+                self.attempts > 0
+                or (isinstance(pages, (int, float)) and not isinstance(pages, bool) and pages > 0)
+                or payload.get("discovery_complete") is True
+            ):
+                return "running"
+        return self.status
+
+    @display_status.inplace.expression
+    @classmethod
+    def _display_status_expression(cls) -> ColumnElement[str]:
+        return case(
+            (
+                and_(
+                    cls.operation == "sync",
+                    cls.status == "queued",
+                    or_(
+                        cls.attempts > 0,
+                        and_(
+                            func.jsonb_typeof(cls.payload["pages"]) == "number",
+                            cls.payload["pages"] > literal(0, type_=JSONB),
+                        ),
+                        cls.payload["discovery_complete"] == literal(True, type_=JSONB),
+                    ),
+                ),
+                "running",
+            ),
+            else_=cls.status,
+        )
 
 
 class PartnerAccount(Base):

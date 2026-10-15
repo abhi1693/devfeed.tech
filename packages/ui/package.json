@@ -15,6 +15,7 @@
     "./choice-controls.css": "./src/choice-controls.css",
     "./notifications": "./src/notifications.tsx",
     "./page-activity": "./src/page-activity.ts",
+    "./use-polling": "./src/use-polling.ts",
     "./inbox-fetch": "./src/inbox-fetch.ts",
     "./use-notification-sound": "./src/use-notification-sound.ts",
     "./combobox": "./src/combobox.tsx",

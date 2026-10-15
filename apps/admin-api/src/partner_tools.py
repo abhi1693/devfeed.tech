@@ -503,7 +503,7 @@ def connection_jobs(provider: str, session: DB, query: Listing):
         query,
         {
             "created_at": PartnerPipelineJob.created_at,
-            "status": PartnerPipelineJob.status,
+            "status": PartnerPipelineJob.display_status,
         },
         "-created_at",
     )

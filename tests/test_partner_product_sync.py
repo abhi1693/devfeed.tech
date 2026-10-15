@@ -67,6 +67,9 @@ def test_product_db_failure_retries_only_that_product(
 
     parent, children = discover(admin_client, database, product_payload)
     assert len(children) == 3 and product_count(database) == 0
+    with database() as session:
+        assert session.get(PartnerPipelineJob, uuid.UUID(parent)).status == "queued"
+    assert admin_client.get(CONNECTION + "/jobs").json()["items"][-1]["status"] == "running"
     process_pipeline(children[0], factory=database)
     assert product_count(database) == 1
     original = partner_product_sync.upsert_listing
@@ -95,6 +98,7 @@ def test_product_db_failure_retries_only_that_product(
             2,
             1,
         ]
+    assert admin_client.get(CONNECTION + "/jobs").json()["items"][-1]["status"] == "succeeded"
     process_pipeline(
         children[0],
         factory=database,

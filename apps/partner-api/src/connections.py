@@ -632,19 +632,21 @@ def connection_jobs(
     connection_access(session, account_id, provider)
     statement = select(PartnerPipelineJob).where(PartnerPipelineJob.provider == provider)
     if query.q:
-        statement = statement.where(PartnerPipelineJob.status.icontains(query.q, autoescape=True))
+        statement = statement.where(
+            PartnerPipelineJob.display_status.icontains(query.q, autoescape=True)
+        )
     page = paginate(
         session,
         statement,
         query,
-        {"created_at": PartnerPipelineJob.created_at, "status": PartnerPipelineJob.status},
+        {"created_at": PartnerPipelineJob.created_at, "status": PartnerPipelineJob.display_status},
         "-created_at",
     )
     page["items"] = [
         PartnerConnectionJobOut(
             id=row.id,
             operation=row.operation,
-            status=row.status,
+            status=row.display_status,
             attempts=row.attempts,
             created_at=row.created_at,
             finished_at=row.finished_at,

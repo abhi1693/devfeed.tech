@@ -280,6 +280,11 @@ a connection to another account. Settings include public HTTPS endpoints, JSON f
 pagination and a sync interval of 15 minutes to seven days. Imports run in the background;
 the detail record shows connection state, product counts and recent runs. Sync, pause and resume
 actions check the current revision, and conflicting edits preserve the draft for review.
+Active runs refresh their status, connection state and product counts every three seconds while
+the page is visible and focused. Refreshes pause in the background and stop after completion or
+when editing. A catalog run stays Running between discovery pages and while its product jobs
+finish; Queued indicates catalog work has not started. Temporary refresh errors retain the last
+known rows and offer a manual retry.
 
 Connection branding accepts a public HTTPS logo URL or a JPEG, PNG or WebP upload up to 5 MB.
 Both inputs are normalized into transparent 16, 32, 64 and 96-pixel WebP variants in R2;

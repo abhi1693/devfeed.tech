@@ -94,13 +94,14 @@ def pipeline(
             load_only(
                 *(getattr(PartnerPipelineJob, key) for key in PartnerJobOut.model_fields),
                 PartnerPipelineJob.available_at,
+                PartnerPipelineJob.payload,
                 raiseload=True,
             )
         )
         .outerjoin(PartnerProduct, PartnerProduct.id == PartnerPipelineJob.product_id)
     )
     for column, value in (
-        (PartnerPipelineJob.status, status),
+        (PartnerPipelineJob.display_status, status),
         (PartnerPipelineJob.operation, operation),
         (PartnerPipelineJob.product_id, product_id),
         (PartnerPipelineJob.parent_id, parent_id),
@@ -140,7 +141,7 @@ def pipeline(
         query,
         {
             "created_at": PartnerPipelineJob.created_at,
-            "status": PartnerPipelineJob.status,
+            "status": PartnerPipelineJob.display_status,
             "attempts": PartnerPipelineJob.attempts,
         },
         "-created_at",

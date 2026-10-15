@@ -99,6 +99,68 @@ def test_list_detail_pagination_and_jobs_are_account_scoped(connection_api, data
     assert "payload" not in json.dumps(jobs)
 
 
+@pytest.mark.parametrize(
+    "operation,status,attempts,job_payload,expected",
+    [
+        ("sync", "queued", 0, {}, "queued"),
+        ("sync", "queued", 0, {"pages": 0, "discovery_complete": False}, "queued"),
+        ("sync", "running", 1, {}, "running"),
+        ("sync", "queued", 1, {"pages": 0}, "running"),
+        ("sync", "queued", 0, {"pages": 2}, "running"),
+        ("sync", "queued", 0, {"discovery_complete": True}, "running"),
+        ("sync", "failed", 1, {"pages": 2}, "failed"),
+        ("sync", "succeeded", 0, {"discovery_complete": True}, "succeeded"),
+        ("sync_product", "queued", 1, {}, "queued"),
+        ("assess", "queued", 1, {}, "queued"),
+        ("sync", "queued", 0, {"pages": "invalid"}, "queued"),
+        ("sync", "queued", 0, {"pages": None}, "queued"),
+        ("sync", "queued", 0, {"pages": True}, "queued"),
+        ("sync", "queued", 0, {"pages": [1]}, "queued"),
+        ("sync", "queued", 0, {"pages": {"count": 1}}, "queued"),
+        ("sync", "queued", 0, {"discovery_complete": "invalid"}, "queued"),
+    ],
+)
+def test_catalog_status_reports_the_operation_across_worker_requeues(
+    connection_api, database, admin_client, operation, status, attempts, job_payload, expected
+):
+    client, _, _, _, path = connection_api
+    connection = create(connection_api)
+    with database.begin() as session:
+        job = PartnerPipelineJob(
+            provider=connection["provider"],
+            operation=operation,
+            status=status,
+            attempts=attempts,
+            payload=job_payload,
+        )
+        session.add(job)
+        session.flush()
+        identifier = job.id
+    jobs_url = path + "/" + connection["provider"] + "/jobs"
+    page = client.get(jobs_url, params={"q": expected, "sort": "status"}).json()
+    assert page["total"] == 1
+    assert page["items"][0]["status"] == expected
+    if expected != "queued":
+        assert client.get(jobs_url, params={"q": "queued"}).json()["total"] == 0
+    admin_root = "/v1/admin/partner-tools"
+    admin_jobs = admin_client.get(
+        admin_root + "/connections/" + connection["provider"] + "/jobs"
+    ).json()
+    assert admin_jobs["items"][0]["status"] == expected
+    pipeline = admin_client.get(
+        admin_root + "/pipeline", params={"status": expected, "sort": "status"}
+    ).json()
+    assert pipeline["total"] == 1
+    assert pipeline["items"][0]["status"] == expected
+    assert (
+        admin_client.get(admin_root + "/pipeline/" + str(identifier)).json()["status"] == expected
+    )
+    with database() as session:
+        row = session.get(PartnerPipelineJob, identifier)
+        assert row.status == status  # Displaying progress cannot change dispatch/lease state.
+        assert row.display_status == expected
+
+
 def test_live_revocation_and_account_pause_block_all_connection_operations(
     connection_api, database
 ):

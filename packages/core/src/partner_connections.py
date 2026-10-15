@@ -6,7 +6,7 @@ import uuid
 from datetime import datetime, timedelta
 from typing import Annotated, Literal
 
-from pydantic import Field, SecretStr, StringConstraints, field_validator
+from pydantic import AliasChoices, Field, SecretStr, StringConstraints, field_validator
 from sqlalchemy import and_, exists, func, or_, select
 from sqlalchemy.orm import aliased
 
@@ -63,7 +63,7 @@ class PartnerJobOut(ORMModel):
     parent_id: uuid.UUID | None
     external_id: str | None
     product_id: uuid.UUID | None
-    status: str
+    status: str = Field(validation_alias=AliasChoices("display_status", "status"))
     attempts: int
     created_at: datetime
     finished_at: datetime | None

@@ -5,7 +5,7 @@ import { RetryButton } from "@devfeed/ui/retry-button";
 import { Button } from "@devfeed/ui/button";
 import { Input } from "@devfeed/ui/input";
 import { useRefreshInterval } from "@/lib/use-refresh-interval";
-import { usePolling } from "@/lib/use-polling";
+import { usePolling } from "@devfeed/ui/use-polling";
 import { runWhenPageActive } from "@devfeed/ui/page-activity";
 import { Select } from "@/components/molecules/select";
 import { ResourcePanel } from "@devfeed/ui/resource-layout";

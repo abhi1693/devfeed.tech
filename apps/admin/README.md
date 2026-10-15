@@ -174,6 +174,9 @@ tab with paginated products, pipeline jobs, and evaluations. Open a run for its 
 **Partnerships → Pipeline jobs** lists discovery, individual product syncs, and qualification
 runs with status, operation, search, sorting, and pagination. Runs link to their parent,
 child jobs, import connection, product, and dedicated logs page.
+Catalog runs stay Running between discovery pages and while their product jobs finish. The
+connection history, run details, and status filters use the same overall run status; worker
+queue and lease transitions remain internal scheduling state.
 Discovery and product syncs use the `ingestion` queue consumed by the standard background
 worker. They do not require the optional source-discovery worker. Qualification and
 article matching use the AI workers.

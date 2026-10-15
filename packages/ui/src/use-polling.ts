@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useEffectEvent } from "react";
-import { runWhenPageActive } from "@devfeed/ui/page-activity";
+import { runWhenPageActive } from "./page-activity";
 
 /** Quiet, sequential polling. Changing the interval cancels only automatic work. */
 export function usePolling(
