@@ -310,6 +310,16 @@ export async function checkFeedMode(page, destination, fixture, output, extensio
       { path: `/?source_id=${fixture.source.id}`, disabled: true, personal: true },
       { path: "/?cursor=next-page", disabled: true, personal: true },
       { path: "/latest", fallback: true },
+      { path: "/news", fallback: false, type: "news" },
+      { path: "/tutorials", fallback: false, type: "tutorial" },
+      { path: "/latest?q=typescript", fallback: false },
+      { path: "/latest?tag=typescript", fallback: false },
+      { path: "/topics/javascript", fallback: false, surface: "topic" },
+      { path: "/topics/javascript/news", fallback: false, surface: "topic", type: "news" },
+      { path: "/sources/publisher", fallback: false, formats: ["engagement"] },
+      { path: `/latest?source_id=${fixture.source.id}`, fallback: false, formats: ["engagement"] },
+      { path: "/latest?cursor=next-page", disabled: true },
+      { path: "/search?q=typescript", fallback: false, surface: "search", formats: ["engagement"] },
     ])
       await check(options);
     await page.setViewportSize({ width: 390, height: 844 });

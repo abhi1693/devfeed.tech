@@ -149,6 +149,9 @@ let placementLimited = false;
 let duplicateCollectionProduct = false;
 let isolateArticleReceipts = false;
 let articleReceiptSequence = 0;
+let sessionReceiptNamespace = null;
+let sessionReceiptGeneration = 0;
+let feedView = "cards";
 const acceptedTrackingReceipts = new Set([ordinary.receipt, sponsored.receipt]);
 const callerFixtureKey = "disposable-dedicated-caller-proof-key";
 const callerFixtureIps = { web: "203.0.113.20", chrome: "203.0.113.30", edge: "203.0.113.40" };
@@ -801,6 +804,177 @@ async function assertSitewideHeader(context, base, platform) {
     await page.close();
     headerInventory = false;
     signedIn = previousSignedIn;
+  }
+}
+
+async function assertAuthenticationPlacementParity(context, base, platform) {
+  const previousSignedIn = signedIn;
+  const page = await context.newPage();
+  nativeMode = "authentication-parity";
+  headerInventory = true;
+  try {
+    await page.goto(`${base}/latest`);
+    for (const width of [1440, 390]) {
+      await page.setViewportSize({ width, height: width === 390 ? 844 : 1000 });
+      for (const { route, formats, header = true, view = "cards" } of [
+        { route: "/", formats: ["feed", "sponsored_content"] },
+        { route: "/latest", formats: ["feed", "sponsored_content"] },
+        { route: "/topics/typescript", formats: ["feed", "engagement"] },
+        { route: "/sources/engineering", formats: ["engagement"] },
+        { route: `/latest?source_id=${source.id}`, formats: ["engagement"] },
+        { route: "/search?q=typescript", formats: ["engagement"] },
+        { route: `/articles/${article.slug}`, formats: ["engagement"], header: false },
+        { route: "/latest", formats: ["feed"], view: "compact" },
+      ]) {
+        const expectedFormats = [
+          ...formats,
+          ...(header && width >= 1280 ? ["header_sponsorship"] : []),
+        ].sort();
+        const label = `${platform}/${width}/${route}/${view}`;
+        sessionReceiptNamespace = label;
+        sessionReceiptGeneration = 0;
+        feedView = view;
+        signedIn = false;
+        await page.evaluate(
+          (value) => localStorage.setItem("devfeed:feed-view:guest", value),
+          view,
+        );
+        queries = [];
+        headerQueries = [];
+        await page.goto("about:blank");
+        await page.goto(`${base}${route}`);
+        const destination = page.url();
+        await page.evaluate(() => {
+          window.__authenticationParityDocument = document;
+        });
+        const inspect = async (authenticated) => {
+          await page.waitForFunction((expected) => {
+            const formats = [...document.querySelectorAll(".partner-placement")]
+              .filter((node) => {
+                const style = getComputedStyle(node);
+                return !node.hidden && style.display !== "none" && style.visibility === "visible";
+              })
+              .map((node) => node.dataset.adFormat)
+              .sort();
+            return JSON.stringify(formats) === JSON.stringify(expected);
+          }, expectedFormats);
+          const selections = [...queries, ...headerQueries];
+          assert.ok(selections.length, `${label}: ${authenticated ? "member" : "guest"} selection`);
+          assert.ok(
+            selections.every(
+              (query) =>
+                query.pathname ===
+                (authenticated
+                  ? "/v1/user/partner-placements/query"
+                  : "/v1/partner-placements/query"),
+            ),
+            `${label}: all visible formats use the current session transport`,
+          );
+          assert.equal(page.url(), destination, `${label}: account changes keep the current page`);
+          assert.equal(
+            await page.evaluate(() => window.__authenticationParityDocument === document),
+            true,
+            `${label}: account changes update the mounted reader without a document reload`,
+          );
+          assert.equal(
+            await page.evaluate(() => document.documentElement.scrollWidth > innerWidth),
+            false,
+            `${label}: matching placement opportunities fit both signed-in and anonymous layouts`,
+          );
+          const products = await page
+            .locator(".partner-placement:visible")
+            .evaluateAll((nodes) => nodes.map((node) => node.dataset.productId));
+          assert.equal(new Set(products).size, products.length, `${label}: no duplicate products`);
+          if (view === "compact") {
+            assert.equal(
+              await page.locator('.article-table tbody > [data-ad-format="feed"]').count(),
+              1,
+              `${label}: the current owner retains the native sponsored table row`,
+            );
+            assert.equal(await page.locator(".article-grid > .partner-placement").count(), 0);
+          }
+          return selections;
+        };
+        await inspect(false);
+        for (const authenticated of [true, false]) {
+          signedIn = authenticated;
+          sessionReceiptGeneration++;
+          queries = [];
+          headerQueries = [];
+          // Returning to a frozen reader after website sign-in must revalidate
+          // every placement using its new identity, including extension new tabs.
+          await page.evaluate(() => {
+            window.dispatchEvent(new PageTransitionEvent("pageshow", { persisted: true }));
+          });
+          await page
+            .locator(
+              authenticated
+                ? '.topbar [aria-label="User menu: Reader"]'
+                : '.topbar .account-link[aria-label="Sign in"]',
+            )
+            .waitFor();
+          await inspect(authenticated);
+          // Measurements already dispatched before the identity boundary may
+          // finish in flight. Only fresh interactions belong to the new owner.
+          const previousEvents = events.length;
+          const card = page.locator(".partner-placement:visible").first();
+          const product = await card.getAttribute("data-product-id");
+          const item = [ordinary, sponsoredContent, collectionEngagement, headerSponsor].find(
+            (candidate) => candidate.product_id === product,
+          );
+          assert.ok(item, `${label}: visible creative has a signed fixture receipt`);
+          const receipt = sessionPlacementReceipt(item);
+          await card.scrollIntoViewIfNeeded();
+          await waitForImpression(page, receipt);
+          const link = card.locator(".partner-placement-link, .card-open-link").first();
+          await link.evaluate((node) => {
+            node.addEventListener("click", (event) => event.preventDefault(), { once: true });
+          });
+          await link.click();
+          for (
+            let attempt = 0;
+            attempt < 100 &&
+            !events
+              .slice(previousEvents)
+              .some((event) => event.kind === "click" && event.receipt === receipt);
+            attempt++
+          )
+            await page.waitForTimeout(20);
+          assert.ok(
+            events
+              .slice(previousEvents)
+              .some((event) => event.kind === "click" && event.receipt === receipt),
+            `${label}: fresh interactions measure the current session's signed delivery`,
+          );
+          const currentReceipts = new Set(
+            [ordinary, sponsoredContent, collectionEngagement, headerSponsor].map(
+              sessionPlacementReceipt,
+            ),
+          );
+          assert.ok(
+            events.slice(previousEvents).every((event) => currentReceipts.has(event.receipt)),
+            `${label}: revalidated cards never measure the previous session's receipts`,
+          );
+          if (authenticated && (route === "/" || route === "/search?q=typescript"))
+            await page.screenshot({
+              path: `${reportDirectory}/${platform}-authentication-parity-${route === "/" ? "feed" : "search"}-${width}.png`,
+              animations: "disabled",
+            });
+        }
+        await assertNoPlacementHistory(page, `${label}: account transitions`);
+      }
+    }
+    console.log(
+      `${platform}: anonymous/member placement parity passed for Feed cards, compact Feed rows, sponsored articles, Engagement sidebars and Header sponsorship; live sign-in and sign-out revalidate private/public delivery and receipts across Home, Latest, topic, source, search and article views at desktop/mobile sizes.`,
+    );
+  } finally {
+    await page.evaluate(() => localStorage.removeItem("devfeed:feed-view:guest")).catch(() => {});
+    await page.close();
+    signedIn = previousSignedIn;
+    nativeMode = null;
+    headerInventory = false;
+    sessionReceiptNamespace = null;
+    feedView = "cards";
   }
 }
 
@@ -1701,8 +1875,9 @@ function productMedia(item) {
 
 function deliveryItems(items, query) {
   return items.map((item) => {
-    const receipt =
-      isolateArticleReceipts && query.surface === "article"
+    const receipt = sessionReceiptNamespace
+      ? sessionPlacementReceipt(item)
+      : isolateArticleReceipts && query.surface === "article"
         ? placementReceipt(
             item.asset_id,
             createHash("sha256")
@@ -1729,6 +1904,18 @@ function deliveryItems(items, query) {
       receipt,
     };
   });
+}
+
+function sessionPlacementReceipt(item) {
+  return placementReceipt(
+    item.asset_id,
+    createHash("sha256")
+      .update(
+        `${sessionReceiptNamespace}:${sessionReceiptGeneration}:${signedIn ? "member" : "guest"}:${item.asset_id}`,
+      )
+      .digest("hex")
+      .slice(0, 32),
+  );
 }
 
 async function waitForVisibleProductLogos(page) {
@@ -2047,15 +2234,19 @@ function response(requestPath, body, headers = {}, extension = false) {
       assert.ok(Array.isArray(body.ad_formats), "Native formats are explicitly requested");
       if (body.surface !== "feed") assert.ok(!body.ad_formats.includes("sponsored_content"));
       const items =
-        nativeMode === "disclosure"
-          ? []
-          : nativeMode === "table-header"
-            ? [sponsored]
-            : nativeMode === "sponsored-content"
-              ? [sponsoredContent]
-              : nativeMode === "header-gallery" && body.allow_sponsored_fallback
+        nativeMode === "authentication-parity"
+          ? body.ad_formats.includes("engagement")
+            ? [collectionEngagement]
+            : [ordinary, sponsoredContent]
+          : nativeMode === "disclosure"
+            ? []
+            : nativeMode === "table-header"
+              ? [sponsored]
+              : nativeMode === "sponsored-content"
                 ? [sponsoredContent]
-                : [engagementPlacement, sponsored];
+                : nativeMode === "header-gallery" && body.allow_sponsored_fallback
+                  ? [sponsoredContent]
+                  : [engagementPlacement, sponsored];
       return {
         items: deliveryItems(
           nativeMode === "unexpected-engagement"
@@ -2186,7 +2377,7 @@ function response(requestPath, body, headers = {}, extension = false) {
   if (pathname === "/v1/user/settings/appearance")
     return { theme: "system", timezone: "UTC", date_format: "locale", time_format: "24" };
   if (pathname === "/v1/user/settings/feed")
-    return { view: "cards", content_types: ["tutorial", "news"], languages: ["en"] };
+    return { view: feedView, content_types: ["tutorial", "news"], languages: ["en"] };
   if (["/v1/user/preferences", "/v1/user/preferences/topics"].includes(pathname))
     return { topic_ids: [topic.id] };
   if (pathname === "/v1/user/preferences/sources") return { source_ids: [] };
@@ -2521,6 +2712,7 @@ try {
       });
       const page = await context.newPage();
       await assertSitewideHeader(context, base, platform);
+      await assertAuthenticationPlacementParity(context, base, platform);
       await page.goto(`${base}/articles/${article.slug}`);
       const free = page.getByRole("link", { name: ordinary.name, exact: true });
       await free.waitFor();
