@@ -631,3 +631,8 @@ def upload_ad_image(
     if account is None:
         raise HTTPException(404, "Partner account not found")
     return upload_product_ad_image(session, account, product_id, file)
+
+
+@router.get("/{account_id}", response_model=AccountOut, operation_id="adminPartnerAccountGet")
+def get_account(account_id: uuid.UUID, session: DB, admin: Superuser):
+    return account_access(session, admin, account_id)

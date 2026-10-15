@@ -41,7 +41,9 @@
     "./textarea": "./src/textarea.tsx",
     "./table": "./src/table.tsx",
     "./badge": "./src/badge.tsx",
-    "./chart": "./src/chart.tsx"
+    "./chart": "./src/chart.tsx",
+    "./performance": "./src/performance.ts",
+    "./partner-performance": "./src/partner-performance.tsx"
   },
   "peerDependencies": {
     "react": "19.3.0",

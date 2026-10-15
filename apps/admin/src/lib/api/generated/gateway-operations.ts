@@ -1150,6 +1150,26 @@ export const adminGatewayOperations = [
     },
   },
   {
+    operationId: "adminPartnerAccountGet",
+    method: "GET",
+    path: "/v1/admin/partner-accounts/{account_id}",
+    parameters: [
+      {
+        name: "account_id",
+        schema: {
+          type: "string",
+          format: "uuid",
+        },
+        converter: "str",
+      },
+    ],
+    policy: {
+      bodyLimit: 1000000,
+      bodyTimeoutMs: 2000,
+      upstreamTimeoutMs: 45000,
+    },
+  },
+  {
     operationId: "admin_partner_pipeline_list",
     method: "GET",
     path: "/v1/admin/partner-tools/pipeline",

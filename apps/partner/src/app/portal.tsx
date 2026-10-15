@@ -14,7 +14,7 @@ import { PartnerProductPage } from "./partner-product-page";
 import { PartnerProductCreate } from "./partner-product-form";
 import { PartnerConnections, type ConnectionsRoute } from "./partner-connections";
 import { PartnerSettings } from "./partner-settings";
-import { PartnerPerformance } from "./partner-performance";
+import { PartnerPerformance } from "@devfeed/ui/partner-performance";
 import { Button } from "@devfeed/ui/button";
 import { Badge } from "@devfeed/ui/badge";
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from "@devfeed/ui/table";
@@ -376,7 +376,7 @@ export function Portal({
             <PartnerPerformance
               data={data}
               compact={section === "overview"}
-              accountId={account?.id}
+              performanceHref={`${portalPath("performance")}?${new URLSearchParams({ days: String(days), ...(account ? { account_id: account.id } : {}) })}`}
             />
             {section === "overview" && (
               <nav

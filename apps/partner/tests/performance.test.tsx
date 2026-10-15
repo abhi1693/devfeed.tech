@@ -2,8 +2,8 @@
 import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { PartnerPerformance } from "../src/app/partner-performance";
-import { performanceCsv, performanceDays } from "../src/lib/performance";
+import { PartnerPerformance } from "@devfeed/ui/partner-performance";
+import { performanceCsv, performanceDays } from "@devfeed/ui/performance";
 import type { WorkspaceDashboard } from "../src/lib/api/generated/models";
 
 afterEach(cleanup);
@@ -206,7 +206,13 @@ describe("partner performance", () => {
   });
 
   it("compares formats on the dashboard and links to the user-wide report and same period", () => {
-    render(<PartnerPerformance data={dashboard({ end: "2026-10-07" })} compact />);
+    render(
+      <PartnerPerformance
+        data={dashboard({ end: "2026-10-07" })}
+        compact
+        performanceHref="/performance?days=7"
+      />,
+    );
     expect(screen.getByRole("link", { name: "View performance" }).getAttribute("href")).toBe(
       "/performance?days=7",
     );
@@ -216,7 +222,13 @@ describe("partner performance", () => {
 
   it("retains an explicitly selected account filter in the performance link", () => {
     const accountId = "11111111-1111-4111-8111-111111111111";
-    render(<PartnerPerformance data={dashboard()} compact accountId={accountId} />);
+    render(
+      <PartnerPerformance
+        data={dashboard()}
+        compact
+        performanceHref={`/performance?account_id=${accountId}&days=3`}
+      />,
+    );
     const url = new URL(
       screen.getByRole("link", { name: "View performance" }).getAttribute("href")!,
       "https://partner.example",

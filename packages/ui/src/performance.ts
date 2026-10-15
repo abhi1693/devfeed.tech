@@ -1,4 +1,17 @@
-import type { WorkspaceDashboard } from "./api/generated/models";
+export type PerformanceReport = {
+  start: string;
+  end: string;
+  totals: { impressions: number; clicks: number; ctr: number | null; measured_days: number };
+  trend: { day: string; impressions: number; clicks: number }[];
+  format_totals?: {
+    ad_format: string;
+    impressions: number;
+    clicks: number;
+    ctr: number | null;
+    measured_days: number;
+  }[];
+  last_updated_at: string | null;
+};
 
 export type PerformanceDay = {
   day: string;
@@ -9,7 +22,7 @@ export type PerformanceDay = {
 
 /** Missing ledger days stay unknown; a recorded zero is a measurement. */
 export function performanceDays(
-  data: Pick<WorkspaceDashboard, "start" | "end" | "trend">,
+  data: Pick<PerformanceReport, "start" | "end" | "trend">,
 ): PerformanceDay[] {
   const measured = new Map(data.trend.map((row) => [row.day, row]));
   const first = Date.parse(`${data.start}T00:00:00Z`);

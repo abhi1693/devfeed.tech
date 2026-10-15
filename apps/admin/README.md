@@ -125,6 +125,20 @@ legacy defaults, saved decisions, and desktop/mobile layout.
 Screenshots: [desktop](screenshots/article-page-kind-desktop.png),
 [mobile](screenshots/article-page-kind-mobile.png).
 
+## Partner account workspace
+
+Account pages have Overview, Performance, Products, Campaigns, Members and Settings sections.
+Overview shows measured delivery, compact promotion and audience summaries, and links to the
+relevant settings tab. Performance contains daily impression/click charts, CTR, CSV export and
+paginated placement records; reporting periods are preserved in the URL. Membership management
+is separate from reporting. Account details load independently, so a failed report does not block
+settings, products or campaigns.
+
+Settings and account creation use General, Delivery, Ad formats and Audience tabs with one save
+action. Drafts survive tab changes; opening a settings link can select a tab with
+`?tab=general`, `delivery`, `formats` or `audience`. Secondary benefits and delivery help expand
+inline. Reporting components and date/CSV calculations are shared directly through `@devfeed/ui`.
+
 ## Product import connections
 
 **Partner accounts** represent companies or commercial relationships. They own tiers, portal
@@ -245,7 +259,7 @@ Selecting the partner listing omits products without that listing rather than ch
 
 Campaign lists show impressions, clicks, and click-through rates. Automatic placement
 reporting records link back to their account defaults or campaign, preserving attribution.
-Historical manual assets remain accessible under **Related objects**; the normal workflow
+Manual assets remain accessible under **Performance**; the normal workflow
 does not require associating every product as a placement or ad.
 
 Validate account defaults, inclusion/exclusion, all/selected/filtered campaigns, scoped

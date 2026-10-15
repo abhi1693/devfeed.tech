@@ -4,6 +4,7 @@ import { recordIdentity } from "@/lib/record-identities";
 
 import { useEffect, useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
+import { Tabs } from "radix-ui";
 import { Button } from "@devfeed/ui/button";
 import { Input } from "@devfeed/ui/input";
 import { listRecords, getRecord } from "@/lib/resource-api";
@@ -51,17 +52,34 @@ const catalogProducts: EntityPickerSource = {
   },
 };
 
+export type AccountSettingsTab = "general" | "delivery" | "formats" | "audience";
+
+const settingsTabs: { value: AccountSettingsTab; label: string }[] = [
+  { value: "general", label: "General" },
+  { value: "delivery", label: "Delivery" },
+  { value: "formats", label: "Ad formats" },
+  { value: "audience", label: "Audience" },
+];
+
 export function PartnerAccountManagement({
   account,
   asset,
   mode,
+  initialTab = "general",
 }: {
   account?: AccountOut;
   asset?: AssetOut;
   mode: "account" | "member" | "asset";
+  initialTab?: AccountSettingsTab;
 }) {
   const admin = useAdmin();
   const router = useRouter();
+  const [tab, setTab] = useState<AccountSettingsTab>(initialTab);
+  const [visitedTabs, setVisitedTabs] = useState<AccountSettingsTab[]>([initialTab]);
+  function selectTab(next: AccountSettingsTab) {
+    setTab(next);
+    setVisitedTabs((visited) => (visited.includes(next) ? visited : [...visited, next]));
+  }
   const [status, setStatus] = useState<string>(
     asset?.status ?? account?.status ?? (mode === "asset" ? "draft" : "active"),
   );
@@ -117,20 +135,27 @@ export function PartnerAccountManagement({
   const selectedBenefits = selectedTier?.benefits;
   const allowedKinds = selectedTier?.allowed_promotion_kinds ??
     account?.allowed_promotion_kinds ?? ["product"];
-  const defaultKind = selectedTier?.default_promotion_kind ?? "product";
+  const defaultKind =
+    selectedTier?.default_promotion_kind ??
+    (tier === account?.tier ? account.effective_promotion_kind : "product");
   const effectiveKind = promotionKind === "inherit" ? defaultKind : promotionKind;
   const promotionName = (value: string) =>
     value === "ad" ? "Sponsored" : "Product recommendation";
   const cancel = account
     ? mode === "account"
       ? accountHref(account.id)
-      : partnerAccountHref({ resource: "related", action: "list", accountId: account.id })
+      : partnerAccountHref({
+          resource: mode === "member" ? "member" : "performance",
+          action: "list",
+          accountId: account.id,
+        })
     : accountsPath;
   async function save(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (busy) return;
     const form = new FormData(event.currentTarget);
     if (mode === "account" && !surfaces.length) {
+      selectTab("delivery");
       setError(new Error("Select at least one placement surface."));
       return;
     }
@@ -194,49 +219,77 @@ export function PartnerAccountManagement({
     <form
       aria-label={
         mode === "account"
-          ? "Partnership settings"
+          ? "Partner account settings"
           : mode === "asset"
             ? "Asset settings"
             : "Partner membership"
       }
       aria-busy={busy}
       onSubmit={(event) => void save(event)}
-      className="space-y-6 rounded-lg border bg-card p-6"
+      className={
+        mode === "account"
+          ? "space-y-6 rounded-lg border bg-card p-4 sm:p-6"
+          : "space-y-6 rounded-lg border bg-card p-6"
+      }
     >
       <RequestState error={error} />
-      <div className="grid gap-6 sm:grid-cols-2">
-        {mode === "member" ? (
-          <Field
-            label="User"
-            name="user_id"
-            required
-            disabled={busy}
-            subtext="Users appear after partner or reader sign-in. The partner role in Zitadel is also required to access this account."
+      {mode === "account" ? (
+        <Tabs.Root value={tab} onValueChange={(value) => selectTab(value as AccountSettingsTab)}>
+          <Tabs.List
+            aria-label="Account settings"
+            className="mb-6 flex gap-5 overflow-x-auto border-b sm:gap-7"
           >
-            {(control) => (
-              <EntityPicker
-                {...control}
-                resource="users"
-                source={memberUsers}
-                label="User"
-                value={memberUser}
-                onChange={setMemberUser}
-              />
-            )}
-          </Field>
-        ) : (
-          <>
-            <Field
-              label={mode === "account" ? "Partner name" : "Asset name"}
-              name="name"
-              required
-              disabled={busy}
-            >
-              {(control) => (
-                <Input {...control} defaultValue={asset?.name ?? account?.name} maxLength={200} />
-              )}
-            </Field>
-            {mode === "account" ? (
+            {settingsTabs.map(({ value, label }) => (
+              <Tabs.Trigger
+                key={value}
+                value={value}
+                disabled={busy}
+                className="shrink-0 border-b-2 border-transparent px-1 pb-3 text-sm font-medium text-muted-foreground outline-none transition-colors hover:text-foreground focus-visible:rounded-sm focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:opacity-50 data-[state=active]:border-primary data-[state=active]:text-foreground"
+              >
+                {label}
+              </Tabs.Trigger>
+            ))}
+          </Tabs.List>
+          {!selectedTier && !tierError && (
+            <p role="status" className="mb-4 text-sm text-muted-foreground">
+              Loading tier options…
+            </p>
+          )}
+          <RequestState error={tierError} retry={() => setCatalogRevision((n) => n + 1)} />
+          <Tabs.Content
+            value="general"
+            forceMount
+            hidden={tab !== "general"}
+            className="max-w-4xl space-y-5 outline-none"
+            onInvalidCapture={(event) => {
+              if (tab === "general") return;
+              event.preventDefault();
+              setTab("general");
+              const control = event.target;
+              requestAnimationFrame(() => {
+                if (control instanceof HTMLInputElement) {
+                  control.focus();
+                  control.reportValidity();
+                }
+              });
+            }}
+          >
+            <div className="space-y-1">
+              <h2 className="font-semibold">General</h2>
+              <p className="text-sm text-muted-foreground">
+                Account identity, partnership tier and availability.
+              </p>
+            </div>
+            <div className="grid gap-5 sm:grid-cols-2">
+              <Field
+                label="Partner name"
+                name="name"
+                required
+                disabled={busy}
+                className="sm:col-span-2"
+              >
+                {(control) => <Input {...control} defaultValue={account?.name} maxLength={200} />}
+              </Field>
               <Field label="Partnership tier" name="tier" required disabled={busy}>
                 {(control) => (
                   <Select
@@ -260,222 +313,295 @@ export function PartnerAccountManagement({
                   />
                 )}
               </Field>
-            ) : (
-              <>
-                <Field label="Type" name="kind" required disabled={busy || asset?.automatic}>
-                  {(control) => (
-                    <Select
-                      {...control}
-                      label="Type"
-                      value={kind}
-                      onChange={setKind}
-                      options={[
-                        { value: "product", label: "Product placement" },
-                        { value: "ad", label: "Ad" },
-                      ]}
-                    />
-                  )}
-                </Field>
-                <Field
-                  label="Catalog product"
-                  name="product_id"
-                  required={kind === "product"}
-                  disabled={busy || asset?.automatic}
-                >
-                  {(control) => (
-                    <EntityPicker
-                      {...control}
-                      source={catalogProducts}
-                      catalog={productCatalog}
-                      value={productId}
-                      onChange={setProductId}
-                    />
-                  )}
-                </Field>
-              </>
-            )}
-            <Field label="Status" name="status" required disabled={busy}>
-              {(control) => (
-                <Select
-                  {...control}
-                  label="Status"
-                  value={status}
-                  onChange={setStatus}
-                  options={(mode === "account"
-                    ? ["active", "paused"]
-                    : ["draft", "active", "paused", "ended"]
-                  ).map((value) => ({
-                    value,
-                    label: value.charAt(0).toUpperCase() + value.slice(1),
-                  }))}
-                />
-              )}
-            </Field>
-            {mode === "account" && (
-              <section
-                aria-label="Selected tier benefits"
-                aria-live="polite"
-                className="space-y-2 sm:col-span-2"
-              >
-                <h2 className="text-sm font-medium">Included benefits</h2>
-                <RequestState
-                  loading={!selectedBenefits && !tierError}
-                  error={tierError}
-                  retry={() => setCatalogRevision((n) => n + 1)}
-                />
-                {selectedBenefits && (
-                  <ul className="list-disc space-y-1 pl-5 text-sm text-muted-foreground">
-                    {selectedBenefits.map((benefit) => (
-                      <li key={benefit}>{benefit}</li>
-                    ))}
-                  </ul>
+              <Field label="Status" name="status" required disabled={busy}>
+                {(control) => (
+                  <Select
+                    {...control}
+                    label="Status"
+                    value={status}
+                    onChange={setStatus}
+                    options={["active", "paused"].map((value) => ({
+                      value,
+                      label: value.charAt(0).toUpperCase() + value.slice(1),
+                    }))}
+                  />
                 )}
+              </Field>
+            </div>
+            <details className="rounded-lg border px-4 py-3" aria-label="Selected tier benefits">
+              <summary className="cursor-pointer text-sm font-medium">Included benefits</summary>
+              <ul className="mt-3 list-disc space-y-1 pl-5 text-sm text-muted-foreground">
+                {(selectedBenefits ?? (tier === account?.tier ? account.benefits : [])).map(
+                  (benefit) => (
+                    <li key={benefit}>{benefit}</li>
+                  ),
+                )}
+              </ul>
+            </details>
+          </Tabs.Content>
+          <Tabs.Content
+            value="delivery"
+            forceMount
+            hidden={tab !== "delivery"}
+            className="max-w-5xl space-y-6 outline-none"
+          >
+            {visitedTabs.includes("delivery") && (
+              <section aria-label="Promotion defaults" className="space-y-5">
+                <div className="space-y-1">
+                  <h2 className="font-semibold">Delivery</h2>
+                  <p className="text-sm text-muted-foreground">
+                    Defaults for current and newly accepted account products.
+                  </p>
+                </div>
+                <div className="grid gap-5 sm:grid-cols-2">
+                  <Field
+                    label="Default promotion"
+                    name="promotion_kind"
+                    required
+                    disabled={busy || !selectedTier}
+                    subtext={
+                      <>
+                        Effective: {promotionName(effectiveKind)} ·{" "}
+                        {promotionKind === "inherit" ? "inherited from tier" : "account override"}.
+                      </>
+                    }
+                  >
+                    {(control) => (
+                      <Select
+                        {...control}
+                        label="Default promotion"
+                        value={promotionKind}
+                        onChange={(value) => setPromotionKind(value as typeof promotionKind)}
+                        options={[
+                          {
+                            value: "inherit",
+                            label: `Inherit tier (${promotionName(defaultKind)})`,
+                          },
+                          ...allowedKinds.map((value) => ({ value, label: promotionName(value) })),
+                        ]}
+                      />
+                    )}
+                  </Field>
+                  <Field
+                    label="Product acceptance"
+                    name="approval_mode"
+                    required
+                    disabled={busy}
+                    tooltip="Trusted products skip acceptance review. Product identity, exclusions and capability checks still apply."
+                  >
+                    {(control) => (
+                      <Select
+                        {...control}
+                        label="Product acceptance"
+                        value={approvalMode}
+                        onChange={(value) => setApprovalMode(value as typeof approvalMode)}
+                        options={[
+                          { value: "qualified", label: "Automatic capability checks" },
+                          { value: "trusted", label: "Trust account products" },
+                        ]}
+                      />
+                    )}
+                  </Field>
+                </div>
+                <div className="grid min-w-0 items-start gap-5 md:grid-cols-2">
+                  <Field
+                    label="Product click destination"
+                    name="outbound_destination"
+                    required
+                    disabled={busy}
+                    subtext="DevFeed attribution is added to both destinations. Direct products use their website when no listing is available."
+                  >
+                    {(control) => (
+                      <Select
+                        {...control}
+                        label="Product click destination"
+                        value={destination}
+                        onChange={(value) => {
+                          if (value === "product_url" || value === "listing_url")
+                            setDestination(value);
+                        }}
+                        options={[
+                          { value: "product_url", label: "Product website" },
+                          { value: "listing_url", label: "Partner listing" },
+                        ]}
+                      />
+                    )}
+                  </Field>
+                  <PartnerDestinationPreview accountId={account?.id} destination={destination} />
+                </div>
+                <div className="grid gap-5 border-y py-5 sm:grid-cols-2">
+                  <label className="flex items-start gap-3 text-sm">
+                    <Input
+                      type="checkbox"
+                      checked={organicEnabled}
+                      disabled={busy || effectiveKind === "ad"}
+                      onChange={(event) => setOrganicEnabled(event.target.checked)}
+                    />
+                    <span>
+                      Allow ordinary recommendations
+                      <span className="mt-1 block text-muted-foreground">
+                        {effectiveKind === "ad"
+                          ? "Saved for when Product recommendation is active."
+                          : "Show relevant product recommendations without sponsorship."}
+                      </span>
+                    </span>
+                  </label>
+                  <label className="flex items-start gap-3 text-sm">
+                    <Input
+                      type="checkbox"
+                      checked={autoInclude}
+                      disabled={busy}
+                      onChange={(event) => setAutoInclude(event.target.checked)}
+                    />
+                    <span>
+                      Automatically include account products
+                      <span className="mt-1 block text-muted-foreground">
+                        Apply this acceptance policy to added and imported products. Individual
+                        products can be excluded.
+                      </span>
+                    </span>
+                  </label>
+                </div>
+                <PromotionSurfaces value={surfaces} onChange={setSurfaces} disabled={busy} />
+                <details className="text-sm text-muted-foreground">
+                  <summary className="cursor-pointer">How delivery works</summary>
+                  <p className="mt-2 max-w-3xl leading-relaxed">
+                    Contextual placements require a relevant match. Sponsored Feed placements can
+                    also fill unmatched feeds. Sponsored defaults apply to current and newly
+                    accepted products; product exclusions and campaign rules continue to apply.
+                  </p>
+                </details>
               </section>
             )}
-          </>
-        )}
-      </div>
-      {mode === "account" && (
-        <section aria-label="Promotion defaults" className="space-y-5 border-t pt-6">
-          <div className="space-y-1">
-            <h2 className="font-semibold">Promotion defaults</h2>
-            <p className="text-sm text-muted-foreground">
-              Products added directly or imported into this account inherit these settings.
-              Promotion type follows the tier unless you override it. Contextual matches are
-              preferred; sponsored feed placements can fill unmatched feeds. Article and topic
-              placements require a relevant match.
-            </p>
-          </div>
-          <Field
-            label="Default promotion"
-            name="promotion_kind"
-            required
-            disabled={busy || !selectedTier}
-            subtext={
-              <>
-                Effective: {promotionName(effectiveKind)} ·{" "}
-                {promotionKind === "inherit" ? "inherited from tier" : "account override"}.
-                Sponsored defaults automatically cover current and newly accepted account products.
-              </>
-            }
+          </Tabs.Content>
+          <Tabs.Content
+            value="formats"
+            forceMount
+            hidden={tab !== "formats"}
+            className="space-y-5 outline-none [&>section]:border-0 [&>section]:pt-0"
           >
-            {(control) => (
-              <Select
-                {...control}
-                label="Default promotion"
-                value={promotionKind}
-                onChange={(value) => setPromotionKind(value as typeof promotionKind)}
-                options={[
-                  { value: "inherit", label: `Inherit tier (${promotionName(defaultKind)})` },
-                  ...allowedKinds.map((value) => ({ value, label: promotionName(value) })),
-                ]}
+            {visitedTabs.includes("formats") && (
+              <PartnerAdFormats
+                accountId={account?.id}
+                value={adFormats}
+                onChange={setAdFormats}
+                allowed={
+                  selectedTier?.allowed_ad_formats ?? account?.allowed_ad_formats ?? ["feed"]
+                }
+                eligible={allowedKinds.includes("ad")}
+                disabled={busy}
+                destination={destination}
               />
             )}
-          </Field>
-          <Field
-            label="Product acceptance"
-            name="approval_mode"
-            required
-            disabled={busy}
-            subtext="Trusted account products are accepted automatically, whether added directly or imported. Product identity and exclusions still apply; capability checks continue separately."
+          </Tabs.Content>
+          <Tabs.Content
+            value="audience"
+            forceMount
+            hidden={tab !== "audience"}
+            className="space-y-5 outline-none [&>section]:border-0 [&>section]:pt-0"
           >
-            {(control) => (
-              <Select
-                {...control}
-                label="Product acceptance"
-                value={approvalMode}
-                onChange={(value) => setApprovalMode(value as typeof approvalMode)}
-                options={[
-                  { value: "qualified", label: "Automatic capability checks" },
-                  { value: "trusted", label: "Trust account products" },
-                ]}
+            {visitedTabs.includes("audience") && (
+              <PartnerAudience
+                accountId={account?.id}
+                value={audience}
+                onChange={setAudience}
+                enabled={
+                  selectedTier?.advanced_targeting ??
+                  (tier === account?.tier && !!account?.advanced_targeting)
+                }
+                disabled={busy}
               />
             )}
-          </Field>
-          <div className="grid min-w-0 items-start gap-6 md:grid-cols-2">
+          </Tabs.Content>
+        </Tabs.Root>
+      ) : (
+        <div className="grid gap-6 sm:grid-cols-2">
+          {mode === "member" ? (
             <Field
-              label="Product click destination"
-              name="outbound_destination"
+              label="User"
+              name="user_id"
               required
               disabled={busy}
-              subtext="Both destinations include DevFeed UTM attribution. Direct products use their website when no partner listing is available. Partners can also change this preference in their portal."
+              subtext="Users appear after partner or reader sign-in. The partner role in Zitadel is also required to access this account."
             >
               {(control) => (
-                <Select
+                <EntityPicker
                   {...control}
-                  label="Product click destination"
-                  value={destination}
-                  onChange={(value) => {
-                    if (value === "product_url" || value === "listing_url") setDestination(value);
-                  }}
-                  options={[
-                    { value: "product_url", label: "Product website" },
-                    { value: "listing_url", label: "Partner listing" },
-                  ]}
+                  resource="users"
+                  source={memberUsers}
+                  label="User"
+                  value={memberUser}
+                  onChange={setMemberUser}
                 />
               )}
             </Field>
-            <PartnerDestinationPreview accountId={account?.id} destination={destination} />
-          </div>
-          <label className="flex items-start gap-3 text-sm">
-            <Input
-              type="checkbox"
-              checked={organicEnabled}
-              disabled={busy || effectiveKind === "ad"}
-              onChange={(event) => setOrganicEnabled(event.target.checked)}
-            />
-            <span>
-              Allow ordinary recommendations
-              <span className="mt-1 block text-muted-foreground">
-                Allow product recommendations when the effective promotion type is Product
-                recommendation.
-                {effectiveKind === "ad" &&
-                  " This preference is preserved while Sponsored is active."}
-              </span>
-            </span>
-          </label>
-          <label className="flex items-start gap-3 text-sm">
-            <Input
-              type="checkbox"
-              checked={autoInclude}
-              disabled={busy}
-              onChange={(event) => setAutoInclude(event.target.checked)}
-            />
-            <span>
-              Automatically include account products
-              <span className="mt-1 block text-muted-foreground">
-                Current and newly added or imported products follow this account’s acceptance
-                policy. You can exclude individual products from the Products tab.
-              </span>
-            </span>
-          </label>
-          <PromotionSurfaces value={surfaces} onChange={setSurfaces} disabled={busy} />
-        </section>
+          ) : (
+            <>
+              <Field label="Asset name" name="name" required disabled={busy}>
+                {(control) => (
+                  <Input {...control} defaultValue={asset?.name ?? account?.name} maxLength={200} />
+                )}
+              </Field>
+              <Field label="Type" name="kind" required disabled={busy || asset?.automatic}>
+                {(control) => (
+                  <Select
+                    {...control}
+                    label="Type"
+                    value={kind}
+                    onChange={setKind}
+                    options={[
+                      { value: "product", label: "Product placement" },
+                      { value: "ad", label: "Ad" },
+                    ]}
+                  />
+                )}
+              </Field>
+              <Field
+                label="Catalog product"
+                name="product_id"
+                required={kind === "product"}
+                disabled={busy || asset?.automatic}
+              >
+                {(control) => (
+                  <EntityPicker
+                    {...control}
+                    source={catalogProducts}
+                    catalog={productCatalog}
+                    value={productId}
+                    onChange={setProductId}
+                  />
+                )}
+              </Field>
+              <Field label="Status" name="status" required disabled={busy}>
+                {(control) => (
+                  <Select
+                    {...control}
+                    label="Status"
+                    value={status}
+                    onChange={setStatus}
+                    options={["draft", "active", "paused", "ended"].map((value) => ({
+                      value,
+                      label: value.charAt(0).toUpperCase() + value.slice(1),
+                    }))}
+                  />
+                )}
+              </Field>
+            </>
+          )}
+        </div>
       )}
-      {mode === "account" && (
-        <PartnerAdFormats
-          accountId={account?.id}
-          value={adFormats}
-          onChange={setAdFormats}
-          allowed={selectedTier?.allowed_ad_formats ?? account?.allowed_ad_formats ?? ["feed"]}
-          eligible={allowedKinds.includes("ad")}
-          disabled={busy}
-          destination={destination}
-        />
-      )}
-      {mode === "account" && (
-        <PartnerAudience
-          accountId={account?.id}
-          value={audience}
-          onChange={setAudience}
-          enabled={
-            selectedTier?.advanced_targeting ??
-            (tier === account?.tier && !!account?.advanced_targeting)
-          }
-          disabled={busy}
-        />
-      )}
-      <div className="flex flex-wrap justify-end gap-3 border-t pt-6">
+      <div
+        className={
+          mode === "account"
+            ? "flex flex-wrap items-center justify-end gap-3 border-t pt-5"
+            : "flex flex-wrap justify-end gap-3 border-t pt-6"
+        }
+      >
+        {mode === "account" && (
+          <p className="mr-auto text-xs text-muted-foreground">
+            Save applies to all settings tabs.
+          </p>
+        )}
         <Button type="button" variant="outline" disabled={busy} onClick={() => router.push(cancel)}>
           Cancel
         </Button>

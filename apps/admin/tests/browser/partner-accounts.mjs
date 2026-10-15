@@ -20,12 +20,21 @@ import {
 } from "../../../../scripts/testing/native-ad-formats.mjs";
 
 const root = fileURLToPath(new URL("../../../../", import.meta.url));
+const tierBenefits = [
+  "Partner portal access",
+  "Product and ad performance reporting",
+  "Relevant product recommendations",
+  "Native feed ads, homepage sponsorship, sponsored content and engagement ads",
+  "Product promotion planning",
+  "Priority campaign support",
+  "Custom partnership and campaign planning",
+];
 const account = {
   id: "11111111-aaaa-4bbb-8ccc-111111111111",
   name: "API Checker",
   tier: "gold",
   status: "active",
-  benefits: ["Product placements"],
+  benefits: tierBenefits.slice(0, 5),
   organic_enabled: true,
   auto_include_products: true,
   promotion_surfaces: ["article", "topic", "feed"],
@@ -69,6 +78,9 @@ let assets = [];
 const assetRecords = new Map();
 const assetRequests = [];
 const dashboardRequests = [];
+let dashboardUnavailable = false;
+const accountRequests = [];
+const memberRequests = [];
 const campaigns = [];
 let productExcluded = false;
 const productPolicy = { promotion_surfaces: null, ad_formats: null, ad_image_url: null };
@@ -125,6 +137,10 @@ const inventoryProducts = Array.from({ length: 60 }, (_, index) => ({
 }));
 function updatePolicy(payload) {
   Object.assign(account, payload);
+  account.benefits = tierBenefits.slice(
+    0,
+    ["bronze", "silver", "gold", "platinum", "diamond"].indexOf(account.tier) + 3,
+  );
   const paid = ["silver", "gold", "platinum", "diamond"].includes(account.tier);
   account.allowed_promotion_kinds = paid ? ["product", "ad"] : ["product"];
   account.effective_promotion_kind = account.promotion_kind ?? (paid ? "ad" : "product");
@@ -182,18 +198,9 @@ const fixture = createServer(async (req, res) => {
     body = { items: [memberUser], total: 1, limit: 25, offset: 0 };
   else if (path === `/v1/admin/users/${memberUser.id}`) body = memberUser;
   else if (path === "/v1/admin/partner-accounts/tiers") {
-    const benefits = [
-      "Partner portal access",
-      "Product and ad performance reporting",
-      "Relevant product recommendations",
-      "Native feed ads, homepage sponsorship, sponsored content and engagement ads",
-      "Product promotion planning",
-      "Priority campaign support",
-      "Custom partnership and campaign planning",
-    ];
     body = ["bronze", "silver", "gold", "platinum", "diamond"].map((tier, index) => ({
       tier,
-      benefits: benefits.slice(0, index + 3),
+      benefits: tierBenefits.slice(0, index + 3),
       allowed_promotion_kinds: index >= 1 ? ["product", "ad"] : ["product"],
       default_promotion_kind: index >= 1 ? "ad" : "product",
       advanced_targeting: index >= 3,
@@ -225,6 +232,15 @@ const fixture = createServer(async (req, res) => {
     writes.push({ path, csrf: req.headers["x-csrf-token"], payload });
     updatePolicy(payload);
     body = account;
+  } else if (
+    req.method === "GET" &&
+    [account.id, otherAccountId].includes(
+      path.replace("/v1/admin/partner-accounts/", "").toLowerCase(),
+    )
+  ) {
+    const id = path.split("/").at(-1).toLowerCase();
+    accountRequests.push(id);
+    body = id === account.id ? account : { ...account, id: otherAccountId, name: "Other partner" };
   } else if (path === `/v1/admin/partner-accounts/${account.id}/destination-preview`) {
     previewRequests.push(path);
     body = { product: destinationProduct };
@@ -360,10 +376,17 @@ const fixture = createServer(async (req, res) => {
     const params = new URL(req.url, "http://localhost").searchParams;
     const offset = Number(params.get("offset") ?? 0);
     const limit = Number(params.get("limit") ?? 100);
+    const days = Number(params.get("days") ?? 30);
+    const start = new Date(Date.UTC(2026, 9, 14 - days)).toISOString().slice(0, 10);
     const accountId = path.split("/").at(-2).toLowerCase();
     const scopedAssets = accountId === account.id ? assets : [];
     const items = scopedAssets.slice(offset, offset + limit);
-    dashboardRequests.push({ offset, limit, ids: items.map((item) => item.id) });
+    dashboardRequests.push({ offset, limit, days, ids: items.map((item) => item.id) });
+    if (dashboardUnavailable) {
+      res.statusCode = 503;
+      res.end(JSON.stringify({ detail: "Reporting temporarily unavailable." }));
+      return;
+    }
     body = {
       account:
         accountId === account.id
@@ -371,6 +394,19 @@ const fixture = createServer(async (req, res) => {
           : { ...account, id: otherAccountId, name: "Other partner" },
       assets: items,
       asset_total: scopedAssets.length,
+      start,
+      end: "2026-10-13",
+      last_updated_at: "2026-10-13T23:00:00Z",
+      totals: { impressions: 3000, clicks: 100, ctr: 100 / 30, measured_days: 3 },
+      trend: [
+        { day: "2026-10-11", impressions: 1000, clicks: 20 },
+        { day: "2026-10-12", impressions: 1200, clicks: 48 },
+        { day: "2026-10-13", impressions: 800, clicks: 32 },
+      ],
+      format_totals: [
+        { ad_format: "feed", impressions: 2000, clicks: 40, ctr: 2, measured_days: 3 },
+        { ad_format: "engagement", impressions: 1000, clicks: 60, ctr: 6, measured_days: 3 },
+      ],
     };
   } else if (path.endsWith("/members")) {
     if (req.method === "PUT") {
@@ -389,7 +425,10 @@ const fixture = createServer(async (req, res) => {
       res.writeHead(204);
       res.end();
       return;
-    } else body = members;
+    } else {
+      memberRequests.push(path);
+      body = members;
+    }
   } else if (path.includes("/members/") && req.method === "DELETE") {
     members = members.filter((member) => member.subject !== path.split("/").at(-1));
     writes.push({ path, csrf: req.headers["x-csrf-token"] });
@@ -446,6 +485,151 @@ try {
   const context = await browser.newContext({ viewport: { width: 1440, height: 1100 } });
   await installCreativeMedia(context);
   const page = await context.newPage();
+  async function accountReport() {
+    const report = page.getByRole("region", { name: "Ad performance", exact: true });
+    await report
+      .getByRole("region", { name: "Impressions", exact: true })
+      .getByText("3,000", { exact: true })
+      .waitFor();
+    await report
+      .getByRole("region", { name: "Clicks", exact: true })
+      .getByText("100", { exact: true })
+      .waitFor();
+    const chart = report.getByRole("region", { name: "Delivery trend", exact: true });
+    await chart.locator(".recharts-line-curve").nth(1).waitFor();
+    const curves = await chart.locator(".recharts-line-curve").evaluateAll((nodes) =>
+      nodes.map((node) => ({
+        stroke: node.getAttribute("stroke"),
+        dash: node.getAttribute("stroke-dasharray"),
+        path: node.getAttribute("d"),
+      })),
+    );
+    assert.equal(curves.length, 2, "Impressions and clicks are rendered together");
+    assert.notEqual(curves[0].stroke, curves[1].stroke);
+    assert.ok(curves[1].dash, "Clicks retain their distinct dashed series");
+    assert.ok(curves.every((curve) => curve.path && !curve.path.includes("NaN")));
+    return report;
+  }
+  async function captureAccountPage(view) {
+    const output = root + "reports/admin-partner-account";
+    await mkdir(output, { recursive: true });
+    const beforeViewport = page.viewportSize();
+    const beforeTheme = await page.evaluate(() => ({
+      theme: document.documentElement.getAttribute("data-theme"),
+      dark: document.documentElement.classList.contains("dark"),
+      colorScheme: document.documentElement.style.colorScheme,
+    }));
+    try {
+      for (const theme of ["light", "dark"]) {
+        for (const width of [1440, 390]) {
+          await page.setViewportSize({ width, height: width === 390 ? 844 : 1100 });
+          await page.evaluate((value) => {
+            document.documentElement.dataset.theme = value;
+            document.documentElement.classList.toggle("dark", value === "dark");
+            document.documentElement.style.colorScheme = value;
+            window.scrollTo(0, 0);
+          }, theme);
+          if (view === "overview" || view === "performance") await accountReport();
+          assert.equal(
+            await page.evaluate(() => document.documentElement.scrollWidth > innerWidth + 1),
+            false,
+          );
+          assert.equal(
+            await page.getByRole("dialog").count(),
+            0,
+            "Account management stays on normal pages",
+          );
+          const sections = page.getByRole("navigation", { name: "Account sections", exact: true });
+          const links = await sections.getByRole("link").evaluateAll((nodes) =>
+            nodes.map((node) => ({
+              label: node.textContent,
+              rect: node.getBoundingClientRect().toJSON(),
+            })),
+          );
+          assert.equal(links.length, 6);
+          assert.ok(
+            links.every((link) => link.rect.x >= 0 && link.rect.right <= width + 1),
+            "All six account sections remain visible without horizontal scrolling",
+          );
+          if (view.startsWith("settings-")) {
+            const settings = sections.getByRole("link", { name: "Settings", exact: true });
+            assert.equal(await settings.getAttribute("aria-current"), "page");
+            assert.equal(await settings.isVisible(), true);
+          }
+          if (view === "overview") {
+            assert.equal(
+              await page.getByRole("heading", { name: "Record information", exact: true }).count(),
+              0,
+            );
+            const layout = await page.getByRole("main").evaluate((main) => {
+              const section = (title) =>
+                [...main.querySelectorAll("h2")]
+                  .find((heading) => heading.textContent === title)
+                  .closest("section");
+              return {
+                delivery: section("Delivery defaults").getBoundingClientRect().toJSON(),
+                formats: section("Formats & placements").getBoundingClientRect().toJSON(),
+                height: document.documentElement.scrollHeight,
+              };
+            });
+            if (width === 1440) {
+              assert.ok(
+                layout.formats.x >= layout.delivery.right,
+                "Overview uses both desktop columns for useful account policies",
+              );
+              assert.ok(
+                Math.abs(layout.formats.width - layout.delivery.width) <= 2,
+                "Overview no longer reserves a narrow UUID sidebar",
+              );
+              assert.ok(
+                layout.height < 1400,
+                "Desktop overview stays shorter than the1467px baseline",
+              );
+            } else {
+              assert.ok(
+                layout.formats.y >= layout.delivery.bottom - 1,
+                "Policy summaries stack on mobile",
+              );
+              assert.ok(
+                layout.height < 2200,
+                "Mobile overview stays shorter than the2365px baseline",
+              );
+            }
+          }
+          await page.screenshot({
+            path: `${output}/${view}-${theme}-${width}.png`,
+            fullPage: true,
+          });
+          await page.screenshot({ path: `${output}/${view}-${theme}-${width}-viewport.png` });
+        }
+      }
+    } finally {
+      await page.setViewportSize(beforeViewport);
+      await page.evaluate((saved) => {
+        const root = document.documentElement;
+        if (saved.theme === null) root.removeAttribute("data-theme");
+        else root.setAttribute("data-theme", saved.theme);
+        root.classList.toggle("dark", saved.dark);
+        root.style.colorScheme = saved.colorScheme;
+      }, beforeTheme);
+    }
+  }
+  async function showTierBenefits() {
+    await settingsTab("General");
+    const details = page.getByLabel("Selected tier benefits", { exact: true });
+    if (!(await details.evaluate((node) => node.open))) await details.locator("summary").click();
+  }
+  async function settingsTab(name) {
+    const writesBefore = writes.length;
+    const tab = page.getByRole("tab", { name, exact: true });
+    await tab.click();
+    assert.equal(await tab.getAttribute("aria-selected"), "true");
+    assert.equal(
+      writes.length,
+      writesBefore,
+      "Switching settings tabs retains the draft without saving",
+    );
+  }
   const errors = [];
   page.on("pageerror", (e) => errors.push(e.message));
   await context.addCookies([{ name: "devfeed_partner_session", value: "partner", url: origin }]);
@@ -454,6 +638,7 @@ try {
   await context.addCookies([{ name: "devfeed_admin_session", value: "admin", url: origin }]);
   for (const section of [
     "unknown",
+    "related",
     "edit/extra",
     "campaigns/new/extra",
     "campaigns/campaign%2Fextra/edit",
@@ -473,7 +658,89 @@ try {
   await page.getByRole("heading", { name: "Partner accounts", exact: true }).waitFor();
   await page.getByRole("link", { name: "API Checker", exact: true }).click();
   await page.waitForURL(`**/accounts/${account.id}`);
-  await page.getByRole("link", { name: "Related objects", exact: true }).click();
+  await accountReport();
+  const accountSections = page.getByRole("navigation", { name: "Account sections", exact: true });
+  assert.deepEqual(await accountSections.getByRole("link").allTextContents(), [
+    "Overview",
+    "Performance",
+    "Products",
+    "Campaigns",
+    "Members",
+    "Settings",
+  ]);
+  assert.equal(
+    await accountSections
+      .getByRole("link", { name: "Overview", exact: true })
+      .getAttribute("aria-current"),
+    "page",
+  );
+  assert.equal(
+    dashboardRequests.at(-1).limit,
+    1,
+    "Overview fetches only one reporting record while using server totals",
+  );
+  assert.equal(memberRequests.length, 0, "Overview does not fetch memberships");
+  assert.ok(
+    accountRequests.includes(account.id),
+    "Account identity is fetched independently of reports",
+  );
+  await captureAccountPage("overview");
+  await accountSections.getByRole("link", { name: "Performance", exact: true }).click();
+  await accountReport();
+  await page.getByRole("link", { name: "Export daily CSV", exact: true }).waitFor();
+  assert.equal(await page.getByRole("table", { name: "Account members", exact: true }).count(), 0);
+  assert.equal(dashboardRequests.at(-1).limit, 100);
+  for (const days of [7, 90, 30]) {
+    await page.getByRole("combobox", { name: "Reporting period", exact: true }).click();
+    await page.getByRole("option", { name: `Last ${days} days`, exact: true }).click();
+    await page
+      .getByRole("region", { name: "Ad performance", exact: true })
+      .getByText(`3 of ${days} days have measurements.`, { exact: false })
+      .waitFor();
+    assert.equal(
+      dashboardRequests.at(-1).days,
+      days,
+      "Reporting periods are requested from the server",
+    );
+  }
+  await captureAccountPage("performance");
+  dashboardUnavailable = true;
+  await page.reload();
+  const main = page.getByRole("main");
+  await main.getByRole("alert").waitFor();
+  assert.equal(await main.getByRole("alert").count(), 1, "A failed report has one error state");
+  assert.equal(await main.getByRole("button", { name: "Retry", exact: true }).count(), 1);
+  await main
+    .getByRole("navigation", { name: "Account sections", exact: true })
+    .getByRole("link", { name: "Settings", exact: true })
+    .waitFor();
+  assert.equal(
+    await main.getByRole("table", { name: "Placement reporting records", exact: true }).count(),
+    0,
+    "A reporting outage cannot masquerade as an empty inventory",
+  );
+  assert.equal(await main.getByText(/No placement reporting records yet|0 records/i).count(), 0);
+  await page.screenshot({
+    path: root + "reports/admin-partner-account/performance-error.png",
+    fullPage: true,
+  });
+  dashboardUnavailable = false;
+  await main.getByRole("button", { name: "Retry", exact: true }).click();
+  await accountReport();
+  await main.getByRole("table", { name: "Placement reporting records", exact: true }).waitFor();
+  assert.equal(await main.getByRole("alert").count(), 0);
+  const reportsBeforeMembers = dashboardRequests.length;
+  await page.getByRole("link", { name: "Members", exact: true }).click();
+  await page.getByRole("table", { name: "Account members", exact: true }).waitFor();
+  assert.equal(
+    dashboardRequests.length,
+    reportsBeforeMembers,
+    "Members load independently of delivery reports",
+  );
+  assert.equal(
+    await page.getByRole("table", { name: "Placement reporting records", exact: true }).count(),
+    0,
+  );
   await page.getByRole("link", { name: "Add member", exact: true }).click();
   await page.getByRole("combobox", { name: "User", exact: true }).click();
   await page.getByPlaceholder("Search users…").fill("Bob");
@@ -491,6 +758,7 @@ try {
   await page.getByRole("button", { name: "Remove member bob" }).waitFor({ state: "detached" });
   await page.goto(origin + "/partnerships/accounts");
   await page.getByRole("link", { name: "Create partner account", exact: true }).click();
+  await settingsTab("Delivery");
   assert.equal(await page.getByLabel("Product exposure limit", { exact: false }).count(), 0);
   assert.equal(await page.locator('[name="frequency_cap"]').count(), 0);
   await page
@@ -498,14 +766,17 @@ try {
     .getByText("A preview will appear when this account has an accepted product.", { exact: true })
     .waitFor();
   assert.equal(previewRequests.length, 0, "new accounts do not fetch another account's product");
+  await settingsTab("General");
   await page
     .getByLabel(/Partner name/)
     .first()
     .fill("New partner");
+  await showTierBenefits();
   await page
-    .getByRole("region", { name: "Selected tier benefits" })
+    .getByLabel("Selected tier benefits", { exact: true })
     .getByText("Partner portal access", { exact: true })
     .waitFor();
+  await settingsTab("General");
   await page.getByRole("combobox", { name: "Partnership tier" }).click();
   assert.deepEqual(await page.getByRole("option").allTextContents(), [
     "Bronze",
@@ -516,20 +787,24 @@ try {
   ]);
   assert.equal(await page.getByLabel("Benefits, one per line").count(), 0);
   await page.getByRole("option", { name: "Silver", exact: true }).click();
+  await settingsTab("Ad formats");
   assert.equal(await page.getByRole("checkbox", { name: /^Feed/ }).isChecked(), true);
   await page.getByRole("checkbox", { name: /^Homepage sponsorship/ }).check();
   await page.getByRole("checkbox", { name: /^Engagement/ }).check();
+  await settingsTab("Audience");
   assert.equal(await page.getByLabel("Senior", { exact: true }).count(), 0);
   assert.equal(
     await page.getByRole("combobox", { name: "Programming languages", exact: true }).count(),
     0,
   );
+  await settingsTab("General");
   await page
-    .getByRole("region", { name: "Selected tier benefits" })
+    .getByLabel("Selected tier benefits", { exact: true })
     .getByText("Native feed ads, homepage sponsorship, sponsored content and engagement ads", {
       exact: true,
     })
     .waitFor();
+  await settingsTab("Delivery");
   await page.getByRole("combobox", { name: "Default promotion", exact: true }).click();
   assert.deepEqual(await page.getByRole("option").allTextContents(), [
     "Inherit tier (Sponsored)",
@@ -543,6 +818,7 @@ try {
     "Trust account products",
   ]);
   await page.getByRole("option", { name: "Automatic capability checks", exact: true }).click();
+  await settingsTab("General");
   assert.equal(
     await page.getByText("Custom partnership and campaign planning", { exact: true }).count(),
     0,
@@ -562,16 +838,67 @@ try {
   ]);
   // Older cached account responses must not restore or normalize a removed setting.
   account.frequency_cap = 20;
-  await page.getByRole("link", { name: "Edit", exact: true }).click();
-  await page.waitForURL(`**/accounts/${account.id}/edit`);
+  await accountReport();
+  const generalRequests = {
+    destination: previewRequests.length,
+    creative: creativePreviewRequests.length,
+    audience: audienceRequests.length,
+    report: dashboardRequests.length,
+    members: memberRequests.length,
+  };
+  await page.goto(origin + `/partnerships/accounts/${account.id}/edit`);
+  await page.getByRole("tab", { name: "General", exact: true }).waitFor();
+  assert.equal(
+    await page.getByRole("tab", { name: "General", exact: true }).getAttribute("aria-selected"),
+    "true",
+  );
+  await captureAccountPage("settings-general");
+  await page.waitForTimeout(850);
+  assert.deepEqual(
+    {
+      destination: previewRequests.length,
+      creative: creativePreviewRequests.length,
+      audience: audienceRequests.length,
+      report: dashboardRequests.length,
+      members: memberRequests.length,
+    },
+    generalRequests,
+    "General does not preload hidden previews, audience topics, reports or memberships",
+  );
+  await page
+    .getByRole("navigation", { name: "Account sections", exact: true })
+    .getByRole("link", { name: "Overview", exact: true })
+    .click();
+  await accountReport();
+  const reportsBeforeSettings = dashboardRequests.length;
+  const membershipsBeforeSettings = memberRequests.length;
+  await page.getByRole("link", { name: "Edit ad formats", exact: true }).click();
+  await page.waitForURL(`**/accounts/${account.id}/edit?tab=formats`);
+  assert.equal(
+    await page.getByRole("tab", { name: "Ad formats", exact: true }).getAttribute("aria-selected"),
+    "true",
+  );
+  assert.equal(
+    dashboardRequests.length,
+    reportsBeforeSettings,
+    "Settings do not load reporting rows",
+  );
+  assert.equal(
+    memberRequests.length,
+    membershipsBeforeSettings,
+    "Settings do not fetch account memberships",
+  );
   await page.reload();
+  await settingsTab("Ad formats");
   assert.equal(
     await page.getByRole("checkbox", { name: /^Homepage sponsorship/ }).isChecked(),
     true,
   );
   assert.equal(await page.getByRole("checkbox", { name: /^Engagement/ }).isChecked(), true);
+  await settingsTab("General");
   await page.getByRole("combobox", { name: "Partnership tier" }).click();
   await page.getByRole("option", { name: "Diamond", exact: true }).click();
+  await settingsTab("Ad formats");
   const formatControls = page.getByRole("region", { name: "Automatic ad formats", exact: true });
   await formatControls.locator("summary").filter({ hasText: "Creative preview" }).click();
   const creativePreview = formatControls.getByRole("region", {
@@ -607,8 +934,12 @@ try {
     });
   }
   await page.setViewportSize({ width: 1440, height: 1100 });
+  await captureAccountPage("settings-formats");
+  await settingsTab("Audience");
   const audience = page.getByRole("region", { name: "Audience targeting", exact: true });
   await selectAudience(page, audience, audienceRequests);
+  await captureAccountPage("settings-audience");
+  await settingsTab("Delivery");
   await page.getByText(/Effective: Sponsored · inherited from tier/).waitFor();
   await page.getByRole("combobox", { name: "Default promotion", exact: true }).click();
   assert.deepEqual(await page.getByRole("option").allTextContents(), [
@@ -693,8 +1024,11 @@ try {
   await captureDestinationPreview(1280);
   await captureDestinationPreview(390);
   await page.setViewportSize({ width: 1440, height: 1100 });
+  await captureAccountPage("settings-delivery");
+  await settingsTab("General");
+  await showTierBenefits();
   await page
-    .getByRole("region", { name: "Selected tier benefits" })
+    .getByLabel("Selected tier benefits", { exact: true })
     .getByText("Custom partnership and campaign planning", { exact: true })
     .waitFor();
   await mkdir(root + "reports/partner", { recursive: true });
@@ -708,22 +1042,27 @@ try {
     path: root + "reports/partner/tier-benefits-mobile.png",
     fullPage: true,
   });
+  await settingsTab("Audience");
   await audience.screenshot({
     path: root + "reports/partner/audience-admin-mobile.png",
     animations: "disabled",
   });
   await page.setViewportSize({ width: 1440, height: 1100 });
+  await settingsTab("Audience");
   await audience.screenshot({
     path: root + "reports/partner/audience-admin-desktop.png",
     animations: "disabled",
   });
+  await settingsTab("General");
   await page.getByRole("combobox", { name: "Status" }).click();
   await page.getByRole("option", { name: "Paused", exact: true }).click();
+  await settingsTab("Delivery");
   await page.getByLabel("Reader feeds", { exact: true }).uncheck();
+  await page.getByLabel("Search results", { exact: true }).uncheck();
   assert.equal(await page.getByLabel("Product exposure limit", { exact: false }).count(), 0);
   await page.getByRole("button", { name: "Save partnership" }).click();
   await page.waitForURL(`**/accounts/${account.id}`);
-  await page.getByText("Diamond", { exact: true }).waitFor();
+  await page.getByText(/^Diamond$/i).waitFor();
   assert.equal(writes.at(-1).payload.status, "paused");
   assert.equal(writes.at(-1).payload.tier, "diamond");
   assert.deepEqual(writes.at(-1).payload.promotion_surfaces, ["article", "topic"]);
@@ -738,11 +1077,11 @@ try {
   assert.equal(writes.at(-1).payload.approval_mode, "trusted");
   assert.equal(writes.at(-1).payload.outbound_destination, "listing_url");
   assert.deepEqual(writes.at(-1).payload.audience, selectedAudience);
-  await page.getByText("Promotion defaults", { exact: true }).waitFor();
+  await page.getByRole("heading", { name: "Delivery defaults", exact: true }).waitFor();
   assert.equal(await page.getByText("Product exposure limit", { exact: true }).count(), 0);
   assert.equal(await page.getByText(/per reader installation per UTC day/).count(), 0);
   await page
-    .getByRole("navigation", { name: "Object sections" })
+    .getByRole("navigation", { name: "Account sections" })
     .getByRole("link", { name: "Products", exact: true })
     .click();
   await page.getByRole("link", { name: catalogProduct.name, exact: true }).waitFor();
@@ -875,6 +1214,7 @@ try {
   await productDialog.getByLabel("Article pages", { exact: true }).uncheck();
   await productDialog.getByLabel("Topic and category pages", { exact: true }).uncheck();
   await productDialog.getByLabel("Reader feeds", { exact: true }).check();
+  await productDialog.getByLabel("Search results", { exact: true }).uncheck();
   await productDialog.getByRole("button", { name: "Save product placements", exact: true }).click();
   await productDialog.waitFor({ state: "hidden" });
   assert.deepEqual(writes.at(-1).payload, {
@@ -1064,6 +1404,7 @@ try {
   assert.equal(writes.at(-1).payload.targeting, "filters");
   assert.deepEqual(writes.at(-1).payload.technologies, ["Kubernetes", "PostgreSQL"]);
   await page.goto(origin + `/partnerships/accounts/${account.id}/edit`);
+  await settingsTab("Delivery");
   await page.getByLabel("Reader feeds", { exact: true }).check();
   await page.getByRole("button", { name: "Save partnership" }).click();
   await page.waitForURL(`**/accounts/${account.id}`);
@@ -1125,15 +1466,24 @@ try {
       .some((params) => params.article_id === sponsoredArticle.id),
     "reloading resolves the saved article with an exact scoped lookup",
   );
-  await page.goto(origin + `/partnerships/accounts/${account.id}/edit`);
+  await page.goto(origin + `/partnerships/accounts/${account.id}/edit?tab=audience`);
+  assert.equal(
+    await page.getByRole("tab", { name: "Audience", exact: true }).getAttribute("aria-selected"),
+    "true",
+  );
+  await settingsTab("Audience");
   await checkAudienceSelection(
     page.getByRole("region", { name: "Audience targeting", exact: true }),
   );
+  await settingsTab("General");
   await page.getByRole("combobox", { name: "Partnership tier" }).click();
   await page.getByRole("option", { name: "Platinum", exact: true }).click();
+  await settingsTab("Audience");
   assert.equal(await page.getByLabel("Senior", { exact: true }).isChecked(), true);
+  await settingsTab("General");
   await page.getByRole("combobox", { name: "Partnership tier" }).click();
   await page.getByRole("option", { name: "Gold", exact: true }).click();
+  await settingsTab("Audience");
   assert.equal(await page.getByLabel("Senior", { exact: true }).count(), 0);
   assert.equal(
     await page.getByRole("combobox", { name: "Programming languages", exact: true }).count(),
@@ -1200,9 +1550,14 @@ try {
   await page.goto(origin + `/partnerships/accounts/${account.id}/assets/${manualAssetId}/edit`);
   await page.getByRole("heading", { name: "Edit Deep-linked manual asset", exact: true }).waitFor();
   assert.equal(await page.getByLabel(/Asset name/).inputValue(), manualAsset.name);
+  assert.equal(
+    dashboardRequests.length,
+    reportsBeforeBookmark,
+    "Asset bookmarks resolve without fetching the paginated dashboard",
+  );
   assert.equal(await page.getByRole("form", { name: "Asset settings", exact: true }).count(), 1);
   assert.equal(
-    await page.getByRole("form", { name: "Partnership settings", exact: true }).count(),
+    await page.getByRole("form", { name: "Partner account settings", exact: true }).count(),
     0,
   );
   assert.ok(
@@ -1241,7 +1596,7 @@ try {
   const writesBeforeAssetSave = writes.length;
   await page.getByLabel(/Asset name/).fill("Saved bookmarked asset");
   await page.getByRole("button", { name: "Save asset", exact: true }).click();
-  await page.waitForURL(`**/accounts/${account.id}/related`);
+  await page.waitForURL(`**/accounts/${account.id}/performance`);
   assert.equal(writes.length, writesBeforeAssetSave + 1);
   assert.equal(
     writes.at(-1).path,
@@ -1292,7 +1647,8 @@ try {
     },
   ];
   await page.goto(origin + `/partnerships/accounts/${account.id}/campaigns`);
-  await page.getByRole("link", { name: "Related objects", exact: true }).click();
+  await page.getByRole("link", { name: "Performance", exact: true }).click();
+  await accountReport();
   await page.getByText("Product totals", { exact: true }).waitFor();
   assert.equal(
     await page.getByText("Feed · Homepage sponsorship · Engagement", { exact: true }).count(),

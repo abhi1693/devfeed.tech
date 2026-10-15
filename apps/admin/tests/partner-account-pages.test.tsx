@@ -1,12 +1,14 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { renderAdmin } from "./render-admin";
 import { PartnerAccounts } from "@/components/organisms/partner-accounts";
 import { PartnerAccountPage } from "@/components/organisms/partner-account-page";
 import { PartnerAccountManagement } from "@/components/organisms/partner-account-management";
 import { PartnerConnectionPage } from "@/components/organisms/partner-connection-page";
 import { PartnerRunDetail } from "@/components/organisms/partner-run-detail";
+import type { PartnerAccountRoute } from "@/lib/partner-account-routes";
 import * as api from "@/lib/api/generated/admin";
 import * as client from "@/lib/api/client";
 import { ApiError } from "@/lib/api/client";
@@ -17,6 +19,7 @@ import type {
   AccountOut,
   CampaignOut,
   AssetOut,
+  Dashboard,
 } from "@/lib/api/generated/models";
 
 const push = vi.hoisted(() => vi.fn());
@@ -44,7 +47,10 @@ vi.mock("@/lib/api/generated/admin", () => ({
   adminPartnerConnectionsList: vi.fn(),
   adminPartnerConnectionGet: vi.fn(),
   adminPartnerProvidersList: vi.fn().mockResolvedValue([]),
+  adminPartnerAccountGet: vi.fn(),
   dashboardV1AdminPartnerAccountsAccountIdDashboardGet: vi.fn(),
+  membersV1AdminPartnerAccountsAccountIdMembersGet: vi.fn(),
+  removeMemberV1AdminPartnerAccountsAccountIdMembersSubjectDelete: vi.fn(),
   adminPartnerConnectionAction: vi.fn(),
   adminPartnerPipelineGet: vi.fn(),
   adminPartnerEvaluationGet: vi.fn(),
@@ -92,6 +98,15 @@ const dashboard = {
   trend: [],
   last_updated_at: null,
 };
+const members = [
+  {
+    subject: "alice/a",
+    issuer: "https://identity.example",
+    user_id: "user-1",
+    name: "Alice",
+    email: "alice@example.test",
+  },
+];
 const connection = {
   provider: "example",
   name: "Example connection",
@@ -115,6 +130,12 @@ const connection = {
 const fetcher = vi.fn();
 beforeEach(() => {
   vi.clearAllMocks();
+  vi.mocked(api.adminPartnerAccountGet).mockResolvedValue(account);
+  vi.mocked(api.dashboardV1AdminPartnerAccountsAccountIdDashboardGet).mockResolvedValue(dashboard);
+  vi.mocked(api.membersV1AdminPartnerAccountsAccountIdMembersGet).mockResolvedValue(members);
+  vi.mocked(
+    api.removeMemberV1AdminPartnerAccountsAccountIdMembersSubjectDelete,
+  ).mockResolvedValue();
   vi.mocked(api.adminPartnerAssetGet).mockImplementation(async (_accountId, assetId) => {
     if (assetId === assetRecord.id) return assetRecord;
     throw new ApiError(404);
@@ -149,6 +170,95 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
+it.each([
+  { resource: "account", action: "view", report: true, membership: false },
+  { resource: "performance", action: "list", report: true, membership: false },
+  { resource: "account", action: "edit", report: false, membership: false },
+  { resource: "product", action: "list", report: false, membership: false },
+  { resource: "campaign", action: "list", report: false, membership: false },
+  { resource: "member", action: "list", report: false, membership: true },
+] as const)(
+  "loads only the data needed for $resource/$action",
+  async ({ resource, action, report, membership }) => {
+    const route = { resource, action, accountId: account.id } as PartnerAccountRoute;
+    renderAdmin(<PartnerAccountPage route={route} />);
+    await screen.findByRole("heading", { name: account.name });
+    await waitFor(() => expect(api.adminPartnerAccountGet).toHaveBeenCalledOnce());
+    expect(api.adminPartnerAccountGet).toHaveBeenCalledWith(
+      account.id,
+      expect.objectContaining({ signal: expect.any(AbortSignal) }),
+    );
+    if (report)
+      await waitFor(() =>
+        expect(api.dashboardV1AdminPartnerAccountsAccountIdDashboardGet).toHaveBeenCalledOnce(),
+      );
+    else expect(api.dashboardV1AdminPartnerAccountsAccountIdDashboardGet).not.toHaveBeenCalled();
+    if (membership)
+      await waitFor(() =>
+        expect(api.membersV1AdminPartnerAccountsAccountIdMembersGet).toHaveBeenCalledOnce(),
+      );
+    else expect(api.membersV1AdminPartnerAccountsAccountIdMembersGet).not.toHaveBeenCalled();
+  },
+);
+
+it("shows one report loading state, preserves navigation on failure and retries without a false empty table", async () => {
+  let rejectReport!: (reason: Error) => void;
+  vi.mocked(api.dashboardV1AdminPartnerAccountsAccountIdDashboardGet)
+    .mockReturnValueOnce(
+      new Promise<Dashboard>((_resolve, reject) => {
+        rejectReport = reject;
+      }),
+    )
+    .mockResolvedValueOnce(dashboard);
+  renderAdmin(
+    <PartnerAccountPage
+      route={{ resource: "performance", action: "list", accountId: account.id }}
+    />,
+  );
+  await screen.findByRole("heading", { name: account.name });
+  expect(
+    screen.getAllByRole("status").filter((node) => node.textContent === "Loading…"),
+  ).toHaveLength(1);
+  expect(screen.queryByRole("table", { name: "Placement reporting records" })).toBeNull();
+  expect(screen.queryByText(/No placement reporting records yet/)).toBeNull();
+  expect(screen.queryByText("0 records")).toBeNull();
+  await act(async () => rejectReport(new ApiError(503)));
+  await screen.findByText("The admin service is unavailable. Try again.");
+  expect(screen.getByRole("navigation", { name: "Account sections" })).toBeTruthy();
+  expect(screen.queryByRole("table", { name: "Placement reporting records" })).toBeNull();
+  expect(screen.queryByText(/No placement reporting records yet/)).toBeNull();
+  expect(screen.queryByText("0 records")).toBeNull();
+  expect(screen.getByRole("link", { name: "Settings" }).getAttribute("href")).toBe(
+    `/partnerships/accounts/${account.id}/edit`,
+  );
+  fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+  await screen.findByRole("link", { name: `Edit ${asset.name}` });
+  expect(screen.getByRole("table", { name: "Placement reporting records" })).toBeTruthy();
+  expect(screen.queryByText("The admin service is unavailable. Try again.")).toBeNull();
+  expect(api.dashboardV1AdminPartnerAccountsAccountIdDashboardGet).toHaveBeenCalledTimes(2);
+  expect(api.adminPartnerAccountGet).toHaveBeenCalledOnce();
+  expect(api.membersV1AdminPartnerAccountsAccountIdMembersGet).not.toHaveBeenCalled();
+});
+
+it("isolates a membership failure and retries without fetching performance or reloading the account", async () => {
+  vi.mocked(api.membersV1AdminPartnerAccountsAccountIdMembersGet)
+    .mockRejectedValueOnce(new ApiError(503))
+    .mockResolvedValueOnce(members);
+  renderAdmin(
+    <PartnerAccountPage route={{ resource: "member", action: "list", accountId: account.id }} />,
+  );
+  await screen.findByRole("heading", { name: account.name });
+  await screen.findByText("The admin service is unavailable. Try again.");
+  expect(screen.getByRole("link", { name: "Overview" }).getAttribute("href")).toBe(
+    `/partnerships/accounts/${account.id}`,
+  );
+  fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+  await screen.findByRole("link", { name: "Alice" });
+  expect(api.membersV1AdminPartnerAccountsAccountIdMembersGet).toHaveBeenCalledTimes(2);
+  expect(api.adminPartnerAccountGet).toHaveBeenCalledOnce();
+  expect(api.dashboardV1AdminPartnerAccountsAccountIdDashboardGet).not.toHaveBeenCalled();
+});
+
 it("lists accounts with detail and edit links and recovers from a failed request", async () => {
   fetcher.mockResolvedValueOnce(new Response(null, { status: 503 }));
   renderAdmin(<PartnerAccounts />);
@@ -162,59 +272,59 @@ it("lists accounts with detail and edit links and recovers from a failed request
   );
 });
 
-it("shows account details and related memberships and removes an encoded subject with CSRF", async () => {
+it("loads memberships only on the Members page and removes an encoded subject with CSRF", async () => {
   const view = renderAdmin(
     <PartnerAccountPage route={{ resource: "account", action: "view", accountId: account.id }} />,
   );
-  await screen.findByRole("heading", { name: "Example partner" });
-  expect(screen.getByText("Partner access")).toBeTruthy();
+  await screen.findByRole("heading", { name: account.name });
+  expect(api.membersV1AdminPartnerAccountsAccountIdMembersGet).not.toHaveBeenCalled();
   view.unmount();
   renderAdmin(
-    <PartnerAccountPage route={{ resource: "related", action: "list", accountId: account.id }} />,
+    <PartnerAccountPage route={{ resource: "member", action: "list", accountId: account.id }} />,
   );
   await screen.findByRole("link", { name: "Alice" });
-  expect(
-    screen.getByRole("link", { name: "Edit Example placement" }).getAttribute("href"),
-  ).toContain("assets/asset-1/edit");
+  expect(api.membersV1AdminPartnerAccountsAccountIdMembersGet).toHaveBeenCalledWith(
+    account.id,
+    expect.objectContaining({ signal: expect.any(AbortSignal) }),
+  );
+  expect(screen.queryByRole("table", { name: "Placement reporting records" })).toBeNull();
   fireEvent.click(screen.getByRole("button", { name: "Remove member alice/a" }));
   await waitFor(() =>
-    expect(fetcher).toHaveBeenCalledWith(
-      "/api/v1/admin/partner-accounts/account-1/members/alice%2Fa",
-      expect.objectContaining({ method: "DELETE", headers: { "x-csrf-token": "test-csrf" } }),
+    expect(
+      api.removeMemberV1AdminPartnerAccountsAccountIdMembersSubjectDelete,
+    ).toHaveBeenCalledWith(
+      account.id,
+      "alice%2Fa",
+      expect.objectContaining({ headers: { "x-csrf-token": "test-csrf" } }),
     ),
   );
 });
 
 it("shows all formats for a grouped product rather than its compatibility scalar", async () => {
-  fetcher.mockImplementation(async (input) =>
-    String(input).includes("/dashboard")
-      ? Response.json({
-          ...dashboard,
-          assets: [
-            {
-              ...asset,
-              ad_format: "feed",
-              ad_formats: ["engagement", "feed", "homepage_sponsorship"],
-            },
-          ],
-        })
-      : Response.json([]),
-  );
+  vi.mocked(api.dashboardV1AdminPartnerAccountsAccountIdDashboardGet).mockResolvedValue({
+    ...dashboard,
+    assets: [
+      { ...asset, ad_format: "feed", ad_formats: ["engagement", "feed", "homepage_sponsorship"] },
+    ],
+  });
   renderAdmin(
-    <PartnerAccountPage route={{ resource: "related", action: "list", accountId: account.id }} />,
+    <PartnerAccountPage
+      route={{ resource: "performance", action: "list", accountId: account.id }}
+    />,
   );
   expect(await screen.findByText("Engagement · Feed · Homepage sponsorship")).toBeTruthy();
   expect(screen.queryByRole("columnheader", { name: "Type" })).toBeNull();
 });
 
 it("links aggregated totals to account policy without restricting the real asset's edit page", async () => {
-  fetcher.mockImplementation(async (input) =>
-    String(input).includes("/dashboard")
-      ? Response.json({ ...dashboard, assets: [{ ...asset, automatic: false, aggregated: true }] })
-      : Response.json([]),
-  );
+  vi.mocked(api.dashboardV1AdminPartnerAccountsAccountIdDashboardGet).mockResolvedValue({
+    ...dashboard,
+    assets: [{ ...asset, automatic: false, aggregated: true }],
+  });
   const view = renderAdmin(
-    <PartnerAccountPage route={{ resource: "related", action: "list", accountId: account.id }} />,
+    <PartnerAccountPage
+      route={{ resource: "performance", action: "list", accountId: account.id }}
+    />,
   );
   await screen.findByText("Product totals");
   expect(
@@ -252,11 +362,6 @@ it.each([
     offset: 50,
   },
 ])("loads asset details independently of the reporting page at offset $offset", async (page) => {
-  fetcher.mockImplementation(async (input) =>
-    String(input).includes("/dashboard")
-      ? Response.json({ ...dashboard, assets: page.assets, asset_total: page.asset_total })
-      : Response.json([]),
-  );
   renderAdmin(
     <PartnerAccountPage
       route={{ resource: "asset", action: "edit", accountId: account.id, identifier: asset.id }}
@@ -272,10 +377,8 @@ it.each([
     asset.id,
     expect.objectContaining({ signal: expect.any(AbortSignal) }),
   );
-  expect(fetcher).toHaveBeenCalledWith(
-    `/api/v1/admin/partner-accounts/${account.id}/dashboard?offset=${page.offset}&limit=25`,
-    expect.anything(),
-  );
+  expect(api.dashboardV1AdminPartnerAccountsAccountIdDashboardGet).not.toHaveBeenCalled();
+  expect(api.membersV1AdminPartnerAccountsAccountIdMembersGet).not.toHaveBeenCalled();
 });
 
 it("does not refetch an asset when report pagination parameters change", async () => {
@@ -326,47 +429,32 @@ it("retries failed asset requests without refetching the reporting page", async 
   await screen.findByText("The admin service is unavailable. Try again.");
   expect(screen.queryByText(/This asset is unavailable/)).toBeNull();
   expect(screen.queryByRole("form", { name: "Asset settings" })).toBeNull();
-  const dashboardRequests = fetcher.mock.calls.filter(([path]) =>
-    String(path).includes("/dashboard"),
-  ).length;
+  expect(api.dashboardV1AdminPartnerAccountsAccountIdDashboardGet).not.toHaveBeenCalled();
   fireEvent.click(screen.getByRole("button", { name: "Retry" }));
   await screen.findByRole("form", { name: "Asset settings" });
   expect(api.adminPartnerAssetGet).toHaveBeenCalledTimes(2);
-  expect(fetcher.mock.calls.filter(([path]) => String(path).includes("/dashboard"))).toHaveLength(
-    dashboardRequests,
-  );
+  expect(api.dashboardV1AdminPartnerAccountsAccountIdDashboardGet).not.toHaveBeenCalled();
 });
 
 it("retries failed account details without refetching the loaded asset", async () => {
-  let dashboardAttempts = 0;
-  fetcher.mockImplementation(async (input) => {
-    if (String(input).includes("/dashboard")) {
-      dashboardAttempts += 1;
-      return dashboardAttempts === 1
-        ? new Response(null, { status: 503 })
-        : Response.json({ ...dashboard, assets: [] });
-    }
-    return Response.json([]);
-  });
+  vi.mocked(api.adminPartnerAccountGet)
+    .mockRejectedValueOnce(new ApiError(503))
+    .mockResolvedValueOnce(account);
   renderAdmin(
     <PartnerAccountPage
       route={{ resource: "asset", action: "edit", accountId: account.id, identifier: asset.id }}
     />,
   );
-  await screen.findByText("Could not load partner account details.");
+  await screen.findByText("The admin service is unavailable. Try again.");
   fireEvent.click(screen.getByRole("button", { name: "Retry" }));
   await screen.findByRole("form", { name: "Asset settings" });
-  expect(dashboardAttempts).toBe(2);
+  expect(api.adminPartnerAccountGet).toHaveBeenCalledTimes(2);
   expect(api.adminPartnerAssetGet).toHaveBeenCalledTimes(1);
+  expect(api.dashboardV1AdminPartnerAccountsAccountIdDashboardGet).not.toHaveBeenCalled();
 });
 
 it("keeps automatic assets read-only even when they are absent from the reporting page", async () => {
   vi.mocked(api.adminPartnerAssetGet).mockResolvedValue({ ...assetRecord, automatic: true });
-  fetcher.mockImplementation(async (input) =>
-    String(input).includes("/dashboard")
-      ? Response.json({ ...dashboard, assets: [] })
-      : Response.json([]),
-  );
   renderAdmin(
     <PartnerAccountPage
       route={{ resource: "asset", action: "edit", accountId: account.id, identifier: asset.id }}
@@ -427,18 +515,16 @@ it("aborts previous asset reads and ignores their late responses after navigatio
 it("waits for the routed account before mounting a newly loaded asset form", async () => {
   const otherAccount = { ...account, id: "account-2", name: "Other partner" };
   const otherAsset = { ...assetRecord, id: "asset-2", name: "Other partner asset" };
-  let resolveDashboard!: (value: Response) => void;
-  fetcher.mockImplementation(async (input) => {
-    const path = String(input);
-    if (path.includes(`/partner-accounts/${otherAccount.id}/dashboard`))
-      return new Promise<Response>((resolve) => {
-        resolveDashboard = resolve;
-      });
-    if (path.includes("/dashboard")) return Response.json(dashboard);
-    return Response.json([]);
-  });
-  vi.mocked(api.adminPartnerAssetGet).mockImplementation(async (accountId) =>
-    accountId === account.id ? assetRecord : otherAsset,
+  let resolveAccount!: (value: AccountOut) => void;
+  vi.mocked(api.adminPartnerAccountGet).mockImplementation(async (identifier) =>
+    identifier === account.id
+      ? account
+      : new Promise<AccountOut>((resolve) => {
+          resolveAccount = resolve;
+        }),
+  );
+  vi.mocked(api.adminPartnerAssetGet).mockImplementation(async (identifier) =>
+    identifier === account.id ? assetRecord : otherAsset,
   );
   const view = renderAdmin(
     <PartnerAccountPage
@@ -464,9 +550,7 @@ it("waits for the routed account before mounting a newly loaded asset form", asy
     ),
   );
   expect(screen.queryByRole("form", { name: "Asset settings" })).toBeNull();
-  await act(async () =>
-    resolveDashboard(Response.json({ ...dashboard, account: otherAccount, assets: [] })),
-  );
+  await act(async () => resolveAccount(otherAccount));
   expect(((await screen.findByLabelText(/Asset name/)) as HTMLInputElement).value).toBe(
     otherAsset.name,
   );
@@ -482,11 +566,7 @@ it("waits for the routed account before mounting a newly loaded asset form", asy
 it("loads an uppercase account UUID when the response returns its canonical lowercase ID", async () => {
   const requestedId = "B75DE541-8E35-4000-AA0D-4533F0A38110";
   const canonicalAccount = { ...account, id: requestedId.toLowerCase() };
-  fetcher.mockImplementation(async (input) =>
-    String(input).includes("/dashboard")
-      ? Response.json({ ...dashboard, account: canonicalAccount, assets: [] })
-      : Response.json([]),
-  );
+  vi.mocked(api.adminPartnerAccountGet).mockResolvedValue(canonicalAccount);
   renderAdmin(
     <PartnerAccountPage
       route={{ resource: "asset", action: "edit", accountId: requestedId, identifier: asset.id }}
@@ -505,16 +585,17 @@ it("loads an uppercase account UUID when the response returns its canonical lowe
   );
 });
 
-it("shows promotion defaults without displaying a legacy product exposure limit", async () => {
-  fetcher.mockImplementation(async () =>
-    Response.json({ ...dashboard, account: { ...account, frequency_cap: 20 } }),
-  );
+it("keeps promotion controls in Delivery settings without the abandoned exposure limit", async () => {
+  const user = userEvent.setup();
+  const withIgnoredLimit = { ...account, frequency_cap: 20 };
+  vi.mocked(api.adminPartnerAccountGet).mockResolvedValue(withIgnoredLimit);
   renderAdmin(
-    <PartnerAccountPage route={{ resource: "account", action: "view", accountId: account.id }} />,
+    <PartnerAccountPage route={{ resource: "account", action: "edit", accountId: account.id }} />,
   );
   await screen.findByRole("heading", { name: account.name });
-  expect(screen.getByText("Promotion defaults")).toBeTruthy();
-  expect(screen.getByText("Automatic product inclusion")).toBeTruthy();
+  expect(screen.queryByText("Automatic product inclusion")).toBeNull();
+  await user.click(screen.getByRole("tab", { name: "Delivery" }));
+  expect(await screen.findByLabelText("Default promotion")).toBeTruthy();
   expect(screen.queryByText(/Product exposure limit|Frequency cap/i)).toBeNull();
   expect(screen.queryByText(/per reader installation per UTC day/i)).toBeNull();
 });
@@ -522,8 +603,8 @@ it("shows promotion defaults without displaying a legacy product exposure limit"
 it.each([
   {
     route: { resource: "account" as const, action: "edit" as const, accountId: account.id },
-    title: `Edit ${account.name}`,
-    form: "Partnership settings",
+    title: account.name,
+    form: "Partner account settings",
   },
   {
     route: { resource: "member" as const, action: "create" as const, accountId: account.id },
@@ -540,12 +621,15 @@ it.each([
   await screen.findByRole("heading", { name: title });
   expect(screen.getByRole("form", { name: form })).toBeTruthy();
   expect(screen.queryByRole("navigation", { name: "Object sections" })).toBeNull();
+  expect(api.dashboardV1AdminPartnerAccountsAccountIdDashboardGet).not.toHaveBeenCalled();
+  expect(api.membersV1AdminPartnerAccountsAccountIdMembersGet).not.toHaveBeenCalled();
 });
 
 it("opens an account creation form without fetching a nonexistent account", async () => {
   renderAdmin(<PartnerAccountPage route={{ resource: "account", action: "create" }} />);
   expect(await screen.findByRole("heading", { name: "Create partner account" })).toBeTruthy();
-  expect(screen.getByRole("form", { name: "Partnership settings" })).toBeTruthy();
+  expect(screen.getByRole("form", { name: "Partner account settings" })).toBeTruthy();
+  expect(api.adminPartnerAccountGet).not.toHaveBeenCalled();
   expect(fetcher.mock.calls.some(([input]) => String(input).includes("/dashboard"))).toBe(false);
   expect(fetcher.mock.calls.some(([input]) => String(input).includes("/members"))).toBe(false);
 });
@@ -583,11 +667,6 @@ it("selects and remounts asset edits by the declared identifier", async () => {
   vi.mocked(api.adminPartnerAssetGet).mockImplementation(async (_accountId, assetId) =>
     assetId === asset.id ? assetRecord : other,
   );
-  fetcher.mockImplementation(async (input) =>
-    String(input).includes("/dashboard")
-      ? Response.json({ ...dashboard, assets: [asset, other], asset_total: 2 })
-      : Response.json([]),
-  );
   const view = renderAdmin(
     <PartnerAccountPage
       route={{ resource: "asset", action: "edit", accountId: account.id, identifier: asset.id }}
@@ -612,11 +691,6 @@ it("rejects synthetic product reporting IDs instead of editing an aggregate", as
     aggregated: true,
   };
   vi.mocked(api.adminPartnerAssetGet).mockRejectedValue(new ApiError(422));
-  fetcher.mockImplementation(async (input) =>
-    String(input).includes("/dashboard")
-      ? Response.json({ ...dashboard, assets: [aggregate] })
-      : Response.json([]),
-  );
   renderAdmin(
     <PartnerAccountPage
       route={{ resource: "asset", action: "edit", accountId: account.id, identifier: aggregate.id }}
@@ -627,14 +701,10 @@ it("rejects synthetic product reporting IDs instead of editing an aggregate", as
 });
 
 it("opens campaign creation without loading an edit identifier", async () => {
-  fetcher.mockImplementation(async (input) =>
-    String(input).includes("/dashboard")
-      ? Response.json({
-          ...dashboard,
-          account: { ...account, allowed_promotion_kinds: ["product", "ad"] },
-        })
-      : Response.json([]),
-  );
+  vi.mocked(api.adminPartnerAccountGet).mockResolvedValue({
+    ...account,
+    allowed_promotion_kinds: ["product", "ad"],
+  });
   renderAdmin(
     <PartnerAccountPage
       route={{ resource: "campaign", action: "create", accountId: account.id }}
@@ -646,6 +716,10 @@ it("opens campaign creation without loading an edit identifier", async () => {
 });
 
 it("forwards campaign edit identity and discards previous unsaved fields on navigation", async () => {
+  vi.mocked(api.adminPartnerAccountGet).mockResolvedValue({
+    ...account,
+    allowed_promotion_kinds: ["product", "ad"],
+  });
   const campaign: CampaignOut = {
     account_id: account.id,
     id: "campaign:primary_1",
@@ -655,14 +729,6 @@ it("forwards campaign edit identity and discards previous unsaved fields on navi
     status: "draft",
   };
   const other = { ...campaign, id: "campaign:primary_2", name: "Second campaign" };
-  fetcher.mockImplementation(async (input) =>
-    String(input).includes("/dashboard")
-      ? Response.json({
-          ...dashboard,
-          account: { ...account, allowed_promotion_kinds: ["product", "ad"] },
-        })
-      : Response.json([]),
-  );
   vi.mocked(api.adminPartnerCampaignGet).mockImplementation(async (_accountId, campaignId) =>
     campaignId === campaign.id ? campaign : other,
   );
@@ -708,7 +774,7 @@ it("creates an account with selected benefits and navigates to the saved record"
   renderAdmin(<PartnerAccountManagement mode="account" />);
   await screen.findByText("Partner access");
   fireEvent.change(screen.getByLabelText(/Partner name/), { target: { value: "Example partner" } });
-  fireEvent.submit(screen.getByRole("form", { name: "Partnership settings" }));
+  fireEvent.submit(screen.getByRole("form", { name: "Partner account settings" }));
   await waitFor(() => expect(push).toHaveBeenCalledWith("/partnerships/accounts/account-1"));
   expect(fetcher).toHaveBeenCalledWith(
     "/api/v1/admin/partner-accounts",
@@ -739,7 +805,7 @@ it("retains edited account values on validation failure and allows cancellation"
       : Response.json([{ tier: "bronze", benefits: ["Partner access"] }]),
   );
   renderAdmin(<PartnerAccountManagement mode="account" account={account} />);
-  fireEvent.submit(screen.getByRole("form", { name: "Partnership settings" }));
+  fireEvent.submit(screen.getByRole("form", { name: "Partner account settings" }));
   await screen.findByText("Check the form values and selected catalog product.");
   expect((screen.getByLabelText(/Partner name/) as HTMLInputElement).value).toBe("Example partner");
   fireEvent.click(screen.getByRole("button", { name: "Cancel" }));

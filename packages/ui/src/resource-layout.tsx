@@ -68,10 +68,12 @@ export function ResourceHeading({
 export function ResourcePanel({
   title,
   fields,
+  actions,
   children,
 }: {
   title: string;
   fields?: { label: string; value: ReactNode }[];
+  actions?: ReactNode;
   children?: ReactNode;
 }) {
   return (
@@ -81,11 +83,12 @@ export function ResourcePanel({
     >
       <div
         data-slot="card-header"
-        className="border-b px-[var(--resource-panel-padding,1.5rem)] pb-[var(--resource-panel-gap,1.5rem)]"
+        className="flex flex-wrap items-center justify-between gap-2 border-b px-[var(--resource-panel-padding,1.5rem)] pb-[var(--resource-panel-gap,1.5rem)]"
       >
         <h2 data-slot="card-title" className="text-sm font-semibold leading-none">
           {title}
         </h2>
+        {actions}
       </div>
       <div data-slot="card-content" className="px-[var(--resource-panel-padding,1.5rem)]">
         {fields && (

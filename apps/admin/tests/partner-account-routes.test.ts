@@ -41,9 +41,9 @@ const routes: { segments?: string[]; route: PartnerAccountRoute; suffix: string 
     suffix: "/edit",
   },
   {
-    segments: ["related"],
-    route: { resource: "related", action: "list", accountId },
-    suffix: "/related",
+    segments: ["performance"],
+    route: { resource: "performance", action: "list", accountId },
+    suffix: "/performance",
   },
   {
     segments: ["products"],
@@ -64,6 +64,11 @@ const routes: { segments?: string[]; route: PartnerAccountRoute; suffix: string 
     segments: ["campaigns", identifier, "edit"],
     route: { resource: "campaign", action: "edit", accountId, identifier },
     suffix: "/campaigns/campaign%3Aprimary_2/edit",
+  },
+  {
+    segments: ["members"],
+    route: { resource: "member", action: "list", accountId },
+    suffix: "/members",
   },
   {
     segments: ["members", "new"],
@@ -120,9 +125,11 @@ describe("partner account route decoding", () => {
     [""],
     ["unknown"],
     ["details", "edit"],
+    ["related"],
     ["related", "new"],
     ["products", "new"],
-    ["members"],
+    ["members", "edit"],
+    ["performance", "new"],
     ["assets"],
     ["campaigns", "one"],
     ["assets", "one", "view"],
@@ -162,7 +169,7 @@ describe("partner account server pages", () => {
 
   const open = (
     segments?: string[],
-    query: { offset?: string; limit?: string } = {},
+    query: { offset?: string; limit?: string; days?: string; tab?: string } = {},
     id = accountId,
   ) =>
     AccountPage({
@@ -176,19 +183,40 @@ describe("partner account server pages", () => {
       const element = await open(segments);
       expect(isValidElement(element)).toBe(true);
       expect(element.type).toBe(PartnerAccountPage);
-      expect(element.props).toEqual({ route, initialOffset: 0, initialLimit: 100 });
+      expect(element.props).toEqual({
+        route,
+        initialOffset: 0,
+        initialLimit: 100,
+        initialDays: 30,
+        initialSettingsTab: "general",
+      });
       expect(navigation.requireAdmin).toHaveBeenCalledOnce();
     },
   );
 
-  it("passes validated pagination to the related reporting table", async () => {
-    const element = await open(["related"], { offset: "200", limit: "50" });
+  it("passes validated pagination to the performance reporting table", async () => {
+    const element = await open(["performance"], { offset: "200", limit: "50" });
     expect(element.props).toEqual({
-      route: { resource: "related", action: "list", accountId },
+      route: { resource: "performance", action: "list", accountId },
       initialOffset: 200,
       initialLimit: 50,
+      initialDays: 30,
+      initialSettingsTab: "general",
     });
   });
+
+  it.each(["7", "30", "90"])("restores the reporting period %s", async (days) => {
+    const element = await open(["performance"], { days });
+    expect(element.props.initialDays).toBe(Number(days));
+  });
+
+  it.each(["general", "delivery", "formats", "audience"])(
+    "opens the bookmarked settings tab %s",
+    async (tab) => {
+      const element = await open(["edit"], { tab });
+      expect(element.props.initialSettingsTab).toBe(tab);
+    },
+  );
 
   it.each([
     { offset: "-1" },
@@ -199,8 +227,14 @@ describe("partner account server pages", () => {
     { limit: "201" },
     { limit: "1.5" },
     { limit: "Infinity" },
+    { days: "8" },
+    { days: "7.5" },
+    { days: "NaN" },
+    { days: "Infinity" },
+    { tab: "unknown" },
+    { tab: "../delivery" },
   ])("rejects invalid pagination %j", async (query) => {
-    await expect(open(["related"], query)).rejects.toThrow("not found");
+    await expect(open(["performance"], query)).rejects.toThrow("not found");
     expect(navigation.notFound).toHaveBeenCalledOnce();
   });
 

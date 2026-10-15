@@ -1229,6 +1229,30 @@ export const partnershipTiersV1AdminPartnerAccountsTiersGet = async ( options?: 
 
 
 
+export const getAdminPartnerAccountGetUrl = (accountId: string,) => {
+
+
+
+
+  return `/v1/admin/partner-accounts/${accountId}`
+}
+
+/**
+ * @summary Get Account
+ */
+export const adminPartnerAccountGet = async (accountId: string, options?: Parameters<typeof adminFetch>[1]): Promise<AccountOut> => {
+
+  return adminFetch<AccountOut>(getAdminPartnerAccountGetUrl(accountId),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
 export const getUpdateAccountV1AdminPartnerAccountsAccountIdPutUrl = (accountId: string,) => {
 
 

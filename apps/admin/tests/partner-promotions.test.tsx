@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { useState } from "react";
+import userEvent from "@testing-library/user-event";
 import { act, cleanup, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { renderAdmin } from "./render-admin";
 import { PartnerCampaignPage } from "@/components/organisms/partner-campaign-form";
@@ -128,6 +129,10 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
+async function openSettingsTab(name: "General" | "Delivery" | "Ad formats" | "Audience") {
+  await userEvent.setup().click(screen.getByRole("tab", { name }));
+}
+
 function fillDates() {
   fireEvent.change(screen.getByLabelText(/^Starts/), { target: { value: "2026-10-01T10:00" } });
   fireEvent.change(screen.getByLabelText(/^Ends/), { target: { value: "2026-11-01T10:00" } });
@@ -166,14 +171,18 @@ it("saves advanced account defaults and preserves restricted audiences after a t
     init?.method === "PUT" ? Response.json(advancedAccount) : Response.json(advancedTiers),
   );
   vi.stubGlobal("fetch", fetcher);
-  renderAdmin(<PartnerAccountManagement mode="account" account={advancedAccount} />);
+  renderAdmin(
+    <PartnerAccountManagement mode="account" account={advancedAccount} initialTab="audience" />,
+  );
   await screen.findByRole("checkbox", { name: "Senior" });
   fireEvent.click(screen.getByRole("checkbox", { name: "Entry level" }));
+  await openSettingsTab("General");
   fireEvent.click(screen.getByRole("combobox", { name: "Partnership tier" }));
   fireEvent.click(screen.getByRole("option", { name: "Gold" }));
+  await openSettingsTab("Audience");
   expect(screen.queryByRole("checkbox", { name: "Senior" })).toBeNull();
   expect(screen.getByText(/Saved restrictions are retained/)).toBeTruthy();
-  fireEvent.submit(screen.getByRole("form", { name: "Partnership settings" }));
+  fireEvent.submit(screen.getByRole("form", { name: "Partner account settings" }));
   await waitFor(() => expect(push).toHaveBeenCalled());
   const write = fetcher.mock.calls.find(([, init]) => init?.method === "PUT");
   expect(JSON.parse(String(write?.[1]?.body))).toMatchObject({
@@ -188,9 +197,9 @@ it("allows an administrator to explicitly clear saved restrictions on a lower ti
     init?.method === "PUT" ? Response.json(current) : Response.json(advancedTiers),
   );
   vi.stubGlobal("fetch", fetcher);
-  renderAdmin(<PartnerAccountManagement mode="account" account={current} />);
+  renderAdmin(<PartnerAccountManagement mode="account" account={current} initialTab="audience" />);
   fireEvent.click(screen.getByRole("button", { name: "Clear saved audience restrictions" }));
-  fireEvent.submit(screen.getByRole("form", { name: "Partnership settings" }));
+  fireEvent.submit(screen.getByRole("form", { name: "Partner account settings" }));
   await waitFor(() => expect(push).toHaveBeenCalled());
   const write = fetcher.mock.calls.find(([, init]) => init?.method === "PUT");
   expect(JSON.parse(String(write?.[1]?.body)).audience).toEqual({
@@ -208,6 +217,7 @@ it("uses the bounded global audience catalog before a new account has an ID", as
   renderAdmin(<PartnerAccountManagement mode="account" />);
   fireEvent.click(screen.getByRole("combobox", { name: "Partnership tier" }));
   fireEvent.click(screen.getByRole("option", { name: "Platinum" }));
+  await openSettingsTab("Audience");
   fireEvent.click(await screen.findByRole("combobox", { name: "Programming languages" }));
   await waitFor(() =>
     expect(api.adminPartnerAudienceTopicsCatalog).toHaveBeenCalledWith(
@@ -272,12 +282,12 @@ it("saves promotion defaults once on the account without requiring a product typ
       : Response.json([{ tier: "bronze", benefits: [] }]),
   );
   vi.stubGlobal("fetch", fetcher);
-  renderAdmin(<PartnerAccountManagement mode="account" account={account} />);
+  renderAdmin(<PartnerAccountManagement mode="account" account={account} initialTab="delivery" />);
   fireEvent.click(screen.getByLabelText(/Allow ordinary recommendations/));
   fireEvent.click(screen.getByLabelText(/Automatically include account products/));
   fireEvent.click(screen.getByLabelText("Reader feeds"));
   expect(screen.queryByLabelText(/Product exposure limit/)).toBeNull();
-  fireEvent.submit(screen.getByRole("form", { name: "Partnership settings" }));
+  fireEvent.submit(screen.getByRole("form", { name: "Partner account settings" }));
   await waitFor(() => expect(push).toHaveBeenCalledWith("/partnerships/accounts/account-1"));
   const write = fetcher.mock.calls.find(([, options]) => options?.method === "PUT");
   expect(JSON.parse(String(write?.[1]?.body))).toMatchObject({
@@ -347,7 +357,9 @@ it.each([
       init?.method === "PUT" ? Response.json(current) : Response.json(structuredTiers),
     );
     vi.stubGlobal("fetch", fetcher);
-    renderAdmin(<PartnerAccountManagement mode="account" account={current} />);
+    renderAdmin(
+      <PartnerAccountManagement mode="account" account={current} initialTab="delivery" />,
+    );
     await waitFor(() =>
       expect(
         screen.getByRole("combobox", { name: "Default promotion" }).hasAttribute("disabled"),
@@ -367,6 +379,9 @@ it.each([
       { label: "Product click destination", choices: ["Product website", "Partner listing"] },
     ];
     for (const setting of defaults) {
+      await openSettingsTab(
+        ["Partnership tier", "Status"].includes(setting.label) ? "General" : "Delivery",
+      );
       const trigger = screen.getByRole("combobox", { name: setting.label });
       expect(trigger.getAttribute("aria-required")).toBe("true");
       fireEvent.click(trigger);
@@ -388,7 +403,7 @@ it.each([
     ).toBeTruthy();
     fireEvent.click(screen.getByRole("combobox", { name: "Product acceptance" }));
     fireEvent.click(screen.getByRole("option", { name: "Trust account products" }));
-    fireEvent.submit(screen.getByRole("form", { name: "Partnership settings" }));
+    fireEvent.submit(screen.getByRole("form", { name: "Partner account settings" }));
     await waitFor(() => expect(push).toHaveBeenCalled());
     const write = fetcher.mock.calls.find(([, options]) => options?.method === "PUT");
     expect(JSON.parse(String(write?.[1]?.body))).toMatchObject({
@@ -432,11 +447,13 @@ it.each([3, 20])(
       init?.method === "PUT" ? Response.json(account) : Response.json(structuredTiers),
     );
     vi.stubGlobal("fetch", fetcher);
-    renderAdmin(<PartnerAccountManagement mode="account" account={legacyAccount} />);
+    renderAdmin(
+      <PartnerAccountManagement mode="account" account={legacyAccount} initialTab="delivery" />,
+    );
     expect(screen.queryByLabelText(/Product exposure limit|Frequency cap/i)).toBeNull();
     expect(document.querySelector('[name="frequency_cap"]')).toBeNull();
     fireEvent.click(screen.getByLabelText(/Allow ordinary recommendations/));
-    fireEvent.submit(screen.getByRole("form", { name: "Partnership settings" }));
+    fireEvent.submit(screen.getByRole("form", { name: "Partner account settings" }));
     await waitFor(() => expect(push).toHaveBeenCalledWith("/partnerships/accounts/account-1"));
     const write = fetcher.mock.calls.find(([, options]) => options?.method === "PUT");
     expect(write?.[1]?.headers).toEqual({
@@ -463,7 +480,7 @@ it("shows only the accepted account product's final URL and switches destination
   vi.mocked(api.adminPartnerDestinationPreview).mockResolvedValue({ product: destinationProduct });
   const fetcher = vi.fn<typeof fetch>(async () => Response.json(structuredTiers));
   vi.stubGlobal("fetch", fetcher);
-  renderAdmin(<PartnerAccountManagement mode="account" account={account} />);
+  renderAdmin(<PartnerAccountManagement mode="account" account={account} initialTab="delivery" />);
   const preview = await screen.findByRole("region", { name: "Click destination preview" });
   const link = await within(preview).findByRole("link", { name: destinationProduct.product_url });
   expect(link.getAttribute("href")).toBe(destinationProduct.product_url);
@@ -498,7 +515,11 @@ it.each(["empty", "new"])("shows an honest %s-account destination preview", asyn
     vi.fn(async () => Response.json(structuredTiers)),
   );
   renderAdmin(
-    <PartnerAccountManagement mode="account" account={kind === "new" ? undefined : account} />,
+    <PartnerAccountManagement
+      mode="account"
+      account={kind === "new" ? undefined : account}
+      initialTab="delivery"
+    />,
   );
   const preview = screen.getByRole("region", { name: "Click destination preview" });
   await within(preview).findByText(
@@ -518,7 +539,7 @@ it("explains a missing partner listing without retaining the product-website lin
   vi.mocked(api.adminPartnerDestinationPreview).mockResolvedValue({
     product: { ...destinationProduct, listing_url: null },
   });
-  renderAdmin(<PartnerAccountManagement mode="account" account={account} />);
+  renderAdmin(<PartnerAccountManagement mode="account" account={account} initialTab="delivery" />);
   const preview = screen.getByRole("region", { name: "Click destination preview" });
   await within(preview).findByRole("link", { name: destinationProduct.product_url });
   fireEvent.click(screen.getByRole("combobox", { name: "Product click destination" }));
@@ -549,14 +570,14 @@ it("shows loading and a retryable preview failure without replacing the account 
         }),
     )
     .mockResolvedValue({ product: destinationProduct });
-  renderAdmin(<PartnerAccountManagement mode="account" account={account} />);
+  renderAdmin(<PartnerAccountManagement mode="account" account={account} initialTab="delivery" />);
   const preview = screen.getByRole("region", { name: "Click destination preview" });
   expect(within(preview).getByText("Loading product preview…")).toBeTruthy();
   await act(async () => {
     rejectPreview(new Error("Temporary service failure"));
   });
   await within(preview).findByText("Could not load the product preview.");
-  expect(screen.getByRole("form", { name: "Partnership settings" })).toBeTruthy();
+  expect(screen.getByRole("form", { name: "Partner account settings" })).toBeTruthy();
   fireEvent.click(within(preview).getByRole("button", { name: "Retry preview" }));
   await within(preview).findByRole("link", { name: destinationProduct.product_url });
   expect(api.adminPartnerDestinationPreview).toHaveBeenCalledTimes(2);
@@ -588,7 +609,7 @@ it("aborts old-account preview requests and ignores their late responses", async
     return (
       <>
         <button onClick={() => setSelected({ ...account, id: "account-2" })}>Switch account</button>
-        <PartnerAccountManagement mode="account" account={selected} />
+        <PartnerAccountManagement mode="account" account={selected} initialTab="delivery" />
       </>
     );
   }
@@ -630,7 +651,9 @@ it("inherits Sponsored from the structured tier and saves account-wide trust and
   );
   vi.stubGlobal("fetch", fetcher);
   renderAdmin(<PartnerAccountManagement mode="account" account={gold} />);
+  await userEvent.setup().click(screen.getByText("Included benefits"));
   await screen.findByText("Sponsored catalog");
+  await openSettingsTab("Delivery");
   expect(screen.getByText(/Effective: Sponsored · inherited from tier/)).toBeTruthy();
   expect(
     (screen.getByLabelText(/Allow ordinary recommendations/) as HTMLInputElement).disabled,
@@ -639,7 +662,7 @@ it("inherits Sponsored from the structured tier and saves account-wide trust and
   fireEvent.click(screen.getByRole("option", { name: "Trust account products" }));
   fireEvent.click(screen.getByRole("combobox", { name: "Product click destination" }));
   fireEvent.click(screen.getByRole("option", { name: "Partner listing" }));
-  fireEvent.submit(screen.getByRole("form", { name: "Partnership settings" }));
+  fireEvent.submit(screen.getByRole("form", { name: "Partner account settings" }));
   await waitFor(() => expect(push).toHaveBeenCalled());
   const write = fetcher.mock.calls.find(([, options]) => options?.method === "PUT");
   expect(JSON.parse(String(write?.[1]?.body))).toMatchObject({
@@ -661,14 +684,16 @@ it("limits promotion overrides to tier permissions and returns to inheritance on
   );
   vi.stubGlobal("fetch", fetcher);
   renderAdmin(<PartnerAccountManagement mode="account" account={gold} />);
+  await userEvent.setup().click(screen.getByText("Included benefits"));
   await screen.findByText("Sponsored catalog");
   fireEvent.click(screen.getByRole("combobox", { name: "Partnership tier" }));
   fireEvent.click(screen.getByRole("option", { name: "Bronze" }));
+  await openSettingsTab("Delivery");
   expect(screen.getByText(/Effective: Product recommendation · inherited from tier/)).toBeTruthy();
   fireEvent.click(screen.getByRole("combobox", { name: "Default promotion" }));
   expect(screen.queryByRole("option", { name: "Sponsored" })).toBeNull();
   fireEvent.click(screen.getByRole("option", { name: "Inherit tier (Product recommendation)" }));
-  fireEvent.submit(screen.getByRole("form", { name: "Partnership settings" }));
+  fireEvent.submit(screen.getByRole("form", { name: "Partner account settings" }));
   await waitFor(() => expect(push).toHaveBeenCalled());
   const write = fetcher.mock.calls.find(([, options]) => options?.method === "PUT");
   expect(JSON.parse(String(write?.[1]?.body))).toMatchObject({
@@ -712,10 +737,12 @@ it("saves Silver automatic format defaults without fetching creatives eagerly", 
   vi.stubGlobal("fetch", fetcher);
   renderAdmin(<PartnerAccountManagement mode="account" account={current} />);
   expect(api.adminPartnerCreativePreview).not.toHaveBeenCalled();
+  await openSettingsTab("Ad formats");
+  expect(api.adminPartnerCreativePreview).not.toHaveBeenCalled();
   fireEvent.click(screen.getByRole("checkbox", { name: /^Homepage sponsorship/ }));
   fireEvent.click(screen.getByRole("checkbox", { name: /^Engagement/ }));
   expect(screen.queryByRole("checkbox", { name: /^Sponsored content/ })).toBeNull();
-  fireEvent.submit(screen.getByRole("form", { name: "Partnership settings" }));
+  fireEvent.submit(screen.getByRole("form", { name: "Partner account settings" }));
   await waitFor(() => expect(push).toHaveBeenCalled());
   const write = fetcher.mock.calls.find(([, init]) => init?.method === "PUT");
   expect(JSON.parse(String(write?.[1]?.body)).ad_formats).toEqual([

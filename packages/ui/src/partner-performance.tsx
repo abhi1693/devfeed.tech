@@ -3,11 +3,9 @@
 import Link from "next/link";
 import { Download, Eye, MousePointerClick, TrendingUp } from "lucide-react";
 import { CartesianGrid, Line, LineChart, Tooltip, XAxis, YAxis } from "recharts";
-import { ChartContainer, ChartTooltip } from "@devfeed/ui/chart";
-import { Button } from "@devfeed/ui/button";
-import { adFormatLabel } from "@devfeed/ui/advertising-formats";
-import type { WorkspaceDashboard } from "@/lib/api/generated/models";
-import { portalPath } from "@/lib/routes";
+import { ChartContainer, ChartTooltip } from "./chart";
+import { Button } from "./button";
+import { adFormatLabel } from "./advertising-formats";
 import {
   metricCount,
   metricPercent,
@@ -15,9 +13,10 @@ import {
   performanceDays,
   shortMetricDate,
   type PerformanceDay,
-} from "@/lib/performance";
+  type PerformanceReport,
+} from "./performance";
 
-function Metrics({ data }: { data: WorkspaceDashboard }) {
+function Metrics({ data }: { data: PerformanceReport }) {
   const measured = data.totals.measured_days > 0;
   const metrics = [
     {
@@ -209,7 +208,7 @@ function FormatPerformance({
   data,
   compact = false,
 }: {
-  data: WorkspaceDashboard;
+  data: PerformanceReport;
   compact?: boolean;
 }) {
   const measured = (data.format_totals ?? []).filter((row) => row.measured_days > 0);
@@ -253,15 +252,13 @@ function FormatPerformance({
 export function PartnerPerformance({
   data,
   compact = false,
-  accountId,
+  performanceHref,
 }: {
-  data: WorkspaceDashboard;
+  data: PerformanceReport;
   compact?: boolean;
-  accountId?: string;
+  performanceHref?: string;
 }) {
   const rows = performanceDays(data);
-  const performanceQuery = new URLSearchParams({ days: String(rows.length) });
-  if (accountId) performanceQuery.set("account_id", accountId);
   return (
     <section aria-label="Ad performance" className="space-y-3">
       <header className="flex flex-wrap items-start justify-between gap-3">
@@ -271,11 +268,11 @@ export function PartnerPerformance({
             {data.start} to {data.end} · UTC
           </p>
         </div>
-        {compact ? (
+        {compact && performanceHref ? (
           <Button variant="outline" size="sm" asChild>
-            <Link href={`${portalPath("performance")}?${performanceQuery}`}>View performance</Link>
+            <Link href={performanceHref}>View performance</Link>
           </Button>
-        ) : (
+        ) : !compact ? (
           <Button variant="outline" size="sm" asChild>
             <a
               href={`data:text/csv;charset=utf-8,${encodeURIComponent(performanceCsv(rows))}`}
@@ -284,7 +281,7 @@ export function PartnerPerformance({
               <Download size={14} aria-hidden="true" /> Export daily CSV
             </a>
           </Button>
-        )}
+        ) : null}
       </header>
       <Metrics data={data} />
       <div

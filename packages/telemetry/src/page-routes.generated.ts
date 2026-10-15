@@ -1092,8 +1092,12 @@ export const pageRouteCatalogs = {
     { path: "/partnerships/accounts/:id/campaigns", label: "/partnerships/accounts/:id/campaigns" },
     { path: "/partnerships/accounts/:id/details", label: "/partnerships/accounts/:id/details" },
     { path: "/partnerships/accounts/:id/edit", label: "/partnerships/accounts/:id/edit" },
+    { path: "/partnerships/accounts/:id/members", label: "/partnerships/accounts/:id/members" },
+    {
+      path: "/partnerships/accounts/:id/performance",
+      label: "/partnerships/accounts/:id/performance",
+    },
     { path: "/partnerships/accounts/:id/products", label: "/partnerships/accounts/:id/products" },
-    { path: "/partnerships/accounts/:id/related", label: "/partnerships/accounts/:id/related" },
     { path: "/partnerships/connections/:id/edit", label: "/partnerships/connections/:id/edit" },
     {
       path: "/partnerships/connections/:id/related",
