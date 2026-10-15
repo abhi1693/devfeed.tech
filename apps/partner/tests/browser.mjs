@@ -1301,7 +1301,7 @@ try {
   assert.equal(await actualCreative.getByText("Visit website", { exact: true }).count(), 0);
   await formatSection.getByRole("combobox", { name: "Preview format", exact: true }).click();
   await page.getByRole("option", { name: "Header sponsorship", exact: true }).click();
-  await actualCreative.getByRole("heading", { name: "Header sponsorship", exact: true }).waitFor();
+  await actualCreative.getByRole("article", { name: "Desktop navigation preview" }).waitFor();
   await checkHeaderSponsorshipPreview(page, actualCreative, {
     product: previewProduct,
     toggle: formatSection.locator("summary").filter({ hasText: "Creative preview" }),
@@ -1380,6 +1380,42 @@ try {
     "A product bookmark resolves its authorized account policy without an account URL prefix",
   );
   await page.getByRole("heading", { name: previewProduct.name, exact: true, level: 1 }).waitFor();
+  const productCreative = page.getByRole("region", { name: "Creative preview", exact: true });
+  const productPreviewFormat = page.getByRole("combobox", {
+    name: "Product preview format",
+    exact: true,
+  });
+  await productPreviewFormat.click();
+  await page.getByRole("option", { name: "Engagement", exact: true }).click();
+  await productCreative.getByText(previewProduct.name, { exact: true }).waitFor();
+  const productRequestsBeforeRefresh = creativePreviewRequests.length;
+  const refreshedCreative = page.waitForResponse((response) =>
+    new URL(response.url()).pathname.endsWith("/creative-preview"),
+  );
+  await page.getByRole("button", { name: "Refresh preview", exact: true }).click();
+  await refreshedCreative;
+  await productCreative.getByText(previewProduct.name, { exact: true }).waitFor();
+  assert.equal(creativePreviewRequests.length, productRequestsBeforeRefresh + 1);
+  for (const width of [1280, 390]) {
+    await page.setViewportSize({ width, height: width === 390 ? 844 : 1100 });
+    assert.equal(
+      await page.evaluate(() => document.documentElement.scrollWidth > innerWidth),
+      false,
+    );
+    const selector = await productPreviewFormat.boundingBox();
+    const refresh = await page
+      .getByRole("button", { name: "Refresh preview", exact: true })
+      .boundingBox();
+    assert.ok(selector && refresh, "The format and refresh controls stay visible");
+    assert.ok(selector.x + selector.width <= refresh.x, "Preview controls share one compact row");
+    assert.ok(
+      Math.abs(selector.y + selector.height / 2 - (refresh.y + refresh.height / 2)) < 3,
+      "The format and refresh controls align vertically",
+    );
+    await productCreative.locator("..").screenshot({
+      path: root + `reports/partner/engagement-preview-${width === 390 ? "mobile" : "desktop"}.png`,
+    });
+  }
   await page.getByRole("link", { name: "Edit placements", exact: true }).click();
   await page.waitForURL((url) => url.pathname === `${productPath}/placements`);
   await page

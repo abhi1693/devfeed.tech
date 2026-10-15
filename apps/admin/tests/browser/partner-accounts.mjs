@@ -907,7 +907,7 @@ try {
   );
   await formatControls.getByRole("combobox", { name: "Preview format", exact: true }).click();
   await page.getByRole("option", { name: "Header sponsorship", exact: true }).click();
-  await creativePreview.getByRole("heading", { name: "Header sponsorship", exact: true }).waitFor();
+  await creativePreview.getByRole("article", { name: "Desktop navigation preview" }).waitFor();
   await creativePreview.getByText("Sponsored", { exact: true }).waitFor();
   assert.equal(await creativePreview.getByText("Visit website", { exact: true }).count(), 0);
   await checkHeaderSponsorshipPreview(page, creativePreview, {
@@ -1193,6 +1193,32 @@ try {
     productId: catalogProduct.id,
     excluded: false,
   });
+  const productCreative = productDialog.getByRole("region", {
+    name: "Creative preview",
+    exact: true,
+  });
+  const productPreviewFormat = productDialog.getByRole("combobox", {
+    name: "Product preview format",
+    exact: true,
+  });
+  await productPreviewFormat.click();
+  await page.getByRole("option", { name: "Engagement", exact: true }).click();
+  await productCreative.getByText(destinationProduct.name, { exact: true }).waitFor();
+  for (const width of [1280, 390]) {
+    await page.setViewportSize({ width, height: width === 390 ? 844 : 1100 });
+    assert.equal(
+      await page.evaluate(() => document.documentElement.scrollWidth > innerWidth),
+      false,
+    );
+    await productCreative.locator("..").screenshot({
+      path:
+        root +
+        `reports/partner/admin-engagement-preview-${width === 390 ? "mobile" : "desktop"}.png`,
+    });
+  }
+  await page.setViewportSize({ width: 1440, height: 1100 });
+  await productPreviewFormat.click();
+  await page.getByRole("option", { name: "Feed", exact: true }).click();
   await productDialog.getByRole("combobox", { name: "Product availability", exact: true }).click();
   await page.getByRole("option", { name: "Exclude this product", exact: true }).click();
   await productDialog.getByText("Unsaved changes", { exact: true }).waitFor();

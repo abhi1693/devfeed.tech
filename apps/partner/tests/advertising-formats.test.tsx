@@ -141,9 +141,6 @@ it("distinguishes the global app-header credit from contextual engagement when c
   await userEvent.click(screen.getByText("Creative preview"));
   const preview = await screen.findByRole("region", { name: "Creative preview" });
   await within(preview).findByText(product.name);
-  expect(
-    within(preview).getByText(/reader’s top navigation across pages on wide screens/),
-  ).toBeTruthy();
   expect(within(preview).getByRole("article", { name: "Desktop navigation preview" })).toBeTruthy();
   expect(within(preview).getByText("Sponsored")).toBeTruthy();
   expect(within(preview).getByTitle("cronwatch.example")).toBeTruthy();
@@ -153,8 +150,11 @@ it("distinguishes the global app-header credit from contextual engagement when c
 
   await userEvent.click(screen.getByRole("combobox", { name: "Preview format" }));
   await userEvent.click(screen.getByRole("option", { name: "Engagement" }));
-  await within(preview).findByRole("heading", { name: "Engagement" });
-  expect(within(preview).getByText(/search and article sidebars/)).toBeTruthy();
+  await waitFor(() =>
+    expect(
+      within(preview).queryByRole("article", { name: "Desktop navigation preview" }),
+    ).toBeNull(),
+  );
   expect(within(preview).getByText(product.tagline)).toBeTruthy();
   expect(within(preview).getByText("cronwatch.example", { exact: true })).toBeTruthy();
   expect(within(preview).queryByText(/Explore/)).toBeNull();

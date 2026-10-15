@@ -57,9 +57,6 @@ it.each(["feed", "header_sponsorship", "engagement"] as const)(
 it("shows header sponsorship as a quiet credit in the desktop app header", () => {
   render(<AdCreativePreview format="header_sponsorship" product={product} />);
   const preview = screen.getByRole("region", { name: "Creative preview" });
-  expect(
-    within(preview).getByText(/reader’s top navigation across pages on wide screens/),
-  ).toBeTruthy();
   expect(within(preview).getByRole("article", { name: "Desktop navigation preview" })).toBeTruthy();
   for (const label of ["DevFeed", "Search", "Sign in"])
     expect(within(preview).getByText(label, { exact: true })).toBeTruthy();
@@ -76,10 +73,9 @@ it("shows header sponsorship as a quiet credit in the desktop app header", () =>
   expect(within(preview).queryByRole("button")).toBeNull();
 });
 
-it("explains contextual engagement placement and retains its product tagline and hostname", () => {
+it("keeps engagement focused on the creative, tagline and hostname", () => {
   render(<AdCreativePreview format="engagement" product={product} />);
   const preview = screen.getByRole("region", { name: "Creative preview" });
-  expect(within(preview).getByText(/search and article sidebars/)).toBeTruthy();
   expect(within(preview).getByText(product.tagline)).toBeTruthy();
   expect(within(preview).getByText("rust.example", { exact: true })).toBeTruthy();
   expect(within(preview).queryByText(/Explore/)).toBeNull();

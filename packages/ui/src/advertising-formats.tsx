@@ -3,7 +3,7 @@
 /* eslint-disable @next/next/no-img-element -- Previews use managed media and the owner's draft image. */
 import { useCallback, useEffect, useId, useRef, useState, type FormEvent } from "react";
 import { Dialog } from "radix-ui";
-import { Upload } from "lucide-react";
+import { RefreshCw, Upload } from "lucide-react";
 import { Select } from "./select";
 import { Input } from "./input";
 import { Button } from "./button";
@@ -814,10 +814,31 @@ export function ProductPlacementPreview({
       : product;
   return (
     <div className="space-y-3">
-      <p className="text-xs text-muted-foreground">
-        Appearance preview for this product using its saved destination. Unsaved placement changes
-        do not affect preview availability, and a preview does not confirm delivery eligibility.
-      </p>
+      <div className="flex items-center gap-2">
+        {formats.length > 1 ? (
+          <div className="min-w-0 flex-1">
+            <Select
+              label="Product preview format"
+              required
+              value={format}
+              onChange={(value) => setFormat(value as AdFormat)}
+              options={formats.map((value) => ({ value, label: adFormatLabel(value) }))}
+            />
+          </div>
+        ) : (
+          <p className="flex-1 text-sm font-medium">{adFormatLabel(format)}</p>
+        )}
+        <Button
+          size="icon"
+          variant="outline"
+          aria-label="Refresh preview"
+          title="Refresh preview"
+          loading={loading}
+          onClick={() => setRevision((value) => value + 1)}
+        >
+          <RefreshCw className="size-4" aria-hidden="true" />
+        </Button>
+      </div>
       {draftImage ? (
         <p role="status" aria-label="Ad image status" className="text-xs text-muted-foreground">
           Unsaved image preview. Save product placements to apply it.
@@ -836,15 +857,6 @@ export function ProductPlacementPreview({
           Using the custom ad image.
         </p>
       ) : null}
-      {formats.length > 1 && (
-        <Select
-          label="Product preview format"
-          required
-          value={format}
-          onChange={(value) => setFormat(value as AdFormat)}
-          options={formats.map((value) => ({ value, label: adFormatLabel(value) }))}
-        />
-      )}
       {loading || error || product ? (
         <AdCreativePreview
           format={format}
@@ -852,22 +864,12 @@ export function ProductPlacementPreview({
           destination={destination}
           loading={loading}
           error={error}
-          onRetry={() => setRevision((current) => current + 1)}
         />
       ) : (
         <p className="text-sm text-muted-foreground">
-          This product is unavailable for preview. It must be accepted, owned by this account, and
-          allowed by saved product settings.
+          This product is unavailable for preview. Check its availability and saved placements.
         </p>
       )}
-      <Button
-        size="sm"
-        variant="outline"
-        disabled={loading}
-        onClick={() => setRevision((value) => value + 1)}
-      >
-        Refresh preview
-      </Button>
     </div>
   );
 }
@@ -1082,10 +1084,6 @@ export function AdCreativePreview({
   );
   return (
     <section aria-label="Creative preview" aria-busy={loading} className="min-w-0 space-y-3">
-      <h3 className="text-sm font-medium">{adFormatLabel(format)}</h3>
-      <p className="text-xs text-muted-foreground">
-        {adFormats.find((item) => item.value === format)?.description}
-      </p>
       {loading ? (
         <p role="status" className="text-sm text-muted-foreground">
           Loading creative preview…
@@ -1206,9 +1204,11 @@ export function AdCreativePreview({
           This product has no available partner listing and cannot use that destination.
         </p>
       )}
-      <p className="text-xs text-muted-foreground">
-        Example creative. Delivery depends on targeting and eligibility.
-      </p>
+      {!loading && !error && title && (
+        <p className="text-xs text-muted-foreground">
+          Preview only. Delivery depends on targeting.
+        </p>
+      )}
     </section>
   );
 }
