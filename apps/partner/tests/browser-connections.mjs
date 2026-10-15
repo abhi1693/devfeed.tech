@@ -62,8 +62,7 @@ export function createConnectionFixture({ account, origin }) {
         return true;
       }
       const input = await body(request);
-      assert.equal(input.connector.auth?.source, "connection");
-      assert.equal(input.connector.auth?.secret_ref, "");
+      assert.deepEqual(Object.keys(input.connector.auth).sort(), ["header", "mode"]);
       if (record && input.expected_revision !== record.revision) {
         json(response, { detail: "Connection changed" }, 409);
         return true;
@@ -201,8 +200,7 @@ export function createConnectionFixture({ account, origin }) {
       sequence += 1;
       const id = `partner-browser-connection-${sequence}`;
       const connector = structuredClone(input.connector);
-      assert.equal(connector.auth?.source, "connection");
-      assert.equal(connector.auth?.secret_ref, "");
+      assert.deepEqual(Object.keys(connector.auth).sort(), ["header", "mode"]);
       const created = {
         provider: id,
         account_id: owner.id,
@@ -229,8 +227,6 @@ export function createConnectionFixture({ account, origin }) {
         ai_enabled: true,
         auth_mode: connector.auth?.mode ?? "none",
         credential_header: connector.auth?.header ?? "X-API-Key",
-        credentials_managed: false,
-        connector_editable: true,
       };
       records.set(id, created);
       if (input.credential) credentials.set(id, input.credential);

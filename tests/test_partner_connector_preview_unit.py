@@ -50,7 +50,7 @@ def test_cross_origin_redirect_cannot_receive_preview_credential(monkeypatch):
         ],
     )
     config = partner_connectors.ConnectorConfig(
-        base_url="https://catalog.example", auth={"mode": "bearer", "source": "connection"}
+        base_url="https://catalog.example", auth={"mode": "bearer"}
     )
     with pytest.raises(HTTPException) as failure:
         ConnectorPreviewService(

@@ -138,7 +138,7 @@ def test_existing_preview_reuses_bound_credential_without_changing_saved_state(
     client, _, _, _, path = connection_api
     config = {
         "base_url": "https://catalog.example",
-        "auth": {"mode": "bearer", "source": "connection"},
+        "auth": {"mode": "bearer"},
     }
     saved = create(connection_api, connector=config, credential="private-preview-token")
     with database() as session:
@@ -175,7 +175,7 @@ def test_existing_secret_cannot_move_to_a_different_origin_or_auth_scheme(
     client, _, _, _, path = connection_api
     config = {
         "base_url": "https://catalog.example",
-        "auth": {"mode": "api_key", "source": "connection", "header": "X-API-Key"},
+        "auth": {"mode": "api_key", "header": "X-API-Key"},
     }
     saved = create(connection_api, connector=config, credential="stored-original-token")
     if changed == "origin":
@@ -212,7 +212,7 @@ def test_credential_echoes_and_sensitive_response_fields_are_redacted_and_sample
         json=body(
             connector={
                 "base_url": "https://catalog.example",
-                "auth": {"mode": "bearer", "source": "connection"},
+                "auth": {"mode": "bearer"},
             },
             credential=secret,
         ),
@@ -225,26 +225,25 @@ def test_credential_echoes_and_sensitive_response_fields_are_redacted_and_sample
 
 
 @pytest.mark.parametrize("endpoint", ["connector-response", "connector-preview"])
-def test_managed_connection_previews_never_resolve_administrator_credentials(
-    connection_api, database, upstream, monkeypatch, endpoint
+def test_missing_connection_credential_prevents_upstream_preview(
+    connection_api, database, upstream, endpoint
 ):
     client, _, account, _, path = connection_api
-    monkeypatch.setenv("DEVFEED_PARTNER_SECRET_ADMIN_ONLY", "private-administrator-token")
+    config = {"base_url": "https://catalog.example", "auth": {"mode": "bearer"}}
     with database.begin() as session:
         session.add(
             PartnerConnection(
-                provider="admin-managed",
-                name="Managed import",
+                provider="missing-credential",
+                name="Import needs a credential",
                 account_id=account,
-                connector={
-                    "base_url": "https://catalog.example",
-                    "auth": {"mode": "bearer", "secret_ref": "DEVFEED_PARTNER_SECRET_ADMIN_ONLY"},
-                },
+                connector=config,
             )
         )
-    response = client.post(f"{path}/admin-managed/{endpoint}", json=body(expected_revision=1))
-    assert response.status_code == 403 and not upstream.calls
-    assert "private-administrator-token" not in response.text
+    response = client.post(
+        f"{path}/missing-credential/{endpoint}",
+        json=body(connector=config, expected_revision=1),
+    )
+    assert response.status_code == 422 and not upstream.calls
 
 
 def test_live_membership_account_and_connection_scope_precede_upstream_requests(
@@ -305,15 +304,9 @@ def test_archived_and_stale_connection_previews_do_not_fetch(
         {"base_url": "https://catalog.example", "timeout_seconds": 16},
         {"base_url": "https://catalog.example", "requests_per_minute": 61},
         {"base_url": "https://catalog.example", "max_response_bytes": 2_000_001},
-        {
-            "base_url": "https://catalog.example",
-            "auth": {"mode": "bearer", "secret_ref": "DEVFEED_PARTNER_SECRET_ADMIN_ONLY"},
-        },
     ],
 )
-def test_preview_cannot_relax_partner_request_limits_or_read_server_secrets(
-    connection_api, upstream, config
-):
+def test_preview_cannot_relax_partner_request_limits(connection_api, upstream, config):
     client, _, _, _, path = connection_api
     response = client.post(path + "/connector-response", json=body(connector=config))
     assert response.status_code == 422 and not upstream.calls
@@ -356,7 +349,7 @@ def test_missing_or_invalid_preview_credential_cannot_reach_upstream(
         json=body(
             connector={
                 "base_url": "https://catalog.example",
-                "auth": {"mode": "bearer", "source": "connection"},
+                "auth": {"mode": "bearer"},
             },
             credential=credential,
         ),

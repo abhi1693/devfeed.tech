@@ -267,11 +267,9 @@ def test_filters_and_missing_pages_fail_explicitly():
         {"detail_path": "/products/{other}"},
         {"fields": {"name": ["__import__('os')"]}},
         {"max_pages": 1001},
-        {"auth": {"mode": "bearer", "secret_ref": "actual-secret"}},
         {
             "auth": {
                 "mode": "api_key",
-                "secret_ref": "DEVFEED_PARTNER_SECRET_TEST",
                 "header": "Host",
             }
         },
@@ -282,9 +280,8 @@ def test_definitions_are_bounded_public_data(changes):
         definition(**changes)
 
 
-def test_auth_uses_env_reference_shared_budget_and_blocks_redirect(monkeypatch):
-    config = definition(auth={"mode": "bearer", "secret_ref": "DEVFEED_PARTNER_SECRET_TEST"})
-    monkeypatch.setenv("DEVFEED_PARTNER_SECRET_TEST", "test-token")
+def test_auth_uses_explicit_credential_shared_budget_and_blocks_redirect(monkeypatch):
+    config = definition(auth={"mode": "bearer"})
     budgets = []
     from contextlib import nullcontext
 
@@ -301,16 +298,17 @@ def test_auth_uses_env_reference_shared_budget_and_blocks_redirect(monkeypatch):
         return SimpleNamespace(body=b'{"items": []}')
 
     monkeypatch.setattr(connectors, "_fetch", fetch)
-    assert connectors.ConnectorClient("platform", config).request(
+    assert connectors.ConnectorClient("platform", config, credential="test-token").request(
         config.base_url + "/products"
     ) == {"items": []}
     assert len(budgets) == 1 and budgets[0].limit == 60
     assert "test-token" not in config.model_dump_json()
     monkeypatch.setattr(connectors, "consume_rate_limits", lambda *_, **kwargs: 42)
     with pytest.raises(FeedError) as error:
-        connectors.ConnectorClient("platform", config).request(config.base_url + "/products")
+        connectors.ConnectorClient("platform", config, credential="test-token").request(
+            config.base_url + "/products"
+        )
     assert error.value.retry_after == 42
-    monkeypatch.delenv("DEVFEED_PARTNER_SECRET_TEST")
     with pytest.raises(ValueError, match="credential"):
         connectors.ConnectorClient("platform", config).request(config.base_url + "/products")
 
@@ -338,10 +336,9 @@ def test_next_url_relative_query_uses_current_endpoint():
 
 def test_raw_response_preview_is_mapping_independent_bounded_and_redacted(monkeypatch):
     config = definition(
-        auth={"mode": "bearer", "secret_ref": "DEVFEED_PARTNER_SECRET_TEST"},
+        auth={"mode": "bearer"},
         items_paths=["unknown.path"],
     )
-    monkeypatch.setenv("DEVFEED_PARTNER_SECRET_TEST", "sensitive-example")
     calls = []
     monkeypatch.setattr(
         connectors.ConnectorClient,
@@ -356,7 +353,9 @@ def test_raw_response_preview_is_mapping_independent_bounded_and_redacted(monkey
             }
         ),
     )
-    response = connectors.ConnectorClient("platform", config).response_preview()
+    response = connectors.ConnectorClient(
+        "platform", config, credential="sensitive-example"
+    ).response_preview()
     assert len(calls) == 1 and response["sampled"]
     assert len(response["data"]["results"]) == 3
     assert len(response["data"]["results"][0]["description"]) == 1000
@@ -412,8 +411,6 @@ def test_connector_presets_are_creation_defaults_and_never_overwrite_saved_custo
     default = connectors.connector_snapshot(connection)
     assert default["auth"] == {
         "mode": "bearer",
-        "source": "environment",
-        "secret_ref": "DEVFEED_PARTNER_SECRET_PRODUCTS_API_TOKEN",
         "header": "X-API-Key",
     }
     assert default["fields"]["product_url"] == ["productUrl"]
@@ -445,7 +442,7 @@ def test_one_client_keeps_validated_configuration_across_discovery_product_and_p
 def test_client_reuses_credential_deadline_and_budget_for_all_transport_methods(monkeypatch):
     from contextlib import nullcontext
 
-    config = definition(auth={"mode": "bearer", "source": "connection"})
+    config = definition(auth={"mode": "bearer"})
     calls, budgets = [], []
     monkeypatch.setattr(connectors, "create_redis", lambda _: nullcontext(object()))
     monkeypatch.setattr(

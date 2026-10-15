@@ -10,6 +10,7 @@ import type { ConnectorConfig } from './connectorConfig';
 export interface ConnectionCreate {
   account_id?: string | null;
   connector?: ConnectorConfig | null;
+  credential?: string | null;
   enabled?: boolean;
   logo_url?: string | null;
   name?: string | null;

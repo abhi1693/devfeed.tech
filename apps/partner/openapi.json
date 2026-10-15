@@ -557,21 +557,6 @@
             ],
             "title": "Mode",
             "type": "string"
-          },
-          "secret_ref": {
-            "default": "",
-            "pattern": "^$|^DEVFEED_PARTNER_SECRET_[A-Z0-9_]{1,80}$",
-            "title": "Secret Ref",
-            "type": "string"
-          },
-          "source": {
-            "default": "environment",
-            "enum": [
-              "environment",
-              "connection"
-            ],
-            "title": "Source",
-            "type": "string"
           }
         },
         "title": "ConnectorAuth",
@@ -1947,11 +1932,8 @@
               }
             ]
           },
-          "connector_editable": {
-            "title": "Connector Editable",
-            "type": "boolean"
-          },
           "credential_configured": {
+            "default": false,
             "title": "Credential Configured",
             "type": "boolean"
           },
@@ -1959,8 +1941,9 @@
             "title": "Credential Header",
             "type": "string"
           },
-          "credentials_managed": {
-            "title": "Credentials Managed",
+          "credentials_available": {
+            "default": false,
+            "title": "Credentials Available",
             "type": "boolean"
           },
           "enabled": {
@@ -2087,10 +2070,7 @@
           "excluded",
           "ai_enabled",
           "auth_mode",
-          "credential_header",
-          "credential_configured",
-          "credentials_managed",
-          "connector_editable"
+          "credential_header"
         ],
         "title": "PartnerConnectionOut",
         "type": "object"
@@ -3431,11 +3411,8 @@
               }
             ]
           },
-          "connector_editable": {
-            "title": "Connector Editable",
-            "type": "boolean"
-          },
           "credential_configured": {
+            "default": false,
             "title": "Credential Configured",
             "type": "boolean"
           },
@@ -3444,11 +3421,8 @@
             "type": "string"
           },
           "credentials_available": {
+            "default": false,
             "title": "Credentials Available",
-            "type": "boolean"
-          },
-          "credentials_managed": {
-            "title": "Credentials Managed",
             "type": "boolean"
           },
           "enabled": {
@@ -3577,11 +3551,7 @@
           "ai_enabled",
           "auth_mode",
           "credential_header",
-          "credential_configured",
-          "credentials_managed",
-          "connector_editable",
-          "account_name",
-          "credentials_available"
+          "account_name"
         ],
         "title": "WorkspaceConnectionOut",
         "type": "object"

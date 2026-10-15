@@ -81,9 +81,6 @@ export const partnerConnectionsListResponseItemsItemConnectorOneAuthHeaderMax = 
 
 export const partnerConnectionsListResponseItemsItemConnectorOneAuthHeaderRegExp = new RegExp('^[A-Za-z][A-Za-z0-9_-]*$');
 export const partnerConnectionsListResponseItemsItemConnectorOneAuthModeDefault = `none`;
-export const partnerConnectionsListResponseItemsItemConnectorOneAuthSecretRefDefault = ``;
-export const partnerConnectionsListResponseItemsItemConnectorOneAuthSecretRefRegExp = new RegExp('^$|^DEVFEED_PARTNER_SECRET_[A-Z0-9_]{1,80}$');
-export const partnerConnectionsListResponseItemsItemConnectorOneAuthSourceDefault = `environment`;
 export const partnerConnectionsListResponseItemsItemConnectorOneDetailPathOneMax = 500;
 
 export const partnerConnectionsListResponseItemsItemConnectorOneDetailRootDefault = ``;
@@ -194,6 +191,8 @@ export const partnerConnectionsListResponseItemsItemConnectorOneTimeoutSecondsDe
 export const partnerConnectionsListResponseItemsItemConnectorOneTimeoutSecondsMax = 30;
 
 export const partnerConnectionsListResponseItemsItemConnectorOneVersionDefault = 1;
+export const partnerConnectionsListResponseItemsItemCredentialConfiguredDefault = false;
+export const partnerConnectionsListResponseItemsItemCredentialsAvailableDefault = false;
 export const partnerConnectionsListResponseItemsItemPartnershipTypeDefault = `launch_platform`;
 
 export const PartnerConnectionsListResponse = zod.object({
@@ -210,9 +209,7 @@ export const PartnerConnectionsListResponse = zod.object({
   "attribution": zod.string().max(partnerConnectionsListResponseItemsItemConnectorOneAttributionMax).default(partnerConnectionsListResponseItemsItemConnectorOneAttributionDefault),
   "auth": zod.object({
   "header": zod.string().min(1).max(partnerConnectionsListResponseItemsItemConnectorOneAuthHeaderMax).regex(partnerConnectionsListResponseItemsItemConnectorOneAuthHeaderRegExp).default(partnerConnectionsListResponseItemsItemConnectorOneAuthHeaderDefault),
-  "mode": zod.enum(['none', 'bearer', 'api_key']).default(partnerConnectionsListResponseItemsItemConnectorOneAuthModeDefault),
-  "secret_ref": zod.string().regex(partnerConnectionsListResponseItemsItemConnectorOneAuthSecretRefRegExp).default(partnerConnectionsListResponseItemsItemConnectorOneAuthSecretRefDefault),
-  "source": zod.enum(['environment', 'connection']).default(partnerConnectionsListResponseItemsItemConnectorOneAuthSourceDefault)
+  "mode": zod.enum(['none', 'bearer', 'api_key']).default(partnerConnectionsListResponseItemsItemConnectorOneAuthModeDefault)
 }).optional(),
   "base_url": zod.string(),
   "detail_path": zod.union([zod.string().max(partnerConnectionsListResponseItemsItemConnectorOneDetailPathOneMax),zod.null()]).optional(),
@@ -253,10 +250,9 @@ export const PartnerConnectionsListResponse = zod.object({
   "timeout_seconds": zod.int().min(1).max(partnerConnectionsListResponseItemsItemConnectorOneTimeoutSecondsMax).default(partnerConnectionsListResponseItemsItemConnectorOneTimeoutSecondsDefault),
   "version": zod.literal(1).default(partnerConnectionsListResponseItemsItemConnectorOneVersionDefault).meta({ title: 'Version' })
 }),zod.null()]).optional(),
-  "connector_editable": zod.boolean(),
-  "credential_configured": zod.boolean(),
+  "credential_configured": zod.boolean().default(partnerConnectionsListResponseItemsItemCredentialConfiguredDefault),
   "credential_header": zod.string(),
-  "credentials_managed": zod.boolean(),
+  "credentials_available": zod.boolean().default(partnerConnectionsListResponseItemsItemCredentialsAvailableDefault),
   "enabled": zod.boolean(),
   "error": zod.union([zod.string(),zod.null()]),
   "excluded": zod.int(),
@@ -296,9 +292,6 @@ export const partnerConnectionCreateResponseConnectorOneAuthHeaderMax = 100;
 
 export const partnerConnectionCreateResponseConnectorOneAuthHeaderRegExp = new RegExp('^[A-Za-z][A-Za-z0-9_-]*$');
 export const partnerConnectionCreateResponseConnectorOneAuthModeDefault = `none`;
-export const partnerConnectionCreateResponseConnectorOneAuthSecretRefDefault = ``;
-export const partnerConnectionCreateResponseConnectorOneAuthSecretRefRegExp = new RegExp('^$|^DEVFEED_PARTNER_SECRET_[A-Z0-9_]{1,80}$');
-export const partnerConnectionCreateResponseConnectorOneAuthSourceDefault = `environment`;
 export const partnerConnectionCreateResponseConnectorOneDetailPathOneMax = 500;
 
 export const partnerConnectionCreateResponseConnectorOneDetailRootDefault = ``;
@@ -409,6 +402,8 @@ export const partnerConnectionCreateResponseConnectorOneTimeoutSecondsDefault = 
 export const partnerConnectionCreateResponseConnectorOneTimeoutSecondsMax = 30;
 
 export const partnerConnectionCreateResponseConnectorOneVersionDefault = 1;
+export const partnerConnectionCreateResponseCredentialConfiguredDefault = false;
+export const partnerConnectionCreateResponseCredentialsAvailableDefault = false;
 export const partnerConnectionCreateResponsePartnershipTypeDefault = `launch_platform`;
 
 export const PartnerConnectionCreateResponse = zod.object({
@@ -423,9 +418,7 @@ export const PartnerConnectionCreateResponse = zod.object({
   "attribution": zod.string().max(partnerConnectionCreateResponseConnectorOneAttributionMax).default(partnerConnectionCreateResponseConnectorOneAttributionDefault),
   "auth": zod.object({
   "header": zod.string().min(1).max(partnerConnectionCreateResponseConnectorOneAuthHeaderMax).regex(partnerConnectionCreateResponseConnectorOneAuthHeaderRegExp).default(partnerConnectionCreateResponseConnectorOneAuthHeaderDefault),
-  "mode": zod.enum(['none', 'bearer', 'api_key']).default(partnerConnectionCreateResponseConnectorOneAuthModeDefault),
-  "secret_ref": zod.string().regex(partnerConnectionCreateResponseConnectorOneAuthSecretRefRegExp).default(partnerConnectionCreateResponseConnectorOneAuthSecretRefDefault),
-  "source": zod.enum(['environment', 'connection']).default(partnerConnectionCreateResponseConnectorOneAuthSourceDefault)
+  "mode": zod.enum(['none', 'bearer', 'api_key']).default(partnerConnectionCreateResponseConnectorOneAuthModeDefault)
 }).optional(),
   "base_url": zod.string(),
   "detail_path": zod.union([zod.string().max(partnerConnectionCreateResponseConnectorOneDetailPathOneMax),zod.null()]).optional(),
@@ -466,10 +459,9 @@ export const PartnerConnectionCreateResponse = zod.object({
   "timeout_seconds": zod.int().min(1).max(partnerConnectionCreateResponseConnectorOneTimeoutSecondsMax).default(partnerConnectionCreateResponseConnectorOneTimeoutSecondsDefault),
   "version": zod.literal(1).default(partnerConnectionCreateResponseConnectorOneVersionDefault).meta({ title: 'Version' })
 }),zod.null()]).optional(),
-  "connector_editable": zod.boolean(),
-  "credential_configured": zod.boolean(),
+  "credential_configured": zod.boolean().default(partnerConnectionCreateResponseCredentialConfiguredDefault),
   "credential_header": zod.string(),
-  "credentials_managed": zod.boolean(),
+  "credentials_available": zod.boolean().default(partnerConnectionCreateResponseCredentialsAvailableDefault),
   "enabled": zod.boolean(),
   "error": zod.union([zod.string(),zod.null()]),
   "excluded": zod.int(),
@@ -568,9 +560,6 @@ export const partnerConnectionDeleteResponseConnectorOneAuthHeaderMax = 100;
 
 export const partnerConnectionDeleteResponseConnectorOneAuthHeaderRegExp = new RegExp('^[A-Za-z][A-Za-z0-9_-]*$');
 export const partnerConnectionDeleteResponseConnectorOneAuthModeDefault = `none`;
-export const partnerConnectionDeleteResponseConnectorOneAuthSecretRefDefault = ``;
-export const partnerConnectionDeleteResponseConnectorOneAuthSecretRefRegExp = new RegExp('^$|^DEVFEED_PARTNER_SECRET_[A-Z0-9_]{1,80}$');
-export const partnerConnectionDeleteResponseConnectorOneAuthSourceDefault = `environment`;
 export const partnerConnectionDeleteResponseConnectorOneDetailPathOneMax = 500;
 
 export const partnerConnectionDeleteResponseConnectorOneDetailRootDefault = ``;
@@ -681,6 +670,8 @@ export const partnerConnectionDeleteResponseConnectorOneTimeoutSecondsDefault = 
 export const partnerConnectionDeleteResponseConnectorOneTimeoutSecondsMax = 30;
 
 export const partnerConnectionDeleteResponseConnectorOneVersionDefault = 1;
+export const partnerConnectionDeleteResponseCredentialConfiguredDefault = false;
+export const partnerConnectionDeleteResponseCredentialsAvailableDefault = false;
 export const partnerConnectionDeleteResponsePartnershipTypeDefault = `launch_platform`;
 
 export const PartnerConnectionDeleteResponse = zod.object({
@@ -695,9 +686,7 @@ export const PartnerConnectionDeleteResponse = zod.object({
   "attribution": zod.string().max(partnerConnectionDeleteResponseConnectorOneAttributionMax).default(partnerConnectionDeleteResponseConnectorOneAttributionDefault),
   "auth": zod.object({
   "header": zod.string().min(1).max(partnerConnectionDeleteResponseConnectorOneAuthHeaderMax).regex(partnerConnectionDeleteResponseConnectorOneAuthHeaderRegExp).default(partnerConnectionDeleteResponseConnectorOneAuthHeaderDefault),
-  "mode": zod.enum(['none', 'bearer', 'api_key']).default(partnerConnectionDeleteResponseConnectorOneAuthModeDefault),
-  "secret_ref": zod.string().regex(partnerConnectionDeleteResponseConnectorOneAuthSecretRefRegExp).default(partnerConnectionDeleteResponseConnectorOneAuthSecretRefDefault),
-  "source": zod.enum(['environment', 'connection']).default(partnerConnectionDeleteResponseConnectorOneAuthSourceDefault)
+  "mode": zod.enum(['none', 'bearer', 'api_key']).default(partnerConnectionDeleteResponseConnectorOneAuthModeDefault)
 }).optional(),
   "base_url": zod.string(),
   "detail_path": zod.union([zod.string().max(partnerConnectionDeleteResponseConnectorOneDetailPathOneMax),zod.null()]).optional(),
@@ -738,10 +727,9 @@ export const PartnerConnectionDeleteResponse = zod.object({
   "timeout_seconds": zod.int().min(1).max(partnerConnectionDeleteResponseConnectorOneTimeoutSecondsMax).default(partnerConnectionDeleteResponseConnectorOneTimeoutSecondsDefault),
   "version": zod.literal(1).default(partnerConnectionDeleteResponseConnectorOneVersionDefault).meta({ title: 'Version' })
 }),zod.null()]).optional(),
-  "connector_editable": zod.boolean(),
-  "credential_configured": zod.boolean(),
+  "credential_configured": zod.boolean().default(partnerConnectionDeleteResponseCredentialConfiguredDefault),
   "credential_header": zod.string(),
-  "credentials_managed": zod.boolean(),
+  "credentials_available": zod.boolean().default(partnerConnectionDeleteResponseCredentialsAvailableDefault),
   "enabled": zod.boolean(),
   "error": zod.union([zod.string(),zod.null()]),
   "excluded": zod.int(),
@@ -777,9 +765,6 @@ export const partnerConnectionGetResponseConnectorOneAuthHeaderMax = 100;
 
 export const partnerConnectionGetResponseConnectorOneAuthHeaderRegExp = new RegExp('^[A-Za-z][A-Za-z0-9_-]*$');
 export const partnerConnectionGetResponseConnectorOneAuthModeDefault = `none`;
-export const partnerConnectionGetResponseConnectorOneAuthSecretRefDefault = ``;
-export const partnerConnectionGetResponseConnectorOneAuthSecretRefRegExp = new RegExp('^$|^DEVFEED_PARTNER_SECRET_[A-Z0-9_]{1,80}$');
-export const partnerConnectionGetResponseConnectorOneAuthSourceDefault = `environment`;
 export const partnerConnectionGetResponseConnectorOneDetailPathOneMax = 500;
 
 export const partnerConnectionGetResponseConnectorOneDetailRootDefault = ``;
@@ -890,6 +875,8 @@ export const partnerConnectionGetResponseConnectorOneTimeoutSecondsDefault = 15;
 export const partnerConnectionGetResponseConnectorOneTimeoutSecondsMax = 30;
 
 export const partnerConnectionGetResponseConnectorOneVersionDefault = 1;
+export const partnerConnectionGetResponseCredentialConfiguredDefault = false;
+export const partnerConnectionGetResponseCredentialsAvailableDefault = false;
 export const partnerConnectionGetResponsePartnershipTypeDefault = `launch_platform`;
 
 export const PartnerConnectionGetResponse = zod.object({
@@ -904,9 +891,7 @@ export const PartnerConnectionGetResponse = zod.object({
   "attribution": zod.string().max(partnerConnectionGetResponseConnectorOneAttributionMax).default(partnerConnectionGetResponseConnectorOneAttributionDefault),
   "auth": zod.object({
   "header": zod.string().min(1).max(partnerConnectionGetResponseConnectorOneAuthHeaderMax).regex(partnerConnectionGetResponseConnectorOneAuthHeaderRegExp).default(partnerConnectionGetResponseConnectorOneAuthHeaderDefault),
-  "mode": zod.enum(['none', 'bearer', 'api_key']).default(partnerConnectionGetResponseConnectorOneAuthModeDefault),
-  "secret_ref": zod.string().regex(partnerConnectionGetResponseConnectorOneAuthSecretRefRegExp).default(partnerConnectionGetResponseConnectorOneAuthSecretRefDefault),
-  "source": zod.enum(['environment', 'connection']).default(partnerConnectionGetResponseConnectorOneAuthSourceDefault)
+  "mode": zod.enum(['none', 'bearer', 'api_key']).default(partnerConnectionGetResponseConnectorOneAuthModeDefault)
 }).optional(),
   "base_url": zod.string(),
   "detail_path": zod.union([zod.string().max(partnerConnectionGetResponseConnectorOneDetailPathOneMax),zod.null()]).optional(),
@@ -947,10 +932,9 @@ export const PartnerConnectionGetResponse = zod.object({
   "timeout_seconds": zod.int().min(1).max(partnerConnectionGetResponseConnectorOneTimeoutSecondsMax).default(partnerConnectionGetResponseConnectorOneTimeoutSecondsDefault),
   "version": zod.literal(1).default(partnerConnectionGetResponseConnectorOneVersionDefault).meta({ title: 'Version' })
 }),zod.null()]).optional(),
-  "connector_editable": zod.boolean(),
-  "credential_configured": zod.boolean(),
+  "credential_configured": zod.boolean().default(partnerConnectionGetResponseCredentialConfiguredDefault),
   "credential_header": zod.string(),
-  "credentials_managed": zod.boolean(),
+  "credentials_available": zod.boolean().default(partnerConnectionGetResponseCredentialsAvailableDefault),
   "enabled": zod.boolean(),
   "error": zod.union([zod.string(),zod.null()]),
   "excluded": zod.int(),
@@ -986,9 +970,6 @@ export const partnerConnectionUpdateResponseConnectorOneAuthHeaderMax = 100;
 
 export const partnerConnectionUpdateResponseConnectorOneAuthHeaderRegExp = new RegExp('^[A-Za-z][A-Za-z0-9_-]*$');
 export const partnerConnectionUpdateResponseConnectorOneAuthModeDefault = `none`;
-export const partnerConnectionUpdateResponseConnectorOneAuthSecretRefDefault = ``;
-export const partnerConnectionUpdateResponseConnectorOneAuthSecretRefRegExp = new RegExp('^$|^DEVFEED_PARTNER_SECRET_[A-Z0-9_]{1,80}$');
-export const partnerConnectionUpdateResponseConnectorOneAuthSourceDefault = `environment`;
 export const partnerConnectionUpdateResponseConnectorOneDetailPathOneMax = 500;
 
 export const partnerConnectionUpdateResponseConnectorOneDetailRootDefault = ``;
@@ -1099,6 +1080,8 @@ export const partnerConnectionUpdateResponseConnectorOneTimeoutSecondsDefault = 
 export const partnerConnectionUpdateResponseConnectorOneTimeoutSecondsMax = 30;
 
 export const partnerConnectionUpdateResponseConnectorOneVersionDefault = 1;
+export const partnerConnectionUpdateResponseCredentialConfiguredDefault = false;
+export const partnerConnectionUpdateResponseCredentialsAvailableDefault = false;
 export const partnerConnectionUpdateResponsePartnershipTypeDefault = `launch_platform`;
 
 export const PartnerConnectionUpdateResponse = zod.object({
@@ -1113,9 +1096,7 @@ export const PartnerConnectionUpdateResponse = zod.object({
   "attribution": zod.string().max(partnerConnectionUpdateResponseConnectorOneAttributionMax).default(partnerConnectionUpdateResponseConnectorOneAttributionDefault),
   "auth": zod.object({
   "header": zod.string().min(1).max(partnerConnectionUpdateResponseConnectorOneAuthHeaderMax).regex(partnerConnectionUpdateResponseConnectorOneAuthHeaderRegExp).default(partnerConnectionUpdateResponseConnectorOneAuthHeaderDefault),
-  "mode": zod.enum(['none', 'bearer', 'api_key']).default(partnerConnectionUpdateResponseConnectorOneAuthModeDefault),
-  "secret_ref": zod.string().regex(partnerConnectionUpdateResponseConnectorOneAuthSecretRefRegExp).default(partnerConnectionUpdateResponseConnectorOneAuthSecretRefDefault),
-  "source": zod.enum(['environment', 'connection']).default(partnerConnectionUpdateResponseConnectorOneAuthSourceDefault)
+  "mode": zod.enum(['none', 'bearer', 'api_key']).default(partnerConnectionUpdateResponseConnectorOneAuthModeDefault)
 }).optional(),
   "base_url": zod.string(),
   "detail_path": zod.union([zod.string().max(partnerConnectionUpdateResponseConnectorOneDetailPathOneMax),zod.null()]).optional(),
@@ -1156,10 +1137,9 @@ export const PartnerConnectionUpdateResponse = zod.object({
   "timeout_seconds": zod.int().min(1).max(partnerConnectionUpdateResponseConnectorOneTimeoutSecondsMax).default(partnerConnectionUpdateResponseConnectorOneTimeoutSecondsDefault),
   "version": zod.literal(1).default(partnerConnectionUpdateResponseConnectorOneVersionDefault).meta({ title: 'Version' })
 }),zod.null()]).optional(),
-  "connector_editable": zod.boolean(),
-  "credential_configured": zod.boolean(),
+  "credential_configured": zod.boolean().default(partnerConnectionUpdateResponseCredentialConfiguredDefault),
   "credential_header": zod.string(),
-  "credentials_managed": zod.boolean(),
+  "credentials_available": zod.boolean().default(partnerConnectionUpdateResponseCredentialsAvailableDefault),
   "enabled": zod.boolean(),
   "error": zod.union([zod.string(),zod.null()]),
   "excluded": zod.int(),
@@ -1195,9 +1175,6 @@ export const partnerConnectionActionResponseConnectorOneAuthHeaderMax = 100;
 
 export const partnerConnectionActionResponseConnectorOneAuthHeaderRegExp = new RegExp('^[A-Za-z][A-Za-z0-9_-]*$');
 export const partnerConnectionActionResponseConnectorOneAuthModeDefault = `none`;
-export const partnerConnectionActionResponseConnectorOneAuthSecretRefDefault = ``;
-export const partnerConnectionActionResponseConnectorOneAuthSecretRefRegExp = new RegExp('^$|^DEVFEED_PARTNER_SECRET_[A-Z0-9_]{1,80}$');
-export const partnerConnectionActionResponseConnectorOneAuthSourceDefault = `environment`;
 export const partnerConnectionActionResponseConnectorOneDetailPathOneMax = 500;
 
 export const partnerConnectionActionResponseConnectorOneDetailRootDefault = ``;
@@ -1308,6 +1285,8 @@ export const partnerConnectionActionResponseConnectorOneTimeoutSecondsDefault = 
 export const partnerConnectionActionResponseConnectorOneTimeoutSecondsMax = 30;
 
 export const partnerConnectionActionResponseConnectorOneVersionDefault = 1;
+export const partnerConnectionActionResponseCredentialConfiguredDefault = false;
+export const partnerConnectionActionResponseCredentialsAvailableDefault = false;
 export const partnerConnectionActionResponsePartnershipTypeDefault = `launch_platform`;
 
 export const PartnerConnectionActionResponse = zod.object({
@@ -1322,9 +1301,7 @@ export const PartnerConnectionActionResponse = zod.object({
   "attribution": zod.string().max(partnerConnectionActionResponseConnectorOneAttributionMax).default(partnerConnectionActionResponseConnectorOneAttributionDefault),
   "auth": zod.object({
   "header": zod.string().min(1).max(partnerConnectionActionResponseConnectorOneAuthHeaderMax).regex(partnerConnectionActionResponseConnectorOneAuthHeaderRegExp).default(partnerConnectionActionResponseConnectorOneAuthHeaderDefault),
-  "mode": zod.enum(['none', 'bearer', 'api_key']).default(partnerConnectionActionResponseConnectorOneAuthModeDefault),
-  "secret_ref": zod.string().regex(partnerConnectionActionResponseConnectorOneAuthSecretRefRegExp).default(partnerConnectionActionResponseConnectorOneAuthSecretRefDefault),
-  "source": zod.enum(['environment', 'connection']).default(partnerConnectionActionResponseConnectorOneAuthSourceDefault)
+  "mode": zod.enum(['none', 'bearer', 'api_key']).default(partnerConnectionActionResponseConnectorOneAuthModeDefault)
 }).optional(),
   "base_url": zod.string(),
   "detail_path": zod.union([zod.string().max(partnerConnectionActionResponseConnectorOneDetailPathOneMax),zod.null()]).optional(),
@@ -1365,10 +1342,9 @@ export const PartnerConnectionActionResponse = zod.object({
   "timeout_seconds": zod.int().min(1).max(partnerConnectionActionResponseConnectorOneTimeoutSecondsMax).default(partnerConnectionActionResponseConnectorOneTimeoutSecondsDefault),
   "version": zod.literal(1).default(partnerConnectionActionResponseConnectorOneVersionDefault).meta({ title: 'Version' })
 }),zod.null()]).optional(),
-  "connector_editable": zod.boolean(),
-  "credential_configured": zod.boolean(),
+  "credential_configured": zod.boolean().default(partnerConnectionActionResponseCredentialConfiguredDefault),
   "credential_header": zod.string(),
-  "credentials_managed": zod.boolean(),
+  "credentials_available": zod.boolean().default(partnerConnectionActionResponseCredentialsAvailableDefault),
   "enabled": zod.boolean(),
   "error": zod.union([zod.string(),zod.null()]),
   "excluded": zod.int(),
@@ -1485,9 +1461,6 @@ export const partnerConnectionLogoUploadResponseConnectorOneAuthHeaderMax = 100;
 
 export const partnerConnectionLogoUploadResponseConnectorOneAuthHeaderRegExp = new RegExp('^[A-Za-z][A-Za-z0-9_-]*$');
 export const partnerConnectionLogoUploadResponseConnectorOneAuthModeDefault = `none`;
-export const partnerConnectionLogoUploadResponseConnectorOneAuthSecretRefDefault = ``;
-export const partnerConnectionLogoUploadResponseConnectorOneAuthSecretRefRegExp = new RegExp('^$|^DEVFEED_PARTNER_SECRET_[A-Z0-9_]{1,80}$');
-export const partnerConnectionLogoUploadResponseConnectorOneAuthSourceDefault = `environment`;
 export const partnerConnectionLogoUploadResponseConnectorOneDetailPathOneMax = 500;
 
 export const partnerConnectionLogoUploadResponseConnectorOneDetailRootDefault = ``;
@@ -1598,6 +1571,8 @@ export const partnerConnectionLogoUploadResponseConnectorOneTimeoutSecondsDefaul
 export const partnerConnectionLogoUploadResponseConnectorOneTimeoutSecondsMax = 30;
 
 export const partnerConnectionLogoUploadResponseConnectorOneVersionDefault = 1;
+export const partnerConnectionLogoUploadResponseCredentialConfiguredDefault = false;
+export const partnerConnectionLogoUploadResponseCredentialsAvailableDefault = false;
 export const partnerConnectionLogoUploadResponsePartnershipTypeDefault = `launch_platform`;
 
 export const PartnerConnectionLogoUploadResponse = zod.object({
@@ -1612,9 +1587,7 @@ export const PartnerConnectionLogoUploadResponse = zod.object({
   "attribution": zod.string().max(partnerConnectionLogoUploadResponseConnectorOneAttributionMax).default(partnerConnectionLogoUploadResponseConnectorOneAttributionDefault),
   "auth": zod.object({
   "header": zod.string().min(1).max(partnerConnectionLogoUploadResponseConnectorOneAuthHeaderMax).regex(partnerConnectionLogoUploadResponseConnectorOneAuthHeaderRegExp).default(partnerConnectionLogoUploadResponseConnectorOneAuthHeaderDefault),
-  "mode": zod.enum(['none', 'bearer', 'api_key']).default(partnerConnectionLogoUploadResponseConnectorOneAuthModeDefault),
-  "secret_ref": zod.string().regex(partnerConnectionLogoUploadResponseConnectorOneAuthSecretRefRegExp).default(partnerConnectionLogoUploadResponseConnectorOneAuthSecretRefDefault),
-  "source": zod.enum(['environment', 'connection']).default(partnerConnectionLogoUploadResponseConnectorOneAuthSourceDefault)
+  "mode": zod.enum(['none', 'bearer', 'api_key']).default(partnerConnectionLogoUploadResponseConnectorOneAuthModeDefault)
 }).optional(),
   "base_url": zod.string(),
   "detail_path": zod.union([zod.string().max(partnerConnectionLogoUploadResponseConnectorOneDetailPathOneMax),zod.null()]).optional(),
@@ -1655,10 +1628,9 @@ export const PartnerConnectionLogoUploadResponse = zod.object({
   "timeout_seconds": zod.int().min(1).max(partnerConnectionLogoUploadResponseConnectorOneTimeoutSecondsMax).default(partnerConnectionLogoUploadResponseConnectorOneTimeoutSecondsDefault),
   "version": zod.literal(1).default(partnerConnectionLogoUploadResponseConnectorOneVersionDefault).meta({ title: 'Version' })
 }),zod.null()]).optional(),
-  "connector_editable": zod.boolean(),
-  "credential_configured": zod.boolean(),
+  "credential_configured": zod.boolean().default(partnerConnectionLogoUploadResponseCredentialConfiguredDefault),
   "credential_header": zod.string(),
-  "credentials_managed": zod.boolean(),
+  "credentials_available": zod.boolean().default(partnerConnectionLogoUploadResponseCredentialsAvailableDefault),
   "enabled": zod.boolean(),
   "error": zod.union([zod.string(),zod.null()]),
   "excluded": zod.int(),
@@ -1694,9 +1666,6 @@ export const partnerConnectionLogoUpdateResponseConnectorOneAuthHeaderMax = 100;
 
 export const partnerConnectionLogoUpdateResponseConnectorOneAuthHeaderRegExp = new RegExp('^[A-Za-z][A-Za-z0-9_-]*$');
 export const partnerConnectionLogoUpdateResponseConnectorOneAuthModeDefault = `none`;
-export const partnerConnectionLogoUpdateResponseConnectorOneAuthSecretRefDefault = ``;
-export const partnerConnectionLogoUpdateResponseConnectorOneAuthSecretRefRegExp = new RegExp('^$|^DEVFEED_PARTNER_SECRET_[A-Z0-9_]{1,80}$');
-export const partnerConnectionLogoUpdateResponseConnectorOneAuthSourceDefault = `environment`;
 export const partnerConnectionLogoUpdateResponseConnectorOneDetailPathOneMax = 500;
 
 export const partnerConnectionLogoUpdateResponseConnectorOneDetailRootDefault = ``;
@@ -1807,6 +1776,8 @@ export const partnerConnectionLogoUpdateResponseConnectorOneTimeoutSecondsDefaul
 export const partnerConnectionLogoUpdateResponseConnectorOneTimeoutSecondsMax = 30;
 
 export const partnerConnectionLogoUpdateResponseConnectorOneVersionDefault = 1;
+export const partnerConnectionLogoUpdateResponseCredentialConfiguredDefault = false;
+export const partnerConnectionLogoUpdateResponseCredentialsAvailableDefault = false;
 export const partnerConnectionLogoUpdateResponsePartnershipTypeDefault = `launch_platform`;
 
 export const PartnerConnectionLogoUpdateResponse = zod.object({
@@ -1821,9 +1792,7 @@ export const PartnerConnectionLogoUpdateResponse = zod.object({
   "attribution": zod.string().max(partnerConnectionLogoUpdateResponseConnectorOneAttributionMax).default(partnerConnectionLogoUpdateResponseConnectorOneAttributionDefault),
   "auth": zod.object({
   "header": zod.string().min(1).max(partnerConnectionLogoUpdateResponseConnectorOneAuthHeaderMax).regex(partnerConnectionLogoUpdateResponseConnectorOneAuthHeaderRegExp).default(partnerConnectionLogoUpdateResponseConnectorOneAuthHeaderDefault),
-  "mode": zod.enum(['none', 'bearer', 'api_key']).default(partnerConnectionLogoUpdateResponseConnectorOneAuthModeDefault),
-  "secret_ref": zod.string().regex(partnerConnectionLogoUpdateResponseConnectorOneAuthSecretRefRegExp).default(partnerConnectionLogoUpdateResponseConnectorOneAuthSecretRefDefault),
-  "source": zod.enum(['environment', 'connection']).default(partnerConnectionLogoUpdateResponseConnectorOneAuthSourceDefault)
+  "mode": zod.enum(['none', 'bearer', 'api_key']).default(partnerConnectionLogoUpdateResponseConnectorOneAuthModeDefault)
 }).optional(),
   "base_url": zod.string(),
   "detail_path": zod.union([zod.string().max(partnerConnectionLogoUpdateResponseConnectorOneDetailPathOneMax),zod.null()]).optional(),
@@ -1864,10 +1833,9 @@ export const PartnerConnectionLogoUpdateResponse = zod.object({
   "timeout_seconds": zod.int().min(1).max(partnerConnectionLogoUpdateResponseConnectorOneTimeoutSecondsMax).default(partnerConnectionLogoUpdateResponseConnectorOneTimeoutSecondsDefault),
   "version": zod.literal(1).default(partnerConnectionLogoUpdateResponseConnectorOneVersionDefault).meta({ title: 'Version' })
 }),zod.null()]).optional(),
-  "connector_editable": zod.boolean(),
-  "credential_configured": zod.boolean(),
+  "credential_configured": zod.boolean().default(partnerConnectionLogoUpdateResponseCredentialConfiguredDefault),
   "credential_header": zod.string(),
-  "credentials_managed": zod.boolean(),
+  "credentials_available": zod.boolean().default(partnerConnectionLogoUpdateResponseCredentialsAvailableDefault),
   "enabled": zod.boolean(),
   "error": zod.union([zod.string(),zod.null()]),
   "excluded": zod.int(),
@@ -2245,9 +2213,6 @@ export const partnerWorkspaceConnectionsResponseItemsItemConnectorOneAuthHeaderM
 
 export const partnerWorkspaceConnectionsResponseItemsItemConnectorOneAuthHeaderRegExp = new RegExp('^[A-Za-z][A-Za-z0-9_-]*$');
 export const partnerWorkspaceConnectionsResponseItemsItemConnectorOneAuthModeDefault = `none`;
-export const partnerWorkspaceConnectionsResponseItemsItemConnectorOneAuthSecretRefDefault = ``;
-export const partnerWorkspaceConnectionsResponseItemsItemConnectorOneAuthSecretRefRegExp = new RegExp('^$|^DEVFEED_PARTNER_SECRET_[A-Z0-9_]{1,80}$');
-export const partnerWorkspaceConnectionsResponseItemsItemConnectorOneAuthSourceDefault = `environment`;
 export const partnerWorkspaceConnectionsResponseItemsItemConnectorOneDetailPathOneMax = 500;
 
 export const partnerWorkspaceConnectionsResponseItemsItemConnectorOneDetailRootDefault = ``;
@@ -2358,6 +2323,8 @@ export const partnerWorkspaceConnectionsResponseItemsItemConnectorOneTimeoutSeco
 export const partnerWorkspaceConnectionsResponseItemsItemConnectorOneTimeoutSecondsMax = 30;
 
 export const partnerWorkspaceConnectionsResponseItemsItemConnectorOneVersionDefault = 1;
+export const partnerWorkspaceConnectionsResponseItemsItemCredentialConfiguredDefault = false;
+export const partnerWorkspaceConnectionsResponseItemsItemCredentialsAvailableDefault = false;
 export const partnerWorkspaceConnectionsResponseItemsItemPartnershipTypeDefault = `launch_platform`;
 
 export const PartnerWorkspaceConnectionsResponse = zod.object({
@@ -2375,9 +2342,7 @@ export const PartnerWorkspaceConnectionsResponse = zod.object({
   "attribution": zod.string().max(partnerWorkspaceConnectionsResponseItemsItemConnectorOneAttributionMax).default(partnerWorkspaceConnectionsResponseItemsItemConnectorOneAttributionDefault),
   "auth": zod.object({
   "header": zod.string().min(1).max(partnerWorkspaceConnectionsResponseItemsItemConnectorOneAuthHeaderMax).regex(partnerWorkspaceConnectionsResponseItemsItemConnectorOneAuthHeaderRegExp).default(partnerWorkspaceConnectionsResponseItemsItemConnectorOneAuthHeaderDefault),
-  "mode": zod.enum(['none', 'bearer', 'api_key']).default(partnerWorkspaceConnectionsResponseItemsItemConnectorOneAuthModeDefault),
-  "secret_ref": zod.string().regex(partnerWorkspaceConnectionsResponseItemsItemConnectorOneAuthSecretRefRegExp).default(partnerWorkspaceConnectionsResponseItemsItemConnectorOneAuthSecretRefDefault),
-  "source": zod.enum(['environment', 'connection']).default(partnerWorkspaceConnectionsResponseItemsItemConnectorOneAuthSourceDefault)
+  "mode": zod.enum(['none', 'bearer', 'api_key']).default(partnerWorkspaceConnectionsResponseItemsItemConnectorOneAuthModeDefault)
 }).optional(),
   "base_url": zod.string(),
   "detail_path": zod.union([zod.string().max(partnerWorkspaceConnectionsResponseItemsItemConnectorOneDetailPathOneMax),zod.null()]).optional(),
@@ -2418,11 +2383,9 @@ export const PartnerWorkspaceConnectionsResponse = zod.object({
   "timeout_seconds": zod.int().min(1).max(partnerWorkspaceConnectionsResponseItemsItemConnectorOneTimeoutSecondsMax).default(partnerWorkspaceConnectionsResponseItemsItemConnectorOneTimeoutSecondsDefault),
   "version": zod.literal(1).default(partnerWorkspaceConnectionsResponseItemsItemConnectorOneVersionDefault).meta({ title: 'Version' })
 }),zod.null()]).optional(),
-  "connector_editable": zod.boolean(),
-  "credential_configured": zod.boolean(),
+  "credential_configured": zod.boolean().default(partnerWorkspaceConnectionsResponseItemsItemCredentialConfiguredDefault),
   "credential_header": zod.string(),
-  "credentials_available": zod.boolean(),
-  "credentials_managed": zod.boolean(),
+  "credentials_available": zod.boolean().default(partnerWorkspaceConnectionsResponseItemsItemCredentialsAvailableDefault),
   "enabled": zod.boolean(),
   "error": zod.union([zod.string(),zod.null()]),
   "excluded": zod.int(),
@@ -2462,9 +2425,6 @@ export const partnerWorkspaceConnectionCreateResponseConnectorOneAuthHeaderMax =
 
 export const partnerWorkspaceConnectionCreateResponseConnectorOneAuthHeaderRegExp = new RegExp('^[A-Za-z][A-Za-z0-9_-]*$');
 export const partnerWorkspaceConnectionCreateResponseConnectorOneAuthModeDefault = `none`;
-export const partnerWorkspaceConnectionCreateResponseConnectorOneAuthSecretRefDefault = ``;
-export const partnerWorkspaceConnectionCreateResponseConnectorOneAuthSecretRefRegExp = new RegExp('^$|^DEVFEED_PARTNER_SECRET_[A-Z0-9_]{1,80}$');
-export const partnerWorkspaceConnectionCreateResponseConnectorOneAuthSourceDefault = `environment`;
 export const partnerWorkspaceConnectionCreateResponseConnectorOneDetailPathOneMax = 500;
 
 export const partnerWorkspaceConnectionCreateResponseConnectorOneDetailRootDefault = ``;
@@ -2575,6 +2535,8 @@ export const partnerWorkspaceConnectionCreateResponseConnectorOneTimeoutSecondsD
 export const partnerWorkspaceConnectionCreateResponseConnectorOneTimeoutSecondsMax = 30;
 
 export const partnerWorkspaceConnectionCreateResponseConnectorOneVersionDefault = 1;
+export const partnerWorkspaceConnectionCreateResponseCredentialConfiguredDefault = false;
+export const partnerWorkspaceConnectionCreateResponseCredentialsAvailableDefault = false;
 export const partnerWorkspaceConnectionCreateResponsePartnershipTypeDefault = `launch_platform`;
 
 export const PartnerWorkspaceConnectionCreateResponse = zod.object({
@@ -2590,9 +2552,7 @@ export const PartnerWorkspaceConnectionCreateResponse = zod.object({
   "attribution": zod.string().max(partnerWorkspaceConnectionCreateResponseConnectorOneAttributionMax).default(partnerWorkspaceConnectionCreateResponseConnectorOneAttributionDefault),
   "auth": zod.object({
   "header": zod.string().min(1).max(partnerWorkspaceConnectionCreateResponseConnectorOneAuthHeaderMax).regex(partnerWorkspaceConnectionCreateResponseConnectorOneAuthHeaderRegExp).default(partnerWorkspaceConnectionCreateResponseConnectorOneAuthHeaderDefault),
-  "mode": zod.enum(['none', 'bearer', 'api_key']).default(partnerWorkspaceConnectionCreateResponseConnectorOneAuthModeDefault),
-  "secret_ref": zod.string().regex(partnerWorkspaceConnectionCreateResponseConnectorOneAuthSecretRefRegExp).default(partnerWorkspaceConnectionCreateResponseConnectorOneAuthSecretRefDefault),
-  "source": zod.enum(['environment', 'connection']).default(partnerWorkspaceConnectionCreateResponseConnectorOneAuthSourceDefault)
+  "mode": zod.enum(['none', 'bearer', 'api_key']).default(partnerWorkspaceConnectionCreateResponseConnectorOneAuthModeDefault)
 }).optional(),
   "base_url": zod.string(),
   "detail_path": zod.union([zod.string().max(partnerWorkspaceConnectionCreateResponseConnectorOneDetailPathOneMax),zod.null()]).optional(),
@@ -2633,11 +2593,9 @@ export const PartnerWorkspaceConnectionCreateResponse = zod.object({
   "timeout_seconds": zod.int().min(1).max(partnerWorkspaceConnectionCreateResponseConnectorOneTimeoutSecondsMax).default(partnerWorkspaceConnectionCreateResponseConnectorOneTimeoutSecondsDefault),
   "version": zod.literal(1).default(partnerWorkspaceConnectionCreateResponseConnectorOneVersionDefault).meta({ title: 'Version' })
 }),zod.null()]).optional(),
-  "connector_editable": zod.boolean(),
-  "credential_configured": zod.boolean(),
+  "credential_configured": zod.boolean().default(partnerWorkspaceConnectionCreateResponseCredentialConfiguredDefault),
   "credential_header": zod.string(),
-  "credentials_available": zod.boolean(),
-  "credentials_managed": zod.boolean(),
+  "credentials_available": zod.boolean().default(partnerWorkspaceConnectionCreateResponseCredentialsAvailableDefault),
   "enabled": zod.boolean(),
   "error": zod.union([zod.string(),zod.null()]),
   "excluded": zod.int(),
@@ -2673,9 +2631,6 @@ export const partnerWorkspaceConnectionGetResponseConnectorOneAuthHeaderMax = 10
 
 export const partnerWorkspaceConnectionGetResponseConnectorOneAuthHeaderRegExp = new RegExp('^[A-Za-z][A-Za-z0-9_-]*$');
 export const partnerWorkspaceConnectionGetResponseConnectorOneAuthModeDefault = `none`;
-export const partnerWorkspaceConnectionGetResponseConnectorOneAuthSecretRefDefault = ``;
-export const partnerWorkspaceConnectionGetResponseConnectorOneAuthSecretRefRegExp = new RegExp('^$|^DEVFEED_PARTNER_SECRET_[A-Z0-9_]{1,80}$');
-export const partnerWorkspaceConnectionGetResponseConnectorOneAuthSourceDefault = `environment`;
 export const partnerWorkspaceConnectionGetResponseConnectorOneDetailPathOneMax = 500;
 
 export const partnerWorkspaceConnectionGetResponseConnectorOneDetailRootDefault = ``;
@@ -2786,6 +2741,8 @@ export const partnerWorkspaceConnectionGetResponseConnectorOneTimeoutSecondsDefa
 export const partnerWorkspaceConnectionGetResponseConnectorOneTimeoutSecondsMax = 30;
 
 export const partnerWorkspaceConnectionGetResponseConnectorOneVersionDefault = 1;
+export const partnerWorkspaceConnectionGetResponseCredentialConfiguredDefault = false;
+export const partnerWorkspaceConnectionGetResponseCredentialsAvailableDefault = false;
 export const partnerWorkspaceConnectionGetResponsePartnershipTypeDefault = `launch_platform`;
 
 export const PartnerWorkspaceConnectionGetResponse = zod.object({
@@ -2801,9 +2758,7 @@ export const PartnerWorkspaceConnectionGetResponse = zod.object({
   "attribution": zod.string().max(partnerWorkspaceConnectionGetResponseConnectorOneAttributionMax).default(partnerWorkspaceConnectionGetResponseConnectorOneAttributionDefault),
   "auth": zod.object({
   "header": zod.string().min(1).max(partnerWorkspaceConnectionGetResponseConnectorOneAuthHeaderMax).regex(partnerWorkspaceConnectionGetResponseConnectorOneAuthHeaderRegExp).default(partnerWorkspaceConnectionGetResponseConnectorOneAuthHeaderDefault),
-  "mode": zod.enum(['none', 'bearer', 'api_key']).default(partnerWorkspaceConnectionGetResponseConnectorOneAuthModeDefault),
-  "secret_ref": zod.string().regex(partnerWorkspaceConnectionGetResponseConnectorOneAuthSecretRefRegExp).default(partnerWorkspaceConnectionGetResponseConnectorOneAuthSecretRefDefault),
-  "source": zod.enum(['environment', 'connection']).default(partnerWorkspaceConnectionGetResponseConnectorOneAuthSourceDefault)
+  "mode": zod.enum(['none', 'bearer', 'api_key']).default(partnerWorkspaceConnectionGetResponseConnectorOneAuthModeDefault)
 }).optional(),
   "base_url": zod.string(),
   "detail_path": zod.union([zod.string().max(partnerWorkspaceConnectionGetResponseConnectorOneDetailPathOneMax),zod.null()]).optional(),
@@ -2844,11 +2799,9 @@ export const PartnerWorkspaceConnectionGetResponse = zod.object({
   "timeout_seconds": zod.int().min(1).max(partnerWorkspaceConnectionGetResponseConnectorOneTimeoutSecondsMax).default(partnerWorkspaceConnectionGetResponseConnectorOneTimeoutSecondsDefault),
   "version": zod.literal(1).default(partnerWorkspaceConnectionGetResponseConnectorOneVersionDefault).meta({ title: 'Version' })
 }),zod.null()]).optional(),
-  "connector_editable": zod.boolean(),
-  "credential_configured": zod.boolean(),
+  "credential_configured": zod.boolean().default(partnerWorkspaceConnectionGetResponseCredentialConfiguredDefault),
   "credential_header": zod.string(),
-  "credentials_available": zod.boolean(),
-  "credentials_managed": zod.boolean(),
+  "credentials_available": zod.boolean().default(partnerWorkspaceConnectionGetResponseCredentialsAvailableDefault),
   "enabled": zod.boolean(),
   "error": zod.union([zod.string(),zod.null()]),
   "excluded": zod.int(),

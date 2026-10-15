@@ -171,7 +171,7 @@ def authenticated_payload(token="private-import-token"):
     return payload(
         connector={
             "base_url": "https://catalog.example",
-            "auth": {"mode": "bearer", "source": "connection"},
+            "auth": {"mode": "bearer"},
         },
         credential=token,
         enabled=True,
@@ -251,7 +251,7 @@ def test_origin_or_auth_changes_require_new_token_and_empty_does_not_erase(
     body = {
         "connector": {
             "base_url": "https://different.example",
-            "auth": {"mode": "bearer", "source": "connection"},
+            "auth": {"mode": "bearer"},
         },
         "enabled": True,
         "expected_revision": value["revision"],
@@ -273,63 +273,32 @@ def test_origin_or_auth_changes_require_new_token_and_empty_does_not_erase(
     assert changed.json()["connector"]["base_url"] == "https://different.example"
 
 
-def test_managed_secret_sources_hide_references_and_cannot_redirect_credentials(
+def test_account_owned_credentials_are_editable_and_upstream_errors_remain_private(
     connection_api, database
 ):
     client, _, account, _, path = connection_api
+    value = create(connection_api, **authenticated_payload())
+    url = path + "/" + value["provider"]
     with database.begin() as session:
-        session.add(
-            PartnerConnection(
-                provider="managed",
-                name="Managed API",
-                account_id=account,
-                connector={
-                    "base_url": "https://managed.example",
-                    "list_path": "/products?token=secret-query",
-                    "auth": {
-                        "mode": "bearer",
-                        "secret_ref": "DEVFEED_PARTNER_SECRET_PRIVATE_OTHER_ACCOUNT",
-                    },
-                },
-                last_error="Bearer private-server-token",
-            )
-        )
-    url = path + "/managed"
+        session.get(PartnerConnection, value["provider"]).last_error = "Bearer private-server-token"
     response = client.get(url)
     assert response.status_code == 200
-    value = response.json()
-    assert value["connector"] is None
-    assert value["credentials_managed"] and not value["connector_editable"]
-    assert "PRIVATE_OTHER_ACCOUNT" not in response.text
+    assert response.json()["credential_configured"] is True
+    assert "private-import-token" not in response.text
     assert "private-server-token" not in response.text
-    assert "secret-query" not in response.text
-    assert (
-        client.put(
-            url,
-            json={
-                "connector": payload()["connector"],
-                "enabled": True,
-                "expected_revision": value["revision"],
-            },
-        ).status_code
-        == 403
-    )
-    assert (
-        client.put(
-            url,
-            json={"credential": "stolen", "enabled": True, "expected_revision": value["revision"]},
-        ).status_code
-        == 403
-    )
     updated = client.put(
         url,
         json={
-            "name": "Renamed managed import",
-            "enabled": False,
+            "credential": "account-replacement-token",
+            "enabled": True,
             "expected_revision": value["revision"],
         },
     )
     assert updated.status_code == 200, updated.text
+    with database() as session:
+        row = session.get(PartnerConnection, value["provider"])
+        assert row.account_id == account
+        assert connection_credential(row) == "account-replacement-token"
 
 
 @pytest.mark.parametrize(

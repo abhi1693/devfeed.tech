@@ -178,17 +178,17 @@ def check() -> None:
                 assert (key in environment) == recipient, (name, key)
                 if recipient:
                     assert environment[key] == value, (name, key)
-    product_secret = "DEVFEED_PARTNER_SECRET_PRODUCTS_API_TOKEN"
+    credential_key = "DEVFEED_PARTNER_CREDENTIAL_KEY"
     for build in (False, True):
         connector_services = render(
-            {**registry_fixtures, product_secret: "fixture-products-token"}, build=build
+            {**registry_fixtures, credential_key: "fixture-credential-encryption-key"}, build=build
         )["services"]
         for name, service in connector_services.items():
             environment = service.get("environment", {})
-            if name in {"admin-api", "worker", "ingestion-worker"}:
-                assert environment[product_secret] == "fixture-products-token", name
+            if name in {"admin-api", "partner-api", "worker", "ingestion-worker"}:
+                assert environment[credential_key] == "fixture-credential-encryption-key", name
             else:
-                assert product_secret not in environment, name
+                assert credential_key not in environment, name
     placement_options = {
         "DEVFEED_PARTNER_CALLER_KEY": "fixture-caller-" * 3,
         "DEVFEED_PARTNER_CALLER_IP_HEADER": "cf-connecting-ip",

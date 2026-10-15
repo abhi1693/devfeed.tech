@@ -28,7 +28,7 @@ there. Account settings remain under `/partnerships/accounts`.
 
 The ShipyardHQ preset reads `/api/products`: `productUrl` is the official product website,
 while `url` is the Shipyard listing. Its platform-host guard rejects swapped roles. Bearer
-authentication uses the server-only `DEVFEED_PARTNER_SECRET_PRODUCTS_API_TOKEN` reference.
+authentication uses a write-only token saved on the import connection.
 Saved custom mappings remain explicit and are never silently replaced by a preset. Preview
 both destinations before syncing an edited mapping; correcting an already imported website
 requires identity reconciliation so exclusions and historical attribution stay intact.
@@ -65,27 +65,24 @@ qualification.
 
 ## Authentication
 
-Choose **None**, **Bearer token**, or **API key header**. For authenticated APIs, enter a secret
-reference such as `DEVFEED_PARTNER_SECRET_SHIPYARD`, and configure that environment variable on
-both the admin API (for previews) and the worker (for imports). API key headers default to
-`X-API-Key`. Enter only the environment variable name in the form. Secret values are never
-stored in connector definitions or job payloads.
+Choose **None**, **Bearer token**, or **API key header**. For authenticated APIs, enter
+an API token in the connection form. API key headers default to `X-API-Key`. Each token is
+stored as encrypted database ciphertext bound to its account, connection, HTTPS origin,
+authentication mode and header. Saved tokens are write-only: editing a connection shows
+whether one is configured, never its value. Definitions, job payloads and API responses
+exclude tokens and ciphertext.
 
-For local Compose, put import API secrets in an ignored `.env.partner-secrets` file and add an
-ignored `.env.partner-compose.yaml` override:
+Leaving the token field unchanged preserves the saved credential. Changing the account,
+origin or authentication requires a replacement token; choosing **None** removes it.
+Both administration and the partner portal use the same credential storage. Existing
+authenticated connections need a saved credential before previews or imports can run.
 
-```yaml
-services:
-  admin-api:
-    env_file: .env.partner-secrets
-  worker:
-    env_file: .env.partner-secrets
-```
-
-Include this override with the usual Compose files when recreating those services. Compose's
-CLI `--env-file` alone does not inject arbitrary variables into containers. In Kubernetes,
-provide the variables through Secret references on both workloads. Changing an environment
-secret requires restarting the affected processes; its value is resolved at request time.
+Set `DEVFEED_PARTNER_CREDENTIAL_KEY` to a persistent Fernet key, generated with
+`cryptography.fernet.Fernet.generate_key()`. Keep this key in deployment secrets separately
+from the database. Inject the same value into `admin-api`, `partner-api`, `worker` and
+`ingestion-worker`; Compose passes it only to these services. Back it up securely:
+replacing or losing it requires re-entering stored credentials. Without the key, public
+imports remain available and authenticated credential setup is unavailable.
 
 Requests and pagination URLs stay on the configured origin. The shared HTTP client rejects
 private/reserved DNS targets and IPs, pins resolved addresses and validates redirects. Credentials

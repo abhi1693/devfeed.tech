@@ -107,9 +107,142 @@ const fieldPaths: Record<string, string> = {
   "Next token path": "pagination.next_path",
   "Total count path": "pagination.total_path",
   "Has-more path": "pagination.has_more_path",
-  "Secret reference": "auth.secret_ref",
   "API key header": "auth.header",
 };
+
+export function ConnectorCredentialFields({
+  auth,
+  onAuthChange,
+  credential,
+  onCredentialChange,
+  configured,
+  needsCredential,
+  replaceCredential,
+  onReplaceCredentialChange,
+  credentialsAvailable,
+  disabled,
+  errors = {},
+  Field = ConnectorField,
+}: {
+  auth: NonNullable<ConnectorDefinition["auth"]>;
+  onAuthChange: (auth: NonNullable<ConnectorDefinition["auth"]>) => void;
+  credential: string;
+  onCredentialChange: (value: string) => void;
+  configured: boolean;
+  needsCredential: boolean;
+  replaceCredential: boolean;
+  onReplaceCredentialChange: (replace: boolean) => void;
+  credentialsAvailable: boolean;
+  disabled: boolean;
+  errors?: Record<string, string>;
+  Field?: ConnectorFieldRenderer;
+}) {
+  const mode = auth.mode ?? "none";
+  return (
+    <div className="space-y-3">
+      <Field
+        label="Authentication method"
+        required
+        disabled={disabled}
+        error={errors["connector.auth.mode"] ?? errors["connector.auth"]}
+      >
+        {(control) => (
+          <Select
+            {...control}
+            label="Authentication method"
+            value={mode}
+            options={[
+              { value: "none", label: "No authentication" },
+              {
+                value: "bearer",
+                label: "Bearer token",
+                disabled: !credentialsAvailable && mode !== "bearer",
+              },
+              {
+                value: "api_key",
+                label: "API key",
+                disabled: !credentialsAvailable && mode !== "api_key",
+              },
+            ]}
+            onChange={(next) => {
+              if (next !== "none" && next !== "bearer" && next !== "api_key") return;
+              onAuthChange({ ...auth, mode: next });
+              onCredentialChange("");
+              onReplaceCredentialChange(false);
+            }}
+          />
+        )}
+      </Field>
+      {mode === "api_key" && (
+        <Field
+          label="API key header"
+          required
+          disabled={disabled}
+          error={errors["connector.auth.header"]}
+        >
+          {(control) => (
+            <Input
+              {...control}
+              value={auth.header ?? "X-API-Key"}
+              maxLength={100}
+              onChange={(event) => onAuthChange({ ...auth, header: event.target.value })}
+            />
+          )}
+        </Field>
+      )}
+      {!credentialsAvailable && (
+        <p className="text-sm text-muted-foreground">
+          Authenticated imports are not configured on this DevFeed server. Public APIs remain
+          available.
+        </p>
+      )}
+      {configured && mode !== "none" && (
+        <>
+          <p className="text-sm text-muted-foreground">
+            A credential is configured. Leaving it unchanged keeps the existing credential. Changing
+            the API origin or authentication requires a replacement.
+          </p>
+          <label className="flex items-center gap-2 text-sm">
+            <Checkbox
+              checked={replaceCredential}
+              disabled={disabled || !credentialsAvailable}
+              onCheckedChange={(checked) => {
+                onReplaceCredentialChange(checked === true);
+                onCredentialChange("");
+              }}
+            />
+            Replace credential
+          </label>
+        </>
+      )}
+      {configured && mode === "none" && (
+        <p role="status" className="text-sm text-muted-foreground">
+          Saving without authentication removes the stored credential.
+        </p>
+      )}
+      {needsCredential && (
+        <Field
+          label={mode === "bearer" ? "Bearer token" : "API key"}
+          required
+          disabled={disabled || !credentialsAvailable}
+          tooltip="Stored encrypted. DevFeed never returns this value to the portal."
+          error={errors.credential}
+        >
+          {(control) => (
+            <Input
+              {...control}
+              type="password"
+              value={credential}
+              onChange={(event) => onCredentialChange(event.target.value)}
+              autoComplete="new-password"
+              maxLength={8192}
+            />
+          )}
+        </Field>
+      )}
+    </div>
+  );
+}
 
 export function ConnectorFields<C extends ConnectorDefinition>({
   value,
@@ -129,7 +262,7 @@ export function ConnectorFields<C extends ConnectorDefinition>({
   onChange: (value: C) => void;
   defaults: ConnectorDefinition;
   disabled: boolean;
-  /** Replace admin environment-secret controls with application-specific authentication. */
+  /** Supply application-specific credential state and controls. */
   authentication?: ReactNode;
   suggestPaginationParameters?: boolean;
   limits?: Partial<
@@ -484,14 +617,6 @@ export function ConnectorFields<C extends ConnectorDefinition>({
                   />
                 )}
               </Field>
-              {(auth.mode !== "none" || fieldError("auth.secret_ref")) &&
-                text(
-                  "Secret reference",
-                  auth.secret_ref ?? "",
-                  (secret_ref) => onChange({ ...value, auth: { ...auth, secret_ref } }),
-                  "Environment variable on admin-api and worker, e.g. DEVFEED_PARTNER_SECRET_SHIPYARD. Enter the variable name, never the token.",
-                  true,
-                )}
               {(auth.mode === "api_key" || fieldError("auth.header")) &&
                 text(
                   "API key header",

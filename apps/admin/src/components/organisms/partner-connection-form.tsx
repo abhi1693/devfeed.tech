@@ -7,7 +7,7 @@ import { Field } from "@/components/molecules/field";
 import { Select } from "@/components/molecules/select";
 import { EntityPicker, type EntityPickerSource } from "@/components/molecules/entity-picker";
 import { PartnerApiResponse } from "./partner-api-response";
-import { ConnectorFields } from "@devfeed/ui/connector-fields";
+import { ConnectorCredentialFields, ConnectorFields } from "@devfeed/ui/connector-fields";
 import { ConnectionLogoField, type ConnectionLogoChange } from "@devfeed/ui/connection-logo";
 import { responseMappings } from "@devfeed/ui/connector-response-mappings";
 import { connectorDefaults } from "@/lib/partner-connectors";
@@ -53,11 +53,13 @@ const partnerAccounts: EntityPickerSource = {
 
 export function PartnerConnectionForm({
   providers,
+  credentialsAvailable: available,
   connection,
   onSaved,
   onCancel,
 }: {
   providers: PartnerProviderOut[];
+  credentialsAvailable?: boolean;
   connection?: ConnectionOut;
   onSaved: (connection: ConnectionOut) => void;
   onCancel: () => void;
@@ -80,6 +82,25 @@ export function PartnerConnectionForm({
     connection?.connector ?? connectorDefaults(provider),
   );
   const [responseData, setResponseData] = useState<unknown>();
+  const [accountId, setAccountId] = useState(connection?.account_id ?? "");
+  const [credential, setCredential] = useState("");
+  const [replaceCredential, setReplaceCredential] = useState(false);
+  const credentialsAvailable =
+    current?.credentials_available ??
+    available ??
+    providers.some((item) => item.credentials_available);
+  const configured = current?.credential_configured ?? false;
+  const auth = connector.auth?.mode ?? "none";
+  const previous = current?.connector;
+  const authenticationChanged =
+    auth !== (previous?.auth?.mode ?? "none") ||
+    (Boolean(current) && accountId !== current?.account_id) ||
+    connector.base_url.trim() !== previous?.base_url ||
+    (connector.auth?.header ?? "X-API-Key") !== (previous?.auth?.header ?? "X-API-Key");
+  const needsCredential =
+    auth !== "none" && (!configured || replaceCredential || authenticationChanged);
+  const credentialReady =
+    auth === "none" || (credentialsAvailable && (!needsCredential || Boolean(credential.trim())));
   const mappings =
     responseData === undefined
       ? []
@@ -88,6 +109,12 @@ export function PartnerConnectionForm({
   const [preview, setPreview] = useState<ConnectorPreviewOut>();
   const identifier = provider === "__custom__" ? customId : provider;
   function changeConnector(value: ConnectorConfig) {
+    if (
+      value.base_url.trim() !== connector.base_url.trim() ||
+      (value.auth?.mode ?? "none") !== auth ||
+      (value.auth?.header ?? "X-API-Key") !== (connector.auth?.header ?? "X-API-Key")
+    )
+      setCredential("");
     setConnector(value);
     setPreview(undefined);
   }
@@ -98,7 +125,12 @@ export function PartnerConnectionForm({
     try {
       setPreview(
         await adminPartnerConnectorPreview(
-          { provider: identifier, connector },
+          {
+            provider: identifier,
+            connector,
+            ...(current ? { expected_revision: current.revision } : {}),
+            ...(needsCredential ? { credential } : {}),
+          },
           { headers: { "X-CSRF-Token": admin.csrf_token } },
         ),
       );
@@ -108,7 +140,6 @@ export function PartnerConnectionForm({
       setTesting(false);
     }
   }
-  const [accountId, setAccountId] = useState(connection?.account_id ?? "");
   const [enabled, setEnabled] = useState(connection?.enabled ?? true);
   const [interval, setInterval] = useState(String(connection?.sync_interval_minutes ?? 360));
   const [saving, setSaving] = useState(false);
@@ -130,6 +161,16 @@ export function PartnerConnectionForm({
   async function save(event: FormEvent) {
     event.preventDefault();
     if (busy || logoError) return;
+    if (needsCredential && !credentialReady) {
+      setError(
+        new ApiError(422, "Please correct the highlighted fields.", {
+          credential: credentialsAvailable
+            ? "Enter the credential for this authentication method."
+            : "Credential storage is unavailable. Keep the existing authentication settings or try again later.",
+        }),
+      );
+      return;
+    }
     if (!accountId) {
       setError(
         new ApiError(422, "Please correct the highlighted fields.", {
@@ -167,6 +208,7 @@ export function PartnerConnectionForm({
               expected_revision: current.revision,
               name,
               connector,
+              ...(needsCredential ? { credential } : {}),
               ...logo,
             },
             options,
@@ -176,6 +218,7 @@ export function PartnerConnectionForm({
               provider: identifier,
               name,
               connector,
+              ...(needsCredential ? { credential } : {}),
               account_id: accountId || null,
               enabled,
               sync_interval_minutes,
@@ -184,6 +227,8 @@ export function PartnerConnectionForm({
             options,
           );
       setSavedDraft(result);
+      setCredential("");
+      setReplaceCredential(false);
       settingsSaved = true;
       if (logoFile) {
         const uploaded = await adminPartnerConnectionLogoUpload(
@@ -304,7 +349,11 @@ export function PartnerConnectionForm({
                 source={partnerAccounts}
                 catalog={accountCatalog}
                 value={accountId}
-                onChange={setAccountId}
+                onChange={(next) => {
+                  setAccountId(next);
+                  setCredential("");
+                  setPreview(undefined);
+                }}
               />
             )}
           </Field>
@@ -400,6 +449,25 @@ export function PartnerConnectionForm({
           value={connector}
           errors={errors}
           mappings={mappings}
+          authentication={
+            <ConnectorCredentialFields
+              Field={Field}
+              auth={connector.auth ?? { mode: "none" }}
+              onAuthChange={(auth) => changeConnector({ ...connector, auth })}
+              credential={credential}
+              onCredentialChange={(value) => {
+                setCredential(value);
+                setPreview(undefined);
+              }}
+              configured={configured}
+              needsCredential={needsCredential}
+              replaceCredential={replaceCredential}
+              onReplaceCredentialChange={setReplaceCredential}
+              credentialsAvailable={credentialsAvailable}
+              disabled={busy}
+              errors={errors}
+            />
+          }
           onChange={changeConnector}
           disabled={busy}
         />
@@ -429,7 +497,7 @@ export function PartnerConnectionForm({
         <div className="flex flex-wrap justify-end gap-2 border-t pt-5">
           <Button
             variant="outline"
-            disabled={busy || !identifier || !connector.base_url}
+            disabled={busy || !identifier || !connector.base_url || !credentialReady}
             loading={testing}
             loadingText="Testing…"
             onClick={() => void test()}
@@ -452,6 +520,9 @@ export function PartnerConnectionForm({
       <PartnerApiResponse
         provider={identifier}
         connector={connector}
+        credential={needsCredential ? credential : undefined}
+        credentialReady={credentialReady}
+        expectedRevision={current?.revision}
         mappings={mappings}
         onResponse={setResponseData}
       />

@@ -20,10 +20,9 @@ export interface PartnerConnectionOut {
   checking: number;
   commercial_approved?: number;
   connector?: ConnectorConfig | null;
-  connector_editable: boolean;
-  credential_configured: boolean;
+  credential_configured?: boolean;
   credential_header: string;
-  credentials_managed: boolean;
+  credentials_available?: boolean;
   enabled: boolean;
   error: string | null;
   excluded: number;

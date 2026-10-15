@@ -26,7 +26,6 @@ export type ConnectorDefinition = {
   };
   auth?: {
     mode?: ConnectorAuthMode;
-    secret_ref?: string;
     header?: string;
   };
   filters?: { path: string; values: string[]; include_missing?: boolean }[];

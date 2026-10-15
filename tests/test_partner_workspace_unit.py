@@ -80,8 +80,7 @@ def connection_payload(account_id):
         auth_mode="none",
         credential_header="X-API-Key",
         credential_configured=False,
-        credentials_managed=False,
-        connector_editable=True,
+        credentials_available=True,
     )
 
 

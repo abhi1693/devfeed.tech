@@ -6,7 +6,7 @@ import uuid
 from datetime import datetime, timedelta
 from typing import Annotated, Literal
 
-from pydantic import Field, StringConstraints, field_validator
+from pydantic import Field, SecretStr, StringConstraints, field_validator
 from sqlalchemy import and_, exists, func, or_, select
 from sqlalchemy.orm import aliased
 
@@ -35,6 +35,7 @@ from devfeed_core.partner_connectors import (
     ConnectorConfig,
     connector_snapshot,
 )
+from devfeed_core.partner_credentials import credential_storage_available
 from devfeed_core.partner_tools import (
     QUALIFICATION_TTL,
     Evidence,
@@ -80,6 +81,7 @@ class ConnectionCreate(ConnectionLogoInput):
     name: ShortText | None = None
     connector: ConnectorConfig | None = None
     enabled: bool = True
+    credential: SecretStr | None = Field(default=None, json_schema_extra={"writeOnly": True})
 
     @field_validator("provider")
     @classmethod
@@ -90,6 +92,7 @@ class ConnectionCreate(ConnectionLogoInput):
 
 
 class ConnectionSettings(ConnectionLogoInput):
+    credential: SecretStr | None = Field(default=None, json_schema_extra={"writeOnly": True})
     name: ShortText | None = None
     connector: ConnectorConfig | None = None
     account_id: uuid.UUID | None = None
@@ -104,6 +107,8 @@ class ProductAction(InputModel):
 
 
 class ConnectionOut(ORMModel):
+    credential_configured: bool = False
+    credentials_available: bool = False
     logo_url: str | None = None
     logo_variants: list[ConnectionLogoVariant] = Field(default_factory=list)
     commercial_approved: int = 0
@@ -132,6 +137,8 @@ class ConnectionOut(ORMModel):
 class ConnectorPreview(InputModel):
     provider: ShortText
     connector: ConnectorConfig
+    credential: SecretStr | None = Field(default=None, json_schema_extra={"writeOnly": True})
+    expected_revision: int | None = Field(default=None, ge=1, strict=True)
 
 
 class ConnectorPreviewOut(ORMModel):
@@ -472,6 +479,8 @@ def _connection_view(connection, statistics, *, ai_enabled):
 
     platform = connection_platform(connection)
     return ConnectionOut(
+        credential_configured=bool(connection.encrypted_credential),
+        credentials_available=credential_storage_available(),
         logo_url=platform.logo_url,
         logo_variants=platform.logo_variants,
         commercial_approved=statistics.commercial_approved,

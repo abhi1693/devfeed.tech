@@ -90,24 +90,20 @@ when another active connection still owns the product.
 
 Set `DEVFEED_PARTNER_CREDENTIAL_KEY` to a Fernet key generated with
 `cryptography.fernet.Fernet.generate_key()`. Store the key in the deployment's secret
-manager separately from the database and inject the same value into the partner API and
-import workers. Compose passes it only to those services. Never expose it to the Next.js
-application or browser, or commit it to the repository.
+manager separately from the database and inject the same value into the admin API,
+partner API and import workers. Compose passes it only to those services. Never expose
+it to the Next.js application or browser, or commit it to the repository.
 
-Bearer and API-key connectors use `auth.source: "connection"` and an empty `secret_ref`.
-Send the token in the write-only `credential` field. The database stores authenticated
-ciphertext bound to the account, connection identifier, HTTPS origin, authentication
-mode, and header. Workers decrypt it in memory for requests to that origin. Connector
-snapshots and job payloads do not contain the stored credential. Portal responses expose
-configuration flags rather than tokens, ciphertext, server secret references, or raw
-upstream diagnostics.
+Bearer and API-key connectors receive their token in the write-only `credential` field.
+The database stores authenticated ciphertext bound to the account, connection identifier,
+HTTPS origin, authentication mode, and header. Workers decrypt it in memory for requests
+to that origin. Connector snapshots and job payloads do not contain the stored credential. Portal responses expose
+configuration flags rather than tokens, ciphertext or raw upstream diagnostics.
 
 Omitting `credential`, or sending `null`, preserves the saved value; an empty string is
 rejected. Supply a replacement token when changing an authenticated origin, mode, or
 header. Explicitly changing authentication to `none` removes the saved credential.
-Administrator-managed environment credentials remain administrator-controlled: partners
-can change the connection's name, schedule, or enabled state, but cannot redirect its
-endpoint, replace its authentication, or select other server secret references.
+Administration and the partner portal use the same encrypted per-connection storage.
 
 Without an encryption key, the collection reports `credentials_available: false` and
 authenticated setup fails with `503`. Public imports, pause, and disconnect remain

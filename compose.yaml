@@ -297,7 +297,6 @@ services:
       <<: [*core-environment, *chimely-environment]
       DEVFEED_WORKER_QUEUE: ${DEVFEED_WORKER_QUEUE:-all}
       DEVFEED_PARTNER_CREDENTIAL_KEY:
-      DEVFEED_PARTNER_SECRET_PRODUCTS_API_TOKEN: ${DEVFEED_PARTNER_SECRET_PRODUCTS_API_TOKEN:-}
       # Only delivery workers need Chimely management API keys.
       DEVFEED_CHIMELY_ADMIN_API_KEY:
       DEVFEED_CHIMELY_USER_API_KEY:
@@ -337,7 +336,7 @@ services:
       <<: [*core-environment, *chimely-environment]
       # The inbox API uses its HMAC secret, never the management API key.
       DEVFEED_CHIMELY_ADMIN_HMAC_SECRET:
-      DEVFEED_PARTNER_SECRET_PRODUCTS_API_TOKEN: ${DEVFEED_PARTNER_SECRET_PRODUCTS_API_TOKEN:-}
+      DEVFEED_PARTNER_CREDENTIAL_KEY:
       # Server-only credentials for bounded product ad image uploads.
       DEVFEED_IMAGE_STORAGE_ENDPOINT:
       DEVFEED_IMAGE_STORAGE_BUCKET:
@@ -698,7 +697,6 @@ services:
       <<: *core-environment
       DEVFEED_WORKER_QUEUE: ingestion
       DEVFEED_PARTNER_CREDENTIAL_KEY:
-      DEVFEED_PARTNER_SECRET_PRODUCTS_API_TOKEN: ${DEVFEED_PARTNER_SECRET_PRODUCTS_API_TOKEN:-}
 
   article-enrichment-worker:
     <<: *dedicated-worker

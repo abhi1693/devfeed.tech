@@ -26,7 +26,7 @@ def token_connection(monkeypatch):
     config = ConnectorConfig.model_validate(
         {
             "base_url": "https://catalog.example",
-            "auth": {"source": "connection", "mode": "bearer"},
+            "auth": {"mode": "bearer"},
         }
     )
     connection = PartnerConnection(
@@ -43,7 +43,7 @@ def test_authenticated_encryption_keeps_token_out_of_connector(token_connection)
     assert connection_credential(connection) == "private-test-token"
     assert "private-test-token" not in connection.encrypted_credential
     assert "private-test-token" not in json.dumps(connection.connector)
-    assert config.auth.secret_ref == ""
+    assert config.auth.model_dump() == {"mode": "bearer", "header": "X-API-Key"}
 
 
 @pytest.mark.parametrize("field", ["account_id", "provider", "origin", "mode", "header"])
@@ -133,27 +133,6 @@ def test_numeric_credential_echo_is_redacted_before_product_identity_mapping(
     assert response == {"items": [{"id": "[redacted]", "count": 3}], "nextCursor": None}
 
 
-def test_partner_contract_does_not_allow_server_secret_reference():
-    with pytest.raises(ValidationError):
-        PartnerConnectionCreate.model_validate(
-            {
-                "name": "Catalog",
-                "connector": {
-                    "base_url": "https://catalog.example",
-                    "auth": {
-                        "mode": "bearer",
-                        "secret_ref": "DEVFEED_PARTNER_SECRET_OTHER_ACCOUNT",
-                    },
-                },
-            }
-        )
-    body = PartnerConnectionCreate.model_validate(
-        {"name": "Catalog", "connector": {"base_url": "https://catalog.example"}}
-    )
-    assert body.connector.max_pages == 100
-    assert body.sync_interval_minutes == 360
-
-
 @pytest.mark.parametrize(
     "url",
     [
@@ -179,14 +158,11 @@ def test_credential_echoes_are_redacted_before_discovered_records_are_persisted(
 ):
     import re
 
-    # Environment credentials can contain spaces, which distinguish form encoding
-    # from percent encoding. Account-stored tokens are restricted to visible ASCII.
-    secret = "unit Token/A+b?c=d&more"
-    monkeypatch.setenv("DEVFEED_PARTNER_SECRET_UNIT_ECHO_TOKEN", secret)
+    secret = "unit-Token/A+b?c=d&more"
     config = ConnectorConfig.model_validate(
         {
             "base_url": "https://catalog.example",
-            "auth": {"mode": auth_mode, "secret_ref": "DEVFEED_PARTNER_SECRET_UNIT_ECHO_TOKEN"},
+            "auth": {"mode": auth_mode},
         }
     )
     encoded = secret
@@ -210,12 +186,14 @@ def test_credential_echoes_are_redacted_before_discovered_records_are_persisted(
         }
     )
     if encoding == "json_escaped":
-        body = body.replace("unit Token/", "\\u0075nit Token\\/")
+        body = body.replace("unit-Token/", "\\u0075nit-Token\\/")
     monkeypatch.setattr(
         "devfeed_core.partner_connectors._fetch",
         lambda *args, **kwargs: SimpleNamespace(body=body.encode()),
     )
-    result = ConnectorClient("unit-echo", config).request("https://catalog.example/products")
+    result = ConnectorClient("unit-echo", config, credential=secret).request(
+        "https://catalog.example/products"
+    )
     assert result["items"] == [
         {"echo": "prefix [redacted] suffix", "nested": [{"[redacted]": "[redacted]"}]}
     ]

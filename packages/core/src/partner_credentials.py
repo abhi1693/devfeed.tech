@@ -44,7 +44,7 @@ def validate_credential(value: str) -> str:
 
 
 def encrypt_credential(connection, config: ConnectorConfig, secret: str) -> str:
-    if config.auth.mode == "none" or config.auth.source != "connection":
+    if config.auth.mode == "none":
         raise CredentialUnavailable("Select connection authentication before adding a credential")
     payload = {
         "version": 1,
@@ -61,7 +61,7 @@ def connection_credential(connection, config=None) -> str | None:
     transaction. Neither the returned secret nor ciphertext belongs in job payloads.
     """
     config = ConnectorConfig.model_validate(config or connector_snapshot(connection))
-    if config.auth.mode == "none" or config.auth.source != "connection":
+    if config.auth.mode == "none":
         return None
     encrypted = connection.encrypted_credential
     if not encrypted:

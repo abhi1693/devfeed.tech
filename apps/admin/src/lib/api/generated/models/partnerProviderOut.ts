@@ -8,6 +8,7 @@
 
 export interface PartnerProviderOut {
   api_url: string;
+  credentials_available?: boolean;
   description: string;
   name: string;
   partnership_type: 'launch_platform';

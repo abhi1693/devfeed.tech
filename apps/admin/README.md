@@ -156,9 +156,14 @@ page and a separate edit form; synced products appear under **Partnerships → P
 The connection pages use `/partnerships/connections`; old `/partnerships/partners` links redirect
 there. Account pages remain under `/partnerships/accounts`.
 Nick Launches and ShipyardHQ have creation presets. ShipyardHQ maps `productUrl` to the
-product website, `url` to the platform listing, and `pricing.model` to pricing; its bearer
-secret reference is `DEVFEED_PARTNER_SECRET_PRODUCTS_API_TOKEN`. Existing saved connector
-definitions remain explicit when editing an import connection.
+product website, `url` to the platform listing, and `pricing.model` to pricing. Enter its
+bearer token in the connection form; tokens are encrypted in the database and write-only.
+Leaving the token unchanged preserves it; changing the account, origin or authentication
+requires a replacement. Selecting no authentication removes the token. Existing saved
+connector definitions remain explicit when editing an import connection.
+Set the same persistent `DEVFEED_PARTNER_CREDENTIAL_KEY` in the admin API, partner API and
+import workers. Keep that key separate from database backups; losing it requires re-entering
+saved tokens. See [Import connection authentication](../../docs/partner-connectors.md#authentication).
 Products use the shared admin table with search, sorting, pagination, and column preferences.
 Open a product for its description, assessment, capability evidence, and record information.
 Its **Related objects** tab shows each platform's listing and attribution alongside pipeline

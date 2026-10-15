@@ -4273,6 +4273,20 @@
               }
             ]
           },
+          "credential": {
+            "anyOf": [
+              {
+                "format": "password",
+                "type": "string",
+                "writeOnly": true
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Credential",
+            "writeOnly": true
+          },
           "enabled": {
             "default": true,
             "title": "Enabled",
@@ -4424,6 +4438,16 @@
                 "type": "null"
               }
             ]
+          },
+          "credential_configured": {
+            "default": false,
+            "title": "Credential Configured",
+            "type": "boolean"
+          },
+          "credentials_available": {
+            "default": false,
+            "title": "Credentials Available",
+            "type": "boolean"
           },
           "enabled": {
             "title": "Enabled",
@@ -4577,6 +4601,20 @@
               }
             ]
           },
+          "credential": {
+            "anyOf": [
+              {
+                "format": "password",
+                "type": "string",
+                "writeOnly": true
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Credential",
+            "writeOnly": true
+          },
           "enabled": {
             "title": "Enabled",
             "type": "boolean"
@@ -4651,21 +4689,6 @@
               "api_key"
             ],
             "title": "Mode",
-            "type": "string"
-          },
-          "secret_ref": {
-            "default": "",
-            "pattern": "^$|^DEVFEED_PARTNER_SECRET_[A-Z0-9_]{1,80}$",
-            "title": "Secret Ref",
-            "type": "string"
-          },
-          "source": {
-            "default": "environment",
-            "enum": [
-              "environment",
-              "connection"
-            ],
-            "title": "Source",
             "type": "string"
           }
         },
@@ -5019,6 +5042,32 @@
         "properties": {
           "connector": {
             "$ref": "#/components/schemas/ConnectorConfig"
+          },
+          "credential": {
+            "anyOf": [
+              {
+                "format": "password",
+                "type": "string",
+                "writeOnly": true
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Credential",
+            "writeOnly": true
+          },
+          "expected_revision": {
+            "anyOf": [
+              {
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expected Revision"
           },
           "provider": {
             "maxLength": 200,
@@ -9911,6 +9960,11 @@
           "api_url": {
             "title": "Api Url",
             "type": "string"
+          },
+          "credentials_available": {
+            "default": false,
+            "title": "Credentials Available",
+            "type": "boolean"
           },
           "description": {
             "title": "Description",

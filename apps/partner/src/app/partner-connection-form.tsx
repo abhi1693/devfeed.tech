@@ -2,12 +2,10 @@
 
 import { useMemo, useState, type FormEvent, type ReactNode } from "react";
 import Link from "next/link";
-import { ResourcePanel } from "@devfeed/ui/resource-layout";
 import { Input } from "@devfeed/ui/input";
 import { Button } from "@devfeed/ui/button";
-import { Select } from "@devfeed/ui/select";
 import { Checkbox } from "@devfeed/ui/choice-controls";
-import { ConnectorFields } from "@devfeed/ui/connector-fields";
+import { ConnectorCredentialFields, ConnectorFields } from "@devfeed/ui/connector-fields";
 import {
   ConnectionLogoField,
   type ConnectionLogoChange,
@@ -68,7 +66,7 @@ function defaultConnector(): ConnectorConfig {
       start: 1,
       next_path: "nextCursor",
     },
-    auth: { mode: "none", source: "connection", secret_ref: "", header: "X-API-Key" },
+    auth: { mode: "none", header: "X-API-Key" },
     ...limits,
   };
 }
@@ -122,7 +120,6 @@ export function PartnerConnectionForm({
   const [previewError, setPreviewError] = useState("");
   const [testing, setTesting] = useState(false);
   const [validation, setValidation] = useState("");
-  const editable = !connection || connection.connector_editable;
   const auth = connector.auth?.mode ?? "none";
   const configured = connection?.credential_configured ?? false;
   const initialAuth = connection?.connector?.auth?.mode ?? "none";
@@ -132,7 +129,7 @@ export function PartnerConnectionForm({
     (connector.auth?.header ?? "X-API-Key") !==
       (connection?.connector?.auth?.header ?? "X-API-Key");
   const needsCredential =
-    editable && auth !== "none" && (!configured || replaceCredential || authenticationChanged);
+    auth !== "none" && (!configured || replaceCredential || authenticationChanged);
   const credentialReady =
     auth === "none" || (credentialsAvailable && (!needsCredential || Boolean(credential.trim())));
   const intervalChanged = !connection || interval !== String(connection.sync_interval_minutes);
@@ -161,8 +158,6 @@ export function PartnerConnectionForm({
       fields: { ...defaultConnector().fields, ...connector.fields },
       auth: {
         mode: auth,
-        source: "connection",
-        secret_ref: "",
         header: connector.auth?.header ?? "X-API-Key",
       },
     }),
@@ -258,113 +253,31 @@ export function PartnerConnectionForm({
       ...(logoChanged && !logoFile ? { logo_url: logoUrl.trim() || null } : {}),
       ...(logoFile ? { logo_file: logoFile } : {}),
       ...(intervalChanged ? { sync_interval_minutes: minutes } : {}),
-      ...(editable && (!connection || connectorDirty) ? { connector: definition } : {}),
+      ...(!connection || connectorDirty ? { connector: definition } : {}),
       ...(needsCredential ? { credential } : {}),
     });
   }
 
   const authentication = (
-    <div className="space-y-3">
-      <Field label="Authentication method">
-        <Select
-          label="Authentication method"
-          value={auth}
-          required
-          disabled={busy}
-          options={[
-            { value: "none", label: "No authentication" },
-            {
-              value: "bearer",
-              label: "Bearer token",
-              disabled: !credentialsAvailable && auth !== "bearer",
-            },
-            {
-              value: "api_key",
-              label: "API key",
-              disabled: !credentialsAvailable && auth !== "api_key",
-            },
-          ]}
-          onChange={(value) => {
-            if (value !== "none" && value !== "bearer" && value !== "api_key") return;
-            setConnector({ ...connector, auth: { ...connector.auth, mode: value } });
-            setCredential("");
-            setReplaceCredential(false);
-          }}
-        />
-      </Field>
-      {auth === "api_key" && (
-        <Field label="API key header">
-          <Input
-            value={connector.auth?.header ?? "X-API-Key"}
-            onChange={(event) =>
-              setConnector({
-                ...connector,
-                auth: { ...connector.auth, mode: auth, header: event.target.value },
-              })
-            }
-            required
-            maxLength={100}
-          />
-        </Field>
-      )}
-      {!credentialsAvailable && (
-        <p className="text-sm text-muted-foreground">
-          Authenticated imports are not configured on this DevFeed server. Public APIs remain
-          available.
-        </p>
-      )}
-      {configured && auth !== "none" && (
-        <>
-          <p className="text-sm text-muted-foreground">
-            A credential is configured. Leaving it unchanged keeps the existing credential. Changing
-            the API origin or authentication requires a replacement.
-          </p>
-          <label className="flex items-center gap-2 text-sm">
-            <Checkbox
-              checked={replaceCredential}
-              disabled={busy || !credentialsAvailable}
-              onCheckedChange={(checked) => {
-                setReplaceCredential(checked === true);
-                setCredential("");
-                clearTest();
-              }}
-            />
-            Replace credential
-          </label>
-        </>
-      )}
-      {configured && initialAuth !== "none" && auth === "none" && (
-        <p role="status" className="text-sm text-muted-foreground">
-          Saving without authentication removes the stored credential.
-        </p>
-      )}
-      {needsCredential && (
-        <Field
-          label={auth === "bearer" ? "Bearer token" : "API key"}
-          hint="Stored encrypted. DevFeed never returns this value to the portal."
-        >
-          <Input
-            type="password"
-            value={credential}
-            onChange={(event) => {
-              setCredential(event.target.value);
-              clearTest();
-            }}
-            autoComplete="new-password"
-            required
-            maxLength={8192}
-          />
-        </Field>
-      )}
-    </div>
+    <ConnectorCredentialFields
+      auth={definition.auth!}
+      onAuthChange={(auth) => setConnector({ ...connector, auth })}
+      credential={credential}
+      onCredentialChange={(value) => {
+        setCredential(value);
+        clearTest();
+      }}
+      configured={configured}
+      needsCredential={needsCredential}
+      replaceCredential={replaceCredential}
+      onReplaceCredentialChange={setReplaceCredential}
+      credentialsAvailable={credentialsAvailable}
+      disabled={busy}
+    />
   );
 
   return (
-    <div
-      className={
-        editable ? "grid items-start gap-4 xl:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)]" : "min-w-0"
-      }
-    >
+    <div className="grid items-start gap-4 xl:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)]">
       <form
         aria-label="Import connection settings"
         aria-busy={busy}
@@ -451,25 +364,16 @@ export function PartnerConnectionForm({
               />
             </div>
           </div>
-          {editable ? (
-            <ConnectorFields
-              suggestPaginationParameters
-              value={definition}
-              defaults={defaultConnector()}
-              onChange={setConnector}
-              disabled={busy}
-              mappings={mappings}
-              authentication={authentication}
-              limits={limits}
-            />
-          ) : (
-            <ResourcePanel title="Managed integration">
-              <p className="text-sm text-muted-foreground">
-                The API configuration and credentials for this integration are managed by DevFeed.
-                You can change its name and schedule, pause imports, or sync it now.
-              </p>
-            </ResourcePanel>
-          )}
+          <ConnectorFields
+            suggestPaginationParameters
+            value={definition}
+            defaults={defaultConnector()}
+            onChange={setConnector}
+            disabled={busy}
+            mappings={mappings}
+            authentication={authentication}
+            limits={limits}
+          />
         </fieldset>
         {previewError && (
           <p role="alert" className="text-sm text-destructive">
@@ -507,23 +411,21 @@ export function PartnerConnectionForm({
           </section>
         )}
         <div className="flex flex-wrap justify-end gap-2 border-t pt-4">
-          {editable && (
-            <Button
-              variant="outline"
-              loading={testing}
-              loadingText="Testing…"
-              disabled={
-                busy ||
-                !accountId ||
-                !credentialReady ||
-                !definition.base_url ||
-                !definition.list_path?.startsWith("/")
-              }
-              onClick={() => void test()}
-            >
-              Test import connection
-            </Button>
-          )}
+          <Button
+            variant="outline"
+            loading={testing}
+            loadingText="Testing…"
+            disabled={
+              busy ||
+              !accountId ||
+              !credentialReady ||
+              !definition.base_url ||
+              !definition.list_path?.startsWith("/")
+            }
+            onClick={() => void test()}
+          >
+            Test import connection
+          </Button>
           <Button variant="outline" asChild disabled={busy}>
             <Link href={cancelHref} prefetch={false}>
               Cancel
@@ -534,20 +436,18 @@ export function PartnerConnectionForm({
           </Button>
         </div>
       </form>
-      {editable && (
-        <PartnerApiResponse
-          accountId={accountId}
-          connection={connection}
-          connector={definition}
-          credential={needsCredential ? credential : undefined}
-          credentialReady={credentialReady}
-          csrfToken={csrfToken}
-          onUnavailable={onUnavailable}
-          mappings={mappings}
-          onResponse={setResponseData}
-          disabled={busy}
-        />
-      )}
+      <PartnerApiResponse
+        accountId={accountId}
+        connection={connection}
+        connector={definition}
+        credential={needsCredential ? credential : undefined}
+        credentialReady={credentialReady}
+        csrfToken={csrfToken}
+        onUnavailable={onUnavailable}
+        mappings={mappings}
+        onResponse={setResponseData}
+        disabled={busy}
+      />
     </div>
   );
 }

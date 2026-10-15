@@ -64,10 +64,6 @@ MAX_CONNECTIONS = 25
 
 
 def validate_partner_connector(config: ConnectorConfig) -> ConnectorConfig:
-    if config.auth.secret_ref or (
-        config.auth.mode != "none" and config.auth.source != "connection"
-    ):
-        raise ValueError("Partner imports cannot use server-managed credential references")
     if urlsplit(config.list_path).query or (
         config.detail_path and urlsplit(config.detail_path).query
     ):
@@ -131,9 +127,6 @@ class PartnerConnectionPreview(PartnerConnectorPreview):
 class PartnerConnectionOut(ConnectionOut):
     auth_mode: Literal["none", "bearer", "api_key"]
     credential_header: str
-    credential_configured: bool
-    credentials_managed: bool
-    connector_editable: bool
 
 
 class PartnerConnectionsOut(Page[PartnerConnectionOut]):
@@ -155,23 +148,13 @@ class PartnerConnectionJobsOut(Page[PartnerConnectionJobOut]):
 
 
 def partner_connection_views(session, connections):
-    """Keep global secret references and upstream diagnostics outside the portal."""
+    """Keep upstream diagnostics outside the account-owned portal."""
     result = []
     for connection, view in zip(connections, connection_views(session, connections), strict=True):
         config = ConnectorConfig.model_validate(view.connector) if view.connector else None
-        managed = bool(
-            config and config.auth.mode != "none" and config.auth.source == "environment"
-        )
         values = view.model_dump()
-        values["connector"] = None if managed else config
         if config:
-            endpoint = urlsplit(config.list_path)
-            values["api_url"] = config.base_url + endpoint.path
-            if not managed and config.auth.mode == "none":
-                config = config.model_copy(
-                    update={"auth": config.auth.model_copy(update={"secret_ref": ""})}
-                )
-                values["connector"] = config
+            values["api_url"] = config.base_url + urlsplit(config.list_path).path
         values["error"] = (
             "The latest import failed. Review the connection settings and try again."
             if connection.last_error
@@ -182,9 +165,6 @@ def partner_connection_views(session, connections):
                 **values,
                 auth_mode=config.auth.mode if config else "none",
                 credential_header=config.auth.header if config else "X-API-Key",
-                credential_configured=managed or bool(connection.encrypted_credential),
-                credentials_managed=managed,
-                connector_editable=not managed,
             )
         )
     return result
@@ -279,11 +259,6 @@ def preview_context(session, partner, account_id, body, *, provider=None):
     if provider is not None:
         connection = connection_access(session, account_id, provider)
         check_revision(connection, body.expected_revision)
-        current = ConnectorConfig.model_validate(connector_snapshot(connection))
-        if current.auth.mode != "none" and current.auth.source == "environment":
-            raise HTTPException(
-                403, "This connection's authentication is managed by an administrator"
-            )
     config = body.connector
     credential = None
     if config.auth.mode == "none":
@@ -486,32 +461,26 @@ def update_connection(
         connection = connection_access(session, account_id, provider, lock=True)
         check_revision(connection, body.expected_revision)
         current = ConnectorConfig.model_validate(connector_snapshot(connection))
-        managed = current.auth.mode != "none" and current.auth.source == "environment"
-        if managed and (body.connector is not None or body.credential is not None):
-            raise HTTPException(
-                403, "This connection's authentication is managed by an administrator"
-            )
         config = body.connector or current
         credential_changed = False
-        if not managed:
-            if config.auth.mode == "none":
-                if body.credential is not None:
-                    raise HTTPException(422, "Select authentication before providing a credential")
-                credential_changed = bool(connection.encrypted_credential)
-                connection.encrypted_credential = None
-            elif body.credential is not None:
-                try:
-                    connection.encrypted_credential = encrypt_credential(
-                        connection, config, body.credential.get_secret_value()
-                    )
-                except CredentialUnavailable as exc:
-                    raise safe_credential_error(exc) from None
-                credential_changed = True
-            else:
-                try:
-                    connection_credential(connection, config)
-                except CredentialUnavailable as exc:
-                    raise safe_credential_error(exc) from None
+        if config.auth.mode == "none":
+            if body.credential is not None:
+                raise HTTPException(422, "Select authentication before providing a credential")
+            credential_changed = bool(connection.encrypted_credential)
+            connection.encrypted_credential = None
+        elif body.credential is not None:
+            try:
+                connection.encrypted_credential = encrypt_credential(
+                    connection, config, body.credential.get_secret_value()
+                )
+            except CredentialUnavailable as exc:
+                raise safe_credential_error(exc) from None
+            credential_changed = True
+        else:
+            try:
+                connection_credential(connection, config)
+            except CredentialUnavailable as exc:
+                raise safe_credential_error(exc) from None
         changed = update_connection_definition(
             session, connection, config, credential_changed=credential_changed
         )

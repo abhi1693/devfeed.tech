@@ -2,7 +2,6 @@
 
 import hashlib
 import json
-import os
 import re
 from typing import Annotated, Literal
 from urllib.parse import parse_qsl, quote, quote_plus, urlencode, urljoin, urlsplit, urlunsplit
@@ -32,16 +31,10 @@ Parameter = Annotated[
 
 class ConnectorAuth(InputModel):
     mode: Literal["none", "bearer", "api_key"] = "none"
-    source: Literal["environment", "connection"] = "environment"
-    secret_ref: str = Field(default="", pattern=r"^$|^DEVFEED_PARTNER_SECRET_[A-Z0-9_]{1,80}$")
     header: Parameter = "X-API-Key"
 
     @model_validator(mode="after")
     def valid_auth(self):
-        if self.source == "connection" and self.secret_ref:
-            raise ValueError("Connection credentials cannot reference environment secrets")
-        if self.mode != "none" and self.source == "environment" and not self.secret_ref:
-            raise ValueError("Authentication requires an import API secret reference")
         if self.header.lower() in {
             "host",
             "cookie",
@@ -201,7 +194,7 @@ SHIPYARD_CONNECTOR = {
         "size_parameter": "limit",
         "page_size": 10,
     },
-    "auth": {"mode": "bearer", "secret_ref": "DEVFEED_PARTNER_SECRET_PRODUCTS_API_TOKEN"},
+    "auth": {"mode": "bearer"},
     "platform_hosts": ["shipyardhq.dev", "www.shipyardhq.dev"],
     "attribution": "Via ShipyardHQ",
 }
@@ -298,7 +291,7 @@ class ConnectorClient:
         auth = self.config.auth
         if auth.mode == "none":
             return None
-        return self.credential if auth.source == "connection" else os.environ.get(auth.secret_ref)
+        return self.credential
 
     def _position(self, cursor):
         pagination = self.config.pagination

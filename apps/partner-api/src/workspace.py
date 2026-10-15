@@ -39,7 +39,6 @@ router = APIRouter(
 class WorkspaceConnectionOut(PartnerConnectionOut):
     account_id: uuid.UUID
     account_name: str
-    credentials_available: bool
 
 
 class WorkspaceConnectionsOut(Page[WorkspaceConnectionOut]):
@@ -124,7 +123,6 @@ def connection_view(session, connection, account_name):
     return WorkspaceConnectionOut(
         **view.model_dump(),
         account_name=account_name,
-        credentials_available=credential_storage_available(),
     )
 
 
@@ -166,9 +164,7 @@ def connections(session: DB, partner: Partner, query: Listing, account_id: uuid.
     available = credential_storage_available()
     return {
         "items": [
-            WorkspaceConnectionOut(
-                **view.model_dump(), account_name=row.account_name, credentials_available=available
-            )
+            WorkspaceConnectionOut(**view.model_dump(), account_name=row.account_name)
             for row, view in zip(rows, views, strict=True)
         ],
         "total": total,
@@ -213,5 +209,4 @@ def add_connection(body: WorkspaceConnectionCreate, session: DB, partner: Partne
     return WorkspaceConnectionOut(
         **view.model_dump(),
         account_name=account.name,
-        credentials_available=credential_storage_available(),
     )

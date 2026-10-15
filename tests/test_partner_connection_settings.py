@@ -179,22 +179,25 @@ def test_connection_has_one_revision_protected_account(admin_client, database):
     assert admin_client.get("/v1/admin/partner-accounts?q=%25_").json()["total"] == 0
 
 
-def test_shipyard_creation_and_legacy_connect_action_use_its_own_preset(admin_client, database):
+def test_shipyard_preset_requires_a_stored_credential_before_connecting(admin_client, database):
     response = admin_client.post(PATH, json={"provider": "shipyardhq", "enabled": False})
     assert response.status_code == 201, response.text
     definition = response.json()["connector"]
     assert response.json()["name"] == "ShipyardHQ"
     assert definition["fields"]["product_url"] == ["productUrl"]
     assert definition["fields"]["listing_url"] == ["url"]
-    assert definition["auth"]["secret_ref"] == "DEVFEED_PARTNER_SECRET_PRODUCTS_API_TOKEN"
+    assert definition["auth"] == {"mode": "bearer", "header": "X-API-Key"}
+    assert response.json()["credential_configured"] is False
     assert definition["platform_hosts"] == ["shipyardhq.dev", "www.shipyardhq.dev"]
     with database.begin() as session:
         session.delete(session.get(PartnerConnection, "shipyardhq"))
     connected = admin_client.post(PATH + "/shipyardhq", json={"action": "connect"})
-    assert connected.status_code == 200
-    assert connected.json()["connector"] == definition
+    assert connected.status_code in {422, 503}
+    assert "credential" in connected.json()["detail"]
     with database() as session:
-        job = session.scalar(
-            select(PartnerPipelineJob).where(PartnerPipelineJob.provider == "shipyardhq")
+        assert (
+            session.scalar(
+                select(PartnerPipelineJob).where(PartnerPipelineJob.provider == "shipyardhq")
+            )
+            is None
         )
-        assert job.payload["connector"] == definition

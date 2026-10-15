@@ -47,6 +47,7 @@ export function PartnerConnectionPage({
   const [account, setAccount] = useState<AccountOut>();
   const [connection, setConnection] = useState<ConnectionOut>();
   const [providers, setProviders] = useState<PartnerProviderOut[]>([]);
+  const [credentialsAvailable, setCredentialsAvailable] = useState(false);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<Error>();
@@ -86,6 +87,7 @@ export function PartnerConnectionPage({
           setConnection(found);
           setAccount(dashboard?.account);
           setProviders(available);
+          setCredentialsAvailable(supported.some((preset) => preset.credentials_available));
           setError(undefined);
         }
       } catch (error) {
@@ -168,6 +170,7 @@ export function PartnerConnectionPage({
       {!loading && !error && (!provider || editing) && (
         <PartnerConnectionForm
           providers={providers}
+          credentialsAvailable={credentialsAvailable}
           connection={connection}
           onSaved={(saved) => router.push(importConnectionHref(saved.provider))}
           onCancel={() =>

@@ -15,7 +15,7 @@ const connector: ConnectorConfig = {
   list_path: "/products",
   items_paths: ["items"],
   fields: { name: ["name"] },
-  auth: { mode: "bearer", source: "connection", secret_ref: "" },
+  auth: { mode: "bearer" },
   pagination: { mode: "cursor", parameter: "after", next_path: "next" },
 };
 const connection: PartnerConnectionOut = {
@@ -26,9 +26,7 @@ const connection: PartnerConnectionOut = {
   ai_enabled: false,
   api_url: connector.base_url,
   connector,
-  connector_editable: true,
   credential_configured: true,
-  credentials_managed: false,
   credential_header: "",
   auth_mode: "bearer",
   products: 1,

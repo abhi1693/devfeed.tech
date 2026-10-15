@@ -10,6 +10,7 @@ import type { ConnectorConfig } from './connectorConfig';
 export interface ConnectionSettings {
   account_id?: string | null;
   connector?: ConnectorConfig | null;
+  credential?: string | null;
   enabled: boolean;
   /** @minimum 1 */
   expected_revision: number;

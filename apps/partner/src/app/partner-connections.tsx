@@ -448,8 +448,7 @@ export function PartnerConnections({
             </Button>
             {!connection.enabled &&
             connection.auth_mode !== "none" &&
-            !connection.credential_configured &&
-            !connection.credentials_managed ? (
+            !connection.credential_configured ? (
               <Button asChild variant="outline">
                 <Link href={connectionPath(connection.provider, "edit")} prefetch={false}>
                   Configure credential to reconnect
@@ -726,13 +725,11 @@ export function PartnerConnections({
                 },
                 {
                   label: "Authentication",
-                  value: connection.credentials_managed
-                    ? "Managed by DevFeed"
-                    : connection.credential_configured
-                      ? connection.auth_mode === "bearer"
-                        ? "Bearer token configured"
-                        : "API key configured"
-                      : "No credential configured",
+                  value: connection.credential_configured
+                    ? connection.auth_mode === "bearer"
+                      ? "Bearer token configured"
+                      : "API key configured"
+                    : "No credential configured",
                 },
               ]}
             />

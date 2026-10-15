@@ -6,6 +6,7 @@ from devfeed_core.schemas import ORMModel
 
 
 class PartnerProviderOut(ORMModel):
+    credentials_available: bool = False
     provider: str
     name: str
     partnership_type: Literal["launch_platform"]

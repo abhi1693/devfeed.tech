@@ -36,7 +36,6 @@ export * from './connectionLogoUpdate';
 export * from './connectionLogoVariant';
 export * from './connectorAuth';
 export * from './connectorAuthMode';
-export * from './connectorAuthSource';
 export * from './connectorConfig';
 export * from './connectorConfigParameters';
 export * from './connectorFields';

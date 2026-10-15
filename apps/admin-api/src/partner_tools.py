@@ -43,6 +43,13 @@ from devfeed_core.partner_connectors import (
     ConnectorConfig,
     connector_snapshot,
 )
+from devfeed_core.partner_credentials import (
+    CredentialUnavailable,
+    connection_credential,
+    credential_storage_available,
+    encrypt_credential,
+    validate_credential,
+)
 from devfeed_core.partner_providers import PARTNER_PRESETS, PartnerProviderOut
 from devfeed_core.partner_tools import (
     EvaluationOut,
@@ -115,7 +122,11 @@ def connection(provider: str, session: DB):
     operation_id="admin_partner_providers_list",
 )
 def providers():
-    return list(PARTNER_PRESETS.values())
+    available = credential_storage_available()
+    return [
+        preset.model_copy(update={"credentials_available": available})
+        for preset in PARTNER_PRESETS.values()
+    ]
 
 
 @router.post(
@@ -123,8 +134,8 @@ def providers():
     response_model=ConnectorPreviewOut,
     operation_id="admin_partner_connector_preview",
 )
-def preview_connector(body: ConnectorPreview, admin: Admin):
-    return ConnectorPreviewService(body.provider, body.connector).products()
+def preview_connector(body: ConnectorPreview, session: DB, admin: Admin):
+    return preview_context(body, session).products()
 
 
 @router.post(
@@ -132,8 +143,56 @@ def preview_connector(body: ConnectorPreview, admin: Admin):
     response_model=ConnectorResponseOut,
     operation_id="admin_partner_connector_response",
 )
-def connector_response(body: ConnectorPreview, admin: Admin):
-    return ConnectorPreviewService(body.provider, body.connector).response()
+def connector_response(body: ConnectorPreview, session: DB, admin: Admin):
+    return preview_context(body, session).response()
+
+
+def safe_credential_error(exc):
+    return HTTPException(503 if not credential_storage_available() else 422, str(exc))
+
+
+def preview_context(body, session):
+    connection = (
+        current_connection(session, body.provider, body.expected_revision)
+        if body.expected_revision is not None
+        else None
+    )
+    credential = None
+    try:
+        if body.connector.auth.mode == "none":
+            if body.credential is not None:
+                raise CredentialUnavailable("Select authentication before providing a credential")
+        elif body.credential is not None:
+            credential = validate_credential(body.credential.get_secret_value())
+        elif connection is not None:
+            credential = connection_credential(connection, body.connector)
+        else:
+            raise CredentialUnavailable("Provide an import API credential")
+    except CredentialUnavailable as exc:
+        raise safe_credential_error(exc) from None
+    session.rollback()
+    return ConnectorPreviewService(body.provider, body.connector, credential=credential)
+
+
+def apply_connection_credential(connection, config, credential, *, required, verify=False):
+    """Retain unchanged ciphertext; rebind only with an explicit replacement."""
+    if config.auth.mode == "none":
+        if credential is not None:
+            raise HTTPException(422, "Select authentication before providing a credential")
+        changed = bool(connection.encrypted_credential)
+        connection.encrypted_credential = None
+        return changed
+    try:
+        if credential is not None:
+            connection.encrypted_credential = encrypt_credential(
+                connection, config, credential.get_secret_value()
+            )
+            return True
+        if verify or (required and not connection.encrypted_credential):
+            connection_credential(connection, config)
+    except CredentialUnavailable as exc:
+        raise safe_credential_error(exc) from None
+    return False
 
 
 def log_connection(event, connection, admin, affected_jobs):
@@ -170,8 +229,6 @@ def create_connection(body: ConnectionCreate, session: DB, admin: Admin):
             raise HTTPException(409, "This import connection already exists; edit its settings")
         if body.account_id is not None and session.get(PartnerAccount, body.account_id) is None:
             raise HTTPException(422, "Partner account not found")
-        if body.connector is not None and body.connector.auth.source == "connection":
-            raise HTTPException(422, "Configure account credentials in the partner portal")
 
     validate_creation()
     connection = PartnerConnection(
@@ -184,6 +241,12 @@ def create_connection(body: ConnectionCreate, session: DB, admin: Admin):
         enabled=False,
         updated_by=actor(admin),
         sync_interval_minutes=body.sync_interval_minutes,
+    )
+    apply_connection_credential(
+        connection,
+        ConnectorConfig.model_validate(connection.connector),
+        body.credential,
+        required=body.enabled,
     )
     prepared = ConnectionLogoEdit(connection, source_url=body.logo_url)
     if prepared.changed:
@@ -238,8 +301,13 @@ def update_connection(provider: str, body: ConnectionSettings, session: DB, admi
     with prepared.stage(session, authorize):
         lock_catalog(session)
         connection = current_connection(session, provider, body.expected_revision, lock=True)
+        config = body.connector or ConnectorConfig.model_validate(connector_snapshot(connection))
         if "account_id" in body.model_fields_set and body.account_id != connection.account_id:
-            if connection.encrypted_credential:
+            if (
+                connection.encrypted_credential
+                and body.credential is None
+                and config.auth.mode != "none"
+            ):
                 raise HTTPException(
                     409, "Remove the account-bound credential before moving this connection"
                 )
@@ -251,19 +319,23 @@ def update_connection(provider: str, body: ConnectionSettings, session: DB, admi
         if body.name is not None and body.name != connection.name:
             connection.name = body.name
             connection.revision += 1
-        if body.connector is not None:
-            current = ConnectorConfig.model_validate(connector_snapshot(connection))
-            if body.connector.auth.source == "connection" and body.connector.auth.mode != "none":
-                if not connection.encrypted_credential or (
-                    current.base_url != body.connector.base_url
-                    or current.auth != body.connector.auth
-                ):
-                    raise HTTPException(
-                        409, "Update the account-bound credential in the partner portal"
-                    )
-            elif body.connector.auth.mode == "none":
-                connection.encrypted_credential = None
-            definition_changed = update_connection_definition(session, connection, body.connector)
+        current = ConnectorConfig.model_validate(connector_snapshot(connection))
+        credential_changed = apply_connection_credential(
+            connection,
+            config,
+            body.credential,
+            required=body.enabled,
+            verify=(
+                current.base_url != config.base_url
+                or current.auth != config.auth
+                or (body.enabled and not connection.enabled)
+            )
+            and bool(connection.encrypted_credential),
+        )
+        if body.connector is not None or credential_changed:
+            definition_changed = update_connection_definition(
+                session, connection, config, credential_changed=credential_changed
+            )
         affected_jobs = configure_connection(
             session,
             connection,
@@ -368,6 +440,11 @@ def connection_action(provider: str, body: ConnectionAction, session: DB, admin:
         raise HTTPException(404, "Import connection not found")
     if body.action == "sync" and not connection.enabled:
         raise HTTPException(409, "Enable this import connection before syncing")
+    if body.action != "pause":
+        try:
+            connection_credential(connection)
+        except CredentialUnavailable as exc:
+            raise safe_credential_error(exc) from None
     affected_jobs = configure_connection(
         session, connection, body.action != "pause", sync=body.action != "pause"
     )

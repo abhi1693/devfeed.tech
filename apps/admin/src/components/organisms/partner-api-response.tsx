@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { ResponseMapping } from "@devfeed/ui/connector-response-mappings";
 import { ConnectorResponse } from "@devfeed/ui/connector-response";
 import { ApiError } from "@/lib/api/client";
@@ -13,18 +13,24 @@ import type { ConnectorConfig, ConnectorResponseOut } from "@/lib/api/generated/
 export function PartnerApiResponse({
   provider,
   connector,
+  credential,
+  credentialReady = true,
+  expectedRevision,
   mappings,
   onResponse,
 }: {
   provider: string;
   connector: ConnectorConfig;
+  credential?: string;
+  credentialReady?: boolean;
+  expectedRevision?: number;
   mappings: ResponseMapping[];
   onResponse: (data: unknown) => void;
 }) {
   const admin = useAdmin();
   const [refresh, setRefresh] = useState(0);
   const [state, setState] = useState<{
-    key: string;
+    identity: object;
     loading?: boolean;
     response?: ConnectorResponseOut;
     error?: Error;
@@ -50,23 +56,37 @@ export function PartnerApiResponse({
     },
   });
   const ready =
-    /^https:\/\/[^/]+\/?$/.test(connector.base_url) && !!connector.list_path?.startsWith("/");
+    credentialReady &&
+    /^https:\/\/[^/]+\/?$/.test(connector.base_url) &&
+    !!connector.list_path?.startsWith("/");
+  // Write-only credentials never become part of a serialized response/cache key.
+  const identity = useMemo(
+    () => ({ key, credential, expectedRevision, csrfToken: admin.csrf_token }),
+    [key, credential, expectedRevision, admin.csrf_token],
+  );
   useEffect(() => {
     if (!ready) return;
     const controller = new AbortController();
     const timer = setTimeout(() => {
-      setState({ key, loading: true });
-      void adminPartnerConnectorResponse(JSON.parse(key), {
-        signal: controller.signal,
-        headers: { "X-CSRF-Token": admin.csrf_token },
-      }).then(
+      setState({ identity, loading: true });
+      void adminPartnerConnectorResponse(
+        {
+          ...JSON.parse(key),
+          ...(credential ? { credential } : {}),
+          ...(expectedRevision !== undefined ? { expected_revision: expectedRevision } : {}),
+        },
+        {
+          signal: controller.signal,
+          headers: { "X-CSRF-Token": admin.csrf_token },
+        },
+      ).then(
         (response) => {
-          if (!controller.signal.aborted) setState({ key, response });
+          if (!controller.signal.aborted) setState({ identity, response });
         },
         (error: unknown) => {
           if (!controller.signal.aborted)
             setState({
-              key,
+              identity,
               error: error instanceof Error ? error : new Error("Could not load API response."),
             });
         },
@@ -76,8 +96,8 @@ export function PartnerApiResponse({
       clearTimeout(timer);
       controller.abort();
     };
-  }, [key, ready, refresh, admin.csrf_token]);
-  const current = state?.key === key ? state : undefined;
+  }, [key, ready, refresh, admin.csrf_token, credential, expectedRevision, identity]);
+  const current = state?.identity === identity ? state : undefined;
   useEffect(() => {
     onResponse(current?.response?.data);
   }, [current?.response?.data, onResponse]);
@@ -101,7 +121,9 @@ export function PartnerApiResponse({
           <ValidationErrors error={current?.error} />
           {!ready && (
             <p className="text-sm text-muted-foreground">
-              Enter the API base URL and products endpoint to preview the response.
+              {credentialReady
+                ? "Enter the API base URL and products endpoint to preview the response."
+                : "Enter the credential to preview this API response."}
             </p>
           )}
         </>

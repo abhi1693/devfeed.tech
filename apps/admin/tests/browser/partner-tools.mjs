@@ -171,9 +171,22 @@ const connection = {
   needs_attention: 0,
   excluded: 0,
   ai_enabled: true,
+  credentials_available: true,
+  credential_configured: false,
 };
 let added = false;
 const customConnections = [];
+const credentials = new Map();
+let credentialsAvailable = true;
+const publicConnection = (record) => ({
+  ...record,
+  credentials_available: credentialsAvailable,
+  credential_configured: credentials.has(record.provider),
+});
+function saveCredential(record, input) {
+  if (record.connector?.auth?.mode === "none") credentials.delete(record.provider);
+  else if (input.credential) credentials.set(record.provider, input.credential);
+}
 const pagedConnections = Array.from({ length: 30 }, (_, index) => ({
   ...connection,
   account_id: null,
@@ -195,6 +208,7 @@ const supported = [
     partnership_type: "launch_platform",
     api_url: connection.api_url,
     description: "Sync developer products from Nick Launches.",
+    credentials_available: true,
   },
   {
     provider: "shipyardhq",
@@ -202,6 +216,7 @@ const supported = [
     partnership_type: "launch_platform",
     api_url: "https://shipyardhq.dev/api/products",
     description: "Sync developer products from ShipyardHQ.",
+    credentials_available: true,
   },
 ];
 const parentId = "66666666-6666-6666-6666-666666666666";
@@ -310,6 +325,15 @@ const fixture = createServer(async (req, res) => {
     for await (const chunk of req) raw += chunk;
     body = JSON.parse(raw || "{}");
     mutations.push({ path, body, csrf: req.headers["x-csrf-token"] });
+  }
+  if (path.endsWith("/connector-response") || path.endsWith("/connector-preview")) {
+    if (body.connector.auth.mode !== "none" && !body.credential) {
+      const saved = connectionInventory().find((item) => item.provider === body.provider);
+      assert.ok(saved && credentials.has(saved.provider), "Preview reuses a stored credential");
+      assert.equal(body.expected_revision, saved.revision);
+      assert.equal(body.connector.base_url, saved.connector.base_url);
+      assert.deepEqual(body.connector.auth, saved.connector.auth);
+    }
   }
   let result;
   if (path.endsWith("/auth/me"))
@@ -469,7 +493,11 @@ const fixture = createServer(async (req, res) => {
       errors: [],
       has_next_page: false,
     };
-  } else if (path.endsWith("/partner-tools/providers")) result = supported;
+  } else if (path.endsWith("/partner-tools/providers"))
+    result = supported.map((preset) => ({
+      ...preset,
+      credentials_available: credentialsAvailable,
+    }));
   else if (path.includes("/partner-tools/connections/") && req.method === "GET") {
     const provider = decodeURIComponent(path.split("/").at(-1));
     connectionDetailRequests.push(provider);
@@ -479,12 +507,15 @@ const fixture = createServer(async (req, res) => {
       res.end(JSON.stringify({ detail: "Import connection not found." }));
       return;
     }
+    result = publicConnection(result);
   } else if (path.endsWith("/partner-tools/connections")) {
     if (req.method === "POST") {
       if (body.provider !== "nick-launches") {
+        const settings = { ...body };
+        delete settings.credential;
         const custom = {
           ...connection,
-          ...body,
+          ...settings,
           ...connectionLogo(body.logo_url ?? null),
           api_url: body.connector.base_url + body.connector.list_path,
           state: "disconnected",
@@ -492,9 +523,10 @@ const fixture = createServer(async (req, res) => {
           qualified: 0,
           revision: 1,
         };
+        saveCredential(custom, body);
         customConnections.push(custom);
         res.writeHead(201, { "content-type": "application/json" });
-        res.end(JSON.stringify(custom));
+        res.end(JSON.stringify(publicConnection(custom)));
         return;
       }
       added = true;
@@ -505,7 +537,8 @@ const fixture = createServer(async (req, res) => {
       connection.enabled = body.enabled;
       connection.sync_interval_minutes = body.sync_interval_minutes;
       connection.state = body.enabled ? "idle" : "disconnected";
-      result = connection;
+      saveCredential(connection, body);
+      result = publicConnection(connection);
     } else {
       connectionListRequests.push(Object.fromEntries(params));
       const q = (params.get("q") ?? "").toLowerCase();
@@ -520,7 +553,12 @@ const fixture = createServer(async (req, res) => {
         );
       const offset = Number(params.get("offset") ?? 0);
       const limit = Number(params.get("limit") ?? 25);
-      result = { items: items.slice(offset, offset + limit), total: items.length, offset, limit };
+      result = {
+        items: items.slice(offset, offset + limit).map(publicConnection),
+        total: items.length,
+        offset,
+        limit,
+      };
     }
   } else if (path.endsWith("/partner-tools/connections/nick-launches")) {
     if (req.method === "PUT") {
@@ -544,7 +582,8 @@ const fixture = createServer(async (req, res) => {
     });
     connection.state = connection.enabled ? "idle" : "disconnected";
     product.listings[0].connection_enabled = connection.enabled;
-    result = connection;
+    saveCredential(connection, body);
+    result = publicConnection(connection);
   } else if (path.includes("/partner-tools/connections/") && req.method === "PUT") {
     const record = customConnections.find((item) => path.endsWith(`/${item.provider}`));
     assert.ok(record);
@@ -554,8 +593,11 @@ const fixture = createServer(async (req, res) => {
       false,
       "Settings do not reimport the independently saved logo",
     );
-    Object.assign(record, body, { revision: record.revision + 1 });
-    result = record;
+    const settings = { ...body };
+    delete settings.credential;
+    Object.assign(record, settings, { revision: record.revision + 1 });
+    saveCredential(record, body);
+    result = publicConnection(record);
   } else if (path.endsWith("/partner-tools")) {
     const items = [
       ...(connection.products ? [product] : []),
@@ -750,14 +792,15 @@ try {
     "productUrl",
   );
   assert.equal(await page.getByLabel("Listing URL paths", { exact: true }).inputValue(), "url");
-  await page.getByText("Authentication and limits", { exact: true }).click();
   assert.match(
-    await page.getByRole("combobox", { name: "Authentication", exact: true }).innerText(),
+    await page.getByRole("combobox", { name: "Authentication method", exact: true }).innerText(),
     /Bearer token/,
   );
+  assert.equal(await page.getByLabel(/^Bearer token/).inputValue(), "");
+  assert.equal(await page.getByLabel(/^Bearer token/).getAttribute("type"), "password");
   assert.equal(
-    await page.getByRole("textbox", { name: "Secret reference", exact: true }).inputValue(),
-    "DEVFEED_PARTNER_SECRET_PRODUCTS_API_TOKEN",
+    await page.getByRole("textbox", { name: "Secret reference", exact: true }).count(),
+    0,
   );
   await page.screenshot({ path: `${output}/shipyard-preset-desktop.png`, fullPage: true });
   await page.getByText("Authentication and limits", { exact: true }).click();
@@ -1224,11 +1267,12 @@ try {
   await page.setViewportSize({ width: 390, height: 844 });
   assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1));
   await page.screenshot({ path: `${output}/custom-connector-mobile.png`, fullPage: true });
-  await page.getByText("Authentication and limits", { exact: true }).click();
-  await page.getByRole("combobox", { name: "Authentication", exact: true }).click();
-  assert.equal(await page.getByRole("option", { name: "None", exact: true }).count(), 1);
-  await page.getByRole("option", { name: "None", exact: true }).click();
-  await page.getByText("Authentication and limits", { exact: true }).click();
+  await page.getByRole("combobox", { name: "Authentication method", exact: true }).click();
+  assert.equal(
+    await page.getByRole("option", { name: "No authentication", exact: true }).count(),
+    1,
+  );
+  await page.getByRole("option", { name: "No authentication", exact: true }).click();
   previewValidation = true;
   await page.getByRole("button", { name: "Test import connection", exact: true }).click();
   const invalidName = page.getByRole("textbox", { name: "Product name paths", exact: true });
@@ -1268,6 +1312,21 @@ try {
     ).includes("border-violet-600"),
   );
   await page.screenshot({ path: `${output}/custom-connector-preview-desktop.png`, fullPage: true });
+  const firstCredential = "admin-browser-fixture-only-token-one";
+  const replacementCredential = "admin-browser-fixture-only-token-two";
+  await page.getByRole("combobox", { name: "Authentication method", exact: true }).click();
+  await page.getByRole("option", { name: "Bearer token", exact: true }).click();
+  await page.getByLabel(/^Bearer token/).fill(firstCredential);
+  const tokenPreview = page.waitForResponse((response) =>
+    new URL(response.url()).pathname.endsWith("/connector-preview"),
+  );
+  await page.getByRole("button", { name: "Test import connection", exact: true }).click();
+  await tokenPreview;
+  assert.equal(
+    mutations.filter((entry) => entry.path.endsWith("/connector-preview")).at(-1).body.credential,
+    firstCredential,
+    "Unsaved credentials are sent only through the write-only preview request",
+  );
   await selectConnectionLogo(page);
   failLogoUpload = true;
   const createsBefore = mutations.filter((entry) => entry.path.endsWith("/connections")).length;
@@ -1277,6 +1336,10 @@ try {
     .filter({ hasText: "Connection settings saved, but the logo was not uploaded." })
     .waitFor();
   assert.equal(customConnections.length, 1);
+  assert.equal(credentials.get("shipyard"), firstCredential);
+  assert.equal(Object.hasOwn(customConnections[0], "credential"), false);
+  assert.equal(await page.locator('input[type="password"]').count(), 0);
+  assert.equal((await page.locator("body").innerText()).includes(firstCredential), false);
   assert.equal(
     await page.getByRole("textbox", { name: "Name", exact: true }).inputValue(),
     "Shipyard",
@@ -1294,6 +1357,14 @@ try {
   await page.screenshot({ path: `${output}/connection-logo-retry-mobile.png`, fullPage: true });
   await page.getByRole("button", { name: "Save changes", exact: true }).click();
   await page.waitForURL("**/partnerships/connections/shipyard");
+  assert.equal(
+    Object.hasOwn(
+      mutations.filter((entry) => entry.path.endsWith("/connections/shipyard")).at(-1).body,
+      "credential",
+    ),
+    false,
+    "A logo retry preserves the newly stored credential without resubmitting it",
+  );
   assert.equal(
     mutations.filter((entry) => entry.path.endsWith("/connections")).length,
     createsBefore + 1,
@@ -1339,6 +1410,84 @@ try {
   ]) {
     assert.equal(await page.getByRole("textbox", { name: label, exact: true }).inputValue(), value);
   }
+  assert.equal(await page.locator('input[type="password"]').count(), 0);
+  await page.getByText(/A credential is configured\. Leaving it unchanged/).waitFor();
+  const responseJson = page.getByRole("textbox", { name: "API response JSON", exact: true });
+  await responseJson.waitFor();
+  const savedPreview = mutations
+    .filter((entry) => entry.path.endsWith("/connector-response"))
+    .at(-1).body;
+  assert.equal(savedPreview.provider, "shipyard");
+  assert.equal(savedPreview.expected_revision, customConnections[0].revision);
+  assert.equal(Object.hasOwn(savedPreview, "credential"), false);
+  assert.equal((await responseJson.innerText()).includes(firstCredential), false);
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.getByRole("textbox", { name: "Name", exact: true }).fill("Shipyard private API");
+  await page.getByRole("button", { name: "Save changes", exact: true }).click();
+  await page.waitForURL("**/partnerships/connections/shipyard");
+  const lastSettings = () =>
+    mutations.filter((entry) => entry.path.endsWith("/connections/shipyard")).at(-1).body;
+  assert.equal(Object.hasOwn(lastSettings(), "credential"), false);
+  assert.equal(credentials.get("shipyard"), firstCredential);
+  await page.getByRole("link", { name: "Edit", exact: true }).click();
+  await page.getByRole("checkbox", { name: "Replace credential", exact: true }).check();
+  assert.equal(await page.getByLabel(/^Bearer token/).inputValue(), "");
+  await page.getByLabel(/^Bearer token/).fill(replacementCredential);
+  await page.getByRole("button", { name: "Save changes", exact: true }).click();
+  await page.waitForURL("**/partnerships/connections/shipyard");
+  assert.equal(lastSettings().credential, replacementCredential);
+  assert.equal(credentials.get("shipyard"), replacementCredential);
+  assert.equal((await page.locator("body").innerText()).includes(replacementCredential), false);
+
+  credentialsAvailable = false;
+  await page.getByRole("link", { name: "Edit", exact: true }).click();
+  await page.getByText(/Authenticated imports are not configured on this DevFeed server/).waitFor();
+  assert.equal(
+    await page.getByRole("checkbox", { name: "Replace credential", exact: true }).isDisabled(),
+    true,
+  );
+  assert.equal(await page.locator('input[type="password"]').count(), 0);
+  await page.screenshot({
+    path: `${output}/credential-storage-unavailable-desktop.png`,
+    fullPage: true,
+  });
+  await page.getByRole("textbox", { name: "Name", exact: true }).fill("Shipyard saved credential");
+  await page.getByRole("button", { name: "Save changes", exact: true }).click();
+  await page.waitForURL("**/partnerships/connections/shipyard");
+  assert.equal(Object.hasOwn(lastSettings(), "credential"), false);
+  assert.equal(credentials.get("shipyard"), replacementCredential);
+  await page.getByRole("link", { name: "Edit", exact: true }).click();
+  await page.getByRole("combobox", { name: "Authentication method", exact: true }).click();
+  await page.getByRole("option", { name: "No authentication", exact: true }).click();
+  await page
+    .getByText("Saving without authentication removes the stored credential.", { exact: true })
+    .waitFor();
+  await page.getByRole("button", { name: "Save changes", exact: true }).click();
+  await page.waitForURL("**/partnerships/connections/shipyard");
+  assert.equal(credentials.has("shipyard"), false);
+  assert.equal(lastSettings().connector.auth.mode, "none");
+  assert.equal(Object.hasOwn(lastSettings(), "credential"), false);
+  await page.getByRole("link", { name: "Edit", exact: true }).click();
+  await page.getByRole("combobox", { name: "Authentication method", exact: true }).click();
+  assert.equal(
+    await page
+      .getByRole("option", { name: "Bearer token", exact: true })
+      .getAttribute("aria-disabled"),
+    "true",
+  );
+  assert.equal(
+    await page.getByRole("option", { name: "API key", exact: true }).getAttribute("aria-disabled"),
+    "true",
+  );
+  await page.keyboard.press("Escape");
+  await page.setViewportSize({ width: 390, height: 844 });
+  assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1));
+  await page.screenshot({
+    path: `${output}/credential-storage-unavailable-mobile.png`,
+    fullPage: true,
+  });
+  credentialsAvailable = true;
+  await page.setViewportSize({ width: 1440, height: 1000 });
   await page.goto(`${origin}/jobs/enrichment/images`);
   const images = page.getByRole("table", { name: "Images", exact: true });
   await images.getByText("Product featured image", { exact: true }).waitFor();

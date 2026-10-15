@@ -68,6 +68,8 @@ const connection: ConnectionOut = {
   needs_attention: 0,
   excluded: 0,
   ai_enabled: true,
+  credentials_available: true,
+  credential_configured: false,
 };
 const product: ProductOut = {
   id: "11111111-1111-1111-1111-111111111111",
@@ -160,6 +162,7 @@ const provider = {
   partnership_type: "launch_platform" as const,
   api_url: connection.api_url,
   description: "Sync developer products from Nick Launches.",
+  credentials_available: true,
 };
 const shipyardProvider = {
   provider: "shipyardhq",
@@ -167,6 +170,7 @@ const shipyardProvider = {
   partnership_type: "launch_platform" as const,
   api_url: "https://shipyardhq.dev/api/products",
   description: "Sync developer products from ShipyardHQ.",
+  credentials_available: true,
 };
 
 async function selectAccount() {
@@ -275,13 +279,19 @@ it("selects the Shipyard preset with official website and platform listing URL r
   );
   expect((screen.getByLabelText("Website URL paths") as HTMLInputElement).value).toBe("productUrl");
   expect((screen.getByLabelText("Listing URL paths") as HTMLInputElement).value).toBe("url");
+  expect(screen.queryByRole("textbox", { name: "Secret reference" })).toBeNull();
+  const token = screen.getByLabelText(/^Bearer token/) as HTMLInputElement;
+  expect(token.type).toBe("password");
+  expect(token.value).toBe("");
   await selectAccount();
+  fireEvent.change(token, { target: { value: "fixture-db-credential" } });
   fireEvent.click(screen.getByRole("button", { name: "Create import connection" }));
   await waitFor(() => expect(api.adminPartnerConnectionCreate).toHaveBeenCalled());
   const payload = vi.mocked(api.adminPartnerConnectionCreate).mock.calls[0][0];
   expect(payload).toMatchObject({
     provider: "shipyardhq",
     name: "ShipyardHQ",
+    credential: "fixture-db-credential",
     connector: {
       base_url: "https://shipyardhq.dev",
       list_path: "/api/products",
@@ -293,7 +303,7 @@ it("selects the Shipyard preset with official website and platform listing URL r
         listing_url: ["url"],
         pricing: ["pricing.model"],
       },
-      auth: { mode: "bearer", secret_ref: "DEVFEED_PARTNER_SECRET_PRODUCTS_API_TOKEN" },
+      auth: { mode: "bearer" },
       pagination: { mode: "cursor", next_path: "nextCursor", page_size: 10 },
       platform_hosts: ["shipyardhq.dev", "www.shipyardhq.dev"],
       filters: [],
@@ -316,7 +326,12 @@ it("preserves an explicitly saved Shipyard connector when editing the connection
   renderAdmin(
     <PartnerConnectionForm
       providers={[shipyardProvider]}
-      connection={{ ...connection, provider: "shipyardhq", connector: custom }}
+      connection={{
+        ...connection,
+        provider: "shipyardhq",
+        connector: custom,
+        credential_configured: true,
+      }}
       onSaved={vi.fn()}
       onCancel={vi.fn()}
     />,
@@ -335,6 +350,124 @@ it("preserves an explicitly saved Shipyard connector when editing the connection
       expect.anything(),
     ),
   );
+});
+
+it("keeps stored admin credentials write-only and previews the saved connection revision", async () => {
+  const saved = {
+    ...connection,
+    provider: "shipyardhq",
+    connector: connectorDefaults("shipyardhq"),
+    credential_configured: true,
+  };
+  vi.mocked(api.adminPartnerConnectorPreview).mockResolvedValue({
+    discovered: 0,
+    products: [],
+    errors: [],
+    has_next_page: false,
+  });
+  vi.mocked(api.adminPartnerConnectionUpdate).mockResolvedValue(saved);
+  renderAdmin(
+    <PartnerConnectionForm
+      providers={[shipyardProvider]}
+      connection={saved}
+      onSaved={vi.fn()}
+      onCancel={vi.fn()}
+    />,
+  );
+  expect(screen.queryByLabelText(/^Bearer token/)).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "Test import connection" }));
+  await waitFor(() =>
+    expect(api.adminPartnerConnectorPreview).toHaveBeenCalledWith(
+      { provider: saved.provider, connector: saved.connector, expected_revision: saved.revision },
+      { headers: { "X-CSRF-Token": "test-csrf" } },
+    ),
+  );
+  fireEvent.click(screen.getByRole("checkbox", { name: "Replace credential" }));
+  const token = screen.getByLabelText(/^Bearer token/) as HTMLInputElement;
+  expect(token.value).toBe("");
+  expect(token.type).toBe("password");
+  fireEvent.change(token, { target: { value: "replacement-db-secret" } });
+  fireEvent.click(screen.getByRole("button", { name: "Test import connection" }));
+  await waitFor(() =>
+    expect(api.adminPartnerConnectorPreview).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        credential: "replacement-db-secret",
+        expected_revision: saved.revision,
+      }),
+      expect.anything(),
+    ),
+  );
+  fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+  await waitFor(() =>
+    expect(api.adminPartnerConnectionUpdate).toHaveBeenCalledWith(
+      saved.provider,
+      expect.objectContaining({
+        credential: "replacement-db-secret",
+        expected_revision: saved.revision,
+      }),
+      expect.anything(),
+    ),
+  );
+});
+
+it("requires replacing admin credentials when an authenticated API origin changes", () => {
+  renderAdmin(
+    <PartnerConnectionForm
+      providers={[shipyardProvider]}
+      connection={{
+        ...connection,
+        provider: "shipyardhq",
+        connector: connectorDefaults("shipyardhq"),
+        credential_configured: true,
+      }}
+      onSaved={vi.fn()}
+      onCancel={vi.fn()}
+    />,
+  );
+  fireEvent.change(screen.getByRole("textbox", { name: "API base URL" }), {
+    target: { value: "https://new-catalog.example" },
+  });
+  expect((screen.getByLabelText(/^Bearer token/) as HTMLInputElement).value).toBe("");
+  expect(
+    (screen.getByRole("button", { name: "Test import connection" }) as HTMLButtonElement).disabled,
+  ).toBe(true);
+  fireEvent.submit(screen.getByRole("form", { name: "Import connection settings" }));
+  expect(api.adminPartnerConnectionUpdate).not.toHaveBeenCalled();
+  expect(
+    screen.getAllByText("Enter the credential for this authentication method.").length,
+  ).toBeGreaterThan(0);
+});
+
+it("preserves an unchanged admin credential without storage and clears it through no authentication", async () => {
+  const saved = {
+    ...connection,
+    provider: "shipyardhq",
+    connector: connectorDefaults("shipyardhq"),
+    credential_configured: true,
+    credentials_available: false,
+  };
+  vi.mocked(api.adminPartnerConnectionUpdate).mockResolvedValue(saved);
+  renderAdmin(
+    <PartnerConnectionForm
+      providers={[shipyardProvider]}
+      connection={saved}
+      onSaved={vi.fn()}
+      onCancel={vi.fn()}
+    />,
+  );
+  fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+  await waitFor(() => expect(api.adminPartnerConnectionUpdate).toHaveBeenCalled());
+  expect(vi.mocked(api.adminPartnerConnectionUpdate).mock.calls[0][1]).not.toHaveProperty(
+    "credential",
+  );
+  fireEvent.click(screen.getByRole("combobox", { name: "Authentication method" }));
+  fireEvent.click(screen.getByRole("option", { name: "No authentication" }));
+  expect(screen.getByText(/Saving without authentication/)).not.toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+  await waitFor(() => expect(api.adminPartnerConnectionUpdate).toHaveBeenCalledTimes(2));
+  expect(vi.mocked(api.adminPartnerConnectionUpdate).mock.calls[1][1]).toMatchObject({
+    connector: { auth: { mode: "none" } },
+  });
 });
 
 it("uses an import connection table and canonical create page without manual product input", async () => {
@@ -1048,7 +1181,7 @@ it("keeps saved custom connector settings when changing only the sync interval",
       size_parameter: "take",
       page_size: 40,
     },
-    auth: { mode: "bearer" as const, secret_ref: "DEVFEED_PARTNER_SECRET_SHIPYARD" },
+    auth: { mode: "bearer" as const },
   };
   vi.mocked(api.adminPartnerConnectionUpdate).mockResolvedValue({
     ...connection,
@@ -1059,7 +1192,13 @@ it("keeps saved custom connector settings when changing only the sync interval",
   renderAdmin(
     <PartnerConnectionForm
       providers={[]}
-      connection={{ ...connection, provider: "shipyard", name: "Shipyard", connector: config }}
+      connection={{
+        ...connection,
+        provider: "shipyard",
+        name: "Shipyard",
+        connector: config,
+        credential_configured: true,
+      }}
       onSaved={vi.fn()}
       onCancel={vi.fn()}
     />,
@@ -1236,17 +1375,17 @@ it("offers no empty connector choices while preserving explicit no-pagination an
   expect(screen.queryByRole("option", { name: "None" })).toBeNull();
   fireEvent.click(screen.getByRole("option", { name: "Custom API" }));
   for (const setting of [
-    { label: "Pagination mode", enabled: "Cursor" },
-    { label: "Authentication", enabled: "Bearer token" },
+    { label: "Pagination mode", enabled: "Cursor", off: "None" },
+    { label: "Authentication method", enabled: "Bearer token", off: "No authentication" },
   ]) {
     const trigger = screen.getByRole("combobox", { name: setting.label });
     expect(trigger.getAttribute("aria-required")).toBe("true");
     fireEvent.click(trigger);
-    expect(screen.getAllByRole("option", { name: /^None$/ })).toHaveLength(1);
+    expect(screen.getAllByRole("option", { name: setting.off })).toHaveLength(1);
     fireEvent.click(screen.getByRole("option", { name: setting.enabled }));
     fireEvent.click(trigger);
-    fireEvent.click(screen.getByRole("option", { name: /^None$/ }));
-    expect(trigger.textContent).toBe("None");
+    fireEvent.click(screen.getByRole("option", { name: setting.off }));
+    expect(trigger.textContent).toBe(setting.off);
   }
   await selectAccount();
   fireEvent.change(screen.getByRole("textbox", { name: "Identifier" }), {

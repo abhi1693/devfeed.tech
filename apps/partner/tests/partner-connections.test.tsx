@@ -45,8 +45,6 @@ function connection(overrides: Partial<WorkspaceConnectionOut> = {}): WorkspaceC
     auth_mode: "none",
     credential_header: "X-API-Key",
     credential_configured: false,
-    credentials_managed: false,
-    connector_editable: true,
     ...overrides,
   };
 }
@@ -241,7 +239,7 @@ it("creates a structured public API connection with write protection and navigat
     name: "My catalog",
     connector: {
       base_url: "https://catalog.example",
-      auth: { mode: "none", source: "connection", secret_ref: "" },
+      auth: { mode: "none" },
       max_pages: 100,
     },
     enabled: true,
@@ -568,7 +566,7 @@ it.each([true, false])(
         connector: {
           base_url: "https://catalog.example",
           max_pages: 1000,
-          auth: { mode: "bearer", source: "connection", secret_ref: "" },
+          auth: { mode: "bearer" },
         },
       }),
       { credentialsAvailable },
@@ -592,7 +590,7 @@ it("uses explicit write-only replacement and supports removing authentication", 
       auth_mode: "bearer",
       connector: {
         base_url: "https://catalog.example",
-        auth: { mode: "bearer", source: "connection", secret_ref: "" },
+        auth: { mode: "bearer" },
       },
     }),
   );
@@ -632,7 +630,7 @@ it("requires a fresh credential when changing an authenticated API origin", asyn
       auth_mode: "bearer",
       connector: {
         base_url: "https://catalog.example",
-        auth: { mode: "bearer", source: "connection" },
+        auth: { mode: "bearer" },
       },
     }),
   );
@@ -645,18 +643,17 @@ it("requires a fresh credential when changing an authenticated API origin", asyn
   expect(save).not.toHaveBeenCalled();
 });
 
-it("keeps managed API origins and credentials outside editable controls", async () => {
+it("allows editing stored credentials and API settings for every owned connection", async () => {
   const save = form(
     connection({
-      connector: null,
-      credentials_managed: true,
-      connector_editable: false,
       credential_configured: true,
       auth_mode: "bearer",
+      connector: { base_url: "https://catalog.example", auth: { mode: "bearer" } },
     }),
   );
-  expect(screen.queryByRole("textbox", { name: /API base URL/ })).toBeNull();
-  expect(screen.queryByRole("combobox", { name: "Authentication method" })).toBeNull();
+  expect(screen.getByRole("textbox", { name: /API base URL/ })).not.toBeNull();
+  expect(screen.getByRole("combobox", { name: "Authentication method" })).not.toBeNull();
+  expect(screen.queryByLabelText(/^Bearer token/)).toBeNull();
   fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
   await waitFor(() =>
     expect(save).toHaveBeenCalledExactlyOnceWith({ name: "Product catalog", enabled: true }),
@@ -818,7 +815,7 @@ it("sends replacement credentials only to preview and clears them when the API o
     auth_mode: "bearer",
     connector: {
       base_url: "https://catalog.example",
-      auth: { mode: "bearer", source: "connection" },
+      auth: { mode: "bearer" },
     },
   });
   const fetcher = vi

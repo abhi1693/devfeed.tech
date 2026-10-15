@@ -6,7 +6,6 @@
  * OpenAPI spec version: 0.0.52
  */
 import type { ConnectorAuthMode } from './connectorAuthMode';
-import type { ConnectorAuthSource } from './connectorAuthSource';
 
 export interface ConnectorAuth {
   /**
@@ -16,7 +15,4 @@ export interface ConnectorAuth {
      */
   header?: string;
   mode?: ConnectorAuthMode;
-  /** @pattern ^$|^DEVFEED_PARTNER_SECRET_[A-Z0-9_]{1,80}$ */
-  secret_ref?: string;
-  source?: ConnectorAuthSource;
 }

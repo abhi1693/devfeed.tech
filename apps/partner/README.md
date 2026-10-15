@@ -292,10 +292,11 @@ their listing and tagline. Products created without a connection keep their acco
 Connections support public endpoints, bearer tokens and API keys. Tokens are write-only:
 editing a connection never retrieves the saved value. Keeping authentication unchanged preserves
 the token; changing the origin or authentication requires a replacement. Selecting no authentication
-removes the saved token. Administrator-managed environment credentials remain under administration
-control and cannot be redirected or replaced through the partner portal.
+removes the saved token. Administration and the partner portal share the same encrypted
+per-connection storage.
 
-Set `DEVFEED_PARTNER_CREDENTIAL_KEY` to a persistent Fernet key in the partner API and import worker.
+Set `DEVFEED_PARTNER_CREDENTIAL_KEY` to the same persistent Fernet key in the admin API,
+partner API and import workers.
 Generate one with `uv run python -c 'from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())'`
 and store it in private deployment configuration. The key is separate from database ciphertext;
 back it up securely because replacing or losing it requires re-entering stored credentials.

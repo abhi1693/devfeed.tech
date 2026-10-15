@@ -9,6 +9,8 @@ import type { ConnectorConfig } from './connectorConfig';
 
 export interface ConnectorPreview {
   connector: ConnectorConfig;
+  credential?: string | null;
+  expected_revision?: number | null;
   /**
      * @minLength 1
      * @maxLength 200

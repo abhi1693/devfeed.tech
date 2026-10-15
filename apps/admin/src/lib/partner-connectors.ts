@@ -30,7 +30,6 @@ export function connectorDefaults(provider = ""): ConnectorConfig {
     },
     auth: {
       mode: shipyard ? "bearer" : "none",
-      secret_ref: shipyard ? "DEVFEED_PARTNER_SECRET_PRODUCTS_API_TOKEN" : "",
       header: "X-API-Key",
     },
     filters: nick

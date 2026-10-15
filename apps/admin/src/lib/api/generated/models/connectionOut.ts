@@ -18,6 +18,8 @@ export interface ConnectionOut {
   checking: number;
   commercial_approved?: number;
   connector?: ConnectorConfig | null;
+  credential_configured?: boolean;
+  credentials_available?: boolean;
   enabled: boolean;
   error: string | null;
   excluded: number;
