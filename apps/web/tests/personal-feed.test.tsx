@@ -54,7 +54,7 @@ it.each([
   [{ sort: "most_liked" }, undefined, true, true],
   [{}, "next", false, false],
   [{ cursor: "next" }, undefined, false, false],
-  [{ source_id: "11111111-1111-4111-8111-111111111111" }, undefined, false, false],
+  [{ source_id: "11111111-1111-4111-8111-111111111111" }, undefined, true, false],
 ] as const)(
   "applies shared placement eligibility to personal filters %j and cursor %s",
   async (query, cursor, eligible, fallback) => {

@@ -69,16 +69,19 @@ describe("shared native feed eligibility", () => {
     },
   );
 
-  it.each([{ q: "compiler" }, { topic: "rust" }, { tag: "c++" }, { content_type: "news" }])(
-    "keeps filtered feed %j contextual",
-    (query) => {
-      expect(feedPlacements(readerFeeds.latest, parseFilters(query))).toEqual({
-        surface: "feed",
-        allow_sponsored_fallback: false,
-        ad_formats: ["feed", "sponsored_content"],
-      });
-    },
-  );
+  it.each([
+    { q: "compiler" },
+    { topic: "rust" },
+    { tag: "c++" },
+    { content_type: "news" },
+    { source_id: "11111111-1111-4111-8111-111111111111" },
+  ])("keeps filtered feed %j contextual", (query) => {
+    expect(feedPlacements(readerFeeds.latest, parseFilters(query))).toEqual({
+      surface: "feed",
+      allow_sponsored_fallback: false,
+      ad_formats: ["feed", "sponsored_content"],
+    });
+  });
 
   it("normalizes invalid query values before eligibility", () => {
     const { filters } = resolveFeed(
@@ -117,22 +120,51 @@ describe("shared native feed eligibility", () => {
       allow_sponsored_fallback: false,
     });
     expect(
+      feedPlacements(
+        readerFeeds.home,
+        parseFilters({ source_id: "11111111-1111-4111-8111-111111111111" }),
+        context,
+      ),
+    ).toEqual({
+      surface: "feed",
+      allow_sponsored_fallback: false,
+      ad_formats: ["feed", "sponsored_content"],
+    });
+    expect(
       feedPlacements(readerFeeds.home, parseFilters({}), { topicId: "topic-id" }),
     ).toMatchObject({ surface: "feed", allow_sponsored_fallback: false });
   });
 
-  it("suppresses source, paginated, bookmarks, and trending placements", () => {
+  it("uses contextual Feed placements on source article pages", () => {
+    for (const descriptor of [readerFeeds.home, readerFeeds.latest, readerFeeds.contextual])
+      expect(
+        feedPlacements(
+          descriptor,
+          parseFilters({ source_id: "11111111-1111-4111-8111-111111111111" }),
+          { section: "sources" },
+        ),
+      ).toEqual({
+        surface: "feed",
+        allow_sponsored_fallback: false,
+        ad_formats: ["feed", "sponsored_content"],
+      });
+  });
+
+  it("suppresses paginated, bookmarks, and trending placements", () => {
     for (const descriptor of [readerFeeds.home, readerFeeds.latest, readerFeeds.contextual]) {
       expect(feedPlacements(descriptor, parseFilters({ cursor: "next" }))).toBeUndefined();
       expect(
         feedPlacements(
           descriptor,
-          parseFilters({ source_id: "11111111-1111-4111-8111-111111111111" }),
+          parseFilters({ source_id: "11111111-1111-4111-8111-111111111111", cursor: "next" }),
+          { section: "sources" },
         ),
       ).toBeUndefined();
-      expect(feedPlacements(descriptor, parseFilters({}), { section: "sources" })).toBeUndefined();
     }
     for (const descriptor of [readerFeeds.bookmarks, readerFeeds.trending])
-      expect(feedPlacements(descriptor, parseFilters({}))).toBeUndefined();
+      for (const section of ["feed", "topics", "sources"] as const)
+        expect(
+          feedPlacements(descriptor, parseFilters({}), { section, topicId: "topic-id" }),
+        ).toBeUndefined();
   });
 });

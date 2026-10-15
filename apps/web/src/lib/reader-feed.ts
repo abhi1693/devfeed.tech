@@ -43,14 +43,8 @@ export function feedPlacements(
   filters: FeedFilters,
   { section = "feed", topicId }: { section?: "feed" | "topics" | "sources"; topicId?: string } = {},
 ): Omit<PlacementQuery, "article_ids"> | undefined {
-  if (
-    !descriptor.capabilities.placements ||
-    filters.cursor ||
-    filters.source_id ||
-    section === "sources"
-  )
-    return undefined;
-  if (section === "topics" && topicId && !filters.q)
+  if (!descriptor.capabilities.placements || filters.cursor) return undefined;
+  if (section === "topics" && topicId && !filters.q && !filters.source_id)
     return { surface: "topic", topic_id: topicId, ad_formats: ["feed"] };
   const fallback =
     descriptor.capabilities.sponsoredFallback &&
@@ -58,6 +52,7 @@ export function feedPlacements(
     !topicId &&
     !filters.q &&
     !filters.topic &&
+    !filters.source_id &&
     !filters.content_type &&
     !filters.tag;
   return {

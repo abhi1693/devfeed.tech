@@ -184,11 +184,11 @@ Engagement formats. Automatic formats default to Feed until another format is en
 Header sponsorship appears in the global navigation across reader pages when the header has
 room on wide screens. It shows a 32-pixel product logo, name, muted Sponsored disclosure and a short tagline;
 it does not occupy a feed card or a strip above the feed. Engagement placements use grounded task
-matches in article previews or verified direct topic support in search and topic sidebars.
-Source-feed sidebars use grounded tutorial matches from the initial visible articles, with no
-sponsored fallback. Topic and source pages keep their articles full-width when no Engagement
-product qualifies; narrow screens place the sidebar after the articles. Grid feeds and
-topic pages use full Feed cards or sponsored articles; compact tables use native Feed rows.
+matches in article previews or verified direct topic support in search.
+Topic and source article feeds use the same inline Feed cards and compact table rows as Latest,
+without a separate product sidebar. Their insertion positions and minimum article count are shared
+with Latest. Topic placements retain prepared topic relevance; source feeds use the initial visible
+articles with no sponsored fallback. Grid feeds also support sponsored articles where eligible.
 Engagement does not occupy grid cells or table rows, interrupt article reading or replace reader
 actions. Article-preview Engagement cards sit below the topic information
 in the sidebar, after the source brief when no topic is available.

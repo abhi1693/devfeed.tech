@@ -193,8 +193,9 @@ Anonymous feed requests without context return no products unless the main feed 
 or personal feed context exists. Engagement and sponsored articles always require relevance.
 Header sponsorship uses its independent explicit brand inventory and does not enable Feed fallback.
 Search, category and filtered feeds keep Feed fallback
-disabled; organic slots and article previews always require relevance. Source-filtered, saved, trending,
-and cursor views suppress product placements. Compact feed tables use native sponsored rows.
+disabled; organic slots and article previews always require relevance. Source-filtered feeds use
+visible article context with fallback disabled. Saved, trending and cursor views suppress product
+placements. Compact feed tables use native sponsored rows.
 News and opinion previews receive no tutorial placements.
 
 Requests fetch prepared candidates in bounded batches and recheck current product, listing, account,
@@ -223,8 +224,7 @@ an article or topic match and never fills the ordinary recommendation slot.
 
 Feed product placements use the article card's image area, spacing, body and footer inside the
 initial article grid, after the fourth and twelfth articles when enough articles exist.
-Short grids have one cell after the available articles;
-that cell prefers the eligible sponsored result when present. Articles retain their order,
+Feeds with fewer than four articles omit product placements. Articles retain their order,
 keyboard focus and viewport position when product responses arrive or cards are hidden. Infinite
 scroll does not add more product slots. Opening a preview suspends background delivery and
 restores the same grid cards afterward, without refreshing the reading session.
@@ -232,13 +232,12 @@ Compact feed tables use the same initial placement slots with a compact `Name | 
 a subtle border. Sponsored appears in the date column, or beside the name when that column is
 hidden on narrow screens. They do not render image cards inside table rows.
 
-Engagement placements remain compact and contextual in search, topic, source and article-preview
-sidebars. Topic feeds use the current verified topic; source feeds use grounded tutorial matches
-from at most 24 initially visible articles, with at least four stories and no sponsored fallback.
-Collection sidebars appear to the right on wide screens and after articles on narrow screens;
-empty selections leave the full article width available.
-Grid feeds and topic pages request full Feed cards or sponsored articles, while compact tables
-request native Feed rows. Engagement cards never occupy these grid cells or table rows.
+Topic and source article feeds use the same inline Feed cards, compact Feed rows and placement
+slots as Latest, without a separate product sidebar. Topic feeds use prepared product/topic
+relevance; source feeds use at most 24 initially visible articles with no sponsored fallback.
+Eligible grid feeds also support sponsored articles; compact tables request Feed only.
+Engagement placements remain compact and contextual in search and article-preview sidebars.
+Engagement cards never occupy grid cells or table rows.
 Article previews show these cards below the topic information in the sidebar, outside
 the article text. On narrow screens that sidebar follows the article copy. Search requests one Engagement placement
 above Topics in its right sidebar when at least four initial article results supply context.

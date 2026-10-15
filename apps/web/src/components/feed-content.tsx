@@ -11,8 +11,6 @@ import { InfiniteFeed } from "@/components/infinite-feed";
 import { FeedFiltersBar } from "@/components/feed-filters";
 import { RetryFeed } from "@/components/retry-feed";
 import { feedPlacements, type FeedDescriptor } from "@/lib/reader-feed";
-import { CollectionFeedPlacements } from "./collection-feed-placements";
-import type { PartnerPlacementContext } from "./partner-placements";
 
 import type { ReactNode } from "react";
 import type { FeedPage, FeedOptions } from "@/lib/types";
@@ -50,22 +48,6 @@ export function FeedContent({
   const filtered = Object.entries(filters).some(
     ([key, value]) => key !== "cursor" && key !== "source_slug" && value,
   );
-  const initialArticleIds =
-    feed.status === "fulfilled"
-      ? [...new Set(feed.value.items.map((article) => article.id))].slice(0, 24)
-      : [];
-  let sidebar: PartnerPlacementContext | undefined;
-  if (feedDescriptor.capabilities.placements && !filters.cursor && initialArticleIds.length) {
-    if (section === "topics" && topicId)
-      sidebar = { surface: "topic", topic_id: topicId, ad_formats: ["engagement"] };
-    else if (section === "sources" && filters.source_id && initialArticleIds.length >= 4)
-      sidebar = {
-        surface: "feed",
-        article_ids: initialArticleIds,
-        ad_formats: ["engagement"],
-        allow_sponsored_fallback: false,
-      };
-  }
   const content = (
     <>
       {children}
@@ -142,13 +124,12 @@ export function FeedContent({
         </section>
       ) : feed.value.items.length ? (
         <>
-          <CollectionFeedPlacements key={feedParams(filters).toString()} context={sidebar}>
-            <InfiniteFeed
-              initialPage={feed.value}
-              filters={filters}
-              placements={feedPlacements(feedDescriptor, filters, { section, topicId })}
-            />
-          </CollectionFeedPlacements>
+          <InfiniteFeed
+            key={feedParams(filters).toString()}
+            initialPage={feed.value}
+            filters={filters}
+            placements={feedPlacements(feedDescriptor, filters, { section, topicId })}
+          />
           {filters.cursor && (
             <div className="pagination">
               <Link className="button" href={feedHref(filters)}>

@@ -30,7 +30,7 @@ export const adFormats = [
   {
     value: "engagement",
     label: "Engagement",
-    description: "Compact product recommendations in topic, source, search and article sidebars.",
+    description: "Compact product recommendations in search and article sidebars.",
   },
 ] as const;
 export type AdFormat = (typeof adFormats)[number]["value"];

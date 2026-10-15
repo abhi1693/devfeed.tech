@@ -188,7 +188,7 @@ export async function checkFeedMode(page, destination, fixture, output, extensio
       assert.deepEqual(
         fixture.queries.filter((query) => query.body.surface !== "header"),
         [],
-        `${path}: source and paginated routes do not request contextual placements`,
+        `${path}: paginated routes do not request contextual placements`,
       );
     } else {
       await page.waitForFunction(
@@ -219,11 +219,15 @@ export async function checkFeedMode(page, destination, fixture, output, extensio
       );
       if (surface === "topic") assert.equal(query.body.topic_id, fixture.topic.id);
       if (formats) {
-        assert.deepEqual(query.body.ad_formats, formats, `${path}: sidebar inventory is explicit`);
+        assert.deepEqual(
+          query.body.ad_formats,
+          formats,
+          `${path}: placement inventory is explicit`,
+        );
         assert.equal(
           fixture.queries.filter((query) => query.body.surface !== "header").length,
           1,
-          `${path}: one contextual sidebar query without Feed grid inventory`,
+          `${path}: one contextual placement query`,
         );
         assert.deepEqual(
           query.body.article_ids,
@@ -277,8 +281,12 @@ export async function checkFeedMode(page, destination, fixture, output, extensio
       { path: "/latest?tag=typescript", fallback: false },
       { path: "/topics/javascript", fallback: false, surface: "topic" },
       { path: "/topics/javascript/news", fallback: false, surface: "topic", type: "news" },
-      { path: "/sources/publisher", fallback: false, formats: ["engagement"] },
-      { path: `/latest?source_id=${fixture.source.id}`, fallback: false, formats: ["engagement"] },
+      { path: "/sources/publisher", fallback: false, formats: ["feed", "sponsored_content"] },
+      {
+        path: `/latest?source_id=${fixture.source.id}`,
+        fallback: false,
+        formats: ["feed", "sponsored_content"],
+      },
       { path: "/latest?cursor=next-page", disabled: true },
       { path: "/search?q=typescript", fallback: false, surface: "search", formats: ["engagement"] },
     ])
@@ -307,7 +315,12 @@ export async function checkFeedMode(page, destination, fixture, output, extensio
       { path: "/?content_type=invalid", fallback: true, personal: true },
       { path: "/?q=typescript", fallback: false, personal: true },
       { path: "/?content_type=news", fallback: false, personal: true, type: "news" },
-      { path: `/?source_id=${fixture.source.id}`, disabled: true, personal: true },
+      {
+        path: `/?source_id=${fixture.source.id}`,
+        fallback: false,
+        personal: true,
+        formats: ["feed", "sponsored_content"],
+      },
       { path: "/?cursor=next-page", disabled: true, personal: true },
       { path: "/latest", fallback: true },
       { path: "/news", fallback: false, type: "news" },
@@ -316,8 +329,12 @@ export async function checkFeedMode(page, destination, fixture, output, extensio
       { path: "/latest?tag=typescript", fallback: false },
       { path: "/topics/javascript", fallback: false, surface: "topic" },
       { path: "/topics/javascript/news", fallback: false, surface: "topic", type: "news" },
-      { path: "/sources/publisher", fallback: false, formats: ["engagement"] },
-      { path: `/latest?source_id=${fixture.source.id}`, fallback: false, formats: ["engagement"] },
+      { path: "/sources/publisher", fallback: false, formats: ["feed", "sponsored_content"] },
+      {
+        path: `/latest?source_id=${fixture.source.id}`,
+        fallback: false,
+        formats: ["feed", "sponsored_content"],
+      },
       { path: "/latest?cursor=next-page", disabled: true },
       { path: "/search?q=typescript", fallback: false, surface: "search", formats: ["engagement"] },
     ])

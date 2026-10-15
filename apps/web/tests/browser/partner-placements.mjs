@@ -146,7 +146,6 @@ let organicCount = 24;
 let promotedArrival = false;
 let organicPagesDelivered = 0;
 let placementLimited = false;
-let duplicateCollectionProduct = false;
 let isolateArticleReceipts = false;
 let articleReceiptSequence = 0;
 let sessionReceiptNamespace = null;
@@ -610,8 +609,8 @@ async function assertSitewideHeader(context, base, platform) {
         ["/latest", ".article-grid .card-open-link"],
         ["/search?q=typescript&section=topics", ".search-section-topics .search-result-link"],
         ["/topics", ".topic-card-link"],
-        ["/topics/typescript", ".collection-feed-articles .card-open-link"],
-        ["/sources/engineering", ".collection-feed-articles .card-open-link"],
+        ["/topics/typescript", ".article-placement-feed .card-open-link"],
+        ["/sources/engineering", ".article-placement-feed .card-open-link"],
         [`/articles/${article.slug}`, ".article-modal #article-preview-title"],
         ["/read-later", ".article-grid .card-open-link"],
         ["/users/fixture-reader", ".public-profile h1"],
@@ -690,7 +689,7 @@ async function assertSitewideHeader(context, base, platform) {
     await page.locator(".topic-card-link").first().waitFor();
     await continuity(`${platform}: topic catalog`);
     await page.locator(".topic-card-link").first().click();
-    await page.locator(".collection-feed-articles .card-open-link").first().waitFor();
+    await page.locator(".article-placement-feed .card-open-link").first().waitFor();
     await continuity(`${platform}: topic detail`);
     await page
       .locator("a.nav-item")
@@ -698,7 +697,7 @@ async function assertSitewideHeader(context, base, platform) {
       .click();
     await page.locator(".source-card-link").first().waitFor();
     await page.locator(".source-card-link").first().click();
-    await page.locator(".collection-feed-articles .card-open-link").first().waitFor();
+    await page.locator(".article-placement-feed .card-open-link").first().waitFor();
     await continuity(`${platform}: source detail`);
     await page.locator(".topbar .search input").fill("typescript");
     await page.locator(".search-section-articles .search-result-link").first().waitFor();
@@ -1064,12 +1063,14 @@ async function assertAuthenticationPlacementParity(context, base, platform) {
       for (const { route, formats, header = true, view = "cards" } of [
         { route: "/", formats: ["feed", "sponsored_content"] },
         { route: "/latest", formats: ["feed", "sponsored_content"] },
-        { route: "/topics/typescript", formats: ["feed", "engagement"] },
-        { route: "/sources/engineering", formats: ["engagement"] },
-        { route: `/latest?source_id=${source.id}`, formats: ["engagement"] },
+        { route: "/topics/typescript", formats: ["feed"] },
+        { route: "/sources/engineering", formats: ["feed", "sponsored_content"] },
+        { route: `/latest?source_id=${source.id}`, formats: ["feed", "sponsored_content"] },
         { route: "/search?q=typescript", formats: ["engagement"] },
         { route: `/articles/${article.slug}`, formats: ["engagement"], header: false },
         { route: "/latest", formats: ["feed"], view: "compact" },
+        { route: "/topics/typescript", formats: ["feed"], view: "compact" },
+        { route: "/sources/engineering", formats: ["feed"], view: "compact" },
       ]) {
         const expectedFormats = [
           ...formats,
@@ -1629,174 +1630,159 @@ async function assertSearchSidebarExpiry(context, base, platform) {
   }
 }
 
-async function assertCollectionFeedSidebars(page, base, platform) {
-  const selector = ".collection-feed-sidebar";
+async function assertCollectionFeedPlacements(page, base, platform) {
+  const previousSignedIn = signedIn;
+  signedIn = false;
   nativeMode = null;
   mediaMode = "standard";
   try {
     for (const width of [1280, 390]) {
-      await page.setViewportSize({ width, height: width === 390 ? 844 : 900 });
-      for (const kind of ["topic", "source"]) {
-        const route = kind === "topic" ? "/topics/typescript" : "/sources/engineering";
-        const label = `${platform}/${width}: ${kind} detail`;
-        queries = [];
-        let release;
-        deliveryGate = new Promise((resolve) => {
-          release = resolve;
-        });
-        try {
-          await page.goto("about:blank");
-          await page.goto(`${base}${route}`);
-          const reading = page.locator(".collection-feed-articles .card-open-link").nth(8);
-          await reading.waitFor();
-          await page.mouse.move(0, 0);
-          await reading.scrollIntoViewIfNeeded();
-          await reading.focus();
-          await reading.evaluate(async (node) => {
-            window.__collectionReadingResult = node;
-            await Promise.all(
-              node
-                .closest(".article-card")
-                .getAnimations()
-                .map((animation) => animation.finished.catch(() => {})),
-            );
-          });
-          const before = await reading.boundingBox();
-          deliveryGate = null;
-          release();
-          await page.locator(`${selector} .partner-placement`).waitFor();
-          if (kind === "topic")
-            await page.locator(".article-grid > .partner-placement").nth(1).waitFor();
-          await assertCompactSidebar(page, selector, label, 1);
-          assert.equal(
-            await page.locator('.article-grid [data-ad-format="engagement"]').count(),
-            0,
-            `${label}: compact Engagement remains outside the article grid`,
+      for (const theme of ["light", "dark"]) {
+        await page.setViewportSize({ width, height: width === 390 ? 844 : 900 });
+        for (const view of ["cards", "compact"]) {
+          feedView = view;
+          await page.evaluate(
+            ({ view, theme }) => {
+              localStorage.setItem("devfeed:feed-view:guest", view);
+              localStorage.setItem("devfeed:theme", theme);
+            },
+            { view, theme },
           );
-          const gridFormats = await page
-            .locator(".article-grid > .partner-placement")
-            .evaluateAll((cards) => cards.map((card) => card.dataset.adFormat));
-          assert.deepEqual(gridFormats, kind === "topic" ? ["feed", "feed"] : []);
-          assert.deepEqual(
-            await page.locator(".collection-feed-articles .card-open-link").allTextContents(),
-            feedArticles.map((item) => item.title),
-            `${label}: delivery preserves all organic articles in order`,
-          );
-          assert.equal(
-            await reading.evaluate(
-              (node) =>
-                node === window.__collectionReadingResult && node === document.activeElement,
-            ),
-            true,
-            `${label}: asynchronous rail delivery keeps the focused article node`,
-          );
-          const after = await reading.boundingBox();
-          assert.ok(
-            Math.abs(after.y - before.y) <= 2,
-            `${label}: rail delivery preserves reading position (${before.y} -> ${after.y})`,
-          );
-          const selection = queries.find(
-            (query) => JSON.stringify(query.body.ad_formats) === JSON.stringify(["engagement"]),
-          );
-          assert.ok(selection, `${label}: compact sidebar makes its own contextual request`);
-          assert.equal(selection.body.allow_sponsored_fallback ?? false, false);
-          if (kind === "topic") {
-            assert.equal(selection.body.surface, "topic");
-            assert.equal(selection.body.topic_id, topic.id);
-          } else {
-            assert.equal(selection.body.surface, "feed");
+          const container = view === "cards" ? ".article-grid" : ".article-table tbody";
+          const selector = `${container} > .partner-placement`;
+          const organicSelector =
+            view === "cards"
+              ? `${container} > .article-card:not(.partner-placement) .card-open-link`
+              : `${container} > tr:not(.partner-placement) .article-list-title`;
+          let latestStructure;
+          for (const [kind, route] of [
+            ["latest", "/latest"],
+            ["topic", "/topics/typescript"],
+            ["source", "/sources/engineering"],
+          ]) {
+            const label = `${platform}/${width}/${theme}/${view}: ${kind} article feed`;
+            queries = [];
+            await page.goto("about:blank");
+            await page.goto(`${base}${route}`);
+            const cards = page.locator(selector);
+            await cards.nth(1).waitFor();
+            const structure = await page.locator(container).evaluate((node) => ({
+              classes: node.className,
+              children: [...node.children].map((child) => ({
+                tag: child.tagName,
+                classes: child.className,
+                format: child.dataset.adFormat ?? null,
+                product: child.dataset.productId ?? null,
+                cells: child.tagName === "TR" ? child.children.length : null,
+              })),
+            }));
+            if (kind === "latest") latestStructure = structure;
+            else
+              assert.deepEqual(
+                structure,
+                latestStructure,
+                `${label}: identical native layout, Feed creatives and insertion positions as Latest`,
+              );
+            assert.equal(structure.children.length, 26);
+            assert.equal(structure.children[4].format, "feed");
+            assert.equal(structure.children[13].format, "feed");
             assert.deepEqual(
-              selection.body.article_ids,
-              feedArticles.map((item) => item.id),
+              await page.locator(organicSelector).allTextContents(),
+              feedArticles.map((item) => item.title),
+              `${label}: all organic articles retain their order`,
             );
-            assert.equal(queries.length, 1, `${label}: source has only one sidebar selection`);
+            assert.equal(
+              await page.locator('.collection-feed-sidebar,[data-ad-format="engagement"]').count(),
+              0,
+              `${label}: no separate Engagement inventory or sidebar`,
+            );
+            const selection = queries.find((query) => query.body.surface !== "header");
+            assert.ok(selection, `${label}: one native selection`);
+            assert.equal(queries.length, 1);
+            assert.deepEqual(
+              selection.body.ad_formats,
+              kind === "topic" || view === "compact" ? ["feed"] : ["feed", "sponsored_content"],
+            );
+            if (kind === "topic") {
+              assert.equal(selection.body.surface, "topic");
+              assert.equal(selection.body.topic_id, topic.id);
+            } else {
+              assert.equal(selection.body.surface, "feed");
+              assert.deepEqual(
+                selection.body.article_ids,
+                feedArticles.map((item) => item.id),
+              );
+            }
+            if (kind !== "latest")
+              assert.equal(selection.body.allow_sponsored_fallback ?? false, false);
+            await cards.first().scrollIntoViewIfNeeded();
+            if (view === "cards") {
+              assert.equal(await cards.first().locator(".card-image").count(), 1);
+              await assertPlacementPlatform(cards.first(), { label });
+            } else {
+              assert.equal(await cards.locator(".card-image,.article-card").count(), 0);
+              assert.ok(
+                structure.children.every((child) => child.tag === "TR" && child.cells === 4),
+              );
+            }
+            await page.mouse.move(0, 0);
+            assert.ok(
+              await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth),
+              `${label}: no horizontal overflow`,
+            );
+            if (kind !== "latest")
+              await page.screenshot({
+                path: `${reportDirectory}/${platform}-${kind}-feed-${view}-${theme}-${width}.png`,
+                animations: "disabled",
+              });
           }
-          const geometry = await page.locator(selector).evaluate((sidebar) => {
-            const rect = (node) => node.getBoundingClientRect().toJSON();
-            return {
-              semantic: sidebar.tagName,
-              sidebar: rect(sidebar),
-              articles: rect(document.querySelector(".collection-feed-articles")),
-              overflow: document.documentElement.scrollWidth > innerWidth,
-            };
-          });
-          assert.equal(geometry.semantic, "ASIDE");
-          if (width > 1100)
-            assert.ok(
-              geometry.sidebar.x >= geometry.articles.right,
-              `${label}: desktop right rail`,
-            );
-          else
-            assert.ok(
-              geometry.sidebar.y >= geometry.articles.bottom - 1,
-              `${label}: narrow layouts stack Engagement after articles`,
-            );
-          assert.equal(geometry.overflow, false);
-          const products = await page
-            .locator(".partner-placement")
-            .evaluateAll((cards) => cards.map((card) => card.dataset.productId));
-          assert.equal(new Set(products).size, products.length, `${label}: products stay unique`);
-          await page.locator(selector).scrollIntoViewIfNeeded();
-          await waitForVisibleProductLogos(page);
-          await page.screenshot({
-            path: `${reportDirectory}/${platform}-${kind}-sidebar-${width}.png`,
-            animations: "disabled",
-          });
-        } finally {
-          deliveryGate = null;
-          release();
         }
       }
     }
-    duplicateCollectionProduct = true;
-    await page.setViewportSize({ width: 1280, height: 900 });
-    await page.goto("about:blank");
-    const selections = ["feed", "engagement"].map((format) =>
-      page.waitForResponse((response) => {
-        if (!new URL(response.url()).pathname.endsWith("/partner-placements/query")) return false;
-        const query = response.request().postDataJSON();
-        return query?.surface === "topic" && query.ad_formats?.includes(format);
-      }),
-    );
-    await page.goto(`${base}/topics/typescript`);
-    await Promise.all(selections.map(async (response) => (await response).json()));
-    await page.locator(".article-grid .card-open-link").first().waitFor();
-    await page.evaluate(
-      () => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))),
-    );
-    assert.equal(
-      await page.locator(`.partner-placement[data-product-id="${ordinary.product_id}"]`).count(),
-      1,
-      `${platform}: concurrent topic Feed and Engagement selections display a product only once`,
-    );
-    assert.equal(await page.locator('.article-grid [data-ad-format="engagement"]').count(), 0);
-    await page.screenshot({
-      path: `${reportDirectory}/${platform}-topic-sidebar-deduplication.png`,
-      animations: "disabled",
-    });
-    duplicateCollectionProduct = false;
-    organicCount = 3;
-    queries = [];
-    await page.goto("about:blank");
-    await page.goto(`${base}/sources/engineering`);
-    await page.locator(".article-grid .card-open-link").first().waitFor();
-    await page.waitForTimeout(200);
-    assert.equal(queries.length, 0, `${platform}: sparse source pages reserve no inventory`);
-    assert.equal(await page.locator(selector).count(), 0);
-    organicCount = 24;
-    for (const route of ["/topics/typescript", "/sources/engineering"]) {
-      queries = [];
-      await page.goto("about:blank");
-      await page.goto(`${base}${route}?cursor=next-page`);
-      await page.locator(".article-grid .card-open-link").first().waitFor();
-      await page.waitForTimeout(200);
-      assert.equal(queries.length, 0, `${platform}: ${route} cursor pages reserve no inventory`);
-      assert.equal(await page.locator(selector).count(), 0);
+    for (const view of ["cards", "compact"]) {
+      feedView = view;
+      await page.evaluate((view) => localStorage.setItem("devfeed:feed-view:guest", view), view);
+      const container = view === "cards" ? ".article-grid" : ".article-table tbody";
+      const organicSelector = view === "cards" ? ".card-open-link" : ".article-list-title";
+      for (const count of [3, 4]) {
+        organicCount = count;
+        for (const route of ["/latest", "/topics/typescript", "/sources/engineering"]) {
+          const label = `${platform}/${view}/${route}/${count}`;
+          queries = [];
+          await page.goto("about:blank");
+          await page.goto(`${base}${route}`);
+          await page.locator(`${container} ${organicSelector}`).first().waitFor();
+          if (count >= 4) await page.locator(`${container} > .partner-placement`).waitFor();
+          else await page.waitForTimeout(200);
+          assert.equal(
+            await page.locator(`${container} > .partner-placement`).count(),
+            count >= 4 ? 1 : 0,
+            `${label}: the same four-article slot threshold as Latest`,
+          );
+          assert.equal(queries.length, count >= 4 ? 1 : 0);
+          assert.equal(await page.locator(".collection-feed-sidebar").count(), 0);
+        }
+      }
+      organicCount = 24;
+      for (const route of ["/topics/typescript", "/sources/engineering"]) {
+        queries = [];
+        await page.goto("about:blank");
+        await page.goto(`${base}${route}?cursor=next-page`);
+        await page.locator(`${container} ${organicSelector}`).first().waitFor();
+        await page.waitForTimeout(200);
+        assert.equal(
+          queries.length,
+          0,
+          `${platform}/${view}/${route}: cursor pages reserve no inventory`,
+        );
+        assert.equal(await page.locator(".partner-placement").count(), 0);
+      }
     }
   } finally {
     organicCount = 24;
-    duplicateCollectionProduct = false;
-    deliveryGate = null;
+    signedIn = previousSignedIn;
+    feedView = "cards";
+    await page.evaluate(() => localStorage.setItem("devfeed:feed-view:guest", "cards"));
   }
 }
 
@@ -2467,10 +2453,7 @@ function response(requestPath, body, headers = {}, extension = false) {
       !body.ad_formats?.includes("header_sponsorship"),
       "Contextual placements never reserve global header inventory",
     );
-    if (
-      ["feed", "topic"].includes(body.surface) &&
-      body.ad_formats?.some((format) => format !== "engagement")
-    )
+    if (["feed", "topic"].includes(body.surface))
       assert.ok(
         !body.ad_formats?.includes("engagement"),
         "Grid and table feeds request native Feed cards without sidebar Engagement",
@@ -2523,18 +2506,6 @@ function response(requestPath, body, headers = {}, extension = false) {
       );
       assert.ok(body.article_ids.length >= 4 && body.article_ids.length <= 24);
     }
-    if (
-      ["topic", "feed"].includes(body.surface) &&
-      JSON.stringify(body.ad_formats) === JSON.stringify(["engagement"])
-    )
-      return {
-        items: deliveryItems(
-          body.surface === "topic" || body.article_ids?.includes(article.id)
-            ? [duplicateCollectionProduct ? engagementPlacement : collectionEngagement]
-            : [],
-          body,
-        ),
-      };
     const eligible =
       body.surface === "topic" ||
       (pathname.includes("/user/") && body.surface === "feed") ||
@@ -3571,7 +3542,7 @@ try {
         }
       }
       organicCount = 24;
-      await assertCollectionFeedSidebars(page, base, platform);
+      await assertCollectionFeedPlacements(page, base, platform);
       for (const theme of ["light", "dark"]) {
         for (const width of [1280, 390]) {
           for (const mode of ["custom", "standard", "no-og"]) {
@@ -4187,7 +4158,7 @@ try {
           `${platform}: production gateway preserves distinct caller identity for ${pathname}`,
         );
       console.log(
-        `${platform}: built web/extension sitewide Header sponsorship, stable header DOM and signed receipts through page navigation and article overlays, independent Header expiry, narrow inventory gating, compact search and article sidebars, category and topic cards; managed custom product creatives, clearing to default OG, responsive sources and failed-image fallback; compact formats preserve logos and sponsored content preserves its article image; every product disclosed as Sponsored with quiet header text and amber card pills; no dismissal; compact preview sidebar; unchanged feed nodes, receipts and tracking through article overlays; focus/layout stability; signed campaign and non-campaign tracking; configured production gateway caller proofs, credential isolation and placement429 retry guidance; mounted receipt expiry and background wake preserve reading position without refreshing or tracking; viewable placements never read, write or remove abandoned local history; private session routing; optional private experience save/reload/clear; article priority passed`,
+        `${platform}: built web/extension sitewide Header sponsorship, stable header DOM and signed receipts through page navigation and article overlays, independent Header expiry, narrow inventory gating, compact search and article sidebars; topic/source native Feed grid and table parity with Latest, four-article eligibility and no collection sidebar; category cards; managed custom product creatives, clearing to default OG, responsive sources and failed-image fallback; compact formats preserve logos and sponsored content preserves its article image; every product disclosed as Sponsored with quiet header text and amber card pills; no dismissal; compact preview sidebar; unchanged feed nodes, receipts and tracking through article overlays; focus/layout stability; signed campaign and non-campaign tracking; configured production gateway caller proofs, credential isolation and placement429 retry guidance; mounted receipt expiry and background wake preserve reading position without refreshing or tracking; viewable placements never read, write or remove abandoned local history; private session routing; optional private experience save/reload/clear; article priority passed`,
       );
     } catch (error) {
       const page = context.pages().findLast((page) => page.url() !== "about:blank");
