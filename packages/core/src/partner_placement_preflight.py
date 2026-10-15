@@ -14,6 +14,8 @@ from devfeed_core.partner_audiences import (
     effective_audience,
     reader_audience,
 )
+from devfeed_core.partner_placement_capacity import campaign_delivery_usage
+from devfeed_core.partner_placement_destinations import PlacementDestinations
 from devfeed_core.partner_promotions import campaign_is_live, campaign_matches_product
 from devfeed_core.partner_tiers import effective_promotion_kind, promotion_kind_allowed
 
@@ -55,6 +57,31 @@ class PlacementPreflight:
         self.user_id = user_id
         self._reader_loaded = False
         self._reader = None
+        self._exhausted_campaigns = set()
+        self.destinations = PlacementDestinations(session)
+
+    def campaign_exhausted(self, campaign):
+        return campaign is not None and campaign.id in self._exhausted_campaigns
+
+    def reject_campaign(self, campaign):
+        self._exhausted_campaigns.add(campaign.id)
+
+    def _rows_with_capacity(self, rows):
+        campaigns = {
+            campaign.id: campaign
+            for _, _, _, campaign, *_ in rows
+            if campaign is not None
+            and campaign.daily_impression_limit is not None
+            and not self.campaign_exhausted(campaign)
+        }
+        if campaigns:
+            used = dict(self.session.execute(campaign_delivery_usage(campaigns, self.now)).all())
+            self._exhausted_campaigns.update(
+                identifier
+                for identifier, campaign in campaigns.items()
+                if used.get(identifier, 0) >= campaign.daily_impression_limit
+            )
+        return [row for row in rows if not self.campaign_exhausted(row[3])]
 
     def reader(self):
         # Load outside candidate savepoints so rejection cannot release locks
@@ -68,6 +95,8 @@ class PlacementPreflight:
         candidates = []
         for row in rows:
             asset, account, _product, campaign = row[:4]
+            if self.campaign_exhausted(campaign):
+                continue
             if not automatic_configuration_available(
                 asset, account, campaign, self.now, surface=self.query.surface
             ):
@@ -97,6 +126,8 @@ class PlacementPreflight:
             else {}
         )
         rows = [row for row, audience in candidates if audience_topic_kinds_match(audience, kinds)]
+        rows = self._rows_with_capacity(rows)
+        rows = self.destinations.eligible_rows(rows)
         if not rows:
             return []
 

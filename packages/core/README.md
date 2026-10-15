@@ -44,6 +44,19 @@
   saves. Product and catalog locks precede these authorization locks; rate limits, external
   requests and transaction commits stay with their existing callers.
 
+## Placement serving
+
+`PlacementPreflight` checks campaign capacity and destination availability in bounded
+candidate batches before attribution locks. Exhausted campaigns and unavailable account/product
+pairs are remembered only for that request. `campaign_delivery_usage()` shares receipt
+reservation and UTC impression accounting with the final locked capacity check.
+`PlacementDestinations` uses each account's first 20 owned listings and the same active
+direct-product fallback as the locked resolver; sponsored articles use their internal preview.
+These advisory checks never replace the final locked policy, destination and capacity reads.
+
+The placement query-budget integration tests cover 105- and 205-product rejections,
+later eligible inventory, lock release, and edits committed after preflight.
+
 ## Frontend gateway contracts
 
 The admin, partner and user services register exposed routers with `include_gateway_router` from

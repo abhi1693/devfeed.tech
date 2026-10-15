@@ -451,7 +451,7 @@ def test_outbound_selection_preserves_query_and_fragment_and_overwrites_only_dev
     from types import SimpleNamespace as NS
     from unittest.mock import Mock
 
-    from devfeed_core.partner_placements import placement_destination
+    from devfeed_core.partner_placement_destinations import placement_destination
     from sqlalchemy.dialects.postgresql import dialect
 
     account = NS(id=uuid.uuid4(), outbound_destination=destination)
@@ -491,7 +491,7 @@ def test_destination_validation_precedes_receipt_issuance(url):
     from types import SimpleNamespace as NS
     from unittest.mock import Mock
 
-    from devfeed_core.partner_placements import placement_destination
+    from devfeed_core.partner_placement_destinations import placement_destination
 
     assert (
         placement_destination(Mock(), NS(outbound_destination="product_url"), NS(product_url=url))
@@ -503,7 +503,7 @@ def test_missing_owned_listing_has_no_silent_product_url_fallback():
     from types import SimpleNamespace as NS
     from unittest.mock import Mock
 
-    from devfeed_core.partner_placements import placement_destination
+    from devfeed_core.partner_placement_destinations import placement_destination
 
     session = Mock()
     session.scalars.return_value = []

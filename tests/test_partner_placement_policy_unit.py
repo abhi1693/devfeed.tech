@@ -166,7 +166,9 @@ def test_legacy_reporting_asset_preserves_its_original_contract(policy):
     policy.ownership.assert_not_called()
 
 
-@pytest.mark.parametrize("used,expected", [(0, True), (1, True), (2, False), (3, False)])
+@pytest.mark.parametrize(
+    "used,expected", [(None, True), (0, True), (1, True), (2, False), (3, False)]
+)
 def test_cap_reserves_each_delivery_once_and_retains_today_across_midnight(used, expected):
     session = Mock()
     session.scalar.return_value = used

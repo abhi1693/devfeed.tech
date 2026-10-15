@@ -1,4 +1,4 @@
-"""Audience-rejected inventory stays cheap and leaves attribution editable."""
+"""Ineligible inventory stays cheap and leaves attribution editable."""
 
 import uuid
 from contextlib import contextmanager
@@ -25,7 +25,7 @@ from devfeed_core.partner_promotions import ensure_automatic_assets
 from devfeed_http.partner_placements import PlacementQuery
 from sqlalchemy import event, func, select, update
 from sqlalchemy.exc import DBAPIError
-from test_partner_placement_rotation import KEY, seed_rotation
+from test_partner_placement_rotation import KEY, mark_served, seed_rotation
 
 pytestmark = pytest.mark.integration
 
@@ -122,8 +122,8 @@ def test_audience_rejections_have_bounded_queries_and_no_attribution_locks(
         assert reader.scalar(select(func.count()).select_from(PartnerPlacementDelivery)) == 0
 
 
-def seed_lock_policy(database):
-    catalog = seed_rotation(database, count=1)
+def seed_lock_policy(database, *, count=1):
+    catalog = seed_rotation(database, count=count)
     with database.begin() as setup:
         setup.get(PartnerAccount, catalog["account"]).tier = "platinum"
         setup.add(
@@ -370,3 +370,160 @@ def test_distinct_retired_audience_topics_are_rejected_in_batches_before_attribu
         assert rows == []
         assert len(statements) <= 15, f"Executed {len(statements)} SQL statements"
         assert_attribution_editable(database, catalog)
+
+
+@pytest.mark.parametrize("surface", ["feed", "topic", "article"])
+@pytest.mark.parametrize("count", [105, 205])
+@pytest.mark.parametrize("rejection", ["exhausted_campaign", "missing_listing"])
+def test_capacity_and_destination_rejections_are_batched_before_attribution_locks(
+    database, surface, count, rejection
+):
+    catalog = seed_rotation(database, count=count)
+    with database.begin() as setup:
+        if rejection == "exhausted_campaign":
+            campaign = setup.scalar(
+                select(PartnerCampaign).where(PartnerCampaign.account_id == catalog["account"])
+            )
+            campaign.daily_impression_limit = 1
+        else:
+            setup.get(PartnerAccount, catalog["account"]).outbound_destination = "listing_url"
+            setup.execute(
+                update(PartnerListing)
+                .where(PartnerListing.product_id.in_(catalog["products"]))
+                .values(listing_url="")
+            )
+    if rejection == "exhausted_campaign":
+        mark_served(database, catalog, catalog["products"][:1])
+
+    with database.begin() as reader:
+        with counted_statements(reader) as statements:
+            rows = deliver_placements(
+                reader, placement_query(catalog, surface), KEY, now=catalog["now"]
+            )
+        assert rows == []
+        budget = 15 if count == 105 else 20
+        assert len(statements) <= budget, f"Executed {len(statements)} SQL statements"
+        # An empty preflight result never enters a candidate's locking savepoint.
+        assert not any(statement.startswith("SAVEPOINT ") for statement in statements)
+        assert_attribution_editable(database, catalog)
+        assert reader.scalar(select(func.count()).select_from(PartnerPlacementDelivery)) == (
+            1 if rejection == "exhausted_campaign" else 0
+        )
+
+
+@pytest.mark.parametrize("surface", ["feed", "topic", "article"])
+@pytest.mark.parametrize("rejection", ["exhausted_campaign", "missing_listing"])
+def test_later_eligible_product_survives_capacity_and_destination_rejected_batches(
+    database, surface, rejection
+):
+    catalog = seed_rotation(database, count=106)
+    rejected, eligible = catalog["products"][:-1], catalog["products"][-1]
+    with database.begin() as setup:
+        if rejection == "exhausted_campaign":
+            managed = setup.scalar(
+                select(PartnerCampaign).where(PartnerCampaign.account_id == catalog["account"])
+            )
+            # The separate managed campaign has room for one more reservation.
+            # A cached rejection for the explicit agreement must not hide it.
+            managed.daily_impression_limit = 2
+            setup.add(
+                PartnerCampaign(
+                    account_id=catalog["account"],
+                    name="Exhausted agreement ahead of eligible inventory",
+                    status="active",
+                    targeting="selected",
+                    product_ids=[str(product_id) for product_id in rejected],
+                    daily_impression_limit=1,
+                    priority=90,
+                    starts_at=catalog["now"] - timedelta(days=1),
+                    ends_at=catalog["now"] + timedelta(days=1),
+                )
+            )
+            setup.flush()
+            ensure_automatic_assets(setup, catalog["account"], catalog["now"])
+        else:
+            setup.get(PartnerAccount, catalog["account"]).outbound_destination = "listing_url"
+            setup.execute(
+                update(PartnerListing)
+                .where(PartnerListing.product_id.in_(rejected))
+                .values(listing_url="")
+            )
+    if rejection == "exhausted_campaign":
+        mark_served(database, catalog, rejected[:1])
+
+    with database.begin() as reader:
+        with counted_statements(reader) as statements:
+            rows = deliver_placements(
+                reader, placement_query(catalog, surface), KEY, now=catalog["now"]
+            )
+        assert [row["product_id"] for row in rows] == [eligible]
+        assert len(statements) <= 40, f"Executed {len(statements)} SQL statements"
+        # A successful neighbor keeps its own attribution locked, while rejected
+        # products and their assets/listings remain editable in this transaction.
+        with database.begin() as editor:
+            for model in (PartnerAsset, PartnerProduct, PartnerListing):
+                product_id = model.id if model is PartnerProduct else model.product_id
+                assert editor.scalars(
+                    select(model.id).where(product_id.in_(rejected)).with_for_update(nowait=True)
+                ).all()
+
+
+@pytest.mark.parametrize(
+    "change,count",
+    [("consume_capacity", 1), ("remove_listing_destination", 1), ("consume_capacity", 105)],
+)
+def test_capacity_and_destination_edits_after_preflight_are_rechecked_under_lock(
+    database, change, count
+):
+    catalog = seed_lock_policy(database, count=count)
+    with database.begin() as setup:
+        if change == "consume_capacity":
+            campaign = setup.scalar(
+                select(PartnerCampaign).where(PartnerCampaign.account_id == catalog["account"])
+            )
+            campaign.daily_impression_limit = 1
+        else:
+            setup.get(PartnerAccount, catalog["account"]).outbound_destination = "listing_url"
+    edited = False
+
+    def invalidate_before_account_lock(
+        _connection, _cursor, statement, _parameters, _context, _executemany
+    ):
+        nonlocal edited
+        if edited or "FROM partner_accounts" not in statement or "FOR UPDATE" not in statement:
+            return
+        edited = True
+        if change == "consume_capacity":
+            mark_served(database, catalog, catalog["products"][:1])
+        else:
+            with database.begin() as editor:
+                editor.execute(
+                    update(PartnerListing)
+                    .where(PartnerListing.product_id.in_(catalog["products"]))
+                    .values(listing_url="")
+                )
+
+    with database.begin() as reader:
+        connection = reader.connection()
+        event.listen(connection, "before_cursor_execute", invalidate_before_account_lock)
+        try:
+            with counted_statements(reader) as statements:
+                rows = deliver_placements(
+                    reader,
+                    placement_query(catalog, "feed" if count > 1 else "article"),
+                    KEY,
+                    now=catalog["now"],
+                )
+        finally:
+            event.remove(connection, "before_cursor_execute", invalidate_before_account_lock)
+        assert edited, "Candidate did not reach the post-preflight attribution lock"
+        assert rows == []
+        if count > 1:
+            # The first final rejection exhausts the whole campaign. Candidates
+            # already yielded by the batch must not each retry its locked checks.
+            assert sum(statement.startswith("SAVEPOINT ") for statement in statements) == 1
+            assert len(statements) < 25, f"Executed {len(statements)} SQL statements"
+        assert_attribution_editable(database, catalog, include_promotion=True)
+        assert reader.scalar(select(func.count()).select_from(PartnerPlacementDelivery)) == (
+            1 if change == "consume_capacity" else 0
+        )

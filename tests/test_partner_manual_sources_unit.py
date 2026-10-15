@@ -7,6 +7,7 @@ from unittest.mock import Mock
 
 import pytest
 from devfeed_admin_api import partner_tools as admin
+from devfeed_core import partner_placement_destinations
 from devfeed_core import partner_placements as placements
 from devfeed_core.models import PartnerProduct, utcnow
 from devfeed_core.partner_tools import ProductOut, manual_product_views, product_view
@@ -97,9 +98,9 @@ def test_listing_destination_uses_direct_website_without_fabricating_platform_pr
     account_id, product_id = uuid.uuid4(), uuid.uuid4()
     session.scalars.return_value = []
     session.scalar.return_value = "https://monitor.example/start?ref=docs#install"
-    assert placements.account_listing_destination(session, account_id, product_id, lock=True) == (
-        "https://monitor.example/start?ref=docs&utm_source=devfeed#install"
-    )
+    assert partner_placement_destinations.account_listing_destination(
+        session, account_id, product_id, lock=True
+    ) == ("https://monitor.example/start?ref=docs&utm_source=devfeed#install")
     source = session.scalar.call_args.args[0]
     assert "partner_manual_products.active IS true" in sql(source)
     assert str(account_id) in sql(source)
@@ -113,15 +114,20 @@ def test_direct_destination_cannot_resurrect_an_archived_or_unsafe_product(websi
     session = Mock()
     session.scalars.return_value = []
     session.scalar.return_value = website
-    assert placements.account_listing_destination(session, uuid.uuid4(), uuid.uuid4()) is None
+    assert (
+        partner_placement_destinations.account_listing_destination(
+            session, uuid.uuid4(), uuid.uuid4()
+        )
+        is None
+    )
 
 
 def test_real_owned_listing_remains_preferred_over_the_direct_website():
     session = Mock()
     session.scalars.return_value = [NS(listing_url="https://launch.example/products/monitor")]
-    assert placements.account_listing_destination(session, uuid.uuid4(), uuid.uuid4()) == (
-        "https://launch.example/products/monitor?utm_source=devfeed"
-    )
+    assert partner_placement_destinations.account_listing_destination(
+        session, uuid.uuid4(), uuid.uuid4()
+    ) == ("https://launch.example/products/monitor?utm_source=devfeed")
     session.scalar.assert_not_called()
 
 

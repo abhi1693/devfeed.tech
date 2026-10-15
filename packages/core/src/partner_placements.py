@@ -3,7 +3,6 @@
 import uuid
 from datetime import datetime, timedelta
 from typing import Any
-from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 from sqlalchemy import and_, case, func, literal, or_, select, union_all
 from sqlalchemy.orm import aliased
@@ -17,7 +16,6 @@ from devfeed_core.models import (
     PartnerAsset,
     PartnerCampaign,
     PartnerConnection,
-    PartnerDeliveryEvent,
     PartnerListing,
     PartnerManualProduct,
     PartnerPlacementDelivery,
@@ -37,6 +35,8 @@ from devfeed_core.partner_audiences import (
     effective_audience,
 )
 from devfeed_core.partner_matching import article_fingerprint
+from devfeed_core.partner_placement_capacity import campaign_capacity
+from devfeed_core.partner_placement_destinations import placement_destination
 from devfeed_core.partner_placement_preflight import (
     PlacementPreflight,
     automatic_configuration_available,
@@ -49,13 +49,11 @@ from devfeed_core.partner_promotions import (
     commercially_eligible,
 )
 from devfeed_core.partner_tracking import (
-    RECEIPT_TTL,
     BusyPartnerAsset,
     PartnerTrackingTokens,
 )
 from devfeed_core.publication import visible_article
 from devfeed_core.schemas import ArticleOut
-from devfeed_core.urls import validate_public_url
 
 
 def account_product_available(
@@ -518,40 +516,6 @@ def fallback_formats(query, *, feed_context):
     return formats
 
 
-def campaign_capacity(session, campaign, now):
-    if campaign.daily_impression_limit is None:
-        return True
-    day = now.date()
-    # A campaign lock serializes issuance across all its products. Count actual
-    # impressions plus still-valid reservations, once per delivery, across UTC days.
-    delivered = (
-        select(PartnerDeliveryEvent.delivery_id)
-        .where(
-            PartnerDeliveryEvent.asset_id == PartnerPlacementDelivery.asset_id,
-            PartnerDeliveryEvent.delivery_id == PartnerPlacementDelivery.delivery_id,
-            PartnerDeliveryEvent.kind == "impression",
-            PartnerDeliveryEvent.day == day,
-        )
-        .exists()
-    )
-    used = session.scalar(
-        select(func.count())
-        .select_from(PartnerPlacementDelivery)
-        .join(PartnerAsset)
-        .where(
-            PartnerAsset.campaign_id == campaign.id,
-            PartnerPlacementDelivery.issued_at
-            >= now.replace(hour=0, minute=0, second=0, microsecond=0)
-            - timedelta(seconds=RECEIPT_TTL),
-            or_(
-                delivered,
-                PartnerPlacementDelivery.issued_at > now - timedelta(seconds=RECEIPT_TTL),
-            ),
-        )
-    )
-    return used < campaign.daily_impression_limit
-
-
 def lock_attribution_row(session, model, identifier, *, busy_error=False):
     row = session.scalar(
         select(model)
@@ -562,74 +526,6 @@ def lock_attribution_row(session, model, identifier, *, busy_error=False):
     if row is None and busy_error:
         raise BusyPartnerAsset("Partner attribution is being updated")
     return row
-
-
-def placement_destination(session, account, product):
-    """Use this account's listing, or the website for its directly managed product."""
-    if account.outbound_destination != "listing_url":
-        return devfeed_outbound_url(product.product_url)
-    return account_listing_destination(session, account.id, product.id, lock=True)
-
-
-def account_listing_destination(session, account_id, product_id, *, lock=False):
-    """Return an owned listing URL, falling back to an active direct product's website."""
-    query = (
-        select(PartnerListing)
-        .join(PartnerConnection)
-        .where(
-            PartnerListing.product_id == product_id,
-            PartnerConnection.account_id == account_id,
-            PartnerConnection.enabled.is_(True),
-            PartnerConnection.archived_at.is_(None),
-            PartnerListing.active.is_(True),
-            PartnerListing.identity_status == "resolved",
-        )
-        .order_by(PartnerListing.provider, PartnerListing.external_id, PartnerListing.id)
-        .limit(20)
-    )
-    if lock:
-        query = query.with_for_update(
-            read=True, of=[PartnerListing, PartnerConnection], skip_locked=True
-        )
-    listings = session.scalars(query)
-    destination = next(
-        (url for listing in listings if (url := devfeed_outbound_url(listing.listing_url))), None
-    )
-    if destination is not None:
-        return destination
-    manual = (
-        select(PartnerProduct.product_url)
-        .join(PartnerManualProduct, PartnerManualProduct.product_id == PartnerProduct.id)
-        .where(
-            PartnerProduct.id == product_id,
-            PartnerProduct.merged_into_id.is_(None),
-            PartnerManualProduct.account_id == account_id,
-            PartnerManualProduct.active.is_(True),
-        )
-    )
-    if lock:
-        manual = manual.with_for_update(read=True, of=PartnerManualProduct, skip_locked=True)
-    return devfeed_outbound_url(session.scalar(manual))
-
-
-def devfeed_outbound_url(destination):
-    """HTTPS destination with DevFeed source, preserving other parameters and fragments."""
-    try:
-        fragment = urlsplit(destination).fragment
-        destination = validate_public_url(destination)
-    except (ValueError, TypeError, AttributeError):
-        return None
-    parts = urlsplit(destination)
-    if parts.scheme != "https":
-        return None
-    params = [
-        (key, value)
-        for key, value in parse_qsl(parts.query, keep_blank_values=True)
-        if key != "utm_source"
-    ]
-    params.append(("utm_source", "devfeed"))
-    url = urlunsplit((parts.scheme, parts.netloc, parts.path, urlencode(params), fragment))
-    return url if len(url) <= 2048 else None
 
 
 def placement_rows_query(query, now):
@@ -881,6 +777,11 @@ def deliver_placements(session, query, key, *, user_id=None, now=None):
                 continue
             if bool(asset.campaign_id) != sponsored or product.id in seen:
                 continue
+            if preflight.campaign_exhausted(campaign) or (
+                ad_format != "sponsored_content"
+                and preflight.destinations.unavailable(account.id, product.id)
+            ):
+                continue
             reader = preflight.reader() if user_id is not None else None
             # A failed final check releases this candidate's locks. Accepted locks
             # survive savepoint commit until the outer transaction commits, keeping
@@ -942,8 +843,10 @@ def deliver_placements(session, query, key, *, user_id=None, now=None):
                 else:
                     url = placement_destination(session, account, product)
                 if url is None:
+                    preflight.destinations.reject(account.id, product.id)
                     continue
                 if sponsored and not campaign_capacity(session, campaign, now):
+                    preflight.reject_campaign(campaign)
                     continue
                 delivery_id = uuid.uuid4()
                 session.add(

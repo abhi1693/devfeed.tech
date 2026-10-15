@@ -15,7 +15,7 @@ from devfeed_core.models import (
     PartnerProductPromotion,
     utcnow,
 )
-from devfeed_core.partner_placements import placement_destination
+from devfeed_core.partner_placement_destinations import placement_destination
 from devfeed_http.partner_portal import destination_preview
 from devfeed_partner_api import auth, portal
 from devfeed_partner_api.config import Settings

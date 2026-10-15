@@ -25,7 +25,10 @@ from devfeed_core.partner_ad_formats import (
     validate_product_formats,
 )
 from devfeed_core.partner_audiences import AudienceInput
-from devfeed_core.partner_placements import account_listing_destination, devfeed_outbound_url
+from devfeed_core.partner_placement_destinations import (
+    account_listing_destination,
+    devfeed_outbound_url,
+)
 from devfeed_core.partner_product_images import (
     product_ad_image_current,
     product_ad_image_status,
