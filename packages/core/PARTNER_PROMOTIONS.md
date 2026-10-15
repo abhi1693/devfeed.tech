@@ -316,6 +316,20 @@ products within a page and does not retain product view history in browser stora
 counts a viewable impression when at least half the card is visible for one continuous second
 while the document is visible.
 
+Header sponsorship, Feed cards and table rows, Engagement cards and sponsored articles use the
+same click collector. Primary clicks, middle clicks and keyboard link activation count once per
+delivery, independently of impressions. Sponsored articles count their preview and original-article
+links; bookmark controls and other card actions do not count as ad clicks. Creative previews never
+record measurements. The reader ignores synthetic script events and disconnected, hidden or inert
+controls. A tracking failure does not prevent navigation. An accepted click can finish its bounded
+retry after opening an article preview, using the same unexpired receipt.
+
+The collector verifies the receipt's signature and one-hour lifetime, and automatic placements must
+match a durable server-issued delivery. Altered, unknown or expired receipts cannot create live
+counters. Concurrent reports and retries share the same database event identity, so replay cannot
+multiply clicks. Receipts authorize one delivered placement; they do not prove a human clicked it.
+Automated clients obtaining valid receipts remain subject to issuance and tracking rate limits.
+
 Campaign limits are enforced by a database lock and durable anonymous delivery reservations.
 The daily limit counts measured impressions plus unexpired issued receipts, once per delivery,
 so concurrent product requests cannot oversubscribe a campaign. Unseen reservations release

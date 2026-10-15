@@ -43,6 +43,23 @@ const observed = new Map<
   Element,
   { callback: IntersectionObserverCallback; observer: IntersectionObserver }
 >();
+const clickListeners = new Map<HTMLElement, EventListenerOrEventListenerObject>();
+
+// JSDOM cannot issue trusted browser input. Invoke the real observer's registered
+// callback explicitly; built reader browser tests cover actual mouse/keyboard input.
+function activate(link: HTMLElement) {
+  const listener = clickListeners.get(link);
+  expect(listener).toBeDefined();
+  const event = {
+    type: "click",
+    button: 0,
+    isTrusted: true,
+    target: link,
+  } as unknown as MouseEvent;
+  if (typeof listener === "function") listener.call(link, event);
+  else listener!.handleEvent(event);
+}
+
 function requests(path: string) {
   return vi.mocked(readerRequest).mock.calls.filter(([url]) => url === path);
 }
@@ -69,6 +86,18 @@ beforeEach(() => {
   preferences.view = "compact";
   preferences.loading = false;
   observed.clear();
+  clickListeners.clear();
+  const addEventListener = HTMLElement.prototype.addEventListener;
+  vi.spyOn(HTMLElement.prototype, "addEventListener").mockImplementation(function (
+    this: HTMLElement,
+    type: string,
+    listener: EventListenerOrEventListenerObject,
+    options?: boolean | AddEventListenerOptions,
+  ) {
+    if (type === "click" && this.matches("a.partner-placement-link"))
+      clickListeners.set(this, listener);
+    addEventListener.call(this, type, listener, options);
+  });
   vi.stubGlobal(
     "IntersectionObserver",
     class implements IntersectionObserver {
@@ -287,6 +316,10 @@ it("uses the same signed receipt for row impressions and clicks, then preserves 
   await act(async () => {
     fireEvent.click(link);
   });
+  expect(events()).toEqual([{ kind: "impression", receipt }]);
+  await act(async () => {
+    activate(link);
+  });
   expect(events()).toEqual([
     { kind: "impression", receipt },
     { kind: "click", receipt },
@@ -303,7 +336,7 @@ it("uses the same signed receipt for row impressions and clicks, then preserves 
   expect(document.activeElement).toBe(reading);
   expect(observed.has(link)).toBe(false);
   await act(async () => {
-    fireEvent.click(link);
+    activate(link);
   });
   expect(events()).toHaveLength(2);
   expect(queries()).toHaveLength(1);
@@ -318,6 +351,10 @@ it("rebinds tracking when the same delivery switches between table and cards wit
   await act(async () => {
     fireEvent.click(rowLink);
   });
+  expect(events().filter((event) => event.kind === "click")).toHaveLength(0);
+  await act(async () => {
+    activate(rowLink);
+  });
   expect(events().filter((event) => event.kind === "click")).toHaveLength(1);
   preferences.view = "cards";
   view.rerender(renderFeed());
@@ -327,7 +364,7 @@ it("rebinds tracking when the same delivery switches between table and cards wit
   expect(observed.has(rowLink)).toBe(false);
   expect(observed.has(cardLink)).toBe(true);
   await act(async () => {
-    fireEvent.click(cardLink);
+    activate(cardLink);
   });
   expect(events().filter((event) => event.kind === "click")).toHaveLength(1);
   preferences.view = "compact";

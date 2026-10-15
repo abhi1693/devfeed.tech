@@ -10,7 +10,7 @@ import { chromium } from "playwright";
 // Backend integration tests separately verify signed receipts and durable counters.
 const root = await mkdtemp(path.join(tmpdir(), "devfeed-tracking-browser-"));
 const html =
-  '<!doctype html><html><body style="margin:0;height:300vh"><a id="placement" href="#destination" style="display:block;margin-top:180vh;height:100px">Fixture placement</a><script src="./tracking-fixture.js"></script></body></html>';
+  '<!doctype html><html><body style="margin:0;height:300vh"><div id="placement" style="margin-top:180vh;height:100px"><a id="placement-link" href="#destination"><span>Fixture placement</span></a><button id="metadata" type="button">Other action</button></div><script src="./tracking-fixture.js"></script></body></html>';
 try {
   for (const platform of ["web", "chrome", "edge"]) {
     const issuedAt = Math.floor(Date.now() / 1000);
@@ -24,7 +24,7 @@ try {
           if (location.protocol === "chrome-extension:") {
             configureReaderRuntime({ request: new ExtensionReaderTransport(fetch).request, publicOrigin: "https://devfeed.tech" });
           }
-          observePartnerPlacement(document.querySelector("#placement"), ${JSON.stringify(receipt)});
+          observePartnerPlacement(document.querySelector("#placement"), ${JSON.stringify(receipt)}, undefined, "a#placement-link");
           if (new URLSearchParams(location.search).has("expired")) {
             Date.now = () => ${(issuedAt + 3600) * 1000};
           }
@@ -115,6 +115,8 @@ try {
       });
       await page.locator("#placement").scrollIntoViewIfNeeded();
       await page.waitForTimeout(1200);
+      await page.locator("#placement-link").click();
+      await page.waitForTimeout(100);
       assert.deepEqual(events, [], `${platform}: hidden placements do not count`);
       await page.evaluate(() => {
         Object.defineProperty(document, "visibilityState", {
@@ -129,8 +131,30 @@ try {
         ["impression"],
         `${platform}: visible unfocused placement counts once`,
       );
-      await page.locator("#placement").click();
-      await page.locator("#placement").click();
+      await page.locator("#placement-link").evaluate((link) => {
+        const cancel = (event) => event.preventDefault();
+        link.addEventListener("click", cancel);
+        link.addEventListener("auxclick", cancel);
+        link.click();
+        link
+          .querySelector("span")
+          .dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true, button: 0 }));
+        link.dispatchEvent(
+          new MouseEvent("auxclick", { bubbles: true, cancelable: true, button: 1 }),
+        );
+        link.removeEventListener("click", cancel);
+        link.removeEventListener("auxclick", cancel);
+      });
+      await page.locator("#placement-link").click({ button: "right" });
+      await page.locator("#metadata").click();
+      await page.waitForTimeout(100);
+      assert.deepEqual(
+        events,
+        ["impression"],
+        `${platform}: scripts, right clicks and unrelated controls cannot create clicks`,
+      );
+      await page.locator("#placement-link").click();
+      await page.locator("#placement-link").click();
       await page.waitForTimeout(300);
       assert.deepEqual(
         events,
@@ -138,6 +162,40 @@ try {
         `${platform}: click is independent and deduplicated`,
       );
       await page.close();
+      for (const method of ["middle", "keyboard"]) {
+        events.length = 0;
+        const activationPage = await context.newPage();
+        try {
+          await activationPage.goto(
+            platform === "web"
+              ? "https://devfeed.tech/tracking-fixture.html"
+              : `chrome-extension://${extensionId}/tracking-fixture.html`,
+          );
+          const link = activationPage.locator("#placement-link");
+          await link.scrollIntoViewIfNeeded();
+          const activate = async () => {
+            if (method === "middle") {
+              const destination = context.waitForEvent("page");
+              await link.click({ button: "middle" });
+              await (await destination).close();
+              await activationPage.bringToFront();
+            } else {
+              await link.focus();
+              await activationPage.keyboard.press("Enter");
+            }
+          };
+          await activate();
+          await activate();
+          await activationPage.waitForTimeout(300);
+          assert.equal(
+            events.filter((kind) => kind === "click").length,
+            1,
+            `${platform}: ${method} activation counts once per receipt`,
+          );
+        } finally {
+          await activationPage.close();
+        }
+      }
       events.length = 0;
       const expiredPage = await context.newPage();
       try {
@@ -160,7 +218,7 @@ try {
           document.dispatchEvent(new Event("visibilitychange"));
         });
         await expiredPage.waitForTimeout(1300);
-        await expiredPage.locator("#placement").click();
+        await expiredPage.locator("#placement-link").click();
         await expiredPage.waitForTimeout(300);
         assert.deepEqual(
           events,
@@ -171,7 +229,7 @@ try {
         await expiredPage.close();
       }
       console.log(
-        `${platform}: offscreen/hidden filtering, viewable impression, independent click, deduplication, expiry and credential isolation passed`,
+        `${platform}: offscreen/hidden filtering, viewable impression, trusted primary/middle/keyboard click deduplication, synthetic/right/metadata rejection, expiry and credential isolation passed`,
       );
     } finally {
       await context.close();

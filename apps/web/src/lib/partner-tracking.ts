@@ -32,7 +32,9 @@ export function observePartnerPlacement(
     pending.add(kind);
     try {
       for (let attempt = 0; attempt < 2; attempt++) {
-        if (!current()) return;
+        // Opening an article preview can detach this observer immediately after a real
+        // click. Finish that accepted event without allowing new events after cleanup.
+        if (Date.now() >= expiresAt || (kind === "impression" && stopped)) return;
         try {
           const response = await readerRequest("/api/v1/partner-tracking/events", {
             method: "POST",
@@ -85,11 +87,25 @@ export function observePartnerPlacement(
         );
   function click(event: MouseEvent) {
     if (
-      clickSelector &&
-      (!(event.target instanceof Element) || !event.target.closest(clickSelector))
+      !event.isTrusted ||
+      (event.type === "click" ? event.button !== 0 : event.button !== 1) ||
+      document.visibilityState !== "visible" ||
+      !element.isConnected ||
+      element.closest("[inert], [hidden], [aria-hidden='true']") ||
+      !(event.target instanceof Element)
     )
       return;
-    if (event.type === "click" || event.button === 1) void report("click");
+    const destination = event.target.closest("a[href]");
+    if (
+      !destination ||
+      !element.contains(destination) ||
+      destination.closest("[inert], [hidden], [aria-hidden='true']") ||
+      (clickSelector && !destination.matches(clickSelector))
+    )
+      return;
+    // A trusted keyboard activation is a primary click too. Internal article links may
+    // prevent the browser's default navigation while opening their reader preview.
+    void report("click");
   }
   observer?.observe(element);
   element.addEventListener("click", click);

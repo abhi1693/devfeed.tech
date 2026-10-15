@@ -152,6 +152,8 @@ let articleReceiptSequence = 0;
 let sessionReceiptNamespace = null;
 let sessionReceiptGeneration = 0;
 let feedView = "cards";
+let retryClickReceipt = null;
+let retryClickAttempts = 0;
 const acceptedTrackingReceipts = new Set([ordinary.receipt, sponsored.receipt]);
 const callerFixtureKey = "disposable-dedicated-caller-proof-key";
 const callerFixtureIps = { web: "203.0.113.20", chrome: "203.0.113.30", edge: "203.0.113.40" };
@@ -804,6 +806,249 @@ async function assertSitewideHeader(context, base, platform) {
     await page.close();
     headerInventory = false;
     signedIn = previousSignedIn;
+  }
+}
+
+async function assertPlacementClicks(context, base, platform) {
+  const previousSignedIn = signedIn;
+  const page = await context.newPage();
+  nativeMode = "click-coverage";
+  headerInventory = true;
+  let currentLabel;
+  try {
+    await page.setViewportSize({ width: 1440, height: 1000 });
+    await page.goto(`${base}/latest`);
+    for (const authenticated of [false, true]) {
+      signedIn = authenticated;
+      for (const { name, route, item, view = "cards", selector, original = false } of [
+        {
+          name: "Header sponsorship",
+          route: "/latest",
+          item: headerSponsor,
+          selector: '.topbar [data-ad-format="header_sponsorship"]',
+        },
+        {
+          name: "Feed card",
+          route: "/latest",
+          item: ordinary,
+          selector: '.article-grid > [data-ad-format="feed"]',
+        },
+        {
+          name: "Feed table row",
+          route: "/latest",
+          item: ordinary,
+          view: "compact",
+          selector: '.article-table tbody > [data-ad-format="feed"]',
+        },
+        {
+          name: "Engagement",
+          route: "/search?q=typescript",
+          item: collectionEngagement,
+          selector: '.search-sidebar [data-ad-format="engagement"]',
+        },
+        {
+          name: "Sponsored article preview",
+          route: "/latest",
+          item: sponsoredContent,
+          selector: '.article-grid > [data-ad-format="sponsored_content"]',
+        },
+        {
+          name: "Sponsored article original",
+          route: "/latest",
+          item: sponsoredContent,
+          selector: '.article-grid > [data-ad-format="sponsored_content"]',
+          original: true,
+        },
+      ]) {
+        for (const method of ["primary", "middle", "keyboard"]) {
+          const label = `${platform}/${authenticated ? "member" : "guest"}/${name}/${method}`;
+          currentLabel = label;
+          sessionReceiptNamespace = `click:${label}`;
+          sessionReceiptGeneration = 0;
+          feedView = view;
+          await page.evaluate(
+            (value) => localStorage.setItem("devfeed:feed-view:guest", value),
+            view,
+          );
+          queries = [];
+          headerQueries = [];
+          await page.goto("about:blank");
+          await page.goto(`${base}${route}`);
+          const card = page.locator(selector);
+          await card.waitFor();
+          const receipt = sessionPlacementReceipt(item);
+          await card.scrollIntoViewIfNeeded();
+          await waitForImpression(page, receipt);
+          const title = item.ad_format === "sponsored_content" && !original;
+          const link = card.locator(
+            original ? ".article-read-link" : title ? ".card-open-link" : ".partner-placement-link",
+          );
+          const count = () =>
+            events.filter((event) => event.kind === "click" && event.receipt === receipt).length;
+          assert.equal(count(), 0, `${label}: an impression is not a click`);
+          const location = page.url();
+          await link.evaluate((node) => {
+            const cancel = (event) => event.preventDefault();
+            node.addEventListener("click", cancel);
+            node.addEventListener("auxclick", cancel);
+            node.click();
+            node.dispatchEvent(
+              new MouseEvent("click", { bubbles: true, cancelable: true, button: 0 }),
+            );
+            node.dispatchEvent(
+              new MouseEvent("auxclick", { bubbles: true, cancelable: true, button: 1 }),
+            );
+            node.removeEventListener("click", cancel);
+            node.removeEventListener("auxclick", cancel);
+          });
+          if (original) await link.focus();
+          await link.click({ button: "right" });
+          if (title) {
+            const sourceLink = card.locator(".card-source a");
+            await sourceLink.evaluate((node) => {
+              node.addEventListener("click", (event) => event.preventDefault(), { once: true });
+            });
+            await sourceLink.click();
+          }
+          await page.waitForTimeout(100);
+          assert.equal(
+            count(),
+            0,
+            `${label}: synthetic, secondary and metadata clicks are ignored`,
+          );
+          assert.equal(page.url(), location, `${label}: rejected clicks do not change the reader`);
+          const activate = async () => {
+            if (original) await link.focus();
+            const inlinePreview = title && method !== "middle";
+            const popup = inlinePreview ? null : context.waitForEvent("page");
+            if (method === "keyboard") {
+              await link.focus();
+              await page.keyboard.press("Enter");
+            } else await link.click({ button: method === "middle" ? "middle" : "left" });
+            if (inlinePreview) {
+              await page
+                .locator(".article-modal[open] #article-preview-title")
+                .filter({ hasText: promotedArticle.title })
+                .waitFor();
+              await page.getByRole("button", { name: "Close preview", exact: true }).click();
+              await page.locator(".article-modal").waitFor({ state: "hidden" });
+              await page.waitForURL(location);
+              await page.waitForFunction((selector) => {
+                const node = document.querySelector(selector);
+                return node && !node.hasAttribute("inert") && !node.hasAttribute("aria-hidden");
+              }, selector);
+            } else {
+              const destination = await popup;
+              await destination.close();
+              await page.bringToFront();
+            }
+          };
+          await activate();
+          for (let attempt = 0; attempt < 100 && count() === 0; attempt++)
+            await page.waitForTimeout(20);
+          assert.equal(count(), 1, `${label}: genuine activation measures its signed delivery`);
+          await activate();
+          await page.waitForTimeout(100);
+          assert.equal(
+            count(),
+            1,
+            `${label}: repeated activation never doubles the delivery click`,
+          );
+          assert.ok(
+            [...queries, ...headerQueries].every(
+              (query) =>
+                query.pathname ===
+                (authenticated
+                  ? "/v1/user/partner-placements/query"
+                  : "/v1/partner-placements/query"),
+            ),
+            `${label}: click belongs to a delivery selected for the current session`,
+          );
+        }
+      }
+    }
+    console.log(
+      `${platform}: signed clicks passed for anonymous/member Header, Feed cards and table rows, Engagement, sponsored article previews and original links with primary, middle and keyboard activation; synthetic/right/metadata clicks ignored and repeated clicks deduplicated.`,
+    );
+  } catch (error) {
+    console.error("Placement click case failed", currentLabel, {
+      url: page.url(),
+      text: await page.locator("body").innerText(),
+      openDialogs: await page.locator("dialog[open]").count(),
+    });
+    await page.screenshot({ path: `${reportDirectory}/${platform}-click-failure.png` });
+    throw error;
+  } finally {
+    await page.evaluate(() => localStorage.removeItem("devfeed:feed-view:guest")).catch(() => {});
+    await page.close();
+    signedIn = previousSignedIn;
+    nativeMode = null;
+    headerInventory = false;
+    sessionReceiptNamespace = null;
+    feedView = "cards";
+  }
+}
+
+async function assertSponsoredClickRetry(context, base, platform) {
+  const previousSignedIn = signedIn;
+  const page = await context.newPage();
+  nativeMode = "click-coverage";
+  try {
+    await page.setViewportSize({ width: 1440, height: 1000 });
+    for (const authenticated of [false, true]) {
+      signedIn = authenticated;
+      sessionReceiptNamespace = `click-retry:${platform}:${authenticated ? "member" : "guest"}`;
+      sessionReceiptGeneration = 0;
+      retryClickReceipt = sessionPlacementReceipt(sponsoredContent);
+      retryClickAttempts = 0;
+      await page.goto("about:blank");
+      await page.goto(`${base}/latest`);
+      const background = page.url();
+      const card = page.locator('.article-grid > [data-ad-format="sponsored_content"]');
+      await card.waitFor();
+      await card.scrollIntoViewIfNeeded();
+      await waitForImpression(page, retryClickReceipt);
+      await card.locator(".card-open-link").click();
+      await page.locator(".article-modal[open]").waitFor();
+      await page.waitForFunction(() => {
+        const card = document.querySelector('.article-grid > [data-ad-format="sponsored_content"]');
+        return card?.getAttribute("aria-hidden") === "true" && card.hasAttribute("inert");
+      });
+      for (let attempt = 0; attempt < 150 && retryClickAttempts < 2; attempt++)
+        await page.waitForTimeout(20);
+      assert.equal(
+        retryClickAttempts,
+        2,
+        `${platform}/${authenticated ? "member" : "guest"}: a retryable sponsored click finishes after the preview pauses its old observer`,
+      );
+      assert.equal(
+        events.filter((event) => event.kind === "click" && event.receipt === retryClickReceipt)
+          .length,
+        1,
+        `${platform}: the retried activation succeeds exactly once using its original receipt`,
+      );
+      await page.getByRole("button", { name: "Close preview", exact: true }).click();
+      await page.locator(".article-modal").waitFor({ state: "hidden" });
+      await page.waitForURL(background);
+      await card.locator(".card-open-link").click();
+      await page.locator(".article-modal[open]").waitFor();
+      await page.waitForTimeout(100);
+      assert.equal(
+        retryClickAttempts,
+        2,
+        `${platform}: remounting never retries a completed click`,
+      );
+    }
+    console.log(
+      `${platform}: anonymous/member sponsored preview clicks finish their bounded same-receipt 503 retry while the source observer is paused; reopening deduplicates completed clicks.`,
+    );
+  } finally {
+    await page.close();
+    signedIn = previousSignedIn;
+    nativeMode = null;
+    retryClickReceipt = null;
+    retryClickAttempts = 0;
+    sessionReceiptNamespace = null;
   }
 }
 
@@ -2233,20 +2478,19 @@ function response(requestPath, body, headers = {}, extension = false) {
     if (nativeMode) {
       assert.ok(Array.isArray(body.ad_formats), "Native formats are explicitly requested");
       if (body.surface !== "feed") assert.ok(!body.ad_formats.includes("sponsored_content"));
-      const items =
-        nativeMode === "authentication-parity"
-          ? body.ad_formats.includes("engagement")
-            ? [collectionEngagement]
-            : [ordinary, sponsoredContent]
-          : nativeMode === "disclosure"
-            ? []
-            : nativeMode === "table-header"
-              ? [sponsored]
-              : nativeMode === "sponsored-content"
+      const items = ["authentication-parity", "click-coverage"].includes(nativeMode)
+        ? body.ad_formats.includes("engagement")
+          ? [collectionEngagement]
+          : [ordinary, sponsoredContent]
+        : nativeMode === "disclosure"
+          ? []
+          : nativeMode === "table-header"
+            ? [sponsored]
+            : nativeMode === "sponsored-content"
+              ? [sponsoredContent]
+              : nativeMode === "header-gallery" && body.allow_sponsored_fallback
                 ? [sponsoredContent]
-                : nativeMode === "header-gallery" && body.allow_sponsored_fallback
-                  ? [sponsoredContent]
-                  : [engagementPlacement, sponsored];
+                : [engagementPlacement, sponsored];
       return {
         items: deliveryItems(
           nativeMode === "unexpected-engagement"
@@ -2315,6 +2559,10 @@ function response(requestPath, body, headers = {}, extension = false) {
     assert.equal(headers.authorization, undefined);
     assert.deepEqual(Object.keys(body).sort(), ["kind", "receipt"]);
     assert.ok(acceptedTrackingReceipts.has(body.receipt));
+    if (body.kind === "click" && body.receipt === retryClickReceipt) {
+      retryClickAttempts++;
+      if (retryClickAttempts === 1) return { trackingRetry: true };
+    }
     events.push(body);
     return null;
   }
@@ -2491,6 +2739,11 @@ const fixture = createServer(async (req, res) => {
     if (["feed", "search", "topic", "header"].includes(body?.surface) && deliveryGate)
       await deliveryGate;
     const json = response(req.url, body, req.headers);
+    if (json?.trackingRetry) {
+      res.writeHead(503, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ detail: "Temporary tracking outage" }));
+      return;
+    }
     const pathname = new URL(req.url, "http://fixture").pathname;
     if (placementLimited && pathname === "/v1/partner-placements/query") {
       res.writeHead(429, { "Content-Type": "application/json", "Retry-After": "47" });
@@ -2713,6 +2966,8 @@ try {
       const page = await context.newPage();
       await assertSitewideHeader(context, base, platform);
       await assertAuthenticationPlacementParity(context, base, platform);
+      await assertPlacementClicks(context, base, platform);
+      await assertSponsoredClickRetry(context, base, platform);
       await page.goto(`${base}/articles/${article.slug}`);
       const free = page.getByRole("link", { name: ordinary.name, exact: true });
       await free.waitFor();
