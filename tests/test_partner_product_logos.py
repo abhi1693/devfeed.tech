@@ -107,7 +107,7 @@ def test_unavailable_official_pages_do_not_trigger_icon_fetches(monkeypatch, sta
 def test_public_logo_uses_managed_assets_and_fences_changed_product_identity(monkeypatch):
     monkeypatch.setenv("DEVFEED_IMAGE_PUBLIC_URL", "https://images.example")
     get_settings.cache_clear()
-    product = PartnerProduct(name="Tool", product_url=PAGE, description="A tool.", managed_logo={})
+    product = PartnerProduct(name="Tool", product_url=PAGE, tagline="A tool.", managed_logo={})
     assert product_logo_url(product) is None
     product.managed_logo = {
         "source_url": PAGE,

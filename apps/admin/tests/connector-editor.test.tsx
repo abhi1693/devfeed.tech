@@ -50,17 +50,15 @@ describe("shared connector editor", () => {
     expect(mapped?.className).toContain("border-emerald-600");
     expect(mapped?.textContent).toContain('"name": "One"');
     expect(
-      screen
-        .getByLabelText("Description not found in this sample")
-        .getAttribute("data-mapping-status"),
+      screen.getByLabelText("Tagline not found in this sample").getAttribute("data-mapping-status"),
     ).toBe("unmatched");
     expect(
-      screen.getByRole("textbox", { name: "Description paths" }).getAttribute("aria-invalid"),
+      screen.getByRole("textbox", { name: "Tagline paths" }).getAttribute("aria-invalid"),
     ).toBe("false");
-    const unmatched = screen.getByLabelText("Description not found in this sample");
+    const unmatched = screen.getByLabelText("Tagline not found in this sample");
     expect(unmatched.querySelector("svg.lucide-circle-help")).not.toBeNull();
     expect(
-      screen.getByRole("textbox", { name: "Description paths" }).getAttribute("aria-describedby"),
+      screen.getByRole("textbox", { name: "Tagline paths" }).getAttribute("aria-describedby"),
     ).toContain(unmatched.id);
     expect(screen.getByText(/Sample response; long lists/)).not.toBeNull();
   });

@@ -333,7 +333,7 @@ def test_shared_catalog_product_keeps_partner_reporting_separate(
         product = PartnerProduct(
             name="Shared product",
             product_url="https://product.example",
-            description="Developer tool",
+            tagline="Developer tool",
         )
         session.add(product)
         session.commit()

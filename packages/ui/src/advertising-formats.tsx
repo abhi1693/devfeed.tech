@@ -13,22 +13,26 @@ export const adFormats = [
   {
     value: "feed",
     label: "Feed",
-    description: "Product cards in reader feeds and relevant article or topic placements.",
+    description:
+      "Product cards among relevant feed, search and topic results, with compact cards beside articles.",
   },
   {
     value: "homepage_sponsorship",
     label: "Homepage sponsorship",
-    description: "A compact sponsor placement on the main homepage.",
+    description:
+      "In the top navigation of unfiltered Home and Latest feeds on wide screens. Hidden when the header has no room.",
   },
   {
     value: "sponsored_content",
     label: "Sponsored content",
-    description: "An approved article promoted in reader feeds through a dated campaign.",
+    description:
+      "An approved sponsored article in relevant feed and search results, opened inside the reader.",
   },
   {
     value: "engagement",
     label: "Engagement",
-    description: "A contextual product card within relevant feeds and article previews.",
+    description:
+      "Compact recommendations among relevant feed, search and topic results, or in article-preview sidebars.",
   },
 ] as const;
 export type AdFormat = (typeof adFormats)[number]["value"];
@@ -99,7 +103,7 @@ export function AutomaticAdFormats({
 export type CreativePreviewProduct = {
   id: string;
   name: string;
-  description: string;
+  tagline: string;
   logo_url: string | null;
   image_url: string | null;
   product_url: string;
@@ -871,9 +875,9 @@ export function parseCreativePreview(value: unknown): CreativePreviewProduct | n
   if (
     !product ||
     typeof product !== "object" ||
-    !["id", "name", "description", "product_url"].every(
-      (key) => typeof product[key] === "string",
-    ) ||
+    !["id", "name", "tagline", "product_url"].every((key) => typeof product[key] === "string") ||
+    (typeof product.tagline === "string" &&
+      (product.tagline.trim().length < 3 || product.tagline.length > 160)) ||
     !["logo_url", "image_url", "listing_url"].every(
       (key) => product[key] === null || typeof product[key] === "string",
     ) ||
@@ -931,17 +935,18 @@ function PreviewMedia({
   image,
   logo,
   name,
-  compact = false,
+  variant = "hero",
 }: {
   image?: string | null;
   logo?: string | null;
   name: string;
-  compact?: boolean;
+  variant?: "hero" | "compact" | "inline";
 }) {
   const [imageFailed, setImageFailed] = useState(false);
   const [logoFailed, setLogoFailed] = useState(false);
   const hero = !imageFailed && safeImage(image);
   const icon = !logoFailed && safeImage(logo);
+  const compact = variant !== "hero";
   const initials = name
     .split(/\s+/)
     .filter(Boolean)
@@ -953,7 +958,7 @@ function PreviewMedia({
     <div
       className={
         compact
-          ? "flex size-12 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-muted"
+          ? `flex shrink-0 items-center justify-center overflow-hidden ${variant === "inline" ? "size-8" : "size-11 rounded-lg bg-muted"}`
           : "flex aspect-video items-center justify-center overflow-hidden bg-muted"
       }
     >
@@ -969,13 +974,17 @@ function PreviewMedia({
         <img
           src={icon}
           alt=""
-          className={compact ? "size-9 object-contain" : "size-20 object-contain"}
+          className={compact ? "size-8 object-contain" : "size-20 object-contain"}
           onError={() => setLogoFailed(true)}
           referrerPolicy="no-referrer"
         />
       ) : (
         <span
-          className={compact ? "font-semibold" : "text-3xl font-semibold text-muted-foreground"}
+          className={
+            compact
+              ? `${variant === "inline" ? "text-[10px]" : ""} font-semibold`
+              : "text-3xl font-semibold text-muted-foreground"
+          }
         >
           {initials}
         </span>
@@ -1003,7 +1012,7 @@ export function AdCreativePreview({
 }) {
   const content = format === "sponsored_content";
   const title = content ? article?.title : product?.name;
-  const description = content ? article?.summary : product?.description;
+  const copy = content ? article?.summary : product?.tagline;
   const url = content && article ? `/articles/${article.slug}` : product?.[destination];
   let host = "";
   try {
@@ -1012,13 +1021,22 @@ export function AdCreativePreview({
     /* A destination may be unavailable. */
   }
   const disclosure = (
-    <span className="inline-flex shrink-0 rounded-full border border-amber-300 bg-amber-100 px-2 py-0.5 text-xs font-semibold whitespace-nowrap text-amber-900 dark:border-amber-700 dark:bg-amber-950 dark:text-amber-200">
+    <span
+      className={
+        format === "homepage_sponsorship"
+          ? "shrink-0 text-[11px] font-normal whitespace-nowrap text-muted-foreground"
+          : "inline-flex shrink-0 rounded-full border border-amber-300 bg-amber-100 px-2 py-0.5 text-xs font-semibold whitespace-nowrap text-amber-900 dark:border-amber-700 dark:bg-amber-950 dark:text-amber-200"
+      }
+    >
       Sponsored
     </span>
   );
   return (
     <section aria-label="Creative preview" aria-busy={loading} className="min-w-0 space-y-3">
       <h3 className="text-sm font-medium">{adFormatLabel(format)}</h3>
+      <p className="text-xs text-muted-foreground">
+        {adFormats.find((item) => item.value === format)?.description}
+      </p>
       {loading ? (
         <p role="status" className="text-sm text-muted-foreground">
           Loading creative preview…
@@ -1033,27 +1051,64 @@ export function AdCreativePreview({
           )}
         </div>
       ) : title ? (
-        <article className="max-w-md overflow-hidden rounded-xl border bg-card text-card-foreground">
+        <article
+          aria-label={format === "homepage_sponsorship" ? "Desktop navigation preview" : undefined}
+          className={`${format === "homepage_sponsorship" ? "w-full" : "max-w-md"} overflow-hidden rounded-xl border bg-card text-card-foreground`}
+        >
           {format === "homepage_sponsorship" ? (
-            <div className="flex flex-wrap items-center gap-2 p-3 sm:gap-3 sm:p-4">
-              <PreviewMedia key={product?.id} logo={product?.logo_url} name={title} compact />
-              <div className="min-w-20 flex-1">
-                <p className="truncate font-semibold">{title}</p>
-                {host && <p className="truncate text-xs text-muted-foreground">{host}</p>}
+            <div className="flex flex-wrap items-center gap-3 p-2 sm:p-3">
+              <span aria-hidden className="text-sm font-semibold">
+                DevFeed
+              </span>
+              <span
+                aria-hidden
+                className="rounded-md border bg-muted/50 px-2 py-1 text-xs text-muted-foreground"
+              >
+                Search
+              </span>
+              <div
+                className="ml-auto flex min-w-0 max-w-full basis-[200px] grow items-center gap-2 pl-2 sm:max-w-[560px] sm:gap-3 sm:pl-7"
+                title={host || undefined}
+              >
+                <PreviewMedia
+                  key={product?.id}
+                  logo={product?.logo_url}
+                  name={title}
+                  variant="inline"
+                />
+                <div className="min-w-0 flex-1">
+                  <div className="flex min-w-0 items-center gap-1 sm:gap-1.5">
+                    <p className="min-w-0 truncate text-sm font-medium">{title}</p>
+                    <span aria-hidden className="hidden shrink-0 text-muted-foreground sm:inline">
+                      ·
+                    </span>
+                    {disclosure}
+                  </div>
+                  {copy && (
+                    <p className="truncate text-xs leading-[1.45] text-muted-foreground">{copy}</p>
+                  )}
+                </div>
               </div>
-              <div className="ml-auto flex shrink-0">{disclosure}</div>
+              <span aria-hidden className="text-xs text-muted-foreground">
+                Sign in
+              </span>
             </div>
           ) : format === "engagement" || (format === "feed" && !safeImage(product?.image_url)) ? (
             <div className="space-y-3 p-4">
               <div className="flex items-start gap-3">
-                <PreviewMedia key={product?.id} logo={product?.logo_url} name={title} compact />
+                <PreviewMedia
+                  key={product?.id}
+                  logo={product?.logo_url}
+                  name={title}
+                  variant="compact"
+                />
                 <div className="min-w-0 flex-1 space-y-2">
                   <div className="flex flex-wrap items-center gap-2">
                     <h4 className="line-clamp-2 text-base leading-snug font-semibold">{title}</h4>
                     {format === "engagement" && disclosure}
                   </div>
-                  {format === "engagement" && description && (
-                    <p className="line-clamp-2 text-xs text-muted-foreground">{description}</p>
+                  {format === "engagement" && copy && (
+                    <p className="line-clamp-2 text-xs text-muted-foreground">{copy}</p>
                   )}
                   {format === "engagement" && (
                     <div className="flex items-center justify-between gap-3 text-xs text-muted-foreground">
@@ -1065,9 +1120,7 @@ export function AdCreativePreview({
               </div>
               {format === "feed" && (
                 <>
-                  {description && (
-                    <p className="line-clamp-2 text-xs text-muted-foreground">{description}</p>
-                  )}
+                  {copy && <p className="line-clamp-2 text-xs text-muted-foreground">{copy}</p>}
                   {disclosure}
                   <div className="border-t pt-3 text-xs text-muted-foreground">
                     <span className="block truncate">{host}</span>
@@ -1086,9 +1139,7 @@ export function AdCreativePreview({
               <div className="space-y-3 p-4">
                 {disclosure}
                 <h4 className="line-clamp-2 text-lg leading-snug font-semibold">{title}</h4>
-                {description && (
-                  <p className="line-clamp-3 text-sm text-muted-foreground">{description}</p>
-                )}
+                {copy && <p className="line-clamp-3 text-sm text-muted-foreground">{copy}</p>}
                 <div className="border-t pt-3 text-xs">
                   <span className="block truncate text-muted-foreground">{host}</span>
                 </div>
@@ -1109,7 +1160,7 @@ export function AdCreativePreview({
         </p>
       )}
       <p className="text-xs text-muted-foreground">
-        Example creative. Delivery follows the campaign’s targeting and eligible placement context.
+        Example creative. Delivery depends on targeting and eligibility.
       </p>
     </section>
   );

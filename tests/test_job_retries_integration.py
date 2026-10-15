@@ -352,7 +352,7 @@ def test_image_retry_lists_partition_product_and_operation(
             PartnerProduct(
                 name=name,
                 product_url=f"https://example.com/{name.lower()}",
-                description=f"The {name} product.",
+                tagline=f"The {name} product.",
             )
             for name in ["First", "Independent", "Other"]
         ]

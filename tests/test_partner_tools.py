@@ -18,7 +18,7 @@ def product_payload():
         "name": "API Checker",
         "product_url": "https://checker.example/",
         "listing_url": "https://nicklaunches.com/products/checker/",
-        "description": "Checks OpenAPI specifications for incompatible changes.",
+        "tagline": "Checks OpenAPI specifications for incompatible changes.",
         "pricing": "free",
         "technologies": ["OpenAPI"],
         "evidence": [

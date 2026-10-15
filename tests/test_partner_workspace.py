@@ -38,7 +38,7 @@ def seed_workspace(database, *, count=2):
         product = PartnerProduct(
             name="Shared API checker",
             product_url="https://checker.example",
-            description="Check OpenAPI compatibility.",
+            tagline="Check OpenAPI compatibility.",
             status="approved",
             verified_at=utcnow(),
         )
@@ -64,7 +64,7 @@ def seed_workspace(database, *, count=2):
                     name=product.name,
                     product_url=product.product_url,
                     listing_url=f"https://catalog.example/{provider}/checker",
-                    description=product.description,
+                    tagline=product.tagline,
                 )
             )
             asset = PartnerAsset(

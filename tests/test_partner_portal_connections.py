@@ -397,7 +397,7 @@ def test_encrypted_credentials_reach_only_matching_worker_origin(
         "id": "checker",
         "name": "API Checker",
         "url": "https://checker.example",
-        "description": "Check OpenAPI compatibility before deploying software.",
+        "tagline": "Check OpenAPI compatibility before deploying software.",
         "echo": "private-import-token",
     }
     requests = []

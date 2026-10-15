@@ -25,7 +25,7 @@ const partnerAccounts = [
 const product = {
   id: "11111111-1111-1111-1111-111111111111",
   name: "API Checker",
-  description: "Checks OpenAPI specifications for breaking changes before deployment.",
+  tagline: "Checks OpenAPI specifications for breaking changes before deployment.",
   product_url: "https://checker.example/",
   pricing: "free",
   technologies: ["OpenAPI"],
@@ -55,7 +55,7 @@ const product = {
       name: "API Checker",
       product_url: "https://checker.example/",
       listing_url: "https://nicklaunches.com/products/checker/",
-      description: "Check OpenAPI compatibility.",
+      tagline: "Check OpenAPI compatibility.",
       pricing: "free",
       attribution: "Via Nick Launches",
       active: true,
@@ -74,7 +74,7 @@ product.listings.push({
   attribution: "Via Platform B",
   listing_url: "https://platform-b.example/tools/checker/",
   connection_enabled: false,
-  description: "Independent listing of the same developer product.",
+  tagline: "Independent listing of the same developer product.",
 });
 const directProduct = {
   ...product,
@@ -355,7 +355,7 @@ const fixture = createServer(async (req, res) => {
             name: "API Checker",
             url: "https://checker.example/",
             listing_url: "https://shipyard.example/products/checker",
-            description: "Check API compatibility before deploying software.",
+            tagline: "Check API compatibility before deploying software.",
             pricing: "free",
           },
         ],
@@ -400,7 +400,7 @@ const fixture = createServer(async (req, res) => {
           name: "Mapped Checker",
           product_url: "https://checker.example/",
           listing_url: "https://nicklaunches.com/products/checker/",
-          description: "Check API compatibility before deployment.",
+          tagline: "Check API compatibility before deployment.",
         },
       ],
       errors: [],
@@ -967,7 +967,7 @@ try {
     "Product name paths",
     "Website URL paths",
     "Listing URL paths",
-    "Description paths",
+    "Tagline paths",
     "Pricing paths",
     "Page size parameter",
   ]) {
@@ -1011,7 +1011,7 @@ try {
     ["Product name paths", "name"],
     ["Website URL paths", "url"],
     ["Listing URL paths", "listing_url"],
-    ["Description paths", "description"],
+    ["Tagline paths", "description"],
     ["Pricing paths", "pricing"],
   ]) {
     await page.getByRole("textbox", { name: label, exact: true }).fill(path);
@@ -1111,7 +1111,7 @@ try {
     name: ["name"],
     product_url: ["url"],
     listing_url: ["listing_url"],
-    description: ["description"],
+    tagline: ["description"],
     pricing: ["pricing"],
   });
   assert.deepEqual(customConnections[0].connector.items_paths, ["data.products", "items"]);
@@ -1131,7 +1131,7 @@ try {
     ["Product name paths", "name"],
     ["Website URL paths", "url"],
     ["Listing URL paths", "listing_url"],
-    ["Description paths", "description"],
+    ["Tagline paths", "description"],
     ["Pricing paths", "pricing"],
     ["Pagination parameter", "offset"],
     ["Page size parameter", "take"],

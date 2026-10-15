@@ -67,12 +67,7 @@ export function createManualProductFixture() {
       writes.push({ method: request.method, body });
       if (request.method === "POST") {
         assert.equal(match[2], undefined);
-        assert.deepEqual(Object.keys(body).sort(), [
-          "description",
-          "name",
-          "pricing",
-          "product_url",
-        ]);
+        assert.deepEqual(Object.keys(body).sort(), ["name", "pricing", "product_url", "tagline"]);
         product = {
           id: "77777777-7777-4777-8777-777777777777",
           account_id: account.id,
@@ -128,7 +123,7 @@ export async function assertManualProductJourneys({ page, origin, account, fixtu
     .getByRole("textbox", { name: "Website URL", exact: true })
     .fill("https://buildsignal.example/");
   await page
-    .getByRole("textbox", { name: "Description", exact: true })
+    .getByRole("textbox", { name: "Tagline", exact: true })
     .fill("Monitor failed builds and receive actionable CI diagnostics for your team.");
   await page.getByRole("combobox", { name: "Pricing", exact: true }).click();
   await page.getByRole("option", { name: "Freemium", exact: true }).click();

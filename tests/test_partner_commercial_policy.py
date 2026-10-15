@@ -166,7 +166,7 @@ def test_commercial_acceptance_is_scoped_to_owned_account_not_canonical_metadata
                 name="Same product",
                 product_url="https://tools.example/paid_product",
                 listing_url="https://free.example/duplicate",
-                description="Shared identity",
+                tagline="Shared identity",
             )
         )
         session.flush()
@@ -302,7 +302,7 @@ def test_destination_uses_account_owned_listing_and_preserves_devfeed_utm(
             name="Other",
             product_url="https://tools.example/paid_product",
             listing_url="https://wrong.example/item",
-            description="Another platform",
+            tagline="Another platform",
         )
         session.add(other)
         session.flush()
@@ -451,29 +451,27 @@ def test_outbound_selection_preserves_query_and_fragment_and_overwrites_only_dev
     from types import SimpleNamespace as NS
     from unittest.mock import Mock
 
-    from devfeed_core.partner_placement_destinations import placement_destination
+    from devfeed_core.partner_placement_destinations import account_product_creative
     from sqlalchemy.dialects.postgresql import dialect
 
     account = NS(id=uuid.uuid4(), outbound_destination=destination)
     raw = "https://catalog.example/item?a=1&a=2&utm_source=old&utm_medium=referral#features"
     product = NS(id=uuid.uuid4(), product_url=raw)
     session = Mock()
-    session.scalars.return_value = [NS(listing_url=raw)]
-    result = urlsplit(placement_destination(session, account, product))
+    session.execute.return_value = [NS(tagline="Owned source copy", listing_url=raw)]
+    creative = account_product_creative(session, account, product, lock=True)
+    result = urlsplit(creative.destination(account, product))
     assert parse_qs(result.query) == {
         "a": ["1", "2"],
         "utm_source": ["devfeed"],
         "utm_medium": ["referral"],
     }
     assert result.fragment == "features"
-    if destination == "product_url":
-        session.scalars.assert_not_called()
-    else:
-        statement = session.scalars.call_args.args[0].compile(dialect=dialect())
-        assert account.id in statement.params.values() and product.id in statement.params.values()
-        assert "partner_connections.enabled IS true" in str(statement)
-        assert "partner_listings.active IS true" in str(statement)
-        assert "ORDER BY partner_listings.provider, partner_listings.external_id" in str(statement)
+    statement = session.execute.call_args.args[0].compile(dialect=dialect())
+    assert account.id in statement.params.values() and product.id in statement.params.values()
+    assert "partner_connections.enabled IS true" in str(statement)
+    assert "partner_listings.active IS true" in str(statement)
+    assert "ORDER BY partner_listings.provider, partner_listings.external_id" in str(statement)
 
 
 @pytest.mark.parametrize(
@@ -489,12 +487,13 @@ def test_outbound_selection_preserves_query_and_fragment_and_overwrites_only_dev
 )
 def test_destination_validation_precedes_receipt_issuance(url):
     from types import SimpleNamespace as NS
-    from unittest.mock import Mock
 
-    from devfeed_core.partner_placement_destinations import placement_destination
+    from devfeed_core.partner_placement_destinations import AccountProductCreative
 
     assert (
-        placement_destination(Mock(), NS(outbound_destination="product_url"), NS(product_url=url))
+        AccountProductCreative("Owned source copy", None).destination(
+            NS(outbound_destination="product_url"), NS(product_url=url)
+        )
         is None
     )
 
@@ -503,12 +502,12 @@ def test_missing_owned_listing_has_no_silent_product_url_fallback():
     from types import SimpleNamespace as NS
     from unittest.mock import Mock
 
-    from devfeed_core.partner_placement_destinations import placement_destination
+    from devfeed_core.partner_placement_destinations import account_product_creative
 
     session = Mock()
-    session.scalars.return_value = []
+    session.execute.side_effect = [[], Mock(first=lambda: None)]
     assert (
-        placement_destination(
+        account_product_creative(
             session,
             NS(id=uuid.uuid4(), outbound_destination="listing_url"),
             NS(id=uuid.uuid4(), product_url="https://product.example/"),
@@ -580,7 +579,7 @@ def test_partner_destination_skips_invalid_owned_listing_without_selecting_other
                 name="Same",
                 product_url="https://tools.example/paid_product",
                 listing_url="https://second-owned.example/item",
-                description="Owned alternative",
+                tagline="Owned alternative",
             )
         )
     assert urlsplit(fallback(database)[0]["url"]).hostname == "second-owned.example"

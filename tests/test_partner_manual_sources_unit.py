@@ -25,7 +25,7 @@ def product(**changes):
             "id": uuid.uuid4(),
             "name": "Kubernetes monitoring",
             "product_url": "https://monitor.example/",
-            "description": "Monitor Kubernetes metrics and diagnose cluster workloads.",
+            "tagline": "Monitor Kubernetes metrics and diagnose cluster workloads.",
             "pricing": "paid",
             "technologies": ["Kubernetes"],
             "evidence": [],
@@ -96,12 +96,22 @@ def test_imported_products_keep_the_existing_lock_and_query_budget():
 def test_listing_destination_uses_direct_website_without_fabricating_platform_provenance():
     session = Mock()
     account_id, product_id = uuid.uuid4(), uuid.uuid4()
-    session.scalars.return_value = []
-    session.scalar.return_value = "https://monitor.example/start?ref=docs#install"
-    assert partner_placement_destinations.account_listing_destination(
-        session, account_id, product_id, lock=True
-    ) == ("https://monitor.example/start?ref=docs&utm_source=devfeed#install")
-    source = session.scalar.call_args.args[0]
+    session.execute.side_effect = [
+        [],
+        Mock(
+            first=lambda: NS(
+                tagline="Approved manual copy",
+                product_url="https://monitor.example/start?ref=docs#install",
+            )
+        ),
+    ]
+    creative = partner_placement_destinations.account_product_creative(
+        session, NS(id=account_id), NS(id=product_id), lock=True
+    )
+    assert (
+        creative.listing_url == "https://monitor.example/start?ref=docs&utm_source=devfeed#install"
+    )
+    source = session.execute.call_args.args[0]
     assert "partner_manual_products.active IS true" in sql(source)
     assert str(account_id) in sql(source)
     assert source._for_update_arg.read and source._for_update_arg.skip_locked
@@ -112,23 +122,29 @@ def test_listing_destination_uses_direct_website_without_fabricating_platform_pr
 )
 def test_direct_destination_cannot_resurrect_an_archived_or_unsafe_product(website):
     session = Mock()
-    session.scalars.return_value = []
-    session.scalar.return_value = website
-    assert (
-        partner_placement_destinations.account_listing_destination(
-            session, uuid.uuid4(), uuid.uuid4()
-        )
-        is None
+    session.execute.side_effect = [
+        [],
+        Mock(first=lambda: NS(tagline="Approved manual copy", product_url=website))
+        if website is not None
+        else Mock(first=lambda: None),
+    ]
+    creative = partner_placement_destinations.account_product_creative(
+        session, NS(id=uuid.uuid4()), NS(id=uuid.uuid4())
     )
+    assert creative is None or creative.listing_url is None
 
 
 def test_real_owned_listing_remains_preferred_over_the_direct_website():
     session = Mock()
-    session.scalars.return_value = [NS(listing_url="https://launch.example/products/monitor")]
-    assert partner_placement_destinations.account_listing_destination(
-        session, uuid.uuid4(), uuid.uuid4()
-    ) == ("https://launch.example/products/monitor?utm_source=devfeed")
-    session.scalar.assert_not_called()
+    session.execute.return_value = [
+        NS(tagline="Owned source copy", listing_url="https://launch.example/products/monitor")
+    ]
+    creative = partner_placement_destinations.account_product_creative(
+        session, NS(id=uuid.uuid4()), NS(id=uuid.uuid4())
+    )
+    assert creative.listing_url == "https://launch.example/products/monitor?utm_source=devfeed"
+    assert creative.tagline == "Owned source copy"
+    session.execute.assert_called_once()
 
 
 @pytest.mark.parametrize(

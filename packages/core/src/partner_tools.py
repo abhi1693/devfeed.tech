@@ -16,6 +16,7 @@ from devfeed_core.models import (
     PartnerProductPromotion,
     utcnow,
 )
+from devfeed_core.partner_taglines import Tagline
 from devfeed_core.schemas import InputModel, ORMModel
 from devfeed_core.urls import validate_public_url
 
@@ -35,7 +36,7 @@ class Evidence(InputModel):
 class ProductFacts(InputModel):
     name: ShortText
     product_url: str
-    description: str = Field(min_length=10, max_length=5000)
+    tagline: Tagline
     pricing: Literal["free", "freemium", "paid", "unknown"] = "unknown"
     technologies: list[ShortText] = Field(default_factory=list, max_length=20)
     evidence: list[Evidence] = Field(default_factory=list, max_length=10)
@@ -80,7 +81,7 @@ class ListingOut(ORMModel):
     name: str
     product_url: str
     listing_url: str
-    description: str
+    tagline: Tagline
     pricing: str
     attribution: str
     active: bool

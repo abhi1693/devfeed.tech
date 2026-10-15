@@ -382,6 +382,25 @@ it("discloses every compact product as sponsored while retaining its signed asse
   });
 });
 
+it("keeps homepage sponsorship compact with a destination title", async () => {
+  vi.mocked(readerRequest).mockResolvedValueOnce(
+    Response.json({ items: [{ ...placement, ad_format: "homepage_sponsorship" }] }),
+  );
+  render(
+    <PartnerPlacements
+      surface="feed"
+      ad_formats={["homepage_sponsorship"]}
+      allow_sponsored_fallback
+    />,
+  );
+  const link = await screen.findByRole("link", { name: placement.name });
+  expect(link.querySelector(".partner-placement-description")?.textContent).toBe(placement.tagline);
+  expect(link.querySelector(".partner-placement-destination")).toBeNull();
+  expect(link.title).toBe(`${placement.name} · partner.example`);
+  expect(screen.getByText("Sponsored")).toBeDefined();
+  expect(link.querySelector(".card-image")).toBeNull();
+});
+
 it("replaces broken or absent product logos with stable initials without hiding the product", async () => {
   vi.mocked(readerRequest).mockResolvedValueOnce(
     Response.json({ items: [placement, { ...sponsoredPlacement, logo_url: null }] }),
@@ -532,7 +551,7 @@ it.each([
   });
 });
 
-it("waits for session resolution and replaces receipts when the authenticated session refreshes", async () => {
+it("waits for session resolution and replaces receipts when authenticated credentials rotate", async () => {
   session.loading = true;
   const mounted = render(<PartnerPlacements surface="article" article_id={placement.product_id} />);
   await act(async () => {});
@@ -544,7 +563,6 @@ it("waits for session resolution and replaces receipts when the authenticated se
   mounted.rerender(<PartnerPlacements surface="article" article_id={placement.product_id} />);
   await screen.findByRole("link", { name: placement.name });
   session.user = { user_id: "reader", csrf_token: "rotated-csrf" };
-  session.sessionRevision = 2;
   mounted.rerender(<PartnerPlacements surface="article" article_id={placement.product_id} />);
   await waitFor(() => expect(userRequest).toHaveBeenCalledTimes(2));
   expect(vi.mocked(userRequest).mock.calls[1][1]?.headers).toEqual({
@@ -554,8 +572,59 @@ it("waits for session resolution and replaces receipts when the authenticated se
   expect(readerRequest).not.toHaveBeenCalled();
 });
 
+it("retains an authenticated delivery after verification returns the same reader and credentials", async () => {
+  session.user = { user_id: "reader", csrf_token: "csrf" };
+  session.sessionRevision = 1;
+  const content = () => (
+    <PartnerPlacements surface="feed">{(cards) => <div>{cards}</div>}</PartnerPlacements>
+  );
+  const mounted = render(content());
+  const link = await screen.findByRole("link", { name: placement.name });
+  const card = link.closest(".partner-placement")!;
+  const receipt = vi.mocked(observePartnerPlacement).mock.calls[0][1];
+  session.loading = true;
+  mounted.rerender(content());
+  expect(card.getAttribute("data-suspended")).toBeNull();
+  expect(card.hasAttribute("inert")).toBe(true);
+  session.user = { user_id: "reader", csrf_token: "csrf" };
+  session.sessionRevision += 1;
+  session.loading = false;
+  mounted.rerender(content());
+  expect(screen.getByRole("link", { name: placement.name })).toBe(link);
+  expect(card.getAttribute("data-suspended")).toBeNull();
+  expect(vi.mocked(observePartnerPlacement).mock.calls.at(-1)?.[1]).toBe(receipt);
+  expect(userRequest).toHaveBeenCalledTimes(1);
+  expect(readerRequest).not.toHaveBeenCalled();
+});
+
+it("hides a previous receipt immediately when the same reader's credentials change", async () => {
+  session.user = { user_id: "reader", csrf_token: "csrf" };
+  const content = () => (
+    <PartnerPlacements surface="feed">{(cards) => <div>{cards}</div>}</PartnerPlacements>
+  );
+  const mounted = render(content());
+  await screen.findByRole("link", { name: placement.name });
+  const card = mounted.container.querySelector(".partner-placement")!;
+  const previous = vi.mocked(observePartnerPlacement).mock.calls[0];
+  let finish!: (value: unknown) => void;
+  vi.mocked(userRequest).mockImplementationOnce(() => new Promise((resolve) => (finish = resolve)));
+  session.user = { user_id: "reader", csrf_token: "rotated-csrf" };
+  mounted.rerender(content());
+  expect(card.getAttribute("data-suspended")).toBe("true");
+  expect(card.hasAttribute("inert")).toBe(true);
+  expect(screen.queryByRole("link", { name: placement.name })).toBeNull();
+  const replacement = { ...placement, receipt: partnerReceipt({ assetId: placement.asset_id }) };
+  await act(async () => finish({ items: [replacement] }));
+  expect(screen.getByRole("link", { name: placement.name })).toBeDefined();
+  const current = vi.mocked(observePartnerPlacement).mock.calls.at(-1)!;
+  expect(current[1]).toBe(replacement.receipt);
+  expect(current[1]).not.toBe(previous[1]);
+  expect(current[2]).not.toBe(previous[2]);
+  expect(userRequest).toHaveBeenCalledTimes(2);
+});
+
 it.each([false, true])(
-  "retains inert grid cells while verifying the same reader (authenticated: %s)",
+  "retains visible inert grid cells while verifying the same reader (authenticated: %s)",
   async (authenticated) => {
     session.user = authenticated ? { user_id: "reader", csrf_token: "csrf" } : null;
     const content = () => (
@@ -569,7 +638,7 @@ it.each([false, true])(
     session.loading = true;
     mounted.rerender(content());
     expect(mounted.container.querySelector(".partner-placement")).toBe(card);
-    expect(card.getAttribute("data-suspended")).toBe("true");
+    expect(card.getAttribute("data-suspended")).toBeNull();
     expect(card.getAttribute("aria-hidden")).toBe("true");
     expect(card.hasAttribute("inert")).toBe(true);
     expect(card.hasAttribute("hidden")).toBe(false);
@@ -644,7 +713,7 @@ it("gives an article modal its candidates instead of reserving them in a signed-
       .getByTestId("background")
       .querySelector(".partner-placement")
       ?.getAttribute("data-suspended"),
-  ).toBe("true");
+  ).toBeNull();
   expect(userRequest).toHaveBeenCalledTimes(2);
   expect(readerRequest).not.toHaveBeenCalled();
   expect(
@@ -671,6 +740,105 @@ it("gives an article modal its candidates instead of reserving them in a signed-
   );
   expect(userRequest).toHaveBeenCalledTimes(2);
   expect(readerRequest).not.toHaveBeenCalled();
+});
+
+it.each([false, true])(
+  "keeps the same feed card and receipt through repeated article previews (authenticated: %s)",
+  async (authenticated) => {
+    session.user = authenticated ? { user_id: "reader", csrf_token: "csrf" } : null;
+    prompts.current = { ready: true, modalOpen: false };
+    const stops: ReturnType<typeof vi.fn>[] = [];
+    vi.mocked(observePartnerPlacement).mockImplementation(() => {
+      const stop = vi.fn();
+      stops.push(stop);
+      return stop;
+    });
+    const content = () => (
+      <PartnerPlacements surface="feed" article_ids={[placement.product_id]}>
+        {(cards) => <div>{cards}</div>}
+      </PartnerPlacements>
+    );
+    const mounted = render(content());
+    const link = await screen.findByRole("link", { name: placement.name });
+    const card = link.closest(".partner-placement")!;
+    const image = card.querySelector("img");
+    const firstTracking = vi.mocked(observePartnerPlacement).mock.calls[0];
+    firstTracking[2]!.completed.add("impression");
+    for (let index = 0; index < 3; index++) {
+      const observed = stops.length;
+      prompts.current = { ready: true, modalOpen: true };
+      mounted.rerender(content());
+      expect(mounted.container.querySelector(".partner-placement")).toBe(card);
+      expect(card.querySelector("img")).toBe(image);
+      expect(card.getAttribute("data-suspended")).toBeNull();
+      expect(card.hasAttribute("hidden")).toBe(false);
+      expect(card.getAttribute("aria-hidden")).toBe("true");
+      expect(card.hasAttribute("inert")).toBe(true);
+      expect(screen.queryByRole("link", { name: placement.name })).toBeNull();
+      expect(stops).toHaveLength(observed);
+      for (const stop of stops) expect(stop).toHaveBeenCalledTimes(1);
+      prompts.current = { ready: true, modalOpen: false };
+      mounted.rerender(content());
+      expect(screen.getByRole("link", { name: placement.name })).toBe(link);
+      expect(card.hasAttribute("inert")).toBe(false);
+      expect(vi.mocked(observePartnerPlacement).mock.calls.at(-1)?.[1]).toBeTruthy();
+    }
+    const sameProduct = vi
+      .mocked(observePartnerPlacement)
+      .mock.calls.filter((call) => call[0] === link);
+    expect(sameProduct).toHaveLength(4);
+    for (const call of sameProduct) {
+      expect(call[1]).toBe(firstTracking[1]);
+      expect(call[2]).toBe(firstTracking[2]);
+      expect(call[2]!.completed.has("impression")).toBe(true);
+    }
+    expect(authenticated ? userRequest : readerRequest).toHaveBeenCalledTimes(1);
+    expect(authenticated ? readerRequest : userRequest).not.toHaveBeenCalled();
+  },
+);
+
+it("retains an in-flight feed selection through an article preview without restarting its request", async () => {
+  prompts.current = { ready: true, modalOpen: false };
+  let finish!: (response: Response) => void;
+  vi.mocked(readerRequest).mockImplementationOnce(
+    () => new Promise<Response>((resolve) => (finish = resolve)),
+  );
+  const content = () => (
+    <PartnerPlacements surface="feed">{(cards) => <div>{cards}</div>}</PartnerPlacements>
+  );
+  const mounted = render(content());
+  await waitFor(() => expect(readerRequest).toHaveBeenCalledTimes(1));
+  const signal = vi.mocked(readerRequest).mock.calls[0][1]?.signal;
+  prompts.current = { ready: true, modalOpen: true };
+  mounted.rerender(content());
+  expect(signal?.aborted).toBe(false);
+  await act(async () => finish(Response.json({ items: [placement] })));
+  const card = mounted.container.querySelector(".partner-placement")!;
+  expect(card).not.toBeNull();
+  expect(card.getAttribute("data-suspended")).toBeNull();
+  expect(card.hasAttribute("inert")).toBe(true);
+  expect(observePartnerPlacement).not.toHaveBeenCalled();
+  prompts.current = { ready: true, modalOpen: false };
+  mounted.rerender(content());
+  expect(screen.getByRole("link", { name: placement.name }).closest(".partner-placement")).toBe(
+    card,
+  );
+  expect(observePartnerPlacement).toHaveBeenCalledTimes(1);
+  expect(readerRequest).toHaveBeenCalledTimes(1);
+});
+
+it("does not start a background feed selection until its initial article preview closes", async () => {
+  prompts.current = { ready: true, modalOpen: true };
+  const content = () => (
+    <PartnerPlacements surface="feed">{(cards) => <div>{cards}</div>}</PartnerPlacements>
+  );
+  const mounted = render(content());
+  await act(async () => {});
+  expect(readerRequest).not.toHaveBeenCalled();
+  prompts.current = { ready: true, modalOpen: false };
+  mounted.rerender(content());
+  await screen.findByRole("link", { name: placement.name });
+  expect(readerRequest).toHaveBeenCalledTimes(1);
 });
 
 it("renders nothing for empty, unavailable, or unsafe results and never substitutes random products", async () => {

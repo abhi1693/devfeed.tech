@@ -11,6 +11,7 @@ from pydantic import Field, JsonValue, StringConstraints, field_validator, model
 
 from devfeed_core.config import get_settings
 from devfeed_core.feeds.fetcher import FeedError, _fetch
+from devfeed_core.partner_taglines import imported_tagline
 from devfeed_core.partner_tools import ProductInput, ShortText
 from devfeed_core.rate_limits import RateLimitBudget, consume_rate_limits
 from devfeed_core.redis import create_redis
@@ -78,8 +79,8 @@ class ConnectorFields(InputModel):
     listing_url: list[Path] = Field(
         default_factory=lambda: ["listing_url"], min_length=1, max_length=5
     )
-    description: list[Path] = Field(
-        default_factory=lambda: ["description"], min_length=1, max_length=5
+    tagline: list[Path] = Field(
+        default_factory=lambda: ["tagline", "description"], min_length=1, max_length=5
     )
     pricing: list[Path] = Field(default_factory=lambda: ["pricing"], min_length=1, max_length=5)
 
@@ -172,7 +173,7 @@ NICK_CONNECTOR = {
         "name": ["name"],
         "product_url": ["url", "productUrl"],
         "listing_url": ["productUrl", "url"],
-        "description": ["description", "tagline"],
+        "tagline": ["tagline", "description"],
         "pricing": ["pricing"],
     },
     "platform_hosts": ["nicklaunches.com", "www.nicklaunches.com"],
@@ -190,7 +191,7 @@ SHIPYARD_CONNECTOR = {
         "name": ["name"],
         "product_url": ["productUrl"],
         "listing_url": ["url"],
-        "description": ["description", "tagline"],
+        "tagline": ["tagline", "description"],
         "pricing": ["pricing.model"],
     },
     "pagination": {
@@ -517,7 +518,7 @@ class ConnectorClient:
             name=first_value(data, config.fields.name, required=True),
             product_url=mapped_url(config.fields.product_url, False),
             listing_url=mapped_url(config.fields.listing_url, True),
-            description=first_value(data, config.fields.description, required=True),
+            tagline=imported_tagline(first_value(data, config.fields.tagline, required=True)),
             pricing={
                 "free": "free",
                 "freemium": "freemium",

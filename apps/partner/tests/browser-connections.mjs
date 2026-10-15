@@ -56,7 +56,7 @@ export function createConnectionFixture({ account, origin }) {
         display_name: "Alternative developer tool title",
         url: "https://preview-tool.example",
         listing_url: "https://catalog.example/products/browser-preview-product",
-        description: "A developer product shown only in the import preview.",
+        tagline: "A developer product shown only in the import preview.",
         pricing: "free",
       };
       json(
@@ -74,7 +74,7 @@ export function createConnectionFixture({ account, origin }) {
                   name: product.name,
                   product_url: product.url,
                   listing_url: product.listing_url,
-                  description: product.description,
+                  tagline: product.tagline,
                   pricing: product.pricing,
                 },
               ],

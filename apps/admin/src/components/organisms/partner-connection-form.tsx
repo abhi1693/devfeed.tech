@@ -310,7 +310,7 @@ export function PartnerConnectionForm({
               <div key={product.external_id} className="space-y-1 border-t pt-3">
                 <p className="font-medium">{product.name}</p>
                 <p className="break-all text-muted-foreground">{product.product_url}</p>
-                <p>{product.description}</p>
+                <p>{product.tagline}</p>
               </div>
             ))}
             {preview.errors.map((message, index) => (

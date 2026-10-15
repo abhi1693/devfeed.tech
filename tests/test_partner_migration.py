@@ -27,7 +27,7 @@ from sqlalchemy import (
     text,
 )
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.exc import DataError, IntegrityError
 from sqlalchemy.schema import CreateTable
 
 ROOT = Path(__file__).parents[1]
@@ -59,7 +59,7 @@ def assert_matching_change_capture(connection):
     )
     connection.execute(
         text("""INSERT INTO partner_products
-        (id,name,product_url,description,pricing,technologies,evidence,revision,status,
+        (id,name,product_url,tagline,pricing,technologies,evidence,revision,status,
         verified_at,updated_at,reviews)
         VALUES(:product,'Python observer','https://observer.example/','Observe Python tasks.',
         'paid','["Python"]','[]',1,'approved',now(),now(),'[]')"""),
@@ -133,6 +133,56 @@ def assert_matching_change_capture(connection):
         ),
         identifiers,
     ).one() == (generation + 1, None)
+    # The display-copy rename must preserve change capture on the registered
+    # database column, including raw writes that bypass the API validators.
+    savepoint = connection.begin_nested()
+    try:
+        connection.execute(
+            text("UPDATE partner_products SET tagline=tagline WHERE id=:product"), identifiers
+        )
+        assert (
+            connection.scalar(
+                text("SELECT updated_at FROM partner_products WHERE id=:product"), identifiers
+            )
+            == current_updated_at
+        )
+        assert (
+            connection.scalar(
+                text(
+                    "SELECT generation FROM partner_match_jobs "
+                    "WHERE kind='product' AND entity_id=:product"
+                ),
+                identifiers,
+            )
+            == generation + 1
+        )
+        connection.execute(
+            text("UPDATE partner_products SET tagline=:tagline WHERE id=:product"),
+            {**identifiers, "tagline": "x" * 160},
+        )
+        assert (
+            connection.scalar(
+                text("SELECT updated_at FROM partner_products WHERE id=:product"), identifiers
+            )
+            != current_updated_at
+        )
+        assert (
+            connection.scalar(
+                text(
+                    "SELECT generation FROM partner_match_jobs "
+                    "WHERE kind='product' AND entity_id=:product"
+                ),
+                identifiers,
+            )
+            == generation + 2
+        )
+        with pytest.raises(DataError), connection.begin_nested():
+            connection.execute(
+                text("UPDATE partner_products SET tagline=:tagline WHERE id=:product"),
+                {**identifiers, "tagline": "x" * 161},
+            )
+    finally:
+        savepoint.rollback()
     connection.execute(
         text("""UPDATE partner_products SET status='paused',verified_at=NULL,excluded=true
         WHERE id=:product"""),
@@ -341,6 +391,11 @@ def assert_partner_schema(connection, metadata):
     assert "frequency_cap" not in {
         column["name"] for column in inspector.get_columns("partner_accounts")
     }
+    for relation in ("partner_products", "partner_listings"):
+        columns = {column["name"]: column for column in inspector.get_columns(relation)}
+        assert "description" not in columns
+        assert columns["tagline"]["type"].length == 160
+        assert columns["tagline"]["nullable"] is False
     assert "partner_match_states" not in inspector.get_table_names()
     assert inspector.get_pk_constraint("partner_delivery_events")["constrained_columns"] == [
         "asset_id",
@@ -391,7 +446,7 @@ def assert_enrollment_and_image_jobs(connection):
         )
     connection.execute(
         text("""INSERT INTO partner_products
-        (id,name,product_url,description,pricing,technologies,evidence,revision,status,
+        (id,name,product_url,tagline,pricing,technologies,evidence,revision,status,
         verified_at,updated_at,reviews)
         VALUES('eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee','Go observer',
         'https://observer.example/','Observe Go tasks.','paid','["Go"]','[]',1,

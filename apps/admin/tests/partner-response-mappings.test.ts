@@ -29,12 +29,12 @@ describe("responseMappings", () => {
   it("supports a root array and leaves missing or empty values unmatched", () => {
     const config = connectorDefaults();
     config.items_paths = [""];
-    config.fields = { name: ["name"], description: ["description"] };
+    config.fields = { name: ["name"], tagline: ["description"] };
     const mappings = responseMappings(config, [{ name: "One", description: null }, { name: "" }]);
     expect(mappings.find((item) => item.field === "items_paths")?.addresses).toEqual(["[]"]);
     expect(mappings.find((item) => item.field === "fields.name")?.addresses).toEqual([
       '["0","name"]',
     ]);
-    expect(mappings.find((item) => item.field === "fields.description")?.addresses).toEqual([]);
+    expect(mappings.find((item) => item.field === "fields.tagline")?.addresses).toEqual([]);
   });
 });

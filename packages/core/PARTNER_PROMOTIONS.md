@@ -90,7 +90,9 @@ standing sponsored channels. Sponsored content requires a dated campaign and a s
 visible article. It never publishes an article, rewrites its text or changes its byline.
 Newsletter delivery is not included; Agent Ads remain deferred.
 
-Homepage sponsorship appears only on an unfiltered main feed that enables sponsored fallback.
+Homepage sponsorship appears in the global header only on wide, unfiltered Home and Latest feeds
+that enable sponsored fallback. It shows a 32-pixel logo, product name, muted Sponsored disclosure
+and a tagline, without occupying a feed card or a strip above the feed.
 Engagement remains strictly contextual on supported article, topic and feed locations. Feed and
 Homepage sponsorship may use the explicit main-feed fallback. Sponsored content is feed-only,
 uses the campaign's relevant account product for eligibility, requires its own approved topics to match
@@ -206,16 +208,20 @@ an article or topic match and never fills the ordinary recommendation slot.
 
 ## Reader presentation and product images
 
-Products use the article card's image area, spacing, body and footer inside the initial article grid, after the fourth and twelfth
-articles when enough articles exist. Short grids have one cell after the available articles;
+Feed product placements use the article card's image area, spacing, body and footer inside the
+initial article grid, after the fourth and twelfth articles when enough articles exist.
+Short grids have one cell after the available articles;
 that cell prefers the eligible sponsored result when present. Articles retain their order,
 keyboard focus and viewport position when product responses arrive or cards are hidden. Infinite
 scroll does not add more product slots. Opening a preview suspends background delivery and
 restores the same grid cards afterward, without refreshing the reading session.
 
-Article previews show compact cards at the top of the sidebar, outside the article text. On
-narrow screens that sidebar follows the article copy. Cards show a logo, name, bounded description
-and destination. Every product card shows **Sponsored**, has no dismissal control and uses
+Engagement placements remain compact and contextual in feeds, topic pages and article previews.
+Article previews show these cards at the top of the sidebar, outside the article text. On
+narrow screens that sidebar follows the article copy. Product copy is a single-line tagline of
+3–160 characters. Cards show a logo, name, tagline and destination. Homepage sponsorship instead
+uses the global header described above and never occupies these card slots. Every product
+placement shows **Sponsored**, has no dismissal control and uses
 `rel="sponsored noopener noreferrer"` on its destination link. There is no promotional banner,
 automatic popup, matching explanation or ordinary-recommendation label.
 

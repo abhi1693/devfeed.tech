@@ -23,7 +23,7 @@ export type PartnerPlacement = {
   asset_id: string;
   campaign_id: string | null;
   name: string;
-  description: string;
+  tagline: string;
   logo_url: string | null;
   image_url: string | null;
   image_variants: { url: string; width: number }[];
@@ -127,7 +127,8 @@ export function parsePartnerPlacements(value: unknown): PartnerPlacement[] {
       typeof item.sponsored !== "boolean" ||
       item.sponsored !== (item.campaign_id !== null) ||
       !text(item.name, 200) ||
-      !text(item.description, 2000, false) ||
+      !text(item.tagline, 160) ||
+      item.tagline.trim().length < 3 ||
       !text(item.partner_name, 200) ||
       !text(item.reason, 1000) ||
       !text(item.receipt, 256) ||
@@ -153,7 +154,7 @@ export function parsePartnerPlacements(value: unknown): PartnerPlacement[] {
       asset_id: String(item.asset_id),
       campaign_id: item.campaign_id,
       name: item.name,
-      description: item.description,
+      tagline: item.tagline,
       logo_url: safeLogoUrl(item.logo_url),
       image_url: safeLogoUrl(item.image_url),
       image_variants: safeImageVariants(item.image_variants),

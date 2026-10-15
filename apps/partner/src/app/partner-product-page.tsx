@@ -630,7 +630,7 @@ function ProductDetails({
                     </a>
                   ),
                 },
-                { label: "Description", value: product.description },
+                { label: "Tagline", value: product.tagline },
                 {
                   label: "Pricing",
                   value: product.pricing === "unknown" ? "Not specified" : product.pricing,

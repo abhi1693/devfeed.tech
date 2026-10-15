@@ -1083,10 +1083,6 @@
             ],
             "title": "Campaign Id"
           },
-          "description": {
-            "title": "Description",
-            "type": "string"
-          },
           "image_url": {
             "anyOf": [
               {
@@ -1141,6 +1137,12 @@
             "title": "Sponsored",
             "type": "boolean"
           },
+          "tagline": {
+            "maxLength": 160,
+            "minLength": 3,
+            "title": "Tagline",
+            "type": "string"
+          },
           "url": {
             "title": "Url",
             "type": "string"
@@ -1151,7 +1153,7 @@
           "asset_id",
           "campaign_id",
           "name",
-          "description",
+          "tagline",
           "url",
           "partner_name",
           "sponsored",

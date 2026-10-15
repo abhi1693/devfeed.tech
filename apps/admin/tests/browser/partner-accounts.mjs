@@ -57,6 +57,7 @@ const catalogProduct = {
 const destinationProduct = {
   id: catalogProduct.id,
   name: "API Checker Cloud",
+  tagline: "Monitor production APIs and diagnose reliability problems.",
   product_url: "https://product.example/start?plan=team&utm_source=devfeed#quickstart",
   listing_url:
     "https://shipyard.example/products/api-checker?ref=catalog&utm_source=devfeed#overview",
@@ -97,7 +98,7 @@ const inventoryProducts = Array.from({ length: 60 }, (_, index) => ({
   name: index === 0 ? catalogProduct.name : `Inventory tool ${index + 1}`,
   status: index === 0 ? "pending" : "approved",
   product_url: "https://product.example/",
-  description: "Monitor and troubleshoot developer applications.",
+  tagline: "Monitor and troubleshoot developer applications.",
   pricing: "paid",
   revision: 1,
   source: "imported",

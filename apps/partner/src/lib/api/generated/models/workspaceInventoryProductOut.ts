@@ -19,7 +19,6 @@ export interface WorkspaceInventoryProductOut {
   approval_source?: WorkspaceInventoryProductOutApprovalSource;
   assessment: ProductAssessment;
   commercial_approved?: boolean;
-  description: string;
   editable: boolean;
   excluded: boolean;
   globally_excluded: boolean;
@@ -32,5 +31,10 @@ export interface WorkspaceInventoryProductOut {
   revision: number;
   source: WorkspaceInventoryProductOutSource;
   status: string;
+  /**
+     * @minLength 3
+     * @maxLength 160
+     */
+  tagline: string;
   technologies: string[];
 }

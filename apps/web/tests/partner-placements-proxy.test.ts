@@ -8,6 +8,25 @@ vi.mock("@devfeed/telemetry/propagation", () => ({ traceHeaders: () => ({}) }));
 const query = { surface: "article", article_id: placement.product_id, exclude_product_ids: [] };
 const sponsoredArticle = { ...article, topics: [], sponsor_names: ["Example partner"] };
 
+it.each(["AI", "x".repeat(161)])("rejects an invalid product tagline (%s)", async (tagline) => {
+  vi.mocked(fetch).mockResolvedValue(Response.json({ items: [{ ...placement, tagline }] }));
+  expect((await POST(request(query))).status).toBe(503);
+});
+
+it("preserves a 160-character tagline and rejects legacy description-only deliveries", async () => {
+  const tagline = "x".repeat(160);
+  vi.mocked(fetch).mockResolvedValue(Response.json({ items: [{ ...placement, tagline }] }));
+  const response = await POST(request(query));
+  expect(response.status).toBe(200);
+  expect((await response.json()).items[0].tagline).toBe(tagline);
+
+  const { tagline: previous, ...legacy } = placement;
+  vi.mocked(fetch).mockResolvedValue(
+    Response.json({ items: [{ ...legacy, description: previous }] }),
+  );
+  expect((await POST(request(query))).status).toBe(503);
+});
+
 it("forwards only the requested native formats and projects a real sponsored article", async () => {
   const item = {
     ...placement,

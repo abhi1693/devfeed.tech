@@ -573,7 +573,7 @@ it("tests the edited import without saving and clears the result when configurat
         provider: existing.provider,
         external_id: "debug-tool",
         name: "Debug console",
-        description: "Inspect and debug Python applications with a native developer console.",
+        tagline: "Inspect and debug Python applications with a native developer console.",
         product_url: "https://debug.example",
         listing_url: "https://catalog.example/debug-console",
         pricing: "free",

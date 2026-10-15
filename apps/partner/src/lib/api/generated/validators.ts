@@ -91,12 +91,6 @@ export const partnerConnectionsListResponseItemsItemConnectorOneDetailRootMax = 
 
 
 export const partnerConnectionsListResponseItemsItemConnectorOneDetailRootRegExp = new RegExp('^(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+)(?:\\.(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+))*$|^$');
-export const partnerConnectionsListResponseItemsItemConnectorOneFieldsDescriptionItemMax = 200;
-
-
-export const partnerConnectionsListResponseItemsItemConnectorOneFieldsDescriptionItemRegExp = new RegExp('^(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+)(?:\\.(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+))*$|^$');
-export const partnerConnectionsListResponseItemsItemConnectorOneFieldsDescriptionMax = 5;
-
 export const partnerConnectionsListResponseItemsItemConnectorOneFieldsExternalIdItemMax = 200;
 
 
@@ -126,6 +120,12 @@ export const partnerConnectionsListResponseItemsItemConnectorOneFieldsProductUrl
 
 export const partnerConnectionsListResponseItemsItemConnectorOneFieldsProductUrlItemRegExp = new RegExp('^(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+)(?:\\.(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+))*$|^$');
 export const partnerConnectionsListResponseItemsItemConnectorOneFieldsProductUrlMax = 5;
+
+export const partnerConnectionsListResponseItemsItemConnectorOneFieldsTaglineItemMax = 200;
+
+
+export const partnerConnectionsListResponseItemsItemConnectorOneFieldsTaglineItemRegExp = new RegExp('^(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+)(?:\\.(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+))*$|^$');
+export const partnerConnectionsListResponseItemsItemConnectorOneFieldsTaglineMax = 5;
 
 export const partnerConnectionsListResponseItemsItemConnectorOneFiltersItemIncludeMissingDefault = true;
 export const partnerConnectionsListResponseItemsItemConnectorOneFiltersItemPathMax = 200;
@@ -218,12 +218,12 @@ export const PartnerConnectionsListResponse = zod.object({
   "detail_path": zod.union([zod.string().max(partnerConnectionsListResponseItemsItemConnectorOneDetailPathOneMax),zod.null()]).optional(),
   "detail_root": zod.string().max(partnerConnectionsListResponseItemsItemConnectorOneDetailRootMax).regex(partnerConnectionsListResponseItemsItemConnectorOneDetailRootRegExp).default(partnerConnectionsListResponseItemsItemConnectorOneDetailRootDefault),
   "fields": zod.object({
-  "description": zod.array(zod.string().max(partnerConnectionsListResponseItemsItemConnectorOneFieldsDescriptionItemMax).regex(partnerConnectionsListResponseItemsItemConnectorOneFieldsDescriptionItemRegExp)).min(1).max(partnerConnectionsListResponseItemsItemConnectorOneFieldsDescriptionMax).optional(),
   "external_id": zod.array(zod.string().max(partnerConnectionsListResponseItemsItemConnectorOneFieldsExternalIdItemMax).regex(partnerConnectionsListResponseItemsItemConnectorOneFieldsExternalIdItemRegExp)).min(1).max(partnerConnectionsListResponseItemsItemConnectorOneFieldsExternalIdMax).optional(),
   "listing_url": zod.array(zod.string().max(partnerConnectionsListResponseItemsItemConnectorOneFieldsListingUrlItemMax).regex(partnerConnectionsListResponseItemsItemConnectorOneFieldsListingUrlItemRegExp)).min(1).max(partnerConnectionsListResponseItemsItemConnectorOneFieldsListingUrlMax).optional(),
   "name": zod.array(zod.string().max(partnerConnectionsListResponseItemsItemConnectorOneFieldsNameItemMax).regex(partnerConnectionsListResponseItemsItemConnectorOneFieldsNameItemRegExp)).min(1).max(partnerConnectionsListResponseItemsItemConnectorOneFieldsNameMax).optional(),
   "pricing": zod.array(zod.string().max(partnerConnectionsListResponseItemsItemConnectorOneFieldsPricingItemMax).regex(partnerConnectionsListResponseItemsItemConnectorOneFieldsPricingItemRegExp)).min(1).max(partnerConnectionsListResponseItemsItemConnectorOneFieldsPricingMax).optional(),
-  "product_url": zod.array(zod.string().max(partnerConnectionsListResponseItemsItemConnectorOneFieldsProductUrlItemMax).regex(partnerConnectionsListResponseItemsItemConnectorOneFieldsProductUrlItemRegExp)).min(1).max(partnerConnectionsListResponseItemsItemConnectorOneFieldsProductUrlMax).optional()
+  "product_url": zod.array(zod.string().max(partnerConnectionsListResponseItemsItemConnectorOneFieldsProductUrlItemMax).regex(partnerConnectionsListResponseItemsItemConnectorOneFieldsProductUrlItemRegExp)).min(1).max(partnerConnectionsListResponseItemsItemConnectorOneFieldsProductUrlMax).optional(),
+  "tagline": zod.array(zod.string().max(partnerConnectionsListResponseItemsItemConnectorOneFieldsTaglineItemMax).regex(partnerConnectionsListResponseItemsItemConnectorOneFieldsTaglineItemRegExp)).min(1).max(partnerConnectionsListResponseItemsItemConnectorOneFieldsTaglineMax).optional()
 }).optional(),
   "filters": zod.array(zod.object({
   "include_missing": zod.boolean().default(partnerConnectionsListResponseItemsItemConnectorOneFiltersItemIncludeMissingDefault),
@@ -301,12 +301,6 @@ export const partnerConnectionCreateResponseConnectorOneDetailRootMax = 200;
 
 
 export const partnerConnectionCreateResponseConnectorOneDetailRootRegExp = new RegExp('^(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+)(?:\\.(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+))*$|^$');
-export const partnerConnectionCreateResponseConnectorOneFieldsDescriptionItemMax = 200;
-
-
-export const partnerConnectionCreateResponseConnectorOneFieldsDescriptionItemRegExp = new RegExp('^(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+)(?:\\.(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+))*$|^$');
-export const partnerConnectionCreateResponseConnectorOneFieldsDescriptionMax = 5;
-
 export const partnerConnectionCreateResponseConnectorOneFieldsExternalIdItemMax = 200;
 
 
@@ -336,6 +330,12 @@ export const partnerConnectionCreateResponseConnectorOneFieldsProductUrlItemMax 
 
 export const partnerConnectionCreateResponseConnectorOneFieldsProductUrlItemRegExp = new RegExp('^(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+)(?:\\.(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+))*$|^$');
 export const partnerConnectionCreateResponseConnectorOneFieldsProductUrlMax = 5;
+
+export const partnerConnectionCreateResponseConnectorOneFieldsTaglineItemMax = 200;
+
+
+export const partnerConnectionCreateResponseConnectorOneFieldsTaglineItemRegExp = new RegExp('^(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+)(?:\\.(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+))*$|^$');
+export const partnerConnectionCreateResponseConnectorOneFieldsTaglineMax = 5;
 
 export const partnerConnectionCreateResponseConnectorOneFiltersItemIncludeMissingDefault = true;
 export const partnerConnectionCreateResponseConnectorOneFiltersItemPathMax = 200;
@@ -426,12 +426,12 @@ export const PartnerConnectionCreateResponse = zod.object({
   "detail_path": zod.union([zod.string().max(partnerConnectionCreateResponseConnectorOneDetailPathOneMax),zod.null()]).optional(),
   "detail_root": zod.string().max(partnerConnectionCreateResponseConnectorOneDetailRootMax).regex(partnerConnectionCreateResponseConnectorOneDetailRootRegExp).default(partnerConnectionCreateResponseConnectorOneDetailRootDefault),
   "fields": zod.object({
-  "description": zod.array(zod.string().max(partnerConnectionCreateResponseConnectorOneFieldsDescriptionItemMax).regex(partnerConnectionCreateResponseConnectorOneFieldsDescriptionItemRegExp)).min(1).max(partnerConnectionCreateResponseConnectorOneFieldsDescriptionMax).optional(),
   "external_id": zod.array(zod.string().max(partnerConnectionCreateResponseConnectorOneFieldsExternalIdItemMax).regex(partnerConnectionCreateResponseConnectorOneFieldsExternalIdItemRegExp)).min(1).max(partnerConnectionCreateResponseConnectorOneFieldsExternalIdMax).optional(),
   "listing_url": zod.array(zod.string().max(partnerConnectionCreateResponseConnectorOneFieldsListingUrlItemMax).regex(partnerConnectionCreateResponseConnectorOneFieldsListingUrlItemRegExp)).min(1).max(partnerConnectionCreateResponseConnectorOneFieldsListingUrlMax).optional(),
   "name": zod.array(zod.string().max(partnerConnectionCreateResponseConnectorOneFieldsNameItemMax).regex(partnerConnectionCreateResponseConnectorOneFieldsNameItemRegExp)).min(1).max(partnerConnectionCreateResponseConnectorOneFieldsNameMax).optional(),
   "pricing": zod.array(zod.string().max(partnerConnectionCreateResponseConnectorOneFieldsPricingItemMax).regex(partnerConnectionCreateResponseConnectorOneFieldsPricingItemRegExp)).min(1).max(partnerConnectionCreateResponseConnectorOneFieldsPricingMax).optional(),
-  "product_url": zod.array(zod.string().max(partnerConnectionCreateResponseConnectorOneFieldsProductUrlItemMax).regex(partnerConnectionCreateResponseConnectorOneFieldsProductUrlItemRegExp)).min(1).max(partnerConnectionCreateResponseConnectorOneFieldsProductUrlMax).optional()
+  "product_url": zod.array(zod.string().max(partnerConnectionCreateResponseConnectorOneFieldsProductUrlItemMax).regex(partnerConnectionCreateResponseConnectorOneFieldsProductUrlItemRegExp)).min(1).max(partnerConnectionCreateResponseConnectorOneFieldsProductUrlMax).optional(),
+  "tagline": zod.array(zod.string().max(partnerConnectionCreateResponseConnectorOneFieldsTaglineItemMax).regex(partnerConnectionCreateResponseConnectorOneFieldsTaglineItemRegExp)).min(1).max(partnerConnectionCreateResponseConnectorOneFieldsTaglineMax).optional()
 }).optional(),
   "filters": zod.array(zod.object({
   "include_missing": zod.boolean().default(partnerConnectionCreateResponseConnectorOneFiltersItemIncludeMissingDefault),
@@ -488,9 +488,6 @@ export const PartnerConnectionCreateResponse = zod.object({
 export const partnerConnectorPreviewResponseProductsItemAttributionDefault = ``;
 export const partnerConnectorPreviewResponseProductsItemAttributionMax = 300;
 
-export const partnerConnectorPreviewResponseProductsItemDescriptionMin = 10;
-export const partnerConnectorPreviewResponseProductsItemDescriptionMax = 5000;
-
 export const partnerConnectorPreviewResponseProductsItemEvidenceItemCapabilityMin = 10;
 export const partnerConnectorPreviewResponseProductsItemEvidenceItemCapabilityMax = 500;
 
@@ -506,6 +503,9 @@ export const partnerConnectorPreviewResponseProductsItemNameMax = 200;
 export const partnerConnectorPreviewResponseProductsItemPricingDefault = `unknown`;
 export const partnerConnectorPreviewResponseProductsItemProviderMax = 200;
 
+export const partnerConnectorPreviewResponseProductsItemTaglineMin = 3;
+export const partnerConnectorPreviewResponseProductsItemTaglineMax = 160;
+
 export const partnerConnectorPreviewResponseProductsItemTechnologiesItemMax = 200;
 
 export const partnerConnectorPreviewResponseProductsItemTechnologiesMax = 20;
@@ -518,7 +518,6 @@ export const PartnerConnectorPreviewResponse = zod.object({
   "has_next_page": zod.boolean(),
   "products": zod.array(zod.object({
   "attribution": zod.string().max(partnerConnectorPreviewResponseProductsItemAttributionMax).default(partnerConnectorPreviewResponseProductsItemAttributionDefault),
-  "description": zod.string().min(partnerConnectorPreviewResponseProductsItemDescriptionMin).max(partnerConnectorPreviewResponseProductsItemDescriptionMax),
   "evidence": zod.array(zod.object({
   "capability": zod.string().min(partnerConnectorPreviewResponseProductsItemEvidenceItemCapabilityMin).max(partnerConnectorPreviewResponseProductsItemEvidenceItemCapabilityMax),
   "quote": zod.string().min(partnerConnectorPreviewResponseProductsItemEvidenceItemQuoteMin).max(partnerConnectorPreviewResponseProductsItemEvidenceItemQuoteMax),
@@ -530,6 +529,7 @@ export const PartnerConnectorPreviewResponse = zod.object({
   "pricing": zod.enum(['free', 'freemium', 'paid', 'unknown']).default(partnerConnectorPreviewResponseProductsItemPricingDefault),
   "product_url": zod.string(),
   "provider": zod.string().min(1).max(partnerConnectorPreviewResponseProductsItemProviderMax),
+  "tagline": zod.string().min(partnerConnectorPreviewResponseProductsItemTaglineMin).max(partnerConnectorPreviewResponseProductsItemTaglineMax),
   "technologies": zod.array(zod.string().min(1).max(partnerConnectorPreviewResponseProductsItemTechnologiesItemMax)).max(partnerConnectorPreviewResponseProductsItemTechnologiesMax).optional()
 }))
 })
@@ -568,12 +568,6 @@ export const partnerConnectionDeleteResponseConnectorOneDetailRootMax = 200;
 
 
 export const partnerConnectionDeleteResponseConnectorOneDetailRootRegExp = new RegExp('^(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+)(?:\\.(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+))*$|^$');
-export const partnerConnectionDeleteResponseConnectorOneFieldsDescriptionItemMax = 200;
-
-
-export const partnerConnectionDeleteResponseConnectorOneFieldsDescriptionItemRegExp = new RegExp('^(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+)(?:\\.(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+))*$|^$');
-export const partnerConnectionDeleteResponseConnectorOneFieldsDescriptionMax = 5;
-
 export const partnerConnectionDeleteResponseConnectorOneFieldsExternalIdItemMax = 200;
 
 
@@ -603,6 +597,12 @@ export const partnerConnectionDeleteResponseConnectorOneFieldsProductUrlItemMax 
 
 export const partnerConnectionDeleteResponseConnectorOneFieldsProductUrlItemRegExp = new RegExp('^(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+)(?:\\.(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+))*$|^$');
 export const partnerConnectionDeleteResponseConnectorOneFieldsProductUrlMax = 5;
+
+export const partnerConnectionDeleteResponseConnectorOneFieldsTaglineItemMax = 200;
+
+
+export const partnerConnectionDeleteResponseConnectorOneFieldsTaglineItemRegExp = new RegExp('^(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+)(?:\\.(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+))*$|^$');
+export const partnerConnectionDeleteResponseConnectorOneFieldsTaglineMax = 5;
 
 export const partnerConnectionDeleteResponseConnectorOneFiltersItemIncludeMissingDefault = true;
 export const partnerConnectionDeleteResponseConnectorOneFiltersItemPathMax = 200;
@@ -693,12 +693,12 @@ export const PartnerConnectionDeleteResponse = zod.object({
   "detail_path": zod.union([zod.string().max(partnerConnectionDeleteResponseConnectorOneDetailPathOneMax),zod.null()]).optional(),
   "detail_root": zod.string().max(partnerConnectionDeleteResponseConnectorOneDetailRootMax).regex(partnerConnectionDeleteResponseConnectorOneDetailRootRegExp).default(partnerConnectionDeleteResponseConnectorOneDetailRootDefault),
   "fields": zod.object({
-  "description": zod.array(zod.string().max(partnerConnectionDeleteResponseConnectorOneFieldsDescriptionItemMax).regex(partnerConnectionDeleteResponseConnectorOneFieldsDescriptionItemRegExp)).min(1).max(partnerConnectionDeleteResponseConnectorOneFieldsDescriptionMax).optional(),
   "external_id": zod.array(zod.string().max(partnerConnectionDeleteResponseConnectorOneFieldsExternalIdItemMax).regex(partnerConnectionDeleteResponseConnectorOneFieldsExternalIdItemRegExp)).min(1).max(partnerConnectionDeleteResponseConnectorOneFieldsExternalIdMax).optional(),
   "listing_url": zod.array(zod.string().max(partnerConnectionDeleteResponseConnectorOneFieldsListingUrlItemMax).regex(partnerConnectionDeleteResponseConnectorOneFieldsListingUrlItemRegExp)).min(1).max(partnerConnectionDeleteResponseConnectorOneFieldsListingUrlMax).optional(),
   "name": zod.array(zod.string().max(partnerConnectionDeleteResponseConnectorOneFieldsNameItemMax).regex(partnerConnectionDeleteResponseConnectorOneFieldsNameItemRegExp)).min(1).max(partnerConnectionDeleteResponseConnectorOneFieldsNameMax).optional(),
   "pricing": zod.array(zod.string().max(partnerConnectionDeleteResponseConnectorOneFieldsPricingItemMax).regex(partnerConnectionDeleteResponseConnectorOneFieldsPricingItemRegExp)).min(1).max(partnerConnectionDeleteResponseConnectorOneFieldsPricingMax).optional(),
-  "product_url": zod.array(zod.string().max(partnerConnectionDeleteResponseConnectorOneFieldsProductUrlItemMax).regex(partnerConnectionDeleteResponseConnectorOneFieldsProductUrlItemRegExp)).min(1).max(partnerConnectionDeleteResponseConnectorOneFieldsProductUrlMax).optional()
+  "product_url": zod.array(zod.string().max(partnerConnectionDeleteResponseConnectorOneFieldsProductUrlItemMax).regex(partnerConnectionDeleteResponseConnectorOneFieldsProductUrlItemRegExp)).min(1).max(partnerConnectionDeleteResponseConnectorOneFieldsProductUrlMax).optional(),
+  "tagline": zod.array(zod.string().max(partnerConnectionDeleteResponseConnectorOneFieldsTaglineItemMax).regex(partnerConnectionDeleteResponseConnectorOneFieldsTaglineItemRegExp)).min(1).max(partnerConnectionDeleteResponseConnectorOneFieldsTaglineMax).optional()
 }).optional(),
   "filters": zod.array(zod.object({
   "include_missing": zod.boolean().default(partnerConnectionDeleteResponseConnectorOneFiltersItemIncludeMissingDefault),
@@ -772,12 +772,6 @@ export const partnerConnectionGetResponseConnectorOneDetailRootMax = 200;
 
 
 export const partnerConnectionGetResponseConnectorOneDetailRootRegExp = new RegExp('^(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+)(?:\\.(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+))*$|^$');
-export const partnerConnectionGetResponseConnectorOneFieldsDescriptionItemMax = 200;
-
-
-export const partnerConnectionGetResponseConnectorOneFieldsDescriptionItemRegExp = new RegExp('^(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+)(?:\\.(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+))*$|^$');
-export const partnerConnectionGetResponseConnectorOneFieldsDescriptionMax = 5;
-
 export const partnerConnectionGetResponseConnectorOneFieldsExternalIdItemMax = 200;
 
 
@@ -807,6 +801,12 @@ export const partnerConnectionGetResponseConnectorOneFieldsProductUrlItemMax = 2
 
 export const partnerConnectionGetResponseConnectorOneFieldsProductUrlItemRegExp = new RegExp('^(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+)(?:\\.(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+))*$|^$');
 export const partnerConnectionGetResponseConnectorOneFieldsProductUrlMax = 5;
+
+export const partnerConnectionGetResponseConnectorOneFieldsTaglineItemMax = 200;
+
+
+export const partnerConnectionGetResponseConnectorOneFieldsTaglineItemRegExp = new RegExp('^(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+)(?:\\.(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+))*$|^$');
+export const partnerConnectionGetResponseConnectorOneFieldsTaglineMax = 5;
 
 export const partnerConnectionGetResponseConnectorOneFiltersItemIncludeMissingDefault = true;
 export const partnerConnectionGetResponseConnectorOneFiltersItemPathMax = 200;
@@ -897,12 +897,12 @@ export const PartnerConnectionGetResponse = zod.object({
   "detail_path": zod.union([zod.string().max(partnerConnectionGetResponseConnectorOneDetailPathOneMax),zod.null()]).optional(),
   "detail_root": zod.string().max(partnerConnectionGetResponseConnectorOneDetailRootMax).regex(partnerConnectionGetResponseConnectorOneDetailRootRegExp).default(partnerConnectionGetResponseConnectorOneDetailRootDefault),
   "fields": zod.object({
-  "description": zod.array(zod.string().max(partnerConnectionGetResponseConnectorOneFieldsDescriptionItemMax).regex(partnerConnectionGetResponseConnectorOneFieldsDescriptionItemRegExp)).min(1).max(partnerConnectionGetResponseConnectorOneFieldsDescriptionMax).optional(),
   "external_id": zod.array(zod.string().max(partnerConnectionGetResponseConnectorOneFieldsExternalIdItemMax).regex(partnerConnectionGetResponseConnectorOneFieldsExternalIdItemRegExp)).min(1).max(partnerConnectionGetResponseConnectorOneFieldsExternalIdMax).optional(),
   "listing_url": zod.array(zod.string().max(partnerConnectionGetResponseConnectorOneFieldsListingUrlItemMax).regex(partnerConnectionGetResponseConnectorOneFieldsListingUrlItemRegExp)).min(1).max(partnerConnectionGetResponseConnectorOneFieldsListingUrlMax).optional(),
   "name": zod.array(zod.string().max(partnerConnectionGetResponseConnectorOneFieldsNameItemMax).regex(partnerConnectionGetResponseConnectorOneFieldsNameItemRegExp)).min(1).max(partnerConnectionGetResponseConnectorOneFieldsNameMax).optional(),
   "pricing": zod.array(zod.string().max(partnerConnectionGetResponseConnectorOneFieldsPricingItemMax).regex(partnerConnectionGetResponseConnectorOneFieldsPricingItemRegExp)).min(1).max(partnerConnectionGetResponseConnectorOneFieldsPricingMax).optional(),
-  "product_url": zod.array(zod.string().max(partnerConnectionGetResponseConnectorOneFieldsProductUrlItemMax).regex(partnerConnectionGetResponseConnectorOneFieldsProductUrlItemRegExp)).min(1).max(partnerConnectionGetResponseConnectorOneFieldsProductUrlMax).optional()
+  "product_url": zod.array(zod.string().max(partnerConnectionGetResponseConnectorOneFieldsProductUrlItemMax).regex(partnerConnectionGetResponseConnectorOneFieldsProductUrlItemRegExp)).min(1).max(partnerConnectionGetResponseConnectorOneFieldsProductUrlMax).optional(),
+  "tagline": zod.array(zod.string().max(partnerConnectionGetResponseConnectorOneFieldsTaglineItemMax).regex(partnerConnectionGetResponseConnectorOneFieldsTaglineItemRegExp)).min(1).max(partnerConnectionGetResponseConnectorOneFieldsTaglineMax).optional()
 }).optional(),
   "filters": zod.array(zod.object({
   "include_missing": zod.boolean().default(partnerConnectionGetResponseConnectorOneFiltersItemIncludeMissingDefault),
@@ -976,12 +976,6 @@ export const partnerConnectionUpdateResponseConnectorOneDetailRootMax = 200;
 
 
 export const partnerConnectionUpdateResponseConnectorOneDetailRootRegExp = new RegExp('^(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+)(?:\\.(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+))*$|^$');
-export const partnerConnectionUpdateResponseConnectorOneFieldsDescriptionItemMax = 200;
-
-
-export const partnerConnectionUpdateResponseConnectorOneFieldsDescriptionItemRegExp = new RegExp('^(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+)(?:\\.(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+))*$|^$');
-export const partnerConnectionUpdateResponseConnectorOneFieldsDescriptionMax = 5;
-
 export const partnerConnectionUpdateResponseConnectorOneFieldsExternalIdItemMax = 200;
 
 
@@ -1011,6 +1005,12 @@ export const partnerConnectionUpdateResponseConnectorOneFieldsProductUrlItemMax 
 
 export const partnerConnectionUpdateResponseConnectorOneFieldsProductUrlItemRegExp = new RegExp('^(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+)(?:\\.(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+))*$|^$');
 export const partnerConnectionUpdateResponseConnectorOneFieldsProductUrlMax = 5;
+
+export const partnerConnectionUpdateResponseConnectorOneFieldsTaglineItemMax = 200;
+
+
+export const partnerConnectionUpdateResponseConnectorOneFieldsTaglineItemRegExp = new RegExp('^(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+)(?:\\.(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+))*$|^$');
+export const partnerConnectionUpdateResponseConnectorOneFieldsTaglineMax = 5;
 
 export const partnerConnectionUpdateResponseConnectorOneFiltersItemIncludeMissingDefault = true;
 export const partnerConnectionUpdateResponseConnectorOneFiltersItemPathMax = 200;
@@ -1101,12 +1101,12 @@ export const PartnerConnectionUpdateResponse = zod.object({
   "detail_path": zod.union([zod.string().max(partnerConnectionUpdateResponseConnectorOneDetailPathOneMax),zod.null()]).optional(),
   "detail_root": zod.string().max(partnerConnectionUpdateResponseConnectorOneDetailRootMax).regex(partnerConnectionUpdateResponseConnectorOneDetailRootRegExp).default(partnerConnectionUpdateResponseConnectorOneDetailRootDefault),
   "fields": zod.object({
-  "description": zod.array(zod.string().max(partnerConnectionUpdateResponseConnectorOneFieldsDescriptionItemMax).regex(partnerConnectionUpdateResponseConnectorOneFieldsDescriptionItemRegExp)).min(1).max(partnerConnectionUpdateResponseConnectorOneFieldsDescriptionMax).optional(),
   "external_id": zod.array(zod.string().max(partnerConnectionUpdateResponseConnectorOneFieldsExternalIdItemMax).regex(partnerConnectionUpdateResponseConnectorOneFieldsExternalIdItemRegExp)).min(1).max(partnerConnectionUpdateResponseConnectorOneFieldsExternalIdMax).optional(),
   "listing_url": zod.array(zod.string().max(partnerConnectionUpdateResponseConnectorOneFieldsListingUrlItemMax).regex(partnerConnectionUpdateResponseConnectorOneFieldsListingUrlItemRegExp)).min(1).max(partnerConnectionUpdateResponseConnectorOneFieldsListingUrlMax).optional(),
   "name": zod.array(zod.string().max(partnerConnectionUpdateResponseConnectorOneFieldsNameItemMax).regex(partnerConnectionUpdateResponseConnectorOneFieldsNameItemRegExp)).min(1).max(partnerConnectionUpdateResponseConnectorOneFieldsNameMax).optional(),
   "pricing": zod.array(zod.string().max(partnerConnectionUpdateResponseConnectorOneFieldsPricingItemMax).regex(partnerConnectionUpdateResponseConnectorOneFieldsPricingItemRegExp)).min(1).max(partnerConnectionUpdateResponseConnectorOneFieldsPricingMax).optional(),
-  "product_url": zod.array(zod.string().max(partnerConnectionUpdateResponseConnectorOneFieldsProductUrlItemMax).regex(partnerConnectionUpdateResponseConnectorOneFieldsProductUrlItemRegExp)).min(1).max(partnerConnectionUpdateResponseConnectorOneFieldsProductUrlMax).optional()
+  "product_url": zod.array(zod.string().max(partnerConnectionUpdateResponseConnectorOneFieldsProductUrlItemMax).regex(partnerConnectionUpdateResponseConnectorOneFieldsProductUrlItemRegExp)).min(1).max(partnerConnectionUpdateResponseConnectorOneFieldsProductUrlMax).optional(),
+  "tagline": zod.array(zod.string().max(partnerConnectionUpdateResponseConnectorOneFieldsTaglineItemMax).regex(partnerConnectionUpdateResponseConnectorOneFieldsTaglineItemRegExp)).min(1).max(partnerConnectionUpdateResponseConnectorOneFieldsTaglineMax).optional()
 }).optional(),
   "filters": zod.array(zod.object({
   "include_missing": zod.boolean().default(partnerConnectionUpdateResponseConnectorOneFiltersItemIncludeMissingDefault),
@@ -1180,12 +1180,6 @@ export const partnerConnectionActionResponseConnectorOneDetailRootMax = 200;
 
 
 export const partnerConnectionActionResponseConnectorOneDetailRootRegExp = new RegExp('^(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+)(?:\\.(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+))*$|^$');
-export const partnerConnectionActionResponseConnectorOneFieldsDescriptionItemMax = 200;
-
-
-export const partnerConnectionActionResponseConnectorOneFieldsDescriptionItemRegExp = new RegExp('^(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+)(?:\\.(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+))*$|^$');
-export const partnerConnectionActionResponseConnectorOneFieldsDescriptionMax = 5;
-
 export const partnerConnectionActionResponseConnectorOneFieldsExternalIdItemMax = 200;
 
 
@@ -1215,6 +1209,12 @@ export const partnerConnectionActionResponseConnectorOneFieldsProductUrlItemMax 
 
 export const partnerConnectionActionResponseConnectorOneFieldsProductUrlItemRegExp = new RegExp('^(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+)(?:\\.(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+))*$|^$');
 export const partnerConnectionActionResponseConnectorOneFieldsProductUrlMax = 5;
+
+export const partnerConnectionActionResponseConnectorOneFieldsTaglineItemMax = 200;
+
+
+export const partnerConnectionActionResponseConnectorOneFieldsTaglineItemRegExp = new RegExp('^(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+)(?:\\.(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+))*$|^$');
+export const partnerConnectionActionResponseConnectorOneFieldsTaglineMax = 5;
 
 export const partnerConnectionActionResponseConnectorOneFiltersItemIncludeMissingDefault = true;
 export const partnerConnectionActionResponseConnectorOneFiltersItemPathMax = 200;
@@ -1305,12 +1305,12 @@ export const PartnerConnectionActionResponse = zod.object({
   "detail_path": zod.union([zod.string().max(partnerConnectionActionResponseConnectorOneDetailPathOneMax),zod.null()]).optional(),
   "detail_root": zod.string().max(partnerConnectionActionResponseConnectorOneDetailRootMax).regex(partnerConnectionActionResponseConnectorOneDetailRootRegExp).default(partnerConnectionActionResponseConnectorOneDetailRootDefault),
   "fields": zod.object({
-  "description": zod.array(zod.string().max(partnerConnectionActionResponseConnectorOneFieldsDescriptionItemMax).regex(partnerConnectionActionResponseConnectorOneFieldsDescriptionItemRegExp)).min(1).max(partnerConnectionActionResponseConnectorOneFieldsDescriptionMax).optional(),
   "external_id": zod.array(zod.string().max(partnerConnectionActionResponseConnectorOneFieldsExternalIdItemMax).regex(partnerConnectionActionResponseConnectorOneFieldsExternalIdItemRegExp)).min(1).max(partnerConnectionActionResponseConnectorOneFieldsExternalIdMax).optional(),
   "listing_url": zod.array(zod.string().max(partnerConnectionActionResponseConnectorOneFieldsListingUrlItemMax).regex(partnerConnectionActionResponseConnectorOneFieldsListingUrlItemRegExp)).min(1).max(partnerConnectionActionResponseConnectorOneFieldsListingUrlMax).optional(),
   "name": zod.array(zod.string().max(partnerConnectionActionResponseConnectorOneFieldsNameItemMax).regex(partnerConnectionActionResponseConnectorOneFieldsNameItemRegExp)).min(1).max(partnerConnectionActionResponseConnectorOneFieldsNameMax).optional(),
   "pricing": zod.array(zod.string().max(partnerConnectionActionResponseConnectorOneFieldsPricingItemMax).regex(partnerConnectionActionResponseConnectorOneFieldsPricingItemRegExp)).min(1).max(partnerConnectionActionResponseConnectorOneFieldsPricingMax).optional(),
-  "product_url": zod.array(zod.string().max(partnerConnectionActionResponseConnectorOneFieldsProductUrlItemMax).regex(partnerConnectionActionResponseConnectorOneFieldsProductUrlItemRegExp)).min(1).max(partnerConnectionActionResponseConnectorOneFieldsProductUrlMax).optional()
+  "product_url": zod.array(zod.string().max(partnerConnectionActionResponseConnectorOneFieldsProductUrlItemMax).regex(partnerConnectionActionResponseConnectorOneFieldsProductUrlItemRegExp)).min(1).max(partnerConnectionActionResponseConnectorOneFieldsProductUrlMax).optional(),
+  "tagline": zod.array(zod.string().max(partnerConnectionActionResponseConnectorOneFieldsTaglineItemMax).regex(partnerConnectionActionResponseConnectorOneFieldsTaglineItemRegExp)).min(1).max(partnerConnectionActionResponseConnectorOneFieldsTaglineMax).optional()
 }).optional(),
   "filters": zod.array(zod.object({
   "include_missing": zod.boolean().default(partnerConnectionActionResponseConnectorOneFiltersItemIncludeMissingDefault),
@@ -1367,9 +1367,6 @@ export const PartnerConnectionActionResponse = zod.object({
 export const partnerConnectionPreviewResponseProductsItemAttributionDefault = ``;
 export const partnerConnectionPreviewResponseProductsItemAttributionMax = 300;
 
-export const partnerConnectionPreviewResponseProductsItemDescriptionMin = 10;
-export const partnerConnectionPreviewResponseProductsItemDescriptionMax = 5000;
-
 export const partnerConnectionPreviewResponseProductsItemEvidenceItemCapabilityMin = 10;
 export const partnerConnectionPreviewResponseProductsItemEvidenceItemCapabilityMax = 500;
 
@@ -1385,6 +1382,9 @@ export const partnerConnectionPreviewResponseProductsItemNameMax = 200;
 export const partnerConnectionPreviewResponseProductsItemPricingDefault = `unknown`;
 export const partnerConnectionPreviewResponseProductsItemProviderMax = 200;
 
+export const partnerConnectionPreviewResponseProductsItemTaglineMin = 3;
+export const partnerConnectionPreviewResponseProductsItemTaglineMax = 160;
+
 export const partnerConnectionPreviewResponseProductsItemTechnologiesItemMax = 200;
 
 export const partnerConnectionPreviewResponseProductsItemTechnologiesMax = 20;
@@ -1397,7 +1397,6 @@ export const PartnerConnectionPreviewResponse = zod.object({
   "has_next_page": zod.boolean(),
   "products": zod.array(zod.object({
   "attribution": zod.string().max(partnerConnectionPreviewResponseProductsItemAttributionMax).default(partnerConnectionPreviewResponseProductsItemAttributionDefault),
-  "description": zod.string().min(partnerConnectionPreviewResponseProductsItemDescriptionMin).max(partnerConnectionPreviewResponseProductsItemDescriptionMax),
   "evidence": zod.array(zod.object({
   "capability": zod.string().min(partnerConnectionPreviewResponseProductsItemEvidenceItemCapabilityMin).max(partnerConnectionPreviewResponseProductsItemEvidenceItemCapabilityMax),
   "quote": zod.string().min(partnerConnectionPreviewResponseProductsItemEvidenceItemQuoteMin).max(partnerConnectionPreviewResponseProductsItemEvidenceItemQuoteMax),
@@ -1409,6 +1408,7 @@ export const PartnerConnectionPreviewResponse = zod.object({
   "pricing": zod.enum(['free', 'freemium', 'paid', 'unknown']).default(partnerConnectionPreviewResponseProductsItemPricingDefault),
   "product_url": zod.string(),
   "provider": zod.string().min(1).max(partnerConnectionPreviewResponseProductsItemProviderMax),
+  "tagline": zod.string().min(partnerConnectionPreviewResponseProductsItemTaglineMin).max(partnerConnectionPreviewResponseProductsItemTaglineMax),
   "technologies": zod.array(zod.string().min(1).max(partnerConnectionPreviewResponseProductsItemTechnologiesItemMax)).max(partnerConnectionPreviewResponseProductsItemTechnologiesMax).optional()
 }))
 })
@@ -1445,16 +1445,21 @@ export const PartnerConnectionJobsResponse = zod.object({
 /**
  * @summary Preview Creative
  */
+export const partnerCreativePreviewResponseProductOneTaglineMin = 3;
+export const partnerCreativePreviewResponseProductOneTaglineMax = 160;
+
+
+
 export const PartnerCreativePreviewResponse = zod.object({
   "product": zod.union([zod.object({
   "ad_image_status": zod.enum(['default', 'queued', 'running', 'ready', 'failed']),
-  "description": zod.string(),
   "id": zod.uuid(),
   "image_url": zod.union([zod.string(),zod.null()]),
   "listing_url": zod.union([zod.string(),zod.null()]),
   "logo_url": zod.union([zod.string(),zod.null()]),
   "name": zod.string(),
-  "product_url": zod.string()
+  "product_url": zod.string(),
+  "tagline": zod.string().min(partnerCreativePreviewResponseProductOneTaglineMin).max(partnerCreativePreviewResponseProductOneTaglineMax)
 }),zod.null()])
 })
 
@@ -1567,6 +1572,10 @@ export const PartnerDestinationPreviewResponse = zod.object({
 export const partnerInventoryListResponseItemsItemAssessmentReasonDefault = ``;
 export const partnerInventoryListResponseItemsItemAssessmentStateDefault = `waiting`;
 export const partnerInventoryListResponseItemsItemCommercialApprovedDefault = false;
+export const partnerInventoryListResponseItemsItemTaglineMin = 3;
+export const partnerInventoryListResponseItemsItemTaglineMax = 160;
+
+
 
 export const PartnerInventoryListResponse = zod.object({
   "items": zod.array(zod.object({
@@ -1579,7 +1588,6 @@ export const PartnerInventoryListResponse = zod.object({
   "state": zod.enum(['waiting', 'checking', 'qualified', 'attention', 'irrelevant', 'withdrawn']).default(partnerInventoryListResponseItemsItemAssessmentStateDefault)
 }),
   "commercial_approved": zod.boolean().default(partnerInventoryListResponseItemsItemCommercialApprovedDefault),
-  "description": zod.string(),
   "editable": zod.boolean(),
   "excluded": zod.boolean(),
   "globally_excluded": zod.boolean(),
@@ -1592,6 +1600,7 @@ export const PartnerInventoryListResponse = zod.object({
   "revision": zod.int(),
   "source": zod.enum(['manual', 'imported']),
   "status": zod.string(),
+  "tagline": zod.string().min(partnerInventoryListResponseItemsItemTaglineMin).max(partnerInventoryListResponseItemsItemTaglineMax),
   "technologies": zod.array(zod.string())
 })),
   "total": zod.int()
@@ -1647,6 +1656,10 @@ export const PartnerAccountPreferencesUpdateResponse = zod.object({
 export const partnerProductCreateResponseAssessmentReasonDefault = ``;
 export const partnerProductCreateResponseAssessmentStateDefault = `waiting`;
 export const partnerProductCreateResponseCommercialApprovedDefault = false;
+export const partnerProductCreateResponseTaglineMin = 3;
+export const partnerProductCreateResponseTaglineMax = 160;
+
+
 
 export const PartnerProductCreateResponse = zod.object({
   "account_id": zod.uuid(),
@@ -1660,7 +1673,6 @@ export const PartnerProductCreateResponse = zod.object({
   "state": zod.enum(['waiting', 'checking', 'qualified', 'attention', 'irrelevant', 'withdrawn']).default(partnerProductCreateResponseAssessmentStateDefault)
 }),
   "commercial_approved": zod.boolean().default(partnerProductCreateResponseCommercialApprovedDefault),
-  "description": zod.string(),
   "editable": zod.boolean(),
   "excluded": zod.boolean(),
   "globally_excluded": zod.boolean(),
@@ -1673,6 +1685,7 @@ export const PartnerProductCreateResponse = zod.object({
   "revision": zod.int(),
   "source": zod.enum(['manual', 'imported']),
   "status": zod.string(),
+  "tagline": zod.string().min(partnerProductCreateResponseTaglineMin).max(partnerProductCreateResponseTaglineMax),
   "technologies": zod.array(zod.string())
 })
 
@@ -1689,6 +1702,10 @@ export const PartnerProductArchiveResponse = zod.void()
 export const partnerProductGetResponseAssessmentReasonDefault = ``;
 export const partnerProductGetResponseAssessmentStateDefault = `waiting`;
 export const partnerProductGetResponseCommercialApprovedDefault = false;
+export const partnerProductGetResponseTaglineMin = 3;
+export const partnerProductGetResponseTaglineMax = 160;
+
+
 
 export const PartnerProductGetResponse = zod.object({
   "account_id": zod.uuid(),
@@ -1702,7 +1719,6 @@ export const PartnerProductGetResponse = zod.object({
   "state": zod.enum(['waiting', 'checking', 'qualified', 'attention', 'irrelevant', 'withdrawn']).default(partnerProductGetResponseAssessmentStateDefault)
 }),
   "commercial_approved": zod.boolean().default(partnerProductGetResponseCommercialApprovedDefault),
-  "description": zod.string(),
   "editable": zod.boolean(),
   "excluded": zod.boolean(),
   "globally_excluded": zod.boolean(),
@@ -1715,6 +1731,7 @@ export const PartnerProductGetResponse = zod.object({
   "revision": zod.int(),
   "source": zod.enum(['manual', 'imported']),
   "status": zod.string(),
+  "tagline": zod.string().min(partnerProductGetResponseTaglineMin).max(partnerProductGetResponseTaglineMax),
   "technologies": zod.array(zod.string())
 })
 
@@ -1725,6 +1742,10 @@ export const PartnerProductGetResponse = zod.object({
 export const partnerProductUpdateResponseAssessmentReasonDefault = ``;
 export const partnerProductUpdateResponseAssessmentStateDefault = `waiting`;
 export const partnerProductUpdateResponseCommercialApprovedDefault = false;
+export const partnerProductUpdateResponseTaglineMin = 3;
+export const partnerProductUpdateResponseTaglineMax = 160;
+
+
 
 export const PartnerProductUpdateResponse = zod.object({
   "account_id": zod.uuid(),
@@ -1738,7 +1759,6 @@ export const PartnerProductUpdateResponse = zod.object({
   "state": zod.enum(['waiting', 'checking', 'qualified', 'attention', 'irrelevant', 'withdrawn']).default(partnerProductUpdateResponseAssessmentStateDefault)
 }),
   "commercial_approved": zod.boolean().default(partnerProductUpdateResponseCommercialApprovedDefault),
-  "description": zod.string(),
   "editable": zod.boolean(),
   "excluded": zod.boolean(),
   "globally_excluded": zod.boolean(),
@@ -1751,6 +1771,7 @@ export const PartnerProductUpdateResponse = zod.object({
   "revision": zod.int(),
   "source": zod.enum(['manual', 'imported']),
   "status": zod.string(),
+  "tagline": zod.string().min(partnerProductUpdateResponseTaglineMin).max(partnerProductUpdateResponseTaglineMax),
   "technologies": zod.array(zod.string())
 })
 
@@ -1778,12 +1799,6 @@ export const partnerWorkspaceConnectionsResponseItemsItemConnectorOneDetailRootM
 
 
 export const partnerWorkspaceConnectionsResponseItemsItemConnectorOneDetailRootRegExp = new RegExp('^(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+)(?:\\.(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+))*$|^$');
-export const partnerWorkspaceConnectionsResponseItemsItemConnectorOneFieldsDescriptionItemMax = 200;
-
-
-export const partnerWorkspaceConnectionsResponseItemsItemConnectorOneFieldsDescriptionItemRegExp = new RegExp('^(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+)(?:\\.(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+))*$|^$');
-export const partnerWorkspaceConnectionsResponseItemsItemConnectorOneFieldsDescriptionMax = 5;
-
 export const partnerWorkspaceConnectionsResponseItemsItemConnectorOneFieldsExternalIdItemMax = 200;
 
 
@@ -1813,6 +1828,12 @@ export const partnerWorkspaceConnectionsResponseItemsItemConnectorOneFieldsProdu
 
 export const partnerWorkspaceConnectionsResponseItemsItemConnectorOneFieldsProductUrlItemRegExp = new RegExp('^(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+)(?:\\.(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+))*$|^$');
 export const partnerWorkspaceConnectionsResponseItemsItemConnectorOneFieldsProductUrlMax = 5;
+
+export const partnerWorkspaceConnectionsResponseItemsItemConnectorOneFieldsTaglineItemMax = 200;
+
+
+export const partnerWorkspaceConnectionsResponseItemsItemConnectorOneFieldsTaglineItemRegExp = new RegExp('^(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+)(?:\\.(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+))*$|^$');
+export const partnerWorkspaceConnectionsResponseItemsItemConnectorOneFieldsTaglineMax = 5;
 
 export const partnerWorkspaceConnectionsResponseItemsItemConnectorOneFiltersItemIncludeMissingDefault = true;
 export const partnerWorkspaceConnectionsResponseItemsItemConnectorOneFiltersItemPathMax = 200;
@@ -1906,12 +1927,12 @@ export const PartnerWorkspaceConnectionsResponse = zod.object({
   "detail_path": zod.union([zod.string().max(partnerWorkspaceConnectionsResponseItemsItemConnectorOneDetailPathOneMax),zod.null()]).optional(),
   "detail_root": zod.string().max(partnerWorkspaceConnectionsResponseItemsItemConnectorOneDetailRootMax).regex(partnerWorkspaceConnectionsResponseItemsItemConnectorOneDetailRootRegExp).default(partnerWorkspaceConnectionsResponseItemsItemConnectorOneDetailRootDefault),
   "fields": zod.object({
-  "description": zod.array(zod.string().max(partnerWorkspaceConnectionsResponseItemsItemConnectorOneFieldsDescriptionItemMax).regex(partnerWorkspaceConnectionsResponseItemsItemConnectorOneFieldsDescriptionItemRegExp)).min(1).max(partnerWorkspaceConnectionsResponseItemsItemConnectorOneFieldsDescriptionMax).optional(),
   "external_id": zod.array(zod.string().max(partnerWorkspaceConnectionsResponseItemsItemConnectorOneFieldsExternalIdItemMax).regex(partnerWorkspaceConnectionsResponseItemsItemConnectorOneFieldsExternalIdItemRegExp)).min(1).max(partnerWorkspaceConnectionsResponseItemsItemConnectorOneFieldsExternalIdMax).optional(),
   "listing_url": zod.array(zod.string().max(partnerWorkspaceConnectionsResponseItemsItemConnectorOneFieldsListingUrlItemMax).regex(partnerWorkspaceConnectionsResponseItemsItemConnectorOneFieldsListingUrlItemRegExp)).min(1).max(partnerWorkspaceConnectionsResponseItemsItemConnectorOneFieldsListingUrlMax).optional(),
   "name": zod.array(zod.string().max(partnerWorkspaceConnectionsResponseItemsItemConnectorOneFieldsNameItemMax).regex(partnerWorkspaceConnectionsResponseItemsItemConnectorOneFieldsNameItemRegExp)).min(1).max(partnerWorkspaceConnectionsResponseItemsItemConnectorOneFieldsNameMax).optional(),
   "pricing": zod.array(zod.string().max(partnerWorkspaceConnectionsResponseItemsItemConnectorOneFieldsPricingItemMax).regex(partnerWorkspaceConnectionsResponseItemsItemConnectorOneFieldsPricingItemRegExp)).min(1).max(partnerWorkspaceConnectionsResponseItemsItemConnectorOneFieldsPricingMax).optional(),
-  "product_url": zod.array(zod.string().max(partnerWorkspaceConnectionsResponseItemsItemConnectorOneFieldsProductUrlItemMax).regex(partnerWorkspaceConnectionsResponseItemsItemConnectorOneFieldsProductUrlItemRegExp)).min(1).max(partnerWorkspaceConnectionsResponseItemsItemConnectorOneFieldsProductUrlMax).optional()
+  "product_url": zod.array(zod.string().max(partnerWorkspaceConnectionsResponseItemsItemConnectorOneFieldsProductUrlItemMax).regex(partnerWorkspaceConnectionsResponseItemsItemConnectorOneFieldsProductUrlItemRegExp)).min(1).max(partnerWorkspaceConnectionsResponseItemsItemConnectorOneFieldsProductUrlMax).optional(),
+  "tagline": zod.array(zod.string().max(partnerWorkspaceConnectionsResponseItemsItemConnectorOneFieldsTaglineItemMax).regex(partnerWorkspaceConnectionsResponseItemsItemConnectorOneFieldsTaglineItemRegExp)).min(1).max(partnerWorkspaceConnectionsResponseItemsItemConnectorOneFieldsTaglineMax).optional()
 }).optional(),
   "filters": zod.array(zod.object({
   "include_missing": zod.boolean().default(partnerWorkspaceConnectionsResponseItemsItemConnectorOneFiltersItemIncludeMissingDefault),
@@ -1990,12 +2011,6 @@ export const partnerWorkspaceConnectionCreateResponseConnectorOneDetailRootMax =
 
 
 export const partnerWorkspaceConnectionCreateResponseConnectorOneDetailRootRegExp = new RegExp('^(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+)(?:\\.(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+))*$|^$');
-export const partnerWorkspaceConnectionCreateResponseConnectorOneFieldsDescriptionItemMax = 200;
-
-
-export const partnerWorkspaceConnectionCreateResponseConnectorOneFieldsDescriptionItemRegExp = new RegExp('^(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+)(?:\\.(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+))*$|^$');
-export const partnerWorkspaceConnectionCreateResponseConnectorOneFieldsDescriptionMax = 5;
-
 export const partnerWorkspaceConnectionCreateResponseConnectorOneFieldsExternalIdItemMax = 200;
 
 
@@ -2025,6 +2040,12 @@ export const partnerWorkspaceConnectionCreateResponseConnectorOneFieldsProductUr
 
 export const partnerWorkspaceConnectionCreateResponseConnectorOneFieldsProductUrlItemRegExp = new RegExp('^(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+)(?:\\.(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+))*$|^$');
 export const partnerWorkspaceConnectionCreateResponseConnectorOneFieldsProductUrlMax = 5;
+
+export const partnerWorkspaceConnectionCreateResponseConnectorOneFieldsTaglineItemMax = 200;
+
+
+export const partnerWorkspaceConnectionCreateResponseConnectorOneFieldsTaglineItemRegExp = new RegExp('^(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+)(?:\\.(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+))*$|^$');
+export const partnerWorkspaceConnectionCreateResponseConnectorOneFieldsTaglineMax = 5;
 
 export const partnerWorkspaceConnectionCreateResponseConnectorOneFiltersItemIncludeMissingDefault = true;
 export const partnerWorkspaceConnectionCreateResponseConnectorOneFiltersItemPathMax = 200;
@@ -2116,12 +2137,12 @@ export const PartnerWorkspaceConnectionCreateResponse = zod.object({
   "detail_path": zod.union([zod.string().max(partnerWorkspaceConnectionCreateResponseConnectorOneDetailPathOneMax),zod.null()]).optional(),
   "detail_root": zod.string().max(partnerWorkspaceConnectionCreateResponseConnectorOneDetailRootMax).regex(partnerWorkspaceConnectionCreateResponseConnectorOneDetailRootRegExp).default(partnerWorkspaceConnectionCreateResponseConnectorOneDetailRootDefault),
   "fields": zod.object({
-  "description": zod.array(zod.string().max(partnerWorkspaceConnectionCreateResponseConnectorOneFieldsDescriptionItemMax).regex(partnerWorkspaceConnectionCreateResponseConnectorOneFieldsDescriptionItemRegExp)).min(1).max(partnerWorkspaceConnectionCreateResponseConnectorOneFieldsDescriptionMax).optional(),
   "external_id": zod.array(zod.string().max(partnerWorkspaceConnectionCreateResponseConnectorOneFieldsExternalIdItemMax).regex(partnerWorkspaceConnectionCreateResponseConnectorOneFieldsExternalIdItemRegExp)).min(1).max(partnerWorkspaceConnectionCreateResponseConnectorOneFieldsExternalIdMax).optional(),
   "listing_url": zod.array(zod.string().max(partnerWorkspaceConnectionCreateResponseConnectorOneFieldsListingUrlItemMax).regex(partnerWorkspaceConnectionCreateResponseConnectorOneFieldsListingUrlItemRegExp)).min(1).max(partnerWorkspaceConnectionCreateResponseConnectorOneFieldsListingUrlMax).optional(),
   "name": zod.array(zod.string().max(partnerWorkspaceConnectionCreateResponseConnectorOneFieldsNameItemMax).regex(partnerWorkspaceConnectionCreateResponseConnectorOneFieldsNameItemRegExp)).min(1).max(partnerWorkspaceConnectionCreateResponseConnectorOneFieldsNameMax).optional(),
   "pricing": zod.array(zod.string().max(partnerWorkspaceConnectionCreateResponseConnectorOneFieldsPricingItemMax).regex(partnerWorkspaceConnectionCreateResponseConnectorOneFieldsPricingItemRegExp)).min(1).max(partnerWorkspaceConnectionCreateResponseConnectorOneFieldsPricingMax).optional(),
-  "product_url": zod.array(zod.string().max(partnerWorkspaceConnectionCreateResponseConnectorOneFieldsProductUrlItemMax).regex(partnerWorkspaceConnectionCreateResponseConnectorOneFieldsProductUrlItemRegExp)).min(1).max(partnerWorkspaceConnectionCreateResponseConnectorOneFieldsProductUrlMax).optional()
+  "product_url": zod.array(zod.string().max(partnerWorkspaceConnectionCreateResponseConnectorOneFieldsProductUrlItemMax).regex(partnerWorkspaceConnectionCreateResponseConnectorOneFieldsProductUrlItemRegExp)).min(1).max(partnerWorkspaceConnectionCreateResponseConnectorOneFieldsProductUrlMax).optional(),
+  "tagline": zod.array(zod.string().max(partnerWorkspaceConnectionCreateResponseConnectorOneFieldsTaglineItemMax).regex(partnerWorkspaceConnectionCreateResponseConnectorOneFieldsTaglineItemRegExp)).min(1).max(partnerWorkspaceConnectionCreateResponseConnectorOneFieldsTaglineMax).optional()
 }).optional(),
   "filters": zod.array(zod.object({
   "include_missing": zod.boolean().default(partnerWorkspaceConnectionCreateResponseConnectorOneFiltersItemIncludeMissingDefault),
@@ -2196,12 +2217,6 @@ export const partnerWorkspaceConnectionGetResponseConnectorOneDetailRootMax = 20
 
 
 export const partnerWorkspaceConnectionGetResponseConnectorOneDetailRootRegExp = new RegExp('^(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+)(?:\\.(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+))*$|^$');
-export const partnerWorkspaceConnectionGetResponseConnectorOneFieldsDescriptionItemMax = 200;
-
-
-export const partnerWorkspaceConnectionGetResponseConnectorOneFieldsDescriptionItemRegExp = new RegExp('^(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+)(?:\\.(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+))*$|^$');
-export const partnerWorkspaceConnectionGetResponseConnectorOneFieldsDescriptionMax = 5;
-
 export const partnerWorkspaceConnectionGetResponseConnectorOneFieldsExternalIdItemMax = 200;
 
 
@@ -2231,6 +2246,12 @@ export const partnerWorkspaceConnectionGetResponseConnectorOneFieldsProductUrlIt
 
 export const partnerWorkspaceConnectionGetResponseConnectorOneFieldsProductUrlItemRegExp = new RegExp('^(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+)(?:\\.(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+))*$|^$');
 export const partnerWorkspaceConnectionGetResponseConnectorOneFieldsProductUrlMax = 5;
+
+export const partnerWorkspaceConnectionGetResponseConnectorOneFieldsTaglineItemMax = 200;
+
+
+export const partnerWorkspaceConnectionGetResponseConnectorOneFieldsTaglineItemRegExp = new RegExp('^(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+)(?:\\.(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+))*$|^$');
+export const partnerWorkspaceConnectionGetResponseConnectorOneFieldsTaglineMax = 5;
 
 export const partnerWorkspaceConnectionGetResponseConnectorOneFiltersItemIncludeMissingDefault = true;
 export const partnerWorkspaceConnectionGetResponseConnectorOneFiltersItemPathMax = 200;
@@ -2322,12 +2343,12 @@ export const PartnerWorkspaceConnectionGetResponse = zod.object({
   "detail_path": zod.union([zod.string().max(partnerWorkspaceConnectionGetResponseConnectorOneDetailPathOneMax),zod.null()]).optional(),
   "detail_root": zod.string().max(partnerWorkspaceConnectionGetResponseConnectorOneDetailRootMax).regex(partnerWorkspaceConnectionGetResponseConnectorOneDetailRootRegExp).default(partnerWorkspaceConnectionGetResponseConnectorOneDetailRootDefault),
   "fields": zod.object({
-  "description": zod.array(zod.string().max(partnerWorkspaceConnectionGetResponseConnectorOneFieldsDescriptionItemMax).regex(partnerWorkspaceConnectionGetResponseConnectorOneFieldsDescriptionItemRegExp)).min(1).max(partnerWorkspaceConnectionGetResponseConnectorOneFieldsDescriptionMax).optional(),
   "external_id": zod.array(zod.string().max(partnerWorkspaceConnectionGetResponseConnectorOneFieldsExternalIdItemMax).regex(partnerWorkspaceConnectionGetResponseConnectorOneFieldsExternalIdItemRegExp)).min(1).max(partnerWorkspaceConnectionGetResponseConnectorOneFieldsExternalIdMax).optional(),
   "listing_url": zod.array(zod.string().max(partnerWorkspaceConnectionGetResponseConnectorOneFieldsListingUrlItemMax).regex(partnerWorkspaceConnectionGetResponseConnectorOneFieldsListingUrlItemRegExp)).min(1).max(partnerWorkspaceConnectionGetResponseConnectorOneFieldsListingUrlMax).optional(),
   "name": zod.array(zod.string().max(partnerWorkspaceConnectionGetResponseConnectorOneFieldsNameItemMax).regex(partnerWorkspaceConnectionGetResponseConnectorOneFieldsNameItemRegExp)).min(1).max(partnerWorkspaceConnectionGetResponseConnectorOneFieldsNameMax).optional(),
   "pricing": zod.array(zod.string().max(partnerWorkspaceConnectionGetResponseConnectorOneFieldsPricingItemMax).regex(partnerWorkspaceConnectionGetResponseConnectorOneFieldsPricingItemRegExp)).min(1).max(partnerWorkspaceConnectionGetResponseConnectorOneFieldsPricingMax).optional(),
-  "product_url": zod.array(zod.string().max(partnerWorkspaceConnectionGetResponseConnectorOneFieldsProductUrlItemMax).regex(partnerWorkspaceConnectionGetResponseConnectorOneFieldsProductUrlItemRegExp)).min(1).max(partnerWorkspaceConnectionGetResponseConnectorOneFieldsProductUrlMax).optional()
+  "product_url": zod.array(zod.string().max(partnerWorkspaceConnectionGetResponseConnectorOneFieldsProductUrlItemMax).regex(partnerWorkspaceConnectionGetResponseConnectorOneFieldsProductUrlItemRegExp)).min(1).max(partnerWorkspaceConnectionGetResponseConnectorOneFieldsProductUrlMax).optional(),
+  "tagline": zod.array(zod.string().max(partnerWorkspaceConnectionGetResponseConnectorOneFieldsTaglineItemMax).regex(partnerWorkspaceConnectionGetResponseConnectorOneFieldsTaglineItemRegExp)).min(1).max(partnerWorkspaceConnectionGetResponseConnectorOneFieldsTaglineMax).optional()
 }).optional(),
   "filters": zod.array(zod.object({
   "include_missing": zod.boolean().default(partnerWorkspaceConnectionGetResponseConnectorOneFiltersItemIncludeMissingDefault),
@@ -2460,6 +2481,10 @@ export const PartnerWorkspaceDashboardResponse = zod.object({
 export const partnerWorkspaceInventoryResponseItemsItemAssessmentReasonDefault = ``;
 export const partnerWorkspaceInventoryResponseItemsItemAssessmentStateDefault = `waiting`;
 export const partnerWorkspaceInventoryResponseItemsItemCommercialApprovedDefault = false;
+export const partnerWorkspaceInventoryResponseItemsItemTaglineMin = 3;
+export const partnerWorkspaceInventoryResponseItemsItemTaglineMax = 160;
+
+
 
 export const PartnerWorkspaceInventoryResponse = zod.object({
   "items": zod.array(zod.object({
@@ -2474,7 +2499,6 @@ export const PartnerWorkspaceInventoryResponse = zod.object({
   "state": zod.enum(['waiting', 'checking', 'qualified', 'attention', 'irrelevant', 'withdrawn']).default(partnerWorkspaceInventoryResponseItemsItemAssessmentStateDefault)
 }),
   "commercial_approved": zod.boolean().default(partnerWorkspaceInventoryResponseItemsItemCommercialApprovedDefault),
-  "description": zod.string(),
   "editable": zod.boolean(),
   "excluded": zod.boolean(),
   "globally_excluded": zod.boolean(),
@@ -2487,6 +2511,7 @@ export const PartnerWorkspaceInventoryResponse = zod.object({
   "revision": zod.int(),
   "source": zod.enum(['manual', 'imported']),
   "status": zod.string(),
+  "tagline": zod.string().min(partnerWorkspaceInventoryResponseItemsItemTaglineMin).max(partnerWorkspaceInventoryResponseItemsItemTaglineMax),
   "technologies": zod.array(zod.string())
 })),
   "limit": zod.int(),

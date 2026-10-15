@@ -34,7 +34,7 @@ def product_report(database):
         middle = PartnerProduct(
             name="Earlier CronWatch",
             product_url="https://earlier-cronwatch.example",
-            description="Previous identity",
+            tagline="Previous identity",
             merged_into_id=product,
         )
         session.add(middle)
@@ -42,7 +42,7 @@ def product_report(database):
         oldest = PartnerProduct(
             name="Oldest CronWatch",
             product_url="https://oldest-cronwatch.example",
-            description="Previous identity",
+            tagline="Previous identity",
             merged_into_id=middle.id,
         )
         session.add(oldest)

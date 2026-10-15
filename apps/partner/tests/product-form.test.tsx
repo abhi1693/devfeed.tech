@@ -17,7 +17,7 @@ const product: ProductDetailOut = {
   account_name: account.name,
   name: "CronWatch",
   product_url: "https://cronwatch.example/",
-  description: "Monitor scheduled jobs.",
+  tagline: "Monitor scheduled jobs.",
   pricing: "paid",
   technologies: [],
   status: "pending",
@@ -69,8 +69,8 @@ async function fill() {
   fireEvent.change(screen.getByRole("textbox", { name: "Website URL" }), {
     target: { value: product.product_url },
   });
-  fireEvent.change(screen.getByRole("textbox", { name: "Description" }), {
-    target: { value: product.description },
+  fireEvent.change(screen.getByRole("textbox", { name: "Tagline" }), {
+    target: { value: product.tagline },
   });
 }
 it("creates a direct product without a connector and opens the validated record", async () => {
@@ -90,7 +90,7 @@ it("creates a direct product without a connector and opens the validated record"
       body: JSON.stringify({
         name: product.name,
         product_url: product.product_url,
-        description: product.description,
+        tagline: product.tagline,
         pricing: "unknown",
       }),
     }),
@@ -98,6 +98,37 @@ it("creates a direct product without a connector and opens the validated record"
   expect(screen.queryByRole("dialog")).toBeNull();
   expect(screen.queryByRole("combobox", { name: /connection/i })).toBeNull();
 });
+it("saves short product taglines as one concise line", async () => {
+  const fetcher = vi.fn().mockResolvedValue(Response.json({ ...product, tagline: "AI IDE" }));
+  vi.stubGlobal("fetch", fetcher);
+  render(<PartnerProductCreate account={account} csrfToken="csrf" onUnavailable={unavailable} />);
+  await fill();
+  const field = screen.getByRole("textbox", { name: "Tagline" }) as HTMLInputElement;
+  expect(field.tagName).toBe("INPUT");
+  expect(field.minLength).toBe(3);
+  expect(field.maxLength).toBe(160);
+  fireEvent.change(field, { target: { value: "  AI   IDE  " } });
+  await userEvent.click(screen.getByRole("button", { name: "Add product" }));
+  await waitFor(() => expect(router.replace).toHaveBeenCalled());
+  const body = JSON.parse(fetcher.mock.calls[0][1].body);
+  expect(body.tagline).toBe("AI IDE");
+  expect(body).not.toHaveProperty("description");
+});
+it.each(["AI", "x".repeat(161)])(
+  "rejects an invalid tagline before saving (%s)",
+  async (tagline) => {
+    const fetcher = vi.fn();
+    vi.stubGlobal("fetch", fetcher);
+    render(<PartnerProductCreate account={account} csrfToken="csrf" onUnavailable={unavailable} />);
+    await fill();
+    fireEvent.change(screen.getByRole("textbox", { name: "Tagline" }), {
+      target: { value: tagline },
+    });
+    fireEvent.submit(screen.getByRole("form", { name: "New product" }));
+    expect(screen.getByRole("alert").textContent).toContain("between 3 and 160 characters");
+    expect(fetcher).not.toHaveBeenCalled();
+  },
+);
 it("can select an owning account beyond the first page without assuming the first membership", async () => {
   const other = partnerAccount({
     id: "22222222-2222-4222-8222-222222222222",
@@ -144,8 +175,8 @@ it("keeps a failed creation draft intact and rejects a returned product from ano
   await fill();
   await userEvent.click(screen.getByRole("button", { name: "Add product" }));
   await screen.findByRole("alert");
-  expect((screen.getByRole("textbox", { name: "Description" }) as HTMLTextAreaElement).value).toBe(
-    product.description,
+  expect((screen.getByRole("textbox", { name: "Tagline" }) as HTMLInputElement).value).toBe(
+    product.tagline,
   );
   expect(router.replace).not.toHaveBeenCalled();
 });

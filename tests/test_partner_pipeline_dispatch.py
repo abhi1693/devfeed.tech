@@ -43,7 +43,7 @@ def seed_jobs(database, count, *, operation="sync_product", **values):
                         "id": identifier,
                         "name": f"Tool {index}",
                         "product_url": f"https://dispatch-{identifier}.example/",
-                        "description": "A developer tool awaiting qualification.",
+                        "tagline": "A developer tool awaiting qualification.",
                         "assessment_revision": 1,
                     }
                     for index, identifier in enumerate(products)

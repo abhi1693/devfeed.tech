@@ -4700,17 +4700,6 @@
       "ConnectorFields": {
         "additionalProperties": false,
         "properties": {
-          "description": {
-            "items": {
-              "maxLength": 200,
-              "pattern": "^(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+)(?:\\.(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+))*$|^$",
-              "type": "string"
-            },
-            "maxItems": 5,
-            "minItems": 1,
-            "title": "Description",
-            "type": "array"
-          },
           "external_id": {
             "items": {
               "maxLength": 200,
@@ -4764,6 +4753,17 @@
             "maxItems": 5,
             "minItems": 1,
             "title": "Product Url",
+            "type": "array"
+          },
+          "tagline": {
+            "items": {
+              "maxLength": 200,
+              "pattern": "^(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+)(?:\\.(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+))*$|^$",
+              "type": "string"
+            },
+            "maxItems": 5,
+            "minItems": 1,
+            "title": "Tagline",
             "type": "array"
           }
         },
@@ -5000,10 +5000,6 @@
             "title": "Ad Image Status",
             "type": "string"
           },
-          "description": {
-            "title": "Description",
-            "type": "string"
-          },
           "id": {
             "format": "uuid",
             "title": "Id",
@@ -5049,6 +5045,12 @@
           "product_url": {
             "title": "Product Url",
             "type": "string"
+          },
+          "tagline": {
+            "maxLength": 160,
+            "minLength": 3,
+            "title": "Tagline",
+            "type": "string"
           }
         },
         "required": [
@@ -5057,7 +5059,7 @@
           "product_url",
           "listing_url",
           "ad_image_status",
-          "description",
+          "tagline",
           "logo_url",
           "image_url"
         ],
@@ -6807,10 +6809,6 @@
             "title": "Commercial Approved",
             "type": "boolean"
           },
-          "description": {
-            "title": "Description",
-            "type": "string"
-          },
           "editable": {
             "title": "Editable",
             "type": "boolean"
@@ -6892,6 +6890,12 @@
             "title": "Status",
             "type": "string"
           },
+          "tagline": {
+            "maxLength": 160,
+            "minLength": 3,
+            "title": "Tagline",
+            "type": "string"
+          },
           "technologies": {
             "items": {
               "type": "string"
@@ -6908,7 +6912,7 @@
           "excluded",
           "globally_excluded",
           "product_url",
-          "description",
+          "tagline",
           "pricing",
           "assessment",
           "revision",
@@ -7211,10 +7215,6 @@
             "title": "Connection Enabled",
             "type": "boolean"
           },
-          "description": {
-            "title": "Description",
-            "type": "string"
-          },
           "external_id": {
             "title": "External Id",
             "type": "string"
@@ -7267,6 +7267,12 @@
             "title": "Provider",
             "type": "string"
           },
+          "tagline": {
+            "maxLength": 160,
+            "minLength": 3,
+            "title": "Tagline",
+            "type": "string"
+          },
           "updated_at": {
             "format": "date-time",
             "title": "Updated At",
@@ -7281,7 +7287,7 @@
           "name",
           "product_url",
           "listing_url",
-          "description",
+          "tagline",
           "pricing",
           "attribution",
           "active",
@@ -7296,12 +7302,6 @@
       "ManualProductInput": {
         "additionalProperties": false,
         "properties": {
-          "description": {
-            "maxLength": 5000,
-            "minLength": 10,
-            "title": "Description",
-            "type": "string"
-          },
           "name": {
             "maxLength": 200,
             "minLength": 1,
@@ -7323,12 +7323,18 @@
             "maxLength": 2048,
             "title": "Product Url",
             "type": "string"
+          },
+          "tagline": {
+            "maxLength": 160,
+            "minLength": 3,
+            "title": "Tagline",
+            "type": "string"
           }
         },
         "required": [
           "name",
           "product_url",
-          "description"
+          "tagline"
         ],
         "title": "ManualProductInput",
         "type": "object"
@@ -7398,19 +7404,6 @@
             ],
             "title": "Active"
           },
-          "description": {
-            "anyOf": [
-              {
-                "maxLength": 5000,
-                "minLength": 10,
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Description"
-          },
           "expected_revision": {
             "anyOf": [
               {
@@ -7464,6 +7457,19 @@
               }
             ],
             "title": "Product Url"
+          },
+          "tagline": {
+            "anyOf": [
+              {
+                "maxLength": 160,
+                "minLength": 3,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tagline"
           }
         },
         "title": "ManualProductUpdate",
@@ -10305,10 +10311,6 @@
             "title": "Commercial Approved",
             "type": "boolean"
           },
-          "description": {
-            "title": "Description",
-            "type": "string"
-          },
           "editable": {
             "title": "Editable",
             "type": "boolean"
@@ -10390,6 +10392,12 @@
             "title": "Status",
             "type": "string"
           },
+          "tagline": {
+            "maxLength": 160,
+            "minLength": 3,
+            "title": "Tagline",
+            "type": "string"
+          },
           "technologies": {
             "items": {
               "type": "string"
@@ -10406,7 +10414,7 @@
           "excluded",
           "globally_excluded",
           "product_url",
-          "description",
+          "tagline",
           "pricing",
           "assessment",
           "revision",
@@ -10427,12 +10435,6 @@
             "default": "",
             "maxLength": 300,
             "title": "Attribution",
-            "type": "string"
-          },
-          "description": {
-            "maxLength": 5000,
-            "minLength": 10,
-            "title": "Description",
             "type": "string"
           },
           "evidence": {
@@ -10480,6 +10482,12 @@
             "title": "Provider",
             "type": "string"
           },
+          "tagline": {
+            "maxLength": 160,
+            "minLength": 3,
+            "title": "Tagline",
+            "type": "string"
+          },
           "technologies": {
             "items": {
               "maxLength": 200,
@@ -10494,7 +10502,7 @@
         "required": [
           "name",
           "product_url",
-          "description",
+          "tagline",
           "provider",
           "external_id",
           "listing_url"
@@ -10523,12 +10531,6 @@
             "default": false,
             "title": "Commercial Approved",
             "type": "boolean"
-          },
-          "description": {
-            "maxLength": 5000,
-            "minLength": 10,
-            "title": "Description",
-            "type": "string"
           },
           "eligible": {
             "title": "Eligible",
@@ -10629,6 +10631,12 @@
             "title": "Status",
             "type": "string"
           },
+          "tagline": {
+            "maxLength": 160,
+            "minLength": 3,
+            "title": "Tagline",
+            "type": "string"
+          },
           "technologies": {
             "items": {
               "maxLength": 200,
@@ -10660,7 +10668,7 @@
         "required": [
           "name",
           "product_url",
-          "description",
+          "tagline",
           "listings",
           "metadata_listing_id",
           "assessment",
@@ -10864,12 +10872,6 @@
       },
       "ProductSnapshot": {
         "properties": {
-          "description": {
-            "maxLength": 5000,
-            "minLength": 10,
-            "title": "Description",
-            "type": "string"
-          },
           "evidence": {
             "items": {
               "$ref": "#/components/schemas/Evidence"
@@ -10903,6 +10905,12 @@
             "title": "Revision",
             "type": "integer"
           },
+          "tagline": {
+            "maxLength": 160,
+            "minLength": 3,
+            "title": "Tagline",
+            "type": "string"
+          },
           "technologies": {
             "items": {
               "maxLength": 200,
@@ -10917,7 +10925,7 @@
         "required": [
           "name",
           "product_url",
-          "description",
+          "tagline",
           "revision"
         ],
         "title": "ProductSnapshot",

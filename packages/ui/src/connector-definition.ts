@@ -12,10 +12,7 @@ export type ConnectorDefinition = {
   detail_root?: string;
   listing_url_template?: string | null;
   fields?: Partial<
-    Record<
-      "external_id" | "name" | "product_url" | "listing_url" | "description" | "pricing",
-      string[]
-    >
+    Record<"external_id" | "name" | "product_url" | "listing_url" | "tagline" | "pricing", string[]>
   >;
   pagination?: {
     mode?: ConnectorPaginationMode;

@@ -363,7 +363,7 @@ def test_renewal_batches_are_bounded_and_do_not_starve_remaining_products(databa
                 id=uuid.uuid4(),
                 name=f"Manual product {index}",
                 product_url=f"https://tools.example/independent-{index}",
-                description="A developer product with reviewed capabilities.",
+                tagline="A developer product with reviewed capabilities.",
                 status="approved",
                 verified_at=clock[0] - timedelta(days=84),
                 revision=1,

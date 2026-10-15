@@ -151,7 +151,7 @@ def listing_views(session, product_ids):
                         "name",
                         "product_url",
                         "listing_url",
-                        "description",
+                        "tagline",
                         "pricing",
                         "attribution",
                         "active",
@@ -260,7 +260,7 @@ def upsert_listing(session, item, generation):
         product.metadata_listing_id = listing.id
     if resolved and product.metadata_listing_id == listing.id:
         # Display metadata has a stable source. Other platforms cannot overwrite it.
-        changes = {field: getattr(item, field) for field in ("name", "description", "pricing")}
+        changes = {field: getattr(item, field) for field in ("name", "tagline", "pricing")}
         if any(getattr(product, field) != value for field, value in changes.items()):
             for field, value in changes.items():
                 setattr(product, field, value)

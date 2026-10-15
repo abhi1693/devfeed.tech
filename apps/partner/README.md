@@ -174,9 +174,11 @@ Revenue, conversions, and financial ROI are not claimed by these metrics.
 Silver, Gold, Platinum and Diamond support native feed cards, homepage sponsorship, sponsored
 content and contextual engagement ads. Account settings choose automatic feed, homepage and
 engagement formats. Automatic formats default to Feed until another format is enabled.
-Homepage sponsorship appears as a compact unit beneath the main feed controls, only in the
-unfiltered home feed. Engagement placements use grounded task matches or direct topic support in
-existing grid and preview areas. They do not interrupt article reading or replace reader actions.
+Homepage sponsorship appears in the global header on wide screens in unfiltered Home and Latest
+feeds. It shows a 32-pixel product logo, name, muted Sponsored disclosure and a short tagline;
+it does not occupy a feed card or a strip above the feed. Engagement placements use grounded task
+matches or direct topic support in existing grid and preview areas. They do not interrupt article
+reading or replace reader actions.
 A Feed card without managed artwork uses compact product branding; Engagement uses a compact
 logo, product copy and an Explore affordance. Feed and article-search
 lists with fewer than four organic stories omit in-list placements.
@@ -187,15 +189,16 @@ Activating the campaign adds a permanent sponsor disclosure to the article, incl
 article cards and previews after the campaign ends. Campaign creation does not publish articles.
 The sponsored article is omitted when it is already present in the visible feed.
 
-All product placements show a distinct Sponsored pill, regardless of tier or internal promotion
-kind, and cannot be dismissed. The formats share the existing maximum of two placements per
+All product placements show a Sponsored disclosure, regardless of tier or internal promotion
+kind, and cannot be dismissed. Homepage sponsorship uses muted text in the global header; other
+product formats use a distinct pill. The formats share the existing maximum of two placements per
 delivery response. Article, topic, category and search contexts require a relevant match.
 Generic Feed sponsorship may fall back only on the unfiltered home feed without supplied article
 context or resolved reader interests; failed contextual matching cannot broaden into unrelated
-Feed inventory. Explicit Homepage sponsorship remains a separate brand placement on the
-unfiltered home feed and may appear alongside page context. Audience restrictions also apply
-to fallback delivery. Formats have separate assets and attribution while the product performance
-table combines the same product's formats within each account into one row.
+Feed inventory. Explicit Homepage sponsorship remains a separate brand placement in the global
+header of wide, unfiltered Home and Latest feeds and may appear alongside page context. Audience
+restrictions also apply to fallback delivery. Formats have separate assets and attribution while
+the product performance table combines the same product's formats within each account into one row.
 
 **Creative preview** shows a real accepted product or approved sponsored article for the selected
 format without reserving delivery or recording measurements. From a product's placement page,
@@ -223,10 +226,11 @@ Canceling the partner form or closing the admin dialog discards unsaved changes.
 ### Manual products
 
 Organizations can advertise their products without managing a launch platform or connecting an
-external API. Add a name, public HTTPS website, description and pricing under an active partner
-account. Creation queues the same background website checks, capability assessment, imagery and
-contextual preparation used by imports. Account approval, tier, audience and placement policies
-continue to apply. Manually supplied descriptions do not grant approval or verified capabilities.
+external API. Add a name, public HTTPS website, single-line tagline of 3–160 characters and pricing
+under an active partner account. Creation queues the same background website checks, capability
+assessment, imagery and contextual preparation used by imports. Account approval, tier, audience
+and placement policies continue to apply. Manually supplied taglines do not grant approval or
+verified capabilities.
 
 The catalog keeps a canonical identity for each website. Adding an existing product gives the
 account its own inventory entry and placement settings; it does not overwrite that product's

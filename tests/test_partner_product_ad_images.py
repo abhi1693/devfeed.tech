@@ -264,7 +264,7 @@ def test_custom_image_reaches_delivery_without_leaking_to_another_account(
                 name=product.name,
                 product_url=product.product_url,
                 listing_url=product.product_url,
-                description=product.description,
+                tagline=product.tagline,
             )
         )
     save(database, account_id, product_id, CUSTOM)
@@ -416,7 +416,7 @@ def test_unchanged_import_and_alias_merge_preserve_account_specific_choices(
         recipient = PartnerProduct(
             name="Canonical",
             product_url="https://canonical.example/",
-            description="Canonical product",
+            tagline="Canonical product",
         )
         session.add(recipient)
         session.flush()
@@ -430,7 +430,7 @@ def test_unchanged_import_and_alias_merge_preserve_account_specific_choices(
         recipient = PartnerProduct(
             name="Explicit canonical",
             product_url="https://explicit.example/",
-            description="Another product",
+            tagline="Another product",
         )
         session.add(recipient)
         session.flush()
@@ -532,7 +532,7 @@ def test_admin_promotion_list_keeps_latest_jobs_account_scoped_and_revision_boun
             product = PartnerProduct(
                 name=name,
                 product_url=f"https://{name}.example/",
-                description="Product artwork status fixture",
+                tagline="Product artwork status fixture",
             )
             product.managed_image = {
                 **managed(CUSTOM, digest=f"og-{name}"),

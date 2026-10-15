@@ -13,8 +13,10 @@ from devfeed_core.models import (
 )
 from devfeed_core.partner_placement_destinations import (
     PlacementDestinations,
-    placement_destination,
+    account_product_creative,
 )
+from sqlalchemy import select
+from sqlalchemy.exc import OperationalError
 
 
 @pytest.fixture
@@ -27,7 +29,7 @@ def destination_catalog(database):
         products = [
             PartnerProduct(
                 name=name,
-                description="A developer tool",
+                tagline="A developer tool",
                 product_url=f"https://tools.example/{index}",
             )
             for index, name in enumerate(("First tool", "Second tool"))
@@ -47,7 +49,7 @@ def listing(provider, product, external_id, url):
         product_id=product.id,
         external_id=external_id,
         name=product.name,
-        description=product.description,
+        tagline=product.tagline,
         product_url=product.product_url,
         listing_url=url,
     )
@@ -83,7 +85,10 @@ def test_batch_destinations_never_borrow_another_accounts_listing(database, dest
             (account_ids[1], product_ids[0]),
         ]
         assert eligible == [
-            row for row in rows if placement_destination(session, row[1], row[2]) is not None
+            row
+            for row in rows
+            if (creative := account_product_creative(session, row[1], row[2])) is not None
+            and creative.destination(row[1], row[2]) is not None
         ]
 
 
@@ -110,9 +115,8 @@ def test_batch_listing_limit_precedes_url_validation(database, destination_catal
         assert PlacementDestinations(session).eligible_rows([row]) == (
             [row] if valid_position < 20 else []
         )
-        assert (placement_destination(session, account, product) is not None) == (
-            valid_position < 20
-        )
+        creative = account_product_creative(session, account, product, lock=True)
+        assert (creative.destination(account, product) is not None) == (valid_position < 20)
 
 
 @pytest.mark.integration
@@ -143,8 +147,9 @@ def test_batch_manual_fallback_requires_active_owned_unmerged_safe_product(
         assert PlacementDestinations(session).eligible_rows([row, unowned]) == (
             [row] if state == "active" else []
         )
-        assert (placement_destination(session, account, product) is not None) == (state == "active")
-        assert placement_destination(session, other_account, product) is None
+        creative = account_product_creative(session, account, product, lock=True)
+        assert (creative.destination(account, product) is not None) == (state == "active")
+        assert account_product_creative(session, other_account, product, lock=True) is None
 
 
 def test_sponsored_article_destination_ignores_unavailable_product_destination():
@@ -160,3 +165,99 @@ def test_sponsored_article_destination_ignores_unavailable_product_destination()
     destinations.reject(account.id, product.id)
     assert destinations.eligible_rows([feed, story]) == [story]
     session.execute.assert_not_called()
+
+
+@pytest.mark.parametrize("destination", ["product_url", "listing_url"])
+def test_account_creative_uses_the_copy_for_its_selected_destination(destination):
+    session = Mock()
+    session.execute.return_value = [
+        SimpleNamespace(tagline="First owned source copy", listing_url=""),
+        SimpleNamespace(
+            tagline="Copy for the working link", listing_url="https://catalog.example/tool"
+        ),
+    ]
+    account = SimpleNamespace(id="account", outbound_destination=destination)
+    product = SimpleNamespace(id="product", tagline="Another account's canonical copy")
+    creative = account_product_creative(session, account, product)
+    assert creative.tagline == "Copy for the working link"
+    assert creative.listing_url == "https://catalog.example/tool?utm_source=devfeed"
+    session.execute.assert_called_once()
+
+
+def test_missing_account_creative_does_not_use_canonical_copy_without_manual_ownership():
+    session = Mock()
+    session.execute.side_effect = [[], Mock(first=lambda: None)]
+    account = SimpleNamespace(id="account", outbound_destination="product_url")
+    product = SimpleNamespace(id="product", tagline="Foreign canonical copy")
+    assert account_product_creative(session, account, product) is None
+
+
+@pytest.mark.integration
+def test_account_creative_reads_committed_copy_despite_an_old_orm_listing(
+    database, destination_catalog
+):
+    account_ids, product_ids = destination_catalog
+    with database.begin() as session:
+        product = session.get(PartnerProduct, product_ids[0])
+        source = listing("first", product, "tool", "https://catalog.example/tool")
+        source.tagline = "Previous imported copy"
+        session.add(source)
+        session.flush()
+        identifier = source.id
+    with database.begin() as reader:
+        cached = reader.get(PartnerListing, identifier)
+        with database.begin() as editor:
+            editor.get(PartnerListing, identifier).tagline = "Current imported copy"
+        creative = account_product_creative(
+            reader,
+            reader.get(PartnerAccount, account_ids[0]),
+            reader.get(PartnerProduct, product_ids[0]),
+            lock=True,
+        )
+        assert cached.tagline == "Previous imported copy"
+        assert creative.tagline == "Current imported copy"
+
+
+@pytest.mark.integration
+def test_busy_owned_creative_is_skipped_without_foreign_copy_fallback(
+    database, destination_catalog
+):
+    account_ids, product_ids = destination_catalog
+    with database.begin() as session:
+        product = session.get(PartnerProduct, product_ids[0])
+        ours = listing("first", product, "tool", "https://first.example/tool")
+        foreign = listing("second", product, "tool", "https://second.example/tool")
+        ours.tagline, foreign.tagline = "Our imported copy", "Foreign imported copy"
+        session.add_all([ours, foreign])
+        session.flush()
+        identifier = ours.id
+    with database.begin() as editor:
+        editor.scalar(
+            select(PartnerListing).where(PartnerListing.id == identifier).with_for_update()
+        ).tagline = "Uncommitted replacement"
+        editor.flush()
+        with database.begin() as reader:
+            assert (
+                account_product_creative(
+                    reader,
+                    reader.get(PartnerAccount, account_ids[0]),
+                    reader.get(PartnerProduct, product_ids[0]),
+                    lock=True,
+                )
+                is None
+            )
+    with database.begin() as reader:
+        creative = account_product_creative(
+            reader,
+            reader.get(PartnerAccount, account_ids[0]),
+            reader.get(PartnerProduct, product_ids[0]),
+            lock=True,
+        )
+        assert creative.tagline == "Uncommitted replacement"
+        with database.begin() as editor, pytest.raises(OperationalError) as conflict:
+            editor.scalar(
+                select(PartnerListing)
+                .where(PartnerListing.id == identifier)
+                .with_for_update(nowait=True)
+            )
+        assert conflict.value.orig.sqlstate == "55P03"

@@ -15,7 +15,7 @@ from devfeed_core.models import (
     PartnerProductPromotion,
     utcnow,
 )
-from devfeed_core.partner_placement_destinations import placement_destination
+from devfeed_core.partner_placement_destinations import account_product_creative
 from devfeed_http.partner_portal import destination_preview
 from devfeed_partner_api import auth, portal
 from devfeed_partner_api.config import Settings
@@ -48,7 +48,7 @@ def catalog(database):
         )
         product = PartnerProduct(
             name="Actual product",
-            description="Actual catalog description",
+            tagline="Actual catalog description",
             product_url="https://product.example/tool?plan=pro&utm_source=old#features",
             status="approved",
             verified_at=utcnow(),
@@ -60,7 +60,7 @@ def catalog(database):
             external_id="tool",
             product_id=product.id,
             name=product.name,
-            description=product.description,
+            tagline=product.tagline,
             product_url=product.product_url,
             listing_url="https://partner.example/products/tool?ref=account&utm_source=old#pricing",
         )
@@ -153,12 +153,9 @@ def test_both_apis_preview_real_product_and_identical_delivery_urls(
         with database.begin() as session:
             account = session.get(PartnerAccount, account_id)
             account.outbound_destination = field
-            assert (
-                placement_destination(
-                    session, account, session.get(PartnerProduct, catalog["product"])
-                )
-                == product[field]
-            )
+            stored = session.get(PartnerProduct, catalog["product"])
+            creative = account_product_creative(session, account, stored, lock=True)
+            assert creative.destination(account, stored) == product[field]
     # Changing the preference never changes the catalog product chosen for preview.
     assert client.get(preview_url(account_id)).json() == result
 
@@ -240,7 +237,7 @@ def test_qualified_product_precedes_trusted_inventory_and_ties_are_stable(databa
     with database.begin() as session:
         trusted = PartnerProduct(
             name="A consumer tool",
-            description="Not qualified",
+            tagline="Not qualified",
             product_url="https://consumer.example",
             status="rejected",
         )
@@ -259,7 +256,7 @@ def test_qualified_product_precedes_trusted_inventory_and_ties_are_stable(databa
                     external_id="trusted",
                     product_id=trusted.id,
                     name=trusted.name,
-                    description=trusted.description,
+                    tagline=trusted.tagline,
                     product_url=trusted.product_url,
                     listing_url="https://partner.example/trusted",
                 ),
@@ -281,7 +278,7 @@ def test_qualified_product_precedes_trusted_inventory_and_ties_are_stable(databa
         second = PartnerProduct(
             id=uuid.UUID(int=1),
             name="ACTUAL PRODUCT",
-            description="Second",
+            tagline="Second",
             product_url="https://second.example",
             status="approved",
             verified_at=utcnow(),
@@ -294,7 +291,7 @@ def test_qualified_product_precedes_trusted_inventory_and_ties_are_stable(databa
                 external_id="second",
                 product_id=second.id,
                 name=second.name,
-                description=second.description,
+                tagline=second.tagline,
                 product_url=second.product_url,
                 listing_url="https://partner.example/second",
             )
@@ -350,7 +347,7 @@ def test_missing_or_unsafe_owned_listing_stays_null_without_foreign_fallback(
             external_id="foreign",
             product_id=product.id,
             name=product.name,
-            description=product.description,
+            tagline=product.tagline,
             product_url=product.product_url,
             listing_url="https://other.example/tool",
         )
@@ -377,7 +374,7 @@ def test_first_usable_owned_listing_is_deterministic(database, catalog):
                     external_id=external_id,
                     product_id=product.id,
                     name=product.name,
-                    description=product.description,
+                    tagline=product.tagline,
                     product_url=product.product_url,
                     listing_url=f"https://partner.example/{external_id}",
                 )

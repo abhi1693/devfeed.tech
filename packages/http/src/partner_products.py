@@ -20,6 +20,7 @@ from devfeed_core.partner_promotions import (
     associated_products_query,
     request_promotion_enrollment,
 )
+from devfeed_core.partner_taglines import Tagline
 from devfeed_core.rate_limits import RateLimitBudget, consume_rate_limits
 from devfeed_core.schemas import InputModel
 from devfeed_core.urls import canonicalize_url, fingerprint
@@ -43,12 +44,12 @@ def validate_manual_product_url(value):
 class ManualProductInput(InputModel):
     name: str = Field(min_length=1, max_length=200)
     product_url: str = Field(max_length=2048)
-    description: str = Field(min_length=10, max_length=5000)
+    tagline: Tagline
     pricing: Pricing = "unknown"
 
     _url = field_validator("product_url")(validate_manual_product_url)
 
-    @field_validator("name", "description", mode="before")
+    @field_validator("name", mode="before")
     @classmethod
     def clean_text(cls, value):
         if isinstance(value, str):
@@ -61,7 +62,7 @@ class ManualProductInput(InputModel):
 class ManualProductUpdate(InputModel):
     name: str | None = Field(default=None, min_length=1, max_length=200)
     product_url: str | None = Field(default=None, max_length=2048)
-    description: str | None = Field(default=None, min_length=10, max_length=5000)
+    tagline: Tagline | None = None
     pricing: Pricing | None = None
     active: bool | None = None
     expected_revision: int | None = Field(default=None, ge=1)
@@ -71,7 +72,7 @@ class ManualProductUpdate(InputModel):
     def clean_url(cls, value):
         return validate_manual_product_url(value) if value is not None else value
 
-    @field_validator("name", "description", mode="before")
+    @field_validator("name", mode="before")
     @classmethod
     def clean_text(cls, value):
         return ManualProductInput.clean_text(value)

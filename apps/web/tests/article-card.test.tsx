@@ -55,6 +55,31 @@ it("keeps an article's sponsorship disclosure without an active promotion and pr
   expect(container.querySelector(".partner-placement")).toBeNull();
 });
 
+it("keeps a sponsored article visually stable while its background interaction is paused", () => {
+  const content = (active: boolean, visible: boolean) => (
+    <ArticleCard
+      article={{ ...article, sponsor_names: ["Example partner"] }}
+      promotion={{ productId: "product", active, visible, preserveSpace: true }}
+    />
+  );
+  const mounted = render(content(true, true));
+  const card = mounted.container.querySelector(".partner-placement")!;
+  const link = screen.getByRole("link", { name: article.title });
+  mounted.rerender(content(false, true));
+  expect(mounted.container.querySelector(".partner-placement")).toBe(card);
+  expect(card.querySelector(".card-open-link")).toBe(link);
+  expect(card.getAttribute("data-suspended")).toBeNull();
+  expect(card.hasAttribute("hidden")).toBe(false);
+  expect(card.getAttribute("aria-hidden")).toBe("true");
+  expect(card.hasAttribute("inert")).toBe(true);
+  mounted.rerender(content(true, true));
+  expect(screen.getByRole("link", { name: article.title })).toBe(link);
+  mounted.rerender(content(false, false));
+  expect(card.getAttribute("data-suspended")).toBe("true");
+  expect(card.hasAttribute("hidden")).toBe(false);
+  expect(card.hasAttribute("inert")).toBe(true);
+});
+
 it("shows the original article as a read overlay and updates the open counter", async () => {
   render(
     <EngagementProvider articleIds={[article.id]}>

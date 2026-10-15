@@ -57,19 +57,19 @@ def test_tracking_variants_share_identity_qualification_and_attribution(
         database,
         product_payload,
         product_url=product_payload["product_url"] + "?utm_source=platform-b",
-        description="A different platform's description of the same product.",
+        tagline="A different platform's description of the same product.",
     )
     assert second == product["id"]
     page = admin_client.get(ROOT).json()
     assert page["total"] == 1
     current = page["items"][0]
     assert current["revision"] == product["revision"] and current["eligible"]
-    assert current["description"] == product_payload["description"]
+    assert current["tagline"] == product_payload["tagline"]
     assert {listing["provider"] for listing in current["listings"]} == {
         "nick-launches",
         "platform-b",
     }
-    assert current["listings"][1]["description"] != current["description"]
+    assert current["listings"][1]["tagline"] != current["tagline"]
     with database() as session:
         assert session.scalar(select(func.count()).select_from(PartnerEvaluation)) == 1
         assert (
@@ -99,7 +99,7 @@ def test_withdrawal_is_per_listing_and_exclusion_is_global(
     )
     assert response.status_code == 200
     second_platform(
-        database, product_payload, description="New platform metadata must not clear exclusion."
+        database, product_payload, tagline="New platform metadata must not clear exclusion."
     )
     assert admin_client.get(ROOT).json()["items"][0]["excluded"]
     with database.begin() as session:

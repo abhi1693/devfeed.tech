@@ -283,12 +283,12 @@ def test_merge_transfers_upload_cleanup_and_discards_multi_hop_alias_objects(
         alias = PartnerProduct(
             name="Alias recipient",
             product_url="https://alias.example/",
-            description="Alias product",
+            tagline="Alias product",
         )
         canonical = PartnerProduct(
             name="Final canonical",
             product_url="https://canonical.example/",
-            description="Final product",
+            tagline="Final product",
         )
         session.add_all([alias, canonical])
         session.flush()

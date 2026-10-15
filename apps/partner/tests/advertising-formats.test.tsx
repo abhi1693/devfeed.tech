@@ -22,7 +22,7 @@ const account: Account = partnerAccount({
 const product = {
   id: "33333333-3333-4333-8333-333333333333",
   name: "CronWatch",
-  description: "Monitor scheduled jobs.",
+  tagline: "Monitor scheduled jobs.",
   image_url: null,
   ad_image_status: "default" as const,
   logo_url: null,
@@ -131,6 +131,33 @@ it("loads creative previews only on request and keeps them separate from destina
     `/api/v1/partner/accounts/${account.id}/creative-preview`,
     expect.objectContaining({ cache: "no-store", signal: expect.any(AbortSignal) }),
   );
+});
+it("distinguishes the homepage app-header credit from contextual engagement when changing formats", async () => {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn().mockImplementation(() => Response.json({ product })),
+  );
+  formats({ ...account, ad_formats: ["homepage_sponsorship", "engagement"] });
+  await userEvent.click(screen.getByText("Creative preview"));
+  const preview = await screen.findByRole("region", { name: "Creative preview" });
+  await within(preview).findByText(product.name);
+  expect(
+    within(preview).getByText(/top navigation of unfiltered Home and Latest feeds/),
+  ).toBeTruthy();
+  expect(within(preview).getByRole("article", { name: "Desktop navigation preview" })).toBeTruthy();
+  expect(within(preview).getByText("Sponsored")).toBeTruthy();
+  expect(within(preview).getByTitle("cronwatch.example")).toBeTruthy();
+  expect(within(preview).getByText(product.tagline)).toBeTruthy();
+  expect(within(preview).getByText("Sponsored").className).not.toMatch(/amber|rounded-full/);
+  expect(within(preview).queryByText(/Explore/)).toBeNull();
+
+  await userEvent.click(screen.getByRole("combobox", { name: "Preview format" }));
+  await userEvent.click(screen.getByRole("option", { name: "Engagement" }));
+  await within(preview).findByRole("heading", { name: "Engagement" });
+  expect(within(preview).getByText(/article-preview sidebars/)).toBeTruthy();
+  expect(within(preview).getByText(product.tagline)).toBeTruthy();
+  expect(within(preview).getByText("Explore ↗")).toBeTruthy();
+  expect(within(preview).queryByText("DevFeed")).toBeNull();
 });
 it.each([401, 404])("clears unavailable accounts after an ad format save (%s)", async (status) => {
   vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(null, { status })));
@@ -350,7 +377,7 @@ it("searches the full imported catalog remotely and resets pagination", async ()
           technologies: [],
           commercial_approved: true,
           product_url: "https://cronwatch.example/",
-          description: "Monitor scheduled jobs.",
+          tagline: "Monitor scheduled jobs.",
           pricing: "paid",
           assessment: { state: "qualified", reason: "" },
           revision: 1,

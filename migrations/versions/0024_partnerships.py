@@ -14,11 +14,11 @@ branch_labels = None
 depends_on = None
 
 PRODUCT_FIELDS = (
-    "revision,updated_at,technologies,evidence,name,description,status,"
+    "revision,updated_at,technologies,evidence,name,tagline,status,"
     "verified_at,excluded,merged_into_id"
 )
 
-PRODUCT_FACT_FIELDS = "revision,technologies,evidence,name,description"
+PRODUCT_FACT_FIELDS = "revision,technologies,evidence,name,tagline"
 
 ARTICLE_FIELDS = "title,summary,content_type,publication_status,editorial_revision"
 
@@ -176,7 +176,7 @@ def upgrade():
         sa.Column("id", sa.Uuid(), nullable=False),
         sa.Column("name", sa.String(200), nullable=False),
         sa.Column("product_url", sa.String(2048), nullable=False),
-        sa.Column("description", sa.Text(), nullable=False),
+        sa.Column("tagline", sa.String(160), nullable=False),
         sa.Column("pricing", sa.String(20), nullable=False),
         sa.Column("technologies", postgresql.JSONB(), nullable=False),
         sa.Column(
@@ -710,7 +710,7 @@ def upgrade():
         sa.Column("name", sa.String(200), nullable=False),
         sa.Column("product_url", sa.String(2048), nullable=False),
         sa.Column("listing_url", sa.String(2048), nullable=False),
-        sa.Column("description", sa.Text(), nullable=False),
+        sa.Column("tagline", sa.String(160), nullable=False),
         sa.Column("pricing", sa.String(20), nullable=False),
         sa.Column("attribution", sa.String(300), nullable=False),
         sa.Column("active", sa.Boolean(), nullable=False),

@@ -88,7 +88,7 @@ def test_related_products_and_jobs_are_scoped_and_paginated(
     with database.begin() as session:
         session.add(PartnerConnection(provider="platform-b", enabled=True))
         unrelated = PartnerProduct(
-            name="Unrelated", product_url="https://unrelated.example", description="Unrelated"
+            name="Unrelated", product_url="https://unrelated.example", tagline="Unrelated"
         )
         session.add(unrelated)
         session.flush()
@@ -100,7 +100,7 @@ def test_related_products_and_jobs_are_scoped_and_paginated(
                 name="Unrelated",
                 product_url=unrelated.product_url,
                 listing_url="https://platform-b.example/unrelated",
-                description="Unrelated",
+                tagline="Unrelated",
             )
         )
         session.add(PartnerPipelineJob(provider="platform-b", operation="sync"))

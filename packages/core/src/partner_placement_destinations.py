@@ -1,5 +1,6 @@
 """Shared destination policy for batch preflight and locked placement issuance."""
 
+from dataclasses import dataclass
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 from sqlalchemy import func, select, tuple_
@@ -42,15 +43,7 @@ def manual_destinations(*conditions):
     )
 
 
-def placement_destination(session, account, product):
-    """Use this account's listing, or the website for its directly managed product."""
-    if account.outbound_destination != "listing_url":
-        return devfeed_outbound_url(product.product_url)
-    return account_listing_destination(session, account.id, product.id, lock=True)
-
-
-def account_listing_destination(session, account_id, product_id, *, lock=False):
-    """Return an owned listing URL, falling back to an active direct product's website."""
+def account_listings(account_id, product_id, *, lock=False):
     query = (
         owned_listings(
             PartnerListing.product_id == product_id,
@@ -63,23 +56,51 @@ def account_listing_destination(session, account_id, product_id, *, lock=False):
         query = query.with_for_update(
             read=True, of=[PartnerListing, PartnerConnection], skip_locked=True
         )
-    destination = next(
-        (
-            url
-            for listing in session.scalars(query)
-            if (url := devfeed_outbound_url(listing.listing_url))
-        ),
-        None,
-    )
-    if destination is not None:
-        return destination
-    manual = manual_destinations(
-        PartnerProduct.id == product_id,
-        PartnerManualProduct.account_id == account_id,
-    )
-    if lock:
-        manual = manual.with_for_update(read=True, of=PartnerManualProduct, skip_locked=True)
-    return devfeed_outbound_url(session.scalar(manual))
+    return query
+
+
+@dataclass(frozen=True)
+class AccountProductCreative:
+    tagline: str
+    listing_url: str | None
+
+    def destination(self, account, product):
+        if account.outbound_destination == "listing_url":
+            return self.listing_url
+        return devfeed_outbound_url(product.product_url)
+
+
+def account_product_creative(session, account, product, *, lock=False):
+    """Keep advertiser copy and listing destinations on the same owned source.
+
+    Canonical facts qualify relevance; an advertiser's live import supplies its
+    creative. Scalar reads stay fresh even if this session loaded a listing before
+    an import or edit. Issuance locks that source through the delivery transaction.
+    """
+    selected = None
+    listing_url = None
+    for row in session.execute(
+        account_listings(account.id, product.id, lock=lock).with_only_columns(
+            PartnerListing.tagline, PartnerListing.listing_url
+        )
+    ):
+        selected = selected or row
+        if url := devfeed_outbound_url(row.listing_url):
+            listing_url = url
+            selected = row
+            break
+    if listing_url is None:
+        manual = manual_destinations(
+            PartnerProduct.id == product.id,
+            PartnerManualProduct.account_id == account.id,
+        ).with_only_columns(PartnerProduct.tagline, PartnerProduct.product_url)
+        if lock:
+            manual = manual.with_for_update(read=True, of=PartnerManualProduct, skip_locked=True)
+        direct = session.execute(manual).first()
+        if direct is not None:
+            listing_url = devfeed_outbound_url(direct.product_url)
+            return AccountProductCreative(direct.tagline, listing_url)
+    return AccountProductCreative(selected.tagline, listing_url) if selected is not None else None
 
 
 def devfeed_outbound_url(destination):

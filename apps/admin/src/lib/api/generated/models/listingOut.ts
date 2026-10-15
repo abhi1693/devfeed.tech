@@ -16,7 +16,6 @@ export interface ListingOut {
   attribution: string;
   commercial_approved?: boolean;
   connection_enabled: boolean;
-  description: string;
   external_id: string;
   id: string;
   identity_reason: string | null;
@@ -27,5 +26,10 @@ export interface ListingOut {
   pricing: string;
   product_url: string;
   provider: string;
+  /**
+     * @minLength 3
+     * @maxLength 160
+     */
+  tagline: string;
   updated_at: string;
 }

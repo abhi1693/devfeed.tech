@@ -96,7 +96,7 @@ def seed_catalog(session, account_id=None, provider="partner-one", name="Kube In
     product = PartnerProduct(
         name=name,
         product_url=f"https://{uuid.uuid4().hex}.example",
-        description="Kubernetes troubleshooting",
+        tagline="Kubernetes troubleshooting",
         technologies=["Kubernetes"],
         status="approved",
         verified_at=NOW,
@@ -111,7 +111,7 @@ def seed_catalog(session, account_id=None, provider="partner-one", name="Kube In
             name=name,
             product_url=product.product_url,
             listing_url=product.product_url,
-            description=product.description,
+            tagline=product.tagline,
             active=True,
             identity_status="resolved",
         )
@@ -363,7 +363,7 @@ def test_one_canonical_product_has_independent_account_defaults(database):
                 name=product.name,
                 product_url=product.product_url,
                 listing_url=product.product_url,
-                description=product.description,
+                tagline=product.tagline,
             )
         )
         session.add(

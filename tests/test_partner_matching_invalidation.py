@@ -85,7 +85,7 @@ def seed_sparse_noise(database, count=1000):
                     "id": identifier,
                     "name": f"Rust observer {index}",
                     "product_url": f"https://rust{index}.example/",
-                    "description": "Monitors Rust services and inspects metrics.",
+                    "tagline": "Monitors Rust services and inspects metrics.",
                     "technologies": ["Rust"],
                     "evidence": [
                         {
@@ -184,7 +184,7 @@ def test_sparse_edits_evaluate_matching_candidates_without_scanning_unrelated_in
             additional = PartnerProduct(
                 name="Another Kubernetes observer",
                 product_url="https://observer.example/",
-                description=original.description,
+                tagline=original.tagline,
                 technologies=original.technologies,
                 evidence=original.evidence,
                 status="approved",
@@ -531,7 +531,7 @@ def test_unclassified_punctuated_short_and_unicode_technologies_are_not_lost_by_
         product = PartnerProduct(
             name=f"{technology} observer",
             product_url="https://specific-observer.example/",
-            description=f"Monitor {technology} clusters and inspect metrics.",
+            tagline=f"Monitor {technology} clusters and inspect metrics.",
             technologies=[technology],
             evidence=[
                 {
@@ -564,7 +564,7 @@ def test_unclassified_punctuated_short_and_unicode_technologies_are_not_lost_by_
                 name=product.name,
                 product_url=product.product_url,
                 listing_url="https://catalog.example/specific",
-                description=product.description,
+                tagline=product.tagline,
             )
         )
         product_id, article_id = product.id, article.id

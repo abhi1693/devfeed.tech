@@ -9,11 +9,15 @@ import type { CreativePreviewProductAdImageStatus } from './creativePreviewProdu
 
 export interface CreativePreviewProduct {
   ad_image_status: CreativePreviewProductAdImageStatus;
-  description: string;
   id: string;
   image_url: string | null;
   listing_url: string | null;
   logo_url: string | null;
   name: string;
   product_url: string;
+  /**
+     * @minLength 3
+     * @maxLength 160
+     */
+  tagline: string;
 }

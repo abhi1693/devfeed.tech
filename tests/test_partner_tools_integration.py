@@ -296,7 +296,7 @@ def test_exclusion_survives_source_update(admin_client, database, product_payloa
         json={"action": "exclude", "expected_revision": product["revision"]},
     )
     assert response.status_code == 200
-    product_payload["description"] += " Additional capabilities."
+    product_payload["tagline"] += " Additional capabilities."
     updated = synced(admin_client, database, product_payload)
     assert updated["excluded"] and not updated["eligible"]
     assert job_id(database, "assess") == "None"
@@ -321,7 +321,7 @@ def test_changed_synced_product_automatically_requalifies(
     admin_client, database, product_payload, monkeypatch
 ):
     product = qualified(admin_client, database, product_payload, monkeypatch)
-    product_payload["description"] += " Updated official features."
+    product_payload["tagline"] += " Updated official features."
     updated = synced(admin_client, database, product_payload)
     assert updated["revision"] == product["revision"] + 1
     assert updated["assessment"]["state"] == "checking" and not updated["eligible"]
@@ -523,7 +523,7 @@ def test_product_status_filter_counts_and_pages_only_approved(admin_client, data
             product = PartnerProduct(
                 name=name,
                 product_url="https://example.test/" + name[0],
-                description="Fixture product",
+                tagline="Fixture product",
                 status=status,
             )
             session.add(product)
@@ -536,7 +536,7 @@ def test_product_status_filter_counts_and_pages_only_approved(admin_client, data
                     name=name,
                     product_url=product.product_url,
                     listing_url="https://listing.test/" + name[0],
-                    description="Fixture listing",
+                    tagline="Fixture listing",
                 )
             )
         session.commit()

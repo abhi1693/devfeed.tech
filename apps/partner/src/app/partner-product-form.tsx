@@ -5,7 +5,6 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Button } from "@devfeed/ui/button";
 import { Input } from "@devfeed/ui/input";
-import { Textarea } from "@devfeed/ui/textarea";
 import { Select } from "@devfeed/ui/select";
 import { ResourceHeading, ResourcePanel } from "@devfeed/ui/resource-layout";
 import {
@@ -73,7 +72,7 @@ export function PartnerProductForm({
   const [account, setAccount] = useState(initialAccount);
   const [name, setName] = useState(product?.name ?? "");
   const [website, setWebsite] = useState(product?.product_url ?? "");
-  const [description, setDescription] = useState(product?.description ?? "");
+  const [tagline, setTagline] = useState(product?.tagline ?? "");
   const [pricing, setPricing] = useState<ManualProductInput["pricing"]>(
     product?.pricing ?? "unknown",
   );
@@ -100,8 +99,9 @@ export function PartnerProductForm({
       setError("Enter a valid public HTTPS website URL.");
       return;
     }
-    if (!name.trim() || description.trim().length < 10) {
-      setError("Enter a product name and a description of at least 10 characters.");
+    const normalizedTagline = tagline.trim().replace(/\s+/g, " ");
+    if (!name.trim() || normalizedTagline.length < 3 || normalizedTagline.length > 160) {
+      setError("Enter a product name and a tagline between 3 and 160 characters.");
       return;
     }
     setSaving(true);
@@ -109,7 +109,7 @@ export function PartnerProductForm({
     const facts = {
       name: name.trim(),
       product_url: website.trim(),
-      description: description.trim(),
+      tagline: normalizedTagline,
       pricing,
     };
     try {
@@ -131,7 +131,7 @@ export function PartnerProductForm({
             if (
               product &&
               (result.name !== facts.name ||
-                result.description !== facts.description ||
+                result.tagline !== facts.tagline ||
                 result.pricing !== facts.pricing)
             )
               throw new Error("Could not confirm saved product details.");
@@ -217,22 +217,21 @@ export function PartnerProductForm({
               />
             </div>
             <div className="space-y-1.5 sm:col-span-2">
-              <label className="text-sm font-medium" htmlFor={`${id}-description`}>
-                Description
+              <label className="text-sm font-medium" htmlFor={`${id}-tagline`}>
+                Tagline
               </label>
-              <Textarea
-                id={`${id}-description`}
-                value={description}
-                onChange={(event) => setDescription(event.target.value)}
+              <Input
+                id={`${id}-tagline`}
+                value={tagline}
+                onChange={(event) => setTagline(event.target.value)}
                 required
-                minLength={10}
-                maxLength={5000}
-                rows={5}
-                aria-describedby={`${id}-description-hint`}
+                minLength={3}
+                maxLength={160}
+                aria-describedby={`${id}-tagline-hint`}
               />
-              <p id={`${id}-description-hint`} className="text-xs text-muted-foreground">
-                Describe what your product does and who it helps. Specific details help DevFeed
-                match it with relevant articles.
+              <p id={`${id}-tagline-hint`} className="text-xs text-muted-foreground">
+                Briefly explain what your product does in 3–160 characters. This line appears in
+                product placements.
               </p>
             </div>
             <div className="space-y-1.5">

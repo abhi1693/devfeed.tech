@@ -35,7 +35,7 @@ export const sponsoredArticle = {
 export function creativeProduct(product) {
   return {
     ...product,
-    description: "Monitor production APIs and diagnose reliability problems.",
+    tagline: "Monitor production APIs and diagnose reliability problems.",
     logo_url: "https://assets.partner.example/logo.svg",
     image_url: "https://assets.partner.example/creative.svg",
   };
@@ -72,34 +72,49 @@ export async function checkHomepageSponsorshipPreview(page, preview, { product, 
       }
       for (const width of [1280, 390, 320]) {
         await page.setViewportSize({ width, height: width < 1024 ? 844 : 1100 });
-        const layout = await preview.locator("article").evaluate((card, productName) => {
-          const title = [...card.querySelectorAll("p")].find(
-            (element) => element.textContent === productName,
-          );
-          const host = title?.nextElementSibling;
-          const copy = title?.parentElement;
-          const badge = [...card.querySelectorAll("span")].find(
-            (element) => element.textContent === "Sponsored",
-          );
-          const logo = card.querySelector("img")?.parentElement;
-          if (!title || !host || !copy || !badge || !logo) return null;
-          const bounds = (element) => {
-            const { x, y, width, height, right } = element.getBoundingClientRect();
-            return { x, y, width, height, right };
-          };
-          return {
-            card: bounds(card),
-            logo: bounds(logo),
-            title: bounds(title),
-            copy: bounds(copy),
-            badge: bounds(badge),
-            titleOverflow: title.scrollWidth > title.clientWidth,
-          };
-        }, name);
+        const layout = await preview.locator("article").evaluate(
+          (card, product) => {
+            const title = [...card.querySelectorAll("p")].find(
+              (element) => element.textContent === product.name,
+            );
+            const tagline = [...card.querySelectorAll("p")].find(
+              (element) => element.textContent === product.tagline,
+            );
+            const credit = title?.closest("[title]");
+            const badge = [...card.querySelectorAll("span")].find(
+              (element) => element.textContent === "Sponsored",
+            );
+            const logo = card.querySelector("img")?.parentElement;
+            const navigation = [...card.querySelectorAll("span[aria-hidden]")].filter((element) =>
+              ["DevFeed", "Search", "Sign in"].includes(element.textContent),
+            );
+            if (!title || !tagline || !credit || !badge || !logo || navigation.length !== 3)
+              return null;
+            const bounds = (element) => {
+              const { x, y, width, height, right, bottom } = element.getBoundingClientRect();
+              return { x, y, width, height, right, bottom };
+            };
+            return {
+              card: bounds(card),
+              logo: bounds(logo),
+              title: bounds(title),
+              tagline: bounds(tagline),
+              credit: bounds(credit),
+              navigation: navigation.map(bounds),
+              badge: bounds(badge),
+              titleOverflow: title.scrollWidth > title.clientWidth,
+              destination: credit.getAttribute("title"),
+              text: card.textContent,
+              interactiveControls: card.querySelectorAll("button,input,select,a").length,
+            };
+          },
+          { name, tagline: product.tagline },
+        );
         const label = `${width}px ${name === originalName ? "normal" : "long"} homepage preview`;
-        assert.ok(layout, `${label} retains its logo, title, destination and disclosure`);
-        assert.ok(layout.logo.right <= layout.copy.x, `${label} places the logo before the copy`);
-        assert.ok(layout.copy.width >= 80, `${label} keeps the product name readable`);
+        assert.ok(layout, `${label} shows its credit within an example global header`);
+        assert.ok(layout.logo.right <= layout.title.x, `${label} places the logo before the name`);
+        assert.equal(layout.logo.width, 32, `${label} uses a recognizable header-sized logo`);
+        assert.ok(layout.title.width >= 80, `${label} keeps the product name readable`);
         assert.ok(layout.badge.width > 0 && layout.badge.height > 0, `${label} shows Sponsored`);
         assert.ok(layout.badge.right <= layout.card.right - 8, `${label} contains Sponsored`);
         assert.ok(
@@ -107,30 +122,66 @@ export async function checkHomepageSponsorshipPreview(page, preview, { product, 
           `${label} keeps Sponsored inside the card`,
         );
         assert.ok(layout.card.x >= 0 && layout.card.right <= width, `${label} fits the viewport`);
+        assert.ok(
+          layout.credit.x >= layout.card.x && layout.credit.right <= layout.card.right,
+          `${label} contains its compact credit`,
+        );
+        assert.equal(
+          await preview.locator("article").getAttribute("aria-label"),
+          "Desktop navigation preview",
+          `${label} identifies the desktop-only placement context`,
+        );
+        for (const peer of layout.navigation)
+          assert.ok(
+            peer.right <= layout.credit.x + 1 ||
+              peer.x >= layout.credit.right - 1 ||
+              peer.bottom <= layout.credit.y + 1 ||
+              peer.y >= layout.credit.bottom - 1,
+            `${label} never overlaps example brand, search or account controls`,
+          );
         const center = (item) => item.y + item.height / 2;
         assert.ok(
-          Math.abs(center(layout.logo) - center(layout.copy)) <= 2,
-          `${label} vertically aligns the logo and product copy`,
+          Math.abs(center(layout.logo) - (layout.title.y + layout.tagline.bottom) / 2) <= 3,
+          `${label} vertically aligns the logo with the product name and tagline`,
         );
-        if (Math.abs(center(layout.badge) - center(layout.copy)) <= 2) {
+        assert.ok(
+          layout.tagline.width >= 80 && layout.tagline.height > 0 && layout.tagline.height <= 36,
+          `${label} keeps the short product explanation readable`,
+        );
+        assert.ok(
+          layout.tagline.y >= layout.title.bottom - 1 &&
+            layout.tagline.x >= layout.logo.right &&
+            layout.tagline.right <= layout.credit.right + 1,
+          `${label} places its tagline below the name without overlapping the logo`,
+        );
+        if (Math.abs(center(layout.badge) - center(layout.title)) <= 2) {
           assert.ok(
-            layout.copy.right <= layout.badge.x,
-            `${label} places Sponsored after the copy`,
+            layout.title.right <= layout.badge.x,
+            `${label} places Sponsored after the name`,
           );
-          assert.ok(layout.card.height <= 88, `${label} remains a compact single row`);
         } else {
           assert.ok(
-            layout.badge.y >=
-              Math.max(layout.logo.y + layout.logo.height, layout.copy.y + layout.copy.height),
-            `${label} wraps Sponsored below the logo and copy without overlap`,
+            layout.badge.y >= Math.max(layout.logo.bottom, layout.title.bottom),
+            `${label} wraps Sponsored within the header example without overlap`,
           );
-          assert.ok(
-            Math.abs(layout.badge.right - layout.copy.right) <= 2,
-            `${label} right-aligns the wrapped Sponsored badge`,
-          );
-          assert.ok(layout.card.height <= 120, `${label} stays compact when Sponsored wraps`);
         }
+        assert.ok(layout.card.height <= 144, `${label} remains a compact header preview`);
         assert.ok(layout.title.height <= 28, `${label} keeps the title on one line`);
+        assert.equal(
+          layout.interactiveControls,
+          0,
+          `${label} does not invent working navigation controls`,
+        );
+        assert.ok(
+          [product.product_url, product.listing_url]
+            .filter(Boolean)
+            .some((url) => new URL(url).hostname.replace(/^www\./, "") === layout.destination),
+          `${label} retains the selected destination as hover context`,
+        );
+        assert.ok(
+          layout.text.includes(product.tagline),
+          `${label} explains the sponsored product with its short tagline`,
+        );
         if (name === longName)
           assert.equal(layout.titleOverflow, true, `${label} exercises actual title truncation`);
       }

@@ -21,7 +21,7 @@ def definition(**changes):
                 "external_id": ["identity.id"],
                 "name": ["title"],
                 "product_url": ["website"],
-                "description": ["summary"],
+                "tagline": ["summary"],
             },
             "listing_url_template": "https://platform.example/products/{id}",
             "pagination": {"mode": "none"},
@@ -491,7 +491,7 @@ def test_normalized_internal_candidate_never_calls_the_import_transport():
             "name": "Tool",
             "product_url": "https://tool.example/",
             "listing_url": "https://launch.example/tool",
-            "description": "A bounded normalized test product.",
+            "tagline": "A bounded normalized test product.",
         },
     )
     assert client.product(candidate).name == "Tool"

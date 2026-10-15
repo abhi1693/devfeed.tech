@@ -15,7 +15,7 @@ export function connectorDefaults(provider = ""): ConnectorConfig {
       name: nick || shipyard ? ["name"] : [],
       product_url: nick ? ["url", "productUrl"] : shipyard ? ["productUrl"] : [],
       listing_url: nick ? ["productUrl", "url"] : shipyard ? ["url"] : [],
-      description: nick || shipyard ? ["description", "tagline"] : [],
+      tagline: nick || shipyard ? ["tagline", "description"] : [],
       pricing: shipyard ? ["pricing.model"] : nick ? ["pricing"] : [],
     },
     pagination: {

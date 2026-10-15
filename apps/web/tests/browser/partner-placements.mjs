@@ -58,7 +58,7 @@ const ordinary = {
   asset_id: "22222222-2222-4222-8222-222222222222",
   campaign_id: null,
   name: "TypeScript validator",
-  description: "Validate application inputs.",
+  tagline: "Validate application inputs.",
   url: "https://partner.example/validator",
   logo_url: "https://assets.partner.example/validator.svg",
   image_url: "https://assets.partner.example/og/validator-original.svg",
@@ -134,6 +134,9 @@ let organicCount = 24;
 let promotedArrival = false;
 let organicPagesDelivered = 0;
 let placementLimited = false;
+let isolateArticleReceipts = false;
+let articleReceiptSequence = 0;
+const acceptedTrackingReceipts = new Set([ordinary.receipt, sponsored.receipt]);
 const callerFixtureKey = "disposable-dedicated-caller-proof-key";
 const callerFixtureIps = { web: "203.0.113.20", chrome: "203.0.113.30", edge: "203.0.113.40" };
 let callerFixtureIp = callerFixtureIps.web;
@@ -179,6 +182,179 @@ async function assertNoPlacementHistory(page, label) {
     { reads: 0, writes: 0, removals: 0 },
     `${label}: placement delivery and tracking never access abandoned local history`,
   );
+}
+
+async function assertFeedPlacementContinuity(page, base, platform) {
+  const originalSignedIn = signedIn;
+  isolateArticleReceipts = true;
+  await page.setViewportSize({ width: 1280, height: 900 });
+  try {
+    for (const authenticated of [false, true]) {
+      signedIn = authenticated;
+      for (const promotedArticleEntry of [false, true]) {
+        const label = `${platform}/${authenticated ? "member" : "guest"}/${promotedArticleEntry ? "sponsored article" : "article"}`;
+        nativeMode = promotedArticleEntry ? "sponsored-content" : null;
+        mediaMode = "custom";
+        queries = [];
+        events = [];
+        await page.goto(`${base}/latest`);
+        await page.reload();
+        const selector = ".article-grid > .partner-placement";
+        const cards = page.locator(selector);
+        await cards.first().waitFor();
+        assert.equal(await cards.count(), promotedArticleEntry ? 1 : 2, label);
+        const receipts = promotedArticleEntry
+          ? [sponsored.receipt]
+          : [ordinary.receipt, sponsored.receipt];
+        for (let index = 0; index < receipts.length; index++) {
+          await cards.nth(index).scrollIntoViewIfNeeded();
+          await waitForImpression(page, receipts[index]);
+        }
+        await page.mouse.move(0, 0);
+        await waitForVisibleProductLogos(page);
+        const beforeImpressions = receipts.map(impressionCount);
+        const beforeFeedRequests = queries.filter((query) => query.body.surface === "feed").length;
+        await page.evaluate((selector) => {
+          const saved = [...document.querySelectorAll(selector)].map((card) => {
+            const image = card.querySelector(".card-image img, .partner-placement-logo img");
+            const link = card.querySelector(".partner-placement-link, .card-open-link");
+            const bounds = card.getBoundingClientRect();
+            return {
+              card,
+              parent: card.parentElement,
+              image,
+              link,
+              href: link.getAttribute("href"),
+              source: image?.getAttribute("src"),
+              sources: image?.getAttribute("srcset"),
+              width: bounds.width,
+              height: bounds.height,
+            };
+          });
+          const state = { saved, frames: 0, failures: [], running: true };
+          window.__placementContinuity = state;
+          const inspect = () => {
+            if (!state.running) return;
+            state.frames++;
+            for (const item of saved) {
+              const { card, image, link } = item;
+              const style = getComputedStyle(card);
+              const bounds = card.getBoundingClientRect();
+              if (
+                !card.isConnected ||
+                card.parentElement !== item.parent ||
+                card.querySelector(".partner-placement-link, .card-open-link") !== link ||
+                card.querySelector(".card-image img, .partner-placement-logo img") !== image ||
+                link.getAttribute("href") !== item.href ||
+                image?.getAttribute("src") !== item.source ||
+                image?.getAttribute("srcset") !== item.sources ||
+                card.hidden ||
+                style.display === "none" ||
+                style.visibility !== "visible" ||
+                Math.abs(bounds.width - item.width) > 1 ||
+                Math.abs(bounds.height - item.height) > 1
+              ) {
+                if (!state.failures.length)
+                  state.failures.push({
+                    product: card.dataset.productId,
+                    connected: card.isConnected,
+                    display: style.display,
+                    visibility: style.visibility,
+                    suspended: card.dataset.suspended,
+                    width: bounds.width,
+                    height: bounds.height,
+                  });
+              }
+            }
+            requestAnimationFrame(inspect);
+          };
+          requestAnimationFrame(inspect);
+        }, selector);
+        const articleLink = promotedArticleEntry
+          ? cards.first().getByRole("link", { name: promotedArticle.title, exact: true })
+          : page
+              .locator(".article-grid > .article-card:not(.partner-placement) .card-open-link")
+              .nth(8);
+        const articleTitle = (await articleLink.textContent()).trim();
+        await articleLink.click();
+        await page.locator(".article-modal[open]").waitFor();
+        await page
+          .locator(".article-modal #article-preview-title")
+          .filter({ hasText: articleTitle })
+          .waitFor();
+        await page.waitForFunction(
+          (selector) =>
+            [...document.querySelectorAll(selector)].every(
+              (card) => card.getAttribute("aria-hidden") === "true" && card.hasAttribute("inert"),
+            ),
+          selector,
+        );
+        await page.waitForTimeout(1200);
+        assert.deepEqual(
+          receipts.map(impressionCount),
+          beforeImpressions,
+          `${label}: the covered feed never records impressions while an article owns tracking`,
+        );
+        if (authenticated) await page.goBack();
+        else await page.getByRole("button", { name: "Close preview", exact: true }).click();
+        await page.locator(".article-modal").waitFor({ state: "hidden" });
+        await cards.first().waitFor();
+        await page.waitForFunction(
+          (selector) =>
+            [...document.querySelectorAll(selector)].every(
+              (card) => !card.hasAttribute("inert") && !card.hasAttribute("aria-hidden"),
+            ),
+          selector,
+        );
+        await cards.first().scrollIntoViewIfNeeded();
+        await page.waitForTimeout(1200);
+        const continuity = await page.evaluate(() => {
+          const state = window.__placementContinuity;
+          state.running = false;
+          return { frames: state.frames, failures: state.failures };
+        });
+        assert.ok(continuity.frames > 2, `${label}: real animation frames were observed`);
+        assert.deepEqual(
+          continuity.failures,
+          [],
+          `${label}: original sponsored cells never flicker`,
+        );
+        assert.equal(
+          queries.filter((query) => query.body.surface === "feed").length,
+          beforeFeedRequests,
+          `${label}: returning from an article reuses the original feed delivery`,
+        );
+        assert.deepEqual(
+          receipts.map(impressionCount),
+          beforeImpressions,
+          `${label}: returning resumes original receipts without duplicate impressions`,
+        );
+        const receipt = receipts[0];
+        const clicksBefore = events.filter(
+          (event) => event.kind === "click" && event.receipt === receipt,
+        ).length;
+        const restoredLink = cards.first().locator(".partner-placement-link, .card-open-link");
+        await restoredLink.evaluate((node) => {
+          node.addEventListener("click", (event) => event.preventDefault(), { once: true });
+        });
+        await restoredLink.click();
+        await page.waitForTimeout(100);
+        assert.equal(
+          events.filter((event) => event.kind === "click" && event.receipt === receipt).length,
+          clicksBefore + Number(!promotedArticleEntry),
+          `${label}: retained tracking uses its original receipt and deduplicates prior clicks`,
+        );
+      }
+    }
+  } finally {
+    await page.evaluate(() => {
+      if (window.__placementContinuity) window.__placementContinuity.running = false;
+    });
+    signedIn = originalSignedIn;
+    isolateArticleReceipts = false;
+    nativeMode = null;
+    mediaMode = "standard";
+  }
 }
 
 async function assertMountedPlacementExpiry(context, base, platform) {
@@ -479,6 +655,23 @@ function productMedia(item) {
   };
 }
 
+function deliveryItems(items, query) {
+  return items.map((item) => {
+    const receipt =
+      isolateArticleReceipts && query.surface === "article"
+        ? placementReceipt(
+            item.asset_id,
+            createHash("sha256")
+              .update(`article-${++articleReceiptSequence}`)
+              .digest("hex")
+              .slice(0, 32),
+          )
+        : item.receipt;
+    acceptedTrackingReceipts.add(receipt);
+    return { ...productMedia(item), receipt };
+  });
+}
+
 async function waitForVisibleProductLogos(page) {
   const dismissInvitation = page.getByRole("button", { name: "Not now", exact: true });
   if (await dismissInvitation.isVisible()) await dismissInvitation.click();
@@ -772,13 +965,14 @@ function response(requestPath, body, headers = {}, extension = false) {
               ? [homepageSponsor, sponsoredContent]
               : [engagementPlacement, sponsored];
       return {
-        items: items
-          .filter(
+        items: deliveryItems(
+          items.filter(
             (item) =>
               body.ad_formats.includes(item.ad_format ?? "feed") &&
               !body.exclude_product_ids?.includes(item.product_id),
-          )
-          .map(productMedia),
+          ),
+          body,
+        ),
       };
     }
     const eligible =
@@ -787,18 +981,21 @@ function response(requestPath, body, headers = {}, extension = false) {
       (body.surface === "feed" && body.article_ids?.includes(article.id)) ||
       (body.surface === "article" && feedArticles.some((item) => item.id === body.article_id));
     return {
-      items: eligible
-        ? [ordinary, sponsored]
-            .filter((item) => !body.exclude_product_ids?.includes(item.product_id))
-            .map(productMedia)
-        : [],
+      items: deliveryItems(
+        eligible
+          ? [ordinary, sponsored].filter(
+              (item) => !body.exclude_product_ids?.includes(item.product_id),
+            )
+          : [],
+        body,
+      ),
     };
   }
   if (pathname === "/v1/partner-tracking/events") {
     assert.equal(headers.cookie, undefined);
     assert.equal(headers.authorization, undefined);
     assert.deepEqual(Object.keys(body).sort(), ["kind", "receipt"]);
-    assert.ok([ordinary.receipt, sponsored.receipt].includes(body.receipt));
+    assert.ok(acceptedTrackingReceipts.has(body.receipt));
     events.push(body);
     return null;
   }
@@ -1381,13 +1578,13 @@ try {
       );
       assert.equal(
         await page.locator(".article-grid > .partner-placement:visible").count(),
-        0,
-        `${platform}: article preview owns visible product inventory`,
+        2,
+        `${platform}: covered feed products stay painted behind the article preview`,
       );
       assert.equal(
         await page.locator('.article-grid > .partner-placement[data-suspended="true"]').count(),
-        2,
-        `${platform}: background cards keep their DOM while hidden`,
+        0,
+        `${platform}: opening a preview does not suspend the product artwork`,
       );
       assert.ok(
         await page
@@ -1400,7 +1597,7 @@ try {
                 card.hasAttribute("inert"),
             ),
           ),
-        `${platform}: suspended background cards keep geometry and leave the interaction/accessibility tree`,
+        `${platform}: covered background cards keep their artwork and leave the interaction/accessibility tree`,
       );
       await page
         .locator(".article-modal .preview-sidebar .partner-placement")
@@ -1982,12 +2179,19 @@ try {
             new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))),
         );
         const readingBefore = await reading.boundingBox();
+        const headerBefore = await page.locator(".topbar").evaluate((header) => ({
+          height: header.getBoundingClientRect().height,
+          searchWidth: header.querySelector(".search").getBoundingClientRect().width,
+          actionsWidth: header.querySelector(".header-actions").getBoundingClientRect().width,
+        }));
         deliveryGate = null;
         releaseNative();
-        const strip = page.locator(
-          '.article-placement-feed > [data-ad-format="homepage_sponsorship"]',
+        const credit = page.locator(".topbar .partner-placement--homepage_sponsorship");
+        const promoted = page.locator(
+          '.article-grid > .article-card[data-ad-format="sponsored_content"]',
         );
-        await strip.waitFor();
+        await promoted.waitFor();
+        if (width >= 1280) await credit.waitFor();
         assert.equal(
           await reading.evaluate((node) => node === document.activeElement),
           true,
@@ -2006,43 +2210,115 @@ try {
           });
         assert.ok(
           Math.abs(readingAfter.y - readingBefore.y) <= 2,
-          `${platform}: native strip/content keeps reading position (${readingBefore.y} -> ${readingAfter.y})`,
+          `${platform}: header credit and sponsored content keep reading position (${readingBefore.y} -> ${readingAfter.y})`,
         );
         assert.equal(
           await page.locator(".partner-placement:visible").count(),
-          2,
-          `${platform}: two total native placements`,
+          width >= 1280 ? 2 : 1,
+          `${platform}: native inventory fits the available header space`,
         );
         assert.equal(
-          await strip
+          await credit.locator(".card-image,.partner-placement-destination,button").count(),
+          0,
+        );
+        assert.equal(
+          await page
             .locator(
-              ".card-image,.partner-placement-description,.partner-placement-destination,button",
+              '.article-placement-feed > [data-ad-format="homepage_sponsorship"], .article-grid > [data-ad-format="homepage_sponsorship"]',
             )
             .count(),
           0,
+          `${platform}: homepage sponsorship never adds a banner or feed card`,
         );
-        assert.equal(await strip.evaluate((node) => getComputedStyle(node).position), "relative");
-        assert.equal(
-          await strip.evaluate((node) => node.nextElementSibling.className),
-          "article-grid",
+        assert.deepEqual(
+          queries.at(-1).body.ad_formats,
+          width >= 1280
+            ? ["feed", "homepage_sponsorship", "sponsored_content", "engagement"]
+            : ["feed", "sponsored_content", "engagement"],
+          `${platform}: delivery only requests formats that can be displayed`,
         );
-        assert.deepEqual(queries.at(-1).body.ad_formats, [
-          "feed",
-          "homepage_sponsorship",
-          "sponsored_content",
-          "engagement",
-        ]);
-        await strip.scrollIntoViewIfNeeded();
-        await waitForVisibleProductLogos(page);
-        assert.equal(await strip.locator("img").getAttribute("src"), ordinary.logo_url);
+        if (width >= 1280) {
+          await credit.scrollIntoViewIfNeeded();
+          await waitForVisibleProductLogos(page);
+          assert.equal(await credit.locator("img").getAttribute("src"), ordinary.logo_url);
+          assert.equal(await credit.locator(".partner-placement-label").textContent(), "Sponsored");
+          const tagline = credit.locator(".partner-placement-description");
+          assert.equal(await tagline.textContent(), ordinary.tagline);
+          assert.equal(
+            await tagline.isVisible(),
+            true,
+            `${platform}: header credit explains the product`,
+          );
+          const headerLayout = await credit.evaluate((node) => {
+            const bounds = (element) => element.getBoundingClientRect().toJSON();
+            const header = node.closest(".topbar");
+            return {
+              credit: bounds(node),
+              header: bounds(header),
+              logo: bounds(node.querySelector(".partner-placement-logo")),
+              peers: [...header.children]
+                .filter((element) => !element.contains(node))
+                .map(bounds)
+                .filter((rect) => rect.width && rect.height),
+              pageWidth: document.documentElement.scrollWidth,
+            };
+          });
+          assert.ok(headerLayout.credit.height <= 48, `${platform}: header credit remains compact`);
+          assert.equal(
+            headerLayout.logo.width,
+            32,
+            `${platform}: credit uses a recognizable brand mark`,
+          );
+          assert.ok(headerLayout.pageWidth <= width, `${platform}: header fits the viewport`);
+          assert.equal(
+            headerLayout.header.height,
+            headerBefore.height,
+            `${platform}: sponsorship never adds another header row`,
+          );
+          assert.ok(
+            headerLayout.credit.x >= headerLayout.header.x &&
+              headerLayout.credit.right <= headerLayout.header.right + 1 &&
+              headerLayout.credit.y >= headerLayout.header.y &&
+              headerLayout.credit.bottom <= headerLayout.header.bottom + 1,
+            `${platform}: sponsorship stays inside the global header`,
+          );
+          for (const peer of headerLayout.peers)
+            assert.ok(
+              headerLayout.credit.right <= peer.x + 1 ||
+                headerLayout.credit.x >= peer.right - 1 ||
+                headerLayout.credit.bottom <= peer.y + 1 ||
+                headerLayout.credit.y >= peer.bottom - 1,
+              `${platform}: sponsorship never overlaps the brand, search or account controls`,
+            );
+          assert.ok(
+            headerLayout.credit.width < headerLayout.header.width / 2,
+            `${platform}: sponsorship uses spare header space without becoming a banner`,
+          );
+        } else {
+          assert.equal(
+            await page.locator('[data-ad-format="homepage_sponsorship"]').count(),
+            0,
+            `${platform}: narrow headers have no homepage sponsorship`,
+          );
+          assert.ok(
+            queries.every((query) => !query.body.ad_formats.includes("homepage_sponsorship")),
+            `${platform}: narrow screens never reserve unavailable homepage inventory`,
+          );
+          const headerAfter = await page.locator(".topbar").evaluate((header) => ({
+            height: header.getBoundingClientRect().height,
+            searchWidth: header.querySelector(".search").getBoundingClientRect().width,
+            actionsWidth: header.querySelector(".header-actions").getBoundingClientRect().width,
+          }));
+          assert.deepEqual(
+            headerAfter,
+            headerBefore,
+            `${platform}: native delivery never squeezes narrow navigation controls`,
+          );
+        }
         await page.screenshot({
           path: `${reportDirectory}/${platform}-homepage-sponsorship-${width === 390 ? "mobile" : "desktop"}.png`,
           animations: "disabled",
         });
-        const promoted = page.locator(
-          '.article-grid > .article-card[data-ad-format="sponsored_content"]',
-        );
-        await promoted.waitFor();
         assert.equal(
           await page.getByRole("link", { name: promotedArticle.title, exact: true }).count(),
           1,
@@ -2202,6 +2478,7 @@ try {
         placementLimited = false;
       }
       await assertNoPlacementHistory(page, `${platform}: reader navigation`);
+      await assertFeedPlacementContinuity(page, base, platform);
       await assertMountedPlacementExpiry(context, base, platform);
       for (const pathname of ["/v1/partner-placements/query", "/v1/partner-tracking/events"])
         assert.ok(
@@ -2209,7 +2486,7 @@ try {
           `${platform}: production gateway preserves distinct caller identity for ${pathname}`,
         );
       console.log(
-        `${platform}: built web/extension in-grid homepage, search, category and topic cards; managed custom product creatives, clearing to default OG, responsive sources and failed-image fallback; compact formats preserve logos and sponsored content preserves its article image; every product disclosed with distinct amber Sponsored pills and no dismissal; branded preview sidebar; focus/layout stability; signed campaign and non-campaign tracking; configured production gateway caller proofs, credential isolation and placement429 retry guidance; mounted receipt expiry and background wake preserve reading position without refreshing or tracking; viewable placements never read, write or remove abandoned local history; private session routing; optional private experience save/reload/clear; article priority passed`,
+        `${platform}: built web/extension desktop header sponsorship, narrow inventory gating, search, category and topic cards; managed custom product creatives, clearing to default OG, responsive sources and failed-image fallback; compact formats preserve logos and sponsored content preserves its article image; every product disclosed with distinct amber Sponsored pills and no dismissal; branded preview sidebar; unchanged feed nodes, receipts and tracking through article overlays; focus/layout stability; signed campaign and non-campaign tracking; configured production gateway caller proofs, credential isolation and placement429 retry guidance; mounted receipt expiry and background wake preserve reading position without refreshing or tracking; viewable placements never read, write or remove abandoned local history; private session routing; optional private experience save/reload/clear; article priority passed`,
       );
     } catch (error) {
       const page = context.pages().findLast((page) => page.url() !== "about:blank");

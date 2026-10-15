@@ -163,7 +163,7 @@ describe("concrete partner operation transport", () => {
   it("preserves multilingual product facts inside the write limit", async () => {
     const fetcher = vi.fn().mockResolvedValue(Response.json({}));
     vi.stubGlobal("fetch", fetcher);
-    const facts = { name: "Product", description: "界".repeat(5000), expected_revision: 2 };
+    const facts = { name: "Product", tagline: "界".repeat(160), expected_revision: 2 };
     const response = await product.PATCH(
       new Request(`${origin}/api`, {
         method: "PATCH",

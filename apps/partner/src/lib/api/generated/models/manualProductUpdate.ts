@@ -9,9 +9,9 @@ import type { ManualProductUpdatePricing } from './manualProductUpdatePricing';
 
 export interface ManualProductUpdate {
   active?: boolean | null;
-  description?: string | null;
   expected_revision?: number | null;
   name?: string | null;
   pricing?: ManualProductUpdatePricing;
   product_url?: string | null;
+  tagline?: string | null;
 }

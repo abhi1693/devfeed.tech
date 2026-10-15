@@ -37,7 +37,7 @@ pytestmark = pytest.mark.integration
 FACTS = {
     "name": "Python Observer",
     "product_url": "https://observer.example/",
-    "description": "Inspect Python runtime metrics and application logs.",
+    "tagline": "Inspect Python runtime metrics and application logs.",
     "pricing": "paid",
 }
 PAGE = {
@@ -118,6 +118,30 @@ def test_partner_can_create_edit_archive_restore_without_any_connection(portal_c
     assert repeated["id"] == row["id"] and not repeated["active"]
     restored = client.patch(base, json={"active": True})
     assert restored.status_code == 200 and restored.json()["active"]
+
+
+def test_manual_taglines_are_bounded_plain_copy_in_detail_and_inventory(portal_client, database):
+    client, identity = portal_client
+    account_id = seed_account(database, identity)
+    url = f"/v1/partner/accounts/{account_id}/products"
+    for invalid in ("AI", "x" * 161):
+        response = client.post(url, json={**FACTS, "tagline": invalid})
+        assert response.status_code == 422, response.text
+    row = create(client, account_id, tagline="  **Build** C++\nAPIs.  ")
+    assert row["tagline"] == "Build C++ APIs." and "description" not in row
+    inventory = client.get(f"/v1/partner/accounts/{account_id}/inventory").json()
+    assert inventory["total"] == 1
+    assert inventory["items"][0]["tagline"] == row["tagline"]
+    assert "description" not in inventory["items"][0]
+    base = f"{url}/{row['id']}"
+    response = client.patch(base, json={"tagline": "x" * 161, "expected_revision": 1})
+    assert response.status_code == 422, response.text
+    assert client.get(base).json()["revision"] == 1
+    response = client.patch(base, json={"tagline": "AI IDE", "expected_revision": 1})
+    assert response.status_code == 200, response.text
+    assert response.json()["tagline"] == "AI IDE" and response.json()["revision"] == 2
+    with database() as session:
+        assert session.get(PartnerProduct, uuid.UUID(row["id"])).tagline == "AI IDE"
 
 
 def test_manual_product_qualification_uses_website_not_a_provider(

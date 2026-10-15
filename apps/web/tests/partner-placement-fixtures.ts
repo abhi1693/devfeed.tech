@@ -14,7 +14,7 @@ export const placement: PartnerPlacement = {
   asset_id: "22222222-2222-4222-8222-222222222222",
   campaign_id: null,
   name: "TypeScript validator",
-  description: "Validate application inputs.",
+  tagline: "Validate application inputs.",
   url: "https://partner.example/validator",
   logo_url: "https://assets.partner.example/validator.png",
   image_url: null,

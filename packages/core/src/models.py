@@ -1535,7 +1535,7 @@ class PartnerProduct(Base):
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
     name: Mapped[str] = mapped_column(String(200))
     product_url: Mapped[str] = mapped_column(String(2048))
-    description: Mapped[str] = mapped_column(Text)
+    tagline: Mapped[str] = mapped_column(String(160))
     pricing: Mapped[str] = mapped_column(String(20), default="unknown")
     technologies: Mapped[list] = mapped_column(JSONB, default=list)
     # Each Unicode or punctuation-only technology adds __any__; exact rules remain authoritative.
@@ -1581,7 +1581,7 @@ class PartnerListing(Base):
     name: Mapped[str] = mapped_column(String(200))
     product_url: Mapped[str] = mapped_column(String(2048))
     listing_url: Mapped[str] = mapped_column(String(2048))
-    description: Mapped[str] = mapped_column(Text)
+    tagline: Mapped[str] = mapped_column(String(160))
     pricing: Mapped[str] = mapped_column(String(20), default="unknown")
     attribution: Mapped[str] = mapped_column(String(300), default="")
     active: Mapped[bool] = mapped_column(Boolean, default=True)

@@ -24,7 +24,7 @@ def product(session, key, **changes):
     row = PartnerProduct(
         name=key,
         product_url=f"https://{key}.example/",
-        description="Developer tooling for API compatibility checks.",
+        tagline="Developer tooling for API compatibility checks.",
         **changes,
     )
     session.add(row)
@@ -41,7 +41,7 @@ def listing(session, provider, row, *, suffix="", **changes):
             name=row.name,
             product_url=row.product_url,
             listing_url=f"https://platform.example/{provider}/{row.name}{suffix}",
-            description=row.description,
+            tagline=row.tagline,
             **changes,
         )
     )

@@ -15,7 +15,7 @@ import {
 const product = {
   id: "product-1",
   name: "Rust deploy",
-  description: "Deploy Rust services with trusted operations.",
+  tagline: "Deploy Rust services with trusted operations.",
   product_url: "https://rust.example/?utm_source=devfeed",
   listing_url: "https://partner.example/rust?utm_source=devfeed",
   image_url: "https://assets.example/rust.webp",
@@ -40,13 +40,51 @@ it.each(["feed", "homepage_sponsorship", "engagement"] as const)(
     render(<AdCreativePreview format={format} product={product} />);
     const preview = screen.getByRole("region", { name: "Creative preview" });
     expect(within(preview).getByText(product.name)).toBeTruthy();
-    expect(within(preview).getByText("Sponsored").className).toContain("rounded-full");
-    expect(preview.textContent).toContain("rust.example");
+    expect(within(preview).getByText("Sponsored").className).toContain(
+      format === "homepage_sponsorship" ? "text-muted-foreground" : "rounded-full",
+    );
+    expect(
+      format === "homepage_sponsorship"
+        ? within(preview).getByTitle("rust.example")
+        : within(preview).getByText("rust.example", { exact: true }),
+    ).toBeTruthy();
     expect(preview.textContent).not.toMatch(/Visit website|Read article/);
     expect(preview.textContent?.includes("Explore ↗")).toBe(format === "engagement");
     expect(preview.querySelectorAll("img").length).toBe(1);
   },
 );
+
+it("shows homepage sponsorship as a quiet credit in the desktop app header", () => {
+  render(<AdCreativePreview format="homepage_sponsorship" product={product} />);
+  const preview = screen.getByRole("region", { name: "Creative preview" });
+  expect(
+    within(preview).getByText(/top navigation of unfiltered Home and Latest feeds/),
+  ).toBeTruthy();
+  expect(within(preview).getByRole("article", { name: "Desktop navigation preview" })).toBeTruthy();
+  for (const label of ["DevFeed", "Search", "Sign in"])
+    expect(within(preview).getByText(label, { exact: true })).toBeTruthy();
+  expect(within(preview).getByText(product.name)).toBeTruthy();
+  expect(within(preview).getByText("Sponsored")).toBeTruthy();
+  expect(within(preview).getByTitle("rust.example").textContent).toContain(product.name);
+  expect(preview.querySelector("img")?.src).toBe(product.logo_url);
+  expect(within(preview).getByText(product.tagline)).toBeTruthy();
+  expect(within(preview).getByText("Sponsored").className).not.toMatch(/amber|rounded-full/);
+  expect(preview.querySelector("img")?.className).toContain("size-8");
+  expect(within(preview).queryByText("rust.example", { exact: true })).toBeNull();
+  expect(within(preview).queryByText(/Explore|Visit website/)).toBeNull();
+  expect(within(preview).queryByRole("link")).toBeNull();
+  expect(within(preview).queryByRole("button")).toBeNull();
+});
+
+it("explains contextual engagement placement and retains its product tagline and action", () => {
+  render(<AdCreativePreview format="engagement" product={product} />);
+  const preview = screen.getByRole("region", { name: "Creative preview" });
+  expect(within(preview).getByText(/article-preview sidebars/)).toBeTruthy();
+  expect(within(preview).getByText(product.tagline)).toBeTruthy();
+  expect(within(preview).getByText("rust.example", { exact: true })).toBeTruthy();
+  expect(within(preview).getByText("Explore ↗")).toBeTruthy();
+  expect(within(preview).queryByText("DevFeed")).toBeNull();
+});
 
 it("previews a feed without a hero using compact product branding", () => {
   const view = render(
@@ -87,7 +125,7 @@ it("falls back from managed hero to logo then initials", () => {
 
 it("validates preview and product-policy boundaries, preserving null versus empty restrictions", () => {
   expect(parseCreativePreview({ product })).toEqual(product);
-  expect(() => parseCreativePreview({ product: { ...product, description: null } })).toThrow();
+  expect(() => parseCreativePreview({ product: { ...product, tagline: null } })).toThrow();
   expect(
     parseProductPlacementPolicy({
       excluded: false,
@@ -112,6 +150,20 @@ it("validates preview and product-policy boundaries, preserving null versus empt
       ad_image_url: null,
     }),
   ).toThrow();
+});
+
+it("requires a concise product tagline and does not substitute a legacy description", () => {
+  const { tagline, ...withoutTagline } = product;
+  expect(() =>
+    parseCreativePreview({ product: { ...withoutTagline, description: tagline } }),
+  ).toThrow();
+  expect(() => parseCreativePreview({ product: { ...product, tagline: "AI" } })).toThrow();
+  expect(() =>
+    parseCreativePreview({ product: { ...product, tagline: "x".repeat(161) } }),
+  ).toThrow();
+  expect(parseCreativePreview({ product: { ...product, tagline: "AI IDE" } })?.tagline).toBe(
+    "AI IDE",
+  );
 });
 
 it("requires an explicit image choice and validates optional processing metadata", () => {

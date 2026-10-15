@@ -98,7 +98,7 @@ const fieldPaths: Record<string, string> = {
   "Product name paths": "fields.name",
   "Website URL paths": "fields.product_url",
   "Listing URL paths": "fields.listing_url",
-  "Description paths": "fields.description",
+  "Tagline paths": "fields.tagline",
   "Pricing paths": "fields.pricing",
   "Platform hosts": "platform_hosts",
   Attribution: "attribution",
@@ -297,7 +297,7 @@ export function ConnectorFields<C extends ConnectorDefinition>({
               ["name", "Product name paths"],
               ["product_url", "Website URL paths"],
               ["listing_url", "Listing URL paths"],
-              ["description", "Description paths"],
+              ["tagline", "Tagline paths"],
               ["pricing", "Pricing paths"],
             ] as const
           ).map(([key, label]) =>

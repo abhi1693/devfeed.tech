@@ -28,7 +28,7 @@ def product(index=1, **changes):
         "name": f"Developer tool {index}",
         "url": f"https://tool{index}.example",
         "listing_url": f"https://catalog.example/tools/{index}",
-        "description": "Developer tools for inspecting and debugging Python applications.",
+        "tagline": "Developer tools for inspecting and debugging Python applications.",
         **changes,
     }
 
@@ -145,7 +145,7 @@ def test_existing_preview_reuses_bound_credential_without_changing_saved_state(
         row = session.get(PartnerConnection, saved["provider"])
         original = (row.connector, row.encrypted_credential, row.revision, row.sync_revision)
     upstream.data = {
-        "items": [product(description="Developer tool private-preview-token for Python.")],
+        "items": [product(tagline="Developer tool private-preview-token for Python.")],
         "nextCursor": None,
     }
     response = client.post(

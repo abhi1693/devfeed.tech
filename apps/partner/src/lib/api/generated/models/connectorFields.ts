@@ -13,13 +13,6 @@ export interface ConnectorFields {
      * @items.maxLength 200
      * @items.pattern ^(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+)(?:\.(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+))*$|^$
      */
-  description?: string[];
-  /**
-     * @minItems 1
-     * @maxItems 5
-     * @items.maxLength 200
-     * @items.pattern ^(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+)(?:\.(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+))*$|^$
-     */
   external_id?: string[];
   /**
      * @minItems 1
@@ -49,4 +42,11 @@ export interface ConnectorFields {
      * @items.pattern ^(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+)(?:\.(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+))*$|^$
      */
   product_url?: string[];
+  /**
+     * @minItems 1
+     * @maxItems 5
+     * @items.maxLength 200
+     * @items.pattern ^(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+)(?:\.(?:[A-Za-z_][A-Za-z0-9_-]*|[0-9]+))*$|^$
+     */
+  tagline?: string[];
 }

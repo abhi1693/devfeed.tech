@@ -26,7 +26,7 @@ from devfeed_core.partner_ad_formats import (
 )
 from devfeed_core.partner_audiences import AudienceInput
 from devfeed_core.partner_placement_destinations import (
-    account_listing_destination,
+    account_product_creative,
     devfeed_outbound_url,
 )
 from devfeed_core.partner_product_images import (
@@ -41,6 +41,7 @@ from devfeed_core.partner_promotions import (
     associated_products_query,
     ensure_automatic_assets,
 )
+from devfeed_core.partner_taglines import Tagline
 from devfeed_core.partner_tiers import PartnerTier, PromotionKind, tier_policy
 from devfeed_core.partner_tools import ProductAssessment, eligible
 from devfeed_core.publication import visible_article
@@ -187,7 +188,7 @@ class DestinationPreviewOut(BaseModel):
 
 class CreativePreviewProduct(DestinationPreviewProduct):
     ad_image_status: AdImageStatus
-    description: str
+    tagline: Tagline
     logo_url: str | None
     image_url: str | None
 
@@ -252,12 +253,15 @@ def destination_preview(session, account) -> DestinationPreviewOut:
     if selected is None:
         return DestinationPreviewOut(product=None)
     product, product_url = selected
+    creative = account_product_creative(session, account, product)
+    if creative is None:
+        return DestinationPreviewOut(product=None)
     return DestinationPreviewOut(
         product=DestinationPreviewProduct(
             id=product.id,
             name=product.name,
             product_url=product_url,
-            listing_url=account_listing_destination(session, account.id, product.id),
+            listing_url=creative.listing_url,
         )
     )
 
@@ -267,14 +271,17 @@ def creative_preview(session, account, product_id=None) -> CreativePreviewOut:
     if selected is None:
         return CreativePreviewOut(product=None)
     product, product_url = selected
+    creative = account_product_creative(session, account, product)
+    if creative is None:
+        return CreativePreviewOut(product=None)
     policy = session.get(PartnerProductPromotion, (account.id, product.id))
     return CreativePreviewOut(
         product=CreativePreviewProduct(
             id=product.id,
             name=product.name,
-            description=product.description,
+            tagline=creative.tagline,
             product_url=product_url,
-            listing_url=account_listing_destination(session, account.id, product.id),
+            listing_url=creative.listing_url,
             logo_url=product_logo_url(product),
             image_url=product_image_url(product, policy),
             ad_image_status=product_ad_image_status(session, policy),
@@ -441,7 +448,7 @@ class InventoryProductOut(BaseModel):
     ad_formats: list[AdFormat] | None = None
     ad_image_url: str | None = None
     product_url: str
-    description: str
+    tagline: Tagline
     pricing: Literal["free", "freemium", "paid", "unknown"]
     assessment: ProductAssessment
     revision: int
@@ -883,7 +890,7 @@ def inventory_product_view(account, product, policy, now, manual=None, *, active
         promotion_surfaces=policy.promotion_surfaces if policy else None,
         ad_image_url=policy.ad_image_url if policy else None,
         product_url=product.product_url,
-        description=product.description,
+        tagline=product.tagline,
         pricing=product.pricing,
         assessment=product.assessment or {},
         revision=product.revision,

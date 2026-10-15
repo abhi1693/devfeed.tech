@@ -48,13 +48,13 @@ describe("isolated API gateway", () => {
     expect(fetcher).not.toHaveBeenCalled();
   });
 
-  it("preserves multilingual product descriptions within the product body limit", async () => {
+  it("preserves multilingual product taglines within the product body limit", async () => {
     const fetcher = vi.fn().mockResolvedValue(Response.json({ id: productAdImage[5] }));
     vi.stubGlobal("fetch", fetcher);
     const body = JSON.stringify({
       name: "Developer tools",
       product_url: "https://product.example",
-      description: "開".repeat(5000),
+      tagline: "開".repeat(160),
     });
     const response = await gateway(
       new Request("https://admin.example/api", {

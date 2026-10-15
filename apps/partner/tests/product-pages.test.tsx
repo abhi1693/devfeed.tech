@@ -13,7 +13,7 @@ const product = {
   id: "33333333-3333-4333-8333-333333333333",
   name: "CronWatch",
   product_url: "https://cronwatch.example/",
-  description: "Monitor scheduled jobs.",
+  tagline: "Monitor scheduled jobs.",
   pricing: "paid" as const,
   assessment: { state: "qualified" as const, reason: "" },
   revision: 3,
@@ -44,7 +44,7 @@ const policy = {
 const creative = {
   id: product.id,
   name: product.name,
-  description: "Monitor scheduled jobs.",
+  tagline: "Monitor scheduled jobs.",
   logo_url: null,
   image_url: null,
   ad_image_status: "default" as const,

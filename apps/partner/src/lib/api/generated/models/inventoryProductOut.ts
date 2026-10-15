@@ -17,7 +17,6 @@ export interface InventoryProductOut {
   approval_source?: InventoryProductOutApprovalSource;
   assessment: ProductAssessment;
   commercial_approved?: boolean;
-  description: string;
   editable: boolean;
   excluded: boolean;
   globally_excluded: boolean;
@@ -30,5 +29,10 @@ export interface InventoryProductOut {
   revision: number;
   source: InventoryProductOutSource;
   status: string;
+  /**
+     * @minLength 3
+     * @maxLength 160
+     */
+  tagline: string;
   technologies: string[];
 }

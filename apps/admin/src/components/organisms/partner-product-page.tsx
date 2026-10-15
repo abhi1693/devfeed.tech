@@ -244,8 +244,8 @@ export function PartnerProductPage({
                             value: <DataValue value={listing.identity_reason} />,
                           },
                           {
-                            label: "Description",
-                            value: <DataValue value={listing.description} />,
+                            label: "Tagline",
+                            value: <DataValue value={listing.tagline} />,
                           },
                           { label: "Pricing", value: <DataValue value={listing.pricing} /> },
                           {
@@ -288,7 +288,7 @@ export function PartnerProductPage({
                   fields={[
                     { label: "Name", value: product.name },
                     { label: "Website", value: <DataValue value={product.product_url} /> },
-                    { label: "Description", value: <DataValue value={product.description} /> },
+                    { label: "Tagline", value: <DataValue value={product.tagline} /> },
                     { label: "Pricing", value: <DataValue value={product.pricing} /> },
                     { label: "Technologies", value: <DataValue value={product.technologies} /> },
                   ]}

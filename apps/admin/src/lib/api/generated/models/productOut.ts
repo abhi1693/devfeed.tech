@@ -19,11 +19,6 @@ export interface ProductOut {
   approval_sources?: ProductOutApprovalSourcesItem[];
   assessment: ProductAssessment;
   commercial_approved?: boolean;
-  /**
-     * @minLength 10
-     * @maxLength 5000
-     */
-  description: string;
   eligible: boolean;
   /** @maxItems 10 */
   evidence?: Evidence[];
@@ -43,6 +38,11 @@ export interface ProductOut {
   reviews: PartnerReviewEvent[];
   revision: number;
   status: ProductOutStatus;
+  /**
+     * @minLength 3
+     * @maxLength 160
+     */
+  tagline: string;
   /**
      * @maxItems 20
      * @items.minLength 1

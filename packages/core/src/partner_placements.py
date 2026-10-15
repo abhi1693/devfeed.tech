@@ -36,7 +36,7 @@ from devfeed_core.partner_audiences import (
 )
 from devfeed_core.partner_matching import TAXONOMY_LOCK_KEY, article_fingerprint
 from devfeed_core.partner_placement_capacity import campaign_capacity
-from devfeed_core.partner_placement_destinations import placement_destination
+from devfeed_core.partner_placement_destinations import account_product_creative
 from devfeed_core.partner_placement_preflight import (
     PlacementPreflight,
     automatic_configuration_available,
@@ -850,14 +850,19 @@ def deliver_placements(session, query, key, *, user_id=None, now=None):
                     )
                     if article is None:
                         continue
-                    url = f"/articles/{article.slug}"
-                else:
-                    url = placement_destination(session, account, product)
-                if url is None:
-                    preflight.destinations.reject(account.id, product.id)
-                    continue
                 if sponsored and not campaign_capacity(session, campaign, now):
                     preflight.reject_campaign(campaign)
+                    continue
+                creative = account_product_creative(session, account, product, lock=True)
+                if creative is None:
+                    continue
+                url = (
+                    f"/articles/{article.slug}"
+                    if article is not None
+                    else creative.destination(account, product)
+                )
+                if url is None:
+                    preflight.destinations.reject(account.id, product.id)
                     continue
                 delivery_id = uuid.uuid4()
                 session.add(
@@ -876,7 +881,7 @@ def deliver_placements(session, query, key, *, user_id=None, now=None):
                         asset_id=asset.id,
                         campaign_id=asset.campaign_id,
                         name=product.name,
-                        description=product.description[:2000],
+                        tagline=creative.tagline,
                         logo_url=product_logo_url(product),
                         image_url=product_image_url(product, policy),
                         image_variants=product_image_variants(product, policy),

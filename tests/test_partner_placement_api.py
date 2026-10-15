@@ -290,7 +290,7 @@ def test_responses_preserve_noncampaign_attribution_without_private_metadata(mon
         "ad_format": "feed",
         "article": None,
         "name": "Verified TypeScript validator",
-        "description": "Validates typed inputs.",
+        "tagline": "Validates typed inputs.",
         "logo_url": None,
         "image_url": None,
         "image_variants": [],

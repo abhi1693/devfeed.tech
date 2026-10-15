@@ -391,7 +391,7 @@ def table_data(profile_data):  # noqa: F811 - imported pytest fixture
             facts = dict(
                 name=f"Partner product {i}",
                 product_url=f"https://partner-{i}.example/",
-                description="Developer tools for API and database engineering.",
+                tagline="Developer tools for API and database engineering.",
                 pricing="free",
                 technologies=[],
                 evidence=[],
@@ -646,7 +646,7 @@ def tables():
             analysis=["queued", "not_run", "running", "enriched", "no_additions", "failed"],
             missing=[
                 "any",
-                "description",
+                "tagline",
                 "aliases",
                 "keywords",
                 "website_url",
@@ -856,7 +856,7 @@ def check_filters(spec, values, records, source_enabled):
             else:
                 assert analysis["status"] == state
         if "missing" in values:
-            fields = ("description", "aliases", "keywords", "website_url", "logo_url", "facts")
+            fields = ("tagline", "aliases", "keywords", "website_url", "logo_url", "facts")
             assert any(
                 not row["proposed"].get(f)
                 for f in (fields if values["missing"] == "any" else [values["missing"]])

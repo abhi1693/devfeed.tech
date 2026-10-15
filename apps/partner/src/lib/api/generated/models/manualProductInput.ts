@@ -9,11 +9,6 @@ import type { ManualProductInputPricing } from './manualProductInputPricing';
 
 export interface ManualProductInput {
   /**
-     * @minLength 10
-     * @maxLength 5000
-     */
-  description: string;
-  /**
      * @minLength 1
      * @maxLength 200
      */
@@ -21,4 +16,9 @@ export interface ManualProductInput {
   pricing?: ManualProductInputPricing;
   /** @maxLength 2048 */
   product_url: string;
+  /**
+     * @minLength 3
+     * @maxLength 160
+     */
+  tagline: string;
 }

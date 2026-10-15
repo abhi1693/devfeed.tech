@@ -9,11 +9,6 @@ import type { Evidence } from './evidence';
 import type { ProductSnapshotPricing } from './productSnapshotPricing';
 
 export interface ProductSnapshot {
-  /**
-     * @minLength 10
-     * @maxLength 5000
-     */
-  description: string;
   /** @maxItems 10 */
   evidence?: Evidence[];
   /**
@@ -24,6 +19,11 @@ export interface ProductSnapshot {
   pricing?: ProductSnapshotPricing;
   product_url: string;
   revision: number;
+  /**
+     * @minLength 3
+     * @maxLength 160
+     */
+  tagline: string;
   /**
      * @maxItems 20
      * @items.minLength 1

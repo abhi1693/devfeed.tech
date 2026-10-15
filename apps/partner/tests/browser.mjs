@@ -64,6 +64,7 @@ const bookmarkedAccount = manyAccounts[104];
 const previewProduct = {
   id: "44444444-4444-4444-8444-444444444444",
   name: "API Checker product",
+  tagline: "Monitor production APIs and diagnose reliability problems.",
   product_url: "https://api-checker.example/?utm_source=devfeed&utm_medium=sponsored",
   listing_url:
     "https://catalog.partner.example/api-checker?utm_source=devfeed&utm_medium=sponsored",
@@ -322,7 +323,7 @@ const mock = createServer(async (request, response) => {
               account_name: owner.name,
               name: previewProduct.name,
               product_url: "https://api-checker.example/",
-              description: creativeProduct(previewProduct).description,
+              tagline: creativeProduct(previewProduct).tagline,
               pricing: "freemium",
               assessment: { state: "qualified", reason: "" },
               revision: 1,
@@ -374,7 +375,7 @@ const mock = createServer(async (request, response) => {
         account_name: owner.name,
         name: previewProduct.name,
         product_url: "https://api-checker.example/",
-        description: creativeProduct(previewProduct).description,
+        tagline: creativeProduct(previewProduct).tagline,
         pricing: "freemium",
         assessment: { state: "qualified", reason: "" },
         revision: 1,

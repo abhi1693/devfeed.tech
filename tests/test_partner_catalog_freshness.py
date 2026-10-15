@@ -23,7 +23,7 @@ pytestmark = pytest.mark.integration
 
 PRODUCT_FIELDS = (
     "name",
-    "description",
+    "tagline",
     "pricing",
     "status",
     "revision",
@@ -115,7 +115,7 @@ def test_unchanged_import_keeps_prepared_contextual_placements(
     "changes",
     [
         {"name": "Renamed Python tool"},
-        {"description": "Verifies signatures on Python packages before installation."},
+        {"tagline": "Verifies signatures on Python packages before installation."},
         {"pricing": "paid"},
     ],
 )
@@ -185,7 +185,7 @@ def test_secondary_platform_facts_do_not_replace_the_prepared_canonical_source(
             "provider": "secondary-rotation",
             "external_id": "secondary-tool",
             "name": "Secondary platform's title",
-            "description": "The secondary platform describes this tool differently.",
+            "tagline": "The secondary platform describes this tool differently.",
             "pricing": "paid",
             "listing_url": "https://secondary.example/products/tool",
         }
@@ -196,7 +196,7 @@ def test_secondary_platform_facts_do_not_replace_the_prepared_canonical_source(
             select(PartnerListing).where(PartnerListing.provider == item.provider)
         )
         assert secondary.product_id == catalog["products"][0]
-        assert secondary.name == item.name and secondary.description == item.description
+        assert secondary.name == item.name and secondary.tagline == item.tagline
         assert secondary.pricing == item.pricing
         assert secondary.updated_at == observed_at
         assert secondary.seen_generation == generation

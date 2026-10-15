@@ -119,7 +119,7 @@ def catalog(database, monkeypatch):
                     id=ids[name],
                     name=name,
                     product_url=f"https://tools.example/{name}",
-                    description=f"A specific {technology} product for practical work.",
+                    tagline=f"A specific {technology} product for practical work.",
                     technologies=[technology],
                     evidence=[
                         {
@@ -142,7 +142,7 @@ def catalog(database, monkeypatch):
                     name=name,
                     product_url=f"https://tools.example/{name}",
                     listing_url=f"https://catalog.example/{name}",
-                    description="Verified listing.",
+                    tagline="Verified listing.",
                 )
             )
         session.add(
@@ -452,7 +452,7 @@ def test_later_imports_gain_defaults_and_offline_matching_without_manual_assets(
         product = PartnerProduct(
             name="New tool",
             product_url="https://tools.example/new",
-            description=source.description,
+            tagline=source.tagline,
             technologies=source.technologies,
             evidence=source.evidence,
             status="approved",
@@ -469,7 +469,7 @@ def test_later_imports_gain_defaults_and_offline_matching_without_manual_assets(
                 name="New tool",
                 product_url=product.product_url,
                 listing_url="https://catalog.example/new",
-                description="A newly approved listing.",
+                tagline="A newly approved listing.",
             )
         )
     refresh_partner_matches(database)
@@ -510,7 +510,7 @@ def test_stale_products_cannot_starve_fresh_matching_batches(database, catalog):
                 id=uuid.UUID(int=index + 1),
                 name=f"Stale {index}",
                 product_url=f"https://tools.example/stale-{index}",
-                description="Stale tool.",
+                tagline="Stale tool.",
                 status="approved",
                 verified_at=utcnow() - timedelta(days=91),
             )
@@ -524,7 +524,7 @@ def test_stale_products_cannot_starve_fresh_matching_batches(database, catalog):
                     name=product.name,
                     product_url=product.product_url,
                     listing_url=f"https://catalog.example/stale-{index}",
-                    description="Old listing.",
+                    tagline="Old listing.",
                 )
             )
     finish_matching(database, product_limit=1)

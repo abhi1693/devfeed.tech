@@ -55,7 +55,7 @@ def large_catalog(database):
                     "id": product_id,
                     "name": f"Tool {index}",
                     "product_url": f"https://tool{index}.example/",
-                    "description": "Verified Python tooling",
+                    "tagline": "Verified Python tooling",
                     "technologies": ["Python"],
                     "status": "approved",
                     "verified_at": NOW,
@@ -73,7 +73,7 @@ def large_catalog(database):
                     "name": f"Tool {index}",
                     "product_url": f"https://tool{index}.example/",
                     "listing_url": f"https://catalog.example/{index}",
-                    "description": "Verified listing",
+                    "tagline": "Verified listing",
                     "active": True,
                     "identity_status": "resolved",
                 }

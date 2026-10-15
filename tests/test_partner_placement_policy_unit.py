@@ -8,6 +8,7 @@ from unittest.mock import Mock
 import pytest
 from devfeed_core import partner_placements as placements
 from devfeed_core.models import PartnerProductTopic
+from devfeed_core.partner_placement_destinations import AccountProductCreative
 from devfeed_core.partner_tracking import BusyPartnerAsset, PartnerTrackingTokens
 from devfeed_http.partner_placements import PlacementQuery
 from sqlalchemy import select
@@ -266,7 +267,7 @@ def test_funded_canonical_product_appears_once_with_independent_best_organic_slo
             updated_at=NOW,
             name=name,
             product_url=f"https://tools.example/{name}",
-            description="Verified capabilities",
+            tagline="Verified capabilities",
         )
         for name in ("funded", "free")
     ]
@@ -311,6 +312,11 @@ def test_funded_canonical_product_appears_once_with_independent_best_organic_slo
     monkeypatch.setattr(placements, "ranked_placement_rows", ranked_rows)
     monkeypatch.setattr(placements, "lock_attribution_row", lambda *_: True)
     monkeypatch.setattr(placements, "automatic_asset_available", lambda *_, **__: True)
+    monkeypatch.setattr(
+        placements,
+        "account_product_creative",
+        lambda _session, _account, product, **_: AccountProductCreative(product.tagline, None),
+    )
     result = placements.deliver_placements(session, PlacementQuery(surface="feed"), KEY, now=NOW)
     assert [(row["name"], row["sponsored"]) for row in result] == [
         ("free", False),

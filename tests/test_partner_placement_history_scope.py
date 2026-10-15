@@ -82,7 +82,7 @@ def seed_unrelated_history(database, catalog, *, surface, promotion_kind, count=
                     "id": product_id,
                     "name": f"Unrelated product {index}",
                     "product_url": f"https://unrelated{index}.example/",
-                    "description": "No prepared match for the requested context",
+                    "tagline": "No prepared match for the requested context",
                     "status": "approved",
                     "verified_at": now,
                 }
@@ -99,7 +99,7 @@ def seed_unrelated_history(database, catalog, *, surface, promotion_kind, count=
                     "name": f"Unrelated product {index}",
                     "product_url": f"https://unrelated{index}.example/",
                     "listing_url": f"https://catalog.example/unrelated/{index}",
-                    "description": "No prepared context match",
+                    "tagline": "No prepared context match",
                 }
                 for index, product_id in enumerate(products)
             ],

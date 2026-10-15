@@ -11,11 +11,6 @@ import type { ProductInputPricing } from './productInputPricing';
 export interface ProductInput {
   /** @maxLength 300 */
   attribution?: string;
-  /**
-     * @minLength 10
-     * @maxLength 5000
-     */
-  description: string;
   /** @maxItems 10 */
   evidence?: Evidence[];
   /**
@@ -36,6 +31,11 @@ export interface ProductInput {
      * @maxLength 200
      */
   provider: string;
+  /**
+     * @minLength 3
+     * @maxLength 160
+     */
+  tagline: string;
   /**
      * @maxItems 20
      * @items.minLength 1

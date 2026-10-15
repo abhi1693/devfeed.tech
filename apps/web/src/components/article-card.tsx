@@ -28,7 +28,7 @@ export function ArticleCard({
   article: Article;
   priority?: boolean;
   recommendation?: string;
-  promotion?: { productId: string; active: boolean; preserveSpace: boolean };
+  promotion?: { productId: string; active: boolean; visible?: boolean; preserveSpace: boolean };
   containerRef?: Ref<HTMLElement>;
   onOpen?: () => void;
 }) {
@@ -40,6 +40,7 @@ export function ArticleCard({
   const engagement = useArticleEngagement(article.id);
   const sponsorshipId = useId();
   const sponsored = !!article.sponsor_names?.length;
+  const promotionVisible = promotion?.visible ?? promotion?.active;
   return (
     <article
       ref={containerRef}
@@ -47,9 +48,9 @@ export function ArticleCard({
       data-product-id={promotion?.productId}
       data-ad-format={promotion ? "sponsored_content" : undefined}
       data-suspended={
-        promotion && !promotion.active && promotion.preserveSpace ? "true" : undefined
+        promotion && !promotionVisible && promotion.preserveSpace ? "true" : undefined
       }
-      hidden={promotion && !promotion.active && !promotion.preserveSpace}
+      hidden={promotion && !promotionVisible && !promotion.preserveSpace}
       aria-hidden={(promotion && !promotion.active) || undefined}
       inert={promotion ? !promotion.active : undefined}
     >

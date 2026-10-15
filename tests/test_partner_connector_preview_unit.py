@@ -76,7 +76,7 @@ def test_mapping_preview_shares_one_deadline_and_keeps_saved_configuration(monke
             "name": "API Checker",
             "url": "https://checker.example",
             "listing_url": "https://catalog.example/tools/checker",
-            "description": "Check API compatibility before deploying software.",
+            "tagline": "Check API compatibility before deploying software.",
         }
 
     monkeypatch.setattr(partner_connectors.ConnectorClient, "request", request)

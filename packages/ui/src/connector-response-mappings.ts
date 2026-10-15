@@ -53,7 +53,7 @@ export function responseMappings(
     ["fields.name", "Product name", fields.name ?? [], true],
     ["fields.product_url", "Website URL", fields.product_url ?? [], true],
     ["fields.listing_url", "Listing URL", fields.listing_url ?? [], true],
-    ["fields.description", "Description", fields.description ?? [], true],
+    ["fields.tagline", "Tagline", fields.tagline ?? [], true],
     ["fields.pricing", "Pricing", fields.pricing ?? [], true],
     [
       "pagination.next_path",

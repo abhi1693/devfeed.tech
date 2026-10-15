@@ -1,9 +1,13 @@
 // @vitest-environment jsdom
 import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
-import type { ReactNode } from "react";
+import { useLayoutEffect, type ReactElement, type ReactNode } from "react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { ArticleGrid } from "@/components/article-grid";
 import { PartnerPlacements } from "@/components/partner-placements";
+import {
+  HomepageSponsorshipProvider,
+  HomepageSponsorshipSlot,
+} from "@/components/homepage-sponsorship";
 import { readerRequest } from "@/lib/reader-runtime";
 import { observePartnerPlacement } from "@/lib/partner-tracking";
 import type { PartnerPlacement } from "@/lib/partner-placements";
@@ -64,23 +68,48 @@ const context = {
     "engagement",
   ] as PartnerPlacement["ad_format"][],
 };
+function Header({ children }: { children: ReactNode }) {
+  return (
+    <HomepageSponsorshipProvider>
+      <header className="topbar">
+        <HomepageSponsorshipSlot />
+      </header>
+      {children}
+    </HomepageSponsorshipProvider>
+  );
+}
+function renderFeed(ui: ReactElement) {
+  return render(ui, { wrapper: Header });
+}
 beforeEach(() => {
+  vi.spyOn(window, "matchMedia").mockReturnValue({
+    matches: true,
+    media: "(min-width: 1280px)",
+    onchange: null,
+    addEventListener: vi.fn(),
+    removeEventListener: vi.fn(),
+    addListener: vi.fn(),
+    removeListener: vi.fn(),
+    dispatchEvent: vi.fn(),
+  });
   vi.mocked(readerRequest).mockResolvedValue(Response.json({ items: [homepage, content] }));
 });
 afterEach(() => {
   cleanup();
   vi.useRealTimers();
   vi.clearAllMocks();
+  vi.restoreAllMocks();
 });
 
-it("shares two total slots between a compact homepage sponsor and a genuine editorial card", async () => {
-  const view = render(<ArticleGrid articles={articles} placements={context} />);
+it("shares two deliveries between the header sponsor and an editorial grid card", async () => {
+  const view = renderFeed(<ArticleGrid articles={articles} placements={context} />);
   const title = await screen.findByRole("link", { name: promoted.title });
   const strip = screen.getByRole("link", { name: homepage.name }).closest("article")!;
   expect(strip.getAttribute("data-ad-format")).toBe("homepage_sponsorship");
-  expect(strip.nextElementSibling?.className).toBe("article-grid");
+  expect(strip.closest("header")?.className).toBe("topbar");
+  expect(view.container.querySelector(".article-placement-feed > .partner-placement")).toBeNull();
   expect(strip.querySelector(".card-image")).toBeNull();
-  expect(strip.textContent).not.toContain(homepage.description);
+  expect(strip.textContent).toContain(homepage.tagline);
   expect(view.container.querySelectorAll(".partner-placement")).toHaveLength(2);
   const card = title.closest("article")!;
   expect(card.classList.contains("article-card")).toBe(true);
@@ -100,8 +129,23 @@ it("shares two total slots between a compact homepage sponsor and a genuine edit
   );
 });
 
+it("preserves the initial article nodes when header eligibility becomes ready", async () => {
+  let initialArticle: Element | null = null;
+  function InitialFeed() {
+    useLayoutEffect(() => {
+      initialArticle = document.querySelector(".article-grid .article-card");
+      expect(readerRequest).not.toHaveBeenCalled();
+    }, []);
+    return <ArticleGrid articles={articles} placements={context} />;
+  }
+  renderFeed(<InitialFeed />);
+  await screen.findByRole("link", { name: homepage.name });
+  expect(initialArticle).not.toBeNull();
+  expect(document.querySelector(".article-grid .article-card")).toBe(initialArticle);
+});
+
 it("deduplicates a promoted article when a later organic page returns it", async () => {
-  const view = render(<ArticleGrid articles={articles} placements={context} />);
+  const view = renderFeed(<ArticleGrid articles={articles} placements={context} />);
   await screen.findByRole("link", { name: promoted.title });
   view.rerender(
     <ArticleGrid
@@ -121,7 +165,7 @@ it("suspends a loaded homepage sponsor at zero slots and restores its valid deli
       items: [{ ...sponsoredPlacement, ad_format: "homepage_sponsorship" }],
     }),
   );
-  const view = render(<ArticleGrid articles={articles.slice(0, 4)} placements={context} />);
+  const view = renderFeed(<ArticleGrid articles={articles.slice(0, 4)} placements={context} />);
   await screen.findByRole("link", { name: sponsoredPlacement.name });
   const reading = screen.getByRole("link", { name: articles[0].title });
   reading.focus();
@@ -153,7 +197,7 @@ it("restores an organically returned article when its promoted copy expires", as
   );
   let view!: ReturnType<typeof render>;
   await act(async () => {
-    view = render(<ArticleGrid articles={articles} placements={context} />);
+    view = renderFeed(<ArticleGrid articles={articles} placements={context} />);
   });
   const promotedCard = screen.getByRole("link", { name: promoted.title }).closest("article")!;
   view.rerender(
@@ -183,7 +227,7 @@ it("restores an organically returned article when its promoted copy expires", as
 
 it("does not replace an already visible article with a paid duplicate", async () => {
   vi.mocked(readerRequest).mockResolvedValue(Response.json({ items: [content] }));
-  const view = render(
+  const view = renderFeed(
     <ArticleGrid
       articles={[promoted, ...articles]}
       placements={{ ...context, article_ids: [promoted.id] }}
@@ -198,7 +242,7 @@ it("renders engagement as a compact contextual cell with signed tracking", async
   vi.mocked(readerRequest).mockResolvedValue(
     Response.json({ items: [{ ...placement, ad_format: "engagement" }] }),
   );
-  const view = render(<ArticleGrid articles={articles} placements={context} />);
+  const view = renderFeed(<ArticleGrid articles={articles} placements={context} />);
   const link = await screen.findByRole("link", { name: placement.name });
   expect(link.closest("article")?.className).toContain("partner-placement--compact");
   expect(link.querySelector(".card-image")).toBeNull();
@@ -214,7 +258,7 @@ it("renders engagement as a compact contextual cell with signed tracking", async
 });
 
 it("rejects a homepage creative outside the unfiltered homepage contract", async () => {
-  render(
+  renderFeed(
     <PartnerPlacements
       surface="topic"
       topic_id={placement.product_id}

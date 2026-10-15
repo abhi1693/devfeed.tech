@@ -23,7 +23,7 @@ RECORD = {
     "id": "checker",
     "name": "API Checker",
     "url": "https://checker.example",
-    "description": "Check API compatibility before deploying software.",
+    "tagline": "Check API compatibility before deploying software.",
 }
 
 

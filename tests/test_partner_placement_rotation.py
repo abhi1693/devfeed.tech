@@ -50,7 +50,7 @@ def seed_rotation(database, count=3):
                 id=uuid.UUID(int=1000 + i),
                 name=f"Product {i}",
                 product_url=f"https://product{i}.example/",
-                description="Verified Python tooling",
+                tagline="Verified Python tooling",
                 technologies=["Python"],
                 status="approved",
                 verified_at=now,
@@ -84,7 +84,7 @@ def seed_rotation(database, count=3):
                     external_id=str(product.id),
                     product_id=product.id,
                     name=product.name,
-                    description=product.description,
+                    tagline=product.tagline,
                     product_url=product.product_url,
                     listing_url=f"https://catalog.example/products/{product.id}",
                 )

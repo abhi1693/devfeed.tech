@@ -69,7 +69,7 @@ describe("partner response contracts", () => {
     expect(parseDestinationPreview({ product: null })).toBeNull();
     const creative = {
       ...product,
-      description: "Deploy services",
+      tagline: "Deploy services",
       image_url: null,
       logo_url: null,
       ad_image_status: "default",

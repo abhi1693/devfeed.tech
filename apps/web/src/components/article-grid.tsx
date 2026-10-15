@@ -11,6 +11,7 @@ import { LoadingSkeleton } from "./loading-skeleton";
 import { PartnerPlacements, type PartnerPlacementContext } from "./partner-placements";
 import { useReadingAnchor } from "./use-reading-anchor";
 import type { PartnerPlacement } from "@/lib/partner-placements";
+import { HomepageSponsorship, useHomepageSponsorship } from "./homepage-sponsorship";
 export type RecommendationReason = {
   kind: "followed_topic" | "liked_topic" | "related_topic" | "followed_source";
   topic_id?: string | null;
@@ -35,6 +36,14 @@ export function ArticleGrid({
   placementArticleCount?: number;
 }) {
   const { view, loading } = useFeedPreferences();
+  const sponsorship = useHomepageSponsorship();
+  const placementFormats = placements?.ad_formats?.filter(
+    (format) => format !== "homepage_sponsorship" || sponsorship.available,
+  );
+  const placementsReady =
+    placements &&
+    (sponsorship.ready || !placements.ad_formats?.includes("homepage_sponsorship")) &&
+    (!placementFormats || placementFormats.length > 0);
   const { ref: gridRef, beforeDisplay, afterDisplay } = useReadingAnchor(".article-card");
   useEffect(() => rememberReaderArticles(articles), [articles]);
   const recommendations = Object.fromEntries(
@@ -57,7 +66,9 @@ export function ArticleGrid({
     const cells = cards.filter((_, index) => items[index]?.ad_format !== "homepage_sponsorship");
     return (
       <div ref={gridRef} className="article-placement-feed">
-        {cards.filter((_, index) => items[index]?.ad_format === "homepage_sponsorship")}
+        <HomepageSponsorship>
+          {cards.filter((_, index) => items[index]?.ad_format === "homepage_sponsorship")}
+        </HomepageSponsorship>
         <div className="article-grid">
           {articles
             .filter((article) => !promoted.has(article.id))
@@ -85,7 +96,8 @@ export function ArticleGrid({
       ) : placements ? (
         <PartnerPlacements
           {...placements}
-          maxItems={slots.length}
+          ad_formats={placementFormats}
+          maxItems={placementsReady ? slots.length : 0}
           beforeDisplay={beforeDisplay}
           afterDisplay={afterDisplay}
         >
