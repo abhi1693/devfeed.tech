@@ -24,7 +24,7 @@ lint command rejects stale generated metadata. Run
 
 Production bundle checks use `node apps/web/tests/browser/telemetry.mjs` for web,
 adding `admin` or `partner` for those applications. For built extensions, run
-`DEVFEED_TELEMETRY_LABELS_ONLY=1 node --test apps/extensions/tests/reader.browser.mjs`,
+`node --test --test-name-pattern="telemetry labels" apps/extensions/tests/reader.browser.mjs`,
 adding `DEVFEED_EXTENSION_BROWSER=edge` for Edge. These checks use local collector
 and API fixtures, inspect actual emitted labels, and verify that identifying
 values never enter route labels.

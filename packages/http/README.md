@@ -31,6 +31,6 @@ completion destination and preserves the current reader page.
 Run `npm run test:reader-destinations` to compare both runtimes against every declared destination
 and malformed URL or stored-record cases. The scoped commit checks run this suite for contract or
 consumer changes, alongside Python and frontend checks. Browser regressions for actual sign-in
-links run with `DEVFEED_LOGIN_DESTINATIONS_ONLY=1 node apps/web/tests/browser/feed.mjs` and the
-same flag on `apps/extensions/tests/reader.browser.mjs`, once the production web and extension
-packages have been built. Set `DEVFEED_EXTENSION_BROWSER=edge` for the Edge package.
+links run with `node --test --test-name-pattern="login destinations" apps/web/tests/browser/feed.mjs`
+and the same name filter on `apps/extensions/tests/reader.browser.mjs`, once the production web
+and extension packages have been built. Set `DEVFEED_EXTENSION_BROWSER=edge` for the Edge package.

@@ -174,33 +174,42 @@ CI runs this gate on Linux x86_64 with Chromium and Microsoft Edge installed.
 Pre-commit also checks extension types, unit tests and both builds whenever reader
 or shared UI code changes. Store uploads remain separate from website deployment.
 
-After fresh web and extension builds, run the focused route browser journeys with:
+Browser scenarios are separate named tests with isolated fixtures. The default run
+includes every scenario; use Node's test-name filter for a focused run after fresh
+web and extension builds:
 
 ```sh
-DEVFEED_READER_ROUTES_ONLY=1 node apps/web/tests/browser/feed.mjs
-DEVFEED_READER_ROUTES_ONLY=1 node --test apps/extensions/tests/reader.browser.mjs
-DEVFEED_EXTENSION_BROWSER=edge DEVFEED_READER_ROUTES_ONLY=1 node --test apps/extensions/tests/reader.browser.mjs
+node --test --test-name-pattern="reader routes" apps/web/tests/browser/feed.mjs
+node --test --test-name-pattern="reader routes" apps/extensions/tests/reader.browser.mjs
+DEVFEED_EXTENSION_BROWSER=edge node --test --test-name-pattern="reader routes" apps/extensions/tests/reader.browser.mjs
 ```
 
 These checks cover missing pages, recovery links, every content suffix, catalog scope,
 and retained article previews. Screenshots stay under ignored `reports/reader-routes/`.
 
-Use `DEVFEED_READER_FEED_MODE_ONLY=1` with the same browser runners for focused guest
+Use `--test-name-pattern="feed modes"` with the same browser runners for focused guest
 and signed-in feed-mode checks, placement request policies, and preview retention.
 
-Use `DEVFEED_READER_CONTEXT_ONLY=1` to check loaded-article visit counting, prompt
+Use `--test-name-pattern="reader context"` to check loaded-article visit counting, prompt
 suppression, manual Must Reads, and deferred presentation claims in all three runtimes.
 
-Use `DEVFEED_READER_NAVIGATION_ONLY=1` for typed navigation and overlay checks:
+Use `--test-name-pattern="reader navigation"` for typed navigation and overlay checks:
 scrolled feeds, sequential previews, Back/Forward replay, direct and failed article
 entries, inbox article actions, and native settings links. Screenshots stay under
 ignored `reports/reader-destinations/`.
 
-Use `DEVFEED_LOGIN_DESTINATIONS_ONLY=1` for shared sign-in destinations: approved
+Use `--test-name-pattern="login destinations"` for shared sign-in destinations: approved
 reader filters, topic/source follows, article bookmarks, signup invitations, and
 scoped MCP authorization. Provider redirects run against isolated fixtures; Chrome
 and Edge retain the reader in its original tab and open sign-in separately.
 Screenshots stay under ignored `reports/login-destinations/`.
+
+The remaining reader scenarios use `server reads`, `user mutations`, `reader theme`,
+`reader sidebar`, and `reader journey`. Authenticated extension scenarios live in
+`tests/auth.browser.mjs`: filter by `authenticated navigation`, `reading streak`,
+`must reads`, or `authentication journey`. `DEVFEED_EXTENSION_BROWSER=edge` selects
+the actual browser and extension package; scenario selection does not use application
+environment variables or server responses.
 
 ## Validate and package
 
@@ -326,8 +335,8 @@ request metrics and extension page-view envelopes with:
 ```sh
 node apps/web/tests/browser/telemetry.mjs web
 node apps/web/tests/browser/telemetry.mjs partner
-DEVFEED_TELEMETRY_LABELS_ONLY=1 node --test apps/extensions/tests/reader.browser.mjs
-DEVFEED_EXTENSION_BROWSER=edge DEVFEED_TELEMETRY_LABELS_ONLY=1 node --test apps/extensions/tests/reader.browser.mjs
+node --test --test-name-pattern="telemetry labels" apps/extensions/tests/reader.browser.mjs
+DEVFEED_EXTENSION_BROWSER=edge node --test --test-name-pattern="telemetry labels" apps/extensions/tests/reader.browser.mjs
 ```
 
 Search result type, article order and date filters apply immediately in both

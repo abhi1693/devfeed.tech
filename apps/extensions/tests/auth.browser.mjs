@@ -53,7 +53,7 @@ const newTab = browser === "edge" ? "edge://newtab" : "chrome://newtab";
 const cookieName = "__Host-devfeed_user_session";
 const xClickCookie = "__Host-devfeed_user_x_click";
 const topicId = "55555555-5555-4555-8555-555555555555";
-const user = {
+const baseUser = {
   user_id: "11111111-1111-4111-8111-111111111111",
   name: "Test Reader",
   email: "reader@example.test",
@@ -61,7 +61,7 @@ const user = {
   expires_at: Math.floor(Date.now() / 1000) + 30 * 24 * 60 * 60,
   csrf_token: "c".repeat(43),
 };
-const article = {
+const baseArticle = {
   id: "22222222-2222-4222-8222-222222222222",
   slug: "signed-in-article",
   canonical_url: "https://publisher.test/article",
@@ -81,974 +81,994 @@ const article = {
   sources: [],
 };
 
-const mustReadsFixture = dailyFixture(article);
-
-test(
-  process.env.DEVFEED_NAVIGATION_ONLY === "1"
-    ? "mobile navigation works in the built reader extension"
-    : process.env.DEVFEED_STREAK_ONLY === "1"
-      ? "reading streak achievements work in the built reader extension"
-      : process.env.DEVFEED_MUST_READS_ONLY === "1"
-        ? "daily Must Reads works in the built reader extension"
-        : "website sign-in refreshes the extension, permits CSRF-protected actions, and signs out across tabs",
-  { timeout: 180000 },
-  async () => {
-    const profile = await mkdtemp(path.join(tmpdir(), "devfeed-auth-test-"));
-    let extensionOrigin;
-    let active = false;
-    let rejectLogout = true;
-    let liked = false;
-    let feedGeneration = 1;
-    let feedRefreshing = false;
-    let bookmarked = false;
-    let rejectFeed = true;
-    let rejectNextPage = true;
-    let checkedWrites = 0;
-    let authenticatedStreams = 0;
-    let guestPlacementQueries = 0;
-    let authenticatedPlacementQueries = 0;
-    let interactionChecks = false;
-    let devCardSettings;
-    let profileName = "Reader Profile";
-    const readingFixture = readingStreakFixture();
-    let navigationStreakDays = null;
-    let avatarCheck;
-    let feedSettings = { view: "cards", content_types: ["news"], languages: ["en"] };
-    let onboarding = false;
-    let catalogScroll = false;
-    let onboardingSaved = false;
-    let rejectOnboardingPage = true;
-    let rejectTopics = true;
-    let rejectTopicFollow = true;
-    let savedTopicIds = [topicId];
-    let savedSourceIds = [];
-    let rejectSourceFollow = true;
-    const errors = [];
-    const analytics = [];
-    const handle = async (route) => {
-      const url = new URL(route.request().url());
-      const headers = await route.request().allHeaders();
-      if (url.pathname === "/api/v1/extension/analytics") {
-        assert.equal(headers.cookie, undefined, "analytics must not send the account cookie");
-        if (route.request().method() === "POST") {
-          assert.equal(headers.origin, "chrome-extension://hliakjocndflpkmfajndigbpngfcekdm");
-          analytics.push(route.request().postDataJSON());
-          return route.fulfill({ status: 204 });
+async function withAuthenticatedReader(t, check) {
+  const profile = await mkdtemp(path.join(tmpdir(), "devfeed-auth-test-"));
+  let server;
+  let context;
+  t.after(async () => {
+    try {
+      await context?.close();
+    } finally {
+      try {
+        if (server?.listening) {
+          server.closeAllConnections();
+          await new Promise((resolve, reject) =>
+            server.close((error) => (error ? reject(error) : resolve())),
+          );
         }
-        return route.fulfill({ json: { enabled: true } });
+      } finally {
+        await rm(profile, { recursive: true, force: true });
       }
-      const authenticated = active && headers.cookie?.includes(`${cookieName}=test-session`);
-      const method = route.request().method();
-      const send = (json, status = 200) => route.fulfill({ status, json });
-      if (
-        avatarCheck &&
-        ["/api/v1/user/settings/profile", "/api/v1/user/settings/profile/avatar"].includes(
-          url.pathname,
-        )
-      ) {
-        assert.equal(authenticated, true);
-        if (method !== "GET") {
-          assert.equal(headers.origin, extensionOrigin);
-          assert.equal(headers["x-csrf-token"], user.csrf_token);
-          checkedWrites++;
-          if (url.pathname === "/api/v1/user/must-reads/presentation")
-            return send(await mustReadsFixture.response(true));
-        }
-        return avatarCheck(route);
+    }
+  });
+  const article = structuredClone(baseArticle);
+  const user = { ...baseUser };
+  const mustReadsFixture = dailyFixture(article);
+  const state = {
+    extensionOrigin: undefined,
+    active: false,
+    rejectLogout: true,
+    liked: false,
+    feedGeneration: 1,
+    feedRefreshing: false,
+    bookmarked: false,
+    rejectFeed: true,
+    rejectNextPage: true,
+    checkedWrites: 0,
+    authenticatedStreams: 0,
+    guestPlacementQueries: 0,
+    authenticatedPlacementQueries: 0,
+    interactionChecks: false,
+    devCardSettings: undefined,
+    profileName: "Reader Profile",
+    navigationStreakDays: null,
+    avatarCheck: undefined,
+    feedSettings: { view: "cards", content_types: ["news"], languages: ["en"] },
+    onboarding: false,
+    catalogScroll: false,
+    onboardingSaved: false,
+    rejectOnboardingPage: true,
+    rejectTopics: true,
+    rejectTopicFollow: true,
+    savedTopicIds: [topicId],
+    savedSourceIds: [],
+    rejectSourceFollow: true,
+  };
+  const readingFixture = readingStreakFixture();
+  const errors = [];
+  const analytics = [];
+  const handle = async (route) => {
+    const url = new URL(route.request().url());
+    const headers = await route.request().allHeaders();
+    if (url.pathname === "/api/v1/extension/analytics") {
+      assert.equal(headers.cookie, undefined, "analytics must not send the account cookie");
+      if (route.request().method() === "POST") {
+        assert.equal(headers.origin, "chrome-extension://hliakjocndflpkmfajndigbpngfcekdm");
+        analytics.push(route.request().postDataJSON());
+        return route.fulfill({ status: 204 });
       }
-      if (url.pathname === "/x-ad-landing")
-        return route.fulfill({
-          contentType: "text/html",
-          headers: {
-            "Set-Cookie": `${xClickCookie}=extension-ad-click; Max-Age=2592000; Secure; HttpOnly; SameSite=Lax; Path=/`,
-          },
-          body: "<p>Ad landing page</p>",
-        });
-      if (url.pathname === "/login")
-        return route.fulfill({
-          contentType: "text/html",
-          body: `<a href="/api/v1/user/auth/login?provider=github&return_to=%2Fextension%2Flogin-complete">Continue with GitHub</a>`,
-        });
-      if (url.pathname === "/api/v1/user/auth/config")
-        return send({ enabled: true, providers: ["github"] });
-      if (url.pathname === "/api/v1/user/auth/login") {
-        assert.ok(
-          headers.cookie?.includes(`${xClickCookie}=extension-ad-click`),
-          "website signup retains the ad landing click for both extensions",
-        );
-        assert.equal(url.searchParams.get("return_to"), "/extension/login-complete");
-        assert.equal(url.searchParams.get("provider"), "github");
-        assert.equal(url.searchParams.has("register"), false);
-        active = true;
-        return route.fulfill({
-          status: 302,
-          headers: {
-            "Set-Cookie": `${cookieName}=test-session; Max-Age=2592000; Secure; HttpOnly; SameSite=Lax; Path=/`,
-            Location: "https://devfeed.tech/extension/login-complete",
-          },
-        });
-      }
-      if (url.pathname === "/extension/login-complete")
-        return route.fulfill({
-          contentType: "text/html",
-          body: "<!doctype html><title>Signed in</title><script>window.close()</script>",
-        });
-      if (url.pathname === "/api/v1/user/auth/me") return send(authenticated ? user : null);
-      if (url.pathname === "/api/v1/partner-placements/query") {
-        assert.equal(method, "POST");
-        assert.equal(headers.cookie, undefined, "guest placements must omit the account cookie");
-        assert.equal(headers["x-csrf-token"], undefined);
-        guestPlacementQueries++;
-        return send({ items: [] });
-      }
+      return route.fulfill({ json: { enabled: true } });
+    }
+    const authenticated = state.active && headers.cookie?.includes(`${cookieName}=test-session`);
+    const method = route.request().method();
+    const send = (json, status = 200) => route.fulfill({ status, json });
+    if (
+      state.avatarCheck &&
+      ["/api/v1/user/settings/profile", "/api/v1/user/settings/profile/avatar"].includes(
+        url.pathname,
+      )
+    ) {
+      assert.equal(authenticated, true);
       if (method !== "GET") {
-        assert.equal(authenticated, true, "Chrome must send the real HttpOnly session cookie");
-        assert.equal(headers.origin, extensionOrigin);
+        assert.equal(headers.origin, state.extensionOrigin);
         assert.equal(headers["x-csrf-token"], user.csrf_token);
-        if (url.pathname === "/api/v1/user/partner-placements/query") {
-          authenticatedPlacementQueries++;
-          return send({ items: [] });
-        }
-        checkedWrites++;
+        state.checkedWrites++;
         if (url.pathname === "/api/v1/user/must-reads/presentation")
           return send(await mustReadsFixture.response(true));
-        if (url.pathname === `/api/v1/user/preferences/topics/${topicId}`) {
-          const payload = route.request().postDataJSON();
-          assert.deepEqual(Object.keys(payload), ["followed"]);
-          if (payload.followed && rejectTopicFollow) {
-            rejectTopicFollow = false;
-            return send({}, 503);
-          }
-          savedTopicIds = payload.followed
-            ? [...savedTopicIds, topicId]
-            : savedTopicIds.filter((id) => id !== topicId);
-          return send({ followed: payload.followed });
-        }
-        if (url.pathname.startsWith("/api/v1/user/preferences/sources/")) {
-          const payload = route.request().postDataJSON();
-          assert.deepEqual(Object.keys(payload), ["followed"]);
-          if (payload.followed && rejectSourceFollow) {
-            rejectSourceFollow = false;
-            return send({}, 503);
-          }
-          const id = url.pathname.split("/").at(-1);
-          savedSourceIds = payload.followed
-            ? [...new Set([...savedSourceIds, id])]
-            : savedSourceIds.filter((value) => value !== id);
-          return send({ followed: payload.followed });
-        }
-        if (url.pathname === "/api/v1/user/preferences") {
-          const payload = route.request().postDataJSON();
-          assert.deepEqual(payload, { topic_ids: [topicId, "onboarding-0", "onboarding-1"] });
-          if (rejectTopics) {
-            rejectTopics = false;
-            return send({}, 503);
-          }
-          savedTopicIds = payload.topic_ids;
-          onboardingSaved = true;
-          return send({ topic_ids: savedTopicIds });
-        }
-        if (url.pathname.endsWith("/auth/logout")) {
-          if (rejectLogout) {
-            rejectLogout = false;
-            return send({}, 503);
-          }
-          active = false;
-          return route.fulfill({
-            status: 204,
-            headers: {
-              "Set-Cookie": `${cookieName}=; Max-Age=0; Secure; HttpOnly; SameSite=Lax; Path=/`,
-            },
-          });
-        }
-        if (url.pathname.endsWith("/settings/feed")) {
-          feedSettings = route.request().postDataJSON();
-          return send(feedSettings);
-        }
-        if (url.pathname.endsWith("/settings/profile")) {
-          assert.equal(route.request().postDataJSON().reading_streak, undefined);
-          profileName = route.request().postDataJSON().display_name;
-          devCardSettings = route.request().postDataJSON().dev_card;
-          return send({ display_name: profileName, avatar_url: null, dev_card: devCardSettings });
-        }
-        if (url.pathname.endsWith("/like")) {
-          liked = route.request().postDataJSON().liked;
-        }
-        if (url.pathname.endsWith("/bookmark") && url.pathname.includes("33333333-3333"))
-          return send({ article_id: url.pathname.split("/").at(-2), bookmarked: true });
-        if (url.pathname.endsWith("/bookmark")) {
-          bookmarked = route.request().postDataJSON().bookmarked;
-          return send({ article_id: article.id, bookmarked });
-        }
-        return send({ article_id: article.id, liked, likes: liked ? 1 : 0, opens: 0, bookmarked });
       }
-      if (url.pathname === "/api/v1/feed")
-        return send({
-          items: [article],
-          next_cursor: null,
-        });
-      if (url.pathname === "/api/v1/feed/options")
-        return send({ content_types: ["news"], sources: [], languages: ["en"] });
-      if (catalogScroll && ["/api/v1/topics", "/api/v1/sources"].includes(url.pathname)) {
-        const items = catalogChoices(url.pathname.endsWith("topics") ? "topics" : "sources").filter(
-          (item) =>
-            item.name.toLowerCase().includes((url.searchParams.get("q") ?? "").toLowerCase()),
-        );
-        const offset = Number(url.searchParams.get("offset") ?? 0);
-        return send({
-          items: items.slice(offset, offset + 60),
-          next_cursor: offset + 60 < items.length ? String(offset + 60) : null,
+      return state.avatarCheck(route);
+    }
+    if (url.pathname === "/x-ad-landing")
+      return route.fulfill({
+        contentType: "text/html",
+        headers: {
+          "Set-Cookie": `${xClickCookie}=extension-ad-click; Max-Age=2592000; Secure; HttpOnly; SameSite=Lax; Path=/`,
+        },
+        body: "<p>Ad landing page</p>",
+      });
+    if (url.pathname === "/login")
+      return route.fulfill({
+        contentType: "text/html",
+        body: `<a href="/api/v1/user/auth/login?provider=github&return_to=%2Fextension%2Flogin-complete">Continue with GitHub</a>`,
+      });
+    if (url.pathname === "/api/v1/user/auth/config")
+      return send({ enabled: true, providers: ["github"] });
+    if (url.pathname === "/api/v1/user/auth/login") {
+      assert.ok(
+        headers.cookie?.includes(`${xClickCookie}=extension-ad-click`),
+        "website signup retains the ad landing click for both extensions",
+      );
+      assert.equal(url.searchParams.get("return_to"), "/extension/login-complete");
+      assert.equal(url.searchParams.get("provider"), "github");
+      assert.equal(url.searchParams.has("register"), false);
+      state.active = true;
+      return route.fulfill({
+        status: 302,
+        headers: {
+          "Set-Cookie": `${cookieName}=test-session; Max-Age=2592000; Secure; HttpOnly; SameSite=Lax; Path=/`,
+          Location: "https://devfeed.tech/extension/login-complete",
+        },
+      });
+    }
+    if (url.pathname === "/extension/login-complete")
+      return route.fulfill({
+        contentType: "text/html",
+        body: "<!doctype html><title>Signed in</title><script>window.close()</script>",
+      });
+    if (url.pathname === "/api/v1/user/auth/me") return send(authenticated ? user : null);
+    if (url.pathname === "/api/v1/partner-placements/query") {
+      assert.equal(method, "POST");
+      assert.equal(headers.cookie, undefined, "guest placements must omit the account cookie");
+      assert.equal(headers["x-csrf-token"], undefined);
+      state.guestPlacementQueries++;
+      return send({ items: [] });
+    }
+    if (method !== "GET") {
+      assert.equal(authenticated, true, "Chrome must send the real HttpOnly session cookie");
+      assert.equal(headers.origin, state.extensionOrigin);
+      assert.equal(headers["x-csrf-token"], user.csrf_token);
+      if (url.pathname === "/api/v1/user/partner-placements/query") {
+        state.authenticatedPlacementQueries++;
+        return send({ items: [] });
+      }
+      state.checkedWrites++;
+      if (url.pathname === "/api/v1/user/must-reads/presentation")
+        return send(await mustReadsFixture.response(true));
+      if (url.pathname === `/api/v1/user/preferences/topics/${topicId}`) {
+        const payload = route.request().postDataJSON();
+        assert.deepEqual(Object.keys(payload), ["followed"]);
+        if (payload.followed && state.rejectTopicFollow) {
+          state.rejectTopicFollow = false;
+          return send({}, 503);
+        }
+        state.savedTopicIds = payload.followed
+          ? [...state.savedTopicIds, topicId]
+          : state.savedTopicIds.filter((id) => id !== topicId);
+        return send({ followed: payload.followed });
+      }
+      if (url.pathname.startsWith("/api/v1/user/preferences/sources/")) {
+        const payload = route.request().postDataJSON();
+        assert.deepEqual(Object.keys(payload), ["followed"]);
+        if (payload.followed && state.rejectSourceFollow) {
+          state.rejectSourceFollow = false;
+          return send({}, 503);
+        }
+        const id = url.pathname.split("/").at(-1);
+        state.savedSourceIds = payload.followed
+          ? [...new Set([...state.savedSourceIds, id])]
+          : state.savedSourceIds.filter((value) => value !== id);
+        return send({ followed: payload.followed });
+      }
+      if (url.pathname === "/api/v1/user/preferences") {
+        const payload = route.request().postDataJSON();
+        assert.deepEqual(payload, { topic_ids: [topicId, "onboarding-0", "onboarding-1"] });
+        if (state.rejectTopics) {
+          state.rejectTopics = false;
+          return send({}, 503);
+        }
+        state.savedTopicIds = payload.topic_ids;
+        state.onboardingSaved = true;
+        return send({ topic_ids: state.savedTopicIds });
+      }
+      if (url.pathname.endsWith("/auth/logout")) {
+        if (state.rejectLogout) {
+          state.rejectLogout = false;
+          return send({}, 503);
+        }
+        state.active = false;
+        return route.fulfill({
+          status: 204,
+          headers: {
+            "Set-Cookie": `${cookieName}=; Max-Age=0; Secure; HttpOnly; SameSite=Lax; Path=/`,
+          },
         });
       }
-      if (url.pathname === "/api/v1/topics/typescript")
+      if (url.pathname.endsWith("/settings/feed")) {
+        state.feedSettings = route.request().postDataJSON();
+        return send(state.feedSettings);
+      }
+      if (url.pathname.endsWith("/settings/profile")) {
+        assert.equal(route.request().postDataJSON().reading_streak, undefined);
+        state.profileName = route.request().postDataJSON().display_name;
+        state.devCardSettings = route.request().postDataJSON().dev_card;
         return send({
+          display_name: state.profileName,
+          avatar_url: null,
+          dev_card: state.devCardSettings,
+        });
+      }
+      if (url.pathname.endsWith("/like")) {
+        state.liked = route.request().postDataJSON().liked;
+      }
+      if (url.pathname.endsWith("/bookmark") && url.pathname.includes("33333333-3333"))
+        return send({ article_id: url.pathname.split("/").at(-2), bookmarked: true });
+      if (url.pathname.endsWith("/bookmark")) {
+        state.bookmarked = route.request().postDataJSON().bookmarked;
+        return send({ article_id: article.id, bookmarked: state.bookmarked });
+      }
+      return send({
+        article_id: article.id,
+        liked: state.liked,
+        likes: state.liked ? 1 : 0,
+        opens: 0,
+        bookmarked: state.bookmarked,
+      });
+    }
+    if (url.pathname === "/api/v1/feed")
+      return send({
+        items: [article],
+        next_cursor: null,
+      });
+    if (url.pathname === "/api/v1/feed/options")
+      return send({ content_types: ["news"], sources: [], languages: ["en"] });
+    if (state.catalogScroll && ["/api/v1/topics", "/api/v1/sources"].includes(url.pathname)) {
+      const items = catalogChoices(url.pathname.endsWith("topics") ? "topics" : "sources").filter(
+        (item) => item.name.toLowerCase().includes((url.searchParams.get("q") ?? "").toLowerCase()),
+      );
+      const offset = Number(url.searchParams.get("offset") ?? 0);
+      return send({
+        items: items.slice(offset, offset + 60),
+        next_cursor: offset + 60 < items.length ? String(offset + 60) : null,
+      });
+    }
+    if (url.pathname === "/api/v1/topics/typescript")
+      return send({
+        id: topicId,
+        name: "TypeScript",
+        slug: "typescript",
+        kind: "language",
+        logo_url: null,
+        description: "Typed JavaScript",
+        ai_description: null,
+      });
+    if (url.pathname === "/api/v1/sources")
+      return send({ items: onboardingSources, next_cursor: null });
+    if (url.pathname === "/api/v1/topics" && url.searchParams.get("q"))
+      return send({
+        items: onboardingTopics({
           id: topicId,
           name: "TypeScript",
           slug: "typescript",
           kind: "language",
           logo_url: null,
-          description: "Typed JavaScript",
-          ai_description: null,
-        });
-      if (url.pathname === "/api/v1/sources")
-        return send({ items: onboardingSources, next_cursor: null });
-      if (url.pathname === "/api/v1/topics" && url.searchParams.get("q"))
+        }).filter((item) =>
+          item.name.toLowerCase().includes(url.searchParams.get("q").toLowerCase()),
+        ),
+        next_cursor: null,
+      });
+    if (
+      url.pathname === "/api/v1/topics" &&
+      state.onboarding &&
+      url.searchParams.get("offset") === "60"
+    ) {
+      if (state.rejectOnboardingPage) {
+        state.rejectOnboardingPage = false;
+        await new Promise((resolve) => setTimeout(resolve, 1000));
+        return send({}, 503);
+      }
+      return send({ items: [], next_cursor: null });
+    }
+    if (url.pathname === "/api/v1/topics")
+      return send({
+        items:
+          state.onboarding || state.onboardingSaved
+            ? onboardingTopics({
+                id: topicId,
+                name: "TypeScript",
+                slug: "typescript",
+                kind: "language",
+                logo_url: null,
+                description: "Typed JavaScript",
+                ai_description: null,
+              })
+            : [],
+        next_cursor: state.onboarding ? "60" : null,
+      });
+    if (url.pathname.startsWith("/api/v1/articles/"))
+      return send({
+        article:
+          signupPromptArticle(article, url.pathname.slice("/api/v1/articles/".length)) ?? article,
+        topic: null,
+      });
+    if (url.pathname === "/api/v1/user/engagement")
+      return send([
+        {
+          article_id: article.id,
+          liked: !!authenticated && state.liked,
+          likes: state.liked ? 1 : 0,
+          opens: 0,
+          bookmarked: !!authenticated && state.bookmarked,
+        },
+      ]);
+    if (!authenticated) return send({}, 401);
+    if (url.pathname.startsWith("/api/v1/user/must-reads"))
+      return send(await mustReadsFixture.response(url.pathname.endsWith("/presentation")));
+    const endpoint = url.pathname.replace("/api/v1/user/", "");
+    if (endpoint === "settings/profile")
+      return send({
+        display_name: state.profileName,
+        dev_card: state.devCardSettings,
+        avatar_url: null,
+        reading_streak:
+          state.navigationStreakDays === null
+            ? readingFixture.profile()
+            : {
+                ...readingFixture.profile(),
+                current_days: state.navigationStreakDays,
+                longest_days: Math.max(11, state.navigationStreakDays),
+                total_days: Math.max(24, state.navigationStreakDays),
+              },
+        stack: [],
+      });
+    if (endpoint === "settings/reading-week") return send(readingFixture.response());
+    if (endpoint === "settings/appearance") return send({ theme: "dark" });
+    if (endpoint === "settings/feed") return send(state.feedSettings);
+    if (endpoint === "settings/notifications") return send({ show_badge: true, sound: false });
+    if (endpoint === "notifications/config")
+      return send({ enabled: true, environment: "users", subscriber_id: "user_a" });
+    if (endpoint.endsWith("/stream")) {
+      state.authenticatedStreams++;
+      return route.fulfill({ contentType: "text/event-stream", body: ": connected\n\n" });
+    }
+    if (endpoint.endsWith("/counts"))
+      return send({
+        unread: state.interactionChecks ? 1 : 0,
+        unseen: state.interactionChecks ? 1 : 0,
+      });
+    if (endpoint.endsWith("/items"))
+      return send(
+        state.interactionChecks ? notificationFixture() : { items: [], next_cursor: null },
+      );
+    if (endpoint === "preferences") return send({ topic_ids: state.savedTopicIds });
+    if (endpoint.endsWith("/preferences")) return send({ preferences: [] });
+    if (endpoint === "preferences/sources") return send({ source_ids: state.savedSourceIds });
+    if (endpoint === "feed") {
+      if (state.onboarding) {
+        if (state.onboardingSaved) state.onboarding = false;
         return send({
-          items: onboardingTopics({
-            id: topicId,
-            name: "TypeScript",
-            slug: "typescript",
-            kind: "language",
-            logo_url: null,
-          }).filter((item) =>
-            item.name.toLowerCase().includes(url.searchParams.get("q").toLowerCase()),
-          ),
+          items: [],
           next_cursor: null,
-        });
-      if (
-        url.pathname === "/api/v1/topics" &&
-        onboarding &&
-        url.searchParams.get("offset") === "60"
-      ) {
-        if (rejectOnboardingPage) {
-          rejectOnboardingPage = false;
-          await new Promise((resolve) => setTimeout(resolve, 1000));
-          return send({}, 503);
-        }
-        return send({ items: [], next_cursor: null });
-      }
-      if (url.pathname === "/api/v1/topics")
-        return send({
-          items:
-            onboarding || onboardingSaved
-              ? onboardingTopics({
-                  id: topicId,
-                  name: "TypeScript",
-                  slug: "typescript",
-                  kind: "language",
-                  logo_url: null,
-                  description: "Typed JavaScript",
-                  ai_description: null,
-                })
-              : [],
-          next_cursor: onboarding ? "60" : null,
-        });
-      if (url.pathname.startsWith("/api/v1/articles/"))
-        return send({
-          article:
-            signupPromptArticle(article, url.pathname.slice("/api/v1/articles/".length)) ?? article,
-          topic: null,
-        });
-      if (url.pathname === "/api/v1/user/engagement")
-        return send([
-          {
-            article_id: article.id,
-            liked: !!authenticated && liked,
-            likes: liked ? 1 : 0,
-            opens: 0,
-            bookmarked: !!authenticated && bookmarked,
-          },
-        ]);
-      if (!authenticated) return send({}, 401);
-      if (url.pathname.startsWith("/api/v1/user/must-reads"))
-        return send(await mustReadsFixture.response(url.pathname.endsWith("/presentation")));
-      const endpoint = url.pathname.replace("/api/v1/user/", "");
-      if (endpoint === "settings/profile")
-        return send({
-          display_name: profileName,
-          dev_card: devCardSettings,
-          avatar_url: null,
-          reading_streak:
-            navigationStreakDays === null
-              ? readingFixture.profile()
-              : {
-                  ...readingFixture.profile(),
-                  current_days: navigationStreakDays,
-                  longest_days: Math.max(11, navigationStreakDays),
-                  total_days: Math.max(24, navigationStreakDays),
-                },
-          stack: [],
-        });
-      if (endpoint === "settings/reading-week") return send(readingFixture.response());
-      if (endpoint === "settings/appearance") return send({ theme: "dark" });
-      if (endpoint === "settings/feed") return send(feedSettings);
-      if (endpoint === "settings/notifications") return send({ show_badge: true, sound: false });
-      if (endpoint === "notifications/config")
-        return send({ enabled: true, environment: "users", subscriber_id: "user_a" });
-      if (endpoint.endsWith("/stream")) {
-        authenticatedStreams++;
-        return route.fulfill({ contentType: "text/event-stream", body: ": connected\n\n" });
-      }
-      if (endpoint.endsWith("/counts"))
-        return send({ unread: interactionChecks ? 1 : 0, unseen: interactionChecks ? 1 : 0 });
-      if (endpoint.endsWith("/items"))
-        return send(interactionChecks ? notificationFixture() : { items: [], next_cursor: null });
-      if (endpoint === "preferences") return send({ topic_ids: savedTopicIds });
-      if (endpoint.endsWith("/preferences")) return send({ preferences: [] });
-      if (endpoint === "preferences/sources") return send({ source_ids: savedSourceIds });
-      if (endpoint === "feed") {
-        if (onboarding) {
-          if (onboardingSaved) onboarding = false;
-          return send({
-            items: [],
-            next_cursor: null,
-            has_interests: onboardingSaved,
-            status: onboardingSaved ? "refreshing" : "ready",
-            reasons: {},
-          });
-        }
-        if (rejectFeed) {
-          rejectFeed = false;
-          return send({}, 503);
-        }
-        if (url.searchParams.has("cursor")) {
-          rejectNextPage = false;
-          return send({}, 409);
-        }
-        const selectedGeneration = Number(url.searchParams.get("generation") ?? feedGeneration);
-        return send({
-          items: [
-            {
-              ...article,
-              title:
-                selectedGeneration === 1
-                  ? article.title
-                  : selectedGeneration === 2
-                    ? "Updated recommendation"
-                    : "Hourly recommendation",
-            },
-          ],
-          generation: String(selectedGeneration),
-          next_cursor: rejectNextPage ? "outdated" : null,
-          status: feedRefreshing ? "refreshing" : "ready",
-          has_interests: true,
+          has_interests: state.onboardingSaved,
+          status: state.onboardingSaved ? "refreshing" : "ready",
           reasons: {},
         });
       }
-      if (endpoint === "bookmarks")
-        return send({ items: bookmarked ? [article] : [], next_cursor: null });
-      return send({}, 404);
-    };
-    execFileSync(
-      "openssl",
-      [
-        "req",
-        "-x509",
-        "-newkey",
-        "rsa:2048",
-        "-nodes",
-        "-keyout",
-        path.join(profile, "key.pem"),
-        "-out",
-        path.join(profile, "cert.pem"),
-        "-days",
-        "1",
-        "-subj",
-        "/CN=devfeed.tech",
-      ],
-      { stdio: "ignore" },
-    );
-    const server = createServer(
-      {
-        key: await readFile(path.join(profile, "key.pem")),
-        cert: await readFile(path.join(profile, "cert.pem")),
-      },
-      async (request, response) => {
-        const chunks = [];
-        for await (const chunk of request) chunks.push(chunk);
-        const buffer = Buffer.concat(chunks);
-        const body = buffer.toString();
-        try {
-          await handle({
-            request: () => ({
-              url: () => `https://devfeed.tech${request.url}`,
-              allHeaders: async () => request.headers,
-              method: () => request.method,
-              postDataJSON: () => JSON.parse(body),
-              postDataBuffer: () => buffer,
-            }),
-            fulfill: async ({ status = 200, json, body = "", contentType, headers = {} }) => {
-              response.writeHead(status, {
-                "Content-Type": contentType ?? "application/json",
-                ...headers,
-              });
-              response.end(json === undefined ? body : JSON.stringify(json));
-            },
-          });
-        } catch (error) {
-          errors.push(error.message);
-          response.writeHead(500);
-          response.end();
-        }
-      },
-    );
-    await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
-    const context = await chromium.launchPersistentContext(profile, {
-      executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH,
-      channel: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH
-        ? undefined
-        : browser === "edge"
-          ? "msedge"
-          : "chromium",
-      headless: true,
-      viewport: { width: 1440, height: 1000 },
-      args: [
-        `--disable-extensions-except=${extension}`,
-        `--load-extension=${extension}`,
-        `--host-resolver-rules=MAP devfeed.tech 127.0.0.1:${server.address().port}`,
-        "--no-proxy-server",
-        "--ignore-certificate-errors",
-      ],
-    });
-
-    try {
-      const page = await context.newPage();
-      page.on("pageerror", (error) => errors.push(error.message));
-      await page.goto(newTab);
-      extensionOrigin = page.url().split("/").slice(0, 3).join("/");
-      await page.waitForURL((url) => !url.hash || url.hash === "#/");
-      if (process.env.DEVFEED_NAVIGATION_ONLY === "1") {
-        const directory = path.resolve(
-          import.meta.dirname,
-          `../../../reports/mobile-navigation/${browser}`,
-        );
-        const baseline = process.env.DEVFEED_NAVIGATION_BASELINE === "1";
-        await page.getByRole("link", { name: "Sign in", exact: true }).waitFor();
-        await checkReaderNavigation(page, directory, { baseline });
-        active = true;
-        mustReadsFixture.enabled = true;
-        mustReadsFixture.presented = true;
-        await context.addCookies([
-          {
-            name: cookieName,
-            value: "test-session",
-            domain: "devfeed.tech",
-            path: "/",
-            secure: true,
-            httpOnly: true,
-            sameSite: "Lax",
-          },
-        ]);
-        for (const days of [2, 123]) {
-          navigationStreakDays = days;
-          await page.reload();
-          await checkReaderNavigation(page, directory, {
-            signedIn: true,
-            baseline,
-            streakDays: days,
-          });
-        }
-        assert.deepEqual(errors, []);
-        return;
+      if (state.rejectFeed) {
+        state.rejectFeed = false;
+        return send({}, 503);
       }
-      if (process.env.DEVFEED_MUST_READS_ONLY === "1" || process.env.DEVFEED_STREAK_ONLY === "1") {
-        active = true;
-        await context.addCookies([
+      if (url.searchParams.has("cursor")) {
+        state.rejectNextPage = false;
+        return send({}, 409);
+      }
+      const selectedGeneration = Number(url.searchParams.get("generation") ?? state.feedGeneration);
+      return send({
+        items: [
           {
-            name: cookieName,
-            value: "test-session",
-            domain: "devfeed.tech",
-            path: "/",
-            secure: true,
-            httpOnly: true,
-            sameSite: "Lax",
+            ...article,
+            title:
+              selectedGeneration === 1
+                ? article.title
+                : selectedGeneration === 2
+                  ? "Updated recommendation"
+                  : "Hourly recommendation",
           },
-        ]);
-        await page.reload();
+        ],
+        generation: String(selectedGeneration),
+        next_cursor: state.rejectNextPage ? "outdated" : null,
+        status: state.feedRefreshing ? "refreshing" : "ready",
+        has_interests: true,
+        reasons: {},
+      });
+    }
+    if (endpoint === "bookmarks")
+      return send({ items: state.bookmarked ? [article] : [], next_cursor: null });
+    return send({}, 404);
+  };
+  execFileSync(
+    "openssl",
+    [
+      "req",
+      "-x509",
+      "-newkey",
+      "rsa:2048",
+      "-nodes",
+      "-keyout",
+      path.join(profile, "key.pem"),
+      "-out",
+      path.join(profile, "cert.pem"),
+      "-days",
+      "1",
+      "-subj",
+      "/CN=devfeed.tech",
+    ],
+    { stdio: "ignore" },
+  );
+  server = createServer(
+    {
+      key: await readFile(path.join(profile, "key.pem")),
+      cert: await readFile(path.join(profile, "cert.pem")),
+    },
+    async (request, response) => {
+      const chunks = [];
+      for await (const chunk of request) chunks.push(chunk);
+      const buffer = Buffer.concat(chunks);
+      const body = buffer.toString();
+      try {
+        await handle({
+          request: () => ({
+            url: () => `https://devfeed.tech${request.url}`,
+            allHeaders: async () => request.headers,
+            method: () => request.method,
+            postDataJSON: () => JSON.parse(body),
+            postDataBuffer: () => buffer,
+          }),
+          fulfill: async ({ status = 200, json, body = "", contentType, headers = {} }) => {
+            response.writeHead(status, {
+              "Content-Type": contentType ?? "application/json",
+              ...headers,
+            });
+            response.end(json === undefined ? body : JSON.stringify(json));
+          },
+        });
+      } catch (error) {
+        errors.push(error.message);
+        response.writeHead(500);
+        response.end();
+      }
+    },
+  );
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  context = await chromium.launchPersistentContext(profile, {
+    executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH,
+    channel: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH
+      ? undefined
+      : browser === "edge"
+        ? "msedge"
+        : "chromium",
+    headless: true,
+    viewport: { width: 1440, height: 1000 },
+    args: [
+      `--disable-extensions-except=${extension}`,
+      `--load-extension=${extension}`,
+      `--host-resolver-rules=MAP devfeed.tech 127.0.0.1:${server.address().port}`,
+      "--no-proxy-server",
+      "--ignore-certificate-errors",
+    ],
+  });
+
+  const page = await context.newPage();
+  page.on("pageerror", (error) => errors.push(error.message));
+  await page.goto(newTab);
+  state.extensionOrigin = page.url().split("/").slice(0, 3).join("/");
+  await page.waitForURL((url) => !url.hash || url.hash === "#/");
+  const signIn = async () => {
+    state.active = true;
+    await context.addCookies([
+      {
+        name: cookieName,
+        value: "test-session",
+        domain: "devfeed.tech",
+        path: "/",
+        secure: true,
+        httpOnly: true,
+        sameSite: "Lax",
+      },
+    ]);
+    await page.reload();
+    await page.getByRole("button", { name: "User menu: Reader Profile", exact: true }).waitFor();
+  };
+  await check({
+    page,
+    context,
+    state,
+    errors,
+    analytics,
+    article,
+    user,
+    mustReadsFixture,
+    readingFixture,
+    signIn,
+  });
+  assert.deepEqual(errors, [], "browser and fixture errors");
+}
+
+test("authenticated navigation works in the built reader extension", { timeout: 180000 }, (t) =>
+  withAuthenticatedReader(t, async ({ page, state, mustReadsFixture, signIn }) => {
+    const directory = path.resolve(
+      import.meta.dirname,
+      `../../../reports/mobile-navigation/${browser}`,
+    );
+    await page.getByRole("link", { name: "Sign in", exact: true }).waitFor();
+    await checkReaderNavigation(page, directory);
+    mustReadsFixture.enabled = true;
+    mustReadsFixture.presented = true;
+    await signIn();
+    for (const days of [2, 123]) {
+      state.navigationStreakDays = days;
+      await page.reload();
+      await checkReaderNavigation(page, directory, { signedIn: true, streakDays: days });
+    }
+  }),
+);
+
+test("reading streak achievements work in the built reader extension", { timeout: 180000 }, (t) =>
+  withAuthenticatedReader(t, async ({ page, readingFixture, mustReadsFixture, signIn }) => {
+    mustReadsFixture.presented = true;
+    await signIn();
+    await checkReadingStreak(
+      page,
+      path.resolve(import.meta.dirname, `../../../reports/reading-streak/${browser}`),
+      { fixture: readingFixture, mustReads: mustReadsFixture },
+    );
+  }),
+);
+
+test("must reads work in the built reader extension", { timeout: 180000 }, (t) =>
+  withAuthenticatedReader(t, async ({ page, mustReadsFixture, signIn }) => {
+    await signIn();
+    await checkMustReads(
+      page,
+      mustReadsFixture,
+      path.resolve(extension, `../${browser}-must-reads`),
+    );
+  }),
+);
+
+test(
+  "authentication journey signs in, performs protected writes, and signs out across tabs",
+  { timeout: 180000 },
+  (t) =>
+    withAuthenticatedReader(
+      t,
+      async ({ page, context, state, errors, analytics, article, user }) => {
+        await checkLeaderboard(page, path.resolve(extension, `../leaderboard-guest-${browser}`));
+        await checkDevCardPromo(page, path.resolve(extension, "../dev-card-promo-" + browser), {
+          extension: true,
+        });
+        await checkSignupPrompts(
+          context,
+          page.url(),
+          path.resolve(extension, `../${browser}-signup`),
+          {
+            extension: true,
+          },
+        );
+        await page.bringToFront();
+        // Synchronize the clock after promo checks without freezing Date.now():
+        // focus refreshes must be able to advance past the session throttle.
+        await page.clock.setSystemTime(await page.evaluate(() => Date.now()));
+        analytics.length = 0;
+        const landing = await context.newPage();
+        await landing.goto("https://devfeed.tech/x-ad-landing?twclid=extension-ad-click");
+        assert.equal((await landing.evaluate(() => document.cookie)).includes(xClickCookie), false);
+        await landing.close();
+        const opened = context.waitForEvent("page");
+        await page.getByRole("link", { name: "Save my dev card", exact: false }).click();
+        const login = await opened;
+        const loginClosed = login.waitForEvent("close");
+        await login.getByRole("link", { name: "Continue with GitHub" }).click();
+        await loginClosed;
+        assert.equal(login.isClosed(), true, "the completed sign-in tab closes itself");
+        await page.bringToFront();
+        await page.waitForTimeout(150);
+        await page.evaluate(() => window.dispatchEvent(new Event("focus")));
         await page
           .getByRole("button", { name: "User menu: Reader Profile", exact: true })
           .waitFor();
-        if (process.env.DEVFEED_STREAK_ONLY === "1") {
-          mustReadsFixture.presented = true;
-          await checkReadingStreak(
-            page,
-            path.resolve(import.meta.dirname, `../../../reports/reading-streak/${browser}`),
-            { fixture: readingFixture, mustReads: mustReadsFixture },
-          );
-        } else {
-          await checkMustReads(
-            page,
-            mustReadsFixture,
-            path.resolve(extension, `../${browser}-must-reads`),
-          );
-        }
-        assert.deepEqual(errors, []);
-        return;
-      }
-      await checkReaderNavigation(
-        page,
-        path.resolve(import.meta.dirname, `../../../reports/mobile-navigation/${browser}-ci`),
-        { geometryOnly: true },
-      );
-      await checkLeaderboard(page, path.resolve(extension, `../leaderboard-guest-${browser}`));
-      await checkDevCardPromo(page, path.resolve(extension, "../dev-card-promo-" + browser), {
-        extension: true,
-      });
-      await checkSignupPrompts(
-        context,
-        page.url(),
-        path.resolve(extension, `../${browser}-signup`),
-        {
-          extension: true,
-        },
-      );
-      await page.bringToFront();
-      // Synchronize the clock after promo checks without freezing Date.now():
-      // focus refreshes must be able to advance past the session throttle.
-      await page.clock.setSystemTime(await page.evaluate(() => Date.now()));
-      analytics.length = 0;
-      const landing = await context.newPage();
-      await landing.goto("https://devfeed.tech/x-ad-landing?twclid=extension-ad-click");
-      assert.equal((await landing.evaluate(() => document.cookie)).includes(xClickCookie), false);
-      await landing.close();
-      const opened = context.waitForEvent("page");
-      await page.getByRole("link", { name: "Save my dev card", exact: false }).click();
-      const login = await opened;
-      const loginClosed = login.waitForEvent("close");
-      await login.getByRole("link", { name: "Continue with GitHub" }).click();
-      await loginClosed;
-      assert.equal(login.isClosed(), true, "the completed sign-in tab closes itself");
-      await page.bringToFront();
-      await page.waitForTimeout(150);
-      await page.evaluate(() => window.dispatchEvent(new Event("focus")));
-      await page.getByRole("button", { name: "User menu: Reader Profile", exact: true }).waitFor();
-      assert.equal(
-        await page.getByRole("dialog", { name: "Your dev card preview" }).count(),
-        0,
-        "Sign-in does not repeat a preview already shown anonymously",
-      );
-      await checkMustReads(
-        page,
-        mustReadsFixture,
-        path.resolve(extension, `../${browser}-must-reads`),
-      );
-      await checkReadingStreak(
-        page,
-        path.resolve(import.meta.dirname, `../../../reports/reading-streak/${browser}`),
-        { fixture: readingFixture, mustReads: mustReadsFixture },
-      );
-      const navigationMustReads = {
-        enabled: mustReadsFixture.enabled,
-        presented: mustReadsFixture.presented,
-      };
-      try {
-        mustReadsFixture.enabled = true;
-        mustReadsFixture.presented = true;
-        await page.reload();
-        await checkReaderNavigation(
-          page,
-          path.resolve(import.meta.dirname, `../../../reports/mobile-navigation/${browser}-ci`),
-          { signedIn: true, geometryOnly: true },
+        assert.equal(
+          await page.getByRole("dialog", { name: "Your dev card preview" }).count(),
+          0,
+          "Sign-in does not repeat a preview already shown anonymously",
         );
-      } finally {
-        Object.assign(mustReadsFixture, navigationMustReads);
-        await page.reload();
-        await page.getByRole("button", { name: /^User menu:/ }).waitFor();
-      }
-      assert.equal(await page.locator("html").getAttribute("class"), "dark");
-      const session = (await context.cookies("https://devfeed.tech")).find(
-        (cookie) => cookie.name === cookieName,
-      );
-      assert.ok(session.expires > Date.now() / 1000 + 29 * 86400);
-      assert.ok(session.httpOnly && session.secure);
-      const returningTab = await context.newPage();
-      await returningTab.goto(newTab);
-      await returningTab
-        .getByRole("button", { name: "User menu: Reader Profile", exact: true })
-        .waitFor();
-      await checkLeaderboard(
-        returningTab,
-        path.resolve(extension, `../leaderboard-signed-in-${browser}`),
-        { signedIn: true },
-      );
-      await checkUnclaimedDevCardPromo(
-        returningTab,
-        path.resolve(extension, "../dev-card-promo-" + browser),
-        { extension: true },
-      );
-      await returningTab.close();
-      await page.bringToFront();
-
-      await page.getByRole("button", { name: "Notifications", exact: true }).click();
-      await page.getByText("No notifications", { exact: true }).waitFor();
-      assert.equal(
-        await page.locator(".chimely-header").evaluate((el) => getComputedStyle(el).display),
-        "flex",
-      );
-      assert.equal(
-        await page.locator(".chimely-list").evaluate((el) => getComputedStyle(el).listStyleType),
-        "none",
-      );
-      await page.screenshot({
-        path: path.resolve(extension, "../reader-notifications.png"),
-        animations: "disabled",
-      });
-      await page.getByRole("link", { name: "Notification settings", exact: true }).click();
-      assert.ok(page.url().endsWith("#/settings/notifications"));
-      await page.getByRole("heading", { name: "Settings", exact: true }).waitFor();
-      await page.goto(page.url().split("#")[0] + "#/settings/profile");
-      await page
-        .getByText(
-          "Your dev card preview is ready. Review your details and save changes to keep it.",
-        )
-        .waitFor();
-      assert.equal(
-        await page.getByRole("textbox", { name: /Display name/ }).inputValue(),
-        "Maya Chen",
-      );
-      await page.getByRole("textbox", { name: /Display name/ }).fill("Updated Reader");
-      await page
-        .getByRole("button", { name: "Save changes", exact: true })
-        .locator("svg.lucide-save")
-        .waitFor({ state: "visible" });
-      await page.getByRole("button", { name: "Save changes", exact: true }).click();
-      await page.getByRole("button", { name: "User menu: Updated Reader", exact: true }).waitFor();
-      await page.getByRole("textbox", { name: /Display name/ }).fill("Reader Profile");
-      await page.getByRole("button", { name: "Save changes", exact: true }).click();
-      await page.getByRole("button", { name: "User menu: Reader Profile", exact: true }).waitFor();
-      await checkProfileEditor(page, path.resolve(extension, "../profile-direct-" + browser));
-      await checkDevCard(page, path.resolve(extension, "../dev-card-" + browser));
-      await checkAvatarUploads(page, path.resolve(extension, "../avatar-" + browser), (handler) => {
-        avatarCheck = handler;
-      });
-      // Promo/profile checks deliberately jump the virtual wall clock. Analytics
-      // can correctly start a new session when those jumps move time backwards.
-      // Verify one shared session across the remaining chronological navigation,
-      // fresh-tab, background-tab, and sign-out journeys instead.
-      // Keep Date.now aligned across tabs after the virtual-clock scenarios.
-      // Timers continue normally; advance the shared wall clock explicitly for
-      // the focus-refresh throttle instead of relying on elapsed test runtime.
-      let analyticsNow = await page.evaluate(() => Date.now());
-      const syncAnalyticsTime = async (advance = 0) => {
-        analyticsNow += advance;
-        await Promise.all(context.pages().map((tab) => tab.clock.setFixedTime(analyticsNow)));
-      };
-      const chronologicalPage = async () => {
-        const tab = await context.newPage();
-        await tab.clock.setFixedTime(analyticsNow);
-        return tab;
-      };
-      await syncAnalyticsTime();
-      const sessionEventsStart = analytics.length;
-      for (const [label, suffix] of [
-        ["Appearance", "appearance"],
-        ["Feed", "feed"],
-        ["Your topics", "topics"],
-        ["Your sources", "sources"],
-      ]) {
-        await page
-          .getByRole("navigation", { name: "Settings sections" })
-          .getByRole("link", { name: label, exact: true })
-          .click();
-        await page
-          .locator(`.profile-settings-nav a[href="#/settings/${suffix}"][aria-current="page"]`)
+        assert.equal(await page.locator("html").getAttribute("class"), "dark");
+        const session = (await context.cookies("https://devfeed.tech")).find(
+          (cookie) => cookie.name === cookieName,
+        );
+        assert.ok(session.expires > Date.now() / 1000 + 29 * 86400);
+        assert.ok(session.httpOnly && session.secure);
+        const returningTab = await context.newPage();
+        await returningTab.goto(newTab);
+        await returningTab
+          .getByRole("button", { name: "User menu: Reader Profile", exact: true })
           .waitFor();
-        assert.ok(page.url().endsWith(`#/settings/${suffix}`));
-        if (suffix === "appearance")
-          await checkSelectMenus(page, ["Date format", "Time format", "Timezone"]);
-      }
-      await checkLanguagePreferences(page, page.url().split("#")[0] + "#");
-      catalogScroll = true;
-      await checkCatalogScroll(
-        page,
-        page.url().split("#")[0] + "#",
-        path.resolve(extension, `../catalog-${browser}`),
-      );
-      catalogScroll = false;
-      assert.ok(authenticatedStreams > 0, "notification streams carry the website session");
-      rejectFeed = true;
-      rejectNextPage = true;
-      await page.locator(".sidebar").getByRole("link", { name: "My feed", exact: true }).click();
-      await page.getByRole("region", { name: "Feed controls" }).waitFor();
-      assert.equal(await page.getByRole("link", { name: /^Get for (Chrome|Edge)$/ }).count(), 0);
-      assert.equal(
-        await page
-          .locator(".sidebar .shared-sidebar-content > nav")
-          .first()
-          .getByRole("link")
-          .first()
-          .innerText(),
-        "My feed",
-      );
-      await page.getByRole("heading", { name: "Couldn’t load your feed" }).waitFor();
-      const personalUrl = page.url();
-      assert.ok(personalUrl.endsWith("#/"));
-      await page.getByRole("link", { name: "Try again", exact: true }).click();
-      await page.locator(".article-card").first().waitFor();
-      assert.equal(await page.locator(".article-grid").count(), 1);
-      assert.equal(await page.locator(".article-card").count(), 1);
-      assert.equal(page.url(), personalUrl, "retry reloads the local personal feed");
-      await page.locator(".pagination").scrollIntoViewIfNeeded();
-      await page.getByRole("link", { name: "Show updated feed", exact: true }).click();
-      await page.locator(".article-card").first().waitFor();
-      assert.equal(page.url(), personalUrl, "generation recovery stays inside the extension");
-      assert.equal(rejectNextPage, false, "the stale cursor was rejected");
-      await checkArticleViews(
-        page,
-        personalUrl,
-        path.resolve(extension, `../${browser}-personal-view`),
-        [personalUrl.replace(/#\/$/, "#/latest"), personalUrl],
-      );
-      await checkCompactLoading(
-        page,
-        personalUrl,
-        path.resolve(extension, `../${browser}-compact`),
-        compactLoadingGate(page),
-      );
-      await checkAccessibility(page, browser, { signedIn: true });
-      const feedRequests = [];
-      page.on("request", (request) => {
-        if (new URL(request.url()).pathname === "/api/v1/user/feed")
-          feedRequests.push(request.url());
-      });
-      await checkPreviewBackground(
-        page,
-        path.resolve(extension, `../${browser}-personal-preview.png`),
-      );
-      // Finish the first cache batch, then prove identical feed responses and
-      // preview lookups do not repeatedly write the entire session cache.
-      await page.waitForFunction(() => {
-        const cache = JSON.parse(sessionStorage.getItem("devfeed:public-reader-cache") ?? "null");
-        return cache?.articles.some((item) => item.slug === "signed-in-article");
-      });
-      await page.evaluate(() => {
-        window.__publicCacheWrites = 0;
-        const setItem = Storage.prototype.setItem;
-        Storage.prototype.setItem = function (key, value) {
-          if (key === "devfeed:public-reader-cache") window.__publicCacheWrites++;
-          return setItem.call(this, key, value);
-        };
-      });
-      const existingCard = await page.locator(".article-card").first().elementHandle();
-      // The card footer only exposes likes when the card has enough room.
-      await page.setViewportSize({ width: 520, height: 1000 });
-      await page.getByRole("button", { name: /^Like article/ }).click();
-      await page.getByRole("button", { name: /^Unlike article/ }).waitFor();
-      await page.setViewportSize({ width: 1440, height: 1000 });
-      assert.equal(feedRequests.length, 0);
-      assert.equal(await existingCard.evaluate((node) => node.isConnected), true);
-      assert.equal(await page.getByText("Updating recommendations in the background…").count(), 0);
-      assert.equal(
-        await page.getByRole("heading", { name: "Updating your feed", exact: true }).count(),
-        0,
-      );
-      await page
-        .locator(".article-card")
-        .first()
-        .evaluate((node) => {
-          node.dataset.retained = "yes";
-        });
-      // Session refresh and explicit refresh must not discard the current generation.
-      user.csrf_token = "d".repeat(43);
-      await syncAnalyticsTime(61_000);
-      const sessionChecked = page.waitForResponse((response) =>
-        response.url().endsWith("/api/v1/user/auth/me"),
-      );
-      await page.waitForTimeout(150);
-      await page.evaluate(() => window.dispatchEvent(new Event("focus")));
-      await sessionChecked;
-      const feedChecked = page.waitForResponse(
-        (response) => new URL(response.url()).pathname === "/api/v1/user/feed",
-      );
-      await page.evaluate(() => window.dispatchEvent(new Event("devfeed:extension-refresh")));
-      await feedChecked;
-      assert.equal(
-        await page.locator(".article-card").first().getAttribute("data-retained"),
-        "yes",
-      );
-      await checkPreviewBackground(page);
-      await page.waitForTimeout(1300);
-      assert.equal(
-        await page.evaluate(() => window.__publicCacheWrites),
-        0,
-        "Identical feed records and cached previews must not rewrite session storage",
-      );
-      await page.screenshot({ path: path.resolve(extension, `../${browser}-feed-refresh.png`) });
-      feedGeneration = 2;
-      feedRefreshing = false;
-      assert.equal(await page.getByRole("link", { name: article.title, exact: true }).count(), 1);
-      feedGeneration = 3;
-      const pinnedResponse = page.waitForResponse((response) => {
-        const url = new URL(response.url());
-        return url.pathname === "/api/v1/user/feed" && url.searchParams.get("generation") === "1";
-      });
-      await page.evaluate(() => window.dispatchEvent(new Event("devfeed:extension-refresh")));
-      await pinnedResponse;
-      await page.getByRole("link", { name: article.title, exact: true }).waitFor();
-      const freshTab = await chronologicalPage();
-      await freshTab.goto(personalUrl);
-      await freshTab.getByRole("link", { name: "Hourly recommendation", exact: true }).waitFor();
-      await freshTab.close();
-      feedGeneration = 2;
-      await page.getByRole("button", { name: "Save article for later", exact: true }).click();
-      await page.getByRole("button", { name: "Remove bookmark", exact: true }).waitFor();
-      await page.locator(".sidebar").getByRole("link", { name: "Read later", exact: true }).click();
-      await checkArticleViews(
-        page,
-        page.url(),
-        path.resolve(extension, `../${browser}-saved-view`),
-      );
-      await checkPreviewBackground(
-        page,
-        path.resolve(extension, `../${browser}-bookmarks-preview.png`),
-      );
-      await page.locator(".card-open-link").first().click();
-      await page.locator("#article-preview-title").waitFor();
-      const modalUrl = page.url();
-      await page.bringToFront();
-      await page.waitForTimeout(150);
-      await page.evaluate(() => window.dispatchEvent(new Event("focus")));
-      await page.locator("#article-preview-title").waitFor();
-      assert.equal(page.url(), modalUrl);
-      await page.reload();
-      await page.locator("#article-preview-title").waitFor();
-      await page.getByRole("button", { name: "Close preview", exact: true }).click();
-      await page.locator("dialog").waitFor({ state: "detached" });
-
-      onboarding = true;
-      savedTopicIds = [];
-      // Start a fresh reader after changing the server-side fixture preferences.
-      await page.reload();
-      await checkFeedOnboarding(
-        page,
-        personalUrl,
-        path.resolve(extension, `../${browser}-onboarding`),
-      );
-      assert.ok(onboardingSaved);
-      assert.deepEqual(savedTopicIds, [topicId, "onboarding-0", "onboarding-1"]);
-      article.topics = [{ id: topicId, name: "TypeScript", slug: "typescript", kind: "language" }];
-      const localBase = personalUrl.split("#")[0];
-      await checkTopicFollow(
-        page,
-        `${localBase}#/topics/typescript`,
-        `${localBase}#/topics/typescript/news?language=en`,
-        path.resolve(extension, `../${browser}-onboarding`),
-      );
-      await checkSourceFollow(
-        page,
-        `${localBase}#/sources`,
-        onboardingSources,
-        path.resolve(extension, `../${browser}-onboarding`),
-      );
-
-      interactionChecks = true;
-      const interactions = await chronologicalPage();
-      try {
-        await checkReaderInteractions(
-          interactions,
-          (route) => `${localBase}#${route}`,
-          path.resolve(extension, `../${browser}-mobile-interactions.png`),
+        await checkLeaderboard(
+          returningTab,
+          path.resolve(extension, `../leaderboard-signed-in-${browser}`),
+          { signedIn: true },
         );
-      } finally {
-        await interactions.close();
-        interactionChecks = false;
-      }
-      await page.bringToFront();
+        await checkUnclaimedDevCardPromo(
+          returningTab,
+          path.resolve(extension, "../dev-card-promo-" + browser),
+          { extension: true },
+        );
+        await returningTab.close();
+        await page.bringToFront();
 
-      const second = await chronologicalPage();
-      // A new tab can leave focus in the omnibox. Keep that state throughout
-      // startup, and also load it behind the existing tab without interacting.
-      await second.addInitScript(() => {
-        Object.defineProperty(document, "hasFocus", { configurable: true, value: () => false });
-      });
-      await page.bringToFront();
-      await second.goto(newTab);
-      await second
-        .getByRole("button", { name: "User menu: Reader Profile", exact: true })
-        .waitFor();
-      await second.getByRole("region", { name: "Feed controls" }).waitFor();
-      assert.equal(new URL(second.url()).hash.replace(/^#/, "") || "/", "/");
-      await second.getByRole("link", { name: "Updated recommendation", exact: true }).waitFor();
-      assert.equal(await second.evaluate(() => document.hasFocus()), false);
-      await second.screenshot({
-        path: path.resolve(extension, `../${browser}-unfocused-feed.png`),
-      });
-      await page.bringToFront();
-      await checkFeedSort(page, page.url().split("#")[0] + "#", true);
-      const preparationPage = await chronologicalPage();
-      await checkFeedPreparation(
-        preparationPage,
-        personalUrl,
-        article,
-        path.resolve(import.meta.dirname, `../../../reports/feed-preparation/${browser}`),
-      );
-      await preparationPage.close();
-      await page.bringToFront();
-      await page.getByRole("button", { name: "User menu: Reader Profile", exact: true }).click();
-      await page.getByRole("menuitem", { name: "Sign out", exact: true }).click();
-      await page.getByText("Couldn’t sign out. Please try again.").waitFor();
-      assert.equal(await page.locator(".user-menu-trigger").count(), 1);
-      await page.getByRole("menuitem", { name: "Sign out", exact: true }).click();
-      await page.getByRole("link", { name: "Sign in", exact: true }).waitFor();
-      await second.getByRole("link", { name: "Sign in", exact: true }).waitFor();
-      await page.waitForURL((url) => !url.hash || url.hash === "#/");
-      await second.waitForURL((url) => !url.hash || url.hash === "#/");
-      assert.equal(await page.getByRole("link", { name: "Read later", exact: true }).count(), 0);
-      assert.equal(await second.getByRole("link", { name: "Read later", exact: true }).count(), 0);
-      assert.ok(page.url().startsWith("chrome-extension://"));
-      assert.ok(checkedWrites >= 4);
-      assert.ok(guestPlacementQueries > 0, "guest placement transport was exercised");
-      assert.ok(
-        authenticatedPlacementQueries > 0,
-        "authenticated placement transport was exercised",
-      );
-      assert.deepEqual(errors, [], "browser and fixture errors");
-      assert.ok(
-        analytics.some((value) => value.event.name === "article_like"),
-        JSON.stringify(analytics),
-      );
-      assert.ok(analytics.some((value) => value.event.name === "article_bookmark"));
-      assert.ok(
-        analytics.some(
-          (value) =>
-            value.event.name === "page_view" &&
-            value.event.params.page_path === "/settings/profile",
-        ),
-      );
-      assert.equal(new Set(analytics.map((value) => value.client_id)).size, 1);
-      assert.equal(
-        new Set(analytics.slice(sessionEventsStart).map((value) => value.session_id)).size,
-        1,
-        JSON.stringify(
-          analytics
-            .slice(sessionEventsStart)
-            .map(({ event, session_id }) => ({ event, session_id })),
-        ),
-      );
-      assert.ok(analytics.some((value) => value.engagement_time_msec > 0));
-      assert.equal(JSON.stringify(analytics).includes(user.email), false);
-      assert.equal(JSON.stringify(analytics).includes(user.csrf_token), false);
-      const stored = await page.evaluate(() =>
-        JSON.stringify({ ...localStorage, ...sessionStorage }),
-      );
-      assert.equal(stored.includes(user.csrf_token), false);
-      assert.equal(stored.includes("test-session"), false);
-      assert.deepEqual(errors, []);
-    } finally {
-      await context.close();
-      server.closeAllConnections();
-      await new Promise((resolve) => server.close(resolve));
-      await rm(profile, { recursive: true, force: true });
-    }
-  },
+        await page.getByRole("button", { name: "Notifications", exact: true }).click();
+        await page.getByText("No notifications", { exact: true }).waitFor();
+        assert.equal(
+          await page.locator(".chimely-header").evaluate((el) => getComputedStyle(el).display),
+          "flex",
+        );
+        assert.equal(
+          await page.locator(".chimely-list").evaluate((el) => getComputedStyle(el).listStyleType),
+          "none",
+        );
+        await page.screenshot({
+          path: path.resolve(extension, "../reader-notifications.png"),
+          animations: "disabled",
+        });
+        await page.getByRole("link", { name: "Notification settings", exact: true }).click();
+        assert.ok(page.url().endsWith("#/settings/notifications"));
+        await page.getByRole("heading", { name: "Settings", exact: true }).waitFor();
+        await page.goto(page.url().split("#")[0] + "#/settings/profile");
+        await page
+          .getByText(
+            "Your dev card preview is ready. Review your details and save changes to keep it.",
+          )
+          .waitFor();
+        assert.equal(
+          await page.getByRole("textbox", { name: /Display name/ }).inputValue(),
+          "Maya Chen",
+        );
+        await page.getByRole("textbox", { name: /Display name/ }).fill("Updated Reader");
+        await page
+          .getByRole("button", { name: "Save changes", exact: true })
+          .locator("svg.lucide-save")
+          .waitFor({ state: "visible" });
+        await page.getByRole("button", { name: "Save changes", exact: true }).click();
+        await page
+          .getByRole("button", { name: "User menu: Updated Reader", exact: true })
+          .waitFor();
+        await page.getByRole("textbox", { name: /Display name/ }).fill("Reader Profile");
+        await page.getByRole("button", { name: "Save changes", exact: true }).click();
+        await page
+          .getByRole("button", { name: "User menu: Reader Profile", exact: true })
+          .waitFor();
+        await checkProfileEditor(page, path.resolve(extension, "../profile-direct-" + browser));
+        await checkDevCard(page, path.resolve(extension, "../dev-card-" + browser));
+        await checkAvatarUploads(
+          page,
+          path.resolve(extension, "../avatar-" + browser),
+          (handler) => {
+            state.avatarCheck = handler;
+          },
+        );
+        // Promo/profile checks deliberately jump the virtual wall clock. Analytics
+        // can correctly start a new session when those jumps move time backwards.
+        // Verify one shared session across the remaining chronological navigation,
+        // fresh-tab, background-tab, and sign-out journeys instead.
+        // Keep Date.now aligned across tabs after the virtual-clock scenarios.
+        // Timers continue normally; advance the shared wall clock explicitly for
+        // the focus-refresh throttle instead of relying on elapsed test runtime.
+        let analyticsNow = await page.evaluate(() => Date.now());
+        const syncAnalyticsTime = async (advance = 0) => {
+          analyticsNow += advance;
+          await Promise.all(context.pages().map((tab) => tab.clock.setFixedTime(analyticsNow)));
+        };
+        const chronologicalPage = async () => {
+          const tab = await context.newPage();
+          await tab.clock.setFixedTime(analyticsNow);
+          return tab;
+        };
+        await syncAnalyticsTime();
+        const sessionEventsStart = analytics.length;
+        for (const [label, suffix] of [
+          ["Appearance", "appearance"],
+          ["Feed", "feed"],
+          ["Your topics", "topics"],
+          ["Your sources", "sources"],
+        ]) {
+          await page
+            .getByRole("navigation", { name: "Settings sections" })
+            .getByRole("link", { name: label, exact: true })
+            .click();
+          await page
+            .locator(`.profile-settings-nav a[href="#/settings/${suffix}"][aria-current="page"]`)
+            .waitFor();
+          assert.ok(page.url().endsWith(`#/settings/${suffix}`));
+          if (suffix === "appearance")
+            await checkSelectMenus(page, ["Date format", "Time format", "Timezone"]);
+        }
+        await checkLanguagePreferences(page, page.url().split("#")[0] + "#");
+        state.catalogScroll = true;
+        await checkCatalogScroll(
+          page,
+          page.url().split("#")[0] + "#",
+          path.resolve(extension, `../catalog-${browser}`),
+        );
+        state.catalogScroll = false;
+        assert.ok(state.authenticatedStreams > 0, "notification streams carry the website session");
+        state.rejectFeed = true;
+        state.rejectNextPage = true;
+        await page.locator(".sidebar").getByRole("link", { name: "My feed", exact: true }).click();
+        await page.getByRole("region", { name: "Feed controls" }).waitFor();
+        assert.equal(await page.getByRole("link", { name: /^Get for (Chrome|Edge)$/ }).count(), 0);
+        assert.equal(
+          await page
+            .locator(".sidebar .shared-sidebar-content > nav")
+            .first()
+            .getByRole("link")
+            .first()
+            .innerText(),
+          "My feed",
+        );
+        await page.getByRole("heading", { name: "Couldn’t load your feed" }).waitFor();
+        const personalUrl = page.url();
+        assert.ok(personalUrl.endsWith("#/"));
+        await page.getByRole("link", { name: "Try again", exact: true }).click();
+        await page.locator(".article-card").first().waitFor();
+        assert.equal(await page.locator(".article-grid").count(), 1);
+        assert.equal(await page.locator(".article-card").count(), 1);
+        assert.equal(page.url(), personalUrl, "retry reloads the local personal feed");
+        await page.locator(".pagination").scrollIntoViewIfNeeded();
+        await page.getByRole("link", { name: "Show updated feed", exact: true }).click();
+        await page.locator(".article-card").first().waitFor();
+        assert.equal(page.url(), personalUrl, "generation recovery stays inside the extension");
+        assert.equal(state.rejectNextPage, false, "the stale cursor was rejected");
+        await checkArticleViews(
+          page,
+          personalUrl,
+          path.resolve(extension, `../${browser}-personal-view`),
+          [personalUrl.replace(/#\/$/, "#/latest"), personalUrl],
+        );
+        await checkCompactLoading(
+          page,
+          personalUrl,
+          path.resolve(extension, `../${browser}-compact`),
+          compactLoadingGate(page),
+        );
+        await checkAccessibility(page, browser, { signedIn: true });
+        const feedRequests = [];
+        page.on("request", (request) => {
+          if (new URL(request.url()).pathname === "/api/v1/user/feed")
+            feedRequests.push(request.url());
+        });
+        await checkPreviewBackground(
+          page,
+          path.resolve(extension, `../${browser}-personal-preview.png`),
+        );
+        // Finish the first cache batch, then prove identical feed responses and
+        // preview lookups do not repeatedly write the entire session cache.
+        await page.waitForFunction(() => {
+          const cache = JSON.parse(sessionStorage.getItem("devfeed:public-reader-cache") ?? "null");
+          return cache?.articles.some((item) => item.slug === "signed-in-article");
+        });
+        await page.evaluate(() => {
+          window.__publicCacheWrites = 0;
+          const setItem = Storage.prototype.setItem;
+          Storage.prototype.setItem = function (key, value) {
+            if (key === "devfeed:public-reader-cache") window.__publicCacheWrites++;
+            return setItem.call(this, key, value);
+          };
+        });
+        const existingCard = await page.locator(".article-card").first().elementHandle();
+        // The card footer only exposes likes when the card has enough room.
+        await page.setViewportSize({ width: 520, height: 1000 });
+        await page.getByRole("button", { name: /^Like article/ }).click();
+        await page.getByRole("button", { name: /^Unlike article/ }).waitFor();
+        await page.setViewportSize({ width: 1440, height: 1000 });
+        assert.equal(feedRequests.length, 0);
+        assert.equal(await existingCard.evaluate((node) => node.isConnected), true);
+        assert.equal(
+          await page.getByText("Updating recommendations in the background…").count(),
+          0,
+        );
+        assert.equal(
+          await page.getByRole("heading", { name: "Updating your feed", exact: true }).count(),
+          0,
+        );
+        await page
+          .locator(".article-card")
+          .first()
+          .evaluate((node) => {
+            node.dataset.retained = "yes";
+          });
+        // Session refresh and explicit refresh must not discard the current generation.
+        user.csrf_token = "d".repeat(43);
+        await syncAnalyticsTime(61_000);
+        const sessionChecked = page.waitForResponse((response) =>
+          response.url().endsWith("/api/v1/user/auth/me"),
+        );
+        await page.waitForTimeout(150);
+        await page.evaluate(() => window.dispatchEvent(new Event("focus")));
+        await sessionChecked;
+        const feedChecked = page.waitForResponse(
+          (response) => new URL(response.url()).pathname === "/api/v1/user/feed",
+        );
+        await page.evaluate(() => window.dispatchEvent(new Event("devfeed:extension-refresh")));
+        await feedChecked;
+        assert.equal(
+          await page.locator(".article-card").first().getAttribute("data-retained"),
+          "yes",
+        );
+        await checkPreviewBackground(page);
+        await page.waitForTimeout(1300);
+        assert.equal(
+          await page.evaluate(() => window.__publicCacheWrites),
+          0,
+          "Identical feed records and cached previews must not rewrite session storage",
+        );
+        await page.screenshot({ path: path.resolve(extension, `../${browser}-feed-refresh.png`) });
+        state.feedGeneration = 2;
+        state.feedRefreshing = false;
+        assert.equal(await page.getByRole("link", { name: article.title, exact: true }).count(), 1);
+        state.feedGeneration = 3;
+        const pinnedResponse = page.waitForResponse((response) => {
+          const url = new URL(response.url());
+          return url.pathname === "/api/v1/user/feed" && url.searchParams.get("generation") === "1";
+        });
+        await page.evaluate(() => window.dispatchEvent(new Event("devfeed:extension-refresh")));
+        await pinnedResponse;
+        await page.getByRole("link", { name: article.title, exact: true }).waitFor();
+        const freshTab = await chronologicalPage();
+        await freshTab.goto(personalUrl);
+        await freshTab.getByRole("link", { name: "Hourly recommendation", exact: true }).waitFor();
+        await freshTab.close();
+        state.feedGeneration = 2;
+        await page.getByRole("button", { name: "Save article for later", exact: true }).click();
+        await page.getByRole("button", { name: "Remove bookmark", exact: true }).waitFor();
+        await page
+          .locator(".sidebar")
+          .getByRole("link", { name: "Read later", exact: true })
+          .click();
+        await checkArticleViews(
+          page,
+          page.url(),
+          path.resolve(extension, `../${browser}-saved-view`),
+        );
+        await checkPreviewBackground(
+          page,
+          path.resolve(extension, `../${browser}-bookmarks-preview.png`),
+        );
+        await page.locator(".card-open-link").first().click();
+        await page.locator("#article-preview-title").waitFor();
+        const modalUrl = page.url();
+        await page.bringToFront();
+        await page.waitForTimeout(150);
+        await page.evaluate(() => window.dispatchEvent(new Event("focus")));
+        await page.locator("#article-preview-title").waitFor();
+        assert.equal(page.url(), modalUrl);
+        await page.reload();
+        await page.locator("#article-preview-title").waitFor();
+        await page.getByRole("button", { name: "Close preview", exact: true }).click();
+        await page.locator("dialog").waitFor({ state: "detached" });
+
+        state.onboarding = true;
+        state.savedTopicIds = [];
+        // Start a fresh reader after changing the server-side fixture preferences.
+        await page.reload();
+        await checkFeedOnboarding(
+          page,
+          personalUrl,
+          path.resolve(extension, `../${browser}-onboarding`),
+        );
+        assert.ok(state.onboardingSaved);
+        assert.deepEqual(state.savedTopicIds, [topicId, "onboarding-0", "onboarding-1"]);
+        article.topics = [
+          { id: topicId, name: "TypeScript", slug: "typescript", kind: "language" },
+        ];
+        const localBase = personalUrl.split("#")[0];
+        await checkTopicFollow(
+          page,
+          `${localBase}#/topics/typescript`,
+          `${localBase}#/topics/typescript/news?language=en`,
+          path.resolve(extension, `../${browser}-onboarding`),
+        );
+        await checkSourceFollow(
+          page,
+          `${localBase}#/sources`,
+          onboardingSources,
+          path.resolve(extension, `../${browser}-onboarding`),
+        );
+
+        state.interactionChecks = true;
+        const interactions = await chronologicalPage();
+        try {
+          await checkReaderInteractions(
+            interactions,
+            (route) => `${localBase}#${route}`,
+            path.resolve(extension, `../${browser}-mobile-interactions.png`),
+          );
+        } finally {
+          await interactions.close();
+          state.interactionChecks = false;
+        }
+        await page.bringToFront();
+
+        const second = await chronologicalPage();
+        // A new tab can leave focus in the omnibox. Keep that state throughout
+        // startup, and also load it behind the existing tab without interacting.
+        await second.addInitScript(() => {
+          Object.defineProperty(document, "hasFocus", { configurable: true, value: () => false });
+        });
+        await page.bringToFront();
+        await second.goto(newTab);
+        await second
+          .getByRole("button", { name: "User menu: Reader Profile", exact: true })
+          .waitFor();
+        await second.getByRole("region", { name: "Feed controls" }).waitFor();
+        assert.equal(new URL(second.url()).hash.replace(/^#/, "") || "/", "/");
+        await second.getByRole("link", { name: "Updated recommendation", exact: true }).waitFor();
+        assert.equal(await second.evaluate(() => document.hasFocus()), false);
+        await second.screenshot({
+          path: path.resolve(extension, `../${browser}-unfocused-feed.png`),
+        });
+        await page.bringToFront();
+        await checkFeedSort(page, page.url().split("#")[0] + "#", true);
+        const preparationPage = await chronologicalPage();
+        await checkFeedPreparation(
+          preparationPage,
+          personalUrl,
+          article,
+          path.resolve(import.meta.dirname, `../../../reports/feed-preparation/${browser}`),
+        );
+        await preparationPage.close();
+        await page.bringToFront();
+        await page.getByRole("button", { name: "User menu: Reader Profile", exact: true }).click();
+        await page.getByRole("menuitem", { name: "Sign out", exact: true }).click();
+        await page.getByText("Couldn’t sign out. Please try again.").waitFor();
+        assert.equal(await page.locator(".user-menu-trigger").count(), 1);
+        await page.getByRole("menuitem", { name: "Sign out", exact: true }).click();
+        await page.getByRole("link", { name: "Sign in", exact: true }).waitFor();
+        await second.getByRole("link", { name: "Sign in", exact: true }).waitFor();
+        await page.waitForURL((url) => !url.hash || url.hash === "#/");
+        await second.waitForURL((url) => !url.hash || url.hash === "#/");
+        assert.equal(await page.getByRole("link", { name: "Read later", exact: true }).count(), 0);
+        assert.equal(
+          await second.getByRole("link", { name: "Read later", exact: true }).count(),
+          0,
+        );
+        assert.ok(page.url().startsWith("chrome-extension://"));
+        assert.ok(state.checkedWrites >= 4);
+        assert.ok(state.guestPlacementQueries > 0, "guest placement transport was exercised");
+        assert.ok(
+          state.authenticatedPlacementQueries > 0,
+          "authenticated placement transport was exercised",
+        );
+        assert.deepEqual(errors, [], "browser and fixture errors");
+        assert.ok(
+          analytics.some((value) => value.event.name === "article_like"),
+          JSON.stringify(analytics),
+        );
+        assert.ok(analytics.some((value) => value.event.name === "article_bookmark"));
+        assert.ok(
+          analytics.some(
+            (value) =>
+              value.event.name === "page_view" &&
+              value.event.params.page_path === "/settings/profile",
+          ),
+        );
+        assert.equal(new Set(analytics.map((value) => value.client_id)).size, 1);
+        assert.equal(
+          new Set(analytics.slice(sessionEventsStart).map((value) => value.session_id)).size,
+          1,
+          JSON.stringify(
+            analytics
+              .slice(sessionEventsStart)
+              .map(({ event, session_id }) => ({ event, session_id })),
+          ),
+        );
+        assert.ok(analytics.some((value) => value.engagement_time_msec > 0));
+        assert.equal(JSON.stringify(analytics).includes(user.email), false);
+        assert.equal(JSON.stringify(analytics).includes(user.csrf_token), false);
+        const stored = await page.evaluate(() =>
+          JSON.stringify({ ...localStorage, ...sessionStorage }),
+        );
+        assert.equal(stored.includes(user.csrf_token), false);
+        assert.equal(stored.includes("test-session"), false);
+        assert.deepEqual(errors, []);
+      },
+    ),
 );

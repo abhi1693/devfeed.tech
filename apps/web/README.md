@@ -69,10 +69,10 @@ change frequency, and publication metadata. Legal pages also take their titles,
 descriptions, paths, and update dates from those definitions. Sitemap handlers
 serialize declared destinations and serve the backend's retained inventory.
 
-After building web, Chrome, and Edge, set `DEVFEED_SERVER_READS_ONLY=1` when
-running `node apps/web/tests/browser/feed.mjs` or
-`node --test apps/extensions/tests/reader.browser.mjs` to check public/private
-reads and sitemap responses. Set `DEVFEED_EXTENSION_BROWSER=edge` for Edge.
+After building web, Chrome, and Edge, run
+`node --test --test-name-pattern="server reads" apps/web/tests/browser/feed.mjs` or
+`node --test --test-name-pattern="server reads" apps/extensions/tests/reader.browser.mjs`
+to check public/private reads and sitemap responses. Set `DEVFEED_EXTENSION_BROWSER=edge` for Edge.
 The web checks record actual server requests to separate local upstreams;
 browser screenshots stay under ignored `reports/server-reads/`.
 
@@ -103,9 +103,10 @@ state, including while the article is loading or unavailable. Preview components
 do not recover that state from URL strings. Extensions retain the resolved
 background page across preview navigation and browser history.
 
-After building web, Chrome, and Edge, set `DEVFEED_READER_NAVIGATION_ONLY=1` when
-running `node apps/web/tests/browser/feed.mjs` or
-`node --test apps/extensions/tests/reader.browser.mjs` for the navigation journey.
+After building web, Chrome, and Edge, run
+`node --test --test-name-pattern="reader navigation" apps/web/tests/browser/feed.mjs` or
+`node --test --test-name-pattern="reader navigation" apps/extensions/tests/reader.browser.mjs`
+for the navigation journey. Without a name filter, every named scenario runs with its own fixtures.
 Use `DEVFEED_EXTENSION_BROWSER=edge` for the Edge run. It checks retained feed
 DOM and scroll, direct and intercepted previews, Back/Forward, retry, and inbox
 article and settings navigation. Evidence stays under ignored
@@ -222,8 +223,7 @@ Failed images use the same frame for their placeholder, keeping the preview layo
 Shared browser regression coverage in `scripts/testing/preview-cover.mjs` exercises
 delayed landscape, square, portrait, and failed images at mobile and desktop sizes
 on the website and both built extensions. Reports and screenshots stay untracked in
-`reports/preview-cover`. Set `DEVFEED_COVER_BASELINE=1` when collecting a pre-fix
-comparison; the normal run asserts reserved dimensions, stable surrounding layout,
+`reports/preview-cover`. Every run asserts reserved dimensions, stable surrounding layout,
 and Lighthouse's `unsized-images` sizing classification using the authored CSS.
 These deterministic fixture reports are not full production Lighthouse audits.
 
