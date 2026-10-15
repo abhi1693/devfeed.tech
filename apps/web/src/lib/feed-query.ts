@@ -1,20 +1,13 @@
-export const contentTypes = [
-  "article",
-  "news",
-  "tutorial",
-  "release",
-  "comparison",
-  "opinion",
-] as const;
-export type ContentType = (typeof contentTypes)[number];
-export const contentTypeRoutes = {
-  article: "articles",
-  news: "news",
-  tutorial: "tutorials",
-  release: "releases",
-  comparison: "comparisons",
-  opinion: "opinions",
-} as const;
+import {
+  readerContentTypeRoutes,
+  readerDestinationContract,
+  validReaderQueryValue,
+  type ReaderContentType,
+} from "@devfeed/http/reader-destinations";
+
+export type ContentType = ReaderContentType;
+export const contentTypeRoutes = readerContentTypeRoutes;
+export const contentTypes = Object.keys(contentTypeRoutes) as ContentType[];
 export function contentTypeFromRoute(route: string) {
   return contentTypes.find((type) => contentTypeRoutes[type] === route);
 }
@@ -47,13 +40,13 @@ export function parseFilters(params: SearchParams): FeedFilters {
   const sort = first(params.sort);
   const source = first(params.source_id);
   return {
-    q: first(params.q).slice(0, 200),
-    topic: first(params.topic).slice(0, 100),
+    q: first(params.q).slice(0, readerDestinationContract.queryFields.q.maxLength),
+    topic: first(params.topic).slice(0, readerDestinationContract.queryFields.topic.maxLength),
     content_type: contentTypes.some((value) => value === type) ? type : "",
-    sort: ["newest", "oldest", "most_liked", "recommended"].includes(sort) ? sort : "",
-    source_id: /^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i.test(source) ? source : "",
-    tag: first(params.tag).slice(0, 100),
-    cursor: first(params.cursor).slice(0, 300),
+    sort: validReaderQueryValue("feedSort", sort) ? sort : "",
+    source_id: validReaderQueryValue("sourceId", source) ? source : "",
+    tag: first(params.tag).slice(0, readerDestinationContract.queryFields.tag.maxLength),
+    cursor: first(params.cursor).slice(0, readerDestinationContract.queryFields.cursor.maxLength),
   };
 }
 export function feedParams(filters: FeedFilters): URLSearchParams {

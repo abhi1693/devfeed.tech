@@ -84,7 +84,7 @@ export function FeedContent({
           {section === "sources" && filters.source_id && (
             <SourceFollow
               sourceId={filters.source_id}
-              returnTo={sourceHref({ id: filters.source_id, slug: filters.source_slug })}
+              returnTo={feedHref(filters, { cursor: filters.cursor })}
             />
           )}
           {section === "topics" && topicId && (

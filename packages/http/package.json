@@ -6,7 +6,8 @@
   "exports": {
     "./forwarding": "./src/forwarding.ts",
     "./gateway": "./src/gateway.ts",
-    "./request-body": "./src/request-body.ts"
+    "./request-body": "./src/request-body.ts",
+    "./reader-destinations": "./src/reader-destinations.ts"
   },
   "dependencies": {
     "server-only": "^0.0.1"

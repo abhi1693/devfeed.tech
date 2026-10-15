@@ -128,3 +128,23 @@ def test_reader_changes_always_check_both_extension_builds(path):
     commands = hooks.checks_for({path})
     for command in ("extension:check", "extension:test", "extension:build:all"):
         assert ("npm", "run", command) in commands
+
+
+def test_shared_destination_json_exercises_both_contract_consumers():
+    commands = hooks.checks_for({"packages/http/src/reader-destinations.json"})
+    assert ("uv", "run", "--locked", "mypy") in commands
+    assert ("npm", "run", "web:test") in commands
+    assert ("npm", "run", "extension:build:all") in commands
+    assert ("npm", "run", "test:reader-destinations") in commands
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        "packages/http/src/reader-destinations.ts",
+        "packages/http/src/reader_destinations.py",
+        "tests/reader-destinations.test.mjs",
+    ],
+)
+def test_destination_runtime_changes_require_cross_language_parity(path):
+    assert ("npm", "run", "test:reader-destinations") in hooks.checks_for({path})

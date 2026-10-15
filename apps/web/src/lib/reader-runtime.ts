@@ -1,7 +1,12 @@
 // The website uses its own origin and fetch. Bundled clients supply their transport
 // once at startup; presentation components stay identical on both platforms.
 import type { Article } from "./types";
-import type { ReaderDestination, ReaderNavigationMode } from "./reader-destination";
+import {
+  readerReturnDestination,
+  type ReaderDestination,
+  type ReaderNavigationMode,
+} from "./reader-destination";
+import type { ReaderLoginDestination } from "@devfeed/http/reader-destinations";
 
 type ReaderRuntime = {
   request: typeof fetch;
@@ -71,9 +76,12 @@ export function readerWebsiteLink(href: string) {
  * to their requested page; bundled readers return to a completion page that
  * closes the tab and lets focus refresh their session.
  */
-export function readerLoginLink(returnTo?: string) {
+export function readerLoginLink(returnTo?: string | ReaderDestination | ReaderLoginDestination) {
   const params = new URLSearchParams();
-  params.set("return_to", runtime ? "/extension/login-complete" : (returnTo ?? "/"));
+  params.set(
+    "return_to",
+    readerReturnDestination(runtime ? "/extension/login-complete" : (returnTo ?? "/")),
+  );
   return readerWebsiteLink(`/login?${params}`);
 }
 

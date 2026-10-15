@@ -144,13 +144,13 @@ it("retains article progress and dismissal in memory when storage is blocked", (
   expect(screen.queryByRole("link", { name: "Create account" })).toBeNull();
 });
 
-it("keeps the current article and filters in the sign-in return link", () => {
+it("keeps approved filters in the sign-in return link", () => {
   qualify();
-  window.history.replaceState({}, "", "/articles/three?topic=python&sort=latest");
+  window.history.replaceState({}, "", "/latest?topic=python&sort=newest");
   view("three");
   const href = screen.getByRole("link", { name: "Create account" }).getAttribute("href")!;
   expect(new URL(href, window.location.origin).searchParams.get("return_to")).toBe(
-    "/articles/three?topic=python&sort=latest",
+    "/latest?topic=python&sort=newest",
   );
 });
 
@@ -162,7 +162,7 @@ it.each(["click", "keyboard", "auxclick", "contextmenu", "control", "meta"] as c
     view();
     const link = screen.getByRole("link", { name: "Create account" });
     const initialHref = link.getAttribute("href");
-    window.history.replaceState({}, "", "/search?q=python&source=engineering");
+    window.history.replaceState({}, "", "/search?q=python&section=sources");
     expect(link.getAttribute("href")).toBe(initialHref);
     // Keep jsdom on the current page while the component prepares native navigation.
     link.addEventListener("click", (event) => event.preventDefault());
@@ -181,7 +181,7 @@ it.each(["click", "keyboard", "auxclick", "contextmenu", "control", "meta"] as c
     }
     expect(
       new URL(link.getAttribute("href")!, window.location.origin).searchParams.get("return_to"),
-    ).toBe("/search?q=python&source=engineering");
+    ).toBe("/search?q=python&section=sources");
   },
 );
 
@@ -217,7 +217,7 @@ it.each(["/login", "/register", "/extension/login-complete", "/missing", "/lates
     readerState.promptEligibility.signup = true;
     reader.rerender(<SignupNudge />);
     expect(screen.getByRole("link", { name: "Create account" }).getAttribute("href")).toBe(
-      `/login?return_to=${encodeURIComponent(pathname)}`,
+      `/login?return_to=${encodeURIComponent(["/extension/login-complete", "/latest"].includes(pathname) ? pathname : "/")}`,
     );
     expect(sessionStorage.getItem(anonymousInvitationDismissedKey)).toBeNull();
   },

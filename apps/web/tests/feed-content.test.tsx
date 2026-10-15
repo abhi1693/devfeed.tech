@@ -13,7 +13,9 @@ vi.mock("@/components/user-shell", () => ({
   UserShell: ({ children }: { children: ReactNode }) => children,
 }));
 vi.mock("@/components/feed-filters", () => ({ FeedFiltersBar: () => null }));
-vi.mock("@/components/source-follow", () => ({ SourceFollow: () => null }));
+vi.mock("@/components/source-follow", () => ({
+  SourceFollow: ({ returnTo }: { returnTo: string }) => <a href={returnTo}>Follow source</a>,
+}));
 vi.mock("@/components/topic-follow", () => ({ TopicFollow: () => null }));
 vi.mock("@/components/infinite-feed", () => ({
   InfiniteFeed: ({ placements }: { placements?: PlacementQuery }) => (
@@ -120,4 +122,27 @@ it.each([
 
 it("honors disabled placement capability even for an unfiltered feed", () => {
   expect(placementContext(readerFeeds.bookmarks)).toBeUndefined();
+});
+
+it("preserves the source tab, sort and pagination in the sign-in destination", () => {
+  render(
+    <FeedContent
+      filters={{
+        ...parseFilters({
+          source_id: "11111111-1111-4111-8111-111111111111",
+          content_type: "news",
+          sort: "oldest",
+          cursor: "next page",
+        }),
+        source_slug: "publisher",
+      }}
+      section="sources"
+      feedDescriptor={readerFeeds.contextual}
+      feed={firstPage}
+      options={options}
+    />,
+  );
+  expect(screen.getByRole("link", { name: "Follow source" }).getAttribute("href")).toBe(
+    "/sources/publisher/news?sort=oldest&cursor=next+page",
+  );
 });

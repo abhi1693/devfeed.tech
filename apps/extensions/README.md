@@ -196,6 +196,12 @@ scrolled feeds, sequential previews, Back/Forward replay, direct and failed arti
 entries, inbox article actions, and native settings links. Screenshots stay under
 ignored `reports/reader-destinations/`.
 
+Use `DEVFEED_LOGIN_DESTINATIONS_ONLY=1` for shared sign-in destinations: approved
+reader filters, topic/source follows, article bookmarks, signup invitations, and
+scoped MCP authorization. Provider redirects run against isolated fixtures; Chrome
+and Edge retain the reader in its original tab and open sign-in separately.
+Screenshots stay under ignored `reports/login-destinations/`.
+
 ## Validate and package
 
 ```sh

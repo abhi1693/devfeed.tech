@@ -75,6 +75,10 @@ import {
   checkManagedImages,
 } from "../../../../scripts/testing/managed-images.mjs";
 import { signInResponse, checkGuestTopicSignIn } from "../../../../scripts/testing/sign-in.mjs";
+import {
+  checkLoginDestinations,
+  loginDestinationsFixture,
+} from "../../../../scripts/testing/login-destinations.mjs";
 import assert from "node:assert/strict";
 import { createServer, request as httpRequest } from "node:http";
 import { spawn } from "node:child_process";
@@ -111,6 +115,7 @@ const routeFixture = readerRoutesFixture(article);
 const feedMode = feedModeFixture(article);
 const readerContext = readerContextFixture(article);
 const readerDestinations = readerDestinationsFixture(article);
+const loginDestinations = loginDestinationsFixture(article);
 let mode = "ready";
 const defaultAllRequests = [];
 let compactArticles = false;
@@ -134,6 +139,12 @@ let rejectSourceFollow = true;
 const fixture = createServer(async (req, res) => {
   const requestUrl = new URL(req.url, "http://localhost");
   const path = requestUrl.pathname;
+  if (loginDestinations.handles(requestUrl)) {
+    const { status, json } = loginDestinations.respond(requestUrl);
+    res.writeHead(status, { "Content-Type": "application/json" });
+    res.end(JSON.stringify(json));
+    return;
+  }
   if (readerDestinations.handles(requestUrl)) {
     const chunks = [];
     for await (const chunk of req) chunks.push(chunk);
@@ -581,6 +592,43 @@ async function runReaderChecks() {
     }
   }
   browser = await chromium.launch({ headless: true });
+  if (
+    process.env.DEVFEED_LOGIN_DESTINATIONS_ONLY === "1" ||
+    ![
+      "DEVFEED_READER_NAVIGATION_ONLY",
+      "DEVFEED_READER_CONTEXT_ONLY",
+      "DEVFEED_READER_FEED_MODE_ONLY",
+      "DEVFEED_READER_ROUTES_ONLY",
+      "DEVFEED_READER_THEME_ONLY",
+      "DEVFEED_READER_SIDEBAR_ONLY",
+      "DEVFEED_READER_MUTATIONS_ONLY",
+    ].some((flag) => process.env[flag] === "1")
+  ) {
+    const loginContext = await browser.newContext({ reducedMotion: "reduce" });
+    try {
+      await mockManagedImages(loginContext);
+      await mockSourceLogos(loginContext);
+      const page = await loginContext.newPage();
+      const errors = [];
+      page.on("pageerror", (error) => errors.push(error.message));
+      page.on("console", (message) => {
+        if (message.type() === "error" && /Content Security Policy|Refused to/.test(message.text()))
+          errors.push(message.text());
+      });
+      await checkLoginDestinations(
+        page,
+        (path) => origin + path,
+        loginDestinations,
+        `${root}/reports/login-destinations/web`,
+        { provider: upstream + "/authorize" },
+      );
+      assert.deepEqual(errors, []);
+    } finally {
+      await loginContext.close();
+    }
+    console.log("Shared login destinations passed against the production web bundle.");
+    if (process.env.DEVFEED_LOGIN_DESTINATIONS_ONLY === "1") return;
+  }
   if (
     ![
       "DEVFEED_READER_CONTEXT_ONLY",

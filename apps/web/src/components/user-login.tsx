@@ -5,11 +5,16 @@ import Link from "@/components/reader-link";
 import { useEffect, useState } from "react";
 import brandMark from "@devfeed/theme/assets/devfeed-mark.png";
 import { SignIn, type SignInConfig, type SignInProvider } from "@devfeed/ui/sign-in";
+import { readerReturnDestination, type ReaderDestination } from "@/lib/reader-destination";
+import type { ReaderLoginDestination } from "@devfeed/http/reader-destinations";
 
-function loginHref(provider: SignInProvider | null, returnTo: string) {
+function loginHref(
+  provider: SignInProvider | null,
+  returnTo: string | ReaderDestination | ReaderLoginDestination,
+) {
   const params = new URLSearchParams();
   if (provider) params.set("provider", provider);
-  params.set("return_to", returnTo);
+  params.set("return_to", readerReturnDestination(returnTo));
   return `/api/v1/user/auth/login?${params}`;
 }
 
@@ -17,7 +22,7 @@ export function UserLogin({
   returnTo = "/",
   error = false,
 }: {
-  returnTo?: string;
+  returnTo?: string | ReaderDestination | ReaderLoginDestination;
   error?: boolean;
 }) {
   const [config, setConfig] = useState<SignInConfig | null>(null);

@@ -1,23 +1,17 @@
 import {
-  contentTypeFromRoute,
-  contentTypeRoutes,
-  contentTypes,
-  type ContentType,
-} from "./feed-query";
+  matchReaderDestinationPath,
+  readerDestinationContract,
+  validReaderParameter,
+  type ReaderDestinationDefinition,
+  type ReaderLoginDestination,
+  type ReaderSettingsSection,
+} from "@devfeed/http/reader-destinations";
+import { contentTypeFromRoute, type ContentType } from "./feed-query";
 import { readerFeeds, type FeedDescriptor } from "./reader-feed";
 
-const catalogKinds = ["topics", "sources"] as const;
-export type CatalogKind = (typeof catalogKinds)[number];
+export type CatalogKind = "topics" | "sources";
 type CollectionKind = CatalogKind | "tags";
-const settingsPages = [
-  "profile",
-  "appearance",
-  "feed",
-  "notifications",
-  "topics",
-  "sources",
-] as const;
-export type SettingsPage = (typeof settingsPages)[number];
+export type SettingsPage = ReaderSettingsSection;
 
 export type ReaderRoute =
   | { type: "local"; page: "catalog"; catalog: CatalogKind }
@@ -36,146 +30,135 @@ export type ReaderRoute =
     };
 
 export type ReaderRouteLabels = { telemetry: string; screen: string };
-const label = (telemetry: string, screen = telemetry): ReaderRouteLabels => ({ telemetry, screen });
-const articleLabels = label("/articles/:id", "/articles");
-const profileLabels = label("/users/:username", "/users/profile");
-const feedLabels = {
-  personal: label("/"),
-  latest: label("/latest"),
-  search: label("/search"),
-  bookmarks: label("/read-later"),
-  trending: label("/trending"),
-} satisfies Record<FeedDescriptor["mode"], ReaderRouteLabels>;
-const localLabels = {
-  "source-suggestion": label("/sources/suggest"),
-  mcp: label("/mcp"),
-  leaderboard: label("/leaderboard"),
-  "dev-card": label("/dev-card"),
-  "mcp-authorize": label("/mcp/authorize"),
-} satisfies Record<
-  Exclude<Extract<ReaderRoute, { type: "local" }>["page"], "settings" | "catalog">,
-  ReaderRouteLabels
->;
-const contentLabels = Object.fromEntries(
-  contentTypes.map((type) => [type, label(`/${contentTypeRoutes[type]}`)]),
-) as Record<ContentType, ReaderRouteLabels>;
-const settingsLabels = Object.fromEntries(
-  settingsPages.map((section) => [section, label(`/settings/${section}`)]),
-) as Record<SettingsPage, ReaderRouteLabels>;
-const catalogLabels = Object.fromEntries(
-  catalogKinds.map((kind) => [kind, label(`/${kind}`)]),
-) as Record<CatalogKind, ReaderRouteLabels>;
-const collectionLabels = Object.fromEntries(
-  catalogKinds.map((kind) => [kind, label(`/${kind}/:id`, `/${kind}/detail`)]),
-) as Record<CatalogKind, ReaderRouteLabels>;
+
+function routeIdentity(route: ReaderRoute): { id: string; parameters: Record<string, string> } {
+  switch (route.type) {
+    case "article":
+      return { id: "article", parameters: {} };
+    case "profile":
+      return { id: "profile", parameters: {} };
+    case "local":
+      if (route.page === "settings")
+        return { id: "settings", parameters: { section: route.settings } };
+      return { id: route.page === "catalog" ? route.catalog : route.page, parameters: {} };
+    case "reader":
+      if (route.detail)
+        return {
+          id: `${route.detail.kind}-${route.detail.contentType ? "content" : "detail"}`,
+          parameters: {},
+        };
+      if (route.contentType)
+        return { id: "content", parameters: { contentType: route.contentType } };
+      return { id: route.feed.mode === "personal" ? "home" : route.feed.mode, parameters: {} };
+  }
+}
+
+function definitionLabels(
+  definition: ReaderDestinationDefinition,
+  parameters: Record<string, string>,
+): ReaderRouteLabels | null {
+  if (!definition.labels) return null;
+  const project = (template: string) =>
+    template.replace(/:([a-zA-Z]+)/g, (placeholder, name: string) => {
+      const segment = definition.segments.find(
+        (part) => typeof part !== "string" && part.name === name,
+      );
+      if (!segment || typeof segment === "string") return placeholder;
+      const approved =
+        readerDestinationContract.parameters[segment.type].values?.[parameters[name]];
+      return approved ?? placeholder;
+    });
+  return {
+    telemetry: project(definition.labels.telemetry),
+    screen: project(definition.labels.screen),
+  };
+}
 
 /** Project only approved semantic fields; identifiers never enter either label. */
 export function readerRouteLabels(route: ReaderRoute | null): ReaderRouteLabels | null {
   if (!route) return null;
-  switch (route.type) {
-    case "article":
-      return articleLabels;
-    case "profile":
-      return profileLabels;
-    case "local":
-      if (route.page === "catalog") return catalogLabels[route.catalog];
-      if (route.page === "settings") return settingsLabels[route.settings];
-      return localLabels[route.page];
-    case "reader": {
-      if (route.detail) {
-        const labels = collectionLabels[route.detail.kind];
-        return route.detail.contentType
-          ? { ...labels, telemetry: `${labels.telemetry}/:type` }
-          : labels;
-      }
-      return route.contentType ? contentLabels[route.contentType] : feedLabels[route.feed.mode];
-    }
-  }
+  const { id, parameters } = routeIdentity(route);
+  const definition = readerDestinationContract.routes.find((route) => route.id === id);
+  return definition ? definitionLabels(definition, parameters) : null;
 }
-
-/** The relay accepts this finite vocabulary, never a client-supplied raw path. */
-export const readerScreenNames = [
-  ...new Set(
-    [
-      articleLabels,
-      profileLabels,
-      ...Object.values(feedLabels),
-      ...Object.values(localLabels),
-      ...Object.values(contentLabels),
-      ...Object.values(settingsLabels),
-      ...Object.values(catalogLabels),
-      ...Object.values(collectionLabels),
-    ].map(({ screen }) => screen),
-  ),
-];
-
-const routes = new Map<string, ReaderRoute>([
-  ["/", { type: "reader", feed: readerFeeds.home }],
-  ["/latest", { type: "reader", feed: readerFeeds.latest }],
-  ["/search", { type: "reader", feed: readerFeeds.search }],
-  ["/read-later", { type: "reader", feed: readerFeeds.bookmarks }],
-  ["/trending", { type: "reader", feed: readerFeeds.trending }],
-  ["/topics", { type: "local", page: "catalog", catalog: "topics" }],
-  ["/sources", { type: "local", page: "catalog", catalog: "sources" }],
-  ["/sources/suggest", { type: "local", page: "source-suggestion" }],
-  ["/mcp", { type: "local", page: "mcp" }],
-  ["/mcp/authorize", { type: "local", page: "mcp-authorize" }],
-  ["/leaderboard", { type: "local", page: "leaderboard" }],
-  ["/dev-card", { type: "local", page: "dev-card" }],
-  ["/settings", { type: "local", page: "settings", settings: "profile" }],
-  ["/settings/profile", { type: "local", page: "settings", settings: "profile" }],
-  ["/settings/appearance", { type: "local", page: "settings", settings: "appearance" }],
-  ["/settings/feed", { type: "local", page: "settings", settings: "feed" }],
-  ["/settings/notifications", { type: "local", page: "settings", settings: "notifications" }],
-  ["/settings/topics", { type: "local", page: "settings", settings: "topics" }],
-  ["/settings/sources", { type: "local", page: "settings", settings: "sources" }],
-]);
 
 type ReaderTelemetryDefinition = {
   route: string;
   label: string;
   parameters?: Record<string, readonly string[]>;
 };
-const contentTypeParameters = { contentType: Object.values(contentTypeRoutes) };
 
-/** Build-time metadata for the shared receiver catalog, grounded in registered Next routes. */
-export const readerTelemetryDefinitions: readonly ReaderTelemetryDefinition[] = [
-  ...Array.from(routes, ([route, descriptor]) => ({
-    route,
-    label: readerRouteLabels(descriptor)!.telemetry,
-  })),
-  { route: "/articles/[slug]", label: articleLabels.telemetry },
-  { route: "/users/[username]", label: profileLabels.telemetry },
-  ...catalogKinds.flatMap((kind) => {
-    const route = `/${kind}/[${kind === "sources" ? "id" : "slug"}]`;
+/** Build-time metadata comes from the same destinations that navigation resolves. */
+export const readerTelemetryDefinitions: readonly ReaderTelemetryDefinition[] =
+  readerDestinationContract.routes.flatMap((definition) => {
+    if (!definition.navigation || !definition.labels) return [];
+    let variants: Record<string, string>[] = [{}];
+    const routeParameters: Record<string, readonly string[]> = {};
+    for (const segment of definition.segments) {
+      if (typeof segment === "string") continue;
+      const values = readerDestinationContract.parameters[segment.type].values;
+      if (!values) continue;
+      if (segment.static || definition.labels.telemetry.includes(`:${segment.name}`)) {
+        variants = variants.flatMap((parameters) =>
+          Object.keys(values).map((value) => ({ ...parameters, [segment.name]: value })),
+        );
+      } else routeParameters[segment.name] = Object.values(values);
+    }
+    const result = variants.map((parameters) => ({
+      route: `/${definition.segments.map((segment) => (typeof segment === "string" ? segment : segment.static ? readerDestinationContract.parameters[segment.type].values![parameters[segment.name]] : `[${segment.name}]`)).join("/")}`,
+      label: definitionLabels(definition, parameters)!.telemetry,
+      ...(Object.keys(routeParameters).length ? { parameters: routeParameters } : {}),
+      ...(!Object.keys(routeParameters).length &&
+      Object.keys(parameters).length &&
+      definition.segments.some((segment) => typeof segment !== "string" && !segment.static)
+        ? {
+            parameters: Object.fromEntries(
+              Object.entries(parameters).map(([name, value]) => {
+                const segment = definition.segments.find(
+                  (segment) => typeof segment !== "string" && segment.name === name,
+                )!;
+                return [
+                  name,
+                  [
+                    readerDestinationContract.parameters[(segment as { type: string }).type]
+                      .values![value],
+                  ],
+                ];
+              }),
+            ),
+          }
+        : {}),
+    }));
     return [
-      { route, label: collectionLabels[kind].telemetry },
-      {
-        route: `${route}/[contentType]`,
-        label: `${collectionLabels[kind].telemetry}/:type`,
-        parameters: contentTypeParameters,
-      },
+      ...result,
+      ...(definition.aliases ?? []).map((alias) => ({
+        route: `/${alias.segments.join("/")}`,
+        label: definitionLabels(definition, alias.parameters)!.telemetry,
+      })),
     ];
-  }),
-  { route: "/tags/[slug]", label: "/tags/:id" },
-  {
-    route: "/tags/[slug]/[contentType]",
-    label: "/tags/:id/:type",
-    parameters: contentTypeParameters,
-  },
-  ...contentTypes.map((type) => ({
-    route: "/[contentType]",
-    label: contentLabels[type].telemetry,
-    parameters: { contentType: [contentTypeRoutes[type]] },
-  })),
+  });
+
+/** The relay accepts this finite vocabulary, never a client-supplied raw path. */
+export const readerScreenNames = [
+  ...new Set(
+    readerDestinationContract.routes.flatMap((definition) => {
+      if (!definition.embedded || !definition.labels) return [];
+      let variants: Record<string, string>[] = [{}];
+      for (const segment of definition.segments) {
+        if (typeof segment === "string") continue;
+        const values = readerDestinationContract.parameters[segment.type].values;
+        if (values && definition.labels.screen.includes(`:${segment.name}`))
+          variants = variants.flatMap((parameters) =>
+            Object.keys(values).map((value) => ({ ...parameters, [segment.name]: value })),
+          );
+      }
+      return variants.map((parameters) => definitionLabels(definition, parameters)!.screen);
+    }),
+  ),
 ];
 
-const catalogSlug = /^[a-z0-9][a-z0-9-]{0,199}$/i;
-const username = /^[a-z0-9][a-z0-9_-]{1,28}[a-z0-9]$/i;
-const collectionSeparator = /[\u0000-\u001f\u007f/\\]/;
-
 export function isArticleSlug(slug: string): boolean {
-  return catalogSlug.test(slug);
+  return validReaderParameter("articleSlug", slug);
 }
 
 /** Accept decoded collection parameters, preserving technology tags such as c++ and c#. */
@@ -184,45 +167,63 @@ export function collectionRoute<Kind extends CollectionKind>(
   slug: string,
   suffix?: string,
 ): { kind: Kind; slug: string; contentType?: ContentType } | null {
-  const validSlug =
-    kind === "tags"
-      ? slug.length > 0 &&
-        slug.length <= 100 &&
-        slug.isWellFormed() &&
-        !collectionSeparator.test(slug)
-      : catalogSlug.test(slug) && (kind !== "topics" || slug.length <= 100);
-  if (!validSlug) return null;
+  const type = kind === "tags" ? "tag" : kind === "topics" ? "topicSlug" : "sourceSlug";
+  if (!validReaderParameter(type, slug)) return null;
   if (suffix === undefined) return { kind, slug };
   const contentType = contentTypeFromRoute(suffix);
   return contentType ? { kind, slug, contentType } : null;
 }
 
-/** Resolve only routes owned by the embedded reader; unsupported pages stay on the website. */
+function navigationRoute(
+  definition: ReaderDestinationDefinition,
+  destination: ReaderLoginDestination,
+): ReaderRoute | null {
+  const navigation = definition.navigation;
+  const parameters = destination.parameters;
+  if (!navigation || !definition.embedded) return null;
+  switch (navigation.type) {
+    case "article":
+      return { type: "article", slug: parameters[navigation.slugParameter] };
+    case "profile":
+      return { type: "profile", username: parameters[navigation.usernameParameter] };
+    case "local":
+      if (navigation.page === "catalog")
+        return { type: "local", page: "catalog", catalog: navigation.catalog };
+      if (navigation.page === "settings")
+        return {
+          type: "local",
+          page: "settings",
+          settings: parameters[navigation.settingsParameter] as SettingsPage,
+        };
+      return {
+        type: "local",
+        page: navigation.page,
+      };
+    case "reader": {
+      const contentType = navigation.contentTypeParameter
+        ? (parameters[navigation.contentTypeParameter] as ContentType)
+        : undefined;
+      return {
+        type: "reader",
+        feed: readerFeeds[navigation.feed],
+        ...(navigation.collection && navigation.collection !== "tags"
+          ? {
+              detail: {
+                kind: navigation.collection,
+                slug: parameters[navigation.slugParameter],
+                ...(contentType ? { contentType } : {}),
+              },
+            }
+          : contentType
+            ? { contentType }
+            : {}),
+      };
+    }
+  }
+}
+
+/** Resolve only destinations owned by the embedded reader; other pages stay on the website. */
 export function resolveReaderRoute(pathname: string): ReaderRoute | null {
-  if (!pathname.startsWith("/") || pathname.includes("?") || pathname.includes("#")) return null;
-  const path = pathname.length > 1 && pathname.endsWith("/") ? pathname.slice(0, -1) : pathname;
-  const known = routes.get(path);
-  if (known) return known;
-  let segments: string[];
-  try {
-    segments = path.slice(1).split("/").map(decodeURIComponent);
-  } catch {
-    return null;
-  }
-  const [, slug, suffix] = segments;
-  const resource = path.slice(1).split("/", 1)[0];
-  if (
-    (resource === "topics" || resource === "sources") &&
-    segments.length >= 2 &&
-    segments.length <= 3
-  ) {
-    const detail = collectionRoute(resource, slug, suffix);
-    return detail ? { type: "reader", feed: readerFeeds.contextual, detail } : null;
-  }
-  if (resource === "articles" && segments.length === 2 && isArticleSlug(slug))
-    return { type: "article", slug };
-  if (resource === "users" && segments.length === 2 && username.test(slug))
-    return { type: "profile", username: slug };
-  const contentType = segments.length === 1 ? contentTypeFromRoute(segments[0]) : undefined;
-  return contentType ? { type: "reader", feed: readerFeeds.contextual, contentType } : null;
+  const matched = matchReaderDestinationPath(pathname);
+  return matched ? navigationRoute(matched.definition, matched.destination) : null;
 }

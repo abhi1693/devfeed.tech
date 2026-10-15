@@ -1,4 +1,8 @@
 import { isArticleSlug, resolveReaderRoute, type ReaderRoute } from "./reader-routes";
+import {
+  readerSignInDestination,
+  type ReaderLoginDestination,
+} from "@devfeed/http/reader-destinations";
 
 export type ReaderScroll = "reset" | "preserve";
 export type ReaderPageRoute = Exclude<ReaderRoute, { type: "article" }>;
@@ -16,6 +20,14 @@ export type ReaderArticleDestination = {
 };
 export type ReaderDestination = ReaderPageDestination | ReaderArticleDestination;
 export type ReaderNavigationMode = "push" | "replace";
+
+export function readerReturnDestination(
+  value: string | ReaderDestination | ReaderLoginDestination,
+): string {
+  return readerSignInDestination(
+    typeof value === "string" || !("href" in value) ? value : value.href,
+  );
+}
 
 export function articleDestination(slug: string): ReaderArticleDestination {
   if (!isArticleSlug(slug)) throw new TypeError("Invalid article identifier");

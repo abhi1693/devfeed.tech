@@ -4,14 +4,16 @@ import hashlib
 import hmac
 import json
 import logging
-import re
 import secrets
 import time
 from datetime import UTC, datetime
 from typing import Annotated, Literal, cast
-from urllib.parse import parse_qsl, urlsplit
 
 from devfeed_http.operation_policies import ExtensionTransportPolicy, ReaderGatewayPolicy
+from devfeed_http.reader_destinations import (
+    parse_reader_destination,
+    serialize_reader_destination,
+)
 from devfeed_http.schemas import OIDCCallbackQuery
 from fastapi import (
     APIRouter,
@@ -180,57 +182,6 @@ def config():
     return AuthConfig(enabled=oidc.configured(settings), providers=providers)
 
 
-def valid_return_destination(destination: str) -> bool:
-    # Match paths separately from search data; never allow a caller-supplied origin.
-    if len(destination) > 4096 or re.search(r"[\x00-\x20\x7f\\]", destination):
-        return False
-    try:
-        parts = urlsplit(destination)
-        if parts.scheme or parts.netloc or parts.fragment:
-            return False
-        if destination in {"/", "/latest", "/extension/login-complete"}:
-            return True
-        if parts.path == "/mcp/authorize":
-            params = parse_qsl(
-                parts.query, keep_blank_values=True, strict_parsing=True, max_num_fields=1
-            )
-            return (
-                len(params) == 1
-                and params[0][0] == "request"
-                and TOKEN.fullmatch(params[0][1]) is not None
-            )
-        topic_feed = re.fullmatch(
-            r"/topics/[a-zA-Z0-9][a-zA-Z0-9-]{0,199}"
-            r"(?:/(?:articles|news|tutorials|releases|comparisons|opinions))?",
-            parts.path,
-        )
-        if parts.path == "/search" or topic_feed:
-            if re.search(r"%(?![0-9a-fA-F]{2})", parts.query):
-                return False
-            params = parse_qsl(parts.query, keep_blank_values=True, max_num_fields=5)
-            keys = [key for key, _ in params]
-            return (
-                len(keys) == len(set(keys))
-                and set(keys)
-                <= (
-                    {"q", "sort", "source_id", "tag", "cursor"}
-                    if topic_feed
-                    else {"q", "section", "sort", "date_from", "date_to"}
-                )
-                and all(not re.search(r"[\x00-\x1f\x7f]", value) for _, value in params)
-            )
-    except ValueError:
-        return False
-    return bool(
-        re.fullmatch(
-            r"/(?:my-feed|read-later|settings/(?:profile|notifications|topics|sources|appearance|feed)"
-            r"|sources(?:/(?:suggest|[a-zA-Z0-9][a-zA-Z0-9-]{0,199}))?"
-            r"|(?:articles|topics)/[a-zA-Z0-9][a-zA-Z0-9-]{0,199})",
-            destination,
-        )
-    )
-
-
 @router.get(
     "/login",
     operation_id="user_auth_login",
@@ -244,7 +195,8 @@ def login(
     return_to: str = "/",
     provider: Literal["github", "google"] | None = None,
 ):
-    if not valid_return_destination(return_to):
+    destination = parse_reader_destination(return_to)
+    if destination is None:
         raise HTTPException(422, "Invalid sign-in destination")
     require_config()
     settings = get_settings()
@@ -256,7 +208,7 @@ def login(
         location, flow = oidc.start(
             settings, metadata, register=register, identity_provider_id=provider_id
         )
-        flow["return_to"] = return_to
+        flow["destination"] = destination.as_record()
         if settings.x_pixel_enabled:
             captured = click_id(request.cookies, secure=settings.cookie_secure)
             if captured:
@@ -296,6 +248,9 @@ def callback(
             policy=oidc.policy_key(settings),
         )
         bound_flow = True
+        destination = serialize_reader_destination(flow.get("destination"))
+        if destination is None:
+            raise oidc.OIDCError("Invalid sign-in destination")
         # A browser-validated sign-in replaces its previous local identity,
         # even if the new identity fails validation. Never do this for an
         # unbound/replayed callback: that would allow forced logout by URL.
@@ -315,9 +270,7 @@ def callback(
         user["user_id"], created = save_user_with_status(user)
         token = secrets.token_urlsafe(32)
         redis.set(key("session", token), json.dumps(user), ex=ttl)
-        response = RedirectResponse(
-            str(settings.base_url).rstrip("/") + flow.get("return_to", "/"), 302
-        )
+        response = RedirectResponse(str(settings.base_url).rstrip("/") + destination, 302)
         # The browser retains the server-issued token only until the fixed absolute
         # deadline. Redis independently enforces and renews the shorter idle window.
         cookie(response, "session", token, user["absolute_expires_at"] - int(time.time()))
