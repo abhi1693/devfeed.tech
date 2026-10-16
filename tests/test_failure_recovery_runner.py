@@ -33,15 +33,17 @@ ROOT = Path(__file__).resolve().parents[1]
 def test_recovery_selection_uses_real_backend_changes_without_mutating_the_checkout(
     tmp_path, filename, needed
 ):
-    git_dir = subprocess.check_output(
-        ["git", "rev-parse", "--absolute-git-dir"], cwd=ROOT, text=True
+    object_directory = subprocess.check_output(
+        ["git", "rev-parse", "--path-format=absolute", "--git-path", "objects"],
+        cwd=ROOT,
+        text=True,
     ).strip()
     objects = tmp_path / "objects"
     objects.mkdir()
     env = {
         **os.environ,
         "GIT_OBJECT_DIRECTORY": str(objects),
-        "GIT_ALTERNATE_OBJECT_DIRECTORIES": str(Path(git_dir) / "objects"),
+        "GIT_ALTERNATE_OBJECT_DIRECTORIES": object_directory,
         "GIT_INDEX_FILE": str(tmp_path / "index"),
         "GIT_AUTHOR_NAME": "Recovery test",
         "GIT_AUTHOR_EMAIL": "test@example.invalid",

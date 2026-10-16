@@ -42,14 +42,14 @@ def test_reader_gateway_covers_user_operations_and_hidden_inbox_without_exposing
         for method, operation in methods.items()
         if path.startswith("/v1/user/")
     }
-    assert len(actual) == len(operations) == 61
+    assert len(actual) == len(operations) == 68
     assert len({operation["operationId"] for operation in operations}) == len(operations)
-    assert len({operation["path"] for operation in operations}) == 52
+    assert len({operation["path"] for operation in operations}) == 58
     assert Counter(operation["method"] for operation in operations) == {
-        "GET": 28,
-        "POST": 20,
+        "GET": 32,
+        "POST": 22,
         "PUT": 11,
-        "DELETE": 2,
+        "DELETE": 3,
     }
     for key, operation in documented.items():
         assert actual[key]["operationId"] == operation["operationId"]
@@ -140,7 +140,7 @@ def test_extension_auth_grants_keep_oidc_navigation_out_of_fetch_transport():
         for operation in auth
         if operation["policy"]["extension"] is not None
     } == {("user_auth_config", "GET"), ("user_auth_me", "GET"), ("user_auth_logout", "POST")}
-    assert sum(operation["policy"]["extension"] is not None for operation in operations) == 59
+    assert sum(operation["policy"]["extension"] is not None for operation in operations) == 66
 
 
 def test_public_operation_provenance_catalog_is_complete_unique_and_deterministic():

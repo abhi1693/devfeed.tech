@@ -2,6 +2,7 @@
 import { flushSync } from "react-dom";
 import { LoadingSkeleton } from "./loading-skeleton";
 import { readerLoginLink, readerSignedOut } from "@/lib/reader-runtime";
+import { clearBrowserPush, reconcileBrowserPushAccount } from "@/lib/browser-push";
 import Link from "@/components/reader-link";
 import { Bookmark, Hash, UserRound } from "lucide-react";
 import {
@@ -171,7 +172,10 @@ export function UserProvider({
   }
   useEffect(() => {
     const controller = new AbortController();
-    const expire = () => setUser(null);
+    const expire = () => {
+      setUser(null);
+      void clearBrowserPush().catch(() => {});
+    };
     window.addEventListener("devfeed:user-session-expired", expire);
     userRequest<UserIdentity | null>("auth/me", {
       signal: AbortSignal.any([controller.signal, AbortSignal.timeout(15000)]),
@@ -179,6 +183,8 @@ export function UserProvider({
       .then((value) => {
         if (controller.signal.aborted) return;
         setUser(value);
+        if (value) void reconcileBrowserPushAccount(value.user_id).catch(() => {});
+        else void clearBrowserPush().catch(() => {});
         setUnavailable(false);
         setSessionRevision((revision) => revision + 1);
       })
@@ -198,6 +204,8 @@ export function UserProvider({
   }, [refreshKey, activityRevision]);
   async function signOut() {
     await logOut({ csrfToken: user?.csrf_token ?? "" });
+    // Server revocation is authoritative; also remove queued local alerts.
+    await clearBrowserPush().catch(() => {});
     setUser(null);
     // Clear all rendered personal data and the client router cache on sign-out.
     readerSignedOut();

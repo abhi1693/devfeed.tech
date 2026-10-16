@@ -23,6 +23,7 @@ import {
   Globe,
   BrainCircuit,
   BellRing,
+  Bell,
 } from "lucide-react";
 import { CollapsibleSidebar } from "@devfeed/ui/sidebar";
 import { resourceHref } from "@/lib/routes";
@@ -102,6 +103,7 @@ export function Sidebar() {
               {group === "Operations" &&
                 [
                   { label: "Workers", href: "/workers", icon: Cpu },
+                  { label: "Push analytics", href: "/push-analytics", icon: Bell },
                   { label: "Queues", href: "/queues", icon: ListOrdered },
                   {
                     label: "Search analytics",

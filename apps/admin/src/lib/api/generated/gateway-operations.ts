@@ -2307,6 +2307,17 @@ export const adminGatewayOperations = [
     },
   },
   {
+    operationId: "admin_push_analytics",
+    method: "GET",
+    path: "/v1/admin/push-analytics",
+    parameters: [],
+    policy: {
+      bodyLimit: 1000000,
+      bodyTimeoutMs: 2000,
+      upstreamTimeoutMs: 45000,
+    },
+  },
+  {
     operationId: "admin_articles_list",
     method: "GET",
     path: "/v1/admin/articles",

@@ -131,6 +131,27 @@ export const pageRouteCatalogs = {
       path: "/v1/user/notifications/chimely/v1/inbox/stream",
       label: "/v1/user/notifications/chimely/v1/inbox/stream",
     },
+    {
+      path: "/api/v1/user/notifications/push/subscriptions/:id",
+      label: "/v1/user/notifications/push/subscriptions/:id",
+    },
+    {
+      path: "/api/v1/user/notifications/push/authorization",
+      label: "/v1/user/notifications/push/authorization",
+    },
+    { path: "/api/v1/user/notifications/push/config", label: "/v1/user/notifications/push/config" },
+    {
+      path: "/api/v1/user/notifications/push/receipt-session",
+      label: "/v1/user/notifications/push/receipt-session",
+    },
+    {
+      path: "/api/v1/user/notifications/push/receipts",
+      label: "/v1/user/notifications/push/receipts",
+    },
+    {
+      path: "/api/v1/user/notifications/push/subscriptions",
+      label: "/v1/user/notifications/push/subscriptions",
+    },
     { path: "/api/v1/user/settings/profile/avatar", label: "/v1/user/settings/profile/avatar" },
     {
       path: "/api/v1/user/sources/suggestions/preview",
@@ -146,6 +167,10 @@ export const pageRouteCatalogs = {
     {
       path: "/api/v1/user/profiles/:id/reading-heatmap",
       label: "/v1/user/profiles/:id/reading-heatmap",
+    },
+    {
+      path: "/v1/user/notifications/push/subscriptions/:id",
+      label: "/v1/user/notifications/push/subscriptions/:id",
     },
     { path: "/api/v1/search/analytics/click", label: "/v1/search/analytics/click" },
     { path: "/api/v1/user/auth/callback", label: "/v1/user/auth/callback" },
@@ -166,6 +191,20 @@ export const pageRouteCatalogs = {
     { path: "/api/v1/user/settings/reading-heatmap", label: "/v1/user/settings/reading-heatmap" },
     { path: "/api/v1/user/settings/reading-week", label: "/v1/user/settings/reading-week" },
     { path: "/api/v1/user/sources/suggestions", label: "/v1/user/sources/suggestions" },
+    {
+      path: "/v1/user/notifications/push/authorization",
+      label: "/v1/user/notifications/push/authorization",
+    },
+    { path: "/v1/user/notifications/push/config", label: "/v1/user/notifications/push/config" },
+    {
+      path: "/v1/user/notifications/push/receipt-session",
+      label: "/v1/user/notifications/push/receipt-session",
+    },
+    { path: "/v1/user/notifications/push/receipts", label: "/v1/user/notifications/push/receipts" },
+    {
+      path: "/v1/user/notifications/push/subscriptions",
+      label: "/v1/user/notifications/push/subscriptions",
+    },
     { path: "/v1/user/settings/profile/avatar", label: "/v1/user/settings/profile/avatar" },
     { path: "/v1/user/sources/suggestions/preview", label: "/v1/user/sources/suggestions/preview" },
     { path: "/api/v1/user/profiles/:id", label: "/v1/user/profiles/:id" },
@@ -977,6 +1016,7 @@ export const pageRouteCatalogs = {
     { path: "/api/v1/admin/overview", label: "/v1/admin/overview" },
     { path: "/api/v1/admin/partner-accounts", label: "/v1/admin/partner-accounts" },
     { path: "/api/v1/admin/partner-tools", label: "/v1/admin/partner-tools" },
+    { path: "/api/v1/admin/push-analytics", label: "/v1/admin/push-analytics" },
     { path: "/api/v1/admin/search-analytics", label: "/v1/admin/search-analytics" },
     { path: "/api/v1/admin/search-suggestions", label: "/v1/admin/search-suggestions" },
     { path: "/api/v1/admin/settings", label: "/v1/admin/settings" },
@@ -1169,6 +1209,7 @@ export const pageRouteCatalogs = {
     { path: "/v1/admin/overview", label: "/v1/admin/overview" },
     { path: "/v1/admin/partner-accounts", label: "/v1/admin/partner-accounts" },
     { path: "/v1/admin/partner-tools", label: "/v1/admin/partner-tools" },
+    { path: "/v1/admin/push-analytics", label: "/v1/admin/push-analytics" },
     { path: "/v1/admin/search-analytics", label: "/v1/admin/search-analytics" },
     { path: "/v1/admin/search-suggestions", label: "/v1/admin/search-suggestions" },
     { path: "/v1/admin/settings", label: "/v1/admin/settings" },
@@ -1236,6 +1277,7 @@ export const pageRouteCatalogs = {
     { path: "/login", label: "/login" },
     { path: "/partner-tools", label: "/partner-tools" },
     { path: "/partnerships", label: "/partnerships" },
+    { path: "/push-analytics", label: "/push-analytics" },
     { path: "/queues", label: "/queues" },
     { path: "/search-analytics", label: "/search-analytics" },
     { path: "/settings", label: "/settings" },

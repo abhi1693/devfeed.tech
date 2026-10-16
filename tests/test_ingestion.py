@@ -234,6 +234,10 @@ def test_scheduler_publishes_durable_jobs_to_real_rq(database, rss_bytes, monkey
         "partner_evaluations_dispatched": 0,
         "notifications_dispatched": 0,
         "notifications_recovered": 0,
+        "pushes_scheduled": 0,
+        "push_recipients_expanded": 0,
+        "pushes_dispatched": 0,
+        "pushes_recovered": 0,
     }
     assert scheduler.tick() == {
         "topic_research_scheduled": 0,
@@ -267,6 +271,10 @@ def test_scheduler_publishes_durable_jobs_to_real_rq(database, rss_bytes, monkey
         "partner_evaluations_dispatched": 0,
         "notifications_dispatched": 0,
         "notifications_recovered": 0,
+        "pushes_scheduled": 0,
+        "push_recipients_expanded": 0,
+        "pushes_dispatched": 0,
+        "pushes_recovered": 0,
     }
     monkeypatch.setattr(tasks, "fetch_feed", lambda *a: FetchResult(200, rss_bytes, a[0]))
     queue = get_queue()

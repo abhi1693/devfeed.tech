@@ -81,7 +81,7 @@ jobs:
       - name: Test
         if: steps.select.outputs.needed == 'true'
         run: >-
-          uv run --locked --no-build coverage run --source=scripts
+          uv run --locked --no-sync --no-build coverage run --source=scripts
           --data-file=reports/coverage/recovery/coverage.db -m scripts.ci.failure_recovery
       - name: Coverage
         if: always() && steps.select.outputs.needed == 'true'

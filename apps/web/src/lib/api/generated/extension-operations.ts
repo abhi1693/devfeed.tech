@@ -140,6 +140,36 @@ export const extensionGatewayOperations = [
     path: "/api/v1/user/notifications/chimely/v1/inbox/broadcasts/{broadcast_id}/unarchive",
   },
   {
+    ...userGatewayOperations["receipt_session_v1_user_notifications_push_receipt_session_get"],
+    path: "/api/v1/user/notifications/push/receipt-session",
+  },
+  {
+    ...userGatewayOperations["authorization_v1_user_notifications_push_authorization_get"],
+    path: "/api/v1/user/notifications/push/authorization",
+  },
+  {
+    ...userGatewayOperations["record_receipt_v1_user_notifications_push_receipts_post"],
+    path: "/api/v1/user/notifications/push/receipts",
+  },
+  {
+    ...userGatewayOperations["config_v1_user_notifications_push_config_get"],
+    path: "/api/v1/user/notifications/push/config",
+  },
+  {
+    ...userGatewayOperations["subscriptions_v1_user_notifications_push_subscriptions_get"],
+    path: "/api/v1/user/notifications/push/subscriptions",
+  },
+  {
+    ...userGatewayOperations["subscribe_v1_user_notifications_push_subscriptions_post"],
+    path: "/api/v1/user/notifications/push/subscriptions",
+  },
+  {
+    ...userGatewayOperations[
+      "unsubscribe_v1_user_notifications_push_subscriptions__identifier__delete"
+    ],
+    path: "/api/v1/user/notifications/push/subscriptions/{identifier}",
+  },
+  {
     ...userGatewayOperations["profile_v1_user_settings_profile_get"],
     path: "/api/v1/user/settings/profile",
   },

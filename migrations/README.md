@@ -150,3 +150,8 @@ topic and source image jobs remain. Sponsored articles are unpublished before th
 removed; clear reader response caches and rebuild the search index before starting the older
 runtime. Retain a database backup if partnership data must survive a rollback. No production rollout
 is implied by committing the migration.
+
+## Daily must read browser push
+
+Revision `0025` adds daily Must Read browser push after partnership revision `0024`.
+Apply it before starting this feature. Existing source-logo and partnership migrations remain unchanged.

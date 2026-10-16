@@ -23,6 +23,7 @@ from devfeed_core.models import (
     ResearchVerificationJob,
     SourceEnrichmentJob,
     TopicAnalysisJob,
+    WebPushDelivery,
 )
 
 Job = (
@@ -34,9 +35,10 @@ Job = (
     | TopicAnalysisJob
     | ResearchVerificationJob
     | NotificationDelivery
+    | WebPushDelivery
 )
 SolverJob = ArticleEnrichmentJob | ArticleImageJob | SourceEnrichmentJob
-PipelineKind = JobKind | Literal["research-verification"]
+PipelineKind = JobKind | Literal["research-verification", "web-push"]
 
 
 @dataclass(frozen=True)
@@ -144,6 +146,14 @@ JOB_DEFINITIONS = MappingProxyType(
                 "devfeed_notifications.delivery.deliver_notification",
                 "notifications",
                 "notification",
+            ),
+            JobDefinition(
+                "web-push",
+                WebPushDelivery,
+                "devfeed_notifications.web_push.deliver_web_push",
+                "notifications",
+                "web_push",
+                admin_visible=False,
             ),
         )
     }

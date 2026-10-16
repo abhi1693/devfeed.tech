@@ -1606,6 +1606,110 @@
         "title": "PublicUserProfile",
         "type": "object"
       },
+      "PushAuthorization": {
+        "properties": {
+          "authorized": {
+            "title": "Authorized",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "authorized"
+        ],
+        "title": "PushAuthorization",
+        "type": "object"
+      },
+      "PushConfig": {
+        "properties": {
+          "delivery_hour": {
+            "title": "Delivery Hour",
+            "type": "integer"
+          },
+          "delivery_timezone": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Delivery Timezone"
+          },
+          "enabled": {
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "public_key": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Public Key"
+          }
+        },
+        "required": [
+          "enabled",
+          "public_key",
+          "delivery_hour",
+          "delivery_timezone"
+        ],
+        "title": "PushConfig",
+        "type": "object"
+      },
+      "PushReceipt": {
+        "additionalProperties": false,
+        "properties": {
+          "action": {
+            "enum": [
+              "displayed",
+              "clicked",
+              "opened"
+            ],
+            "title": "Action",
+            "type": "string"
+          },
+          "notification_id": {
+            "format": "uuid",
+            "title": "Notification Id",
+            "type": "string"
+          },
+          "subscription_id": {
+            "format": "uuid",
+            "title": "Subscription Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "notification_id",
+          "subscription_id",
+          "action"
+        ],
+        "title": "PushReceipt",
+        "type": "object"
+      },
+      "PushReceiptSession": {
+        "properties": {
+          "csrf_token": {
+            "title": "Csrf Token",
+            "type": "string"
+          },
+          "user_id": {
+            "title": "User Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "user_id",
+          "csrf_token"
+        ],
+        "title": "PushReceiptSession",
+        "type": "object"
+      },
       "ReadingLeaderboard": {
         "properties": {
           "longest_streak": {
@@ -2015,6 +2119,137 @@
         ],
         "title": "SourceType",
         "type": "string"
+      },
+      "SubscriptionInput": {
+        "additionalProperties": false,
+        "properties": {
+          "endpoint": {
+            "maxLength": 2048,
+            "minLength": 1,
+            "title": "Endpoint",
+            "type": "string"
+          },
+          "keys": {
+            "$ref": "#/components/schemas/SubscriptionKeys"
+          },
+          "timezone": {
+            "maxLength": 100,
+            "minLength": 1,
+            "title": "Timezone",
+            "type": "string"
+          }
+        },
+        "required": [
+          "endpoint",
+          "keys",
+          "timezone"
+        ],
+        "title": "SubscriptionInput",
+        "type": "object"
+      },
+      "SubscriptionKeys": {
+        "additionalProperties": false,
+        "properties": {
+          "auth": {
+            "maxLength": 100,
+            "minLength": 1,
+            "title": "Auth",
+            "type": "string"
+          },
+          "p256dh": {
+            "maxLength": 100,
+            "minLength": 1,
+            "title": "P256Dh",
+            "type": "string"
+          }
+        },
+        "required": [
+          "p256dh",
+          "auth"
+        ],
+        "title": "SubscriptionKeys",
+        "type": "object"
+      },
+      "SubscriptionState": {
+        "properties": {
+          "consent_id": {
+            "format": "uuid",
+            "title": "Consent Id",
+            "type": "string"
+          },
+          "enabled": {
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "timezone": {
+            "title": "Timezone",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "consent_id",
+          "enabled",
+          "timezone"
+        ],
+        "title": "SubscriptionState",
+        "type": "object"
+      },
+      "SubscriptionSummary": {
+        "properties": {
+          "consent_id": {
+            "format": "uuid",
+            "title": "Consent Id",
+            "type": "string"
+          },
+          "enabled": {
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "endpoint_hash": {
+            "title": "Endpoint Hash",
+            "type": "string"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "timezone": {
+            "title": "Timezone",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "consent_id",
+          "enabled",
+          "timezone",
+          "endpoint_hash"
+        ],
+        "title": "SubscriptionSummary",
+        "type": "object"
+      },
+      "Subscriptions": {
+        "properties": {
+          "subscriptions": {
+            "items": {
+              "$ref": "#/components/schemas/SubscriptionSummary"
+            },
+            "title": "Subscriptions",
+            "type": "array"
+          }
+        },
+        "required": [
+          "subscriptions"
+        ],
+        "title": "Subscriptions",
+        "type": "object"
       },
       "SuggestionReceipt": {
         "properties": {
@@ -4615,6 +4850,558 @@
           }
         ],
         "summary": "Config",
+        "tags": [
+          "user-notifications"
+        ],
+        "x-devfeed-gateway": {
+          "bodyLimit": 1000000,
+          "bodyTimeoutMs": 2000,
+          "cookiePolicy": "reader",
+          "extension": {
+            "cacheControl": null,
+            "credentials": "include",
+            "requestHeaders": [
+              "Content-Type",
+              "X-CSRF-Token",
+              "If-None-Match"
+            ],
+            "timeoutMs": 15000
+          },
+          "handler": "forward",
+          "upstreamTimeoutMs": 45000
+        }
+      }
+    },
+    "/v1/user/notifications/push/authorization": {
+      "get": {
+        "description": "Check queued display against live session/consent without recording activity.",
+        "operationId": "authorization_v1_user_notifications_push_authorization_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "subscription_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Subscription Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "notification_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Notification Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PushAuthorization"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Request validation failed"
+          },
+          "4XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Invalid or unauthorized request"
+          },
+          "5XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service or dependency unavailable"
+          }
+        },
+        "security": [
+          {
+            "APIKeyCookie": []
+          }
+        ],
+        "summary": "Authorization",
+        "tags": [
+          "user-notifications"
+        ],
+        "x-devfeed-gateway": {
+          "bodyLimit": 1000000,
+          "bodyTimeoutMs": 2000,
+          "cookiePolicy": "reader",
+          "extension": {
+            "cacheControl": null,
+            "credentials": "include",
+            "requestHeaders": [
+              "Content-Type",
+              "X-CSRF-Token",
+              "If-None-Match"
+            ],
+            "timeoutMs": 15000
+          },
+          "handler": "forward",
+          "upstreamTimeoutMs": 45000
+        }
+      }
+    },
+    "/v1/user/notifications/push/config": {
+      "get": {
+        "operationId": "config_v1_user_notifications_push_config_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PushConfig"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Request validation failed"
+          },
+          "4XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Invalid or unauthorized request"
+          },
+          "5XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service or dependency unavailable"
+          }
+        },
+        "security": [
+          {
+            "APIKeyCookie": []
+          }
+        ],
+        "summary": "Config",
+        "tags": [
+          "user-notifications"
+        ],
+        "x-devfeed-gateway": {
+          "bodyLimit": 1000000,
+          "bodyTimeoutMs": 2000,
+          "cookiePolicy": "reader",
+          "extension": {
+            "cacheControl": null,
+            "credentials": "include",
+            "requestHeaders": [
+              "Content-Type",
+              "X-CSRF-Token",
+              "If-None-Match"
+            ],
+            "timeoutMs": 15000
+          },
+          "handler": "forward",
+          "upstreamTimeoutMs": 45000
+        }
+      }
+    },
+    "/v1/user/notifications/push/receipt-session": {
+      "get": {
+        "description": "Minimal CSRF bootstrap without idle renewal or account activity recording.",
+        "operationId": "receipt_session_v1_user_notifications_push_receipt_session_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PushReceiptSession"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Request validation failed"
+          },
+          "4XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Invalid or unauthorized request"
+          },
+          "5XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service or dependency unavailable"
+          }
+        },
+        "security": [
+          {
+            "APIKeyCookie": []
+          }
+        ],
+        "summary": "Receipt Session",
+        "tags": [
+          "user-notifications"
+        ],
+        "x-devfeed-gateway": {
+          "bodyLimit": 1000000,
+          "bodyTimeoutMs": 2000,
+          "cookiePolicy": "reader",
+          "extension": {
+            "cacheControl": null,
+            "credentials": "include",
+            "requestHeaders": [
+              "Content-Type",
+              "X-CSRF-Token",
+              "If-None-Match"
+            ],
+            "timeoutMs": 15000
+          },
+          "handler": "forward",
+          "upstreamTimeoutMs": 45000
+        }
+      }
+    },
+    "/v1/user/notifications/push/receipts": {
+      "post": {
+        "description": "Acknowledge only this cookie session's attempted notification and consent period.",
+        "operationId": "record_receipt_v1_user_notifications_push_receipts_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PushReceipt"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Request validation failed"
+          },
+          "4XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Invalid or unauthorized request"
+          },
+          "5XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service or dependency unavailable"
+          }
+        },
+        "security": [
+          {
+            "APIKeyCookie": []
+          }
+        ],
+        "summary": "Record Receipt",
+        "tags": [
+          "user-notifications"
+        ],
+        "x-devfeed-gateway": {
+          "bodyLimit": 1000000,
+          "bodyTimeoutMs": 2000,
+          "cookiePolicy": "reader",
+          "extension": {
+            "cacheControl": null,
+            "credentials": "include",
+            "requestHeaders": [
+              "Content-Type",
+              "X-CSRF-Token",
+              "If-None-Match"
+            ],
+            "timeoutMs": 15000
+          },
+          "handler": "forward",
+          "upstreamTimeoutMs": 45000
+        }
+      }
+    },
+    "/v1/user/notifications/push/subscriptions": {
+      "get": {
+        "operationId": "subscriptions_v1_user_notifications_push_subscriptions_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Subscriptions"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Request validation failed"
+          },
+          "4XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Invalid or unauthorized request"
+          },
+          "5XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service or dependency unavailable"
+          }
+        },
+        "security": [
+          {
+            "APIKeyCookie": []
+          }
+        ],
+        "summary": "Subscriptions",
+        "tags": [
+          "user-notifications"
+        ],
+        "x-devfeed-gateway": {
+          "bodyLimit": 1000000,
+          "bodyTimeoutMs": 2000,
+          "cookiePolicy": "reader",
+          "extension": {
+            "cacheControl": null,
+            "credentials": "include",
+            "requestHeaders": [
+              "Content-Type",
+              "X-CSRF-Token",
+              "If-None-Match"
+            ],
+            "timeoutMs": 15000
+          },
+          "handler": "forward",
+          "upstreamTimeoutMs": 45000
+        }
+      },
+      "post": {
+        "operationId": "subscribe_v1_user_notifications_push_subscriptions_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SubscriptionInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SubscriptionState"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Request validation failed"
+          },
+          "4XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Invalid or unauthorized request"
+          },
+          "5XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service or dependency unavailable"
+          }
+        },
+        "security": [
+          {
+            "APIKeyCookie": []
+          }
+        ],
+        "summary": "Subscribe",
+        "tags": [
+          "user-notifications"
+        ],
+        "x-devfeed-gateway": {
+          "bodyLimit": 1000000,
+          "bodyTimeoutMs": 2000,
+          "cookiePolicy": "reader",
+          "extension": {
+            "cacheControl": null,
+            "credentials": "include",
+            "requestHeaders": [
+              "Content-Type",
+              "X-CSRF-Token",
+              "If-None-Match"
+            ],
+            "timeoutMs": 15000
+          },
+          "handler": "forward",
+          "upstreamTimeoutMs": 45000
+        }
+      }
+    },
+    "/v1/user/notifications/push/subscriptions/{identifier}": {
+      "delete": {
+        "operationId": "unsubscribe_v1_user_notifications_push_subscriptions__identifier__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "identifier",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Identifier",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Request validation failed"
+          },
+          "4XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Invalid or unauthorized request"
+          },
+          "5XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service or dependency unavailable"
+          }
+        },
+        "security": [
+          {
+            "APIKeyCookie": []
+          }
+        ],
+        "summary": "Unsubscribe",
         "tags": [
           "user-notifications"
         ],
@@ -7638,6 +8425,177 @@
       "path": "/v1/user/notifications/chimely/v1/inbox/broadcasts/{broadcast_id}/unarchive",
       "policy": {
         "bodyLimit": 16384,
+        "bodyTimeoutMs": 2000,
+        "cookiePolicy": "reader",
+        "extension": {
+          "cacheControl": null,
+          "credentials": "include",
+          "requestHeaders": [
+            "Content-Type",
+            "X-CSRF-Token",
+            "If-None-Match"
+          ],
+          "timeoutMs": 15000
+        },
+        "handler": "forward",
+        "upstreamTimeoutMs": 45000
+      }
+    },
+    {
+      "method": "GET",
+      "operationId": "receipt_session_v1_user_notifications_push_receipt_session_get",
+      "parameters": [],
+      "path": "/v1/user/notifications/push/receipt-session",
+      "policy": {
+        "bodyLimit": 1000000,
+        "bodyTimeoutMs": 2000,
+        "cookiePolicy": "reader",
+        "extension": {
+          "cacheControl": null,
+          "credentials": "include",
+          "requestHeaders": [
+            "Content-Type",
+            "X-CSRF-Token",
+            "If-None-Match"
+          ],
+          "timeoutMs": 15000
+        },
+        "handler": "forward",
+        "upstreamTimeoutMs": 45000
+      }
+    },
+    {
+      "method": "GET",
+      "operationId": "authorization_v1_user_notifications_push_authorization_get",
+      "parameters": [],
+      "path": "/v1/user/notifications/push/authorization",
+      "policy": {
+        "bodyLimit": 1000000,
+        "bodyTimeoutMs": 2000,
+        "cookiePolicy": "reader",
+        "extension": {
+          "cacheControl": null,
+          "credentials": "include",
+          "requestHeaders": [
+            "Content-Type",
+            "X-CSRF-Token",
+            "If-None-Match"
+          ],
+          "timeoutMs": 15000
+        },
+        "handler": "forward",
+        "upstreamTimeoutMs": 45000
+      }
+    },
+    {
+      "method": "POST",
+      "operationId": "record_receipt_v1_user_notifications_push_receipts_post",
+      "parameters": [],
+      "path": "/v1/user/notifications/push/receipts",
+      "policy": {
+        "bodyLimit": 1000000,
+        "bodyTimeoutMs": 2000,
+        "cookiePolicy": "reader",
+        "extension": {
+          "cacheControl": null,
+          "credentials": "include",
+          "requestHeaders": [
+            "Content-Type",
+            "X-CSRF-Token",
+            "If-None-Match"
+          ],
+          "timeoutMs": 15000
+        },
+        "handler": "forward",
+        "upstreamTimeoutMs": 45000
+      }
+    },
+    {
+      "method": "GET",
+      "operationId": "config_v1_user_notifications_push_config_get",
+      "parameters": [],
+      "path": "/v1/user/notifications/push/config",
+      "policy": {
+        "bodyLimit": 1000000,
+        "bodyTimeoutMs": 2000,
+        "cookiePolicy": "reader",
+        "extension": {
+          "cacheControl": null,
+          "credentials": "include",
+          "requestHeaders": [
+            "Content-Type",
+            "X-CSRF-Token",
+            "If-None-Match"
+          ],
+          "timeoutMs": 15000
+        },
+        "handler": "forward",
+        "upstreamTimeoutMs": 45000
+      }
+    },
+    {
+      "method": "GET",
+      "operationId": "subscriptions_v1_user_notifications_push_subscriptions_get",
+      "parameters": [],
+      "path": "/v1/user/notifications/push/subscriptions",
+      "policy": {
+        "bodyLimit": 1000000,
+        "bodyTimeoutMs": 2000,
+        "cookiePolicy": "reader",
+        "extension": {
+          "cacheControl": null,
+          "credentials": "include",
+          "requestHeaders": [
+            "Content-Type",
+            "X-CSRF-Token",
+            "If-None-Match"
+          ],
+          "timeoutMs": 15000
+        },
+        "handler": "forward",
+        "upstreamTimeoutMs": 45000
+      }
+    },
+    {
+      "method": "POST",
+      "operationId": "subscribe_v1_user_notifications_push_subscriptions_post",
+      "parameters": [],
+      "path": "/v1/user/notifications/push/subscriptions",
+      "policy": {
+        "bodyLimit": 1000000,
+        "bodyTimeoutMs": 2000,
+        "cookiePolicy": "reader",
+        "extension": {
+          "cacheControl": null,
+          "credentials": "include",
+          "requestHeaders": [
+            "Content-Type",
+            "X-CSRF-Token",
+            "If-None-Match"
+          ],
+          "timeoutMs": 15000
+        },
+        "handler": "forward",
+        "upstreamTimeoutMs": 45000
+      }
+    },
+    {
+      "method": "DELETE",
+      "operationId": "unsubscribe_v1_user_notifications_push_subscriptions__identifier__delete",
+      "parameters": [
+        {
+          "converter": "str",
+          "name": "identifier",
+          "schema": {
+            "format": "uuid",
+            "title": "Identifier",
+            "type": "string"
+          }
+        }
+      ],
+      "path": "/v1/user/notifications/push/subscriptions/{identifier}",
+      "policy": {
+        "bodyLimit": 1000000,
         "bodyTimeoutMs": 2000,
         "cookiePolicy": "reader",
         "extension": {

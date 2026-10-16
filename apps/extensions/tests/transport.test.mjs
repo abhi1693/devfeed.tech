@@ -28,6 +28,7 @@ const params = {
   topic_id: "22222222-2222-4222-8222-222222222222",
   source_id: "33333333-3333-4333-8333-333333333333",
   grant_id: "44444444-4444-4444-8444-444444444444",
+  identifier: "55555555-5555-4555-8555-555555555555",
   request_id: "opaque-request-id",
   username: "reader_1",
   slug: "reader-parity",
@@ -108,11 +109,11 @@ function resource(operation) {
 }
 
 test("generated extension operations declare policies and omit direct OAuth exchange operations", () => {
-  assert.equal(operations.length, 73);
-  assert.equal(new Set(operations.map((operation) => operation.operationId)).size, 73);
+  assert.equal(operations.length, 80);
+  assert.equal(new Set(operations.map((operation) => operation.operationId)).size, 80);
   assert.equal(
     new Set(operations.map((operation) => `${operation.method} ${operation.path}`)).size,
-    73,
+    80,
   );
   for (const operation of operations) {
     assert.ok(operation.policy.extension);

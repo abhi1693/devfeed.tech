@@ -1,6 +1,7 @@
 #!/bin/sh
-# Install locked dependency wheels; build only the selected first-party workspace sources.
+# Install locked dependencies; explicitly build the selected first-party workspace sources.
 set -eu
+bootstrap_scripts=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 bootstrap_project=$1
 shift
 bootstrap_editable=false
@@ -10,7 +11,7 @@ esac
 cd "$bootstrap_project"
 bootstrap_wheels=$(mktemp -d)
 trap 'rm -rf "$bootstrap_wheels"' EXIT
-uv sync --locked --no-install-workspace --no-build "$@"
+sh "$bootstrap_scripts/python-dependencies.sh" . "$@"
 uv export --locked --no-editable --no-hashes --quiet \
   --output-file "$bootstrap_wheels/workspace.txt" "$@"
 while IFS= read -r bootstrap_source; do

@@ -113,6 +113,18 @@ def require_browser_user(
     request: Request,
     _cookie: Annotated[str | None, Security(session_cookie)] = None,
 ) -> UserIdentity:
+    return _browser_identity(request, record_activity=True)
+
+
+def require_browser_analytics_user(
+    request: Request,
+    _cookie: Annotated[str | None, Security(session_cookie)] = None,
+) -> UserIdentity:
+    """Keep cookie/CSRF checks without treating background receipts as account activity."""
+    return _browser_identity(request, record_activity=False)
+
+
+def _browser_identity(request: Request, *, record_activity: bool) -> UserIdentity:
     require_config()
     settings = get_settings()
     token = request.cookies.get(oidc.cookie_name(settings, "session"), "")
@@ -143,7 +155,8 @@ def require_browser_user(
             or not hmac.compare_digest(supplied, user.csrf_token)
         ):
             raise HTTPException(403, "Invalid request origin or CSRF token")
-    _record_activity(user)
+    if record_activity:
+        _record_activity(user)
     return user
 
 
@@ -161,6 +174,7 @@ def _record_activity(user: UserIdentity) -> None:
 
 User = Annotated[UserIdentity, Depends(require_user)]
 BrowserUser = Annotated[UserIdentity, Depends(require_browser_user)]
+BrowserAnalyticsUser = Annotated[UserIdentity, Depends(require_browser_analytics_user)]
 
 
 @router.get(
@@ -256,7 +270,10 @@ def callback(
         # unbound/replayed callback: that would allow forced logout by URL.
         previous = request.cookies.get(oidc.cookie_name(settings, "session"), "")
         if TOKEN.fullmatch(previous):
+            from devfeed_user_api.web_push import revoke_browser_push
+
             redis.delete(key("session", previous))
+            revoke_browser_push(previous)
         code = oidc.validate_callback_response(
             code=params.code,
             provider_error=params.error,
@@ -385,8 +402,11 @@ def logout(
                     or not hmac.compare_digest(supplied, expected)
                 ):
                     raise HTTPException(403, "Invalid CSRF token")
+            from devfeed_user_api.web_push import revoke_browser_push
+
+            revoke_browser_push(token)
             redis.delete(session_key)
-        except RedisError as exc:
+        except (RedisError, SQLAlchemyError) as exc:
             # Keep the browser session until revocation succeeds; do not claim
             # success while a replayable server-side session might still exist.
             raise HTTPException(503, "Could not revoke session; retry sign-out") from exc

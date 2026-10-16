@@ -10,6 +10,7 @@ import { userRequest, type NotificationDisplay } from "@/lib/user";
 import { createInboxClient, type InboxConfig } from "@/lib/inbox";
 import { AccountGate, useUser } from "./user-account";
 import { UserSettingsLayout } from "./user-settings-layout";
+import { BrowserPushSettings } from "./browser-push-settings";
 import {
   notificationDefaults,
   topicNotificationCategory,
@@ -28,6 +29,7 @@ export function NotificationSettings() {
   return (
     <AccountGate returnTo="/settings/notifications">
       <UserSettingsLayout section="notifications">
+        <BrowserPushSettings />
         <NotificationContent />
       </UserSettingsLayout>
     </AccountGate>
