@@ -1,3 +1,4 @@
+import "../app/styles/settings.css";
 import Link from "@/components/reader-link";
 import { Bell, Hash, LayoutGrid, Palette, Rss, UserRound } from "lucide-react";
 import {

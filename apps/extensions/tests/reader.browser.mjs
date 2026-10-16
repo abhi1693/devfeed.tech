@@ -1,3 +1,4 @@
+import { checkRouteStyles } from "../../../scripts/testing/route-styles.mjs";
 import { readerDomCatalogFixture, checkReaderDom } from "../../../scripts/testing/reader-dom.mjs";
 import { checkGuestDocument } from "../../../scripts/testing/document-latency.mjs";
 import {
@@ -979,6 +980,10 @@ test(
   },
 );
 
+test("route styles are present in built new tabs", { timeout: 180000 }, async (t) => {
+  const { page, pathFor } = await readerFixture(t);
+  await checkRouteStyles(page, pathFor, true);
+});
 test(
   "reader DOM stays bounded per card while retaining long catalogs in built new tabs",
   { timeout: 180000 },

@@ -1,3 +1,4 @@
+import { checkRouteStyles } from "../../../../scripts/testing/route-styles.mjs";
 import {
   checkGuestDocument,
   renderReadFixture,
@@ -1309,6 +1310,10 @@ test("reader journey works at desktop and mobile sizes", { timeout: 360000 }, as
   await runJourney();
 });
 
+test("route styles load before reader surfaces paint", { timeout: 180000 }, async (t) => {
+  const { browser, origin } = await createReaderFixture(t);
+  await withReaderPage(browser, (page) => checkRouteStyles(page, (path) => origin + path));
+});
 test(
   "reader DOM stays bounded per card while retaining long catalogs",
   { timeout: 180000 },

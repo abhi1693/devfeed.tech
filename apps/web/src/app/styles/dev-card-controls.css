@@ -1,0 +1,44 @@
+.dev-card-motion-options,
+.dev-card-preview-options {
+  display: inline-flex;
+  flex-shrink: 0;
+  padding: 3px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-control);
+  background: var(--muted);
+  gap: 3px;
+}
+.dev-card-motion-options button,
+.dev-card-preview-options button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 34px;
+  padding: 6px 12px;
+  border: 0;
+  border-radius: calc(var(--radius-control) - 2px);
+  background: transparent;
+  color: var(--muted-foreground);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+}
+.dev-card-motion-options button[data-state="checked"],
+.dev-card-preview-options button[data-state="checked"] {
+  background: var(--card);
+  color: var(--foreground);
+  box-shadow: var(--shadow-xs);
+}
+@media (max-width: 639px) {
+  .dev-card-motion-options,
+  .dev-card-preview-options {
+    width: 100%;
+  }
+  .dev-card-motion-options button,
+  .dev-card-preview-options button {
+    flex: 1;
+    min-height: 40px;
+  }
+}

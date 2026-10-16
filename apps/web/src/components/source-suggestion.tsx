@@ -1,5 +1,7 @@
 "use client";
 
+import "../app/styles/settings.css";
+
 import { readerLoginLink } from "@/lib/reader-runtime";
 import Link from "@/components/reader-link";
 import { useEffect, useRef, useState } from "react";

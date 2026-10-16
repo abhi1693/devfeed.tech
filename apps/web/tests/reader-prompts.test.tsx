@@ -70,6 +70,8 @@ afterEach(() => {
 });
 
 async function advance(ms = 1500) {
+  // Resolve the optional dialog's import before advancing its fake-clock timing effects.
+  await act(() => vi.dynamicImportSettled());
   await act(() => vi.advanceTimersByTimeAsync(ms));
 }
 function invites({ signup = true, requested = false, onboarding = false } = {}) {

@@ -1,5 +1,7 @@
 "use client";
 
+import "../app/styles/discovery.css";
+
 import Link from "@/components/reader-link";
 import { readerRequest } from "@/lib/reader-runtime";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
