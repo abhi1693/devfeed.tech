@@ -23,11 +23,11 @@ export async function checkThumbnailSizing(page, href, sidebar = "collapsed") {
     if (request.resourceType() === "image" && /\/thumbnails\//.test(request.url()))
       requests.push(request.url());
   };
-  page.on("request", record);
   await page.goto("about:blank");
   const session = await page.context().newCDPSession(page);
   await session.send("Network.clearBrowserCache");
   await session.detach();
+  page.on("request", record);
   await page.goto(href);
   await page.locator(".article-card .card-image img").first().waitFor();
   if (sidebar === "expanded" && page.viewportSize().width > 800) {

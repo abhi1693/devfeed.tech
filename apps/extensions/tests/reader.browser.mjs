@@ -131,7 +131,7 @@ async function readerFixture(t, imageProfile) {
     page.on("pageerror", (error) => errors.push(error.message));
     page.on("console", (message) => {
       if (message.type() === "error" && /Content Security Policy|Refused to/.test(message.text()))
-        errors.push(message.text());
+        errors.push({ message: message.text(), location: message.location() });
     });
   });
   const state = {
