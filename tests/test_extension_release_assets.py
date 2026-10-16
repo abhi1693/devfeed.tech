@@ -53,7 +53,7 @@ def release(tmp_path, monkeypatch):
             assert not state["exists"]
             state["exists"] = True
         elif command[:3] == ("gh", "release", "upload"):
-            for filename in command[4:]:
+            for filename in command[command.index("--") + 2 :]:
                 path = Path(filename)
                 assert path.name not in state["remote"]
                 state["remote"][path.name] = path.read_bytes()
@@ -92,6 +92,28 @@ def test_missing_packages_are_uploaded_without_replacing_assets(release):
     assets.sync_packages("v1.2.3", draft_only=True)
     assert release["remote"] == {path.name: path.read_bytes() for path in assets.packages()}
     assert not any("--clobber" in command for command in release["commands"])
+
+
+@pytest.mark.parametrize("tag", ["--repo=other/project", "$(touch unexpected);v1.2.3"])
+def test_release_tags_are_literal_operands_for_views_downloads_and_uploads(release, tag):
+    # Exercise both existing downloads and a missing package upload.
+    package = assets.packages()[0]
+    release["remote"][package.name] = package.read_bytes()
+    assets.sync_packages(tag, draft_only=True)
+
+    for command in release["commands"]:
+        separator = command.index("--")
+        assert command[separator + 1] == tag
+        assert tag not in command[:separator]
+
+
+def test_draft_creation_keeps_an_option_shaped_tag_as_an_operand(release):
+    release["exists"] = False
+    tag = "--repo=other/project"
+    assets.prepare_draft(tag)
+    creation = next(command for command in release["commands"] if command[2] == "create")
+    assert creation[-2:] == ("--", tag)
+    assert creation[creation.index("--title") + 1] == tag
 
 
 def test_changed_package_payload_cannot_be_attached_to_existing_release(release):
@@ -155,6 +177,9 @@ def test_bundle_is_verified_for_both_packages_then_attached_without_overwriting(
     assets.attach_attestation("v1.2.3", bundle)
     verification = [c for c in release["commands"] if c[:3] == ("gh", "attestation", "verify")]
     assert {c[3] for c in verification} == {str(p) for p in assets.packages()}
+    for command in release["commands"]:
+        if command[:2] == ("gh", "release"):
+            assert command[command.index("--") + 1] == "v1.2.3"
     assert release["remote"] == {
         "devfeed-extensions-1.2.3-123-2.sigstore.json": bundle.read_bytes(),
         "devfeed-extensions-1.2.3-123-2.intoto.jsonl": (
