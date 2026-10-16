@@ -50,13 +50,17 @@ def main() -> None:
     parser.add_argument("--release-tag", required=True, help="Application release being checked")
     args = parser.parse_args()
 
-    changed = run(
-        "git", "diff", "--name-only", f"{args.base_tag}...{args.release_tag}"
-    ).splitlines()
+    # Resolve operands before constructing ranges/object paths. A caller's ref
+    # must never become a git option, even when it begins with a dash.
+    base = run("git", "rev-parse", "--verify", "--end-of-options", f"{args.base_tag}^{{commit}}")
+    release = run(
+        "git", "rev-parse", "--verify", "--end-of-options", f"{args.release_tag}^{{commit}}"
+    )
+    changed = run("git", "diff", "--name-only", f"{base}...{release}", "--").splitlines()
     relevant = [path for path in changed if extension_facing(path)]
     current = manifest_version(Path("apps/extensions/chrome/manifest.json").read_text())
     previous = manifest_version(
-        run("git", "show", f"{args.base_tag}:apps/extensions/chrome/manifest.json")
+        run("git", "show", f"{base}:apps/extensions/chrome/manifest.json", "--")
     )
 
     if version(current) < version(previous):
