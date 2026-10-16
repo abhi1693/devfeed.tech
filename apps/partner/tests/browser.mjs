@@ -1003,6 +1003,12 @@ async function checkPartnerSidebar(page) {
       expected,
     );
   }
+  // The layout effect marks hydration complete before this test mutates React-owned DOM.
+  await page.waitForFunction(() =>
+    Boolean(
+      document.getElementById("partner-sidebar")?.style.getPropertyValue("--sidebar-top-offset"),
+    ),
+  );
   await width(76);
   const initialBounds = [];
   for (const height of [1100, 600]) {
@@ -1049,7 +1055,7 @@ async function checkPartnerSidebar(page) {
   } finally {
     await page.evaluate(() => {
       window.scrollTo(0, 0);
-      document.querySelector('[data-sidebar-scroll-fixture="true"]').remove();
+      document.querySelector('[data-sidebar-scroll-fixture="true"]')?.remove();
     });
   }
   await page.setViewportSize({ width: 1440, height: 1100 });

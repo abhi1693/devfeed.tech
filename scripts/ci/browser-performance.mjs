@@ -7,20 +7,14 @@ import { appendFile, cp, mkdir, readFile, readdir, rm, writeFile } from "node:fs
 import { fileURLToPath } from "node:url";
 import { build } from "esbuild";
 import { chromium } from "playwright";
+import { browserPerformanceOptions } from "./browser-performance-dom-options.mjs";
 import { lighthouseConfig, readerPaths, runs } from "./browser-performance-config.mjs";
 import { checkMeasurements, measurementSummary } from "./browser-performance-report.mjs";
 import { applyArticleSnapshot, publicPlacementResponse } from "./browser-performance-fixture.mjs";
 
 const root = fileURLToPath(new URL("../../", import.meta.url));
-const articleEntryPhase = process.argv
-  .find((arg) => arg.startsWith("--article-entry="))
-  ?.split("=")[1];
-if (articleEntryPhase && !["before", "after"].includes(articleEntryPhase))
-  throw new Error("Article entry phase must be before or after");
-const measurementRuns = articleEntryPhase ? 5 : runs;
-const output = articleEntryPhase
-  ? `${root}/reports/article-entry/${articleEntryPhase}`
-  : `${root}/reports/browser-performance`;
+const { domPhase, articleEntryPhase, measurementRuns, output, skipBuild } =
+  browserPerformanceOptions(process.argv.slice(2), root, runs);
 const imageDirectory = `${root}/apps/web/public/_browser-budgets`;
 const sharp = createRequire(`${root}/apps/web/package.json`)("sharp");
 // Keep local credentials and production telemetry out of fixture builds and servers.
@@ -313,6 +307,12 @@ async function audit() {
   next.stderr.on("data", (chunk) => (logs += chunk));
   try {
     await waitForReady(next, origin);
+    if (domPhase) {
+      const { auditReaderDom } = await import("./browser-performance-reader-dom.mjs");
+      await auditReaderDom(origin, output);
+      assert.deepEqual([...unknown], [], "Some API fixtures are missing");
+      return;
+    }
     await checkPageContent(urls);
     assert.deepEqual([...unknown], [], "Some API fixtures are missing");
     const config = lighthouseConfig(urls, chromium.executablePath(), `${destination}/html`);
@@ -373,7 +373,7 @@ await mkdir(output, { recursive: true });
 await writeFile(`${output}/summary.md`, "# Browser budgets\n\n");
 let failed = false;
 try {
-  await run("npm", ["run", "web:build"]);
+  if (!skipBuild) await run("npm", ["run", "web:build"]);
   await audit();
 } catch (error) {
   failed = true;

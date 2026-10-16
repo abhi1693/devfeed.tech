@@ -12,18 +12,16 @@ export async function checkArticleGrid(page, output) {
     for (let index = 0; index < 12; index++) {
       const clone = card.cloneNode(true);
       clone.dataset.gridFixture = "true";
-      clone.querySelector("h2 a > span").textContent =
+      clone.querySelector("h2 a").textContent =
         "A long article title about building readable interfaces ".repeat(5);
       clone.querySelectorAll(".card-tags a").forEach((tag) => {
         tag.textContent = "#AnUnbrokenTopicNameThatMustNeverOverflowTheCard";
       });
       const source = clone.querySelector(".card-source > a, .card-source > span:last-child");
       if (source) source.textContent = "A very long publisher name that needs truncation";
-      clone
-        .querySelectorAll(".article-engagement .heart-button > span:last-child")
-        .forEach((count) => {
-          if (!count.querySelector("svg")) count.textContent = "999.9K";
-        });
+      clone.querySelectorAll(".article-engagement .heart-button").forEach((button) => {
+        if (button.lastChild?.nodeType === Node.TEXT_NODE) button.lastChild.textContent = "999.9K";
+      });
       const opens = clone.querySelector(".open-count");
       if (opens?.lastChild?.nodeType === Node.TEXT_NODE) opens.lastChild.textContent = "999.9K";
       grid.append(clone);
@@ -74,7 +72,7 @@ export async function checkArticleGrid(page, output) {
                   titleLineHeight: Number.parseFloat(
                     getComputedStyle(card.querySelector("h2")).lineHeight,
                   ),
-                  titleHeight: card.querySelector("h2 a > span").getBoundingClientRect().height,
+                  titleHeight: card.querySelector("h2 a").getBoundingClientRect().height,
                   bookmarkFits:
                     bookmark.right <= rect.right &&
                     bookmark.left >= rect.left &&

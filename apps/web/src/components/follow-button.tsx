@@ -1,5 +1,6 @@
 import { readerLoginLink } from "@/lib/reader-runtime";
-import { Check, LoaderCircle, Plus } from "lucide-react";
+import { Check, LoaderCircle } from "lucide-react";
+import { CardPlus as Plus } from "./reader-card-icons";
 import { MotionIcon } from "./motion-icon";
 
 export function FollowButton({
