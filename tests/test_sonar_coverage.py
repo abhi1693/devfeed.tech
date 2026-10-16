@@ -1,11 +1,13 @@
 """Coverage import regressions for the Python shards and two frontend workspaces."""
 
 import importlib.util
+import runpy
 import subprocess
 import sys
 import xml.etree.ElementTree as ET
 from fnmatch import fnmatchcase
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from coverage import CoverageData
@@ -464,3 +466,48 @@ def test_prepare_imports_security_launcher_and_transport_coverage(tmp_path):
     assert all(
         (tmp_path / "reports/coverage" / suite / "coverage.db").is_file() for suite in PYTHON_SUITES
     )
+
+
+def test_cli_requires_security_measurements_when_requested(monkeypatch, capsys):
+    reports = ROOT / "reports/coverage"
+    baseline = {reports / suite / "coverage.db" for suite in PYTHON_SUITES} | {
+        reports / frontend / "lcov.info" for frontend in FRONTENDS
+    }
+    security_report = reports / "security/lcov.info"
+    original_is_file = Path.is_file
+    original_stat = Path.stat
+    original_open = Path.open
+
+    def is_file(path, *args, **kwargs):
+        if path in baseline:
+            return True
+        if path == security_report:
+            return False
+        return original_is_file(path, *args, **kwargs)
+
+    def stat(path, *args, **kwargs):
+        if path in baseline:
+            return SimpleNamespace(st_size=1)
+        return original_stat(path, *args, **kwargs)
+
+    def open_file(path, *args, **kwargs):
+        if path in baseline:
+            raise AssertionError(
+                "CLI opened a legacy report before rejecting missing security coverage"
+            )
+        return original_open(path, *args, **kwargs)
+
+    # The CLI must reject the absent security artifact before reading or writing
+    # real repository reports. All unrelated filesystem operations remain real.
+    monkeypatch.setattr(Path, "is_file", is_file)
+    monkeypatch.setattr(Path, "stat", stat)
+    monkeypatch.setattr(Path, "open", open_file)
+    for suite in ("BROWSER", "DAST", "MUTATION", "PROPERTY", "RECOVERY"):
+        monkeypatch.setenv(f"{suite}_COVERAGE_REQUIRED", "false")
+    monkeypatch.setenv("SECURITY_COVERAGE_REQUIRED", "true")
+
+    with pytest.raises(SystemExit) as error:
+        runpy.run_path(str(ROOT / "scripts/ci/sonar_coverage.py"), run_name="__main__")
+
+    assert error.value.code == 1
+    assert capsys.readouterr().err == f"Missing or empty coverage report: {security_report}\n"
