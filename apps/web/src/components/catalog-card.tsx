@@ -23,10 +23,10 @@ export function CatalogCard({
   return (
     <article className={`topic-card catalog-card${source ? " source-card" : ""}`}>
       <Link href={href} className={linkClassName}>
-        <div className="topic-card-heading">
+        <h2 className="topic-card-heading">
           <CatalogIcon url={logoUrl} variants={logoVariants} source={source} />
-          <h2>{name}</h2>
-        </div>
+          {name}
+        </h2>
         {description}
       </Link>
       {followAction}

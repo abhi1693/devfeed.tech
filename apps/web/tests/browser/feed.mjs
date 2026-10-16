@@ -113,6 +113,11 @@ import {
   onboardingSources,
 } from "../../../../scripts/testing/onboarding-topics.mjs";
 
+import {
+  readerDomCatalogFixture,
+  checkReaderDom,
+} from "../../../../scripts/testing/reader-dom.mjs";
+
 const root = fileURLToPath(new URL("../../../../", import.meta.url));
 async function createReaderFixture(t) {
   let app, browser, fixture, userFixture;
@@ -151,6 +156,7 @@ async function createReaderFixture(t) {
   const mustReadsFixture = dailyFixture(article);
   const readingFixture = readingStreakFixture();
   const mutationFixture = userMutationFixture({ articles: [article], topic });
+  const domCatalog = readerDomCatalogFixture();
   const routeFixture = readerRoutesFixture(article);
   const feedMode = feedModeFixture(article);
   const readerContext = readerContextFixture(article);
@@ -234,6 +240,11 @@ async function createReaderFixture(t) {
       );
       res.writeHead(status, { "Content-Type": "application/json" });
       res.end(JSON.stringify(json));
+      return;
+    }
+    if (domCatalog.handles(requestUrl)) {
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify(domCatalog.respond(requestUrl)));
       return;
     }
     routeFixture.record(requestUrl);
@@ -1128,6 +1139,7 @@ async function createReaderFixture(t) {
     routeFixture,
     mutationFixture,
     runJourney,
+    domCatalog,
     renderReads,
     setArticleFeedGate: (gate) => {
       articleFeedGate = gate;
@@ -1296,6 +1308,17 @@ test("reader journey works at desktop and mobile sizes", { timeout: 360000 }, as
   const { runJourney } = await createReaderFixture(t);
   await runJourney();
 });
+
+test(
+  "reader DOM stays bounded per card while retaining long catalogs",
+  { timeout: 180000 },
+  async (t) => {
+    const { browser, origin, domCatalog } = await createReaderFixture(t);
+    await withReaderPage(browser, (page) =>
+      checkReaderDom(page, (path) => origin + path, domCatalog, `${root}/reports/reader-dom/web`),
+    );
+  },
+);
 
 test(
   "guest document streams before results and render reads stay isolated",

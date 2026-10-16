@@ -1,3 +1,4 @@
+import { readerDomCatalogFixture, checkReaderDom } from "../../../scripts/testing/reader-dom.mjs";
 import { checkGuestDocument } from "../../../scripts/testing/document-latency.mjs";
 import {
   withManagedSourceLogo,
@@ -158,6 +159,7 @@ async function readerFixture(t) {
     articles: feedItems,
     topic: { ...article.topics[0], id: "ABCDEF00-0000-4000-8000-000000000001" },
   });
+  const domCatalog = readerDomCatalogFixture();
   const routeFixture = readerRoutesFixture(article);
   const feedMode = feedModeFixture(article);
   const readerContext = readerContextFixture(article);
@@ -198,6 +200,7 @@ async function readerFixture(t) {
           route.request().postData() ? route.request().postDataJSON() : undefined,
         ),
       );
+    if (domCatalog.handles(url)) return route.fulfill({ json: domCatalog.respond(url) });
     routeFixture.record(url);
     if (routeFixture.handles(url)) return route.fulfill(routeFixture.respond(url));
     const mutationPath = url.pathname.slice("/api".length);
@@ -399,6 +402,7 @@ async function readerFixture(t) {
     readerDestinations,
     loginDestinations,
     serverReads,
+    domCatalog,
     pathFor: (path) => readerBase + path,
   };
 }
@@ -972,6 +976,20 @@ test(
     state.engagementPagination = true;
     await checkEngagementPagination(page, newTab);
     state.engagementPagination = false;
+  },
+);
+
+test(
+  "reader DOM stays bounded per card while retaining long catalogs in built new tabs",
+  { timeout: 180000 },
+  async (t) => {
+    const { page, pathFor, domCatalog } = await readerFixture(t);
+    await checkReaderDom(
+      page,
+      pathFor,
+      domCatalog,
+      path.resolve(import.meta.dirname, `../../../reports/reader-dom/${browser}`),
+    );
   },
 );
 
