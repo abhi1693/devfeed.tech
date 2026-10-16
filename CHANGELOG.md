@@ -4,6 +4,13 @@ Application releases and Alembic schema revisions are separate identifiers.
 
 ## Unreleased
 
+### Fixes
+
+- Include visible avatar initials in account-menu labels for speech navigation on web, Chrome, and Edge.
+- Match notification-button labels to visible badge counts while preserving the exact number of new notifications.
+- Display terminal control sequences as plain text in CLI validation errors.
+- Keep unsupported resource-subscription capabilities out of public MCP discovery.
+
 ## 0.0.52 — 2026-10-11
 
 ### Enhancements

@@ -95,6 +95,9 @@ def test_mcp_initialize_and_discover_six_read_only_tools(mcp_client):
     )["result"]
     assert result["protocolVersion"] == "2025-11-25"
     assert result["serverInfo"]["name"] == "DevFeed"
+    resources = result["capabilities"].get("resources", {})
+    assert resources.get("subscribe", False) is False
+    assert resources.get("listChanged", False) is False
     tools = rpc(client, "tools/list")["result"]["tools"]
     assert {tool["name"] for tool in tools} == {
         "search",
@@ -109,6 +112,51 @@ def test_mcp_initialize_and_discover_six_read_only_tools(mcp_client):
         assert tool["annotations"]["destructiveHint"] is False
         assert tool["outputSchema"]["type"] == "object"
     assert not state.requests
+
+    # A stateless metadata/tool service must not open unsupported listeners.
+    unsupported = rpc(client, "subscriptions/listen")
+    assert unsupported["error"]["code"] == -32601
+
+
+def test_modern_stateless_discovery_has_no_subscription_capabilities(mcp_client):
+    client, state = mcp_client
+
+    def request(method, **params):
+        return client.post(
+            "/mcp",
+            headers={
+                **HEADERS,
+                "Mcp-Protocol-Version": "2026-07-28",
+                "Mcp-Method": method,
+            },
+            json={
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": method,
+                "params": {
+                    **params,
+                    "_meta": {
+                        "io.modelcontextprotocol/protocolVersion": "2026-07-28",
+                        "io.modelcontextprotocol/clientCapabilities": {},
+                    },
+                },
+            },
+        )
+
+    discovery = request("server/discover")
+    assert discovery.status_code == 200, discovery.text
+    capabilities = discovery.json()["result"]["capabilities"]
+    assert capabilities["resources"].get("subscribe", False) is False
+    assert capabilities["resources"].get("listChanged", False) is False
+    assert capabilities["tools"].get("listChanged", False) is False
+    tools = request("tools/list")
+    assert tools.status_code == 200 and len(tools.json()["result"]["tools"]) == 6
+    assert "mcp-session-id" not in tools.headers
+    assert not state.requests
+
+    unsupported = request("subscriptions/listen", notifications={"resourcesListChanged": True})
+    assert unsupported.status_code == 404, unsupported.text
+    assert unsupported.json()["error"]["code"] == -32601
 
 
 def test_article_projection_and_credentials_never_propagate(mcp_client):

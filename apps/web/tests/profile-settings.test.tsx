@@ -155,7 +155,7 @@ it("saves profile overrides with CSRF, updates the navbar and preserves managed 
   fireEvent.change(name, { target: { value: "Python Fan" } });
   fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
   await screen.findByText("Your profile is saved.");
-  expect(screen.getByRole("button", { name: "User menu: Python Fan" })).toBeTruthy();
+  expect(screen.getByRole("button", { name: "User menu: PF Python Fan" })).toBeTruthy();
   const [url, options] = fetcher.mock.calls.find(([, init]) => init?.method === "PUT")!;
   expect(url).toBe("/api/v1/user/settings/profile");
   expect(options?.headers).toEqual({
@@ -180,7 +180,7 @@ it("saves profile overrides with CSRF, updates the navbar and preserves managed 
       achievements: false,
     },
   });
-  fireEvent.keyDown(screen.getByRole("button", { name: "User menu: Python Fan" }), {
+  fireEvent.keyDown(screen.getByRole("button", { name: "User menu: PF Python Fan" }), {
     key: "ArrowDown",
   });
   expect(await screen.findByRole("menuitem", { name: "Your Dev Card" })).toHaveProperty(
@@ -217,7 +217,7 @@ it("retains unsaved edits on failure and discards back to the saved profile", as
   fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
   await screen.findByRole("alert");
   expect(name).toHaveProperty("value", "New name");
-  expect(screen.getByRole("button", { name: "User menu: Saved name" })).toBeTruthy();
+  expect(screen.getByRole("button", { name: "User menu: SN Saved name" })).toBeTruthy();
   fireEvent.click(screen.getByRole("button", { name: "Discard changes" }));
   expect(name).toHaveProperty("value", "Saved name");
 });

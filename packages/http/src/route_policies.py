@@ -100,7 +100,10 @@ class RuntimePolicyBinding:
         for context in iter_route_contexts(self.app.routes):
             # Native deferred includes dispatch Starlette routes through their
             # effective copies; APIRoute handles remain on the original object.
-            route = getattr(context, "starlette_route", None) or context.original_route
+            # FastAPI's RouteContext wraps that dispatch object separately from
+            # its original route and the metadata used for API route includes.
+            effective = context._effective_route
+            route = effective if isinstance(effective, BaseRoute) else context.original_route
             if isinstance(route, Mount):
                 child = route.app
                 while (

@@ -32,7 +32,7 @@ jobs:
     with:
       node-version: "24"
       python-version: "3.12"
-      uv-version: 0.12.10
+      uv-version: 0.13.1
       npm-audit: true
       python-audit: true
       python-all-packages: true

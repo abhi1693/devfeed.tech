@@ -1,6 +1,18 @@
 import { expect, it } from "vitest";
-import { avatarSource, avatarSrcSet } from "@/lib/avatar";
+import { avatarInitials, avatarSource, avatarSrcSet } from "@/lib/avatar";
 import type { AvatarVariant } from "@/lib/user";
+
+it.each([
+  [undefined, ""],
+  [null, ""],
+  ["  ", ""],
+  ["Reader", "R"],
+  ["  Reader   Middle\tProfile  ", "RP"],
+  ["Élodie 李", "É李"],
+  ["𠮷野 太郎", "𠮷太"],
+])("uses the same first and last Unicode initials for %j", (name, expected) => {
+  expect(avatarInitials(name)).toBe(expected);
+});
 
 it("selects small and profile-sized variants and preserves legacy URLs", () => {
   const variants = [32, 128, 256].map((width) => ({

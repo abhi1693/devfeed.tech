@@ -392,7 +392,7 @@ try {
     ),
     "Native EventSource receives the hint while the upstream response remains open",
   );
-  const bell = page.getByRole("button", { name: "Notifications (1 new)", exact: true });
+  const bell = page.getByRole("button", { name: "Notifications, 1 new", exact: true });
   await bell.waitFor();
   const seenResponse = page.waitForResponse(
     (response) =>

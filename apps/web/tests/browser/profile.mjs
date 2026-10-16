@@ -298,7 +298,7 @@ try {
     })),
   });
   await page.reload();
-  await page.getByRole("button", { name: "User menu: Maya Chen", exact: true }).waitFor();
+  await page.getByRole("button", { name: "User menu: MC Maya Chen", exact: true }).waitFor();
   await page.locator('.dev-card-preview svg image[data-technology-logo="kubernetes"]').waitFor();
   await page
     .locator('.dev-card-preview svg text[data-technology-fallback=".net"][visibility="visible"]')
@@ -322,7 +322,7 @@ try {
   for (const allowed of [true, false]) {
     profile.avatar_url = `${api}/avatar.png?cors=${allowed ? "yes" : "no"}`;
     await page.reload();
-    await page.getByRole("button", { name: "User menu: Maya Chen", exact: true }).click();
+    await page.getByRole("button", { name: "User menu: MC Maya Chen", exact: true }).click();
     await page.getByRole("menuitem", { name: "Your Dev Card", exact: true }).click();
     const card = page.getByRole("complementary", { name: "Dev card preview", exact: true });
     await card.locator("svg image[data-avatar]").waitFor();

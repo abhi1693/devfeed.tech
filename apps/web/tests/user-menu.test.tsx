@@ -5,7 +5,7 @@ import { UserMenu } from "@/components/user-menu";
 import type { UserProfile } from "@/lib/user";
 
 const state = vi.hoisted(() => ({
-  user: { name: "Reader", email: "reader@example.test" },
+  user: { name: "Reader" as string | null, email: "reader@example.test" as string | null },
   profile: null as UserProfile | null,
   profileUnavailable: false,
   signOut: vi.fn(),
@@ -15,6 +15,8 @@ afterEach(() => {
   cleanup();
   state.profile = null;
   state.profileUnavailable = false;
+  state.user.name = "Reader";
+  state.user.email = "reader@example.test";
 });
 
 const publicProfile: UserProfile = {
@@ -24,10 +26,30 @@ const publicProfile: UserProfile = {
   visibility: { public: true, location: false, stack: false, heatmap: false, achievements: false },
 };
 
+it("includes visible avatar initials and the full profile name in the account control", () => {
+  state.profile = { ...publicProfile, display_name: "Reader Profile" };
+  render(<UserMenu />);
+  const button = screen.getByRole("button", { name: "User menu: RP Reader Profile" });
+  expect(button.querySelector(".profile-avatar")?.textContent).toBe("RP");
+  expect(button.querySelector(".user-menu-name")?.textContent).toBe("Reader Profile");
+  expect(button.textContent?.trim()).toBe("RP Reader Profile");
+});
+
+it.each([
+  ["reader@example.test", "reader@example.test"],
+  [null, "Your account"],
+])("keeps the account fallback %j without deriving avatar initials from it", (email, label) => {
+  state.user.name = null;
+  state.user.email = email;
+  render(<UserMenu />);
+  const button = screen.getByRole("button", { name: `User menu: ${label}` });
+  expect(button.querySelector(".profile-avatar")?.textContent).toBe("");
+});
+
 it("links Your Profile to the public profile above Your Dev Card", async () => {
   state.profile = publicProfile;
   render(<UserMenu />);
-  fireEvent.keyDown(screen.getByRole("button", { name: "User menu: Reader" }), {
+  fireEvent.keyDown(screen.getByRole("button", { name: "User menu: R Reader" }), {
     key: "ArrowDown",
   });
   const profile = await screen.findByRole("menuitem", { name: "Your Profile" });
@@ -49,7 +71,7 @@ it.each([
 ])("offers username claiming when a public profile is unavailable: %j", async (profileState) => {
   Object.assign(state, profileState);
   render(<UserMenu />);
-  fireEvent.keyDown(screen.getByRole("button", { name: "User menu: Reader" }), {
+  fireEvent.keyDown(screen.getByRole("button", { name: "User menu: R Reader" }), {
     key: "ArrowDown",
   });
   const claim = await screen.findByRole("menuitem", { name: "Claim your username" });
@@ -73,7 +95,7 @@ it("includes noninteractive streak progress without changing the account menu's 
     },
   };
   render(<UserMenu />);
-  fireEvent.keyDown(screen.getByRole("button", { name: "User menu: Reader" }), {
+  fireEvent.keyDown(screen.getByRole("button", { name: "User menu: R Reader" }), {
     key: "ArrowDown",
   });
   const label = await screen.findByText("Reading streak");

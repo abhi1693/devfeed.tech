@@ -93,7 +93,7 @@ describe("persistent Chimely inbox (separate from toasts)", () => {
   it("loads unseen count, opens on click only, marks seen with CSRF, and links to run", async () => {
     const user = userEvent.setup();
     render(<NotificationInbox csrfToken="csrf" />);
-    const bell = await screen.findByRole("button", { name: "Notifications (1 new)" });
+    const bell = await screen.findByRole("button", { name: "Notifications, 1 new" });
     await user.hover(bell);
     expect(screen.queryByText("Feed ingestion failed")).toBeNull();
     await user.click(bell);
@@ -125,17 +125,17 @@ describe("persistent Chimely inbox (separate from toasts)", () => {
     ];
     const user = userEvent.setup();
     render(<NotificationInbox csrfToken="csrf" />);
-    await user.click(await screen.findByRole("button", { name: "Notifications (1 new)" }));
+    await user.click(await screen.findByRole("button", { name: "Notifications, 1 new" }));
     await user.click(await screen.findByText("Topic research completed"));
     expect(router.push).toHaveBeenCalledWith("/jobs/analysis/topics/topic-run");
   });
 
   it("refreshes on real-time hints and closes its stream on unmount", async () => {
     const { unmount } = render(<NotificationInbox csrfToken="csrf" />);
-    await screen.findByRole("button", { name: "Notifications (1 new)" });
+    await screen.findByRole("button", { name: "Notifications, 1 new" });
     unseen = 3;
     act(() => Events.instances.at(-1)!.emit("hint"));
-    await screen.findByRole("button", { name: "Notifications (3 new)" });
+    await screen.findByRole("button", { name: "Notifications, 3 new" });
     unmount();
     expect(Events.instances.every((event) => event.closed)).toBe(true);
   });
@@ -147,7 +147,7 @@ describe("persistent Chimely inbox (separate from toasts)", () => {
       await act(async () => {
         render(<NotificationInbox csrfToken="csrf" />);
       });
-      expect(screen.getByRole("button", { name: "Notifications (1 new)" })).toBeTruthy();
+      expect(screen.getByRole("button", { name: "Notifications, 1 new" })).toBeTruthy();
       const before = requests.length;
       const streams = Events.instances.length;
       focus.mockReturnValue(false);
@@ -193,7 +193,7 @@ describe("persistent Chimely inbox (separate from toasts)", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Notifications" }));
     await screen.findByText("Notifications are temporarily unavailable.");
     fireEvent.click(screen.getByRole("button", { name: "Retry" }));
-    await screen.findByRole("button", { name: "Notifications (1 new)" });
+    await screen.findByRole("button", { name: "Notifications, 1 new" });
   });
 
   it("ends the local session flow when an inbox call is no longer authorized", async () => {

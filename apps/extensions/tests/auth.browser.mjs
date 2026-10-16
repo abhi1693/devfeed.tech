@@ -122,6 +122,7 @@ async function withAuthenticatedReader(t, check) {
     devCardSettings: undefined,
     profileName: "Reader Profile",
     navigationStreakDays: null,
+    notificationCount: null,
     avatarCheck: undefined,
     feedSettings: { view: "cards", content_types: ["news"], languages: ["en"] },
     onboarding: false,
@@ -423,7 +424,7 @@ async function withAuthenticatedReader(t, check) {
     if (endpoint.endsWith("/counts"))
       return send({
         unread: state.interactionChecks ? 1 : 0,
-        unseen: state.interactionChecks ? 1 : 0,
+        unseen: state.notificationCount ?? (state.interactionChecks ? 1 : 0),
       });
     if (endpoint.endsWith("/items"))
       return send(
@@ -566,7 +567,7 @@ async function withAuthenticatedReader(t, check) {
       },
     ]);
     await page.reload();
-    await page.getByRole("button", { name: "User menu: Reader Profile", exact: true }).waitFor();
+    await page.getByRole("button", { name: "User menu: RP Reader Profile", exact: true }).waitFor();
   };
   await check({
     page,
@@ -596,7 +597,14 @@ test("authenticated navigation works in the built reader extension", { timeout: 
     await signIn();
     for (const days of [2, 123]) {
       state.navigationStreakDays = days;
+      state.notificationCount = days === 123 ? 123 : 1;
       await page.reload();
+      await page
+        .getByRole("button", {
+          name: days === 123 ? "Notifications, 99+ new (123 in total)" : "Notifications, 1 new",
+          exact: true,
+        })
+        .waitFor();
       await checkReaderNavigation(page, directory, { signedIn: true, streakDays: days });
     }
   }),
@@ -664,7 +672,7 @@ test(
         await page.waitForTimeout(150);
         await page.evaluate(() => window.dispatchEvent(new Event("focus")));
         await page
-          .getByRole("button", { name: "User menu: Reader Profile", exact: true })
+          .getByRole("button", { name: "User menu: RP Reader Profile", exact: true })
           .waitFor();
         assert.equal(
           await page.getByRole("dialog", { name: "Your dev card preview" }).count(),
@@ -680,7 +688,7 @@ test(
         const returningTab = await context.newPage();
         await returningTab.goto(newTab);
         await returningTab
-          .getByRole("button", { name: "User menu: Reader Profile", exact: true })
+          .getByRole("button", { name: "User menu: RP Reader Profile", exact: true })
           .waitFor();
         await checkLeaderboard(
           returningTab,
@@ -729,12 +737,12 @@ test(
           .waitFor({ state: "visible" });
         await page.getByRole("button", { name: "Save changes", exact: true }).click();
         await page
-          .getByRole("button", { name: "User menu: Updated Reader", exact: true })
+          .getByRole("button", { name: "User menu: UR Updated Reader", exact: true })
           .waitFor();
         await page.getByRole("textbox", { name: /Display name/ }).fill("Reader Profile");
         await page.getByRole("button", { name: "Save changes", exact: true }).click();
         await page
-          .getByRole("button", { name: "User menu: Reader Profile", exact: true })
+          .getByRole("button", { name: "User menu: RP Reader Profile", exact: true })
           .waitFor();
         await checkProfileEditor(page, path.resolve(extension, "../profile-direct-" + browser));
         await checkDevCard(page, path.resolve(extension, "../dev-card-" + browser));
@@ -996,7 +1004,7 @@ test(
         await page.bringToFront();
         await second.goto(newTab);
         await second
-          .getByRole("button", { name: "User menu: Reader Profile", exact: true })
+          .getByRole("button", { name: "User menu: RP Reader Profile", exact: true })
           .waitFor();
         await second.getByRole("region", { name: "Feed controls" }).waitFor();
         assert.equal(new URL(second.url()).hash.replace(/^#/, "") || "/", "/");
@@ -1016,7 +1024,9 @@ test(
         );
         await preparationPage.close();
         await page.bringToFront();
-        await page.getByRole("button", { name: "User menu: Reader Profile", exact: true }).click();
+        await page
+          .getByRole("button", { name: "User menu: RP Reader Profile", exact: true })
+          .click();
         await page.getByRole("menuitem", { name: "Sign out", exact: true }).click();
         await page.getByText("Couldn’t sign out. Please try again.").waitFor();
         assert.equal(await page.locator(".user-menu-trigger").count(), 1);

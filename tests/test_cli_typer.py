@@ -115,6 +115,16 @@ def test_typer_tree_preserves_every_command():
     assert app.pretty_exceptions_show_locals is False
 
 
+def test_invalid_identifier_cannot_emit_terminal_control_commands(operations):
+    payload = "\x1b]52;c;clipboard-change\x07"
+    result = runner.invoke(app, ["articles", "show", payload])
+
+    assert result.exit_code == 2 and not operations
+    assert "not a valid" in result.stderr
+    assert "\x1b" not in result.stderr and "\x07" not in result.stderr
+    assert "\\x1b" in result.stderr and "\\x07" in result.stderr
+
+
 @pytest.mark.parametrize(
     "path",
     [[], *[[name] for name in GROUPS], *PATHS, *[["search", name] for name in GROUPS["search"]]],
