@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { GET, POST } from "@/app/api/v1/extension/analytics/route";
-import { extensionPage, extensionPayload } from "@/lib/extension-analytics";
+import { extensionEvent, extensionPage, extensionPayload } from "@/lib/extension-analytics";
+import { readerScreenNames } from "@/lib/reader-routes";
 
 const origin = "chrome-extension://hliakjocndflpkmfajndigbpngfcekdm";
 const event = { name: "page_view", params: { page_path: "/search" } };
@@ -115,4 +116,54 @@ it("preserves browser attribution and supports installed clients without the new
   }
   expect(extensionPayload(body())?.events[0].params.client_platform).toBe("chrome_extension");
   expect(extensionPayload({ ...body(), client_platform: "arbitrary-browser" })).toBeNull();
+});
+
+it.each([
+  ["/trending", "/trending"],
+  ["/leaderboard", "/leaderboard"],
+  ["/dev-card", "/dev-card"],
+  ["/mcp", "/mcp"],
+  ["/mcp/authorize?client_id=private-client&state=private-state#private-token", "/mcp/authorize"],
+  ["/users/private_username", "/users/profile"],
+  ["/settings", "/settings/profile"],
+  ["/articles/%70rivate-article", "/articles"],
+  ["/topics/%70rivate-topic/tutorials?q=private@example.test", "/topics/detail"],
+  ["/sources/private-source/news", "/sources/detail"],
+  ["/articles", "/articles"],
+  ["/topics/private-topic/unknown", "/other"],
+  ["/sources/private-source/unknown", "/other"],
+  ["/users/private_username/extra", "/other"],
+  ["/topics/%2Fprivate", "/other"],
+  ["/topics/%GG", "/other"],
+  ["https://private.example.test/mcp", "/other"],
+])("uses a resolved reader descriptor for extension screen %s", (path, screen) => {
+  expect(extensionPage(path)).toBe(screen);
+  const event = { name: "page_view", params: { page_path: screen } };
+  expect(extensionEvent(event)).toEqual(event);
+  const payload = extensionPayload({ ...body(), event });
+  expect(payload?.events[0].params.page_category).toBe(screen);
+  expect(JSON.stringify(payload)).not.toContain("private");
+});
+
+it("uses the same finite screen vocabulary for page views, engagement and the relay", () => {
+  for (const screen of [...readerScreenNames, "/other"]) {
+    for (const name of ["page_view", "user_engagement"]) {
+      const event = { name, params: { page_path: screen } };
+      expect(extensionEvent(event)).toEqual(event);
+      expect(extensionPayload({ ...body(), event })?.events[0].params.page_category).toBe(screen);
+    }
+  }
+  for (const page_path of [
+    "/articles/private-article",
+    "/users/private_username",
+    "/topics/private-topic/tutorials",
+    "/mcp/authorize?client_id=private-client",
+    "/settings",
+    "/topics/:id",
+    "/other#private-token",
+  ]) {
+    const event = { name: "page_view", params: { page_path } };
+    expect(extensionEvent(event)).toBeNull();
+    expect(extensionPayload({ ...body(), event })).toBeNull();
+  }
 });

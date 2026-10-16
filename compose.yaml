@@ -188,6 +188,8 @@ services:
       DEVFEED_SEARCH_ENABLED: ${DEVFEED_SEARCH_ENABLED:-false}
       DEVFEED_SEARCH_URL: ${DEVFEED_SEARCH_URL:-http://typesense:8108}
       DEVFEED_SEARCH_QUERY_KEY: ${DEVFEED_SEARCH_QUERY_KEY:-}
+      DEVFEED_PARTNER_TRACKING_KEY: ${DEVFEED_PARTNER_TRACKING_KEY:-}
+      DEVFEED_PARTNER_CALLER_KEY: ${DEVFEED_PARTNER_CALLER_KEY:-}
       DEVFEED_SEARCH_COLLECTION_PREFIX: ${DEVFEED_SEARCH_COLLECTION_PREFIX:-devfeed}
     depends_on: *ready
     ports:
@@ -294,6 +296,7 @@ services:
     environment:
       <<: [*core-environment, *chimely-environment]
       DEVFEED_WORKER_QUEUE: ${DEVFEED_WORKER_QUEUE:-all}
+      DEVFEED_PARTNER_CREDENTIAL_KEY:
       # Only delivery workers need Chimely management API keys.
       DEVFEED_CHIMELY_ADMIN_API_KEY:
       DEVFEED_CHIMELY_USER_API_KEY:
@@ -333,6 +336,12 @@ services:
       <<: [*core-environment, *chimely-environment]
       # The inbox API uses its HMAC secret, never the management API key.
       DEVFEED_CHIMELY_ADMIN_HMAC_SECRET:
+      DEVFEED_PARTNER_CREDENTIAL_KEY:
+      # Server-only credentials for bounded product ad image uploads.
+      DEVFEED_IMAGE_STORAGE_ENDPOINT:
+      DEVFEED_IMAGE_STORAGE_BUCKET:
+      DEVFEED_IMAGE_STORAGE_ACCESS_KEY:
+      DEVFEED_IMAGE_STORAGE_SECRET_KEY:
       DEVFEED_ADMIN_BASE_URL: ${DEVFEED_ADMIN_BASE_URL:-http://localhost:${DEVFEED_ADMIN_PORT:-3001}}
       DEVFEED_ADMIN_COOKIE_SECURE: ${DEVFEED_ADMIN_COOKIE_SECURE:-false}
       # Unset values stay absent, rather than becoming invalid empty URLs.
@@ -357,6 +366,42 @@ services:
       <<: *healthcheck
       test: [CMD, python, -c, "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8001/health/ready', timeout=3).close()"]
 
+  partner-api:
+    <<: [*runtime, *host-access]
+    image: ${DEVFEED_PARTNER_API_IMAGE:-${DEVFEED_IMAGE_REGISTRY:+${DEVFEED_IMAGE_REGISTRY}/}ghcr.io/abhi1693/devfeed.tech/partner-api:master}
+    depends_on: *ready
+    networks: [default, data]
+    environment:
+      <<: *core-environment
+      DEVFEED_PARTNER_BASE_URL: ${DEVFEED_PARTNER_BASE_URL:-http://localhost:${DEVFEED_PARTNER_PORT:-3002}}
+      DEVFEED_PARTNER_COOKIE_SECURE: ${DEVFEED_PARTNER_COOKIE_SECURE:-false}
+      DEVFEED_PARTNER_CREDENTIAL_KEY:
+      # Shared image bucket; never passed to either frontend or the public API.
+      DEVFEED_IMAGE_STORAGE_ENDPOINT:
+      DEVFEED_IMAGE_STORAGE_BUCKET:
+      DEVFEED_IMAGE_STORAGE_ACCESS_KEY:
+      DEVFEED_IMAGE_STORAGE_SECRET_KEY:
+      # Unset values stay absent, rather than becoming invalid empty URLs.
+      # Compose resolves these from the shell or the root .env file.
+      DEVFEED_OIDC_ISSUER_URL:
+      DEVFEED_OIDC_CLIENT_ID: ${DEVFEED_PARTNER_OIDC_CLIENT_ID:-}
+      # Identity provider IDs are shared with the reader.
+      DEVFEED_OIDC_GITHUB_IDP_ID:
+      DEVFEED_OIDC_GOOGLE_IDP_ID:
+      DEVFEED_OIDC_CLIENT_SECRET: ${DEVFEED_PARTNER_OIDC_CLIENT_SECRET:-}
+      DEVFEED_OIDC_ORGANIZATION_ID:
+      DEVFEED_OIDC_TOKEN_ENDPOINT_AUTH_METHOD:
+      DEVFEED_OIDC_SCOPES:
+      DEVFEED_OIDC_ORGANIZATION_SCOPE_TEMPLATE:
+      DEVFEED_OIDC_ORGANIZATION_CLAIM:
+      DEVFEED_OIDC_ROLES_CLAIM:
+      DEVFEED_OIDC_ROLES_FORMAT:
+      DEVFEED_OIDC_ROLE_SCOPE_TEMPLATE:
+      DEVFEED_PARTNER_SESSION_TTL_SECONDS:
+    healthcheck:
+      <<: *healthcheck
+      test: [CMD, python, -c, "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8004/health/ready', timeout=3).close()"]
+
   user-api:
     <<: [*runtime, *host-access]
     image: ${DEVFEED_USER_API_IMAGE:-${DEVFEED_IMAGE_REGISTRY:+${DEVFEED_IMAGE_REGISTRY}/}ghcr.io/abhi1693/devfeed.tech/user-api:master}
@@ -379,6 +424,8 @@ services:
       DEVFEED_REDIS_URL: ${DEVFEED_REDIS_URL:-redis://redis:6379/0}
       DEVFEED_LOG_LEVEL:
       DEVFEED_LOG_FORMAT:
+      # Trusted personalized placement issuer; never passed to frontend services.
+      DEVFEED_PARTNER_TRACKING_KEY: ${DEVFEED_PARTNER_TRACKING_KEY:-}
       DEVFEED_X_PIXEL_ENABLED: ${DEVFEED_X_PIXEL_ENABLED:-false}
       X_PIXEL_TOKEN: ${X_PIXEL_TOKEN:-}
       X_SIGNUP_EVENT_ID: ${X_SIGNUP_EVENT_ID:-}
@@ -422,6 +469,8 @@ services:
     environment:
       DEVFEED_MCP_PUBLIC_URL: ${DEVFEED_MCP_PUBLIC_URL:-}
       DEVFEED_PUBLIC_API_URL: http://api:8000
+      DEVFEED_PARTNER_CALLER_KEY: ${DEVFEED_PARTNER_CALLER_KEY:-}
+      DEVFEED_PARTNER_CALLER_IP_HEADER: ${DEVFEED_PARTNER_CALLER_IP_HEADER:-}
       DEVFEED_USER_API_URL: http://user-api:8002
       DEVFEED_USER_BASE_URL: ${DEVFEED_USER_BASE_URL:-http://localhost:${DEVFEED_WEB_PORT:-3000}}
       DEVFEED_USER_EXTENSION_IDS: ${DEVFEED_USER_EXTENSION_IDS:-[]}
@@ -453,6 +502,25 @@ services:
     ports:
       - target: 3000
         published: "${DEVFEED_ADMIN_PORT:-3001}"
+        host_ip: "${DEVFEED_BIND_IP:-0.0.0.0}"
+    healthcheck:
+      <<: *healthcheck
+      test: [CMD, node, -e, "fetch('http://127.0.0.1:3000/login', {signal: AbortSignal.timeout(3000)}).then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"]
+
+  partner:
+    <<: *runtime
+    image: ${DEVFEED_PARTNER_IMAGE:-${DEVFEED_IMAGE_REGISTRY:+${DEVFEED_IMAGE_REGISTRY}/}ghcr.io/abhi1693/devfeed.tech/partner:master}
+    depends_on:
+      partner-api:
+        condition: service_healthy
+    networks: [default]
+    environment:
+      # The web container receives no database, Redis or OIDC credentials.
+      DEVFEED_PARTNER_API_URL: http://partner-api:8004
+      DEVFEED_PARTNER_BASE_URL: ${DEVFEED_PARTNER_BASE_URL:-http://localhost:${DEVFEED_PARTNER_PORT:-3002}}
+    ports:
+      - target: 3000
+        published: "${DEVFEED_PARTNER_PORT:-3002}"
         host_ip: "${DEVFEED_BIND_IP:-0.0.0.0}"
     healthcheck:
       <<: *healthcheck
@@ -628,6 +696,7 @@ services:
     environment:
       <<: *core-environment
       DEVFEED_WORKER_QUEUE: ingestion
+      DEVFEED_PARTNER_CREDENTIAL_KEY:
 
   article-enrichment-worker:
     <<: *dedicated-worker

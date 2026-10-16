@@ -328,6 +328,14 @@ it("renders the first-party sign-in page and routes registration through it", as
   expect(() => Register()).toThrow("REDIRECT:/login");
 });
 
+it("does not forward ambiguous repeated sign-in destinations from the login page", async () => {
+  const { default: Login } = await import("@/app/login/page");
+  const page = await Login({
+    searchParams: Promise.resolve({ return_to: ["/latest", "//elsewhere.test"] }),
+  });
+  expect(page.props).toMatchObject({ returnTo: "/" });
+});
+
 it("redirects legacy article IDs to the stable slug", async () => {
   await expect(articleMetadata({ params: Promise.resolve({ slug: article.id }) })).rejects.toThrow(
     `REDIRECT:/articles/${article.slug}`,

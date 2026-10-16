@@ -18,6 +18,7 @@ export interface AdminJobOut {
   finished_at: string | null;
   id: string;
   kind: AdminJobOutKind;
+  product_id?: string | null;
   proposal_id?: string | null;
   retryable?: boolean;
   source_id?: string | null;

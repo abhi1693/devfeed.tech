@@ -5,8 +5,6 @@ import UnsizedImages from "lighthouse/core/audits/unsized-images.js";
 
 // Same deterministic delayed-image journey for the website and both built extensions.
 export async function checkPreviewCover(context, href, output) {
-  const baseline = process.env.DEVFEED_COVER_BASELINE === "1";
-  output += baseline ? "/before" : "/after";
   await mkdir(output, { recursive: true });
   const results = [];
   for (const viewport of [
@@ -111,36 +109,32 @@ export async function checkPreviewCover(context, href, output) {
         const layoutShifts = await page.evaluate(() => window.coverLayoutShifts);
         await page.screenshot({ path: `${output}/${viewport.width}-${name}-settled.png` });
         results.push({ viewport, name, before, after, rendering, sized, sizing, layoutShifts });
-        if (!baseline) {
-          assert.ok(before.cover.height > 0, "Cover reserves space while the image is blocked");
-          assert.ok(sized, "Lighthouse unsized-images recognizes explicit cover sizing");
-          for (const selector of ["cover", "copy", "footer"])
-            for (const dimension of ["x", "y", "width", "height"])
-              assert.ok(
-                Math.abs(before[selector][dimension] - after[selector][dimension]) < 1,
-                `${name}: ${selector}.${dimension} stays stable`,
-              );
-          if (rendering) {
-            assert.equal(
-              rendering.objectFit,
-              "contain",
-              "Show the entire image without crop or distortion",
-            );
-            // Width-descriptor srcsets density-correct and round natural dimensions.
+        assert.ok(before.cover.height > 0, "Cover reserves space while the image is blocked");
+        assert.ok(sized, "Lighthouse unsized-images recognizes explicit cover sizing");
+        for (const selector of ["cover", "copy", "footer"])
+          for (const dimension of ["x", "y", "width", "height"])
             assert.ok(
-              Math.abs(rendering.naturalWidth / rendering.naturalHeight / (width / height) - 1) <
-                0.01,
+              Math.abs(before[selector][dimension] - after[selector][dimension]) < 1,
+              `${name}: ${selector}.${dimension} stays stable`,
             );
-          }
+        if (rendering) {
+          assert.equal(
+            rendering.objectFit,
+            "contain",
+            "Show the entire image without crop or distortion",
+          );
+          // Width-descriptor srcsets density-correct and round natural dimensions.
+          assert.ok(
+            Math.abs(rendering.naturalWidth / rendering.naturalHeight / (width / height) - 1) <
+              0.01,
+          );
         }
       } finally {
         release();
         await page.close();
-        await writeFile(`${output}/report.json`, JSON.stringify({ baseline, results }, null, 2));
+        await writeFile(`${output}/report.json`, JSON.stringify({ results }, null, 2));
       }
     }
   }
-  console.log(
-    `Preview covers: ${results.length} delayed/failed image scenarios recorded (${baseline ? "before" : "after"}).`,
-  );
+  console.log(`Preview covers: ${results.length} delayed/failed image scenarios passed.`);
 }

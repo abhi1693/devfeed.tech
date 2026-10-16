@@ -9,7 +9,7 @@ describe("telemetry privacy properties", () => {
   it("keeps authentication query values and fragments out of metric route labels", () => {
     fc.assert(
       fc.property(
-        fc.constantFrom("/login", "/register", "/my-feed", "/settings/profile"),
+        fc.constantFrom("/login", "/register", "/mcp/authorize", "/settings/profile"),
         fc.string(),
         fc.string(),
         fc.string(),
@@ -30,16 +30,20 @@ describe("telemetry privacy properties", () => {
     fc.assert(
       fc.property(
         fc.constantFrom(
-          ["/articles/", "/articles/:id"],
-          ["/sources/", "/sources/:id"],
-          ["/users/", "/users/:id"],
-          ["/content/articles/", "/content/articles/:id"],
-          ["/api/v1/user/account/", "/v1/user/account/:path"],
+          ["/articles/", "/articles/:id", "web"],
+          ["/sources/", "/sources/:id", "web"],
+          ["/users/", "/users/:username", "web"],
+          ["/content/articles/", "/content/articles/:id", "admin"],
+          ["/products/", "/products/:id", "partner"],
         ),
-        fc.string(),
-        ([prefix, label], identifier) => {
+        fc
+          .array(fc.constantFrom(..."abcdefghijklmnopqrstuvwxyz0123456789-"), {
+            maxLength: 100,
+          })
+          .map((parts) => parts.join("")),
+        ([prefix, label, app], identifier) => {
           const url = `${prefix}private-${encodeURIComponent(identifier)}`;
-          expect(routeName(url)).toBe(label);
+          expect(routeName(url, app as "web" | "admin" | "partner")).toBe(label);
         },
       ),
       options,

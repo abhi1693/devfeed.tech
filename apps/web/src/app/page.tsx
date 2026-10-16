@@ -1,5 +1,6 @@
 import { cache } from "react";
-import { guestFeedFilters, parseFilters, type SearchParams } from "@/lib/feed-query";
+import type { SearchParams } from "@/lib/feed-query";
+import { readerFeeds, resolveFeed } from "@/lib/reader-feed";
 import { hasUserSession } from "@/lib/api";
 import type { Metadata } from "next";
 import { UserShell } from "@/components/user-shell";
@@ -21,13 +22,18 @@ export async function generateMetadata({
 
 export default async function MyFeed({ searchParams }: { searchParams: Promise<SearchParams> }) {
   const query = await searchParams;
-  const { cursor } = query;
-  if (!(await homeSession())) return FeedView({ filters: guestFeedFilters(query) });
+  const { mode, filters } = resolveFeed(readerFeeds.home, query, await homeSession());
+  if (mode === "latest")
+    return FeedView({
+      filters,
+      feedDescriptor: readerFeeds.home,
+    });
   return (
     <UserShell section="personal">
       <PersonalFeed
-        filters={parseFilters(query)}
-        cursor={typeof cursor === "string" ? cursor : undefined}
+        filters={filters}
+        cursor={filters.cursor || undefined}
+        feedDescriptor={readerFeeds.home}
       />
     </UserShell>
   );

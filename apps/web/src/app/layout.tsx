@@ -1,9 +1,10 @@
+import { HeaderSponsorshipProvider } from "@/components/header-sponsorship";
 import { TopicFollowsProvider } from "@/components/topic-follows";
 import { BrowserTelemetry } from "@devfeed/telemetry/browser";
 import { browserSettings } from "@devfeed/telemetry/receiver";
 import { DeferredGoogleAnalytics } from "@/components/deferred-google-analytics";
 import { DeferredClarity } from "@/components/deferred-clarity";
-import { ArticleNavigationProvider } from "@/components/article-navigation";
+import { WebArticleNavigationProvider } from "@/components/web-article-navigation";
 import { SourceFollowsProvider } from "@/components/source-follow";
 import type { Metadata } from "next";
 import { JsonLd } from "@/components/json-ld";
@@ -18,14 +19,16 @@ import appleIcon from "@devfeed/theme/assets/devfeed-icon-180.png";
 import "./globals.css";
 import "./reader-motion.css";
 import "./article-share.css";
-import { themeScript } from "@/lib/theme";
+import { themeScript } from "@devfeed/ui/theme-script";
 import { NotificationPreferencesProvider } from "@/components/notification-preferences-provider";
 import { UserProvider } from "@/components/user-account";
 import { ThemePreferencesProvider } from "@/components/theme-preferences";
 import { FeedPreferencesProvider } from "@/components/feed-preferences";
-import { WebSignupNudge } from "@/components/web-signup-nudge";
+import { SignupNudge } from "@/components/signup-nudge";
+import { ReaderContextProvider } from "@/components/reader-context";
 import { ReaderPromptsProvider } from "@/components/reader-prompts";
 import { ReaderNavigationRecovery } from "@/components/reader-navigation-recovery";
+import { NotificationStyles } from "@devfeed/ui/notifications";
 export async function generateMetadata(): Promise<Metadata> {
   await connection();
   return {
@@ -66,29 +69,34 @@ export default async function RootLayout({
           title="AI reading guide and public content"
         />
         <script nonce={nonce} dangerouslySetInnerHTML={{ __html: themeScript }} />
+        <NotificationStyles nonce={nonce} />
       </head>
       <body>
         <ReaderNavigationRecovery />
         <BrowserTelemetry {...browserSettings("web")} />
         <JsonLd data={siteStructuredData(brandMark.src)} />
         <UserProvider>
-          <ReaderPromptsProvider>
-            <ThemePreferencesProvider>
-              <NotificationPreferencesProvider>
-                <FeedPreferencesProvider>
-                  <ArticleNavigationProvider>
-                    <SourceFollowsProvider>
-                      <TopicFollowsProvider>
-                        {children}
-                        {modal}
-                      </TopicFollowsProvider>
-                    </SourceFollowsProvider>
-                    <WebSignupNudge />
-                  </ArticleNavigationProvider>
-                </FeedPreferencesProvider>
-              </NotificationPreferencesProvider>
-            </ThemePreferencesProvider>
-          </ReaderPromptsProvider>
+          <ReaderContextProvider>
+            <ReaderPromptsProvider>
+              <HeaderSponsorshipProvider>
+                <ThemePreferencesProvider>
+                  <NotificationPreferencesProvider>
+                    <FeedPreferencesProvider>
+                      <WebArticleNavigationProvider>
+                        <SourceFollowsProvider>
+                          <TopicFollowsProvider>
+                            {children}
+                            {modal}
+                          </TopicFollowsProvider>
+                        </SourceFollowsProvider>
+                        <SignupNudge />
+                      </WebArticleNavigationProvider>
+                    </FeedPreferencesProvider>
+                  </NotificationPreferencesProvider>
+                </ThemePreferencesProvider>
+              </HeaderSponsorshipProvider>
+            </ReaderPromptsProvider>
+          </ReaderContextProvider>
         </UserProvider>
         {gaId && <DeferredGoogleAnalytics gaId={gaId} />}
         {clarityId && <DeferredClarity projectId={clarityId} />}

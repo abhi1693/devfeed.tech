@@ -1,7 +1,8 @@
 import { PublicPage } from "@/components/public-page";
 import { permanentRedirect } from "next/navigation";
 import { FeedView } from "@/components/feed-view";
-import { feedHref, parseFilters, type SearchParams } from "@/lib/feed-query";
+import { feedHref, type SearchParams } from "@/lib/feed-query";
+import { readerFeeds, resolveFeed } from "@/lib/reader-feed";
 import { feedMetadata, SITE_DESCRIPTION } from "@/lib/metadata";
 export const dynamic = "force-dynamic";
 export async function generateMetadata({ searchParams }: { searchParams: Promise<SearchParams> }) {
@@ -9,8 +10,17 @@ export async function generateMetadata({ searchParams }: { searchParams: Promise
 }
 export default async function Feed({ searchParams }: { searchParams: Promise<SearchParams> }) {
   const query = await searchParams;
-  const filters = parseFilters(query);
+  const { filters } = resolveFeed(readerFeeds.latest, query, false);
   if (filters.topic || filters.source_id || filters.tag || filters.content_type)
     permanentRedirect(feedHref(filters, { cursor: filters.cursor }));
-  return <PublicPage filters={filters} content={FeedView({ filters, withShell: false })} />;
+  return (
+    <PublicPage
+      filters={filters}
+      content={FeedView({
+        filters,
+        withShell: false,
+        feedDescriptor: readerFeeds.latest,
+      })}
+    />
+  );
 }

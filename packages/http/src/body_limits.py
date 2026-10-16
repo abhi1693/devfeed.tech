@@ -1,67 +1,89 @@
-"""Bound selected request bodies before JSON decoding or database dependencies."""
+"""Endpoint-owned body policies, enforced before parsing or dependencies."""
+
+from typing import Any, Literal
 
 import anyio
+from fastapi.routing import APIRoute
+from pydantic import BaseModel, ConfigDict, Field
 from starlette.responses import JSONResponse
 from starlette.types import ASGIApp, Receive, Scope, Send
+
+REQUEST_BODY_POLICY_EXTENSION = "x-devfeed-request-body"
 
 
 class RequestBodyTooLarge(ValueError):
     pass
 
 
-def _route_path(scope: Scope) -> str:
-    path = scope.get("path", "")
-    root = scope.get("root_path", "")
-    return path[len(root) :] if root and path.startswith(root + "/") else path
+class RequestBodyPolicy(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid", strict=True, populate_by_name=True)
+
+    body_limit: int = Field(gt=0, alias="bodyLimit")
+    body_timeout_ms: int = Field(default=2000, gt=0, alias="bodyTimeoutMs")
+    rejection: Literal["json", "image"] = "json"
+
+    def openapi_extra(self) -> dict[str, Any]:
+        return {REQUEST_BODY_POLICY_EXTENSION: self.model_dump(by_alias=True)}
+
+    def response(self, status: Literal[408, 413]) -> JSONResponse:
+        if self.rejection == "image":
+            detail = "Choose an image under 5 MB" if status == 413 else "Image upload timed out"
+            headers = None
+        else:
+            detail = "Request too large" if status == 413 else "Incomplete request"
+            headers = {"Cache-Control": "no-store"}
+        return JSONResponse({"detail": detail}, status_code=status, headers=headers)
 
 
-def _declared_oversize(scope: Scope, limit: int) -> bool:
-    for name, value in scope.get("headers", []):
-        if name == b"content-length":
-            try:
-                return int(value) > limit
-            except ValueError:
-                pass  # The actual byte count remains authoritative.
-    return False
+class RequestBodyReader:
+    """Share byte accounting and one complete-body deadline between HTTP consumers."""
+
+    def __init__(self, *, policy: RequestBodyPolicy):
+        self.policy = policy
+
+    def declared_oversize(self, scope: Scope) -> bool:
+        for name, value in scope.get("headers", []):
+            if name == b"content-length":
+                try:
+                    if int(value) > self.policy.body_limit:
+                        return True
+                except ValueError:
+                    pass  # The actual byte count remains authoritative.
+        return False
+
+    async def read_body(self, receive: Receive) -> bytes | None:
+        body = bytearray()
+        with anyio.fail_after(self.policy.body_timeout_ms / 1000):
+            while True:
+                message = await receive()
+                if message["type"] == "http.disconnect":
+                    return None
+                chunk = message.get("body", b"")
+                if len(body) + len(chunk) > self.policy.body_limit:
+                    raise RequestBodyTooLarge
+                body.extend(chunk)
+                if not message.get("more_body", False):
+                    return bytes(body)
 
 
-async def _read_body(receive: Receive, limit: int, timeout: float) -> bytes | None:
-    body = bytearray()
-    with anyio.fail_after(timeout):
-        while True:
-            message = await receive()
-            if message["type"] == "http.disconnect":
-                return None
-            chunk = message.get("body", b"")
-            if len(body) + len(chunk) > limit:
-                raise RequestBodyTooLarge
-            body.extend(chunk)
-            if not message.get("more_body", False):
-                return bytes(body)
+class BoundedRequestBody(RequestBodyReader):
+    """Read and replay one body using the policy of an already selected endpoint."""
 
-
-class RequestBodyLimitMiddleware:
-    def __init__(self, app: ASGIApp, *, limits: dict[tuple[str, str], int], timeout: float = 2.0):
+    def __init__(self, app: ASGIApp, *, policy: RequestBodyPolicy):
+        super().__init__(policy=policy)
         self.app = app
-        self.limits = limits
-        self.timeout = timeout
 
-    async def __call__(self, scope: Scope, receive: Receive, send: Send):
-        limit = self.limits.get((scope.get("method", ""), _route_path(scope)))
-        if scope["type"] != "http" or limit is None:
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != "http":
             await self.app(scope, receive, send)
             return
         try:
-            if _declared_oversize(scope, limit):
+            if self.declared_oversize(scope):
                 raise RequestBodyTooLarge
-            body = await _read_body(receive, limit, self.timeout)
+            body = await self.read_body(receive)
         except (RequestBodyTooLarge, TimeoutError) as exc:
-            too_large = isinstance(exc, RequestBodyTooLarge)
-            await JSONResponse(
-                {"detail": "Request too large" if too_large else "Incomplete request"},
-                status_code=413 if too_large else 408,
-                headers={"Cache-Control": "no-store"},
-            )(scope, receive, send)
+            status: Literal[408, 413] = 413 if isinstance(exc, RequestBodyTooLarge) else 408
+            await self.policy.response(status)(scope, receive, send)
             return
         if body is None:
             return
@@ -75,3 +97,29 @@ class RequestBodyLimitMiddleware:
             return {"type": "http.request", "body": body, "more_body": False}
 
         await self.app(scope, replay, send)
+
+
+class BodyLimitedRoute(APIRoute):
+    """Use native routing, then bound the body before FastAPI parses the request."""
+
+    def __init__(self, *args: Any, **kwargs: Any):
+        super().__init__(*args, **kwargs)
+        extra = self.openapi_extra or {}
+        self.body_policy = (
+            RequestBodyPolicy.model_validate(extra[REQUEST_BODY_POLICY_EXTENSION])
+            if REQUEST_BODY_POLICY_EXTENSION in extra
+            else None
+        )
+        self._body_handler: ASGIApp = (
+            BoundedRequestBody(super().handle, policy=self.body_policy)
+            if self.body_policy is not None
+            else super().handle
+        )
+
+    async def handle(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if self.methods and scope["method"] not in self.methods:
+            await super().handle(scope, receive, send)
+            return
+        # Included routers build a fresh effective handler. Guarding handle()
+        # keeps the policy ahead of that handler, including nested includes.
+        await self._body_handler(scope, receive, send)

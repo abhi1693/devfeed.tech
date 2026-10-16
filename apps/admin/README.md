@@ -7,6 +7,42 @@ Traefik ingress also redirects HTTP to HTTPS.
 
 See [configuration, authentication, service boundaries and commands](../../docs/admin.md).
 
+## Record identities
+
+`lib/record-identities.ts` defines the identities passed from routes to API calls,
+forms, actions, titles, tabs, and logs. Analysis runs keep their native ID and explicit
+job kind; relationships keep their source topic, target topic, and relationship type.
+Construct identities from API rows with `recordIdentity`, and build URLs with
+`recordHref`. API calls receive the structured identity rather than a URL token.
+
+Use `recordRowKey` for table selection and `recordIdentityKey` for request state.
+These serialized keys are never decoded or used as API identifiers. Relationship
+rows retain native fields; their adapter-provided `id` serves only as a UI key.
+Old bookmark tokens are decoded only at the redirect boundary in `lib/routes.ts`.
+
+Validate with `npm run admin:test` and, after `npm run admin:build`,
+`node apps/admin/tests/browser/record-identities.mjs`.
+
+Resource definitions also own their canonical URL, landing-page groups, breadcrumb trail,
+and sidebar category. `navigation.groups` declares membership explicitly; a resource can
+belong to both Jobs and Enrichment jobs. `navigation.breadcrumbs` keeps the ordered links
+to their shared group definitions. Changing a URL does not change either relationship.
+Group pages use the same registry for their headings and parent breadcrumbs.
+
+## Sidebar navigation
+
+The administration sidebar starts as a compact icon rail. Use **Expand sidebar** at the
+bottom to reveal group and link labels; **Collapse sidebar** restores the rail. The saved
+preference belongs to this browser's admin interface and is separate from reader and
+partner navigation. Active routes remain marked in either view.
+
+On narrow screens, **Navigation** opens an inline menu. Selecting a link or pressing Escape
+closes it. Long navigation scrolls independently while the desktop expand/collapse control
+stays reachable, including on short screens.
+
+Validate with `npm run admin:test` and, after `npm run admin:build`,
+`node apps/admin/tests/browser/overview.mjs`.
+
 ## User details
 
 The user Details tab shows reader-profile fields and Dev Card styling only when
@@ -88,6 +124,250 @@ Validate the page-kind form with `npm run admin:build` followed by
 legacy defaults, saved decisions, and desktop/mobile layout.
 Screenshots: [desktop](screenshots/article-page-kind-desktop.png),
 [mobile](screenshots/article-page-kind-mobile.png).
+
+## Partner account workspace
+
+Account pages have Overview, Performance, Products, Campaigns, Members and Settings sections.
+Overview shows measured delivery, compact promotion and audience summaries, and links to the
+relevant settings tab. Performance places delivery, CTR and format-share charts together, with a
+donut that switches between impressions and clicks while retaining counts and CTR in its legend.
+CSV export and paginated placement records preserve the reporting period in the URL. Membership management
+is separate from reporting. Account details load independently, so a failed report does not block
+settings, products or campaigns.
+
+Settings and account creation use General, Delivery, Ad formats and Audience tabs with one save
+action. Drafts survive tab changes; opening a settings link can select a tab with
+`?tab=general`, `delivery`, `formats` or `audience`. Secondary benefits and delivery help expand
+inline. Reporting components and date/CSV calculations are shared directly through `@devfeed/ui`.
+
+## Product import connections
+
+**Partner accounts** represent companies or commercial relationships. They own tiers, portal
+memberships, import acceptance and promotion settings. **Import connections** describe how to
+import a catalog from a platform API: configuration, credentials, enabled state and sync schedule.
+Select the required **Partner account** when creating or editing an import connection. One account
+may own several connections; each connection belongs to one account. Legacy or API-created rows
+can remain unassigned for compatibility. The connector is the endpoint, mapping, authentication
+and pagination definition inside a connection.
+
+Open **Partnerships → Import connections**, choose **Create import connection**, and select a
+supported preset or **Custom API** in the **Platform** field. Use the Enabled setting to start
+or pause automatic syncing. Each connection has a details
+page and a separate edit form; synced products appear under **Partnerships → Products**.
+The connection pages use `/partnerships/connections`; old `/partnerships/partners` links redirect
+there. Account pages remain under `/partnerships/accounts`.
+Nick Launches and ShipyardHQ have creation presets. ShipyardHQ maps `productUrl` to the
+product website, `url` to the platform listing, and `pricing.model` to pricing. Enter its
+bearer token in the connection form; tokens are encrypted in the database and write-only.
+Leaving the token unchanged preserves it; changing the account, origin or authentication
+requires a replacement. Selecting no authentication removes the token. Existing saved
+connector definitions remain explicit when editing an import connection.
+Set the same persistent `DEVFEED_PARTNER_CREDENTIAL_KEY` in the admin API, partner API and
+import workers. Keep that key separate from database backups; losing it requires re-entering
+saved tokens. See [Import connection authentication](../../docs/partner-connectors.md#authentication).
+Products use the shared admin table with search, sorting, pagination, and column preferences.
+Open a product for its description, assessment, capability evidence, and record information.
+Its **Related objects** tab shows each platform's listing and attribution alongside pipeline
+jobs and evaluations. Retry checks and exclusion remain available on the product detail page.
+The import connection detail page uses the shared record information panels and a **Related objects**
+tab with paginated products, pipeline jobs, and evaluations. Open a run for its detail page.
+**Partnerships → Pipeline jobs** lists discovery, individual product syncs, and qualification
+runs with status, operation, search, sorting, and pagination. Runs link to their parent,
+child jobs, import connection, product, and dedicated logs page.
+Catalog runs stay Running between discovery pages and while their product jobs finish. The
+connection history, run details, and status filters use the same overall run status; worker
+queue and lease transitions remain internal scheduling state.
+Discovery and product syncs use the `ingestion` queue consumed by the standard background
+worker. They do not require the optional source-discovery worker. Qualification and
+article matching use the AI workers.
+**Partnerships → Evaluations** lists article-matching runs. Each run has Details, Related
+objects, Results, and Logs tabs. Results show article decisions, reasoning, and source
+quotes, and indicate when product or article changes made the results outdated.
+**Jobs → Enrichment → Images** also lists product featured-image and logo runs, identifies
+their operation, and links to the product. Their retry histories are independent for each
+product and operation; article, source, and topic runs retain their existing retry rules.
+The provider catalog comes from the API. A platform can be added once; edits use revision
+checks to prevent overwriting another administrator’s settings.
+DevFeed pulls developer products directly from the platform API. Set **Sync interval
+(minutes)** when creating or editing each import connection: 1–10,080 minutes, defaulting to 360
+(six hours). Interval edits recalculate the next sync from the last successful sync; an
+overdue schedule becomes due immediately. If no sync has succeeded, the interval starts
+from the edit time. Active discovery and product jobs continue, and completion schedules
+the next run using the latest interval. Disabled connections retain their interval without
+scheduling work. **Sync now** refreshes early; disabling an import connection in **Edit** stops synchronization
+and invalidates its in-flight sync jobs. Shared product checks can continue through another enabled connection. No product creation, editing, JSON upload, manual approval,
+or article-ID entry is available.
+
+Import connections identify both the partnership type (`launch_platform`) and provider
+(`nick-launches`, or another configured REST JSON connector). Connect an import source to
+its partner account once so its products inherit the account's promotion defaults. A
+connection alone does not establish a paid agreement. External ad networks and billing
+integrations remain separate from product imports.
+
+### Promotion defaults and paid campaigns
+
+Open **Partnerships → Partner accounts → Edit** to configure **Default promotion**,
+**Imported product acceptance**, **Product click destination**, automatic inclusion,
+and allowed article/topic/feed placements. Promotion type
+inherits the tier unless explicitly overridden: Bronze defaults to product
+recommendations; Silver, Gold, Platinum, and Diamond default to sponsored placements and also allow
+an ordinary recommendation override. Changing tier updates inherited promotion immediately.
+**Trust connected partner imports** accepts resolved imports for the account without waiting
+for AI capability checks. Capability assessments remain separate and continue in the background.
+Every displayed product placement carries a **Sponsored** disclosure and cannot be dismissed,
+regardless of tier or campaign. Products have no per-reader exposure limit or repeat cooldown;
+the reader ignores previous product hiding preferences and deduplicates products within a page.
+
+The account's **Products** tab lists its imported catalog with search and pagination.
+Products inherit account defaults and the selected acceptance policy. The table shows
+account acceptance separately from qualification. Exclude a product to block its
+ordinary and sponsored appearances for this account; allowing it again restores its
+inherited policy. Global qualification exclusions require rechecking the canonical
+product. If automatic inclusion is off, only a campaign's explicit product selection can
+opt a product into delivery.
+
+Sponsored defaults create an **Inherited sponsored placement** standing campaign automatically;
+manage it through account defaults. Silver and higher tiers can use **Campaigns → Create paid
+campaign** for additional dated promotions. Cover the whole
+eligible catalog, including newly qualified imports, choose named products from the
+account's catalog, or filter products by approved topics and verified technologies.
+When both filter dimensions are supplied, a product must match one topic and one
+technology. Set finite start/end dates in local time, status, placement surfaces,
+priority, and an optional campaign-wide daily impression limit. Relevance ranks sponsors
+first; priority breaks ties between equally relevant campaigns. Account pauses, product
+exclusions, qualification,
+and relevance continue to gate delivery. Contextual matches rank first. Sponsored defaults
+can fill remaining slots in the unfiltered main feed; search, category, article, and topic
+placements require a relevant match. Expiring an additional campaign restores account defaults.
+Dated campaigns on lower tiers remain available for reporting; sponsored delivery and campaign
+changes require Silver or higher.
+
+Silver and higher tiers support Feed, Header sponsorship, Sponsored content and Engagement.
+Automatic formats default to Feed; choose additional channels in account defaults or partner
+preferences. Sponsored content requires a campaign with a currently approved visible article and
+an eligible account product. The article itself must share active approved topics with the feed;
+untagged or unrelated stories are not delivered. It never publishes or rewrites the article. Its sponsor disclosure
+remains after the campaign ends. Header sponsorship appears in the global navigation across
+reader pages when the header has room on wide screens. Engagement and sponsored articles
+always require contextual relevance. Header campaigns use the separate Header placement; sponsored
+content remains feed-only. Feed and Engagement campaigns cannot select Header. Newsletter and
+Agent Ads are not included.
+Product settings restrict formats and locations across automatic and explicit campaigns. Inherit
+uses the account policy, while an empty allowlist blocks that dimension; tier and exclusions win.
+
+Platinum and Diamond add **Audience targeting** for experience, programming languages and
+developer tools. Account settings are inherited by default; dated campaigns can inherit, use a
+custom audience, or explicitly target all readers. Choices within a dimension are alternatives;
+each populated dimension must match. Product filters still select inventory independently.
+Audience criteria use a signed-in reader's optional private experience choice, current stack,
+follows and fresh valid interests, and apply to both relevant and fallback placements. Anonymous
+readers cannot receive targeted inventory. Downgrades preserve criteria and stop targeted delivery
+rather than widening it. Unavailable selected topics remain visible for review but prevent
+delivery. Lower tiers can explicitly clear criteria and cannot add populated criteria.
+
+**Product click destination** chooses the product website or the connected partner’s listing;
+both include DevFeed UTM attribution. Partners can update this preference in their portal.
+Selecting the partner listing omits products without that listing rather than changing their destination.
+
+Campaign lists show impressions, clicks, and click-through rates. Automatic placement
+reporting records link back to their account defaults or campaign, preserving attribution.
+Manual assets remain accessible under **Performance**; the normal workflow
+does not require associating every product as a placement or ad.
+
+Validate account defaults, inclusion/exclusion, all/selected/filtered campaigns, scoped
+product pickers, and desktop/mobile layouts with `npm run admin:test` and, after
+`npm run admin:build`, `node apps/admin/tests/browser/partner-accounts.mjs`.
+
+Account pages decode Next.js path segments on the server with
+`lib/partner-account-routes.ts`. The resulting `PartnerAccountRoute` carries the account,
+resource, action, and edit identifier to the client; forms and tabs consume those fields
+directly. Build links with `partnerAccountHref` from the same contract. Unsupported or
+unsafe segments use Next.js not-found handling, and the existing superuser check runs
+before route resolution.
+The contract supports opaque route identifiers. Asset edit pages load the actual record
+from the account-scoped asset endpoint, independently of reporting pagination. Missing or
+foreign assets cannot open an edit form. Product totals link to account policy settings;
+automatic assets retain their read-only safeguards.
+
+The adapter follows cursor pagination, accepts the documented and live response envelopes,
+normalizes the platform listing and product website URLs, and selects the Developer Tools
+category. Discovery saves its page cursor and queues one durable job per product. Each
+product job fetches that product's API endpoint and commits it separately; a failed product
+cannot roll back its neighbors. Successful jobs are not rerun when another product retries.
+The next scheduled sync or **Sync now** resumes a failed run once at its saved cursor,
+retrying failed products without replaying successful ones. If that generation fails again,
+the next sync starts a fresh API scan so corrected or removed upstream entries can recover.
+Duplicate listings within a run share one product job.
+Product changes trigger new checks. Missing products are withdrawn only after a
+complete successful scan and successful product jobs; failures preserve existing listings. Withdrawal cleanup runs in batches of 25. Legacy products without an API connection remain hidden and ineligible.
+
+Automatic checks fetch each product's public website using the shared SSRF-protected
+fetcher. Qualification requires a concrete development use case, specific technologies,
+and quotations found in the fetched page. Uncertain products remain unqualified; irrelevant
+products are excluded from matching. Admins can retry checks or exclude a product without
+editing source data. Exclusions survive subsequent syncs.
+Retrying checks cancels any queued or running evaluation for the previous product revision;
+successful requalification queues current matching results automatically.
+
+Qualified products receive private AI evaluations against up to 15 published tutorials
+and five negative controls. Production placement matching continuously prepares product
+and article/topic relevance separately, refreshing changed product and article inputs.
+Reader delivery uses prepared matches and rechecks current commercial and qualification
+settings. All product placements display **Sponsored** across the web reader and both extensions.
+The API's `sponsored` flag records campaign backing for allocation and reporting; it must not
+control disclosure or dismissal. Non-campaign, article, topic, and search placements require a relevant
+match; sponsored defaults can fill unmatched slots in the unfiltered main feed. Trusted account
+acceptance remains separate from AI qualification. Qualification expires
+after 90 days.
+
+Migration `0024` creates the complete partnership schema after source-logo revision `0023`:
+catalog, accounts, tiers, configurable connectors, promotion defaults, campaigns, prepared matching,
+managed product logos/images, trusted acceptance, click destinations, account/campaign audiences,
+native formats, permanent sponsored-article disclosure and product format/location restrictions.
+It includes bounded enrollment jobs and indexed delivery history and retention. Run the normal
+database upgrade before starting the API and workers. Downgrading to `0023` removes partnership
+data; existing reader data and article/topic/source image jobs remain. Development databases with
+superseded draft revision markers require repair based on their actual schema.
+The scheduler dispatches discovery and product API syncs on `source-discovery` and product checks and
+matching on `source-analysis`. AI must be enabled for checks; API syncing can continue
+while AI is disabled. Jobs are leased, retried with backoff, and protected against stale
+results. Import connections support public APIs or server-side bearer/API-key credentials.
+
+Connection, pause, manual sync, exclusion, and recheck actions emit structured admin API
+logs after the change is committed. Scheduler and worker logs identify the provider,
+operation, job, parent run, external product ID, attempt, and page, with page counts, qualification decisions, retries,
+failures, cancellations, and completion timings. Sync/qualification worker logs use
+`partner-pipeline`; article matching uses `partner-evaluation`. Both can be read through
+`GET /v1/admin/jobs/{kind}/{job_id}/logs` with the existing admin authentication and log
+retention policy. Connection action logs include affected job IDs for correlation.
+
+### Shared product identity
+
+The catalog displays one product with all of its platform listings. Product capabilities,
+qualification, article matches, and exclusions belong to that shared identity. Each listing
+retains its provider ID, platform URL, supplied description, pricing, attribution, availability,
+and last sync time. Additional listings cannot overwrite the product's display information;
+its original listing remains the explicit metadata source. Official-site evidence determines
+verified capabilities.
+
+Identity matching normalizes full official product URLs and removes known tracking parameters.
+Meaningful paths and query parameters are preserved; names and domains alone do not merge
+products. Actual website redirects can verify HTTP-to-HTTPS and www aliases when the path and
+query remain identical. Aliases are resolved before a redundant AI assessment, and valid
+existing qualification is reused. Cross-domain or path-changing redirects do not establish
+identity automatically. A listing whose website changes without verified identity remains
+unresolved and cannot make its product eligible. Later syncs retry verification of its old
+website and can resolve a matching safe redirect automatically.
+
+A platform sync withdraws only that platform's listings. A product becomes unavailable only
+when no active, resolved listings remain. Pausing one platform does not cancel shared work
+when another connected platform still supplies the product. Global exclusions survive new
+listings and identity merges. Concurrent syncs serialize short catalog transactions and use
+unique URL identities, avoiding duplicate products and qualification jobs.
+
+Nick Launches and configurable REST JSON connections share this identity model. Paid
+campaigns and external ad network integrations do not determine product identity or
+qualification.
 
 ## Next.js 16.4 tooling
 

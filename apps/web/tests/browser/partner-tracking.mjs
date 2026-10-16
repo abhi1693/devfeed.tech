@@ -1,0 +1,240 @@
+import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
+import { cp, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import path from "node:path";
+import { build } from "esbuild";
+import { chromium } from "playwright";
+
+// Controlled placements exercise the infrastructure before any placement is launched.
+// Backend integration tests separately verify signed receipts and durable counters.
+const root = await mkdtemp(path.join(tmpdir(), "devfeed-tracking-browser-"));
+const html =
+  '<!doctype html><html><body style="margin:0;height:300vh"><div id="placement" style="margin-top:180vh;height:100px"><a id="placement-link" href="#destination"><span>Fixture placement</span></a><button id="metadata" type="button">Other action</button></div><script src="./tracking-fixture.js"></script></body></html>';
+try {
+  for (const platform of ["web", "chrome", "edge"]) {
+    const issuedAt = Math.floor(Date.now() / 1000);
+    const receipt = `v1.${"1".repeat(32)}.${"2".repeat(32)}.${issuedAt}.${"3".repeat(64)}`;
+    const compiled = await build({
+      stdin: {
+        contents: `
+          import { observePartnerPlacement } from "./apps/web/src/lib/partner-tracking";
+          import { configureReaderRuntime } from "./apps/web/src/lib/reader-runtime";
+          import { ExtensionReaderTransport } from "./apps/extensions/src/transport";
+          if (location.protocol === "chrome-extension:") {
+            configureReaderRuntime({ request: new ExtensionReaderTransport(fetch).request, publicOrigin: "https://devfeed.tech" });
+          }
+          observePartnerPlacement(document.querySelector("#placement"), ${JSON.stringify(receipt)}, undefined, "a#placement-link");
+          if (new URLSearchParams(location.search).has("expired")) {
+            Date.now = () => ${(issuedAt + 3600) * 1000};
+          }
+        `,
+        resolveDir: process.cwd(),
+        sourcefile: "tracking-fixture.ts",
+      },
+      bundle: true,
+      write: false,
+      format: "iife",
+      platform: "browser",
+    });
+    const script = compiled.outputFiles[0].text;
+    let fixture;
+    let extensionId;
+    if (platform !== "web") {
+      fixture = path.join(root, `${platform}-extension`);
+      await cp(path.resolve(`apps/extensions/dist/${platform}`), fixture, { recursive: true });
+      const manifest = JSON.parse(await readFile(path.join(fixture, "manifest.json"), "utf8"));
+      extensionId = createHash("sha256")
+        .update(Buffer.from(manifest.key, "base64"))
+        .digest("hex")
+        .slice(0, 32)
+        .replace(/[0-9a-f]/g, (digit) => String.fromCharCode(97 + parseInt(digit, 16)));
+      await writeFile(path.join(fixture, "tracking-fixture.html"), html);
+      await writeFile(path.join(fixture, "tracking-fixture.js"), script);
+    }
+    const context = await chromium.launchPersistentContext(path.join(root, `${platform}-profile`), {
+      executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH,
+      channel: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH
+        ? undefined
+        : platform === "edge"
+          ? "msedge"
+          : "chromium",
+      headless: true,
+      viewport: { width: 1280, height: 800 },
+      args: fixture
+        ? [`--disable-extensions-except=${fixture}`, `--load-extension=${fixture}`]
+        : [],
+    });
+    try {
+      const events = [];
+      await context.addCookies([
+        {
+          name: "devfeed_user_session",
+          value: "private-fixture",
+          domain: "devfeed.tech",
+          path: "/",
+          secure: true,
+          httpOnly: true,
+        },
+      ]);
+      await context.route("https://devfeed.tech/**", async (route) => {
+        const request = route.request();
+        const url = new URL(request.url());
+        if (url.pathname === "/api/v1/partner-tracking/events") {
+          assert.equal(request.method(), "POST");
+          assert.equal(request.headers().cookie, undefined);
+          assert.equal(request.headers().authorization, undefined);
+          assert.equal(request.headers().referer, undefined);
+          const event = request.postDataJSON();
+          assert.equal(event.receipt, receipt);
+          assert.deepEqual(Object.keys(event).sort(), ["kind", "receipt"]);
+          events.push(event.kind);
+          await route.fulfill({ status: 204, headers: { "Access-Control-Allow-Origin": "*" } });
+        } else if (url.pathname.endsWith("tracking-fixture.js")) {
+          await route.fulfill({ contentType: "text/javascript", body: script });
+        } else {
+          await route.fulfill({ contentType: "text/html", body: html });
+        }
+      });
+      const page = await context.newPage();
+      await page.addInitScript(() =>
+        Object.defineProperty(document, "hasFocus", { configurable: true, value: () => false }),
+      );
+      await page.goto(
+        platform === "web"
+          ? "https://devfeed.tech/tracking-fixture.html"
+          : `chrome-extension://${extensionId}/tracking-fixture.html`,
+      );
+      await page.waitForTimeout(1200);
+      assert.deepEqual(events, [], `${platform}: offscreen placements do not count`);
+      // Headless tabs can remain visible when another page is foregrounded.
+      // Drive visibility deterministically while keeping real intersection timing.
+      await page.evaluate(() => {
+        Object.defineProperty(document, "visibilityState", { configurable: true, value: "hidden" });
+        document.dispatchEvent(new Event("visibilitychange"));
+      });
+      await page.locator("#placement").scrollIntoViewIfNeeded();
+      await page.waitForTimeout(1200);
+      await page.locator("#placement-link").click();
+      await page.waitForTimeout(100);
+      assert.deepEqual(events, [], `${platform}: hidden placements do not count`);
+      await page.evaluate(() => {
+        Object.defineProperty(document, "visibilityState", {
+          configurable: true,
+          value: "visible",
+        });
+        document.dispatchEvent(new Event("visibilitychange"));
+      });
+      await page.waitForTimeout(1300);
+      assert.deepEqual(
+        events,
+        ["impression"],
+        `${platform}: visible unfocused placement counts once`,
+      );
+      await page.locator("#placement-link").evaluate((link) => {
+        const cancel = (event) => event.preventDefault();
+        link.addEventListener("click", cancel);
+        link.addEventListener("auxclick", cancel);
+        link.click();
+        link
+          .querySelector("span")
+          .dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true, button: 0 }));
+        link.dispatchEvent(
+          new MouseEvent("auxclick", { bubbles: true, cancelable: true, button: 1 }),
+        );
+        link.removeEventListener("click", cancel);
+        link.removeEventListener("auxclick", cancel);
+      });
+      await page.locator("#placement-link").click({ button: "right" });
+      await page.locator("#metadata").click();
+      await page.waitForTimeout(100);
+      assert.deepEqual(
+        events,
+        ["impression"],
+        `${platform}: scripts, right clicks and unrelated controls cannot create clicks`,
+      );
+      await page.locator("#placement-link").click();
+      await page.locator("#placement-link").click();
+      await page.waitForTimeout(300);
+      assert.deepEqual(
+        events,
+        ["impression", "click"],
+        `${platform}: click is independent and deduplicated`,
+      );
+      await page.close();
+      for (const method of ["middle", "keyboard"]) {
+        events.length = 0;
+        const activationPage = await context.newPage();
+        try {
+          await activationPage.goto(
+            platform === "web"
+              ? "https://devfeed.tech/tracking-fixture.html"
+              : `chrome-extension://${extensionId}/tracking-fixture.html`,
+          );
+          const link = activationPage.locator("#placement-link");
+          await link.scrollIntoViewIfNeeded();
+          const activate = async () => {
+            if (method === "middle") {
+              const destination = context.waitForEvent("page");
+              await link.click({ button: "middle" });
+              await (await destination).close();
+              await activationPage.bringToFront();
+            } else {
+              await link.focus();
+              await activationPage.keyboard.press("Enter");
+            }
+          };
+          await activate();
+          await activate();
+          await activationPage.waitForTimeout(300);
+          assert.equal(
+            events.filter((kind) => kind === "click").length,
+            1,
+            `${platform}: ${method} activation counts once per receipt`,
+          );
+        } finally {
+          await activationPage.close();
+        }
+      }
+      events.length = 0;
+      const expiredPage = await context.newPage();
+      try {
+        await expiredPage.goto(
+          platform === "web"
+            ? "https://devfeed.tech/tracking-fixture.html?expired"
+            : `chrome-extension://${extensionId}/tracking-fixture.html?expired`,
+        );
+        await expiredPage.locator("#placement").scrollIntoViewIfNeeded();
+        await expiredPage.evaluate(() => {
+          Object.defineProperty(document, "visibilityState", {
+            configurable: true,
+            value: "hidden",
+          });
+          document.dispatchEvent(new Event("visibilitychange"));
+          Object.defineProperty(document, "visibilityState", {
+            configurable: true,
+            value: "visible",
+          });
+          document.dispatchEvent(new Event("visibilitychange"));
+        });
+        await expiredPage.waitForTimeout(1300);
+        await expiredPage.locator("#placement-link").click();
+        await expiredPage.waitForTimeout(300);
+        assert.deepEqual(
+          events,
+          [],
+          `${platform}: an expired receipt never reports an impression or click`,
+        );
+      } finally {
+        await expiredPage.close();
+      }
+      console.log(
+        `${platform}: offscreen/hidden filtering, viewable impression, trusted primary/middle/keyboard click deduplication, synthetic/right/metadata rejection, expiry and credential isolation passed`,
+      );
+    } finally {
+      await context.close();
+    }
+  }
+} finally {
+  await rm(root, { recursive: true, force: true });
+}

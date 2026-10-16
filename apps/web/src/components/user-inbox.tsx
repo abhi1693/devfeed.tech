@@ -1,10 +1,7 @@
 "use client";
 import { useEffect, useState } from "react";
 import { useReaderRouter } from "@/lib/reader-navigation";
-import {
-  NotificationInbox as SharedInbox,
-  NotificationsUnavailable,
-} from "@devfeed/ui/notifications";
+import { NotificationInbox, NotificationsUnavailable } from "@devfeed/ui/notifications";
 import { runWhenPageActive } from "@devfeed/ui/page-activity";
 import {
   useNotificationPreferences,
@@ -12,6 +9,8 @@ import {
 } from "./notification-preferences-provider";
 import { userRequest, type UserIdentity } from "@/lib/user";
 import { createInboxClient, notificationArticle, type InboxConfig } from "@/lib/inbox";
+import { pageDestination, type ReaderDestination } from "@/lib/reader-destination";
+import { readerDestinationHref } from "@/lib/reader-runtime";
 
 export function UserInbox({ user }: { user: UserIdentity }) {
   const [config, setConfig] = useState<InboxConfig>();
@@ -49,7 +48,7 @@ function ConnectedInbox({ config, csrf }: { config: InboxConfig; csrf: string })
   const router = useReaderRouter();
   const { value } = useNotificationPreferences();
   return (
-    <SharedInbox
+    <NotificationInbox<ReaderDestination>
       animateBadge
       client={client}
       showBadge={value?.show_badge ?? true}
@@ -57,9 +56,13 @@ function ConnectedInbox({ config, csrf }: { config: InboxConfig; csrf: string })
       emptyBody="New articles from topics and sources you follow will appear here."
       categoryLabels={userNotificationLabels}
       tabs={[{ label: "All" }, { label: "Unread", filter: (item) => !item.read }]}
-      actionUrl={notificationArticle}
-      onNavigate={(href) => router.push(href, { scroll: !href.startsWith("/articles/") })}
-      footer={{ href: "/settings/notifications", label: "Notification settings" }}
+      actionDestination={notificationArticle}
+      onNavigate={(destination) => router.push(destination)}
+      destinationHref={readerDestinationHref}
+      footer={{
+        destination: pageDestination("/settings/notifications"),
+        label: "Notification settings",
+      }}
     />
   );
 }

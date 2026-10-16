@@ -1,11 +1,23 @@
-import { traceHeaders } from "@devfeed/telemetry/propagation";
 import "server-only";
 import { createHash } from "node:crypto";
+import {
+  readerDestinationContract,
+  matchReaderDestinationPath,
+  serializeReaderDestination,
+  type ReaderDestinationDefinition,
+} from "@devfeed/http/reader-destinations";
 import { publicSiteOrigin } from "./config";
-import { contentTypeRoutes } from "../feed-query";
-import { legalPages } from "../legal";
+import { PublicApiClient, UserApiError } from "./api-client";
 
-export const sitemapKinds = ["articles", "topics", "tags", "sources"] as const;
+const inventoryPages = new Map(
+  readerDestinationContract.routes.flatMap((definition) => {
+    const policy = definition.sitemap;
+    if (policy?.kind !== "inventory") return [];
+    return [[policy.collection, { policy, definition }] as const];
+  }),
+);
+export const sitemapKinds = [...inventoryPages.keys()];
+const inventoryApi = new PublicApiClient({ deadlineMs: 55_000, upstreamCache: "fresh" });
 const namespace = "http://www.sitemaps.org/schemas/sitemap/0.9";
 export const sitemapMaxBytes = 52_428_800;
 const maxLocations = 50_000;
@@ -80,17 +92,58 @@ export function xmlEscape(value: string) {
   );
 }
 async function inventory(path: string) {
-  const response = await fetch(
-    new URL(path, process.env.DEVFEED_PUBLIC_API_URL ?? "http://127.0.0.1:8000"),
-    {
-      cache: "no-store",
-      redirect: "error",
-      signal: AbortSignal.timeout(55000),
-      headers: { Accept: "application/json", ...traceHeaders() },
+  try {
+    return { data: await inventoryApi.read<Record<string, unknown>>(path) } as const;
+  } catch (error) {
+    return { error: error instanceof UserApiError && error.status === 404 ? 404 : 503 } as const;
+  }
+}
+
+/** Enumerated route parameters produce their declared canonical pages without a URL list. */
+function pageParameters(definition: ReaderDestinationDefinition) {
+  return definition.segments.reduce<Record<string, string>[]>(
+    (variants, segment) => {
+      if (typeof segment === "string") return variants;
+      const values = readerDestinationContract.parameters[segment.type]?.values;
+      if (!values) throw new Error("A static sitemap page requires finite route parameters");
+      return variants.flatMap((parameters) =>
+        Object.keys(values).map((value) => ({ ...parameters, [segment.name]: value })),
+      );
     },
+    [{}],
   );
-  if (!response.ok) return { error: response.status === 404 ? 404 : 503 } as const;
-  return { data: await response.json() } as const;
+}
+
+function pageEntries(latest: Record<string, string>): SitemapEntry[] {
+  return readerDestinationContract.routes.flatMap((definition) => {
+    const policy = definition.sitemap;
+    if (policy?.kind !== "page") return [];
+    return pageParameters(definition).map((parameters) => {
+      const path = serializeReaderDestination({
+        routeId: definition.id,
+        parameters,
+        query: {},
+      });
+      if (!path) throw new Error("Invalid sitemap page definition");
+      const publication = policy.publication;
+      let lastmod: string;
+      if (publication.source === "page") {
+        if (!definition.page?.updated) throw new Error("Missing page publication date");
+        lastmod = publicationDate(`${definition.page.updated}T00:00:00.000Z`);
+      } else {
+        const key = publication.parameter
+          ? `${publication.key}:${parameters[publication.parameter]}`
+          : publication.key;
+        lastmod = publicationDate(latest[key]);
+      }
+      return {
+        loc: publicSiteOrigin() + path,
+        lastmod,
+        changefreq: policy.changefreq,
+        priority: policy.priority,
+      };
+    });
+  });
 }
 function xmlResponse(request: Request, body: string, seconds: number) {
   const etag = '"' + createHash("sha256").update(body).digest("hex") + '"';
@@ -147,7 +200,10 @@ export async function sitemapIndex(request: Request) {
       sitemapDocument("sitemapindex", [
         {
           loc: `${publicSiteOrigin()}/sitemap-pages.xml`,
-          lastmod: [pageBuildTime, ...Object.values(latest_publication).map(publicationDate)]
+          lastmod: [
+            pageBuildTime,
+            ...pageEntries(latest_publication).map((entry) => entry.lastmod!),
+          ]
             .sort()
             .at(-1)!,
         },
@@ -160,11 +216,8 @@ export async function sitemapIndex(request: Request) {
   }
 }
 export async function sitemapPart(request: Request, kind: string, page: string) {
-  if (
-    !sitemapKinds.some((value) => value === kind) ||
-    !/^[1-9]\d{0,4}$/.test(page) ||
-    Number(page) > 50000
-  )
+  const inventoryPage = inventoryPages.get(kind);
+  if (!inventoryPage || !/^[1-9]\d{0,4}$/.test(page) || Number(page) > 50000)
     return unavailable(404);
   if (new URL(request.url).searchParams.has("v"))
     return new Response(null, {
@@ -183,22 +236,16 @@ export async function sitemapPart(request: Request, kind: string, page: string) 
     if (!Array.isArray(paths) || paths.length > 1000) return unavailable();
     if (!paths.length) return unavailable(404);
     const entries = paths.map((path, index) => {
-      if (
-        typeof path !== "string" ||
-        !path.startsWith(`/${kind}/`) ||
-        !path.slice(kind.length + 2) ||
-        path.slice(kind.length + 2).includes("/") ||
-        [".", ".."].includes(decodeURIComponent(path.slice(kind.length + 2))) ||
-        /[\x00-\x20\\?#]/.test(path)
-      )
+      const matched = typeof path === "string" ? matchReaderDestinationPath(path) : null;
+      if (!matched || matched.definition.id !== inventoryPage.definition.id || path.endsWith("/"))
         throw new Error("Invalid sitemap path");
       const record = records?.[index];
       if (record && record.path !== path) throw new Error("Invalid sitemap metadata");
       return {
         loc: publicSiteOrigin() + path,
         ...(record?.lastmod ? { lastmod: publicationDate(record.lastmod) } : {}),
-        changefreq: kind === "articles" ? ("monthly" as const) : ("daily" as const),
-        priority: kind === "articles" ? 0.8 : 0.6,
+        changefreq: inventoryPage.policy.changefreq,
+        priority: inventoryPage.policy.priority,
       };
     });
     return xmlResponse(request, sitemapDocument("urlset", entries), 300);
@@ -212,31 +259,7 @@ export async function sitemapPages(request: Request) {
     const result = await inventory("/v1/sitemaps");
     if (result.error) return unavailable(result.error);
     const latest = (result.data.latest_publication ?? {}) as Record<string, string>;
-    const routes = [
-      ["/latest", "articles"],
-      ...Object.entries(contentTypeRoutes).map(([type, path]) => [`/${path}`, `feed:${type}`]),
-      ["/topics", "topics"],
-      ["/sources", "sources"],
-    ];
-    return xmlResponse(
-      request,
-      sitemapDocument("urlset", [
-        ...routes.map(([path, kind]) => ({
-          loc: publicSiteOrigin() + path,
-          lastmod: publicationDate(latest[kind]),
-          changefreq:
-            path === "/topics" || path === "/sources" ? ("daily" as const) : ("hourly" as const),
-          priority: path === "/latest" ? 1 : 0.7,
-        })),
-        ...legalPages.map(({ path, updated }) => ({
-          loc: publicSiteOrigin() + path,
-          lastmod: `${updated}T00:00:00.000Z`,
-          changefreq: "monthly" as const,
-          priority: 0.2,
-        })),
-      ]),
-      300,
-    );
+    return xmlResponse(request, sitemapDocument("urlset", pageEntries(latest)), 300);
   } catch {
     return unavailable();
   }

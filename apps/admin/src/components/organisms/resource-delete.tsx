@@ -3,7 +3,7 @@ import { resourceTrail, recordHref, resourceHref } from "@/lib/routes";
 import Link from "next/link";
 import { useCallback, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Button } from "@/components/atoms/button";
+import { Button } from "@devfeed/ui/button";
 import { Field } from "@/components/molecules/field";
 import { TopicReplacementPicker } from "@/components/molecules/topic-replacement-picker";
 import { DeleteConfirmation } from "@/components/molecules/delete-confirmation";
@@ -12,15 +12,17 @@ import {
   type DeletionImpact,
 } from "@/components/molecules/deletion-impact-table";
 import { adminRouteTitle } from "@/lib/page-titles";
-import { PageHeading } from "@/components/molecules/page-heading";
+import { ResourceHeading } from "@devfeed/ui/resource-layout";
 import { RequestState } from "@/components/molecules/request-state";
 import { useAdmin } from "@/components/molecules/admin-session";
 import { getRecord, deleteRecord } from "@/lib/resource-api";
-import { type Resource, resources } from "@/lib/resources";
+import { resources } from "@/lib/resources";
+import { recordIdentityKey, type RecordIdentity } from "@/lib/record-identities";
 import { useRequest } from "@/lib/use-request";
 import { notify, notifyFailure } from "@/lib/notifications";
 import { adminTopicDeletePreview } from "@/lib/api/generated/admin";
-export function ResourceDelete({ resource, id }: { resource: Resource; id: string }) {
+export function ResourceDelete({ identity }: { identity: RecordIdentity }) {
+  const resource = identity.resource;
   const admin = useAdmin();
   const router = useRouter();
   const spec = resources[resource];
@@ -30,15 +32,17 @@ export function ResourceDelete({ resource, id }: { resource: Resource; id: strin
   const load = useCallback(
     async (signal: AbortSignal) => {
       const [record, impact] = await Promise.all([
-        getRecord(resource, id, signal),
-        resource === "topics" ? adminTopicDeletePreview(id, { signal }) : Promise.resolve(null),
+        getRecord(identity, signal),
+        identity.resource === "topics"
+          ? adminTopicDeletePreview(identity.id, { signal })
+          : Promise.resolve(null),
       ]);
       return { record, impact };
     },
-    [resource, id],
+    [identity],
   );
-  const result = useRequest(`${resource}/${id}`, load);
-  const href = recordHref(resource, { id });
+  const result = useRequest(recordIdentityKey(identity), load);
+  const href = recordHref(identity);
   const impact = result.data?.impact;
   const counts: DeletionImpact[] | undefined = impact
     ? [
@@ -73,8 +77,8 @@ export function ResourceDelete({ resource, id }: { resource: Resource; id: strin
     setBusy(true);
     try {
       if (resource === "topics" && replacementTopicId)
-        await deleteRecord(resource, id, admin.csrf_token, replacementTopicId);
-      else await deleteRecord(resource, id, admin.csrf_token);
+        await deleteRecord(identity, admin.csrf_token, replacementTopicId);
+      else await deleteRecord(identity, admin.csrf_token);
       notify.success(`${spec.singular} deleted`);
       router.replace(resourceHref(resource));
       router.refresh();
@@ -85,10 +89,10 @@ export function ResourceDelete({ resource, id }: { resource: Resource; id: strin
   }
   return (
     <section className="max-w-2xl space-y-6">
-      <PageHeading
+      <ResourceHeading
         title={`Delete ${spec.singular.toLowerCase()}`}
         browserTitle={adminRouteTitle(
-          { view: "delete", resource, id },
+          { view: "delete", identity },
           result.data?.record[spec.title],
         )}
         trail={[...resourceTrail(resource), { label: spec.label, href: resourceHref(resource) }]}
@@ -121,7 +125,7 @@ export function ResourceDelete({ resource, id }: { resource: Resource; id: strin
             </p>
           )}
           <DeleteConfirmation value={confirmation} onChange={setConfirmation} disabled={busy}>
-            {resource === "topics" && (
+            {identity.resource === "topics" && (
               <Field
                 label="Replacement topic"
                 disabled={busy}
@@ -130,7 +134,7 @@ export function ResourceDelete({ resource, id }: { resource: Resource; id: strin
                 {(control) => (
                   <TopicReplacementPicker
                     {...control}
-                    topicId={id}
+                    topicId={identity.id}
                     value={replacementTopicId}
                     onChange={setReplacementTopicId}
                   />

@@ -1,12 +1,12 @@
 "use client";
 
-import { createContext, useContext, useEffect, useState } from "react";
+import { createContext, useContext, useEffect, useRef, useState } from "react";
 import { preferencesChanged } from "@devfeed/ui/notification-events";
 import { runWhenPageActive } from "@devfeed/ui/page-activity";
-import { AccountError, userRequest } from "@/lib/user";
+import { AccountError, userRequest, type NotificationDisplay } from "@/lib/user";
+import { saveNotificationSettings } from "@/lib/user-mutations";
 import { useUser } from "./user-account";
 
-export type NotificationDisplay = { show_badge: boolean; sound: boolean };
 export const notificationDefaults: NotificationDisplay = { show_badge: true, sound: false };
 export const topicNotificationCategory = "feed.topic.new";
 export const userNotificationLabels = {
@@ -28,6 +28,14 @@ export function NotificationPreferencesProvider({ children }: { children: React.
   const userId = user?.user_id;
   const [state, setState] = useState<State | null>(null);
   const [revision, setRevision] = useState(0);
+  const writes = useRef(new Set<AbortController>());
+  useEffect(() => {
+    const pending = writes.current;
+    return () => {
+      for (const controller of pending) controller.abort();
+      pending.clear();
+    };
+  }, [userId]);
   useEffect(() => {
     if (!userId) return;
     return runWhenPageActive((signal) => {
@@ -54,13 +62,19 @@ export function NotificationPreferencesProvider({ children }: { children: React.
   }, []);
   async function save(value: NotificationDisplay) {
     if (!user) throw new AccountError(401);
-    const saved = await userRequest<NotificationDisplay>("settings/notifications", {
-      method: "PUT",
-      headers: { "Content-Type": "application/json", "X-CSRF-Token": user.csrf_token },
-      body: JSON.stringify(value),
-    });
-    setState({ owner: user.user_id, value: saved, unavailable: false });
-    return saved;
+    const controller = new AbortController();
+    writes.current.add(controller);
+    try {
+      const saved = await saveNotificationSettings(value, {
+        csrfToken: user.csrf_token,
+        signal: controller.signal,
+      });
+      if (!controller.signal.aborted)
+        setState({ owner: user.user_id, value: saved, unavailable: false });
+      return saved;
+    } finally {
+      writes.current.delete(controller);
+    }
   }
   return (
     <Context.Provider

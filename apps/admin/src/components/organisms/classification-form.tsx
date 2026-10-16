@@ -1,7 +1,7 @@
 "use client";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { Button } from "@/components/atoms/button";
+import { Button } from "@devfeed/ui/button";
 import { FormField } from "@/components/molecules/form-field";
 import { ValidationErrors } from "@/components/molecules/validation-errors";
 import { useAdmin } from "@/components/molecules/admin-session";

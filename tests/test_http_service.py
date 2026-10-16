@@ -13,7 +13,9 @@ from fastapi import FastAPI
 from fastapi.responses import JSONResponse
 
 
-@pytest.mark.parametrize("api", ["devfeed_api", "devfeed_user_api", "devfeed_admin_api"])
+@pytest.mark.parametrize(
+    "api", ["devfeed_api", "devfeed_user_api", "devfeed_admin_api", "devfeed_partner_api"]
+)
 @pytest.mark.parametrize("healthy", [True, False])
 def test_readiness_releases_overridden_database_session_before_response(api, healthy, monkeypatch):
     module = importlib.import_module(f"{api}.main")
@@ -37,7 +39,8 @@ def test_readiness_releases_overridden_database_session_before_response(api, hea
         return JSONResponse({"status": "unhealthy"}, status_code=503)
 
     monkeypatch.setattr(module, "get_redis", lambda: redis)
-    monkeypatch.setattr(runtime, "readiness_response", readiness)
+    readiness_owner = module if api == "devfeed_partner_api" else runtime
+    monkeypatch.setattr(readiness_owner, "readiness_response", readiness)
     app = module.create_app()
     app.dependency_overrides[dependencies.get_session] = get_session
     responses = []

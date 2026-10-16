@@ -1,13 +1,14 @@
 "use client";
+import { recordIdentity } from "@/lib/record-identities";
 
 import Link from "next/link";
 import { useCallback, useState } from "react";
 import { RefreshCw } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { Button } from "@/components/atoms/button";
+import { Button } from "@devfeed/ui/button";
 import { DataTable, type DataTableColumn } from "@/components/molecules/data-table";
 import { DateTime } from "@/components/molecules/date-time";
-import { DataValue, InfoPanel } from "@/components/molecules/info-panel";
+import { DataValue, ResourcePanel } from "@devfeed/ui/resource-layout";
 import { SearchField, searchScope } from "@/components/molecules/search-field";
 import { StatusBadge } from "@/components/molecules/status-badge";
 import type { AdminUserDetail } from "@/lib/api/generated/models";
@@ -103,7 +104,7 @@ const reasons: Record<string, string> = {
 
 export function UserActivitySummary({ user }: { user: AdminUserDetail }) {
   return (
-    <InfoPanel title="Personalization">
+    <ResourcePanel title="Personalization">
       <div className="grid grid-cols-2 gap-3 pt-4">
         {(
           [
@@ -120,14 +121,14 @@ export function UserActivitySummary({ user }: { user: AdminUserDetail }) {
           <Link
             key={section}
             className="rounded-md border p-3 hover:bg-muted focus-visible:outline-2 focus-visible:outline-ring"
-            href={recordHref("users", user, section)}
+            href={recordHref(recordIdentity("users", user), section)}
           >
             <span className="block text-lg font-semibold tabular-nums">{count ?? 0}</span>
             <span className="text-xs text-muted-foreground">{labels[section]}</span>
           </Link>
         ))}
       </div>
-    </InfoPanel>
+    </ResourcePanel>
   );
 }
 
@@ -147,17 +148,39 @@ export function UserDetailsOverview({ user }: { user: AdminUserDetail }) {
   return (
     <div className="space-y-6">
       <div className="grid items-start gap-6 lg:grid-cols-2">
-        <InfoPanel
+        <ResourcePanel
           title="Account"
           fields={[
             { label: "Display name", value: user.name },
             { label: "Sign-in name", value: <DataValue value={user.sign_in_name} /> },
             { label: "Email", value: <DataValue value={user.email} /> },
+            ...(user.partner_accounts?.length
+              ? [
+                  {
+                    label: "Partner accounts",
+                    value: (
+                      <ul className="space-y-1">
+                        {user.partner_accounts.map((account) => (
+                          <li key={account.id}>
+                            <Link
+                              className="text-blue-700 hover:underline dark:text-blue-400"
+                              href={`/partnerships/accounts/${account.id}`}
+                              prefetch={false}
+                            >
+                              {account.name}
+                            </Link>
+                          </li>
+                        ))}
+                      </ul>
+                    ),
+                  },
+                ]
+              : []),
             { label: "Joined", value: <DateTime value={user.created_at} /> },
             { label: "Last active", value: <DateTime value={user.last_seen_at} /> },
           ]}
         />
-        <InfoPanel
+        <ResourcePanel
           title="Reading activity"
           fields={[
             {
@@ -176,7 +199,7 @@ export function UserDetailsOverview({ user }: { user: AdminUserDetail }) {
               value: (
                 <Link
                   className="text-blue-700 hover:underline dark:text-blue-400"
-                  href={recordHref("users", user, "reads")}
+                  href={recordHref(recordIdentity("users", user), "reads")}
                 >
                   {user.reads ?? 0} · View
                 </Link>
@@ -192,7 +215,7 @@ export function UserDetailsOverview({ user }: { user: AdminUserDetail }) {
       </div>
       {hasUsername && (
         <UserDisclosure title="Dev Card styling">
-          <InfoPanel
+          <ResourcePanel
             title="Dev Card"
             fields={[
               { label: "Theme", value: humanize(user.dev_card.theme ?? "classic") },
@@ -212,7 +235,7 @@ export function UserDetailsOverview({ user }: { user: AdminUserDetail }) {
       )}
       <UserDisclosure title="Reader preferences">
         <div className="grid items-start gap-4 lg:grid-cols-2">
-          <InfoPanel
+          <ResourcePanel
             title="Feed preferences"
             fields={[
               { label: "View", value: <DataValue value={user.feed_preferences.view} /> },
@@ -223,7 +246,7 @@ export function UserDetailsOverview({ user }: { user: AdminUserDetail }) {
               },
             ]}
           />
-          <InfoPanel
+          <ResourcePanel
             title="Appearance & notifications"
             fields={[
               { label: "Theme", value: <DataValue value={user.appearance_preferences.theme} /> },
@@ -252,7 +275,7 @@ export function UserDetailsOverview({ user }: { user: AdminUserDetail }) {
         </div>
       </UserDisclosure>
       <UserDisclosure title="Technical identifiers">
-        <InfoPanel
+        <ResourcePanel
           title="Record information"
           fields={[{ label: "User ID", value: <DataValue value={user.id} /> }]}
         />
@@ -263,7 +286,7 @@ export function UserDetailsOverview({ user }: { user: AdminUserDetail }) {
 
 export function UserProfileDetails({ user }: { user: AdminUserDetail }) {
   return (
-    <InfoPanel
+    <ResourcePanel
       title="Reader profile"
       fields={[
         { label: "Username", value: <DataValue value={user.username} /> },
@@ -310,7 +333,7 @@ export function UserProfileDetails({ user }: { user: AdminUserDetail }) {
                       <li key={item.id}>
                         <Link
                           className="text-blue-700 hover:underline dark:text-blue-400"
-                          href={recordHref("topics", item)}
+                          href={recordHref(recordIdentity("topics", item))}
                         >
                           {item.name}
                         </Link>
@@ -334,7 +357,7 @@ export function UserProfileDetails({ user }: { user: AdminUserDetail }) {
 export function UserFeedStatus({ user }: { user: AdminUserDetail }) {
   if (!hasUserAnalysisData(user))
     return (
-      <InfoPanel
+      <ResourcePanel
         title="Recommendation refresh"
         fields={[
           { label: "Analysis", value: "Not needed" },
@@ -346,7 +369,7 @@ export function UserFeedStatus({ user }: { user: AdminUserDetail }) {
       />
     );
   return (
-    <InfoPanel
+    <ResourcePanel
       title="Recommendation refresh"
       fields={[
         { label: "Feed status", value: <StatusBadge value={user.feed_status} /> },
@@ -423,7 +446,7 @@ function UserInterestPreview({ user }: { user: AdminUserDetail }) {
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h3 className="font-semibold">{title}</h3>
         <Button variant="outline" size="sm" asChild>
-          <Link href={recordHref("users", user, section)}>View all {section}</Link>
+          <Link href={recordHref(recordIdentity("users", user), section)}>View all {section}</Link>
         </Button>
       </div>
       <p className="text-sm text-muted-foreground">
@@ -453,7 +476,7 @@ function topicLink(id: unknown, name: unknown) {
     <Link
       prefetch={false}
       className="break-words text-blue-700 hover:underline dark:text-blue-400"
-      href={recordHref("topics", { id: String(id) })}
+      href={recordHref(recordIdentity("topics", { id: String(id) }))}
     >
       {String(name)}
     </Link>
@@ -497,7 +520,9 @@ function columns(section: UserSection): DataTableColumn<RecordData>[] {
       enableSorting: true,
       cell: ({ row }) =>
         section === "sources" ? (
-          <Link href={recordHref("sources", row.original)}>{String(row.original.name)}</Link>
+          <Link href={recordHref(recordIdentity("sources", row.original))}>
+            {String(row.original.name)}
+          </Link>
         ) : topics ? (
           topicLink(row.original.id, row.original.name)
         ) : section === "reads" && !row.original.title ? (
@@ -506,9 +531,11 @@ function columns(section: UserSection): DataTableColumn<RecordData>[] {
           <Link
             prefetch={false}
             className="block max-w-lg break-words font-medium text-blue-700 hover:underline dark:text-blue-400"
-            href={recordHref("articles", {
-              id: String(row.original.article_id ?? row.original.id),
-            })}
+            href={recordHref(
+              recordIdentity("articles", {
+                id: String(row.original.article_id ?? row.original.id),
+              }),
+            )}
           >
             {String(row.original.title)}
           </Link>
@@ -580,7 +607,11 @@ function columns(section: UserSection): DataTableColumn<RecordData>[] {
             enableSorting: false,
             cell: ({ row }: { row: { original: RecordData } }) =>
               row.original.source_id ? (
-                <Link href={recordHref("sources", { id: String(row.original.source_id) })}>
+                <Link
+                  href={recordHref(
+                    recordIdentity("sources", { id: String(row.original.source_id) }),
+                  )}
+                >
                   {String(row.original.source_name ?? "Source")}
                 </Link>
               ) : (
@@ -664,9 +695,12 @@ function UserRecordsTable({
       if (value) params.set(key, value);
       else params.delete(key);
     }
-    router[replace ? "replace" : "push"](`${recordHref("users", user, section)}?${params}`, {
-      scroll: false,
-    });
+    router[replace ? "replace" : "push"](
+      `${recordHref(recordIdentity("users", user), section)}?${params}`,
+      {
+        scroll: false,
+      },
+    );
   }
   return (
     <section className="min-w-0 space-y-4">

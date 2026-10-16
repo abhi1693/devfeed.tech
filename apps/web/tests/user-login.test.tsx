@@ -2,6 +2,8 @@
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, expect, it, vi } from "vitest";
 import { UserLogin } from "@/components/user-login";
+import { pageDestination } from "@/lib/reader-destination";
+import { decodeReaderLoginDestination } from "@devfeed/http/reader-destinations";
 
 afterEach(() => {
   cleanup();
@@ -101,4 +103,54 @@ it("keeps the existing hosted login as a fallback when direct providers are not 
     (await screen.findByRole("link", { name: "Continue to sign in" })).getAttribute("href"),
   ).toBe("/api/v1/user/auth/login?return_to=%2Fread-later");
   expect(screen.getByRole("heading", { name: "Sign in to DevFeed" })).toBeTruthy();
+});
+
+it.each([
+  "/latest?content_type=news&sort=most_liked",
+  "/sources/company-engineering/tutorials?q=C%2B%2B+%26+SQL&sort=newest",
+  "/search?section=articles&content_types=tutorial&date_from=2026-01-01",
+  "/users/reader",
+  "/mcp/authorize?request=" + "a".repeat(43),
+])("offers provider links that preserve approved destination %s", async (returnTo) => {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn().mockResolvedValue(Response.json({ enabled: true, providers: ["google"] })),
+  );
+  render(<UserLogin returnTo={returnTo} />);
+  const link = await screen.findByRole("link", { name: "Google" });
+  const url = new URL(link.getAttribute("href")!, "https://devfeed.tech");
+  expect(url.searchParams.get("return_to")).toBe(returnTo);
+  expect(decodeReaderLoginDestination(url.searchParams.get("return_to")!)).not.toBeNull();
+});
+
+it.each([
+  "//elsewhere.test",
+  "/my-feed",
+  "/settings/unknown",
+  "/search?q=one&q=two",
+  "/topics/rust/unknown",
+  "/latest?sort=latest",
+  "/mcp/authorize?request=short",
+])("uses reader home when an untrusted UI return destination is invalid: %s", async (returnTo) => {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn().mockResolvedValue(Response.json({ enabled: true, providers: ["google"] })),
+  );
+  render(<UserLogin returnTo={returnTo} />);
+  const link = await screen.findByRole("link", { name: "Google" });
+  expect(
+    new URL(link.getAttribute("href")!, "https://devfeed.tech").searchParams.get("return_to"),
+  ).toBe("/");
+});
+
+it("accepts a typed navigation destination without reclassifying its URL in the component", async () => {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn().mockResolvedValue(Response.json({ enabled: true, providers: ["google"] })),
+  );
+  render(<UserLogin returnTo={pageDestination("/settings/notifications")} />);
+  const link = await screen.findByRole("link", { name: "Google" });
+  expect(
+    new URL(link.getAttribute("href")!, "https://devfeed.tech").searchParams.get("return_to"),
+  ).toBe("/settings/notifications");
 });

@@ -1,20 +1,20 @@
 import { recordHref } from "@/lib/routes";
 import Link from "next/link";
 import { ClipboardCheck, Pencil, RefreshCw, Tags, Trash2 } from "lucide-react";
-import { Button } from "@/components/atoms/button";
+import { Button } from "@devfeed/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/atoms/tooltip";
 import { cn } from "@/lib/utils";
-import { type Resource, resources } from "@/lib/resources";
+import { resources } from "@/lib/resources";
+import type { RecordIdentity } from "@/lib/record-identities";
 export function RecordActions({
-  resource,
-  id,
+  identity,
   detail = false,
 }: {
-  resource: Resource;
-  id: string;
+  identity: RecordIdentity;
   detail?: boolean;
 }) {
-  const href = recordHref(resource, { id });
+  const resource = identity.resource;
+  const href = recordHref(identity);
   if (resources[resource].readonly) return null;
   return (
     <div

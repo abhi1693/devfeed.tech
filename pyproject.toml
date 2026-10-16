@@ -16,6 +16,7 @@ package = false
 devfeed-api = { editable_mode = "strict" }
 devfeed-mcp = { editable_mode = "strict" }
 devfeed-admin-api = { editable_mode = "strict" }
+devfeed-partner-api = { editable_mode = "strict" }
 devfeed-user-api = { editable_mode = "strict" }
 devfeed-notifications = { editable_mode = "strict" }
 devfeed-aggregator = { editable_mode = "strict" }
@@ -32,6 +33,7 @@ members = [
   "apps/api",
   "apps/mcp",
   "apps/admin-api",
+  "apps/partner-api",
   "apps/user-api",
   "apps/aggregator",
   "apps/notifications",
@@ -50,6 +52,7 @@ devfeed-http = { workspace = true }
 devfeed-api = { workspace = true }
 devfeed-mcp = { workspace = true }
 devfeed-admin-api = { workspace = true }
+devfeed-partner-api = { workspace = true }
 devfeed-user-api = { workspace = true }
 devfeed-notifications = { workspace = true }
 devfeed-aggregator = { workspace = true }
@@ -66,6 +69,7 @@ dev = [
   "devfeed-api",
   "devfeed-mcp",
   "devfeed-admin-api",
+  "devfeed-partner-api",
   "devfeed-user-api",
   "devfeed-aggregator[all-workers]",
   "devfeed-notifications",
@@ -104,6 +108,7 @@ select = ["E", "F", "I", "UP", "B", "SIM", "ASYNC2"]
 [tool.ruff.lint.per-file-ignores]
 "apps/api/src/*.py" = ["B008"]
 "apps/admin-api/src/*.py" = ["B008"]
+"apps/partner-api/src/*.py" = ["B008"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
@@ -122,6 +127,7 @@ source = [
   "packages/http/src",
   "apps/api/src",
   "apps/admin-api/src",
+  "apps/partner-api/src",
   "apps/user-api/src",
   "apps/mcp/src",
   "apps/aggregator/src",
@@ -147,6 +153,7 @@ packages = [
   "devfeed_api",
   "devfeed_mcp",
   "devfeed_admin_api",
+  "devfeed_partner_api",
   "devfeed_user_api",
   "devfeed_aggregator",
   "devfeed_notifications",

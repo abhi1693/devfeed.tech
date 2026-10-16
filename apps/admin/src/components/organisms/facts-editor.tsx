@@ -1,5 +1,5 @@
 "use client";
-import { Button } from "@/components/atoms/button";
+import { Button } from "@devfeed/ui/button";
 import { FormField } from "@/components/molecules/form-field";
 import type { EditableFact } from "@/lib/form-values";
 export function FactsEditor({

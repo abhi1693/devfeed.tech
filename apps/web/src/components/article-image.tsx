@@ -1,7 +1,7 @@
 "use client";
 
 /* eslint-disable @next/next/no-img-element -- Publisher images load directly, without a server-side proxy. */
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { Braces } from "lucide-react";
 import { articleImageSources } from "@/lib/article-images";
 
@@ -10,12 +10,14 @@ export function ArticleImage({
   variants,
   label,
   priority = false,
+  fallback,
   sizes = "(max-width: 520px) calc(100vw - 40px), (max-width: 800px) calc((100vw - 62px) / 2), (max-width: 1200px) calc((100vw - 268px) / 2), (max-width: 1699px) calc((100vw - 326px) / 3), 430px",
 }: {
   src?: string;
   variants?: { url: string; width: number }[];
   label: string;
   priority?: boolean;
+  fallback?: ReactNode;
   sizes?: string;
 }) {
   const [failedSrc, setFailedSrc] = useState<string>();
@@ -47,6 +49,8 @@ export function ArticleImage({
       referrerPolicy="no-referrer"
       onError={() => setFailedSrc(src)}
     />
+  ) : fallback ? (
+    fallback
   ) : (
     <span className="image-placeholder">
       <Braces size={42} strokeWidth={1} />

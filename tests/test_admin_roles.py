@@ -2,7 +2,7 @@
 
 import pytest
 from devfeed_admin_api.config import Settings
-from devfeed_admin_api.roles import claim_roles, verified_roles
+from devfeed_http.roles import claim_roles, verified_roles
 from pydantic import ValidationError
 
 ROLE_CLAIM = "urn:zitadel:iam:org:project:roles"

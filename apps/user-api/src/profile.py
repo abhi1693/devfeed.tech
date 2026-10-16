@@ -39,7 +39,7 @@ from fastapi import APIRouter, HTTPException, Response
 from sqlalchemy import delete, select, update
 
 from devfeed_user_api.auth import User
-from devfeed_user_api.avatar_storage import AvatarObjects
+from devfeed_user_api.avatar_storage import AvatarStorage
 from devfeed_user_api.dependencies import DB
 from devfeed_user_api.preferences import lock_account
 
@@ -191,7 +191,7 @@ def save_profile(payload: UserProfileUpdate, user: User, session: DB):
     )
     if replace_managed_avatar:
         values["avatar_variants"] = []
-    for field in ("display_name", "avatar_url", "bio", "location"):
+    for field in ("display_name", "avatar_url", "bio", "location", "experience_level"):
         if field in payload.model_fields_set:
             values[field] = getattr(payload, field)
     if "dev_card" in payload.model_fields_set:
@@ -242,7 +242,7 @@ def save_profile(payload: UserProfileUpdate, user: User, session: DB):
         )
     session.flush()
     result = profile_value(session, account)
-    with AvatarObjects(account_id) if replace_managed_avatar else nullcontext() as objects:
+    with AvatarStorage(account_id) if replace_managed_avatar else nullcontext() as objects:
         if objects is not None:
             objects.remove()
         session.commit()

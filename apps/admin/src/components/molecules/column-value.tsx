@@ -1,6 +1,6 @@
 "use client";
 
-import { Badge } from "@/components/atoms/badge";
+import { Badge } from "@devfeed/ui/badge";
 import { BooleanIndicator } from "@/components/atoms/boolean-indicator";
 import { DateTime } from "@/components/molecules/date-time";
 import { StatusBadge } from "@/components/molecules/status-badge";

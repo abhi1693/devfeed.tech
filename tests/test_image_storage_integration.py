@@ -8,6 +8,7 @@ from devfeed_core.config import get_settings
 from devfeed_core.feeds.fetcher import FeedError
 from devfeed_core.image_jobs import backfill_storage, request_image
 from devfeed_core.models import Article, ArticleImageJob, utcnow
+from devfeed_core.object_storage import R2Storage
 from devfeed_core.schemas import ArticleOut
 from devfeed_core.urls import fingerprint
 
@@ -20,7 +21,9 @@ def enabled(database, monkeypatch):
     monkeypatch.setenv("DEVFEED_IMAGE_PUBLIC_URL", "https://images.test")
     get_settings.cache_clear()
     monkeypatch.setattr(
-        image_storage_tasks, "storage_client", lambda: SimpleNamespace(close=lambda: None)
+        image_storage_tasks,
+        "storage_client",
+        lambda: R2Storage("test-images", client=SimpleNamespace(close=lambda: None)),
     )
     return database
 
@@ -67,8 +70,8 @@ def test_storage_retries_resume_and_reader_switches_only_when_complete(enabled, 
             raise FeedError("retry", reason="image_transform", retryable=True)
         return {"key": f"thumbnails/v1/hash/{width}.webp", "width": width}
 
-    monkeypatch.setattr(image_storage_tasks, "store_original", original)
-    monkeypatch.setattr(image_storage_tasks, "store_variant", variant)
+    monkeypatch.setattr(image_storage_tasks.ImageOriginalStore, "store", original)
+    monkeypatch.setattr(image_storage_tasks.ThumbnailVariantStore, "store", variant)
     with factory.begin() as session:
         job_id = request_image(session, identifier).id
     image_tasks.enrich_image(str(job_id))
@@ -108,9 +111,9 @@ def test_source_change_during_upload_does_not_publish_stale_image(enabled, monke
             "variants": [],
         }
 
-    monkeypatch.setattr(image_storage_tasks, "store_original", original)
+    monkeypatch.setattr(image_storage_tasks.ImageOriginalStore, "store", original)
     monkeypatch.setattr(
-        image_storage_tasks, "store_variant", lambda *a: {"key": "key", "width": 100}
+        image_storage_tasks.ThumbnailVariantStore, "store", lambda *a: {"key": "key", "width": 100}
     )
     image_tasks.enrich_image(str(job_id))
     with enabled.begin() as session:
@@ -252,8 +255,8 @@ def test_page_enrichment_does_not_race_discovery_before_storage(
         assert tasks.store_entries(session, source_id, parsed) == 0
 
     monkeypatch.setattr(
-        image_storage_tasks,
-        "store_original",
+        image_storage_tasks.ImageOriginalStore,
+        "store",
         lambda client, url: {
             "hash": "hash",
             "original_key": "originals/hash",
@@ -264,12 +267,9 @@ def test_page_enrichment_does_not_race_discovery_before_storage(
         },
     )
     monkeypatch.setattr(
-        image_storage_tasks,
-        "store_variant",
-        lambda client, asset, width: {
-            "key": f"thumbnails/v1/hash/{width}.webp",
-            "width": width,
-        },
+        image_storage_tasks.ThumbnailVariantStore,
+        "store",
+        lambda client, asset, width: {"key": f"thumbnails/v1/hash/{width}.webp", "width": width},
     )
     image_tasks.enrich_image(str(storage_id))
     with enabled() as session:
@@ -311,9 +311,11 @@ def test_recompression_is_bounded_resumes_and_publishes_atomically(enabled, monk
         return {"key": f"thumbnails/v2/hash/{width}.webp", "width": width}
 
     monkeypatch.setattr(
-        image_storage_tasks, "store_original", lambda *a: pytest.fail("Refetched original")
+        image_storage_tasks.ImageOriginalStore,
+        "store",
+        lambda *a: pytest.fail("Refetched original"),
     )
-    monkeypatch.setattr(image_storage_tasks, "store_variant", variant)
+    monkeypatch.setattr(image_storage_tasks.ThumbnailVariantStore, "store", variant)
     image_storage_tasks.store_image(enabled, job_id, token, identifier, source)
     with enabled.begin() as session:
         assert session.get(Article, identifier).managed_image == old
@@ -324,12 +326,9 @@ def test_recompression_is_bounded_resumes_and_publishes_atomically(enabled, monk
         claimed, _ = claim_image(session, retry.id)
         retry_id, token = retry.id, claimed.lease_token
     monkeypatch.setattr(
-        image_storage_tasks,
-        "store_variant",
-        lambda client, asset, width: {
-            "key": f"thumbnails/v2/hash/{width}.webp",
-            "width": width,
-        },
+        image_storage_tasks.ThumbnailVariantStore,
+        "store",
+        lambda client, asset, width: {"key": f"thumbnails/v2/hash/{width}.webp", "width": width},
     )
     image_storage_tasks.store_image(enabled, retry_id, token, identifier, source)
     with enabled.begin() as session:

@@ -5,11 +5,11 @@ import { useCallback, useState } from "react";
 import { useTableQuery } from "@/lib/use-table-query";
 import { useRouter } from "next/navigation";
 import { Plus } from "lucide-react";
-import { Button } from "@/components/atoms/button";
+import { Button } from "@devfeed/ui/button";
 import { SearchField, searchScope } from "@/components/molecules/search-field";
 import { Select } from "@/components/molecules/select";
 import { adminRouteTitle } from "@/lib/page-titles";
-import { PageHeading } from "@/components/molecules/page-heading";
+import { ResourceHeading } from "@devfeed/ui/resource-layout";
 import { TopicDiscovery } from "./topic-discovery";
 import { TopicProposalsPanel } from "./topic-proposals";
 import { RelationshipAddMenu } from "@/components/molecules/relationship-add-menu";
@@ -70,7 +70,7 @@ function TopicsScreen({ query }: { query: string }) {
   }
   return (
     <section className="min-w-0 space-y-6">
-      <PageHeading
+      <ResourceHeading
         title="Topics"
         trail={resourceTrail("topics")}
         description="Manage the topic catalog and track proposals from research to decision."
@@ -85,7 +85,7 @@ function TopicsScreen({ query }: { query: string }) {
             Add topic
           </Link>
         </Button>
-      </PageHeading>
+      </ResourceHeading>
       <nav aria-label="Topic views" className="flex gap-6 overflow-x-auto border-b">
         {(
           [
@@ -178,7 +178,7 @@ function ResourceListTable({
   return (
     <section className="min-w-0 space-y-6">
       {!embedded && (
-        <PageHeading
+        <ResourceHeading
           trail={resourceTrail(resource)}
           title={spec.label}
           browserTitle={adminRouteTitle({ view: "list", resource, analysisType })}
@@ -201,7 +201,7 @@ function ResourceListTable({
               </Button>
             )
           )}
-        </PageHeading>
+        </ResourceHeading>
       )}
       <RecordTable
         toolbar={

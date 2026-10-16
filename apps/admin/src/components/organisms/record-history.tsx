@@ -4,8 +4,8 @@ import { DateTime } from "@/components/molecules/date-time";
 import { useCallback, useState } from "react";
 import { adminArticleReviews, adminSourceReviews } from "@/lib/api/generated/admin";
 import { RequestState } from "@/components/molecules/request-state";
-import { DataValue } from "@/components/molecules/info-panel";
-import { Button } from "@/components/atoms/button";
+import { DataValue } from "@devfeed/ui/resource-layout";
+import { Button } from "@devfeed/ui/button";
 import { useRequest } from "@/lib/use-request";
 import type { PageArticleReviewOut, PageSourceReviewOut } from "@/lib/api/generated/models";
 export function RecordHistory({ resource, id }: { resource: "articles" | "sources"; id: string }) {

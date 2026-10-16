@@ -7,6 +7,8 @@ import {
   getTopics,
   getSources,
   hasUserSession,
+  getReaderFeedPreferences,
+  getTrending,
   UserApiError,
 } from "@/lib/api";
 import { catalogRoute } from "@/lib/server/catalog-route";
@@ -101,9 +103,56 @@ it("verifies the session and redirects expired cookies returning null", async ()
   vi.stubGlobal("fetch", fetcher);
   expect(await hasUserSession()).toBe(false);
   expect(fetcher.mock.calls[0][1].headers.Cookie).toBe("devfeed_user_session=expired");
-  expect(fetcher.mock.calls[0][1].headers["Cache-Control"]).toBeUndefined();
+  expect(fetcher.mock.calls[0][1].headers["Cache-Control"]).toBe("no-store");
   fetcher.mockResolvedValue(Response.json({ user_id: "user" }));
   expect(await hasUserSession()).toBe(true);
+});
+
+it("omits attribution and unrelated cookies from SSR identity and preferences with the flag enabled", async () => {
+  vi.stubEnv("DEVFEED_USER_API_URL", "http://user-api.internal:8000");
+  vi.stubEnv("DEVFEED_X_PIXEL_ENABLED", "true");
+  const reader =
+    "devfeed_user_session=session; __Host-devfeed_user_state=state; devfeed_user_visitor=visitor";
+  cookie.value = `${reader}; devfeed_user_x_click=click; __Host-devfeed_user_x_click=host-click; _twclid=pixel; devfeed_admin_session=private; unrelated=private`;
+  const fetcher = vi
+    .fn()
+    .mockImplementation((url: URL) =>
+      Response.json(
+        url.pathname === "/v1/user/auth/me"
+          ? { user_id: "user" }
+          : { content_types: ["article"], languages: ["en"] },
+      ),
+    );
+  vi.stubGlobal("fetch", fetcher);
+  expect(await hasUserSession()).toBe(true);
+  await getReaderFeedPreferences();
+  await getReaderFeedPreferences(undefined, cookie.value);
+  expect(fetcher).toHaveBeenCalledTimes(3);
+  for (const [, options] of fetcher.mock.calls) {
+    expect(options.headers.Cookie).toBe(reader);
+    expect(options.headers["Cache-Control"]).toBe("no-store");
+  }
+});
+
+it("keeps anonymous trending on the private service with caching disabled", async () => {
+  vi.stubEnv("DEVFEED_PUBLIC_API_URL", "http://public-api.internal:8000");
+  vi.stubEnv("DEVFEED_USER_API_URL", "http://user-api.internal:8001");
+  const fetcher = vi.fn().mockResolvedValue(Response.json({ items: [], next_cursor: null }));
+  vi.stubGlobal("fetch", fetcher);
+  await getTrending("C++ & cursor");
+  const [url, options] = fetcher.mock.calls[0];
+  expect(url.origin).toBe("http://user-api.internal:8001");
+  expect(url.searchParams.get("cursor")).toBe("C++ & cursor");
+  expect(options.headers["Cache-Control"]).toBe("no-store");
+  expect(options.headers.Cookie).toBeUndefined();
+});
+
+it("reports unavailable private service configuration without using the public API", async () => {
+  vi.stubEnv("DEVFEED_USER_API_URL", "");
+  const fetcher = vi.fn();
+  vi.stubGlobal("fetch", fetcher);
+  await expect(getTrending()).rejects.toEqual(new UserApiError(503));
+  expect(fetcher).not.toHaveBeenCalled();
 });
 
 it("preserves article-count sorting through the topic catalog gateway and pagination", async () => {

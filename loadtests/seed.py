@@ -1,5 +1,7 @@
 """Seed only the disposable local database created by scripts/load-test.py."""
 
+import argparse
+import json
 import os
 import sys
 import uuid
@@ -8,7 +10,7 @@ from datetime import UTC, datetime, timedelta
 from devfeed_core.config import Settings
 from devfeed_core.db import create_database_engine
 from devfeed_core.models import Article, ArticleOrigin, ArticleTopic, Source, Topic
-from sqlalchemy import func, insert, select
+from sqlalchemy import func, insert, select, text
 from sqlalchemy.engine import make_url
 
 
@@ -16,16 +18,38 @@ def identity(kind, index):
     return uuid.uuid5(uuid.NAMESPACE_URL, f"devfeed-load/{kind}/{index}")
 
 
+def prepare_statistics(engine):
+    # The first automatic analyze may run during the short measured interval.
+    # Start both revisions with statistics for the complete committed fixture.
+    with engine.begin() as connection:
+        connection.execute(text("ANALYZE"))
+        statistics = connection.execute(
+            text("""
+                SELECT c.relname AS table_name, c.reltuples AS estimated_rows,
+                       c.relpages AS pages, s.last_analyze, s.last_autoanalyze
+                FROM pg_class c
+                JOIN pg_namespace n ON n.oid = c.relnamespace
+                JOIN pg_stat_all_tables s ON s.relid = c.oid
+                WHERE n.nspname = current_schema() AND c.relkind = 'r'
+                ORDER BY c.relname
+            """)
+        ).mappings()
+        return [dict(row) for row in statistics]
+
+
 def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("rows", type=int)
+    args = parser.parse_args()
+    size = args.rows
+    if not 100 <= size <= 10000:
+        parser.error("Seed size must be 100..10000")
     url = os.environ["DEVFEED_DATABASE_URL"]
     parsed = make_url(url)
     if parsed.host != "127.0.0.1" or parsed.database != "devfeed_load_test":
         raise ValueError(
             "Seeding requires the runner's disposable loopback devfeed_load_test database"
         )
-    size = int(sys.argv[1])
-    if not 100 <= size <= 10000:
-        raise ValueError("Seed size must be 100..10000")
     settings = Settings(_env_file=None, database_url=url, redis_url=os.environ["DEVFEED_REDIS_URL"])
     engine = create_database_engine(settings)
     now = datetime.now(UTC) - timedelta(minutes=1)
@@ -105,9 +129,11 @@ def main():
                     for i in range(size)
                 ],
             )
+        statistics = prepare_statistics(engine)
     finally:
         engine.dispose()
-    print(f"Seeded {size} published articles, 20 sources and 20 topics")
+    print(json.dumps(statistics, default=str, indent=2))
+    print(f"Seeded {size} published articles, 20 sources and 20 topics", file=sys.stderr)
 
 
 if __name__ == "__main__":

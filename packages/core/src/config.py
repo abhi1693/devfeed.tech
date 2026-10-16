@@ -51,6 +51,8 @@ class Settings(BaseSettings):
 
     database_url: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
     redis_url: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
+    partner_credential_key: SecretStr | None = None
+
     redis_sentinel_nodes: list[tuple[str, int]] = []
     redis_sentinel_master: str | None = None
     redis_sentinel_username: str | None = None
@@ -114,6 +116,28 @@ class Settings(BaseSettings):
     @classmethod
     def validate_image_origin(cls, value):
         return SolverService.validate_url(value) if value else None
+
+    partner_tracking_key: SecretStr | None = Field(default=None, min_length=32)
+
+    @field_validator("partner_tracking_key", mode="before")
+    @classmethod
+    def empty_tracking_key(cls, value):
+        return None if value == "" else value
+
+    partner_caller_key: SecretStr | None = None
+
+    @field_validator("partner_caller_key", mode="before")
+    @classmethod
+    def empty_partner_caller_key(cls, value):
+        raw = value.get_secret_value() if isinstance(value, SecretStr) else value
+        return None if isinstance(raw, str) and not raw.strip() else value
+
+    @field_validator("partner_caller_key")
+    @classmethod
+    def validate_partner_caller_key(cls, value):
+        if value is not None and len(value.get_secret_value().encode()) < 32:
+            raise ValueError("Partner caller key must contain at least 32 bytes")
+        return value
 
     search_enabled: bool = False
     search_analytics_enabled: bool = False
@@ -200,6 +224,18 @@ class Settings(BaseSettings):
     codex_timeout_seconds: int = Field(default=90, ge=10, le=120)
     notifications_enabled: bool = False
     chimely_user_environment: str | None = None
+
+    @field_validator("partner_credential_key")
+    @classmethod
+    def valid_partner_credential_key(cls, value):
+        if value is not None:
+            from cryptography.fernet import Fernet
+
+            try:
+                Fernet(value.get_secret_value().encode("ascii"))
+            except (ValueError, UnicodeError):
+                raise ValueError("Partner credential encryption key is invalid") from None
+        return value
 
     @model_validator(mode="after")
     def validate_redis_configuration(self):

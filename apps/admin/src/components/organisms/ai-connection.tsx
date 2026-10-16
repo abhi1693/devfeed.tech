@@ -9,8 +9,8 @@ import {
   PlugZap,
   Unplug,
 } from "lucide-react";
-import { Button } from "@/components/atoms/button";
-import { Input } from "@/components/atoms/input";
+import { Button } from "@devfeed/ui/button";
+import { Input } from "@devfeed/ui/input";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/atoms/popover";
 import { adminAiConnection, adminAiLogin, adminAiLoginCancel } from "@/lib/api/generated/admin";
 import { ApiError } from "@/lib/api/client";

@@ -185,6 +185,30 @@ def reason_text(payload: dict) -> str:
 
 def event_text(payload: dict) -> str:
     event = payload["event"]
+    if event.startswith("partner_"):
+        details = [inline(payload[key]) for key in ("provider", "operation") if payload.get(key)]
+        for key, label in (
+            ("page", "page"),
+            ("products_received", "products received"),
+            ("external_id", "product"),
+            ("products_synced", "products synced"),
+            ("pages_processed", "pages processed"),
+            ("listings_withdrawn", "listings withdrawn"),
+            ("jobs_cancelled", "jobs cancelled"),
+            ("enabled", "enabled"),
+            ("sync_interval_minutes", "sync interval minutes"),
+            ("connection_revision", "revision"),
+            ("decision", "decision"),
+            ("matches", "matches"),
+            ("http_status", "HTTP"),
+            ("reason", "reason"),
+            ("error_type", "error type"),
+        ):
+            if payload.get(key) is not None:
+                details.append(f"{label}: {inline(payload[key])}")
+        if payload.get("retry_at"):
+            details.append(f"retry at {local_time(payload['retry_at'])}")
+        return event.replace("_", " ").capitalize() + (": " + "; ".join(details) if details else "")
     if event == "article_enrichment_completed":
         return {
             "enriched": "Original article metadata enriched",

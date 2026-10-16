@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { Field, type FieldProps } from "@/components/molecules/field";
 import { FormField } from "@/components/molecules/form-field";
-import { Input } from "@/components/atoms/input";
+import { Input } from "@devfeed/ui/input";
 import { FieldDescription, FieldError, FieldLabel } from "@/components/atoms/field";
 import type { FieldSpec } from "@/lib/resources";
 import Link from "next/link";

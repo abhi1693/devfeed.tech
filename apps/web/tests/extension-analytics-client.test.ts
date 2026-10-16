@@ -58,6 +58,42 @@ it("normalizes page views and excludes raw search text, cookies and unsupported 
   await vi.waitFor(() => expect(network).toHaveBeenCalledTimes(3));
   expect(JSON.parse(String(network.mock.calls[2][1]?.body)).session_id).toBe(payload.session_id);
 });
+
+it("tracks every supported semantic screen without retaining route identities or OAuth data", async () => {
+  const network = setup();
+  const sent = () =>
+    network.mock.calls
+      .filter(([, init]) => init?.method === "POST")
+      .map(([, init]) => JSON.parse(String(init?.body)));
+  await vi.waitFor(() => expect(sent()).toHaveLength(1));
+  for (const [route, screen] of [
+    ["/trending", "/trending"],
+    ["/leaderboard", "/leaderboard"],
+    ["/dev-card", "/dev-card"],
+    ["/mcp", "/mcp"],
+    ["/mcp/authorize?client_id=private-client&state=private-state", "/mcp/authorize"],
+    ["/users/private_username", "/users/profile"],
+    ["/settings", "/settings/profile"],
+    ["/topics/private-topic/tutorials", "/topics/detail"],
+    ["/topics/private-topic/unknown", "/other"],
+    ["/articles/%70rivate-article", "/articles"],
+  ]) {
+    window.location.hash = `#${route}`;
+    window.dispatchEvent(new CustomEvent("devfeed:extension-route"));
+    await vi.waitFor(() =>
+      expect(
+        sent()
+          .filter(({ event }) => event.name === "page_view")
+          .at(-1)?.event,
+      ).toEqual({
+        name: "page_view",
+        params: { page_path: screen },
+      }),
+    );
+  }
+  expect(JSON.stringify(sent())).not.toContain("private");
+});
+
 it("keeps the installation identity across starts but rotates an inactive session", async () => {
   const network = setup();
   await vi.waitFor(() => expect(network).toHaveBeenCalledTimes(2));

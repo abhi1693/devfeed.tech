@@ -6,6 +6,7 @@ import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { withSuiteCoverage } from "../scripts/ci/mutation-runner.mjs";
+import { DryRunStatus, MutantRunStatus } from "@stryker-mutator/api/test-runner";
 import {
   checkReport,
   comparison,
@@ -179,6 +180,77 @@ test("runner adapter preserves binding, options, failures and suite coverage", a
   );
   const result = { status: "Error" };
   assert.equal(await withSuiteCoverage({ dryRun: async () => result }).dryRun(options), result);
+});
+
+test("module collection failures cannot pass beside a successful test file", async () => {
+  const missingModule = {
+    type: "suite",
+    filepath: "/tests/broken.test.ts",
+    tasks: [],
+    result: { state: "fail", errors: [{ message: "Cannot find imported module" }] },
+  };
+  const passed = { id: "neighbor#passes", status: "success", name: "passes", timeSpentMs: 1 };
+  const options = { timeout: 1000 };
+  const runner = withSuiteCoverage({
+    ctx: { state: { getFiles: () => [missingModule] } },
+    async dryRun(received) {
+      assert.equal(received, options);
+      return { status: DryRunStatus.Complete, tests: [passed] };
+    },
+    async mutantRun(received) {
+      assert.equal(received, options);
+      return { status: MutantRunStatus.Survived, nrOfTests: 1 };
+    },
+  });
+  for (const method of ["dryRun", "mutantRun"]) {
+    const result = await runner[method](options);
+    assert.equal(result.status, "error", method);
+    assert.match(result.errorMessage, /broken\.test\.ts: Cannot find imported module/);
+  }
+});
+
+test("nested suite setup failures cannot disappear when no leaf test has a result", async () => {
+  const file = {
+    filepath: "/tests/nested.test.ts",
+    tasks: [
+      {
+        type: "suite",
+        name: "broken setup",
+        tasks: [],
+        result: { state: "fail", errors: ["setup failed"] },
+      },
+    ],
+  };
+  const runner = withSuiteCoverage({
+    ctx: { state: { getFiles: () => [file] } },
+    dryRun: async () => ({ status: DryRunStatus.Complete, tests: [] }),
+  });
+  assert.deepEqual(await runner.dryRun({}), {
+    status: DryRunStatus.Error,
+    errorMessage: "broken setup: setup failed",
+  });
+});
+
+test("runner adapter preserves actual mutant failures, timeouts and successful runs", async () => {
+  const options = { timeout: 1000 };
+  for (const result of [
+    { status: MutantRunStatus.Killed, killedBy: ["test"], failureMessage: "failed", nrOfTests: 1 },
+    { status: MutantRunStatus.Timeout, reason: "deadline" },
+    { status: MutantRunStatus.Error, errorMessage: "worker failed" },
+    { status: MutantRunStatus.Survived, nrOfTests: 1 },
+  ]) {
+    const runner = withSuiteCoverage({
+      context: "runner",
+      ctx: { state: { getFiles: () => [{ result: { state: "pass" }, tasks: [] }] } },
+      dryRun: async () => ({ status: DryRunStatus.Complete, tests: [] }),
+      async mutantRun(received) {
+        assert.equal(this.context, "runner");
+        assert.equal(received, options);
+        return result;
+      },
+    });
+    assert.equal(await runner.mutantRun(options), result);
+  }
 });
 
 test("Stryker configuration uses the actual group and rejects unknown groups", async () => {

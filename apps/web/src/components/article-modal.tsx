@@ -1,22 +1,30 @@
 "use client";
-import { useEffect, useRef, useState, useTransition } from "react";
-import { usePathname } from "next/navigation";
+import { useEffect, useLayoutEffect, useRef, useState, useTransition } from "react";
 import { useReaderRouter } from "@/lib/reader-navigation";
+import { articleDestination, pageDestination } from "@/lib/reader-destination";
 import { ChevronLeft, ChevronRight, X } from "lucide-react";
 import { animateReader } from "@/lib/reader-motion";
 import { cycleDialogFocus, restoreDialogFocus } from "@/lib/dialog-focus";
 import { useArticleNavigation } from "./article-navigation";
+import { useReaderSurface } from "./reader-context";
+import { readerPromptPolicies, type ArticleIdentity } from "@/lib/reader-context";
 
 export function ArticleModal({
   children,
   direct = false,
   slug,
   canonical,
+  article,
+  active: visible,
+  dismiss: dismissal,
 }: {
   children: React.ReactNode;
   direct?: boolean;
   slug?: string;
   canonical?: string;
+  article?: ArticleIdentity;
+  active?: boolean;
+  dismiss?: "feed" | "history";
 }) {
   const dialog = useRef<HTMLDialogElement>(null);
   const operation = useRef(0);
@@ -26,18 +34,37 @@ export function ArticleModal({
   const exitAnimation = useRef<Animation | null>(null);
   const motionDirection = useRef<-1 | 1 | null>(null);
   const router = useReaderRouter();
-  const pathname = usePathname();
-  const { motionRef, sequence, directEntry, setDirectEntry, hideDirect, setHideDirect } =
-    useArticleNavigation();
+  const { motionRef, sequence, overlay } = useArticleNavigation();
   const [pending, startTransition] = useTransition();
-  const [waiting, setWaiting] = useState(false);
-  const active = !direct || (!hideDirect && (!slug || pathname === `/articles/${slug}`));
-  const current = pathname?.split("/").pop();
+  const [loadRequest, setLoadRequest] = useState<{ slug: string; token: number } | null>(null);
+  const current = slug ?? overlay?.slug;
+  const entry = direct ? "direct" : "intercepted";
+  const active = visible ?? (overlay?.entry === entry && overlay.slug === current);
+  const dismissTo = dismissal ?? overlay?.dismiss ?? (direct ? "feed" : "history");
+  useReaderSurface(
+    { currentArticle: article ?? null, promptEligibility: readerPromptPolicies.quiet },
+    { active, priority: "foreground" },
+  );
   const index = sequence?.slugs.indexOf(current ?? "") ?? -1;
   const previous = index > 0 ? sequence?.slugs[index - 1] : undefined;
   const next = index >= 0 ? sequence?.slugs[index + 1] : undefined;
   const canLoad = index >= 0 && !!sequence?.hasMore;
+  const waiting = loadRequest?.slug === current && loadRequest !== null;
+  if (loadRequest && loadRequest.slug !== current) setLoadRequest(null);
   const busy = pending || waiting || !!sequence?.loading;
+  useLayoutEffect(() => {
+    clearTimeout(exitTimer.current);
+    exitAnimation.current?.cancel();
+    exitAnimation.current = null;
+    closing.current = false;
+    if (dialog.current) delete dialog.current.dataset.closing;
+    return () => {
+      // A retained dialog can receive another article while an older page request is pending.
+      // This counter invalidates the latest operation; it is not a captured DOM reference.
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+      operation.current++;
+    };
+  }, [active, current]);
   function dismiss() {
     if (closing.current) return;
     closing.current = true;
@@ -50,7 +77,7 @@ export function ArticleModal({
       clearTimeout(exitTimer.current);
       // Release the browser's modal/inert state before waiting for routing.
       releaseModal.current();
-      if (direct || directEntry) router.replace("/");
+      if (dismissTo === "feed") router.replace(pageDestination("/"));
       else router.back();
     };
     const animation = animateReader(
@@ -72,7 +99,7 @@ export function ArticleModal({
   function navigate(target: string) {
     if (motionDirection.current)
       motionRef.current = { target, direction: motionDirection.current, at: Date.now() };
-    startTransition(() => router.replace(`/articles/${target}`, { scroll: false }));
+    startTransition(() => router.replace(articleDestination(target)));
   }
   function move(direction: -1 | 1) {
     if (busy || closing.current) return;
@@ -80,14 +107,14 @@ export function ArticleModal({
     const target = direction < 0 ? previous : next;
     if (target) navigate(target);
     else if (direction > 0 && canLoad) {
-      setWaiting(true);
       const token = ++operation.current;
+      setLoadRequest({ slug: current!, token });
       void sequence!
         .loadMore()
         .then((target) => {
           if (target && token === operation.current && dialog.current?.open) navigate(target);
         })
-        .finally(() => setWaiting(false));
+        .finally(() => setLoadRequest((request) => (request?.token === token ? null : request)));
     }
   }
   useEffect(() => {
@@ -106,17 +133,6 @@ export function ArticleModal({
       else link.remove();
     };
   }, [active, canonical]);
-  useEffect(() => {
-    if (!direct) return;
-    setDirectEntry(true);
-    return () => {
-      setDirectEntry(false);
-      setHideDirect(false);
-    };
-  }, [direct, setDirectEntry, setHideDirect]);
-  useEffect(() => {
-    if (!direct && directEntry) setHideDirect(true);
-  }, [direct, directEntry, setHideDirect]);
   useEffect(() => {
     if (!active) return;
     const element = dialog.current!;
@@ -164,8 +180,7 @@ export function ArticleModal({
     if (!active) return;
     dialog.current?.querySelector(".preview-scroll")?.scrollTo({ top: 0 });
     const intent = motionRef.current;
-    if (!intent || intent.target !== pathname?.split("/").pop() || Date.now() - intent.at > 5000)
-      return;
+    if (!intent || intent.target !== current || Date.now() - intent.at > 5000) return;
     const direction = intent.direction;
     motionRef.current = null;
     const animation = animateReader(
@@ -177,7 +192,7 @@ export function ArticleModal({
       { duration: 180 },
     );
     return () => animation?.cancel();
-  }, [active, pathname, motionRef]);
+  }, [active, current, motionRef]);
   if (!active) return null;
   return (
     <dialog

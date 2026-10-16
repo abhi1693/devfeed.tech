@@ -20,6 +20,7 @@ members = [
     "devfeed-images-worker",
     "devfeed-mcp",
     "devfeed-notifications",
+    "devfeed-partner-api",
     "devfeed-search-indexer",
     "devfeed-source-discovery-worker",
     "devfeed-user-api",
@@ -804,6 +805,7 @@ dev = [
     { name = "devfeed-images-worker" },
     { name = "devfeed-mcp" },
     { name = "devfeed-notifications" },
+    { name = "devfeed-partner-api" },
     { name = "devfeed-source-discovery-worker" },
     { name = "devfeed-user-api" },
     { name = "httpx" },
@@ -837,6 +839,7 @@ dev = [
     { name = "devfeed-images-worker", editable = "apps/images-worker" },
     { name = "devfeed-mcp", editable = "apps/mcp" },
     { name = "devfeed-notifications", editable = "apps/notifications" },
+    { name = "devfeed-partner-api", editable = "apps/partner-api" },
     { name = "devfeed-source-discovery-worker", editable = "apps/source-discovery-worker" },
     { name = "devfeed-user-api", editable = "apps/user-api" },
     { name = "httpx", specifier = ">=0.28,<1" },
@@ -857,7 +860,7 @@ version = "0.0.52"
 source = { editable = "apps/admin-api" }
 dependencies = [
     { name = "devfeed-core" },
-    { name = "devfeed-http", extra = ["identity"] },
+    { name = "devfeed-http", extra = ["identity", "uploads"] },
     { name = "fastapi" },
     { name = "rq" },
     { name = "uvicorn", extra = ["standard"] },
@@ -867,7 +870,7 @@ dependencies = [
 [package.metadata]
 requires-dist = [
     { name = "devfeed-core", editable = "packages/core" },
-    { name = "devfeed-http", extras = ["identity"], editable = "packages/http" },
+    { name = "devfeed-http", extras = ["identity", "uploads"], editable = "packages/http" },
     { name = "fastapi", specifier = ">=0.142.2,<1" },
     { name = "rq", specifier = ">=2.8,<3" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.34,<1" },
@@ -888,11 +891,10 @@ ai = [
     { name = "websockets" },
 ]
 all-workers = [
-    { name = "boto3" },
     { name = "cairosvg" },
+    { name = "devfeed-core", extra = ["images", "storage"] },
     { name = "devfeed-notifications" },
     { name = "lingua-language-detector" },
-    { name = "pillow" },
     { name = "trafilatura" },
     { name = "websockets" },
 ]
@@ -901,9 +903,8 @@ article-enrichment = [
     { name = "trafilatura" },
 ]
 images = [
-    { name = "boto3" },
     { name = "cairosvg" },
-    { name = "pillow" },
+    { name = "devfeed-core", extra = ["images", "storage"] },
 ]
 notifications = [
     { name = "devfeed-notifications" },
@@ -911,17 +912,15 @@ notifications = [
 
 [package.metadata]
 requires-dist = [
-    { name = "boto3", marker = "extra == 'all-workers'", specifier = ">=1.40,<2" },
-    { name = "boto3", marker = "extra == 'images'", specifier = ">=1.40,<2" },
     { name = "cairosvg", marker = "extra == 'all-workers'", specifier = ">=2.8,<3" },
     { name = "cairosvg", marker = "extra == 'images'", specifier = ">=2.8,<3" },
     { name = "devfeed-core", editable = "packages/core" },
+    { name = "devfeed-core", extras = ["images", "storage"], marker = "extra == 'all-workers'", editable = "packages/core" },
+    { name = "devfeed-core", extras = ["images", "storage"], marker = "extra == 'images'", editable = "packages/core" },
     { name = "devfeed-notifications", marker = "extra == 'all-workers'", editable = "apps/notifications" },
     { name = "devfeed-notifications", marker = "extra == 'notifications'", editable = "apps/notifications" },
     { name = "lingua-language-detector", marker = "extra == 'all-workers'", specifier = ">=2.2,<3" },
     { name = "lingua-language-detector", marker = "extra == 'article-enrichment'", specifier = ">=2.2,<3" },
-    { name = "pillow", marker = "extra == 'all-workers'", specifier = ">=11.3,<13" },
-    { name = "pillow", marker = "extra == 'images'", specifier = ">=11.3,<13" },
     { name = "rq", specifier = ">=2.8,<3" },
     { name = "trafilatura", marker = "extra == 'all-workers'", specifier = ">=2.2,<3" },
     { name = "trafilatura", marker = "extra == 'article-enrichment'", specifier = ">=2.2,<3" },
@@ -985,6 +984,7 @@ version = "0.0.52"
 source = { editable = "packages/core" }
 dependencies = [
     { name = "alembic" },
+    { name = "cryptography" },
     { name = "feedparser" },
     { name = "httpcore" },
     { name = "markdown-it-py" },
@@ -1003,9 +1003,19 @@ dependencies = [
     { name = "sqlalchemy" },
 ]
 
+[package.optional-dependencies]
+images = [
+    { name = "pillow" },
+]
+storage = [
+    { name = "boto3" },
+]
+
 [package.metadata]
 requires-dist = [
     { name = "alembic", specifier = ">=1.15,<2" },
+    { name = "boto3", marker = "extra == 'storage'", specifier = ">=1.40,<2" },
+    { name = "cryptography", specifier = ">=46,<51" },
     { name = "feedparser", specifier = ">=6.0.11,<7" },
     { name = "httpcore", specifier = ">=1.0.9,<2" },
     { name = "markdown-it-py", specifier = ">=4.2,<5" },
@@ -1013,6 +1023,7 @@ requires-dist = [
     { name = "opentelemetry-exporter-otlp-proto-http", specifier = ">=1.43,<2" },
     { name = "opentelemetry-exporter-prometheus", specifier = ">=0.64b0,<1" },
     { name = "opentelemetry-sdk", specifier = ">=1.38,<2" },
+    { name = "pillow", marker = "extra == 'images'", specifier = ">=11.3,<13" },
     { name = "prometheus-client", specifier = ">=0.22,<1" },
     { name = "protego", specifier = ">=0.7,<0.8" },
     { name = "psycopg", extras = ["binary"], specifier = ">=3.2,<4" },
@@ -1023,6 +1034,7 @@ requires-dist = [
     { name = "redis", specifier = ">=5.2,<9" },
     { name = "sqlalchemy", specifier = ">=2.0.40,<2.1" },
 ]
+provides-extras = ["images", "storage"]
 
 [[package]]
 name = "devfeed-http"
@@ -1038,15 +1050,21 @@ identity = [
     { name = "httpx" },
     { name = "pyjwt", extra = ["crypto"] },
 ]
+uploads = [
+    { name = "devfeed-core", extra = ["images", "storage"] },
+    { name = "python-multipart" },
+]
 
 [package.metadata]
 requires-dist = [
     { name = "devfeed-core", editable = "packages/core" },
+    { name = "devfeed-core", extras = ["images", "storage"], marker = "extra == 'uploads'", editable = "packages/core" },
     { name = "fastapi", specifier = ">=0.142.2,<1" },
     { name = "httpx", marker = "extra == 'identity'", specifier = ">=0.28,<1" },
     { name = "pyjwt", extras = ["crypto"], marker = "extra == 'identity'", specifier = ">=2.10,<3" },
+    { name = "python-multipart", marker = "extra == 'uploads'", specifier = ">=0.0.20,<1" },
 ]
-provides-extras = ["identity"]
+provides-extras = ["identity", "uploads"]
 
 [[package]]
 name = "devfeed-images-worker"
@@ -1100,6 +1118,25 @@ requires-dist = [
 ]
 
 [[package]]
+name = "devfeed-partner-api"
+version = "0.0.52"
+source = { editable = "apps/partner-api" }
+dependencies = [
+    { name = "devfeed-core" },
+    { name = "devfeed-http", extra = ["identity", "uploads"] },
+    { name = "fastapi" },
+    { name = "uvicorn", extra = ["standard"] },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "devfeed-core", editable = "packages/core" },
+    { name = "devfeed-http", extras = ["identity", "uploads"], editable = "packages/http" },
+    { name = "fastapi", specifier = ">=0.142.2,<1" },
+    { name = "uvicorn", extras = ["standard"], specifier = ">=0.34,<1" },
+]
+
+[[package]]
 name = "devfeed-search-indexer"
 version = "0.0.52"
 source = { editable = "apps/search-indexer" }
@@ -1126,23 +1163,17 @@ name = "devfeed-user-api"
 version = "0.0.52"
 source = { editable = "apps/user-api" }
 dependencies = [
-    { name = "boto3" },
     { name = "devfeed-core" },
-    { name = "devfeed-http", extra = ["identity"] },
+    { name = "devfeed-http", extra = ["identity", "uploads"] },
     { name = "fastapi" },
-    { name = "pillow" },
-    { name = "python-multipart" },
     { name = "uvicorn", extra = ["standard"] },
 ]
 
 [package.metadata]
 requires-dist = [
-    { name = "boto3", specifier = ">=1.40,<2" },
     { name = "devfeed-core", editable = "packages/core" },
-    { name = "devfeed-http", extras = ["identity"], editable = "packages/http" },
+    { name = "devfeed-http", extras = ["identity", "uploads"], editable = "packages/http" },
     { name = "fastapi", specifier = ">=0.142.2,<1" },
-    { name = "pillow", specifier = ">=11.3,<13" },
-    { name = "python-multipart", specifier = ">=0.0.20,<1" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.34,<1" },
 ]
 

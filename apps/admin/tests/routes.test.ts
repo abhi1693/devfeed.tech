@@ -1,14 +1,29 @@
 import { describe, expect, it } from "vitest";
-import { resourceKeys, resources } from "@/lib/resources";
+import { resourceKeys, resources, type Resource } from "@/lib/resources";
+import type { RecordIdentity } from "@/lib/record-identities";
+import { RelationOutRelation } from "@/lib/api/generated/models/relationOutRelation";
+import { adminRouteTitle } from "@/lib/page-titles";
 import {
   canonicalAdminRedirect,
   detailSections,
   recordHref,
   resolveAdminRoute,
   resourceHref,
+  type AdminRoute,
 } from "@/lib/routes";
 
 const parse = (path: string) => resolveAdminRoute(path.slice(1).split("/"));
+const identityFor = (resource: Resource): RecordIdentity => {
+  if (resource === "topic-relations")
+    return {
+      resource,
+      topicId: "from-topic",
+      relatedTopicId: "to-topic",
+      relation: "related_to",
+    };
+  if (resource === "analysis-jobs") return { resource, kind: "analysis", id: "record-1" };
+  return { resource, id: "record-1" };
+};
 const redirect = (path: string) => {
   const url = new URL(path, "https://admin.example");
   const search: Record<string, string[]> = {};
@@ -21,31 +36,29 @@ describe("shared browser routes", () => {
     expect(detailSections("sources")).toEqual(["details", "relevance", "related", "history"]);
     expect(parse("/content/sources/source-1/relevance")).toEqual({
       view: "detail",
-      resource: "sources",
-      id: "source-1",
+      identity: { resource: "sources", id: "source-1" },
       section: "relevance",
     });
     expect(parse("/content/articles/article-1/relevance")).toBeUndefined();
   });
   it.each(resourceKeys)("resolves %s list, records, sections, and supported forms", (resource) => {
     const base = resourceHref(resource);
-    const id = resource === "topic-relations" ? "from-topic~to-topic~related_to" : "record-1";
-    const href = recordHref(resource, { id });
+    const identity = identityFor(resource);
+    const href = recordHref(identity);
     expect(parse(base)).toEqual({ view: "list", resource });
-    expect(parse(href)).toEqual({ view: "detail", resource, id, section: "details" });
+    expect(parse(href)).toEqual({ view: "detail", identity, section: "details" });
     expect(redirect(base)).toBeUndefined();
     for (const section of detailSections(resource)) {
-      expect(parse(recordHref(resource, { id }, section))).toEqual({
+      expect(parse(recordHref(identity, section))).toEqual({
         view: "detail",
-        resource,
-        id,
+        identity,
         section,
       });
     }
     if (!resources[resource].readonly) {
       expect(parse(`${base}/new`)).toEqual({ view: "new", resource });
       for (const view of ["edit", "delete"])
-        expect(parse(`${href}/${view}`)).toEqual({ view, resource, id });
+        expect(parse(`${href}/${view}`)).toEqual({ view, identity });
     } else {
       expect(parse(`${base}/new`)).toBeUndefined();
       expect(parse(`${href}/edit`)).toBeUndefined();
@@ -58,13 +71,16 @@ describe("shared browser routes", () => {
     "keeps %s analysis scope in list and run URLs",
     (kind) => {
       const base = resourceHref("analysis-jobs", kind);
-      const record = { id: "run-1", kind: kind === "topics" ? "topic-analysis" : "analysis" };
+      const identity: RecordIdentity = {
+        resource: "analysis-jobs",
+        id: "run-1",
+        kind: kind === "topics" ? "topic-analysis" : "analysis",
+      };
       expect(parse(base)).toEqual({ view: "list", resource: "analysis-jobs", analysisType: kind });
-      expect(recordHref("analysis-jobs", record)).toBe(`${base}/run-1`);
+      expect(recordHref(identity)).toBe(`${base}/run-1`);
       expect(parse(`${base}/run-1/logs`)).toEqual({
         view: "detail",
-        resource: "analysis-jobs",
-        id: kind === "topics" ? "topic-analysis~run-1" : "run-1",
+        identity,
         section: "logs",
       });
     },
@@ -80,21 +96,127 @@ describe("shared browser routes", () => {
     ["/taxonomy/topics/topic-1/enrich", { view: "enrich", id: "topic-1" }],
     [
       "/content/articles/article-1/review",
-      { view: "workflow", resource: "articles", id: "article-1", action: "review" },
+      { view: "workflow", identity: { resource: "articles", id: "article-1" }, action: "review" },
     ],
     [
       "/content/articles/article-1/classify",
-      { view: "workflow", resource: "articles", id: "article-1", action: "classify" },
+      { view: "workflow", identity: { resource: "articles", id: "article-1" }, action: "classify" },
     ],
     [
       "/content/sources/source-1/fetch",
-      { view: "workflow", resource: "sources", id: "source-1", action: "fetch" },
+      { view: "workflow", identity: { resource: "sources", id: "source-1" }, action: "fetch" },
     ],
   ])("resolves workflow %s", (path, expected) => expect(parse(String(path))).toEqual(expected));
 
   it("represents relationship direction in separate path segments", () => {
-    expect(recordHref("topic-relations", { id: "react~javascript~uses_language" })).toBe(
-      "/taxonomy/relationships/react/uses_language/javascript",
+    expect(
+      recordHref({
+        resource: "topic-relations",
+        topicId: "react",
+        relatedTopicId: "javascript",
+        relation: "uses_language",
+      }),
+    ).toBe("/taxonomy/relationships/react/uses_language/javascript");
+  });
+
+  it.each(Object.values(RelationOutRelation))("preserves %s relationship identity", (relation) => {
+    const identity: RecordIdentity = {
+      resource: "topic-relations",
+      topicId: "from-1",
+      relatedTopicId: "to-2",
+      relation,
+    };
+    expect(parse(recordHref(identity))).toEqual({ view: "detail", identity, section: "details" });
+    expect(parse(`${recordHref(identity)}/edit`)).toEqual({ view: "edit", identity });
+    expect(parse(`${recordHref(identity)}/delete`)).toEqual({ view: "delete", identity });
+    expect(parse(recordHref({ ...identity, topicId: "to-2", relatedTopicId: "from-1" }))).toEqual({
+      view: "detail",
+      identity: { ...identity, topicId: "to-2", relatedTopicId: "from-1" },
+      section: "details",
+    });
+  });
+
+  it("keeps identical analysis run IDs distinct through routes and titles", () => {
+    const article: RecordIdentity = {
+      resource: "analysis-jobs",
+      kind: "analysis",
+      id: "same-run-123",
+    };
+    const topic: RecordIdentity = { ...article, kind: "topic-analysis" };
+    const articleRoute = resolveAdminRoute(recordHref(article).slice(1).split("/"))!;
+    const topicRoute = resolveAdminRoute(recordHref(topic).slice(1).split("/"))!;
+    expect(articleRoute).toEqual({ view: "detail", identity: article, section: "details" });
+    expect(topicRoute).toEqual({ view: "detail", identity: topic, section: "details" });
+    expect(adminRouteTitle(articleRoute)).toBe("Run same-run · Article AI analysis");
+    expect(adminRouteTitle(topicRoute)).toBe("Run same-run · Topic AI analysis");
+  });
+
+  it("titles structured record identities without interpreting prefixes or delimiters", () => {
+    expect(
+      adminRouteTitle({
+        view: "detail",
+        identity: { resource: "analysis-jobs", kind: "analysis", id: "topic-analysis~opaque" },
+        section: "details",
+      }),
+    ).toBe("Run topic-an · Article AI analysis");
+    expect(
+      adminRouteTitle(
+        {
+          view: "detail",
+          identity: {
+            resource: "topic-relations",
+            topicId: "react",
+            relatedTopicId: "javascript",
+            relation: "uses_language",
+          },
+          section: "related",
+        },
+        "React uses JavaScript",
+      ),
+    ).toBe("Related objects · Uses language · Topic relationship");
+    expect(
+      adminRouteTitle(
+        {
+          view: "workflow",
+          identity: { resource: "articles", id: "article-1" },
+          action: "classify",
+        },
+        "Article title",
+      ),
+    ).toBe("Classify Article title · Article");
+  });
+
+  it("titles relationships by their native relation without exposing a row key", () => {
+    expect(
+      adminRouteTitle({
+        view: "detail",
+        identity: {
+          resource: "topic-relations",
+          topicId: "react",
+          relatedTopicId: "javascript",
+          relation: "uses_language",
+        },
+        section: "details",
+      }),
+    ).toBe("Uses language · Topic relationship");
+  });
+
+  it.each([
+    ["detail", "Uses language · Topic relationship"],
+    ["edit", "Edit Uses language · Topic relationship"],
+    ["delete", "Delete Uses language · Topic relationship"],
+  ] as const)("keeps loaded %s relationship titles human-readable", (view, title) => {
+    const identity: RecordIdentity = {
+      resource: "topic-relations",
+      topicId: "react",
+      relatedTopicId: "javascript",
+      relation: "uses_language",
+    };
+    const route: AdminRoute =
+      view === "detail" ? { view, identity, section: "details" } : { view, identity };
+    expect(adminRouteTitle(route, "uses_language")).toBe(title);
+    expect(adminRouteTitle(route, '["topic-relations","react","uses_language","javascript"]')).toBe(
+      title,
     );
   });
 
@@ -110,6 +232,13 @@ describe("shared browser routes", () => {
     "/content/sources/source/classify",
     "/content/articles/article/fetch",
     "/taxonomy/relationships/a/b",
+    "/taxonomy/relationships/a/unknown/b",
+    "/taxonomy/relationships/a/constructor/b",
+    "/taxonomy/relationships/a/toString/b",
+    "/taxonomy/relationships/a/uses_language/..",
+    "/taxonomy/relationships/a~b/uses_language/c",
+    "/jobs/analysis/topics/topic-analysis~run-1",
+    "/jobs/analysis/topics/run-1/extra/segments",
     "/content/articles/..",
     "/content/articles/a%2fb",
   ])("rejects unsupported route %s", (path) => expect(parse(path)).toBeUndefined());
@@ -129,10 +258,9 @@ describe("old bookmark compatibility", () => {
     (resource) => {
       const query = "?q=react&status=running&sort=-created_at&offset=25&limit=25&batch_id=batch-1";
       expect(redirect(`/${resource}${query}`)).toBe(`${resourceHref(resource)}${query}`);
-      const id = resource === "topic-relations" ? "from~to~related_to" : "record-1";
-      expect(redirect(`/${resource}/${id}${query}`)).toBe(
-        `${recordHref(resource, { id })}${query}`,
-      );
+      const identity = identityFor(resource);
+      const oldId = resource === "topic-relations" ? "from-topic~to-topic~related_to" : "record-1";
+      expect(redirect(`/${resource}/${oldId}${query}`)).toBe(`${recordHref(identity)}${query}`);
     },
   );
   it.each([
@@ -169,6 +297,11 @@ describe("old bookmark compatibility", () => {
     "/api/v1/admin/topics",
     "/login",
     "/topic-relations/malformed",
+    "/topic-relations/from~to~unknown",
+    "/topic-relations/from~to~constructor",
+    "/topic-relations/from~to~uses_language~extra",
+    "/topic-relations/from~~uses_language",
+    "/analysis-jobs/topic-analysis~",
     "/topic-relations/new/extra",
     "/topics/id/edit/extra",
     "/analysis-jobs/run-1/delete",

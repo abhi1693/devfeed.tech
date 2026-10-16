@@ -1,0 +1,84 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "@devfeed/theme/retry-button.css";
+@import "@devfeed/ui/content.css";
+@import "@devfeed/ui/choice-controls.css";
+@import "@devfeed/ui/info-tip.css";
+@import "@devfeed/ui/sidebar.css";
+@import "@devfeed/theme/theme-toggle.css";
+@import "@devfeed/theme/tokens.css";
+@import "@devfeed/theme/brand.css";
+@import "@devfeed/theme/tailwind.css";
+
+@source "../../../../packages/ui/src";
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply m-0 bg-background text-foreground antialiased;
+    font-family: var(--font-family-sans);
+  }
+  button,
+  a {
+    -webkit-tap-highlight-color: transparent;
+  }
+}
+
+@layer components {
+  .partner-workspace {
+    --connector-field-gap: 1rem;
+    --connector-section-gap: 1rem;
+    --resource-heading-gap: 0.5rem;
+    --resource-heading-actions-gap: 0.75rem;
+    --resource-panel-padding: 1rem;
+    --resource-panel-gap: 0.75rem;
+    --resource-field-padding-block: 0.5rem;
+    --resource-title-size: 1.25rem;
+  }
+  .partner-workspace .devfeed-brand-mark {
+    width: 2rem;
+    height: 2rem;
+  }
+  .muted {
+    @apply text-sm text-muted-foreground;
+  }
+  .card {
+    @apply mb-4 min-w-0 rounded-lg border bg-card p-4;
+  }
+  .card h2 {
+    @apply mb-2 text-base font-semibold;
+  }
+  .card h3 {
+    @apply text-sm font-medium text-muted-foreground;
+  }
+  .notice {
+    @apply my-4 flex flex-wrap items-center gap-3 rounded-lg border bg-card p-4 text-sm;
+  }
+  nav[aria-label="Account pages"],
+  nav[aria-label="Asset pages"] {
+    @apply flex flex-wrap items-center gap-3 text-sm;
+  }
+}
+
+/* Keep the shared login's partner palette isolated from dashboard tokens. */
+.partner-login {
+  color-scheme: light;
+  --primary: #176252;
+  --primary-foreground: #ffffff;
+  --ring: #176252;
+  --accent-foreground: #162c2b;
+  --foreground: #162c2b;
+  --card-foreground: #162c2b;
+  --muted-foreground: #536e6a;
+  --background: #f4f7f3;
+  --card: #fff;
+  --border: #d9e4df;
+  --accent: #e9f1eb;
+  --chart-1: #c28a42;
+  --chart-2: #176252;
+  --destructive: #b42318;
+  --shadow-xs: 0 1px 2px rgb(22 44 43 / 5%);
+  --shadow-popover: 0 4px 12px rgb(22 44 43 / 10%);
+}

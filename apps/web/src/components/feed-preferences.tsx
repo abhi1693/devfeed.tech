@@ -2,14 +2,10 @@
 
 import { createContext, useContext, useEffect, useRef, useState } from "react";
 import { contentTypes } from "@/lib/feed-query";
-import { userRequest } from "@/lib/user";
+import { userRequest, type FeedDisplay } from "@/lib/user";
+import { saveFeedSettings } from "@/lib/user-mutations";
 import { useUser } from "./user-account";
 
-export type FeedDisplay = {
-  view: "cards" | "compact";
-  languages: string[];
-  content_types: (typeof contentTypes)[number][];
-};
 type State = { owner: string; value: FeedDisplay | null; unavailable: boolean };
 const guestViewKey = "devfeed:feed-view:guest";
 const Context = createContext<{
@@ -44,10 +40,12 @@ export function FeedPreferencesProvider({ children }: { children: React.ReactNod
   const [revision, setRevision] = useState(0);
   const [saving, setSaving] = useState<string | null>(null);
   const savingRef = useRef(false);
+  const account = useRef<AbortController | null>(null);
   const [failure, setFailure] = useState<{ owner: string; message: string } | null>(null);
   useEffect(() => {
     if (loading) return;
     const controller = new AbortController();
+    account.current = controller;
     async function load() {
       let value: FeedDisplay = {
         view: "cards",
@@ -75,21 +73,24 @@ export function FeedPreferencesProvider({ children }: { children: React.ReactNod
   const current = state?.owner === owner ? state : null;
   async function save(settings: FeedDisplay) {
     if (savingRef.current || loading || !user) return false;
+    const controller = account.current;
+    if (!controller || controller.signal.aborted) return false;
     savingRef.current = true;
     setSaving(owner);
     setFailure(null);
     try {
-      const value = await userRequest<FeedDisplay>("settings/feed", {
-        method: "PUT",
-        headers: { "Content-Type": "application/json", "X-CSRF-Token": user.csrf_token },
-        body: JSON.stringify(settings),
+      const value = await saveFeedSettings(settings, {
+        csrfToken: user.csrf_token,
+        signal: controller.signal,
       });
+      if (controller.signal.aborted) return false;
       setState((previous) =>
         previous?.owner === owner ? { owner, value, unavailable: false } : previous,
       );
       return true;
     } catch {
-      setFailure({ owner, message: "Couldn’t save your feed settings. Please try again." });
+      if (!controller.signal.aborted)
+        setFailure({ owner, message: "Couldn’t save your feed settings. Please try again." });
       return false;
     } finally {
       savingRef.current = false;

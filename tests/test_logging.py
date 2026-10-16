@@ -509,6 +509,71 @@ def test_health_checks_are_quiet_but_errors_are_visible(json_logs):
     assert events[0]["request_url"] == "http://testserver/unmatched-path"
 
 
+@pytest.mark.parametrize("status,level", [(200, "DEBUG"), (422, "WARNING"), (503, "ERROR")])
+def test_registered_logging_policy_follows_mounted_routes_and_keeps_errors_visible(
+    json_logs, status, level
+):
+    from devfeed_http.logging import RequestLoggingMiddleware
+    from devfeed_http.route_policies import RouteRuntimePolicy, install_runtime_policies
+    from fastapi import APIRouter, FastAPI
+    from fastapi.responses import JSONResponse
+    from fastapi.testclient import TestClient
+
+    app, child = FastAPI(), FastAPI()
+    app.add_middleware(RequestLoggingMiddleware, service="api", logger=logger)
+    router = APIRouter(prefix="/renamed")
+
+    @router.get(
+        "/quiet/{identifier}",
+        openapi_extra=RouteRuntimePolicy(logging_level="debug").openapi_extra(),
+    )
+    def quiet(identifier: str):
+        return JSONResponse({"ok": status == 200}, status_code=status)
+
+    @child.get("/health/live")
+    def ordinary():
+        return {"ok": True}
+
+    child.include_router(router)
+    app.mount("/proxy", child)
+    install_runtime_policies(app)
+    with TestClient(app) as client:
+        assert client.get("/proxy/renamed/quiet/private-identifier").status_code == status
+        _, events = json_logs()
+        completed = [item for item in events if item["event"] == "request_completed"]
+        assert len(completed) == 1
+        assert completed[0]["level"] == level
+        assert completed[0]["status_code"] == status
+        assert completed[0]["route"] == "/proxy/renamed/quiet/private-identifier"
+        assert client.get("/proxy/health/live").status_code == 200
+        _, events = json_logs()
+        completed = [item for item in events if item["event"] == "request_completed"]
+        assert len(completed) == 1
+        assert completed[0]["level"] == "INFO"
+
+
+def test_successful_unmarked_health_url_uses_ordinary_logging_level(json_logs):
+    from devfeed_http.logging import RequestLoggingMiddleware
+    from devfeed_http.route_policies import install_runtime_policies
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+
+    app = FastAPI()
+    app.add_middleware(RequestLoggingMiddleware, service="api", logger=logger)
+
+    @app.get("/health/live")
+    def endpoint():
+        return {"ok": True}
+
+    install_runtime_policies(app)
+    with TestClient(app) as client:
+        assert client.get("/health/live").status_code == 200
+        _, events = json_logs()
+    completed = [item for item in events if item["event"] == "request_completed"]
+    assert len(completed) == 1
+    assert completed[0]["level"] == "INFO"
+
+
 def test_cli_keeps_json_stdout_separate_and_correlates_logs(json_logs, monkeypatch):
     monkeypatch.setattr(commands.scheduler, "tick", lambda: {"dispatched": 3})
     assert run(["scheduler", "--once"]) == 0

@@ -1,84 +1,76 @@
+import { GatewayRouter, type ExtensionGatewayOperation } from "@devfeed/http/gateway";
+import { readRequestBody } from "@devfeed/http/request-body";
+import { extensionGatewayOperations } from "../../web/src/lib/api/generated/extension-operations";
 import { publicReadCacheControl } from "../../web/src/lib/public-read-cache";
 
 export const publicOrigin = "https://devfeed.tech";
 
-const publicReads = new Set([
-  "/api/v1/feed",
-  "/api/v1/feed/options",
-  "/api/v1/topics",
-  "/api/v1/sources",
-  "/api/v1/search",
-  "/api/v1/mcp/config",
-  "/api/v1/leaderboard",
-]);
-const publicWrites = new Set(["/api/v1/search/analytics/click"]);
-const publicProfileRead = /^\/api\/v1\/users\/[a-z0-9][a-z0-9_-]{1,28}[a-z0-9]$/i;
-const userPath = /^\/api\/v1\/user\/[a-zA-Z0-9_/-]+$/;
-const methods = new Set(["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE"]);
+/** Browser-managed sessions stay with Chrome/Edge; operation policy controls forwarding. */
+export class ExtensionReaderTransport {
+  private readonly router: GatewayRouter<ExtensionGatewayOperation>;
 
-// Chrome supplies the existing HttpOnly website session through host permission.
-// Never read/copy cookies or provider tokens into extension storage or headers.
-export function createReaderTransport(network: typeof fetch): typeof fetch {
-  return async (input, init) => {
+  constructor(
+    private readonly network: typeof fetch,
+    operations: readonly ExtensionGatewayOperation[] = extensionGatewayOperations,
+  ) {
+    this.router = new GatewayRouter({ operations });
+  }
+
+  readonly request: typeof fetch = async (input, init) => {
     const original = input instanceof Request ? input : undefined;
     const url = new URL(original ? original.url : String(input), publicOrigin);
     if (url.origin !== publicOrigin || url.username || url.password)
       throw new Error("Unexpected reader API origin");
     const method = (init?.method ?? original?.method ?? "GET").toUpperCase();
-    const privateApi = userPath.test(url.pathname);
-    const publicWrite = publicWrites.has(url.pathname);
-    const articleRead = /^\/api\/v1\/articles\/[a-z0-9][a-z0-9-]{0,199}$/i.test(url.pathname);
-    const authPath = url.pathname.startsWith("/api/v1/user/auth/");
-    if (
-      !methods.has(method) ||
-      (!privateApi &&
-        !(
-          (method === "GET" &&
-            (publicReads.has(url.pathname) ||
-              publicProfileRead.test(url.pathname) ||
-              articleRead ||
-              /^\/api\/v1\/(topics|sources)\/[a-z0-9][a-z0-9-]{0,199}$/i.test(url.pathname))) ||
-          (method === "POST" && publicWrite)
-        )) ||
-      (authPath &&
-        !["/api/v1/user/auth/me", "/api/v1/user/auth/config", "/api/v1/user/auth/logout"].includes(
-          url.pathname,
-        ))
-    )
-      return Response.json({ detail: "Unsupported reader request" }, { status: 403 });
+    let segments: string[];
+    try {
+      segments = url.pathname.slice(1).split("/").map(decodeURIComponent);
+    } catch {
+      return this.unsupported();
+    }
+    const match = this.router.resolve(method, segments);
+    if (match.kind !== "matched") return this.unsupported();
+    const { policy } = match.operation;
+    const { extension } = policy;
     const supplied = new Headers(init?.headers ?? original?.headers);
     const headers = new Headers({ Accept: "application/json" });
-    if (!privateApi)
+    if (extension.cacheControl !== null)
       headers.set(
         "Cache-Control",
-        publicProfileRead.test(url.pathname) ||
-          ["/api/v1/mcp/config", "/api/v1/leaderboard"].includes(url.pathname)
-          ? "no-store"
-          : publicReadCacheControl,
+        extension.cacheControl === "public-read" ? publicReadCacheControl : extension.cacheControl,
       );
-    for (const name of ["Content-Type", "X-CSRF-Token", "If-None-Match"]) {
+    for (const name of extension.requestHeaders) {
       const value = supplied.get(name);
-      if (value !== null && (privateApi || publicWrite)) headers.set(name, value);
+      if (value !== null) headers.set(name, value);
     }
-    const signal = init?.signal ?? original?.signal;
-    const timeout = url.pathname === "/api/v1/user/settings/profile/avatar" ? 45000 : 15000;
-    return network(url.href, {
+    const caller = init?.signal ?? original?.signal;
+    const deadline = AbortSignal.timeout(extension.timeoutMs);
+    const signal = caller ? AbortSignal.any([caller, deadline]) : deadline;
+    signal.throwIfAborted();
+    let body: BodyInit | undefined;
+    if (method !== "GET" && method !== "HEAD") {
+      body =
+        init?.body ??
+        (original
+          ? await readRequestBody(original.clone(), policy.bodyLimit, policy.bodyTimeoutMs, signal)
+          : undefined);
+    }
+    signal.throwIfAborted();
+    const network = this.network;
+    return network(`${publicOrigin}${match.path}${url.search}`, {
       method,
       headers,
       cache: "no-store",
-      credentials:
-        publicProfileRead.test(url.pathname) || url.pathname === "/api/v1/leaderboard"
-          ? "omit"
-          : "include",
+      credentials: extension.credentials,
       redirect: "error",
       referrerPolicy: "no-referrer",
-      keepalive: init?.keepalive,
-      body: ["GET", "HEAD"].includes(method)
-        ? undefined
-        : (init?.body ?? (original ? await original.clone().arrayBuffer() : undefined)),
-      signal: signal
-        ? AbortSignal.any([signal, AbortSignal.timeout(timeout)])
-        : AbortSignal.timeout(timeout),
+      keepalive: init?.keepalive ?? original?.keepalive,
+      body,
+      signal,
     });
   };
+
+  private unsupported(): Response {
+    return Response.json({ detail: "Unsupported reader request" }, { status: 403 });
+  }
 }

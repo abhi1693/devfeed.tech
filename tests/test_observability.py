@@ -13,6 +13,7 @@ from devfeed_core.config import get_settings
 from devfeed_core.database_telemetry import instrument_engine
 from devfeed_core.logging import JsonFormatter
 from devfeed_core.metrics import MetricServer
+from devfeed_http.route_policies import RouteRuntimePolicy, install_runtime_policies
 from devfeed_http.telemetry import fastapi_telemetry
 from fastapi import FastAPI
 from opentelemetry.exporter.prometheus import PrometheusMetricReader
@@ -243,7 +244,7 @@ def test_real_rq_fork_reports_execution_without_treating_it_as_durable_success(
         telemetry.stop_runtime(runtime)
 
 
-@pytest.mark.parametrize("service", ["api", "admin-api", "user-api"])
+@pytest.mark.parametrize("service", ["api", "admin-api", "user-api", "partner-api"])
 def test_private_api_factories_record_http_metrics(observed_runtime, service):
     from importlib import import_module
 
@@ -257,6 +258,8 @@ def test_private_api_factories_record_http_metrics(observed_runtime, service):
         ) as client:
             assert (await client.get("/unknown-private-id?token=secret")).status_code == 404
             assert (await client.get("/health/live")).status_code == 200
+            if service != "api":
+                assert (await client.get("/version")).status_code == 404
 
     asyncio.run(exercise())
     exposition = generate_latest(runtime.metric_server.registry).decode()
@@ -265,6 +268,12 @@ def test_private_api_factories_record_http_metrics(observed_runtime, service):
     assert "/health/live" not in exposition
     assert "unknown-private-id" not in exposition
     assert "token=secret" not in exposition
+    errors = [
+        point
+        for point in otel_points(runtime, "http.server.request.duration")
+        if point.attributes["http.response.status_code"] == 404
+    ]
+    assert sum(point.count for point in errors) == (1 if service == "api" else 2)
 
 
 def test_null_pool_records_connection_creation_failure_and_release(observed_runtime):
@@ -296,16 +305,16 @@ def test_null_pool_records_connection_creation_failure_and_release(observed_runt
 
 
 def test_admission_rejection_has_a_separate_metric(observed_runtime):
-    from devfeed_http.admission import AdmissionMiddleware
+    from devfeed_http.admission import AdmissionController
 
     runtime, _ = observed_runtime
 
     async def unused(*args):
         return {}
 
-    middleware = AdmissionMiddleware(unused, requests=1, streams=1)
-    middleware.active["request"] = 1
-    asyncio.run(middleware({"type": "http", "path": "/busy"}, unused, unused))
+    admission = AdmissionController(requests=1, streams=1)
+    admission.active["request"] = 1
+    asyncio.run(admission.run("request", {"type": "http", "path": "/busy"}, unused, unused, unused))
     assert otel_points(runtime, "devfeed.admission.rejections")[0].value == 1
     assert (
         not otel_points(runtime, "db.client.connection.count")
@@ -409,21 +418,284 @@ def test_stream_latency_is_distinct_from_interactive_requests(observed_runtime):
 
     app = FastAPI(telemetry=fastapi_telemetry())
 
-    @app.get("/v1/user/notifications/chimely/v1/inbox/{path:path}")
-    def endpoint(path: str):
+    @app.get(
+        "/renamed-events", openapi_extra=RouteRuntimePolicy(admission="stream").openapi_extra()
+    )
+    def events():
         return StreamingResponse(iter([b": connected\n\n", b": heartbeat\n\n"]))
+
+    @app.get("/v1/user/notifications/chimely/v1/inbox/stream")
+    def ordinary():
+        return {"ok": True}
+
+    install_runtime_policies(app)
 
     async def exercise():
         async with httpx.AsyncClient(
             transport=httpx.ASGITransport(app), base_url="http://test"
         ) as client:
+            await client.get("/renamed-events")
             await client.get("/v1/user/notifications/chimely/v1/inbox/stream")
-            await client.get("/v1/user/notifications/chimely/v1/inbox/items")
 
     asyncio.run(exercise())
     points = otel_points(runtime, "http.server.request.duration")
     assert {point.attributes["devfeed.request.kind"] for point in points} == {"request", "stream"}
+    assert {
+        point.attributes["http.route"]: point.attributes["devfeed.request.kind"] for point in points
+    } == {
+        "/renamed-events": "stream",
+        "/v1/user/notifications/chimely/v1/inbox/stream": "request",
+    }
     assert sum(point.count for point in points) == 2
+    assert all(point.value == 0 for point in otel_points(runtime, "http.server.active_requests"))
+
+
+def test_runtime_telemetry_policy_follows_renamed_and_mounted_routes(observed_runtime):
+    from fastapi import APIRouter
+    from fastapi.responses import StreamingResponse
+
+    runtime, exporter = observed_runtime
+    app = FastAPI(telemetry=fastapi_telemetry())
+    child = FastAPI(telemetry=fastapi_telemetry())
+    router = APIRouter(prefix="/renamed")
+
+    @router.get(
+        "/quiet/{identifier}",
+        openapi_extra=RouteRuntimePolicy(
+            admission="exempt", telemetry_excluded=True, logging_level="debug"
+        ).openapi_extra(),
+    )
+    def quiet(identifier: str):
+        return {"ok": True}
+
+    @router.get(
+        "/events/{identifier}",
+        openapi_extra=RouteRuntimePolicy(admission="stream").openapi_extra(),
+    )
+    def events(identifier: str):
+        return StreamingResponse(iter([b": connected\n\n"]))
+
+    for path in ("/health/live", "/health/ready", "/version"):
+        child.add_api_route(path, lambda: {"ok": True}, methods=["GET"])
+    child.include_router(router)
+    app.mount("/proxy", child)
+    install_runtime_policies(app)
+
+    async def exercise():
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app), base_url="http://test"
+        ) as client:
+            for index in range(5):
+                assert (
+                    await client.get(f"/proxy/renamed/quiet/private-{index}?token=private-secret")
+                ).status_code == 200
+                assert (
+                    await client.get(f"/proxy/renamed/events/private-{index}?token=private-secret")
+                ).status_code == 200
+            for path in ("/health/live", "/health/ready", "/version"):
+                assert (await client.get("/proxy" + path)).status_code == 200
+
+    asyncio.run(exercise())
+    points = otel_points(runtime, "http.server.request.duration")
+    assert {
+        point.attributes["http.route"]: (point.attributes["devfeed.request.kind"], point.count)
+        for point in points
+    } == {
+        "/proxy/renamed/events/{identifier}": ("stream", 5),
+        "/proxy/health/live": ("request", 1),
+        "/proxy/health/ready": ("request", 1),
+        "/proxy/version": ("request", 1),
+    }
+    spans = exporter.get_finished_spans()
+    servers = [item for item in spans if item.kind == telemetry.trace.SpanKind.SERVER]
+    assert len(servers) == 8  # The mounted app must not create a second server span.
+    assert "quiet" not in str([(item.name, item.attributes) for item in spans])
+    payload = generate_latest(runtime.metric_server.registry).decode() + str(
+        [(item.name, item.attributes, item.events) for item in spans]
+    )
+    assert "private-" not in payload
+    assert "token=" not in payload
+    assert all(point.value == 0 for point in otel_points(runtime, "http.server.active_requests"))
+
+
+@pytest.mark.parametrize("included", [False, True])
+def test_dynamic_mount_templates_keep_reader_identifiers_out_of_telemetry(
+    observed_runtime, included
+):
+    from fastapi import APIRouter
+
+    runtime, exporter = observed_runtime
+    app, child = FastAPI(telemetry=fastapi_telemetry()), FastAPI(telemetry=fastapi_telemetry())
+
+    @child.get("/records/{identifier}")
+    def endpoint(identifier: str):
+        return {"ok": True}
+
+    prefix = "/nested" if included else ""
+    if included:
+        router = APIRouter()
+        router.mount("/tenants/{tenant_id}", child)
+        app.include_router(router, prefix=prefix)
+    else:
+        app.mount("/tenants/{tenant_id}", child)
+    install_runtime_policies(app)
+
+    async def exercise():
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app), base_url="http://test"
+        ) as client:
+            for index in range(5):
+                assert (
+                    await client.get(
+                        f"{prefix}/tenants/private-tenant-{index}/records/private-reader-{index}?token=private-secret"
+                    )
+                ).status_code == 200
+
+    asyncio.run(exercise())
+    points = otel_points(runtime, "http.server.request.duration")
+    assert len(points) == 1
+    assert points[0].count == 5
+    template = prefix + "/tenants/{tenant_id}/records/{identifier}"
+    assert points[0].attributes["http.route"] == template
+    servers = [
+        item
+        for item in exporter.get_finished_spans()
+        if item.kind == telemetry.trace.SpanKind.SERVER
+    ]
+    assert len(servers) == 5
+    assert all(item.name == "GET " + template for item in servers)
+    payload = generate_latest(runtime.metric_server.registry).decode() + str(
+        [(item.name, item.attributes, item.events) for item in servers]
+    )
+    assert "private-" not in payload
+    assert "token=" not in payload
+
+
+@pytest.mark.parametrize("lane", ["request", "stream"])
+def test_admission_rejection_preserves_template_route_and_private_attributes(
+    observed_runtime, lane
+):
+    from devfeed_http.admission import AdmissionMiddleware
+
+    runtime, exporter = observed_runtime
+    app = FastAPI(telemetry=fastapi_telemetry())
+    app.add_middleware(AdmissionMiddleware, requests=1, streams=1)
+
+    async def exercise():
+        started, finish = asyncio.Event(), asyncio.Event()
+
+        @app.get(
+            "/records/{identifier}",
+            openapi_extra=RouteRuntimePolicy(admission=lane).openapi_extra(),
+        )
+        async def blocked(identifier: str):
+            started.set()
+            await finish.wait()
+            return {"ok": True}
+
+        install_runtime_policies(app)
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app), base_url="http://test"
+        ) as client:
+            active = asyncio.create_task(client.get("/records/private-first?token=private-secret"))
+            await asyncio.wait_for(started.wait(), 2)
+            try:
+                for index in range(5):
+                    assert (
+                        await client.get(f"/records/private-{index}?token=private-secret")
+                    ).status_code == 503
+            finally:
+                finish.set()
+                assert (await active).status_code == 200
+
+    asyncio.run(exercise())
+    points = otel_points(runtime, "http.server.request.duration")
+    assert {
+        (point.attributes["http.route"], point.attributes["http.response.status_code"]): point.count
+        for point in points
+    } == {("/records/{identifier}", 503): 5, ("/records/{identifier}", 200): 1}
+    assert {point.attributes["devfeed.request.kind"] for point in points} == {lane}
+    assert otel_points(runtime, "devfeed.admission.rejections")[0].value == 5
+    servers = [
+        item
+        for item in exporter.get_finished_spans()
+        if item.kind == telemetry.trace.SpanKind.SERVER
+    ]
+    assert len(servers) == 6
+    assert all(item.name == "GET /records/{identifier}" for item in servers)
+    payload = generate_latest(runtime.metric_server.registry).decode() + str(
+        [(item.name, item.attributes, item.events) for item in servers]
+    )
+    assert "private-" not in payload
+    assert "token=" not in payload
+
+
+def test_runtime_policy_uses_native_method_selection_and_records_unhandled_errors(
+    observed_runtime,
+):
+    from fastapi import HTTPException
+
+    runtime, exporter = observed_runtime
+    app = FastAPI(telemetry=fastapi_telemetry())
+
+    @app.get(
+        "/quiet/{identifier}",
+        openapi_extra=RouteRuntimePolicy(
+            admission="exempt", telemetry_excluded=True, logging_level="debug"
+        ).openapi_extra(),
+    )
+    def quiet(identifier: str):
+        return {"ok": True}
+
+    @app.get("/handled/{identifier}")
+    def handled(identifier: str):
+        raise HTTPException(status_code=409, detail="private-user-input")
+
+    @app.get("/broken/{identifier}")
+    def broken(identifier: str):
+        raise RuntimeError("private-token-and-user-input")
+
+    install_runtime_policies(app)
+
+    async def exercise():
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app, raise_app_exceptions=False), base_url="http://test"
+        ) as client:
+            assert (await client.get("/quiet/private-id?token=private-query")).status_code == 200
+            assert (await client.post("/quiet/private-id?token=private-query")).status_code == 405
+            assert (await client.get("/handled/private-id?token=private-query")).status_code == 409
+            assert (await client.get("/broken/private-id?token=private-query")).status_code == 500
+
+    asyncio.run(exercise())
+    points = otel_points(runtime, "http.server.request.duration")
+    assert {
+        (point.attributes["http.route"], point.attributes["http.response.status_code"]): point.count
+        for point in points
+    } == {
+        ("/quiet/{identifier}", 405): 1,
+        ("/handled/{identifier}", 409): 1,
+        ("/broken/{identifier}", 500): 1,
+    }
+    assert {point.attributes["devfeed.request.kind"] for point in points} == {"request"}
+    servers = [
+        item
+        for item in exporter.get_finished_spans()
+        if item.kind == telemetry.trace.SpanKind.SERVER
+    ]
+    assert len(servers) == 3
+    assert {
+        (item.name, item.attributes["http.response.status_code"]): item.status.status_code
+        for item in servers
+    } == {
+        ("POST /quiet/{identifier}", 405): telemetry.trace.StatusCode.UNSET,
+        ("GET /handled/{identifier}", 409): telemetry.trace.StatusCode.UNSET,
+        ("GET /broken/{identifier}", 500): telemetry.trace.StatusCode.ERROR,
+    }
+    payload = generate_latest(runtime.metric_server.registry).decode() + str(
+        [(item.name, item.attributes, item.events) for item in servers]
+    )
+    assert "private-" not in payload
+    assert "token=" not in payload
     assert all(point.value == 0 for point in otel_points(runtime, "http.server.active_requests"))
 
 
@@ -443,6 +715,8 @@ def test_native_admission_pressure_includes_rejections_and_releases_slots(observ
             await finish.wait()
             return {"ok": True}
 
+        install_runtime_policies(app)
+
         async with httpx.AsyncClient(
             transport=httpx.ASGITransport(app), base_url="http://test"
         ) as client:
@@ -459,6 +733,354 @@ def test_native_admission_pressure_includes_rejections_and_releases_slots(observ
     assert otel_points(runtime, "devfeed.admission.rejections")[0].value == 1
     points = otel_points(runtime, "http.server.request.duration")
     assert {point.attributes["http.response.status_code"] for point in points} == {200, 503}
+
+
+def test_pre_routing_cors_and_slash_redirects_keep_native_telemetry_and_admission(
+    observed_runtime, monkeypatch
+):
+    from devfeed_api.main import create_app
+
+    runtime, exporter = observed_runtime
+    monkeypatch.setenv("DEVFEED_API_MAX_CONCURRENT_REQUESTS", "1")
+    monkeypatch.setenv("DEVFEED_API_MAX_CONCURRENT_STREAMS", "1")
+    monkeypatch.setenv("DEVFEED_CORS_ORIGINS", '["https://reader.test"]')
+    get_settings.cache_clear()
+    app = create_app()
+
+    async def exercise():
+        started, finish = asyncio.Event(), asyncio.Event()
+
+        @app.get("/held")
+        async def held():
+            started.set()
+            await finish.wait()
+            return {"ok": True}
+
+        @app.get("/redirected/")
+        async def redirected():
+            return {"ok": True}
+
+        install_runtime_policies(app)
+        preflight = {"Origin": "https://reader.test", "Access-Control-Request-Method": "GET"}
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app), base_url="http://test"
+        ) as client:
+            allowed = await client.options("/held", headers=preflight)
+            assert allowed.status_code == 200
+            assert allowed.headers["access-control-allow-origin"] == "https://reader.test"
+            redirect = await client.get("/redirected")
+            assert redirect.status_code == 307
+            assert redirect.headers["location"] == "http://test/redirected/"
+            active = asyncio.create_task(client.get("/held"))
+            await asyncio.wait_for(started.wait(), 2)
+            try:
+                rejected = await client.options("/held", headers=preflight)
+                assert rejected.status_code == 503
+                assert rejected.headers["access-control-allow-origin"] == "https://reader.test"
+                assert rejected.headers["retry-after"] == "1"
+            finally:
+                finish.set()
+                assert (await active).status_code == 200
+
+    asyncio.run(exercise())
+    points = otel_points(runtime, "http.server.request.duration")
+    assert {
+        (point.attributes["http.request.method"], point.attributes["http.response.status_code"]): (
+            point.count
+        )
+        for point in points
+    } == {("OPTIONS", 200): 1, ("GET", 307): 1, ("OPTIONS", 503): 1, ("GET", 200): 1}
+    assert {point.attributes["devfeed.request.kind"] for point in points} == {"request"}
+    servers = [
+        item
+        for item in exporter.get_finished_spans()
+        if item.kind == telemetry.trace.SpanKind.SERVER
+    ]
+    assert len(servers) == 4
+    assert all(point.value == 0 for point in otel_points(runtime, "http.server.active_requests"))
+    assert otel_points(runtime, "devfeed.admission.rejections")[0].value == 1
+    assert otel_points(runtime, "devfeed.admission.active")[0].value == 0
+
+
+@pytest.mark.parametrize("failure", ["send", "cancel", "anyio"])
+def test_pre_routing_response_observer_cleans_up_failed_or_cancelled_sends(
+    observed_runtime, failure
+):
+    import gc
+
+    import anyio
+    from starlette.middleware.cors import CORSMiddleware
+
+    runtime, exporter = observed_runtime
+    app = FastAPI(telemetry=fastapi_telemetry())
+    app.add_middleware(CORSMiddleware, allow_origins=["https://reader.test"], allow_methods=["GET"])
+    install_runtime_policies(app)
+
+    async def exercise():
+        entered, never = asyncio.Event(), asyncio.Event()
+        loop = asyncio.get_running_loop()
+        errors = []
+        loop.set_exception_handler(lambda _loop, context: errors.append(context))
+
+        async def receive():
+            return {"type": "http.request", "body": b"", "more_body": False}
+
+        async def send(message):
+            if message["type"] == "http.response.start":
+                entered.set()
+                if failure == "send":
+                    raise OSError("reader disconnected")
+                await never.wait()
+
+        scope = {
+            "type": "http",
+            "asgi": {"version": "3.0", "spec_version": "2.4"},
+            "method": "OPTIONS",
+            "path": "/unknown-private-id",
+            "raw_path": b"/unknown-private-id",
+            "root_path": "",
+            "query_string": b"token=private-secret",
+            "scheme": "http",
+            "http_version": "1.1",
+            "headers": [
+                (b"origin", b"https://reader.test"),
+                (b"access-control-request-method", b"GET"),
+            ],
+        }
+        if failure == "send":
+            with pytest.raises(OSError, match="reader disconnected"):
+                await app(scope, receive, send)
+        elif failure == "anyio":
+            with anyio.move_on_after(0.02) as deadline:
+                await app(scope, receive, send)
+            assert deadline.cancel_called
+            assert entered.is_set()
+        else:
+            active = asyncio.create_task(app(scope, receive, send))
+            await asyncio.wait_for(entered.wait(), 2)
+            active.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await active
+        await asyncio.sleep(0)
+        assert asyncio.all_tasks() == {asyncio.current_task()}
+        gc.collect()
+        await asyncio.sleep(0)
+        assert errors == []
+
+    asyncio.run(exercise())
+    servers = [
+        item
+        for item in exporter.get_finished_spans()
+        if item.kind == telemetry.trace.SpanKind.SERVER
+    ]
+    assert len(servers) == 1
+    assert all(point.value == 0 for point in otel_points(runtime, "http.server.active_requests"))
+    payload = generate_latest(runtime.metric_server.registry).decode() + str(
+        [(item.name, item.attributes, item.events) for item in servers]
+    )
+    assert "private-" not in payload
+    assert "token=" not in payload
+
+
+@pytest.mark.parametrize("failure", [False, True])
+def test_completion_and_failure_logs_keep_the_matched_native_server_trace(
+    observed_runtime, caplog, failure
+):
+    from devfeed_http.logging import RequestLoggingMiddleware
+
+    _, exporter = observed_runtime
+    request_logger = logging.getLogger("devfeed_http.runtime-test")
+    caplog.set_level(logging.INFO, logger=request_logger.name)
+    app = FastAPI(telemetry=fastapi_telemetry())
+    app.add_middleware(RequestLoggingMiddleware, service="api", logger=request_logger)
+
+    @app.get("/correlated/{identifier}")
+    def endpoint(identifier: str):
+        if failure:
+            raise RuntimeError("endpoint failed")
+        return {"ok": True}
+
+    install_runtime_policies(app)
+
+    async def exercise():
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app, raise_app_exceptions=False), base_url="http://test"
+        ) as client:
+            return await client.get("/correlated/private-id")
+
+    response = asyncio.run(exercise())
+    server = next(
+        item
+        for item in exporter.get_finished_spans()
+        if item.kind == telemetry.trace.SpanKind.SERVER
+    )
+    records = [
+        item
+        for item in caplog.records
+        if item.name == request_logger.name and item.msg in {"request_completed", "request_failed"}
+    ]
+    assert [item.msg for item in records] == (
+        ["request_failed", "request_completed"] if failure else ["request_completed"]
+    )
+    assert all(item.trace_id == format(server.context.trace_id, "032x") for item in records)
+    assert all(item.span_id == format(server.context.span_id, "016x") for item in records)
+    assert response.status_code == (500 if failure else 200)
+    assert response.headers["x-request-id"]
+
+
+@pytest.mark.parametrize("order", [(500, Exception), (Exception, 500)])
+@pytest.mark.parametrize("mode", ["sync", "async"])
+def test_server_error_handler_runs_once_and_preserves_native_registration_precedence(
+    observed_runtime, caplog, order, mode
+):
+    from devfeed_http.logging import RequestLoggingMiddleware
+    from fastapi.responses import JSONResponse
+
+    runtime, exporter = observed_runtime
+    request_logger = logging.getLogger("devfeed_http.native-server-errors")
+    caplog.set_level(logging.ERROR, logger=request_logger.name)
+    app = FastAPI(telemetry=fastapi_telemetry())
+    app.add_middleware(RequestLoggingMiddleware, service="api", logger=request_logger)
+    calls = []
+
+    def make_handler(kind):
+        def handle(request, exc):
+            calls.append((kind, exc))
+            return JSONResponse(
+                {"handler": "exception" if kind is Exception else "500", "calls": len(calls)},
+                status_code=500,
+            )
+
+        async def async_handle(request, exc):
+            return handle(request, exc)
+
+        return handle if mode == "sync" else async_handle
+
+    for kind in order:
+        app.add_exception_handler(kind, make_handler(kind))
+
+    @app.get("/failed/{identifier}")
+    def endpoint(identifier: str):
+        raise RuntimeError("original endpoint failure")
+
+    install_runtime_policies(app)
+
+    async def exercise():
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app, raise_app_exceptions=False), base_url="http://test"
+        ) as client:
+            response = await client.get("/failed/private-first")
+            assert response.status_code == 500
+            assert response.json() == {
+                "handler": "exception" if order[-1] is Exception else "500",
+                "calls": 1,
+            }
+        # Native error middleware sends the response and still propagates the
+        # original exception to a server or a test client configured to raise.
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app), base_url="http://test"
+        ) as client:
+            with pytest.raises(RuntimeError, match="original endpoint failure") as error:
+                await client.get("/failed/private-second")
+            assert error.value is calls[-1][1]
+
+    asyncio.run(exercise())
+    assert [kind for kind, _ in calls] == [order[-1], order[-1]]
+    failures = [
+        record
+        for record in caplog.records
+        if record.name == request_logger.name and record.msg == "request_failed"
+    ]
+    assert len(failures) == 2
+    assert [record.exc_info[1] for record in failures] == [exc for _, exc in calls]
+    servers = [
+        item
+        for item in exporter.get_finished_spans()
+        if item.kind == telemetry.trace.SpanKind.SERVER
+    ]
+    assert len(servers) == 2
+    assert all(item.attributes["http.response.status_code"] == 500 for item in servers)
+    assert all(item.status.status_code == telemetry.trace.StatusCode.ERROR for item in servers)
+    points = otel_points(runtime, "http.server.request.duration")
+    assert len(points) == 1 and points[0].count == 2
+    assert points[0].attributes["http.route"] == "/failed/{identifier}"
+    assert points[0].attributes["http.response.status_code"] == 500
+
+
+@pytest.mark.parametrize("mode", ["sync", "async"])
+def test_raising_server_error_handler_matches_native_single_call_and_exception(mode):
+    async def exercise(installed):
+        app = FastAPI(telemetry=fastapi_telemetry())
+        calls = []
+        handler_error = ValueError("custom handler failure")
+
+        def handle(request, exc):
+            calls.append(exc)
+            raise handler_error
+
+        async def async_handle(request, exc):
+            return handle(request, exc)
+
+        app.add_exception_handler(500, handle if mode == "sync" else async_handle)
+
+        @app.get("/failed")
+        def endpoint():
+            raise RuntimeError("original endpoint failure")
+
+        if installed:
+            install_runtime_policies(app)
+
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app), base_url="http://test"
+        ) as client:
+            with pytest.raises(ValueError, match="custom handler failure") as error:
+                await client.get("/failed")
+            assert error.value is handler_error
+        return calls
+
+    calls_by_app = [asyncio.run(exercise(installed)) for installed in (False, True)]
+    assert [len(calls) for calls in calls_by_app] == [1, 1]
+    assert all(isinstance(calls[0], RuntimeError) for calls in calls_by_app)
+
+
+def test_mounted_error_handlers_preserve_native_callback_order_and_child_response():
+    from fastapi.responses import JSONResponse
+
+    async def exercise(installed):
+        app = FastAPI(telemetry=fastapi_telemetry())
+        child = FastAPI(telemetry=fastapi_telemetry())
+        calls = []
+
+        async def parent_handler(request, exc):
+            calls.append(("parent", exc))
+            return JSONResponse({"handler": "parent"}, status_code=500)
+
+        async def child_handler(request, exc):
+            calls.append(("child", exc))
+            return JSONResponse({"handler": "child"}, status_code=500)
+
+        app.add_exception_handler(500, parent_handler)
+        child.add_exception_handler(Exception, child_handler)
+
+        @child.get("/failed")
+        def endpoint():
+            raise RuntimeError("original endpoint failure")
+
+        app.mount("/nested", child)
+        if installed:
+            install_runtime_policies(app)
+        async with httpx.AsyncClient(
+            transport=httpx.ASGITransport(app, raise_app_exceptions=False), base_url="http://test"
+        ) as client:
+            response = await client.get("/nested/failed")
+        assert response.status_code == 500
+        assert response.json() == {"handler": "child"}
+        assert all(isinstance(exc, RuntimeError) for _, exc in calls)
+        assert all(exc is calls[0][1] for _, exc in calls)
+        return [name for name, _ in calls]
+
+    assert asyncio.run(exercise(False)) == ["child", "parent"]
+    assert asyncio.run(exercise(True)) == ["child", "parent"]
 
 
 def test_standard_otlp_setting_and_emergency_disable(monkeypatch):
@@ -858,6 +1480,8 @@ def test_real_api_lifespan_exports_native_otlp_without_duplicate_spans(service, 
     @app.get("/otel-test/{identifier}")
     def endpoint(identifier: str):
         return {"ok": True}
+
+    install_runtime_policies(app)
 
     try:
         with TestClient(app) as client:

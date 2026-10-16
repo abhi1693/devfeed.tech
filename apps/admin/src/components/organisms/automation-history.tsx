@@ -10,9 +10,9 @@ import type {
   PagePublicationPolicyReviewOut,
 } from "@/lib/api/generated/models";
 import { useRequest } from "@/lib/use-request";
-import { Button } from "@/components/atoms/button";
+import { Button } from "@devfeed/ui/button";
 import { DateTime } from "@/components/molecules/date-time";
-import { DataValue } from "@/components/molecules/info-panel";
+import { DataValue } from "@devfeed/ui/resource-layout";
 import { RequestState } from "@/components/molecules/request-state";
 
 export function AutomationHistory({

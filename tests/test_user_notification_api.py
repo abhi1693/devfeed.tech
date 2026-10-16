@@ -35,9 +35,9 @@ def inbox(oidc_app, monkeypatch):
         return httpx.Response(200, json={"items": [], "next_cursor": None})
 
     monkeypatch.setattr(
-        notifications,
+        notifications.InboxProxy,
         "http_client",
-        lambda: httpx.AsyncClient(transport=httpx.MockTransport(transport)),
+        staticmethod(lambda: httpx.AsyncClient(transport=httpx.MockTransport(transport))),
     )
     return SimpleNamespace(
         auth=oidc_app, client=oidc_app.client, requests=requests, settings=settings

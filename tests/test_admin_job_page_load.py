@@ -7,10 +7,10 @@ import httpx
 import pytest
 from devfeed_admin_api.dependencies import get_session
 from devfeed_admin_api.jobs import jobs
-from devfeed_admin_api.pagination import ListQuery
 from devfeed_admin_api.sources import detail
 from devfeed_core.models import IngestionJob, Source
 from devfeed_http.dependencies import session_dependency
+from devfeed_http.pagination import ListQuery
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 

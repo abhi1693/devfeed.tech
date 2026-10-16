@@ -9,6 +9,7 @@ import { test } from "node:test";
 import { affectsBrowser, changedPaths } from "./browser-performance-changes.mjs";
 import { lighthouseConfig, readerPaths, runs } from "./browser-performance-config.mjs";
 import { checkMeasurements, measurementSummary } from "./browser-performance-report.mjs";
+import { publicPlacementResponse } from "./browser-performance-fixture.mjs";
 
 const require = createRequire(import.meta.url);
 const { getAllAssertionResults } = require("@lhci/utils/src/assertions.js");
@@ -42,6 +43,23 @@ const sample = () => ({
       },
     },
   },
+});
+
+test("public placement fixtures return an empty catalog without reader credentials", () => {
+  assert.deepEqual(
+    publicPlacementResponse({ method: "POST", headers: { "content-type": "application/json" } }),
+    { items: [] },
+  );
+});
+
+test("public placement fixtures reject account credentials and unsupported methods", () => {
+  for (const name of ["cookie", "authorization", "x-csrf-token"])
+    assert.throws(
+      () => publicPlacementResponse({ method: "POST", headers: { [name]: "private" } }),
+      /Public placements must omit/,
+    );
+  for (const method of ["GET", "PUT", "DELETE"])
+    assert.throws(() => publicPlacementResponse({ method, headers: {} }), /must use POST/);
 });
 
 test("Lighthouse dependency upgrades preserve CLI options and YAML parsing", () => {

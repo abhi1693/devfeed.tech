@@ -1,5 +1,7 @@
 // Shared by the browser and the receiver. Never trust browser-supplied telemetry.
 import { redactAuthentication } from "./auth-privacy";
+import { resolvePageRoute } from "./page-routes";
+import { pageRouteCatalogs } from "./page-routes.generated";
 export { redactAuthText } from "./auth-privacy";
 type ObjectValue = Record<string, unknown>;
 const object = (value: unknown): ObjectValue =>
@@ -8,68 +10,17 @@ const object = (value: unknown): ObjectValue =>
     : {};
 const array = (value: unknown): unknown[] => (Array.isArray(value) ? value.slice(0, 100) : []);
 const text = (value: unknown): string => (typeof value === "string" ? value : "");
-const pages = new Set([
-  "/",
-  "/login",
-  "/register",
-  "/search",
-  "/articles",
-  "/trending",
-  "/my-feed",
-  "/latest",
-  "/sources",
-  "/sources/suggest",
-  "/topics",
-  "/legal",
-  "/legal/privacy",
-  "/legal/terms",
-  "/settings",
-  "/settings/profile",
-  "/settings/sources",
-  "/settings/topics",
-  "/settings/feed",
-  "/settings/notifications",
-  "/settings/appearance",
-  "/queues",
-  "/workers",
-  "/start",
-  "/news",
-  "/tutorials",
-  "/research",
-  "/videos",
-  "/podcasts",
-  "/content",
-  "/taxonomy",
-  "/jobs",
-  "/jobs/enrichment",
-  "/users",
-]);
-const resources = new Set([
-  "feed",
-  "search",
-  "articles",
-  "sources",
-  "topics",
-  "tags",
-  "workers",
-  "jobs",
-  "queues",
-  "overview",
-  "settings",
-  "auth",
-  "users",
-  "notifications",
-  "relationships",
-  "topic-discovery",
-  "research",
-  "categories",
-  "bookmarks",
-  "preferences",
-  "subscriptions",
-  "account",
-  "profile",
-]);
-export function routeName(value: unknown): string {
+export type TelemetryApp = keyof typeof pageRouteCatalogs;
+const approvedRouteNames = Object.fromEntries(
+  Object.entries(pageRouteCatalogs).map(([app, routes]) => [
+    app,
+    new Set(["unmatched", ...routes.map(({ label }) => label)]),
+  ]),
+) as Record<TelemetryApp, Set<string>>;
+const approvedName = (value: unknown, app: TelemetryApp): string =>
+  approvedRouteNames[app].has(text(value)) ? text(value) : "unmatched";
+
+export function routeName(value: unknown, app: TelemetryApp = "web"): string {
   if (!text(value)) return "unmatched";
   let path: string;
   try {
@@ -77,53 +28,7 @@ export function routeName(value: unknown): string {
   } catch {
     return "unmatched";
   }
-  if (pages.has(path)) return path;
-  if (/^\/(articles|sources|topics|tags|workers)\/[^/]+(?:\/[^/]+)?$/.test(path)) {
-    const [, root, , kind] = path.split("/");
-    return `/${root}/:id${kind ? "/:type" : ""}`;
-  }
-  const admin = path.match(
-    /^\/(content\/(?:articles|sources)|taxonomy\/(?:topics|tags|relationships)|users|jobs\/(?:ingestion|enrichment\/(?:articles|images|sources)|analysis(?:\/(?:articles|topics))?|notifications))(?:\/(.*))?$/,
-  );
-  if (admin) {
-    const suffix = admin[2]?.split("/");
-    if (!suffix) return `/${admin[1]}`;
-    if (suffix.length === 1 && ["new", "import", "discover", "proposals"].includes(suffix[0]))
-      return `/${admin[1]}/${suffix[0]}`;
-    if (suffix.length === 2 && suffix[0] === "proposals") return `/${admin[1]}/proposals/:id`;
-    if (suffix.length === 1) return `/${admin[1]}/:id`;
-    if (
-      suffix.length === 2 &&
-      [
-        "edit",
-        "delete",
-        "enrich",
-        "review",
-        "classify",
-        "fetch",
-        "analysis",
-        "related",
-        "history",
-        "evidence",
-        "logs",
-        "relevance",
-        "topics",
-        "sources",
-        "likes",
-        "interests",
-        "recommendations",
-      ].includes(suffix[1])
-    )
-      return `/${admin[1]}/:id/${suffix[1]}`;
-    return "unmatched";
-  }
-  const api = path.match(/^(?:\/api)?\/v1\/(?:(admin|user)\/)?([^/]+)(\/.*)?$/);
-  if (api && resources.has(api[2]))
-    return `/v1/${api[1] ? `${api[1]}/` : ""}${api[2]}${api[3] ? "/:path" : ""}`;
-  if (path.startsWith("/_next/static/")) return "/_next/static/:asset";
-  if (path === "/_next/image") return path;
-  if (/^\/settings\/[^/]+$/.test(path)) return "/settings/:section";
-  return "unmatched";
+  return resolvePageRoute(path, pageRouteCatalogs[app]) ?? "unmatched";
 }
 export function normalizePayload(
   type: string,
@@ -132,6 +37,11 @@ export function normalizePayload(
 ): ObjectValue | null {
   if (value === null || typeof value !== "object" || Array.isArray(value)) return null;
   const input = object(redactAuthentication(value));
+  if (type === "event" && input.name === "route_change" && settings)
+    return {
+      ...input,
+      attributes: { route: approvedName(object(input.attributes).route, settings.app) },
+    };
   if (type === "trace" && settings) {
     return {
       ...input,
@@ -181,6 +91,14 @@ export function normalizeMeta(value: unknown, settings: BrowserSettings, preserv
       version: settings.version,
       environment: settings.environment,
     },
+    ...(meta.view
+      ? {
+          view: {
+            ...object(meta.view),
+            name: approvedName(object(meta.view).name, settings.app),
+          },
+        }
+      : {}),
     ...(meta.session ? { session: { ...session, attributes } } : {}),
   };
 }
@@ -196,7 +114,7 @@ export function normalizeBody(value: unknown, settings: BrowserSettings) {
       .map((v) => normalizePayload("measurement", v))
       .filter(Boolean),
     events: array(body.events)
-      .map((v) => normalizePayload("event", v))
+      .map((v) => normalizePayload("event", v, settings))
       .filter(Boolean),
     logs: array(body.logs)
       .map((v) => normalizePayload("log", v))

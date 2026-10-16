@@ -1,9 +1,10 @@
 import io
 import xml.etree.ElementTree as ET
 from types import SimpleNamespace
+from unittest.mock import Mock
 
 import pytest
-from devfeed_aggregator import image_storage, logo_storage
+from devfeed_aggregator import image_storage_base, logo_storage
 from devfeed_core.config import get_settings
 from devfeed_core.feeds.fetcher import FeedError, FetchResult
 from devfeed_core.logos import (
@@ -13,6 +14,7 @@ from devfeed_core.logos import (
     logo_url,
     logo_variants,
 )
+from devfeed_core.object_storage import R2Storage
 from PIL import Image
 
 
@@ -20,6 +22,15 @@ def picture(width=200, height=100):
     output = io.BytesIO()
     Image.new("RGBA", (width, height), (255, 0, 0, 255)).save(output, "PNG")
     return output.getvalue()
+
+
+@pytest.fixture
+def storage():
+    objects = {}
+    client = Mock(spec=R2Storage)
+    client.exists.side_effect = objects.__contains__
+    client.put.side_effect = lambda key, body, **kwargs: objects.__setitem__(key, body)
+    return client, objects
 
 
 def test_svg_normalization_preserves_geometry_and_local_references():
@@ -57,45 +68,52 @@ def test_svg_rejects_active_external_and_invalid_input(content):
         logo_storage.sanitize_svg(content.encode())
 
 
-def test_normalized_master_is_bounded_and_deduplicated(monkeypatch):
-    uploaded = {}
+def test_normalized_master_is_bounded_and_deduplicated(monkeypatch, storage):
+    client, uploaded = storage
     monkeypatch.setattr(
         logo_storage, "fetch_topic_logo", lambda *a, **kw: FetchResult(200, picture(), a[0])
     )
-    monkeypatch.setattr(image_storage, "exists", lambda client, key: key in uploaded)
-    monkeypatch.setattr(
-        image_storage, "upload", lambda client, key, body, mime: uploaded.setdefault(key, body)
-    )
-    first = logo_storage.store_logo_original(None, "https://one.test/logo.png")
-    second = logo_storage.store_logo_original(None, "https://two.test/logo.png")
+    first = logo_storage.LogoOriginalStore(client).store("https://one.test/logo.png")
+    second = logo_storage.LogoOriginalStore(client).store("https://two.test/logo.png")
     assert first["hash"] == second["hash"]
     assert len(uploaded) == 1
     assert Image.open(io.BytesIO(next(iter(uploaded.values())))).size == (96, 48)
+    assert client.put.call_count == 1
 
 
-def test_variants_preserve_transparency_aspect_ratio_and_skip_existing(monkeypatch):
-    uploaded = {}
-    monkeypatch.setattr(image_storage, "exists", lambda client, key: key in uploaded)
+def test_variants_preserve_transparency_aspect_ratio_and_skip_existing(monkeypatch, storage):
+    client, uploaded = storage
+    variants = logo_storage.LogoVariantStore(client, sizes=SOURCE_LOGO_SIZES)
     monkeypatch.setattr(
-        image_storage, "upload", lambda client, key, body, mime: uploaded.setdefault(key, body)
+        image_storage_base.ImgproxyTransform, "url", lambda self, key, width, **kw: str(width)
     )
-    monkeypatch.setattr(image_storage, "signed_transform_url", lambda key, width, **kw: str(width))
     monkeypatch.setattr(
-        image_storage, "transform_image", lambda url: picture(int(url), int(url) // 2)
+        image_storage_base.ImgproxyTransform,
+        "fetch",
+        lambda self, url: picture(int(url), int(url) // 2),
     )
     asset = {"hash": "abc", "original_key": "originals/topic-logos/v1/abc.svg"}
     assert LOGO_SIZES == (32, 64, 96)
-    for size in SOURCE_LOGO_SIZES:
-        variant = logo_storage.store_logo_variant(None, asset, size)
+    assert logo_storage.LogoVariantStore(client).sizes(asset) == list(LOGO_SIZES)
+    assert variants.sizes(asset) == list(SOURCE_LOGO_SIZES)
+    for size in variants.sizes(asset):
+        variant = variants.store(asset, size)
         image = Image.open(io.BytesIO(uploaded[variant["key"]])).convert("RGBA")
         assert image.size == (size, size)
         assert image.getpixel((0, 0))[3] == 0
         assert image.getpixel((size // 2, size // 2)) == (255, 0, 0, 255)
     monkeypatch.setattr(
-        image_storage, "transform_image", lambda *a: pytest.fail("Repeated transform")
+        image_storage_base.ImgproxyTransform,
+        "fetch",
+        lambda self, *a: pytest.fail("Repeated transform"),
     )
-    logo_storage.store_logo_variant(None, asset, 32)
+    variants.store(asset, 32)
     assert len(uploaded) == 4
+    for call in client.put.call_args_list:
+        assert call.kwargs == {
+            "content_type": "image/webp",
+            "cache_control": "public, max-age=31536000, immutable",
+        }
 
 
 def test_public_urls_never_expose_upstream_urls_and_keep_last_completed_logo(monkeypatch):
@@ -120,7 +138,7 @@ def test_public_urls_never_expose_upstream_urls_and_keep_last_completed_logo(mon
 
 @pytest.mark.integration
 @pytest.mark.parametrize("kind", ["svg", "small-raster"])
-def test_actual_imgproxy_normalizes_logos(monkeypatch, kind):
+def test_actual_imgproxy_normalizes_logos(monkeypatch, kind, storage):
     """Contract check against the pinned imgproxy provisioned by integration CI."""
     import os
     import threading
@@ -157,15 +175,11 @@ def test_actual_imgproxy_normalizes_logos(monkeypatch, kind):
     monkeypatch.setenv("DEVFEED_IMGPROXY_KEY", "ab" * 32)
     monkeypatch.setenv("DEVFEED_IMGPROXY_SALT", "cd" * 32)
     get_settings.cache_clear()
-    uploaded = {}
-    monkeypatch.setattr(image_storage, "exists", lambda *a: False)
-    monkeypatch.setattr(
-        image_storage, "upload", lambda client, key, body, mime: uploaded.setdefault(key, body)
-    )
+    client, uploaded = storage
     try:
         for size in LOGO_SIZES:
-            result = logo_storage.store_logo_variant(
-                None, {"hash": "svg-contract", "original_key": "originals/logo.svg"}, size
+            result = logo_storage.LogoVariantStore(client).store(
+                {"hash": "svg-contract", "original_key": "originals/logo.svg"}, size
             )
             image = Image.open(io.BytesIO(uploaded[result["key"]])).convert("RGBA")
             assert image.size == (size, size)
@@ -195,7 +209,7 @@ def test_saved_original_is_used_when_variants_are_absent(monkeypatch, extension)
 
 @pytest.mark.parametrize("css_kind", ["none", "inline", "stylesheet"])
 @pytest.mark.parametrize("width,height", [(200, 100), (100, 200), (10, 10), (100, 1)])
-def test_svg_is_converted_before_original_upload(monkeypatch, css_kind, width, height):
+def test_svg_is_converted_before_original_upload(monkeypatch, css_kind, width, height, storage):
     # CSS deliberately contradicts the validated viewBox aspect ratio and size.
     style = 'style="width:200px;height:200px"' if css_kind == "inline" else ""
     stylesheet = (
@@ -208,30 +222,27 @@ def test_svg_is_converted_before_original_upload(monkeypatch, css_kind, width, h
         f'{stylesheet}<path fill="red" d="M0 0h{width}v{height}H0z"/></svg>'
     ).encode()
     expected = tuple(max(1, round(96 * axis / max(width, height))) for axis in (width, height))
-    inspect = image_storage.inspect_image
+    inspect = image_storage_base.ImageStore.inspect
     inspected = []
 
-    def inspect_rendered(data):
+    def inspect_rendered(store, data):
         # Check the real renderer output BEFORE thumbnailing can hide an allocation.
         with Image.open(io.BytesIO(data)) as rendered:
             inspected.append(rendered.size)
             assert rendered.size == expected
-        return inspect(data)
+        return inspect(store, data)
 
-    monkeypatch.setattr(image_storage, "inspect_image", inspect_rendered)
-    uploaded = []
+    monkeypatch.setattr(image_storage_base.ImageStore, "inspect", inspect_rendered)
+    client, uploaded = storage
     monkeypatch.setattr(
         logo_storage,
         "fetch_topic_logo",
         lambda url: FetchResult(200, body, url, content_type="image/svg+xml"),
     )
-    monkeypatch.setattr(image_storage, "exists", lambda *a: False)
-    monkeypatch.setattr(
-        image_storage, "upload", lambda client, key, data, mime: uploaded.append((key, data, mime))
-    )
-    asset = logo_storage.store_logo_original(None, "https://remote.test/logo.svg")
+    asset = logo_storage.LogoOriginalStore(client).store("https://remote.test/logo.svg")
     assert len(uploaded) == 1
-    key, png, mime = uploaded[0]
+    key, png = next(iter(uploaded.items()))
+    mime = client.put.call_args.kwargs["content_type"]
     assert key == asset["original_key"] and key.endswith(".png")
     assert mime == "image/png"
     assert png.startswith(b"\x89PNG")
@@ -245,21 +256,17 @@ def test_svg_is_converted_before_original_upload(monkeypatch, css_kind, width, h
     assert alpha >= 240 if min(expected) == 1 else alpha == 255
 
 
-def test_changed_publisher_artwork_gets_new_immutable_identity(monkeypatch):
-    uploaded = {}
+def test_changed_publisher_artwork_gets_new_immutable_identity(monkeypatch, storage):
+    client, uploaded = storage
     body = picture()
     monkeypatch.setattr(logo_storage, "fetch_topic_logo", lambda url: FetchResult(200, body, url))
-    monkeypatch.setattr(image_storage, "exists", lambda client, key: key in uploaded)
-    monkeypatch.setattr(
-        image_storage, "upload", lambda client, key, data, mime: uploaded.setdefault(key, data)
-    )
-    first = logo_storage.store_logo_original(None, "https://publisher.test/logo.png")
+    first = logo_storage.LogoOriginalStore(client).store("https://publisher.test/logo.png")
     first_bytes = uploaded[first["original_key"]]
     image = Image.new("RGBA", (200, 100), (0, 0, 255, 128))
     output = io.BytesIO()
     image.save(output, "PNG")
     body = output.getvalue()
-    second = logo_storage.store_logo_original(None, "https://publisher.test/logo.png")
+    second = logo_storage.LogoOriginalStore(client).store("https://publisher.test/logo.png")
     assert second["hash"] != first["hash"]
     assert second["original_key"] != first["original_key"]
     assert uploaded[first["original_key"]] == first_bytes
@@ -267,8 +274,6 @@ def test_changed_publisher_artwork_gets_new_immutable_identity(monkeypatch):
 
 
 def test_ingested_publisher_logo_uploads_with_immutable_cache_headers(monkeypatch):
-    from unittest.mock import Mock
-
     from botocore.exceptions import ClientError
 
     monkeypatch.setenv("DEVFEED_IMAGE_STORAGE_BUCKET", "test-images")
@@ -280,7 +285,9 @@ def test_ingested_publisher_logo_uploads_with_immutable_cache_headers(monkeypatc
     client.head_object.side_effect = ClientError(
         {"ResponseMetadata": {"HTTPStatusCode": 404}}, "HeadObject"
     )
-    asset = logo_storage.store_logo_original(client, "https://publisher.test/logo.png")
+    asset = logo_storage.LogoOriginalStore(R2Storage("test-images", client=client)).store(
+        "https://publisher.test/logo.png"
+    )
     uploaded = client.put_object.call_args.kwargs
     assert uploaded["Key"] == asset["original_key"]
     assert uploaded["CacheControl"] == "public, max-age=31536000, immutable"

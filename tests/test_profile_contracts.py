@@ -6,7 +6,13 @@ from datetime import date
 import pytest
 from devfeed_core.models import UserReadingStreak, utcnow
 from devfeed_core.reading_streaks import reading_streak_value
-from devfeed_core.user_settings import ProfileVisibility, UserProfileUpdate, UserStackItem
+from devfeed_core.user_settings import (
+    ProfileVisibility,
+    PublicUserProfile,
+    UserProfileSettings,
+    UserProfileUpdate,
+    UserStackItem,
+)
 from pydantic import ValidationError
 
 
@@ -75,3 +81,12 @@ def test_streak_expires_without_losing_longest(today, current):
 
 def test_explicit_private_profile_remains_private():
     assert ProfileVisibility.model_validate({"public": False}).public is False
+
+
+@pytest.mark.parametrize("level", [None, "aspiring", "entry_level", "mid_level", "senior"])
+def test_experience_contract_is_optional_and_excluded_from_public_profiles(level):
+    assert UserProfileUpdate(experience_level=level).experience_level == level
+    assert UserProfileSettings(experience_level=level).experience_level == level
+    assert "experience_level" not in PublicUserProfile.model_fields
+    assert "experience_level" not in UserProfileUpdate().model_fields_set
+    assert "experience_level" in UserProfileUpdate(experience_level=None).model_fields_set

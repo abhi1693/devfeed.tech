@@ -1,7 +1,7 @@
 "use client";
 
 import { Bar, BarChart, CartesianGrid, Tooltip, XAxis, YAxis } from "recharts";
-import { ChartContainer, ChartTooltip } from "@/components/atoms/chart";
+import { ChartContainer, ChartTooltip } from "@devfeed/ui/chart";
 import { InfoTooltip } from "@/components/molecules/info-tooltip";
 import type { OverviewPanelAutomation as AutomationOverview } from "@/lib/api/generated/models";
 import { formatCompactCount } from "@/lib/format-count";

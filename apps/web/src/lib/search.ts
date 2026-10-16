@@ -1,7 +1,13 @@
 import { contentTypes } from "./feed-query";
+import type { AdLinkRel } from "@devfeed/ui/ad-link-rel";
+import {
+  readerDestinationContract,
+  validReaderQueryValue,
+} from "@devfeed/http/reader-destinations";
 
-export const searchKinds = ["articles", "topics", "sources", "tags"] as const;
-export type SearchKind = (typeof searchKinds)[number];
+export type SearchKind = "articles" | "topics" | "sources" | "tags";
+export const searchKinds = readerDestinationContract.queryFields.searchSection
+  .values as readonly SearchKind[];
 export type SearchHit = {
   id: string;
   title: string;
@@ -12,6 +18,8 @@ export type SearchHit = {
   label: string;
   published_at: string | null;
   click_token?: string | null;
+  sponsor_names?: string[];
+  sponsor_link_rel?: AdLinkRel[];
 };
 export type SearchSection = { items: SearchHit[]; next_cursor: string | null };
 export type SearchResponse = {
@@ -19,7 +27,11 @@ export type SearchResponse = {
   sections: Partial<Record<SearchKind, SearchSection>>;
 };
 export function normalizeSearch(query: string) {
-  return query.normalize("NFKC").replace(/\s+/g, " ").trim().slice(0, 200);
+  return query
+    .normalize("NFKC")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, readerDestinationContract.queryFields.q.maxLength);
 }
 export function searchHref(query: string) {
   const q = normalizeSearch(query);
@@ -39,19 +51,14 @@ export function parseSearchOptions(params: URLSearchParams): SearchOptions {
   const sort = params.get("sort") ?? "relevance";
   const date = (key: string) => {
     const value = params.get(key) ?? "";
-    const parsed = new Date(`${value}T00:00:00Z`);
-    return /^\d{4}-\d{2}-\d{2}$/.test(value) &&
-      Number.isFinite(parsed.getTime()) &&
-      parsed.toISOString().slice(0, 10) === value
-      ? value
-      : "";
+    return validReaderQueryValue("date", value) ? value : "";
   };
   return {
     section: searchKinds.includes(section as SearchKind) ? (section as SearchKind) : "",
     ...(contentType && (!section || section === "articles")
       ? { section: "articles" as const, content_type: contentType }
       : {}),
-    sort: sort === "newest" || sort === "oldest" ? sort : "relevance",
+    sort: validReaderQueryValue("searchSort", sort) ? (sort as SearchOptions["sort"]) : "relevance",
     date_from: date("date_from"),
     date_to: date("date_to"),
   };

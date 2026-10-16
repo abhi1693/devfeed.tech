@@ -4,7 +4,7 @@ import { useChartWindow } from "./overview-chart-window";
 
 import type { ReactNode } from "react";
 import { Bar, BarChart, CartesianGrid, Line, LineChart, Tooltip, XAxis, YAxis } from "recharts";
-import { ChartContainer, ChartTooltip } from "@/components/atoms/chart";
+import { ChartContainer, ChartTooltip } from "@devfeed/ui/chart";
 import { InfoTooltip } from "@/components/molecules/info-tooltip";
 import type { OverviewPanel as AdminOverview } from "@/lib/api/generated/models";
 import { formatCompactCount } from "@/lib/format-count";

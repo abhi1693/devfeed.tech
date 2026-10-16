@@ -1,7 +1,7 @@
 "use client";
-import { Input } from "@/components/atoms/input";
+import { Input } from "@devfeed/ui/input";
 import { UrlInput } from "@/components/atoms/url-input";
-import { Textarea } from "@/components/atoms/textarea";
+import { Textarea } from "@devfeed/ui/textarea";
 import { Select } from "./select";
 import { EntityPicker } from "./entity-picker";
 import { LanguageSelect } from "./language-select";

@@ -16,22 +16,29 @@ WEB_CONFIG = {
     ".prettierignore",
     ".editorconfig",
 }
+READER_DESTINATION_CONTRACT = "packages/http/src/reader-destinations.json"
 
 
 def checks_for(paths: set[str]) -> list[tuple[str, ...]]:
     """Shared code/config changes exercise every consumer; docs alone stay cheap."""
     all_projects = bool(paths & HOOK_CONFIG)
-    python = all_projects or any(
-        path.endswith((".py", ".pyi", "/pyproject.toml"))
-        or path in {"pyproject.toml", "uv.lock", "alembic.ini", ".editorconfig"}
-        or path.startswith(("scripts/test.sh", "scripts/ci/python-", ".github/scripts/python-"))
-        for path in paths
+    python = (
+        all_projects
+        or any(
+            path.endswith((".py", ".pyi", "/pyproject.toml"))
+            or path in {"pyproject.toml", "uv.lock", "alembic.ini", ".editorconfig"}
+            or path.startswith(("scripts/test.sh", "scripts/ci/python-", ".github/scripts/python-"))
+            for path in paths
+        )
+        or READER_DESTINATION_CONTRACT in paths
     )
     shared_web = (
         all_projects
         or bool(paths & WEB_CONFIG)
+        or READER_DESTINATION_CONTRACT in paths
         or any(
             path.startswith(("packages/ui/", "packages/theme/", "packages/telemetry/"))
+            or (path.startswith("packages/http/") and path.endswith((".ts", "/package.json")))
             for path in paths
         )
     )
@@ -63,9 +70,10 @@ def checks_for(paths: set[str]) -> list[tuple[str, ...]]:
     web = shared_web or any(
         path.startswith(("apps/web/", ".github/scripts/user-web-")) for path in paths
     )
-    if admin or web:
+    partner = shared_web or any(path.startswith("apps/partner/") for path in paths)
+    if admin or web or partner:
         commands.append(("npm", "run", "format:typescript:check"))
-    for workspace, affected in (("admin", admin), ("web", web)):
+    for workspace, affected in (("admin", admin), ("web", web), ("partner", partner)):
         if affected:
             commands.extend(
                 [
@@ -79,6 +87,17 @@ def checks_for(paths: set[str]) -> list[tuple[str, ...]]:
             ("npm", "run", command)
             for command in ("extension:check", "extension:test", "extension:build:all")
         )
+    if all_projects or any(
+        path
+        in {
+            READER_DESTINATION_CONTRACT,
+            "packages/http/src/reader-destinations.ts",
+            "packages/http/src/reader_destinations.py",
+            "tests/reader-destinations.test.mjs",
+        }
+        for path in paths
+    ):
+        commands.append(("npm", "run", "test:reader-destinations"))
     if (
         all_projects
         or bool(paths & {"package.json", "package-lock.json"})

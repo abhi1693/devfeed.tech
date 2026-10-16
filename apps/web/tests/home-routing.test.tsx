@@ -2,6 +2,7 @@ import { beforeEach, expect, it, vi } from "vitest";
 import Home, { generateMetadata } from "@/app/page";
 import { FeedView } from "@/components/feed-view";
 import { hasUserSession } from "@/lib/api";
+import { readerFeeds } from "@/lib/reader-feed";
 vi.mock("@/lib/api", () => ({ hasUserSession: vi.fn() }));
 vi.mock("next/navigation", () => ({
   redirect: (path: string) => {
@@ -18,6 +19,7 @@ it.each([{}, { content_type: "" }, { content_type: "invalid" }, { q: "engineerin
     vi.mocked(hasUserSession).mockResolvedValue(false);
     expect(await Home({ searchParams: Promise.resolve(query) })).toBe("guest feed");
     expect(FeedView).toHaveBeenCalledWith({
+      feedDescriptor: readerFeeds.home,
       filters: expect.objectContaining({ content_type: "" }),
     });
   },
@@ -28,6 +30,7 @@ it.each(["article", "news"])(
     vi.mocked(hasUserSession).mockResolvedValue(false);
     await Home({ searchParams: Promise.resolve({ content_type: type, cursor: "next" }) });
     expect(FeedView).toHaveBeenCalledWith({
+      feedDescriptor: readerFeeds.home,
       filters: expect.objectContaining({ content_type: type, cursor: "next" }),
     });
   },
@@ -43,6 +46,7 @@ it("preserves guest filters and cursors while ignoring attribution as API filter
     }),
   });
   expect(FeedView).toHaveBeenCalledWith({
+    feedDescriptor: readerFeeds.home,
     filters: expect.objectContaining({
       q: "engineering",
       topic: "python",
@@ -65,9 +69,22 @@ it("uses existing public canonical URLs for guests and private metadata for memb
     robots: { index: false, follow: false },
   });
 });
-it("renders personal feed for a verified session", async () => {
+it("renders personal feed with the home descriptor and normalized cursor for a verified session", async () => {
   vi.mocked(hasUserSession).mockResolvedValue(true);
-  expect(await Home({ searchParams: Promise.resolve({ cursor: "next" }) })).toBeTruthy();
+  const page = await Home({ searchParams: Promise.resolve({ cursor: [" next ", "ignored"] }) });
+  expect(page).toMatchObject({
+    props: {
+      section: "personal",
+      children: {
+        props: {
+          feedDescriptor: readerFeeds.home,
+          cursor: "next",
+          filters: expect.objectContaining({ cursor: "next", content_type: "" }),
+        },
+      },
+    },
+  });
+  expect(FeedView).not.toHaveBeenCalled();
 });
 it("does not treat account outages as signed-out sessions", async () => {
   vi.mocked(hasUserSession).mockRejectedValue(new Error("account unavailable"));

@@ -217,7 +217,7 @@ export async function checkAvatarStreak(page, directory, { current, next, scan =
 export async function checkReaderNavigation(
   page,
   directory,
-  { signedIn = false, baseline = false, geometryOnly = false, streakDays = 2 } = {},
+  { signedIn = false, geometryOnly = false, streakDays = 2 } = {},
 ) {
   await mkdir(directory, { recursive: true });
   const original = {
@@ -228,7 +228,7 @@ export async function checkReaderNavigation(
     motion: await page.evaluate(() => matchMedia("(prefers-reduced-motion: reduce)").matches),
   };
   const state = signedIn ? `signed-in-${streakDays}` : "guest";
-  const report = { state, baseline, measurements: [], scans: [], interactions: [] };
+  const report = { state, measurements: [], scans: [], interactions: [] };
   const save = () =>
     writeFile(path.join(directory, `${state}.json`), JSON.stringify(report, null, 2));
   try {
@@ -287,7 +287,6 @@ export async function checkReaderNavigation(
       }
     }
     await save();
-    if (baseline) return report;
     const failures = report.measurements.filter((item) => item.issues.length);
     assert.deepEqual(
       failures.map(({ width, theme, expanded, issues }) => ({ width, theme, expanded, issues })),

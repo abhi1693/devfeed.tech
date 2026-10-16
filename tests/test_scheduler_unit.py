@@ -116,7 +116,10 @@ def test_unsupported_recovery_requires_an_explicit_policy():
         "minimal",
         "all",
         "retention-failed",
+        "partner-retention-failed",
         "overview-failed",
+        "partner-matching-failed",
+        "partner-promotion-failed",
         "dispatch-failed",
         "topics-only",
         "relationships-only",
@@ -164,6 +167,12 @@ def test_tick_dispatches_outside_transactions_and_preserves_cleanup(monkeypatch,
         "prune_job_payloads",
         Mock(side_effect=RuntimeError("retention")) if mode == "retention-failed" else Mock(),
     )
+    partner_retention = Mock(
+        side_effect=RuntimeError("partner retention")
+        if mode == "partner-retention-failed"
+        else None
+    )
+    monkeypatch.setattr(scheduler, "prune_partner_delivery_history", partner_retention)
     monkeypatch.setattr(scheduler, "expand_recommendation_events", Mock(return_value=3))
     monkeypatch.setattr(
         scheduler, "schedule_automation", Mock(return_value={"automation_scheduled": 4})
@@ -174,6 +183,21 @@ def test_tick_dispatches_outside_transactions_and_preserves_cleanup(monkeypatch,
     monkeypatch.setattr(scheduler, "recover_jobs", Mock(return_value=1))
     monkeypatch.setattr(feed_notifications, "expand_feed_notifications", Mock())
     monkeypatch.setattr(notification_delivery, "recover_notifications", Mock(return_value=2))
+    monkeypatch.setattr(scheduler, "dispatch_partner_pipeline", Mock(return_value=0))
+    monkeypatch.setattr(scheduler, "dispatch_partner_evaluations", Mock(return_value=0))
+    promotions = Mock(
+        side_effect=RuntimeError("partner promotion")
+        if mode == "partner-promotion-failed"
+        else None
+    )
+    monkeypatch.setattr(scheduler, "sync_partner_promotions", promotions)
+    monkeypatch.setattr(
+        scheduler,
+        "refresh_partner_matches",
+        Mock(side_effect=RuntimeError("partner matching"))
+        if mode == "partner-matching-failed"
+        else Mock(return_value=0),
+    )
     monkeypatch.setattr(scheduler, "dispatch_discovery", Mock())
     monkeypatch.setattr(scheduler, "dispatch_recommendations", Mock(return_value=3))
     queues = []
@@ -214,6 +238,12 @@ def test_tick_dispatches_outside_transactions_and_preserves_cleanup(monkeypatch,
             "devfeed:scheduler:heartbeat", NOW.isoformat(), ex=120
         )
     assert prune.call_count == int(mode != "overview-failed")
+    partner_retention.assert_called_once_with(factory)
+    scheduler.dispatch_partner_pipeline.assert_called_once_with(factory, limit=5)
+    scheduler.dispatch_partner_evaluations.assert_called_once_with(factory, limit=5)
+    promotions.assert_called_once_with(factory)
+    if mode != "partner-promotion-failed":
+        scheduler.refresh_partner_matches.assert_called_once_with(factory)
     assert all(item.connection.close.call_count == 1 for item in queues)
 
 
@@ -236,6 +266,7 @@ def test_scheduler_heartbeat_only_advances_after_successful_cycles(
     monkeypatch.setattr(scheduler, "scheduler_health", health_context)
     monkeypatch.setattr(scheduler, "session_factory", Mock())
     monkeypatch.setattr(scheduler, "recommendation_dispatcher", lambda *_: nullcontext())
+    monkeypatch.setattr(scheduler, "partner_dispatcher", lambda *_: nullcontext())
     monkeypatch.setattr(scheduler, "sitemap_refresher", lambda: nullcontext())
 
     def tick():

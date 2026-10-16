@@ -4,6 +4,9 @@ import type { Article } from "@/lib/types";
 import { displayHost, sourceHref } from "@/lib/feed-query";
 import { ArticleBookmarkButton } from "./article-engagement";
 import type { ReactNode } from "react";
+import { ArticleSponsorship } from "./article-sponsorship";
+import { articleDestination } from "@/lib/reader-destination";
+import { adLinkRel } from "@devfeed/ui/ad-link-rel";
 
 export function ArticleTableFrame({
   children,
@@ -51,41 +54,50 @@ export function ArticleTable({
 }) {
   return (
     <ArticleTableFrame showHeader={showHeader}>
-      {articles.map((article) => {
-        const source = article.sources[0];
-        const sourceName = source?.name ?? displayHost(article.canonical_url);
-        const date = article.published_at ?? article.feed_at;
-        return (
-          <tr key={article.id} className="article-list-row">
-            <td className="article-list-main">
-              <Link
-                className="article-list-title"
-                title={article.title}
-                href={`/articles/${article.slug}`}
-                scroll={false}
-                prefetch={false}
-              >
-                {article.title}
-              </Link>
-            </td>
-            <td className="source-column">
-              {source ? (
-                <Link href={sourceHref(source)} title={sourceName}>
-                  {sourceName}
-                </Link>
-              ) : (
-                <span title={sourceName}>{sourceName}</span>
-              )}
-            </td>
-            <td className="date-column">
-              <UserDate value={date} />
-            </td>
-            <td className="bookmark-column">
-              <ArticleBookmarkButton articleId={article.id} articleSlug={article.slug} />
-            </td>
-          </tr>
-        );
-      })}
+      {articles.map((article) => (
+        <ArticleTableRow key={article.id} article={article} />
+      ))}
     </ArticleTableFrame>
+  );
+}
+
+export function ArticleTableRow({ article }: { article: Article }) {
+  const source = article.sources[0];
+  const sourceName = source?.name ?? displayHost(article.canonical_url);
+  const date = article.published_at ?? article.feed_at;
+  return (
+    <tr className="article-list-row">
+      <td className="article-list-main">
+        <Link
+          className="article-list-title"
+          title={article.title}
+          href={articleDestination(article.slug)}
+          prefetch={false}
+          rel={
+            article.sponsor_names?.length
+              ? adLinkRel(article.sponsor_link_rel, false) || undefined
+              : undefined
+          }
+        >
+          {article.title}
+        </Link>
+        <ArticleSponsorship names={article.sponsor_names} />
+      </td>
+      <td className="source-column">
+        {source ? (
+          <Link href={sourceHref(source)} title={sourceName}>
+            {sourceName}
+          </Link>
+        ) : (
+          <span title={sourceName}>{sourceName}</span>
+        )}
+      </td>
+      <td className="date-column">
+        <UserDate value={date} />
+      </td>
+      <td className="bookmark-column">
+        <ArticleBookmarkButton articleId={article.id} articleSlug={article.slug} />
+      </td>
+    </tr>
   );
 }

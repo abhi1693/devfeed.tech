@@ -1,6 +1,7 @@
 import Link from "@/components/reader-link";
 import Image from "next/image";
 import brandMark from "@devfeed/theme/assets/devfeed-mark.png";
+import { CollapsibleSidebar } from "@devfeed/ui/sidebar";
 import { NotificationInbox } from "./notification-inbox";
 import { ReadingTools } from "./reading-tools";
 import { ThemeToggle } from "./theme-toggle";
@@ -9,8 +10,38 @@ import { Bot, Compass, House, Rss, Sparkles, Trophy } from "lucide-react";
 import { legalPages } from "@/lib/legal";
 import { UserSearch } from "./user-search";
 import { SkipToContent } from "./skip-to-content";
-import { SidebarToggle } from "./sidebar-toggle";
 import type { FeedFilters } from "@/lib/feed-query";
+import { ReaderSurface } from "./reader-context";
+import { readerPromptPolicies, type ReaderPromptEligibility } from "@/lib/reader-context";
+import { HeaderSponsorshipSlot } from "./header-sponsorship";
+
+type ReaderSection =
+  | "feed"
+  | "topics"
+  | "article"
+  | "sources"
+  | "account"
+  | "personal"
+  | "bookmarks"
+  | "trending"
+  | "search"
+  | "legal"
+  | "mcp"
+  | "leaderboard";
+const promptPolicies: Record<ReaderSection, ReaderPromptEligibility> = {
+  feed: readerPromptPolicies.browsing,
+  topics: readerPromptPolicies.browsing,
+  article: readerPromptPolicies.quiet,
+  sources: readerPromptPolicies.browsing,
+  account: readerPromptPolicies.quiet,
+  personal: readerPromptPolicies.browsing,
+  bookmarks: readerPromptPolicies.browsing,
+  trending: readerPromptPolicies.browsing,
+  search: readerPromptPolicies.browsing,
+  legal: readerPromptPolicies.quiet,
+  mcp: readerPromptPolicies.quiet,
+  leaderboard: readerPromptPolicies.browsing,
+};
 
 export function UserShell({
   children,
@@ -21,22 +52,11 @@ export function UserShell({
   children: React.ReactNode;
   filters?: FeedFilters;
   searchQuery?: string;
-  section?:
-    | "feed"
-    | "topics"
-    | "article"
-    | "sources"
-    | "account"
-    | "personal"
-    | "bookmarks"
-    | "trending"
-    | "search"
-    | "legal"
-    | "mcp"
-    | "leaderboard";
+  section?: ReaderSection;
 }) {
   return (
     <>
+      <ReaderSurface promptEligibility={promptPolicies[section]} />
       <SkipToContent />
       <header className="topbar">
         <Link href="/" className="brand devfeed-brand" aria-label="DevFeed home">
@@ -51,6 +71,7 @@ export function UserShell({
           <span>devfeed.</span>
         </Link>
         <UserSearch filters={filters} query={searchQuery} />
+        <HeaderSponsorshipSlot />
         <div className="header-actions">
           <ReadingTools />
           <ThemeToggle />
@@ -58,7 +79,22 @@ export function UserShell({
           <UserAccount />
         </div>
       </header>
-      <aside className="sidebar" aria-label="Primary navigation">
+      <CollapsibleSidebar
+        id="reader-sidebar"
+        label="Primary navigation"
+        storageKey="devfeed:sidebar-expanded"
+        variant="reader"
+        syncDocumentState
+        footer={
+          <nav className="sidebar-legal" aria-label="Legal">
+            {legalPages.map((page) => (
+              <Link key={page.path} href={page.path}>
+                {page.title}
+              </Link>
+            ))}
+          </nav>
+        }
+      >
         <nav>
           <PersonalFeedNav active={section === "personal"} />
           <Link
@@ -131,17 +167,7 @@ export function UserShell({
             <span>Star us on GitHub</span>
           </a>
         </nav>
-        <nav className="sidebar-legal" aria-label="Legal">
-          {legalPages.map((page) => (
-            <Link key={page.path} href={page.path}>
-              {page.title}
-            </Link>
-          ))}
-        </nav>
-        <div className="sidebar-toggle-area">
-          <SidebarToggle />
-        </div>
-      </aside>
+      </CollapsibleSidebar>
       <main id="main" className="main-content" tabIndex={-1}>
         {children}
       </main>

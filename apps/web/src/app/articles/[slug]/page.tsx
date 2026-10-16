@@ -5,12 +5,14 @@ import { loadArticle } from "@/lib/article";
 import { FeedView } from "@/components/feed-view";
 import { ArticleModal } from "@/components/article-modal";
 import { parseFilters } from "@/lib/feed-query";
+import { readerFeeds } from "@/lib/reader-feed";
 import { ArticlePreview } from "@/components/article-preview";
 import { articleMetadata } from "@/lib/metadata";
 import { Suspense, type ReactNode } from "react";
 import { headers } from "next/headers";
 import { UserShell } from "@/components/user-shell";
 import { LoadingSkeleton } from "@/components/loading-skeleton";
+import type { ArticleIdentity } from "@/lib/reader-context";
 // Run with the response nonce as soon as the streamed dialog reaches the parser.
 // Native modality must not wait for the reader bundle or reopen during hydration.
 const openDirectArticle = `{
@@ -26,11 +28,19 @@ const openDirectArticle = `{
     });
   }
 }`;
-async function DirectArticle({ slug, children }: { slug: string; children: ReactNode }) {
+async function DirectArticle({
+  slug,
+  article,
+  children,
+}: {
+  slug: string;
+  article?: ArticleIdentity;
+  children: ReactNode;
+}) {
   const nonce = (await headers()).get("content-security-policy")?.match(/'nonce-([^']+)'/)?.[1];
   return (
     <>
-      <ArticleModal direct slug={slug}>
+      <ArticleModal direct slug={slug} article={article}>
         {children}
       </ArticleModal>
       <script nonce={nonce} dangerouslySetInnerHTML={{ __html: openDirectArticle }} />
@@ -58,7 +68,7 @@ export default async function ArticlePage({ params }: Props) {
     );
   return (
     <>
-      <DirectArticle slug={article.slug}>
+      <DirectArticle slug={slug} article={{ id: article.id, slug: article.slug }}>
         <ArticlePreview article={article} />
       </DirectArticle>
       <Suspense
@@ -68,7 +78,11 @@ export default async function ArticlePage({ params }: Props) {
           </UserShell>
         }
       >
-        <FeedView filters={parseFilters({})} structuredData={false} />
+        <FeedView
+          filters={parseFilters({})}
+          feedDescriptor={readerFeeds.latest}
+          structuredData={false}
+        />
       </Suspense>
     </>
   );

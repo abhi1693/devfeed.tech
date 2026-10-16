@@ -1,3 +1,4 @@
+import { HeaderSponsorshipProvider } from "../../web/src/components/header-sponsorship";
 import { TopicFollowsProvider } from "../../web/src/components/topic-follows";
 import "./newtab.css";
 import { startExtensionAnalytics } from "./analytics";
@@ -18,17 +19,12 @@ import {
 import { SearchFilters } from "../../web/src/components/search-filters";
 import { LoadingSkeleton } from "../../web/src/components/loading-skeleton";
 import { configureReaderRuntime, readerRequest } from "../../web/src/lib/reader-runtime";
-import {
-  feedParams,
-  guestFeedFilters,
-  searchParamsFromUrl,
-  latestFeedParams,
-  parseFilters,
-} from "../../web/src/lib/feed-query";
+import { feedParams, searchParamsFromUrl, latestFeedParams } from "../../web/src/lib/feed-query";
+import { readerFeeds, resolveFeed } from "../../web/src/lib/reader-feed";
 import { parseSearchOptions, normalizeSearch, type SearchResponse } from "../../web/src/lib/search";
 import type { FeedPage, FeedOptions, Topic, Source } from "../../web/src/lib/types";
-import { createReaderTransport, publicOrigin } from "./transport";
-import { linkDestination, useRoute } from "./navigation";
+import { ExtensionReaderTransport, publicOrigin } from "./transport";
+import { destinationHref, linkDestination, navigate, useNavigationState } from "./navigation";
 import { LocalPage, PublicProfilePage } from "./pages";
 import { catalogItem } from "./catalog";
 import { Preview } from "./articles";
@@ -40,17 +36,22 @@ import { TrendingContent } from "../../web/src/components/trending-content";
 import { NotificationPreferencesProvider } from "../../web/src/components/notification-preferences-provider";
 import { SignupNudge } from "../../web/src/components/signup-nudge";
 import { ReaderPromptsProvider } from "../../web/src/components/reader-prompts";
+import { ReaderContextProvider } from "../../web/src/components/reader-context";
 import { ReaderNavigationRecovery } from "../../web/src/components/reader-navigation-recovery";
-import { extensionRoute, type ExtensionRoute } from "./routes";
+import { ReaderNotFound } from "../../web/src/components/reader-not-found";
+import type { ReaderRoute } from "../../web/src/lib/reader-routes";
+import { pageDestination, type ReaderPageDestination } from "../../web/src/lib/reader-destination";
 
 configureReaderRuntime({
-  request: createReaderTransport(fetch),
+  request: new ExtensionReaderTransport(fetch).request,
   signedOut,
   reload: (href) => {
     window.history.replaceState(null, "", linkDestination(href));
     window.location.reload();
   },
   rememberArticles,
+  navigate,
+  destinationHref,
   publicOrigin,
   location: () => new URL(window.location.hash.slice(1) || "/", publicOrigin),
 });
@@ -66,7 +67,7 @@ function Reader({
   match,
 }: {
   route: string;
-  match: Extract<ExtensionRoute, { type: "reader" }>;
+  match: Extract<ReaderRoute, { type: "reader" }>;
 }) {
   const { user, loading: sessionLoading } = useUser();
   const [revision, setRevision] = useState(0);
@@ -75,23 +76,28 @@ function Reader({
     window.addEventListener("devfeed:extension-refresh", refresh);
     return () => window.removeEventListener("devfeed:extension-refresh", refresh);
   }, []);
-  const key = `${route}:${revision}:${user?.user_id ?? "guest"}:${user?.csrf_token ?? ""}`;
   const url = new URL(route, publicOrigin);
-  const search = match.page === "search";
-  const trending = match.page === "trending";
-  const personal = match.page === "personal" && (sessionLoading || Boolean(user));
-  const bookmarks = match.page === "bookmarks";
-  const detail = match.detail;
+  const routeDetail = match.detail;
   const queryParams = searchParamsFromUrl(url.searchParams);
-  const parsedFilters = parseFilters({
-    ...queryParams,
-    content_type:
-      detail?.contentType ?? match.contentType ?? url.searchParams.get("content_type") ?? "",
-  });
-  const filters =
-    ["/", "/latest"].includes(url.pathname) && !sessionLoading && !user
-      ? guestFeedFilters(queryParams)
-      : parsedFilters;
+  const { mode, filters } = resolveFeed(
+    match.feed,
+    queryParams,
+    sessionLoading || Boolean(user),
+    routeDetail?.contentType ?? match.contentType,
+  );
+  const detail =
+    routeDetail ??
+    (match.feed.mode === "latest" && !filters.topic && filters.source_id
+      ? { kind: "sources" as const, slug: filters.source_id }
+      : undefined);
+  const feedDescriptor = detail ? readerFeeds.contextual : match.feed;
+  const search = mode === "search";
+  const key = search
+    ? `${route}:${revision}`
+    : `${route}:${revision}:${user?.user_id ?? "guest"}:${user?.csrf_token ?? ""}`;
+  const trending = mode === "trending";
+  const personal = mode === "personal";
+  const bookmarks = mode === "bookmarks";
   const query = normalizeSearch(url.searchParams.get("q") ?? "");
   const searchOptions = parseSearchOptions(url.searchParams);
   const [state, setState] = useState<{
@@ -99,6 +105,7 @@ function Reader({
     feed?: FeedContentProps;
     search?: SearchResponse | null;
     trending?: PromiseSettledResult<FeedPage>;
+    missing?: boolean;
   }>();
   useEffect(() => {
     if (sessionLoading || personal || bookmarks || state?.key === key) return;
@@ -130,7 +137,10 @@ function Reader({
         try {
           const kind = detail.kind;
           item = await catalogItem(kind, detail.slug, signal);
-          if (!item) throw new Error("Not found");
+          if (!item) {
+            if (!signal.aborted) setState({ key, missing: true });
+            return;
+          }
           resolvedFilters =
             kind === "topics"
               ? { ...filters, topic: item.slug }
@@ -140,6 +150,7 @@ function Reader({
             setState({
               key,
               feed: {
+                feedDescriptor,
                 filters,
                 feed: { status: "rejected", reason },
                 options: { status: "rejected", reason },
@@ -157,6 +168,7 @@ function Reader({
         setState({
           key,
           feed: {
+            feedDescriptor,
             feed,
             options,
             filters: resolvedFilters,
@@ -172,10 +184,12 @@ function Reader({
     void load();
     return () => controller.abort();
     // Keep confirmed same-owner results mounted during a session recheck.
-    // The key describes route, refresh revision, and account identity.
+    // Public search pages retain loaded results across credential refreshes.
+    // Other resources also include account identity in their data key.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [key, sessionLoading]);
 
+  if (state?.key === key && state.missing) return <ReaderNotFound />;
   if (personal && !user && !(state?.key === key && state.feed))
     return (
       <UserShell section="personal">
@@ -187,10 +201,11 @@ function Reader({
       <UserShell section={personal ? "personal" : "bookmarks"}>
         {personal ? (
           <PersonalFeed
-            filters={parseFilters(Object.fromEntries(url.searchParams))}
+            feedDescriptor={match.feed}
+            filters={filters}
             key={user?.user_id}
             refreshKey={revision}
-            cursor={url.searchParams.get("cursor") ?? undefined}
+            cursor={filters.cursor || undefined}
           />
         ) : (
           <ReadLater key={key} cursor={url.searchParams.get("cursor") ?? undefined} />
@@ -239,52 +254,64 @@ function Reader({
   );
 }
 
-function ExtensionReader() {
-  const route = useRoute();
-  const pathname = new URL(route, publicOrigin).pathname;
-  const match = extensionRoute(pathname);
-  if (match?.type === "profile") return <PublicProfilePage username={match.username} />;
-  if (match?.type === "local") return <LocalPage key={route} route={route} />;
-  const article = match?.type === "article" ? match : undefined;
-  const background = article ? window.history.state?.readerBackground : undefined;
-  const readerRoute = article ? (background ?? "/latest") : route;
-  // A preview changes the foreground URL, not the kind of reader retained behind it.
-  const backgroundMatch = extensionRoute(new URL(readerRoute, publicOrigin).pathname);
-  const readerMatch: Extract<ExtensionRoute, { type: "reader" }> =
-    backgroundMatch?.type === "reader" ? backgroundMatch : { type: "reader", page: "feed" };
-  return (
-    <>
-      <Reader route={readerRoute} match={readerMatch} />
-      {article && <Preview slug={article.slug} direct={!background} />}
-    </>
-  );
+function ExtensionPage({ destination }: { destination: ReaderPageDestination }) {
+  const route = destination.href;
+  const match = destination.route;
+  if (!match) return <ReaderNotFound />;
+  switch (match.type) {
+    case "profile":
+      return <PublicProfilePage username={match.username} />;
+    case "local":
+      return <LocalPage key={route} route={route} match={match} />;
+    case "reader":
+      return (
+        <>
+          <Reader route={route} match={match} />
+        </>
+      );
+  }
 }
 
-function ExtensionSignupNudge() {
-  const route = useRoute();
-  return <SignupNudge pathname={new URL(route, publicOrigin).pathname} />;
+const directBackground = pageDestination("/latest");
+
+function ExtensionReader() {
+  const state = useNavigationState();
+  const background =
+    state.kind === "article" ? (state.background ?? directBackground) : state.destination;
+  return (
+    <>
+      <ExtensionPage destination={background} />
+      {state.kind === "article" && (
+        <Preview slug={state.destination.slug} direct={state.background === null} />
+      )}
+    </>
+  );
 }
 
 startExtensionAnalytics();
 
 createRoot(document.getElementById("root")!).render(
   <AccountSession>
-    <ReaderPromptsProvider>
-      <ReaderNavigationRecovery />
-      <ThemePreferencesProvider>
-        <NotificationPreferencesProvider>
-          <FeedPreferencesProvider>
-            <ArticleNavigationProvider>
-              <SourceFollowsProvider>
-                <TopicFollowsProvider>
-                  <ExtensionReader />
-                  <ExtensionSignupNudge />
-                </TopicFollowsProvider>
-              </SourceFollowsProvider>
-            </ArticleNavigationProvider>
-          </FeedPreferencesProvider>
-        </NotificationPreferencesProvider>
-      </ThemePreferencesProvider>
-    </ReaderPromptsProvider>
+    <ReaderContextProvider>
+      <ReaderPromptsProvider>
+        <HeaderSponsorshipProvider>
+          <ReaderNavigationRecovery />
+          <ThemePreferencesProvider>
+            <NotificationPreferencesProvider>
+              <FeedPreferencesProvider>
+                <ArticleNavigationProvider>
+                  <SourceFollowsProvider>
+                    <TopicFollowsProvider>
+                      <ExtensionReader />
+                      <SignupNudge />
+                    </TopicFollowsProvider>
+                  </SourceFollowsProvider>
+                </ArticleNavigationProvider>
+              </FeedPreferencesProvider>
+            </NotificationPreferencesProvider>
+          </ThemePreferencesProvider>
+        </HeaderSponsorshipProvider>
+      </ReaderPromptsProvider>
+    </ReaderContextProvider>
   </AccountSession>,
 );

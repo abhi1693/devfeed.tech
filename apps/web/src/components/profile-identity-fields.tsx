@@ -3,7 +3,8 @@ import type { ProfileEditorValue } from "@/lib/use-profile-editor";
 import { ProfileAvatar } from "./profile-avatar";
 import { AvatarUrlPreview } from "./avatar-url-preview";
 import { AvatarUpload } from "./avatar-upload";
-import type { UserProfile } from "@/lib/user";
+import { Select } from "@devfeed/ui/select";
+import type { ExperienceLevel, UserProfile } from "@/lib/user";
 export function ProfileIdentityFields({
   value,
   usernameClaimed,
@@ -107,6 +108,28 @@ export function ProfileIdentityFields({
             value={value.about ?? ""}
             onChange={(event) => change({ ...value, about: event.target.value || null })}
           />
+        </div>
+        <div className="direct-field direct-field-wide">
+          <label htmlFor="profile-experience">Experience level</label>
+          <Select
+            id="profile-experience"
+            label="Experience level"
+            value={value.experience_level ?? ""}
+            options={[
+              { value: "", label: "Not specified" },
+              { value: "aspiring", label: "Aspiring" },
+              { value: "entry_level", label: "Entry-level" },
+              { value: "mid_level", label: "Mid-level" },
+              { value: "senior", label: "Senior" },
+            ]}
+            onChange={(level) =>
+              change({ ...value, experience_level: (level || null) as ExperienceLevel | null })
+            }
+            aria-describedby="profile-experience-help"
+          />
+          <p id="profile-experience-help">
+            Optional and private. Helps match products to your experience.
+          </p>
         </div>
       </div>
     </>

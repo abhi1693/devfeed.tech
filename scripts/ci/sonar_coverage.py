@@ -10,7 +10,7 @@ from coverage import Coverage
 
 ROOT = Path(__file__).resolve().parents[2]
 PYTHON_SUITES = ("python-unit", *(f"python-integration-{shard}" for shard in range(3)))
-FRONTENDS = ("web", "admin")
+FRONTENDS = ("web", "admin", "partner")
 
 
 def normalize_lcov(path: Path, root: Path, workspace: Path) -> None:

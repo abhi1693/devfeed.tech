@@ -48,6 +48,33 @@ This setting is read at runtime and is also exposed to Chrome and Edge through
 localhost fallback when it is unset. See the [MCP guide](../mcp/README.md).
 
 Run `npm run web:lint`, `npm run web:test`, and `npm run web:build` to validate.
+After user API route or transport-policy changes, run `npm run web:generate` and
+include the OpenAPI, operation definitions and concrete Next handlers together.
+The same command generates extension transport policies from user API metadata and
+the public reader bindings in `src/lib/api/reader-bindings.json`.
+`node apps/web/tests/browser/reader-gateway.mjs` checks the built gateway over real
+HTTP, including cookie isolation, placement validation and body-reading deadlines.
+
+Server JSON reads use `PublicApiClient` or `PrivateApiClient` from
+`src/lib/server/api-client.ts`. The public client binds the configured public API
+origin and requests `max-age=600` upstream, while Next fetch storage uses
+`no-store`. The private client binds the user API origin, requests `no-store`
+even for anonymous reads, and forwards only reader cookies. Select a client by
+operation ownership. Endpoint names do not select credentials or cache policy.
+Sitemap inventory uses a public client configured for fresh reads and a
+55-second deadline.
+
+The shared reader destination definitions declare sitemap inclusion, priority,
+change frequency, and publication metadata. Legal pages also take their titles,
+descriptions, paths, and update dates from those definitions. Sitemap handlers
+serialize declared destinations and serve the backend's retained inventory.
+
+After building web, Chrome, and Edge, run
+`node --test --test-name-pattern="server reads" apps/web/tests/browser/feed.mjs` or
+`node --test --test-name-pattern="server reads" apps/extensions/tests/reader.browser.mjs`
+to check public/private reads and sitemap responses. Set `DEVFEED_EXTENSION_BROWSER=edge` for Edge.
+The web checks record actual server requests to separate local upstreams;
+browser screenshots stay under ignored `reports/server-reads/`.
 
 On the public `devfeed.tech` host, requests forwarded by Cloudflare with
 `X-Forwarded-Proto: http` receive a permanent redirect to the same HTTPS path
@@ -66,6 +93,24 @@ and close controls instead of raising an unhandled page error. Temporary pages
 are marked noindex; missing articles still return 404 and unexpected exceptions
 still reach the error boundary. Chrome and Edge share the error content and retry
 control. The browser suites exercise failure followed by successful retry.
+
+Reader cards and inbox actions pass `articleDestination(slug)` to navigation;
+page actions use `pageDestination(href)` with their scroll policy. `ReaderLink`
+serializes these destinations for native links, and `useReaderRouter` forwards
+them through the website or extension adapter. Requested article identity and
+overlay ownership come from the registered Next route slots or extension history
+state, including while the article is loading or unavailable. Preview components
+do not recover that state from URL strings. Extensions retain the resolved
+background page across preview navigation and browser history.
+
+After building web, Chrome, and Edge, run
+`node --test --test-name-pattern="reader navigation" apps/web/tests/browser/feed.mjs` or
+`node --test --test-name-pattern="reader navigation" apps/extensions/tests/reader.browser.mjs`
+for the navigation journey. Without a name filter, every named scenario runs with its own fixtures.
+Use `DEVFEED_EXTENSION_BROWSER=edge` for the Edge run. It checks retained feed
+DOM and scroll, direct and intercepted previews, Back/Forward, retry, and inbox
+article and settings navigation. Evidence stays under ignored
+`reports/reader-destinations/`.
 
 ## Reader loading and pagination
 
@@ -98,6 +143,20 @@ Requests have deadlines, cancel on unmount/inactivity, and deduplicate cursor lo
 Shared browser regression helpers test preferences, public directories, onboarding, feed/search scrolling, and article/detail navigation against the production web build and both built extensions. Preference checks record catalog requests to reject eager later-page fetches, search for an unloaded item, and retain selection after clearing search. Backend integration tests use disposable PostgreSQL and Redis to verify global search, pagination, literal wildcards, and public visibility rules.
 
 The public API adds the optional `q` parameter to topics/sources. Deploy that API before the corresponding reader/extension release: an older API ignores `q` and cannot provide correct global catalog search. New same-origin topic/source detail endpoints must also be live before distributing the updated extensions. No database migration is needed. These source changes and local validations do not prove a production latency improvement until a separately authorized deployment is measured.
+
+## Partner placements
+
+The shared web, Chrome and Edge reader expires product placements one hour after
+their tracking receipt was issued. A timer and tab-resume checks enforce the
+deadline while the page stays mounted. Expired feed cards become hidden, inert
+cells with the same dimensions, preserving article position and focus. Placements
+outside feed slots are hidden. The same reading context does not fetch replacements;
+navigation to a new context can request a fresh delivery. Tracking checks the
+deadline before impressions, clicks and retries, including after suspended timers.
+
+After building the web app and both extensions, run
+`node apps/web/tests/browser/partner-placements.mjs` and
+`node apps/web/tests/browser/partner-tracking.mjs` for browser parity checks.
 
 ## Direct article entry
 
@@ -164,8 +223,7 @@ Failed images use the same frame for their placeholder, keeping the preview layo
 Shared browser regression coverage in `scripts/testing/preview-cover.mjs` exercises
 delayed landscape, square, portrait, and failed images at mobile and desktop sizes
 on the website and both built extensions. Reports and screenshots stay untracked in
-`reports/preview-cover`. Set `DEVFEED_COVER_BASELINE=1` when collecting a pre-fix
-comparison; the normal run asserts reserved dimensions, stable surrounding layout,
+`reports/preview-cover`. Every run asserts reserved dimensions, stable surrounding layout,
 and Lighthouse's `unsized-images` sizing classification using the authored CSS.
 These deterministic fixture reports are not full production Lighthouse audits.
 

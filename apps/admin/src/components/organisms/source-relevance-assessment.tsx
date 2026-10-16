@@ -1,8 +1,8 @@
 "use client";
 
 import { useState } from "react";
-import { Button } from "@/components/atoms/button";
-import { InfoPanel } from "@/components/molecules/info-panel";
+import { Button } from "@devfeed/ui/button";
+import { ResourcePanel } from "@devfeed/ui/resource-layout";
 import { DateTime } from "@/components/molecules/date-time";
 import { StatusBadge } from "@/components/molecules/status-badge";
 
@@ -110,7 +110,7 @@ export function SourceRelevanceAssessment({
       : "No automatic decision";
   return (
     <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,0.9fr)_minmax(0,1.4fr)]">
-      <InfoPanel title="Source relevance assessment">
+      <ResourcePanel title="Source relevance assessment">
         <div className="space-y-6 text-sm">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <h3 className="text-base font-semibold">{headline}</h3>
@@ -231,9 +231,9 @@ export function SourceRelevanceAssessment({
             </>
           )}
         </div>
-      </InfoPanel>
+      </ResourcePanel>
       {!!rows.length && (
-        <InfoPanel title="Article evidence">
+        <ResourcePanel title="Article evidence">
           <p className="mt-1 text-xs text-muted-foreground">
             {counts.relevant} relevant · {counts.unrelated} outside scope · {counts.uncertain}{" "}
             uncertain
@@ -337,7 +337,7 @@ export function SourceRelevanceAssessment({
               </Button>
             </nav>
           )}
-        </InfoPanel>
+        </ResourcePanel>
       )}
     </div>
   );

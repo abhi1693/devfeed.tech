@@ -3,6 +3,7 @@ import { afterEach, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { UserAccount, UserProvider } from "@/components/user-account";
 import { ProfileSettings } from "@/components/profile-settings";
+import userEvent from "@testing-library/user-event";
 
 afterEach(() => {
   cleanup();
@@ -65,6 +66,58 @@ function savedProfile(init: RequestInit) {
   };
 }
 
+it("saves and clears private experience with CSRF without adding it to the Dev Card", async () => {
+  let profile = {
+    display_name: "Reader",
+    avatar_url: null,
+    experience_level: "mid_level" as string | null,
+  };
+  const fetcher = vi.fn((url: string, init?: RequestInit) => {
+    if (url.endsWith("/me"))
+      return Promise.resolve(Response.json({ user_id: "one", name: "Reader", csrf_token: "csrf" }));
+    if (init?.method === "PUT") profile = { ...profile, ...savedProfile(init) };
+    return Promise.resolve(Response.json(profile));
+  });
+  vi.stubGlobal("fetch", fetcher);
+  const mounted = app();
+  let selector = await screen.findByRole("combobox", { name: "Experience level" });
+  expect(selector.textContent).toBe("Mid-level");
+  expect(selector.getAttribute("aria-required")).toBe("false");
+  await userEvent.click(selector);
+  expect(screen.getAllByRole("option").map((option) => option.textContent?.trim())).toEqual([
+    "Not specified",
+    "Aspiring",
+    "Entry-level",
+    "Mid-level",
+    "Senior",
+  ]);
+  await userEvent.click(screen.getByRole("option", { name: "Senior" }));
+  fireEvent.click(screen.getByRole("button", { name: "Discard changes" }));
+  expect(selector.textContent).toBe("Mid-level");
+  await userEvent.click(selector);
+  await userEvent.click(screen.getByRole("option", { name: "Senior" }));
+  fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+  await screen.findByText("Your profile is saved.");
+  expect(profile.experience_level).toBe("senior");
+  expect(screen.getByRole("img", { name: /Dev card for/ }).textContent).not.toMatch(
+    /senior|experience/i,
+  );
+  const write = fetcher.mock.calls.find(([, init]) => init?.method === "PUT");
+  expect(write?.[1]?.headers).toEqual({
+    "Content-Type": "application/json",
+    "X-CSRF-Token": "csrf",
+  });
+  mounted.unmount();
+  app();
+  selector = await screen.findByRole("combobox", { name: "Experience level" });
+  expect(selector.textContent).toBe("Senior");
+  await userEvent.click(selector);
+  await userEvent.click(screen.getByRole("option", { name: "Not specified" }));
+  fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+  await screen.findByText("Your profile is saved.");
+  expect(profile.experience_level).toBeNull();
+});
+
 it("saves profile overrides with CSRF, updates the navbar and preserves managed identity", async () => {
   const fetcher = vi.fn((url: string, init?: RequestInit) =>
     Promise.resolve(
@@ -116,6 +169,7 @@ it("saves profile overrides with CSRF, updates the navbar and preserves managed 
     bio: null,
     location: null,
     about: null,
+    experience_level: null,
     links: [],
     stack: [{ topic_id: "topic" }],
     visibility: {

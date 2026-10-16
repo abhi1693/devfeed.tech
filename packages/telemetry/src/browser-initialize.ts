@@ -65,7 +65,7 @@ export async function initializeBrowserTelemetry(settings: BrowserSettings): Pro
       },
     });
     if (faro.api.getSession()?.attributes?.isSampled === "true") enableTracing();
-    faro.api.setView({ name: routeName(location.pathname) });
+    faro.api.setView({ name: routeName(location.pathname, settings.app) });
     faro.api.pushEvent("telemetry_ready");
     return faro;
   });

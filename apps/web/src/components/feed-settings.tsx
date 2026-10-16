@@ -6,11 +6,12 @@ import { LoadingSkeleton } from "./loading-skeleton";
 import { useReaderRouter } from "@/lib/reader-navigation";
 import { languageOptions } from "@/lib/languages";
 import { contentTypes } from "@/lib/feed-query";
+import type { FeedDisplay } from "@/lib/user";
 import { useState } from "react";
 import { LayoutGrid, List } from "lucide-react";
 import { AccountGate } from "./user-account";
 import { UserSettingsLayout } from "./user-settings-layout";
-import { useFeedPreferences, type FeedDisplay } from "./feed-preferences";
+import { useFeedPreferences } from "./feed-preferences";
 
 const contentOptions = {
   article: ["Articles", "Deep dives, explainers, and developer stories."],

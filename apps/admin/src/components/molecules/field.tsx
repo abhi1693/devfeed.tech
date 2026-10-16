@@ -2,7 +2,7 @@
 
 import { useId, useRef, useState, type AriaAttributes, type ReactNode } from "react";
 import { CircleHelp } from "lucide-react";
-import { Button } from "@/components/atoms/button";
+import { Button } from "@devfeed/ui/button";
 import { FieldDescription, FieldError, FieldLabel } from "@/components/atoms/field";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/atoms/tooltip";
 import { cn } from "@/lib/utils";

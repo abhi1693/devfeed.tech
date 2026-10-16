@@ -3,7 +3,7 @@ import sharp from "sharp";
 
 export function catalogChoices(kind) {
   return Array.from({ length: 130 }, (_, index) => ({
-    id: `scroll-${kind}-${index}`,
+    id: `${kind === "topics" ? "77777777" : "88888888"}-1111-4111-8111-${String(index).padStart(12, "0")}`,
     name: `Scroll ${kind} ${index}`,
     slug: `scroll-${kind}-${index}`,
     ...(kind === "topics" ? { kind: "technology" } : { website_url: "https://example.test" }),

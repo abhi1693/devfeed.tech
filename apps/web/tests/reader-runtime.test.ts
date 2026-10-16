@@ -66,3 +66,50 @@ it("uses the extension route for search and the website origin for sharing", asy
     rel: "noopener noreferrer",
   });
 });
+
+it("serializes and forwards typed navigation only when a runtime supplies an adapter", async () => {
+  const { articleDestination } = await import("@/lib/reader-destination");
+  const { configureReaderRuntime, readerDestinationHref, readerNavigate } =
+    await import("@/lib/reader-runtime");
+  const destination = articleDestination("rust");
+  expect(readerDestinationHref(destination)).toBe("/articles/rust");
+  expect(readerNavigate(destination, "push")).toBe(false);
+  const navigate = vi.fn();
+  configureReaderRuntime({
+    request: fetch,
+    publicOrigin: "https://devfeed.tech",
+    navigate,
+    destinationHref: (value) => `#${value.href}`,
+  });
+  expect(readerDestinationHref(destination)).toBe("#/articles/rust");
+  expect(readerNavigate(destination, "replace")).toBe(true);
+  expect(navigate).toHaveBeenCalledExactlyOnceWith(destination, "replace");
+});
+
+it("validates structured and typed navigation destinations before exposing sign-in links", async () => {
+  const { readerLoginLink } = await import("@/lib/reader-runtime");
+  const { pageDestination } = await import("@/lib/reader-destination");
+  expect(readerLoginLink(pageDestination("/sources/rust-blog/news?tag=backend"))).toEqual({
+    href: "/login?return_to=%2Fsources%2Frust-blog%2Fnews%3Ftag%3Dbackend",
+  });
+  expect(
+    readerLoginLink({ routeId: "settings", parameters: { section: "feed" }, query: {} }),
+  ).toEqual({
+    href: "/login?return_to=%2Fsettings%2Ffeed",
+  });
+  expect(readerLoginLink("/search?sort=unapproved")).toEqual({ href: "/login?return_to=%2F" });
+  expect(readerLoginLink("https://elsewhere.test/latest")).toEqual({
+    href: "/login?return_to=%2F",
+  });
+});
+
+it("retains encoded backslashes in developer search text without accepting them in paths", async () => {
+  const { readerLoginLink } = await import("@/lib/reader-runtime");
+  const { searchHref } = await import("@/lib/search");
+  const href = searchHref("\\d C:\\Windows");
+  expect(readerLoginLink(href)).toEqual({
+    href: `/login?return_to=${encodeURIComponent(href)}`,
+  });
+  expect(readerLoginLink("/tags/C%3A%5CWindows")).toEqual({ href: "/login?return_to=%2F" });
+  expect(readerLoginLink("/search?q=C:\\Windows")).toEqual({ href: "/login?return_to=%2F" });
+});
