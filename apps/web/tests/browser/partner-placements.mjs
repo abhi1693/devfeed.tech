@@ -10,6 +10,7 @@ import { chromium } from "playwright";
 const searchContextOnly = process.argv.includes("--search-context");
 const linkRelOnly = process.argv.includes("--link-rel");
 const attributionOnly = process.argv.includes("--attribution");
+const compactFeedOnly = process.argv.includes("--compact-feed");
 
 // Exercise actual production reader bundles and packaged extensions, with controlled
 // delivery responses. Backend integration tests prove relevance and signed receipts.
@@ -944,7 +945,10 @@ async function assertPlacementLinkRelations(context, base, platform) {
   nativeMode = "click-coverage";
   headerInventory = true;
   const inspect = async (link, policy, label, external = true) => {
-    const tokens = [...policy, ...(external ? ["noopener", "noreferrer"] : [])];
+    const qualified = policy.some((token) => token === "nofollow" || token === "sponsored")
+      ? policy
+      : [...policy, "sponsored"];
+    const tokens = [...qualified, ...(external ? ["noopener", "noreferrer"] : [])];
     assert.equal(await link.getAttribute("rel"), tokens.join(" ") || null, label);
     if (external) assert.equal(await link.getAttribute("target"), "_blank", label);
   };
@@ -972,7 +976,13 @@ async function assertPlacementLinkRelations(context, base, platform) {
     await page.goto(`${base}/latest`);
     for (const authenticated of [false, true]) {
       signedIn = authenticated;
-      for (const policy of [["nofollow"], ["sponsored", "ugc", "external"], []]) {
+      for (const policy of [
+        ["nofollow"],
+        ["sponsored", "ugc", "external"],
+        [],
+        ["external"],
+        ["ugc"],
+      ]) {
         linkRelPolicy = policy;
         const label = `${platform}/${authenticated ? "member" : "guest"}/${policy.join("+") || "normal"}`;
         for (const view of ["cards", "compact"]) {
@@ -1046,7 +1056,7 @@ async function assertPlacementLinkRelations(context, base, platform) {
       }
     }
     console.log(
-      `${platform}: default, custom and normal link relations passed for anonymous/member Feed grid/table, Header, Engagement and sponsored card/preview/direct article/search result links; signed clicks remain measured.`,
+      `${platform}: default, custom and previously unqualified link relations passed for anonymous/member Feed grid/table, Header, Engagement and sponsored card/preview/direct article/search result links; signed clicks remain measured.`,
     );
   } finally {
     await page.evaluate(() => localStorage.removeItem("devfeed:feed-view:guest")).catch(() => {});
@@ -2369,7 +2379,7 @@ async function assertCompactFeedTable(context, base, platform) {
           assert.equal(
             await page
               .locator(
-                '.article-table [data-ad-format="engagement"],.article-table .card-image,.article-table .article-card,.article-grid',
+                '.article-table [data-ad-format="engagement"],.article-table .card-image,.article-table .article-card,.article-grid:visible',
               )
               .count(),
             0,
@@ -3499,6 +3509,12 @@ try {
       const page = await context.newPage();
       if (attributionOnly) {
         await assertListingAttribution(context, base, platform);
+        continue;
+      }
+      if (compactFeedOnly) {
+        await context.clock.install({ time: new Date(receiptIssuedAt * 1000) });
+        await assertCompactFeedTable(context, base, platform);
+        console.log(`${platform}: compact Feed structure, visibility, tracking and expiry passed`);
         continue;
       }
       if (!searchContextOnly) await assertPlacementLinkRelations(context, base, platform);

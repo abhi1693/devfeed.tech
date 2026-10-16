@@ -6,6 +6,7 @@ from devfeed_core.image_jobs import (
     backfill_images,
     backfill_storage,
     backfill_thumbnail_encoding,
+    backfill_thumbnail_sizes,
     request_image,
     retry_image,
 )
@@ -99,6 +100,15 @@ def source_logo(args):
 def recompress(args):
     with session_factory().begin() as session:
         jobs = backfill_thumbnail_encoding(session, args.limit)
+        return {
+            "queued": len(jobs),
+            "jobs": [ImageJobOut.model_validate(job).model_dump(mode="json") for job in jobs],
+        }
+
+
+def resize(args):
+    with session_factory().begin() as session:
+        jobs = backfill_thumbnail_sizes(session, args.limit)
         return {
             "queued": len(jobs),
             "jobs": [ImageJobOut.model_validate(job).model_dump(mode="json") for job in jobs],

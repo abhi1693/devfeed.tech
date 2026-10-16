@@ -43,7 +43,7 @@ def test_link_relationship_entitlements_and_defaults(tier):
     assert account.configurable_link_rel is configured
     assert account.link_rel_options == list(LINK_REL_OPTIONS)
     assert AccountInput(name="Partner", tier=tier).link_rel == ["nofollow"]
-    assert effective_link_rel(account) == ([] if configured else ["nofollow"])
+    assert effective_link_rel(account) == (["sponsored"] if configured else ["nofollow"])
     if configured:
         validate_link_rel(tier, [])
     else:
@@ -83,7 +83,7 @@ def test_empty_product_selection_and_inheritance_are_distinct():
 def test_account_and_product_resolution_rechecks_tier_without_changing_saved_choices():
     account = PartnerAccount(tier="platinum", link_rel=["sponsored", "external"])
     policy = PartnerProductPromotion(link_rel=[])
-    assert effective_link_rel(account, policy) == []
+    assert effective_link_rel(account, policy) == ["sponsored"]
     policy.link_rel = None
     assert effective_link_rel(account, policy) == ["sponsored", "external"]
     account.tier = "gold"
@@ -91,6 +91,39 @@ def test_account_and_product_resolution_rechecks_tier_without_changing_saved_cho
     assert account.link_rel == ["sponsored", "external"]
     account.tier = "diamond"
     assert effective_link_rel(account, policy) == ["sponsored", "external"]
+
+
+@pytest.mark.parametrize("tier", ["platinum", "diamond"])
+@pytest.mark.parametrize("saved", [[], ["external"], ["ugc"], ["external", "ugc"]])
+@pytest.mark.parametrize("override", [False, True])
+def test_existing_unqualified_choices_remain_paid_across_inheritance_and_tier_changes(
+    tier, saved, override
+):
+    account = PartnerAccount(tier=tier, link_rel=["nofollow"] if override else list(saved))
+    policy = PartnerProductPromotion(link_rel=list(saved) if override else None)
+    assert effective_link_rel(account, policy) == [*saved, "sponsored"]
+    account.tier = "gold"
+    assert effective_link_rel(account, policy) == ["nofollow"]
+    account.tier = tier
+    assert effective_link_rel(account, policy) == [*saved, "sponsored"]
+    assert policy.link_rel == (saved if override else None)
+    assert account.link_rel == (["nofollow"] if override else saved)
+
+
+@pytest.mark.parametrize(
+    "flags,expected",
+    [
+        ((False, False, False, False), ["sponsored"]),
+        ((False, False, True, False), ["ugc", "sponsored"]),
+        ((False, False, False, True), ["external", "sponsored"]),
+        ((True, False, False, True), ["nofollow", "external"]),
+    ],
+)
+def test_sponsored_article_aggregation_qualifies_legacy_choices(flags, expected):
+    session = Mock()
+    session.execute.return_value = [("article-id", *flags)]
+    assert sponsored_article_link_rel(session, ["article-id"]) == {"article-id": expected}
+    session.execute.assert_called_once()
 
 
 def test_empty_article_policy_batch_never_queries():
@@ -133,10 +166,10 @@ def test_account_and_product_api_preferences_resolve_inheritance(
     assert portal.get(path).json()["effective_link_rel"] == ["sponsored", "external"]
     custom = portal.put(path, json={"link_rel": []})
     assert custom.status_code == 200, custom.text
-    assert custom.json()["effective_link_rel"] == []
+    assert custom.json()["effective_link_rel"] == ["sponsored"]
     preview = portal.get(prefix + "/creative-preview", params={"product_id": str(product)})
     assert preview.status_code == 200, preview.text
-    assert preview.json()["product"]["link_rel"] == []
+    assert preview.json()["product"]["link_rel"] == ["sponsored"]
     inherited = admin.put(
         f"/v1/admin/partner-accounts/{account}/products/{product}/promotion",
         json={"link_rel": None},
@@ -187,7 +220,7 @@ def test_admin_downgrade_preserves_configuration_but_reapplies_nofollow(
     assert portal.put(prefix + "/preferences", json={"link_rel": ["sponsored"]}).status_code == 200
     assert portal.put(path, json={"link_rel": []}).status_code == 200
     admin_path = f"/v1/admin/partner-accounts/{account}"
-    for tier, expected in (("gold", ["nofollow"]), ("platinum", [])):
+    for tier, expected in (("gold", ["nofollow"]), ("platinum", ["sponsored"])):
         response = admin.put(admin_path, json={"name": "Downgraded partner", "tier": tier})
         assert response.status_code == 200, response.text
         assert response.json()["link_rel"] == ["sponsored"]
@@ -218,7 +251,7 @@ def test_every_automatic_format_uses_effective_relationships(database, feed_cata
         else feed_request(feed_catalog, [kind])
     )
     sponsored = [row for row in deliver(database, query) if row["sponsored"]]
-    assert sponsored and sponsored[0]["link_rel"] == []
+    assert sponsored and sponsored[0]["link_rel"] == ["sponsored"]
     with database.begin() as session:
         session.get(PartnerAccount, feed_catalog["paid"]).tier = "gold"
     sponsored = [row for row in deliver(database, query) if row["sponsored"]]
@@ -226,8 +259,9 @@ def test_every_automatic_format_uses_effective_relationships(database, feed_cata
 
 
 @pytest.mark.integration
+@pytest.mark.parametrize("saved", [[], ["external"], ["ugc"]])
 def test_sponsored_articles_keep_live_policy_after_campaign_retargets(
-    database, feed_catalog, admin_portal_client, client
+    database, feed_catalog, admin_portal_client, client, saved
 ):
     native_account(database, feed_catalog, [])
     with database.begin() as session:
@@ -236,7 +270,7 @@ def test_sponsored_articles_keep_live_policy_after_campaign_retargets(
         account.link_rel = ["sponsored"]
         session.add(
             PartnerProductPromotion(
-                account_id=account.id, product_id=feed_catalog["paid_product"], link_rel=[]
+                account_id=account.id, product_id=feed_catalog["paid_product"], link_rel=saved
             )
         )
     article_id = sponsored_article(database, feed_catalog)
@@ -246,16 +280,22 @@ def test_sponsored_articles_keep_live_policy_after_campaign_retargets(
     created = admin.post(prefix, json={**campaign_payload(article_id), **selection})
     assert created.status_code == 201, created.text
     row = deliver(database, feed_request(feed_catalog, ["sponsored_content"]))[0]
-    assert row["link_rel"] == []
-    assert row["article"].sponsor_link_rel == []
-    assert client.get(f"/v1/articles/{article_id}").json()["sponsor_link_rel"] == []
+    assert row["link_rel"] == [*saved, "sponsored"]
+    assert row["article"].sponsor_link_rel == [*saved, "sponsored"]
+    assert client.get(f"/v1/articles/{article_id}").json()["sponsor_link_rel"] == [
+        *saved,
+        "sponsored",
+    ]
     changed = admin.put(
         prefix + "/" + created.json()["id"],
         json={**campaign_payload(feed_catalog["article"]), **selection},
     )
     assert changed.status_code == 200, changed.text
     with database() as session:
-        assert sponsored_article_link_rel(session, [article_id])[article_id] == []
+        assert sponsored_article_link_rel(session, [article_id])[article_id] == [
+            *saved,
+            "sponsored",
+        ]
     with database.begin() as session:
         session.get(PartnerAccount, feed_catalog["paid"]).tier = "gold"
     old = client.get(f"/v1/articles/{article_id}")
@@ -370,7 +410,7 @@ def test_downgraded_product_merge_preserves_saved_choices_for_a_later_upgrade(
         assert policy.link_rel == expected
         assert effective_link_rel(account, policy) == ["nofollow"]
         account.tier = "platinum"
-        assert effective_link_rel(account, policy) == expected
+        assert effective_link_rel(account, policy) == [*expected, "sponsored"]
 
 
 @pytest.mark.integration
@@ -401,7 +441,7 @@ def test_article_policy_changes_invalidate_public_cache_after_commit(
         assert created.status_code == 201, created.text
         deliver(database, feed_request(feed_catalog, ["sponsored_content"]))
         path = f"/v1/articles/{article_id}"
-        assert client.get(path).json()["sponsor_link_rel"] == ["external"]
+        assert client.get(path).json()["sponsor_link_rel"] == ["external", "sponsored"]
         assert client.get(path).headers["x-cache"] == "HIT"
         account_path = f"/v1/admin/partner-accounts/{feed_catalog['paid']}"
         product_path = f"{account_path}/products/{feed_catalog['paid_product']}/promotion"
@@ -409,7 +449,7 @@ def test_article_policy_changes_invalidate_public_cache_after_commit(
         assert saved.status_code == 200, saved.text
         changed = client.get(path)
         assert changed.headers["x-cache"] == "MISS"
-        assert changed.json()["sponsor_link_rel"] == []
+        assert changed.json()["sponsor_link_rel"] == ["sponsored"]
         assert client.get(path).headers["x-cache"] == "HIT"
         downgraded = admin.put(account_path, json={"name": "Paid partner", "tier": "gold"})
         assert downgraded.status_code == 200, downgraded.text
@@ -469,7 +509,7 @@ def test_delayed_sponsored_asset_enrollment_invalidates_cached_account_fallback(
             assert ensure_automatic_assets(session, feed_catalog["paid"]) > 0
         changed = client.get(path)
         assert changed.headers["x-cache"] == "MISS"
-        assert changed.json()["sponsor_link_rel"] == []
+        assert changed.json()["sponsor_link_rel"] == ["sponsored"]
         # The idempotent enrollment path creates no association and keeps cache hits.
         with database.begin() as session:
             assert ensure_automatic_assets(session, feed_catalog["paid"]) == 0
@@ -537,7 +577,7 @@ def test_waiting_campaign_changes_invalidate_cached_article_policy(
         assert created.status_code == 201, created.text
         path = f"/v1/articles/{article_id}"
         other_path = f"/v1/articles/{feed_catalog['article']}"
-        assert client.get(path).json()["sponsor_link_rel"] == ["external"]
+        assert client.get(path).json()["sponsor_link_rel"] == ["external", "sponsored"]
         assert client.get(path).headers["x-cache"] == "HIT"
         assert client.get(other_path).json()["sponsor_link_rel"] == ["nofollow"]
         assert client.get(other_path).headers["x-cache"] == "HIT"
@@ -554,7 +594,7 @@ def test_waiting_campaign_changes_invalidate_cached_article_policy(
         assert changed.json()["sponsor_link_rel"] == ["nofollow"]
         other = client.get(other_path)
         assert other.json()["sponsor_link_rel"] == (
-            ["external"] if change == "retarget" else ["nofollow"]
+            ["external", "sponsored"] if change == "retarget" else ["nofollow"]
         )
     finally:
         cache.close_cache()
