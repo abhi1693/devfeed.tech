@@ -90,22 +90,21 @@ def settle(
 ) -> dict:
     state = deepcopy(state)
     call = state["calls"][index]
-    if call["status"] != "running":
-        return state
-    measured = total_tokens(usage)
-    call.update(
-        status="returned" if succeeded else "failed",
-        tokens=usage,
-        charged_tokens=(measured or call["reserved_tokens"])
-        if succeeded
-        else max(measured, call["reserved_tokens"]),
-        charged_searches=searches if succeeded else max(searches, call["charged_searches"]),
-        seconds=seconds,
-        model=model,
-        reasoning_effort=effort,
-        finished_at=utcnow().isoformat(),
-        usage_known=bool(measured),
-    )
+    if call["status"] == "running":
+        measured = total_tokens(usage)
+        call.update(
+            status="returned" if succeeded else "failed",
+            tokens=usage,
+            charged_tokens=(measured or call["reserved_tokens"])
+            if succeeded
+            else max(measured, call["reserved_tokens"]),
+            charged_searches=searches if succeeded else max(searches, call["charged_searches"]),
+            seconds=seconds,
+            model=model,
+            reasoning_effort=effort,
+            finished_at=utcnow().isoformat(),
+            usage_known=bool(measured),
+        )
     return state
 
 
