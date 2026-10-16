@@ -306,7 +306,8 @@
   display: block;
   overflow: visible;
 }
-:is(.article-card, .partner-placement--card) h2 a > span {
+.article-card h2 a,
+.partner-placement--card h2 a > span {
   display: -webkit-box;
   -webkit-line-clamp: 3;
   -webkit-box-orient: vertical;
@@ -380,11 +381,13 @@
   width: 16px;
   height: 16px;
 }
-.card-source .source-avatar .topic-icon {
+.card-source .source-avatar .topic-icon,
+.card-source .topic-icon.source-avatar {
   width: 16px;
   height: 16px;
 }
-.card-source .source-avatar .topic-icon img {
+.card-source .source-avatar .topic-icon img,
+.card-source .topic-icon.source-avatar img {
   width: 12px;
   height: 12px;
 }
@@ -599,6 +602,10 @@
 .card-bottom time {
   overflow: hidden;
   text-overflow: ellipsis;
+}
+.card-bottom > time.card-date {
+  display: block;
+  line-height: 16px;
 }
 .card-bottom .article-quick-actions {
   flex: 0 0 auto;

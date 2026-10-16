@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { browserPerformanceOptions } from "./browser-performance-dom-options.mjs";
 import { execFileSync } from "node:child_process";
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -440,3 +441,44 @@ test("article snapshots reject missing comparison phases and invalid article ide
     assert.deepEqual(fixture.article, { slug: "unchanged" });
   }
 });
+
+test("benchmark options preserve default CI measurements and build behavior", () => {
+  assert.deepEqual(browserPerformanceOptions([], "/fixture", 3), {
+    domPhase: undefined,
+    articleEntryPhase: undefined,
+    measurementRuns: 3,
+    output: "/fixture/reports/browser-performance",
+    skipBuild: false,
+  });
+});
+
+for (const phase of ["before", "after"]) {
+  test(`benchmark options select isolated ${phase} DOM and article reports`, () => {
+    const dom = browserPerformanceOptions([`--reader-dom=${phase}`, "--skip-build"], "/fixture", 3);
+    assert.equal(dom.domPhase, phase);
+    assert.equal(dom.output, `/fixture/reports/reader-dom/${phase}`);
+    assert.equal(dom.measurementRuns, 3);
+    assert.equal(dom.skipBuild, true);
+    const article = browserPerformanceOptions([`--article-entry=${phase}`], "/fixture", 3);
+    assert.equal(article.articleEntryPhase, phase);
+    assert.equal(article.output, `/fixture/reports/article-entry/${phase}`);
+    assert.equal(article.measurementRuns, 5);
+    assert.equal(article.skipBuild, false);
+    const both = browserPerformanceOptions(
+      [`--reader-dom=${phase}`, `--article-entry=${phase}`],
+      "/fixture",
+      3,
+    );
+    assert.equal(both.output, dom.output);
+    assert.equal(both.measurementRuns, 5);
+  });
+}
+
+for (const flag of ["reader-dom", "article-entry"]) {
+  test(`benchmark options reject invalid ${flag} phases before starting work`, () => {
+    assert.throws(
+      () => browserPerformanceOptions([`--${flag}=invalid`], "/fixture", 3),
+      /phase must be before or after/,
+    );
+  });
+}

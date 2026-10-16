@@ -25,15 +25,15 @@ const fixture = createServer(async (req, res) => {
       issuer: "https://identity.example",
       organization_id: "fixture",
       roles: ["superuser"],
-      expires_at: 4102444800,
+      expires_at: Math.floor(Date.now() / 1000) + 3600,
       csrf_token: "fixture",
     };
   else if (path.endsWith("/settings"))
     body = { appearance: { theme: "light" }, defaults: { refresh_seconds: 0 } };
   else if (path.endsWith("/notifications/config")) body = { enabled: false };
-  else if (path.endsWith("/sources/source-1"))
+  else if (path.endsWith("/sources/11111111-1111-4111-8111-111111111111"))
     body = {
-      id: "source-1",
+      id: "11111111-1111-4111-8111-111111111111",
       name: "Engineering Leadership",
       slug: "engineering-leadership",
       feed_url: "https://newsletter.eng-leadership.com/feed",
@@ -101,7 +101,7 @@ try {
   const page = await context.newPage();
   const errors = [];
   page.on("pageerror", (error) => errors.push(error.message));
-  await page.goto(`${origin}/content/sources/source-1`);
+  await page.goto(`${origin}/content/sources/11111111-1111-4111-8111-111111111111`);
   await page.getByRole("heading", { name: "Engineering Leadership", exact: true }).waitFor();
   await page.getByText("Effective polling mode", { exact: true }).waitFor();
   await page.getByText("Effective interval seconds", { exact: true }).waitFor();
@@ -109,7 +109,7 @@ try {
   await mkdir(`${root}/reports/adaptive-polling`, { recursive: true });
   await page.screenshot({ path: `${root}/reports/adaptive-polling/detail.png`, fullPage: true });
   await page.getByRole("link", { name: "Edit", exact: true }).click();
-  await page.waitForURL("**/source-1/edit");
+  await page.waitForURL("**/11111111-1111-4111-8111-111111111111/edit");
   const mode = page.getByRole("combobox", { name: "Polling mode", exact: false });
   await mode.waitFor();
   assert.match(await mode.innerText(), /adaptive/i);
@@ -117,12 +117,12 @@ try {
   await page.getByRole("option", { name: /^fixed$/i }).click();
   assert.match(await mode.innerText(), /fixed/i);
   await page.getByRole("button", { name: "Save changes", exact: true }).click();
-  await page.waitForURL("**/sources/source-1");
+  await page.waitForURL("**/sources/11111111-1111-4111-8111-111111111111");
   assert.equal(patches.length, 1);
   assert.equal(patches[0].polling_mode, "fixed");
   assert.equal(patches[0].poll_interval_seconds, 43200);
   await page.getByRole("link", { name: "Edit", exact: true }).click();
-  await page.waitForURL("**/source-1/edit");
+  await page.waitForURL("**/11111111-1111-4111-8111-111111111111/edit");
   await mode.click();
   await page.getByRole("option", { name: /^adaptive$/i }).click();
   assert.equal(
