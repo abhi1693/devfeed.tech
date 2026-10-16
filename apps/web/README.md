@@ -517,3 +517,41 @@ screenshots on four routes, plus three fresh Lighthouse mobile/desktop runs for 
 topics and profile. Reports remain in ignored `reports/reader-startup/LABEL`; they measure
 controlled local behavior, not production field performance. Framework and interaction code
 must be retained even when initial coverage marks it unused.
+
+## Responsive article thumbnails
+
+Article cards use the rendered width and device pixel ratio to select thumbnails.
+Lazy covers use native `sizes="auto"` with a fallback; the first usable cover is
+eager/high priority and uses the auto-fill grid's geometry, including both sidebar
+states. CSS aspect ratios reserve space before decoding. The eager size hints
+track the 280px minimum columns, 12px gaps, card borders, responsive padding and
+sidebar widths through 3000px; wider/older-browser fallbacks reserve at most 570px.
+Keep those hints and the shared geometry tests in sync when changing layout.
+
+Managed article variants are bounded to 320/480/640/768/960px and capped by original
+width. Older three-width lists and direct publisher images remain supported;
+arbitrary publisher URLs are not proxied or rewritten. See
+[stored thumbnail upgrades](../aggregator/README.md#thumbnail-encoding-and-recompression).
+
+After building the website and both extensions, run the shared browser matrix:
+
+```sh
+node --test --test-name-pattern='thumbnails match' apps/web/tests/browser/feed.mjs
+node --test --test-name-pattern='thumbnails match' apps/extensions/tests/reader.browser.mjs
+DEVFEED_EXTENSION_BROWSER=edge node --test --test-name-pattern='thumbnails match' apps/extensions/tests/reader.browser.mjs
+```
+
+The matrix covers 14 viewport/DPR profiles and both sidebar states, records
+`currentSrc`, natural/rendered dimensions and loading priority, and checks image
+failures and duplicate initial requests. Reports remain under ignored
+`reports/thumbnail-sizing/`.
+
+For comparable Lighthouse evidence, build the baseline and changed commits in
+separate checkouts and run `node tests/benchmarks/responsive-thumbnails.mjs before
+/absolute/path/to/photo.jpg` or `after` in the matching checkout. Use the same local
+source in both; the script records its SHA-256, quality, variant widths, browser and
+Lighthouse versions/settings. It serves a deterministic 24-article feed and HTTPS
+image fixtures, runs three fresh mobile (412×823, DPR 1.75) and desktop (1350×940,
+DPR 1) profiles, and saves JSON/HTML/screenshots in `reports/responsive-thumbnails/`.
+The self-signed local fixture certificate is accepted only by benchmark Chrome.
+These are controlled lab comparisons, not production or field p75 results.

@@ -86,6 +86,10 @@ import {
   serverReadFixture,
 } from "../../../../scripts/testing/server-reads.mjs";
 import assert from "node:assert/strict";
+import {
+  thumbnailProfiles,
+  checkThumbnailSizing,
+} from "../../../../scripts/testing/thumbnail-sizing.mjs";
 import test from "node:test";
 import { createServer, request as httpRequest } from "node:http";
 import { spawn } from "node:child_process";
@@ -103,7 +107,7 @@ import {
 } from "../../../../scripts/testing/onboarding-topics.mjs";
 
 const root = fileURLToPath(new URL("../../../../", import.meta.url));
-async function createReaderFixture(t) {
+async function createReaderFixture(t, { thumbnailFeed = false } = {}) {
   let app, browser, fixture, userFixture;
   let logs = "";
   t.after(async () => {
@@ -581,7 +585,18 @@ async function createReaderFixture(t) {
                         id: String(index),
                         slug: `scroll-${index}`,
                       }))
-                  : [article],
+                  : thumbnailFeed
+                    ? Array.from({ length: 12 }, (_, index) => ({
+                        ...article,
+                        id: `image-${index}`,
+                        slug: `image-${index}`,
+                        image_url: article.image_url.replace("/fixture/", `/fixture-${index}/`),
+                        image_variants: article.image_variants.map((variant) => ({
+                          ...variant,
+                          url: variant.url.replace("/fixture/", `/fixture-${index}/`),
+                        })),
+                      }))
+                    : [article],
               next_cursor:
                 mode === "scroll" && !requestUrl.searchParams.has("cursor") ? "next+page" : null,
             };
@@ -1126,6 +1141,27 @@ async function withReaderPage(browser, check, options = {}) {
     await context.close();
   }
 }
+
+test("thumbnails match rendered widths and device pixel ratios", { timeout: 360000 }, async (t) => {
+  const { browser, origin } = await createReaderFixture(t, { thumbnailFeed: true });
+  const results = [];
+  for (const profile of thumbnailProfiles) {
+    for (const sidebar of ["collapsed", "expanded"]) {
+      await withReaderPage(
+        browser,
+        async (page) =>
+          results.push(...(await checkThumbnailSizing(page, `${origin}/latest`, sidebar))),
+        {
+          viewport: { width: profile.width, height: profile.height },
+          deviceScaleFactor: profile.dpr,
+        },
+      );
+    }
+  }
+  await mkdir(`${root}/reports/thumbnail-sizing`, { recursive: true });
+  const { writeFile } = await import("node:fs/promises");
+  await writeFile(`${root}/reports/thumbnail-sizing/web.json`, JSON.stringify(results, null, 2));
+});
 
 test(
   "server reads retain explicit transport and sitemap policies",
