@@ -13,6 +13,7 @@ from devfeed_core.job_lifecycle import fail_or_retry, finish_job
 from devfeed_core.job_logs import job_log_context
 from devfeed_core.jobs import owned_job
 from devfeed_core.logging import elapsed_ms, log_context
+from devfeed_core.logos import logo_job_target
 from devfeed_core.models import Article, ArticleImageJob, utcnow
 from sqlalchemy import update
 
@@ -41,12 +42,32 @@ def _enrich(job_id: str) -> None:
             return
         job, url = claimed
         token, article_id, attempt = job.lease_token, job.article_id, job.attempts
-        operation, topic_id = job.operation, job.topic_id
+        operation = job.operation
+        product_id = getattr(job, "product_id", None)
+        account_id = getattr(job, "account_id", None)
+        cleanup_upload = bool((getattr(job, "storage", None) or {}).get("cleanup_upload"))
+        target = logo_job_target(job)
+        subject_id = getattr(job, target.job_field) if target else None
     with log_context(article_id=article_id, attempt=attempt):
-        if operation == "topic-logo":
-            from devfeed_aggregator.image_storage_tasks import store_topic_logo
+        if operation == "product-ad-image":
+            from devfeed_aggregator.image_storage_tasks import store_product_ad_image
 
-            store_topic_logo(factory, identifier, token, topic_id, url)
+            if cleanup_upload:
+                from devfeed_aggregator.image_storage_tasks import cleanup_product_ad_image
+
+                cleanup_product_ad_image(factory, identifier, token, account_id, product_id)
+            else:
+                store_product_ad_image(factory, identifier, token, account_id, product_id, url)
+            return
+        if operation == "product-image":
+            from devfeed_aggregator.image_storage_tasks import store_product_image
+
+            store_product_image(factory, identifier, token, product_id, url)
+            return
+        if target:
+            from devfeed_aggregator.image_storage_tasks import store_logo
+
+            store_logo(factory, identifier, token, subject_id, url, model=target.model)
             return
         if operation == "store":
             from devfeed_aggregator.image_storage_tasks import store_image

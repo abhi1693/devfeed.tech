@@ -3,6 +3,7 @@ import { GET, POST as legacyPOST } from "@/app/api/v1/search/route";
 import { POST } from "@/app/api/v1/search/analytics/click/route";
 import { searchClick } from "@/lib/server/search-click";
 import { getSearch } from "@/lib/api";
+import { contentTypes } from "@/lib/feed-query";
 
 vi.mock("@/lib/api", () => ({ getSearch: vi.fn(), UserApiError: class extends Error {} }));
 vi.mock("@devfeed/telemetry/propagation", () => ({
@@ -32,6 +33,33 @@ afterEach(() => {
   vi.useRealTimers();
   vi.unstubAllEnvs();
   vi.unstubAllGlobals();
+});
+it.each(contentTypes)("preserves %s content filtering through the search gateway", async (type) => {
+  vi.mocked(getSearch).mockResolvedValue({ query: "cloud", sections: {} });
+  const response = await GET(
+    new Request(
+      `https://devfeed.tech/api/v1/search?q=cloud&section=articles&content_types=${type}&page=2`,
+    ),
+  );
+  expect(response.status).toBe(200);
+  expect(getSearch).toHaveBeenLastCalledWith(
+    "cloud",
+    "articles",
+    "2",
+    expect.any(AbortSignal),
+    expect.objectContaining({ content_type: type }),
+  );
+});
+
+it.each([
+  "content_types=private",
+  "content_types=news&content_types=release",
+  "section=topics&content_types=news",
+])("rejects invalid or conflicting content filters: %s", async (filters) => {
+  vi.mocked(getSearch).mockClear();
+  const response = await GET(new Request(`https://devfeed.tech/api/v1/search?q=cloud&${filters}`));
+  expect(response.status).toBe(422);
+  expect(getSearch).not.toHaveBeenCalled();
 });
 
 it("routes the actual reader click path and legacy POST through the same handler", async () => {

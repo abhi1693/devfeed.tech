@@ -350,13 +350,13 @@ def test_configuration_rejects_credentials_and_arbitrary_paths(url):
         Settings(api_url=url)
 
 
-@pytest.mark.parametrize("method,path", [("GET", "/mcp"), ("HEAD", "/mcp"), ("GET", "/mcp/")])
-def test_browser_visits_open_configured_reader_instructions(method, path):
+@pytest.mark.parametrize("method", ["GET", "HEAD"])
+def test_browser_visits_open_configured_reader_instructions(method):
     app = create_app(Settings(web_url="https://reader.example/"))
     with TestClient(app, base_url="http://localhost") as client:
         response = client.request(
             method,
-            path + "?token=do-not-forward",
+            "/mcp?token=do-not-forward",
             headers={"Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"},
             follow_redirects=False,
         )
@@ -367,6 +367,25 @@ def test_browser_visits_open_configured_reader_instructions(method, path):
             value.strip() for value in response.headers["vary"].split(",")
         }
         assert rpc(client, "tools/list")["result"]["tools"]
+
+
+def test_browser_visits_canonicalize_transport_before_opening_reader_instructions():
+    app = create_app(Settings(web_url="https://reader.example"))
+    with TestClient(app, base_url="http://localhost") as client:
+        response = client.get(
+            "/mcp/?token=do-not-forward",
+            headers={"Accept": "text/html"},
+            follow_redirects=False,
+        )
+        assert response.status_code == 307
+        assert response.headers["location"] == "http://localhost/mcp?token=do-not-forward"
+        response = client.get(
+            response.headers["location"],
+            headers={"Accept": "text/html"},
+            follow_redirects=False,
+        )
+        assert response.status_code == 302
+        assert response.headers["location"] == "https://reader.example/mcp"
 
 
 @pytest.mark.parametrize(

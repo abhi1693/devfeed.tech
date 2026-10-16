@@ -3,11 +3,12 @@
  * Do not edit manually.
  * DevFeed Admin API
  * Private administration API. OIDC sessions and CSRF protection required.
- * OpenAPI spec version: 0.0.51
+ * OpenAPI spec version: 0.0.52
  */
 import type { AdminUsersListInterests } from './adminUsersListInterests';
 
 export type AdminUsersListParams = {
+identity_only?: boolean;
 interests?: AdminUsersListInterests;
 /**
  * @maxLength 200

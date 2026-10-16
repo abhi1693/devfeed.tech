@@ -9,6 +9,8 @@ from devfeed_core.config import get_settings as core_settings
 from devfeed_core.db import database_revision
 from devfeed_core.logging import configure_logging
 from devfeed_core.version import SCHEMA_REVISION, __version__
+from devfeed_http.operation_policies import include_gateway_router
+from devfeed_http.route_policies import install_runtime_policies
 from devfeed_http.schemas import ERROR_RESPONSES
 from devfeed_http.service import HTTPService
 from devfeed_http.telemetry import fastapi_telemetry
@@ -24,6 +26,9 @@ from devfeed_admin_api import (
     notifications,
     overview,
     overview_panels,
+    partner_accounts,
+    partner_jobs,
+    partner_tools,
     push_analytics,
     search_analytics,
     search_suggestions,
@@ -104,6 +109,9 @@ def create_app() -> FastAPI:
         ai_connection.router,
         overview.router,
         overview_panels.router,
+        partner_accounts.router,
+        partner_jobs.router,
+        partner_tools.router,
         automation.router,
         taxonomy.router,
         topic_proposals.router,
@@ -121,7 +129,8 @@ def create_app() -> FastAPI:
         notifications.router,
         workers.router,
     ):
-        app.include_router(router)
+        include_gateway_router(app, router)
+    install_runtime_policies(app)
     return app
 
 

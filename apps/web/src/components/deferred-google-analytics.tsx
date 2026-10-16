@@ -42,18 +42,30 @@ function loadGoogleAnalytics(gaId: string) {
 export function DeferredGoogleAnalytics({ gaId }: { gaId: string }) {
   useEffect(() => {
     let loaded = false;
+    const pendingViews: string[] = [];
 
     const loadOnce = () => {
-      if (loaded) return;
-      loaded = true;
-      loadGoogleAnalytics(gaId);
+      const gtag = loadGoogleAnalytics(gaId);
+      if (!loaded) {
+        loaded = true;
+        for (const pageLocation of pendingViews.splice(0))
+          gtag?.("event", "dev_card_view", { send_to: gaId, page_location: pageLocation });
+      }
+      return gtag;
     };
 
     const handleEvent = (event: Event) => {
       try {
         const { name, params } = (event as CustomEvent<AnalyticsEvent>).detail;
-        // First-action events initialize config before queuing their custom event.
-        const gtag = loadGoogleAnalytics(gaId);
+        // Passive profile views must not bypass first-interaction deferral. Keep the
+        // original public page (without query/hash) when flushing after navigation.
+        if (name === "dev_card_view" && !loaded) {
+          pendingViews.push(new URL(location.pathname, location.origin).href);
+          if (pendingViews.length > 20) pendingViews.shift();
+          return;
+        }
+        // First-action events initialize config and flush passive views first.
+        const gtag = loadOnce();
         gtag?.("event", name, { ...params, send_to: gaId });
       } catch {
         /* Tracking failure must not interrupt user actions. */

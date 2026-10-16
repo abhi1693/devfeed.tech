@@ -26,6 +26,7 @@ SOURCE_FIELDS = frozenset(
         "description",
         "website_url",
         "logo_url",
+        "managed_logo",
         "image_url",
         "language",
         "approval_status",
@@ -38,6 +39,14 @@ REASONS = "devfeed_public_cache_reasons"
 PRIVATE_ARTICLES = "devfeed_private_articles"
 SESSION_OPTION = "devfeed_cache_session"
 TABLE_OPTION = "devfeed_cache_table"
+SPONSOR_POLICY_FIELDS = {
+    "partner_accounts": {"tier", "link_rel"},
+    "partner_product_promotions": {"link_rel"},
+}
+SPONSOR_ASSOCIATION_FIELDS = {
+    "partner_assets": ("article_id", "ad_format", "account_id", "product_id"),
+    "partner_campaigns": ("article_id", "ad_format", "account_id", "status"),
+}
 
 
 class AppSession(Session):
@@ -54,6 +63,30 @@ def track_objects(session, flush_context, instances):
     for obj in session.new | session.deleted | session.dirty:
         state = inspect(obj)
         table = state.mapper.local_table.name
+        if table in SPONSOR_ASSOCIATION_FIELDS:
+            historical = state.attrs.ad_format.history.deleted
+            sponsored = obj.ad_format == "sponsored_content" or "sponsored_content" in historical
+            if sponsored and (
+                obj in session.new
+                or obj in session.deleted
+                or any(
+                    state.attrs[field].history.has_changes()
+                    for field in SPONSOR_ASSOCIATION_FIELDS[table]
+                )
+            ):
+                mark_dirty(session, table)
+            continue
+        if table in SPONSOR_POLICY_FIELDS:
+            if (
+                obj in session.new
+                or obj in session.deleted
+                or any(
+                    state.attrs[field].history.has_changes()
+                    for field in SPONSOR_POLICY_FIELDS[table]
+                )
+            ):
+                mark_dirty(session, table)
+            continue
         if table not in PUBLIC_TABLES:
             continue
         if table in {

@@ -3,17 +3,18 @@ import { resourceTrail, recordHref, resourceHref } from "@/lib/routes";
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Button } from "@/components/atoms/button";
+import { Button } from "@devfeed/ui/button";
 import { ValidationErrors } from "@/components/molecules/validation-errors";
 import { FormField } from "@/components/molecules/form-field";
 import { adminRouteTitle } from "@/lib/page-titles";
-import { PageHeading } from "@/components/molecules/page-heading";
+import { ResourceHeading } from "@devfeed/ui/resource-layout";
 import { RequestState } from "@/components/molecules/request-state";
 import { useAdmin } from "@/components/molecules/admin-session";
 import { FactsEditor } from "./facts-editor";
 import { SourceFormFields } from "./source-form-fields";
 import { type Resource, resources } from "@/lib/resources";
 import { getRecord, saveRecord, type RecordData } from "@/lib/resource-api";
+import { recordIdentity, recordIdentityKey, type RecordIdentity } from "@/lib/record-identities";
 import {
   factsPayload,
   formPayload,
@@ -26,22 +27,30 @@ import { useRequest } from "@/lib/use-request";
 import { ApiError } from "@/lib/api/client";
 import { notify, notifyFailure } from "@/lib/notifications";
 
-export function ResourceForm({ resource, id }: { resource: Resource; id?: string }) {
+export function ResourceForm({
+  resource,
+  identity,
+}: {
+  resource: Resource;
+  identity?: RecordIdentity;
+}) {
   const [created, setCreated] = useState(0);
   const load = useCallback(
-    (signal: AbortSignal) => (id ? getRecord(resource, id, signal) : Promise.resolve(null)),
-    [resource, id],
+    (signal: AbortSignal) => (identity ? getRecord(identity, signal) : Promise.resolve(null)),
+    [identity],
   );
-  const { data, error, loading } = useRequest(`${resource}/${id}`, load);
+  const key = identity ? recordIdentityKey(identity) : `${resource}/new`;
+  const { data, error, loading } = useRequest(key, load);
   return (
     <>
       <RequestState loading={loading} error={error} />
       {!loading && !error && (
         <Editor
-          key={`${resource}/${id}/${created}`}
+          key={`${key}/${created}`}
           resource={resource}
+          identity={identity}
           record={data ?? undefined}
-          focusFirstField={!id && created > 0}
+          focusFirstField={!identity && created > 0}
           onCreateAnother={() => setCreated((value) => value + 1)}
         />
       )}
@@ -50,11 +59,13 @@ export function ResourceForm({ resource, id }: { resource: Resource; id?: string
 }
 function Editor({
   resource,
+  identity,
   record,
   focusFirstField,
   onCreateAnother,
 }: {
   resource: Resource;
+  identity?: RecordIdentity;
   record?: RecordData;
   focusFirstField: boolean;
   onCreateAnother: () => void;
@@ -74,7 +85,7 @@ function Editor({
   const [error, setError] = useState<Error>();
   const [useSolver, setUseSolver] = useState(false);
   const [previewBusy, setPreviewBusy] = useState(false);
-  const cancel = record ? recordHref(resource, record) : resourceHref(resource);
+  const cancel = identity ? recordHref(identity) : resourceHref(resource);
   const title = `${record ? "Edit" : "Add"} ${spec.singular.toLowerCase()}`;
   useEffect(() => {
     if (focusFirstField)
@@ -109,13 +120,13 @@ function Editor({
       const body = formPayload(resource, values, record);
       if (resource === "sources" && !record && useSolver) body.use_solver = true;
       if (resource === "topics") body.facts = factsPayload(facts);
-      const result = await saveRecord(resource, body, admin.csrf_token, record?.id);
+      const result = await saveRecord(resource, body, admin.csrf_token, identity);
       notify.success(`${spec.singular} ${record ? "updated" : "created"}`);
       if (addAnother) {
         onCreateAnother();
         return;
       }
-      router.replace(recordHref(resource, result));
+      router.replace(recordHref(recordIdentity(resource, result)));
       router.refresh();
     } catch (error) {
       setError(error instanceof Error ? error : new Error("Could not save"));
@@ -126,10 +137,10 @@ function Editor({
   }
   return (
     <section className="max-w-4xl space-y-6">
-      <PageHeading
+      <ResourceHeading
         title={title}
         browserTitle={adminRouteTitle(
-          record ? { view: "edit", resource, id: record.id } : { view: "new", resource },
+          identity ? { view: "edit", identity } : { view: "new", resource },
           record?.[spec.title],
         )}
         trail={[

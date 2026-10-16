@@ -24,6 +24,8 @@ from devfeed_core.models import (
     ArticleReview,
     ArticleTag,
     ArticleTopic,
+    PartnerAsset,
+    PartnerCampaign,
     Source,
 )
 from devfeed_core.schemas import (
@@ -39,14 +41,9 @@ from devfeed_core.schemas import (
     TagOut,
 )
 from devfeed_core.services import OperationConflict, RecordNotFound
+from devfeed_core.text_search import text_search
 from devfeed_core.urls import canonicalize_url, fingerprint, validate_public_url
-from fastapi import APIRouter, Depends, HTTPException, Response
-from pydantic import Field, field_validator
-from sqlalchemy import delete, select
-
-from devfeed_admin_api.auth import Admin, require_admin
-from devfeed_admin_api.dependencies import DB
-from devfeed_admin_api.pagination import (
+from devfeed_http.pagination import (
     Listing,
     Page,
     paginate,
@@ -54,7 +51,12 @@ from devfeed_admin_api.pagination import (
     record,
     require_record,
 )
-from devfeed_admin_api.search import text_search
+from fastapi import APIRouter, Depends, HTTPException, Response
+from pydantic import Field, field_validator
+from sqlalchemy import delete, select
+
+from devfeed_admin_api.auth import Admin, require_admin
+from devfeed_admin_api.dependencies import DB
 
 router = APIRouter(
     prefix="/v1/admin/articles", tags=["admin-articles"], dependencies=[Depends(require_admin)]
@@ -394,6 +396,14 @@ def remove(article_id: uuid.UUID, session: DB) -> Response:
             for model in (ArticleImageJob, ArticleEnrichmentJob, ArticleAnalysisJob)
         ],
     )
+    if any(
+        session.scalar(select(select(model.id).where(model.article_id == article_id).exists()))
+        for model in (PartnerCampaign, PartnerAsset)
+    ):
+        raise OperationConflict(
+            "Article has sponsorship history and cannot be deleted; keep it unpublished "
+            "to preserve campaign attribution"
+        )
     session.execute(delete(Article).where(Article.id == article_id))
     session.commit()
     logger.info("article_deleted", extra={"article_id": log_identifier(article_id)})

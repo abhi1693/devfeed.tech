@@ -16,6 +16,7 @@ def test_failed_daily_producer_still_expands_recovers_and_dispatches_shared_push
         notifications_enabled=False,
         solver_queue_enabled=False,
         ai_enabled=False,
+        image_storage_enabled=False,
     )
     session, factory, queue = Mock(), Mock(), Mock()
     session.scalars.return_value.all.return_value = []
@@ -31,6 +32,9 @@ def test_failed_daily_producer_still_expands_recovers_and_dispatches_shared_push
         "refresh_overview_daily",
         "prune_article_opens",
         "dispatch_discovery",
+        "prune_partner_delivery_history",
+        "sync_partner_promotions",
+        "refresh_partner_matches",
     ):
         monkeypatch.setattr(scheduler, name, Mock())
     monkeypatch.setattr(scheduler, "expand_recommendation_events", Mock(return_value=0))
@@ -38,6 +42,8 @@ def test_failed_daily_producer_still_expands_recovers_and_dispatches_shared_push
     monkeypatch.setattr(scheduler, "schedule_verification", Mock(return_value=0))
     monkeypatch.setattr(scheduler, "recover_jobs", Mock(return_value=0))
     monkeypatch.setattr(scheduler, "dispatch_recommendations", Mock(return_value=0))
+    monkeypatch.setattr(scheduler, "dispatch_partner_pipeline", Mock(return_value=0))
+    monkeypatch.setattr(scheduler, "dispatch_partner_evaluations", Mock(return_value=0))
     monkeypatch.setattr(
         scheduler, "schedule_daily_pushes", Mock(side_effect=RuntimeError("daily producer failed"))
     )

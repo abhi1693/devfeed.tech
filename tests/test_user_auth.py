@@ -185,9 +185,11 @@ def oidc_app(monkeypatch):
         yield state
 
 
-def begin(state, *, register=False):
+def begin(state, *, register=False, return_to="/"):
     result = state.client.get(
-        "/v1/user/auth/login", params={"register": register}, follow_redirects=False
+        "/v1/user/auth/login",
+        params={"register": register, "return_to": return_to},
+        follow_redirects=False,
     )
     assert result.status_code == 302
     state.params = parse_qs(urlsplit(result.headers["location"]).query)
@@ -625,6 +627,7 @@ def test_article_actions_require_sign_in_and_csrf_before_database(oidc_app, acti
         "//evil.example",
         "/\\evil.example",
         "/my-feed?next=https://evil.example",
+        "/my-feed",
         "/admin",
         "/preferences",
         "/sources/suggest?next=https://evil.example",
@@ -679,11 +682,28 @@ def test_sign_in_rejects_external_or_unknown_return_paths(oidc_app, destination)
 @pytest.mark.parametrize(
     "destination",
     [
-        "/my-feed",
+        "/",
+        "/latest",
+        "/?topic=postgresql&sort=most_liked&content_type=news",
+        "/latest?sort=newest&source_id=00000000-0000-4000-8000-000000000001&tag=web",
+        "/articles?sort=most_liked",
+        "/news?topic=python",
+        "/tutorials?q=async&sort=recommended",
+        "/releases",
+        "/comparisons",
+        "/opinions",
         "/extension/login-complete",
         "/mcp/authorize?request=" + "a" * 43,
         "/mcp/authorize?request=" + "aB_9-" * 8 + "XyZ",
         "/read-later",
+        "/read-later?cursor=next%2Bpage",
+        "/trending?cursor=next%2Bpage",
+        "/leaderboard",
+        "/dev-card",
+        "/mcp",
+        "/users/reader_123",
+        "/legal/privacy",
+        "/legal/terms",
         "/articles/00000000-0000-4000-8000-000000000001",
         "/articles/optimizing-docker-images-142",
         "/settings/profile",
@@ -693,10 +713,13 @@ def test_sign_in_rejects_external_or_unknown_return_paths(oidc_app, destination)
         "/settings/feed",
         "/settings/sources",
         "/sources",
+        "/sources?offset=100",
         "/sources/suggest",
         "/sources/github-engineering",
+        "/sources/github-engineering/news?sort=most_liked",
         "/sources/00000000-0000-4000-8000-000000000001",
         "/topics/postgresql",
+        "/topics?offset=100",
         "/topics/typescript?sort=newest",
         *[
             f"/topics/typescript/{tab}?sort=newest"
@@ -705,11 +728,14 @@ def test_sign_in_rejects_external_or_unknown_return_paths(oidc_app, destination)
         "/topics/typescript/articles?q=C%2B%2B+%26+SQL%2FJSON&sort=newest&tag=web"
         "&source_id=00000000-0000-4000-8000-000000000001&cursor=next%2Bpage",
         "/topics/00000000-0000-4000-8000-000000000001",
+        "/tags/C%2B%2B",
+        "/tags/C%23/tutorials?sort=newest",
         "/search",
         "/search?q=postgres",
         "/search?q=C%2B%2B+%26+SQL%2FJSON",
         "/search?q=%E6%95%B0%E6%8D%AE%E5%BA%93",
         "/search?q=https%3A%2F%2Fexample.com",
+        "/search?q=postgres&content_types=news&section=articles&sort=relevance",
         "/search?section=topics&sort=newest&date_from=2026-01-01&date_to=2026-09-14&q=postgres",
     ],
 )
@@ -719,8 +745,70 @@ def test_sign_in_returns_to_the_page_that_prompted_login(oidc_app, destination):
     )
     assert result.status_code == 302, result.text
     oidc_app.params = parse_qs(urlsplit(result.headers["location"]).query)
-    result = complete(oidc_app, oidc_app.params["state"][0])
+    flow = oidc_app.params["state"][0]
+    record = json.loads(oidc_app.store.get(auth.key("flow", flow)))
+    assert "return_to" not in record
+    assert set(record["destination"]) == {"routeId", "parameters", "query"}
+    result = complete(oidc_app, flow)
     assert result.headers["location"] == ORIGIN + destination
+
+
+@pytest.mark.parametrize(
+    ("destination", "canonical"),
+    [
+        ("/settings", "/settings/profile"),
+        ("/latest/", "/latest"),
+        ("/search?q=a%20b~*", "/search?q=a+b%7E*"),
+        ("/tags/C%2b%2b", "/tags/C%2B%2B"),
+    ],
+)
+def test_sign_in_serializes_resolved_destination_canonically(oidc_app, destination, canonical):
+    flow = begin(oidc_app, return_to=destination)
+    result = complete(oidc_app, flow)
+    assert result.headers["location"] == ORIGIN + canonical
+
+
+@pytest.mark.parametrize(
+    "destination",
+    [
+        None,
+        "/latest",
+        {"routeId": "latest", "parameters": {}, "query": {"next": "//evil.example"}},
+        {"routeId": "article", "parameters": {"slug": "../../login"}, "query": {}},
+        {"routeId": "latest", "parameters": {}, "query": {}, "href": "//evil.example"},
+        {"routeId": "login", "parameters": {}, "query": {}},
+        {"routeId": "unknown", "parameters": {}, "query": {}},
+        {"routeId": "mcp-authorize", "parameters": {}, "query": {"request": "expired"}},
+    ],
+)
+def test_callback_revalidates_destination_before_identity_exchange(
+    oidc_app, monkeypatch, destination
+):
+    flow = begin(oidc_app, return_to="/read-later")
+    record = json.loads(oidc_app.store.get(auth.key("flow", flow)))
+    record["destination"] = destination
+    oidc_app.store.set(auth.key("flow", flow), json.dumps(record), ex=60)
+    monkeypatch.setattr(
+        auth,
+        "save_user_with_status",
+        lambda identity: pytest.fail("Invalid destination persisted a user"),
+    )
+    result = complete(oidc_app, flow)
+    assert result.headers["location"] == ORIGIN + "/login?error=login_failed"
+    assert all(request.url.path != "/token" for request in oidc_app.requests)
+    assert not any(":session:" in key for key in oidc_app.store.values)
+
+
+def test_callback_does_not_accept_obsolete_unstructured_destination(oidc_app):
+    flow = begin(oidc_app)
+    record = json.loads(oidc_app.store.get(auth.key("flow", flow)))
+    record.pop("destination")
+    record["return_to"] = "/latest"
+    oidc_app.store.set(auth.key("flow", flow), json.dumps(record), ex=60)
+    result = complete(oidc_app, flow)
+    assert result.headers["location"] == ORIGIN + "/login?error=login_failed"
+    assert all(request.url.path != "/token" for request in oidc_app.requests)
+    assert not any(":session:" in key for key in oidc_app.store.values)
 
 
 def test_anonymous_session_probe_is_successful_and_private_routes_stay_protected(oidc_app):

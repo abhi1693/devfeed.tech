@@ -1,3 +1,4 @@
+import { recordIdentity } from "@/lib/record-identities";
 import type { RelationshipProposalOut } from "@/lib/api/generated/models";
 import type { RecordData } from "@/lib/resource-api";
 import { humanize } from "@/lib/resources";
@@ -119,7 +120,7 @@ export function relationshipTableColumns(
             reviewLink={false}
           />
         ) : (
-          <RecordActions resource="topic-relations" id={row.id} />
+          <RecordActions identity={recordIdentity("topic-relations", row)} />
         ),
     },
   ];

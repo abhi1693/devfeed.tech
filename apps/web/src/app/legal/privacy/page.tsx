@@ -1,11 +1,11 @@
 import Link from "@/components/reader-link";
 import { LegalContact, LegalPage, type LegalSection } from "@/components/legal-page";
 import { canonicalUrl, pageMetadata } from "@/lib/metadata";
+import { legalDocument } from "@/lib/legal";
 
-const description =
-  "How DevFeed processes account information, preferences and usage data, and how to contact us about your privacy.";
+const document = legalDocument("legal-privacy");
 export function generateMetadata() {
-  return pageMetadata("Privacy Policy", description, canonicalUrl("/legal/privacy"));
+  return pageMetadata(document.title, document.description, canonicalUrl(document.path));
 }
 
 const sections: LegalSection[] = [
@@ -337,12 +337,5 @@ const sections: LegalSection[] = [
 ];
 
 export default function PrivacyPage() {
-  return (
-    <LegalPage
-      title="Privacy Policy"
-      path="/legal/privacy"
-      introduction={description}
-      sections={sections}
-    />
-  );
+  return <LegalPage document={document} sections={sections} />;
 }

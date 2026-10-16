@@ -177,7 +177,12 @@ def test_public_cache_publication_does_not_hold_database_connection(database, mo
 
     monkeypatch.setattr(dependencies, "session_factory", lambda: database)
 
-    @router.get("/test")
+    @router.get(
+        "/test",
+        openapi_extra=cache.CachePolicy(
+            namespace="connection-release", revision=1, ttl="content"
+        ).openapi_extra(),
+    )
     def read(session: dependencies.DB):
         return {"value": session.scalar(text("SELECT 1"))}
 

@@ -5,6 +5,7 @@ import sys
 from unittest.mock import Mock, patch
 from urllib.parse import parse_qs, urlsplit
 
+from devfeed_http.reader_destinations import parse_reader_destination, serialize_reader_destination
 from devfeed_user_api import auth
 from devfeed_user_api.config import Settings
 from fastapi import FastAPI
@@ -36,7 +37,12 @@ with (
     if response.status_code == 302:
         # Prove the route retained the exact destination for the callback.
         flow = json.loads(store.set.call_args.args[1])
-        assert flow["return_to"] == parse_qs(urlsplit(sys.argv[1]).query).get("return_to", ["/"])[0]
+        destination = parse_reader_destination(
+            parse_qs(urlsplit(sys.argv[1]).query).get("return_to", ["/"])[0]
+        )
+        assert destination is not None
+        assert flow["destination"] == destination.as_record()
+        assert serialize_reader_destination(destination) is not None
     print(
         json.dumps(
             {

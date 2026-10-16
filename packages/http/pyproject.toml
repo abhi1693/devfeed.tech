@@ -7,6 +7,7 @@ dependencies = ["devfeed-core", "fastapi>=0.142.2,<1"]
 
 [project.optional-dependencies]
 identity = ["httpx>=0.28,<1", "PyJWT[crypto]>=2.10,<3"]
+uploads = ["devfeed-core[images,storage]", "python-multipart>=0.0.20,<1"]
 
 [build-system]
 requires = ["setuptools>=80,<85"]
@@ -15,8 +16,11 @@ build-backend = "setuptools.build_meta"
 [tool.setuptools.package-dir]
 devfeed_http = "src"
 
+[tool.setuptools.package-data]
+devfeed_http = ["py.typed", "reader-destinations.json"]
+
 [tool.uv]
-cache-keys = [{ file = "pyproject.toml" }, { file = "src/**/*.py" }, { file = "src/py.typed" }, { dir = "build" }]
+cache-keys = [{ file = "pyproject.toml" }, { file = "src/**/*.py" }, { file = "src/**/*.json" }, { file = "src/py.typed" }, { dir = "build" }]
 
 [tool.ruff]
 extend = "../../pyproject.toml"

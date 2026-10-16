@@ -32,8 +32,10 @@ from devfeed_core.publication_policy import apply_publication_policy
 from devfeed_core.research_evidence import VERIFICATION_VERSION
 from devfeed_core.schemas import InputModel, ORMModel
 from devfeed_core.services import OperationConflict
+from devfeed_core.text_search import text_search
 from devfeed_core.topic_decision_metrics import TopicDecisionMetrics, decision_metrics
 from devfeed_core.topics import lock_topics
+from devfeed_http.pagination import Listing, Page, paginate, record, require_record
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
 from sqlalchemy import (
@@ -54,8 +56,6 @@ from sqlalchemy.dialects.postgresql import JSONPATH
 
 from devfeed_admin_api.auth import Admin, require_admin
 from devfeed_admin_api.dependencies import DB
-from devfeed_admin_api.pagination import Listing, Page, paginate, record, require_record
-from devfeed_admin_api.search import text_search
 
 router = APIRouter(
     prefix="/v1/admin/automation", tags=["admin-automation"], dependencies=[Depends(require_admin)]

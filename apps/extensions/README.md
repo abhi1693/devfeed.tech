@@ -9,9 +9,47 @@ and all six settings sections use local hash routes. Publisher links and website
 sign-in open a separate tab. Chrome's own new-tab footer is browser UI and is not
 part of the extension's layout.
 
+Transport eligibility and request policies come from generated operation definitions.
+Run `npm run web:generate` after user API or public reader binding changes. Private
+operations reuse the reader gateway identities; public adapters have explicit bindings
+in `apps/web/src/lib/api/reader-bindings.json`. Unknown operations, unsupported methods
+and direct login/callback requests are rejected before reading bodies or sending requests.
+Each eligible operation declares browser credentials, request cache headers, forwarded
+headers and a total timeout. Avatar operations retain a 45-second timeout; other reader
+operations use 15 seconds. Collecting an original `Request` body also has a byte limit,
+a reading deadline and caller cancellation. The browser supplies HttpOnly cookies.
+
 Article previews retain the current feed, saved articles, or search results underneath
 them. Opening, navigating, and closing a preview keeps the loaded list in place without
 reloading the background page.
+
+Navigation carries typed page or article destinations with explicit scroll policy.
+Article overlays receive the requested slug and entry/dismissal state independently of
+loaded content. Extension history records the validated background destination;
+opening an article from a notification retains the contextual page and reading position.
+Notification settings links use the reader's native web or local hash destination and
+reset scroll when moving to settings.
+
+Web collection pages and both extensions share route validation in
+`apps/web/src/lib/reader-routes.ts`. An absent content suffix selects All; an unknown
+suffix or route shows the shared missing page before catalog or feed requests.
+Extension dispatch consumes the resolved route, including article-preview backgrounds.
+Invalid saved backgrounds show the missing page; direct article entries use Latest.
+Unsupported website pages remain external links.
+
+Each reader route declares its feed mode and placement capabilities. Home uses Personal
+for signed-in readers and Latest for guests; typed and catalog routes use contextual
+placements. `apps/web/src/lib/reader-feed.ts` shares filter normalization and placement
+eligibility with web pages, including sponsored fallback, native formats, and source/cursor
+exclusions. Changing a route URL does not change these behaviors.
+
+Rendered reader pages and active previews publish prompt eligibility through the shared
+reader context. Signup progress counts loaded articles, including cached previews;
+loading or unavailable articles add no visit. Foreground previews suppress automatic
+invitations and Must Reads until reading ends. Settings, consent, authentication,
+and missing pages stay quiet; manual Must Reads remains available while reading.
+Session checks pause presentation and actions while preserving the current account's
+pending daily claim. Logout and account changes clear that state.
 
 ## Build and install
 
@@ -79,6 +117,8 @@ Sign in through the existing website login flow, then return to the new tab. Chr
 supplies the website's HttpOnly session cookie using the DevFeed host permission.
 No additional OIDC client or extension callback is required. Session checks run
 when a tab becomes active; checking the same session preserves its feed and modal.
+Public search results and loaded pages survive credential refreshes within the
+same account. Search ads revalidate using the refreshed credentials and loaded context.
 Sign-out clears personal UI and notifies other open extension tabs.
 Session expiry is checked using bounded timers, so 30-day website sessions do not
 overflow the browser timer limit and immediately clear the signed-in account.
@@ -135,6 +175,43 @@ npm run reader:test:parity
 CI runs this gate on Linux x86_64 with Chromium and Microsoft Edge installed.
 Pre-commit also checks extension types, unit tests and both builds whenever reader
 or shared UI code changes. Store uploads remain separate from website deployment.
+
+Browser scenarios are separate named tests with isolated fixtures. The default run
+includes every scenario; use Node's test-name filter for a focused run after fresh
+web and extension builds:
+
+```sh
+node --test --test-name-pattern="reader routes" apps/web/tests/browser/feed.mjs
+node --test --test-name-pattern="reader routes" apps/extensions/tests/reader.browser.mjs
+DEVFEED_EXTENSION_BROWSER=edge node --test --test-name-pattern="reader routes" apps/extensions/tests/reader.browser.mjs
+```
+
+These checks cover missing pages, recovery links, every content suffix, catalog scope,
+and retained article previews. Screenshots stay under ignored `reports/reader-routes/`.
+
+Use `--test-name-pattern="feed modes"` with the same browser runners for focused guest
+and signed-in feed-mode checks, placement request policies, and preview retention.
+
+Use `--test-name-pattern="reader context"` to check loaded-article visit counting, prompt
+suppression, manual Must Reads, and deferred presentation claims in all three runtimes.
+
+Use `--test-name-pattern="reader navigation"` for typed navigation and overlay checks:
+scrolled feeds, sequential previews, Back/Forward replay, direct and failed article
+entries, inbox article actions, and native settings links. Screenshots stay under
+ignored `reports/reader-destinations/`.
+
+Use `--test-name-pattern="login destinations"` for shared sign-in destinations: approved
+reader filters, topic/source follows, article bookmarks, signup invitations, and
+scoped MCP authorization. Provider redirects run against isolated fixtures; Chrome
+and Edge retain the reader in its original tab and open sign-in separately.
+Screenshots stay under ignored `reports/login-destinations/`.
+
+The remaining reader scenarios use `server reads`, `user mutations`, `reader theme`,
+`reader sidebar`, and `reader journey`. Authenticated extension scenarios live in
+`tests/auth.browser.mjs`: filter by `authenticated navigation`, `reading streak`,
+`must reads`, or `authentication journey`. `DEVFEED_EXTENSION_BROWSER=edge` selects
+the actual browser and extension package; scenario selection does not use application
+environment variables or server responses.
 
 ## Validate and package
 
@@ -231,7 +308,10 @@ Origin checks and per-process rate limits mitigate abuse; they do not authentica
 arbitrary HTTP clients. An upstream failure is dropped without retries.
 
 Page views use normalized paths under the reporting-only hostname
-`extension.devfeed.tech`. Raw searches, query strings, article titles, account IDs,
+`extension.devfeed.tech`. Approved screen labels come from the same reader route
+descriptors used for navigation. Public profiles report `/users/profile`, article
+previews report `/articles`, and unsupported routes report `/other`. Raw searches,
+query strings, article titles, account IDs,
 emails, session cookies and CSRF tokens are not sent. Events include article opens,
 likes, bookmarks, follows, source suggestions, and preference changes. Active,
 focused reading time is reported with a shared 30-minute inactivity session and a
@@ -250,6 +330,16 @@ collection when enabled.
 The automated browser tests send only to a disposable local relay fixture. Google's
 `/debug/mp/collect` endpoint can validate payloads without recording test events;
 an HTTP 2xx from `/mp/collect` alone does not prove GA4 processed an event.
+
+After fresh web, partner and extension builds, check the actual Faro views, partner
+request metrics and extension page-view envelopes with:
+
+```sh
+node apps/web/tests/browser/telemetry.mjs web
+node apps/web/tests/browser/telemetry.mjs partner
+node --test --test-name-pattern="telemetry labels" apps/extensions/tests/reader.browser.mjs
+DEVFEED_EXTENSION_BROWSER=edge node --test --test-name-pattern="telemetry labels" apps/extensions/tests/reader.browser.mjs
+```
 
 Search result type, article order and date filters apply immediately in both
 extensions and the web reader. Search displays a visible loading message while

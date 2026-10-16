@@ -8,6 +8,7 @@ from devfeed_core.article_reads import PUBLIC_ARTICLE_OPTIONS
 from devfeed_core.models import Article, ArticleBookmark
 from devfeed_core.publication import visible_article
 from devfeed_core.schemas import ArticleOut, FeedPage
+from devfeed_http.agent_permissions import AgentAccessPolicy
 from devfeed_http.cursors import decode_cursor
 from fastapi import APIRouter, Query
 from pydantic import BaseModel, ConfigDict
@@ -30,7 +31,11 @@ class BookmarkOut(BookmarkInput):
     article_id: uuid.UUID
 
 
-@router.put("/articles/{article_id}/bookmark", response_model=BookmarkOut)
+@router.put(
+    "/articles/{article_id}/bookmark",
+    response_model=BookmarkOut,
+    openapi_extra=AgentAccessPolicy(scope="devfeed:write").openapi_extra(),
+)
 def bookmark(article_id: uuid.UUID, payload: BookmarkInput, user: User, session: DB):
     user_id = uuid.UUID(user.user_id)
     if payload.bookmarked:
@@ -51,7 +56,11 @@ def bookmark(article_id: uuid.UUID, payload: BookmarkInput, user: User, session:
     return BookmarkOut(article_id=article_id, bookmarked=payload.bookmarked)
 
 
-@router.get("/bookmarks", response_model=FeedPage)
+@router.get(
+    "/bookmarks",
+    response_model=FeedPage,
+    openapi_extra=AgentAccessPolicy(scope="devfeed:read").openapi_extra(),
+)
 def bookmarks(
     user: User,
     session: DB,
@@ -80,6 +89,6 @@ def bookmarks(
             json.dumps([saved_at.isoformat(), str(article.id)]).encode()
         ).decode()
     return FeedPage(
-        items=[ArticleOut.from_article(article) for article, _ in rows[:limit]],
+        items=ArticleOut.from_articles(article for article, _ in rows[:limit]),
         next_cursor=next_cursor,
     )

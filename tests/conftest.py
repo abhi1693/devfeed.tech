@@ -54,6 +54,7 @@ def unit_test_settings(request, monkeypatch):
     from devfeed_admin_api.config import Settings as AdminSettings
     from devfeed_core.config import Settings
     from devfeed_core.web_push import PublicWebPushSettings, get_web_push_settings
+    from devfeed_partner_api.config import Settings as PartnerSettings
     from devfeed_user_api.config import Settings as UserSettings
     from devfeed_user_api.notification_config import Settings as InboxSettings
     from devfeed_user_api.notification_config import get_settings as inbox_settings
@@ -63,6 +64,7 @@ def unit_test_settings(request, monkeypatch):
     monkeypatch.setenv("DEVFEED_WEB_PUSH_ENABLED", "false")
     get_web_push_settings.cache_clear()
     monkeypatch.setitem(AdminSettings.model_config, "env_file", None)
+    monkeypatch.setitem(PartnerSettings.model_config, "env_file", None)
     monkeypatch.setitem(UserSettings.model_config, "env_file", None)
     monkeypatch.setitem(InboxSettings.model_config, "env_file", None)
     inbox_settings.cache_clear()

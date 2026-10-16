@@ -161,6 +161,6 @@ def latest_page(session, conditions, filters, limit, cursor):
     offset += len(identifiers)
     more = offset < len(state["ids"]) or state["after"] is not None
     return FeedPage(
-        items=[ArticleOut.from_article(articles[i]) for i in identifiers if i in articles],
+        items=ArticleOut.from_articles(articles[i] for i in identifiers if i in articles),
         next_cursor=f"latest-v1:{generation}:{offset}" if more else None,
     )

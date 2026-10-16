@@ -6,10 +6,11 @@ import { LoadingReveal } from "./loading-reveal";
 import { Monitor, Moon, Sun } from "lucide-react";
 import { Select, type SelectOption } from "@devfeed/ui/select";
 import { formatDate, timezoneOptions } from "@devfeed/ui/date-format";
+import type { Appearance } from "@/lib/user";
 import { AccountGate } from "./user-account";
 import { UserSettingsLayout } from "./user-settings-layout";
 import { LoadingSkeleton } from "./loading-skeleton";
-import { useThemePreferences, type Appearance } from "./theme-preferences";
+import { useThemePreferences } from "./theme-preferences";
 
 export function AppearanceSettings() {
   return (

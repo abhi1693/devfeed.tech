@@ -5,8 +5,8 @@ import { useChartWindow } from "./overview-chart-window";
 import { useState } from "react";
 import { Bar, BarChart, CartesianGrid, Line, LineChart, Tooltip, XAxis, YAxis } from "recharts";
 import { InfoTooltip } from "@/components/molecules/info-tooltip";
-import { Button } from "@/components/atoms/button";
-import { ChartContainer, ChartTooltip } from "@/components/atoms/chart";
+import { Button } from "@devfeed/ui/button";
+import { ChartContainer, ChartTooltip } from "@devfeed/ui/chart";
 import type { OverviewPanel as AdminOverview } from "@/lib/api/generated/models";
 import { humanize } from "@/lib/resources";
 

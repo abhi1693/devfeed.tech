@@ -5,7 +5,7 @@ import { DateTime } from "@/components/molecules/date-time";
 import Link from "next/link";
 import { useMemo, type ReactNode } from "react";
 import { ExternalLink } from "lucide-react";
-import { Button } from "@/components/atoms/button";
+import { Button } from "@devfeed/ui/button";
 import { DataTable, type DataTableColumn } from "@/components/molecules/data-table";
 import type { BulkAction } from "@/components/molecules/table-bulk-actions";
 import { analysisActive } from "@/components/molecules/topic-analysis-control";
@@ -15,7 +15,7 @@ import {
   adminTopicProposalAnalyze,
   adminTopicProposalDelete,
 } from "@/lib/api/generated/admin";
-import { Badge } from "@/components/atoms/badge";
+import { Badge } from "@devfeed/ui/badge";
 import { useAdmin } from "@/components/molecules/admin-session";
 import { actorLabel } from "@/lib/actor-label";
 import { humanize } from "@/lib/resources";

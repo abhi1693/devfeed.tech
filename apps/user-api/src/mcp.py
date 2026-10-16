@@ -10,6 +10,7 @@ from typing import Literal
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 from devfeed_core.models import UserAccount
+from devfeed_http.agent_permissions import AgentAccessPolicy
 from fastapi import APIRouter, HTTPException, Request, Response
 from pydantic import BaseModel, ConfigDict
 from redis.exceptions import RedisError
@@ -21,7 +22,6 @@ from devfeed_user_api.config import get_settings
 from devfeed_user_api.dependencies import get_redis
 
 router = APIRouter(prefix="/v1/user/mcp", tags=["mcp"])
-READ = "devfeed:read"
 WRITE = "devfeed:write"
 TOKEN = re.compile(r"^[A-Za-z0-9_-]{43}$")
 
@@ -65,28 +65,12 @@ def require_agent_user(request: Request) -> UserIdentity:
         raise HTTPException(
             401, "Agent authorization expired or revoked", headers={"WWW-Authenticate": "Bearer"}
         )
-    path = request.url.path
-    readable = path in {
-        "/v1/user/feed",
-        "/v1/user/must-reads",
-        "/v1/user/bookmarks",
-        "/v1/user/preferences",
-        "/v1/user/preferences/sources",
-    }
-    writable = bool(
-        re.fullmatch(
-            r"/v1/user/(articles/[0-9a-f-]{36}/(bookmark|like)|preferences/(topics|sources)/[0-9a-f-]{36})",
-            path,
-        )
-    )
-    needed = (
-        READ
-        if request.method == "GET" and readable
-        else WRITE
-        if request.method == "PUT" and writable
-        else None
-    )
-    if needed is None or needed not in access["scopes"] or needed not in grant["scopes"]:
+    policy = AgentAccessPolicy.from_request(request)
+    if (
+        policy is None
+        or policy.scope not in access["scopes"]
+        or policy.scope not in grant["scopes"]
+    ):
         raise HTTPException(403, "Agent permission denied")
     identity = grant["identity"]
     with session_factory()() as session:

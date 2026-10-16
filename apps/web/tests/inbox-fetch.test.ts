@@ -4,7 +4,8 @@ import { createInboxFetch } from "@devfeed/ui/inbox-fetch";
 
 const origin = "https://reader.example";
 const path = "/api/v1/user/notifications/chimely";
-const endpoint = `${path}/v1/inbox/messages`;
+const endpoint = `${path}/v1/inbox/items`;
+const mutation = `${path}/v1/inbox/read-all`;
 const request = vi.fn<(url: string, init: RequestInit) => Promise<Response>>(async () =>
   Response.json({}),
 );
@@ -19,8 +20,8 @@ afterEach(() => {
 
 it.each([
   "https://evil.example" + endpoint,
-  "/api/v1/admin/notifications/chimely/v1/inbox/messages",
-  path + "/v1/inbox-other/messages",
+  "/api/v1/admin/notifications/chimely/v1/inbox/items",
+  path + "/v1/inbox-other/items",
   path + "/v1/inbox/../../other",
 ])("rejects endpoints outside the configured inbox: %s", async (url) => {
   await expect(fetchInbox(url)).rejects.toThrow("Invalid inbox endpoint");
@@ -29,7 +30,7 @@ it.each([
 
 it("preserves request data while enforcing credential, cache, redirect and CSRF rules", async () => {
   const headers = new Headers({ "Content-Type": "application/json", "X-CSRF-Token": "old" });
-  await fetchInbox(endpoint, {
+  await fetchInbox(mutation, {
     method: "POST",
     headers,
     body: "{}",
@@ -38,7 +39,7 @@ it("preserves request data while enforcing credential, cache, redirect and CSRF 
     redirect: "follow",
   });
   const [url, init] = request.mock.calls[0];
-  expect(url).toBe(origin + endpoint);
+  expect(url).toBe(origin + mutation);
   expect(init).toMatchObject({
     method: "POST",
     body: "{}",
@@ -57,7 +58,7 @@ it.each([undefined, "GET", "HEAD"])(
     vi.mocked(document.hasFocus).mockReturnValue(false);
     await expect(fetchInbox(endpoint, { method })).rejects.toMatchObject({ name: "AbortError" });
     expect(request).not.toHaveBeenCalled();
-    await fetchInbox(endpoint, { method: "POST" });
+    await fetchInbox(mutation, { method: "POST" });
     expect(request).toHaveBeenCalledTimes(1);
   },
 );

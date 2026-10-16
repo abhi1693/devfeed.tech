@@ -37,6 +37,7 @@ class ArticleOrigin(BaseModel):
 
 
 class Article(BaseModel):
+    sponsor_names: list[str] = Field(default_factory=list)
     id: UUID
     slug: str
     title: str
@@ -72,6 +73,7 @@ class SourcePage(BaseModel):
 
 
 class SearchHit(BaseModel):
+    sponsor_names: list[str] = Field(default_factory=list)
     id: UUID
     title: str
     description: str

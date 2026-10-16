@@ -3,19 +3,12 @@
 import { useCallback, useState } from "react";
 import { Bell, CheckCheck, MousePointerClick, Send, Users } from "lucide-react";
 import { CartesianGrid, Line, LineChart, Tooltip, XAxis, YAxis } from "recharts";
-import { Button } from "@/components/atoms/button";
+import { Button } from "@devfeed/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/atoms/card";
-import { ChartContainer, ChartTooltip } from "@/components/atoms/chart";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/atoms/table";
+import { ChartContainer, ChartTooltip } from "@devfeed/ui/chart";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@devfeed/ui/table";
 import { Metric } from "@/components/molecules/metric";
-import { PageHeading } from "@/components/molecules/page-heading";
+import { ResourceHeading } from "@devfeed/ui/resource-layout";
 import { adminPushAnalytics } from "@/lib/api/generated/admin";
 import type { PushAnalytics, PushAnalyticsMetrics } from "@/lib/api/generated/models";
 import { formatCompactCount } from "@/lib/format-count";
@@ -146,7 +139,7 @@ export function PushAnalyticsOverview() {
 
   return (
     <div className="min-w-0 space-y-8" aria-busy={loading || refreshing}>
-      <PageHeading
+      <ResourceHeading
         title="Push analytics"
         description="Follow browser notification delivery and reported engagement."
         leading={<Bell className="size-6 text-muted-foreground" aria-hidden />}
@@ -168,7 +161,7 @@ export function PushAnalyticsOverview() {
             </Button>
           ))}
         </div>
-      </PageHeading>
+      </ResourceHeading>
 
       {loading && (
         <p role="status" className="text-sm text-muted-foreground">

@@ -8,7 +8,11 @@ vi.mock("@/lib/reader-runtime", () => ({
   readerPublicOrigin: () => "https://website.example",
   readerRequest: vi.fn(),
 }));
-afterEach(() => vi.restoreAllMocks());
+afterEach(() => {
+  vi.restoreAllMocks();
+  vi.unstubAllGlobals();
+  vi.clearAllMocks();
+});
 it.each([401, 403, 200])(
   "uses reader transport and expires the session only on 401 (%s)",
   async (status) => {
@@ -20,12 +24,22 @@ it.each([401, 403, 200])(
     const config = vi.mocked(ChimelyClient).mock.lastCall![0];
     expect(config.serverUrl).toBe("https://website.example" + inboxPath);
     expect(config.createEventSource).toBeTypeOf("function");
-    expect(await config.fetchFn!(config.serverUrl + "/v1/inbox/messages")).toBe(response);
+    expect(await config.fetchFn!(config.serverUrl + "/v1/inbox/items")).toBe(response);
     expect(readerRequest).toHaveBeenCalledWith(
-      config.serverUrl + "/v1/inbox/messages",
+      config.serverUrl + "/v1/inbox/items",
       expect.any(Object),
     );
     expect(dispatch).toHaveBeenCalledTimes(status === 401 ? 1 : 0);
     if (status === 401) expect(dispatch.mock.calls[0][0].type).toBe("devfeed:user-session-expired");
   },
 );
+
+it("keeps native inbox EventSource credentialed for website and extension origins", () => {
+  const events = vi.fn(function () {});
+  vi.stubGlobal("EventSource", events);
+  createInboxClient({ enabled: true, environment: "test", subscriber_id: "user" }, "csrf");
+  const config = vi.mocked(ChimelyClient).mock.lastCall![0];
+  const stream = config.serverUrl + "/v1/inbox/stream?last_event_id=event-42";
+  config.createEventSource!(stream);
+  expect(events).toHaveBeenCalledWith(stream, { withCredentials: true });
+});

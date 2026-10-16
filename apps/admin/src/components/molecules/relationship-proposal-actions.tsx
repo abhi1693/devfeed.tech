@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useState } from "react";
 import { Check, Eye, X } from "lucide-react";
-import { Button } from "@/components/atoms/button";
+import { Button } from "@devfeed/ui/button";
 import { useAdmin } from "./admin-session";
 import { adminRelationshipProposalReview } from "@/lib/api/generated/admin";
 import type { RelationshipProposalOut } from "@/lib/api/generated/models";

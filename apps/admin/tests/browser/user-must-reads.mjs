@@ -9,6 +9,7 @@ const root = fileURLToPath(new URL("../../../../", import.meta.url));
 const userId = "11111111-1111-4111-8111-111111111111";
 const user = {
   id: userId,
+  partner_accounts: [{ id: "22222222-2222-4222-8222-222222222222", name: "Ada partnership" }],
   name: "Ada",
   sign_in_name: "Ada Lovelace",
   email: "ada@example.test",
@@ -195,6 +196,10 @@ try {
   }
   await page.goto(`${origin}/users/${userId}`);
   await page.getByText("Account", { exact: true }).waitFor();
+  assert.equal(
+    await page.getByRole("link", { name: "Ada partnership", exact: true }).getAttribute("href"),
+    "/partnerships/accounts/22222222-2222-4222-8222-222222222222",
+  );
   await page.getByText("Reader profile", { exact: true }).waitFor();
   for (const title of ["Dev Card styling", "Reader preferences", "Technical identifiers"]) {
     const disclosure = page
@@ -250,12 +255,12 @@ try {
       );
       if (width === 1440) {
         const refreshPanel = await page
-          .getByText("Recommendation refresh", { exact: true })
-          .locator('xpath=ancestor::div[@data-slot="card"]')
+          .getByRole("heading", { name: "Recommendation refresh", exact: true })
+          .locator("xpath=ancestor::section[1]")
           .boundingBox();
         const activityPanel = await page
-          .getByText("Personalization", { exact: true })
-          .locator('xpath=ancestor::div[@data-slot="card"]')
+          .getByRole("heading", { name: "Personalization", exact: true })
+          .locator("xpath=ancestor::section[1]")
           .boundingBox();
         assert.ok(refreshPanel && activityPanel);
         assert.ok(Math.abs(refreshPanel.y - activityPanel.y) < 1);

@@ -15,8 +15,8 @@ import {
 } from "@/lib/reading-streak";
 
 export function ReadingStreak() {
-  const { user, profile, sessionRevision } = useUser();
-  if (!user || !profile?.reading_streak) return null;
+  const { user, profile, sessionRevision, loading } = useUser();
+  if (loading || !user || !profile?.reading_streak) return null;
   return (
     <StreakCard
       key={user.user_id + ":" + sessionRevision}
@@ -28,9 +28,9 @@ export function ReadingStreak() {
 }
 
 export function ReadingStreakProgress() {
-  const { user, profile } = useUser();
+  const { user, profile, loading } = useUser();
   const today = useReadingDay();
-  if (!user || !profile?.reading_streak) return null;
+  if (loading || !user || !profile?.reading_streak) return null;
   const state = getStreakProgress(profile.reading_streak, today);
   const dayUnit = state.current === 1 ? "day" : "days";
   return (

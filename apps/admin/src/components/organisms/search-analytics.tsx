@@ -4,9 +4,9 @@ import { useCallback } from "react";
 import { Bar, BarChart, CartesianGrid, Tooltip, XAxis, YAxis } from "recharts";
 import { Clock3, Database, Search, TrendingUp } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/atoms/card";
-import { ChartContainer, ChartTooltip } from "@/components/atoms/chart";
+import { ChartContainer, ChartTooltip } from "@devfeed/ui/chart";
 import { Metric } from "@/components/molecules/metric";
-import { PageHeading } from "@/components/molecules/page-heading";
+import { ResourceHeading } from "@devfeed/ui/resource-layout";
 import { searchAnalyticsV1AdminSearchAnalyticsGet } from "@/lib/api/generated/admin";
 import type { SearchAnalytics, SearchAnalyticsQuery } from "@/lib/api/generated/models";
 import { formatCompactCount } from "@/lib/format-count";
@@ -105,7 +105,7 @@ export function SearchAnalyticsOverview() {
 
   return (
     <div className="space-y-8">
-      <PageHeading
+      <ResourceHeading
         title="Search analytics"
         description="See the queries Typesense is aggregating for the reader search experience."
         leading={<Search className="size-6 text-muted-foreground" aria-hidden />}

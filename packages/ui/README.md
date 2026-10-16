@@ -1,11 +1,25 @@
 # Shared UI
 
+`@devfeed/ui/button`, `@devfeed/ui/input`, `@devfeed/ui/textarea`,
+`@devfeed/ui/table`, and `@devfeed/ui/badge` provide the shared admin and partner
+primitives. Button and badge also export their variant helpers; button exports
+`ButtonProps`. Import these implementations directly from the shared package. Consumers
+must load the shared theme tokens and include `packages/ui/src` in their Tailwind
+sources, as both apps do in their global stylesheets.
+
 `@devfeed/ui/choice-controls` provides Radix radio groups and a styled checkbox.
 Import `@devfeed/ui/choice-controls.css` with the shared theme tokens. The Dev Card
 editor uses these controls for keyboard-accessible design and content choices.
 
 `@devfeed/ui/info-tip` pairs an info button with a Radix tooltip for supplementary
 help. It opens on hover, focus, or tap. Import `@devfeed/ui/info-tip.css` with it.
+
+`@devfeed/ui/theme-toggle` provides the light/dark/system theme button. Import
+`@devfeed/theme/theme-toggle.css` for its styles. Reader and partner apps use
+`useBrowserTheme` and `setBrowserTheme` from `@devfeed/ui/browser-theme` for local
+preferences, system changes, and cross-tab updates. Render `themeScript` from
+`@devfeed/ui/theme-script` in the document head before the body to apply the saved
+palette before paint. Account-backed persistence remains in the consuming app.
 
 `@devfeed/ui/notifications` is the admin Chimely inbox used by both frontends.
 Import `@devfeed/theme/notifications.css` alongside the shared theme. The component

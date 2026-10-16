@@ -56,6 +56,36 @@ def request_ingestion(session: Session, source: Source) -> IngestionJob:
     return job
 
 
+def reconcile_source_schedule(session: Session, source: Source, *, immediate: bool = False) -> None:
+    """Caller holds the source lock; cadence edits never replace a job or cooldown.
+
+    Without a successful fetch, retain the existing initial due time. An explicit
+    re-enable can request an immediate healthy fetch instead.
+    """
+    if (
+        not source.enabled
+        or source.approval_status != "approved"
+        or source.consecutive_failures
+        or (source.last_success_at is None and not immediate)
+    ):
+        return
+    active = session.scalar(
+        select(IngestionJob.id).where(
+            IngestionJob.source_id == source.id, IngestionJob.status.in_(["queued", "running"])
+        )
+    )
+    if active is not None:
+        return
+    now = utcnow()
+    if immediate:
+        source.next_fetch_at = now
+    else:
+        assert source.last_success_at is not None
+        source.next_fetch_at = max(
+            now, source.last_success_at + timedelta(seconds=source.poll_interval_seconds)
+        )
+
+
 def fail_job(
     session: Session, job: IngestionJob, error: str, *, retryable: bool = True, retry_after: int = 0
 ) -> None:

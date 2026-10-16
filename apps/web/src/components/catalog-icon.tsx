@@ -1,6 +1,6 @@
 "use client";
 
-/* eslint-disable @next/next/no-img-element -- Catalog logos load directly without a server-side proxy. */
+/* eslint-disable @next/next/no-img-element -- Managed catalog logos load directly from immutable storage. */
 import { useState } from "react";
 import {
   Blocks,
@@ -60,7 +60,10 @@ export function CatalogIcon({
           src={src}
           srcSet={
             variants
-              ?.filter((item) => safeExternalUrl(item.url))
+              ?.filter(
+                (item) =>
+                  safeExternalUrl(item.url) && Number.isInteger(item.width) && item.width > 0,
+              )
               .map((item) => `${item.url} ${item.width}w`)
               .join(", ") || undefined
           }

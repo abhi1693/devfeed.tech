@@ -2,7 +2,7 @@
 
 import { useCallback, useState } from "react";
 import { SlidersHorizontal, X } from "lucide-react";
-import { Button } from "@/components/atoms/button";
+import { Button } from "@devfeed/ui/button";
 import { SearchField } from "@/components/molecules/search-field";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/atoms/popover";
 import { Select } from "@/components/molecules/select";

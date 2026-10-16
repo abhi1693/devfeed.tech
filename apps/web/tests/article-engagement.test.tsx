@@ -1,12 +1,14 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { ArticleEngagement, ArticleReadLink } from "@/components/article-engagement";
 import { userRequest, type UserProfile, type UserIdentity } from "@/lib/user";
+import * as analytics from "@/lib/analytics";
 
 const account = vi.hoisted(() => ({
   user: null as UserIdentity | null,
   loading: false,
+  sessionRevision: 0,
   profile: null as UserProfile | null,
   refreshProfile: vi.fn(),
 }));
@@ -15,6 +17,7 @@ vi.mock("@/lib/user", () => ({ userRequest: vi.fn() }));
 beforeEach(() => {
   account.user = null;
   account.loading = false;
+  account.sessionRevision = 0;
   account.profile = null;
   account.refreshProfile.mockClear();
   vi.mocked(userRequest)
@@ -225,6 +228,51 @@ it("syncs bookmark controls across providers and preserves likes", async () => {
   );
 });
 
+it.each(["unmount", "account change"])(
+  "cancels a pending like after %s without publishing stale state or analytics",
+  async (change) => {
+    const { EngagementProvider } = await import("@/components/article-engagement");
+    account.user = { user_id: "reader", csrf_token: "csrf" } as UserIdentity;
+    const value = { article_id: "article", opens: 1, likes: 0, liked: false };
+    vi.mocked(userRequest).mockResolvedValue([value]);
+    const children = () => (
+      <EngagementProvider articleIds={["article"]}>
+        <ArticleEngagement articleId="article" articleSlug="article" />
+      </EngagementProvider>
+    );
+    const view = render(children());
+    const like = await screen.findByRole("button", { name: "Like article, 0 likes" });
+    const published = vi.fn();
+    const tracked = vi.spyOn(analytics, "trackEvent");
+    window.addEventListener("devfeed:article-engagement", published);
+    try {
+      let finish!: (result: typeof value) => void;
+      vi.mocked(userRequest).mockReturnValueOnce(
+        new Promise((resolve) => {
+          finish = resolve;
+        }),
+      );
+      fireEvent.click(like);
+      const signal = vi.mocked(userRequest).mock.calls.at(-1)?.[1]?.signal;
+      if (change === "unmount") view.unmount();
+      else {
+        account.user = { user_id: "other-reader", csrf_token: "other-csrf" } as UserIdentity;
+        view.rerender(children());
+        await screen.findByRole("button", { name: "Like article, 0 likes" });
+      }
+      expect(signal?.aborted).toBe(true);
+      await act(async () => finish({ ...value, likes: 1, liked: true }));
+      expect(published).not.toHaveBeenCalled();
+      expect(tracked).not.toHaveBeenCalled();
+      if (change === "account change")
+        expect(screen.queryByRole("button", { name: "Unlike article, 1 likes" })).toBeNull();
+    } finally {
+      window.removeEventListener("devfeed:article-engagement", published);
+      tracked.mockRestore();
+    }
+  },
+);
+
 it("refreshes reading totals after an authenticated open only when today is not counted", async () => {
   account.user = { user_id: "reader", csrf_token: "csrf" } as UserIdentity;
   account.profile = {
@@ -241,4 +289,31 @@ it("refreshes reading totals after an authenticated open only when today is not 
   fireEvent.click(screen.getByRole("link", { name: "Read article" }));
   await waitFor(() => expect(userRequest).toHaveBeenCalledTimes(2));
   expect(account.refreshProfile).toHaveBeenCalledOnce();
+});
+
+it("reloads engagement when history confirms the same session again", async () => {
+  const { EngagementProvider } = await import("@/components/article-engagement");
+  vi.mocked(userRequest).mockResolvedValue([
+    { article_id: "article", opens: 1, likes: 2, liked: false },
+  ]);
+  const children = (
+    <EngagementProvider articleIds={["article"]}>
+      <ArticleEngagement articleId="article" articleSlug="article" />
+    </EngagementProvider>
+  );
+  const view = render(children);
+  await screen.findByRole("link", { name: "Sign in to like this article, 2 likes" });
+  const link = screen.getByRole("link", { name: "Sign in to like this article, 2 likes" });
+  account.sessionRevision++;
+  vi.mocked(userRequest).mockResolvedValue([
+    { article_id: "article", opens: 8, likes: 19, liked: false },
+  ]);
+  view.rerender(
+    <EngagementProvider articleIds={["article"]}>
+      <ArticleEngagement articleId="article" articleSlug="article" />
+    </EngagementProvider>,
+  );
+  await screen.findByRole("link", { name: "Sign in to like this article, 19 likes" });
+  expect(screen.getByRole("link", { name: "Sign in to like this article, 19 likes" })).toBe(link);
+  expect(userRequest).toHaveBeenCalledTimes(2);
 });

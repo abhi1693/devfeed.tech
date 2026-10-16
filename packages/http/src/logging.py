@@ -9,6 +9,8 @@ from devfeed_core.logging import elapsed_ms, log_context
 from devfeed_core.version import __version__
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
+from devfeed_http.route_policies import RouteRuntimePolicy
+
 
 class RequestLoggingMiddleware:
     def __init__(
@@ -54,7 +56,9 @@ class RequestLoggingMiddleware:
                 await self.app(scope, receive, send_response)
             except Exception:
                 failed = True
-                self.logger.exception("request_failed")
+                self.logger.exception(
+                    "request_failed", extra=scope.get("state", {}).get("request_trace", {})
+                )
                 raise
             finally:
                 level = (
@@ -65,7 +69,7 @@ class RequestLoggingMiddleware:
                 if (
                     status < 400
                     and not failed
-                    and scope["path"] in {"/health/live", "/health/ready"}
+                    and RouteRuntimePolicy.from_scope(scope).logging_level == "debug"
                 ):
                     level = logging.DEBUG
                 self.logger.log(
@@ -76,5 +80,6 @@ class RequestLoggingMiddleware:
                         "duration_ms": elapsed_ms(started),
                         "cache_status": scope.get("state", {}).get("cache_status"),
                         "cache_bypass_reason": scope.get("state", {}).get("cache_bypass_reason"),
+                        **scope.get("state", {}).get("request_trace", {}),
                     },
                 )

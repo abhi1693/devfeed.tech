@@ -2,7 +2,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { notifyFailure } from "./notifications";
 import { ApiError, returnToLogin } from "./api/client";
-import { usePolling } from "./use-polling";
+import { usePolling } from "@devfeed/ui/use-polling";
 import { runWhenPageActive } from "@devfeed/ui/page-activity";
 
 export function useRequest<T>(

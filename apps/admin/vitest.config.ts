@@ -10,6 +10,7 @@ export default defineConfig({
   },
   esbuild: { jsx: "automatic" },
   test: {
+    maxWorkers: 4,
     environment: "node",
     include: ["tests/**/*.test.{ts,tsx}"],
     setupFiles: ["./tests/setup.ts"],

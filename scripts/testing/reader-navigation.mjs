@@ -95,6 +95,12 @@ function defects(snapshot, signedIn) {
 }
 
 export async function checkAvatarStreak(page, directory, { current, next, scan = false } = {}) {
+  await page.bringToFront();
+  await page.waitForFunction(() => document.hasFocus());
+  // Finish resize and focus events before opening the responsive keyboard menu.
+  await page.evaluate(
+    () => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))),
+  );
   await mkdir(directory, { recursive: true });
   const avatar = page.getByRole("button", { name: /^User menu:/ });
   await avatar.focus();
@@ -103,7 +109,21 @@ export async function checkAvatarStreak(page, directory, { current, next, scan =
   await menu.waitFor();
   const summary = menu.locator(".user-menu-reading-streak");
   const bar = summary.locator(".reading-streak-progress");
-  await bar.waitFor();
+  try {
+    await bar.waitFor();
+  } catch (error) {
+    const state = await page.evaluate(() => ({
+      width: innerWidth,
+      focused: document.hasFocus(),
+      active: document.activeElement?.outerHTML,
+      menu: document.querySelector(".user-menu-content")?.outerHTML,
+      streakDisplay: document.querySelector(".user-menu-reading-streak")
+        ? getComputedStyle(document.querySelector(".user-menu-reading-streak")).display
+        : null,
+    }));
+    console.error("Avatar streak state:", JSON.stringify(state));
+    throw error;
+  }
   assert.equal(await bar.getAttribute("aria-hidden"), "true");
   assert.equal(
     await summary.getByRole("progressbar").count(),
@@ -197,7 +217,7 @@ export async function checkAvatarStreak(page, directory, { current, next, scan =
 export async function checkReaderNavigation(
   page,
   directory,
-  { signedIn = false, baseline = false, geometryOnly = false, streakDays = 2 } = {},
+  { signedIn = false, geometryOnly = false, streakDays = 2 } = {},
 ) {
   await mkdir(directory, { recursive: true });
   const original = {
@@ -208,7 +228,7 @@ export async function checkReaderNavigation(
     motion: await page.evaluate(() => matchMedia("(prefers-reduced-motion: reduce)").matches),
   };
   const state = signedIn ? `signed-in-${streakDays}` : "guest";
-  const report = { state, baseline, measurements: [], scans: [], interactions: [] };
+  const report = { state, measurements: [], scans: [], interactions: [] };
   const save = () =>
     writeFile(path.join(directory, `${state}.json`), JSON.stringify(report, null, 2));
   try {
@@ -267,7 +287,6 @@ export async function checkReaderNavigation(
       }
     }
     await save();
-    if (baseline) return report;
     const failures = report.measurements.filter((item) => item.issues.length);
     assert.deepEqual(
       failures.map(({ width, theme, expanded, issues }) => ({ width, theme, expanded, issues })),

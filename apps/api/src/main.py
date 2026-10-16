@@ -6,7 +6,7 @@ from devfeed_core.db import database_revision
 from devfeed_core.feeds.validation import FeedValidationError
 from devfeed_core.logging import configure_logging
 from devfeed_core.version import SCHEMA_REVISION, __version__
-from devfeed_http.body_limits import RequestBodyLimitMiddleware
+from devfeed_http.route_policies import RouteRuntimePolicy, install_runtime_policies
 from devfeed_http.schemas import (
     ERROR_RESPONSES,
     ErrorResponse,
@@ -19,7 +19,16 @@ from fastapi import FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from devfeed_api import feed, search, sitemaps, sources, taxonomy, topics
+from devfeed_api import (
+    feed,
+    partner_placements,
+    partner_tracking,
+    search,
+    sitemaps,
+    sources,
+    taxonomy,
+    topics,
+)
 from devfeed_api.dependencies import database_session, get_rate_limit_redis, get_redis
 
 logger = logging.getLogger(__name__)
@@ -54,10 +63,6 @@ def create_app() -> FastAPI:
             allow_credentials=False,
         )
 
-    app.add_middleware(
-        RequestBodyLimitMiddleware,
-        limits={("POST", "/v1/search/analytics/click"): 4096},
-    )
     service.configure(app, settings, middleware=cors)
 
     @app.exception_handler(FeedValidationError)
@@ -77,17 +82,25 @@ def create_app() -> FastAPI:
         schema_revision=SCHEMA_REVISION,
     )
 
-    @app.get("/version", tags=["operations"], response_model=VersionResponse)
+    @app.get(
+        "/version",
+        tags=["operations"],
+        response_model=VersionResponse,
+        openapi_extra=RouteRuntimePolicy(telemetry_excluded=True).openapi_extra(),
+    )
     def app_version(response: Response):
         response.headers["Cache-Control"] = "no-store"
         return VersionResponse(version=__version__, required_schema_revision=SCHEMA_REVISION)
 
+    app.include_router(partner_tracking.router)
+    app.include_router(partner_placements.router)
     app.include_router(search.router)
     app.include_router(sitemaps.router)
     app.include_router(feed.router)
     app.include_router(sources.router)
     app.include_router(taxonomy.router)
     app.include_router(topics.router)
+    install_runtime_policies(app)
     return app
 
 

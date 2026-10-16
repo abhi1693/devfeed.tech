@@ -24,7 +24,7 @@ export function ProfileSettings() {
 }
 
 // Matches admin SettingsNav, horizontal Field and SettingsForm presentation.
-// Only sections and identity fields available to public accounts are shown.
+// Public profile fields and optional private relevance preferences share this editor.
 function ProfileContent() {
   const { user, profile, profileUnavailable, refreshProfile } = useUser();
   return (

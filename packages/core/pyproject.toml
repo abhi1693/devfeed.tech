@@ -1,6 +1,6 @@
 [project]
 name = "devfeed-core"
-version = "0.0.51"
+version = "0.0.52"
 description = "Shared persistence, configuration and domain services"
 requires-python = ">=3.12"
 dependencies = [
@@ -21,7 +21,12 @@ dependencies = [
   "opentelemetry-exporter-prometheus>=0.64b0,<1",
   "pyroscope-io>=1.0.3,<2",
   "protego>=0.7,<0.8",
+  "cryptography>=46,<51",
 ]
+
+[project.optional-dependencies]
+images = ["pillow>=11.3,<13"]
+storage = ["boto3>=1.40,<2"]
 
 [build-system]
 requires = ["setuptools>=80,<85"]

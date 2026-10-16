@@ -4,11 +4,24 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { InfiniteFeed } from "@/components/infinite-feed";
 import { parseFilters } from "@/lib/feed-query";
 import type { Article } from "@/lib/types";
+import type { PlacementQuery } from "@/lib/partner-placements";
 import { article } from "./fixtures";
 
 vi.mock("@/components/article-grid", () => ({
-  ArticleGrid: ({ articles }: { articles: Article[] }) => (
-    <div data-testid="article-grid">
+  ArticleGrid: ({
+    articles,
+    placements,
+    placementArticleCount,
+  }: {
+    articles: Article[];
+    placements?: PlacementQuery;
+    placementArticleCount?: number;
+  }) => (
+    <div
+      data-testid="article-grid"
+      data-placements={JSON.stringify(placements)}
+      data-placement-count={placementArticleCount}
+    >
       {articles.map((item) => (
         <p key={item.id}>{item.title}</p>
       ))}
@@ -25,6 +38,53 @@ const filters = parseFilters({
   content_type: "tutorial",
   language: "en",
 });
+
+it("freezes placement context to at most 24 initially visible articles while pagination appends", async () => {
+  const initial = Array.from({ length: 26 }, (_, index) => ({
+    ...article,
+    id: `aaaaaaaa-aaaa-4aaa-8aaa-${String(index).padStart(12, "0")}`,
+    title: `Initial article ${index}`,
+  }));
+  fetcher.mockResolvedValue(Response.json({ items: [nextArticle], next_cursor: null }));
+  render(
+    <InfiniteFeed
+      initialPage={{ items: initial, next_cursor: "next" }}
+      filters={filters}
+      excludedIds={[initial[0].id]}
+      placements={{ surface: "feed" }}
+    />,
+  );
+  const expected = initial.slice(1, 25).map((item) => item.id);
+  const grid = screen.getByTestId("article-grid");
+  expect(JSON.parse(grid.getAttribute("data-placements")!)).toEqual({
+    surface: "feed",
+    article_ids: expected,
+  });
+  expect(grid.getAttribute("data-placement-count")).toBe("24");
+  await act(async () => intersect());
+  expect(screen.getByText(nextArticle.title)).toBeTruthy();
+  expect(JSON.parse(grid.getAttribute("data-placements")!)).toEqual({
+    surface: "feed",
+    article_ids: expected,
+  });
+  expect(grid.getAttribute("data-placement-count")).toBe("24");
+});
+
+it.each(["bookmarks", "trending", "cursor"])(
+  "does not add product placements to %s browsing",
+  (kind) => {
+    render(
+      <InfiniteFeed
+        initialPage={initialPage}
+        filters={kind === "cursor" ? { ...filters, cursor: "next" } : filters}
+        bookmarks={kind === "bookmarks"}
+        trending={kind === "trending"}
+        placements={{ surface: "feed" }}
+      />,
+    );
+    expect(screen.getByTestId("article-grid").getAttribute("data-placements")).toBeNull();
+  },
+);
 const fetcher = vi.fn();
 beforeEach(() => {
   fetcher.mockReset();

@@ -48,6 +48,7 @@ def workspace(tmp_path):
                     "": {"version": "0.1.0"},
                     "apps/admin": {"version": "0.1.0"},
                     "apps/web": {"version": "0.1.0"},
+                    "apps/partner": {"version": "0.1.0"},
                 },
             }
         )
@@ -66,12 +67,29 @@ def write_lock(root, value):
     )
 
 
-def write_generated(root, value):
-    (root / command.ADMIN_SCHEMA).write_text(json.dumps({"info": {"version": value}}))
-    for name in ("admin.ts", "models/index.ts", "models/article.ts"):
-        path = root / command.ADMIN_CLIENT / name
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(f"/**\n * OpenAPI spec version: {value}\n */\n")
+def write_generated(root, value, app=None):
+    for name, schema_name, client_name, required in command.API_ARTIFACTS:
+        if app is not None and name != app:
+            continue
+        (root / schema_name).write_text(json.dumps({"info": {"version": value}}))
+        for relative in (*required, "models/article.ts"):
+            path = root / client_name / relative
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(f"/**\n * OpenAPI spec version: {value}\n */\n")
+        for route_app, _, _ in command.GENERATED_ROUTES:
+            if name == route_app:
+                write_generated_route(root, name, "auth/config", value)
+
+
+def write_generated_route(root, app, relative, value):
+    _, route_root, marker = next(item for item in command.GENERATED_ROUTES if item[0] == app)
+    path = root / route_root / relative / "route.ts"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        f"/**\n{marker}\n * OpenAPI spec version: {value}\n */\n"
+        "export const GET = generatedHandler;\n"
+    )
+    return path
 
 
 def test_cli_version_needs_no_configuration_or_services(monkeypatch, tmp_path, capsys):
@@ -122,14 +140,16 @@ def test_set_updates_only_project_versions_and_locks_once(workspace):
             assert 'version = "independent"' in content
         if args == ["uv", "lock", "--offline"]:
             write_lock(workspace, "0.2.0")
-        elif args == ["npm", "run", "admin:generate"]:
-            write_generated(workspace, "0.2.0")
+        elif args[:2] == ["npm", "run"]:
+            write_generated(workspace, "0.2.0", args[2].split(":")[0])
 
     command.set_version(workspace, "0.2.0", runner=lock)
     assert calls == [
         (["uv", "lock", "--offline"], workspace, True),
         (["uv", "sync", "--all-packages", "--locked", "--offline"], workspace, True),
         (["npm", "run", "admin:generate"], workspace, True),
+        (["npm", "run", "partner:generate"], workspace, True),
+        (["npm", "run", "web:generate"], workspace, True),
     ]
     assert command.check(workspace) == "0.2.0"
     assert json.loads((workspace / "apps/admin/package.json").read_text())["version"] == "0.2.0"
@@ -156,11 +176,15 @@ def test_dry_run_does_not_write_or_invoke_uv(workspace):
 @pytest.mark.parametrize(
     "relative",
     [
-        command.ADMIN_SCHEMA,
-        command.ADMIN_CLIENT + "/admin.ts",
-        command.ADMIN_CLIENT + "/models/article.ts",
-        command.ADMIN_CLIENT + "/models/index.ts",
-    ],
+        relative
+        for _, schema_name, client_name, required in command.API_ARTIFACTS
+        for relative in (
+            schema_name,
+            *(f"{client_name}/{name}" for name in required),
+            f"{client_name}/models/article.ts",
+        )
+    ]
+    + [f"{relative}/auth/config/route.ts" for _, relative, _ in command.GENERATED_ROUTES],
 )
 def test_generated_version_drift_is_reported(workspace, relative):
     path = workspace / relative
@@ -169,13 +193,21 @@ def test_generated_version_drift_is_reported(workspace, relative):
         command.check(workspace)
 
 
-def test_missing_generated_client_is_reported(workspace):
-    (workspace / command.ADMIN_CLIENT / "admin.ts").unlink()
+@pytest.mark.parametrize(
+    "relative",
+    [
+        f"{client_name}/{name}"
+        for _, _, client_name, required in command.API_ARTIFACTS
+        for name in required
+    ],
+)
+def test_missing_generated_client_is_reported(workspace, relative):
+    (workspace / relative).unlink()
     with pytest.raises(ValueError, match="Generated version drift"):
         command.check(workspace)
 
 
-@pytest.mark.parametrize("failure", ["sync", "generate", "stale-output"])
+@pytest.mark.parametrize("failure", ["sync", "admin", "partner", "web", "stale-output"])
 def test_failed_bump_restores_manifests_locks_and_generated_artifacts(workspace, failure):
     before = {p: p.read_bytes() for p in workspace.rglob("*") if p.is_file()}
 
@@ -184,17 +216,63 @@ def test_failed_bump_restores_manifests_locks_and_generated_artifacts(workspace,
             write_lock(workspace, "0.2.0")
         elif args[1] == "sync" and failure == "sync":
             raise subprocess.CalledProcessError(1, args)
-        elif args == ["npm", "run", "admin:generate"] and failure == "generate":
-            write_generated(workspace, "0.2.0")
-            (workspace / command.ADMIN_CLIENT / "models/new.ts").write_text("partial generation")
-            (workspace / command.ADMIN_CLIENT / "models/article.ts").unlink()
-            raise subprocess.CalledProcessError(1, args)
+        elif args[:2] == ["npm", "run"] and failure != "stale-output":
+            app = args[2].split(":")[0]
+            write_generated(workspace, "0.2.0", app)
+            if failure == app:
+                client_name = next(item[2] for item in command.API_ARTIFACTS if item[0] == app)
+                (workspace / client_name / "models/new.ts").write_text("partial generation")
+                (workspace / client_name / "models/article.ts").unlink()
+                raise subprocess.CalledProcessError(1, args)
         # A generator that succeeds but retains old stamps must also fail check().
 
     with pytest.raises((subprocess.CalledProcessError, ValueError)):
         command.set_version(workspace, "0.2.0", runner=run)
     after = {p: p.read_bytes() for p in workspace.rglob("*") if p.is_file()}
     assert after == before
+    assert command.check(workspace) == "0.1.0"
+
+
+@pytest.mark.parametrize("failure", ["generation", "stale-output", "interrupt"])
+@pytest.mark.parametrize("app,route_root,marker", command.GENERATED_ROUTES)
+def test_failed_bump_restores_only_generator_owned_routes(
+    workspace, failure, app, route_root, marker
+):
+    modified = workspace / route_root / "auth/config/route.ts"
+    deleted = write_generated_route(workspace, app, "inventory", "0.1.0")
+    handwritten = workspace / route_root / "handwritten/route.ts"
+    handwritten.parent.mkdir(parents=True)
+    handwritten.write_text("export const GET = handwrittenHandler;\n")
+    original_routes = {path: path.read_bytes() for path in (modified, deleted)}
+    new_generated = workspace / route_root / "added/route.ts"
+    new_handwritten = workspace / route_root / "manual/route.ts"
+
+    def run(args, *, cwd, check):
+        if args == ["uv", "lock", "--offline"]:
+            write_lock(workspace, "0.2.0")
+        elif args[:2] == ["npm", "run"]:
+            generated_app = args[2].split(":")[0]
+            write_generated(workspace, "0.2.0", generated_app)
+            if generated_app == app:
+                deleted.unlink()
+                write_generated_route(workspace, app, "added", "0.2.0")
+                handwritten.write_text("export const GET = independentlyUpdatedHandler;\n")
+                new_handwritten.parent.mkdir(parents=True)
+                new_handwritten.write_text("export const POST = newHandwrittenHandler;\n")
+                if failure == "generation":
+                    raise subprocess.CalledProcessError(1, args)
+                if failure == "interrupt":
+                    raise KeyboardInterrupt
+                # Even a nominally successful generator must roll back if a
+                # concrete handler retains the old release's version stamp.
+                write_generated_route(workspace, app, "added", "0.1.0")
+
+    with pytest.raises((subprocess.CalledProcessError, ValueError, KeyboardInterrupt)):
+        command.set_version(workspace, "0.2.0", runner=run)
+    assert all(path.read_bytes() == content for path, content in original_routes.items())
+    assert not new_generated.exists()
+    assert handwritten.read_text() == "export const GET = independentlyUpdatedHandler;\n"
+    assert new_handwritten.read_text() == "export const POST = newHandwrittenHandler;\n"
     assert command.check(workspace) == "0.1.0"
 
 

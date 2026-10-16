@@ -5,19 +5,22 @@ WORKDIR /app
 ENV NEXT_TELEMETRY_DISABLED=1
 COPY package.json package-lock.json ./
 COPY apps/admin/package.json apps/admin/package.json
+COPY apps/partner/package.json apps/partner/package.json
 COPY apps/web/package.json apps/web/package.json
+COPY packages/http/package.json packages/http/package.json
 COPY packages/theme/package.json packages/theme/package.json
 COPY packages/ui/package.json packages/ui/package.json
 COPY packages/telemetry/package.json packages/telemetry/package.json
 COPY packages/braces packages/braces
 RUN --mount=type=cache,target=/root/.npm npm ci --ignore-scripts --no-audit --no-fund
+COPY packages/http packages/http
 COPY packages/theme packages/theme
 COPY packages/ui packages/ui
 COPY packages/telemetry packages/telemetry
 COPY apps/web apps/web
 # Reader type checks include the shared extension analytics regression test.
 COPY apps/extensions apps/extensions
-COPY scripts/assets/browser-icons.mjs scripts/assets/browser-icons.mjs
+COPY scripts/assets scripts/assets
 COPY scripts/ci scripts/ci
 RUN mkdir -p apps/web/public && npm run web:build && node packages/telemetry/scripts/private-sourcemaps.mjs apps/web/.next
 

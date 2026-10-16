@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { SourceSuggestion, SuggestSourceLink } from "@/components/source-suggestion";
 import { UserProvider } from "@/components/user-account";
 
@@ -8,18 +8,20 @@ afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
 });
-function setup(signedIn = true, status = 201) {
+const validReceipt = {
+  id: "11111111-1111-4111-8111-111111111111",
+  name: "Reader blog",
+  approval_status: "pending",
+  created_at: "2026-10-15T00:00:00Z",
+};
+function setup(signedIn = true, status = 201, receipt: unknown = validReceipt) {
   const fetcher = vi.fn(async (url: string, init?: RequestInit) => {
     if (url.endsWith("auth/me"))
       return Response.json(
         signedIn ? { user_id: "one", name: "Reader", csrf_token: "csrf" } : null,
       );
     if (url.endsWith("suggestions/preview")) return Response.json({ name: "Feed title" });
-    if (init?.method === "POST")
-      return Response.json(
-        status === 201 ? { name: "Reader blog", approval_status: "pending" } : {},
-        { status },
-      );
+    if (init?.method === "POST") return Response.json(status === 201 ? receipt : {}, { status });
     return Response.json({});
   });
   vi.stubGlobal("fetch", fetcher);
@@ -147,4 +149,79 @@ it("does not replace a manually edited name when the lookup finishes", async () 
   expect((screen.getByLabelText("Name (optional)") as HTMLInputElement).value).toBe(
     "Keep this name",
   );
+});
+
+it("aborts a pending submission on unmount and emits no late success event", async () => {
+  let finish!: (response: Response) => void;
+  let submissionSignal: AbortSignal | null | undefined;
+  const analytics = vi.fn();
+  window.addEventListener("devfeed:analytics", analytics);
+  vi.stubGlobal(
+    "fetch",
+    vi.fn((url: string, init?: RequestInit) => {
+      if (url.endsWith("auth/me"))
+        return Promise.resolve(Response.json({ user_id: "one", csrf_token: "csrf" }));
+      if (url.endsWith("preview")) return Promise.resolve(Response.json({ name: "Feed title" }));
+      submissionSignal = init?.signal;
+      return new Promise<Response>((resolve) => {
+        finish = resolve;
+      });
+    }),
+  );
+  try {
+    const view = render(
+      <UserProvider>
+        <SourceSuggestion />
+      </UserProvider>,
+    );
+    fireEvent.change(await screen.findByLabelText("RSS or Atom URL"), {
+      target: { value: "https://example.com/rss" },
+    });
+    await waitFor(
+      () =>
+        expect(
+          (screen.getByRole("button", { name: "Submit suggestion" }) as HTMLButtonElement).disabled,
+        ).toBe(false),
+      { timeout: 2000 },
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Submit suggestion" }));
+    expect(submissionSignal?.aborted).toBe(false);
+    view.unmount();
+    expect(submissionSignal?.aborted).toBe(true);
+    await act(async () =>
+      finish(Response.json({ ...validReceipt, name: "Late feed" }, { status: 201 })),
+    );
+    expect(analytics).not.toHaveBeenCalled();
+  } finally {
+    window.removeEventListener("devfeed:analytics", analytics);
+  }
+});
+
+it("retains the entered source and emits no success event for a malformed receipt", async () => {
+  setup(true, 201, { name: "Reader blog", approval_status: "pending" });
+  const analytics = vi.fn();
+  window.addEventListener("devfeed:analytics", analytics);
+  try {
+    render(
+      <UserProvider>
+        <SourceSuggestion />
+      </UserProvider>,
+    );
+    const input = await screen.findByLabelText("RSS or Atom URL");
+    fireEvent.change(input, { target: { value: "https://example.com/rss" } });
+    await waitFor(
+      () =>
+        expect(
+          (screen.getByRole("button", { name: "Submit suggestion" }) as HTMLButtonElement).disabled,
+        ).toBe(false),
+      { timeout: 2000 },
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Submit suggestion" }));
+    await screen.findByRole("alert");
+    expect((input as HTMLInputElement).value).toBe("https://example.com/rss");
+    expect(screen.queryByRole("heading", { name: "Suggestion received" })).toBeNull();
+    expect(analytics).not.toHaveBeenCalled();
+  } finally {
+    window.removeEventListener("devfeed:analytics", analytics);
+  }
 });

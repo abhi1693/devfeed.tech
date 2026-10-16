@@ -7,6 +7,7 @@ from devfeed_core.config import get_settings
 from devfeed_core.models import Topic, TopicRelation, TopicRelationProposal
 from devfeed_core.schemas import ORMModel
 from devfeed_core.services import OperationConflict
+from devfeed_core.text_search import text_search, topic_search
 from devfeed_core.topic_relationships import (
     RelationKind,
     RelationshipAnalysisRequest,
@@ -18,14 +19,13 @@ from devfeed_core.topic_relationships import (
     review_relationship,
 )
 from devfeed_core.topics import lock_topics
+from devfeed_http.pagination import Listing, Page, paginate, record
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from sqlalchemy import UUID, cast, func, literal, or_, select, union_all
 
 from devfeed_admin_api.auth import Admin, require_admin
 from devfeed_admin_api.dependencies import DB
 from devfeed_admin_api.jobs import AdminJobOut, job_view
-from devfeed_admin_api.pagination import Listing, Page, paginate, record
-from devfeed_admin_api.search import text_search, topic_search
 from devfeed_admin_api.topic_proposals import actor
 
 router = APIRouter(prefix="/v1/admin", tags=["admin-topics"], dependencies=[Depends(require_admin)])

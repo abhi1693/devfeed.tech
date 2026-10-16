@@ -5,6 +5,7 @@ import userEvent from "@testing-library/user-event";
 import { NotificationInbox } from "@/components/notification-inbox";
 import { UserProvider } from "@/components/user-account";
 import { notificationArticle, inboxPath } from "@/lib/inbox";
+import { articleDestination } from "@/lib/reader-destination";
 
 const router = vi.hoisted(() => ({ push: vi.fn() }));
 vi.mock("next/navigation", () => ({ useRouter: () => router }));
@@ -98,21 +99,39 @@ it("uses the shared inbox, marks seen and read with CSRF, opens an article modal
   expect(
     requests.filter((r) => r.path.includes("chimely")).every((r) => r.path.startsWith(inboxPath)),
   ).toBe(true);
+  await user.click(screen.getByRole("button", { name: /Notifications/ }));
+  const settings = await screen.findByRole("link", { name: "Notification settings" });
+  expect(settings.getAttribute("href")).toBe("/settings/notifications");
+  await user.click(settings);
+  expect(router.push).toHaveBeenLastCalledWith("/settings/notifications", { scroll: true });
   fireEvent(window, new Event("devfeed:user-session-expired"));
   expect(screen.queryByRole("button", { name: /Notifications/ })).toBeNull();
   expect(Events.instances.every((event) => event.closed)).toBe(true);
 });
 
-it("only opens local article URLs", () => {
-  expect(notificationArticle(`/articles/${article}`)).toBe(`/articles/${article}`);
-  expect(notificationArticle("/articles/docker-image-guide-42")).toBe(
-    "/articles/docker-image-guide-42",
+it("decodes notification URLs into typed registered article destinations", () => {
+  expect(notificationArticle(`/articles/${article}`)).toEqual(articleDestination(article));
+  expect(notificationArticle("/articles/docker-image-guide-42")).toEqual(
+    articleDestination("docker-image-guide-42"),
+  );
+  expect(notificationArticle("/articles/%64ocker-image-guide-42")).toEqual(
+    articleDestination("docker-image-guide-42"),
+  );
+  expect(notificationArticle("/articles/docker-image-guide-42/")).toEqual(
+    articleDestination("docker-image-guide-42"),
   );
   for (const url of [
     "//evil.test",
+    "https://evil.test/articles/docker-image-guide-42",
     "javascript:alert(1)",
     "/preferences",
     "/articles/../admin",
+    "/articles/invalid_slug",
+    "/articles/docker-image-guide-42?redirect=evil",
+    "/articles/docker-image-guide-42#fragment",
+    "/articles/docker-image-guide-42/edit",
+    "/articles/%2Fadmin",
+    "/articles/%ZZ",
     null,
   ])
     expect(notificationArticle(url)).toBeNull();

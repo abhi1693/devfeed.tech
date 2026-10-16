@@ -7,6 +7,7 @@ import { fileURLToPath } from "node:url";
 import { build } from "esbuild";
 import { chromium } from "playwright";
 import { checkBrowserIcons } from "../../../web/tests/browser/article-first.mjs";
+import { notificationFixture } from "../../../web/tests/browser/reader-interactions.mjs";
 
 // Run after npm run admin:build. All API traffic stays on disposable localhost servers.
 const root = fileURLToPath(new URL("../../../../", import.meta.url));
@@ -23,10 +24,61 @@ let mode = "populated",
   active = 0,
   maximum = 0;
 const requests = [];
+const inboxPath = "/v1/admin/notifications/chimely/v1/inbox";
+const inboxItems = notificationFixture();
+const inboxItem = inboxItems.items[0];
+inboxItem.category = "jobs.ingestion.success";
+inboxItem.payload = {
+  title: "Feed import completed",
+  body: "Imported articles are ready for review.",
+  severity: "success",
+};
+let inboxSeen = false;
+const inboxRequests = [];
+const inboxCounts = () => ({ unread: Number(!inboxItem.read), unseen: Number(!inboxSeen) });
 const fixture = createServer(async (req, res) => {
   const url = new URL(req.url, "http://localhost");
   let body = {};
-  if (url.pathname.endsWith("/auth/me"))
+  if (url.pathname.startsWith(inboxPath + "/")) {
+    const request = {
+      method: req.method,
+      path: url.pathname,
+      cookie: req.headers.cookie,
+      origin: req.headers.origin,
+      csrfToken: req.headers["x-csrf-token"],
+    };
+    inboxRequests.push(request);
+    if (req.method === "GET" && url.pathname === inboxPath + "/stream") {
+      request.streamClosed = false;
+      res.once("close", () => (request.streamClosed = true));
+      res.writeHead(200, {
+        "Content-Type": "text/event-stream",
+        "Cache-Control": "no-store",
+        "X-Accel-Buffering": "no",
+      });
+      res.write(": connected\n\n");
+      res.write('id: admin-fixture-1\nevent: hint\ndata: {"revision":1}\n\n');
+      // Keep the response open: the browser must receive the hint before EOF.
+      return;
+    }
+    if (req.method === "GET" && url.pathname === inboxPath + "/items") body = inboxItems;
+    else if (req.method === "GET" && url.pathname === inboxPath + "/counts") body = inboxCounts();
+    else if (req.method === "GET" && url.pathname === inboxPath + "/preferences")
+      body = { preferences: [] };
+    else if (req.method === "POST" && url.pathname === inboxPath + "/seen-all") {
+      inboxSeen = true;
+      body = inboxCounts();
+    } else if (
+      req.method === "POST" &&
+      url.pathname === `${inboxPath}/notifications/${inboxItem.id}/read`
+    ) {
+      inboxItem.read = true;
+      body = inboxCounts();
+    } else {
+      res.statusCode = 404;
+      body = { detail: "Unknown fixture inbox operation" };
+    }
+  } else if (url.pathname.endsWith("/auth/me"))
     body = {
       subject: "fixture",
       name: "Overview reviewer",
@@ -41,7 +93,8 @@ const fixture = createServer(async (req, res) => {
       appearance: { theme: "dark" },
       defaults: { refresh_seconds: mode.startsWith("live") ? 5 : 0, overview_days: 30 },
     };
-  else if (url.pathname.endsWith("/notifications/config")) body = { enabled: false };
+  else if (url.pathname.endsWith("/notifications/config"))
+    body = { enabled: true, environment: "admin-fixture", subscriber_id: "admin_fixture" };
   else if (url.pathname.endsWith("/ai/connection"))
     body = {
       state: "connected",
@@ -214,6 +267,19 @@ try {
     document.addEventListener("securitypolicyviolation", (event) => {
       window.__cspViolations.push(`${event.effectiveDirective}: ${event.blockedURI}`);
     });
+    window.__inboxStreams = [];
+    const NativeEventSource = window.EventSource;
+    window.EventSource = class extends NativeEventSource {
+      constructor(url, options) {
+        super(url, options);
+        const observed = { url: String(url), opened: false, hints: [] };
+        window.__inboxStreams.push(observed);
+        this.addEventListener("open", () => (observed.opened = true));
+        this.addEventListener("hint", (event) =>
+          observed.hints.push({ data: event.data, lastEventId: event.lastEventId }),
+        );
+      }
+    };
   });
   await context.addCookies([{ name: "devfeed_admin_session", value: "fixture", url: origin }]);
   const page = await context.newPage();
@@ -238,6 +304,48 @@ try {
     );
   console.log("Opening", origin);
   await page.goto(origin);
+  const initialSidebarBounds = [];
+  for (const height of [1080, 600]) {
+    await page.setViewportSize({ width: 1920, height });
+    await page.locator("#admin-sidebar").waitFor({ state: "visible" });
+    await page.waitForFunction(() => {
+      const bounds = document.querySelector("#admin-sidebar").getBoundingClientRect();
+      return bounds.width > 0 && bounds.height > 0 && Math.abs(bounds.bottom - innerHeight) <= 1;
+    });
+    const geometry = await page.locator("#admin-sidebar").evaluate((node) => {
+      const aside = node.getBoundingClientRect();
+      const toggle = node.querySelector(".sidebar-toggle").getBoundingClientRect();
+      return {
+        top: aside.top,
+        width: aside.width,
+        height: aside.height,
+        bottom: aside.bottom,
+        toggleTop: toggle.top,
+        toggleBottom: toggle.bottom,
+        viewportHeight: innerHeight,
+        scrollY,
+      };
+    });
+    initialSidebarBounds.push(geometry);
+    await page.screenshot({ path: `${output}/sidebar-initial-${height}.png` });
+  }
+  console.log("Initial sidebar geometry:", JSON.stringify(initialSidebarBounds));
+  for (const geometry of initialSidebarBounds) {
+    assert.ok(
+      geometry.width > 0 && geometry.height > 0,
+      "The rendered sidebar has measurable bounds",
+    );
+    assert.equal(
+      geometry.scrollY,
+      0,
+      "Initial sidebar measurement precedes any interaction or scroll",
+    );
+    assert.ok(
+      geometry.toggleTop >= 0 && geometry.toggleBottom <= geometry.viewportHeight + 1,
+      "Sidebar toggle is reachable before the static header scrolls away",
+    );
+  }
+  await page.setViewportSize({ width: 1920, height: 1080 });
   await checkBrowserIcons(page, true);
   const response = await page.request.get(origin);
   assert.match(response.headers()["content-security-policy"], /script-src [^;]*'nonce-[^']+'/);
@@ -268,6 +376,62 @@ try {
   assert.equal(await page.locator("main h2").count(), 6);
   assert.equal(await page.getByRole("navigation", { name: "Overview sections" }).count(), 1);
   assert.ok(maximum <= 4, `Concurrent overview requests: ${maximum}`);
+  await page.waitForFunction(() =>
+    window.__inboxStreams.some(
+      (stream) =>
+        stream.url.includes("/api/v1/admin/notifications/chimely/v1/inbox/stream") &&
+        stream.opened &&
+        stream.hints.some(
+          (hint) => hint.lastEventId === "admin-fixture-1" && hint.data === '{"revision":1}',
+        ),
+    ),
+  );
+  assert.ok(
+    inboxRequests.some(
+      (request) => request.path === inboxPath + "/stream" && !request.streamClosed,
+    ),
+    "Native EventSource receives the hint while the upstream response remains open",
+  );
+  const bell = page.getByRole("button", { name: "Notifications (1 new)", exact: true });
+  await bell.waitFor();
+  const seenResponse = page.waitForResponse(
+    (response) =>
+      new URL(response.url()).pathname === "/api" + inboxPath + "/seen-all" &&
+      response.request().method() === "POST",
+  );
+  await bell.click();
+  assert.equal((await seenResponse).status(), 200);
+  const notice = page.getByText("Feed import completed", { exact: true });
+  await notice.waitFor();
+  await page.locator(".devfeed-notification.chimely-item-unread").waitFor();
+  const readPath = `${inboxPath}/notifications/${inboxItem.id}/read`;
+  const readResponse = page.waitForResponse(
+    (response) =>
+      new URL(response.url()).pathname === "/api" + readPath &&
+      response.request().method() === "POST",
+  );
+  await notice.click();
+  assert.equal((await readResponse).status(), 200);
+  await page.locator(".devfeed-notification.chimely-item-unread").waitFor({ state: "hidden" });
+  assert.equal(await notice.isVisible(), true);
+  for (const path of [inboxPath + "/seen-all", readPath]) {
+    const mutation = inboxRequests.find(
+      (request) => request.method === "POST" && request.path === path,
+    );
+    assert.ok(mutation, `The real inbox SDK sent POST ${path}`);
+    assert.equal(mutation.csrfToken, "fixture");
+    assert.equal(mutation.origin, origin);
+    assert.match(mutation.cookie, /(?:^|;\s*)devfeed_admin_session=fixture(?:;|$)/);
+  }
+  for (const suffix of ["preferences", "items", "counts", "stream"])
+    assert.ok(
+      inboxRequests.some(
+        (request) => request.method === "GET" && request.path === `${inboxPath}/${suffix}`,
+      ),
+      `The real inbox SDK requested ${suffix} through the native gateway operation`,
+    );
+  await page.getByRole("button", { name: "Notifications", exact: true }).click();
+  await page.locator(".devfeed-inbox-panel").waitFor({ state: "hidden" });
   await page.getByRole("button", { name: "AI connection: AI connected" }).click();
   const connection = page.getByRole("dialog", { name: "AI connection" });
   await connection.getByRole("progressbar", { name: "Weekly quota" }).waitFor();
@@ -282,22 +446,90 @@ try {
     await page.getByRole("table", { name: "Worker capacity" }).innerText(),
     /Topic analysis\s+2\s+2\s+4/,
   );
+  const sidebar = page.locator("#admin-sidebar");
+  const administration = sidebar.getByRole("navigation", { name: "Administration", exact: true });
+  const waitForSidebarWidth = (target, width) =>
+    target.waitForFunction(
+      (expected) =>
+        Math.abs(
+          document.querySelector("#admin-sidebar").getBoundingClientRect().width - expected,
+        ) <= 1,
+      width,
+    );
+  await waitForSidebarWidth(page, 76);
+  assert.equal(await sidebar.getAttribute("data-expanded"), "false");
+  const navigationIcons = await administration
+    .getByRole("link")
+    .evaluateAll((links) => links.map((link) => link.querySelector("svg")?.getAttribute("class")));
+  assert.equal(
+    new Set(navigationIcons).size,
+    navigationIcons.length,
+    "Collapsed administration destinations have distinct icons",
+  );
+  assert.equal(
+    await administration
+      .getByRole("link", { name: "Overview", exact: true })
+      .getAttribute("aria-current"),
+    "page",
+  );
+  assert.equal(
+    await administration.getByRole("link", { name: "Products", exact: true }).getAttribute("title"),
+    "Products",
+  );
+  await page.screenshot({ path: `${output}/sidebar-collapsed-desktop.png` });
+  await page.getByRole("button", { name: "Expand sidebar", exact: true }).focus();
+  await page.keyboard.press("Enter");
+  await waitForSidebarWidth(page, 232);
+  assert.equal(
+    await page
+      .getByRole("button", { name: "Collapse sidebar", exact: true })
+      .evaluate((node) => document.activeElement === node),
+    true,
+  );
+  await page.screenshot({ path: `${output}/sidebar-expanded-desktop.png` });
+  const restored = await context.newPage();
+  await restored.goto(origin);
+  await waitForSidebarWidth(restored, 232);
+  assert.equal(await restored.locator("#admin-sidebar").getAttribute("data-expanded"), "true");
+  await restored.close();
+  await page.getByRole("button", { name: "Collapse sidebar", exact: true }).click();
+  await waitForSidebarWidth(page, 76);
+  await page.getByRole("button", { name: "Expand sidebar", exact: true }).focus();
+  await page.keyboard.press("Space");
+  await waitForSidebarWidth(page, 232);
   // The header scrolls away; the sticky sidebar must still fill the viewport.
   for (const height of [1080, 600]) {
     await page.setViewportSize({ width: 1920, height });
     await page.evaluate(() => window.scrollTo(0, 1200));
-    const sidebar = page.locator("#admin-sidebar");
+    await page.waitForFunction(() => {
+      const bounds = document.querySelector("#admin-sidebar").getBoundingClientRect();
+      return Math.abs(bounds.top) <= 1 && Math.abs(bounds.bottom - innerHeight) <= 1;
+    });
     const bounds = await sidebar.boundingBox();
     assert.ok(Math.abs(bounds.y) <= 1, "Sidebar should stick to the viewport top");
     assert.ok(
       Math.abs(bounds.y + bounds.height - height) <= 1,
       "Sidebar should reach the viewport bottom",
     );
-    await sidebar.evaluate((node) => (node.scrollTop = node.scrollHeight));
+    const content = sidebar.locator(".shared-sidebar-content");
+    await content.evaluate((node) => (node.scrollTop = node.scrollHeight));
     const last = await sidebar.getByRole("link").last().boundingBox();
     assert.ok(last.y >= 0 && last.y + last.height <= height, "Last navigation item is reachable");
+    const toggle = sidebar.getByRole("button", { name: "Collapse sidebar", exact: true });
+    const toggleBounds = await toggle.boundingBox();
+    assert.ok(
+      toggleBounds.y >= 0 && toggleBounds.y + toggleBounds.height <= height,
+      "Sidebar toggle stays visible outside the scrolling navigation",
+    );
+    await sidebar.getByRole("link").last().focus();
+    await page.keyboard.press("Tab");
+    assert.equal(
+      await toggle.evaluate((node) => document.activeElement === node),
+      true,
+      "Keyboard navigation reaches the pinned toggle after the last link",
+    );
     await page.screenshot({ path: `${output}/sidebar-scrolled-${height}.png` });
-    await sidebar.evaluate((node) => (node.scrollTop = 0));
+    await content.evaluate((node) => (node.scrollTop = 0));
   }
   await page.setViewportSize({ width: 1920, height: 1080 });
   await page.evaluate(() => window.scrollTo(0, 0));
@@ -353,6 +585,22 @@ try {
     window.scrollTo(0, 0);
   });
   await page.screenshot({ path: `${output}/mobile-top.png` });
+  const mobileNavigation = page.getByRole("button", { name: "Navigation", exact: true });
+  assert.equal(await mobileNavigation.getAttribute("aria-expanded"), "false");
+  await mobileNavigation.click();
+  await administration.waitFor({ state: "visible" });
+  assert.equal(await mobileNavigation.getAttribute("aria-expanded"), "true");
+  assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
+  await page.screenshot({ path: `${output}/sidebar-mobile-open.png` });
+  await page.keyboard.press("Escape");
+  assert.equal(await mobileNavigation.getAttribute("aria-expanded"), "false");
+  assert.equal(await mobileNavigation.evaluate((node) => document.activeElement === node), true);
+  await administration.waitFor({ state: "hidden" });
+  await mobileNavigation.click();
+  await administration.getByRole("link", { name: "Overview", exact: true }).click();
+  await administration.waitFor({ state: "hidden" });
+  assert.equal(await mobileNavigation.getAttribute("aria-expanded"), "false");
+  await page.screenshot({ path: `${output}/sidebar-mobile-closed.png` });
   assert.equal(await page.getByRole("button", { name: "Refresh all" }).count(), 0);
   assert.equal(await page.getByRole("status", { name: "Overview refresh status" }).count(), 0);
   mode = "diagnostic-failure";
@@ -447,6 +695,7 @@ try {
         passed: true,
         maximumConcurrentPanelRequests,
         initialPanels,
+        notificationRequests: inboxRequests,
         scenarios: [
           "desktop",
           "mobile",
@@ -459,7 +708,11 @@ try {
           "range change",
           "keyboard navigation to diagnostic failure",
           "sticky sidebar at 1080px and 600px heights",
+          "shared collapsed rail, persisted expansion, active routes and keyboard toggle",
+          "pinned toggle after scrolling long navigation, mobile link/Escape dismissal",
           "live polling, deltas, reconnect and recovery",
+          "real inbox SDK bell, items, counts, seen and read through native gateway operations",
+          "native EventSource receives an unbuffered hint before the stream closes",
         ],
         pageErrors: errors,
       },

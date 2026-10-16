@@ -9,9 +9,12 @@ from fastapi.telemetry import TelemetryConfig, get_telemetry_data
 from opentelemetry import metrics, trace
 from opentelemetry.context import Context
 
-from devfeed_http.admission import STREAM_PATHS
+from devfeed_http.route_policies import (
+    CURRENT_ROUTE_SCOPE,
+    RUNTIME_POLICY_SCOPE_KEY,
+    RouteRuntimePolicy,
+)
 
-EXCLUDED = frozenset({"/health/live", "/health/ready", "/version"})
 TRACE_ATTRIBUTES = frozenset(
     {
         "http.request.method",
@@ -139,9 +142,10 @@ class RuntimeHistogram(metrics.NoOpHistogram, RuntimeInstrument):
     def record(self, amount, attributes=None, context=None):
         if instrument := self.resolve():
             data = get_telemetry_data()
-            streaming = bool(
-                data and data.request and data.request.scope.get("path") in STREAM_PATHS
+            scope = CURRENT_ROUTE_SCOPE.get() or (
+                data.request.scope if data and data.request else {}
             )
+            streaming = RouteRuntimePolicy.from_scope(scope).admission == "stream"
             instrument.record(
                 amount,
                 {
@@ -191,5 +195,17 @@ def fastapi_telemetry() -> TelemetryConfig:
         "meter_provider": RuntimeMeterProvider(),
         "logs": False,  # Exception messages can contain credentials or user input.
         "operation_spans": True,
-        "exclude": lambda scope: current() is None or scope.get("path") in EXCLUDED,
+        "exclude": telemetry_excluded,
     }
+
+
+def telemetry_excluded(scope) -> bool:
+    if current() is None:
+        return True
+    if RUNTIME_POLICY_SCOPE_KEY in scope:
+        return RouteRuntimePolicy.from_scope(scope).telemetry_excluded
+    # Installation moves HTTP observation to the matched route boundary.
+    app = scope.get("app")
+    return scope.get("type") == "http" and (
+        app is not None and getattr(app.state, "runtime_policy_binding", None) is not None
+    )

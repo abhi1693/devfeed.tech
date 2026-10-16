@@ -16,7 +16,11 @@ vi.mock("next/navigation", () => ({ useRouter: () => navigation }));
 vi.mock("@/components/user-shell", () => ({
   UserShell: ({ children }: { children: ReactNode }) => children,
 }));
-const session = vi.hoisted(() => ({ user: null as UserIdentity | null, loading: false }));
+const session = vi.hoisted(() => ({
+  user: null as UserIdentity | null,
+  loading: false,
+  sessionRevision: 1,
+}));
 vi.mock("@/components/user-account", () => ({
   useUser: () => session,
   AccountGate: ({ children }: { children: ReactNode }) => children,
@@ -63,6 +67,7 @@ beforeEach(() => {
   session.user = null;
   localStorage.clear();
   session.loading = false;
+  session.sessionRevision = 1;
   navigation.refresh.mockClear();
 });
 
@@ -222,7 +227,9 @@ it("rolls back a rejected inline save, announces it and lets the reader retry", 
       .fn()
       .mockResolvedValueOnce(Response.json({ view: "cards" }))
       .mockResolvedValueOnce(Response.json({}, { status: 503 }))
-      .mockResolvedValueOnce(Response.json({ view: "compact" })),
+      .mockResolvedValueOnce(
+        Response.json({ view: "compact", content_types: [...contentTypes], languages: ["en"] }),
+      ),
   );
   render(<InlineApp />);
   const list = screen.getByRole("button", { name: "List view" });
@@ -238,35 +245,48 @@ it("rolls back a rejected inline save, announces it and lets the reader retry", 
   await waitFor(() => expect(screen.queryByRole("alert")).toBeNull());
 });
 
-it("ignores a previous account's inline save after another account restores its settings", async () => {
-  session.user = account;
-  let finish!: (response: Response) => void;
-  vi.stubGlobal(
-    "fetch",
-    vi
-      .fn()
-      .mockResolvedValueOnce(Response.json({ view: "cards" }))
-      .mockImplementationOnce(
-        () =>
-          new Promise<Response>((resolve) => {
+it.each(["account change", "credential refresh"])(
+  "aborts an earlier inline save on %s and ignores its late success",
+  async (change) => {
+    session.user = account;
+    let finish!: (response: Response) => void;
+    let writeSignal: AbortSignal | null | undefined;
+    const events = vi.spyOn(window, "dispatchEvent");
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        .mockResolvedValueOnce(Response.json({ view: "cards" }))
+        .mockImplementationOnce((_url: string, init?: RequestInit) => {
+          writeSignal = init?.signal;
+          return new Promise<Response>((resolve) => {
             finish = resolve;
-          }),
-      )
-      .mockResolvedValueOnce(Response.json({ view: "cards" })),
-  );
-  const app = render(<InlineApp />);
-  const list = screen.getByRole("button", { name: "List view" });
-  await waitFor(() => expect(list.hasAttribute("disabled")).toBe(false));
-  fireEvent.click(list);
-  session.user = { ...account, user_id: "second" };
-  app.rerender(<InlineApp />);
-  await act(async () => {});
-  await act(async () => finish(Response.json({ view: "compact" })));
-  expect(screen.queryByRole("table")).toBeNull();
-  expect(screen.getByRole("button", { name: "Grid view" }).getAttribute("aria-pressed")).toBe(
-    "true",
-  );
-});
+          });
+        })
+        .mockResolvedValueOnce(Response.json({ view: "cards" })),
+    );
+    const app = render(<InlineApp />);
+    const list = screen.getByRole("button", { name: "List view" });
+    await waitFor(() => expect(list.hasAttribute("disabled")).toBe(false));
+    fireEvent.click(list);
+    session.user =
+      change === "account change"
+        ? { ...account, user_id: "second" }
+        : { ...account, csrf_token: "fresh-csrf" };
+    session.sessionRevision++;
+    app.rerender(<InlineApp />);
+    expect(writeSignal?.aborted).toBe(true);
+    await act(async () => {});
+    await act(async () => finish(Response.json({ view: "compact" })));
+    expect(screen.queryByRole("table")).toBeNull();
+    expect(screen.getByRole("button", { name: "Grid view" }).getAttribute("aria-pressed")).toBe(
+      "true",
+    );
+    expect(events.mock.calls.filter(([event]) => event.type === "devfeed:analytics")).toHaveLength(
+      0,
+    );
+  },
+);
 
 it("retries unavailable preferences before allowing an inline write", async () => {
   session.user = account;
@@ -299,7 +319,9 @@ it("loads account preferences and saves a layout only after Save changes", async
   const fetcher = vi
     .fn()
     .mockResolvedValueOnce(Response.json({ view: "cards" }))
-    .mockResolvedValueOnce(Response.json({ view: "compact" }));
+    .mockResolvedValueOnce(
+      Response.json({ view: "compact", content_types: [...contentTypes], languages: ["en"] }),
+    );
   vi.stubGlobal("fetch", fetcher);
   render(<App />);
   await screen.findByRole("radio", { name: "Compact list" });
@@ -322,7 +344,9 @@ it("preserves the selected view and allows retry after a failed save", async () 
     .fn()
     .mockResolvedValueOnce(Response.json({ view: "compact" }))
     .mockResolvedValueOnce(Response.json({}, { status: 503 }))
-    .mockResolvedValueOnce(Response.json({ view: "cards" }));
+    .mockResolvedValueOnce(
+      Response.json({ view: "cards", content_types: [...contentTypes], languages: ["en"] }),
+    );
   vi.stubGlobal("fetch", fetcher);
   render(<App />);
   await screen.findAllByRole("table");
@@ -368,7 +392,11 @@ it("saves content selections with layout, prevents empty saves and resets all ty
     .fn()
     .mockResolvedValueOnce(Response.json({ view: "compact", content_types: ["news", "tutorial"] }))
     .mockResolvedValueOnce(
-      Response.json({ view: "compact", content_types: ["article", "news", "tutorial"] }),
+      Response.json({
+        view: "compact",
+        content_types: ["article", "news", "tutorial"],
+        languages: ["en"],
+      }),
     );
   vi.stubGlobal("fetch", fetcher);
   render(<App />);
@@ -427,4 +455,27 @@ it("defaults to English, saves multiple languages and prevents an empty selectio
   expect((screen.getByRole("checkbox", { name: "French" }) as HTMLInputElement).checked).toBe(
     false,
   );
+});
+
+it("retains the confirmed owner's article DOM during history checks and clears it for another owner", async () => {
+  session.user = account;
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async () =>
+      Response.json({ view: "cards", languages: ["en"], content_types: [...contentTypes] }),
+    ),
+  );
+  const app = () => (
+    <FeedPreferencesProvider>
+      <ArticleGrid articles={[article]} waitForPreferences />
+    </FeedPreferencesProvider>
+  );
+  const view = render(app());
+  const heading = await screen.findByRole("heading", { name: article.title });
+  session.loading = true;
+  view.rerender(app());
+  expect(screen.getByRole("heading", { name: article.title })).toBe(heading);
+  session.user = { ...account, user_id: "different-owner" };
+  view.rerender(app());
+  expect(screen.queryByRole("heading", { name: article.title })).toBeNull();
 });

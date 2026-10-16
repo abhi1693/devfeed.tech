@@ -3,7 +3,6 @@
 import uuid
 
 import pytest
-from devfeed_admin_api.search import text_search
 from devfeed_core.models import (
     Article,
     ArticleAnalysisJob,
@@ -15,6 +14,7 @@ from devfeed_core.models import (
     TopicRelation,
     TopicRelationProposal,
 )
+from devfeed_core.text_search import text_search
 from devfeed_core.topic_relationships import topic_snapshot
 from devfeed_core.urls import fingerprint
 from sqlalchemy import String, column, select, values

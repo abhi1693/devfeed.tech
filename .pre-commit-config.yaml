@@ -18,10 +18,10 @@ repos:
       - id: check-yaml
         args: [--allow-multiple-documents]
       - id: end-of-file-fixer
-        exclude: ^apps/admin/src/lib/api/generated/
+        exclude: ^apps/(admin|partner)/src/lib/api/generated/
       - id: trailing-whitespace
         args: [--markdown-linebreak-ext=md]
-        exclude: ^apps/admin/src/lib/api/generated/
+        exclude: ^apps/(admin|partner)/src/lib/api/generated/
 
   - repo: local
     hooks:
@@ -42,7 +42,7 @@ repos:
         entry: node node_modules/prettier/bin/prettier.cjs --write
         language: system
         files: \.(ts|tsx|js|jsx|mjs|cjs|mts|cts)$
-        exclude: (^|/)next-env\.d\.ts$|^apps/admin/src/lib/api/generated/
+        exclude: (^|/)next-env\.d\.ts$|^apps/(admin|partner)/src/lib/api/generated/
         require_serial: true
       - id: project-checks
         name: Affected project lint, types and unit tests

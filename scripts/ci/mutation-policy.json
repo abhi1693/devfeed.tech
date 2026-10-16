@@ -1,6 +1,12 @@
 {
   "auth": {
-    "tests": ["user-gateway", "server-config", "analytics-config", "mcp-config"],
+    "tests": [
+      "user-gateway",
+      "user-gateway-binding",
+      "server-config",
+      "analytics-config",
+      "mcp-config"
+    ],
     "files": {
       "apps/web/src/lib/server/config.ts": 93,
       "apps/web/src/lib/server/gateway.ts": 82

@@ -6,7 +6,7 @@ import { LoadingSkeleton } from "./loading-skeleton";
 import { useEffect, useId, useState } from "react";
 import type { ChimelyClient } from "@chimely/client";
 import { preferencesChanged } from "@devfeed/ui/notifications";
-import { userRequest } from "@/lib/user";
+import { userRequest, type NotificationDisplay } from "@/lib/user";
 import { createInboxClient, type InboxConfig } from "@/lib/inbox";
 import { AccountGate, useUser } from "./user-account";
 import { UserSettingsLayout } from "./user-settings-layout";
@@ -15,7 +15,6 @@ import {
   notificationDefaults,
   topicNotificationCategory,
   useNotificationPreferences,
-  type NotificationDisplay,
 } from "./notification-preferences-provider";
 
 type InboxState = {

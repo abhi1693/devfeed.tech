@@ -4,15 +4,31 @@
   "private": true,
   "type": "module",
   "exports": {
+    "./browser-theme": "./src/browser-theme.ts",
+    "./theme-script": "./src/theme-script.ts",
+    "./sidebar": "./src/sidebar.tsx",
+    "./sidebar.css": "./src/sidebar.css",
+    "./resource-layout": "./src/resource-layout.tsx",
     "./info-tip": "./src/info-tip.tsx",
     "./info-tip.css": "./src/info-tip.css",
     "./choice-controls": "./src/choice-controls.tsx",
     "./choice-controls.css": "./src/choice-controls.css",
     "./notifications": "./src/notifications.tsx",
     "./page-activity": "./src/page-activity.ts",
+    "./use-polling": "./src/use-polling.ts",
     "./inbox-fetch": "./src/inbox-fetch.ts",
     "./use-notification-sound": "./src/use-notification-sound.ts",
+    "./combobox": "./src/combobox.tsx",
     "./select": "./src/select.tsx",
+    "./product-destination-preview": "./src/product-destination-preview.tsx",
+    "./audience-targeting": "./src/audience-targeting.tsx",
+    "./advertising-formats": "./src/advertising-formats.tsx",
+    "./ad-link-rel": "./src/ad-link-rel.ts",
+    "./ad-link-rel-selector": "./src/ad-link-rel-selector.tsx",
+    "./connector-fields": "./src/connector-fields.tsx",
+    "./connection-logo": "./src/connection-logo.tsx",
+    "./connector-response": "./src/connector-response.tsx",
+    "./connector-response-mappings": "./src/connector-response-mappings.ts",
     "./markdown": "./src/markdown.tsx",
     "./content.css": "./src/content.css",
     "./theme-toggle": "./src/theme-toggle.tsx",
@@ -21,11 +37,22 @@
     "./date-picker": "./src/date-picker.tsx",
     "./sign-in": "./src/sign-in.tsx",
     "./use-debounced-image-preview": "./src/use-debounced-image-preview.ts",
-    "./notification-events": "./src/notification-events.ts"
+    "./notification-events": "./src/notification-events.ts",
+    "./dropdown-menu": "./src/dropdown-menu.tsx",
+    "./button": "./src/button.tsx",
+    "./input": "./src/input.tsx",
+    "./textarea": "./src/textarea.tsx",
+    "./table": "./src/table.tsx",
+    "./badge": "./src/badge.tsx",
+    "./chart": "./src/chart.tsx",
+    "./performance": "./src/performance.ts",
+    "./partner-performance": "./src/partner-performance.tsx"
   },
   "peerDependencies": {
     "react": "19.3.0",
-    "react-dom": "19.3.0"
+    "react-dom": "19.3.0",
+    "recharts": "3.10.1",
+    "next": "^16.4.0"
   },
   "dependencies": {
     "@chimely/client": "0.2.2",
@@ -34,6 +61,18 @@
     "lucide-react": "^1.49.0",
     "radix-ui": "1.6.7",
     "react-markdown": "^10.1.0",
-    "remark-gfm": "^4.0.1"
+    "remark-gfm": "^4.0.1",
+    "clsx": "^2.1.1",
+    "tailwind-merge": "^3.7.0",
+    "class-variance-authority": "^0.7.1",
+    "cn": "^0.4.0"
+  },
+  "peerDependenciesMeta": {
+    "recharts": {
+      "optional": true
+    },
+    "next": {
+      "optional": true
+    }
   }
 }

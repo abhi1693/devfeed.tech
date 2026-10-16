@@ -76,7 +76,10 @@ open that web app before enabling notifications.
 Web Push uses the browser vendors' standard relays with no notification SaaS account,
 Firebase SDK or notification-provider fee. The existing PostgreSQL outbox, scheduler
 and common RQ workers handle selection and delivery independently of Chimely. Run
-database migration `0023` before deploying this feature.
+database migration `0025` after the existing partnership revision `0024` before deploying
+this feature. Published migrations remain unchanged. Disposable development databases
+with the earlier draft push revision `0023` must be recreated against the current schema
+before testing this revision.
 
 Generate a key pair outside the checkout; the helper creates a mode-0600 file and
 refuses to overwrite existing keys:
@@ -216,5 +219,5 @@ An open also establishes a click when its separate click acknowledgement was los
 Feedback has short timeouts and bounded retries outside the consent queue. Reporting
 failures never block notification display, article navigation or consent revocation.
 No new analytics provider is used. The receipt timestamps are nullable additions to
-the same unreleased migration `0023`; earlier draft development databases need the
+the same unreleased migration `0025`; earlier draft development databases need the
 same coordinated reset described for the notification outbox.

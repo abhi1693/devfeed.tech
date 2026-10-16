@@ -254,7 +254,9 @@ describe("workflow feedback", () => {
       vi.mocked(adminArticleReview).mockResolvedValueOnce(
         {} as Awaited<ReturnType<typeof adminArticleReview>>,
       );
-      withAdmin(<ResourceWorkflow resource="articles" id="article-1" action="review" />);
+      withAdmin(
+        <ResourceWorkflow identity={{ resource: "articles", id: "article-1" }} action="review" />,
+      );
       fireEvent.click(await screen.findByRole("combobox", { name: "Decision" }));
       fireEvent.click(screen.getByRole("option", { name: new RegExp(`^${decision}$`, "i") }));
       fireEvent.change(screen.getByLabelText(/Reason/), {
@@ -273,7 +275,9 @@ describe("workflow feedback", () => {
   );
   it.each(["approved", "rejected"])("confirms source %s", async (decision) => {
     vi.mocked(getRecord).mockResolvedValueOnce({ id: "source-1", name: "News" });
-    withAdmin(<ResourceWorkflow resource="sources" id="source-1" action="review" />);
+    withAdmin(
+      <ResourceWorkflow identity={{ resource: "sources", id: "source-1" }} action="review" />,
+    );
     fireEvent.click(await screen.findByRole("combobox", { name: "Decision" }));
     fireEvent.click(screen.getByRole("option", { name: new RegExp(`^${decision}$`, "i") }));
     fireEvent.change(screen.getByLabelText(/Reason/), { target: { value: "Reviewed." } });
@@ -285,7 +289,9 @@ describe("workflow feedback", () => {
     vi.mocked(adminSourceFetch).mockResolvedValueOnce({ id: "job-1" } as Awaited<
       ReturnType<typeof adminSourceFetch>
     >);
-    withAdmin(<ResourceWorkflow resource="sources" id="source-1" action="fetch" />);
+    withAdmin(
+      <ResourceWorkflow identity={{ resource: "sources", id: "source-1" }} action="fetch" />,
+    );
     fireEvent.click(await screen.findByRole("button", { name: "Queue fetch" }));
     await waitFor(() =>
       expect(toast.success).toHaveBeenCalledWith("Feed fetch requested", expect.any(Object)),
@@ -296,7 +302,9 @@ describe("workflow feedback", () => {
     vi.mocked(adminArticleReview).mockRejectedValueOnce(
       new ApiError(422, "Please correct the highlighted fields.", { note: "Reason is required." }),
     );
-    withAdmin(<ResourceWorkflow resource="articles" id="article-1" action="review" />);
+    withAdmin(
+      <ResourceWorkflow identity={{ resource: "articles", id: "article-1" }} action="review" />,
+    );
     fireEvent.click(await screen.findByRole("button", { name: "Apply decision" }));
     await waitFor(() =>
       expect(toast.error).toHaveBeenCalledWith("Could not apply decision", expect.any(Object)),
@@ -306,7 +314,9 @@ describe("workflow feedback", () => {
     expect(router.replace).not.toHaveBeenCalled();
   });
   it("confirms classification and explains its review reset", async () => {
-    withAdmin(<ResourceWorkflow resource="articles" id="article-1" action="classify" />);
+    withAdmin(
+      <ResourceWorkflow identity={{ resource: "articles", id: "article-1" }} action="classify" />,
+    );
     fireEvent.click(await screen.findByRole("button", { name: "Save classification" }));
     await waitFor(() => expect(adminArticleClassify).toHaveBeenCalled());
     expect(toast.success).toHaveBeenCalledWith(
@@ -329,7 +339,9 @@ describe("workflow feedback", () => {
         ...article,
         classification_provenance: { origin: "manual", developer_relevance: saved },
       });
-      withAdmin(<ResourceWorkflow resource="articles" id="article-1" action="classify" />);
+      withAdmin(
+        <ResourceWorkflow identity={{ resource: "articles", id: "article-1" }} action="classify" />,
+      );
       const selector = await screen.findByRole("combobox", { name: /Developer relevance/ });
       expect(selector.textContent?.toLowerCase()).toContain(expected);
       fireEvent.change(screen.getByLabelText("Review note"), {
@@ -359,7 +371,9 @@ describe("workflow feedback", () => {
       ...article,
       classification_provenance: { developer_relevance: "relevant", page_kind: saved },
     });
-    withAdmin(<ResourceWorkflow resource="articles" id="article-1" action="classify" />);
+    withAdmin(
+      <ResourceWorkflow identity={{ resource: "articles", id: "article-1" }} action="classify" />,
+    );
     const selector = await screen.findByRole("combobox", { name: /Page kind/ });
     expect(selector.textContent?.toLowerCase().replaceAll("_", " ")).toContain(expected);
     fireEvent.click(screen.getByRole("button", { name: "Save classification" }));
@@ -376,7 +390,9 @@ describe("workflow feedback", () => {
       ...article,
       classification_provenance: { developer_relevance: "relevant" },
     });
-    withAdmin(<ResourceWorkflow resource="articles" id="article-1" action="classify" />);
+    withAdmin(
+      <ResourceWorkflow identity={{ resource: "articles", id: "article-1" }} action="classify" />,
+    );
     fireEvent.click(await screen.findByRole("combobox", { name: /Developer relevance/ }));
     fireEvent.click(screen.getByRole("option", { name: /^Unrelated$/i }));
     fireEvent.click(screen.getByRole("button", { name: "Save classification" }));

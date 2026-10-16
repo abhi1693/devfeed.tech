@@ -76,9 +76,15 @@ function ConnectedInbox({ config, csrfToken }: { config: NotificationConfig; csr
           filter: (item) => ["warning", "error"].includes(String(item.payload.severity)),
         },
       ]}
-      actionUrl={inboxAction}
-      onNavigate={(href) => router.push(href)}
-      footer={{ href: "/jobs/notifications", label: "Notification delivery logs" }}
+      actionDestination={(value) => {
+        const href = inboxAction(value);
+        return href ? { href } : null;
+      }}
+      onNavigate={(destination) => router.push(destination.href)}
+      footer={{
+        destination: { href: "/jobs/notifications" },
+        label: "Notification delivery logs",
+      }}
     />
   );
 }

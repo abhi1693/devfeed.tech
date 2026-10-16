@@ -1,5 +1,7 @@
 // Shared allowlist for the extension and its server relay. Never accept raw URLs,
 // search text, account identifiers, profile fields, or arbitrary GA parameters.
+import { readerRouteLabels, readerScreenNames, resolveReaderRoute } from "./reader-routes";
+
 const identifier = (value: unknown) =>
   typeof value === "string" && /^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/i.test(value);
 const count = (value: unknown) =>
@@ -16,30 +18,7 @@ const choice =
   (value: unknown) =>
     typeof value === "string" && values.includes(value);
 type Check = (value: unknown) => boolean;
-const screens = [
-  "/",
-  "/articles",
-  "/search",
-  "/topics",
-  "/topics/detail",
-  "/sources",
-  "/sources/detail",
-  "/sources/suggest",
-  "/latest",
-  "/read-later",
-  "/settings/profile",
-  "/settings/appearance",
-  "/settings/feed",
-  "/settings/notifications",
-  "/settings/topics",
-  "/settings/sources",
-  "/news",
-  "/tutorials",
-  "/releases",
-  "/comparisons",
-  "/opinions",
-  "/other",
-];
+const screens = [...readerScreenNames, "/other"];
 const fields: Record<string, Record<string, Check>> = {
   dev_card_view: {},
   dev_card_create_click: {},
@@ -92,12 +71,7 @@ export function extensionEvent(value: unknown): ExtensionEvent | null {
 }
 export function extensionPage(route: string) {
   const path = route.split(/[?#]/)[0];
-  if (path === "/settings") return "/settings/profile";
-  if (screens.includes(path)) return path;
-  if (/^\/articles\/[a-z0-9-]+$/i.test(path)) return "/articles";
-  if (/^\/topics\/[a-z0-9-]+(?:\/[a-z-]+)?$/i.test(path)) return "/topics/detail";
-  if (/^\/sources\/[a-z0-9-]+(?:\/[a-z-]+)?$/i.test(path)) return "/sources/detail";
-  return "/other";
+  return readerRouteLabels(resolveReaderRoute(path))?.screen ?? "/other";
 }
 export function extensionPayload(value: unknown) {
   if (!value || typeof value !== "object") return null;
@@ -143,8 +117,7 @@ export function extensionPayload(value: unknown) {
           client_platform: data.client_platform ?? "chrome_extension",
           extension_version: data.extension_version,
           extension_surface: data.extension_surface ?? "newtab",
-          page_category:
-            "page_path" in event.params ? extensionPage(event.params.page_path as string) : "other",
+          page_category: "page_path" in event.params ? event.params.page_path : "other",
           locale: data.locale ?? "und",
           timezone: data.timezone ?? "UTC",
           viewport_width: data.viewport_width ?? 0,

@@ -104,7 +104,18 @@ it("enforces both the 50,000-entry and 52,428,800-byte uncompressed limits", () 
 }, 15000);
 
 it("rejects traversal, empty slugs and malformed inventory instead of advertising invalid XML", async () => {
-  for (const path of ["/tags/", "/tags/../settings", "/tags/%2E%2E", "/tags/x/y", "/tags/%ZZ"]) {
+  for (const path of [
+    "/tags/",
+    "/tags/../settings",
+    "/tags/%2E%2E",
+    "/tags/x/y",
+    "/tags/x/",
+    "/tags/%ZZ",
+    "/tags/a%2Fb",
+    "/tags/a%5Cb",
+    "/tags/a%00b",
+    "/topics/wrong-inventory",
+  ]) {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json({ paths: [path] })));
     expect(
       (await sitemapPart(new Request(origin + "/sitemap-tags-1.xml"), "tags", "1")).status,

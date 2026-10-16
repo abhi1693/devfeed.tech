@@ -9,9 +9,18 @@ import { build } from "esbuild";
 import { chromium } from "playwright";
 import { lighthouseConfig, readerPaths, runs } from "./browser-performance-config.mjs";
 import { checkMeasurements, measurementSummary } from "./browser-performance-report.mjs";
+import { applyArticleSnapshot, publicPlacementResponse } from "./browser-performance-fixture.mjs";
 
 const root = fileURLToPath(new URL("../../", import.meta.url));
-const output = `${root}/reports/browser-performance`;
+const articleEntryPhase = process.argv
+  .find((arg) => arg.startsWith("--article-entry="))
+  ?.split("=")[1];
+if (articleEntryPhase && !["before", "after"].includes(articleEntryPhase))
+  throw new Error("Article entry phase must be before or after");
+const measurementRuns = articleEntryPhase ? 5 : runs;
+const output = articleEntryPhase
+  ? `${root}/reports/article-entry/${articleEntryPhase}`
+  : `${root}/reports/browser-performance`;
 const imageDirectory = `${root}/apps/web/public/_browser-budgets`;
 const sharp = createRequire(`${root}/apps/web/package.json`)("sharp");
 // Keep local credentials and production telemetry out of fixture builds and servers.
@@ -143,7 +152,8 @@ function fixtureServer(fixture, origin) {
   ]);
   const server = createServer((req, res) => {
     const path = new URL(req.url, origin).pathname;
-    let body = bodies.get(path);
+    let body =
+      path === "/v1/partner-placements/query" ? publicPlacementResponse(req) : bodies.get(path);
     if (body === undefined) {
       unknown.add(path);
       res.statusCode = 404;
@@ -178,12 +188,18 @@ async function checkPageContent(urls) {
       const page = await context.newPage();
       const errors = [];
       page.on("pageerror", (error) => errors.push(error.message));
+      const pathname = new URL(url).pathname;
+      const profileRefresh = pathname.startsWith("/users/")
+        ? page.waitForResponse(
+            (response) => new URL(response.url()).pathname === `/api/v1${pathname}`,
+          )
+        : null;
       assert.equal((await page.goto(url)).status(), 200);
       assert.equal(page.url(), url);
-      const pathname = new URL(url).pathname;
       if (pathname === "/topics" || pathname === "/sources") {
-        await page.locator(".catalog-card").first().waitFor();
-        assert.equal(await page.locator(".catalog-card").count(), 60);
+        const cards = page.locator(".catalog-card:visible");
+        await cards.first().waitFor();
+        assert.equal(await cards.count(), 60);
       } else if (pathname === "/leaderboard") {
         for (const name of ["Longest streak", "Most reading days"]) {
           const board = page.getByRole("region", { name, exact: true });
@@ -191,12 +207,25 @@ async function checkPageContent(urls) {
           assert.equal(await board.getByRole("listitem").count(), 10);
         }
       } else if (pathname.startsWith("/users/")) {
+        assert.equal((await profileRefresh).status(), 200, "Public profile visibility revalidated");
         await page.getByRole("heading", { name: "Budget fixture reader", exact: true }).waitFor();
-        assert.equal(await page.locator(".public-profile-day[title]").count(), 365);
-        assert.equal(await page.locator(".public-profile-technology").count(), 12);
+        // Hydration hides the streamed profile while checking its current visibility.
+        const contents = await page.waitForFunction(() => {
+          const profile = document.querySelector(".public-profile");
+          return profile
+            ? {
+                days: profile.querySelectorAll(".public-profile-day[title]").length,
+                technologies: profile.querySelectorAll(".public-profile-technology").length,
+              }
+            : null;
+        });
+        const counts = await contents.jsonValue();
+        await contents.dispose();
+        assert.equal(counts.days, 365);
+        assert.equal(counts.technologies, 12);
       } else if (pathname.startsWith("/articles/")) {
         await page.locator("#article-preview-title").waitFor();
-        await page.getByRole("link", { name: "Read tutorial", exact: true }).waitFor();
+        await page.locator(".preview-read-button").waitFor();
         const cover = page.locator(".preview-cover img");
         assert.equal(await cover.getAttribute("loading"), "eager");
         assert.equal(await cover.getAttribute("fetchpriority"), "high");
@@ -213,8 +242,10 @@ async function checkPageContent(urls) {
           "Only the first visible backdrop cover should have priority",
         );
       } else {
-        await page.locator(".article-card").first().waitFor();
-        assert.equal(await page.locator(".article-card").count(), 24);
+        // React may retain a hidden streamed copy outside the rendered feed.
+        const cards = page.locator(".article-card:visible");
+        await cards.first().waitFor();
+        assert.equal(await cards.count(), 24, `Initial visible feed batch on ${url}`);
       }
       await page.waitForFunction(() => {
         const images = [...document.querySelectorAll("main img")].filter((image) => {
@@ -247,9 +278,19 @@ async function audit() {
     .toFile(`${imageDirectory}/icon.webp`);
   const origin = await freePort();
   const fixture = await loadFixture(`${root}/apps/web/tests/fixtures.ts`);
+  const snapshotPath = process.argv
+    .find((arg) => arg.startsWith("--article-fixture="))
+    ?.slice("--article-fixture=".length);
+  if (snapshotPath) {
+    const snapshot = JSON.parse(await readFile(snapshotPath, "utf8"));
+    applyArticleSnapshot(fixture, snapshot, articleEntryPhase);
+    await writeFile(`${output}/article-fixture.json`, JSON.stringify(snapshot, null, 2));
+  }
   const { server, unknown } = fixtureServer(fixture, origin);
   const upstream = await listen(server);
-  const urls = readerPaths(fixture.article.slug).map((path) => origin + path);
+  const urls = readerPaths(fixture.article.slug)
+    .filter((path) => !articleEntryPhase || path.startsWith("/articles/"))
+    .map((path) => origin + path);
   const appEnv = {
     DEVFEED_PUBLIC_API_URL: upstream,
     DEVFEED_USER_API_URL: upstream,
@@ -275,6 +316,7 @@ async function audit() {
     await checkPageContent(urls);
     assert.deepEqual([...unknown], [], "Some API fixtures are missing");
     const config = lighthouseConfig(urls, chromium.executablePath(), `${destination}/html`);
+    config.ci.collect.numberOfRuns = measurementRuns;
     const configPath = `${destination}/config.json`;
     await writeFile(configPath, JSON.stringify(config, null, 2));
     await run(process.execPath, [lhci, "collect", `--config=${configPath}`], destination);
@@ -284,7 +326,7 @@ async function audit() {
         .filter((name) => /^lhr-.*\.json$/.test(name))
         .map(async (name) => JSON.parse(await readFile(`${raw}/${name}`, "utf8"))),
     );
-    checkMeasurements(reports, urls, runs);
+    checkMeasurements(reports, urls, measurementRuns);
     // Export the HTML even when an assertion fails, so the failure is reviewable.
     await run(process.execPath, [lhci, "upload", `--config=${configPath}`], destination);
     let failed;

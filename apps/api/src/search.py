@@ -7,6 +7,7 @@ from datetime import time as day_time
 from typing import Literal
 
 from devfeed_core.config import get_settings
+from devfeed_core.partner_link_rel import LinkRel, default_link_rel
 from devfeed_core.rate_limits import RateLimitBudget, consume_rate_limits
 from devfeed_core.schemas import ContentType, DatabaseText, ImageVariant
 from devfeed_core.search_clicks import SearchClickTokens
@@ -18,19 +19,22 @@ from devfeed_core.search_suggestions import (
     query_hash,
     record_successful_query,
 )
+from devfeed_http.body_limits import RequestBodyPolicy
 from fastapi import APIRouter, HTTPException, Query, Response
 from pydantic import BaseModel, Field
 from redis.exceptions import RedisError
 from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 
-from devfeed_api.cache import CachedReadRoute
+from devfeed_api.cache import CachedReadRoute, CachePolicy
 from devfeed_api.dependencies import DB, get_rate_limit_redis
 
 router = APIRouter(prefix="/v1/search", tags=["discovery"], route_class=CachedReadRoute)
 
 
 class SearchHit(BaseModel):
+    sponsor_names: list[str] = Field(default_factory=list)
+    sponsor_link_rel: list[LinkRel] = Field(default_factory=default_link_rel)
     logo_variants: list[ImageVariant] = Field(default_factory=list)
     id: uuid.UUID
     title: str
@@ -64,7 +68,13 @@ def click_tokens() -> SearchClickTokens | None:
     return SearchClickTokens(key.get_secret_value()) if key else None
 
 
-@router.get("/suggestions", response_model=list[str])
+@router.get(
+    "/suggestions",
+    response_model=list[str],
+    openapi_extra=CachePolicy(
+        namespace="search-suggestions", revision=1, ttl="content"
+    ).openapi_extra(),
+)
 def suggestions(
     session: DB,
     q: str = Query("", max_length=200),
@@ -78,7 +88,12 @@ def suggestions(
         raise HTTPException(422, "Invalid search suggestion prefix") from None
 
 
-@router.post("/analytics/click", status_code=204, response_class=Response)
+@router.post(
+    "/analytics/click",
+    status_code=204,
+    response_class=Response,
+    openapi_extra=RequestBodyPolicy(body_limit=4096).openapi_extra(),
+)
 def successful_click(body: SearchClick, session: DB):
     headers = {"Cache-Control": "no-store"}
     try:
@@ -127,7 +142,11 @@ def successful_click(body: SearchClick, session: DB):
     return Response(status_code=204, headers=headers)
 
 
-@router.get("", response_model=SearchResponse)
+@router.get(
+    "",
+    response_model=SearchResponse,
+    openapi_extra=CachePolicy(namespace="search", revision=1, ttl="content").openapi_extra(),
+)
 def search(
     session: DB,
     q: str = Query("", max_length=200),

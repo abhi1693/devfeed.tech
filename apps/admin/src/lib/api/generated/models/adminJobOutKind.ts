@@ -3,7 +3,7 @@
  * Do not edit manually.
  * DevFeed Admin API
  * Private administration API. OIDC sessions and CSRF protection required.
- * OpenAPI spec version: 0.0.51
+ * OpenAPI spec version: 0.0.52
  */
 
 export type AdminJobOutKind = typeof AdminJobOutKind[keyof typeof AdminJobOutKind];
@@ -12,6 +12,8 @@ export type AdminJobOutKind = typeof AdminJobOutKind[keyof typeof AdminJobOutKin
 export const AdminJobOutKind = {
   ingestion: 'ingestion',
   'source-discovery': 'source-discovery',
+  'partner-evaluation': 'partner-evaluation',
+  'partner-pipeline': 'partner-pipeline',
   'article-enrichment': 'article-enrichment',
   images: 'images',
   'source-enrichment': 'source-enrichment',

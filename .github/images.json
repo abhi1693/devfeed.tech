@@ -31,7 +31,9 @@
         "apps/notifications/**",
         "apps/article-enrichment-worker/**"
       ],
-      "platforms": ["linux/arm64"],
+      "platforms": [
+        "linux/arm64"
+      ],
       "smoke-script": ".github/scripts/smoke-image.sh"
     },
     {
@@ -54,7 +56,9 @@
         "apps/notifications/**",
         "apps/images-worker/**"
       ],
-      "platforms": ["linux/arm64"],
+      "platforms": [
+        "linux/arm64"
+      ],
       "smoke-script": ".github/scripts/smoke-image.sh"
     },
     {
@@ -77,7 +81,9 @@
         "apps/notifications/**",
         "apps/source-discovery-worker/**"
       ],
-      "platforms": ["linux/arm64"],
+      "platforms": [
+        "linux/arm64"
+      ],
       "smoke-script": ".github/scripts/smoke-image.sh"
     },
     {
@@ -85,7 +91,9 @@
       "image": "ghcr.io/abhi1693/devfeed.tech/mcp",
       "context": ".",
       "file": "apps/mcp/Dockerfile",
-      "platforms": ["linux/arm64"],
+      "platforms": [
+        "linux/arm64"
+      ],
       "smoke-script": ".github/scripts/smoke-image.sh"
     },
     {
@@ -133,6 +141,26 @@
       "image": "ghcr.io/abhi1693/devfeed.tech/codex",
       "context": ".",
       "file": "infra/codex/Dockerfile",
+      "platforms": [
+        "linux/arm64"
+      ],
+      "smoke-script": ".github/scripts/smoke-image.sh"
+    },
+    {
+      "id": "partner-api",
+      "image": "ghcr.io/abhi1693/devfeed.tech/partner-api",
+      "context": ".",
+      "file": "apps/partner-api/Dockerfile",
+      "platforms": [
+        "linux/arm64"
+      ],
+      "smoke-script": ".github/scripts/smoke-image.sh"
+    },
+    {
+      "id": "partner",
+      "image": "ghcr.io/abhi1693/devfeed.tech/partner",
+      "context": ".",
+      "file": "apps/partner/Dockerfile",
       "platforms": [
         "linux/arm64"
       ],

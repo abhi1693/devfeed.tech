@@ -2,11 +2,16 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { createElement, type ReactNode } from "react";
 import { renderToReadableStream } from "react-dom/server";
 import ArticlePage, { generateMetadata } from "@/app/articles/[slug]/page";
+import InterceptedArticle from "@/app/@modal/(.)articles/[slug]/page";
 import { loadArticle } from "@/lib/article";
 import { getFeed, getFeedOptions } from "@/lib/api";
 import type { Article, FeedOptions, FeedPage } from "@/lib/types";
 import type { FeedContentProps } from "@/components/feed-content";
+import type { ArticleIdentity } from "@/lib/reader-context";
 
+vi.mock("next/headers", () => ({
+  headers: async () => new Headers({ "content-security-policy": "script-src 'nonce-test-nonce'" }),
+}));
 vi.mock("@/lib/article", () => ({ loadArticle: vi.fn() }));
 vi.mock("@/lib/api", () => ({ getFeed: vi.fn(), getFeedOptions: vi.fn() }));
 vi.mock("@/components/user-shell", () => ({
@@ -16,8 +21,16 @@ vi.mock("@/components/loading-skeleton", () => ({
   LoadingSkeleton: () => <p>Loading background feed</p>,
 }));
 vi.mock("@/components/article-modal", () => ({
-  ArticleModal: ({ children, slug }: { children: ReactNode; slug: string }) => (
-    <dialog open data-slug={slug}>
+  ArticleModal: ({
+    children,
+    slug,
+    article,
+  }: {
+    children: ReactNode;
+    slug?: string;
+    article?: ArticleIdentity;
+  }) => (
+    <dialog open data-slug={slug} data-article-id={article?.id} data-article-slug={article?.slug}>
       {children}
     </dialog>
   ),
@@ -104,8 +117,15 @@ it.each([false, true])(
       const shell = decoder.decode(first.value);
       expect(first.done).toBe(false);
       expect(shell).toContain("Requested article");
+      expect(shell).toContain('nonce="test-nonce"');
+      expect(shell).toContain("dialog.showModal()");
       expect(shell).toContain('data-slug="requested-article"');
+      expect(shell).toContain('data-article-id="article-id"');
+      expect(shell).toContain('data-article-slug="requested-article"');
       expect(shell).toContain("Loading background feed");
+      expect(shell.indexOf("Requested article")).toBeLessThan(
+        shell.indexOf("Loading background feed"),
+      );
       expect(shell).not.toContain("Background article");
       expect(getFeed).toHaveBeenCalledTimes(1);
       expect(getFeedOptions).toHaveBeenCalledTimes(1);
@@ -140,6 +160,8 @@ it("renders an unavailable article with retry without loading the background fee
   expect(html).toContain("Article temporarily unavailable");
   expect(html).toContain("Try again");
   expect(html).toContain('data-slug="requested-article"');
+  expect(html).not.toContain("data-article-id");
+  expect(html).not.toContain("data-article-slug");
   expect(getFeed).not.toHaveBeenCalled();
   expect(getFeedOptions).not.toHaveBeenCalled();
 });
@@ -160,4 +182,24 @@ it("prevents indexing an unavailable article", async () => {
     title: "Article temporarily unavailable",
     robots: { index: false, follow: false },
   });
+});
+
+it("provides the actual loaded article identity for intercepted previews", async () => {
+  const stream = await renderToReadableStream(await InterceptedArticle(params()));
+  const html = await new Response(stream).text();
+  expect(html).toContain('data-article-id="article-id"');
+  expect(html).toContain('data-article-slug="requested-article"');
+  expect(html).toContain("Requested article");
+  expect(html).toContain('data-slug="requested-article"');
+  expect(getFeed).not.toHaveBeenCalled();
+});
+
+it("does not publish an article visit when an intercepted preview is unavailable", async () => {
+  vi.mocked(loadArticle).mockResolvedValue(null);
+  const stream = await renderToReadableStream(await InterceptedArticle(params()));
+  const html = await new Response(stream).text();
+  expect(html).toContain("Article temporarily unavailable");
+  expect(html).toContain('data-slug="requested-article"');
+  expect(html).not.toContain("data-article-id");
+  expect(html).not.toContain("data-article-slug");
 });

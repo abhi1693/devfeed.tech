@@ -4,12 +4,22 @@ import { useMutation, useMutationState, useQuery, useQueryClient } from "@tansta
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useUser } from "@/components/user-account";
 import { AccountError, userRequest } from "./user";
+import {
+  saveSourcePreferences,
+  saveTopicPreferences,
+  setSourceFollow,
+  setTopicFollow,
+  type MutationOptions,
+} from "./user-mutations";
 
 const collections = {
   topic: {
     path: "preferences",
-    itemPath: "preferences/topics",
     field: "topic_ids",
+    setFollow: setTopicFollow,
+    save: async (ids: string[], options: MutationOptions) => ({
+      ids: (await saveTopicPreferences(ids, options)).topic_ids,
+    }),
     limitError: "You can follow up to 100 active topics. Manage your topics to make room.",
     error: "Couldn’t update this topic. Please try again.",
     followed: "Topic followed.",
@@ -17,8 +27,11 @@ const collections = {
   },
   source: {
     path: "preferences/sources",
-    itemPath: "preferences/sources",
     field: "source_ids",
+    setFollow: setSourceFollow,
+    save: async (ids: string[], options: MutationOptions) => ({
+      ids: (await saveSourcePreferences(ids, options)).source_ids,
+    }),
     limitError: "Choose up to 100 approved sources.",
     error: "Couldn’t update your sources. Please try again.",
     followed: "Source followed.",
@@ -36,7 +49,7 @@ type Write = {
   signal: AbortSignal;
 };
 type Result = { ids: string[] } | { followed: boolean };
-type Payload = { topic_ids?: string[]; source_ids?: string[]; followed?: boolean };
+type Payload = { topic_ids?: string[]; source_ids?: string[] };
 
 /** The same account-safe query and write lifecycle serves source and topic follows. */
 export function useFollowPreferences(kind: Collection) {
@@ -88,21 +101,13 @@ export function useFollowPreferences(kind: Collection) {
       await client.cancelQueries({ queryKey: write.key, exact: true });
     },
     mutationFn: async (write: Write): Promise<Result> => {
-      const result = await userRequest<Payload>(
-        write.id ? `${config.itemPath}/${write.id}` : config.path,
-        {
-          method: "PUT",
-          headers: { "Content-Type": "application/json", "X-CSRF-Token": write.csrf },
-          body: JSON.stringify(
-            write.id ? { followed: write.followed } : { [config.field]: write.ids },
-          ),
-          signal: AbortSignal.any([write.signal, AbortSignal.timeout(15000)]),
-        },
-      );
-      if (write.id && typeof result.followed === "boolean") return { followed: result.followed };
-      const ids = result[config.field];
-      if (!Array.isArray(ids)) throw new Error("Invalid follow preferences");
-      return { ids };
+      const options = {
+        csrfToken: write.csrf,
+        signal: AbortSignal.any([write.signal, AbortSignal.timeout(15000)]),
+      };
+      return write.id
+        ? config.setFollow(write.id, write.followed, options)
+        : config.save(write.ids, options);
     },
     onSuccess: (result, write) => {
       if (write.signal.aborted) return;

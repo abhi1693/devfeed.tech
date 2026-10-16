@@ -42,6 +42,7 @@ function PopoverContent({
 export type SelectOption = {
   value: string;
   label: string;
+  disabled?: boolean;
   description?: string;
   meta?: string;
   keywords?: string[];
@@ -111,7 +112,7 @@ export function Select({
   const selected =
     options.find((option) => option.value === value) ??
     (selectedOption?.value === value ? selectedOption : undefined);
-  const choices =
+  const choices: SelectOption[] =
     !required && !options.some((option) => option.value === "")
       ? [{ value: "", label: clearLabel }, ...options]
       : options;
@@ -131,13 +132,21 @@ export function Select({
     setOpen(next);
     changeSearch("");
     if (next) {
-      setHighlighted(`option:${value}`);
+      const initial =
+        choices.find((option) => option.value === value && !option.disabled) ??
+        choices.find((option) => !option.disabled);
+      setHighlighted(initial ? `option:${initial.value}` : "");
       typeahead.current = { text: "", time: 0 };
     }
     onOpenChange?.(next);
   }
   function choose(next: string) {
-    if (disabled || trigger.current?.matches(":disabled")) return;
+    if (
+      disabled ||
+      trigger.current?.matches(":disabled") ||
+      choices.find((option) => option.value === next)?.disabled
+    )
+      return;
     onChange(next);
     setMissing(false);
     changeOpen(false);
@@ -234,7 +243,9 @@ export function Select({
                 return;
               if (event.key === " ") {
                 event.preventDefault();
-                const option = choices.find((option) => `option:${option.value}` === highlighted);
+                const option = choices.find(
+                  (option) => !option.disabled && `option:${option.value}` === highlighted,
+                );
                 if (option) choose(option.value);
                 return;
               }
@@ -246,7 +257,9 @@ export function Select({
                   ? typeahead.current.text + event.key.toLowerCase()
                   : event.key.toLowerCase();
               typeahead.current = { text, time: now };
-              const match = choices.find((option) => option.label.toLowerCase().startsWith(text));
+              const match = choices.find(
+                (option) => !option.disabled && option.label.toLowerCase().startsWith(text),
+              );
               if (match) setHighlighted(`option:${match.value}`);
             }}
           >
@@ -349,12 +362,13 @@ function SelectItem({
   const item = useRef<HTMLDivElement>(null);
   const active = useCommandState((state) => state.value === `option:${option.value}`);
   useEffect(() => {
-    if (active && !searchable) item.current?.focus({ preventScroll: true });
-  }, [active, searchable]);
+    if (active && !searchable && !option.disabled) item.current?.focus({ preventScroll: true });
+  }, [active, searchable, option.disabled]);
   return (
     <CommandItem
       ref={item}
-      tabIndex={searchable ? undefined : -1}
+      tabIndex={searchable || option.disabled ? undefined : -1}
+      disabled={option.disabled}
       value={`option:${option.value}`}
       keywords={[option.label, ...(option.keywords ?? [])]}
       aria-label={[option.label, option.description, option.meta].filter(Boolean).join(" ")}

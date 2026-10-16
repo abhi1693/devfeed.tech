@@ -9,6 +9,7 @@ from devfeed_core.analysis import snapshot_hash
 from devfeed_core.config import get_settings
 from devfeed_core.models import TopicAnalysisJob, TopicProposal
 from devfeed_core.schemas import DatabaseText
+from devfeed_core.text_search import text_search
 from devfeed_core.topic_analysis import (
     FIELDS,
     TopicAnalysisBatchOut,
@@ -16,6 +17,8 @@ from devfeed_core.topic_analysis import (
     request_topic_analysis,
 )
 from devfeed_core.topics import lock_topics
+from devfeed_http.operation_policies import GatewayPolicy
+from devfeed_http.pagination import Listing, Page, paginate, record
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from pydantic import BaseModel
 from sqlalchemy import delete, func, or_, select
@@ -24,8 +27,6 @@ from sqlalchemy.orm import load_only
 from devfeed_admin_api.auth import Admin, actor, require_admin
 from devfeed_admin_api.dependencies import DB
 from devfeed_admin_api.jobs import AdminJobOut, job_view
-from devfeed_admin_api.pagination import Listing, Page, paginate, record
-from devfeed_admin_api.search import text_search
 
 router = APIRouter(prefix="/v1/admin", tags=["admin-topics"], dependencies=[Depends(require_admin)])
 
@@ -317,6 +318,7 @@ def submit_enrichment(
     "/topic-discovery/github",
     response_model=github_topics.GitHubPullResult,
     operation_id="admin_topic_github_pull",
+    openapi_extra=GatewayPolicy(upstream_timeout_ms=120_000).openapi_extra(),
 )
 def github_pull(body: github_topics.GitHubPull, session: DB, admin: Admin):
     try:

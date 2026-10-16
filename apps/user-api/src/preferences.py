@@ -4,6 +4,7 @@ import uuid
 from typing import Annotated
 
 from devfeed_core.models import Source, Topic, UserAccount, UserSource, UserTopic, utcnow
+from devfeed_http.agent_permissions import AgentAccessPolicy
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import delete, func, select
@@ -41,7 +42,11 @@ def lock_account(session, user: User) -> uuid.UUID:
     return account
 
 
-@router.get("/preferences", response_model=Preferences)
+@router.get(
+    "/preferences",
+    response_model=Preferences,
+    openapi_extra=AgentAccessPolicy(scope="devfeed:read").openapi_extra(),
+)
 def preferences(user: User, session: DB):
     ids = session.scalars(
         select(UserTopic.topic_id)
@@ -77,7 +82,11 @@ def save_preferences(payload: Preferences, user: User, session: DB):
     return Preferences(topic_ids=ids)
 
 
-@router.put("/preferences/topics/{topic_id}", response_model=TopicFollow)
+@router.put(
+    "/preferences/topics/{topic_id}",
+    response_model=TopicFollow,
+    openapi_extra=AgentAccessPolicy(scope="devfeed:write").openapi_extra(),
+)
 def follow_topic(topic_id: uuid.UUID, payload: TopicFollow, user: User, session: DB):
     # A single-topic mutation must not replace preferences loaded by another tab.
     account = lock_account(session, user)
@@ -110,7 +119,11 @@ class SourcePreferences(BaseModel):
     source_ids: Annotated[list[uuid.UUID], Field(max_length=100)]
 
 
-@router.get("/preferences/sources", response_model=SourcePreferences)
+@router.get(
+    "/preferences/sources",
+    response_model=SourcePreferences,
+    openapi_extra=AgentAccessPolicy(scope="devfeed:read").openapi_extra(),
+)
 def source_preferences(user: User, session: DB):
     account = session.scalar(
         select(UserAccount.id).where(
@@ -157,7 +170,11 @@ def save_source_preferences(payload: SourcePreferences, user: User, session: DB)
     return SourcePreferences(source_ids=ids)
 
 
-@router.put("/preferences/sources/{source_id}", response_model=TopicFollow)
+@router.put(
+    "/preferences/sources/{source_id}",
+    response_model=TopicFollow,
+    openapi_extra=AgentAccessPolicy(scope="devfeed:write").openapi_extra(),
+)
 def follow_source(source_id: uuid.UUID, payload: TopicFollow, user: User, session: DB):
     account = lock_account(session, user)
     if payload.followed:
