@@ -1789,6 +1789,9 @@ try {
   await page.setViewportSize({ width: 1440, height: 1100 });
   await page.goto(origin + `/partnerships/accounts/${account.id}/edit?tab=delivery`);
   await page.getByRole("checkbox", { name: "nofollow", exact: true }).waitFor();
+  await page
+    .getByText("Paid links always include sponsored or nofollow.", { exact: false })
+    .waitFor();
   await page.getByRole("checkbox", { name: "nofollow", exact: true }).uncheck();
   await page.getByRole("checkbox", { name: "sponsored", exact: true }).check();
   await page.screenshot({

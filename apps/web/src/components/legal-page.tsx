@@ -1,3 +1,4 @@
+import "../app/styles/discovery.css";
 import Link from "@/components/reader-link";
 import type { ReactNode } from "react";
 import { UserShell } from "./user-shell";

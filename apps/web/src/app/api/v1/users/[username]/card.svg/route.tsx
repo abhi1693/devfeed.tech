@@ -17,7 +17,7 @@ export async function GET(
       "Content-Type": "image/svg+xml; charset=utf-8",
       "Cache-Control": "no-store",
       "Content-Security-Policy":
-        "default-src 'none'; img-src data:; style-src 'unsafe-inline'; sandbox",
+        "default-src 'none'; img-src data:; style-src 'unsafe-inline'; sandbox; frame-ancestors 'self' https://nicklaunches.com",
       "X-Content-Type-Options": "nosniff",
     },
   });

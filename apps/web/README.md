@@ -104,6 +104,15 @@ are marked noindex; missing articles still return 404 and unexpected exceptions
 still reach the error boundary. Chrome and Edge share the error content and retry
 control. The browser suites exercise failure followed by successful retry.
 
+Direct article pages keep the requested article's title, overview, canonical and
+structured data together. Their streamed background feed and related sidebar
+carry `data-nosnippet` so unrelated text is excluded from Google search snippets.
+The loading fallback and resolved feed segment both carry the exclusion; the
+article overview stays eligible. The shared sidebar also applies in Chrome and
+Edge. This does not hide content or prevent link crawling. Search engines choose
+their own snippets; after deployment, use Search Console URL Inspection and Bing
+Webmaster Tools to request a recrawl and verify the indexed result.
+
 Reader cards and inbox actions pass `articleDestination(slug)` to navigation;
 page actions use `pageDestination(href)` with their scroll policy. `ReaderLink`
 serializes these destinations for native links, and `useReaderRouter` forwards
@@ -156,6 +165,13 @@ The public API adds the optional `q` parameter to topics/sources. Deploy that AP
 
 ## Partner placements
 
+Product ad cards show the import connection name beside the platform icon and optional
+attribution (for example, "Via Nick Launches") in the bottom row. Empty attribution
+leaves that row empty with its space reserved. Compact ads also show attribution in their footer; header ads include
+it before the tagline. Delivery uses the selected account-owned source, honoring its
+current connection attribution immediately, including when it is cleared. Legacy
+connections without that setting retain their imported listing attribution.
+
 The shared web, Chrome and Edge reader expires product placements one hour after
 their tracking receipt was issued. A timer and tab-resume checks enforce the
 deadline while the page stays mounted. Expired feed cards become hidden, inert
@@ -167,6 +183,8 @@ deadline before impressions, clicks and retries, including after suspended timer
 After building the web app and both extensions, run
 `node apps/web/tests/browser/partner-placements.mjs` and
 `node apps/web/tests/browser/partner-tracking.mjs` for browser parity checks.
+Use `node apps/web/tests/browser/partner-placements.mjs --attribution` for the
+focused attribution checks and light/dark desktop/mobile screenshots.
 
 ## Direct article entry
 
@@ -444,6 +462,10 @@ Consequently, `ensureStatic`, `navigation()`, and `prefetch()` are not applied t
 these request-rendered routes. Adopting them requires a compatible CSP design
 and verification of runtime settings, authentication, and personalized feeds.
 
+The reader allows same-origin and `https://nicklaunches.com` iframe embedding through
+`frame-ancestors` on every route, including static files and API responses. It does not
+send `X-Frame-Options`; the existing nonce CSP and other security headers remain in place.
+
 Validate with `npm run web:lint`, `npm run web:test`, and `npm run web:build`.
 
 Public `/latest`, `/sources`, and `/topics` documents stream the shared navigation
@@ -527,6 +549,113 @@ screenshots on four routes, plus three fresh Lighthouse mobile/desktop runs for 
 topics and profile. Reports remain in ignored `reports/reader-startup/LABEL`; they measure
 controlled local behavior, not production field performance. Framework and interaction code
 must be retained even when initial coverage marks it unused.
+
+## Responsive article thumbnails
+
+Article cards use the rendered width and device pixel ratio to select thumbnails.
+Lazy covers use native `sizes="auto"` with a fallback; the first usable cover is
+eager/high priority and uses the auto-fill grid's geometry, including both sidebar
+states. CSS aspect ratios reserve space before decoding. The eager size hints
+track the 280px minimum columns, 12px gaps, card borders, responsive padding and
+sidebar widths through 3000px; wider/older-browser fallbacks reserve at most 570px.
+Keep those hints and the shared geometry tests in sync when changing layout.
+
+Managed article variants are bounded to 320/480/640/768/960px and capped by original
+width. Older three-width lists and direct publisher images remain supported;
+arbitrary publisher URLs are not proxied or rewritten. See
+[stored thumbnail upgrades](../aggregator/README.md#thumbnail-encoding-and-recompression).
+
+After building the website and both extensions, run the shared browser matrix:
+
+```sh
+node --test --test-name-pattern='thumbnails match' apps/web/tests/browser/feed.mjs
+node --test --test-name-pattern='thumbnails match' apps/extensions/tests/reader.browser.mjs
+DEVFEED_EXTENSION_BROWSER=edge node --test --test-name-pattern='thumbnails match' apps/extensions/tests/reader.browser.mjs
+```
+
+The matrix covers 14 viewport/DPR profiles and both sidebar states, records
+`currentSrc`, natural/rendered dimensions and loading priority, and checks image
+failures and duplicate initial requests. Reports remain under ignored
+`reports/thumbnail-sizing/`.
+
+For comparable Lighthouse evidence, build the baseline and changed commits in
+separate checkouts and run `node tests/benchmarks/responsive-thumbnails.mjs before
+/absolute/path/to/photo.jpg` or `after` in the matching checkout. Use the same local
+source in both; the script records its SHA-256, quality, variant widths, browser and
+Lighthouse versions/settings. It serves a deterministic 24-article feed and HTTPS
+image fixtures, runs three fresh mobile (412×823, DPR 1.75) and desktop (1350×940,
+DPR 1) profiles, and saves JSON/HTML/screenshots in `reports/responsive-thumbnails/`.
+The self-signed local fixture certificate is accepted only by benchmark Chrome.
+These are controlled lab comparisons, not production or field p75 results.
+
+## Reader stylesheet boundaries
+
+Keep theme tokens, the reader shell and its responsive header, feed cards, account placeholders,
+loading states, and card actions in the root stylesheets. The historical catalog, onboarding,
+article, and settings files contained shared rules too; those rules must remain available on a
+fresh feed before any route navigation or hydration.
+
+Other styles load through the component that owns the surface:
+
+| Surface                               | Stylesheet owner                                                  |
+| ------------------------------------- | ----------------------------------------------------------------- |
+| Topic/source catalogs                 | `CatalogContent` and `CatalogCard`                                |
+| Settings and source suggestions       | `UserSettingsLayout` and `SourceSuggestion`                       |
+| Profile editing and dev card previews | `ProfileSettings`, `DevCardPreview`, and shared dev card controls |
+| Optional dev card invitation          | `DevCardPromoContent`, loaded lazily after hydration              |
+| Public profiles                       | `PublicUserProfile`                                               |
+| Article previews and sharing          | `ArticleModal`, `ArticlePreviewContent`, and `ArticleShare`       |
+| Agent setup/consent                   | `McpContent` and `McpConsent`                                     |
+| Search and legal documents            | Search components and `LegalPage`                                 |
+| Reading streaks                       | The existing lazy account reading tools/menu                      |
+| Topic/source preferences              | Their settings components                                         |
+
+Use static CSS imports at these boundaries so Next.js can include styles in server HTML and wait
+for them during client navigation. Keep dependency imports ordered: settings foundations before
+profile overrides, and shared dev card controls before preview overrides. Next.js retains visited
+stylesheets, so route styles must not change the shell or feed after navigation. Chrome and Edge
+render these surfaces in one bundled document; `apps/extensions/src/newtab.css` explicitly includes
+the complete stylesheet set.
+
+The optional dev card invitation renders no server content. Its lazy boundary keeps the hidden
+dialog's stylesheet out of the initial feed response, while Suspense waits for that stylesheet
+before mounting the existing dialog focus, prompt-coordination, and timing effects.
+
+Run paired lab measurements on the baseline and changed production builds with the same benchmark
+script and fixtures:
+
+```sh
+node scripts/ci/browser-performance.mjs --route-styles=before
+node scripts/ci/browser-performance.mjs --route-styles=after
+```
+
+Each command builds the reader, collects CSS coverage and screenshots on six reader routes, and
+runs Lighthouse 12.6.1 three times per route/profile on `/latest`, `/topics`, and `/leaderboard`.
+Mobile uses 412×823 at DPR 1.75 with default simulated mobile throttling; desktop uses 1350×940 at
+DPR 1 with the default desktop profile. Reports, raw audits, and screenshots stay under ignored
+`reports/route-styles/{before,after}`. `--skip-build` reuses an already matching production build.
+Coverage describes exercised states and does not justify deleting rules for overlays or other
+interactions. Browser regressions delay route CSS, check rendered frames and feed styles after
+navigation, and run against the web app and both built extensions.
+
+Paired local results on 2026-10-16 (baseline `f3355b45`, Chrome 153.0.0.0; timings are medians of
+three fresh anonymous runs per profile):
+
+| Profile / route        | CSS transferred, bytes | Unused decoded CSS, bytes | Blocking estimate, ms |       FCP, ms |
+| ---------------------- | ---------------------: | ------------------------: | --------------------: | ------------: |
+| mobile `/latest`       |        29,358 → 15,840 |          137,568 → 64,510 |             301 → 149 |   1,064 → 912 |
+| mobile `/topics`       |        25,989 → 13,980 |          135,282 → 65,395 |             304 → 304 | 1,069 → 1,070 |
+| mobile `/leaderboard`  |        27,824 → 14,735 |          139,323 → 68,261 |             152 → 151 |     920 → 916 |
+| desktop `/latest`      |        29,358 → 15,840 |          139,941 → 66,761 |                39 → 0 |     303 → 256 |
+| desktop `/topics`      |        25,989 → 13,980 |          137,641 → 67,554 |               53 → 56 |     301 → 300 |
+| desktop `/leaderboard` |        27,824 → 14,735 |          140,808 → 69,678 |               24 → 23 |     252 → 252 |
+
+CSS transfer includes the dialog stylesheet loaded after hydration. On the mobile feed, Lighthouse
+identifies one blocking stylesheet instead of three. Unused bytes come from CDP coverage after
+network idle, including lazy styles. Lighthouse's thresholded unused-CSS audit reports zero on
+`/latest`, while CDP still records unused rules; zero does not mean every rule is exercised.
+Catalog and leaderboard timing estimates remain essentially flat. These are local lab results,
+not production field measurements. The stylesheet move retains all 4,079 existing declarations.
 
 ## Initial reader DOM measurements
 

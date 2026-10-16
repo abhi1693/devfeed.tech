@@ -1,3 +1,14 @@
 @import "../../web/src/app/globals.css";
+@import "../../web/src/app/styles/catalog.css";
+@import "../../web/src/app/styles/preferences.css";
+@import "../../web/src/app/styles/article.css";
+@import "../../web/src/app/styles/settings.css";
+@import "../../web/src/app/styles/profile-editor.css";
+@import "../../web/src/app/styles/dev-card.css";
+@import "../../web/src/app/styles/public-profile.css";
+@import "../../web/src/app/styles/discovery.css";
+@import "../../web/src/app/styles/reading-streak.css";
+@import "../../web/src/app/styles/mcp.css";
 @import "../../web/src/app/reader-motion.css";
+@import "../../web/src/app/article-actions.css";
 @import "../../web/src/app/article-share.css";

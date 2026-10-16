@@ -98,7 +98,7 @@ it("gives each HTML response a distinct script nonce without permitting arbitrar
   expect(csp).not.toMatch(/script-src [^;]*'unsafe-inline'/);
   expect(csp).toContain("default-src 'self'");
   expect(csp).toContain("form-action 'self'");
-  expect(csp).toContain("frame-ancestors 'none'");
+  expect(csp.split("; ")).toContain("frame-ancestors 'self' https://nicklaunches.com");
   expect(first.headers.get("x-middleware-request-content-security-policy")).toBe(csp);
   expect(first.headers.get("link")).toContain("https://devfeed.tech/latest.md");
 });

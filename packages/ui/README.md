@@ -38,7 +38,12 @@ unmount, then starts a fresh scope on return. Admin polling, personalized-feed
 polling and infinite scrolling use it to pause background work while preserving
 displayed data. Explicit user writes are not cancelled by this lifecycle.
 
-Validation runs through both apps' lint, component tests and production builds.
+The package's `tsconfig.json` enables React's automatic JSX runtime for shared source files,
+including editor diagnostics. From the repository root, run
+`npm exec -- tsc --project packages/ui/tsconfig.json` to check the package directly.
+CSS module declarations are included alongside the source.
+
+Validation also runs through the consuming apps' lint, component tests and production builds.
 The existing Chimely 0.2.2 tabbed list assigns `role=tabpanel` directly to its `ul`,
 which triggers axe's `listitem` rule. This upstream semantic issue also affects the
 original admin inbox; visual and other accessibility checks are tracked separately.

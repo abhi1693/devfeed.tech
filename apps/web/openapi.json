@@ -1102,6 +1102,18 @@
             "title": "Asset Id",
             "type": "string"
           },
+          "attribution": {
+            "anyOf": [
+              {
+                "maxLength": 300,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Attribution"
+          },
           "campaign_id": {
             "anyOf": [
               {

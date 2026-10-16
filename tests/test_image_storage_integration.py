@@ -322,7 +322,7 @@ def test_recompression_is_bounded_resumes_and_publishes_atomically(enabled, monk
         assert session.get(ArticleImageJob, job_id).status == "failed"
         assert backfill_thumbnail_encoding(session, 100) == []
         retry = retry_image(session, job_id)
-        assert retry.storage["variants"] == [{"key": "thumbnails/v2/hash/320.webp", "width": 320}]
+        assert [item["width"] for item in retry.storage["variants"]] == [320, 480]
         claimed, _ = claim_image(session, retry.id)
         retry_id, token = retry.id, claimed.lease_token
     monkeypatch.setattr(
@@ -334,7 +334,13 @@ def test_recompression_is_bounded_resumes_and_publishes_atomically(enabled, monk
     with enabled.begin() as session:
         current = session.get(Article, identifier)
         assert current.managed_image["thumbnail_version"] == "v2"
-        assert [item["width"] for item in current.managed_image["variants"]] == [320, 640, 960]
+        assert [item["width"] for item in current.managed_image["variants"]] == [
+            320,
+            480,
+            640,
+            768,
+            960,
+        ]
         assert (
             ArticleOut.from_article(current).image_url
             == "https://images.test/thumbnails/v2/hash/960.webp"
@@ -394,3 +400,78 @@ def test_cli_recompression_queues_saved_originals_without_network_work(enabled):
             .managed_image["variants"][0]["key"]
             .startswith("thumbnails/v1/")
         )
+
+
+@pytest.mark.parametrize("changed_source", [False, True])
+def test_resize_reuses_v2_originals_and_publishes_sorted_variants_atomically(
+    enabled, monkeypatch, changed_source
+):
+    from devfeed_cli.images import resize
+    from devfeed_core.image_jobs import claim_image, retry_image
+
+    identifier, source = article(enabled)
+    old = {
+        "source_url": source,
+        "version": "v1",
+        "thumbnail_version": "v2",
+        "hash": "hash",
+        "original_key": "originals/hash",
+        "source_width": 960,
+        "variants": [
+            {"key": f"thumbnails/v2/hash/{width}.webp", "width": width} for width in (320, 640, 960)
+        ],
+    }
+    with enabled.begin() as session:
+        session.get(Article, identifier).managed_image = old
+    result = resize(SimpleNamespace(limit=1))
+    assert result["queued"] == 1
+    job_id = uuid.UUID(result["jobs"][0]["id"])
+    assert resize(SimpleNamespace(limit=1))["queued"] == 0
+    with enabled.begin() as session:
+        assert session.get(Article, identifier).managed_image == old
+        claimed, _ = claim_image(session, job_id)
+        token = claimed.lease_token
+    calls = []
+    fail = True
+
+    def variant(client, asset, width):
+        calls.append(width)
+        if width == 768 and fail:
+            raise FeedError("Test failure", reason="image_transform", retryable=False)
+        return {"key": f"thumbnails/v2/hash/{width}.webp", "width": width}
+
+    monkeypatch.setattr(
+        image_storage_tasks.ImageOriginalStore,
+        "store",
+        lambda *a: pytest.fail("Refetched original"),
+    )
+    monkeypatch.setattr(image_storage_tasks.ThumbnailVariantStore, "store", variant)
+    image_storage_tasks.store_image(enabled, job_id, token, identifier, source)
+    assert resize(SimpleNamespace(limit=1))["queued"] == 0
+    with enabled.begin() as session:
+        assert session.get(Article, identifier).managed_image == old
+        assert session.get(ArticleImageJob, job_id).status == "failed"
+        retry = retry_image(session, job_id)
+        assert [item["width"] for item in retry.storage["variants"]] == [320, 480, 640, 960]
+        retry_id = retry.id
+        if changed_source:
+            session.get(Article, identifier).image_url = "https://publisher.test/replaced.jpg"
+    assert resize(SimpleNamespace(limit=1))["queued"] == 0
+    fail = False
+    with enabled.begin() as session:
+        claimed = claim_image(session, retry_id)
+        if changed_source:
+            assert claimed is None
+            assert session.get(Article, identifier).managed_image == old
+            return
+        token = claimed[0].lease_token
+    image_storage_tasks.store_image(enabled, retry_id, token, identifier, source)
+    assert calls == [480, 768, 768]
+    with enabled() as session:
+        current = session.get(Article, identifier).managed_image
+        assert current["thumbnail_layout"] == "cards-v1"
+        assert [item["width"] for item in current["variants"]] == [320, 480, 640, 768, 960]
+        assert ArticleOut.from_article(session.get(Article, identifier)).image_url.endswith(
+            "/960.webp"
+        )
+    assert resize(SimpleNamespace(limit=1))["queued"] == 0

@@ -21,6 +21,7 @@ export const placement: PartnerPlacement = {
   image_url: null,
   image_variants: [],
   partner_name: "Example partner",
+  attribution: null,
   platform: null,
   sponsored: false,
   reason: "Supports the TypeScript validation task in this article.",

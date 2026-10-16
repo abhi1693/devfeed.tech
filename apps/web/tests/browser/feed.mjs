@@ -1,3 +1,4 @@
+import { checkRouteStyles } from "../../../../scripts/testing/route-styles.mjs";
 import {
   checkGuestDocument,
   renderReadFixture,
@@ -91,6 +92,17 @@ import {
   serverReadFixture,
 } from "../../../../scripts/testing/server-reads.mjs";
 import assert from "node:assert/strict";
+import {
+  thumbnailProfiles,
+  checkThumbnailSizing,
+} from "../../../../scripts/testing/thumbnail-sizing.mjs";
+
+import { JSDOM } from "jsdom";
+import {
+  snippetArticle,
+  checkSnippetDocument,
+  checkArticleSnippets,
+} from "../../../../scripts/testing/article-snippets.mjs";
 import test from "node:test";
 import { createServer, request as httpRequest } from "node:http";
 import { spawn } from "node:child_process";
@@ -113,7 +125,7 @@ import {
 } from "../../../../scripts/testing/reader-dom.mjs";
 
 const root = fileURLToPath(new URL("../../../../", import.meta.url));
-async function createReaderFixture(t) {
+async function createReaderFixture(t, { thumbnailFeed = false } = {}) {
   let app, browser, fixture, userFixture;
   let logs = "";
   t.after(async () => {
@@ -307,6 +319,11 @@ async function createReaderFixture(t) {
     if (path === "/v1/user/profiles/promo-reader/reading-heatmap") {
       res.writeHead(404, { "Content-Type": "application/json" });
       res.end(JSON.stringify({ detail: "No activity" }));
+      return;
+    }
+    if (path === "/v1/articles/snippet-article") {
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify(snippetArticle(article)));
       return;
     }
     if (path === `/v1/articles/${article.slug}`) {
@@ -604,7 +621,18 @@ async function createReaderFixture(t) {
                         id: String(index),
                         slug: `scroll-${index}`,
                       }))
-                  : [article],
+                  : thumbnailFeed
+                    ? Array.from({ length: 12 }, (_, index) => ({
+                        ...article,
+                        id: `image-${index}`,
+                        slug: `image-${index}`,
+                        image_url: article.image_url.replace("/fixture/", `/fixture-${index}/`),
+                        image_variants: article.image_variants.map((variant) => ({
+                          ...variant,
+                          url: variant.url.replace("/fixture/", `/fixture-${index}/`),
+                        })),
+                      }))
+                    : [article],
               next_cursor:
                 mode === "scroll" && !requestUrl.searchParams.has("cursor") ? "next+page" : null,
             };
@@ -779,7 +807,8 @@ async function createReaderFixture(t) {
     const csp = policyResponse.headers()["content-security-policy"];
     assert.match(csp, /script-src [^;]*'nonce-[^']+'/);
     assert.doesNotMatch(csp, /script-src [^;]*'unsafe-inline'/);
-    assert.equal(policyResponse.headers()["x-frame-options"], "DENY");
+    assert.equal(policyResponse.headers()["x-frame-options"], undefined);
+    assert.ok(csp.split("; ").includes("frame-ancestors 'self' https://nicklaunches.com"));
     assert.equal(policyResponse.headers()["strict-transport-security"], "max-age=31536000");
     assert.deepEqual(await page.evaluate(() => window.__cspViolations), []);
     assert.equal(await onboarding.count(), 0);
@@ -1155,6 +1184,40 @@ async function withReaderPage(browser, check, options = {}) {
   }
 }
 
+test("thumbnails match rendered widths and device pixel ratios", { timeout: 360000 }, async (t) => {
+  const { browser, origin } = await createReaderFixture(t, { thumbnailFeed: true });
+  const results = [];
+  for (const profile of thumbnailProfiles) {
+    for (const sidebar of ["collapsed", "expanded"]) {
+      await withReaderPage(
+        browser,
+        async (page) =>
+          results.push(...(await checkThumbnailSizing(page, `${origin}/latest`, sidebar))),
+        {
+          viewport: { width: profile.width, height: profile.height },
+          deviceScaleFactor: profile.dpr,
+        },
+      );
+    }
+  }
+  await mkdir(`${root}/reports/thumbnail-sizing`, { recursive: true });
+  const { writeFile } = await import("node:fs/promises");
+  await writeFile(`${root}/reports/thumbnail-sizing/web.json`, JSON.stringify(results, null, 2));
+});
+
+test("article snippets exclude unrelated content", { timeout: 180000 }, async (t) => {
+  const { browser, origin } = await createReaderFixture(t);
+  const href = `${origin}/articles/snippet-article`;
+  for (const userAgent of ["Googlebot", "bingbot"]) {
+    const response = await fetch(href, { headers: { "User-Agent": userAgent } });
+    assert.equal(response.status, 200);
+    const dom = new JSDOM(await response.text());
+    checkSnippetDocument(dom.window.document, true);
+    dom.window.close();
+  }
+  await withReaderPage(browser, (page) => checkArticleSnippets(page, href));
+});
+
 test(
   "server reads retain explicit transport and sitemap policies",
   { timeout: 180000 },
@@ -1285,6 +1348,10 @@ test("reader journey works at desktop and mobile sizes", { timeout: 360000 }, as
   await runJourney();
 });
 
+test("route styles load before reader surfaces paint", { timeout: 180000 }, async (t) => {
+  const { browser, origin } = await createReaderFixture(t);
+  await withReaderPage(browser, (page) => checkRouteStyles(page, (path) => origin + path));
+});
 test(
   "reader DOM stays bounded per card while retaining long catalogs",
   { timeout: 180000 },
@@ -1310,5 +1377,118 @@ test(
       );
       await checkRenderReads(context.request, origin, renderReads);
     });
+  },
+);
+
+test(
+  "reader framing headers cover every route and allow only the configured ancestors",
+  { timeout: 180000 },
+  async (t) => {
+    const { browser, origin } = await createReaderFixture(t);
+    const context = await browser.newContext();
+    try {
+      await mockManagedImages(context);
+      await mockSourceLogos(context);
+      const probe = await context.newPage();
+      await probe.goto(origin + "/latest");
+      const staticScript = await probe
+        .locator('script[src^="/_next/static/"]')
+        .first()
+        .getAttribute("src");
+      await probe.close();
+      for (const pathname of [
+        staticScript,
+        "/",
+        "/latest",
+        "/login",
+        "/robots.txt",
+        "/llms.txt",
+        "/sitemap.xml",
+        "/favicon.ico",
+        "/api/v1/mcp/config",
+        "/api/v1/users/leader-reader/card.svg",
+        "/metrics",
+        "/route-does-not-exist",
+      ]) {
+        for (const method of ["GET", "HEAD"]) {
+          const response = await context.request.fetch(origin + pathname, { method });
+          const headers = response.headers();
+          assert.equal(headers["x-frame-options"], undefined, pathname);
+          assert.ok(
+            headers["content-security-policy"]
+              ?.split("; ")
+              .includes("frame-ancestors 'self' https://nicklaunches.com"),
+            `Missing framing policy on ${pathname}`,
+          );
+          assert.equal(headers["strict-transport-security"], "max-age=31536000", pathname);
+          assert.equal(headers["x-content-type-options"], "nosniff", pathname);
+          assert.equal(
+            headers["permissions-policy"],
+            "camera=(), microphone=(), geolocation=(), payment=()",
+            pathname,
+          );
+          if (pathname.endsWith("card.svg")) {
+            assert.equal(response.status(), 200);
+            assert.ok(
+              headers["content-security-policy"].includes(
+                "default-src 'none'; img-src data:; style-src 'unsafe-inline'; sandbox",
+              ),
+            );
+          }
+        }
+      }
+      await checkNonceCsp(context, origin + "/latest");
+      await context.route(
+        /^https:\/\/(?:devfeed\.tech|nicklaunches\.com|www\.nicklaunches\.com|blocked\.example\.test)\//,
+        async (route) => {
+          const url = new URL(route.request().url());
+          if (url.pathname === "/iframe-host")
+            return route.fulfill({
+              contentType: "text/html",
+              body: '<iframe src="https://devfeed.tech/latest" title="Reader"></iframe>',
+            });
+          const response = await route.fetch({ url: origin + url.pathname + url.search });
+          await route.fulfill({ response });
+        },
+      );
+      for (const parent of ["https://devfeed.tech", "https://nicklaunches.com"]) {
+        const page = await context.newPage();
+        await page.goto(parent + "/iframe-host");
+        await page
+          .frameLocator("iframe")
+          .getByRole("heading", { name: "Latest feed", exact: true })
+          .waitFor();
+        assert.equal(
+          await page.evaluate(() => {
+            try {
+              return !!document.querySelector("iframe").contentDocument;
+            } catch {
+              return false;
+            }
+          }),
+          parent === "https://devfeed.tech",
+          "Framing must preserve the reader's origin",
+        );
+        await page.close();
+      }
+      for (const parent of ["https://www.nicklaunches.com", "https://blocked.example.test"]) {
+        const page = await context.newPage();
+        const refused = page.waitForEvent("console", {
+          predicate: (message) => /frame-ancestors/.test(message.text()),
+        });
+        await page.goto(parent + "/iframe-host");
+        await refused;
+        assert.equal(
+          await page
+            .frameLocator("iframe")
+            .getByRole("heading", { name: "Latest feed", exact: true })
+            .count(),
+          0,
+        );
+        await page.close();
+      }
+    } finally {
+      await context.close();
+    }
   },
 );

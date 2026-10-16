@@ -67,3 +67,9 @@ def source_logo(ctx: typer.Context, id: Identifier, refresh: bool = False):
 def recompress(ctx: typer.Context, limit: Limit = 100):
     """Queue a bounded thumbnail encoding upgrade using saved managed originals."""
     invoke(ctx, images.recompress, locals())
+
+
+@app.command()
+def resize(ctx: typer.Context, limit: Limit = 100):
+    """Queue missing card thumbnail sizes from saved v2 originals without refetching publishers."""
+    invoke(ctx, images.resize, locals())

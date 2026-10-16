@@ -135,3 +135,24 @@ it("reports title activation without treating other card actions as opening the 
   fireEvent.click(screen.getByRole("link", { name: article.title }));
   expect(onOpen).toHaveBeenCalledTimes(1);
 });
+
+it("qualifies sponsored card links without changing ordinary article links", () => {
+  const view = render(
+    <EngagementProvider articleIds={[article.id]}>
+      <ArticleCard article={{ ...article, sponsor_names: ["Partner"], sponsor_link_rel: [] }} />
+    </EngagementProvider>,
+  );
+  expect(document.querySelector(".article-read-link")?.getAttribute("rel")).toBe(
+    "sponsored noopener noreferrer",
+  );
+  expect(document.querySelector(".card-open-link")?.getAttribute("rel")).toBe("sponsored");
+  view.rerender(
+    <EngagementProvider articleIds={[article.id]}>
+      <ArticleCard article={{ ...article, sponsor_names: [], sponsor_link_rel: [] }} />
+    </EngagementProvider>,
+  );
+  expect(document.querySelector(".article-read-link")?.getAttribute("rel")).toBe(
+    "noopener noreferrer",
+  );
+  expect(document.querySelector(".card-open-link")?.getAttribute("rel")).toBeNull();
+});

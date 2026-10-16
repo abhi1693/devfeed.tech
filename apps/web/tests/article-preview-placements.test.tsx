@@ -39,24 +39,27 @@ vi.mock("@/components/article-engagement", () => ({
 beforeEach(() => vi.mocked(readerRequest).mockReset());
 afterEach(cleanup);
 
-it.each(([undefined, [], ["sponsored", "external"]] as const).map((relations) => ({ relations })))(
-  "uses effective sponsorship relations on the original article link (%j)",
-  ({ relations }) => {
-    vi.mocked(readerRequest).mockResolvedValue(Response.json({ items: [] }));
-    render(
-      <ArticlePreviewContent
-        article={{
-          ...article,
-          sponsor_names: ["Example partner"],
-          sponsor_link_rel: relations ? [...relations] : undefined,
-        }}
-      />,
-    );
-    expect(
-      screen.getByRole("link", { name: `Read ${article.content_type}` }).getAttribute("rel"),
-    ).toBe([...(relations ?? ["nofollow"]), "noopener", "noreferrer"].join(" "));
-  },
-);
+it.each([
+  { relations: undefined, expected: "nofollow noopener noreferrer" },
+  { relations: [], expected: "sponsored noopener noreferrer" },
+  { relations: ["external"], expected: "external sponsored noopener noreferrer" },
+  { relations: ["ugc"], expected: "ugc sponsored noopener noreferrer" },
+  { relations: ["sponsored", "external"], expected: "sponsored external noopener noreferrer" },
+] as const)("qualifies sponsored preview links with $relations", ({ relations, expected }) => {
+  vi.mocked(readerRequest).mockResolvedValue(Response.json({ items: [] }));
+  render(
+    <ArticlePreviewContent
+      article={{
+        ...article,
+        sponsor_names: ["Example partner"],
+        sponsor_link_rel: relations ? [...relations] : undefined,
+      }}
+    />,
+  );
+  expect(
+    screen.getByRole("link", { name: `Read ${article.content_type}` }).getAttribute("rel"),
+  ).toBe(expected);
+});
 
 it.each([
   { hasSource: true, hasTopic: true },
@@ -85,6 +88,12 @@ it.each([
       />,
     );
     const sidebar = view.container.querySelector(".preview-sidebar")!;
+    expect(sidebar.tagName).toBe("DIV");
+    expect(sidebar.hasAttribute("data-nosnippet")).toBe(true);
+    expect(screen.getByRole("heading", { level: 1 }).closest("[data-nosnippet]")).toBeNull();
+    expect(
+      view.container.querySelector(".preview-summary")?.closest("[data-nosnippet]"),
+    ).toBeNull();
     const briefs = Array.from(sidebar.children);
     expect(briefs).toHaveLength(Number(hasSource) + Number(hasTopic));
     const focused = hasTopic

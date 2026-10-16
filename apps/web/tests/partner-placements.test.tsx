@@ -99,7 +99,55 @@ it("keeps a manual product's account attribution and a neutral source icon witho
   expect(source.querySelector("svg")).toBeTruthy();
 });
 
-it("keeps Engagement linked and tracked through the whole card with a hostname-only footer", async () => {
+it.each(["feed", "engagement", "header_sponsorship"] as const)(
+  "shows defined listing attribution as text in %s ads without changing links or disclosure",
+  async (ad_format) => {
+    const attribution = "Via Nick Launches <img src=x onerror=alert(1)>";
+    const item = {
+      ...placement,
+      ad_format,
+      attribution: `  ${attribution}  `,
+      platform: { name: "Nick Launches", logo_url: null, logo_variants: [] },
+    };
+    vi.mocked(readerRequest).mockResolvedValueOnce(Response.json({ items: [item] }));
+    render(
+      <PartnerPlacements
+        surface={ad_format === "header_sponsorship" ? "header" : "feed"}
+        ad_formats={[ad_format]}
+      >
+        {(cards) => <div>{cards}</div>}
+      </PartnerPlacements>,
+    );
+    const link = await screen.findByRole("link", { name: placement.name });
+    expect(link.textContent).toContain(attribution);
+    expect(link.querySelector("[onerror]")).toBeNull();
+    expect(link.getAttribute("href")).toBe(placement.url);
+    expect(screen.getByText("Sponsored")).toBeTruthy();
+    await waitFor(() =>
+      expect(observePartnerPlacement).toHaveBeenCalledWith(link, item.receipt, expect.any(Object)),
+    );
+    if (ad_format === "feed")
+      expect(link.querySelector(".card-source")?.textContent).toBe(item.platform.name);
+    if (ad_format !== "header_sponsorship")
+      expect(link.querySelector(".partner-placement-destination")?.textContent).toBe(attribution);
+  },
+);
+
+it.each([undefined, null, "", "   "])(
+  "keeps the platform name when listing attribution is absent (%j)",
+  async (attribution) => {
+    const platform = { name: "Nick Launches", logo_url: null, logo_variants: [] };
+    vi.mocked(readerRequest).mockResolvedValueOnce(
+      Response.json({ items: [{ ...placement, platform, attribution }] }),
+    );
+    render(<PartnerPlacements surface="feed">{(cards) => <div>{cards}</div>}</PartnerPlacements>);
+    const link = await screen.findByRole("link", { name: placement.name });
+    expect(link.querySelector(".card-source")?.textContent).toBe(platform.name);
+    expect(link.querySelector(".partner-placement-destination")?.textContent).toBe("");
+  },
+);
+
+it("keeps Engagement linked and tracked without an empty attribution footer", async () => {
   vi.mocked(readerRequest).mockResolvedValueOnce(
     Response.json({ items: [{ ...placement, ad_format: "engagement" }] }),
   );
@@ -111,9 +159,7 @@ it("keeps Engagement linked and tracked through the whole card with a hostname-o
     />,
   );
   const link = await screen.findByRole("link", { name: placement.name });
-  const footer = link.querySelector(".partner-placement-destination")!;
-  expect(footer.textContent).toBe("partner.example");
-  expect(footer.querySelector("svg")).toBeNull();
+  expect(link.querySelector(".partner-placement-destination")).toBeNull();
   expect(link.textContent).not.toContain("Explore");
   expect(link.getAttribute("href")).toBe(placement.url);
   expect(link.getAttribute("rel")).toBe("nofollow noopener noreferrer");
@@ -531,9 +577,9 @@ it.each(["compact", "card"])(
       const link = screen.getByRole("link", { name: item.name });
       expect(link.getAttribute("rel")).toBe("nofollow noopener noreferrer");
       expect(link.getAttribute("href")).toBe(item.url);
-      const footer = link.querySelector(".partner-placement-destination")!;
-      expect(footer.textContent?.trim()).toBe("partner.example");
-      expect(footer.querySelector("svg")).toBeNull();
+      if (layout === "card")
+        expect(link.querySelector(".partner-placement-destination")?.textContent).toBe("");
+      else expect(link.querySelector(".partner-placement-destination")).toBeNull();
       const disclosure = document.getElementById(link.getAttribute("aria-describedby")!);
       expect(disclosure?.textContent).toBe("Sponsored");
       expect(link.closest(".partner-placement")?.contains(disclosure)).toBe(true);

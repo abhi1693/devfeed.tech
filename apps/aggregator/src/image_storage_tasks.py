@@ -5,6 +5,7 @@ import logging
 from devfeed_core.feeds.fetcher import FeedError
 from devfeed_core.job_lifecycle import clear_lease, fail_or_retry, finish_job
 from devfeed_core.jobs import owned_job
+from devfeed_core.managed_images import ARTICLE_THUMBNAIL_LAYOUT, THUMBNAIL_VERSION
 from devfeed_core.models import (
     Article,
     ArticleImageJob,
@@ -17,6 +18,7 @@ from devfeed_core.models import (
 from sqlalchemy import select
 
 from devfeed_aggregator.image_storage import (
+    ArticleThumbnailVariantStore,
     ImageOriginalStore,
     ThumbnailVariantStore,
     storage_client,
@@ -68,7 +70,7 @@ def store_image(factory, identifier, token, article_id, source):
         source_field="image_url",
         asset_field="managed_image",
         original_store=ImageOriginalStore,
-        variant_store=ThumbnailVariantStore,
+        variant_store=ArticleThumbnailVariantStore,
         method="r2-imgproxy",
     )
 
@@ -265,9 +267,14 @@ def _store_asset(
                 if any(item["width"] == size for item in asset["variants"]):
                     continue
                 item = variants.store(asset, size)
-                asset = {**asset, "variants": [*asset["variants"], item]}
+                asset = {
+                    **asset,
+                    "variants": sorted([*asset["variants"], item], key=lambda item: item["width"]),
+                }
                 if not checkpoint(factory, identifier, token, asset):
                     return
+        if model is Article and asset.get("thumbnail_version") == THUMBNAIL_VERSION:
+            asset = {**asset, "thumbnail_layout": ARTICLE_THUMBNAIL_LAYOUT}
         with factory.begin() as session:
             subject = _lock_subject(session, model, subject_id)
             job = owned_job(session, ArticleImageJob, identifier, token)
@@ -283,6 +290,7 @@ def _store_asset(
                     else asset,
                 )
             job.method = method
+            job.storage = dict(asset)
             finish_job(job, "found" if current else "already_present", utcnow())
             if not current:
                 _replacement(session, model, subject, asset_field=asset_field)

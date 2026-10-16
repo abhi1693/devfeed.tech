@@ -65,6 +65,7 @@ class AccountProductCreative:
     tagline: str
     listing_url: str | None
     platform: PlacementPlatform | None = None
+    attribution: str | None = None
 
     def destination(self, account, product):
         if account.outbound_destination == "listing_url":
@@ -73,7 +74,7 @@ class AccountProductCreative:
 
 
 def account_product_creative(session, account, product, *, lock=False):
-    """Keep advertiser copy and listing destinations on the same owned source.
+    """Keep advertiser copy, attribution and destination on the same owned source.
 
     Canonical facts qualify relevance; an advertiser's live import supplies its
     creative. Scalar reads stay fresh even if this session loaded a listing before
@@ -84,11 +85,13 @@ def account_product_creative(session, account, product, *, lock=False):
     for row in session.execute(
         account_listings(account.id, product.id, lock=lock).with_only_columns(
             PartnerListing.tagline,
+            PartnerListing.attribution,
             PartnerListing.listing_url,
             PartnerConnection.provider,
             PartnerConnection.name,
             PartnerConnection.logo_url,
             PartnerConnection.managed_logo,
+            PartnerConnection.connector["attribution"].as_string().label("connection_attribution"),
         )
     ):
         selected = selected or row
@@ -108,7 +111,17 @@ def account_product_creative(session, account, product, *, lock=False):
             listing_url = devfeed_outbound_url(direct.product_url)
             return AccountProductCreative(direct.tagline, listing_url)
     return (
-        AccountProductCreative(selected.tagline, listing_url, connection_platform(selected))
+        AccountProductCreative(
+            selected.tagline,
+            listing_url,
+            connection_platform(selected),
+            (
+                selected.connection_attribution
+                if selected.connection_attribution is not None
+                else selected.attribution
+            ).strip()
+            or None,
+        )
         if selected is not None
         else None
     )
