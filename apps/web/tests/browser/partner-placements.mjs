@@ -9,6 +9,8 @@ import { chromium } from "playwright";
 
 const searchContextOnly = process.argv.includes("--search-context");
 const linkRelOnly = process.argv.includes("--link-rel");
+const attributionOnly = process.argv.includes("--attribution");
+const compactFeedOnly = process.argv.includes("--compact-feed");
 
 // Exercise actual production reader bundles and packaged extensions, with controlled
 // delivery responses. Backend integration tests prove relevance and signed receipts.
@@ -144,6 +146,7 @@ let events = [];
 let deliveryGate = null;
 let mediaMode = "standard";
 let platformMode = "managed";
+let listingAttribution = null;
 let platformLogoGate = null;
 let experienceLevel = null;
 let profileWrites = [];
@@ -342,9 +345,9 @@ async function assertCompactSidebar(page, selector, label, expected) {
       `${label}: Engagement has no extra action text or arrow`,
     );
     assert.equal(
-      (await card.locator(".partner-placement-destination").textContent()).trim(),
-      "partner.example",
-      `${label}: the linked card retains its destination host`,
+      await card.locator(".partner-placement-destination").count(),
+      listingAttribution?.trim() ? 1 : 0,
+      `${label}: attribution footer is present only when configured`,
     );
     assert.equal(await card.locator(".partner-placement-label").textContent(), "Sponsored");
   }
@@ -816,12 +819,136 @@ async function assertSitewideHeader(context, base, platform) {
   }
 }
 
+async function assertListingAttribution(context, base, platform) {
+  const page = await context.newPage();
+  headerInventory = true;
+  try {
+    await page.goto(`${base}/latest`);
+    for (const width of [1440, 390]) {
+      await page.setViewportSize({ width, height: width === 390 ? 844 : 1000 });
+      for (const theme of ["light", "dark"]) {
+        for (const attribution of [
+          "Via Nick Launches",
+          " ",
+          "Via " + "Long platform name ".repeat(15),
+        ]) {
+          listingAttribution = attribution;
+          for (const view of ["cards", "compact"]) {
+            feedView = view;
+            await page.evaluate(
+              ({ view, theme }) => {
+                localStorage.setItem("devfeed:feed-view:guest", view);
+                localStorage.setItem("devfeed:theme", theme);
+              },
+              { view, theme },
+            );
+            await page.goto("about:blank");
+            await page.goto(`${base}/latest`);
+            const card = page
+              .locator(
+                `${view === "cards" ? ".article-grid" : ".article-table tbody"} > .partner-placement`,
+              )
+              .first();
+            await card.waitFor();
+            const source = card.locator(view === "cards" ? ".card-source" : ".source-column");
+            assert.equal(
+              (await source.textContent()).trim(),
+              ordinary.platform.name,
+              `${platform}/${width}/${theme}/${view}: connection name stays in source metadata`,
+            );
+            assert.equal(
+              await card.locator(".partner-placement-label").first().textContent(),
+              "Sponsored",
+            );
+            await card.scrollIntoViewIfNeeded();
+            assert.equal(
+              await page.evaluate(() => document.documentElement.scrollWidth > innerWidth),
+              false,
+            );
+            if (view === "cards") {
+              const footer = card.locator(".partner-placement-destination");
+              assert.equal(await footer.count(), 1);
+              assert.equal((await footer.textContent()).trim(), attribution.trim());
+              assert.ok(
+                (await footer.boundingBox()).height >= 44,
+                "empty attribution keeps the native footer row",
+              );
+              await assertSingleSponsoredPill(
+                page,
+                card.locator(".partner-placement-label"),
+                `${platform}/${width}/${theme}: attribution preserves sponsorship disclosure`,
+              );
+            }
+            if (attribution === "Via Nick Launches") {
+              await page.screenshot({
+                path: `${reportDirectory}/${platform}-attribution-${view}-${theme}-${width}.png`,
+              });
+              if (view === "cards")
+                await card.screenshot({
+                  path: `${reportDirectory}/${platform}-attribution-card-${theme}-${width}.png`,
+                });
+            }
+            if (view === "cards" && !attribution.trim())
+              await card.screenshot({
+                path: `${reportDirectory}/${platform}-attribution-empty-${theme}-${width}.png`,
+              });
+          }
+          await page.goto("about:blank");
+          await page.goto(`${base}/articles/${article.slug}`);
+          const engagement = page.locator('.preview-sidebar [data-ad-format="engagement"]').first();
+          await engagement.waitFor({ state: "attached" });
+          const footer = engagement.locator(".partner-placement-destination");
+          assert.equal(await footer.locator("span").count(), attribution.trim() ? 1 : 0);
+          if (attribution.trim())
+            assert.equal(await footer.locator("span").last().textContent(), attribution.trim());
+          if (attribution === "Via Nick Launches") {
+            assert.equal(
+              await footer
+                .locator("span")
+                .last()
+                .evaluate((node) => node.scrollWidth > node.clientWidth),
+              false,
+              `${platform}/${width}/${theme}: normal attribution stays readable in compact ads`,
+            );
+            await engagement.screenshot({
+              path: `${reportDirectory}/${platform}-attribution-engagement-${theme}-${width}.png`,
+            });
+          }
+          if (width >= 1280) {
+            await page.goto("about:blank");
+            await page.goto(`${base}/latest`);
+            const header = page.locator('.topbar [data-ad-format="header_sponsorship"]');
+            await header.waitFor();
+            const subtitle = await header.locator(".partner-placement-description").textContent();
+            assert.ok(
+              attribution.trim()
+                ? subtitle.startsWith(attribution.trim())
+                : !subtitle.includes("Via "),
+            );
+          }
+        }
+      }
+    }
+    console.log(
+      `${platform}: listing attribution, blank fallback and long text passed in feed cards/table, compact ads and headers across light/dark desktop/mobile.`,
+    );
+  } finally {
+    listingAttribution = null;
+    headerInventory = false;
+    feedView = "cards";
+    await page.close();
+  }
+}
+
 async function assertPlacementLinkRelations(context, base, platform) {
   const page = await context.newPage();
   nativeMode = "click-coverage";
   headerInventory = true;
   const inspect = async (link, policy, label, external = true) => {
-    const tokens = [...policy, ...(external ? ["noopener", "noreferrer"] : [])];
+    const qualified = policy.some((token) => token === "nofollow" || token === "sponsored")
+      ? policy
+      : [...policy, "sponsored"];
+    const tokens = [...qualified, ...(external ? ["noopener", "noreferrer"] : [])];
     assert.equal(await link.getAttribute("rel"), tokens.join(" ") || null, label);
     if (external) assert.equal(await link.getAttribute("target"), "_blank", label);
   };
@@ -849,7 +976,13 @@ async function assertPlacementLinkRelations(context, base, platform) {
     await page.goto(`${base}/latest`);
     for (const authenticated of [false, true]) {
       signedIn = authenticated;
-      for (const policy of [["nofollow"], ["sponsored", "ugc", "external"], []]) {
+      for (const policy of [
+        ["nofollow"],
+        ["sponsored", "ugc", "external"],
+        [],
+        ["external"],
+        ["ugc"],
+      ]) {
         linkRelPolicy = policy;
         const label = `${platform}/${authenticated ? "member" : "guest"}/${policy.join("+") || "normal"}`;
         for (const view of ["cards", "compact"]) {
@@ -923,7 +1056,7 @@ async function assertPlacementLinkRelations(context, base, platform) {
       }
     }
     console.log(
-      `${platform}: default, custom and normal link relations passed for anonymous/member Feed grid/table, Header, Engagement and sponsored card/preview/direct article/search result links; signed clicks remain measured.`,
+      `${platform}: default, custom and previously unqualified link relations passed for anonymous/member Feed grid/table, Header, Engagement and sponsored card/preview/direct article/search result links; signed clicks remain measured.`,
     );
   } finally {
     await page.evaluate(() => localStorage.removeItem("devfeed:feed-view:guest")).catch(() => {});
@@ -2246,7 +2379,7 @@ async function assertCompactFeedTable(context, base, platform) {
           assert.equal(
             await page
               .locator(
-                '.article-table [data-ad-format="engagement"],.article-table .card-image,.article-table .article-card,.article-grid',
+                '.article-table [data-ad-format="engagement"],.article-table .card-image,.article-table .article-card,.article-grid:visible',
               )
               .count(),
             0,
@@ -2539,6 +2672,7 @@ function deliveryItems(items, query) {
     acceptedTrackingReceipts.add(receipt);
     return {
       ...productMedia(item),
+      attribution: listingAttribution,
       link_rel: linkRelPolicy ?? item.link_rel,
       platform:
         platformMode === "manual"
@@ -2630,12 +2764,14 @@ async function assertSingleSponsoredPill(page, badge, label, articleBadge) {
     const foreground = luminance(style.color);
     const background = luminance(style.backgroundColor);
     return {
-      destination: {
-        text: footer.firstElementChild.textContent.trim(),
-        action: footer.querySelector(".partner-placement-action")?.textContent.trim() ?? null,
-        icons: footer.querySelectorAll("svg").length,
-        withinCardLink: !!footer.closest("a.partner-placement-link[href]"),
-      },
+      destination: footer?.firstElementChild
+        ? {
+            text: footer.firstElementChild.textContent.trim(),
+            action: footer.querySelector(".partner-placement-action")?.textContent.trim() ?? null,
+            icons: footer.querySelectorAll("svg").length,
+            withinCardLink: !!footer.closest("a.partner-placement-link[href]"),
+          }
+        : null,
       geometry: {
         width: rect.width,
         height: rect.height,
@@ -2667,18 +2803,18 @@ async function assertSingleSponsoredPill(page, badge, label, articleBadge) {
     };
   });
   assert.equal(await badge.textContent(), "Sponsored", `${label}: explicit product disclosure`);
-  assert.equal(
-    treatment.destination.text,
-    "partner.example",
-    `${label}: destination identifies the product domain`,
+  assert.deepEqual(
+    treatment.destination,
+    listingAttribution?.trim()
+      ? {
+          text: listingAttribution.trim(),
+          action: null,
+          icons: 0,
+          withinCardLink: true,
+        }
+      : null,
+    `${label}: only configured attribution appears in the linked footer`,
   );
-  assert.equal(treatment.destination.icons, 0, `${label}: the destination has no extra arrow`);
-  assert.equal(
-    treatment.destination.action,
-    null,
-    `${label}: the destination has no extra action text`,
-  );
-  assert.ok(treatment.destination.withinCardLink, `${label}: whole product card remains linked`);
   assert.ok(parseFloat(treatment.shared.borderRadius) > 0, `${label}: rounded badge`);
   assert.ok(parseFloat(treatment.shared.borderTopWidth) > 0, `${label}: visible badge border`);
   assert.equal(treatment.shared.borderTopStyle, "solid", `${label}: solid badge outline`);
@@ -3371,6 +3507,16 @@ try {
         local.setItem("devfeed:dev-card-promo-seen", "true");
       });
       const page = await context.newPage();
+      if (attributionOnly) {
+        await assertListingAttribution(context, base, platform);
+        continue;
+      }
+      if (compactFeedOnly) {
+        await context.clock.install({ time: new Date(receiptIssuedAt * 1000) });
+        await assertCompactFeedTable(context, base, platform);
+        console.log(`${platform}: compact Feed structure, visibility, tracking and expiry passed`);
+        continue;
+      }
       if (!searchContextOnly) await assertPlacementLinkRelations(context, base, platform);
       if (linkRelOnly) continue;
       await assertSearchResultContext(context, base, platform);

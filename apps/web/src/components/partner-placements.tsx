@@ -105,6 +105,7 @@ function Placement({
   const card = preserveSpace && !["header_sponsorship", "engagement"].includes(item.ad_format);
   const image = item.image_url ?? item.image_variants[0]?.url;
   const platformName = item.platform?.name ?? item.partner_name;
+  const attribution = item.attribution?.trim();
   const sponsorshipId = useId();
   useEffect(() => {
     const target = content ? article.current : link.current;
@@ -250,7 +251,7 @@ function Placement({
                 </span>
               </div>
               <div className="card-bottom partner-placement-destination">
-                <span>{displayHost(item.url)}</span>
+                {attribution && <span title={attribution}>{attribution}</span>}
               </div>
             </div>
           </>
@@ -269,17 +270,22 @@ function Placement({
                     Sponsored
                   </span>
                 </div>
-                {item.ad_format === "header_sponsorship" && item.tagline && (
-                  <p className="partner-placement-description">{item.tagline}</p>
+                {item.ad_format === "header_sponsorship" && (item.tagline || attribution) && (
+                  <p
+                    className="partner-placement-description"
+                    title={[attribution, item.tagline].filter(Boolean).join(" · ")}
+                  >
+                    {[attribution, item.tagline].filter(Boolean).join(" · ")}
+                  </p>
                 )}
               </div>
             </div>
             {item.ad_format !== "header_sponsorship" && item.tagline && (
               <p className="partner-placement-description">{item.tagline}</p>
             )}
-            {item.ad_format !== "header_sponsorship" && (
+            {item.ad_format !== "header_sponsorship" && attribution && (
               <span className="partner-placement-destination">
-                <span>{displayHost(item.url)}</span>
+                <span title={attribution}>{attribution}</span>
               </span>
             )}
           </>

@@ -1,4 +1,8 @@
 "use client";
+
+import "../app/styles/profile-editor.css";
+import "../app/styles/dev-card.css";
+
 import { useState } from "react";
 import { Save } from "lucide-react";
 import type { UserProfile } from "@/lib/user";

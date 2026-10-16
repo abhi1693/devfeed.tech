@@ -27,6 +27,13 @@ def default_link_rel() -> list[LinkRel]:
     return ["nofollow"]
 
 
+def qualify_paid_link_rel(values: list[LinkRel]) -> list[LinkRel]:
+    """Retain configured extras while qualifying even previously saved empty choices."""
+    if "sponsored" in values or "nofollow" in values:
+        return values
+    return [*values, "sponsored"]
+
+
 def validate_link_rel(
     tier: str, values: list[LinkRel] | None, *, previous: list[LinkRel] | None = None
 ) -> None:
@@ -51,7 +58,7 @@ def effective_link_rel(account, policy=None) -> list[LinkRel]:
     """Resolve overrides without SQL and reapply entitlements after tier changes."""
     if not tier_policy(account.tier)["configurable_link_rel"]:
         return default_link_rel()
-    return configured_link_rel(account, policy)
+    return qualify_paid_link_rel(configured_link_rel(account, policy))
 
 
 def sponsored_article_link_rel(session, article_ids) -> dict:
@@ -123,8 +130,8 @@ def sponsored_article_link_rel(session, article_ids) -> dict:
         .group_by(associations.c.article_id)
     )
     return {
-        article_id: [
-            token for token, included in zip(LINK_REL_OPTIONS, values, strict=True) if included
-        ]
+        article_id: qualify_paid_link_rel(
+            [token for token, included in zip(LINK_REL_OPTIONS, values, strict=True) if included]
+        )
         for article_id, *values in rows
     }

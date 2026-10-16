@@ -1,5 +1,7 @@
 "use client";
 
+import "../app/styles/reading-streak.css";
+
 import { useEffect, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Popover } from "radix-ui";

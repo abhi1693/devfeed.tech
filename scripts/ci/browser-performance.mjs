@@ -13,8 +13,17 @@ import { checkMeasurements, measurementSummary } from "./browser-performance-rep
 import { applyArticleSnapshot, publicPlacementResponse } from "./browser-performance-fixture.mjs";
 
 const root = fileURLToPath(new URL("../../", import.meta.url));
-const { domPhase, articleEntryPhase, measurementRuns, output, skipBuild } =
-  browserPerformanceOptions(process.argv.slice(2), root, runs);
+const {
+  domPhase,
+  articleEntryPhase,
+  measurementRuns,
+  output: modeOutput,
+  skipBuild,
+} = browserPerformanceOptions(process.argv.slice(2), root, runs);
+const stylePhase = process.argv.find((arg) => arg.startsWith("--route-styles="))?.split("=")[1];
+if (stylePhase && !["before", "after"].includes(stylePhase))
+  throw new Error("Route styles phase must be before or after");
+const output = stylePhase ? `${root}/reports/route-styles/${stylePhase}` : modeOutput;
 const imageDirectory = `${root}/apps/web/public/_browser-budgets`;
 const sharp = createRequire(`${root}/apps/web/package.json`)("sharp");
 // Keep local credentials and production telemetry out of fixture builds and servers.
@@ -307,6 +316,17 @@ async function audit() {
   next.stderr.on("data", (chunk) => (logs += chunk));
   try {
     await waitForReady(next, origin);
+    if (stylePhase) {
+      const { auditRouteStyles } = await import("../testing/route-styles-audit.mjs");
+      await auditRouteStyles({
+        origin,
+        articleSlug: fixture.article.slug,
+        output,
+        phase: stylePhase,
+      });
+      assert.deepEqual([...unknown], [], "Some API fixtures are missing");
+      return;
+    }
     if (domPhase) {
       const { auditReaderDom } = await import("./browser-performance-reader-dom.mjs");
       await auditReaderDom(origin, output);

@@ -105,6 +105,7 @@ class PlacementOut(BaseModel):
     link_rel: LinkRelationships
     partner_name: str
     platform: PlacementPlatform | None = None
+    attribution: str | None = Field(default=None, max_length=300)
     # Campaign backing for allocation/reporting; all reader placements must display
     # Sponsored and omit dismissal controls regardless of this value.
     sponsored: bool

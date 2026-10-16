@@ -442,9 +442,11 @@ commercial offerings, independent of role and membership authorization.
 
 All tiers default to `nofollow`. Platinum and Diamond can change the account default in
 **Click destination** settings and override it per product under **Edit placements**.
-Choose any combination of `nofollow`, `sponsored`, `ugc` and `external`; an empty custom
-selection adds no optional relationship. Product settings inherit the current account default
-until an override is selected. Overrides belong to that account's product association.
+Choose any combination of `nofollow`, `sponsored`, `ugc` and `external`. Advertising links always
+retain `sponsored` or `nofollow`: when neither is selected, `sponsored` is added automatically,
+including for existing empty, `ugc`-only and `external`-only settings. Product settings inherit
+the current account default until an override is selected. Overrides belong to that account's
+product association.
 
 Bronze, Silver and Gold always deliver `nofollow`, enforced by the API. Downgrades preserve
 saved choices but force `nofollow` until customization is available again. Grid/table feed ads,

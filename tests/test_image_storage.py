@@ -49,6 +49,26 @@ def test_original_is_validated_content_addressed_and_uploaded_once(monkeypatch, 
     assert variants.sizes({"source_width": 100}) == [100]
 
 
+@pytest.mark.parametrize(
+    ("source_width", "expected"),
+    [
+        (100, [100]),
+        (640, [320, 480, 640]),
+        (800, [320, 480, 640, 768, 800]),
+        (1600, [320, 480, 640, 768, 960]),
+    ],
+)
+def test_article_thumbnails_fill_card_density_gaps_without_upscaling(
+    storage, source_width, expected
+):
+    variants = image_storage.ArticleThumbnailVariantStore(storage[0])
+    assert variants.sizes({"source_width": source_width, "thumbnail_version": "v2"}) == expected
+    for version in ({}, {"thumbnail_version": "v1"}):
+        assert variants.sizes({"source_width": source_width, **version}) == sorted(
+            {min(width, source_width) for width in (320, 640, 960)}
+        )
+
+
 @pytest.mark.parametrize("body", [b"<html>denied</html>", b"<svg></svg>", b"GIF89a", b""])
 def test_rejects_invalid_images_before_upload(body):
     with pytest.raises(FeedError, match="invalid image"):

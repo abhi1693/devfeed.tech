@@ -1,3 +1,4 @@
+import "../app/styles/article.css";
 import type { ReactNode } from "react";
 import { ArticleShare } from "./article-share";
 import { UserDate } from "./user-date";
@@ -118,7 +119,7 @@ export function ArticlePreviewContent({
                 </div>
               )}
             </div>
-            <aside className="preview-sidebar">
+            <div className="preview-sidebar" role="complementary" data-nosnippet>
               {source && <ArticleSourceBrief source={source} articleSlug={article.slug} />}
               {topicBrief}
               <PartnerPlacements
@@ -127,7 +128,7 @@ export function ArticlePreviewContent({
                 article_id={article.id}
                 ad_formats={["engagement"]}
               />
-            </aside>
+            </div>
           </div>
         </div>
         <footer className="preview-footer" aria-label="Article actions">

@@ -1,5 +1,7 @@
 "use client";
 
+import "../app/styles/dev-card.css";
+
 import { useEffect, useRef, useState } from "react";
 import Image from "next/image";
 import { siX } from "simple-icons";

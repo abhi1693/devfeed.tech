@@ -2,7 +2,12 @@
 
 from devfeed_core.config import get_settings
 from devfeed_core.feeds.fetcher import FeedError, _fetch
-from devfeed_core.managed_images import IMAGE_VERSION, THUMBNAIL_QUALITIES, THUMBNAIL_VERSION
+from devfeed_core.managed_images import (
+    ARTICLE_THUMBNAIL_WIDTHS,
+    IMAGE_VERSION,
+    THUMBNAIL_QUALITIES,
+    THUMBNAIL_VERSION,
+)
 from devfeed_core.object_storage import R2ConfigurationError, R2Storage
 
 from devfeed_aggregator.image_storage_base import OriginalStore, VariantStore
@@ -75,3 +80,11 @@ class ThumbnailVariantStore(VariantStore):
         if mime != "image/webp" or actual_width != size:
             raise FeedError("Invalid transformed image", reason="image_transform")
         return body
+
+
+class ArticleThumbnailVariantStore(ThumbnailVariantStore):
+    """Fill common card/DPR gaps without changing product images or legacy jobs."""
+
+    def sizes(self, asset: dict) -> list[int]:
+        widths = ARTICLE_THUMBNAIL_WIDTHS if asset.get("thumbnail_version") == "v2" else WIDTHS
+        return sorted({min(width, asset["source_width"]) for width in widths})

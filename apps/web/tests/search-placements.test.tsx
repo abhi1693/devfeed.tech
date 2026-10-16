@@ -134,8 +134,7 @@ it("places one compact contextual product above Topics without changing organic 
   expect(card.textContent).toContain(engagement.tagline);
   expect(card.textContent).toContain("Sponsored");
   expect(card.textContent).not.toContain("Explore");
-  expect(card.querySelector(".partner-placement-destination")?.textContent).toBe("partner.example");
-  expect(card.querySelector(".partner-placement-destination svg")).toBeNull();
+  expect(card.querySelector(".partner-placement-destination")).toBeNull();
   expect(rows).toHaveLength(24);
   expect(Array.from(list.children)).toEqual(rows);
   expect(list.querySelector(".partner-placement")).toBeNull();

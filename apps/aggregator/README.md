@@ -98,13 +98,40 @@ screenshots stay under ignored `reports/source-logos`.
 
 ## Thumbnail encoding and recompression
 
-New article thumbnails use WebP quality 70 at the existing 320/640/960 widths,
+New article thumbnails use WebP quality 70 at 320/480/640/768/960px widths,
 under `thumbnails/v2/<original-sha256>/<width>.webp`. The managed-image metadata
 schema remains v1; `thumbnail_version` separately identifies the encoder. Legacy
 assets/checkpoints without that field retain q78 and `thumbnails/v1/...` keys.
 Both namespaces remain readable, with one-year immutable cache headers. Existing
 objects are never overwritten or deleted, and source, byte, pixel, animation and
 transport limits remain unchanged. Topic-logo encoding is unchanged.
+
+The 480px and 768px variants fill common card-width/DPR gaps; the maximum stays
+960px. Small originals are never enlarged, and duplicate capped widths are omitted.
+Product thumbnails retain their existing three-width policy. Legacy v1 jobs retain
+their original sizes and encoder. Existing v2 objects keep their immutable keys
+and bytes; the additional sizes use new keys in the same encoding namespace.
+
+After deploying **all Images workers**, upgrade stored v2 articles in bounded batches:
+
+```bash
+uv run devfeed images resize --limit 100
+```
+
+This command reuses stored originals and completed variants, queues at most 500
+articles per invocation, and performs no publisher HTTP or storage I/O in the CLI.
+Published/recent articles are processed first. Active and previously attempted
+resize jobs are skipped; retry terminal failures explicitly with
+`uv run devfeed images retry <job-id>`. The worker adds missing widths and publishes
+the sorted variant list with `thumbnail_layout: cards-v1` only after all sizes
+finish. Processing or failure leaves the published list intact. A changed source
+URL prevents the old job from replacing the image. Do not run the resize command
+against workers that predate this policy. No resize batch is scheduled automatically.
+
+The reader sizing change also works with older three-width lists immediately;
+the additional widths become available only as workers process new or upgraded
+articles. Reader rollback can consume either list. Do not delete saved originals
+or existing thumbnail objects as part of this upgrade.
 
 Deploy the Images worker changes completely before scheduling an upgrade:
 
