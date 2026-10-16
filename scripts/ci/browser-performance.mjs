@@ -188,12 +188,18 @@ async function checkPageContent(urls) {
       const page = await context.newPage();
       const errors = [];
       page.on("pageerror", (error) => errors.push(error.message));
+      const pathname = new URL(url).pathname;
+      const profileRefresh = pathname.startsWith("/users/")
+        ? page.waitForResponse(
+            (response) => new URL(response.url()).pathname === `/api/v1${pathname}`,
+          )
+        : null;
       assert.equal((await page.goto(url)).status(), 200);
       assert.equal(page.url(), url);
-      const pathname = new URL(url).pathname;
       if (pathname === "/topics" || pathname === "/sources") {
-        await page.locator(".catalog-card").first().waitFor();
-        assert.equal(await page.locator(".catalog-card").count(), 60);
+        const cards = page.locator(".catalog-card:visible");
+        await cards.first().waitFor();
+        assert.equal(await cards.count(), 60);
       } else if (pathname === "/leaderboard") {
         for (const name of ["Longest streak", "Most reading days"]) {
           const board = page.getByRole("region", { name, exact: true });
@@ -201,11 +207,22 @@ async function checkPageContent(urls) {
           assert.equal(await board.getByRole("listitem").count(), 10);
         }
       } else if (pathname.startsWith("/users/")) {
+        assert.equal((await profileRefresh).status(), 200, "Public profile visibility revalidated");
         await page.getByRole("heading", { name: "Budget fixture reader", exact: true }).waitFor();
-        await page.locator(".public-profile-day[title]").first().waitFor();
-        await page.locator(".public-profile-technology").first().waitFor();
-        assert.equal(await page.locator(".public-profile-day[title]").count(), 365);
-        assert.equal(await page.locator(".public-profile-technology").count(), 12);
+        // Hydration hides the streamed profile while checking its current visibility.
+        const contents = await page.waitForFunction(() => {
+          const profile = document.querySelector(".public-profile");
+          return profile
+            ? {
+                days: profile.querySelectorAll(".public-profile-day[title]").length,
+                technologies: profile.querySelectorAll(".public-profile-technology").length,
+              }
+            : null;
+        });
+        const counts = await contents.jsonValue();
+        await contents.dispose();
+        assert.equal(counts.days, 365);
+        assert.equal(counts.technologies, 12);
       } else if (pathname.startsWith("/articles/")) {
         await page.locator("#article-preview-title").waitFor();
         await page.locator(".preview-read-button").waitFor();
