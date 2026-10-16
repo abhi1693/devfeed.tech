@@ -12,7 +12,7 @@ export function withManagedImage(article) {
 }
 
 export async function mockManagedImages(context) {
-  await context.route("https://images.example.test/**", async (route) => {
+  await context.route("https://images.example.test/thumbnails/v2/**", async (route) => {
     const width = Number(new URL(route.request().url()).pathname.match(/\/(\d+)\.webp$/)?.[1]);
     assert.ok([320, 480, 640, 768, 960].includes(width), `Unknown managed image width: ${width}`);
     if (!imageBodies.has(width))
