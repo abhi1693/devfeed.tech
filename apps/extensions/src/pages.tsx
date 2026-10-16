@@ -22,7 +22,7 @@ import type { PublicReadingActivity } from "../../web/src/lib/server/public-dev-
 import { PublicUserProfile } from "../../web/src/components/public-user-profile";
 import { readerRequest } from "../../web/src/lib/reader-runtime";
 import { catalog } from "./catalog";
-import { extensionRoute, type CatalogKind, type SettingsPage } from "./routes";
+import type { CatalogKind, ReaderRoute, SettingsPage } from "../../web/src/lib/reader-routes";
 
 export function PublicProfilePage({ username }: { username: string }) {
   const [profile, setProfile] = useState<UserProfile | null>(null);
@@ -74,55 +74,62 @@ const settings: Record<SettingsPage, () => ReactNode> = {
   topics: () => <TopicPreferences />,
   sources: () => <SourcePreferences />,
 };
-export function LocalPage({ route }: { route: string }) {
+export function LocalPage({
+  route,
+  match,
+}: {
+  route: string;
+  match: Extract<ReaderRoute, { type: "local" }>;
+}) {
   const url = new URL(route, "https://devfeed.tech");
-  const match = extensionRoute(url.pathname);
-  if (!match || match.type !== "local") return null;
-  if (match.page === "dev-card")
-    return (
-      <UserShell>
-        <DevCardCreator />
-      </UserShell>
-    );
-  if (match.page === "leaderboard")
-    return (
-      <UserShell section="leaderboard">
-        <Leaderboard />
-      </UserShell>
-    );
-  if (match.page === "mcp-authorize")
-    return (
-      <UserShell section="mcp">
-        <McpConsent requestId={url.searchParams.get("request") ?? ""} />
-      </UserShell>
-    );
-  if (match.page === "mcp")
-    return (
-      <UserShell section="mcp">
-        <McpContent />
-      </UserShell>
-    );
-  if (match.page === "settings") {
-    const Component = settings[match.settings];
-    return (
-      <UserShell section="account">
-        <Component />
-      </UserShell>
-    );
+  switch (match.page) {
+    case "dev-card":
+      return (
+        <UserShell>
+          <DevCardCreator />
+        </UserShell>
+      );
+    case "leaderboard":
+      return (
+        <UserShell section="leaderboard">
+          <Leaderboard />
+        </UserShell>
+      );
+    case "mcp-authorize":
+      return (
+        <UserShell section="mcp">
+          <McpConsent requestId={url.searchParams.get("request") ?? ""} />
+        </UserShell>
+      );
+    case "mcp":
+      return (
+        <UserShell section="mcp">
+          <McpContent />
+        </UserShell>
+      );
+    case "settings": {
+      const Component = settings[match.settings];
+      return (
+        <UserShell section="account">
+          <Component />
+        </UserShell>
+      );
+    }
+    case "source-suggestion":
+      return (
+        <UserShell section="sources">
+          <SourceSuggestion />
+        </UserShell>
+      );
+    case "catalog":
+      return (
+        <CatalogPage
+          key={route}
+          kind={match.catalog}
+          offset={catalogOffset(url.searchParams.get("offset"))}
+        />
+      );
   }
-  if (match.page === "source-suggestion")
-    return (
-      <UserShell section="sources">
-        <SourceSuggestion />
-      </UserShell>
-    );
-  return (
-    <CatalogPage
-      key={route}
-      kind={match.catalog}
-      offset={catalogOffset(url.searchParams.get("offset"))}
-    />
-  );
 }
 function CatalogPage({ kind, offset }: { kind: CatalogKind; offset: number }) {
   const [page, setPage] = useState<CatalogPage<Topic | Source>>();
@@ -140,23 +147,25 @@ function CatalogPage({ kind, offset }: { kind: CatalogKind; offset: number }) {
       });
     return () => controller.abort();
   }, [kind, offset, retry]);
-  if (page)
-    return kind === "topics" ? (
-      <TopicsContent
-        topics={page.items as Topic[]}
-        initialPage={page as CatalogPage<Topic>}
-        offset={offset}
-      />
-    ) : (
-      <SourcesContent
-        sources={page.items as Source[]}
-        initialPage={page as CatalogPage<Source>}
-        offset={offset}
-      />
-    );
   return (
     <UserShell section={kind}>
-      {error ? (
+      {page ? (
+        kind === "topics" ? (
+          <TopicsContent
+            topics={page.items as Topic[]}
+            initialPage={page as CatalogPage<Topic>}
+            offset={offset}
+            withShell={false}
+          />
+        ) : (
+          <SourcesContent
+            sources={page.items as Source[]}
+            initialPage={page as CatalogPage<Source>}
+            offset={offset}
+            withShell={false}
+          />
+        )
+      ) : error ? (
         <section className="empty-state">
           <h1>Couldn’t load {kind}</h1>
           <button className="button" onClick={() => setRetry((value) => value + 1)}>

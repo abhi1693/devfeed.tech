@@ -1,10 +1,11 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { BookOpen, Pencil, UserRound } from "lucide-react";
 import Link from "@/components/reader-link";
 import { AccountGate, useUser } from "@/components/user-account";
 import { userRequest } from "@/lib/user";
+import { respondToMcpConsent } from "@/lib/user-mutations";
 
 type Access = "read-only" | "read-write";
 
@@ -26,6 +27,8 @@ export function McpConsent({ requestId }: { requestId: string }) {
   const [access, setAccess] = useState<Access>("read-write");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const request = useRef<AbortController | null>(null);
+  useEffect(() => () => request.current?.abort(), [owner, requestId]);
   useEffect(() => {
     if (!owner) return;
     const controller = new AbortController();
@@ -37,6 +40,7 @@ export function McpConsent({ requestId }: { requestId: string }) {
           setLoaded({ requestId, owner, details: value });
           setAccess(value.scopes.includes("devfeed:write") ? "read-write" : "read-only");
           setError("");
+          setBusy(false);
         }
       })
       .catch(() => {
@@ -59,21 +63,26 @@ export function McpConsent({ requestId }: { requestId: string }) {
     );
   async function respond(approved: boolean) {
     if (!user) return;
+    const controller = new AbortController();
+    request.current = controller;
     setBusy(true);
     setError("");
     try {
-      const result = await userRequest<{ redirect_url: string }>(
-        `mcp/requests/${encodeURIComponent(requestId)}`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json", "X-CSRF-Token": user.csrf_token },
-          body: JSON.stringify({ approved, ...(approved ? { access } : {}) }),
-        },
+      const result = await respondToMcpConsent(
+        requestId,
+        { approved, ...(approved ? { access } : {}) },
+        { csrfToken: user.csrf_token, signal: controller.signal },
       );
+      if (controller.signal.aborted) return;
       window.location.assign(result.redirect_url);
     } catch {
-      setError("Couldn’t authorize this connection. Restart the connection in your agent.");
-      setBusy(false);
+      if (!controller.signal.aborted)
+        setError("Couldn’t authorize this connection. Restart the connection in your agent.");
+    } finally {
+      if (request.current === controller) {
+        request.current = null;
+        setBusy(false);
+      }
     }
   }
   return (

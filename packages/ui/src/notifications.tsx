@@ -8,6 +8,7 @@ import {
   useChimelyClient,
   useNotifications,
   useUnseenCount,
+  INBOX_CSS,
   type InboxAppearance,
 } from "@chimely/react";
 import { Popover } from "radix-ui";
@@ -36,8 +37,19 @@ const appearance: InboxAppearance = {
     footer: "devfeed-inbox-footer",
   },
 };
+
+/** Install the library's stylesheet before its client-only injection, using the page's nonce. */
+export function NotificationStyles({ nonce }: { nonce?: string }) {
+  return (
+    <style data-chimely nonce={nonce}>
+      {INBOX_CSS}
+    </style>
+  );
+}
+
 type ContentProps = ComponentProps<typeof InboxContent<WellKnownPayload>>;
-type InboxProps = {
+type InboxDestination = { href: string };
+type InboxProps<Destination extends InboxDestination> = {
   client: ChimelyClient;
   prepare?: (client: ChimelyClient, signal: AbortSignal) => Promise<unknown>;
   showBadge?: boolean;
@@ -46,9 +58,10 @@ type InboxProps = {
   emptyBody: string;
   categoryLabels: Record<string, string>;
   tabs: ContentProps["tabs"];
-  actionUrl: (value: unknown) => string | null;
-  onNavigate: (href: string) => void;
-  footer: { href: string; label: string };
+  actionDestination: (value: unknown) => Destination | null;
+  onNavigate: (destination: Destination) => void;
+  destinationHref?: (destination: Destination) => string;
+  footer: { destination: Destination; label: string };
 };
 
 export function NotificationBell({
@@ -136,8 +149,10 @@ export function NotificationsUnavailable({ onRetry }: { onRetry: () => void }) {
   );
 }
 
-/** Shared admin inbox; each app supplies its authenticated client and safe routes. */
-export function NotificationInbox(props: InboxProps) {
+/** Each app supplies its authenticated client and validated navigation destinations. */
+export function NotificationInbox<Destination extends InboxDestination>(
+  props: InboxProps<Destination>,
+) {
   const { client, prepare } = props;
   const [preferenceError, setPreferenceError] = useState(false);
   useEffect(() => {
@@ -181,18 +196,19 @@ export function NotificationInbox(props: InboxProps) {
     </ChimelyProvider>
   );
 }
-function InboxPopover({
+function InboxPopover<Destination extends InboxDestination>({
   showBadge = true,
   animateBadge = false,
   sound = false,
   emptyBody,
   categoryLabels,
   tabs,
-  actionUrl,
+  actionDestination,
   onNavigate,
+  destinationHref = (destination) => destination.href,
   footer,
   preferenceError,
-}: InboxProps & { preferenceError: boolean }) {
+}: InboxProps<Destination> & { preferenceError: boolean }) {
   const client = useChimelyClient();
   const { count } = useUnseenCount();
   const { error, isLoading, items } = useNotifications();
@@ -244,11 +260,11 @@ function InboxPopover({
           localization={{ emptyTitle: "No notifications", emptyBody, categoryLabels }}
           tabs={tabs}
           onItemClick={(item) => {
-            const href = actionUrl(item.payload.action_url);
+            const destination = actionDestination(item.payload.action_url);
             void client.markRead(item);
-            if (href) {
+            if (destination) {
               setOpen(false);
-              onNavigate(href);
+              onNavigate(destination);
             }
             return false;
           }}
@@ -273,7 +289,7 @@ function InboxPopover({
           renderFooter={() => (
             <a
               className="devfeed-inbox-footer-link"
-              href={footer.href}
+              href={destinationHref(footer.destination)}
               onClick={(event) => {
                 if (
                   event.button !== 0 ||
@@ -285,7 +301,7 @@ function InboxPopover({
                   return;
                 event.preventDefault();
                 setOpen(false);
-                onNavigate(footer.href);
+                onNavigate(footer.destination);
               }}
             >
               {footer.label}

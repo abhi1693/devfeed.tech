@@ -14,6 +14,7 @@ from devfeed_core.feeds.fetcher import FeedError
 from devfeed_core.models import Source, SourceCandidate
 from devfeed_core.schemas import DatabaseText, InputModel, ORMModel, ReviewNote
 from devfeed_core.urls import validate_public_url
+from devfeed_http.operation_policies import GatewayPolicy
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import Field, field_validator, model_validator
 from sqlalchemy import func, select
@@ -148,6 +149,9 @@ def require_ai():
     response_model=SourceImportResult,
     status_code=201,
     operation_id="admin_source_import_submit",
+    openapi_extra=GatewayPolicy(
+        upstream_timeout_ms=150_000, body_limit=6_100_000, body_timeout_ms=10_000
+    ).openapi_extra(),
 )
 def submit(body: SourceImportRequest, admin: Admin):
     try:
@@ -236,6 +240,7 @@ def detail(candidate_id: uuid.UUID):
     "/{candidate_id}/review",
     response_model=ImportCandidateDetail,
     operation_id="admin_source_import_review",
+    openapi_extra=GatewayPolicy(upstream_timeout_ms=150_000).openapi_extra(),
 )
 def review(candidate_id: uuid.UUID, body: ImportAction, admin: Admin):
     try:

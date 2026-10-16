@@ -81,6 +81,17 @@ choose the kind of reading you’re in the mood for.
 DevFeed combines **Next.js and React** with **FastAPI**, **PostgreSQL**, and
 **Redis/RQ**. [Run your own instance with Docker Compose](compose.yaml).
 
+Tag and topic pages use the reader's language and content preferences. Existing pages
+with empty filtered feeds are marked `noindex, follow`; missing collections return 404.
+Tags without any publicly visible articles also retain their 404 response. Collection sitemap entries
+require published articles visible to anonymous readers (English by default), with primary
+or supporting assignments for topics. Non-English article detail pages remain eligible
+for the article sitemap.
+
+The scheduler generates cached sitemaps in the background. Crawler requests serve
+the last completed snapshot while refreshes run; see
+[sitemap refresh and retention](apps/aggregator/README.md#cached-sitemaps).
+
 [Configure OpenTelemetry and service metrics](packages/core/OBSERVABILITY.md).
 
 ## Help shape what comes next
@@ -92,3 +103,11 @@ or [join the discussion](https://github.com/abhi1693/devfeed.tech/discussions).
 
 Contributions to the reading experience, feed compatibility, accessibility, and
 documentation are welcome. Start with [CONTRIBUTING.md](CONTRIBUTING.md).
+
+## Partner portal
+
+The standalone partner portal and API expose membership-scoped product/ad analytics,
+and partnership tiers. Superusers manage accounts in the admin application. See [portal setup and access model](apps/partner/README.md).
+
+Configure product API endpoints, mappings, pagination and authentication in the admin app.
+See [partner API connectors](packages/core/PARTNER_CONNECTORS.md) for setup and supported contracts.

@@ -10,6 +10,7 @@ from sqlalchemy.sql import Select
 
 from devfeed_core.feeds.parser import plain_text
 from devfeed_core.models import Article, ArticleOrigin, ArticleTag, ArticleTopic, Source, Tag, Topic
+from devfeed_core.partner_link_rel import default_link_rel, sponsored_article_link_rel
 from devfeed_core.publication import visible_article
 
 MODELS: dict[str, type[Article] | type[Source] | type[Tag] | type[Topic]] = {
@@ -44,6 +45,7 @@ def public_records(session, kind, ids):
             Article.feed_at,
             Article.image_url,
             Article.content_type,
+            Article.sponsor_names,
         ).where(visible_article())
     elif kind == "topics":
         statement = select(
@@ -66,6 +68,7 @@ def public_records(session, kind, ids):
             Source.website_url,
             Source.feed_url,
             Source.logo_url,
+            Source.managed_logo,
         ).where(Source.approval_status == "approved", Source.enabled.is_(True))
     else:
         statement = select(Tag.id, Tag.name, Tag.slug, Tag.aliases)
@@ -80,20 +83,32 @@ def public_records(session, kind, ids):
         if kind == "topics":
             eligible = eligible.where(ArticleTopic.role.in_(["primary", "supporting"]))
         statement = statement.where(eligible.exists())
-    return {
+    records = {
         row["id"]: dict(row)
         for row in session.execute(statement.where(model.id.in_(ids))).mappings()
     }
+    if kind == "articles":
+        policies = sponsored_article_link_rel(
+            session,
+            [identifier for identifier, record in records.items() if record["sponsor_names"]],
+        )
+        for identifier, record in records.items():
+            record["sponsor_link_rel"] = policies.get(identifier, default_link_rel())
+    return records
 
 
 def hit(kind, record):
-    if kind == "topics":
+    if kind in {"topics", "sources"}:
         from types import SimpleNamespace
 
-        from devfeed_core.topic_logos import logo_url, logo_variants
+        from devfeed_core.logos import logo_url, logo_variants
 
-        topic = SimpleNamespace(**record)
-        record = {**record, "logo_url": logo_url(topic), "logo_variants": logo_variants(topic)}
+        topic = SimpleNamespace(**{"logo_url": None, **record})
+        record = {
+            **record,
+            "logo_url": logo_url(topic) or (record.get("logo_url") if kind == "sources" else None),
+            "logo_variants": logo_variants(topic),
+        }
 
     title = record.get("title") or record["name"]
     description = plain_text(
@@ -116,6 +131,8 @@ def hit(kind, record):
         "href": href,
         "image_url": record.get("image_url") or record.get("logo_url"),
         "logo_variants": record.get("logo_variants", []),
+        "sponsor_names": record.get("sponsor_names", []),
+        "sponsor_link_rel": record.get("sponsor_link_rel", default_link_rel()),
         "label": record.get("content_type", kind[:-1]),
         "published_at": record["feed_at"].isoformat() if record.get("feed_at") else None,
     }

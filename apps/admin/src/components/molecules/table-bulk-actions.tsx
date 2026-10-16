@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Dialog } from "radix-ui";
 import { X } from "lucide-react";
-import { Button } from "@/components/atoms/button";
+import { Button } from "@devfeed/ui/button";
 import { DeleteConfirmation } from "@/components/molecules/delete-confirmation";
 import { ApiError } from "@/lib/api/client";
 import { notify, notifyFailure } from "@/lib/notifications";

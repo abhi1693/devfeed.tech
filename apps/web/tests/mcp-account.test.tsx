@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { McpContent } from "@/components/mcp-content";
 import { McpConsent } from "@/components/mcp-consent";
 import { McpConnections } from "@/components/mcp-connections";
@@ -151,10 +151,14 @@ it("disconnects an authorized agent and removes it from the account list", async
   await waitFor(() =>
     expect(screen.queryByRole("button", { name: "Disconnect Codex" })).toBeNull(),
   );
-  expect(request).toHaveBeenLastCalledWith("mcp/connections/grant", {
-    method: "DELETE",
-    headers: { "X-CSRF-Token": "csrf" },
-  });
+  expect(request).toHaveBeenLastCalledWith(
+    "mcp/connections/grant",
+    expect.objectContaining({
+      method: "DELETE",
+      headers: { "X-CSRF-Token": "csrf" },
+      signal: expect.any(AbortSignal),
+    }),
+  );
 });
 
 it("opens account connections in the third tab without setup controls", async () => {
@@ -285,3 +289,45 @@ it("keeps the selected permission when the same browser session refreshes", asyn
   expect((screen.getByRole("radio", { name: "Read-only" }) as HTMLInputElement).checked).toBe(true);
   expect(request).toHaveBeenCalledTimes(1);
 });
+
+it.each(["request", "account"])(
+  "cancels pending authorization when the %s changes and accepts the new request",
+  async (change) => {
+    const details = {
+      client_name: "Codex",
+      scopes: ["devfeed:read", "devfeed:write"],
+      resource: "https://mcp.test/mcp",
+    };
+    let finish!: (result: { redirect_url: string }) => void;
+    const request = vi.spyOn(userApi, "userRequest").mockImplementation((_path, options) =>
+      options?.method === "POST"
+        ? new Promise((resolve) => {
+            finish = resolve;
+          })
+        : Promise.resolve(details),
+    );
+    const view = render(<McpConsent requestId="request-one" />);
+    await userEvent.click(await screen.findByRole("button", { name: "Allow connection" }));
+    const signal = request.mock.calls.at(-1)?.[1]?.signal;
+    expect(screen.getByRole("button", { name: "Allow connection" })).toHaveProperty(
+      "disabled",
+      true,
+    );
+    if (change === "account")
+      state.session.user = { user_id: "two", csrf_token: "two-csrf", name: "Other", email: null };
+    view.rerender(<McpConsent requestId={change === "request" ? "request-two" : "request-one"} />);
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Allow connection" })).toHaveProperty(
+        "disabled",
+        false,
+      ),
+    );
+    expect(signal?.aborted).toBe(true);
+    await act(async () => finish({ redirect_url: "http://localhost:4321/stale" }));
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(screen.getByRole("button", { name: "Allow connection" })).toHaveProperty(
+      "disabled",
+      false,
+    );
+  },
+);

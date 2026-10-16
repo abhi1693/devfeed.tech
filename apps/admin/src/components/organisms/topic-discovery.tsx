@@ -3,7 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { ChevronDown, GitFork, LoaderCircle, Sparkles } from "lucide-react";
-import { Button } from "@/components/atoms/button";
+import { Button } from "@devfeed/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/atoms/popover";
 import { RequestState } from "@/components/molecules/request-state";
 import { useAdmin } from "@/components/molecules/admin-session";

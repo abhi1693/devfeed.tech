@@ -14,6 +14,7 @@ const state = vi.hoisted(() => ({
   unavailable: false,
   profile: null as UserProfile | null,
   profileUnavailable: false,
+  promptEligibility: { signup: true, mustReads: true },
 }));
 const follows = vi.hoisted(() => ({
   ids: [] as string[],
@@ -23,6 +24,9 @@ const follows = vi.hoisted(() => ({
   save: vi.fn(),
 }));
 vi.mock("@/components/user-account", () => ({ useUser: () => state }));
+vi.mock("@/components/reader-context", () => ({
+  useReaderContext: () => ({ currentArticle: null, promptEligibility: state.promptEligibility }),
+}));
 vi.mock("@/components/topic-follows", () => ({ useTopicFollows: () => follows }));
 vi.mock("@/components/infinite-choices", () => ({ InfiniteChoices: () => null }));
 vi.mock("@/components/dev-card-artwork", () => ({ DevCardArtwork: () => <div>Card artwork</div> }));
@@ -52,6 +56,7 @@ beforeEach(() => {
   state.unavailable = false;
   state.profile = null;
   state.profileUnavailable = false;
+  state.promptEligibility = { signup: true, mustReads: true };
   follows.ids = [];
   follows.loading = false;
   follows.unavailable = false;
@@ -72,7 +77,7 @@ function invites({ signup = true, requested = false, onboarding = false } = {}) 
     <ReaderPromptsProvider>
       {onboarding && <FeedOnboarding />}
       <DevCardPromo requested={requested} />
-      {signup && <SignupNudge pathname="/latest" />}
+      {signup && <SignupNudge />}
     </ReaderPromptsProvider>
   );
 }
@@ -143,7 +148,7 @@ it("gives an explicit preview priority over a visible signup banner", async () =
 it("hides signup while a native article dialog is open and resumes after it closes", async () => {
   render(
     <ReaderPromptsProvider>
-      <SignupNudge pathname="/latest" />
+      <SignupNudge />
     </ReaderPromptsProvider>,
   );
   await advance();
@@ -157,6 +162,25 @@ it("hides signup while a native article dialog is open and resumes after it clos
     article.close();
     article.remove();
   });
+  expect(screen.getByRole("button", { name: "Not now" })).toBeTruthy();
+});
+
+it("releases signup when reader eligibility becomes quiet and resumes without dismissal", async () => {
+  const signup = () => (
+    <ReaderPromptsProvider>
+      <SignupNudge />
+    </ReaderPromptsProvider>
+  );
+  const reader = render(signup());
+  await advance();
+  expect(screen.getByRole("button", { name: "Not now" })).toBeTruthy();
+  state.promptEligibility.signup = false;
+  reader.rerender(signup());
+  await advance();
+  expect(screen.queryByRole("button", { name: "Not now" })).toBeNull();
+  state.promptEligibility.signup = true;
+  reader.rerender(signup());
+  await advance();
   expect(screen.getByRole("button", { name: "Not now" })).toBeTruthy();
 });
 

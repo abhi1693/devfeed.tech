@@ -3,7 +3,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { Bell, Monitor, SlidersHorizontal, UserRound } from "lucide-react";
 import { settingsSections } from "@/lib/settings";
-import { PageHeading } from "./page-heading";
+import { ResourceHeading } from "@devfeed/ui/resource-layout";
 import { cn } from "@/lib/utils";
 const icons = {
   profile: UserRound,
@@ -16,7 +16,7 @@ export function SettingsNav() {
   const current = settingsSections.find((item) => item.id === active);
   return (
     <div className="min-w-0 space-y-4">
-      <PageHeading title="Settings" browserTitle={`${current?.label ?? "Account"} settings`} />
+      <ResourceHeading title="Settings" browserTitle={`${current?.label ?? "Account"} settings`} />
       <nav aria-label="Settings sections" className="flex gap-1 overflow-x-auto border-b">
         {settingsSections.map((item) => {
           const Icon = icons[item.id];

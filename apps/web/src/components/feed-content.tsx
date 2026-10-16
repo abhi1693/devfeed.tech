@@ -10,6 +10,7 @@ import { UserShell } from "@/components/user-shell";
 import { InfiniteFeed } from "@/components/infinite-feed";
 import { FeedFiltersBar } from "@/components/feed-filters";
 import { RetryFeed } from "@/components/retry-feed";
+import { feedPlacements, type FeedDescriptor } from "@/lib/reader-feed";
 
 import type { ReactNode } from "react";
 import type { FeedPage, FeedOptions } from "@/lib/types";
@@ -25,6 +26,9 @@ export type FeedContentProps = {
   feed: PromiseSettledResult<FeedPage>;
   options: PromiseSettledResult<FeedOptions>;
   children?: ReactNode;
+  /** PublicPage owns the persistent shell for streamed listings. */
+  withShell?: boolean;
+  feedDescriptor: FeedDescriptor;
 };
 
 export function FeedContent({
@@ -38,12 +42,14 @@ export function FeedContent({
   feed,
   options,
   children,
+  withShell = true,
+  feedDescriptor,
 }: FeedContentProps) {
   const filtered = Object.entries(filters).some(
     ([key, value]) => key !== "cursor" && key !== "source_slug" && value,
   );
-  return (
-    <UserShell filters={filters} section={section}>
+  const content = (
+    <>
       {children}
       <section className="feed-header" aria-label="Feed controls">
         <div
@@ -78,7 +84,7 @@ export function FeedContent({
           {section === "sources" && filters.source_id && (
             <SourceFollow
               sourceId={filters.source_id}
-              returnTo={sourceHref({ id: filters.source_id, slug: filters.source_slug })}
+              returnTo={feedHref(filters, { cursor: filters.cursor })}
             />
           )}
           {section === "topics" && topicId && (
@@ -122,6 +128,7 @@ export function FeedContent({
             key={feedParams(filters).toString()}
             initialPage={feed.value}
             filters={filters}
+            placements={feedPlacements(feedDescriptor, filters, { section, topicId })}
           />
           {filters.cursor && (
             <div className="pagination">
@@ -155,6 +162,13 @@ export function FeedContent({
           </Link>
         </section>
       )}
+    </>
+  );
+  return withShell ? (
+    <UserShell filters={filters} section={section}>
+      {content}
     </UserShell>
+  ) : (
+    content
   );
 }

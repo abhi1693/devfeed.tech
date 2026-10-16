@@ -9,13 +9,13 @@ from devfeed_core.schemas import (
     TagPatch,
     TagWrite,
 )
+from devfeed_core.text_search import text_search
+from devfeed_http.pagination import Listing, Page, paginate, prohibit_references, record
 from fastapi import APIRouter, Depends, Response
 from sqlalchemy import delete, select
 
 from devfeed_admin_api.auth import require_admin
 from devfeed_admin_api.dependencies import DB
-from devfeed_admin_api.pagination import Listing, Page, paginate, prohibit_references, record
-from devfeed_admin_api.search import text_search
 
 router = APIRouter(
     prefix="/v1/admin", tags=["admin-taxonomy"], dependencies=[Depends(require_admin)]

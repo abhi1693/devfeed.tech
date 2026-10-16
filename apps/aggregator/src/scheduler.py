@@ -22,6 +22,9 @@ from devfeed_core.models import (
     utcnow,
 )
 from devfeed_core.overview_daily import refresh_overview_daily
+from devfeed_core.partner_matching import refresh_partner_matches
+from devfeed_core.partner_promotions import sync_partner_promotions
+from devfeed_core.partner_tracking import prune_partner_delivery_history
 from devfeed_core.recommendations import (
     dispatch_recommendations,
     expand_recommendation_events,
@@ -32,9 +35,13 @@ from devfeed_core.version import __version__
 from sqlalchemy import select
 
 from devfeed_aggregator.discovery_tasks import dispatch_discovery
+from devfeed_aggregator.partner_dispatcher import partner_dispatcher
+from devfeed_aggregator.partner_sync_tasks import dispatch_partner_pipeline
+from devfeed_aggregator.partner_tasks import dispatch_partner_evaluations
 from devfeed_aggregator.queue import get_queue
 from devfeed_aggregator.recommendation_dispatcher import recommendation_dispatcher
 from devfeed_aggregator.scheduler_health import scheduler_health
+from devfeed_aggregator.sitemap_refresher import sitemap_refresher
 
 logger = logging.getLogger(__name__)
 
@@ -95,6 +102,12 @@ def _tick() -> dict[str, int]:
         prune_job_payloads(factory)
     except Exception:
         logger.exception("job_payload_retention_failed")
+    try:
+        prune_partner_delivery_history(factory)
+    except Exception as exc:
+        logger.warning(
+            "partner_delivery_retention_failed", extra={"error_type": type(exc).__name__}
+        )
     recommendation_users_queued = expand_recommendation_events(
         factory, get_settings().scheduler_batch_size
     )
@@ -197,6 +210,19 @@ def _tick() -> dict[str, int]:
     now = utcnow()  # Include jobs created during the scheduling transaction above.
     try:
         dispatch_discovery(factory, min(batch, 10))
+        partner_pipeline_dispatched = dispatch_partner_pipeline(factory, limit=batch)
+        partner_evaluations_dispatched = dispatch_partner_evaluations(factory, limit=batch)
+        try:
+            sync_partner_promotions(factory)
+            refresh_partner_matches(factory)
+            from devfeed_core.logos import backfill_logos
+            from devfeed_core.models import PartnerProduct
+
+            if get_settings().image_storage_enabled:
+                with factory.begin() as session:
+                    backfill_logos(session, PartnerProduct, limit=10)
+        except Exception as exc:
+            logger.warning("partner_match_refresh_failed", extra={"error_type": type(exc).__name__})
         recommendations_dispatched = dispatch_recommendations(factory, queue, batch)
         dispatched = dispatch_jobs(factory, queue, batch, now)
         background_counts = {}
@@ -270,6 +296,8 @@ def _tick() -> dict[str, int]:
         **automation,
         "recommendation_users_queued": recommendation_users_queued,
         "recommendations_dispatched": recommendations_dispatched,
+        "partner_pipeline_dispatched": partner_pipeline_dispatched,
+        "partner_evaluations_dispatched": partner_evaluations_dispatched,
         "scheduled": scheduled,
         "dispatched": dispatched,
         "recovered": recovered,
@@ -345,6 +373,8 @@ def run() -> None:
             with (
                 scheduler_health() as health,
                 recommendation_dispatcher(session_factory(), get_queue),
+                partner_dispatcher(session_factory()),
+                sitemap_refresher(),
             ):
                 while not stop.is_set():
                     # Failed cycles do not reset the bounded heartbeat deadline.

@@ -30,6 +30,7 @@ from devfeed_core.publication import visible_article
 from devfeed_core.recommendations import has_recommendation_work
 from devfeed_core.schemas import ArticleOut, ContentType, FeedPage
 from devfeed_core.user_settings import FeedSettings
+from devfeed_http.agent_permissions import AgentAccessPolicy
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, Field
 from sqlalchemy import func, or_, select, text, update
@@ -134,7 +135,11 @@ def decode_position(cursor, user_id, scope):
         raise HTTPException(422, "Invalid recommendation cursor") from exc
 
 
-@router.get("/feed", response_model=RecommendationPage)
+@router.get(
+    "/feed",
+    response_model=RecommendationPage,
+    openapi_extra=AgentAccessPolicy(scope="devfeed:read").openapi_extra(),
+)
 def feed(
     user: User,
     session: DB,
@@ -326,7 +331,7 @@ def feed(
     result = RecommendationPage(
         status="refreshing" if refreshing else "ready",
         generation=selected_generation,
-        items=[ArticleOut.from_article(article) for article, _, _ in page],
+        items=ArticleOut.from_articles(article for article, _, _ in page),
         next_cursor=next_cursor,
         has_interests=state.interest_count > 0,
         refresh_state=("retrying" if state.attempts else "preparing") if refreshing else "idle",
@@ -344,7 +349,7 @@ def feed(
         starters, kind = starter_articles(
             session, user_id, settings, limit, content_type, source_id
         )
-        result.items = [ArticleOut.from_article(article) for article in starters]
+        result.items = ArticleOut.from_articles(starters)
         result.feed_kind = kind
         result.generation = None
         result.next_cursor = None

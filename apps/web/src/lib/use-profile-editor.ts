@@ -19,6 +19,7 @@ function profileDefaults(initial: UserProfile, providerName: string | null) {
     bio: initial.bio ?? null,
     location: initial.location ?? null,
     about: initial.about ?? null,
+    experience_level: initial.experience_level ?? null,
     links: initial.links ?? [],
     stack: initial.stack ?? [],
     visibility: {

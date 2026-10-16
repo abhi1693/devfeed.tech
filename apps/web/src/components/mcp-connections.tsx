@@ -1,7 +1,8 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useUser } from "@/components/user-account";
 import { userRequest } from "@/lib/user";
+import { revokeMcpConnection } from "@/lib/user-mutations";
 
 type Connection = { id: string; client_name: string; scopes: string[]; expires_at: number };
 export function McpConnections() {
@@ -15,6 +16,8 @@ export function McpConnections() {
   const items = current?.items ?? [];
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState<string | null>(null);
+  const request = useRef<AbortController | null>(null);
+  useEffect(() => () => request.current?.abort(), [user?.user_id]);
   useEffect(() => {
     if (!user) return;
     const controller = new AbortController();
@@ -35,13 +38,16 @@ export function McpConnections() {
   if (!user) return null;
   async function disconnect(item: Connection) {
     if (!user) return;
+    const controller = new AbortController();
+    request.current = controller;
     setBusy(item.id);
     setMessage("");
     try {
-      await userRequest(`mcp/connections/${item.id}`, {
-        method: "DELETE",
-        headers: { "X-CSRF-Token": user.csrf_token },
+      await revokeMcpConnection(item.id, {
+        csrfToken: user.csrf_token,
+        signal: controller.signal,
       });
+      if (controller.signal.aborted) return;
       setConnections((value) =>
         value?.owner === user.user_id
           ? {
@@ -52,9 +58,12 @@ export function McpConnections() {
       );
       setMessage("Agent disconnected.");
     } catch {
-      setMessage("Couldn’t disconnect this agent. Please retry.");
+      if (!controller.signal.aborted) setMessage("Couldn’t disconnect this agent. Please retry.");
     } finally {
-      setBusy(null);
+      if (request.current === controller) {
+        request.current = null;
+        setBusy(null);
+      }
     }
   }
   return (

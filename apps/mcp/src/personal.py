@@ -12,6 +12,7 @@ from mcp.server.auth.middleware.auth_context import get_access_token
 from mcp.server.mcpserver.exceptions import ToolError
 from mcp.types import ToolAnnotations
 from pydantic import BaseModel, Field
+from starlette.types import ASGIApp
 
 from devfeed_mcp.api import PublicAPI
 from devfeed_mcp.schemas import Article, FeedPage
@@ -217,9 +218,9 @@ def register_personal_tools(server: MCPServer, api: UserAPI):
 class AccountToolAuth:
     """Challenge OAuth discovery and account calls on the shared transport."""
 
-    def __init__(self, required_auth):
+    def __init__(self, public_transport: ASGIApp, required_auth: ASGIApp):
         self.required_auth = required_auth
-        self.public_transport = required_auth.app
+        self.public_transport = public_transport
 
     async def __call__(self, scope, receive, send):
         import json

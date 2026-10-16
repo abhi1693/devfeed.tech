@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { Cell, Pie, PieChart, Tooltip } from "recharts";
 import type { OverviewSourcePerformance } from "@/lib/api/generated/models";
-import { ChartContainer, DistributionTooltip } from "@/components/atoms/chart";
+import { ChartContainer, DistributionTooltip } from "@devfeed/ui/chart";
 import { formatCompactCount } from "@/lib/format-count";
 
 export function OverviewSourceChart({

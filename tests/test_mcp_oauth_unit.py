@@ -345,20 +345,29 @@ def test_token_revocation_removes_the_connection_without_affecting_other_grants(
 
 
 @pytest.mark.parametrize(
-    "method,path,body,status",
+    "method,resource,path,body,status",
     [
-        ("GET", "/token", b"", 200),
-        ("POST", "/token", f"resource={RESOURCE}".encode(), 200),
-        ("POST", "/token", b"grant_type=refresh_token", 200),
-        ("POST", "/token", b"resource=https://other.example", 400),
-        ("POST", "/token", f"resource={RESOURCE}&resource={RESOURCE}".encode(), 400),
-        ("POST", "/token", b"\xff", 400),
-        ("POST", "/register", b"x" * 32768, 200),
-        ("POST", "/register", b"x" * 32769, 413),
+        ("GET", RESOURCE, "/renamed-exchange", b"", 200),
+        ("POST", RESOURCE, "/renamed-exchange", f"resource={RESOURCE}".encode(), 200),
+        ("POST", RESOURCE, "/renamed-exchange", b"grant_type=refresh_token", 200),
+        ("POST", RESOURCE, "/renamed-exchange", b"resource=https://other.example", 400),
+        ("POST", RESOURCE, "/renamed-exchange", b"resource=", 400),
+        ("POST", RESOURCE, "/renamed-exchange", f"resource={RESOURCE}&resource=".encode(), 400),
+        (
+            "POST",
+            RESOURCE,
+            "/renamed-exchange",
+            f"resource={RESOURCE}&resource={RESOURCE}".encode(),
+            400,
+        ),
+        ("POST", RESOURCE, "/renamed-exchange", b"\xff", 400),
+        ("POST", None, "/token", b"resource=https://other.example", 200),
+        ("POST", None, "/renamed-registration", b"x" * 32768, 200),
+        ("POST", None, "/renamed-registration", b"x" * 32769, 413),
     ],
 )
-def test_oauth_transport_bounds_chunked_bodies_and_preserves_downstream_receive(
-    method, path, body, status
+def test_oauth_policy_bounds_chunked_bodies_and_preserves_downstream_receive(
+    method, resource, path, body, status
 ):
     forwarded = []
 
@@ -375,30 +384,257 @@ def test_oauth_transport_bounds_chunked_bodies_and_preserves_downstream_receive(
     ]
     receive = AsyncMock(side_effect=messages)
     send = AsyncMock()
-    scope = {"type": "http", "method": method, "path": path}
-    run(oauth.OAuthPolicyMiddleware(app, RESOURCE)(scope, receive, send))
+    scope = {
+        "type": "http",
+        "method": method,
+        "path": path,
+        "headers": [(b"content-type", b"application/x-www-form-urlencoded")],
+    }
+    run(oauth.OAuthRequestPolicy(app, resource)(scope, receive, send))
     response = send.await_args_list[0].args[0]
     assert response["status"] == status
     if status != 200:
         assert not forwarded
+        assert (b"cache-control", b"no-store") in response["headers"]
+        assert json.loads(send.await_args_list[1].args[0]["body"]) == {
+            "error": "invalid_target" if status == 400 else "invalid_request"
+        }
     elif method == "POST":
         assert forwarded == [
             {"type": "http.request", "body": body, "more_body": False},
             {"type": "http.disconnect"},
         ]
+    else:
+        assert forwarded == messages[:2]
 
 
-def test_oauth_disconnect_aborts_processing_and_non_http_scopes_pass_through():
-    app = AsyncMock()
-    middleware = oauth.OAuthPolicyMiddleware(app, RESOURCE)
-    run(
-        middleware(
-            {"type": "http", "method": "POST", "path": "/token"},
-            AsyncMock(return_value={"type": "http.disconnect"}),
-            AsyncMock(),
-        )
+@pytest.mark.parametrize(
+    "headers,body,status,received",
+    [
+        ([(b"content-length", b"32769")], b"", 413, False),
+        ([(b"content-length", b"9999999999999999999999999")], b"", 413, False),
+        (
+            [(b"content-length", b"0"), (b"Content-Length", b"32769")],
+            b"",
+            413,
+            False,
+        ),
+        ([(b"content-length", b"32768")], b"x" * 32768, 200, True),
+        ([(b"content-length", b"0")], b"x" * 32769, 413, True),
+        ([(b"content-length", b"invalid")], b"x" * 32769, 413, True),
+        ([(b"transfer-encoding", b"chunked")], b"x" * 32769, 413, True),
+    ],
+)
+def test_oauth_policy_checks_declared_and_actual_size_before_invoking_sdk(
+    headers, body, status, received
+):
+    from starlette.responses import JSONResponse
+
+    app_calls = []
+
+    async def app(scope, receive, send):
+        app_calls.append(await receive())
+        await JSONResponse({"accepted": True})(scope, receive, send)
+
+    receive = AsyncMock(return_value={"type": "http.request", "body": body, "more_body": False})
+    send = AsyncMock()
+    scope = {"type": "http", "method": "POST", "path": "/arbitrary", "headers": headers}
+    run(oauth.OAuthRequestPolicy(app)(scope, receive, send))
+    response = send.await_args_list[0].args[0]
+    assert response["status"] == status
+    assert bool(receive.await_count) is received
+    assert bool(app_calls) is (status == 200)
+    if status != 200:
+        assert json.loads(send.await_args_list[1].args[0]["body"]) == {"error": "invalid_request"}
+        assert (b"cache-control", b"no-store") in response["headers"]
+
+
+@pytest.mark.parametrize("root_path", ["", "/reverse-proxy"])
+def test_oauth_resource_policy_follows_the_endpoint_through_renaming_and_mounting(root_path):
+    from starlette.applications import Starlette
+    from starlette.responses import JSONResponse
+    from starlette.routing import Mount, Route
+    from starlette.testclient import TestClient
+
+    forwarded = []
+
+    async def app(scope, receive, send):
+        forwarded.append(await receive())
+        await JSONResponse({"accepted": True})(scope, receive, send)
+
+    server = Starlette(
+        routes=[
+            Mount(
+                "/authorization",
+                routes=[
+                    Route(
+                        "/exchange-renamed",
+                        oauth.OAuthRequestPolicy(app, RESOURCE),
+                        methods=["POST"],
+                    ),
+                    Route("/token", oauth.OAuthRequestPolicy(app), methods=["POST"]),
+                ],
+            )
+        ]
     )
+    with TestClient(server, root_path=root_path) as client:
+        renamed = f"{root_path}/authorization/exchange-renamed"
+        assert client.post(renamed, data={"resource": RESOURCE}).status_code == 200
+        rejected = client.post(renamed, data={"resource": "https://other.example"})
+        assert rejected.status_code == 400
+        assert rejected.json() == {"error": "invalid_target"}
+        assert rejected.headers["cache-control"] == "no-store"
+        # The endpoint's supplied policy wins even when another route uses the old name.
+        assert (
+            client.post(
+                f"{root_path}/authorization/token", data={"resource": "https://other.example"}
+            ).status_code
+            == 200
+        )
+    assert len(forwarded) == 2
+
+
+@pytest.mark.parametrize(
+    "content_type",
+    [None, b"application/json", b"multipart/form-data; boundary=oauth-boundary"],
+)
+@pytest.mark.parametrize("resource", [None, RESOURCE])
+def test_oauth_token_policy_rejects_other_encodings_before_reading_the_body(content_type, resource):
+    from starlette.responses import JSONResponse
+
+    calls = []
+
+    async def app(scope, receive, send):
+        calls.append(await receive())
+        await JSONResponse({"accepted": True})(scope, receive, send)
+
+    receive = AsyncMock(
+        return_value={
+            "type": "http.request",
+            "body": b"resource=https://other.example",
+            "more_body": False,
+        }
+    )
+    send = AsyncMock()
+    scope = {
+        "type": "http",
+        "method": "POST",
+        "path": "/arbitrary-oauth-operation",
+        "headers": [(b"content-type", content_type)] if content_type is not None else [],
+    }
+    run(oauth.OAuthRequestPolicy(app, resource)(scope, receive, send))
+    response = send.await_args_list[0].args[0]
+    if resource is None:
+        assert response["status"] == 200
+        assert len(calls) == 1
+        receive.assert_awaited_once()
+    else:
+        assert response["status"] == 400
+        assert (b"cache-control", b"no-store") in response["headers"]
+        assert json.loads(send.await_args_list[1].args[0]["body"]) == {"error": "invalid_request"}
+        assert not calls
+        receive.assert_not_awaited()
+
+
+@pytest.mark.parametrize(
+    "content_type",
+    [
+        b"application/x-www-form-urlencoded",
+        b"APPLICATION/X-WWW-FORM-URLENCODED",
+        b"application/x-www-form-urlencoded; charset=UTF-8",
+    ],
+)
+def test_oauth_token_policy_accepts_form_media_types_and_parameters(content_type):
+    from starlette.responses import JSONResponse
+
+    body = f"resource={RESOURCE}".encode()
+
+    async def app(scope, receive, send):
+        assert await receive() == {"type": "http.request", "body": body, "more_body": False}
+        await JSONResponse({"accepted": True})(scope, receive, send)
+
+    scope = {
+        "type": "http",
+        "method": "POST",
+        "path": "/exchange-renamed",
+        "headers": [(b"content-type", content_type)],
+    }
+    receive = AsyncMock(return_value={"type": "http.request", "body": body, "more_body": False})
+    send = AsyncMock()
+    run(oauth.OAuthRequestPolicy(app, RESOURCE)(scope, receive, send))
+    assert send.await_args_list[0].args[0]["status"] == 200
+
+
+@pytest.mark.parametrize("upload", ["stalled", "drip"])
+def test_oauth_policy_deadline_covers_the_complete_body(upload):
+    import anyio
+
+    app, send = AsyncMock(), AsyncMock()
+    reads = []
+
+    async def receive():
+        reads.append(True)
+        await anyio.sleep(30 if upload == "stalled" else 0.01)
+        return {"type": "http.request", "body": b"x", "more_body": True}
+
+    scope = {"type": "http", "method": "POST", "path": "/renamed-registration"}
+    run(oauth.OAuthRequestPolicy(app, body_timeout_seconds=0.035)(scope, receive, send))
+    response = send.await_args_list[0].args[0]
+    assert response["status"] == 408
+    assert (b"cache-control", b"no-store") in response["headers"]
+    assert json.loads(send.await_args_list[1].args[0]["body"]) == {"error": "invalid_request"}
     app.assert_not_awaited()
-    receive, send = AsyncMock(), AsyncMock()
-    run(middleware({"type": "lifespan"}, receive, send))
-    app.assert_awaited_once_with({"type": "lifespan"}, receive, send)
+    assert 1 <= len(reads) <= 4
+
+
+def test_oauth_body_deadline_does_not_cancel_sdk_response_processing():
+    import anyio
+    from starlette.responses import JSONResponse
+
+    async def app(scope, receive, send):
+        assert await receive() == {"type": "http.request", "body": b"", "more_body": False}
+        await anyio.sleep(0.025)
+        await JSONResponse({"accepted": True})(scope, receive, send)
+
+    receive = AsyncMock(return_value={"type": "http.request", "body": b"", "more_body": False})
+    send = AsyncMock()
+    scope = {"type": "http", "method": "POST", "path": "/arbitrary"}
+    run(oauth.OAuthRequestPolicy(app, body_timeout_seconds=0.01)(scope, receive, send))
+    assert send.await_args_list[0].args[0]["status"] == 200
+
+
+@pytest.mark.parametrize("partial", [False, True])
+def test_oauth_disconnect_aborts_processing_without_replaying_an_incomplete_body(partial):
+    app, send = AsyncMock(), AsyncMock()
+    messages = []
+    if partial:
+        messages.append({"type": "http.request", "body": b"partial", "more_body": True})
+    messages.append({"type": "http.disconnect"})
+    receive = AsyncMock(side_effect=messages)
+    scope = {
+        "type": "http",
+        "method": "POST",
+        "path": "/renamed-exchange",
+        "headers": [(b"content-type", b"application/x-www-form-urlencoded")],
+    }
+    run(oauth.OAuthRequestPolicy(app, RESOURCE)(scope, receive, send))
+    app.assert_not_awaited()
+    send.assert_not_awaited()
+    assert receive.await_count == len(messages)
+
+
+@pytest.mark.parametrize(
+    "scope",
+    [
+        {"type": "lifespan"},
+        {"type": "websocket", "path": "/arbitrary"},
+        {"type": "http", "method": "GET", "path": "/arbitrary"},
+        {"type": "http", "method": "OPTIONS", "path": "/arbitrary"},
+    ],
+)
+def test_oauth_non_post_requests_pass_through_without_consuming_body(scope):
+    app, receive, send = AsyncMock(), AsyncMock(), AsyncMock()
+    run(oauth.OAuthRequestPolicy(app, RESOURCE)(scope, receive, send))
+    app.assert_awaited_once_with(scope, receive, send)
+    receive.assert_not_awaited()
+    send.assert_not_awaited()

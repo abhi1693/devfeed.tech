@@ -2,7 +2,7 @@
 
 import { useRef, useState, type ReactNode } from "react";
 import { Info } from "lucide-react";
-import { Button } from "@/components/atoms/button";
+import { Button } from "@devfeed/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/atoms/tooltip";
 
 export function InfoTooltip({ label, children }: { label: string; children: ReactNode }) {

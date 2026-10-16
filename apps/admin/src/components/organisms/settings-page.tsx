@@ -2,8 +2,8 @@
 
 import { useState } from "react";
 import { timezoneOptions } from "@devfeed/ui/date-format";
-import { Button } from "@/components/atoms/button";
-import { Input } from "@/components/atoms/input";
+import { Button } from "@devfeed/ui/button";
+import { Input } from "@devfeed/ui/input";
 import { Field } from "@/components/molecules/field";
 import { LogoUrlField } from "@/components/molecules/logo-url-field";
 import { PageTitle } from "@/components/molecules/page-title";

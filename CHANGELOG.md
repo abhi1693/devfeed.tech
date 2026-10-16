@@ -4,6 +4,31 @@ Application releases and Alembic schema revisions are separate identifiers.
 
 ## Unreleased
 
+## 0.0.52 — 2026-10-11
+
+### Enhancements
+
+- Filter search results by Articles, News, Tutorials, Releases, Comparisons, or Opinions on web, Chrome, and Edge; Articles now excludes the other content types.
+- Load feeds, article pages, topics, and sources sooner while public data finishes loading in the background.
+- Browse with smaller article thumbnails, optimized publisher logos, and locally served profile-link icons.
+- Keep publisher logos available through managed image storage, with automatic imports for newly added sources.
+
+### Fixes
+
+- Keep sitemap requests responsive by generating inventories in the background and serving the last completed snapshot while refreshes run or fail.
+- Restore feed filters, loaded articles, and scroll position when returning from article previews or using browser Back and Forward on web, Chrome, and Edge.
+- Keep guests on the public home feed while account checks finish, without briefly showing personalized content.
+- Show directly opened articles promptly and preserve preview cover proportions without oversized image requests.
+- Keep typed search drafts intact while results for the submitted query load.
+- Show the Dev Card invitation automatically only once per browser, while keeping the creator accessible from account navigation.
+- Deliver GitHub profile avatars through optimized image routes and keep profile pages responsive during bursts of image requests.
+- Schedule source fetches at their configured intervals after fetch completion.
+- Limit X conversion reporting to readers who arrive through X attribution links.
+
+### Upgrade notes
+
+- Apply migration `0023` before starting the updated services to enable managed publisher logos and their image-processing queue.
+
 ## 0.0.51 — 2026-10-06
 
 ### Enhancements
@@ -81,6 +106,23 @@ Application releases and Alembic schema revisions are separate identifiers.
 ### Fixes
 
 - Label the user list's activity timestamp as Last active, reflecting authenticated activity rather than only sign-ins.
+
+### Enhancements
+
+- Set a separate sync interval for each partner without interrupting running syncs.
+- Browse partner products in a searchable table with dedicated detail pages and related listings, jobs, and evaluations.
+- Sync partner products independently so a failed product can retry without repeating successful work.
+- Connect launch platform partnerships to sync developer products automatically, check product capabilities, and privately evaluate article relevance.
+- Browse partnership pipeline jobs and evaluations in dedicated pages with related records, matching evidence, and worker logs.
+- Manage partners in dedicated list, create, edit, and detail pages, with related products and sync job logs.
+- Combine matching products from multiple launch platforms while retaining each listing, attribution, and shared product exclusions.
+
+### Fixes
+
+- Search partner products, pipeline jobs, and evaluations using literal text, including punctuation.
+- Recover partner syncs after repeated failures so corrected upstream products can be discovered.
+- Refresh article matching after retrying product checks while an earlier evaluation is still active.
+- Sort products by name or update time in a partner's related objects.
 
 ## 0.0.48 — 2026-10-02
 

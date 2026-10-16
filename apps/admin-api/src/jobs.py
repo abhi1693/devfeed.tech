@@ -13,6 +13,9 @@ from devfeed_core.models import (
     ArticleAnalysisJob,
     ArticleImageJob,
     NotificationDelivery,
+    PartnerEvaluation,
+    PartnerPipelineJob,
+    PartnerProduct,
     Source,
     SourceDiscoveryJob,
     Topic,
@@ -20,6 +23,8 @@ from devfeed_core.models import (
     TopicProposal,
 )
 from devfeed_core.schemas import ORMModel
+from devfeed_core.text_search import text_search
+from devfeed_http.pagination import Listing, Page, paginate, record
 from devfeed_http.schemas import ErrorResponse
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.encoders import jsonable_encoder
@@ -31,11 +36,14 @@ from sqlalchemy.orm import load_only
 from devfeed_admin_api.auth import Admin, actor, require_admin
 from devfeed_admin_api.dependencies import DB, get_redis
 from devfeed_admin_api.job_views import JOB_FIELDS
-from devfeed_admin_api.pagination import Listing, Page, paginate, record
-from devfeed_admin_api.search import text_search
 
 MODELS = {kind: d.model for kind, d in JOB_DEFINITIONS.items() if d.admin_visible}
-LOG_MODELS = {**MODELS, "source-discovery": SourceDiscoveryJob}
+LOG_MODELS = {
+    **MODELS,
+    "source-discovery": SourceDiscoveryJob,
+    "partner-evaluation": PartnerEvaluation,
+    "partner-pipeline": PartnerPipelineJob,
+}
 router = APIRouter(
     prefix="/v1/admin/jobs", tags=["admin-jobs"], dependencies=[Depends(require_admin)]
 )
@@ -51,7 +59,14 @@ def retry_candidates(model):
     if model is NotificationDelivery:
         return select(model.id).where(model.status == "failed")
     subject = (
-        (model.article_id, model.topic_id)
+        (
+            model.article_id,
+            model.topic_id,
+            model.source_id,
+            model.product_id,
+            model.account_id,
+            case((model.product_id.is_not(None), model.operation), else_=null()),
+        )
         if model is ArticleImageJob
         else (model.proposal_id, model.topic_id)
         if model is TopicAnalysisJob
@@ -85,6 +100,7 @@ class AdminJobOut(ORMModel):
     proposal_id: uuid.UUID | None = None
     topic_id: uuid.UUID | None = None
     article_id: uuid.UUID | None = None
+    product_id: uuid.UUID | None = None
     target_name: str | None = None
     error: str | None
     details: dict[str, JsonValue]
@@ -248,6 +264,29 @@ def ai_analysis_jobs(
     }
 
 
+def job_metadata(model):
+    """Resolve retry eligibility and subject names without browser request fan-out."""
+    metadata = select(model.id, retry_candidate(model))
+    if model is ArticleImageJob:
+        return (
+            metadata.add_columns(
+                func.coalesce(Source.name, Topic.name, Article.title, PartnerProduct.name)
+            )
+            .outerjoin(Source, Source.id == model.source_id)
+            .outerjoin(Topic, Topic.id == model.topic_id)
+            .outerjoin(Article, Article.id == model.article_id)
+            .outerjoin(PartnerProduct, PartnerProduct.id == model.product_id)
+        )
+    subject = (
+        Source if hasattr(model, "source_id") else Article if hasattr(model, "article_id") else None
+    )
+    if subject is None:
+        return metadata.add_columns(null())
+    field = "source_id" if subject is Source else "article_id"
+    label = Source.name if subject is Source else Article.title
+    return metadata.add_columns(label).outerjoin(subject, subject.id == getattr(model, field))
+
+
 @router.get("/{kind}", response_model=Page[AdminJobOut], operation_id="admin_jobs_list")
 def jobs(
     kind: JobKind,
@@ -302,24 +341,7 @@ def jobs(
     )
     # Resolve labels alongside retry eligibility for this page: one query,
     # rather than one full source/article request per row in the browser.
-    subject = (
-        Source if hasattr(model, "source_id") else Article if hasattr(model, "article_id") else None
-    )
-    metadata = select(model.id, retry_candidate(model))
-    if model is ArticleImageJob:
-        metadata = (
-            metadata.add_columns(func.coalesce(Topic.name, Article.title))
-            .outerjoin(Topic, Topic.id == model.topic_id)
-            .outerjoin(Article, Article.id == model.article_id)
-        )
-    elif subject is not None:
-        field = "source_id" if subject is Source else "article_id"
-        label = Source.name if subject is Source else Article.title
-        metadata = metadata.add_columns(label).outerjoin(
-            subject, subject.id == getattr(model, field)
-        )
-    else:
-        metadata = metadata.add_columns(null())
+    metadata = job_metadata(model)
     rows = (
         session.execute(metadata.where(model.id.in_([item.id for item in result["items"]]))).all()
         if result["items"]
@@ -345,10 +367,8 @@ def detail(kind: JobKind, job_id: uuid.UUID, session: DB):
         raise HTTPException(404, "Job not found")
     model = MODELS[kind]
     job = record(session, model, job_id)
-    retryable = bool(
-        session.scalar(select(model.id).where(model.id == job_id, retry_candidate(model)))
-    )
-    return job_view(job, kind, retryable=retryable)
+    _, retryable, name = session.execute(job_metadata(model).where(model.id == job_id)).one()
+    return job_view(job, kind, retryable=bool(retryable)).model_copy(update={"target_name": name})
 
 
 @router.post("/{kind}/{job_id}/retry", response_model=AdminJobOut, operation_id="admin_job_retry")

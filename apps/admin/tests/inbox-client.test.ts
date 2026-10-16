@@ -21,9 +21,9 @@ it.each([401, 403, 200])(
     const config = vi.mocked(ChimelyClient).mock.lastCall![0];
     expect(config.serverUrl).toBe(inboxPath);
     expect(config.createEventSource).toBeUndefined();
-    expect(await config.fetchFn!(inboxPath + "/v1/inbox/messages")).toBe(response);
+    expect(await config.fetchFn!(inboxPath + "/v1/inbox/items")).toBe(response);
     expect(fetcher).toHaveBeenCalledWith(
-      window.location.origin + inboxPath + "/v1/inbox/messages",
+      window.location.origin + inboxPath + "/v1/inbox/items",
       expect.any(Object),
     );
     expect(returnToLogin).toHaveBeenCalledTimes(status === 401 || status === 403 ? 1 : 0);

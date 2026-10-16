@@ -113,15 +113,19 @@ describe("operational telemetry", () => {
     );
     expect([...routes]).toEqual(["/articles/:id"]);
     expect(routeName("/unknown-private-email@example.com")).toBe("unmatched");
-    expect(routeName("/api/v1/admin/workers/private-host-name")).toBe("/v1/admin/workers/:path");
+    expect(routeName("/api/v1/admin/workers/private-host-name", "admin")).toBe(
+      "/v1/admin/workers/:id",
+    );
   });
   it("bounds metric routes while preserving event URLs", () => {
-    expect(routeName("/content/articles/private-id?token=secret")).toBe("/content/articles/:id");
-    expect(routeName("/taxonomy/topics/proposals/private-id")).toBe(
+    expect(routeName("/content/articles/private-id?token=secret", "admin")).toBe(
+      "/content/articles/:id",
+    );
+    expect(routeName("/taxonomy/topics/proposals/private-id", "admin")).toBe(
       "/taxonomy/topics/proposals/:id",
     );
-    expect(routeName("/content/sources/import")).toBe("/content/sources/import");
-    expect(routeName("/taxonomy/topics/private-id/private-action")).toBe("unmatched");
+    expect(routeName("/content/sources/import", "admin")).toBe("/content/sources/import");
+    expect(routeName("/taxonomy/topics/private-id/private-action", "admin")).toBe("unmatched");
     const payload = normalizePayload("event", {
       name: "route_change",
       attributes: { url: "/content/articles/private-id" },
@@ -530,9 +534,9 @@ describe("operational telemetry", () => {
         ["/", "200", "request"],
         ["/search", "500", "request"],
         ["/search", "200", "request"],
-        ["/v1/user/notifications/:path", "200", "stream"],
-        ["/v1/user/notifications/:path", "401", "stream"],
-        ["/v1/admin/notifications/:path", "200", "stream"],
+        ["/v1/user/notifications/chimely/v1/inbox/stream", "200", "stream"],
+        ["/v1/user/notifications/chimely/v1/inbox/stream", "401", "stream"],
+        ["unmatched", "200", "stream"],
         ["/search", "200", "stream"],
         ["unmatched", "499", "stream"],
       ]) {

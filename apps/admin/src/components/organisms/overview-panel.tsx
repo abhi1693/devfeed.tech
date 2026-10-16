@@ -8,7 +8,7 @@ import type { OverviewPanel as PanelData } from "@/lib/api/generated/models";
 import { ApiError } from "@/lib/api/client";
 import { overviewRequest } from "@/lib/overview-requests";
 import { usePanelVisibility } from "@/lib/use-panel-visibility";
-import { usePolling } from "@/lib/use-polling";
+import { usePolling } from "@devfeed/ui/use-polling";
 import { useRefreshInterval } from "@/lib/use-refresh-interval";
 import { notifyFailure } from "@/lib/notifications";
 import { DateTime } from "@/components/molecules/date-time";

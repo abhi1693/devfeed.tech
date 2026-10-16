@@ -6,74 +6,31 @@ from typing import Annotated
 from devfeed_core.cache import invalidate_public_cache
 from devfeed_core.models import UserAccount
 from devfeed_core.user_settings import UserProfileSettings
+from devfeed_http.body_limits import BodyLimitedRoute
+from devfeed_http.image_uploads import MAX_BYTES, MAX_REQUEST_BYTES
+from devfeed_http.operation_policies import ExtensionTransportPolicy, ReaderGatewayPolicy
 from fastapi import APIRouter, File, HTTPException, UploadFile
-from starlette.responses import JSONResponse
 
 from devfeed_user_api.auth import User
-from devfeed_user_api.avatar_storage import (
-    MAX_BYTES,
-    MAX_REQUEST_BYTES,
-    AvatarObjects,
-    normalize_avatar,
-)
+from devfeed_user_api.avatar_storage import AvatarStorage
 from devfeed_user_api.dependencies import DB
 from devfeed_user_api.preferences import lock_account
 from devfeed_user_api.profile import profile_value
 
-router = APIRouter(prefix="/v1/user/settings/profile/avatar", tags=["user-profile"])
+router = APIRouter(
+    prefix="/v1/user/settings/profile/avatar", tags=["user-profile"], route_class=BodyLimitedRoute
+)
 
 
-class AvatarUploadBodyLimit:
-    """Bound even chunked multipart bodies before the form parser allocates/spools."""
-
-    def __init__(self, app):
-        self.app = app
-
-    async def __call__(self, scope, receive, send):
-        if (
-            scope["type"] != "http"
-            or scope.get("method") != "POST"
-            or scope.get("path") != router.prefix
-        ):
-            return await self.app(scope, receive, send)
-        headers = dict(scope.get("headers", []))
-        try:
-            declared = int(headers.get(b"content-length", b"0"))
-        except ValueError:
-            declared = 0
-        if declared > MAX_REQUEST_BYTES:
-            return await self.reject(scope, receive, send)
-        chunks = []
-        size = 0
-        while True:
-            message = await receive()
-            if message["type"] == "http.disconnect":
-                return
-            chunk = message.get("body", b"")
-            size += len(chunk)
-            if size > MAX_REQUEST_BYTES:
-                return await self.reject(scope, receive, send)
-            chunks.append(chunk)
-            if not message.get("more_body", False):
-                break
-        pending = True
-
-        async def replay():
-            nonlocal pending
-            if pending:
-                pending = False
-                return {"type": "http.request", "body": b"".join(chunks), "more_body": False}
-            return await receive()
-
-        await self.app(scope, replay, send)
-
-    async def reject(self, scope, receive, send):
-        await JSONResponse({"detail": "Choose an image under 5 MB"}, status_code=413)(
-            scope, receive, send
-        )
-
-
-@router.post("", response_model=UserProfileSettings)
+@router.post(
+    "",
+    response_model=UserProfileSettings,
+    openapi_extra=ReaderGatewayPolicy(
+        body_limit=MAX_REQUEST_BYTES,
+        body_timeout_ms=10_000,
+        extension=ExtensionTransportPolicy(timeout_ms=45_000),
+    ).bounded_openapi_extra(rejection="image"),
+)
 def upload_avatar(
     file: Annotated[UploadFile, File(description="JPEG, PNG or WebP, up to 5 MB")],
     user: User,
@@ -84,9 +41,10 @@ def upload_avatar(
     assert account is not None
     if file.content_type not in {"image/jpeg", "image/png", "image/webp"}:
         raise HTTPException(415, "Choose a JPEG, PNG or WebP image")
-    variants = normalize_avatar(file.file.read(MAX_BYTES + 1))
-    with AvatarObjects(account_id) as objects:
-        urls = objects.replace(variants)
+    upload = AvatarStorage(account_id)
+    variants, widths = upload.normalize(file.file.read(MAX_BYTES + 1))
+    with upload as objects:
+        urls = objects.replace(variants, widths=widths)
         account.profile = {
             **account.profile,
             "avatar_url": next(item["url"] for item in urls if item["width"] == 256),
@@ -99,13 +57,19 @@ def upload_avatar(
     return result
 
 
-@router.delete("", response_model=UserProfileSettings)
+@router.delete(
+    "",
+    response_model=UserProfileSettings,
+    openapi_extra=ReaderGatewayPolicy(
+        extension=ExtensionTransportPolicy(timeout_ms=45_000)
+    ).openapi_extra(),
+)
 def remove_avatar(user: User, session: DB):
     account_id = lock_account(session, user)
     account = session.get(UserAccount, account_id)
     assert account is not None
     with (
-        AvatarObjects(account_id)
+        AvatarStorage(account_id)
         if account.profile.get("avatar_variants")
         else nullcontext() as objects
     ):

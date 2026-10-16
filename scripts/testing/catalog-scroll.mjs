@@ -3,7 +3,7 @@ import sharp from "sharp";
 
 export function catalogChoices(kind) {
   return Array.from({ length: 130 }, (_, index) => ({
-    id: `scroll-${kind}-${index}`,
+    id: `${kind === "topics" ? "77777777" : "88888888"}-1111-4111-8111-${String(index).padStart(12, "0")}`,
     name: `Scroll ${kind} ${index}`,
     slug: `scroll-${kind}-${index}`,
     ...(kind === "topics" ? { kind: "technology" } : { website_url: "https://example.test" }),
@@ -80,7 +80,7 @@ export async function checkCatalogScroll(page, origin, screenshotPrefix) {
     }
     for (const index of [119, 129]) {
       await page
-        .locator("div.pagination[data-has-more]")
+        .locator("div.pagination[data-has-more]:visible")
         .evaluate((element) => element.scrollIntoView({ block: "end" }));
       await page.getByRole("button", { name: `Scroll ${kind} ${index}`, exact: true }).waitFor();
     }
@@ -104,7 +104,7 @@ export async function checkCatalogScroll(page, origin, screenshotPrefix) {
       await page.locator("button.follow-button:not([disabled])").first().waitFor();
     for (const index of [119, 129]) {
       await page
-        .locator("div.pagination[data-has-more]")
+        .locator("div.pagination[data-has-more]:visible")
         .evaluate((element) => element.scrollIntoView({ block: "end" }));
       await page.getByRole("heading", { name: `Scroll ${kind} ${index}`, exact: true }).waitFor();
     }

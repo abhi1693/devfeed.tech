@@ -3,8 +3,9 @@
  * Do not edit manually.
  * DevFeed Admin API
  * Private administration API. OIDC sessions and CSRF protection required.
- * OpenAPI spec version: 0.0.51
+ * OpenAPI spec version: 0.0.52
  */
+import type { ImageVariant } from './imageVariant';
 import type { SourceOutApprovalStatus } from './sourceOutApprovalStatus';
 import type { SourceOutEffectivePollingMode } from './sourceOutEffectivePollingMode';
 import type { SourceOutPollingMode } from './sourceOutPollingMode';
@@ -32,6 +33,7 @@ export interface SourceOut {
   last_error: string | null;
   last_success_at: string | null;
   logo_url?: string | null;
+  logo_variants?: ImageVariant[];
   metadata_enriched_at: string | null;
   metadata_error: string | null;
   name: string;

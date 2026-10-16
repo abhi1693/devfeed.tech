@@ -2,7 +2,7 @@
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render } from "@testing-library/react";
 import { ThemeToggle } from "@/components/theme-toggle";
-import { themeScript } from "@/lib/theme";
+import { themeScript } from "@devfeed/ui/theme-script";
 
 let system: EventTarget & { matches: boolean };
 beforeEach(() => {
@@ -82,4 +82,30 @@ it("cycles light, dark and system and shows the selected mode icon", () => {
   system.matches = false;
   system.dispatchEvent(new Event("change"));
   expect(document.documentElement.classList.contains("dark")).toBe(false);
+});
+
+it("defaults system to light when system preference APIs are unavailable", () => {
+  vi.stubGlobal("matchMedia", undefined);
+  new Function(themeScript)();
+  expect(document.documentElement.classList.contains("dark")).toBe(false);
+  const view = render(<ThemeToggle />);
+  expect(document.documentElement.classList.contains("dark")).toBe(false);
+  fireEvent.click(view.getByRole("button")); // System -> Light
+  fireEvent.click(view.getByRole("button")); // Light -> Dark
+  expect(document.documentElement.classList.contains("dark")).toBe(true);
+  fireEvent.click(view.getByRole("button")); // Dark -> System
+  expect(document.documentElement.classList.contains("dark")).toBe(false);
+  expect(localStorage.getItem("devfeed:theme")).toBe("system");
+});
+
+it("supports system detection without media-query event listener APIs", () => {
+  vi.stubGlobal(
+    "matchMedia",
+    vi.fn(() => ({ matches: true })),
+  );
+  const view = render(<ThemeToggle />);
+  expect(document.documentElement.classList.contains("dark")).toBe(true);
+  fireEvent.click(view.getByRole("button"));
+  expect(document.documentElement.classList.contains("dark")).toBe(false);
+  view.unmount();
 });

@@ -6,25 +6,32 @@ import {
   resourceHref,
   detailSections,
   resourceTrail,
+  recordHref,
   type DetailSection,
   type UserSection,
 } from "@/lib/routes";
 import Link from "next/link";
 import { Sparkles } from "lucide-react";
-import { Button } from "@/components/atoms/button";
+import { Button } from "@devfeed/ui/button";
 import { useCallback, useState } from "react";
 import { adminRouteTitle } from "@/lib/page-titles";
-import { PageHeading } from "@/components/molecules/page-heading";
+import { ResourceHeading } from "@devfeed/ui/resource-layout";
 import { RecordActions } from "@/components/molecules/record-actions";
 import { RecordLink } from "@/components/molecules/record-link";
-import { InfoPanel, DataValue } from "@/components/molecules/info-panel";
+import { ImageJobSubject, imageJobOperation } from "@/components/molecules/image-job-subject";
+import { ResourcePanel, DataValue } from "@devfeed/ui/resource-layout";
 import { ImagePreviewLink } from "@/components/molecules/image-preview-link";
 import { RequestState } from "@/components/molecules/request-state";
 import { RelatedRecords } from "./related-records";
 import { RecordHistory } from "./record-history";
 import { JobLogs } from "./job-logs";
 import { getRecord, jobKinds, type RecordData } from "@/lib/resource-api";
-import { type Resource, resources, humanize, recordHref } from "@/lib/resources";
+import { type Resource, resources, humanize } from "@/lib/resources";
+import {
+  recordIdentityKey,
+  type RecordIdentity,
+  type SimpleResource,
+} from "@/lib/record-identities";
 import { useRefreshInterval } from "@/lib/use-refresh-interval";
 import { useRequest } from "@/lib/use-request";
 import { adminArticleContent } from "@/lib/api/generated/admin";
@@ -44,27 +51,26 @@ import type { AdminUserDetail } from "@/lib/api/generated/models";
 import { AutomationHistory } from "./automation-history";
 
 export function ResourceDetail({
-  resource,
-  id,
+  identity,
   section = "details",
 }: {
-  resource: Resource;
-  id: string;
+  identity: RecordIdentity;
   section?: DetailSection;
 }) {
   const refreshSeconds = useRefreshInterval();
   const [revision, setRevision] = useState(0);
-  const load = useCallback(
-    (signal: AbortSignal) => getRecord(resource, id, signal),
-    [resource, id],
+  const load = useCallback((signal: AbortSignal) => getRecord(identity, signal), [identity]);
+  const result = useRequest(
+    `${recordIdentityKey(identity)}/${revision}`,
+    load,
+    refreshSeconds * 1000,
   );
-  const result = useRequest(`${resource}/${id}/${revision}`, load, refreshSeconds * 1000);
   return (
     <>
       <RequestState loading={result.loading} error={result.error} />
       {result.data && (
         <Details
-          resource={resource}
+          identity={identity}
           record={result.data}
           tab={section}
           onAnalysisQueued={() => setRevision((value) => value + 1)}
@@ -74,21 +80,25 @@ export function ResourceDetail({
   );
 }
 function Details({
-  resource,
+  identity,
   record,
   tab,
   onAnalysisQueued,
 }: {
-  resource: Resource;
+  identity: RecordIdentity;
   record: RecordData;
   tab: DetailSection;
   onAnalysisQueued: () => void;
 }) {
+  const resource = identity.resource;
   const spec = resources[resource];
-  const kind =
-    resource === "analysis-jobs" && record.kind === "topic-analysis"
-      ? "topic-analysis"
-      : jobKinds[resource];
+  const kind = identity.resource === "analysis-jobs" ? identity.kind : jobKinds[resource];
+  const title =
+    identity.resource === "topic-relations"
+      ? humanize(identity.relation)
+      : kind
+        ? `Run ${identity.id.slice(0, 8)}`
+        : String(record[spec.title]);
   const tabs = detailSections(resource);
   const logoField = spec.fields.find((field) => field.type === "logo-url");
   const logo =
@@ -163,23 +173,19 @@ function Details({
     "available_at",
     "finished_at",
     "error",
-  ].filter((key) => key in record);
+  ].filter((key) => key in record && (resource !== "topic-relations" || key !== "id"));
   return (
     <section className="space-y-6">
-      <PageHeading
+      <ResourceHeading
         browserTitle={adminRouteTitle(
           {
             view: "detail",
-            resource,
-            id:
-              resource === "analysis-jobs" && record.kind === "topic-analysis"
-                ? `topic-analysis~${record.id}`
-                : record.id,
+            identity,
             section: tab,
           },
-          record[spec.title],
+          identity.resource === "topic-relations" ? title : record[spec.title],
         )}
-        title={kind ? `Run ${record.id.slice(0, 8)}` : String(record[spec.title])}
+        title={title}
         leading={logo ? <ImagePreviewLink value={logo} kind="logo" variant="heading" /> : undefined}
         trail={[...resourceTrail(resource), { label: spec.label, href: resourceHref(resource) }]}
         description={spec.readonly ? spec.description : undefined}
@@ -202,14 +208,14 @@ function Details({
             onQueued={onAnalysisQueued}
           />
         )}
-        <RecordActions resource={resource} id={record.id} detail />
-      </PageHeading>
+        <RecordActions identity={identity} detail />
+      </ResourceHeading>
       <nav aria-label="Object sections" className="flex gap-5 overflow-x-auto border-b">
         {tabs.map((item) => (
           <Link
             prefetch={false}
             key={item}
-            href={recordHref(resource, record, item)}
+            href={recordHref(identity, item)}
             aria-current={tab === item ? "page" : undefined}
             className={`whitespace-nowrap border-b-2 px-1 pb-3 text-sm ${tab === item ? "border-primary font-medium" : "border-transparent text-muted-foreground hover:text-foreground"}`}
           >
@@ -227,9 +233,9 @@ function Details({
       {tab === "details" && resource !== "users" && (
         <div className="grid items-start gap-6 xl:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)]">
           <div className="space-y-6">
-            {!!fields.length && <InfoPanel title={spec.singular} fields={fields} />}
+            {!!fields.length && <ResourcePanel title={spec.singular} fields={fields} />}
             {resource === "tags" && (
-              <InfoPanel
+              <ResourcePanel
                 title="Topic discovery"
                 fields={[
                   { label: "Status", value: <DataValue value={record.topic_match_status} /> },
@@ -245,7 +251,7 @@ function Details({
               />
             )}
             {resource === "topics" && (
-              <InfoPanel
+              <ResourcePanel
                 title="Logo"
                 fields={[
                   { label: "Source", value: <DataValue value={record.logo_url} /> },
@@ -258,13 +264,13 @@ function Details({
               />
             )}
             {resource === "topics" && (
-              <InfoPanel title="Sourced facts">
+              <ResourcePanel title="Sourced facts">
                 <DataValue value={record.facts} />
-              </InfoPanel>
+              </ResourcePanel>
             )}
             {resource === "articles" && (
               <>
-                <InfoPanel
+                <ResourcePanel
                   title="Classification"
                   fields={[
                     {
@@ -274,7 +280,7 @@ function Details({
                     { label: "Tags", value: <LinkedItems resource="tags" items={record.tags} /> },
                   ]}
                 />
-                <InfoPanel title="Publication requirements">
+                <ResourcePanel title="Publication requirements">
                   <ul className="list-inside list-disc space-y-1 text-sm">
                     {(record.publication_blockers as string[]).length ? (
                       (record.publication_blockers as string[]).map((reason) => (
@@ -284,12 +290,20 @@ function Details({
                       <li>All publication requirements are met.</li>
                     )}
                   </ul>
-                </InfoPanel>
+                </ResourcePanel>
               </>
             )}
             {kind && (
-              <InfoPanel title="Run details">
+              <ResourcePanel title="Run details">
+                {kind === "images" && (
+                  <p className="mb-4">Operation: {imageJobOperation(record)}</p>
+                )}
                 <DataValue value={record.details} />
+                {kind === "images" && record.product_id ? (
+                  <p className="mt-4">
+                    Product: <ImageJobSubject record={record} />
+                  </p>
+                ) : null}
                 {record.source_id ? (
                   <p className="mt-4">
                     Source: <RecordLink resource="sources" id={String(record.source_id)} />
@@ -321,11 +335,11 @@ function Details({
                     </Link>
                   </p>
                 ) : null}
-              </InfoPanel>
+              </ResourcePanel>
             )}
           </div>
           <div className="space-y-6">
-            <InfoPanel
+            <ResourcePanel
               title="Record information"
               fields={meta.map((key) => ({
                 label: humanize(key),
@@ -339,7 +353,7 @@ function Details({
               }))}
             />
             {(resource === "articles" || resource === "topics") && (
-              <InfoPanel title="AI-generated metadata">
+              <ResourcePanel title="AI-generated metadata">
                 <p className="mb-4 text-xs text-muted-foreground">
                   Generated by AI. Kept separate from original and human-authored text.
                 </p>
@@ -350,12 +364,12 @@ function Details({
                       : { ai_description: record.ai_description }
                   }
                 />
-              </InfoPanel>
+              </ResourcePanel>
             )}
             {resource === "articles" && (
-              <InfoPanel title="Classification provenance">
+              <ResourcePanel title="Classification provenance">
                 <DataValue value={record.classification_provenance} />
-              </InfoPanel>
+              </ResourcePanel>
             )}
             {resource === "sources" && (
               <SourcePublicationPolicy
@@ -391,11 +405,13 @@ function Details({
         </>
       )}
       {tab === "evidence" && resource === "articles" && <Evidence id={record.id} />}
-      {kind && (tab === "details" || tab === "logs") && <JobLogs kind={kind} id={record.id} />}
+      {kind && identity.resource !== "topic-relations" && (tab === "details" || tab === "logs") && (
+        <JobLogs kind={kind} id={identity.id} />
+      )}
     </section>
   );
 }
-function LinkedItems({ resource, items }: { resource: Resource; items: unknown }) {
+function LinkedItems({ resource, items }: { resource: SimpleResource; items: unknown }) {
   const rows = (items ?? []) as Record<string, unknown>[];
   return rows.length ? (
     <ul className="space-y-2">
@@ -446,21 +462,21 @@ function Related({ resource, record }: { resource: Resource; record: RecordData 
         <>
           <div className="grid gap-4 md:grid-cols-3">
             {(["sources", "tags"] as const).map((key) => (
-              <InfoPanel key={key} title={resources[key].label}>
+              <ResourcePanel key={key} title={resources[key].label}>
                 <LinkedItems resource={key} items={record[key]} />
-              </InfoPanel>
+              </ResourcePanel>
             ))}
           </div>
-          <InfoPanel title="Topics">
+          <ResourcePanel title="Topics">
             <LinkedItems resource="topics" items={record.topics} />
-          </InfoPanel>
+          </ResourcePanel>
           <RelatedRecords resource="article-jobs" filter={{ article_id: id }} />
           <RelatedRecords resource="image-jobs" filter={{ article_id: id }} />
           <RelatedRecords resource="analysis-jobs" filter={{ article_id: id }} />
         </>
       )}
       {resource === "topic-relations" && (
-        <InfoPanel
+        <ResourcePanel
           title="Linked topics"
           fields={[
             {
@@ -484,7 +500,7 @@ function Evidence({ id }: { id: string }) {
     <>
       <RequestState loading={result.loading} error={result.error} />
       {!result.loading && !result.error && (
-        <InfoPanel title="Original extraction evidence">
+        <ResourcePanel title="Original extraction evidence">
           {result.data ? (
             <>
               <p className="mb-4 text-xs text-muted-foreground">
@@ -500,7 +516,7 @@ function Evidence({ id }: { id: string }) {
               Article text is unavailable. See the Details tab for the original feed information.
             </p>
           )}
-        </InfoPanel>
+        </ResourcePanel>
       )}
     </>
   );

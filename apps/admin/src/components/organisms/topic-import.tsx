@@ -4,13 +4,13 @@ import { resourceTrail } from "@/lib/routes";
 import Link from "next/link";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
-import { Button } from "@/components/atoms/button";
-import { Input } from "@/components/atoms/input";
-import { Textarea } from "@/components/atoms/textarea";
+import { Button } from "@devfeed/ui/button";
+import { Input } from "@devfeed/ui/input";
+import { Textarea } from "@devfeed/ui/textarea";
 import { Select } from "@/components/molecules/select";
 import { Field } from "@/components/molecules/field";
 import { FormField } from "@/components/molecules/form-field";
-import { PageHeading } from "@/components/molecules/page-heading";
+import { ResourceHeading } from "@devfeed/ui/resource-layout";
 import { DataTable, type DataTableColumn } from "@/components/molecules/data-table";
 import { RequestState } from "@/components/molecules/request-state";
 import { useAdmin } from "@/components/molecules/admin-session";
@@ -124,7 +124,7 @@ export function TopicImport() {
   }
   return (
     <section className="space-y-6">
-      <PageHeading
+      <ResourceHeading
         title="Import topics"
         trail={[...resourceTrail("topics"), { label: "Topics", href: "/taxonomy/topics" }]}
         description="Preview topics before submitting them for review."

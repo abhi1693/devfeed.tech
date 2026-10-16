@@ -4,6 +4,8 @@ import { cleanup, render } from "@testing-library/react";
 import type { ComponentProps } from "react";
 import type NextLink from "next/link";
 import ReaderLink from "@/components/reader-link";
+import { articleDestination } from "@/lib/reader-destination";
+import { readerNavigate } from "@/lib/reader-runtime";
 const capture = vi.hoisted(() => ({ props: {} as ComponentProps<typeof NextLink> }));
 vi.mock("next/link", () => ({
   default: (props: ComponentProps<typeof NextLink>) => {
@@ -15,7 +17,11 @@ vi.mock("next/link", () => ({
     );
   },
 }));
-afterEach(cleanup);
+vi.mock("@/lib/reader-runtime", () => ({ readerNavigate: vi.fn(() => false) }));
+afterEach(() => {
+  cleanup();
+  vi.mocked(readerNavigate).mockReset().mockReturnValue(false);
+});
 
 it("disables prefetch while preserving navigation props and refs", () => {
   const ref = { current: null };
@@ -61,4 +67,32 @@ it("starts recovery only for an accepted client navigation", () => {
   } finally {
     window.removeEventListener("devfeed:reader-navigation", started);
   }
+});
+
+it("serializes typed article links and preserves their declared scroll policy", () => {
+  const destination = articleDestination("docker-image-guide");
+  render(<ReaderLink href={destination} scroll />);
+  expect(capture.props).toMatchObject({
+    href: destination.href,
+    scroll: false,
+    prefetch: false,
+  });
+  const preventDefault = vi.fn();
+  capture.props.onNavigate!({ preventDefault });
+  expect(readerNavigate).toHaveBeenCalledWith(destination, "push");
+  expect(preventDefault).not.toHaveBeenCalled();
+});
+
+it("passes typed destinations directly to the bundled reader adapter", () => {
+  vi.mocked(readerNavigate).mockReturnValue(true);
+  const destination = articleDestination("docker-image-guide");
+  const view = render(<ReaderLink href={destination} replace />);
+  const preventDefault = vi.fn();
+  capture.props.onNavigate!({ preventDefault });
+  expect(readerNavigate).toHaveBeenCalledWith(destination, "replace");
+  expect(preventDefault).toHaveBeenCalledOnce();
+  vi.mocked(readerNavigate).mockClear();
+  view.rerender(<ReaderLink href={destination} onNavigate={(event) => event.preventDefault()} />);
+  capture.props.onNavigate!({ preventDefault: vi.fn() });
+  expect(readerNavigate).not.toHaveBeenCalled();
 });

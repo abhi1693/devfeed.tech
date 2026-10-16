@@ -7,8 +7,13 @@ export const metadata: Metadata = {
 export default async function Login({
   searchParams,
 }: {
-  searchParams: Promise<{ error?: string; return_to?: string }>;
+  searchParams: Promise<{ error?: string | string[]; return_to?: string | string[] }>;
 }) {
   const params = await searchParams;
-  return <UserLogin returnTo={params.return_to || "/"} error={Boolean(params.error)} />;
+  return (
+    <UserLogin
+      returnTo={typeof params.return_to === "string" ? params.return_to : "/"}
+      error={Boolean(params.error)}
+    />
+  );
 }

@@ -88,7 +88,7 @@ PY
   echo "$ci_component on $ci_arch passed its runtime smoke test"
   exit 0
 fi
-if [[ "$ci_component" = admin ]] || [[ "$ci_component" = web ]]; then
+if [[ "$ci_component" = admin ]] || [[ "$ci_component" = web ]] || [[ "$ci_component" = partner ]]; then
   ci_port=3000
   ci_path=/login
   if [[ "$ci_component" = web ]]; then ci_path=/; fi
@@ -97,6 +97,10 @@ else
   ci_path=/version
   if [[ "$ci_component" = admin-api ]]; then
     ci_port=8001
+    ci_path=/openapi.json
+  fi
+  if [[ "$ci_component" = partner-api ]]; then
+    ci_port=8004
     ci_path=/openapi.json
   fi
   if [[ "$ci_component" = user-api ]]; then
@@ -123,7 +127,7 @@ for attempt in $(seq 1 30); do
   sleep 1
 done
 ci_metrics_port=$(docker port "$ci_container" 9100/tcp | cut -d: -f2)
-if [[ "$ci_component" = admin ]] || [[ "$ci_component" = web ]]; then
+if [[ "$ci_component" = admin ]] || [[ "$ci_component" = web ]] || [[ "$ci_component" = partner ]]; then
   curl --fail --silent --max-time 5 "http://127.0.0.1:${ci_metrics_port}/metrics" > "$ci_response.metrics"
   grep -q 'devfeed_build_info' "$ci_response.metrics"
   grep -q 'component="profiling".* 1' "$ci_response.metrics"
@@ -161,14 +165,16 @@ fi
 [[ "$(curl --silent --output /dev/null --write-out '%{http_code}' "http://127.0.0.1:${ci_host_port}/metrics")" = 404 ]]
 if [[ "$ci_component" = admin ]]; then
   grep -q 'Sign in to DevFeed Admin' "$ci_response"
+elif [[ "$ci_component" = partner ]]; then
+  grep -q "DevFeed" "$ci_response"
 elif [[ "$ci_component" = web ]]; then
   grep -q "DevFeed" "$ci_response"
-elif [[ "$ci_component" = admin-api ]] || [[ "$ci_component" = user-api ]]; then
+elif [[ "$ci_component" = admin-api ]] || [[ "$ci_component" = user-api ]] || [[ "$ci_component" = partner-api ]]; then
   jq -e --arg version "$ci_version" '.info.version == $version' "$ci_response"
 else
   jq -e --arg version "$ci_version" '.version == $version' "$ci_response"
 fi
-if [[ "$ci_component" != admin ]] && [[ "$ci_component" != web ]]; then
+if [[ "$ci_component" != admin ]] && [[ "$ci_component" != web ]] && [[ "$ci_component" != partner ]]; then
   # Exercise native wheels under the image's libc, including Alpine's musl.
   docker exec -i "$ci_container" python - "$ci_component" <<'PY'
 import os

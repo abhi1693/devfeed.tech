@@ -3,7 +3,7 @@
  * Do not edit manually.
  * DevFeed Admin API
  * Private administration API. OIDC sessions and CSRF protection required.
- * OpenAPI spec version: 0.0.51
+ * OpenAPI spec version: 0.0.52
  */
 import type { AdminJobOutDetails } from './adminJobOutDetails';
 import type { AdminJobOutKind } from './adminJobOutKind';
@@ -18,6 +18,7 @@ export interface AdminJobOut {
   finished_at: string | null;
   id: string;
   kind: AdminJobOutKind;
+  product_id?: string | null;
   proposal_id?: string | null;
   retryable?: boolean;
   source_id?: string | null;

@@ -5,7 +5,7 @@ import { useSettings } from "@/lib/use-settings";
 import { ImagePreview } from "./image-preview";
 import { useState } from "react";
 import { ChevronDown, LoaderCircle, LogOut, Settings, UserRound } from "lucide-react";
-import { Button } from "@/components/atoms/button";
+import { Button } from "@devfeed/ui/button";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -13,7 +13,7 @@ import {
   DropdownMenuLabel,
   DropdownMenuSeparator,
   DropdownMenuTrigger,
-} from "@/components/atoms/dropdown-menu";
+} from "@devfeed/ui/dropdown-menu";
 import type { AdminIdentity } from "@/lib/api/generated/models";
 import { adminAuthLogout } from "@/lib/api/generated/admin";
 import { returnToLogin } from "@/lib/api/client";

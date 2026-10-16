@@ -15,6 +15,7 @@ import { ReaderReloadLink } from "./reader-reload-link";
 import type { RecommendationReason } from "./article-grid";
 import { FeedOnboarding } from "./feed-onboarding";
 import { DevCardPromo } from "./dev-card-promo";
+import { feedPlacements, readerFeeds, type FeedDescriptor } from "@/lib/reader-feed";
 
 type RecommendationPage = FeedPage & {
   status: "ready" | "refreshing";
@@ -30,11 +31,13 @@ function Feed({
   revision,
   refreshKey,
   filters,
+  feedDescriptor,
 }: {
   cursor?: string;
   revision: number;
   refreshKey: number;
   filters: FeedFilters;
+  feedDescriptor: FeedDescriptor;
 }) {
   const [options, setOptions] = useState<FeedOptions | null>(null);
   useEffect(() => {
@@ -233,6 +236,10 @@ function Feed({
               endMessage={page.feed_kind && page.feed_kind !== "personalized" ? "" : undefined}
               personal
               filters={filters}
+              placements={feedPlacements(feedDescriptor, {
+                ...filters,
+                cursor: cursor ?? filters.cursor,
+              })}
             />
             {cursor && (
               <div className="pagination">
@@ -273,10 +280,12 @@ export function PersonalFeed({
   cursor,
   refreshKey = 0,
   filters = defaultFilters,
+  feedDescriptor = readerFeeds.home,
 }: {
   cursor?: string;
   refreshKey?: number;
   filters?: FeedFilters;
+  feedDescriptor?: FeedDescriptor;
 }) {
   const filterKey = JSON.stringify(filters);
   const stableFilters = useMemo(() => JSON.parse(filterKey) as FeedFilters, [filterKey]);
@@ -294,6 +303,7 @@ export function PersonalFeed({
         revision={revision}
         refreshKey={refreshKey}
         filters={stableFilters}
+        feedDescriptor={feedDescriptor}
       />
     </AccountGate>
   );

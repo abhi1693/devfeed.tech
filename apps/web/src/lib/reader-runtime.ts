@@ -1,6 +1,12 @@
 // The website uses its own origin and fetch. Bundled clients supply their transport
 // once at startup; presentation components stay identical on both platforms.
 import type { Article } from "./types";
+import {
+  readerReturnDestination,
+  type ReaderDestination,
+  type ReaderNavigationMode,
+} from "./reader-destination";
+import type { ReaderDestinationRecord } from "@devfeed/http/reader-destinations";
 
 type ReaderRuntime = {
   request: typeof fetch;
@@ -9,6 +15,8 @@ type ReaderRuntime = {
   signedOut?: () => void;
   reload?: (href: string) => void;
   rememberArticles?: (articles: Article[]) => void;
+  navigate?: (destination: ReaderDestination, mode: ReaderNavigationMode) => void;
+  destinationHref?: (destination: ReaderDestination) => string;
 };
 
 let runtime: ReaderRuntime | undefined;
@@ -26,6 +34,16 @@ export function readerPublicOrigin() {
 
 export function readerLocation() {
   return runtime?.location?.() ?? new URL(window.location.href);
+}
+
+export function readerNavigate(destination: ReaderDestination, mode: ReaderNavigationMode) {
+  if (!runtime?.navigate) return false;
+  runtime.navigate(destination, mode);
+  return true;
+}
+
+export function readerDestinationHref(destination: ReaderDestination) {
+  return runtime?.destinationHref?.(destination) ?? destination.href;
 }
 
 export function readerSignedOut() {
@@ -58,13 +76,21 @@ export function readerWebsiteLink(href: string) {
  * to their requested page; bundled readers return to a completion page that
  * closes the tab and lets focus refresh their session.
  */
-export function readerLoginLink(returnTo?: string) {
+export function readerLoginLink(returnTo?: string | ReaderDestination | ReaderDestinationRecord) {
   const params = new URLSearchParams();
-  params.set("return_to", runtime ? "/extension/login-complete" : (returnTo ?? "/"));
+  params.set(
+    "return_to",
+    readerReturnDestination(runtime ? "/extension/login-complete" : (returnTo ?? "/")),
+  );
   return readerWebsiteLink(`/login?${params}`);
 }
 
 /** New-tab readers can be visible while the browser address bar retains focus. */
 export function readerPaginationRequiresFocus() {
   return window.location.protocol !== "chrome-extension:";
+}
+
+/** Images use the website origin inside packaged readers and relative paths during SSR. */
+export function readerImageUrl(path: string) {
+  return runtime ? new URL(path, runtime.publicOrigin).href : path;
 }

@@ -30,7 +30,7 @@ and the admin API** with the same environment. Fresh CLI invocations read the ne
 configuration. Mixed configurations are unsupported. Defaults are 300–86,400
 seconds; configure `DEVFEED_ADAPTIVE_SOURCE_POLLING_MIN_SECONDS` and
 `DEVFEED_ADAPTIVE_SOURCE_POLLING_MAX_SECONDS` within 300–604,800, minimum ≤ maximum.
-Apply migration 0023 before starting the new services.
+Apply migration 0025 before starting the new services.
 
 The policy targets one newly observed source entry per fetch using an arrival-rate
 EWMA with a six-hour half-life. First fetches and history older than seven days

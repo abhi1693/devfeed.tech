@@ -4,8 +4,9 @@ import uuid
 
 from devfeed_core.job_retries import retry_notification
 from devfeed_core.notifications import notification_subscriber_id
-from devfeed_http.inbox import http_client, proxy_inbox, subscriber_headers
-from fastapi import APIRouter, HTTPException, Request, Response
+from devfeed_http.inbox import InboxProxy, InboxRouter, InboxSession
+from devfeed_http.operation_policies import GatewayPolicy
+from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 from starlette.concurrency import run_in_threadpool
 
@@ -54,28 +55,26 @@ def retry(identifier: uuid.UUID, admin: Admin, session: DB):
     return job_view(job, "notifications")
 
 
-@router.api_route(
-    "/chimely/v1/inbox/{path:path}",
-    methods=["GET", "POST", "PUT"],
-    include_in_schema=False,
-    response_class=Response,
-    response_model=None,
-)
-async def inbox_proxy(path: str, request: Request, admin: Admin) -> Response:
+async def resolve_inbox_session(admin: Admin) -> InboxSession:
     # Settings initialization can read environment files on the first request.
     settings = await run_in_threadpool(get_settings)
     if not settings.notifications_enabled or not settings.chimely_admin_environment:
         raise HTTPException(503, "Admin notifications are not enabled")
     assert settings.chimely_api_url and settings.chimely_admin_hmac_secret
-    return await proxy_inbox(
-        path,
-        request,
+    return InboxSession(
         api_url=settings.chimely_api_url,
-        headers=subscriber_headers(
-            settings.chimely_admin_environment,
-            settings.chimely_admin_hmac_secret.get_secret_value(),
-            subscriber_id(admin),
-        ),
+        environment=settings.chimely_admin_environment,
+        secret=settings.chimely_admin_hmac_secret.get_secret_value(),
+        subscriber_id=subscriber_id(admin),
         expires_at=admin.expires_at,
-        client_factory=http_client,
+        client_factory=InboxProxy.http_client,
     )
+
+
+router.include_router(
+    InboxRouter(
+        session_dependency=resolve_inbox_session,
+        operation_prefix="adminInbox",
+        gateway_policy=GatewayPolicy(),
+    )
+)

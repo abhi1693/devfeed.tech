@@ -9,7 +9,7 @@ import { chromium } from "playwright";
 const root = fileURLToPath(new URL("../../../../", import.meta.url));
 let saved;
 const article = {
-  id: "article-1",
+  id: "22222222-2222-4222-8222-222222222222",
   title: "RSS",
   slug: "rss-25374",
   canonical_url: "https://kau.sh/rss/",
@@ -35,19 +35,19 @@ const fixture = createServer(async (req, res) => {
       issuer: "https://identity.example",
       organization_id: "fixture",
       roles: ["superuser"],
-      expires_at: 4102444800,
+      expires_at: Math.floor(Date.now() / 1000) + 3600,
       csrf_token: "fixture",
     };
   else if (pathname.endsWith("/settings"))
     body = { appearance: { theme: "light" }, defaults: { refresh_seconds: 0 } };
   else if (pathname.endsWith("/notifications/config")) body = { enabled: false };
-  else if (pathname.endsWith("/articles/article-1/classify")) {
+  else if (pathname.endsWith(`/articles/${article.id}/classify`)) {
     const chunks = [];
     for await (const chunk of req) chunks.push(chunk);
     saved = JSON.parse(Buffer.concat(chunks).toString());
     article.classification_provenance.page_kind = saved.page_kind;
     body = article;
-  } else if (pathname.endsWith("/articles/article-1")) body = article;
+  } else if (pathname.endsWith(`/articles/${article.id}`)) body = article;
   else body = { items: [], total: 0, limit: 50, offset: 0 };
   res.setHeader("content-type", "application/json");
   res.end(JSON.stringify(body));
@@ -101,7 +101,7 @@ try {
   const page = await context.newPage();
   const errors = [];
   page.on("pageerror", (error) => errors.push(error.message));
-  await page.goto(`${origin}/content/articles/article-1/classify`);
+  await page.goto(`${origin}/content/articles/${article.id}/classify`);
   const kind = page.getByRole("combobox", { name: /Page kind/ });
   await kind.waitFor();
   assert.match(await kind.innerText(), /uncertain/i);
@@ -113,9 +113,9 @@ try {
   await page.screenshot({ path: `${root}/apps/admin/.next/browser-checks/page-kind-mobile.png` });
   assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
   await page.getByRole("button", { name: "Save classification" }).click();
-  await page.waitForURL("**/articles/article-1");
+  await page.waitForURL(`**/articles/${article.id}`);
   assert.equal(saved.page_kind, "non_article");
-  await page.goto(`${origin}/content/articles/article-1/classify`);
+  await page.goto(`${origin}/content/articles/${article.id}/classify`);
   assert.match(await kind.innerText(), /non.article/i);
   assert.deepEqual(errors, []);
   console.log(

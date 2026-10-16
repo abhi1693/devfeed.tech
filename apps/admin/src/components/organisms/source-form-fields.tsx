@@ -8,8 +8,8 @@ import {
   type Dispatch,
   type SetStateAction,
 } from "react";
-import { Button } from "@/components/atoms/button";
-import { InfoPanel, DataValue } from "@/components/molecules/info-panel";
+import { Button } from "@devfeed/ui/button";
+import { ResourcePanel, DataValue } from "@devfeed/ui/resource-layout";
 import { FormField } from "@/components/molecules/form-field";
 import { useAdmin } from "@/components/molecules/admin-session";
 import { adminSourcePreview } from "@/lib/api/generated/admin";
@@ -266,7 +266,7 @@ export function SourceFormFields({
           {field("poll_interval_seconds")}
         </div>
         {editing && pollingDetails && (
-          <InfoPanel
+          <ResourcePanel
             title="Current polling state"
             fields={[
               {

@@ -2,17 +2,20 @@ import { cache } from "react";
 import { notFound, permanentRedirect } from "next/navigation";
 import { getTag, UserApiError } from "@/lib/api";
 import { FeedView } from "@/components/feed-view";
-import { contentTypeFromRoute, feedHref, parseFilters, type SearchParams } from "@/lib/feed-query";
-import { feedMetadata } from "@/lib/metadata";
+import { feedHref, parseFilters, type SearchParams } from "@/lib/feed-query";
+import { collectionRoute } from "@/lib/reader-routes";
+import { readerFeeds } from "@/lib/reader-feed";
+import { collectionFeedMetadata } from "@/lib/server/collection-feed-metadata";
 export const dynamic = "force-dynamic";
 type Props = {
   params: Promise<{ slug: string; contentType?: string }>;
   searchParams: Promise<SearchParams>;
 };
-const load = cache(async (slug: string) => {
-  if (!slug || slug.length > 100) notFound();
+const load = cache(async (slug: string, contentType?: string) => {
+  const route = collectionRoute("tags", slug, contentType);
+  if (!route) notFound();
   try {
-    return await getTag(slug);
+    return { route, tag: await getTag(route.slug) };
   } catch (error) {
     if (error instanceof UserApiError && error.status === 404) notFound();
     throw error;
@@ -20,24 +23,32 @@ const load = cache(async (slug: string) => {
 });
 export async function generateMetadata({ params, searchParams }: Props) {
   const { slug, contentType } = await params;
-  const type = contentType ? contentTypeFromRoute(contentType) : undefined;
-  if (contentType && !type) notFound();
-  const tag = await load(slug);
-  return feedMetadata(
+  const { route, tag } = await load(slug, contentType);
+  return collectionFeedMetadata(
     tag.name,
     `Published developer articles tagged ${tag.name}.`,
     await searchParams,
-    { tag: tag.slug, ...(type ? { content_type: type } : {}) },
+    { tag: tag.slug, ...(route.contentType ? { content_type: route.contentType } : {}) },
   );
 }
 export default async function Page({ params, searchParams }: Props) {
   const { slug, contentType } = await params;
-  const type = contentType ? contentTypeFromRoute(contentType) : undefined;
-  if (contentType && !type) notFound();
-  const tag = await load(slug);
+  const { route, tag } = await load(slug, contentType);
   const query = await searchParams;
-  const filters = parseFilters({ ...query, ...(type ? { content_type: type } : {}), tag: slug });
-  if ((!contentType && filters.content_type) || (contentType && "content_type" in query))
+  const filters = parseFilters({
+    ...query,
+    ...(route.contentType ? { content_type: route.contentType } : {}),
+    tag: route.slug,
+  });
+  if (
+    (!route.contentType && filters.content_type) ||
+    (route.contentType && "content_type" in query)
+  )
     permanentRedirect(feedHref(filters, { cursor: filters.cursor }));
-  return FeedView({ filters, title: tag.name, description: `Articles tagged ${tag.name}.` });
+  return FeedView({
+    filters,
+    feedDescriptor: readerFeeds.contextual,
+    title: tag.name,
+    description: `Articles tagged ${tag.name}.`,
+  });
 }

@@ -1,0 +1,228 @@
+import assert from "node:assert/strict";
+
+/** One backend fixture drives the real website and both unpacked extension readers. */
+export function userMutationFixture({ articles, topic }) {
+  let liked = false;
+  let bookmarked = false;
+  let followed = false;
+  let feed = {
+    view: "cards",
+    content_types: ["article", "news", "tutorial", "release", "comparison", "opinion"],
+    languages: ["en"],
+  };
+  const failures = new Set(["like", "follow", "feed"]);
+  const writes = [];
+  const response = (json, status = 200) => ({ status, json });
+  const attempt = (operation, payload, apply) => {
+    writes.push({ operation, payload });
+    if (failures.delete(operation)) return response({ detail: "Temporary fixture failure" }, 503);
+    return response(apply());
+  };
+  const operations = new Map([
+    [
+      `GET /v1/topics/${encodeURIComponent(topic.slug)}`,
+      () =>
+        response({
+          ...topic,
+          logo_url: null,
+          description: "Mutation fixture topic",
+          ai_description: null,
+        }),
+    ],
+    [
+      "GET /v1/user/auth/me",
+      () =>
+        response({
+          user_id: "mutation-reader",
+          name: "Private reader name",
+          email: "private-reader@example.test",
+          csrf_token: "test",
+          expires_at: Date.now() / 1000 + 3600,
+        }),
+    ],
+    [
+      "GET /v1/user/settings/profile",
+      () => response({ display_name: "Private reader name", avatar_url: null }),
+    ],
+    ["GET /v1/user/settings/feed", () => response(feed)],
+    ["PUT /v1/user/settings/feed", (payload) => attempt("feed", payload, () => (feed = payload))],
+    [
+      "GET /v1/user/settings/appearance",
+      () =>
+        response({
+          theme: "system",
+          timezone: "local",
+          date_format: "locale",
+          time_format: "system",
+        }),
+    ],
+    ["GET /v1/user/preferences", () => response({ topic_ids: followed ? [topic.id] : [] })],
+    ["GET /v1/user/preferences/sources", () => response({ source_ids: [] })],
+    [
+      `PUT /v1/user/preferences/topics/${encodeURIComponent(topic.id)}`,
+      (payload) =>
+        attempt("follow", payload, () => {
+          followed = payload.followed;
+          return { followed };
+        }),
+    ],
+    [
+      `PUT /v1/user/articles/${encodeURIComponent(articles[0].id)}/like`,
+      (payload) =>
+        attempt("like", payload, () => {
+          liked = payload.liked;
+          return { article_id: articles[0].id, liked, likes: liked ? 1 : 0, opens: 5, bookmarked };
+        }),
+    ],
+    [
+      `PUT /v1/user/articles/${encodeURIComponent(articles[0].id)}/bookmark`,
+      (payload) =>
+        attempt("bookmark", payload, () => {
+          bookmarked = payload.bookmarked;
+          return { article_id: articles[0].id, bookmarked };
+        }),
+    ],
+    [
+      "GET /v1/user/engagement",
+      () =>
+        response(
+          articles.map((article) => ({
+            article_id: article.id,
+            liked,
+            likes: liked ? 1 : 0,
+            opens: 5,
+            bookmarked,
+          })),
+        ),
+    ],
+  ]);
+  return {
+    active: false,
+    articles,
+    topic,
+    writes,
+    handles(path, method) {
+      return this.active && operations.has(`${method} ${path}`);
+    },
+    respond(path, method, payload) {
+      return operations.get(`${method} ${path}`)(payload);
+    },
+  };
+}
+
+export async function checkUserMutations(page, destination, fixture) {
+  const originalViewport = page.viewportSize();
+  fixture.active = true;
+  await page.addInitScript(() => {
+    window.__mutationEvents = [];
+    window.__mutationInterests = 0;
+    window.addEventListener("devfeed:analytics", (event) => {
+      window.__mutationEvents.push(event.detail);
+    });
+    window.addEventListener("devfeed:interests-changed", () => {
+      window.__mutationInterests += 1;
+    });
+  });
+  const clearEffects = () =>
+    page.evaluate(() => {
+      window.__mutationEvents = [];
+      window.__mutationInterests = 0;
+    });
+  const effects = () =>
+    page.evaluate(() => ({
+      events: window.__mutationEvents,
+      interests: window.__mutationInterests,
+    }));
+  try {
+    await page.setViewportSize({ width: 520, height: 1000 });
+    await page.goto(destination("/latest"));
+    await page.getByRole("button", { name: /^User menu:/ }).waitFor();
+    const card = page.locator(".article-card").first();
+    await card.waitFor();
+    await clearEffects();
+    const like = card.getByRole("button", { name: /^Like article/ });
+    await like.click();
+    await card.getByText("Couldn’t save. Try again.", { exact: true }).waitFor();
+    assert.deepEqual(
+      await effects(),
+      { events: [], interests: 0 },
+      "Rejected likes publish no success or feed invalidation",
+    );
+    await like.click();
+    const unlike = card.getByRole("button", { name: /^Unlike article/ });
+    await unlike.waitFor();
+    await unlike.click();
+    await like.waitFor();
+    await card.getByRole("button", { name: "Save article for later", exact: true }).click();
+    await card.getByRole("button", { name: "Remove bookmark", exact: true }).click();
+    await card.getByRole("button", { name: "Save article for later", exact: true }).waitFor();
+    assert.deepEqual(
+      await effects(),
+      {
+        events: [
+          { name: "article_like", params: { article_id: fixture.articles[0].id } },
+          { name: "article_unlike", params: { article_id: fixture.articles[0].id } },
+          { name: "article_bookmark", params: { article_id: fixture.articles[0].id } },
+          { name: "article_unbookmark", params: { article_id: fixture.articles[0].id } },
+        ],
+        interests: 0,
+      },
+      "Article mutations emit caller identities once without replacing the personal feed",
+    );
+
+    await page.setViewportSize({ width: 1440, height: 1000 });
+    await page.goto(destination(`/topics/${fixture.topic.slug}`));
+    const controls = page.getByRole("region", { name: "Feed controls" });
+    const follow = controls.getByRole("button", { name: "Follow", exact: true });
+    await follow.waitFor();
+    await clearEffects();
+    await follow.click();
+    await controls.getByRole("alert").waitFor();
+    assert.deepEqual(
+      await effects(),
+      { events: [], interests: 0 },
+      "Rejected follows do not invalidate interests",
+    );
+    await follow.click();
+    await controls.getByRole("button", { name: "Following", exact: true }).waitFor();
+    assert.deepEqual(await effects(), {
+      events: [{ name: "topic_follow", params: { topic_id: fixture.topic.id } }],
+      interests: 1,
+    });
+
+    await page.goto(destination("/settings/feed"));
+    await page.getByRole("radio", { name: "Compact list", exact: true }).waitFor();
+    await clearEffects();
+    await page.getByRole("radio", { name: "Compact list", exact: true }).check();
+    const save = page.getByRole("button", { name: "Save changes", exact: true });
+    await save.click();
+    await page
+      .getByText("Couldn’t save your feed settings. Please try again.", { exact: true })
+      .waitFor();
+    assert.deepEqual(
+      await effects(),
+      { events: [], interests: 0 },
+      "Rejected settings do not publish success or invalidate the feed",
+    );
+    await save.click();
+    await page.getByText("Feed settings saved.", { exact: true }).waitFor();
+    assert.deepEqual(await effects(), {
+      events: [
+        { name: "feed_settings_saved", params: { feed_view: "compact", selected_count: 6 } },
+      ],
+      interests: 1,
+    });
+    const serialized = JSON.stringify(await effects());
+    assert.ok(
+      !serialized.includes("Private reader name") &&
+        !serialized.includes("private-reader@example.test"),
+    );
+    assert.deepEqual(
+      fixture.writes.map(({ operation }) => operation),
+      ["like", "like", "like", "bookmark", "bookmark", "follow", "follow", "feed", "feed"],
+    );
+  } finally {
+    fixture.active = false;
+    await page.setViewportSize(originalViewport);
+  }
+}

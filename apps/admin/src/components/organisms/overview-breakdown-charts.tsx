@@ -1,7 +1,7 @@
 "use client";
 
 import { CartesianGrid, Cell, Scatter, ScatterChart, Tooltip, XAxis, YAxis, ZAxis } from "recharts";
-import { ChartContainer } from "@/components/atoms/chart";
+import { ChartContainer } from "@devfeed/ui/chart";
 
 export type DistributionRow = { label: string; value: number; color: string; detail?: string };
 export function DistributionChart({

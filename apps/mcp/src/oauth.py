@@ -4,8 +4,9 @@ import hashlib
 import json
 import secrets
 import time
-from urllib.parse import urlencode, urlsplit
+from urllib.parse import parse_qs, urlencode, urlsplit
 
+import anyio
 from mcp.server.auth.provider import (
     AccessToken,
     AuthorizationCode,
@@ -18,6 +19,9 @@ from mcp.server.auth.provider import (
 )
 from mcp.shared.auth import OAuthClientInformationFull, OAuthToken
 from redis.asyncio import Redis
+from starlette.datastructures import Headers
+from starlette.responses import JSONResponse
+from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 RESOURCE_SCOPES = ["devfeed:read", "devfeed:write"]
 SCOPES = [*RESOURCE_SCOPES, "offline_access"]
@@ -248,50 +252,110 @@ class OAuthProvider(OAuthAuthorizationServerProvider[AuthorizationCode, RefreshT
             await self.revoke_grant(record["grant_id"])
 
 
-class OAuthPolicyMiddleware:
-    """Bound OAuth bodies and enforce resource indicators on token exchanges."""
+class OAuthBodyTooLarge(Exception):
+    """The complete OAuth body exceeds the endpoint's byte limit."""
 
-    def __init__(self, app, resource: str):
+
+class OAuthRequestPolicy:
+    """Bound a registered OAuth endpoint's POST body before SDK parsing.
+
+    Supplying ``resource`` adds token-exchange resource validation. Route construction
+    owns that choice, so renaming or mounting the endpoint cannot change its policy.
+    """
+
+    body_limit = 32_768
+
+    def __init__(
+        self,
+        app: ASGIApp,
+        resource: str | None = None,
+        *,
+        body_timeout_seconds: float = 2.0,
+    ) -> None:
+        if body_timeout_seconds <= 0:
+            raise ValueError("OAuth body timeout must be positive")
         self.app = app
         self.resource = resource
+        self.body_timeout_seconds = body_timeout_seconds
 
-    async def __call__(self, scope, receive, send):
-        from urllib.parse import parse_qs
-
-        from starlette.responses import JSONResponse
-
-        if scope["type"] != "http" or scope.get("method") != "POST":
-            return await self.app(scope, receive, send)
-        body = bytearray()
-        while True:
-            message = await receive()
-            if message["type"] == "http.disconnect":
-                return
-            body.extend(message.get("body", b""))
-            if len(body) > 32768:
-                return await JSONResponse({"error": "invalid_request"}, status_code=413)(
-                    scope, receive, send
-                )
-            if not message.get("more_body", False):
-                break
-        if scope["path"] == "/token":
+    def declared_oversize(self, scope: Scope) -> bool:
+        for name, value in scope.get("headers", []):
+            if name.lower() != b"content-length":
+                continue
             try:
-                resources = parse_qs(body.decode()).get("resource", [])
-            except UnicodeError:
-                resources = ["invalid"]
-            if resources and resources != [self.resource]:
-                return await JSONResponse(
-                    {"error": "invalid_target"},
-                    status_code=400,
-                    headers={"Cache-Control": "no-store"},
-                )(scope, receive, send)
+                if int(value) > self.body_limit:
+                    return True
+            except ValueError:
+                continue
+        return False
+
+    async def read_body(self, receive: Receive) -> bytes | None:
+        body = bytearray()
+        # One deadline covers the entire upload, including clients that keep sending
+        # small chunks. SDK response processing runs outside this cancellation scope.
+        with anyio.fail_after(self.body_timeout_seconds):
+            while True:
+                message = await receive()
+                if message["type"] != "http.request":
+                    return None
+                chunk = message.get("body", b"")
+                if len(body) + len(chunk) > self.body_limit:
+                    raise OAuthBodyTooLarge
+                body.extend(chunk)
+                if not message.get("more_body", False):
+                    return bytes(body)
+
+    def accepts_resource(self, body: bytes) -> bool:
+        if self.resource is None:
+            return True
+        try:
+            resources = parse_qs(body.decode(), keep_blank_values=True).get("resource", [])
+        except UnicodeError:
+            return False
+        return not resources or resources == [self.resource]
+
+    def accepts_content_type(self, scope: Scope) -> bool:
+        if self.resource is None:
+            return True
+        content_type = Headers(scope=scope).get("content-type", "")
+        return content_type.partition(";")[0].strip().lower() == "application/x-www-form-urlencoded"
+
+    @staticmethod
+    def error(status_code: int, error: str = "invalid_request") -> JSONResponse:
+        return JSONResponse(
+            {"error": error}, status_code=status_code, headers={"Cache-Control": "no-store"}
+        )
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != "http" or scope.get("method") != "POST":
+            await self.app(scope, receive, send)
+            return
+        if not self.accepts_content_type(scope):
+            await self.error(400)(scope, receive, send)
+            return
+        if self.declared_oversize(scope):
+            await self.error(413)(scope, receive, send)
+            return
+        try:
+            body = await self.read_body(receive)
+        except OAuthBodyTooLarge:
+            await self.error(413)(scope, receive, send)
+            return
+        except TimeoutError:
+            await self.error(408)(scope, receive, send)
+            return
+        if body is None:
+            return
+        if not self.accepts_resource(body):
+            await self.error(400, "invalid_target")(scope, receive, send)
+            return
         replayed = False
 
-        async def replay():
+        async def replay() -> Message:
             nonlocal replayed
             if not replayed:
                 replayed = True
-                return {"type": "http.request", "body": bytes(body), "more_body": False}
+                return {"type": "http.request", "body": body, "more_body": False}
             return await receive()
 
         await self.app(scope, replay, send)

@@ -7,7 +7,7 @@ from types import SimpleNamespace
 from unittest.mock import Mock
 
 import pytest
-from devfeed_core import search_records, search_suggestions, topic_logos
+from devfeed_core import logos, search_records, search_suggestions
 
 ID = uuid.UUID(int=1)
 SECOND = uuid.UUID(int=2)
@@ -24,15 +24,21 @@ def test_empty_record_requests_perform_no_database_work(kind):
 @pytest.mark.parametrize("kind", search_records.MODELS)
 def test_record_hydration_is_keyed_by_identity_and_returns_plain_values(kind):
     session = Mock()
-    session.execute.return_value.mappings.return_value = [{"id": ID, "name": "Python"}]
-    assert search_records.public_records(session, kind, [ID]) == {ID: {"id": ID, "name": "Python"}}
+    row = (
+        {"id": ID, "title": "Python", "sponsor_names": []}
+        if kind == "articles"
+        else {"id": ID, "name": "Python"}
+    )
+    session.execute.return_value.mappings.return_value = [row]
+    expected = {**row, "sponsor_link_rel": ["nofollow"]} if kind == "articles" else row
+    assert search_records.public_records(session, kind, [ID]) == {ID: expected}
     assert session.execute.call_count == 1
 
 
 @pytest.mark.parametrize("kind", ["articles", "topics", "sources", "tags"])
 def test_public_hits_strip_markup_encode_paths_and_preserve_available_metadata(monkeypatch, kind):
     monkeypatch.setattr(
-        topic_logos,
+        logos,
         "get_settings",
         lambda: SimpleNamespace(image_public_url="https://images.example"),
     )
@@ -54,7 +60,7 @@ def test_public_hits_strip_markup_encode_paths_and_preserve_available_metadata(m
     assert value["href"] == f"/{kind}/c%2B%2B%2Fguide"
     assert value["published_at"] == NOW.isoformat()
     assert value["image_url"] == (
-        "https://images.example/64.png" if kind == "topics" else row["logo_url"]
+        "https://images.example/64.png" if kind in {"topics", "sources"} else row["logo_url"]
     )
 
 

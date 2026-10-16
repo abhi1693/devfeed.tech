@@ -45,6 +45,55 @@ def ready(check, description):
     raise RuntimeError(f"{description} did not become ready")
 
 
+def report_directory(destination: Path) -> Path:
+    # Anchor reports to this invocation, including CI runs outside the candidate checkout.
+    root = Path.cwd().resolve() / "reports"
+    resolved = destination.resolve()
+    if not resolved.is_relative_to(root):
+        raise ValueError("Output must remain within the current directory's reports folder")
+    return resolved
+
+
+def statistics_report(output: Path):
+    # Linux O_NOFOLLOW rejects existing symlinks, while regular files support repeat runs.
+    descriptor = os.open(
+        output / "database-statistics.json",
+        os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_NOFOLLOW,
+        0o600,
+    )
+    return os.fdopen(descriptor, "w", encoding="utf-8")
+
+
+def prepare_database(args, env, cwd, statistics):
+    with (args.output / "setup.log").open("w") as log:
+        subprocess.run(
+            [
+                str(args.app_python),
+                "-m",
+                "alembic",
+                "-c",
+                str(args.app_root / "alembic.ini"),
+                "upgrade",
+                "head",
+            ],
+            env=env,
+            cwd=cwd,
+            check=True,
+            stdout=log,
+            stderr=log,
+            timeout=120,
+        )
+        subprocess.run(
+            [str(args.app_python), str(ROOT / "loadtests/seed.py"), str(args.rows)],
+            env=env,
+            cwd=cwd,
+            check=True,
+            stdout=statistics,
+            stderr=log,
+            timeout=120,
+        )
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--app-root", type=Path, default=ROOT)
@@ -54,7 +103,7 @@ def main():
     parser.add_argument("--seconds", type=int, default=30)
     parser.add_argument("--rows", type=int, default=1000)
     parser.add_argument("--cache", choices=("on", "off"), default="off")
-    parser.add_argument("--output", type=Path, default=ROOT / "reports/loadtest")
+    parser.add_argument("--output", type=Path, default=Path("reports/loadtest"))
     args = parser.parse_args()
     if not (1 <= args.users <= 200 and 0 < args.spawn_rate <= 100 and 10 <= args.seconds <= 3600):
         parser.error("Use 1..200 users, spawn rate >0..100, and duration 10..3600 seconds")
@@ -62,7 +111,10 @@ def main():
         parser.error("Use 100..10000 rows")
     args.app_root = args.app_root.resolve()
     args.app_python = args.app_python.absolute()
-    args.output = args.output.resolve()
+    try:
+        args.output = report_directory(args.output)
+    except ValueError as error:
+        parser.error(str(error))
     args.output.mkdir(parents=True, exist_ok=True)
     containers, processes = [], []
     network = None
@@ -79,7 +131,10 @@ def main():
         DEVFEED_AI_ENABLED="false",
         DEVFEED_FULL_AUTOMATION="false",
     )
-    with tempfile.TemporaryDirectory(prefix="devfeed-locust-") as directory:
+    with (
+        statistics_report(args.output) as statistics,
+        tempfile.TemporaryDirectory(prefix="devfeed-locust-") as directory,
+    ):
         temp = Path(directory)
         try:
             network = docker("network", "create", "devfeed-locust-" + uuid.uuid4().hex[:12])
@@ -129,22 +184,7 @@ def main():
             env["DEVFEED_DATABASE_URL"] = (
                 f"postgresql+psycopg://load:load@127.0.0.1:{port(pg, 5432)}/devfeed_load_test"
             )
-            with (args.output / "setup.log").open("w") as log:
-                for command in (
-                    [
-                        str(args.app_python),
-                        "-m",
-                        "alembic",
-                        "-c",
-                        str(args.app_root / "alembic.ini"),
-                        "upgrade",
-                        "head",
-                    ],
-                    [str(args.app_python), str(ROOT / "loadtests/seed.py"), str(args.rows)],
-                ):
-                    subprocess.run(
-                        command, env=env, cwd=temp, check=True, stdout=log, stderr=log, timeout=120
-                    )
+            prepare_database(args, env, temp, statistics)
             (temp / "pgbouncer.ini").write_text("""[databases]
 devfeed_load_test = host=db port=5432 dbname=devfeed_load_test user=load password=load
 [pgbouncer]

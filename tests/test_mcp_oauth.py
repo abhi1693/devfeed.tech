@@ -7,18 +7,24 @@ import os
 import secrets
 import time
 from types import SimpleNamespace
-from urllib.parse import parse_qs, urlsplit
+from unittest.mock import AsyncMock
+from urllib.parse import parse_qs, urlencode, urlsplit
 
 import httpx
 import pytest
+from devfeed_http.agent_permissions import AgentAccessPolicy
 from devfeed_mcp.config import Settings
 from devfeed_mcp.main import create_app
 from devfeed_user_api import auth, mcp, oidc
 from devfeed_user_api.config import Settings as UserSettings
 from devfeed_user_api.main import create_app as create_user_app
+from fastapi.routing import APIRoute, iter_route_contexts
 from fastapi.testclient import TestClient
 from redis import Redis
+from starlette.requests import Request
+from starlette.routing import Match, Mount, Route
 from test_mcp import ARTICLE, ID
+from test_mcp_routes import PROTOCOLS, ordinary_endpoint, relocate, rpc_request
 
 pytestmark = pytest.mark.integration
 
@@ -27,6 +33,22 @@ ISSUER = "https://mcp.example"
 WEB = "https://reader.example"
 USER_ID = "00000000-0000-4000-8000-000000000001"
 HEADERS = {"Accept": "application/json, text/event-stream", "Mcp-Protocol-Version": "2025-11-25"}
+
+
+def registered_request(app, path, token, method="GET"):
+    scope = {
+        "type": "http",
+        "method": method,
+        "path": path,
+        "headers": [(b"authorization", ("Bearer " + token).encode())],
+    }
+    for context in iter_route_contexts(app.routes):
+        route = context.original_route
+        if isinstance(route, APIRoute):
+            matched, child = route.matches(scope)
+            if matched == Match.FULL:
+                return Request({**scope, **child})
+    pytest.fail(f"No registered {method} route for {path}")
 
 
 @pytest.fixture
@@ -83,7 +105,9 @@ def flow(monkeypatch):
 
     def upstream(request):
         requests.append(request)
-        if "/preferences/sources" in request.url.path and request.method == "GET":
+        if request.url.host == "public.example" and request.url.path == f"/v1/articles/{ID}":
+            body = ARTICLE
+        elif "/preferences/sources" in request.url.path and request.method == "GET":
             body = {"source_ids": [USER_ID]}
         elif request.url.path.endswith("must-reads"):
             body = {
@@ -222,6 +246,199 @@ def test_shared_endpoint_public_access_and_invalid_bearer(flow):
     assert flow.client.post("/personal/mcp", headers=HEADERS, json=request).status_code == 404
     response = flow.client.post("/mcp", headers=HEADERS, content=b"x" * 32769)
     assert response.status_code == 413
+
+
+@pytest.mark.parametrize("version", PROTOCOLS)
+def test_account_auth_and_browser_negotiation_follow_mounted_sdk_transport(flow, version):
+    token, _ = tokens(flow, "devfeed:read")
+    routes = flow.client.app.state.mcp_routes
+    relocate(routes.transport, "/agent")
+    flow.client.app.router.routes = [
+        Route("/mcp", ordinary_endpoint, methods=["GET", "POST"]),
+        Mount("/gateway", app=routes.app),
+    ]
+    response = flow.client.post("/gateway/agent", **rpc_request(version))
+    assert response.status_code == 200, response.text
+    assert len(response.json()["result"]["tools"]) == 15
+    request = rpc_request(version)
+    request["headers"]["Authorization"] = "Bearer invalid"
+    assert flow.client.post("/gateway/agent", **request).status_code == 401
+    assert flow.client.post("/mcp", **request).status_code == 200
+
+    account = rpc_request(version, "tools/call", name="get_my_feed", arguments={})
+    assert flow.client.post("/gateway/agent", **account).status_code == 401
+    assert not flow.requests
+    account["headers"]["Authorization"] = "Bearer " + token["access_token"]
+    response = flow.client.post("/gateway/agent", **account)
+    assert response.status_code == 200, response.text
+    assert not response.json()["result"].get("isError"), response.text
+    assert flow.requests[-1].url.path == "/v1/user/feed"
+    assert flow.requests[-1].headers["authorization"] == account["headers"]["Authorization"]
+    assert "cookie" not in flow.requests[-1].headers
+    public = rpc_request(version, "tools/call", name="get_article", arguments={"article_id": ID})
+    public["headers"]["Authorization"] = account["headers"]["Authorization"]
+    public["headers"]["Cookie"] = "session=private"
+    response = flow.client.post("/gateway/agent", **public)
+    assert response.status_code == 200, response.text
+    assert not response.json()["result"].get("isError"), response.text
+    assert flow.requests[-1].url.host == "public.example"
+    assert "authorization" not in flow.requests[-1].headers
+    assert "cookie" not in flow.requests[-1].headers
+    before = len(flow.requests)
+    anonymous = rpc_request(version, "tools/call", name="get_my_feed", arguments={})
+    assert flow.client.post("/gateway/agent", **anonymous).status_code == 401
+    assert len(flow.requests) == before
+    assert flow.client.post("/gateway/agent", **rpc_request(version)).status_code == 200
+
+    response = flow.client.get(
+        "/gateway/agent?token=private", headers={"Accept": "text/html"}, follow_redirects=False
+    )
+    assert response.status_code == 302
+    assert response.headers["location"] == WEB + "/mcp"
+    assert (
+        flow.client.get(
+            "/gateway/agent", headers={"Accept": "text/html", "Mcp-Protocol-Version": version}
+        ).status_code
+        == 401
+    )
+    assert flow.client.post("/gateway/agent", content=b"x" * 32769).status_code == 413
+    assert flow.client.post("/mcp", content=b"x" * 32769).json() == {"body_bytes": 32769}
+
+
+@pytest.mark.parametrize("include_resource", [True, False])
+def test_token_policy_and_sdk_cors_follow_renamed_route_in_mount(flow, include_resource):
+    form = approve(flow, start(flow, "devfeed:read"))
+    routes = flow.client.app.state.mcp_routes
+    relocate(routes.oauth.token, "/exchange")
+    flow.client.app.router.routes = [
+        Route("/token", ordinary_endpoint, methods=["POST"]),
+        Mount("/gateway", app=routes.app),
+    ]
+    origin = {"Origin": "https://inspector.example"}
+    response = flow.client.options(
+        "/gateway/exchange",
+        headers={
+            **origin,
+            "Access-Control-Request-Method": "POST",
+            "Access-Control-Request-Headers": "content-type,mcp-protocol-version",
+        },
+    )
+    assert response.status_code == 200, response.text
+    assert response.headers["access-control-allow-origin"] == "*"
+    for resource in ["https://other.example/mcp", [RESOURCE, RESOURCE]]:
+        response = flow.client.post(
+            "/gateway/exchange", data={**form, "resource": resource}, headers=origin
+        )
+        assert response.status_code == 400
+        assert response.json()["error"] == "invalid_target"
+        assert response.headers["cache-control"] == "no-store"
+        assert response.headers["access-control-allow-origin"] == "*"
+    response = flow.client.post(
+        "/gateway/exchange",
+        content=b"x" * 32769,
+        headers={**origin, "Content-Type": "application/x-www-form-urlencoded"},
+    )
+    assert response.status_code == 413
+    assert response.json()["error"] == "invalid_request"
+    assert response.headers["access-control-allow-origin"] == "*"
+    ordinary = flow.client.post("/token", content=b"resource=wrong")
+    assert ordinary.json() == {"body_bytes": len(b"resource=wrong")}
+    if not include_resource:
+        form.pop("resource")
+    response = flow.client.post("/gateway/exchange", data=form, headers=origin)
+    assert response.status_code == 200, response.text
+    assert response.json()["scope"] == "devfeed:read"
+    assert response.headers["access-control-allow-origin"] == "*"
+
+
+@pytest.mark.parametrize("encoding", ["multipart", "json", "missing_content_type"])
+def test_sdk_token_exchange_rejects_non_form_resource_bypass_without_consuming_code(flow, encoding):
+    form = approve(flow, start(flow, "devfeed:read"))
+    foreign_resource = {**form, "resource": "https://other.example/mcp"}
+    if encoding == "multipart":
+        request = {"files": {key: (None, value) for key, value in foreign_resource.items()}}
+    elif encoding == "json":
+        request = {"json": foreign_resource}
+    else:
+        request = {"content": urlencode(foreign_resource).encode()}
+    response = flow.client.post("/token", **request)
+    assert response.status_code == 400
+    assert response.json()["error"] == "invalid_request"
+    assert response.headers["cache-control"] == "no-store"
+    assert not list(flow.store.scan_iter("devfeed:mcp:access:*"))
+    response = flow.client.post("/token", data=form)
+    assert response.status_code == 200, response.text
+    assert response.json()["scope"] == "devfeed:read"
+
+
+@pytest.mark.parametrize("slot", ["authorization", "registration", "revocation"])
+def test_other_sdk_oauth_mutations_retain_limits_after_rename_without_token_resource_policy(
+    flow, slot
+):
+    routes = flow.client.app.state.mcp_routes
+    relocate(getattr(routes.oauth, slot), "/submit")
+    flow.client.app.router.routes = [Mount("/gateway", app=routes.app)]
+    origin = {"Origin": "https://inspector.example"}
+    response = flow.client.post("/gateway/submit", content=b"x" * 32769, headers=origin)
+    assert response.status_code == 413
+    assert response.json()["error"] == "invalid_request"
+    assert response.headers["cache-control"] == "no-store"
+    if slot == "authorization":
+        assert "access-control-allow-origin" not in response.headers
+    else:
+        assert response.headers["access-control-allow-origin"] == "*"
+    request = (
+        {"json": {"resource": "wrong"}}
+        if slot == "registration"
+        else {"data": {"resource": "wrong"}}
+    )
+    response = flow.client.post("/gateway/submit", **request)
+    assert response.status_code == (401 if slot == "revocation" else 400)
+    assert response.json()["error"] != "invalid_target"
+
+
+def test_bearer_validation_is_confined_to_transport_not_relocated_oauth_discovery(
+    flow, monkeypatch
+):
+    from devfeed_mcp.oauth import OAuthProvider
+
+    routes = flow.client.app.state.mcp_routes
+    relocate(routes.oauth.metadata, "/oauth-info")
+    verifier = AsyncMock(return_value=None)
+    monkeypatch.setattr(OAuthProvider, "load_access_token", verifier)
+    response = flow.client.get("/oauth-info", headers={"Authorization": "Bearer invalid"})
+    assert response.status_code == 200
+    assert response.json()["token_endpoint_auth_methods_supported"] == ["none"]
+    assert response.json()["revocation_endpoint_auth_methods_supported"] == ["none"]
+    verifier.assert_not_awaited()
+    response = flow.client.post(
+        "/mcp",
+        headers={**HEADERS, "Authorization": "Bearer invalid"},
+        json={"jsonrpc": "2.0", "id": 1, "method": "tools/list"},
+    )
+    assert response.status_code == 401
+    verifier.assert_awaited_once_with("invalid")
+
+
+@pytest.mark.parametrize("version", PROTOCOLS)
+@pytest.mark.parametrize("defect,status", [("missing_read", 403), ("wrong_resource", 401)])
+def test_transport_rejects_insufficient_read_scope_or_wrong_token_audience(
+    flow, version, defect, status
+):
+    token, _ = tokens(flow, "devfeed:read")
+    access_key = mcp.key("access", token["access_token"])
+    record = json.loads(flow.store.get(access_key))
+    if defect == "missing_read":
+        record["scopes"] = ["devfeed:write"]
+    else:
+        record["resource"] = "https://other.example/mcp"
+    flow.store.set(access_key, json.dumps(record), ex=300)
+    request = rpc_request(version)
+    request["headers"]["Authorization"] = "Bearer " + token["access_token"]
+    response = flow.client.post("/mcp", **request)
+    assert response.status_code == status
+    assert "resource_metadata=" in response.headers["www-authenticate"]
+    assert not flow.requests
 
 
 def test_browser_visits_open_reader_with_oauth_enabled(flow):
@@ -399,7 +616,6 @@ def test_user_api_binds_identity_and_denies_other_endpoints(flow, monkeypatch):
 
     from devfeed_core import db
     from fastapi import HTTPException
-    from starlette.requests import Request
 
     token, _ = tokens(flow)
 
@@ -416,15 +632,9 @@ def test_user_api_binds_identity_and_denies_other_endpoints(flow, monkeypatch):
     monkeypatch.setattr(db, "session_factory", lambda: Session)
 
     def request(path, method="GET"):
-        return Request(
-            {
-                "type": "http",
-                "method": method,
-                "path": path,
-                "headers": [(b"authorization", ("Bearer " + token["access_token"]).encode())],
-            }
-        )
+        return registered_request(flow.user.app, path, token["access_token"], method)
 
+    assert AgentAccessPolicy.from_request(request("/v1/user/bookmarks")).scope == "devfeed:read"
     assert auth.require_user(request("/v1/user/bookmarks")).user_id == USER_ID
     assert auth.require_user(request("/v1/user/must-reads")).user_id == USER_ID
     for path, method in [
@@ -615,7 +825,6 @@ def test_expired_idle_grant_and_revoked_grant_cannot_be_renewed(flow):
 )
 def test_read_only_selection_limits_code_tokens_refresh_and_all_writes(flow, name, args, path):
     from fastapi import HTTPException
-    from starlette.requests import Request
 
     form = approve(flow, start(flow, "devfeed:read devfeed:write offline_access"), "read-only")
     code = json.loads(flow.store.get(mcp.key("code", form["code"])))
@@ -646,14 +855,8 @@ def test_read_only_selection_limits_code_tokens_refresh_and_all_writes(flow, nam
         response = call(flow, access, name, args)
         assert response.json()["result"]["isError"]
         assert not flow.requests
-        request = Request(
-            {
-                "type": "http",
-                "method": "PUT",
-                "path": path,
-                "headers": [(b"authorization", ("Bearer " + access).encode())],
-            }
-        )
+        request = registered_request(flow.user.app, path, access, "PUT")
+        assert AgentAccessPolicy.from_request(request).scope == mcp.WRITE
         with pytest.raises(HTTPException) as error:
             mcp.require_agent_user(request)
         assert error.value.status_code == 403

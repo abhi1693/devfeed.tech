@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { recordIdentity } from "@/lib/record-identities";
 import { renderAdmin } from "./render-admin";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, screen } from "@testing-library/react";
@@ -66,7 +67,11 @@ describe("read-only language labels", () => {
         topics: [],
         tags: [],
       });
-      renderAdmin(<ResourceDetail resource={resource} id="record-1" />);
+      renderAdmin(
+        <ResourceDetail
+          identity={recordIdentity(resource, { id: "record-1", kind: "analysis" })}
+        />,
+      );
       await screen.findByText("English (United States)");
       const label = screen.getByText("Language", { selector: "dt" });
       expect(label.nextElementSibling!.textContent).toBe("English (United States)");

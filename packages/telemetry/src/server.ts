@@ -8,7 +8,7 @@ import { Registry, Counter, Gauge, Histogram, collectDefaultMetrics } from "@pro
 import { observeDeliveries } from "./delivery";
 import { routeName, methodName, redactAuthText } from "./privacy";
 let registered = false;
-export async function registerTelemetry(app: "web" | "admin") {
+export async function registerTelemetry(app: "web" | "admin" | "partner") {
   if (registered || process.env.DEVFEED_METRICS_ENABLED !== "true") return;
   registered = true;
   const port = Number(process.env.DEVFEED_METRICS_PORT || "9100");
@@ -82,7 +82,7 @@ export async function registerTelemetry(app: "web" | "admin") {
     const state = {
       time: performance.now(),
       method: methodName(request.method),
-      route: routeName(request.url),
+      route: routeName(request.url, app),
       // Match the Python admission policy before routeName bounds dynamic suffixes.
       stream:
         /^\/(?:api\/)?v1\/(?:user|admin)\/notifications\/chimely\/v1\/inbox\/stream\/?(?:\?|$)/.test(

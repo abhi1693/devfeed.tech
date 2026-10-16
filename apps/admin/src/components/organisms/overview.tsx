@@ -1,7 +1,7 @@
 "use client";
 
 import { lazy, useState, type ReactNode } from "react";
-import { Button } from "@/components/atoms/button";
+import { Button } from "@devfeed/ui/button";
 import type { OverviewPanel as PanelData } from "@/lib/api/generated/models";
 import { OverviewPanel, type PanelName } from "./overview-panel";
 import { OverviewMetrics } from "./overview-metrics";

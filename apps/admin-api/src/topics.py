@@ -15,6 +15,7 @@ from devfeed_core.models import (
 )
 from devfeed_core.schemas import ORMModel
 from devfeed_core.services import OperationConflict, RecordNotFound
+from devfeed_core.text_search import text_search, topic_search
 from devfeed_core.topic_deletion import TopicDeleteImpact, delete_topic, deletion_impact
 from devfeed_core.topics import (
     RelationWrite,
@@ -24,13 +25,12 @@ from devfeed_core.topics import (
     relate_topics,
     save_topic,
 )
+from devfeed_http.pagination import Listing, Page, paginate, prohibit_references, record
 from fastapi import APIRouter, Depends, Response
 from sqlalchemy import or_, select
 
 from devfeed_admin_api.auth import Admin, require_admin
 from devfeed_admin_api.dependencies import DB
-from devfeed_admin_api.pagination import Listing, Page, paginate, prohibit_references, record
-from devfeed_admin_api.search import text_search, topic_search
 from devfeed_admin_api.topic_proposals import actor
 
 router = APIRouter(prefix="/v1/admin", tags=["admin-topics"], dependencies=[Depends(require_admin)])
