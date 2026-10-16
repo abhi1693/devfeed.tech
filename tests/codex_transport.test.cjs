@@ -6,9 +6,48 @@ const path = require("node:path");
 const http = require("node:http");
 const https = require("node:https");
 const { execFileSync } = require("node:child_process");
-const { once } = require("node:events");
+const { once, EventEmitter } = require("node:events");
 const { randomBytes } = require("node:crypto");
+const vm = require("node:vm");
 const { createTransport } = require("../infra/codex/transport.cjs");
+
+test("server pins the Codex script and its Node interpreter independently of PATH", () => {
+  const arguments_ = ["app-server", "--listen", "ws://127.0.0.1:4500"];
+  const calls = [];
+  const bridge = new EventEmitter();
+  bridge.listen = () => {};
+  const child = new EventEmitter();
+  const modules = {
+    "node:fs": { rmSync() {} },
+    "node:net": { createServer: () => bridge },
+    "node:child_process": {
+      spawn: (...args) => {
+        calls.push(args);
+        return child;
+      },
+    },
+    "./transport.cjs": {},
+  };
+  vm.runInNewContext(fs.readFileSync(require.resolve("../infra/codex/server.cjs"), "utf8"), {
+    require: (name) => modules[name],
+    process: {
+      execPath: "/usr/local/bin/node",
+      argv: ["node", "server.cjs", ...arguments_],
+      env: { PATH: "/workspace/untrusted-bin" },
+      umask() {},
+      on() {},
+    },
+    console,
+  });
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0][0], "/usr/local/bin/node");
+  assert.deepEqual(Array.from(calls[0][1]), [
+    "/usr/local/lib/node_modules/@openai/codex/bin/codex.js",
+    ...arguments_,
+  ]);
+  assert.equal(calls[0][2].stdio, "inherit");
+  assert.ok(!calls[0][2].shell);
+});
 
 test("TLS transport authenticates before connecting and strips its token", async () => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), "devfeed-tls-test-"));
