@@ -1123,7 +1123,7 @@ export const userGatewayOperations = {
     path: "/v1/user/partner-placements/query",
     parameters: [],
     policy: {
-      bodyLimit: 8192,
+      bodyLimit: 16384,
       bodyTimeoutMs: 2000,
       upstreamTimeoutMs: 45000,
       cookiePolicy: "reader",

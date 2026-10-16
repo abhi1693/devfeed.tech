@@ -110,7 +110,7 @@ def test_reader_cookie_and_body_policy_is_explicit_for_every_operation():
         },
         "placements_v1_user_partner_placements_query_post": {
             **default,
-            "bodyLimit": 8192,
+            "bodyLimit": 16384,
             "handler": "placement-query",
         },
     }

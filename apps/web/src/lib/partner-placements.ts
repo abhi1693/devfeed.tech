@@ -1,13 +1,20 @@
 import type { Article } from "./types";
+import type { SearchKind } from "./search";
 import { safeExternalUrl } from "./feed-query";
 
 export const adFormats = ["feed", "header_sponsorship", "sponsored_content", "engagement"] as const;
 export type AdFormat = (typeof adFormats)[number];
+export const SEARCH_PLACEMENT_RESULT_LIMIT = 120;
+export type SearchPlacementContext = {
+  query: string;
+  results: Partial<Record<SearchKind, string[]>>;
+};
 export type PlacementQuery = {
   surface: "article" | "topic" | "feed" | "search" | "header";
   article_id?: string;
   topic_id?: string;
   article_ids?: string[];
+  search?: SearchPlacementContext;
   allow_sponsored_fallback?: boolean;
   exclude_product_ids?: string[];
   ad_formats?: AdFormat[];
@@ -40,6 +47,34 @@ const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const record = (value: unknown): value is Record<string, unknown> =>
   value !== null && typeof value === "object" && !Array.isArray(value);
 
+function validSearchContext(value: unknown): value is SearchPlacementContext {
+  if (
+    !record(value) ||
+    Object.keys(value).some((key) => !["query", "results"].includes(key)) ||
+    typeof value.query !== "string" ||
+    value.query.length > 200 ||
+    value.query.includes("\0") ||
+    !value.query.isWellFormed() ||
+    !record(value.results)
+  )
+    return false;
+  const query = value.query.normalize("NFKC").trim().replace(/\s+/g, " ");
+  if (!/[\p{L}\p{N}]/u.test(query) || query.length > 200 || query.split(" ").length > 20)
+    return false;
+  let count = 0;
+  for (const [kind, ids] of Object.entries(value.results)) {
+    if (
+      !["articles", "topics", "sources", "tags"].includes(kind) ||
+      !Array.isArray(ids) ||
+      new Set(ids).size !== ids.length ||
+      !ids.every((id) => typeof id === "string" && uuid.test(id))
+    )
+      return false;
+    count += ids.length;
+  }
+  return count > 0 && count <= SEARCH_PLACEMENT_RESULT_LIMIT;
+}
+
 export function validPlacementQuery(value: unknown): value is PlacementQuery {
   if (!record(value)) return false;
   if (
@@ -50,11 +85,19 @@ export function validPlacementQuery(value: unknown): value is PlacementQuery {
           "article_id",
           "topic_id",
           "article_ids",
+          "search",
           "allow_sponsored_fallback",
           "exclude_product_ids",
           "ad_formats",
         ].includes(key),
     )
+  )
+    return false;
+  if (
+    value.search !== undefined &&
+    (value.surface !== "search" ||
+      value.article_ids !== undefined ||
+      !validSearchContext(value.search))
   )
     return false;
   if (

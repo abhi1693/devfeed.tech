@@ -117,6 +117,8 @@ Sign in through the existing website login flow, then return to the new tab. Chr
 supplies the website's HttpOnly session cookie using the DevFeed host permission.
 No additional OIDC client or extension callback is required. Session checks run
 when a tab becomes active; checking the same session preserves its feed and modal.
+Public search results and loaded pages survive credential refreshes within the
+same account. Search ads revalidate using the refreshed credentials and loaded context.
 Sign-out clears personal UI and notifies other open extension tabs.
 Session expiry is checked using bounded timers, so 30-day website sessions do not
 overflow the browser timer limit and immediately clear the signed-in account.

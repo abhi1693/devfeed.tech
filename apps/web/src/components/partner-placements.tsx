@@ -40,6 +40,7 @@ type Props = PartnerPlacementContext & {
   children?: (cards: ReactNode[], items: PartnerPlacement[], expired: boolean) => ReactNode;
   beforeDisplay?: () => void;
   afterDisplay?: () => void;
+  onDelivery?: (items: PartnerPlacement[]) => void;
 };
 type Delivery = {
   context: string;
@@ -304,6 +305,7 @@ function PlacementDelivery({
   surface,
   article_id,
   article_ids,
+  search,
   allow_sponsored_fallback = false,
   ad_formats,
   topic_id,
@@ -313,6 +315,7 @@ function PlacementDelivery({
   children,
   beforeDisplay,
   afterDisplay,
+  onDelivery,
 }: Props & { active: boolean }) {
   const { user, loading } = useUser();
   const identity = user?.user_id ?? "anonymous";
@@ -321,6 +324,7 @@ function PlacementDelivery({
       surface,
       article_id,
       article_ids,
+      search,
       ...(surface === "feed" || surface === "search" ? { allow_sponsored_fallback } : {}),
       ad_formats,
       topic_id,
@@ -346,10 +350,11 @@ function PlacementDelivery({
   const publish = useCallback(
     (next: Delivery) => {
       beforeDisplay?.();
+      onDelivery?.(next.expired ? [] : next.items);
       cached.current = next;
       setResult(next);
     },
-    [beforeDisplay],
+    [beforeDisplay, onDelivery],
   );
   useLayoutEffect(() => afterDisplay?.(), [result, afterDisplay]);
   useEffect(() => {
@@ -458,12 +463,14 @@ function PlacementDelivery({
           expired: !items.length,
         });
       })
-      .catch(() => {});
+      .catch(() => {
+        if (!controller.signal.aborted) onDelivery?.([]);
+      });
     return () => {
       controller.abort();
       release();
     };
-  }, [context, requestedContext, identity, loading, csrf, maxItems, publish, release]);
+  }, [context, requestedContext, identity, loading, csrf, maxItems, publish, release, onDelivery]);
   useEffect(() => {
     if (active && !loading && result?.context === context && !result.expired) {
       for (const item of result.items.slice(0, maxItems)) {

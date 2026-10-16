@@ -27,11 +27,11 @@ EXPECTED = {
     "public": {
         "successful_click_v1_search_analytics_click_post": (4096, 2000, "json"),
         "track_event_v1_partner_tracking_events_post": (2048, 2000, "json"),
-        "placements_v1_partner_placements_query_post": (8192, 2000, "json"),
+        "placements_v1_partner_placements_query_post": (16384, 2000, "json"),
     },
     "user": {
         "upload_avatar_v1_user_settings_profile_avatar_post": (5_308_416, 10_000, "image"),
-        "placements_v1_user_partner_placements_query_post": (8192, 2000, "json"),
+        "placements_v1_user_partner_placements_query_post": (16384, 2000, "json"),
     },
     "admin": {
         "adminPartnerProductCreate": (65_536, 2000, "json"),

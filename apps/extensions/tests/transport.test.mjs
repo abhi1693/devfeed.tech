@@ -404,7 +404,7 @@ test("leaves FormData encoding to the browser and retains receipt keepalive with
 for (const [path, method, limit] of [
   ["/api/v1/user/preferences", "PUT", 1_000_000],
   ["/api/v1/user/settings/profile/avatar", "POST", 5 * 1024 * 1024 + 65536],
-  ["/api/v1/partner-placements/query", "POST", 8192],
+  ["/api/v1/partner-placements/query", "POST", 16384],
   ["/api/v1/partner-tracking/events", "POST", 2048],
 ]) {
   test(`bounds original Request bytes for ${method} ${path}`, async () => {

@@ -48,6 +48,7 @@ from devfeed_core.partner_promotions import (
     campaign_matches_product,
     commercially_eligible,
 )
+from devfeed_core.partner_search_context import PublicSearchContext
 from devfeed_core.partner_tools import QUALIFICATION_TTL
 from devfeed_core.partner_tracking import (
     BusyPartnerAsset,
@@ -309,7 +310,9 @@ def prepared_article_candidates(*conditions):
     )
 
 
-def contextual_candidates(session, query, now, user_id=None, *, as_query=False):
+def contextual_candidates(
+    session, query, now, user_id=None, *, as_query=False, search_context=None
+):
     if query.surface == "article":
         article = session.scalar(
             select(Article)
@@ -335,6 +338,18 @@ def contextual_candidates(session, query, now, user_id=None, *, as_query=False):
                 statement.order_by(
                     PartnerArticleMatch.score.desc(), PartnerArticleMatch.product_id
                 ).limit(100)
+            )
+        }
+    search = getattr(query, "search", None) if query.surface == "search" else None
+    if search is not None:
+        context = search_context or PublicSearchContext.resolve(session, search.results)
+        statement = context.candidates(search.query)
+        if as_query:
+            return statement
+        return {
+            product_id: (score, reason, revision, updated_at)
+            for product_id, score, reason, revision, updated_at in session.execute(
+                statement.limit(100)
             )
         }
     if query.surface == "topic" or (query.surface == "header" and query.topic_id is not None):
@@ -735,7 +750,13 @@ def deliver_placements(session, query, key, *, user_id=None, now=None):
     now = now or utcnow()
     if not key:
         return []
-    matches = contextual_candidates(session, query, now, user_id, as_query=True)
+    search = getattr(query, "search", None) if query.surface == "search" else None
+    search_context = (
+        PublicSearchContext.resolve(session, search.results) if search is not None else None
+    )
+    matches = contextual_candidates(
+        session, query, now, user_id, as_query=True, search_context=search_context
+    )
     feed_context = bool(query.article_ids) or matches is not None
     matches = placement_format_candidates(session, query, matches)
     signer = PartnerTrackingTokens(key, clock=lambda: now.timestamp())
@@ -750,6 +771,8 @@ def deliver_placements(session, query, key, *, user_id=None, now=None):
     # This flag describes campaign backing only. Reader disclosure is Sponsored for
     # every product placement, including the non-campaign slot.
     for phase in ("sponsored", "fallback", "organic"):
+        if search_context is not None and search_context.blocked:
+            break
         sponsored = phase != "organic"
         phase_formats = {
             value for value in query.ad_formats if placement_format_allowed(value, query)
@@ -836,6 +859,12 @@ def deliver_placements(session, query, key, *, user_id=None, now=None):
                     task_match = query.surface == "article" or (
                         ad_format == "engagement" and query.surface == "feed"
                     )
+                    if (
+                        search_context is not None
+                        and search is not None
+                        and not search_context.lock_witness(session, product.id, search.query)
+                    ):
+                        break
                     current = matches.subquery()
                     reason = session.scalar(
                         select(current.c.reason)

@@ -194,15 +194,16 @@ actions. Article-preview Engagement cards sit below the topic information
 in the sidebar, after the source brief when no topic is available.
 A Feed card without managed artwork uses compact product branding. Compact feed tables render
 Feed placements as compact `Name | Tagline` rows, with Sponsored in the date column (beside the
-name when the date column is hidden). Engagement uses a compact
-logo, product copy and the destination hostname. The whole card opens the product. Search shows
-one Engagement placement in its right
-sidebar above Topics, with context from at least four initial article results. Its dedicated Search
-surface requires a current verified direct product/topic match in those results, without sponsored
-fallback or personal-interest expansion. Article previews retain their tutorial task requirements.
-Search and article
-sidebars do not request Feed cards. On narrow screens, the search rail follows article results and
-precedes Topics. Feeds and article searches with fewer than four stories omit product placements.
+name when the date column is hidden). Engagement uses a compact logo, product copy and the
+destination hostname. The whole card opens the product. Search shows one Engagement placement
+in its right sidebar whenever article or catalog results supply verified context. There is no minimum result
+count. The reader sends search intent and a rolling window of up to 120 loaded results; later
+pages can contribute until a product qualifies, and delivered ads remain stable during pagination.
+The server requires current direct prepared relevance plus a matching verified capability and
+source quote, without sponsored fallback or personal-interest expansion. Article previews retain
+their tutorial task requirements. Search and article sidebars do not request Feed cards.
+On narrow screens, the search rail follows article results and
+precedes Topics. Grid feeds keep their four-article minimum; search sidebars use relevance alone.
 
 Imported creatives and previews use the serving account's active listing tagline. A listing
 destination uses that same source. Shared canonical product facts still qualify relevance;

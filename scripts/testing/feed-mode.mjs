@@ -229,10 +229,17 @@ export async function checkFeedMode(page, destination, fixture, output, extensio
           1,
           `${path}: one contextual placement query`,
         );
-        assert.deepEqual(
-          query.body.article_ids,
-          fixture.articles.slice(0, 24).map((item) => item.id),
-        );
+        if (surface === "search") {
+          assert.equal(query.body.article_ids, undefined);
+          assert.deepEqual(query.body.search, {
+            query: "typescript",
+            results: { articles: fixture.articles.map((item) => item.id) },
+          });
+        } else
+          assert.deepEqual(
+            query.body.article_ids,
+            fixture.articles.slice(0, 24).map((item) => item.id),
+          );
       }
     }
     const wide = page.viewportSize().width >= 1280;

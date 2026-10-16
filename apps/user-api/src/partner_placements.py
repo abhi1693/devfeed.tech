@@ -22,7 +22,7 @@ router = APIRouter(
     "/query",
     response_model=PlacementsOut,
     openapi_extra=ReaderGatewayPolicy(
-        body_limit=8192,
+        body_limit=16384,
         body_timeout_ms=2000,
         handler="placement-query",
         extension=ExtensionTransportPolicy(),

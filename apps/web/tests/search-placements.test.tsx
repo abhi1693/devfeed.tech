@@ -1,17 +1,21 @@
 // @vitest-environment jsdom
-import { act, cleanup, render, screen } from "@testing-library/react";
+import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { SearchResults } from "@/components/search-results";
 import { readerRequest } from "@/lib/reader-runtime";
+import { userRequest } from "@/lib/user";
 import { observePartnerPlacement } from "@/lib/partner-tracking";
 import type { SearchHit, SearchResponse } from "@/lib/search";
 import type { ReactNode } from "react";
 import { article } from "./fixtures";
 import { partnerReceipt, placement, sponsoredPlacement } from "./partner-placement-fixtures";
 
-vi.mock("@/components/user-account", () => ({
-  useUser: () => ({ user: null, loading: false, sessionRevision: 0 }),
+const session = vi.hoisted(() => ({
+  user: null as null | { user_id: string; csrf_token: string },
+  loading: false,
+  sessionRevision: 0,
 }));
+vi.mock("@/components/user-account", () => ({ useUser: () => session }));
 vi.mock("@/components/reader-prompts", () => ({ useReaderPromptCoordinator: () => null }));
 vi.mock("@/components/topic-follow", () => ({ TopicFollow: () => null }));
 vi.mock("@/components/source-follow", () => ({ SourceFollow: () => null }));
@@ -21,6 +25,7 @@ vi.mock("@/lib/reader-runtime", async (original) => ({
   readerRequest: vi.fn(),
 }));
 vi.mock("@/lib/partner-tracking", () => ({ observePartnerPlacement: vi.fn(() => vi.fn()) }));
+vi.mock("@/lib/user", () => ({ userRequest: vi.fn() }));
 vi.mock("@/components/article-engagement", () => ({
   EngagementProvider: ({ children }: { children: ReactNode }) => children,
   ArticleEngagement: () => null,
@@ -39,23 +44,39 @@ vi.mock("@/components/article-engagement", () => ({
   useArticleEngagement: () => null,
 }));
 
-const hits: SearchHit[] = Array.from({ length: 24 }, (_, index) => ({
-  id: `aaaaaaaa-aaaa-4aaa-8aaa-${String(index).padStart(12, "0")}`,
-  title: `Search article ${index}`,
-  description: "A matching article about TypeScript validation.",
-  href: `/articles/search-article-${index}`,
-  image_url: null,
-  label: "tutorial",
-  published_at: null,
-}));
+const makeHits = (count: number, start = 0): SearchHit[] =>
+  Array.from({ length: count }, (_, offset) => {
+    const index = start + offset;
+    return {
+      id: `aaaaaaaa-aaaa-4aaa-8aaa-${String(index).padStart(12, "0")}`,
+      title: `Search article ${index}`,
+      description: "A matching article about TypeScript validation.",
+      href: `/articles/search-article-${index}`,
+      image_url: null,
+      label: "tutorial",
+      published_at: null,
+    };
+  });
+const hits = makeHits(24);
 const result = (items = hits, next_cursor: string | null = null): SearchResponse => ({
   query: "typescript",
   sections: { articles: { items, next_cursor } },
 });
 const engagement = { ...sponsoredPlacement, ad_format: "engagement" as const };
+const deliveries = () =>
+  vi
+    .mocked(readerRequest)
+    .mock.calls.filter(([path]) => String(path).includes("partner-placements"));
+const deliveryContext = (index = 0) => JSON.parse(String(deliveries()[index][1]?.body));
 let intersect: () => void;
 beforeEach(() => {
+  session.user = null;
+  session.loading = false;
+  session.sessionRevision = 0;
   localStorage.clear();
+  vi.mocked(userRequest)
+    .mockReset()
+    .mockResolvedValue({ items: [engagement] });
   vi.mocked(readerRequest)
     .mockReset()
     .mockImplementation(async () =>
@@ -131,7 +152,10 @@ it("places one compact contextual product above Topics without changing organic 
     surface: "search",
     allow_sponsored_fallback: false,
     ad_formats: ["engagement"],
-    article_ids: hits.map((hit) => hit.id),
+    search: {
+      query: "typescript",
+      results: { articles: hits.map((hit) => hit.id), topics: [hits[0].id] },
+    },
     exclude_product_ids: [],
   });
 });
@@ -157,7 +181,7 @@ it("keeps an article-only sidebar contextual while respecting search filters", a
   expect(JSON.parse(String(vi.mocked(readerRequest).mock.calls[0][1]?.body))).toMatchObject({
     allow_sponsored_fallback: false,
     ad_formats: ["engagement"],
-    article_ids: hits.map((hit) => hit.id),
+    search: { query: "typescript", results: { articles: hits.map((hit) => hit.id) } },
   });
 });
 
@@ -222,7 +246,7 @@ it("does not display Feed or sponsored-content cards returned to an Engagement-o
 });
 
 it.each(["topics", "sources", "tags"] as const)(
-  "does not insert article products into %s search results",
+  "offers one sidebar Engagement placement for a single matching %s result",
   async (kind) => {
     const view = render(
       <SearchResults
@@ -236,20 +260,37 @@ it.each(["topics", "sources", "tags"] as const)(
         options={{ section: kind, sort: "relevance", date_from: "", date_to: "" }}
       />,
     );
-    await act(async () => {});
-    expect(view.container.querySelector(".partner-placement")).toBeNull();
-    expect(readerRequest).not.toHaveBeenCalled();
+    await screen.findByRole("link", { name: engagement.name });
+    const card = view.container.querySelector(".partner-placement")!;
+    expect(card.closest("aside.search-sidebar")).toBeTruthy();
+    expect(card.getAttribute("data-ad-format")).toBe("engagement");
+    expect(view.container.querySelector(".search-result-list .partner-placement")).toBeNull();
+    expect(view.container.querySelectorAll(".search-result")).toHaveLength(1);
+    expect(deliveryContext()).toEqual({
+      surface: "search",
+      search: { query: "typescript", results: { [kind]: [hits[0].id] } },
+      allow_sponsored_fallback: false,
+      ad_formats: ["engagement"],
+      exclude_product_ids: [],
+    });
   },
 );
 
-it.each([0, 1, 2, 3])(
-  "keeps sparse %s-article search results organic without requesting products",
+it.each([1, 2, 3])(
+  "lets relevance decide the sidebar placement for %s matching articles",
   async (count) => {
     const items = hits.slice(0, count);
     const view = render(<SearchResults result={result(items)} />);
-    await act(async () => {});
-    expect(readerRequest).not.toHaveBeenCalled();
-    expect(view.container.querySelector(".partner-placement")).toBeNull();
+    await screen.findByRole("link", { name: engagement.name });
+    expect(view.container.querySelectorAll("aside.search-sidebar .partner-placement")).toHaveLength(
+      1,
+    );
+    expect(deliveryContext()).toMatchObject({
+      surface: "search",
+      search: { query: "typescript", results: { articles: items.map((hit) => hit.id) } },
+      allow_sponsored_fallback: false,
+      ad_formats: ["engagement"],
+    });
     expect(
       Array.from(
         view.container.querySelectorAll(".search-result-link"),
@@ -259,7 +300,54 @@ it.each([0, 1, 2, 3])(
   },
 );
 
-it("keeps first-page search context and product density when more results append", async () => {
+it("does not request products when there are no matching results", async () => {
+  const view = render(<SearchResults result={result([])} />);
+  await act(async () => {});
+  expect(readerRequest).not.toHaveBeenCalled();
+  expect(view.container.querySelector(".partner-placement")).toBeNull();
+  expect(screen.getByRole("heading", { name: "No results for “typescript”" })).toBeTruthy();
+});
+
+it("preserves the first loaded results when an initially empty page gains sidebar eligibility", async () => {
+  vi.mocked(readerRequest).mockImplementation(async (path) =>
+    Response.json(
+      String(path).includes("partner-placements")
+        ? { items: [engagement] }
+        : result(hits.slice(0, 1)),
+    ),
+  );
+  const view = render(<SearchResults result={result([], "2")} />);
+  expect(deliveries()).toHaveLength(0);
+  await act(async () => intersect());
+  await screen.findByRole("link", { name: engagement.name });
+  expect(screen.getByRole("link", { name: hits[0].title })).toBeTruthy();
+  expect(view.container.querySelectorAll(".search-result")).toHaveLength(1);
+  expect(deliveries()).toHaveLength(1);
+  expect(deliveryContext().search).toEqual({
+    query: "typescript",
+    results: { articles: [hits[0].id] },
+  });
+});
+
+it("keeps nonempty results organic when the server finds no relevant product", async () => {
+  vi.mocked(readerRequest).mockResolvedValue(Response.json({ items: [] }));
+  const view = render(<SearchResults result={result(hits.slice(0, 1))} />);
+  await waitFor(() => expect(readerRequest).toHaveBeenCalledTimes(1));
+  await act(async () => {});
+  expect(view.container.querySelector(".partner-placement")).toBeNull();
+  expect(screen.getByRole("link", { name: hits[0].title })).toBeTruthy();
+  expect(deliveryContext().allow_sponsored_fallback).toBe(false);
+});
+
+it("includes matching context beyond the first 24 initial articles", async () => {
+  const items = makeHits(30);
+  const view = render(<SearchResults result={result(items)} />);
+  await screen.findByRole("link", { name: engagement.name });
+  expect(deliveryContext().search.results.articles).toEqual(items.map((hit) => hit.id));
+  expect(view.container.querySelectorAll(".search-result")).toHaveLength(30);
+});
+
+it("keeps a delivered sidebar product stable when more results append", async () => {
   vi.mocked(readerRequest).mockImplementation(async (path) =>
     Response.json(
       String(path).includes("partner-placements") ? { items: [engagement] } : result(hits.slice(4)),
@@ -276,45 +364,147 @@ it("keeps first-page search context and product density when more results append
     firstRows,
   );
   expect(view.container.querySelector(".search-result-list .partner-placement")).toBeNull();
-  const deliveries = vi
-    .mocked(readerRequest)
-    .mock.calls.filter(([path]) => String(path).includes("partner-placements"));
-  expect(deliveries).toHaveLength(1);
-  expect(JSON.parse(String(deliveries[0][1]?.body)).article_ids).toEqual(
-    hits.slice(0, 4).map((hit) => hit.id),
-  );
+  expect(deliveries()).toHaveLength(1);
+  expect(deliveryContext().search.results.articles).toEqual(hits.slice(0, 4).map((hit) => hit.id));
 });
 
-it("expires a sidebar receipt without replacing organic rows, moving focus or requesting new ads", async () => {
+it("reassesses empty delivery using articles loaded after the initial 24", async () => {
+  const later = makeHits(12, 24);
+  let attempts = 0;
+  vi.mocked(readerRequest).mockImplementation(async (path) => {
+    if (String(path).includes("partner-placements"))
+      return Response.json({ items: ++attempts === 1 ? [] : [engagement] });
+    return Response.json(result([hits[23], ...later]));
+  });
+  const view = render(<SearchResults result={result(hits, "2")} />);
+  await waitFor(() => expect(deliveries()).toHaveLength(1));
+  const firstRows = Array.from(view.container.querySelectorAll(".search-result"));
+  const reading = screen.getByRole("link", { name: hits[8].title });
+  reading.focus();
+  await act(async () => intersect());
+  await screen.findByRole("link", { name: engagement.name });
+  expect(view.container.querySelectorAll(".search-result")).toHaveLength(36);
+  expect(Array.from(view.container.querySelectorAll(".search-result")).slice(0, 24)).toEqual(
+    firstRows,
+  );
+  expect(document.activeElement).toBe(reading);
+  expect(deliveries()).toHaveLength(2);
+  expect(deliveryContext(1).search).toEqual({
+    query: "typescript",
+    results: { articles: [...hits, ...later].map((hit) => hit.id) },
+  });
+  expect(deliveryContext(1).allow_sponsored_fallback).toBe(false);
+});
+
+it("rolls a full context forward so later results can qualify without an unbounded request", async () => {
+  const initial = makeHits(120);
+  const later = makeHits(24, 120);
+  vi.mocked(readerRequest).mockImplementation(async (path) =>
+    Response.json(String(path).includes("partner-placements") ? { items: [] } : result(later)),
+  );
+  const view = render(<SearchResults result={result(initial, "2")} />);
+  await waitFor(() => expect(deliveries()).toHaveLength(1));
+  expect(deliveryContext().search.results.articles).toEqual(initial.map((hit) => hit.id));
+  await act(async () => intersect());
+  await waitFor(() => expect(deliveries()).toHaveLength(2));
+  expect(deliveryContext(1).search.results.articles).toEqual(
+    [...initial.slice(24), ...later].map((hit) => hit.id),
+  );
+  expect(view.container.querySelectorAll(".search-result")).toHaveLength(144);
+  expect(view.container.querySelector(".partner-placement")).toBeNull();
+});
+
+it("reconsiders the final loaded page when sign-in leaves the previous ad context empty", async () => {
+  const later = makeHits(12, 24);
+  const initial = result(hits, "2");
+  let finish!: (response: unknown) => void;
+  vi.mocked(readerRequest).mockImplementation(async (path) =>
+    Response.json(
+      String(path).includes("partner-placements") ? { items: [engagement] } : result(later),
+    ),
+  );
+  vi.mocked(userRequest)
+    .mockImplementationOnce(() => new Promise((resolve) => (finish = resolve)))
+    .mockResolvedValueOnce({ items: [engagement] });
+  const view = render(<SearchResults result={initial} />);
+  const card = (await screen.findByRole("link", { name: engagement.name })).closest("article");
+  await act(async () => intersect());
+  const rows = Array.from(view.container.querySelectorAll(".search-result"));
+  expect(rows).toHaveLength(36);
+  expect(view.container.querySelector(".partner-placement")).toBe(card);
+  expect(deliveries()).toHaveLength(1);
+
+  session.user = { user_id: "reader", csrf_token: "csrf" };
+  session.sessionRevision = 1;
+  view.rerender(<SearchResults result={initial} />);
+  await waitFor(() => expect(userRequest).toHaveBeenCalledTimes(1));
+  expect(JSON.parse(String(vi.mocked(userRequest).mock.calls[0][1]?.body)).search.results).toEqual({
+    articles: hits.map((hit) => hit.id),
+  });
+  await act(async () => finish({ items: [] }));
+  await screen.findByRole("link", { name: engagement.name });
+  expect(userRequest).toHaveBeenCalledTimes(2);
+  expect(JSON.parse(String(vi.mocked(userRequest).mock.calls[1][1]?.body)).search.results).toEqual({
+    articles: [...hits, ...later].map((hit) => hit.id),
+  });
+  expect(Array.from(view.container.querySelectorAll(".search-result"))).toEqual(rows);
+  expect(deliveries()).toHaveLength(1);
+});
+
+it("uses queued final-page context once after expiry without retrying an empty response", async () => {
   vi.useFakeTimers();
   vi.setSystemTime(new Date("2026-10-13T12:00:00Z"));
-  const hit = {
-    ...hits[0],
-    id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
-    title: "Another matching article",
-    href: "/articles/another-matching-article",
-  };
+  const later = makeHits(1, 24);
+  let attempts = 0;
   vi.mocked(readerRequest).mockImplementation(async (path) =>
     Response.json(
       String(path).includes("partner-placements")
         ? {
-            items: [
-              {
-                ...engagement,
-                receipt: partnerReceipt({ assetId: engagement.asset_id }),
-              },
-            ],
+            items:
+              ++attempts === 1
+                ? [{ ...engagement, receipt: partnerReceipt({ assetId: engagement.asset_id }) }]
+                : [],
           }
-        : result([hit]),
+        : result(later),
     ),
   );
   let view!: ReturnType<typeof render>;
   await act(async () => {
     view = render(<SearchResults result={result(hits, "2")} />);
   });
+  expect(screen.getByRole("link", { name: engagement.name })).toBeTruthy();
+  await act(async () => intersect());
+  expect(deliveries()).toHaveLength(1);
+  const rows = Array.from(view.container.querySelectorAll(".search-result"));
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(60 * 60_000 + 1000);
+  });
+  expect(deliveries()).toHaveLength(2);
+  expect(deliveryContext(1).search.results).toEqual({
+    articles: [...hits, ...later].map((hit) => hit.id),
+  });
+  expect(screen.queryByRole("link", { name: engagement.name })).toBeNull();
+  expect(Array.from(view.container.querySelectorAll(".search-result"))).toEqual(rows);
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(60 * 60_000);
+  });
+  expect(deliveries()).toHaveLength(2);
+});
+
+it("expires a sidebar receipt without replacing organic rows, moving focus or requesting new ads", async () => {
+  vi.useFakeTimers();
+  vi.setSystemTime(new Date("2026-10-13T12:00:00Z"));
+  vi.mocked(readerRequest).mockImplementation(async () =>
+    Response.json({
+      items: [{ ...engagement, receipt: partnerReceipt({ assetId: engagement.asset_id }) }],
+    }),
+  );
+  let view!: ReturnType<typeof render>;
+  await act(async () => {
+    view = render(<SearchResults result={result(hits)} />);
+  });
   const card = screen.getByRole("link", { name: engagement.name }).closest("article")!;
   const stopTracking = vi.mocked(observePartnerPlacement).mock.results.at(-1)!.value;
-  await act(async () => intersect());
   const rows = Array.from(view.container.querySelectorAll(".search-result"));
   const reading = screen.getByRole("link", { name: hits[8].title });
   reading.focus();
@@ -332,7 +522,7 @@ it("expires a sidebar receipt without replacing organic rows, moving focus or re
   expect(Array.from(view.container.querySelectorAll(".search-result"))).toEqual(rows);
   expect(
     Array.from(view.container.querySelectorAll(".search-result-link"), (link) => link.textContent),
-  ).toEqual([...hits, hit].map((item) => item.title));
+  ).toEqual(hits.map((item) => item.title));
   expect(screen.getByRole("link", { name: hits[8].title })).toBe(reading);
   expect(document.activeElement).toBe(reading);
   expect(
@@ -378,9 +568,10 @@ it("replaces a pending sidebar context when a different search has article resul
   view.rerender(<SearchResults result={{ ...result(nextHits), query: "rust" }} />);
   await screen.findByRole("link", { name: engagement.name });
   expect(previous.aborted).toBe(true);
-  expect(JSON.parse(String(vi.mocked(readerRequest).mock.calls[1][1]?.body)).article_ids).toEqual(
-    nextHits.map((hit) => hit.id),
-  );
+  expect(deliveryContext(1).search).toEqual({
+    query: "rust",
+    results: { articles: nextHits.map((hit) => hit.id) },
+  });
   await act(async () =>
     finish(
       Response.json({ items: [{ ...placement, name: "Stale product", ad_format: "engagement" }] }),
@@ -391,4 +582,54 @@ it("replaces a pending sidebar context when a different search has article resul
   expect(
     Array.from(view.container.querySelectorAll(".search-result-link"), (link) => link.textContent),
   ).toEqual(nextHits.map((hit) => hit.title));
+});
+
+it("resets pending relevance and paginated result context when search filters change", async () => {
+  let finish!: (response: Response) => void;
+  const filtered = makeHits(1, 30);
+  const later = makeHits(1, 31);
+  vi.mocked(readerRequest)
+    .mockImplementationOnce(() => new Promise((resolve) => (finish = resolve)))
+    .mockImplementation(async (path) =>
+      Response.json(String(path).includes("partner-placements") ? { items: [] } : result(later)),
+    );
+  const view = render(<SearchResults result={result(hits, "2")} />);
+  const previous = deliveries()[0][1]!.signal as AbortSignal;
+  view.rerender(
+    <SearchResults
+      result={result(filtered, "2")}
+      options={{
+        section: "articles",
+        content_type: "tutorial",
+        sort: "newest",
+        date_from: "2026-09-01",
+        date_to: "2026-10-01",
+      }}
+    />,
+  );
+  await waitFor(() => expect(deliveries()).toHaveLength(2));
+  expect(previous.aborted).toBe(true);
+  expect(deliveryContext(1).search.results).toEqual({ articles: [filtered[0].id] });
+  await act(async () => intersect());
+  await waitFor(() => expect(deliveries()).toHaveLength(3));
+  expect(deliveryContext(2).search.results).toEqual({
+    articles: [...filtered, ...later].map((hit) => hit.id),
+  });
+  const [path] = vi
+    .mocked(readerRequest)
+    .mock.calls.find(([path]) => String(path).startsWith("/api/v1/search?"))!;
+  expect(Object.fromEntries(new URL(String(path), "https://devfeed.tech").searchParams)).toEqual({
+    q: "typescript",
+    section: "articles",
+    content_types: "tutorial",
+    sort: "newest",
+    date_from: "2026-09-01",
+    date_to: "2026-10-01",
+    page: "2",
+  });
+  await act(async () => finish(Response.json({ items: [engagement] })));
+  expect(view.container.querySelector(".partner-placement")).toBeNull();
+  expect(
+    Array.from(view.container.querySelectorAll(".search-result-link"), (link) => link.textContent),
+  ).toEqual([...filtered, ...later].map((hit) => hit.title));
 });

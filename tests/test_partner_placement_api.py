@@ -181,7 +181,7 @@ def test_context_and_exclusion_schema_rejects_ambiguous_requests(placement_clien
     state.session.commit.assert_not_called()
 
 
-@pytest.mark.parametrize("content,status", [("{", 422), (" " * 8193, 413)])
+@pytest.mark.parametrize("content,status", [("{", 422), (" " * 16385, 413)])
 def test_malformed_and_oversized_requests_never_issue_receipts(placement_client, content, status):
     state = placement_client
     response = state.client.post(
@@ -199,7 +199,7 @@ def test_malformed_and_oversized_requests_never_issue_receipts(placement_client,
 
 def test_byte_limit_accepts_exact_boundary_and_rejects_understated_length(placement_client):
     state = placement_client
-    body = json.dumps({"surface": "feed"}).ljust(8192)
+    body = json.dumps({"surface": "feed"}).ljust(16384)
     response = state.client.post(
         state.path,
         headers={**state.headers, "Content-Type": "application/json"},
@@ -323,6 +323,7 @@ def test_route_contract_documents_strict_context_and_browser_cookie_security(pla
         "surface",
         "article_id",
         "article_ids",
+        "search",
         "allow_sponsored_fallback",
         "ad_formats",
         "topic_id",
@@ -341,3 +342,71 @@ def test_query_model_requires_exactly_the_selected_page_context():
     assert PlacementQuery(surface="feed").article_id is None
     with pytest.raises(ValidationError):
         PlacementQuery(surface="topic", article_id=ARTICLE_ID)
+
+
+def test_search_descriptor_accepts_all_public_result_kinds_and_normalizes_intent(placement_client):
+    state = placement_client
+    results = {kind: [str(uuid.uuid4())] for kind in ("articles", "topics", "sources", "tags")}
+    response = state.client.post(
+        state.path,
+        headers=state.headers,
+        json={
+            "surface": "search",
+            "ad_formats": ["engagement"],
+            "search": {"query": "  Ｐｙｔｈｏｎ   validation  ", "results": results},
+        },
+    )
+    assert response.status_code == 200
+    submitted = state.deliver.call_args.args[1]
+    assert submitted.search.query == "Python validation"
+    assert submitted.search.results == {
+        kind: [uuid.UUID(identifier) for identifier in identifiers]
+        for kind, identifiers in results.items()
+    }
+    assert submitted.article_ids == []
+
+
+@pytest.mark.parametrize(
+    "change",
+    [
+        {"surface": "feed"},
+        {"article_ids": []},
+        {"article_id": ARTICLE_ID},
+        {"search": {"query": "Python", "results": {}}},
+        {"search": {"query": "Python", "results": {"products": [ARTICLE_ID]}}},
+        {"search": {"query": "Python", "results": {"articles": ["invalid"]}}},
+        {"search": {"query": "Python", "results": {"articles": [ARTICLE_ID] * 2}}},
+        {"search": {"query": "x" * 201, "results": {"articles": [ARTICLE_ID]}}},
+        {"search": {"query": "\0Python", "results": {"articles": [ARTICLE_ID]}}},
+        {"search": {"query": "---", "results": {"articles": [ARTICLE_ID]}}},
+    ],
+)
+def test_invalid_search_context_never_reaches_delivery_or_rate_limit(placement_client, change):
+    state = placement_client
+    response = state.client.post(
+        state.path,
+        headers=state.headers,
+        json={
+            "surface": "search",
+            "ad_formats": ["engagement"],
+            "search": {"query": "Python", "results": {"articles": [ARTICLE_ID]}},
+            **change,
+        },
+    )
+    assert response.status_code == 422
+    state.deliver.assert_not_called()
+    state.limiter.assert_not_called()
+
+
+def test_search_context_limit_counts_results_across_sections(placement_client):
+    state = placement_client
+    context = {
+        "query": "Python",
+        "results": {"articles": [str(uuid.uuid4()) for _ in range(120)]},
+    }
+    body = {"surface": "search", "ad_formats": ["engagement"], "search": context}
+    assert state.client.post(state.path, headers=state.headers, json=body).status_code == 200
+    state.deliver.reset_mock()
+    context["results"]["topics"] = [ARTICLE_ID]
+    assert state.client.post(state.path, headers=state.headers, json=body).status_code == 422
+    state.deliver.assert_not_called()

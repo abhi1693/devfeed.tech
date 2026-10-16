@@ -38,7 +38,7 @@ export function bindPersonalizedPartnerPlacements(operation: ReaderGatewayOperat
 export async function partnerPlacements(request: Request) {
   const headers = { "Cache-Control": "no-store", "Referrer-Policy": "no-referrer" };
   try {
-    const body = await readRequestBody(request, 8192, 2000);
+    const body = await readRequestBody(request, 16384, 2000);
     const query = placementQuery(body);
     if (!validPlacementQuery(query))
       return Response.json({ detail: "Invalid placement context" }, { status: 422, headers });

@@ -248,7 +248,7 @@ def test_free_and_paid_relevant_products_automatically_deliver_and_track(client,
         ).status_code
         == 422
     )
-    assert client.post("/v1/partner-placements/query", content="x" * 8193).status_code == 413
+    assert client.post("/v1/partner-placements/query", content="x" * 16385).status_code == 413
 
 
 def test_topics_user_interests_and_anonymous_absence_of_context(database, catalog):

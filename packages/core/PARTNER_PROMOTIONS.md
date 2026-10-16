@@ -179,13 +179,21 @@ evidence and the publisher's original article text. Broad marketing categories a
 qualify. Current validated AI evaluation positives and negatives take precedence over lexical
 matches for the same inputs. Those evaluations are prepared privately, never on a reader request.
 
-Topic pages use prepared product/topic relevance. Main feeds and article search send at most 24
-visible article IDs. The server resolves their current approved primary/supporting topics and
-matches current prepared product topics; clients cannot supply topic claims or private articles.
-The Search surface accepts only Engagement placements and requires a verified direct product/topic
-match within that visible context. It never broadens to sponsored fallback or personal interests.
-Search represents the collection's technology context; article previews and Engagement in feeds
-retain their stricter tutorial task-matching requirements.
+Topic pages use prepared product/topic relevance. Main feeds send at most 24 visible article IDs.
+Search sends the normalized intent and a rolling window of up to 120 loaded public result IDs
+across articles, topics, sources and tags. Later pages can contribute when no product has qualified;
+an issued placement stays stable through pagination. The server revalidates result visibility and
+resolves its own approved topic context. Source and tag results qualify through a current public
+article supporting the candidate's matched topic, without an arbitrary history cutoff. A topic
+result supplies only that topic, never its adjacent topics. Delivery locks the qualifying context
+before issuing a receipt, so concurrent relationship edits cannot leave a stale match.
+If that context is being edited, the request returns no placement rather than repeatedly attempting
+locks for each candidate.
+The Search surface accepts only Engagement placements. A current direct prepared product/topic
+match must also be supported by a verified capability and its source quote that match the query's
+technology or task intent. Implementation-only technology mentions and broad marketing overlap
+cannot qualify. Search never broadens to sponsored fallback or personal interests. Article previews
+and Engagement in feeds retain their stricter tutorial task-matching requirements.
 Signed-in feed interests can strengthen those topics without introducing unrelated products.
 Anonymous requests use the same visible context and never manufacture an interest profile.
 Anonymous feed requests without context return no products unless the main feed explicitly enables
@@ -239,10 +247,11 @@ Eligible grid feeds also support sponsored articles; compact tables request Feed
 Engagement placements remain compact and contextual in search and article-preview sidebars.
 Engagement cards never occupy grid cells or table rows.
 Article previews show these cards below the topic information in the sidebar, outside
-the article text. On narrow screens that sidebar follows the article copy. Search requests one Engagement placement
-above Topics in its right sidebar when at least four initial article results supply context.
-Article-only search filters retain that ad rail without adding catalog sections; catalog-only
-search filters request no placements. Narrow screens stack the rail after article results and
+the article text. On narrow screens that sidebar follows the article copy. Any nonempty search
+result set can request one Engagement placement; relevance decides whether a product qualifies.
+The placement sits above related catalog results for article searches and beside results for
+catalog-only searches. Article-only filters retain the ad rail without adding catalog sections.
+Narrow screens stack the rail after results and
 before Topics. Search and article sidebars do not request Feed or sponsored-content cards.
 Product copy is a single-line tagline of
 3–160 characters. Cards show a logo, name, tagline and destination. Header sponsorship instead
@@ -297,8 +306,10 @@ not reserve campaign delivery or record impressions and clicks.
 ## Delivery and reporting
 
 `POST /v1/partner-placements/query` accepts a surface, its article/topic context or up to 24
-visible feed or search article IDs, and up to 100 excluded product IDs. Search requires
-`ad_formats: ["engagement"]` and does not accept sponsored fallback.
+visible feed article IDs, and up to 100 excluded product IDs. Search accepts a `search` descriptor
+containing `query` and a `results` map of public IDs by result kind (at most 120 combined).
+Legacy Search article-ID requests remain bounded to 24. The JSON request limit is 16 KiB.
+Search requires `ad_formats: ["engagement"]` and does not accept sponsored fallback.
 `POST /v1/user/partner-placements/query` additionally uses the
 authenticated browser reader's interests and requires its normal origin/CSRF checks. Clients
 cannot supply another user's identity. Both return `Cache-Control: no-store` and fresh signed

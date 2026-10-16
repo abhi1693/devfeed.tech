@@ -326,10 +326,10 @@ async function checkExactByteLimits() {
   const invalid = await call(resource, "POST", '{"surface":"feed","user_id":"private"}');
   assert.equal(invalid.status, 422);
   assert.equal(requests.length, before);
-  const exact = Buffer.from('{"surface":"feed"}'.padEnd(8192, " "));
+  const exact = Buffer.from('{"surface":"feed"}'.padEnd(16384, " "));
   const valid = await call(resource, "POST", exact);
   assert.equal(valid.status, 200);
-  assert.equal((await valid.json()).received_bytes, 8192);
+  assert.equal((await valid.json()).received_bytes, 16384);
   assert.deepEqual(requests.at(-1).body, exact);
   assert.equal(requests.at(-1).headers.cookie, readerCookies);
   const overflowBefore = requests.length;

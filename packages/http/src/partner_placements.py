@@ -1,13 +1,37 @@
 """Strict context-only placement requests shared by public and personalized APIs."""
 
 import uuid
+from typing import Literal
 
 from devfeed_core.partner_ad_formats import AdFormat, default_ad_formats
 from devfeed_core.partner_connection_logos import PlacementPlatform
 from devfeed_core.partner_surfaces import PromotionSurface
 from devfeed_core.partner_taglines import Tagline
 from devfeed_core.schemas import ArticleOut
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from devfeed_core.search_suggestions import normalize_query
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+
+SEARCH_PLACEMENT_RESULT_LIMIT = 120
+
+
+class SearchPlacementContext(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    query: str = Field(min_length=1, max_length=200)
+    results: dict[Literal["articles", "topics", "sources", "tags"], list[uuid.UUID]]
+
+    @field_validator("query")
+    @classmethod
+    def normalized_query(cls, value: str) -> str:
+        return normalize_query(value, casefold=False)
+
+    @model_validator(mode="after")
+    def bounded_results(self):
+        count = sum(len(values) for values in self.results.values())
+        if not 1 <= count <= SEARCH_PLACEMENT_RESULT_LIMIT:
+            raise ValueError("Supply between one and 120 loaded search results")
+        if any(len(values) != len(set(values)) for values in self.results.values()):
+            raise ValueError("Search result identifiers must be unique within each section")
+        return self
 
 
 class PlacementQuery(BaseModel):
@@ -18,12 +42,17 @@ class PlacementQuery(BaseModel):
     )
     article_id: uuid.UUID | None = None
     article_ids: list[uuid.UUID] = Field(default_factory=list, max_length=24)
+    search: SearchPlacementContext | None = None
     allow_sponsored_fallback: bool = False
     topic_id: uuid.UUID | None = None
     exclude_product_ids: list[uuid.UUID] = Field(default_factory=list, max_length=100)
 
     @model_validator(mode="after")
     def valid_context(self):
+        if self.search is not None and (
+            self.surface != "search" or self.article_ids or "article_ids" in self.model_fields_set
+        ):
+            raise ValueError("Search result context is exclusive to the Search surface")
         if len(self.ad_formats) != len(set(self.ad_formats)):
             raise ValueError("Ad format selections must be unique")
         if self.surface == "search" and self.ad_formats != ["engagement"]:

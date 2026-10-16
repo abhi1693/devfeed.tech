@@ -152,6 +152,118 @@ it("allows an empty Search context to return no products", async () => {
   expect(await response.json()).toEqual({ items: [] });
 });
 
+it("forwards search intent with up to 120 result identities across all visible kinds", async () => {
+  const ids = Array.from(
+    { length: 120 },
+    (_, index) => `aaaaaaaa-aaaa-4aaa-8aaa-${String(index).padStart(12, "0")}`,
+  );
+  const body = {
+    surface: "search",
+    ad_formats: ["engagement"],
+    allow_sponsored_fallback: false,
+    search: {
+      query: "TypeScript validation",
+      results: {
+        articles: ids.slice(0, 90),
+        topics: ids.slice(90, 100),
+        sources: ids.slice(100, 110),
+        tags: ids.slice(110),
+      },
+    },
+  };
+  vi.mocked(fetch).mockResolvedValue(
+    Response.json({ items: [{ ...placement, ad_format: "engagement" }] }),
+  );
+  const response = await POST(request(body));
+  expect(response.status).toBe(200);
+  expect((await response.json()).items[0].ad_format).toBe("engagement");
+  expect(JSON.parse(String(vi.mocked(fetch).mock.calls[0][1]?.body))).toEqual(body);
+});
+
+it.each(["articles", "topics", "sources", "tags"])(
+  "accepts a single %s result as a relevance opportunity",
+  async (kind) => {
+    const body = {
+      surface: "search",
+      ad_formats: ["engagement"],
+      search: { query: "TypeScript", results: { [kind]: [placement.product_id] } },
+    };
+    vi.mocked(fetch).mockResolvedValue(Response.json({ items: [] }));
+    expect((await POST(request(body))).status).toBe(200);
+    expect(JSON.parse(String(vi.mocked(fetch).mock.calls[0][1]?.body))).toEqual(body);
+  },
+);
+
+it("accepts the full normalized 200-character search query", async () => {
+  const body = {
+    surface: "search",
+    ad_formats: ["engagement"],
+    search: { query: "x".repeat(200), results: { articles: [placement.product_id] } },
+  };
+  vi.mocked(fetch).mockResolvedValue(Response.json({ items: [] }));
+  expect((await POST(request(body))).status).toBe(200);
+  expect(JSON.parse(String(vi.mocked(fetch).mock.calls[0][1]?.body))).toEqual(body);
+});
+
+it.each([
+  null,
+  [],
+  { query: "TypeScript", results: {} },
+  { query: "TypeScript", results: { articles: [] } },
+  { query: "TypeScript", results: { users: [placement.product_id] } },
+  { query: "TypeScript", results: { articles: "not-an-array" } },
+  { query: "TypeScript", results: { articles: ["not-an-id"] } },
+  { query: "TypeScript", results: { articles: [null] } },
+  { query: "TypeScript", results: { articles: [placement.product_id, placement.product_id] } },
+  { query: "TypeScript", results: { articles: [placement.product_id] }, approved: true },
+  { query: 1, results: { articles: [placement.product_id] } },
+  { query: "", results: { articles: [placement.product_id] } },
+  { query: " ", results: { articles: [placement.product_id] } },
+  { query: "---", results: { articles: [placement.product_id] } },
+  { query: "Type\0Script", results: { articles: [placement.product_id] } },
+  { query: "\ud800", results: { articles: [placement.product_id] } },
+  { query: Array(21).fill("word").join(" "), results: { articles: [placement.product_id] } },
+  { query: "x".repeat(201), results: { articles: [placement.product_id] } },
+  {
+    query: "TypeScript",
+    results: {
+      articles: Array.from(
+        { length: 120 },
+        (_, index) => `aaaaaaaa-aaaa-4aaa-8aaa-${String(index).padStart(12, "0")}`,
+      ),
+      topics: [placement.product_id],
+    },
+  },
+])("rejects invalid or unbounded search intent before forwarding (%j)", async (search) => {
+  expect(
+    (await POST(request({ surface: "search", ad_formats: ["engagement"], search }))).status,
+  ).toBe(422);
+  expect(fetch).not.toHaveBeenCalled();
+});
+
+it.each([
+  { surface: "feed" },
+  { surface: "header", ad_formats: ["header_sponsorship"] },
+  { surface: "article", article_id: placement.product_id },
+  { surface: "topic", topic_id: placement.product_id },
+  { surface: "search", article_id: placement.product_id },
+  { surface: "search", topic_id: placement.product_id },
+  { surface: "search", article_ids: [placement.product_id] },
+])("does not combine structured search intent with another context (%j)", async (overrides) => {
+  expect(
+    (
+      await POST(
+        request({
+          ad_formats: ["engagement"],
+          search: { query: "TypeScript", results: { articles: [placement.product_id] } },
+          ...overrides,
+        }),
+      )
+    ).status,
+  ).toBe(422);
+  expect(fetch).not.toHaveBeenCalled();
+});
+
 it.each([
   {},
   { article_id: placement.product_id },
@@ -475,8 +587,8 @@ it.each([
 });
 
 it("bounds both public and authenticated query bodies before forwarding", async () => {
-  expect((await POST(request(" ".repeat(8193)))).status).toBe(413);
-  expect((await personalized.POST(request(" ".repeat(8193)), {})).status).toBe(413);
+  expect((await POST(request(" ".repeat(16_385)))).status).toBe(413);
+  expect((await personalized.POST(request(" ".repeat(16_385)), {})).status).toBe(413);
   expect(fetch).not.toHaveBeenCalled();
 });
 

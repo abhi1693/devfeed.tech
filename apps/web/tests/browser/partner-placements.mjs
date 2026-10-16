@@ -7,6 +7,8 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { chromium } from "playwright";
 
+const searchContextOnly = process.argv.includes("--search-context");
+
 // Exercise actual production reader bundles and packaged extensions, with controlled
 // delivery responses. Backend integration tests prove relevance and signed receipts.
 const receiptIssuedAt = Math.floor(Date.now() / 1000);
@@ -131,6 +133,8 @@ const reportDirectory = process.env.CI
 await mkdir(reportDirectory, { recursive: true });
 console.log(`Placement browser artifacts: ${reportDirectory}`);
 let signedIn = false;
+let sessionCsrfToken = "fixture-csrf";
+let appearanceTheme = "system";
 let queries = [];
 let headerQueries = [];
 let headerInventory = false;
@@ -144,6 +148,7 @@ let profileWrites = [];
 let nativeMode = null;
 let organicCount = 24;
 let promotedArrival = false;
+let searchDeliveryMode = "contextual";
 let organicPagesDelivered = 0;
 let placementLimited = false;
 let isolateArticleReceipts = false;
@@ -1630,6 +1635,295 @@ async function assertSearchSidebarExpiry(context, base, platform) {
   }
 }
 
+async function assertSearchResultContext(context, base, platform) {
+  const previousSignedIn = signedIn;
+  const page = await context.newPage();
+  const sidebar = () => page.locator('.search-sidebar [data-ad-format="engagement"]');
+  const selections = () => queries.filter(({ body }) => body.surface === "search");
+  const waitForSelection = async (matches = () => true) => {
+    for (let attempt = 0; attempt < 150; attempt++) {
+      const selected = selections().find(({ body }) => matches(body));
+      if (selected) return selected;
+      await page.waitForTimeout(20);
+    }
+    assert.fail(`${platform}: search context selection did not arrive`);
+  };
+  const freshSearch = async (route) => {
+    queries = [];
+    await page.goto("about:blank");
+    await page.goto(`${base}${route}`);
+  };
+  const screenshot = async (name, theme) => {
+    await page.locator(".reader-loading-placeholder").first().waitFor({ state: "detached" });
+    await page.waitForFunction(
+      (dark) => document.documentElement.classList.contains("dark") === dark,
+      theme === "dark",
+    );
+    await page.screenshot({
+      path: `${reportDirectory}/${platform}-${name}.png`,
+      animations: "disabled",
+    });
+  };
+  try {
+    nativeMode = null;
+    headerInventory = false;
+    promotedArrival = false;
+    searchDeliveryMode = "contextual";
+    for (const authenticated of [false, true]) {
+      signedIn = authenticated;
+      const expectedPath = authenticated
+        ? "/v1/user/partner-placements/query"
+        : "/v1/partner-placements/query";
+      for (const width of [1280, 390]) {
+        await page.setViewportSize({ width, height: width === 390 ? 844 : 900 });
+        const theme = authenticated ? "dark" : "light";
+        appearanceTheme = theme;
+        await page.emulateMedia({ colorScheme: theme });
+        await page.goto(`${base}/latest`);
+        await page.evaluate((value) => localStorage.setItem("devfeed:theme", value), theme);
+        for (const count of [1, 3]) {
+          organicCount = count;
+          await freshSearch("/search?q=typescript&section=articles");
+          await sidebar().waitFor();
+          const selected = await waitForSelection();
+          assert.equal(selected.pathname, expectedPath);
+          assert.deepEqual(selected.body.search, {
+            query: "typescript",
+            results: { articles: feedArticles.slice(0, count).map(({ id }) => id) },
+          });
+          assert.equal(
+            await page.locator(".search-section-articles .partner-placement").count(),
+            0,
+          );
+          assert.deepEqual(
+            await page.locator(".search-section-articles .search-result-link").allTextContents(),
+            feedArticles.slice(0, count).map(({ title }) => title),
+            `${platform}/${authenticated}/${width}: sparse results retain their order`,
+          );
+          assert.equal(
+            await page.evaluate(() => document.documentElement.scrollWidth > innerWidth),
+            false,
+          );
+          if (count === 1) {
+            await page.waitForFunction(
+              (dark) => document.documentElement.classList.contains("dark") === dark,
+              theme === "dark",
+            );
+            await screenshot(`search-one-result-${theme}-${width}`, theme);
+          }
+        }
+        queries = [];
+        await page.locator(".topbar .search input").fill("unrelated-history");
+        const unrelated = await waitForSelection(
+          (body) => body.search.query === "unrelated-history",
+        );
+        assert.equal(unrelated.pathname, expectedPath);
+        await sidebar().waitFor({ state: "hidden" });
+        assert.equal(
+          await sidebar().count(),
+          0,
+          `${platform}: changed search intent removes the previous product`,
+        );
+        for (const kind of ["topics", "sources", "tags"]) {
+          await freshSearch(`/search?q=typescript&section=${kind}`);
+          await page.locator(`.search-section-${kind} .search-result-link`).first().waitFor();
+          await sidebar().waitFor();
+          const selected = await waitForSelection();
+          assert.equal(selected.pathname, expectedPath);
+          assert.deepEqual(Object.keys(selected.body.search.results), [kind]);
+          assert.equal(selected.body.search.results[kind].length, 1);
+          assert.equal(await page.locator('[data-ad-format="feed"]').count(), 0);
+          if (kind === "topics" && width === 1280)
+            await screenshot(`search-topic-results-${theme}-${width}`, theme);
+        }
+        await freshSearch("/search?q=no-results&section=articles");
+        await page.getByRole("heading", { name: "No results for “no-results”" }).waitFor();
+        await page.waitForTimeout(150);
+        assert.equal(selections().length, 0, `${platform}: empty results reserve no inventory`);
+        assert.equal(await sidebar().count(), 0);
+      }
+
+      await page.setViewportSize({ width: 1280, height: 900 });
+      organicCount = 24;
+      promotedArrival = true;
+      for (const initialMatch of [true, false]) {
+        searchDeliveryMode = initialMatch ? "contextual" : "later-result";
+        await freshSearch("/search?q=typescript&section=articles");
+        await page.locator(".search-section-articles .search-result-link").nth(23).waitFor();
+        const initial = await waitForSelection();
+        assert.deepEqual(
+          initial.body.search.results.articles,
+          feedArticles.map(({ id }) => id),
+        );
+        if (initialMatch) {
+          await sidebar().waitFor();
+          await sidebar().evaluate((node) => {
+            window.__stableSearchPlacement = node;
+          });
+        } else assert.equal(await sidebar().count(), 0);
+        const before = selections().length;
+        await page.locator(".search-section-articles .pagination").scrollIntoViewIfNeeded();
+        await page
+          .locator(".search-section-articles .search-result-link")
+          .filter({ hasText: promotedArticle.title })
+          .waitFor();
+        assert.deepEqual(
+          await page.locator(".search-section-articles .search-result-link").allTextContents(),
+          [...feedArticles, promotedArticle].map(({ title }) => title),
+        );
+        if (initialMatch) {
+          await page.waitForTimeout(150);
+          assert.equal(
+            selections().length,
+            before,
+            `${platform}: issued placements survive pagination`,
+          );
+          assert.equal(
+            await sidebar().evaluate((node) => node === window.__stableSearchPlacement),
+            true,
+            `${platform}: the visible placement keeps its original DOM node`,
+          );
+        } else {
+          const expanded = await waitForSelection((body) =>
+            body.search.results.articles?.includes(promotedArticle.id),
+          );
+          assert.equal(expanded.pathname, expectedPath);
+          assert.deepEqual(expanded.body.search.results.articles, [
+            ...feedArticles.map(({ id }) => id),
+            promotedArticle.id,
+          ]);
+          await sidebar().waitFor();
+        }
+      }
+      if (!authenticated) {
+        searchDeliveryMode = "member-later-result";
+        await freshSearch("/search?q=typescript&section=articles");
+        await sidebar().waitFor();
+        await waitForSelection();
+        const before = selections().length;
+        await page.locator(".search-section-articles .pagination").scrollIntoViewIfNeeded();
+        await page
+          .locator(".search-section-articles .search-result-link")
+          .filter({ hasText: promotedArticle.title })
+          .waitFor();
+        await page.waitForTimeout(150);
+        assert.equal(selections().length, before);
+        queries = [];
+        signedIn = true;
+        await page.evaluate(() => {
+          window.dispatchEvent(new PageTransitionEvent("pageshow", { persisted: true }));
+        });
+        await page.locator('.topbar [aria-label="User menu: Reader"]').waitFor();
+        await waitForSelection();
+        // The account boundary clears prior-owner state. Reload the later public
+        // result through the new reader, including focus-aware extension paging.
+        if (!(await page.getByRole("link", { name: promotedArticle.title, exact: true }).count())) {
+          await page.bringToFront();
+          await page.locator(".search-section-articles .pagination").scrollIntoViewIfNeeded();
+        }
+        await page
+          .locator(".search-section-articles .search-result-link")
+          .filter({ hasText: promotedArticle.title })
+          .waitFor();
+        const replacement = await waitForSelection((body) =>
+          body.search.results.articles?.includes(promotedArticle.id),
+        );
+        assert.equal(replacement.pathname, "/v1/user/partner-placements/query");
+        assert.deepEqual(replacement.body.search.results.articles, [
+          ...feedArticles.map(({ id }) => id),
+          promotedArticle.id,
+        ]);
+        assert.deepEqual(
+          selections()[0].body.search.results.articles,
+          feedArticles.map(({ id }) => id),
+          `${platform}: the identity transition starts with its own public result context`,
+        );
+        assert.ok(
+          selections().every(({ pathname }) => pathname === "/v1/user/partner-placements/query"),
+        );
+        await sidebar().waitFor();
+        signedIn = false;
+      }
+      if (authenticated) {
+        searchDeliveryMode = "contextual";
+        await freshSearch("/search?q=typescript&section=articles");
+        await sidebar().waitFor();
+        await waitForSelection();
+        const before = selections().length;
+        await page.locator(".search-section-articles .pagination").scrollIntoViewIfNeeded();
+        await page.getByRole("link", { name: promotedArticle.title, exact: true }).waitFor();
+        await page.waitForTimeout(150);
+        assert.equal(selections().length, before);
+        await page
+          .locator(".search-section-articles .search-result-link")
+          .first()
+          .evaluate((node) => {
+            window.__credentialSearchResult = node;
+          });
+        queries = [];
+        searchDeliveryMode = "later-result";
+        sessionCsrfToken = "fixture-csrf-rotated";
+        await page.evaluate(() => {
+          window.dispatchEvent(new PageTransitionEvent("pageshow", { persisted: true }));
+        });
+        const replacement = await waitForSelection((body) =>
+          body.search.results.articles?.includes(promotedArticle.id),
+        );
+        assert.equal(replacement.pathname, "/v1/user/partner-placements/query");
+        assert.deepEqual(
+          selections()[0].body.search.results.articles,
+          feedArticles.map(({ id }) => id),
+          `${platform}: a changed credential first revalidates the issued context`,
+        );
+        assert.deepEqual(replacement.body.search.results.articles, [
+          ...feedArticles.map(({ id }) => id),
+          promotedArticle.id,
+        ]);
+        assert.ok(
+          selections().every(({ pathname }) => pathname === "/v1/user/partner-placements/query"),
+        );
+        assert.equal(
+          await page
+            .locator(".search-section-articles .search-result-link")
+            .first()
+            .evaluate((node) => node === window.__credentialSearchResult),
+          true,
+          `${platform}: a same-reader credential refresh preserves loaded organic results`,
+        );
+        assert.equal(
+          await page.locator(".search-section-articles .search-result-link").count(),
+          25,
+        );
+        await sidebar().waitFor();
+        sessionCsrfToken = "fixture-csrf";
+      }
+      promotedArrival = false;
+      searchDeliveryMode = "contextual";
+      organicCount = 3;
+      await freshSearch("/latest");
+      await page.locator(".article-grid .card-open-link").first().waitFor();
+      await page.waitForTimeout(150);
+      assert.equal(await page.locator(".partner-placement").count(), 0);
+      assert.equal(
+        queries.length,
+        0,
+        `${platform}: the sparse Latest grid keeps its existing gate`,
+      );
+    }
+    console.log(
+      `${platform}: search intent and typed public result context, one/three-result sidebar opportunities, catalog-only opportunities, empty/unrelated suppression, page-2 result context, stable issued placements, later-result eligibility after account/credential changes and anonymous/member transport passed at desktop/mobile sizes.`,
+    );
+  } finally {
+    signedIn = previousSignedIn;
+    organicCount = 24;
+    promotedArrival = false;
+    searchDeliveryMode = "contextual";
+    sessionCsrfToken = "fixture-csrf";
+    appearanceTheme = "system";
+    await page.close();
+  }
+}
+
 async function assertCollectionFeedPlacements(page, base, platform) {
   const previousSignedIn = signedIn;
   signedIn = false;
@@ -2418,13 +2712,14 @@ function response(requestPath, body, headers = {}, extension = false) {
     if (pathname === "/v1/partner-placements/query") {
       assert.equal(headers.cookie, undefined);
       assert.equal(headers["x-csrf-token"], undefined);
-    } else assert.equal(headers["x-csrf-token"], "fixture-csrf");
+    } else assert.equal(headers["x-csrf-token"], sessionCsrfToken);
     assert.ok(
       Object.keys(body).every((key) =>
         [
           "surface",
           "article_id",
           "article_ids",
+          "search",
           "topic_id",
           "allow_sponsored_fallback",
           "exclude_product_ids",
@@ -2458,6 +2753,16 @@ function response(requestPath, body, headers = {}, extension = false) {
         !body.ad_formats?.includes("engagement"),
         "Grid and table feeds request native Feed cards without sidebar Engagement",
       );
+    if (body.surface === "search") {
+      assert.deepEqual(body.ad_formats, ["engagement"], "Search requests Engagement only");
+      assert.notEqual(body.allow_sponsored_fallback, true);
+      assert.equal(body.article_ids, undefined, "Search uses its structured result context");
+      assert.equal(typeof body.search.query, "string");
+      assert.ok(body.search.query.length <= 200);
+      const ids = Object.values(body.search.results).flat();
+      assert.ok(ids.length >= 1 && ids.length <= 120);
+      assert.equal(new Set(ids).size, ids.length, "Search context contains unique public IDs");
+    }
     if (nativeMode) {
       assert.ok(Array.isArray(body.ad_formats), "Native formats are explicitly requested");
       if (body.surface !== "feed") assert.ok(!body.ad_formats.includes("sponsored_content"));
@@ -2493,23 +2798,17 @@ function response(requestPath, body, headers = {}, extension = false) {
         ["engagement"],
         "Article sidebars request compact Engagement only",
       );
-    if (body.surface === "search") {
-      assert.deepEqual(
-        body.ad_formats,
-        ["engagement"],
-        "Search collections request Engagement only",
-      );
-      assert.notEqual(
-        body.allow_sponsored_fallback,
-        true,
-        "Search collections never permit generic sponsorship",
-      );
-      assert.ok(body.article_ids.length >= 4 && body.article_ids.length <= 24);
-    }
     const eligible =
       body.surface === "topic" ||
       (pathname.includes("/user/") && body.surface === "feed") ||
-      (["feed", "search"].includes(body.surface) && body.article_ids?.includes(article.id)) ||
+      (body.surface === "feed" && body.article_ids?.includes(article.id)) ||
+      (body.surface === "search" &&
+        body.search.query === "typescript" &&
+        (!(
+          searchDeliveryMode === "later-result" ||
+          (searchDeliveryMode === "member-later-result" && pathname.includes("/user/"))
+        ) ||
+          body.search.results.articles?.includes(promotedArticle.id))) ||
       (body.surface === "article" && feedArticles.some((item) => item.id === body.article_id));
     return {
       items: deliveryItems(
@@ -2544,13 +2843,13 @@ function response(requestPath, body, headers = {}, extension = false) {
           name: "Reader",
           email: null,
           expires_at: 9999999999,
-          csrf_token: "fixture-csrf",
+          csrf_token: sessionCsrfToken,
         }
       : null;
   if (pathname === "/v1/user/auth/config") return { enabled: true, providers: [] };
   if (pathname === "/v1/user/settings/profile") {
     if (body) {
-      assert.equal(headers["x-csrf-token"], "fixture-csrf");
+      assert.equal(headers["x-csrf-token"], sessionCsrfToken);
       experienceLevel = body.experience_level;
       profileWrites.push(body);
     }
@@ -2594,7 +2893,7 @@ function response(requestPath, body, headers = {}, extension = false) {
     };
   if (pathname === "/v1/user/bookmarks") return { items: feedArticles, next_cursor: null };
   if (pathname === "/v1/user/settings/appearance")
-    return { theme: "system", timezone: "UTC", date_format: "locale", time_format: "24" };
+    return { theme: appearanceTheme, timezone: "UTC", date_format: "locale", time_format: "24" };
   if (pathname === "/v1/user/settings/feed")
     return { view: feedView, content_types: ["tutorial", "news"], languages: ["en"] };
   if (["/v1/user/preferences", "/v1/user/preferences/topics"].includes(pathname))
@@ -2670,6 +2969,11 @@ function response(requestPath, body, headers = {}, extension = false) {
         next_cursor: null,
       },
     };
+    if (url.searchParams.get("q") === "no-results")
+      for (const section of Object.values(sections)) {
+        section.items = [];
+        section.next_cursor = null;
+      }
     const section = url.searchParams.get("section");
     return {
       query: url.searchParams.get("q") ?? "",
@@ -2935,6 +3239,8 @@ try {
         local.setItem("devfeed:dev-card-promo-seen", "true");
       });
       const page = await context.newPage();
+      await assertSearchResultContext(context, base, platform);
+      if (searchContextOnly) continue;
       await assertSitewideHeader(context, base, platform);
       await assertAuthenticationPlacementParity(context, base, platform);
       await assertPlacementClicks(context, base, platform);
@@ -3429,9 +3735,10 @@ try {
             `${label}: stays contextual`,
           );
           assert.deepEqual(
-            searchQuery.body.article_ids,
+            searchQuery.body.search.results.articles,
             feedArticles.map((item) => item.id),
           );
+          assert.equal(searchQuery.body.search.query, "typescript");
           assert.equal(
             await page
               .locator(
@@ -3499,17 +3806,13 @@ try {
         queries = [];
         await page.goto(`${base}/search?q=typescript&section=${section}`);
         await page.locator(`.search-section-${section} .search-result-link`).first().waitFor();
-        await page.waitForTimeout(200);
+        await page.locator('.search-sidebar [data-ad-format="engagement"]').waitFor();
         assert.equal(
-          await page.locator(".partner-placement").count(),
-          0,
-          `${platform}: no unrelated article product inside ${section} search`,
+          await page.locator('.search-sidebar [data-ad-format="engagement"]').count(),
+          1,
+          `${platform}: catalog results offer a contextual sidebar placement`,
         );
-        assert.equal(
-          queries.length,
-          0,
-          `${platform}: ${section} search reserves no product inventory`,
-        );
+        assert.deepEqual(Object.keys(queries[0].body.search.results), [section]);
       }
       for (const count of [1, 3]) {
         organicCount = count;
@@ -3529,16 +3832,13 @@ try {
             await page.locator(selector).allTextContents(),
             feedArticles.slice(0, count).map((item) => item.title),
           );
-          assert.equal(
-            await page.locator(".partner-placement").count(),
-            0,
-            `${platform}/${surface}: ${count} organic articles do not open an ad slot`,
-          );
-          assert.equal(
-            queries.length,
-            0,
-            `${platform}/${surface}: sparse content reserves no inventory`,
-          );
+          if (surface === "grid") {
+            assert.equal(await page.locator(".partner-placement").count(), 0);
+            assert.equal(queries.length, 0, `${platform}: sparse grids reserve no inventory`);
+          } else {
+            await page.locator('.search-sidebar [data-ad-format="engagement"]').waitFor();
+            assert.equal(queries[0].body.search.results.articles.length, count);
+          }
         }
       }
       organicCount = 24;

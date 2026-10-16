@@ -20,7 +20,7 @@ router = APIRouter(
 @router.post(
     "/query",
     response_model=PlacementsOut,
-    openapi_extra=RequestBodyPolicy(body_limit=8192).openapi_extra(),
+    openapi_extra=RequestBodyPolicy(body_limit=16384).openapi_extra(),
 )
 def placements(payload: PlacementQuery, request: Request, session: DB, response: Response):
     response.headers["Cache-Control"] = "no-store"

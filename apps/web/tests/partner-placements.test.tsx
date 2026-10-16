@@ -612,6 +612,32 @@ it.each([
   });
 });
 
+it("sends the same search intent and visible result identities through authenticated delivery", async () => {
+  session.user = { user_id: "reader", csrf_token: "private-csrf" };
+  const query = {
+    surface: "search" as const,
+    search: { query: "TypeScript", results: { topics: [placement.product_id] } },
+    ad_formats: ["engagement" as const],
+  };
+  vi.mocked(userRequest).mockResolvedValue({
+    items: [{ ...sponsoredPlacement, ad_format: "engagement" }],
+  });
+  render(<PartnerPlacements {...query} />);
+  await screen.findByRole("link", { name: sponsoredPlacement.name });
+  expect(readerRequest).not.toHaveBeenCalled();
+  const [path, request] = vi.mocked(userRequest).mock.calls[0];
+  expect(path).toBe("partner-placements/query");
+  expect(request?.headers).toEqual({
+    "Content-Type": "application/json",
+    "X-CSRF-Token": "private-csrf",
+  });
+  expect(JSON.parse(String(request?.body))).toEqual({
+    ...query,
+    allow_sponsored_fallback: false,
+    exclude_product_ids: [],
+  });
+});
+
 it("waits for session resolution and replaces receipts when authenticated credentials rotate", async () => {
   session.loading = true;
   const mounted = render(<PartnerPlacements surface="article" article_id={placement.product_id} />);
@@ -642,6 +668,7 @@ it("retains an authenticated delivery after verification returns the same reader
   const mounted = render(content());
   const link = await screen.findByRole("link", { name: placement.name });
   const card = link.closest(".partner-placement")!;
+  await waitFor(() => expect(observePartnerPlacement).toHaveBeenCalled());
   const receipt = vi.mocked(observePartnerPlacement).mock.calls[0][1];
   session.loading = true;
   mounted.rerender(content());
@@ -666,6 +693,7 @@ it("hides a previous receipt immediately when the same reader's credentials chan
   const mounted = render(content());
   await screen.findByRole("link", { name: placement.name });
   const card = mounted.container.querySelector(".partner-placement")!;
+  await waitFor(() => expect(observePartnerPlacement).toHaveBeenCalled());
   const previous = vi.mocked(observePartnerPlacement).mock.calls[0];
   let finish!: (value: unknown) => void;
   vi.mocked(userRequest).mockImplementationOnce(() => new Promise((resolve) => (finish = resolve)));
@@ -823,6 +851,7 @@ it.each([false, true])(
     const link = await screen.findByRole("link", { name: placement.name });
     const card = link.closest(".partner-placement")!;
     const image = card.querySelector("img");
+    await waitFor(() => expect(observePartnerPlacement).toHaveBeenCalled());
     const firstTracking = vi.mocked(observePartnerPlacement).mock.calls[0];
     firstTracking[2]!.completed.add("impression");
     for (let index = 0; index < 3; index++) {

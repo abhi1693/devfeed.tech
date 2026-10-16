@@ -1276,6 +1276,16 @@
             "title": "Exclude Product Ids",
             "type": "array"
           },
+          "search": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SearchPlacementContext"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "surface": {
             "enum": [
               "article",
@@ -1745,6 +1755,42 @@
           "redirect_uri"
         ],
         "title": "RequestDetails",
+        "type": "object"
+      },
+      "SearchPlacementContext": {
+        "additionalProperties": false,
+        "properties": {
+          "query": {
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Query",
+            "type": "string"
+          },
+          "results": {
+            "additionalProperties": {
+              "items": {
+                "format": "uuid",
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "propertyNames": {
+              "enum": [
+                "articles",
+                "topics",
+                "sources",
+                "tags"
+              ]
+            },
+            "title": "Results",
+            "type": "object"
+          }
+        },
+        "required": [
+          "query",
+          "results"
+        ],
+        "title": "SearchPlacementContext",
         "type": "object"
       },
       "SourcePreferences": {
@@ -4616,7 +4662,7 @@
           "personalization"
         ],
         "x-devfeed-gateway": {
-          "bodyLimit": 8192,
+          "bodyLimit": 16384,
           "bodyTimeoutMs": 2000,
           "cookiePolicy": "reader",
           "extension": {
@@ -4633,7 +4679,7 @@
           "upstreamTimeoutMs": 45000
         },
         "x-devfeed-request-body": {
-          "bodyLimit": 8192,
+          "bodyLimit": 16384,
           "bodyTimeoutMs": 2000,
           "rejection": "json"
         }
@@ -7983,7 +8029,7 @@
       "parameters": [],
       "path": "/v1/user/partner-placements/query",
       "policy": {
-        "bodyLimit": 8192,
+        "bodyLimit": 16384,
         "bodyTimeoutMs": 2000,
         "cookiePolicy": "reader",
         "extension": {

@@ -624,10 +624,10 @@ describe("reader body byte limits and total deadlines", () => {
 });
 
 describe("dedicated personalized placement handler", () => {
-  it("validates and forwards the exact 8192-byte context while keeping only session and CSRF", async () => {
+  it("validates and forwards the exact 16384-byte context while keeping only session and CSRF", async () => {
     const fetcher = vi.fn().mockResolvedValue(Response.json({ items: [] }));
     vi.stubGlobal("fetch", fetcher);
-    const body = JSON.stringify({ surface: "feed" }).padEnd(8192, " ");
+    const body = JSON.stringify({ surface: "feed" }).padEnd(16384, " ");
     const response = await placements.POST(
       new Request(`${origin}/api`, {
         method: "POST",
@@ -676,8 +676,8 @@ describe("dedicated personalized placement handler", () => {
       const response = await placements.POST(
         new Request(`${origin}/api`, {
           method: "POST",
-          headers: { Origin: origin, ...(declared ? { "Content-Length": "8193" } : {}) },
-          body: " ".repeat(8193),
+          headers: { Origin: origin, ...(declared ? { "Content-Length": "16385" } : {}) },
+          body: " ".repeat(16385),
         }),
         {},
       );

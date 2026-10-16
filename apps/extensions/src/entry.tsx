@@ -76,7 +76,6 @@ function Reader({
     window.addEventListener("devfeed:extension-refresh", refresh);
     return () => window.removeEventListener("devfeed:extension-refresh", refresh);
   }, []);
-  const key = `${route}:${revision}:${user?.user_id ?? "guest"}:${user?.csrf_token ?? ""}`;
   const url = new URL(route, publicOrigin);
   const routeDetail = match.detail;
   const queryParams = searchParamsFromUrl(url.searchParams);
@@ -93,6 +92,9 @@ function Reader({
       : undefined);
   const feedDescriptor = detail ? readerFeeds.contextual : match.feed;
   const search = mode === "search";
+  const key = search
+    ? `${route}:${revision}`
+    : `${route}:${revision}:${user?.user_id ?? "guest"}:${user?.csrf_token ?? ""}`;
   const trending = mode === "trending";
   const personal = mode === "personal";
   const bookmarks = mode === "bookmarks";
@@ -182,7 +184,8 @@ function Reader({
     void load();
     return () => controller.abort();
     // Keep confirmed same-owner results mounted during a session recheck.
-    // The key describes route, refresh revision, and account identity.
+    // Public search pages retain loaded results across credential refreshes.
+    // Other resources also include account identity in their data key.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [key, sessionLoading]);
 
