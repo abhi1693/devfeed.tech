@@ -1,5 +1,6 @@
 import { beforeEach, expect, it, vi } from "vitest";
 import Home, { generateMetadata } from "@/app/page";
+import { PublicPage } from "@/components/public-page";
 import { FeedView } from "@/components/feed-view";
 import { hasUserSession } from "@/lib/api";
 import { readerFeeds } from "@/lib/reader-feed";
@@ -17,9 +18,12 @@ it.each([{}, { content_type: "" }, { content_type: "invalid" }, { q: "engineerin
   "renders All at the guest root without an implicit article filter: %j",
   async (query) => {
     vi.mocked(hasUserSession).mockResolvedValue(false);
-    expect(await Home({ searchParams: Promise.resolve(query) })).toBe("guest feed");
+    const page = await Home({ searchParams: Promise.resolve(query) });
+    expect(page.type).toBe(PublicPage);
+    expect(await page.props.content).toBe("guest feed");
     expect(FeedView).toHaveBeenCalledWith({
       feedDescriptor: readerFeeds.home,
+      withShell: false,
       filters: expect.objectContaining({ content_type: "" }),
     });
   },
@@ -31,6 +35,7 @@ it.each(["article", "news"])(
     await Home({ searchParams: Promise.resolve({ content_type: type, cursor: "next" }) });
     expect(FeedView).toHaveBeenCalledWith({
       feedDescriptor: readerFeeds.home,
+      withShell: false,
       filters: expect.objectContaining({ content_type: type, cursor: "next" }),
     });
   },
@@ -47,6 +52,7 @@ it("preserves guest filters and cursors while ignoring attribution as API filter
   });
   expect(FeedView).toHaveBeenCalledWith({
     feedDescriptor: readerFeeds.home,
+    withShell: false,
     filters: expect.objectContaining({
       q: "engineering",
       topic: "python",
@@ -62,6 +68,7 @@ it("uses existing public canonical URLs for guests and private metadata for memb
     searchParams: Promise.resolve({ utm_source: "linkedin" }),
   });
   expect(metadata.alternates?.canonical).toBe("https://devfeed.tech/latest");
+  expect(metadata.title).toBe("Developer news, tutorials & releases");
   expect(metadata.robots).toBeUndefined();
   vi.mocked(hasUserSession).mockResolvedValue(true);
   expect(await generateMetadata({ searchParams: Promise.resolve({}) })).toEqual({
@@ -93,4 +100,19 @@ it("does not treat account outages as signed-out sessions", async () => {
 it("keeps signed-in visitors on My feed even with unrelated query parameters", async () => {
   vi.mocked(hasUserSession).mockResolvedValue(true);
   expect(await Home({ searchParams: Promise.resolve({ language: "fr" }) })).toBeTruthy();
+});
+
+it("returns the guest shell while its fresh feed is still pending", async () => {
+  vi.mocked(hasUserSession).mockResolvedValue(false);
+  let release!: (value: Awaited<ReturnType<typeof FeedView>>) => void;
+  const content = new Promise<Awaited<ReturnType<typeof FeedView>>>((resolve) => {
+    release = resolve;
+  });
+  vi.mocked(FeedView).mockReturnValueOnce(content);
+  const page = await Home({ searchParams: Promise.resolve({}) });
+  expect(page.type).toBe(PublicPage);
+  expect(page.props.content).toBe(content);
+  const fresh = <p>Fresh feed</p>;
+  release(fresh);
+  expect(await page.props.content).toBe(fresh);
 });

@@ -74,7 +74,7 @@ export default async function RootLayout({
       <body>
         <ReaderNavigationRecovery />
         <BrowserTelemetry {...browserSettings("web")} />
-        <JsonLd data={siteStructuredData(brandMark.src)} />
+        <JsonLd data={siteStructuredData(brandMark)} />
         <UserProvider>
           <ReaderContextProvider>
             <ReaderPromptsProvider>
