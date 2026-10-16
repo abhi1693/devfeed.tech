@@ -13,6 +13,12 @@ the established public feed routes; verified sessions still receive private My
 feed metadata and content. Chrome and Edge use the same guest defaults and keep
 root entry in place after session detection.
 
+For guests, both entry points canonicalize to `/latest`. The homepage search title
+is "Developer news, tutorials & releases"; `/latest` uses "Latest developer news,
+tutorials & releases" in HTML and social metadata. After deploying title changes,
+recrawl HTTP and HTTPS entry points and check their titles and shared HTTPS
+canonical in Search Console and Bing Webmaster Tools.
+
 After a production build, run `node apps/web/tests/browser/home-entry.mjs` for
 entry, query, canonical and session regression checks. Set
 `DEVFEED_ENTRY_BENCH=before` or `after` to capture three paired root/direct-latest
@@ -68,6 +74,10 @@ The shared reader destination definitions declare sitemap inclusion, priority,
 change frequency, and publication metadata. Legal pages also take their titles,
 descriptions, paths, and update dates from those definitions. Sitemap handlers
 serialize declared destinations and serve the backend's retained inventory.
+
+See [public search markup](SEARCH.md) for the page-to-feature matrix, structured
+data identity and attribution rules, profile indexing policy and post-deployment
+Search Console checks.
 
 After building web, Chrome, and Edge, run
 `node --test --test-name-pattern="server reads" apps/web/tests/browser/feed.mjs` or
@@ -555,3 +565,50 @@ rendering-speed claim.
 `node --test apps/web/tests/browser/feed.mjs` and the built Chrome/Edge reader browser suites
 check per-card element budgets, all 130 loaded directory headings, native links, keyboard focus,
 long-name wrapping, feed pagination, accessibility and back/forward scroll restoration.
+
+## Public document latency
+
+The anonymous homepage uses the same streamed public shell as `/latest`; its results still
+come from fresh upstream reads. Session verification finishes before choosing the guest or
+personal shell, and metadata/canonicals remain in the initial head. HTML stays private with
+a fresh CSP nonce per response.
+
+Feed metadata and page content share identical resolved public feed URLs through React's
+request-scoped `cache`. Language/content preferences are resolved before forming that key.
+The snapshot ends with the render: another request must check the public API again, including
+after visibility/publication changes. Calls with caller abort signals keep independent
+transports. The API's generation-aware cache and its invalidation policy are unchanged;
+Next/browser caches do not retain feed responses.
+
+For a comparison, use the same benchmark scripts on both revisions, install the locked
+dependencies, and build each revision with `npm run web:build` before measuring it:
+
+```sh
+node scripts/ci/document-latency.mjs before
+node scripts/ci/document-latency.mjs before --lighthouse-only
+# Run against the candidate build, retaining both report directories:
+node scripts/ci/document-latency.mjs after
+node scripts/ci/document-latency.mjs after --lighthouse-only
+node scripts/ci/compare-document-latency.mjs
+```
+
+Reports stay in ignored `reports/document-latency/`. The driver runs a production Next server
+against isolated deterministic HTTP fixtures (24 feed articles, 60 directory entries) and a
+local OTLP collector. Real Next spans separate metadata, rendering and upstream timings;
+request logs show session/preference calls and duplicate feed reads. Each route/identity has
+a fresh process, a first-route request after the readiness probe, then seven warm requests.
+A fixed 240/80/140/60/120/90/180/100 ms upstream sequence makes response-blocking variability
+repeatable. These labels describe the frontend route/process, not cold PostgreSQL/Redis or
+production field latency. The optional Lighthouse pass records two fresh-browser mobile and
+desktop server-response-time audits on `/`, `/latest`, and `/sources` with an 80 ms upstream.
+
+Against `860716a2`, warm guest-homepage median TTFB decreased from 142.8 to 22.6 ms and its
+range width from 116.3 to 20.9 ms. Expired-session homepage median TTFB decreased from 357.5
+to 129.0 ms while keeping identity verification. Topic documents dropped from four upstream
+requests to three by sharing the metadata/content feed response; their latency did not improve
+in this sample. Full response timings remain in the comparison to distinguish earlier shell
+delivery from earlier article delivery. Deployment/network latency needs a separate live check.
+
+Reader browser regressions verify the shell with feed responses held pending on web and both
+built extensions, as well as distinct reader preferences, per-response nonces, and subsequent
+unpublication/republication. These checks avoid relying on machine-dependent timing limits.

@@ -1,4 +1,5 @@
 import { readerDomCatalogFixture, checkReaderDom } from "../../../scripts/testing/reader-dom.mjs";
+import { checkGuestDocument } from "../../../scripts/testing/document-latency.mjs";
 import {
   withManagedSourceLogo,
   mockSourceLogos,
@@ -977,6 +978,22 @@ test(
       pathFor,
       domCatalog,
       path.resolve(import.meta.dirname, `../../../reports/reader-dom/${browser}`),
+    );
+  },
+);
+
+test(
+  "guest document displays its shell before fresh results in built new tabs",
+  { timeout: 180000 },
+  async (t) => {
+    const { page, pathFor, state } = await readerFixture(t);
+    await checkGuestDocument(
+      page,
+      pathFor,
+      (gate) => {
+        state.articleFeedGate = gate;
+      },
+      path.resolve(import.meta.dirname, `../../../reports/document-latency/${browser}`),
     );
   },
 );

@@ -6,6 +6,7 @@ import type { Metadata } from "next";
 import { UserShell } from "@/components/user-shell";
 import { PersonalFeed } from "@/components/personal-feed";
 import { FeedView } from "@/components/feed-view";
+import { PublicPage } from "@/components/public-page";
 import { feedMetadata, SITE_DESCRIPTION } from "@/lib/metadata";
 
 export const dynamic = "force-dynamic";
@@ -24,10 +25,12 @@ export default async function MyFeed({ searchParams }: { searchParams: Promise<S
   const query = await searchParams;
   const { mode, filters } = resolveFeed(readerFeeds.home, query, await homeSession());
   if (mode === "latest")
-    return FeedView({
-      filters,
-      feedDescriptor: readerFeeds.home,
-    });
+    return (
+      <PublicPage
+        filters={filters}
+        content={FeedView({ filters, withShell: false, feedDescriptor: readerFeeds.home })}
+      />
+    );
   return (
     <UserShell section="personal">
       <PersonalFeed
