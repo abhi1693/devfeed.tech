@@ -12,7 +12,7 @@ export function parseAdLinkRel(value: unknown): AdLinkRel[] {
   return value as AdLinkRel[];
 }
 
-/** SEO relations are configurable; outbound tab and referrer protection always apply. */
+/** Advertising links always qualify paid relationships, including older delivery payloads. */
 export function adLinkRel(value?: readonly AdLinkRel[], external = true): string {
   let relations: AdLinkRel[];
   try {
@@ -20,5 +20,7 @@ export function adLinkRel(value?: readonly AdLinkRel[], external = true): string
   } catch {
     relations = ["nofollow"];
   }
+  if (!relations.includes("sponsored") && !relations.includes("nofollow"))
+    relations = [...relations, "sponsored"];
   return [...relations, ...(external ? ["noopener", "noreferrer"] : [])].join(" ");
 }

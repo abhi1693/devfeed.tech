@@ -1,5 +1,7 @@
 "use client";
 
+import "../app/article-share.css";
+
 import { useEffect, useRef, useState } from "react";
 import { Popover } from "radix-ui";
 import { Check, Link2, Share2 } from "lucide-react";

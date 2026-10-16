@@ -112,6 +112,7 @@ def test_listing_destination_uses_direct_website_without_fabricating_platform_pr
         creative.listing_url == "https://monitor.example/start?ref=docs&utm_source=devfeed#install"
     )
     assert creative.platform is None
+    assert creative.attribution is None
     source = session.execute.call_args.args[0]
     assert "partner_manual_products.active IS true" in sql(source)
     assert str(account_id) in sql(source)
@@ -140,6 +141,8 @@ def test_real_owned_listing_remains_preferred_over_the_direct_website():
     session.execute.return_value = [
         NS(
             tagline="Owned source copy",
+            attribution="",
+            connection_attribution=None,
             listing_url="https://launch.example/products/monitor",
             provider="owned-platform",
             name="Actual launch platform",

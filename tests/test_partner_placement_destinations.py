@@ -173,6 +173,8 @@ def test_account_creative_uses_the_copy_for_its_selected_destination(destination
     session.execute.return_value = [
         SimpleNamespace(
             tagline="First owned source copy",
+            attribution="Via the wrong listing",
+            connection_attribution=None,
             listing_url="",
             provider="first",
             name="First platform",
@@ -181,6 +183,8 @@ def test_account_creative_uses_the_copy_for_its_selected_destination(destination
         ),
         SimpleNamespace(
             tagline="Copy for the working link",
+            attribution="  Via Working platform  ",
+            connection_attribution=None,
             listing_url="https://catalog.example/tool",
             provider="second",
             name="Working platform",
@@ -194,6 +198,7 @@ def test_account_creative_uses_the_copy_for_its_selected_destination(destination
     assert creative.tagline == "Copy for the working link"
     assert creative.listing_url == "https://catalog.example/tool?utm_source=devfeed"
     assert creative.platform.name == "Working platform"
+    assert creative.attribution == "Via Working platform"
     session.execute.assert_called_once()
 
 
@@ -206,6 +211,36 @@ def test_missing_account_creative_does_not_use_canonical_copy_without_manual_own
 
 
 @pytest.mark.integration
+@pytest.mark.parametrize("attribution", [None, "", "   ", "  Via Current platform  "])
+def test_current_connection_attribution_overrides_stale_imports(
+    database, destination_catalog, attribution
+):
+    account_ids, product_ids = destination_catalog
+    with database.begin() as session:
+        product = session.get(PartnerProduct, product_ids[0])
+        source = listing("first", product, "tool", "https://catalog.example/tool")
+        source.attribution = "Via Previous platform"
+        session.add(source)
+        session.get(PartnerConnection, "first").connector = {"attribution": "Via Previous platform"}
+    with database.begin() as reader:
+        cached = reader.get(PartnerConnection, "first")
+        with database.begin() as editor:
+            editor.get(PartnerConnection, "first").connector = (
+                {} if attribution is None else {"attribution": attribution}
+            )
+        creative = account_product_creative(
+            reader,
+            reader.get(PartnerAccount, account_ids[0]),
+            reader.get(PartnerProduct, product_ids[0]),
+            lock=True,
+        )
+        assert cached.connector["attribution"] == "Via Previous platform"
+        assert creative.attribution == (
+            "Via Previous platform" if attribution is None else attribution.strip() or None
+        )
+
+
+@pytest.mark.integration
 def test_account_creative_reads_committed_copy_despite_an_old_orm_listing(
     database, destination_catalog
 ):
@@ -214,6 +249,7 @@ def test_account_creative_reads_committed_copy_despite_an_old_orm_listing(
         product = session.get(PartnerProduct, product_ids[0])
         source = listing("first", product, "tool", "https://catalog.example/tool")
         source.tagline = "Previous imported copy"
+        source.attribution = "Via previous platform"
         session.add(source)
         session.flush()
         identifier = source.id
@@ -221,6 +257,7 @@ def test_account_creative_reads_committed_copy_despite_an_old_orm_listing(
         cached = reader.get(PartnerListing, identifier)
         with database.begin() as editor:
             editor.get(PartnerListing, identifier).tagline = "Current imported copy"
+            editor.get(PartnerListing, identifier).attribution = "Via current platform"
         creative = account_product_creative(
             reader,
             reader.get(PartnerAccount, account_ids[0]),
@@ -228,7 +265,9 @@ def test_account_creative_reads_committed_copy_despite_an_old_orm_listing(
             lock=True,
         )
         assert cached.tagline == "Previous imported copy"
+        assert cached.attribution == "Via previous platform"
         assert creative.tagline == "Current imported copy"
+        assert creative.attribution == "Via current platform"
 
 
 @pytest.mark.integration
@@ -241,6 +280,7 @@ def test_busy_owned_creative_is_skipped_without_foreign_copy_fallback(
         ours = listing("first", product, "tool", "https://first.example/tool")
         foreign = listing("second", product, "tool", "https://second.example/tool")
         ours.tagline, foreign.tagline = "Our imported copy", "Foreign imported copy"
+        ours.attribution, foreign.attribution = "Via our platform", "Via foreign platform"
         session.add_all([ours, foreign])
         session.flush()
         identifier = ours.id
@@ -267,6 +307,7 @@ def test_busy_owned_creative_is_skipped_without_foreign_copy_fallback(
             lock=True,
         )
         assert creative.tagline == "Uncommitted replacement"
+        assert creative.attribution == "Via our platform"
         with database.begin() as editor, pytest.raises(OperationalError) as conflict:
             editor.scalar(
                 select(PartnerListing)

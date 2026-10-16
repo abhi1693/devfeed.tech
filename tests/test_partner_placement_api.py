@@ -281,7 +281,10 @@ def test_session_redis_outage_prevents_personalized_delivery(monkeypatch):
 
 
 @pytest.mark.parametrize("private", [False, True])
-def test_responses_preserve_noncampaign_attribution_without_private_metadata(monkeypatch, private):
+@pytest.mark.parametrize("attribution", [None, "Via Nick Launches"])
+def test_responses_preserve_noncampaign_attribution_without_private_metadata(
+    monkeypatch, private, attribution
+):
     state = make_client(monkeypatch, private=private)
     output = {
         "product_id": ARTICLE_ID,
@@ -298,6 +301,7 @@ def test_responses_preserve_noncampaign_attribution_without_private_metadata(mon
         "link_rel": ["nofollow"],
         "partner_name": "Partner",
         "platform": None,
+        "attribution": attribution,
         "sponsored": False,
         "reason": "Verified TypeScript support.",
         "receipt": "signed-delivery-receipt",

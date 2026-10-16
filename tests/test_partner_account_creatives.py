@@ -44,6 +44,7 @@ def shared_catalog(database):
             select(PartnerListing).where(PartnerListing.provider == "rotation")
         )
         listing.tagline = FIRST_TAGLINE
+        listing.attribution = "Via First platform"
         other = PartnerAccount(name="Second sponsor", tier="silver")
         session.add(other)
         session.flush()
@@ -58,6 +59,7 @@ def shared_catalog(database):
                 product_url=product.product_url,
                 listing_url="https://second.example/catalog/python-tool",
                 tagline=SECOND_TAGLINE,
+                attribution="Via Second platform",
             )
         )
         session.flush()
@@ -102,6 +104,9 @@ def test_delivery_and_preview_use_own_listing_without_changing_canonical_facts(
         item = delivered[0]
         assert item["product_id"] == product_id
         assert item["tagline"] == tagline
+        assert item["attribution"] == (
+            "Via First platform" if account_id == catalog["account"] else "Via Second platform"
+        )
         assert item["url"] == (
             preview.listing_url if destination == "listing_url" else preview.product_url
         )

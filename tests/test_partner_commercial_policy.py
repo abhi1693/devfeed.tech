@@ -461,6 +461,8 @@ def test_outbound_selection_preserves_query_and_fragment_and_overwrites_only_dev
     session.execute.return_value = [
         NS(
             tagline="Owned source copy",
+            attribution="",
+            connection_attribution=None,
             listing_url=raw,
             provider="owned-platform",
             name="Owned launch platform",

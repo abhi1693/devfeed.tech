@@ -52,7 +52,8 @@ export function AdLinkRelSelector({
             ))}
           </div>
           <p className="text-xs text-muted-foreground">
-            Clear all for a standard link.{" "}
+            Paid links always include sponsored or nofollow. Sponsored is added automatically if
+            neither is selected.{" "}
             <a
               href="https://developers.google.com/search/docs/crawling-indexing/qualify-outbound-links"
               target="_blank"

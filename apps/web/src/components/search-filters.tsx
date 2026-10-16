@@ -1,4 +1,7 @@
 "use client";
+
+import "../app/styles/discovery.css";
+
 import Link from "@/components/reader-link";
 import { DatePicker } from "@devfeed/ui/date-picker";
 import { Select } from "@devfeed/ui/select";

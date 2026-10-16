@@ -1,4 +1,7 @@
 "use client";
+
+import "../app/styles/article.css";
+
 import { useEffect, useLayoutEffect, useRef, useState, useTransition } from "react";
 import { useReaderRouter } from "@/lib/reader-navigation";
 import { articleDestination, pageDestination } from "@/lib/reader-destination";
