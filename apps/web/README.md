@@ -69,6 +69,10 @@ change frequency, and publication metadata. Legal pages also take their titles,
 descriptions, paths, and update dates from those definitions. Sitemap handlers
 serialize declared destinations and serve the backend's retained inventory.
 
+See [public search markup](SEARCH.md) for the page-to-feature matrix, structured
+data identity and attribution rules, profile indexing policy and post-deployment
+Search Console checks.
+
 After building web, Chrome, and Edge, run
 `node --test --test-name-pattern="server reads" apps/web/tests/browser/feed.mjs` or
 `node --test --test-name-pattern="server reads" apps/extensions/tests/reader.browser.mjs`
