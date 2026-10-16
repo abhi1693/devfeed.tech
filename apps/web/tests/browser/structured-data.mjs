@@ -202,7 +202,7 @@ test(
     browser = await chromium.launch({ headless: true });
     const page = await browser.newPage();
     const results = [];
-    for (const [index, path] of paths.entries()) {
+    for (const path of paths) {
       let expected;
       for (const userAgent of ["Googlebot", "bingbot"]) {
         const response = await fetch(origin + path, { headers: { "User-Agent": userAgent } });
@@ -212,7 +212,6 @@ test(
         const graphs = validateDocument(dom.window.document, path, article);
         if (!expected) expected = graphs;
         else assert.deepEqual(graphs, expected);
-        if (userAgent === "Googlebot") await writeFile(`${destination}/${index}.html`, html);
         dom.window.close();
       }
       const response = await page.goto(origin + path);

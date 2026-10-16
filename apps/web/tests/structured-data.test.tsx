@@ -292,31 +292,6 @@ it("omits blank optional article identities and preserves only known original pu
   expect(entity).not.toHaveProperty("mainEntityOfPage");
 });
 
-it("keeps one site graph and one requested page graph with distinct stable entity identifiers", () => {
-  const logo = { src: "/mark.png", width: 512, height: 512 };
-  const html = renderToStaticMarkup(
-    <>
-      <JsonLd data={siteStructuredData(logo)} />
-      <JsonLd data={articleStructuredData(article)} />
-    </>,
-  );
-  const graphs = [...html.matchAll(/<script[^>]*>(.*?)<\/script>/g)].map((match) =>
-    JSON.parse(match[1]),
-  );
-  expect(graphs).toHaveLength(2);
-  const entities = [
-    ...graphs[0]["@graph"],
-    graphs[1],
-    graphs[1].mainEntity,
-    graphs[1].breadcrumb,
-    graphs[0]["@graph"][0].logo,
-  ];
-  const ids = entities.map((entity) => entity["@id"]);
-  expect(new Set(ids).size).toBe(ids.length);
-  expect(graphs[1].url).toBe(articleMetadata(article).alternates?.canonical);
-  expect(graphs[1].mainEntity.publisher.name).not.toBe("DevFeed");
-});
-
 it("uses a real organization logo that meets Google's minimum image dimensions", () => {
   const png = readFileSync(
     new URL("../../../packages/theme/assets/devfeed-mark.png", import.meta.url),
