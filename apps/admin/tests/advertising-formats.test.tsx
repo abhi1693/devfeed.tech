@@ -64,6 +64,8 @@ it("keeps product link relations inherited until explicitly overridden, includin
     true,
   );
   await userEvent.click(screen.getByRole("checkbox", { name: "nofollow" }));
+  expect(screen.getByText(/Sponsored is added automatically if neither is selected/)).toBeTruthy();
+  expect(screen.queryByText(/Clear all for a standard link/)).toBeNull();
   await userEvent.click(screen.getByRole("button", { name: "Save product placements" }));
   await waitFor(() => expect(save).toHaveBeenCalledOnce());
   expect(save.mock.calls[0][0].link_rel).toEqual([]);
