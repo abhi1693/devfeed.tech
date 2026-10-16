@@ -254,3 +254,18 @@ it("waits for session resolution before exposing the anonymous save link", async
   view.rerender(<Table />);
   await screen.findByRole("link", { name: "Sign in to save article for later" });
 });
+
+it("qualifies sponsored compact rows while retaining ordinary navigation", () => {
+  const view = render(
+    <Table
+      articles={[{ ...article, sponsor_names: ["Partner"], sponsor_link_rel: ["external"] }]}
+    />,
+  );
+  expect(screen.getByRole("link", { name: article.title }).getAttribute("rel")).toBe(
+    "external sponsored",
+  );
+  view.rerender(
+    <Table articles={[{ ...article, sponsor_names: [], sponsor_link_rel: ["external"] }]} />,
+  );
+  expect(screen.getByRole("link", { name: article.title }).getAttribute("rel")).toBeNull();
+});

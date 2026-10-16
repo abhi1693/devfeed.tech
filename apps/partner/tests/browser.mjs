@@ -2324,6 +2324,9 @@ try {
   account.configurable_link_rel = true;
   await page.goto(origin + `/settings/${account.id}/destination`);
   await page.getByRole("checkbox", { name: "nofollow", exact: true }).waitFor();
+  await page
+    .getByText("Paid links always include sponsored or nofollow.", { exact: false })
+    .waitFor();
   assert.equal(
     await page.getByRole("checkbox", { name: "nofollow", exact: true }).isChecked(),
     true,
