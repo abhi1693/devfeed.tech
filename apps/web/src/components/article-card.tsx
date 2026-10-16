@@ -91,7 +91,7 @@ export function ArticleCard({
             aria-describedby={sponsored ? sponsorshipId : undefined}
             onClick={onOpen}
           >
-            <span>{article.title}</span>
+            {article.title}
           </TruncatedLink>
         </h2>
         <div className="card-tags">
@@ -104,14 +104,13 @@ export function ArticleCard({
         {recommendation && <p className="recommendation-reason">{recommendation}</p>}
         <div className="card-meta-row">
           <span className="card-source">
-            <span className="source-avatar" aria-hidden="true">
-              <CatalogIcon
-                url={source?.logo_url ?? null}
-                variants={source?.logo_variants}
-                displaySize={12}
-                source
-              />
-            </span>
+            <CatalogIcon
+              className="source-avatar"
+              url={source?.logo_url ?? null}
+              variants={source?.logo_variants}
+              displaySize={12}
+              source
+            />
             {source ? (
               <Link href={sourceHref(source)} title={source.name}>
                 {source.name}
@@ -128,9 +127,7 @@ export function ArticleCard({
           <ArticleSponsorship names={article.sponsor_names} id={sponsorshipId} />
         </div>
         <div className="card-bottom">
-          <div className="card-date">
-            <UserDate value={article.published_at ?? article.feed_at} />
-          </div>
+          <UserDate className="card-date" value={article.published_at ?? article.feed_at} />
           <div className="article-quick-actions">
             <ArticleEngagement articleId={article.id} articleSlug={article.slug} />
             <ArticleBookmarkButton articleId={article.id} articleSlug={article.slug} />

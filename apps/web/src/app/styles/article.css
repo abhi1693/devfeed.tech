@@ -379,7 +379,8 @@ body:has(.article-modal[data-direct-entry][open]) {
     border-left: 0;
   }
 }
-.source-avatar .topic-icon {
+.source-avatar .topic-icon,
+.topic-icon.source-avatar {
   width: 24px;
   height: 24px;
   margin: 0;
@@ -387,11 +388,13 @@ body:has(.article-modal[data-direct-entry][open]) {
   border-radius: var(--radius-control);
   background: var(--catalog-logo-background, var(--muted));
 }
-.source-avatar .topic-icon svg {
+.source-avatar .topic-icon svg,
+.topic-icon.source-avatar svg {
   width: 14px;
   height: 14px;
 }
-.source-avatar .topic-icon img {
+.source-avatar .topic-icon img,
+.topic-icon.source-avatar img {
   width: 18px;
   height: 18px;
   object-fit: contain;
