@@ -40,6 +40,13 @@ export async function checkExtensionRouteAnalytics(page, destination, events) {
     { path: `/not-a-reader-page?secret=${query}`, label: "/other", heading: "Page not found" },
   ];
   await page.bringToFront();
+  // The fixture's homepage envelope may still be waiting for its analytics identity lock.
+  let initialView;
+  for (let attempt = 0; attempt < 150 && !initialView; attempt++) {
+    initialView = events.find((value) => value.event.name === "page_view");
+    if (!initialView) await page.waitForTimeout(20);
+  }
+  assert.deepEqual(initialView?.event.params, { page_path: "/" }, "initial homepage view");
   for (const { path, label, heading } of routes) {
     const before = events.length;
     await page.goto(destination(path));
