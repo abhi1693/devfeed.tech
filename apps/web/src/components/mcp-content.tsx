@@ -1,5 +1,7 @@
 "use client";
 
+import "../app/styles/mcp.css";
+
 import { useEffect, useRef, useState } from "react";
 import { CopyButton, type CopyStatus } from "@/components/copy-button";
 import { McpConnections } from "@/components/mcp-connections";

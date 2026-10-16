@@ -1,4 +1,7 @@
 "use client";
+
+import "../app/styles/preferences.css";
+
 import { LoadingReveal } from "./loading-reveal";
 import { SaveFeedback } from "./motion-icon";
 import { InfiniteChoices } from "./infinite-choices";

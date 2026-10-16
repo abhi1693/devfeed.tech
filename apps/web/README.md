@@ -517,3 +517,73 @@ screenshots on four routes, plus three fresh Lighthouse mobile/desktop runs for 
 topics and profile. Reports remain in ignored `reports/reader-startup/LABEL`; they measure
 controlled local behavior, not production field performance. Framework and interaction code
 must be retained even when initial coverage marks it unused.
+
+## Reader stylesheet boundaries
+
+Keep theme tokens, the reader shell and its responsive header, feed cards, account placeholders,
+loading states, and card actions in the root stylesheets. The historical catalog, onboarding,
+article, and settings files contained shared rules too; those rules must remain available on a
+fresh feed before any route navigation or hydration.
+
+Other styles load through the component that owns the surface:
+
+| Surface | Stylesheet owner |
+| --- | --- |
+| Topic/source catalogs | `CatalogContent` and `CatalogCard` |
+| Settings and source suggestions | `UserSettingsLayout` and `SourceSuggestion` |
+| Profile editing and dev card previews | `ProfileSettings`, `DevCardPreview`, and shared dev card controls |
+| Optional dev card invitation | `DevCardPromoContent`, loaded lazily after hydration |
+| Public profiles | `PublicUserProfile` |
+| Article previews and sharing | `ArticleModal`, `ArticlePreviewContent`, and `ArticleShare` |
+| Agent setup/consent | `McpContent` and `McpConsent` |
+| Search and legal documents | Search components and `LegalPage` |
+| Reading streaks | The existing lazy account reading tools/menu |
+| Topic/source preferences | Their settings components |
+
+Use static CSS imports at these boundaries so Next.js can include styles in server HTML and wait
+for them during client navigation. Keep dependency imports ordered: settings foundations before
+profile overrides, and shared dev card controls before preview overrides. Next.js retains visited
+stylesheets, so route styles must not change the shell or feed after navigation. Chrome and Edge
+render these surfaces in one bundled document; `apps/extensions/src/newtab.css` explicitly includes
+the complete stylesheet set.
+
+The optional dev card invitation renders no server content. Its lazy boundary keeps the hidden
+dialog's stylesheet out of the initial feed response, while Suspense waits for that stylesheet
+before mounting the existing dialog focus, prompt-coordination, and timing effects.
+
+Run paired lab measurements on the baseline and changed production builds with the same benchmark
+script and fixtures:
+
+```sh
+node scripts/ci/browser-performance.mjs --route-styles=before
+node scripts/ci/browser-performance.mjs --route-styles=after
+```
+
+Each command builds the reader, collects CSS coverage and screenshots on six reader routes, and
+runs Lighthouse 12.6.1 three times per route/profile on `/latest`, `/topics`, and `/leaderboard`.
+Mobile uses 412×823 at DPR 1.75 with default simulated mobile throttling; desktop uses 1350×940 at
+DPR 1 with the default desktop profile. Reports, raw audits, and screenshots stay under ignored
+`reports/route-styles/{before,after}`. `--skip-build` reuses an already matching production build.
+Coverage describes exercised states and does not justify deleting rules for overlays or other
+interactions. Browser regressions delay route CSS, check rendered frames and feed styles after
+navigation, and run against the web app and both built extensions.
+
+
+Paired local results on 2026-10-16 (baseline `f3355b45`, Chrome 153.0.0.0; timings are medians of
+three fresh anonymous runs per profile):
+
+| Profile / route | CSS transferred, bytes | Unused decoded CSS, bytes | Blocking estimate, ms | FCP, ms |
+| --- | ---: | ---: | ---: | ---: |
+| mobile `/latest` | 29,358 → 15,840 | 137,568 → 64,510 | 301 → 149 | 1,064 → 912 |
+| mobile `/topics` | 25,989 → 13,980 | 135,282 → 65,395 | 304 → 304 | 1,069 → 1,070 |
+| mobile `/leaderboard` | 27,824 → 14,735 | 139,323 → 68,261 | 152 → 151 | 920 → 916 |
+| desktop `/latest` | 29,358 → 15,840 | 139,941 → 66,761 | 39 → 0 | 303 → 256 |
+| desktop `/topics` | 25,989 → 13,980 | 137,641 → 67,554 | 53 → 56 | 301 → 300 |
+| desktop `/leaderboard` | 27,824 → 14,735 | 140,808 → 69,678 | 24 → 23 | 252 → 252 |
+
+CSS transfer includes the dialog stylesheet loaded after hydration. On the mobile feed, Lighthouse
+identifies one blocking stylesheet instead of three. Unused bytes come from CDP coverage after
+network idle, including lazy styles. Lighthouse's thresholded unused-CSS audit reports zero on
+`/latest`, while CDP still records unused rules; zero does not mean every rule is exercised.
+Catalog and leaderboard timing estimates remain essentially flat. These are local lab results,
+not production field measurements. The stylesheet move retains all 4,079 existing declarations.

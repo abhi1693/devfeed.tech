@@ -9,15 +9,10 @@
 @import "@devfeed/theme/notifications.css";
 @import "./styles/reader-layout.css";
 @import "./styles/feed.css";
-@import "./styles/catalog.css";
+@import "./styles/reader-responsive.css";
 @import "./styles/onboarding.css";
-@import "./styles/article.css";
-@import "./styles/settings.css";
-@import "./styles/profile-editor.css";
-@import "./styles/dev-card.css";
-@import "./styles/discovery.css";
+@import "./styles/article-card-links.css";
+@import "./styles/reader-controls.css";
+@import "./styles/reader-discovery-controls.css";
 
-@import "./styles/reading-streak.css";
-
-@import "./styles/mcp.css";
 @import "./styles/partner-placements.css";

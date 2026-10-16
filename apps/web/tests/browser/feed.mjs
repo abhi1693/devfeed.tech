@@ -1,3 +1,4 @@
+import { checkRouteStyles } from "../../../../scripts/testing/route-styles.mjs";
 import {
   withManagedSourceLogo,
   mockSourceLogos,
@@ -1255,4 +1256,9 @@ test("reader sidebar persists and adapts to the viewport", { timeout: 180000 }, 
 test("reader journey works at desktop and mobile sizes", { timeout: 360000 }, async (t) => {
   const { runJourney } = await createReaderFixture(t);
   await runJourney();
+});
+
+test("route styles load before reader surfaces paint", { timeout: 180000 }, async (t) => {
+  const { browser, origin } = await createReaderFixture(t);
+  await withReaderPage(browser, (page) => checkRouteStyles(page, (path) => origin + path));
 });

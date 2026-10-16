@@ -1,3 +1,4 @@
+import { checkRouteStyles } from "../../../scripts/testing/route-styles.mjs";
 import {
   withManagedSourceLogo,
   mockSourceLogos,
@@ -962,3 +963,8 @@ test(
     state.engagementPagination = false;
   },
 );
+
+test("route styles are present in built new tabs", { timeout: 180000 }, async (t) => {
+  const { page, pathFor } = await readerFixture(t);
+  await checkRouteStyles(page, pathFor, true);
+});

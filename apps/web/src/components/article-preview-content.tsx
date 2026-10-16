@@ -1,3 +1,4 @@
+import "../app/styles/article.css";
 import type { ReactNode } from "react";
 import { ArticleShare } from "./article-share";
 import { UserDate } from "./user-date";

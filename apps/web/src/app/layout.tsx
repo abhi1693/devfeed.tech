@@ -18,7 +18,7 @@ import browserIcon from "@devfeed/theme/assets/devfeed-icon-32.png";
 import appleIcon from "@devfeed/theme/assets/devfeed-icon-180.png";
 import "./globals.css";
 import "./reader-motion.css";
-import "./article-share.css";
+import "./article-actions.css";
 import { themeScript } from "@devfeed/ui/theme-script";
 import { NotificationPreferencesProvider } from "@/components/notification-preferences-provider";
 import { UserProvider } from "@/components/user-account";

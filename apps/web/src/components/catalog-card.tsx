@@ -1,3 +1,4 @@
+import "../app/styles/catalog.css";
 import Link from "@/components/reader-link";
 import type { ReactNode } from "react";
 import { CatalogIcon } from "./catalog-icon";

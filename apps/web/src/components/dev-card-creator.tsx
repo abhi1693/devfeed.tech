@@ -1,4 +1,7 @@
 "use client";
+
+import "../app/styles/dev-card.css";
+
 import Link from "@/components/reader-link";
 import { useState } from "react";
 import { useUser } from "./user-account";

@@ -1,5 +1,7 @@
 "use client";
 
+import "../app/styles/mcp.css";
+
 import { useEffect, useRef, useState } from "react";
 import { BookOpen, Pencil, UserRound } from "lucide-react";
 import Link from "@/components/reader-link";
