@@ -12,8 +12,9 @@ cleanup() {
   if [[ -n "$profile_search" ]]; then docker rm -f "$profile_search" >/dev/null; fi
 }
 trap cleanup EXIT
-profile_postgres=$(docker run -d --rm -p 127.0.0.1::5432 \
-  -e POSTGRES_USER=profile -e POSTGRES_PASSWORD=profile -e POSTGRES_DB=devfeed_profile_test \
+profile_pg_password=$(uv run --locked python -c 'import secrets; print(secrets.token_hex(32))')
+profile_postgres=$(POSTGRES_PASSWORD="$profile_pg_password" docker run -d --rm -p 127.0.0.1::5432 \
+  -e POSTGRES_USER=profile -e POSTGRES_PASSWORD -e POSTGRES_DB=devfeed_profile_test \
   postgres:18.6-alpine3.24)
 profile_redis=$(docker run -d --rm -p 127.0.0.1::6379 redis:8.2-alpine)
 for attempt in $(seq 1 60); do
@@ -27,7 +28,7 @@ for attempt in $(seq 1 60); do
 done
 profile_pg_port=$(docker port "$profile_postgres" 5432/tcp | cut -d: -f2)
 profile_redis_port=$(docker port "$profile_redis" 6379/tcp | cut -d: -f2)
-export DEVFEED_TEST_DATABASE_URL="postgresql+psycopg://profile:profile@127.0.0.1:${profile_pg_port}/devfeed_profile_test"
+export DEVFEED_TEST_DATABASE_URL="postgresql+psycopg://profile:${profile_pg_password}@127.0.0.1:${profile_pg_port}/devfeed_profile_test"
 export DEVFEED_TEST_REDIS_URL="redis://127.0.0.1:${profile_redis_port}/15"
 export DEVFEED_DATABASE_URL="$DEVFEED_TEST_DATABASE_URL"
 export DEVFEED_REDIS_URL="$DEVFEED_TEST_REDIS_URL"
