@@ -67,6 +67,7 @@ export default function DevCardPromoContent({ requested = false }: { requested?:
   const tilt = useRef<HTMLDivElement>(null);
   const nameInput = useRef<HTMLInputElement>(null);
   const id = useId();
+  const signupLink = readerLoginLink("/settings/profile");
   useEffect(() => {
     const frame = requestAnimationFrame(() => {
       setDismissed(!requested && (seen() || remembered(dismissalKey)));
@@ -395,7 +396,8 @@ export default function DevCardPromoContent({ requested = false }: { requested?:
                 ) : (
                   <a
                     className="button primary"
-                    {...readerLoginLink("/settings/profile")}
+                    {...signupLink}
+                    href={signupLink.href}
                     onClick={(event) => {
                       if (
                         !saveDevCardDraft({
