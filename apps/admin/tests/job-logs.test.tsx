@@ -61,6 +61,10 @@ describe("runtime log viewer", () => {
     );
     await mount();
     expect(screen.getByText("Fetching feed")).toBeDefined();
+    const logViewport = screen.getByRole("region", { name: "Runtime log entries" });
+    expect(logViewport.tabIndex).toBe(0);
+    logViewport.focus();
+    expect(document.activeElement).toBe(logViewport);
     vi.mocked(adminJobLogs).mockResolvedValue(
       page({ items: [entry("1-0"), entry("2-0", "Ingested 10 entries")], next_cursor: "2-0" }),
     );
