@@ -1538,7 +1538,14 @@ try {
   await page.getByRole("heading", { name: directProduct.name, exact: true }).waitFor();
   const directRetry = page.getByRole("button", { name: "Retry checks", exact: true });
   assert.equal(await directRetry.isEnabled(), true);
+  const directRetryResponse = page.waitForResponse(
+    (response) =>
+      response.request().method() === "POST" &&
+      new URL(response.url()).pathname ===
+        `/api/v1/admin/partner-tools/${directProduct.id}/actions`,
+  );
   await directRetry.click();
+  assert.equal((await directRetryResponse).status(), 200);
   await page.getByRole("button", { name: "Exclude product", exact: true }).waitFor();
   assert.equal(mutations.at(-1).body.action, "retry");
   assert.equal(mutations.at(-1).csrf, "fixture");
