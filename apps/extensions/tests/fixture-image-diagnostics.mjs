@@ -12,8 +12,12 @@ function safeUrl(value) {
 }
 
 function fixtureImage(value) {
-  const url = safeUrl(value);
-  return url?.startsWith("https://images.example.test/") ? url : null;
+  try {
+    const url = new URL(value);
+    return url.origin === "https://images.example.test" ? safeUrl(value) : null;
+  } catch {
+    return null;
+  }
 }
 
 function appendBounded(entries, value, limit = 128) {
@@ -94,7 +98,13 @@ export async function fixtureImageDiagnostics(context) {
   });
   await context.addInitScript(() => {
     document.addEventListener("securitypolicyviolation", (event) => {
-      if (!event.blockedURI.startsWith("https://images.example.test/")) return;
+      let blockedURL;
+      try {
+        blockedURL = new URL(event.blockedURI);
+      } catch {
+        return;
+      }
+      if (blockedURL.origin !== "https://images.example.test") return;
       void window
         .__devfeedFixtureImageViolation({
           blockedURI: event.blockedURI,
@@ -112,8 +122,13 @@ export async function fixtureImageDiagnostics(context) {
   async function attach(page) {
     const index = pageIndex++;
     page.on("console", (message) => {
-      if (message.type() !== "error" || !message.text().includes("https://images.example.test/"))
-        return;
+      if (message.type() !== "error") return;
+      const urls =
+        message
+          .text()
+          .slice(0, 4096)
+          .match(/https:\/\/[^\s"'<>]+/g) ?? [];
+      if (!urls.some((value) => fixtureImage(value))) return;
       const location = message.location();
       appendBounded(
         consoleLocations,
