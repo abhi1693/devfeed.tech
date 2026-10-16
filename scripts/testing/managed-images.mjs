@@ -1,30 +1,34 @@
 import assert from "node:assert/strict";
 import sharp from "sharp";
 
-const imageBodies = new Map();
+const widths = [320, 480, 640, 768, 960];
+let imageBodies;
 
 export function withManagedImage(article) {
   article.image_url = "https://images.example.test/thumbnails/v2/fixture/960.webp";
-  article.image_variants = [320, 480, 640, 768, 960].map((width) => ({
+  article.image_variants = widths.map((width) => ({
     url: `https://images.example.test/thumbnails/v2/fixture/${width}.webp`,
     width,
   }));
 }
 
 export async function mockManagedImages(context) {
-  await context.route("https://images.example.test/thumbnails/v2/**", async (route) => {
+  // Encode fixtures before interception so navigation cannot close a route during image work.
+  imageBodies ??= Promise.all(
+    widths.map(async (width) => [
+      width,
+      await sharp({
+        create: { width, height: (width * 9) / 16, channels: 3, background: "#659ab5" },
+      })
+        .webp()
+        .toBuffer(),
+    ]),
+  ).then((entries) => new Map(entries));
+  const bodies = await imageBodies;
+  await context.route("https://images.example.test/thumbnails/v2/**", (route) => {
     const width = Number(new URL(route.request().url()).pathname.match(/\/(\d+)\.webp$/)?.[1]);
-    assert.ok([320, 480, 640, 768, 960].includes(width), `Unknown managed image width: ${width}`);
-    if (!imageBodies.has(width))
-      imageBodies.set(
-        width,
-        await sharp({
-          create: { width, height: (width * 9) / 16, channels: 3, background: "#659ab5" },
-        })
-          .webp()
-          .toBuffer(),
-      );
-    return route.fulfill({ contentType: "image/webp", body: imageBodies.get(width) });
+    assert.ok(bodies.has(width), `Unknown managed image width: ${width}`);
+    return route.fulfill({ contentType: "image/webp", body: bodies.get(width) });
   });
 }
 
