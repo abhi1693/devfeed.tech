@@ -2066,7 +2066,8 @@ async function assertCollectionFeedPlacements(page, base, platform) {
             },
             { view, theme },
           );
-          const container = view === "cards" ? ".article-grid" : ".article-table tbody";
+          const container =
+            view === "cards" ? ".article-grid:visible" : ".article-table:visible tbody";
           const selector = `${container} > .partner-placement`;
           const organicSelector =
             view === "cards"
@@ -2160,7 +2161,7 @@ async function assertCollectionFeedPlacements(page, base, platform) {
     for (const view of ["cards", "compact"]) {
       feedView = view;
       await page.evaluate((view) => localStorage.setItem("devfeed:feed-view:guest", view), view);
-      const container = view === "cards" ? ".article-grid" : ".article-table tbody";
+      const container = view === "cards" ? ".article-grid:visible" : ".article-table:visible tbody";
       const organicSelector = view === "cards" ? ".card-open-link" : ".article-list-title";
       for (const count of [3, 4]) {
         organicCount = count;
