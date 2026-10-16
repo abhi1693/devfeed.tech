@@ -74,8 +74,10 @@ export async function checkReaderContext(page, destination, fixture, output, ext
       { key: visitsKey, count },
     );
   };
-  const closeArticle = async () => {
+  const closeArticle = async (background) => {
     await article.getByRole("button", { name: "Close preview", exact: true }).click();
+    // Native dismissal releases the dialog before its asynchronous route change commits.
+    await page.waitForURL(destination(background));
     await article.waitFor({ state: "detached" });
   };
   await page.addInitScript(() => {
@@ -100,7 +102,7 @@ export async function checkReaderContext(page, destination, fixture, output, ext
     await article.getByRole("heading", { name: fixture.articles[3].title, exact: true }).waitFor();
     await waitVisits(1);
     assert.equal(await banner.count(), 0, "successful retries count only after article data loads");
-    await closeArticle();
+    await closeArticle("/");
     await page.locator(".article-card").first().waitFor();
 
     // A direct article and a replay of it represent one actual visit.
@@ -112,12 +114,13 @@ export async function checkReaderContext(page, destination, fixture, output, ext
       1,
       "revisiting the same article keeps the distinct count",
     );
-    await closeArticle();
+    await closeArticle("/");
     await page.locator(".article-card").first().waitFor();
     await page.locator(".card-open-link").first().click();
     await article.getByRole("heading", { name: fixture.articles[0].title, exact: true }).waitFor();
     await waitVisits(2);
     await page.goBack();
+    await page.waitForURL(destination("/"));
     await article.waitFor({ state: "detached" });
     assert.equal(await banner.count(), 0, "two distinct articles do not trigger signup");
     await page.goForward();
@@ -128,7 +131,7 @@ export async function checkReaderContext(page, destination, fixture, output, ext
     await waitVisits(3);
     await page.clock.fastForward(3000);
     assert.equal(await banner.count(), 0, "paging defers signup for the active article");
-    await closeArticle();
+    await closeArticle("/");
     await banner.waitFor();
     await page.screenshot({ path: `${output}/signup-after-preview.png`, animations: "disabled" });
     const signup = banner.getByRole("link", { name: "Create account", exact: true });
@@ -218,7 +221,7 @@ export async function checkReaderContext(page, destination, fixture, output, ext
       before + 1,
       "pending presentation does not reclaim capacity",
     );
-    await closeArticle();
+    await closeArticle("/latest");
     await page.clock.fastForward(3000);
     await mustReads.waitFor();
     assert.equal(fixture.claims.length, before + 1, "the pending claim resumes after closing");
