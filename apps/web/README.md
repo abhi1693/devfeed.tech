@@ -597,6 +597,44 @@ network idle, including lazy styles. Lighthouse's thresholded unused-CSS audit r
 Catalog and leaderboard timing estimates remain essentially flat. These are local lab results,
 not production field measurements. The stylesheet move retains all 4,079 existing declarations.
 
+## Initial reader DOM measurements
+
+Repeated feed and directory cards share compact markup across the web reader and both extensions.
+Native article links, `h2` headings, dates, engagement labels/live regions and follow controls
+remain available. The initial 24 articles and 60 directory entries, subsequent pages, and
+history/scroll behavior are retained. Single-path Plus/Eye icons preserve the Lucide artwork;
+unit tests compare their raster output with the installed originals.
+
+Use the same benchmark scripts and lockfile on the baseline and candidate revisions:
+
+```sh
+node scripts/ci/browser-performance.mjs --reader-dom=before
+node scripts/ci/browser-performance.mjs --reader-dom=after
+node scripts/ci/compare-reader-dom.mjs
+```
+
+Run the first command against the baseline reader and the second against the candidate reader,
+retaining both output directories in the comparison checkout. Each command builds that revision;
+`--skip-build` reuses an already verified production build. The comparison fails if any card text
+or native link changes, any cards disappear, or DOM/layout snapshot counts fail to decrease.
+JSON samples, screenshots and the generated comparison stay in ignored `reports/reader-dom/`.
+
+The controlled fixture uses identical content, five fresh contexts per route/profile, mobile
+412×823 at DPR 1.75 with 4× CPU slowdown, and desktop 1350×940 at DPR 1. It records HTML/SVG
+elements, current layout snapshot nodes (including text), and actual style/layout durations for
+six alternating resize/theme cycles. It uses local network delivery rather than Lighthouse's
+simulated network; timings are diagnostic and do not establish a production LCP improvement.
+
+Against `f3355b4`, initial feed elements decreased from 1,265 to 1,145 (24 cards); topics from
+951 to 831 and sources from 956 to 836 (60 cards each), in both profiles. Mobile layout snapshot
+nodes decreased from 1,408 to 1,288, 1,019 to 899, and 1,024 to 904 respectively. Style/layout
+millisecond medians were mixed, so this comparison establishes smaller trees without a general
+rendering-speed claim.
+
+`node --test apps/web/tests/browser/feed.mjs` and the built Chrome/Edge reader browser suites
+check per-card element budgets, all 130 loaded directory headings, native links, keyboard focus,
+long-name wrapping, feed pagination, accessibility and back/forward scroll restoration.
+
 ## Public document latency
 
 The anonymous homepage uses the same streamed public shell as `/latest`; its results still

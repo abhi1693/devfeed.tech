@@ -19,7 +19,7 @@
   margin: 0;
   flex-shrink: 0;
 }
-.topic-card-heading h2 {
+.topic-card-heading {
   margin: 0;
   min-width: 0;
   color: var(--foreground);
@@ -27,6 +27,7 @@
   font-weight: 600;
   letter-spacing: -0.2px;
   line-height: 1.4;
+  overflow-wrap: anywhere;
 }
 .topic-logo {
   /* Publisher logos can contain dark artwork on a transparent canvas. */
