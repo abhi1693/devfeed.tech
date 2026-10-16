@@ -99,15 +99,26 @@ export async function checkThumbnailSizing(page, href, sidebar = "collapsed") {
     sidebar === "collapsed"
   ) {
     const pattern = "https://images.example.test/thumbnails/**";
-    await page.route(pattern, (route) => route.abort());
-    await page.goto("about:blank");
-    const cache = await page.context().newCDPSession(page);
-    await cache.send("Network.clearBrowserCache");
-    await cache.detach();
-    await page.goto(href);
-    await page.locator(".article-card .card-image .image-placeholder").first().waitFor();
-    assert.equal(await page.locator(".article-card .card-image").first().locator("img").count(), 0);
-    await page.unroute(pattern);
+    const context = page.context();
+    // Keep the existing context interceptor installed. Removing a page interceptor
+    // can forward its in-flight requests to the context while their callbacks run.
+    const failThumbnail = (route) =>
+      route.request().frame().page() === page ? route.abort() : route.fallback();
+    await context.route(pattern, failThumbnail);
+    try {
+      await page.goto("about:blank");
+      const cache = await context.newCDPSession(page);
+      await cache.send("Network.clearBrowserCache");
+      await cache.detach();
+      await page.goto(href);
+      await page.locator(".article-card .card-image .image-placeholder").first().waitFor();
+      assert.equal(
+        await page.locator(".article-card .card-image").first().locator("img").count(),
+        0,
+      );
+    } finally {
+      await context.unroute(pattern, failThumbnail);
+    }
   }
   return results;
 }
