@@ -1,3 +1,8 @@
+import {
+  checkKeyboardReader,
+  keyboardProfile,
+  keyboardActivity,
+} from "../../../scripts/testing/keyboard-reader.mjs";
 import { checkRouteStyles } from "../../../scripts/testing/route-styles.mjs";
 import { readerDomCatalogFixture, checkReaderDom } from "../../../scripts/testing/reader-dom.mjs";
 import { checkGuestDocument } from "../../../scripts/testing/document-latency.mjs";
@@ -260,6 +265,8 @@ async function readerFixture(t, imageProfile) {
             json: { article: { ...article, slug: "retry-article" }, topic: null },
           });
     }
+    if (url.pathname === "/api/v1/users/keyboard-reader")
+      return route.fulfill({ json: { profile: keyboardProfile, activity: keyboardActivity } });
     if (url.pathname === "/api/v1/users/reader")
       return route.fulfill({
         json: {
@@ -419,6 +426,15 @@ async function readerFixture(t, imageProfile) {
     pathFor: (path) => readerBase + path,
   };
 }
+
+test(
+  "keyboard access preserves native links and readable scroll regions",
+  { timeout: 180000 },
+  async (t) => {
+    const { page, pathFor } = await readerFixture(t);
+    await checkKeyboardReader(page, pathFor, `/tmp/devfeed-sonar-a11y/${browser}`);
+  },
+);
 
 test("article snippets exclude related copy in built new tabs", { timeout: 180000 }, async (t) => {
   const { page, pathFor } = await readerFixture(t);

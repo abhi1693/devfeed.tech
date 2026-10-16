@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { createServer } from "node:http";
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
+import { mkdir } from "node:fs/promises";
 import { chromium } from "playwright";
 
 // Run after npm run admin:build. Every API write targets this disposable fixture.
@@ -123,9 +124,13 @@ const fixture = createServer(async (req, res) => {
     });
     if (run && pathname.endsWith("/logs"))
       body = {
-        items: [
-          { id: "1-0", level: "INFO", timestamp: date, message: `${run.kind} log`, fields: {} },
-        ],
+        items: Array.from({ length: 80 }, (_, index) => ({
+          id: `${index + 1}-0`,
+          level: "INFO",
+          timestamp: date,
+          message: index === 0 ? `${run.kind} log` : `${run.kind} entry ${index + 1}`,
+          fields: {},
+        })),
         next_cursor: "1-0",
         has_more: false,
         truncated: false,
@@ -320,6 +325,21 @@ try {
     await page.getByRole("link", { name: "Logs", exact: true }).click();
     await page.waitForURL(`${origin}${path}/logs`);
     await page.getByText(`${kind} log`, { exact: true }).waitFor();
+    const logViewport = page.getByRole("region", { name: "Runtime log entries", exact: true });
+    await page.getByRole("textbox", { name: "Search logs", exact: true }).focus();
+    await page.keyboard.press("Tab");
+    await page.keyboard.press("Tab");
+    assert.equal(await logViewport.evaluate((node) => document.activeElement === node), true);
+    assert.equal(await logViewport.evaluate((node) => node.scrollHeight > node.clientHeight), true);
+    await page.keyboard.press("PageDown");
+    await page.waitForFunction(
+      () => document.querySelector('[aria-label="Runtime log entries"]').scrollTop > 0,
+    );
+    await mkdir("/tmp/devfeed-sonar-a11y/admin", { recursive: true });
+    await page.screenshot({
+      path: `/tmp/devfeed-sonar-a11y/admin/${kind}-log-keyboard.png`,
+      animations: "disabled",
+    });
     await page.waitForFunction(
       (expected) => document.title.startsWith("Logs") && document.title.includes(expected),
       `${label} AI analysis`,
