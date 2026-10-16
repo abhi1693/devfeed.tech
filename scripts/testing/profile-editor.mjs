@@ -153,11 +153,14 @@ export async function checkProfileEditor(page, screenshotPrefix) {
   const logoUrl = (await choiceLogo.count()) ? await choiceLogo.getAttribute("src") : null;
   await search.press("Enter");
   await page.getByRole("button", { name: `Remove ${technology}`, exact: true }).waitFor();
+  const fallback = page
+    .locator(".dev-card-preview text[data-technology-fallback]")
+    .filter({ hasText: technology });
+  await fallback.waitFor({ state: "attached" });
+  const technologyId = await fallback.getAttribute("data-technology-fallback");
+  assert.ok(technologyId, "The preview retains the selected technology identity");
   const technologyIcon = page.locator(
-    `.dev-card-preview image[data-technology-logo="${technology.toLowerCase()}"]`,
-  );
-  const fallback = page.locator(
-    `.dev-card-preview text[data-technology-fallback="${technology.toLowerCase()}"]`,
+    `.dev-card-preview image[data-technology-logo="${technologyId}"]`,
   );
   if (logoUrl) {
     await technologyIcon.waitFor({ state: "visible" });

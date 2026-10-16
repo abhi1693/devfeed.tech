@@ -108,6 +108,102 @@ it("does not open when disabled by the field or its form fieldset", async () => 
   expect(screen.queryByRole("dialog")).toBeNull();
 });
 
+it("exposes disabled choices and skips them for pointer, arrows, Home and typeahead", async () => {
+  const user = userEvent.setup();
+  render(
+    <Example
+      required
+      choices={[
+        { value: "a", label: "Alpha", disabled: true },
+        { value: "b", label: "Beta" },
+        { value: "g", label: "Gamma", disabled: true },
+        { value: "d", label: "Delta" },
+      ]}
+    />,
+  );
+  const trigger = screen.getByRole("combobox", { name: "Choice" });
+  await user.click(trigger);
+  const unavailable = screen.getByRole("option", { name: "Gamma" });
+  expect(unavailable.getAttribute("aria-disabled")).toBe("true");
+  expect(unavailable.getAttribute("tabindex")).toBeNull();
+  await user.click(unavailable);
+  expect(trigger.textContent).toBe("Beta");
+  expect(screen.getByRole("listbox")).toBeTruthy();
+  await user.keyboard("{ArrowDown}{Enter}");
+  expect(trigger.textContent).toBe("Delta");
+  await user.click(trigger);
+  await user.keyboard("{ArrowUp} ");
+  expect(trigger.textContent).toBe("Beta");
+  await user.click(trigger);
+  await user.keyboard("{Home} ");
+  expect(trigger.textContent).toBe("Beta");
+  await user.click(trigger);
+  await user.keyboard("g");
+  expect(document.activeElement).toBe(screen.getByRole("option", { name: "Beta" }));
+  await user.keyboard(" ");
+  expect(trigger.textContent).toBe("Beta");
+  expect(screen.queryByRole("listbox")).toBeNull();
+});
+
+it("focuses an enabled choice when the existing selected value becomes unavailable", async () => {
+  const user = userEvent.setup();
+  render(
+    <Example
+      required
+      initial="a"
+      choices={[
+        { value: "a", label: "Alpha", disabled: true },
+        { value: "b", label: "Beta" },
+      ]}
+    />,
+  );
+  const trigger = screen.getByRole("combobox", { name: "Choice" });
+  expect(trigger.textContent).toBe("Alpha");
+  await user.click(trigger);
+  await waitFor(() =>
+    expect(document.activeElement).toBe(screen.getByRole("option", { name: "Beta" })),
+  );
+  await user.keyboard("{Enter}");
+  expect(trigger.textContent).toBe("Beta");
+});
+
+it("does not select an option disabled while its dropdown is open", async () => {
+  const user = userEvent.setup();
+  const view = render(<Example required />);
+  const trigger = screen.getByRole("combobox", { name: "Choice" });
+  await user.click(trigger);
+  view.rerender(
+    <Example required choices={options.map((option) => ({ ...option, disabled: true }))} />,
+  );
+  await user.keyboard(" {Enter}");
+  expect(trigger.textContent).toBe("Beta");
+  expect(screen.getByRole("listbox")).toBeTruthy();
+});
+
+it("skips unavailable search results when choosing with the keyboard", async () => {
+  const user = userEvent.setup();
+  render(
+    <Example
+      required
+      initial="available"
+      choices={[
+        { value: "unavailable", label: "Token unavailable", disabled: true },
+        { value: "available", label: "Token available" },
+      ]}
+      search={{ placeholder: "Find choices" }}
+    />,
+  );
+  const trigger = screen.getByRole("combobox", { name: "Choice" });
+  await user.click(trigger);
+  await user.type(screen.getByPlaceholderText("Find choices"), "token");
+  expect(
+    screen.getByRole("option", { name: "Token unavailable" }).getAttribute("aria-disabled"),
+  ).toBe("true");
+  await user.keyboard("{Home}{Enter}");
+  expect(trigger.textContent).toBe("Token available");
+  expect(screen.queryByRole("listbox")).toBeNull();
+});
+
 it("keeps full option information and selection feedback when the selected label is shorter", async () => {
   const choices = [
     {

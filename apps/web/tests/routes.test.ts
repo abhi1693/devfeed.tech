@@ -32,9 +32,11 @@ vi.mock("@/lib/api", async (original) => ({
   getSource: vi.fn(),
   getArticle: vi.fn(),
   getTag: vi.fn(),
+  getFeed: vi.fn(),
 }));
 beforeEach(() => {
   vi.clearAllMocks();
+  vi.mocked(api.getFeed).mockResolvedValue({ items: [article], next_cursor: null });
   vi.mocked(api.getTopic).mockResolvedValue(topic);
   vi.mocked(api.getSource).mockResolvedValue(source);
   vi.mocked(api.getArticle).mockResolvedValue(article);
@@ -47,7 +49,10 @@ afterEach(() => vi.unstubAllEnvs());
 it("gives public pages absolute canonicals matching their sitemap URLs", async () => {
   const searchParams = Promise.resolve({ utm_source: "newsletter", fbclid: "tracking" });
   expect(await homeMetadata({ searchParams })).toMatchObject({
+    title: "Latest developer news, tutorials & releases",
     alternates: { canonical: "https://devfeed.tech/latest" },
+    openGraph: { title: "Latest developer news, tutorials & releases · DevFeed" },
+    twitter: { title: "Latest developer news, tutorials & releases · DevFeed" },
   });
   expect((await homeMetadata({ searchParams })).robots).toBeUndefined();
   expect(
@@ -119,12 +124,24 @@ it("redirects legacy tag queries to canonical tag routes without losing the curs
     }),
   ).rejects.toThrow("REDIRECT:/tags/c%2B%2B/tutorials");
 });
-it("defaults anonymous latest feeds to articles without redirecting the latest page", async () => {
-  vi.mocked(api.hasUserSession).mockResolvedValue(false);
-  await Home({ searchParams: Promise.resolve({}) });
-  expect(FeedView).toHaveBeenCalledWith(
-    expect.objectContaining({ filters: expect.objectContaining({ content_type: "article" }) }),
-  );
+it.each([
+  {},
+  { content_type: "" },
+  { content_type: "invalid" },
+  { q: "engineering", sort: "oldest", cursor: "next" },
+])("renders All at latest without redirecting or filtering by article: %j", async (query) => {
+  for (const signedIn of [false, true]) {
+    vi.mocked(FeedView).mockClear();
+    vi.mocked(api.hasUserSession).mockResolvedValue(signedIn);
+    await Home({ searchParams: Promise.resolve(query) });
+    expect(FeedView).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({ filters: expect.objectContaining({ content_type: "" }) }),
+    );
+    const filters = vi.mocked(FeedView).mock.calls[0][0].filters;
+    expect(filters.q).toBe(query.q ?? "");
+    expect(filters.sort).toBe(query.sort ?? "");
+    expect(filters.cursor).toBe(query.cursor ?? "");
+  }
 });
 it.each([
   ["articles", "article"],
@@ -314,6 +331,14 @@ it("renders the first-party sign-in page and routes registration through it", as
   expect(() => Register()).toThrow("REDIRECT:/login");
 });
 
+it("does not forward ambiguous repeated sign-in destinations from the login page", async () => {
+  const { default: Login } = await import("@/app/login/page");
+  const page = await Login({
+    searchParams: Promise.resolve({ return_to: ["/latest", "//elsewhere.test"] }),
+  });
+  expect(page.props).toMatchObject({ returnTo: "/" });
+});
+
 it("redirects legacy article IDs to the stable slug", async () => {
   await expect(articleMetadata({ params: Promise.resolve({ slug: article.id }) })).rejects.toThrow(
     `REDIRECT:/articles/${article.slug}`,
@@ -363,4 +388,68 @@ it("redirects source aliases during metadata generation before streaming HTML", 
       searchParams: Promise.resolve({ language: "en" }),
     }),
   ).rejects.toThrow(`REDIRECT:/sources/${source.slug}/news?language=en`);
+});
+
+it.each([
+  ["tag", tagMetadata, "c++"],
+  ["topic", topicMetadata, topic.slug],
+] as const)(
+  "indexes %s pages only when the rendered feed has articles",
+  async (kind, generate, slug) => {
+    const props = { params: Promise.resolve({ slug }), searchParams: Promise.resolve({}) };
+    expect((await generate(props)).robots).toBeUndefined();
+    expect(api.getFeed).toHaveBeenLastCalledWith(expect.objectContaining({ [kind]: slug }));
+    vi.mocked(api.getFeed).mockResolvedValue({ items: [], next_cursor: null });
+    expect((await generate(props)).robots).toEqual({ index: false, follow: true });
+    vi.mocked(api.getFeed).mockResolvedValue({ items: [article], next_cursor: null });
+    expect((await generate(props)).robots).toBeUndefined();
+  },
+);
+
+it.each([tagMetadata, topicMetadata])(
+  "checks the exact typed collection view",
+  async (generate) => {
+    vi.mocked(api.getFeed).mockResolvedValue({ items: [], next_cursor: null });
+    const metadata = await generate({
+      params: Promise.resolve({ slug: topic.slug, contentType: "tutorials" }),
+      searchParams: Promise.resolve({ cursor: "last-page" }),
+    });
+    expect(api.getFeed).toHaveBeenLastCalledWith(
+      expect.objectContaining({ content_type: "tutorial", cursor: "last-page" }),
+    );
+    expect(metadata.robots).toEqual({ index: false, follow: true });
+  },
+);
+
+it.each([tagMetadata, topicMetadata])(
+  "does not index a collection feed outage",
+  async (generate) => {
+    vi.mocked(api.getFeed).mockRejectedValue(new api.UserApiError(503));
+    expect(
+      (
+        await generate({
+          params: Promise.resolve({ slug: topic.slug }),
+          searchParams: Promise.resolve({}),
+        })
+      ).robots,
+    ).toEqual({ index: false, follow: true });
+    vi.mocked(api.getFeed).mockRejectedValue(new Error("unexpected"));
+    await expect(
+      generate({
+        params: Promise.resolve({ slug: topic.slug }),
+        searchParams: Promise.resolve({}),
+      }),
+    ).rejects.toThrow("unexpected");
+  },
+);
+
+it.each([
+  ["getTag", tagMetadata],
+  ["getTopic", topicMetadata],
+] as const)("keeps missing collection metadata as a 404 (%s)", async (lookup, generate) => {
+  vi.mocked(api[lookup]).mockRejectedValue(new api.UserApiError(404));
+  await expect(
+    generate({ params: Promise.resolve({ slug: "missing" }), searchParams: Promise.resolve({}) }),
+  ).rejects.toThrow("NOT_FOUND");
+  expect(api.getFeed).not.toHaveBeenCalled();
 });

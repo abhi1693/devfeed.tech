@@ -22,6 +22,20 @@ const config: NextConfig = {
   logging: { incomingRequests: false },
   // Explicit LAN dev origins can be supplied without altering production trust.
   allowedDevOrigins: process.env.DEVFEED_ADMIN_DEV_ORIGINS?.split(",").filter(Boolean),
+  async redirects() {
+    return [
+      {
+        source: "/partnerships/partners/:path*",
+        destination: "/partnerships/connections/:path*",
+        permanent: true,
+      },
+      {
+        source: "/partner-tools",
+        destination: "/partnerships/connections",
+        permanent: true,
+      },
+    ];
+  },
   async headers() {
     return [
       {

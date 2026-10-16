@@ -1,8 +1,8 @@
 "use client";
 
 import { useState, type ReactNode } from "react";
-import { Button } from "@/components/atoms/button";
-import { Input } from "@/components/atoms/input";
+import { Button } from "@devfeed/ui/button";
+import { Input } from "@devfeed/ui/input";
 import { Field } from "./field";
 import { ValidationErrors } from "./validation-errors";
 import { notify, notifyFailure } from "@/lib/notifications";

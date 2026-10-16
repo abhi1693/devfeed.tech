@@ -1,8 +1,8 @@
 "use client";
-/* eslint-disable @next/next/no-img-element -- User-selected avatars load directly, without a server proxy. */
+/* eslint-disable @next/next/no-img-element -- Managed and supported GitHub avatars use bounded optimized variants. */
 import { useState } from "react";
 import { UserRound } from "lucide-react";
-import { avatarSource, avatarSrcSet } from "@/lib/avatar";
+import { profileAvatarSources } from "@/lib/avatar";
 import type { AvatarVariant } from "@/lib/user";
 
 export function ProfileAvatar({
@@ -19,7 +19,7 @@ export function ProfileAvatar({
   sizes?: string;
 }) {
   const [failed, setFailed] = useState<string>();
-  const src = avatarSource(url, variants, size);
+  const { src, srcSet } = profileAvatarSources(url, variants, size);
   const words = name?.trim().split(/\s+/).filter(Boolean) ?? [];
   const initials = [words[0], ...(words.length > 1 ? [words.at(-1)] : [])]
     .filter(Boolean)
@@ -31,7 +31,7 @@ export function ProfileAvatar({
       {src && failed !== src ? (
         <img
           src={src}
-          srcSet={avatarSrcSet(variants, url)}
+          srcSet={srcSet}
           sizes={sizes ?? `${size}px`}
           alt=""
           referrerPolicy="no-referrer"

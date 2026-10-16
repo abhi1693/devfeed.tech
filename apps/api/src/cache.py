@@ -1,29 +1,57 @@
 """Opt-in route cache, before dependency resolution and database checkout."""
 
+import json
 import time
 from contextlib import suppress
-from urllib.parse import urlencode
+from typing import Any, Literal
 
 import anyio
 from devfeed_core.cache import CacheUnavailable, get_cache, record_cache_read
-from devfeed_core.config import get_settings
+from devfeed_core.config import Settings, get_settings
+from devfeed_http.body_limits import BodyLimitedRoute
 from fastapi import Request, Response
-from fastapi.routing import APIRoute
+from pydantic import BaseModel, ConfigDict, Field
 from starlette.concurrency import run_in_threadpool
 
 WAIT_SECONDS = 1.0
 POLL_SECONDS = 0.05
+CACHE_POLICY_EXTENSION = "x-devfeed-cache"
 
 
-def identity(request: Request) -> str:
-    # Sort parameter names but preserve repeated values/order. Sorting all pairs
-    # would alias ?limit=1&limit=2 with the reverse (different FastAPI semantics).
-    query = urlencode(sorted(request.query_params.multi_items(), key=lambda pair: pair[0]))
-    # Do not reuse empty UUID-topic responses produced by the old slug-only filter.
-    if request.url.path in {"/v1/feed", "/v1/feed/options"} and request.query_params.get("topic"):
-        return "topic-ids:v1:" + request.url.path + "?" + query
-    # Topic logos now contain managed URLs and responsive variants.
-    return "managed-logos:v1:" + request.url.path + "?" + query
+class CachePolicy(BaseModel):
+    """A public read owns its cache identity, schema revision and configured TTL."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid", strict=True)
+
+    namespace: str = Field(min_length=1, max_length=64, pattern=r"^[a-z][a-z0-9_-]*$")
+    revision: int = Field(ge=1)
+    ttl: Literal["content", "metadata"]
+
+    def openapi_extra(self) -> dict[str, Any]:
+        return {CACHE_POLICY_EXTENSION: self.model_dump()}
+
+    def identity(self, request: Request) -> str:
+        # Keep repeated query values in their original order: FastAPI can select
+        # different values for ?limit=1&limit=2 and its reverse. Structured fields
+        # also keep detail IDs and query values from colliding through delimiters.
+        return json.dumps(
+            {
+                "namespace": self.namespace,
+                "revision": self.revision,
+                "parameters": sorted(
+                    (name, str(value)) for name, value in request.path_params.items()
+                ),
+                "query": sorted(request.query_params.multi_items(), key=lambda pair: pair[0]),
+            },
+            separators=(",", ":"),
+        )
+
+    def ttl_seconds(self, settings: Settings) -> int:
+        return (
+            settings.cache_metadata_ttl_seconds
+            if self.ttl == "metadata"
+            else settings.cache_ttl_seconds
+        )
 
 
 def tagged(
@@ -46,11 +74,19 @@ def tagged(
     return response
 
 
-class CachedReadRoute(APIRoute):
+class CachedReadRoute(BodyLimitedRoute):
     """Shared, non-personalized reads only; cookie-dependent endpoints must not opt in."""
 
     def get_route_handler(self):
         handler = super().get_route_handler()
+        extra = self.openapi_extra or {}
+        policy = (
+            CachePolicy.model_validate(extra[CACHE_POLICY_EXTENSION])
+            if CACHE_POLICY_EXTENSION in extra
+            else None
+        )
+        if policy is None:
+            return handler
 
         async def cached(request: Request) -> Response:
             async def render():
@@ -84,13 +120,9 @@ class CachedReadRoute(APIRoute):
                 reason = "query_too_long"
             if reason:
                 return tagged(request, await render(), "BYPASS", reason, route=self.path)
-            ttl = (
-                settings.cache_metadata_ttl_seconds
-                if self.path.startswith(("/v1/sources", "/v1/tags", "/v1/topics"))
-                else settings.cache_ttl_seconds
-            )
+            ttl = policy.ttl_seconds(settings)
             cache = get_cache()
-            key = identity(request)
+            key = policy.identity(request)
             deadline = time.monotonic() + WAIT_SECONDS
             try:
                 while True:

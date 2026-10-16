@@ -3,7 +3,7 @@
 import { useArticleNavigation } from "./article-navigation";
 import { readerRequest } from "@/lib/reader-runtime";
 import { ReaderReloadLink } from "./reader-reload-link";
-import { useCallback, useEffect, useMemo } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   feedHref,
   personalFeedHref,
@@ -16,6 +16,7 @@ import { AccountError, userRequest } from "@/lib/user";
 import { filterUniquePageItems, useInfinitePages } from "@/lib/use-infinite-pages";
 import { InfiniteScroll } from "./infinite-scroll";
 import { ArticleGrid, type RecommendationReason } from "./article-grid";
+import type { PartnerPlacementContext } from "./partner-placements";
 
 type Page = FeedPage & {
   reasons?: Record<string, RecommendationReason>;
@@ -29,6 +30,7 @@ type Props = {
   bookmarks?: boolean;
   excludedIds?: string[];
   endMessage?: string;
+  placements?: PartnerPlacementContext;
 };
 const noExclusions: string[] = [];
 
@@ -40,8 +42,25 @@ export function InfiniteFeed({
   bookmarks = false,
   excludedIds = noExclusions,
   endMessage,
+  placements,
 }: Props) {
   const { setSequence } = useArticleNavigation();
+  const [placementArticleIds] = useState(() =>
+    initialPage.items
+      .filter((item) => !excludedIds.includes(item.id))
+      .slice(0, 24)
+      .map((item) => item.id),
+  );
+  const placementContext = useMemo(
+    () =>
+      placements && !filters?.cursor && !bookmarks && !trending && placementArticleIds.length
+        ? {
+            ...placements,
+            ...(placements.surface === "feed" ? { article_ids: placementArticleIds } : {}),
+          }
+        : undefined,
+    [placements, filters?.cursor, bookmarks, trending, placementArticleIds],
+  );
   const fetchPage = useCallback(
     async (cursor: string, signal: AbortSignal): Promise<Page> => {
       let page: Page;
@@ -141,6 +160,8 @@ export function InfiniteFeed({
         reasons={reasons}
         waitForPreferences={personal || bookmarks}
         showDevCard={!personal && !trending && !bookmarks}
+        placements={placementContext}
+        placementArticleCount={placementArticleIds.length}
       />
     </InfiniteScroll>
   );

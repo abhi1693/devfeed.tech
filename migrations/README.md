@@ -123,3 +123,30 @@ new index through an authorized operation before retrying. Column additions and
 valid indexes are idempotent. Downgrade removes schema/indexes but cannot restore
 pruned input payloads. No publication repair or immediate history deletion occurs
 in this migration.
+
+## 0024: partnerships
+
+Revision `0024` follows the unchanged source-logo revision `0023` and creates the partnership
+catalog, configurable import connections, accounts and memberships. It includes tier policy,
+product logos and featured images, campaigns, exclusions, account and campaign audiences,
+native advertising formats, product delivery restrictions, permanent article sponsor disclosures,
+prepared contextual matches, delivery reservations and daily reporting.
+
+The same revision creates bounded promotion-enrollment checkpoints, an indexed tracking-event
+retention path and the full product/asset history index. Transactional matching triggers capture
+product, article and taxonomy changes in durable jobs. Indexed token projections narrow candidate
+lookups; the migration backfills existing article/topic tokens before building their GIN indexes,
+including long publisher text. Source-logo jobs and existing reader/catalog data are preserved.
+There is no per-reader exposure setting or periodic product/article sweep state.
+
+Apply with `uv run devfeed db upgrade` before starting runtimes requiring schema `0024`.
+This feature's development migrations are consolidated into this single revision; no compatibility
+migration for superseded development revision markers is included. Existing local databases on
+those markers require a separate repair based on their actual schema.
+
+Downgrading to `0023` removes all partnership tables, product image jobs and image-job fields,
+matching functions/triggers/token projections and article sponsor disclosures. Existing article,
+topic and source image jobs remain. Sponsored articles are unpublished before their disclosure is
+removed; clear reader response caches and rebuild the search index before starting the older
+runtime. Retain a database backup if partnership data must survive a rollback. No production rollout
+is implied by committing the migration.

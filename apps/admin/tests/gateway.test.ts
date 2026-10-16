@@ -3,6 +3,16 @@ import { gateway } from "@/lib/server/gateway";
 import { adminFetch, ApiError, returnToLogin } from "@/lib/api/client";
 import { adminAuthLogout } from "@/lib/api/generated/admin";
 
+const productAdImage = [
+  "v1",
+  "admin",
+  "partner-accounts",
+  "11111111-1111-4111-8111-111111111111",
+  "products",
+  "22222222-2222-4222-8222-222222222222",
+  "ad-image",
+];
+
 beforeEach(() => {
   vi.stubEnv("DEVFEED_ADMIN_BASE_URL", "https://admin.example");
   vi.stubEnv("DEVFEED_ADMIN_API_URL", "http://admin-api.internal:8001");
@@ -16,6 +26,123 @@ afterEach(() => {
 });
 
 describe("isolated API gateway", () => {
+  it.each([
+    ["POST", productAdImage.slice(0, -2)],
+    ["PATCH", productAdImage.slice(0, -1)],
+  ])("caps %s product facts before proxying", async (method, path) => {
+    const fetcher = vi.fn();
+    vi.stubGlobal("fetch", fetcher);
+    for (const declared of [true, false]) {
+      const incoming = new Request("https://admin.example/api", {
+        method,
+        headers: {
+          origin: "https://admin.example",
+          ...(declared ? { "content-length": "65537" } : {}),
+        },
+        body: new Uint8Array(65537),
+      });
+      const response = await gateway(incoming, path);
+      expect(response.status).toBe(413);
+      expect(response.headers.get("cache-control")).toBe("no-store");
+    }
+    expect(fetcher).not.toHaveBeenCalled();
+  });
+
+  it("preserves multilingual product taglines within the product body limit", async () => {
+    const fetcher = vi.fn().mockResolvedValue(Response.json({ id: productAdImage[5] }));
+    vi.stubGlobal("fetch", fetcher);
+    const body = JSON.stringify({
+      name: "Developer tools",
+      product_url: "https://product.example",
+      tagline: "開".repeat(160),
+    });
+    const response = await gateway(
+      new Request("https://admin.example/api", {
+        method: "POST",
+        headers: { origin: "https://admin.example", "content-type": "application/json" },
+        body,
+      }),
+      productAdImage.slice(0, -2),
+    );
+    expect(response.status).toBe(200);
+    expect(new TextDecoder().decode(fetcher.mock.calls[0][1].body)).toBe(body);
+  });
+
+  it("preserves multipart image bytes and grants the larger limit only to the upload route", async () => {
+    const fetcher = vi.fn().mockResolvedValue(Response.json({ ad_image_status: "ready" }));
+    vi.stubGlobal("fetch", fetcher);
+    const body = new FormData();
+    body.append("file", new Blob([new Uint8Array(1_100_000)], { type: "image/png" }), "ad.png");
+    const incoming = new Request("https://admin.example/api", {
+      method: "POST",
+      headers: { origin: "https://admin.example", "x-csrf-token": "csrf" },
+      body,
+    });
+    const expectedBytes = await incoming.clone().arrayBuffer();
+    expect((await gateway(incoming, productAdImage)).status).toBe(200);
+    const [url, init] = fetcher.mock.calls[0];
+    expect(url).toBe(`http://admin-api.internal:8001/${productAdImage.join("/")}`);
+    expect(init.headers.get("content-type")).toBe(incoming.headers.get("content-type"));
+    expect(init.headers.get("x-csrf-token")).toBe("csrf");
+    expect(Buffer.from(init.body).equals(Buffer.from(expectedBytes))).toBe(true);
+    fetcher.mockClear();
+    expect(
+      (
+        await gateway(
+          new Request("https://admin.example/api", {
+            method: "POST",
+            headers: { origin: "https://admin.example" },
+            body: new Uint8Array(1_100_000),
+          }),
+          ["v1", "admin", "sources"],
+        )
+      ).status,
+    ).toBe(413);
+    expect(fetcher).not.toHaveBeenCalled();
+  });
+
+  it.each([true, false])("caps oversized image bodies (declared=%s)", async (declared) => {
+    const fetcher = vi.fn();
+    vi.stubGlobal("fetch", fetcher);
+    const bytes = 5 * 1024 * 1024 + 65537;
+    const incoming = new Request("https://admin.example/api", {
+      method: "POST",
+      headers: {
+        origin: "https://admin.example",
+        ...(declared ? { "content-length": String(bytes) } : {}),
+      },
+      body: new Uint8Array(bytes),
+    });
+    expect((await gateway(incoming, productAdImage)).status).toBe(413);
+    expect(fetcher).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    [productAdImage, 10_000],
+    [productAdImage.slice(0, -2), 2000],
+    [["v1", "admin", "sources"], 2000],
+  ])("bounds incomplete request bodies at %s", async (path, deadline) => {
+    vi.useFakeTimers();
+    const fetcher = vi.fn();
+    const cancel = vi.fn();
+    vi.stubGlobal("fetch", fetcher);
+    const incoming = new Request("https://admin.example/api", {
+      method: "POST",
+      headers: { origin: "https://admin.example" },
+      body: new ReadableStream<Uint8Array>({ cancel }),
+      duplex: "half",
+    } as RequestInit);
+    const pending = gateway(incoming, path);
+    await vi.advanceTimersByTimeAsync(deadline);
+    const response = await pending;
+    expect(response.status).toBe(408);
+    expect(response.headers.get("cache-control")).toBe("no-store");
+    expect(cancel).toHaveBeenCalledOnce();
+    expect(fetcher).not.toHaveBeenCalled();
+    expect(incoming.body!.locked).toBe(false);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
   it.each([
     ["source-imports", 1_100_000, 200],
     ["source-imports", 6_100_001, 413],
@@ -38,14 +165,12 @@ describe("isolated API gateway", () => {
   it.each([
     ["POST", "sources", 215_000],
     ["POST", "source-imports", 150_000],
-    ["POST", "source-imports/candidate-1/review", 150_000],
+    ["POST", `source-imports/${productAdImage[3]}/review`, 150_000],
     ["POST", "sources/preview", 305_000],
     ["POST", "topic-discovery/github", 120_000],
-    ["POST", "topic-discovery/github-extra", 45_000],
     ["GET", "sources", 45_000],
-    ["POST", "sources/source-1/fetch", 45_000],
-    ["PATCH", "sources/source-1", 45_000],
-    ["POST", "sources/preview-extra", 45_000],
+    ["POST", `sources/${productAdImage[3]}/fetch`, 45_000],
+    ["PATCH", `sources/${productAdImage[3]}`, 45_000],
   ])("uses the operation deadline for %s %s", async (method, resource, expected) => {
     const timeout = vi.spyOn(AbortSignal, "timeout");
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json({})));
@@ -57,6 +182,40 @@ describe("isolated API gateway", () => {
       ["v1", "admin", ...resource.split("/")],
     );
     expect(timeout).toHaveBeenCalledWith(expected);
+  });
+
+  it.each([
+    ["topic-discovery/github-extra", 404],
+    ["sources/preview-extra", 405],
+    ["missing", 404],
+  ])(
+    "rejects an unavailable operation before reading or forwarding its body: %s",
+    async (resource, status) => {
+      const fetcher = vi.fn();
+      vi.stubGlobal("fetch", fetcher);
+      const incoming = new Request(`https://admin.example/api/v1/admin/${resource}`, {
+        method: "POST",
+        headers: { Origin: "https://admin.example", "Content-Length": "9999999" },
+        body: "unread",
+      });
+      expect((await gateway(incoming, ["v1", "admin", ...resource.split("/")])).status).toBe(
+        status,
+      );
+      expect(incoming.bodyUsed).toBe(false);
+      expect(fetcher).not.toHaveBeenCalled();
+    },
+  );
+
+  it("rejects unsupported methods using the registered operation methods", async () => {
+    const fetcher = vi.fn();
+    vi.stubGlobal("fetch", fetcher);
+    const response = await gateway(
+      new Request("https://admin.example/api/v1/admin/workers/ai:host.1", { method: "DELETE" }),
+      ["v1", "admin", "workers", "ai:host.1"],
+    );
+    expect(response.status).toBe(405);
+    expect(response.headers.get("allow")).toBe("GET");
+    expect(fetcher).not.toHaveBeenCalled();
   });
 
   it.each([
@@ -124,6 +283,7 @@ describe("isolated API gateway", () => {
       }),
       ["v1", "admin", "sources"],
     );
+    await vi.waitFor(() => expect(fetch).toHaveBeenCalledOnce());
     controller.abort();
     expect((await pending).status).toBe(503);
   });
@@ -367,7 +527,7 @@ it("allows worker registration names without allowing arbitrary proxy paths", as
   );
   expect(response.status).toBe(200);
   expect(fetcher.mock.calls[0][0]).toBe(
-    "http://admin-api.internal:8001/v1/admin/workers/ai:host.1",
+    "http://admin-api.internal:8001/v1/admin/workers/ai%3Ahost.1",
   );
   for (const name of ["..", ".", "evil?x", "evil#x", "a/../../auth", "%2e%2e", "a".repeat(257)]) {
     const rejected = await gateway(new Request("https://admin.example/api/test"), [
@@ -376,7 +536,7 @@ it("allows worker registration names without allowing arbitrary proxy paths", as
       "workers",
       name,
     ]);
-    // Ordinary long alphanumeric paths are validated by the API; traversal and delimiters never proxy.
-    if (name.length <= 256) expect(rejected.status).toBe(404);
+    expect(rejected.status).toBe(404);
   }
+  expect(fetcher).toHaveBeenCalledOnce();
 });

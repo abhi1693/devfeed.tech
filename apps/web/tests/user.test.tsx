@@ -2,11 +2,12 @@
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { FeedView } from "@/components/feed-view";
+import { readerFeeds } from "@/lib/reader-feed";
 const Feed = async ({
   searchParams,
 }: {
   searchParams: Promise<import("@/lib/feed-query").SearchParams>;
-}) => FeedView({ filters: parseFilters(await searchParams) });
+}) => FeedView({ filters: parseFilters(await searchParams), feedDescriptor: readerFeeds.latest });
 import { ArticleImage } from "@/components/article-image";
 import { ArticleCard } from "@/components/article-card";
 import { FeedFiltersBar } from "@/components/feed-filters";

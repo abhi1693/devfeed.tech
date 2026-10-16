@@ -190,59 +190,6 @@ button {
   position: fixed;
   inset: 72px auto 0 0;
   width: var(--sidebar);
-  background: var(--card);
-  padding: 18px 12px 22px;
-  border-right: 1px solid var(--border);
-  display: flex;
-  flex-direction: column;
-  overflow-y: auto;
-  transition: width 0.2s ease;
-}
-.sidebar-toggle {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 7px;
-  position: static;
-  width: 32px;
-  height: 32px;
-  margin: 0;
-  padding: 0;
-  border: 0;
-  border-radius: 8px;
-  background: transparent;
-  color: var(--muted-foreground);
-  font-size: 12px;
-  font-weight: 600;
-}
-.sidebar-toggle-label { display: none; }
-.sidebar-toggle-area {
-  display: flex;
-  justify-content: center;
-  margin: auto 10px 0;
-  padding-top: 12px;
-  border-top: 1px solid var(--border);
-}
-.sidebar-toggle:hover {
-  color: var(--foreground);
-  background: var(--muted);
-}
-.sidebar .nav-item {
-  width: 44px;
-  min-height: 44px;
-  justify-content: center;
-  gap: 0;
-  margin: 0 auto 8px;
-  padding: 0;
-  border-radius: 14px;
-  transition: background 0.16s, border-color 0.16s, color 0.16s, padding 0.2s, gap 0.2s, width 0.2s;
-}
-.sidebar .nav-item span,
-.sidebar-legal {
-  width: 0;
-  opacity: 0;
-  overflow: hidden;
-  white-space: nowrap;
 }
 .brand {
   justify-content: center;
@@ -251,68 +198,12 @@ button {
 .brand > span {
   display: none;
 }
-:root[data-sidebar-state="expanded"] .sidebar .nav-item {
-  width: 100%;
-  min-height: 0;
-  justify-content: flex-start;
-  gap: 10px;
-  margin: 0 0 6px;
-  padding: 11px 12px;
-  border-radius: 10px;
-  color: var(--foreground);
-}
-:root[data-sidebar-state="expanded"] .sidebar-toggle-area {
-  justify-content: stretch;
-  margin: 12px 0 0;
-  padding: 12px 10px 0;
-}
-:root[data-sidebar-state="expanded"] .sidebar-toggle {
-  width: 100%;
-  height: 34px;
-  justify-content: flex-start;
-  padding: 0 10px;
-  border: 1px solid var(--border);
-  background: var(--card);
-}
-:root[data-sidebar-state="expanded"] .sidebar-toggle-label { display: inline; }
-:root[data-sidebar-state="expanded"] .sidebar .nav-item span,
-:root[data-sidebar-state="expanded"] .sidebar-legal {
-  width: auto;
-  opacity: 1;
-  overflow: visible;
-}
-:root[data-sidebar-state="expanded"] .sidebar-legal { margin-top: auto; }
 :root[data-sidebar-state="expanded"] .brand {
   justify-content: flex-start;
   padding-left: 24px;
 }
 :root[data-sidebar-state="expanded"] .brand > span {
   display: inline;
-}
-.nav-item {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 12px 14px;
-  border-radius: var(--radius-control);
-  color: var(--muted-foreground);
-  font-weight: 500;
-  margin-bottom: 5px;
-  line-height: 1.3;
-}
-.nav-item span {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.nav-item:hover {
-  background: var(--card);
-  color: var(--foreground);
-}
-.nav-item.active {
-  background: var(--accent);
-  color: var(--primary);
-  font-weight: 600;
 }
 .eyebrow {
   text-transform: uppercase;

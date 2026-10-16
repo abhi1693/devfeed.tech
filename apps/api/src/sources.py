@@ -9,13 +9,17 @@ from devfeed_core.user_settings import LanguageCode
 from fastapi import APIRouter, HTTPException, Query
 from sqlalchemy import select
 
-from devfeed_api.cache import CachedReadRoute
+from devfeed_api.cache import CachedReadRoute, CachePolicy
 from devfeed_api.dependencies import DB
 
 router = APIRouter(prefix="/v1/sources", tags=["sources"], route_class=CachedReadRoute)
 
 
-@router.get("", response_model=list[SourcePublicOut])
+@router.get(
+    "",
+    response_model=list[SourcePublicOut],
+    openapi_extra=CachePolicy(namespace="sources", revision=1, ttl="metadata").openapi_extra(),
+)
 def sources(
     session: DB,
     enabled: bool | None = None,
@@ -52,7 +56,11 @@ def sources(
     ).all()
 
 
-@router.get("/{source_id}", response_model=SourcePublicOut)
+@router.get(
+    "/{source_id}",
+    response_model=SourcePublicOut,
+    openapi_extra=CachePolicy(namespace="source", revision=1, ttl="metadata").openapi_extra(),
+)
 def source_detail(source_id: TextInput, session: DB):
     if not 1 <= len(source_id) <= 200:
         raise HTTPException(404, "Source not found")

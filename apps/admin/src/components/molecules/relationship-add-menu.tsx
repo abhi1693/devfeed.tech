@@ -2,13 +2,13 @@
 
 import Link from "next/link";
 import { ChevronDown, ClipboardCheck, Plus, Sparkles } from "lucide-react";
-import { Button } from "@/components/atoms/button";
+import { Button } from "@devfeed/ui/button";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
-} from "@/components/atoms/dropdown-menu";
+} from "@devfeed/ui/dropdown-menu";
 
 export function RelationshipAddMenu() {
   const base = "/taxonomy/relationships";

@@ -11,6 +11,11 @@ account owns five fixed keys under `avatars/<hashed-account-id>/`; replacement
 writes those same keys and removal deletes them. Profile JSON stores the variant
 URLs and uses the 256 pixel URL as `avatar_url`. No database migration is needed.
 
+Image validation, fixed object storage and rollback are shared with partner product ad
+uploads through `devfeed-http[uploads]`. Ad images preserve their proportions; avatars
+keep their square crop. Multipart bodies are bounded before parsing and have a ten-second
+body-reading deadline, including chunked uploads.
+
 Set `DEVFEED_IMAGE_STORAGE_ENABLED=true` and configure the existing image-storage
 endpoint, bucket, public URL, access key, and secret key. Compose passes these
 settings to the user API. Credentials remain server-side. The public image host

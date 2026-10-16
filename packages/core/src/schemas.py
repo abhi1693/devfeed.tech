@@ -18,6 +18,7 @@ from pydantic import (
 from devfeed_core.config import get_settings
 from devfeed_core.json_types import JsonValue
 from devfeed_core.models import Article
+from devfeed_core.partner_link_rel import LinkRel, default_link_rel, sponsored_article_link_rel
 from devfeed_core.source_types import SourceType
 from devfeed_core.tag_names import normalize_tag_name
 from devfeed_core.topic_kinds import TopicKind as TopicKind
@@ -214,6 +215,22 @@ class SourceEnrichmentJobOut(ORMModel):
 
 
 class SourceRef(ORMModel):
+    logo_variants: list["ImageVariant"] = Field(default_factory=list)
+
+    @model_validator(mode="before")
+    @classmethod
+    def managed_branding(cls, value):
+        from devfeed_core.logos import logo_url, logo_variants
+        from devfeed_core.models import Source
+
+        if not isinstance(value, Source) or issubclass(cls, SourceOut):
+            return value
+        result = {name: getattr(value, name) for name in cls.model_fields if hasattr(value, name)}
+        result.update(
+            logo_url=logo_url(value) or value.logo_url, logo_variants=logo_variants(value)
+        )
+        return result
+
     id: uuid.UUID
     slug: str
     name: str
@@ -233,6 +250,7 @@ class ImageJobOut(ORMModel):
     id: uuid.UUID
     article_id: uuid.UUID | None
     topic_id: uuid.UUID | None = None
+    source_id: uuid.UUID | None = None
     operation: str | None = None
     storage: dict | None = None
     status: str
@@ -359,6 +377,8 @@ class ArticleOut(ORMModel):
     canonical_url: str
     title: str
     summary: str
+    sponsor_names: list[str] = Field(default_factory=list)
+    sponsor_link_rel: list[LinkRel] = Field(default_factory=default_link_rel)
     ai_summary: str | None = None
     ai_description: str | None = None
     topics: list[ArticleTopicOut] = Field(default_factory=list)
@@ -381,12 +401,27 @@ class ArticleOut(ORMModel):
     origins: list[ArticleOriginOut]
 
     @classmethod
-    def from_article(cls, article: Article, *, public: bool = True):
+    def from_article(
+        cls, article: Article, *, public: bool = True, sponsor_link_rel: list[LinkRel] | None = None
+    ):
         values = {
             key: getattr(article, key)
             for key in cls.model_fields
-            if key not in {"sources", "origins", "tags", "topics", "image_variants"}
+            if key
+            not in {
+                "sources",
+                "origins",
+                "tags",
+                "topics",
+                "image_variants",
+                "sponsor_names",
+                "sponsor_link_rel",
+            }
         }
+        values["sponsor_names"] = getattr(article, "sponsor_names", None) or []
+        values["sponsor_link_rel"] = (
+            default_link_rel() if sponsor_link_rel is None else sponsor_link_rel
+        )
         from devfeed_core.managed_images import image_variants
 
         values["image_variants"] = image_variants(article)
@@ -418,6 +453,28 @@ class ArticleOut(ORMModel):
         sources = {origin.source.id: origin.source for origin in origins}
         values["sources"] = sorted(sources.values(), key=lambda source: source.name)
         return cls.model_validate(values)
+
+    @classmethod
+    def from_articles(cls, articles, *, public: bool = True):
+        """Serialize a page with one shared live sponsorship-policy lookup."""
+        from sqlalchemy.orm import object_session
+
+        articles = list(articles)
+        sponsored = [article for article in articles if getattr(article, "sponsor_names", None)]
+        session = object_session(sponsored[0]) if sponsored else None
+        policies = (
+            sponsored_article_link_rel(session, [article.id for article in sponsored])
+            if session
+            else {}
+        )
+        return [
+            cls.from_article(
+                article,
+                public=public,
+                sponsor_link_rel=policies.get(article.id, default_link_rel()),
+            )
+            for article in articles
+        ]
 
 
 class FeedPage(BaseModel):

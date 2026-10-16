@@ -5,10 +5,15 @@ import { TopicFollowsProvider } from "@/components/topic-follows";
 import { UserProvider } from "@/components/user-account";
 import { SourceFollowsProvider } from "@/components/source-follow";
 import { SearchFailure, SearchResults } from "@/components/search-results";
-import { searchKinds, type SearchHit, type SearchResponse } from "@/lib/search";
+import { parseSearchOptions, searchKinds, type SearchHit, type SearchResponse } from "@/lib/search";
+import type { ReactNode } from "react";
 
 const { refresh } = vi.hoisted(() => ({ refresh: vi.fn() }));
 vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh }) }));
+vi.mock("@/components/partner-placements", () => ({
+  PartnerPlacements: ({ children }: { children?: (cards: ReactNode[]) => ReactNode }) =>
+    children?.([]) ?? null,
+}));
 const fetcher = vi.fn();
 const intersections = new Map<string, () => void>();
 const item = (id: string): SearchHit => ({
@@ -74,11 +79,62 @@ it("shows articles first and waits for a section boundary before fetching", () =
     "Tags",
   ]);
   expect(screen.getByRole("heading", { name: "Articles", level: 2 }).className).toBe("sr-only");
+  const sidebar = document.querySelector("aside.search-sidebar")!;
+  expect(sidebar).toBeTruthy();
+  expect(sidebar.contains(screen.getByRole("heading", { name: "Articles" }))).toBe(false);
+  for (const name of ["Topics", "Sources", "Tags"]) {
+    expect(sidebar.contains(screen.getByRole("heading", { name }))).toBe(true);
+  }
   expect(screen.getByRole("link", { name: /tags/ }).getAttribute("href")).toBe("/tags/kubernetes");
   expect(
     document.querySelector(".search-result-meta .content-type")?.getAttribute("data-content-type"),
   ).toBe("article");
   expect(fetcher).not.toHaveBeenCalled();
+});
+
+it.each(
+  ([undefined, [], ["sponsored", "ugc", "external"]] as const).map((relations) => ({ relations })),
+)("uses the live sponsorship relationship on article search links (%j)", ({ relations }) => {
+  const response = result();
+  const article = response.sections.articles!.items[0];
+  article.sponsor_names = ["Example partner"];
+  article.sponsor_link_rel = relations ? [...relations] : undefined;
+  render(<SearchResults result={response} />);
+  const link = screen.getByRole("link", { name: article.title });
+  expect(link.getAttribute("rel")).toBe((relations ?? ["nofollow"]).join(" ") || null);
+  expect(link.getAttribute("target")).toBeNull();
+  expect(screen.getByText("Sponsored").getAttribute("title")).toBe("Sponsored by Example partner");
+  expect(screen.getByRole("link", { name: "topics" }).getAttribute("rel")).toBeNull();
+});
+
+it("keeps the article type on later pages and excludes catalogue sections", async () => {
+  fetcher.mockResolvedValue(
+    Response.json({
+      query: "kubernetes",
+      sections: {
+        articles: { items: [{ ...item("release-next"), label: "release" }], next_cursor: null },
+      },
+    }),
+  );
+  render(
+    <SearchResults
+      result={result()}
+      options={parseSearchOptions(
+        new URLSearchParams("section=articles&content_types=release&sort=newest"),
+      )}
+    />,
+  );
+  expect(document.querySelector(".search-related-results")).toBeNull();
+  await act(async () => intersections.get("search-articles")!());
+  const params = new URL(fetcher.mock.calls[0][0], "http://localhost").searchParams;
+  expect(Object.fromEntries(params)).toEqual({
+    section: "articles",
+    content_types: "release",
+    sort: "newest",
+    q: "kubernetes",
+    page: "2",
+  });
+  expect(screen.getByRole("link", { name: "release-next" })).toBeDefined();
 });
 
 it("tracks privacy-bounded query, impressions, zero-results, and clicks", async () => {

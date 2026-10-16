@@ -8,6 +8,7 @@ from devfeed_core.config import get_settings
 from devfeed_core.feeds.fetcher import FeedError
 from devfeed_core.image_jobs import backfill_storage, request_image
 from devfeed_core.models import Article, ArticleImageJob, utcnow
+from devfeed_core.object_storage import R2Storage
 from devfeed_core.schemas import ArticleOut
 from devfeed_core.urls import fingerprint
 
@@ -20,7 +21,9 @@ def enabled(database, monkeypatch):
     monkeypatch.setenv("DEVFEED_IMAGE_PUBLIC_URL", "https://images.test")
     get_settings.cache_clear()
     monkeypatch.setattr(
-        image_storage_tasks, "storage_client", lambda: SimpleNamespace(close=lambda: None)
+        image_storage_tasks,
+        "storage_client",
+        lambda: R2Storage("test-images", client=SimpleNamespace(close=lambda: None)),
     )
     return database
 
@@ -67,8 +70,8 @@ def test_storage_retries_resume_and_reader_switches_only_when_complete(enabled, 
             raise FeedError("retry", reason="image_transform", retryable=True)
         return {"key": f"thumbnails/v1/hash/{width}.webp", "width": width}
 
-    monkeypatch.setattr(image_storage_tasks, "store_original", original)
-    monkeypatch.setattr(image_storage_tasks, "store_variant", variant)
+    monkeypatch.setattr(image_storage_tasks.ImageOriginalStore, "store", original)
+    monkeypatch.setattr(image_storage_tasks.ThumbnailVariantStore, "store", variant)
     with factory.begin() as session:
         job_id = request_image(session, identifier).id
     image_tasks.enrich_image(str(job_id))
@@ -108,9 +111,9 @@ def test_source_change_during_upload_does_not_publish_stale_image(enabled, monke
             "variants": [],
         }
 
-    monkeypatch.setattr(image_storage_tasks, "store_original", original)
+    monkeypatch.setattr(image_storage_tasks.ImageOriginalStore, "store", original)
     monkeypatch.setattr(
-        image_storage_tasks, "store_variant", lambda *a: {"key": "key", "width": 100}
+        image_storage_tasks.ThumbnailVariantStore, "store", lambda *a: {"key": "key", "width": 100}
     )
     image_tasks.enrich_image(str(job_id))
     with enabled.begin() as session:
@@ -252,8 +255,8 @@ def test_page_enrichment_does_not_race_discovery_before_storage(
         assert tasks.store_entries(session, source_id, parsed) == 0
 
     monkeypatch.setattr(
-        image_storage_tasks,
-        "store_original",
+        image_storage_tasks.ImageOriginalStore,
+        "store",
         lambda client, url: {
             "hash": "hash",
             "original_key": "originals/hash",
@@ -264,14 +267,130 @@ def test_page_enrichment_does_not_race_discovery_before_storage(
         },
     )
     monkeypatch.setattr(
-        image_storage_tasks,
-        "store_variant",
-        lambda client, asset, width: {
-            "key": f"thumbnails/v1/hash/{width}.webp",
-            "width": width,
-        },
+        image_storage_tasks.ThumbnailVariantStore,
+        "store",
+        lambda client, asset, width: {"key": f"thumbnails/v1/hash/{width}.webp", "width": width},
     )
     image_tasks.enrich_image(str(storage_id))
     with enabled() as session:
         assert session.get(ArticleImageJob, storage_id).status == "succeeded"
         assert ArticleOut.from_article(session.get(Article, article_id)).image_variants
+
+
+def test_recompression_is_bounded_resumes_and_publishes_atomically(enabled, monkeypatch):
+    from devfeed_core.image_jobs import backfill_thumbnail_encoding, claim_image, retry_image
+
+    identifier, source = article(enabled)
+    old = {
+        "source_url": source,
+        "version": "v1",
+        "hash": "hash",
+        "original_key": "originals/hash",
+        "source_width": 960,
+        "variants": [{"key": "thumbnails/v1/hash/960.webp", "width": 960}],
+    }
+    with enabled.begin() as session:
+        session.get(Article, identifier).managed_image = old
+    with enabled.begin() as session:
+        jobs = backfill_thumbnail_encoding(session, 1)
+        assert len(jobs) == 1
+        job_id = jobs[0].id
+        assert jobs[0].storage_version == "v2"
+        assert jobs[0].storage["variants"] == []
+        assert session.get(Article, identifier).managed_image == old
+        assert backfill_thumbnail_encoding(session, 100) == []
+        claimed, _ = claim_image(session, job_id)
+        token = claimed.lease_token
+    calls = []
+
+    def variant(client, asset, width):
+        calls.append(width)
+        assert asset["thumbnail_version"] == "v2"
+        if width == 640:
+            raise FeedError("Test failure", reason="image_transform", retryable=False)
+        return {"key": f"thumbnails/v2/hash/{width}.webp", "width": width}
+
+    monkeypatch.setattr(
+        image_storage_tasks.ImageOriginalStore,
+        "store",
+        lambda *a: pytest.fail("Refetched original"),
+    )
+    monkeypatch.setattr(image_storage_tasks.ThumbnailVariantStore, "store", variant)
+    image_storage_tasks.store_image(enabled, job_id, token, identifier, source)
+    with enabled.begin() as session:
+        assert session.get(Article, identifier).managed_image == old
+        assert session.get(ArticleImageJob, job_id).status == "failed"
+        assert backfill_thumbnail_encoding(session, 100) == []
+        retry = retry_image(session, job_id)
+        assert retry.storage["variants"] == [{"key": "thumbnails/v2/hash/320.webp", "width": 320}]
+        claimed, _ = claim_image(session, retry.id)
+        retry_id, token = retry.id, claimed.lease_token
+    monkeypatch.setattr(
+        image_storage_tasks.ThumbnailVariantStore,
+        "store",
+        lambda client, asset, width: {"key": f"thumbnails/v2/hash/{width}.webp", "width": width},
+    )
+    image_storage_tasks.store_image(enabled, retry_id, token, identifier, source)
+    with enabled.begin() as session:
+        current = session.get(Article, identifier)
+        assert current.managed_image["thumbnail_version"] == "v2"
+        assert [item["width"] for item in current.managed_image["variants"]] == [320, 640, 960]
+        assert (
+            ArticleOut.from_article(current).image_url
+            == "https://images.test/thumbnails/v2/hash/960.webp"
+        )
+        assert backfill_thumbnail_encoding(session, 100) == []
+        assert session.get(ArticleImageJob, retry_id).status == "succeeded"
+
+
+def test_recompression_never_overwrites_a_changed_source(enabled):
+    from devfeed_core.image_jobs import backfill_thumbnail_encoding, claim_image
+
+    identifier, source = article(enabled)
+    with enabled.begin() as session:
+        item = session.get(Article, identifier)
+        item.managed_image = {
+            "source_url": source,
+            "version": "v1",
+            "hash": "hash",
+            "original_key": "originals/hash",
+            "source_width": 960,
+            "variants": [{"key": "thumbnails/v1/hash/960.webp", "width": 960}],
+        }
+        job = backfill_thumbnail_encoding(session, 1)[0]
+        job_id = job.id
+        item.image_url = "https://publisher.test/replacement.png"
+    with enabled.begin() as session:
+        assert claim_image(session, job_id) is None
+        assert session.get(ArticleImageJob, job_id).outcome == "already_present"
+        assert (
+            session.get(Article, identifier)
+            .managed_image["variants"][0]["key"]
+            .startswith("thumbnails/v1/")
+        )
+
+
+def test_cli_recompression_queues_saved_originals_without_network_work(enabled):
+    from devfeed_cli.images import recompress
+
+    identifier, source = article(enabled)
+    with enabled.begin() as session:
+        session.get(Article, identifier).managed_image = {
+            "source_url": source,
+            "version": "v1",
+            "hash": "hash",
+            "original_key": "originals/hash",
+            "source_width": 640,
+            "variants": [{"key": "thumbnails/v1/hash/640.webp", "width": 640}],
+        }
+    result = recompress(SimpleNamespace(limit=1))
+    assert result["queued"] == 1
+    assert result["jobs"][0]["storage"]["thumbnail_version"] == "v2"
+    assert result["jobs"][0]["status"] == "queued"
+    assert recompress(SimpleNamespace(limit=1))["queued"] == 0
+    with enabled() as session:
+        assert (
+            session.get(Article, identifier)
+            .managed_image["variants"][0]["key"]
+            .startswith("thumbnails/v1/")
+        )

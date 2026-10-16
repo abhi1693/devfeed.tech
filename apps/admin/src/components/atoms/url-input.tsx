@@ -1,7 +1,7 @@
 import type { ComponentProps } from "react";
 import { LoaderCircle } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { Input } from "./input";
+import { Input } from "@devfeed/ui/input";
 
 export type UrlInputProps = Omit<ComponentProps<typeof Input>, "type"> & {
   loading?: boolean;

@@ -5,7 +5,8 @@ import Link from "@/components/reader-link";
 import { useEffect, useRef, useState } from "react";
 import { Check, LoaderCircle, Plus } from "lucide-react";
 import { Select } from "@devfeed/ui/select";
-import { AccountError, userRequest } from "@/lib/user";
+import { AccountError } from "@/lib/user";
+import { previewSourceSuggestion, suggestSource } from "@/lib/user-mutations";
 import { AccountGate, useUser } from "./user-account";
 
 function validFeedUrl(value: string) {
@@ -52,14 +53,21 @@ export function SourceSuggestion() {
   );
 }
 function SuggestionForm() {
-  const { user } = useUser();
+  const { user, sessionRevision } = useUser();
+  const account = useRef<AbortController | null>(null);
+  const userId = user?.user_id;
+  useEffect(() => {
+    const controller = new AbortController();
+    account.current = controller;
+    return () => controller.abort();
+  }, [userId, sessionRevision]);
   const [name, setName] = useState("");
   const [nameEdited, setNameEdited] = useState(false);
   const [preview, setPreview] = useState<{ key: string; name: string; error?: string } | null>(
     null,
   );
   const [url, setUrl] = useState("");
-  const [sourceType, setSourceType] = useState("publisher");
+  const [sourceType, setSourceType] = useState<"publisher" | "aggregator">("publisher");
   const [busy, setBusy] = useState(false);
   const inFlight = useRef(false);
   const [error, setError] = useState("");
@@ -73,12 +81,13 @@ function SuggestionForm() {
     const controller = new AbortController();
     const timer = setTimeout(async () => {
       try {
-        const result = await userRequest<{ name: string }>("sources/suggestions/preview", {
-          method: "POST",
-          headers: { "Content-Type": "application/json", "X-CSRF-Token": user.csrf_token },
-          body: JSON.stringify({ feed_url: url.trim(), source_type: sourceType }),
-          signal: AbortSignal.any([controller.signal, AbortSignal.timeout(45000)]),
-        });
+        const result = await previewSourceSuggestion(
+          { feed_url: url.trim(), source_type: sourceType },
+          {
+            csrfToken: user.csrf_token,
+            signal: AbortSignal.any([controller.signal, AbortSignal.timeout(45000)]),
+          },
+        );
         if (!controller.signal.aborted) setPreview({ key: previewKey, name: result.name });
       } catch (cause) {
         if (!controller.signal.aborted)
@@ -154,33 +163,37 @@ function SuggestionForm() {
         onSubmit={async (event) => {
           event.preventDefault();
           if (!user || inFlight.current || lookingUp) return;
+          const controller = account.current;
+          if (!controller || controller.signal.aborted) return;
           inFlight.current = true;
           setBusy(true);
           setError("");
           try {
-            const receipt = await userRequest<{ name: string }>("sources/suggestions", {
-              method: "POST",
-              headers: { "Content-Type": "application/json", "X-CSRF-Token": user.csrf_token },
-              body: JSON.stringify({
+            const receipt = await suggestSource(
+              {
                 feed_url: url.trim(),
                 source_type: sourceType,
                 ...(displayName.trim() ? { name: displayName.trim() } : {}),
-              }),
-              signal: AbortSignal.timeout(45000),
-            });
-            setSaved(receipt);
-          } catch (cause) {
-            setError(
-              cause instanceof AccountError && cause.status === 409
-                ? "This feed has already been added or suggested."
-                : cause instanceof AccountError && cause.status === 429
-                  ? "You can suggest up to five sources per hour. Please try again later."
-                  : cause instanceof AccountError && cause.status === 422
-                    ? "Enter a public RSS or Atom feed URL that opens without signing in."
-                    : cause instanceof AccountError && cause.status === 401
-                      ? "Please sign in again to submit your suggestion."
-                      : "Couldn’t submit your suggestion. Your details are still here; please try again.",
+              },
+              {
+                csrfToken: user.csrf_token,
+                signal: AbortSignal.any([controller.signal, AbortSignal.timeout(45000)]),
+              },
             );
+            if (!controller.signal.aborted) setSaved(receipt);
+          } catch (cause) {
+            if (!controller.signal.aborted)
+              setError(
+                cause instanceof AccountError && cause.status === 409
+                  ? "This feed has already been added or suggested."
+                  : cause instanceof AccountError && cause.status === 429
+                    ? "You can suggest up to five sources per hour. Please try again later."
+                    : cause instanceof AccountError && cause.status === 422
+                      ? "Enter a public RSS or Atom feed URL that opens without signing in."
+                      : cause instanceof AccountError && cause.status === 401
+                        ? "Please sign in again to submit your suggestion."
+                        : "Couldn’t submit your suggestion. Your details are still here; please try again.",
+              );
           } finally {
             inFlight.current = false;
             setBusy(false);
@@ -238,7 +251,9 @@ function SuggestionForm() {
               required
               disabled={busy}
               value={sourceType}
-              onChange={setSourceType}
+              onChange={(value) => {
+                if (value === "publisher" || value === "aggregator") setSourceType(value);
+              }}
               options={[
                 { value: "publisher", label: "Publisher" },
                 { value: "aggregator", label: "Aggregator" },

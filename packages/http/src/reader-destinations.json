@@ -1,0 +1,666 @@
+{
+  "version": 1,
+  "maxLength": 4096,
+  "parameters": {
+    "articleSlug": {
+      "pattern": "[a-zA-Z0-9][a-zA-Z0-9-]*",
+      "minLength": 1,
+      "maxLength": 200
+    },
+    "topicSlug": {
+      "pattern": "[a-zA-Z0-9][a-zA-Z0-9-]*",
+      "minLength": 1,
+      "maxLength": 100
+    },
+    "sourceSlug": {
+      "pattern": "[a-zA-Z0-9][a-zA-Z0-9-]*",
+      "minLength": 1,
+      "maxLength": 200
+    },
+    "tag": {
+      "minLength": 1,
+      "maxLength": 100,
+      "noSeparators": true
+    },
+    "username": {
+      "pattern": "[a-zA-Z0-9][a-zA-Z0-9_-]*[a-zA-Z0-9]",
+      "minLength": 3,
+      "maxLength": 30
+    },
+    "contentType": {
+      "values": {
+        "article": "articles",
+        "news": "news",
+        "tutorial": "tutorials",
+        "release": "releases",
+        "comparison": "comparisons",
+        "opinion": "opinions"
+      }
+    },
+    "settings": {
+      "values": {
+        "profile": "profile",
+        "appearance": "appearance",
+        "feed": "feed",
+        "notifications": "notifications",
+        "topics": "topics",
+        "sources": "sources"
+      }
+    }
+  },
+  "queryFields": {
+    "q": {
+      "maxLength": 200
+    },
+    "topic": {
+      "maxLength": 100
+    },
+    "tag": {
+      "maxLength": 100
+    },
+    "cursor": {
+      "maxLength": 300
+    },
+    "contentType": {
+      "values": ["article", "news", "tutorial", "release", "comparison", "opinion"]
+    },
+    "feedSort": {
+      "values": ["newest", "oldest", "most_liked", "recommended"]
+    },
+    "searchSort": {
+      "values": ["relevance", "newest", "oldest"]
+    },
+    "sourceId": {
+      "pattern": "[0-9a-fA-F]{8}-(?:[0-9a-fA-F]{4}-){3}[0-9a-fA-F]{12}"
+    },
+    "searchSection": {
+      "values": ["articles", "topics", "sources", "tags"]
+    },
+    "date": {
+      "format": "date"
+    },
+    "offset": {
+      "format": "integer",
+      "min": 0,
+      "max": 1000000
+    },
+    "request": {
+      "pattern": "[A-Za-z0-9_-]{43}"
+    }
+  },
+  "queryProfiles": {
+    "none": {
+      "fields": {}
+    },
+    "feed": {
+      "fields": {
+        "q": "q",
+        "topic": "topic",
+        "content_type": "contentType",
+        "source_id": "sourceId",
+        "tag": "tag",
+        "cursor": "cursor",
+        "sort": "feedSort"
+      }
+    },
+    "search": {
+      "fields": {
+        "q": "q",
+        "section": "searchSection",
+        "content_types": "contentType",
+        "sort": "searchSort",
+        "date_from": "date",
+        "date_to": "date"
+      }
+    },
+    "cursor": {
+      "fields": {
+        "cursor": "cursor"
+      }
+    },
+    "catalog": {
+      "fields": {
+        "offset": "offset"
+      }
+    },
+    "mcpAuthorization": {
+      "fields": {
+        "request": "request"
+      },
+      "required": ["request"]
+    }
+  },
+  "routes": [
+    {
+      "id": "home",
+      "segments": [],
+      "query": "feed",
+      "login": true,
+      "embedded": true,
+      "navigation": {
+        "type": "reader",
+        "feed": "home"
+      },
+      "labels": {
+        "telemetry": "/",
+        "screen": "/"
+      }
+    },
+    {
+      "id": "latest",
+      "segments": ["latest"],
+      "sitemap": {
+        "kind": "page",
+        "changefreq": "hourly",
+        "priority": 1,
+        "publication": { "source": "inventory", "key": "articles" }
+      },
+      "query": "feed",
+      "login": true,
+      "embedded": true,
+      "navigation": {
+        "type": "reader",
+        "feed": "latest"
+      },
+      "labels": {
+        "telemetry": "/latest",
+        "screen": "/latest"
+      }
+    },
+    {
+      "id": "search",
+      "segments": ["search"],
+      "query": "search",
+      "login": true,
+      "embedded": true,
+      "navigation": {
+        "type": "reader",
+        "feed": "search"
+      },
+      "labels": {
+        "telemetry": "/search",
+        "screen": "/search"
+      }
+    },
+    {
+      "id": "bookmarks",
+      "segments": ["read-later"],
+      "query": "cursor",
+      "login": true,
+      "embedded": true,
+      "navigation": {
+        "type": "reader",
+        "feed": "bookmarks"
+      },
+      "labels": {
+        "telemetry": "/read-later",
+        "screen": "/read-later"
+      }
+    },
+    {
+      "id": "trending",
+      "segments": ["trending"],
+      "query": "cursor",
+      "login": true,
+      "embedded": true,
+      "navigation": {
+        "type": "reader",
+        "feed": "trending"
+      },
+      "labels": {
+        "telemetry": "/trending",
+        "screen": "/trending"
+      }
+    },
+    {
+      "id": "topics",
+      "segments": ["topics"],
+      "sitemap": {
+        "kind": "page",
+        "changefreq": "daily",
+        "priority": 0.7,
+        "publication": { "source": "inventory", "key": "topics" }
+      },
+      "query": "catalog",
+      "login": true,
+      "embedded": true,
+      "navigation": {
+        "type": "local",
+        "page": "catalog",
+        "catalog": "topics"
+      },
+      "labels": {
+        "telemetry": "/topics",
+        "screen": "/topics"
+      }
+    },
+    {
+      "id": "sources",
+      "segments": ["sources"],
+      "sitemap": {
+        "kind": "page",
+        "changefreq": "daily",
+        "priority": 0.7,
+        "publication": { "source": "inventory", "key": "sources" }
+      },
+      "query": "catalog",
+      "login": true,
+      "embedded": true,
+      "navigation": {
+        "type": "local",
+        "page": "catalog",
+        "catalog": "sources"
+      },
+      "labels": {
+        "telemetry": "/sources",
+        "screen": "/sources"
+      }
+    },
+    {
+      "id": "source-suggestion",
+      "segments": ["sources", "suggest"],
+      "query": "none",
+      "login": true,
+      "embedded": true,
+      "navigation": {
+        "type": "local",
+        "page": "source-suggestion"
+      },
+      "labels": {
+        "telemetry": "/sources/suggest",
+        "screen": "/sources/suggest"
+      }
+    },
+    {
+      "id": "mcp",
+      "segments": ["mcp"],
+      "query": "none",
+      "login": true,
+      "embedded": true,
+      "navigation": {
+        "type": "local",
+        "page": "mcp"
+      },
+      "labels": {
+        "telemetry": "/mcp",
+        "screen": "/mcp"
+      }
+    },
+    {
+      "id": "mcp-authorize",
+      "segments": ["mcp", "authorize"],
+      "query": "mcpAuthorization",
+      "login": true,
+      "embedded": true,
+      "navigation": {
+        "type": "local",
+        "page": "mcp-authorize"
+      },
+      "labels": {
+        "telemetry": "/mcp/authorize",
+        "screen": "/mcp/authorize"
+      }
+    },
+    {
+      "id": "leaderboard",
+      "segments": ["leaderboard"],
+      "query": "none",
+      "login": true,
+      "embedded": true,
+      "navigation": {
+        "type": "local",
+        "page": "leaderboard"
+      },
+      "labels": {
+        "telemetry": "/leaderboard",
+        "screen": "/leaderboard"
+      }
+    },
+    {
+      "id": "dev-card",
+      "segments": ["dev-card"],
+      "query": "none",
+      "login": true,
+      "embedded": true,
+      "navigation": {
+        "type": "local",
+        "page": "dev-card"
+      },
+      "labels": {
+        "telemetry": "/dev-card",
+        "screen": "/dev-card"
+      }
+    },
+    {
+      "id": "settings",
+      "segments": [
+        "settings",
+        {
+          "name": "section",
+          "type": "settings",
+          "static": true
+        }
+      ],
+      "query": "none",
+      "login": true,
+      "embedded": true,
+      "navigation": {
+        "type": "local",
+        "page": "settings",
+        "settingsParameter": "section"
+      },
+      "labels": {
+        "telemetry": "/settings/:section",
+        "screen": "/settings/:section"
+      },
+      "aliases": [
+        {
+          "segments": ["settings"],
+          "parameters": {
+            "section": "profile"
+          }
+        }
+      ]
+    },
+    {
+      "id": "article",
+      "sitemap": {
+        "kind": "inventory",
+        "collection": "articles",
+        "changefreq": "monthly",
+        "priority": 0.8
+      },
+      "segments": [
+        "articles",
+        {
+          "name": "slug",
+          "type": "articleSlug"
+        }
+      ],
+      "query": "none",
+      "login": true,
+      "embedded": true,
+      "navigation": {
+        "type": "article",
+        "slugParameter": "slug"
+      },
+      "labels": {
+        "telemetry": "/articles/:id",
+        "screen": "/articles"
+      }
+    },
+    {
+      "id": "profile",
+      "segments": [
+        "users",
+        {
+          "name": "username",
+          "type": "username"
+        }
+      ],
+      "query": "none",
+      "login": true,
+      "embedded": true,
+      "navigation": {
+        "type": "profile",
+        "usernameParameter": "username"
+      },
+      "labels": {
+        "telemetry": "/users/:username",
+        "screen": "/users/profile"
+      }
+    },
+    {
+      "id": "topics-detail",
+      "sitemap": {
+        "kind": "inventory",
+        "collection": "topics",
+        "changefreq": "daily",
+        "priority": 0.6
+      },
+      "segments": [
+        "topics",
+        {
+          "name": "slug",
+          "type": "topicSlug"
+        }
+      ],
+      "query": "feed",
+      "login": true,
+      "embedded": true,
+      "navigation": {
+        "type": "reader",
+        "feed": "contextual",
+        "collection": "topics",
+        "slugParameter": "slug"
+      },
+      "labels": {
+        "telemetry": "/topics/:id",
+        "screen": "/topics/detail"
+      }
+    },
+    {
+      "id": "topics-content",
+      "segments": [
+        "topics",
+        {
+          "name": "slug",
+          "type": "topicSlug"
+        },
+        {
+          "name": "contentType",
+          "type": "contentType"
+        }
+      ],
+      "query": "feed",
+      "login": true,
+      "embedded": true,
+      "navigation": {
+        "type": "reader",
+        "feed": "contextual",
+        "collection": "topics",
+        "slugParameter": "slug",
+        "contentTypeParameter": "contentType"
+      },
+      "labels": {
+        "telemetry": "/topics/:id/:type",
+        "screen": "/topics/detail"
+      }
+    },
+    {
+      "id": "sources-detail",
+      "sitemap": {
+        "kind": "inventory",
+        "collection": "sources",
+        "changefreq": "daily",
+        "priority": 0.6
+      },
+      "segments": [
+        "sources",
+        {
+          "name": "id",
+          "type": "sourceSlug"
+        }
+      ],
+      "query": "feed",
+      "login": true,
+      "embedded": true,
+      "navigation": {
+        "type": "reader",
+        "feed": "contextual",
+        "collection": "sources",
+        "slugParameter": "id"
+      },
+      "labels": {
+        "telemetry": "/sources/:id",
+        "screen": "/sources/detail"
+      }
+    },
+    {
+      "id": "sources-content",
+      "segments": [
+        "sources",
+        {
+          "name": "id",
+          "type": "sourceSlug"
+        },
+        {
+          "name": "contentType",
+          "type": "contentType"
+        }
+      ],
+      "query": "feed",
+      "login": true,
+      "embedded": true,
+      "navigation": {
+        "type": "reader",
+        "feed": "contextual",
+        "collection": "sources",
+        "slugParameter": "id",
+        "contentTypeParameter": "contentType"
+      },
+      "labels": {
+        "telemetry": "/sources/:id/:type",
+        "screen": "/sources/detail"
+      }
+    },
+    {
+      "id": "tags-detail",
+      "sitemap": {
+        "kind": "inventory",
+        "collection": "tags",
+        "changefreq": "daily",
+        "priority": 0.6
+      },
+      "segments": [
+        "tags",
+        {
+          "name": "slug",
+          "type": "tag"
+        }
+      ],
+      "query": "feed",
+      "login": true,
+      "embedded": false,
+      "navigation": {
+        "type": "reader",
+        "feed": "contextual",
+        "collection": "tags",
+        "slugParameter": "slug"
+      },
+      "labels": {
+        "telemetry": "/tags/:id",
+        "screen": "/tags/detail"
+      }
+    },
+    {
+      "id": "tags-content",
+      "segments": [
+        "tags",
+        {
+          "name": "slug",
+          "type": "tag"
+        },
+        {
+          "name": "contentType",
+          "type": "contentType"
+        }
+      ],
+      "query": "feed",
+      "login": true,
+      "embedded": false,
+      "navigation": {
+        "type": "reader",
+        "feed": "contextual",
+        "collection": "tags",
+        "slugParameter": "slug",
+        "contentTypeParameter": "contentType"
+      },
+      "labels": {
+        "telemetry": "/tags/:id/:type",
+        "screen": "/tags/detail"
+      }
+    },
+    {
+      "id": "content",
+      "sitemap": {
+        "kind": "page",
+        "changefreq": "hourly",
+        "priority": 0.7,
+        "publication": { "source": "inventory", "key": "feed", "parameter": "contentType" }
+      },
+      "segments": [
+        {
+          "name": "contentType",
+          "type": "contentType"
+        }
+      ],
+      "query": "feed",
+      "login": true,
+      "embedded": true,
+      "navigation": {
+        "type": "reader",
+        "feed": "contextual",
+        "contentTypeParameter": "contentType"
+      },
+      "labels": {
+        "telemetry": "/:contentType",
+        "screen": "/:contentType"
+      }
+    },
+    {
+      "id": "legal-privacy",
+      "segments": ["legal", "privacy"],
+      "page": {
+        "section": "legal",
+        "title": "Privacy Policy",
+        "description": "How DevFeed processes account information, preferences and usage data, and how to contact us about your privacy.",
+        "updated": "2026-09-14",
+        "order": 1
+      },
+      "sitemap": {
+        "kind": "page",
+        "changefreq": "monthly",
+        "priority": 0.2,
+        "publication": { "source": "page" }
+      },
+      "query": "none",
+      "login": true,
+      "embedded": false
+    },
+    {
+      "id": "legal-terms",
+      "segments": ["legal", "terms"],
+      "page": {
+        "section": "legal",
+        "title": "Terms of Service",
+        "description": "The terms for using DevFeed to discover developer news, follow topics and sources, and share source suggestions.",
+        "updated": "2026-09-13",
+        "order": 0
+      },
+      "sitemap": {
+        "kind": "page",
+        "changefreq": "monthly",
+        "priority": 0.2,
+        "publication": { "source": "page" }
+      },
+      "query": "none",
+      "login": true,
+      "embedded": false
+    },
+    {
+      "id": "login",
+      "segments": ["login"],
+      "query": "none",
+      "login": false,
+      "embedded": false
+    },
+    {
+      "id": "extension-login-complete",
+      "segments": ["extension", "login-complete"],
+      "query": "none",
+      "login": true,
+      "embedded": false
+    }
+  ]
+}

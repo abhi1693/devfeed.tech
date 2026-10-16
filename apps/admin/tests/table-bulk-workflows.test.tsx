@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { recordIdentity } from "@/lib/record-identities";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { TopicProposalsTable } from "@/components/organisms/topic-proposals-table";
@@ -173,6 +174,9 @@ it.each(["topics", "tags", "topic-relations", "articles", "sources"] as const)(
       name: "Example",
       title: "Example",
       publication_status: "unpublished",
+      topic_id: "react",
+      related_topic_id: "javascript",
+      relation: "uses_language",
     };
     renderAdmin(
       <RecordTable
@@ -189,7 +193,7 @@ it.each(["topics", "tags", "topic-relations", "articles", "sources"] as const)(
     });
     fireEvent.click(screen.getByRole("button", { name: "Delete permanently" }));
     await waitFor(() =>
-      expect(deleteRecord).toHaveBeenCalledWith(resource, record.id, "test-csrf"),
+      expect(deleteRecord).toHaveBeenCalledWith(recordIdentity(resource, record), "test-csrf"),
     );
   },
 );

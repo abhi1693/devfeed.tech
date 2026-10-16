@@ -5,6 +5,28 @@ URL-based search and filters, topic and source directories, and article previews
 with original-publisher links. Public browsing uses the anonymous API. Optional sign-in, followed topics, and
 My feed use the separate user API through a same-origin gateway.
 
+Guest homepage entry renders the public feed directly at `/` without a document
+redirect. Both `/` and `/latest` default to **All** content types. Selecting
+**Articles** restricts the feed; selecting **All** removes that restriction. Query filters, cursors
+and campaign attribution remain in the entry URL. Canonical metadata points to
+the established public feed routes; verified sessions still receive private My
+feed metadata and content. Chrome and Edge use the same guest defaults and keep
+root entry in place after session detection.
+
+For guests, both entry points canonicalize to `/latest`. The homepage search title
+is "Developer news, tutorials & releases"; `/latest` uses "Latest developer news,
+tutorials & releases" in HTML and social metadata. After deploying title changes,
+recrawl HTTP and HTTPS entry points and check their titles and shared HTTPS
+canonical in Search Console and Bing Webmaster Tools.
+
+After a production build, run `node apps/web/tests/browser/home-entry.mjs` for
+entry, query, canonical and session regression checks. Set
+`DEVFEED_ENTRY_BENCH=before` or `after` to capture three paired root/direct-latest
+Lighthouse mobile runs with fresh Chrome profiles, default simulated mobile
+throttling and a deterministic local API fixture. JSON/HTML reports and screenshots
+stay under ignored `reports/home-entry/`. Compare builds using the same browser,
+Lighthouse version and fixture; these lab measurements are not field p75 data.
+
 New-account topic selection displays each page as it arrives. Each request has its
 own timeout; a later failure preserves loaded topics and selections, and retry
 resumes at the failed page. Saving or closing the dialog stops catalog loading.
@@ -32,6 +54,37 @@ This setting is read at runtime and is also exposed to Chrome and Edge through
 localhost fallback when it is unset. See the [MCP guide](../mcp/README.md).
 
 Run `npm run web:lint`, `npm run web:test`, and `npm run web:build` to validate.
+After user API route or transport-policy changes, run `npm run web:generate` and
+include the OpenAPI, operation definitions and concrete Next handlers together.
+The same command generates extension transport policies from user API metadata and
+the public reader bindings in `src/lib/api/reader-bindings.json`.
+`node apps/web/tests/browser/reader-gateway.mjs` checks the built gateway over real
+HTTP, including cookie isolation, placement validation and body-reading deadlines.
+
+Server JSON reads use `PublicApiClient` or `PrivateApiClient` from
+`src/lib/server/api-client.ts`. The public client binds the configured public API
+origin and requests `max-age=600` upstream, while Next fetch storage uses
+`no-store`. The private client binds the user API origin, requests `no-store`
+even for anonymous reads, and forwards only reader cookies. Select a client by
+operation ownership. Endpoint names do not select credentials or cache policy.
+Sitemap inventory uses a public client configured for fresh reads and a
+55-second deadline.
+
+The shared reader destination definitions declare sitemap inclusion, priority,
+change frequency, and publication metadata. Legal pages also take their titles,
+descriptions, paths, and update dates from those definitions. Sitemap handlers
+serialize declared destinations and serve the backend's retained inventory.
+
+See [public search markup](SEARCH.md) for the page-to-feature matrix, structured
+data identity and attribution rules, profile indexing policy and post-deployment
+Search Console checks.
+
+After building web, Chrome, and Edge, run
+`node --test --test-name-pattern="server reads" apps/web/tests/browser/feed.mjs` or
+`node --test --test-name-pattern="server reads" apps/extensions/tests/reader.browser.mjs`
+to check public/private reads and sitemap responses. Set `DEVFEED_EXTENSION_BROWSER=edge` for Edge.
+The web checks record actual server requests to separate local upstreams;
+browser screenshots stay under ignored `reports/server-reads/`.
 
 On the public `devfeed.tech` host, requests forwarded by Cloudflare with
 `X-Forwarded-Proto: http` receive a permanent redirect to the same HTTPS path
@@ -51,6 +104,24 @@ are marked noindex; missing articles still return 404 and unexpected exceptions
 still reach the error boundary. Chrome and Edge share the error content and retry
 control. The browser suites exercise failure followed by successful retry.
 
+Reader cards and inbox actions pass `articleDestination(slug)` to navigation;
+page actions use `pageDestination(href)` with their scroll policy. `ReaderLink`
+serializes these destinations for native links, and `useReaderRouter` forwards
+them through the website or extension adapter. Requested article identity and
+overlay ownership come from the registered Next route slots or extension history
+state, including while the article is loading or unavailable. Preview components
+do not recover that state from URL strings. Extensions retain the resolved
+background page across preview navigation and browser history.
+
+After building web, Chrome, and Edge, run
+`node --test --test-name-pattern="reader navigation" apps/web/tests/browser/feed.mjs` or
+`node --test --test-name-pattern="reader navigation" apps/extensions/tests/reader.browser.mjs`
+for the navigation journey. Without a name filter, every named scenario runs with its own fixtures.
+Use `DEVFEED_EXTENSION_BROWSER=edge` for the Edge run. It checks retained feed
+DOM and scroll, direct and intercepted previews, Back/Forward, retry, and inbox
+article and settings navigation. Evidence stays under ignored
+`reports/reader-destinations/`.
+
 ## Reader loading and pagination
 
 Reader pages must not exhaust a catalog or feed to render the first screen. The shared web reader and Chrome/Edge extensions use the same incremental choices and scrolling controls.
@@ -67,6 +138,12 @@ Reader pages must not exhaust a catalog or feed to render the first screen. The 
 | Search                              | One search response                                                                                | Independent section cursors on scroll                                                 |
 | Public Markdown catalog/feed routes | One bounded page                                                                                   | Next-page links, without draining catalogs                                            |
 
+Search's Results filter distinguishes Articles, News, Tutorials, Releases,
+Comparisons, and Opinions. All article types searches those six types together;
+All results also includes topics, sources, and tags. Type choices use the public
+API's `content_types` filter and remain selected through sorting, date changes,
+shared URLs, and pagination on web, Chrome, and Edge.
+
 The settings server components do not preload catalogs for signed-out visitors. Saved topic/source IDs are loaded independently of visible catalog rows; saving a partially loaded selection must retain IDs outside that page. Search is debounced and applied by the public API before offset/limit, so it finds entries that have never been downloaded. Matching is case-insensitive literal name containment, including literal `%` and `_`. Existing publication, approval, enabled-source and active-topic filters still apply.
 
 Requests have deadlines, cancel on unmount/inactivity, and deduplicate cursor loads. Replacing a search unmounts its page state and cancels the prior request. Failed pages retain already-loaded items and expose a manual retry; they do not start an automatic retry loop.
@@ -76,6 +153,49 @@ Requests have deadlines, cancel on unmount/inactivity, and deduplicate cursor lo
 Shared browser regression helpers test preferences, public directories, onboarding, feed/search scrolling, and article/detail navigation against the production web build and both built extensions. Preference checks record catalog requests to reject eager later-page fetches, search for an unloaded item, and retain selection after clearing search. Backend integration tests use disposable PostgreSQL and Redis to verify global search, pagination, literal wildcards, and public visibility rules.
 
 The public API adds the optional `q` parameter to topics/sources. Deploy that API before the corresponding reader/extension release: an older API ignores `q` and cannot provide correct global catalog search. New same-origin topic/source detail endpoints must also be live before distributing the updated extensions. No database migration is needed. These source changes and local validations do not prove a production latency improvement until a separately authorized deployment is measured.
+
+## Partner placements
+
+The shared web, Chrome and Edge reader expires product placements one hour after
+their tracking receipt was issued. A timer and tab-resume checks enforce the
+deadline while the page stays mounted. Expired feed cards become hidden, inert
+cells with the same dimensions, preserving article position and focus. Placements
+outside feed slots are hidden. The same reading context does not fetch replacements;
+navigation to a new context can request a fresh delivery. Tracking checks the
+deadline before impressions, clicks and retries, including after suspended timers.
+
+After building the web app and both extensions, run
+`node apps/web/tests/browser/partner-placements.mjs` and
+`node apps/web/tests/browser/partner-tracking.mjs` for browser parity checks.
+
+## Direct article entry
+
+Direct article URLs stream the requested preview before the optional background feed.
+The server-open dialog is readable without the reader bundle; a small response-nonced
+script enables native modality immediately. Hydration preserves that modal instead
+of closing and reopening it, and direct entries skip the opacity entrance animation.
+Escape works before hydration too. Intercepted feed previews retain their animation,
+focus restoration, history and scroll behavior, including in Chrome and Edge.
+
+`tests/browser/article-first.mjs` holds every external application bundle while
+checking summary/error visibility, native focus containment and scroll locking.
+The web feed suite also checks Escape with those bundles unavailable. Extension
+reader suites exercise the shared native-modal and navigation behavior.
+
+For five serial mobile Lighthouse runs against a production build:
+
+```sh
+node scripts/ci/browser-performance.mjs --article-entry=before --article-fixture=/tmp/article.json
+node scripts/ci/browser-performance.mjs --article-entry=after --article-fixture=/tmp/article.json
+```
+
+Use identical public `{ "article": ... }` JSON snapshots and baseline/fixed source
+for each phase. The harness retains the snapshot, raw JSON/HTML and summaries under
+ignored `reports/article-entry/`. It uses local deterministic cover/icons, anonymous
+storage and Lighthouse mobile defaults (412×823, DPR 1.75, simulated mobile network,
+4× CPU). These controlled results do not prove deployed production latency; measure
+the public URL again after a separately authorized rollout. Default CI remains
+three runs across all six reader pages.
 
 ## Reader invitations
 
@@ -102,6 +222,20 @@ releases it on unmount and restores the existing dialog scroll behavior.
 against the website and both built extensions; `feed-onboarding.mjs` also checks
 onboarding priority and the pause. Review screenshots stay in ignored reports or
 extension build output.
+
+## Article preview covers
+
+Article previews reserve a responsive 16:9 cover frame, up to 420px wide, before
+loading publisher images. Images retain their original proportions with
+`object-fit: contain`; square and portrait images have space around them rather than being cropped.
+Failed images use the same frame for their placeholder, keeping the preview layout stable.
+
+Shared browser regression coverage in `scripts/testing/preview-cover.mjs` exercises
+delayed landscape, square, portrait, and failed images at mobile and desktop sizes
+on the website and both built extensions. Reports and screenshots stay untracked in
+`reports/preview-cover`. Every run asserts reserved dimensions, stable surrounding layout,
+and Lighthouse's `unsized-images` sizing classification using the authored CSS.
+These deterministic fixture reports are not full production Lighthouse audits.
 
 ## Dev card signup preview
 
@@ -311,6 +445,135 @@ these request-rendered routes. Adopting them requires a compatible CSP design
 and verification of runtime settings, authentication, and personalized feeds.
 
 Validate with `npm run web:lint`, `npm run web:test`, and `npm run web:build`.
+
+Public `/latest`, `/sources`, and `/topics` documents stream the shared navigation
+and an accessible loading state while public results load. Listing boundaries do
+not wrap detail routes: missing or hidden topics/sources still return HTTP 404.
+Feed redirects and session checks finish before the feed boundary. Keep one
+`UserShell` outside the results boundary and pass `withShell={false}` to the
+feed/catalog content inside it. The extension adapters use the same structure,
+so loading completion preserves search drafts, focus, and text selection. Canonical
+metadata remains in the initial head, and HTML retains fresh CSP nonces and
+`no-store`. Public reads continue using the API's generation-validated cache;
+there is no additional web data or HTML cache.
+
+After a production build, `node apps/web/tests/browser/document-streaming.mjs`
+checks blocked API reads, retained search drafts/focus/selection, metadata,
+per-user preferences, visibility changes and HTTP status codes. For read-only latency profiling, set
+`DEVFEED_DOCUMENT_API_ORIGIN` to a public API origin and run
+`node apps/web/tests/browser/document-latency.mjs`. Optionally set
+`DEVFEED_DOCUMENT_PHASE=before` or `after`; reports stay under ignored
+`reports/document-latency/`. The profiler records the first document byte and
+completion time, upstream duration/count/cache status, and initial canonical
+metadata. Each path gets a new Next process and five warm repeats. Process-cold
+and API-cache-cold are distinct: inspect the recorded upstream cache status.
+Streaming improves the first response; it does not promise faster API queries or
+completion. Local results do not establish production Lighthouse or field p75.
+
+## Profile avatar delivery
+
+Uploaded WebP avatars retain their fixed account object keys, revision queries, and
+revalidation policy so replacements and deletions remain effective. Profile and visibility
+responses remain uncached in browsers; image caching never makes a private profile public.
+
+The shared reader optimizes only `https://avatars.githubusercontent.com/u/NUMERIC_ID`
+avatars with supported numeric `v`/`s` parameters. Its `/api/avatars/github/ID/SIZE` endpoint
+constructs the upstream URL, uses the existing public-DNS-pinned, byte/pixel/time-bounded
+image fetcher, and emits metadata-free WebP at 32/64/96/128/192/256/512px. Other selected
+URLs remain unchanged; managed uploads take precedence. Packaged readers use the website
+origin for this endpoint. An unavailable image falls back to initials.
+
+GitHub images have a bounded one-hour browser/CDN cache with content ETags, rather than
+immutable caching because GitHub can change artwork at the same URL. The existing bounded
+in-process image cache lasts 30 minutes; provider changes can therefore take up to 90 minutes
+to propagate through both caches. Replacing a selected URL or its version changes the cache
+key immediately. Upstream work coalesces, with at most 16 active requests and 64 queued
+requests. Queue waiting and fetching share the caller’s timeout budget; expired waiters
+leave the queue, and shared callers retain their own deadlines. Queue expiration and
+requests beyond the bound are not cached, so a later attempt can succeed.
+
+Run `node tests/benchmarks/avatar-delivery.mjs` after a web build to compare current GitHub
+PNG delivery with the actual optimized endpoint at mobile/desktop DPRs. Downloaded artwork,
+reports and screenshots stay in ignored `reports/avatar-delivery`.
+
+## Back and Forward
+
+See [reader history restoration](HISTORY.md) for the session and visibility guards,
+BFCache blocker assessment, and reproducible web/Chrome/Edge comparison. The
+browser regressions run in `npm run ci:reader-parity`.
+
+## Reader startup measurements
+
+Profile links use content-hashed local SVG masks instead of shipping the full brand-path
+catalogue as JavaScript, including GitHub and X. Each displayed brand makes a cacheable local
+asset request. Chrome and Edge builds copy the same assets into each package;
+no third-party favicon lookup occurs. Run `node scripts/assets/profile-icons.mjs` after
+updating Simple Icons, then remove unused old asset files and commit the updated map/assets.
+
+Operational browser telemetry retains its hydration-time initialization, error/event collection,
+sanitization, disabled/DNT guards and 10% session sampling policy. Tracing code loads only after
+a session is sampled, including later session changes; sampled tracing begins after its
+asynchronous import completes.
+Passive profile-view analytics are queued until interaction or page exit, retaining the original
+public pathname without query/hash. The queue is bounded to 20 views; first-action events still
+configure analytics and flush queued views before sending the action. Clarity retains its
+existing first-interaction behavior.
+
+Build the website, then run `DEVFEED_STARTUP_LIGHTHOUSE=1 node tests/benchmarks/reader-startup.mjs LABEL`
+on each revision. The deterministic anonymous API fixture serves identical feed, directory and
+profile content, with operational telemetry enabled and a fixed unsampled decision for comparable runs. UUID
+generation remains unchanged. The driver records browser coverage and
+screenshots on four routes, plus three fresh Lighthouse mobile/desktop runs for the feed,
+topics and profile. Reports remain in ignored `reports/reader-startup/LABEL`; they measure
+controlled local behavior, not production field performance. Framework and interaction code
+must be retained even when initial coverage marks it unused.
+
+## Public document latency
+
+The anonymous homepage uses the same streamed public shell as `/latest`; its results still
+come from fresh upstream reads. Session verification finishes before choosing the guest or
+personal shell, and metadata/canonicals remain in the initial head. HTML stays private with
+a fresh CSP nonce per response.
+
+Feed metadata and page content share identical resolved public feed URLs through React's
+request-scoped `cache`. Language/content preferences are resolved before forming that key.
+The snapshot ends with the render: another request must check the public API again, including
+after visibility/publication changes. Calls with caller abort signals keep independent
+transports. The API's generation-aware cache and its invalidation policy are unchanged;
+Next/browser caches do not retain feed responses.
+
+For a comparison, use the same benchmark scripts on both revisions, install the locked
+dependencies, and build each revision with `npm run web:build` before measuring it:
+
+```sh
+node scripts/ci/document-latency.mjs before
+node scripts/ci/document-latency.mjs before --lighthouse-only
+# Run against the candidate build, retaining both report directories:
+node scripts/ci/document-latency.mjs after
+node scripts/ci/document-latency.mjs after --lighthouse-only
+node scripts/ci/compare-document-latency.mjs
+```
+
+Reports stay in ignored `reports/document-latency/`. The driver runs a production Next server
+against isolated deterministic HTTP fixtures (24 feed articles, 60 directory entries) and a
+local OTLP collector. Real Next spans separate metadata, rendering and upstream timings;
+request logs show session/preference calls and duplicate feed reads. Each route/identity has
+a fresh process, a first-route request after the readiness probe, then seven warm requests.
+A fixed 240/80/140/60/120/90/180/100 ms upstream sequence makes response-blocking variability
+repeatable. These labels describe the frontend route/process, not cold PostgreSQL/Redis or
+production field latency. The optional Lighthouse pass records two fresh-browser mobile and
+desktop server-response-time audits on `/`, `/latest`, and `/sources` with an 80 ms upstream.
+
+Against `860716a2`, warm guest-homepage median TTFB decreased from 142.8 to 22.6 ms and its
+range width from 116.3 to 20.9 ms. Expired-session homepage median TTFB decreased from 357.5
+to 129.0 ms while keeping identity verification. Topic documents dropped from four upstream
+requests to three by sharing the metadata/content feed response; their latency did not improve
+in this sample. Full response timings remain in the comparison to distinguish earlier shell
+delivery from earlier article delivery. Deployment/network latency needs a separate live check.
+
+Reader browser regressions verify the shell with feed responses held pending on web and both
+built extensions, as well as distinct reader preferences, per-response nonces, and subsequent
+unpublication/republication. These checks avoid relying on machine-dependent timing limits.
 
 Cloudflare Web Analytics is injected at the public edge. See
 [the telemetry assessment and trace comparison](CLOUDFLARE_TELEMETRY.md) before

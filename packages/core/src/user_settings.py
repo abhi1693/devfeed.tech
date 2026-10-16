@@ -14,6 +14,7 @@ from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
 from devfeed_core.models import AdminPreference, utcnow
+from devfeed_core.partner_audiences import ExperienceLevel
 from devfeed_core.schemas import ContentType, DatabaseText, ImageVariant, TextInput, TopicKind
 from devfeed_core.urls import validate_public_url
 from devfeed_core.usernames import normalize_username
@@ -144,6 +145,7 @@ class UserProfileUpdate(ProfileSettings):
     bio: TextInput | None = Field(default=None, max_length=160)
     location: TextInput | None = Field(default=None, max_length=100)
     about: TextInput | None = Field(default=None, max_length=5000)
+    experience_level: ExperienceLevel | None = None
     links: list[ProfileLink] = Field(default_factory=list, max_length=20)
     stack: list[UserStackItem] = Field(default_factory=list, max_length=100)
     visibility: ProfileVisibility = Field(default_factory=ProfileVisibility)
@@ -202,6 +204,7 @@ class UserProfileSettings(ProfileSettings):
     bio: str | None = None
     location: str | None = None
     about: str | None = None
+    experience_level: ExperienceLevel | None = None
     links: list[ProfileLink] = Field(default_factory=list)
     stack: list[UserStackOut] = Field(default_factory=list)
     visibility: ProfileVisibility = Field(default_factory=ProfileVisibility)

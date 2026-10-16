@@ -1,10 +1,22 @@
-import { Badge } from "@/components/atoms/badge";
+import { Badge } from "@devfeed/ui/badge";
 import { BooleanIndicator } from "@/components/atoms/boolean-indicator";
 import { humanize } from "@/lib/resources";
 import type { PillTone } from "@/lib/column-kinds";
 
 const tones: Record<string, PillTone> = {
   ready: "success",
+  qualified: "success",
+  resolved: "success",
+  checking: "info",
+  syncing: "info",
+  waiting: "warning",
+  attention: "warning",
+  unresolved: "warning",
+  irrelevant: "danger",
+  excluded: "neutral",
+  withdrawn: "neutral",
+  unavailable: "neutral",
+  paused: "neutral",
   refreshing: "info",
   expired: "warning",
   approved: "success",

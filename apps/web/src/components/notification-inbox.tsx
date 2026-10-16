@@ -9,8 +9,8 @@ const UserInbox = lazy(() =>
 );
 
 export function NotificationInbox() {
-  const { user } = useUser();
-  return user ? (
+  const { user, loading } = useUser();
+  return user && !loading ? (
     <Suspense fallback={null}>
       <UserInbox key={user.user_id} user={user} />
     </Suspense>

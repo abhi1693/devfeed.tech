@@ -3,7 +3,8 @@ import type { ReactNode } from "react";
 import { UserShell } from "./user-shell";
 import { JsonLd } from "./json-ld";
 import { canonicalUrl } from "@/lib/metadata";
-import { legalEmail, legalPages, legalSocialUrl } from "@/lib/legal";
+import { pageStructuredData } from "@/lib/structured-data";
+import { legalEmail, legalPages, legalSocialUrl, type LegalDocument } from "@/lib/legal";
 
 export type LegalSection = { id: string; title: string; content: ReactNode };
 
@@ -18,28 +19,19 @@ export function LegalContact() {
 }
 
 export function LegalPage({
-  title,
-  path,
-  introduction,
+  document,
   sections,
 }: {
-  title: string;
-  path: (typeof legalPages)[number]["path"];
-  introduction: string;
+  document: LegalDocument;
   sections: LegalSection[];
 }) {
-  const updated = legalPages.find((page) => page.path === path)!.updated;
+  const { title, path, updated, description } = document;
   return (
     <UserShell section="legal">
       <JsonLd
         data={{
-          "@context": "https://schema.org",
-          "@type": "WebPage",
-          name: title,
-          url: canonicalUrl(path),
-          description: introduction,
+          ...pageStructuredData(canonicalUrl(path), title, { description }),
           dateModified: updated,
-          isPartOf: { "@id": `${canonicalUrl("/")}#website` },
         }}
       />
       <article className="legal-document">
@@ -56,7 +48,7 @@ export function LegalPage({
             ))}
           </nav>
           <h1>{title}</h1>
-          <p>{introduction}</p>
+          <p>{description}</p>
           <p className="legal-updated">
             Effective and last updated:{" "}
             <time dateTime={updated}>

@@ -2,13 +2,13 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { RetryButton } from "@devfeed/ui/retry-button";
-import { Button } from "@/components/atoms/button";
-import { Input } from "@/components/atoms/input";
+import { Button } from "@devfeed/ui/button";
+import { Input } from "@devfeed/ui/input";
 import { useRefreshInterval } from "@/lib/use-refresh-interval";
-import { usePolling } from "@/lib/use-polling";
+import { usePolling } from "@devfeed/ui/use-polling";
 import { runWhenPageActive } from "@devfeed/ui/page-activity";
 import { Select } from "@/components/molecules/select";
-import { InfoPanel } from "@/components/molecules/info-panel";
+import { ResourcePanel } from "@devfeed/ui/resource-layout";
 import { JobLogLine } from "@/components/molecules/job-log-entry";
 import { adminJobLogs } from "@/lib/api/generated/admin";
 import type { AdminJobLogs, JobLogEntry } from "@/lib/api/generated/models";
@@ -155,7 +155,7 @@ function LogViewer({ kind, id, followExecution = false }: Props) {
     setTimeout(() => URL.revokeObjectURL(url), 0);
   }
   return (
-    <InfoPanel title="Runtime logs">
+    <ResourcePanel title="Runtime logs">
       <div className="space-y-4" aria-busy={loading}>
         <div className="flex flex-wrap items-center justify-between gap-3">
           <p className="text-xs text-muted-foreground" role="status">
@@ -239,6 +239,6 @@ function LogViewer({ kind, id, followExecution = false }: Props) {
           <p className="text-sm text-muted-foreground">No logs are available for this run.</p>
         )}
       </div>
-    </InfoPanel>
+    </ResourcePanel>
   );
 }

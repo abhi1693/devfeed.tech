@@ -2,12 +2,12 @@
 
 import Link from "next/link";
 import { useState } from "react";
-import { Button } from "@/components/atoms/button";
-import { Input } from "@/components/atoms/input";
-import { Textarea } from "@/components/atoms/textarea";
+import { Button } from "@devfeed/ui/button";
+import { Input } from "@devfeed/ui/input";
+import { Textarea } from "@devfeed/ui/textarea";
 import { Field } from "@/components/molecules/field";
 import { Select } from "@/components/molecules/select";
-import { PageHeading } from "@/components/molecules/page-heading";
+import { ResourceHeading } from "@devfeed/ui/resource-layout";
 import { RequestState } from "@/components/molecules/request-state";
 import { useAdmin } from "@/components/molecules/admin-session";
 import { resourceTrail } from "@/lib/routes";
@@ -88,7 +88,7 @@ export function SourceImport() {
 
   return (
     <section className="min-w-0 space-y-8">
-      <PageHeading
+      <ResourceHeading
         title="Import sources"
         trail={trail}
         description="Add sources from a link, file, or pasted list."

@@ -1,11 +1,11 @@
 import Link from "@/components/reader-link";
 import { LegalContact, LegalPage, type LegalSection } from "@/components/legal-page";
 import { canonicalUrl, pageMetadata } from "@/lib/metadata";
+import { legalDocument } from "@/lib/legal";
 
-const description =
-  "The terms for using DevFeed to discover developer news, follow topics and sources, and share source suggestions.";
+const document = legalDocument("legal-terms");
 export function generateMetadata() {
-  return pageMetadata("Terms of Service", description, canonicalUrl("/legal/terms"));
+  return pageMetadata(document.title, document.description, canonicalUrl(document.path));
 }
 
 const sections: LegalSection[] = [
@@ -210,12 +210,5 @@ const sections: LegalSection[] = [
 ];
 
 export default function TermsPage() {
-  return (
-    <LegalPage
-      title="Terms of Service"
-      path="/legal/terms"
-      introduction={description}
-      sections={sections}
-    />
-  );
+  return <LegalPage document={document} sections={sections} />;
 }

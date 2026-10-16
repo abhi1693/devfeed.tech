@@ -101,6 +101,7 @@ async function closeWithEscape(page, panel, trigger) {
 }
 
 export async function checkReadingStreak(page, screenshot, { fixture, mustReads } = {}) {
+  await page.bringToFront();
   assert.ok(fixture, "Reading streak checks require recorded weekly fixture data");
   await mkdir(path.dirname(screenshot), { recursive: true });
   const original = page.viewportSize();

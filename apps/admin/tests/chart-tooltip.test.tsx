@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { cleanup, render, screen, within } from "@testing-library/react";
 import { afterEach, expect, it } from "vitest";
-import { ChartTooltip, DistributionTooltip } from "@/components/atoms/chart";
+import { ChartTooltip, DistributionTooltip } from "@devfeed/ui/chart";
 
 afterEach(cleanup);
 

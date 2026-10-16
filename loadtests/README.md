@@ -28,6 +28,12 @@ articles, 20 sources/topics, cache disabled and API admission 16. The dataset
 is synthetic and the topology is one API and one pooler. It is not a production
 capacity model.
 
+Reports stay within the invocation directory's `reports/` folder. `--output` can
+select a subdirectory there, using a relative or absolute path; paths or symlinks
+that escape that folder are rejected before the runner creates resources. Run
+from the repository root for the examples below. Repeating a run replaces its
+reports, but an existing `database-statistics.json` symlink is rejected.
+
 Compare uncached database pressure with a normal cache-enabled run **sequentially**
 on the same otherwise idle machine, with separate report directories:
 
@@ -45,6 +51,15 @@ on test failure. It writes CSV endpoint statistics and history, an HTML report,
 API/setup logs, run metadata and a post-run `SHOW POOLS` snapshot. The API remains
 alive during the snapshot; retained application clients or waiting work fail the
 run. PgBouncer's idle **server** connections are expected and reusable.
+
+After committing the seed data, the runner explicitly analyzes its disposable
+database so query plans do not depend on automatic analyze starting during the
+measurement. `database-statistics.json` records each table's estimated row count,
+page count, and analyze timestamps before the API starts. This preparation applies
+equally to the base and candidate applications.
+The seed subprocess emits statistics as JSON on stdout and its progress message
+on stderr; the runner saves those streams to the statistics artifact and setup
+log respectively. The seed command accepts only the row count, with no output path.
 
 ## Existing staging API / interactive UI
 
@@ -110,9 +125,12 @@ and throughput, individual-run health, and interpretation details.
 CI checks out the event's exact base and head commits into separate directories
 and installs each revision's own locked application dependencies. The candidate's
 Locust harness drives both versions, including bases that predate this harness.
-Each gets a new database, seed dataset, Redis and PgBouncer. Six matrix jobs run in parallel, three samples per revision. **Each sample gets
-a fresh GitHub-hosted ARM64 runner**, so leaked resources cannot carry over
-between samples. All samples use the same profile:
+Each gets a new database, seed dataset, Redis, PgBouncer and API process. Three matrix
+jobs run in parallel, **each on a fresh GitHub-hosted ARM64 runner**. Each job measures
+base and head sequentially, alternating which revision runs first. This produces six
+isolated samples, three per revision, while keeping each base/head pair on the same
+host. The harness cleans up each sample's resources before the next sample starts.
+All samples use the same profile:
 16 users, 60 seconds per run, 1,000 articles, cache disabled, five server slots.
 
 A bot updates one PR comment with commit SHAs, per-endpoint median p50/p95/p99,
@@ -145,9 +163,10 @@ A separate read-only comparison job collects all six artifacts and verifies thei
 commit SHAs and workload metadata before comparing. Missing, malformed or mismatched
 artifacts are errors, never silently omitted. Matrix fail-fast is disabled
 so one failed sample does not discard the other evidence. Runner identity,
-architecture and logical CPU count are recorded in each sample. Separate VMs can
-still differ in hardware or host load; repeated samples and the noise gate reduce,
-but cannot eliminate, that uncertainty.
+architecture and logical CPU count are recorded in each sample. Pairing revisions
+on the same host reduces differences in hardware and host load between base and
+head. Alternating order, repeated pairs and the noise gate reduce, but cannot
+eliminate, changes in host load over time or order effects.
 
 Throughput is descriptive because users include think time. This profile does
 not test cache behavior or maximum capacity. Compare cached workloads and run

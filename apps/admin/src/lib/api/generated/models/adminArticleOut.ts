@@ -3,10 +3,10 @@
  * Do not edit manually.
  * DevFeed Admin API
  * Private administration API. OIDC sessions and CSRF protection required.
- * OpenAPI spec version: 0.0.51
+ * OpenAPI spec version: 0.0.52
  */
 import type { AdminArticleOutClassificationProvenance } from './adminArticleOutClassificationProvenance';
-import type { ArticleTopicOut } from './articleTopicOut';
+import type { DevfeedAdminApiArticlesArticleTopicOut } from './devfeedAdminApiArticlesArticleTopicOut';
 import type { SourceRef } from './sourceRef';
 import type { TagOut } from './tagOut';
 
@@ -32,5 +32,5 @@ export interface AdminArticleOut {
   summary: string;
   tags: TagOut[];
   title: string;
-  topics?: ArticleTopicOut[];
+  topics?: DevfeedAdminApiArticlesArticleTopicOut[];
 }

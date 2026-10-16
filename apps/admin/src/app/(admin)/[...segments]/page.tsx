@@ -48,21 +48,19 @@ export default async function AdminRoutePage({
     case "new":
       return <ResourceForm key={key} resource={route.resource} />;
     case "edit":
-      return <ResourceForm key={key} resource={route.resource} id={route.id} />;
+      return (
+        <ResourceForm key={key} resource={route.identity.resource} identity={route.identity} />
+      );
     case "delete":
-      return <ResourceDelete key={key} resource={route.resource} id={route.id} />;
+      return <ResourceDelete key={key} identity={route.identity} />;
     case "detail":
-      return (
-        <ResourceDetail key={key} resource={route.resource} id={route.id} section={route.section} />
-      );
+      return <ResourceDetail key={key} identity={route.identity} section={route.section} />;
     case "workflow":
-      return (
-        <ResourceWorkflow key={key} resource={route.resource} id={route.id} action={route.action} />
-      );
+      return <ResourceWorkflow key={key} identity={route.identity} action={route.action} />;
     case "source-import":
       return <SourceImport />;
     case "source-import-review":
-      return <ResourceDetail resource="sources" id={route.id} />;
+      return <ResourceDetail identity={{ resource: "sources", id: route.id }} />;
     case "import":
       return <TopicImport />;
     case "proposal":

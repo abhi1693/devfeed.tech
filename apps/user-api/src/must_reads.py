@@ -18,6 +18,7 @@ from devfeed_core.must_reads import read_snapshot
 from devfeed_core.publication import visible_article
 from devfeed_core.schemas import ArticleOut
 from devfeed_core.user_settings import FeedSettings
+from devfeed_http.agent_permissions import AgentAccessPolicy
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, Field
 from sqlalchemy import func, select, update
@@ -97,7 +98,7 @@ def load_selection(session, user_id, timezone):
     result = DailySelection(
         date=day,
         timezone=snapshot.timezone if snapshot else timezone,
-        items=[ArticleOut.from_article(article) for article in articles],
+        items=ArticleOut.from_articles(articles),
         reasons=reasons,
         read_ids=read_ids,
         presented=bool(snapshot and snapshot.presented_at),
@@ -106,7 +107,11 @@ def load_selection(session, user_id, timezone):
     return snapshot, result
 
 
-@router.get("", response_model=DailySelection)
+@router.get(
+    "",
+    response_model=DailySelection,
+    openapi_extra=AgentAccessPolicy(scope="devfeed:read").openapi_extra(),
+)
 def daily(user: User, session: DB, timezone: str = Query("UTC", max_length=100)):
     _, result = load_selection(session, uuid.UUID(user.user_id), timezone)
     session.commit()

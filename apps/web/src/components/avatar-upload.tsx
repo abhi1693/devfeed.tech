@@ -2,7 +2,8 @@
 
 import { useEffect, useRef, useState } from "react";
 import { Upload, X } from "lucide-react";
-import { AccountError, userRequest, type UserProfile } from "@/lib/user";
+import { AccountError, type UserProfile } from "@/lib/user";
+import { removeAvatar, uploadAvatar } from "@/lib/user-mutations";
 import { useUser } from "./user-account";
 
 export function AvatarUpload({
@@ -19,7 +20,7 @@ export function AvatarUpload({
   const pending = useRef<AbortController | null>(null);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
-  useEffect(() => () => pending.current?.abort(), []);
+  useEffect(() => () => pending.current?.abort(), [user?.user_id]);
 
   async function update(file?: File) {
     if (!user || busy) return;
@@ -36,15 +37,12 @@ export function AvatarUpload({
     pending.current = controller;
     setBusy(true);
     onBusy(true);
-    const body = file ? new FormData() : undefined;
-    if (file) body!.append("file", file);
     try {
-      const saved = await userRequest<UserProfile>("settings/profile/avatar", {
-        method: file ? "POST" : "DELETE",
-        headers: { "X-CSRF-Token": user.csrf_token },
-        body,
+      const options = {
+        csrfToken: user.csrf_token,
         signal: AbortSignal.any([controller.signal, AbortSignal.timeout(45000)]),
-      });
+      };
+      const saved = file ? await uploadAvatar(file, options) : await removeAvatar(options);
       if (controller.signal.aborted) return;
       onSaved(saved);
       refreshProfile();

@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
+import { useEffect } from "react";
 import { afterEach, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import {
   UserProvider,
   UserAccount,
@@ -202,4 +203,64 @@ it("renews the session when returning to a tab without resetting reader state", 
   } finally {
     clock.mockRestore();
   }
+});
+
+it("reauthorizes immediate history returns, retaining same-account state and hiding expired data", async () => {
+  const { AccountGate } = await import("@/components/user-account");
+  let identity: { user_id: string; csrf_token: string; name: string } | null = {
+    user_id: "reader",
+    csrf_token: "csrf",
+    name: "Reader",
+  };
+  let resolveCheck: ((response: Response) => void) | undefined;
+  let delay = false;
+  const fetcher = vi.fn((url: string) => {
+    if (url.endsWith("auth/me") && delay)
+      return new Promise<Response>((resolve) => {
+        resolveCheck = resolve;
+      });
+    return Promise.resolve(Response.json(url.endsWith("auth/me") ? identity : {}));
+  });
+  vi.stubGlobal("fetch", fetcher);
+  const mounted = vi.fn();
+  function ReadingState() {
+    useEffect(() => {
+      mounted();
+    }, []);
+    return <input aria-label="Private reading state" defaultValue="initial" />;
+  }
+  render(
+    <UserProvider>
+      <UserAccount />
+      <PersonalFeedNav />
+      <ReadLaterNav />
+      <AccountGate>
+        <ReadingState />
+      </AccountGate>
+    </UserProvider>,
+  );
+  const input = await screen.findByRole("textbox");
+  fireEvent.change(input, { target: { value: "preserved" } });
+  await screen.findByRole("button", { name: "User menu: Reader" });
+  input.focus();
+  delay = true;
+  fireEvent(window, new PopStateEvent("popstate"));
+  expect(screen.queryByRole("textbox")).toBeNull();
+  expect(screen.queryByRole("button", { name: "User menu: Reader" })).toBeNull();
+  expect(screen.queryByRole("link", { name: "My feed" })).toBeNull();
+  expect(screen.queryByRole("link", { name: "Read later" })).toBeNull();
+  await act(async () => resolveCheck!(Response.json(identity)));
+  expect(await screen.findByRole("textbox")).toBe(input);
+  expect(input).toHaveProperty("value", "preserved");
+  expect(document.activeElement).toBe(input);
+  expect(mounted).toHaveBeenCalledTimes(1);
+  fireEvent(window, new PageTransitionEvent("pageshow", { persisted: false }));
+  expect(fetcher.mock.calls.filter(([url]) => url.endsWith("auth/me"))).toHaveLength(2);
+  fireEvent(window, new PageTransitionEvent("pagehide", { persisted: true }));
+  expect(screen.queryByRole("textbox")).toBeNull();
+  identity = null;
+  fireEvent(window, new PageTransitionEvent("pageshow", { persisted: true }));
+  await act(async () => resolveCheck!(Response.json(null)));
+  expect(await screen.findAllByRole("link", { name: "Sign in" })).toHaveLength(2);
+  expect(screen.queryByRole("textbox")).toBeNull();
 });

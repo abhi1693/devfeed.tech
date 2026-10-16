@@ -7,6 +7,12 @@ from devfeed_core.config import get_settings as core_settings
 from devfeed_core.db import database_revision
 from devfeed_core.logging import configure_logging
 from devfeed_core.version import SCHEMA_REVISION, __version__
+from devfeed_http.operation_policies import (
+    ExtensionTransportPolicy,
+    ReaderGatewayPolicy,
+    include_gateway_router,
+)
+from devfeed_http.route_policies import install_runtime_policies
 from devfeed_http.schemas import ERROR_RESPONSES
 from devfeed_http.service import HTTPService
 from devfeed_http.telemetry import fastapi_telemetry
@@ -21,6 +27,7 @@ from devfeed_user_api import (
     mcp,
     must_reads,
     notifications,
+    partner_placements,
     preferences,
     profile,
     recommendations,
@@ -53,12 +60,7 @@ def create_app() -> FastAPI:
         description="Optional personalization API. OIDC sessions and CSRF protection required.",
     )
     # No cross-origin cookie access: the Next.js user service proxies same-origin requests.
-    service.configure(
-        app,
-        settings,
-        private=True,
-        middleware=lambda app: app.add_middleware(avatars.AvatarUploadBodyLimit),
-    )
+    service.configure(app, settings, private=True)
 
     service.register_health(
         app,
@@ -68,19 +70,26 @@ def create_app() -> FastAPI:
         schema_revision=SCHEMA_REVISION,
     )
 
-    app.include_router(auth.router)
-    app.include_router(mcp.router)
-    app.include_router(preferences.router)
-    app.include_router(engagement.router)
-    app.include_router(bookmarks.router)
-    app.include_router(notifications.router)
-    app.include_router(profile.router)
-    app.include_router(profile.public_router)
-    app.include_router(avatars.router)
-    app.include_router(leaderboard.router)
-    app.include_router(recommendations.router)
-    app.include_router(must_reads.router)
-    app.include_router(sources.router)
+    include_gateway_router(app, auth.router, default_policy=ReaderGatewayPolicy())
+    for router in (
+        mcp.router,
+        preferences.router,
+        engagement.router,
+        bookmarks.router,
+        notifications.router,
+        profile.router,
+        profile.public_router,
+        avatars.router,
+        leaderboard.router,
+        recommendations.router,
+        partner_placements.router,
+        must_reads.router,
+        sources.router,
+    ):
+        include_gateway_router(
+            app, router, default_policy=ReaderGatewayPolicy(extension=ExtensionTransportPolicy())
+        )
+    install_runtime_policies(app)
     return app
 
 

@@ -8,6 +8,9 @@ import pytest
 from botocore.exceptions import ClientError
 from devfeed_core.config import get_settings
 from devfeed_core.models import UserAccount
+from devfeed_core.object_storage import R2Storage
+from devfeed_http import image_uploads
+from devfeed_http.image_uploads import CACHE_CONTROL, MAX_BYTES
 from devfeed_user_api import avatar_storage
 from devfeed_user_api.auth import UserIdentity, require_user
 from devfeed_user_api.main import create_app
@@ -52,7 +55,9 @@ def uploaded_reader(database, monkeypatch):
     monkeypatch.setenv("DEVFEED_IMAGE_PUBLIC_URL", "https://images.example.test")
     get_settings.cache_clear()
     r2 = FakeR2()
-    monkeypatch.setattr(avatar_storage, "storage_client", lambda: r2)
+    monkeypatch.setattr(
+        image_uploads, "image_upload_storage", lambda: R2Storage("avatar-test-images", client=r2)
+    )
     with database.begin() as session:
         account = UserAccount(
             issuer="https://identity.example.test",
@@ -92,7 +97,9 @@ def test_upload_replaces_every_size_without_history_and_projects_public_variants
     assert response.status_code == 200
     first = response.json()
     assert first["bio"] == "Preserve this" and first["username"] == "reader"
-    assert [item["width"] for item in first["avatar_variants"]] == list(avatar_storage.SIZES)
+    assert [item["width"] for item in first["avatar_variants"]] == list(
+        avatar_storage.AvatarStorage.sizes
+    )
     assert str(identifier) not in first["avatar_url"]
     assert len(r2.objects) == 5 and all(key.startswith("avatars/") for key in r2.objects)
     keys, old = set(r2.objects), dict(r2.objects)
@@ -110,7 +117,7 @@ def test_upload_replaces_every_size_without_history_and_projects_public_variants
         with Image.open(io.BytesIO(body)) as image:
             assert image.size == (size, size) and image.format == "WEBP"
             assert not image.getexif()
-    assert all(item["CacheControl"] == avatar_storage.CACHE_CONTROL for item in r2.puts)
+    assert all(item["CacheControl"] == CACHE_CONTROL for item in r2.puts)
     assert all(item["ContentType"] == "image/webp" for item in r2.puts)
     public = client.get("/v1/user/profiles/reader").json()
     assert public["avatar_variants"] == second["avatar_variants"]
@@ -126,7 +133,7 @@ def test_failed_overwrite_restores_objects_and_database_metadata(
         "/v1/user/settings/profile/avatar", files={"file": ("a.png", picture(), "image/png")}
     ).json()
     old = dict(r2.objects)
-    r2.fail_next = f"{avatar_storage.avatar_prefix(identifier)}/128.webp"
+    r2.fail_next = f"{avatar_storage.AvatarStorage(identifier).prefix}/128.webp"
     response = client.post(
         "/v1/user/settings/profile/avatar", files={"file": ("b.png", picture("blue"), "image/png")}
     )
@@ -150,7 +157,7 @@ def test_failed_overwrite_restores_objects_and_database_metadata(
 @pytest.mark.integration
 def test_failed_first_upload_leaves_no_orphan_objects(uploaded_reader):
     client, r2, _, identifier = uploaded_reader
-    r2.fail_next = f"{avatar_storage.avatar_prefix(identifier)}/64.webp"
+    r2.fail_next = f"{avatar_storage.AvatarStorage(identifier).prefix}/64.webp"
     response = client.post(
         "/v1/user/settings/profile/avatar", files={"file": ("a.png", picture(), "image/png")}
     )
@@ -184,7 +191,7 @@ def test_invalid_uploads_unowned_identity_and_forged_variants_never_write_storag
     for body, mime, status in [
         (b"<svg/>", "image/svg+xml", 415),
         (b"not an image", "image/png", 422),
-        (b"x" * (avatar_storage.MAX_BYTES + 1), "image/png", 413),
+        (b"x" * (MAX_BYTES + 1), "image/png", 413),
     ]:
         assert (
             client.post(
@@ -211,11 +218,13 @@ def test_normalization_strips_exif_and_rejects_excessive_dimensions():
     exif[270] = "Private camera metadata"
     output = io.BytesIO()
     image.save(output, format="JPEG", exif=exif)
-    for size, body in avatar_storage.normalize_avatar(output.getvalue()).items():
+    avatar = avatar_storage.AvatarStorage("reader")
+    variants, _ = avatar.normalize(output.getvalue())
+    for size, body in variants.items():
         with Image.open(io.BytesIO(body)) as result:
             assert result.size == (size, size) and not result.getexif()
     with pytest.raises(HTTPException) as error:
-        avatar_storage.normalize_avatar(picture(size=(5000, 4001)))
+        avatar.normalize(picture(size=(5000, 4001)))
     assert error.value.status_code == 422
 
 
@@ -223,40 +232,5 @@ def test_upload_configuration_is_required(monkeypatch):
     monkeypatch.setenv("DEVFEED_IMAGE_STORAGE_ENABLED", "false")
     get_settings.cache_clear()
     with pytest.raises(HTTPException) as error:
-        avatar_storage.storage_client()
+        image_uploads.image_upload_storage()
     assert error.value.status_code == 503
-
-
-def test_chunked_upload_is_bounded_before_form_parsing():
-    import asyncio
-
-    from devfeed_user_api.avatars import AvatarUploadBodyLimit
-
-    messages = []
-
-    async def app(scope, receive, send):
-        pytest.fail("oversized body reached the parser")
-
-    async def receive():
-        return {
-            "type": "http.request",
-            "body": b"x" * (avatar_storage.MAX_REQUEST_BYTES + 1),
-            "more_body": False,
-        }
-
-    async def send(message):
-        messages.append(message)
-
-    asyncio.run(
-        AvatarUploadBodyLimit(app)(
-            {
-                "type": "http",
-                "method": "POST",
-                "path": "/v1/user/settings/profile/avatar",
-                "headers": [(b"content-length", b"1")],
-            },
-            receive,
-            send,
-        )
-    )
-    assert messages[0]["status"] == 413

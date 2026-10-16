@@ -1,5 +1,6 @@
 "use client";
 
+import { recordIdentity } from "@/lib/record-identities";
 import { useMemo } from "react";
 import { adminTopicProposalGet, adminTopicReplacementsList } from "@/lib/api/generated/admin";
 import { getRecord } from "@/lib/resource-api";
@@ -21,7 +22,7 @@ export function TopicReplacementPicker({
         return { ...page, items: page.items.map((item) => ({ ...item })) };
       },
       get: async (id, signal) => {
-        if (!id.startsWith("proposal:")) return getRecord("topics", id, signal);
+        if (!id.startsWith("proposal:")) return getRecord(recordIdentity("topics", { id }), signal);
         const proposal = await adminTopicProposalGet(id.slice("proposal:".length), { signal });
         return { ...proposal.proposed, id, status: proposal.status };
       },

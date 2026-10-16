@@ -264,10 +264,6 @@ export async function checkCompactLoading(
     held = true;
     await hold();
     await page.reload({ waitUntil: "domcontentloaded" });
-    if (pointer === "coarse") {
-      await cdp.send("Emulation.setTouchEmulationEnabled", { enabled: true, maxTouchPoints: 1 });
-      await page.waitForFunction(() => matchMedia("(pointer: coarse)").matches);
-    }
     if (staged) {
       await waitAccount();
       await assertBootstrapStatus(page, "Waiting for the account");
@@ -285,6 +281,17 @@ export async function checkCompactLoading(
     });
     assert.deepEqual(bootstrap.wrong, [], "Compact loading never flashes grid, form, or cards");
     assert.equal(bootstrap.maximumCompactSkeletons, 1, "Compact loading never duplicates shimmers");
+    if (pointer === "coarse") {
+      await cdp.send("Emulation.setTouchEmulationEnabled", { enabled: true, maxTouchPoints: 1 });
+      await cdp.send("Emulation.setEmitTouchEventsForMouse", {
+        enabled: true,
+        configuration: "mobile",
+      });
+      await waitForDOM(
+        () => matchMedia("(pointer: coarse)").matches,
+        "Coarse pointer emulation applies to the loaded document",
+      );
+    }
     const placeholder = await tableGeometry(pending, true);
     if (pointer === "coarse")
       assert.equal(placeholder.coarse, true, "The loading measurement uses a coarse pointer");
@@ -308,6 +315,13 @@ export async function checkCompactLoading(
     held = false;
     await pending.waitFor({ state: "detached" });
     await loaded.waitFor();
+    if (pointer === "coarse") {
+      await cdp.send("Emulation.setTouchEmulationEnabled", { enabled: true, maxTouchPoints: 1 });
+      await cdp.send("Emulation.setEmitTouchEventsForMouse", {
+        enabled: true,
+        configuration: "mobile",
+      });
+    }
     const ready = await tableGeometry(loaded, false);
     if (pointer === "coarse")
       assert.equal(ready.coarse, true, "The loaded measurement retains a coarse pointer");
@@ -378,6 +392,7 @@ export async function checkCompactLoading(
       window.__compactLoadingObservation?.observer.disconnect();
     }, observationKey);
     if (touch) {
+      await cdp.send("Emulation.setEmitTouchEventsForMouse", { enabled: false });
       await cdp.send("Emulation.setTouchEmulationEnabled", { enabled: false });
       await page.waitForFunction(() => !matchMedia("(pointer: coarse)").matches);
       // Chromium restores its fine pointer after reloading the document.

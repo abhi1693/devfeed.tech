@@ -11,6 +11,7 @@ import httpx
 import pytest
 from devfeed_admin_api import notifications
 from devfeed_admin_api.auth import AdminIdentity
+from devfeed_http.inbox import INBOX_OPERATIONS
 from pydantic import SecretStr
 from starlette.requests import Request
 from test_admin_auth import complete
@@ -41,7 +42,7 @@ def inbox_app(oidc_app, monkeypatch):
         clients.append(value)
         return value
 
-    monkeypatch.setattr(notifications, "http_client", client)
+    monkeypatch.setattr(notifications.InboxProxy, "http_client", staticmethod(client))
     return SimpleNamespace(
         auth=oidc_app,
         client=oidc_app.client,
@@ -148,6 +149,25 @@ def test_proxy_is_not_a_management_or_arbitrary_path_proxy(inbox_app, path):
     assert not inbox_app.requests
 
 
+@pytest.mark.parametrize(
+    "method,path,status",
+    [
+        ("POST", "items", 405),
+        ("GET", "read-all", 405),
+        ("PUT", "read-all", 405),
+        ("POST", "notifications/notif_short/read", 422),
+        ("POST", "notifications/notif_" + "A" * 26 + "/read", 422),
+        ("POST", "broadcasts/notif_" + "a" * 26 + "/read", 422),
+        ("POST", "notifications/notif_" + "a" * 26 + "/seen", 404),
+    ],
+)
+def test_native_inbox_routes_reject_wrong_methods_and_invalid_ids(inbox_app, method, path, status):
+    complete(inbox_app.auth)
+    result = inbox_app.client.request(method, INBOX + path, headers=csrf_headers(inbox_app.auth))
+    assert result.status_code == status
+    assert not inbox_app.requests
+
+
 def test_etag_304_reaches_sdk_without_body(inbox_app):
     complete(inbox_app.auth)
     inbox_app.response.status, inbox_app.response.headers = 304, {"ETag": '"current"'}
@@ -189,7 +209,7 @@ def test_stream_passes_hints_with_no_buffering_and_closes_connections(inbox_app,
         clients.append(value)
         return value
 
-    monkeypatch.setattr(notifications, "http_client", client)
+    monkeypatch.setattr(notifications.InboxProxy, "http_client", staticmethod(client))
     result = inbox_app.client.get(INBOX + "stream?last_event_id=resume")
     assert result.status_code == 200 and "event: hint" in result.text
     assert result.headers["x-accel-buffering"] == "no"
@@ -218,7 +238,7 @@ def test_idle_stream_flushes_before_chimely_sends_any_events(inbox_app, monkeypa
             )
         )
     )
-    monkeypatch.setattr(notifications, "http_client", lambda: upstream)
+    monkeypatch.setattr(notifications.InboxProxy, "http_client", staticmethod(lambda: upstream))
 
     async def verify():
         async def receive():
@@ -242,7 +262,9 @@ def test_idle_stream_flushes_before_chimely_sends_any_events(inbox_app, monkeypa
             expires_at=int(time.time()) + 60,
             csrf_token="test",
         )
-        response = await notifications.inbox_proxy("stream", request, identity)
+        session = await notifications.resolve_inbox_session(identity)
+        operation = next(operation for operation in INBOX_OPERATIONS if operation.name == "Stream")
+        response = await notifications.InboxProxy().forward(operation, request, session)
         async with asyncio.timeout(0.2):
             first = await anext(response.body_iterator)
             assert first.startswith(b": ") and first.endswith(b"\n\n")

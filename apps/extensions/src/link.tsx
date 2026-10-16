@@ -1,5 +1,5 @@
 import type { ComponentProps } from "react";
-import { linkDestination, useRouter } from "./navigation";
+import { navigate, resolveExtensionLink } from "./navigation";
 
 type Props = ComponentProps<"a"> & {
   href: string;
@@ -17,13 +17,12 @@ export default function Link({
   onNavigate,
   ...props
 }: Props) {
-  const router = useRouter();
-  const destination = linkDestination(href);
-  const local = destination.startsWith("#");
+  const link = resolveExtensionLink(href);
+  const local = link.destination !== null;
   return (
     <a
       {...props}
-      href={destination}
+      href={link.href}
       target={props.target ?? (local ? undefined : "_blank")}
       rel={props.rel ?? (local ? undefined : "noopener noreferrer")}
       onClick={(event) => {
@@ -43,7 +42,13 @@ export default function Link({
         let cancelled = false;
         onNavigate?.({ preventDefault: () => (cancelled = true) });
         if (cancelled) return;
-        router[replace ? "replace" : "push"](href, { scroll });
+        const destination = link.destination!;
+        navigate(
+          destination.kind === "page" && scroll === false
+            ? { ...destination, scroll: "preserve" }
+            : destination,
+          replace ? "replace" : "push",
+        );
       }}
     />
   );

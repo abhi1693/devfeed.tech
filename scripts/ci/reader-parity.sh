@@ -8,14 +8,23 @@ run_check() {
 }
 run_check node --test apps/web/tests/browser/accessibility.browser.mjs
 if npm run web:build; then
-  run_check node apps/web/tests/browser/feed.mjs
+  run_check node apps/web/tests/browser/document-streaming.mjs
+  run_check node tests/benchmarks/reader-history.mjs
+  run_check node apps/web/tests/browser/home-entry.mjs
+  run_check node apps/web/tests/browser/structured-data.mjs
+  run_check node --test apps/web/tests/browser/feed.mjs
   run_check node apps/web/tests/browser/telemetry.mjs
-  run_check node apps/web/tests/browser/x-pixel.mjs
+  run_check node apps/web/tests/browser/x-attribution.mjs
   run_check node apps/web/tests/browser/profile.mjs
+  run_check node apps/web/tests/browser/reader-gateway.mjs
 else
   status=1
 fi
 # Attempt each runtime even when another fails, so its report is still available.
 run_check npm run extension:test:browser
 run_check npm run extension:edge:test:browser
+run_check node apps/web/tests/browser/partner-tracking.mjs
+run_check node apps/web/tests/browser/partner-placements.mjs
+run_check env DEVFEED_HISTORY_PLATFORM=chrome node tests/benchmarks/reader-history.mjs
+run_check env DEVFEED_HISTORY_PLATFORM=edge node tests/benchmarks/reader-history.mjs
 exit "$status"

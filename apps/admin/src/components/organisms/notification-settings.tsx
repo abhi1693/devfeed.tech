@@ -1,8 +1,8 @@
 "use client";
 import { useEffect, useState } from "react";
 import type { ChimelyClient } from "@chimely/client";
-import { Button } from "@/components/atoms/button";
-import { Input } from "@/components/atoms/input";
+import { Button } from "@devfeed/ui/button";
+import { Input } from "@devfeed/ui/input";
 import { SettingsForm, SettingToggle } from "@/components/molecules/settings-form";
 import { DataTable } from "@/components/molecules/data-table";
 import { RequestState } from "@/components/molecules/request-state";

@@ -17,12 +17,12 @@ import {
   readProposalFilters,
   clearedProposalFilters,
 } from "@/components/organisms/topic-proposal-filters";
-import { Button } from "@/components/atoms/button";
+import { Button } from "@devfeed/ui/button";
 import { FormField } from "@/components/molecules/form-field";
 import { FactsEditor } from "@/components/organisms/facts-editor";
 import { adminRouteTitle } from "@/lib/page-titles";
 import { searchScope } from "@/components/molecules/search-field";
-import { PageHeading } from "@/components/molecules/page-heading";
+import { ResourceHeading } from "@devfeed/ui/resource-layout";
 import { RequestState } from "@/components/molecules/request-state";
 import { ValidationErrors } from "@/components/molecules/validation-errors";
 import { useAdmin } from "@/components/molecules/admin-session";
@@ -320,7 +320,7 @@ function Review({ initial }: { initial: TopicProposalOut }) {
   }
   return (
     <section className="min-w-0 space-y-6">
-      <PageHeading
+      <ResourceHeading
         title={reviewed ? fields.name : proposal.proposed.name}
         browserTitle={adminRouteTitle(
           { view: "proposal", id: proposal.id },
@@ -338,7 +338,7 @@ function Review({ initial }: { initial: TopicProposalOut }) {
             <Link href={`/taxonomy/topics/${proposal.topic_id}`}>Open topic</Link>
           </Button>
         )}
-      </PageHeading>
+      </ResourceHeading>
       <div className="grid min-w-0 grid-cols-1 items-start gap-6 xl:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
         <div className="min-w-0">
           <form

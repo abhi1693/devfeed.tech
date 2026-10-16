@@ -1,4 +1,5 @@
 "use client";
+import { recordIdentity, recordRowKey } from "@/lib/record-identities";
 
 import { ColumnValue } from "@/components/molecules/column-value";
 import Link from "next/link";
@@ -6,8 +7,10 @@ import { type ReactNode } from "react";
 import { DataTable, type DataTableColumn } from "@/components/molecules/data-table";
 import { RecordActions } from "@/components/molecules/record-actions";
 import { RecordLink } from "@/components/molecules/record-link";
+import { ImageJobSubject, imageJobOperation } from "@/components/molecules/image-job-subject";
 import { relationshipLabel } from "@/components/molecules/relationship-proposal-actions";
-import { type Resource, resources, recordHref } from "@/lib/resources";
+import { type Resource, resources } from "@/lib/resources";
+import { recordHref } from "@/lib/routes";
 import type { RecordData, RecordPage } from "@/lib/resource-api";
 import { useAdmin } from "@/components/molecules/admin-session";
 import { Check, X, Download, Trash2, Sparkles, RotateCcw } from "lucide-react";
@@ -154,7 +157,7 @@ export function RecordTable({
               { expected_input_hash: proposal.content_hash, expected_status: proposal.status },
               options,
             )
-          : deleteRecord(resource, row.id, admin.csrf_token);
+          : deleteRecord(recordIdentity(resource, row), admin.csrf_token);
       },
     });
   const columns: DataTableColumn<RecordData>[] =
@@ -168,6 +171,10 @@ export function RecordTable({
             enableSorting: !!column.sort,
             cell: ({ row }: { row: { original: RecordData } }) => {
               const value = row.original[column.key];
+              if (resource === "image-jobs" && column.key === "target_name")
+                return <ImageJobSubject record={row.original} />;
+              if (resource === "image-jobs" && column.key === "operation")
+                return imageJobOperation(row.original);
               if (resource === "analysis-jobs" && column.key === "target_name") {
                 const record = row.original;
                 if (record.proposal_id)
@@ -227,7 +234,7 @@ export function RecordTable({
                 return (
                   <Link
                     prefetch={false}
-                    href={recordHref(resource, row.original)}
+                    href={recordHref(recordIdentity(resource, row.original))}
                     className="block max-w-lg break-words font-medium text-blue-700 dark:text-blue-400 hover:underline"
                   >
                     <ColumnValue
@@ -247,7 +254,7 @@ export function RecordTable({
                   header: "Actions",
                   enableSorting: false,
                   cell: ({ row }: { row: { original: RecordData } }) => (
-                    <RecordActions resource={resource} id={row.original.id} />
+                    <RecordActions identity={recordIdentity(resource, row.original)} />
                   ),
                 },
               ]
@@ -273,7 +280,7 @@ export function RecordTable({
             }
           : undefined
       }
-      getRowId={(row) => (resource === "analysis-jobs" ? `${row.kind}/${row.id}` : row.id)}
+      getRowId={(row) => recordRowKey(resource, row)}
       getRowLabel={(row) =>
         resource === "topic-relations" && row.topic_name && row.related_topic_name
           ? relationshipLabel(row as unknown as RelationshipProposalOut)

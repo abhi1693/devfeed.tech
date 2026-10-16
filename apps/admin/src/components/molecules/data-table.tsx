@@ -13,16 +13,9 @@ import {
   type RowData,
 } from "@tanstack/react-table";
 import { ArrowDown, ArrowUp, ArrowUpDown, Columns3 } from "lucide-react";
-import { Button } from "@/components/atoms/button";
-import { Input } from "@/components/atoms/input";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/atoms/table";
+import { Button } from "@devfeed/ui/button";
+import { Input } from "@devfeed/ui/input";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@devfeed/ui/table";
 import { Select } from "@/components/molecules/select";
 import { RequestState } from "@/components/molecules/request-state";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/atoms/popover";

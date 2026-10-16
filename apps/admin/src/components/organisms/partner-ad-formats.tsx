@@ -1,0 +1,248 @@
+"use client";
+
+import { useCallback, useState } from "react";
+import {
+  AdCreativePreview,
+  AutomaticAdFormats,
+  adFormats,
+  automaticAdFormats,
+  type AdFormat,
+  type CreativePreviewArticle,
+  type CreativePreviewProduct,
+  ProductPlacementDialog,
+  parseCreativePreview,
+  parseProductPlacementPolicy,
+  type PlacementSurface,
+} from "@devfeed/ui/advertising-formats";
+import {
+  adminPartnerCreativePreview,
+  adminPartnerSponsorArticles,
+  adminPartnerProductPromotionGet,
+  adminPartnerProductPromotionUpdate,
+  adminPartnerProductAdImageUpload,
+} from "@/lib/api/generated/admin";
+import { ApiError, returnToLogin } from "@/lib/api/client";
+import { useRequest } from "@/lib/use-request";
+import { Select } from "@/components/molecules/select";
+import { useAdmin } from "@/components/molecules/admin-session";
+
+export function PartnerProductPlacements({
+  accountId,
+  product,
+  allowedFormats,
+  accountFormats,
+  accountSurfaces,
+  destination,
+  disabled,
+  onSaved,
+}: {
+  accountId: string;
+  product: { id: string; name: string };
+  allowedFormats: AdFormat[];
+  accountFormats?: AdFormat[];
+  accountSurfaces?: PlacementSurface[];
+  destination?: "product_url" | "listing_url";
+  disabled?: boolean;
+  onSaved: () => void;
+}) {
+  const admin = useAdmin();
+  function parsePolicy(value: unknown) {
+    const row = value as { account_id?: unknown; product_id?: unknown } | null;
+    if (row?.account_id !== accountId || row?.product_id !== product.id)
+      throw new Error("Could not confirm product placement settings.");
+    return parseProductPlacementPolicy(value);
+  }
+  const loadPreview = useCallback(
+    async (signal: AbortSignal) => {
+      try {
+        const preview = parseCreativePreview(
+          await adminPartnerCreativePreview(accountId, { product_id: product.id }, { signal }),
+        );
+        if (preview && preview.id !== product.id) throw new Error("Unexpected preview product.");
+        return preview;
+      } catch (error) {
+        if (!signal.aborted && error instanceof ApiError && error.status === 401) returnToLogin();
+        throw error;
+      }
+    },
+    [accountId, product.id],
+  );
+  return (
+    <ProductPlacementDialog
+      key={`${accountId}/${product.id}`}
+      name={product.name}
+      allowedFormats={allowedFormats}
+      accountFormats={accountFormats}
+      accountSurfaces={accountSurfaces}
+      destination={destination}
+      disabled={disabled}
+      onSaved={onSaved}
+      loadPolicy={async (signal) => {
+        try {
+          return parsePolicy(
+            await adminPartnerProductPromotionGet(accountId, product.id, { signal }),
+          );
+        } catch (error) {
+          if (!signal.aborted && error instanceof ApiError && error.status === 401) returnToLogin();
+          throw error;
+        }
+      }}
+      savePolicy={async (restrictions, signal) => {
+        try {
+          return parsePolicy(
+            await adminPartnerProductPromotionUpdate(accountId, product.id, restrictions, {
+              signal,
+              headers: { "X-CSRF-Token": admin.csrf_token },
+            }),
+          );
+        } catch (error) {
+          if (!signal.aborted && error instanceof ApiError && error.status === 401) returnToLogin();
+          throw error;
+        }
+      }}
+      uploadImage={async (file, signal) => {
+        try {
+          return parsePolicy(
+            await adminPartnerProductAdImageUpload(
+              accountId,
+              product.id,
+              { file },
+              { signal, headers: { "X-CSRF-Token": admin.csrf_token } },
+            ),
+          );
+        } catch (error) {
+          if (!signal.aborted && error instanceof ApiError) {
+            if (error.status === 401) returnToLogin();
+            if (error.status === 413) throw new Error("Choose an image under 5 MB.");
+            if ([415, 422].includes(error.status))
+              throw new Error("Choose a valid JPEG, PNG or WebP image.");
+          }
+          throw error;
+        }
+      }}
+      loadPreview={loadPreview}
+    />
+  );
+}
+
+export function PartnerCreativePreview({
+  accountId,
+  format,
+  productId,
+  articleId,
+  destination = "product_url",
+}: {
+  accountId?: string;
+  format: AdFormat;
+  productId?: string;
+  articleId?: string;
+  destination?: "product_url" | "listing_url";
+}) {
+  const [open, setOpen] = useState(false);
+  const [revision, setRevision] = useState(0);
+  const load = useCallback(
+    async (
+      signal: AbortSignal,
+    ): Promise<{
+      product: CreativePreviewProduct | null;
+      article: CreativePreviewArticle | null;
+    } | null> => {
+      if (!open || !accountId) return null;
+      try {
+        if (format === "sponsored_content") {
+          if (!articleId) return null;
+          const page = await adminPartnerSponsorArticles(
+            accountId,
+            { article_id: articleId, limit: 1 },
+            { signal },
+          );
+          const article = page.items.find((item) => item.id === articleId);
+          if (!article) throw new Error("Choose an approved, published article.");
+          return { product: null, article };
+        }
+        const result = await adminPartnerCreativePreview(
+          accountId,
+          productId ? { product_id: productId } : undefined,
+          { signal },
+        );
+        return { product: result.product, article: null };
+      } catch (error) {
+        if (error instanceof ApiError && error.status === 401) returnToLogin();
+        throw error;
+      }
+    },
+    [open, accountId, format, articleId, productId],
+  );
+  const result = useRequest(
+    `creative-preview/${accountId}/${format}/${productId}/${articleId}/${open}/${revision}`,
+    load,
+  );
+  return (
+    <details
+      className="space-y-4 rounded-lg border p-4"
+      onToggle={(event) => setOpen(event.currentTarget.open)}
+    >
+      <summary className="cursor-pointer text-sm font-medium">Creative preview</summary>
+      {open && (
+        <AdCreativePreview
+          format={format}
+          destination={destination}
+          product={result.data?.product}
+          article={result.data?.article}
+          loading={result.loading}
+          error={!!result.error}
+          onRetry={() => setRevision((value) => value + 1)}
+        />
+      )}
+    </details>
+  );
+}
+
+export function PartnerAdFormats({
+  accountId,
+  value,
+  onChange,
+  allowed,
+  eligible,
+  disabled,
+  destination,
+}: {
+  accountId?: string;
+  value: AdFormat[];
+  onChange: (value: AdFormat[]) => void;
+  allowed: AdFormat[];
+  eligible: boolean;
+  disabled?: boolean;
+  destination: "product_url" | "listing_url";
+}) {
+  const [preview, setPreview] = useState<AdFormat>(value[0] ?? "feed");
+  const selected = value.includes(preview) ? preview : (value[0] ?? "feed");
+  return (
+    <section aria-label="Automatic ad formats" className="space-y-4 border-t pt-6">
+      <h2 className="font-semibold">Automatic ad formats</h2>
+      <AutomaticAdFormats
+        value={value}
+        onChange={onChange}
+        allowed={allowed}
+        eligible={eligible}
+        disabled={disabled}
+      />
+      {value.length > 1 && (
+        <Select
+          label="Preview format"
+          value={selected}
+          required
+          onChange={(next) => setPreview(next as AdFormat)}
+          options={adFormats
+            .filter(
+              (format) => value.includes(format.value) && automaticAdFormats.includes(format.value),
+            )
+            .map(({ value, label }) => ({ value, label }))}
+        />
+      )}
+      {value.length > 0 && (
+        <PartnerCreativePreview accountId={accountId} format={selected} destination={destination} />
+      )}
+    </section>
+  );
+}

@@ -54,7 +54,7 @@ async function mount(id?: string) {
           csrf_token: "test-csrf",
         }}
       >
-        <ResourceForm resource="sources" id={id} />
+        <ResourceForm resource="sources" identity={id ? { resource: "sources", id } : undefined} />
       </AdminSession>,
     );
   });

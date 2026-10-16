@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { recordIdentity, recordRowKey } from "@/lib/record-identities";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { RelationshipDiscovery } from "@/components/organisms/relationship-discovery";
@@ -108,7 +109,7 @@ beforeEach(() => {
 afterEach(cleanup);
 
 const pendingRow = () => ({
-  id: `proposal~${proposal.id}`,
+  id: recordRowKey("topic-relations", { proposal: { id: proposal.id } }),
   topic_id: proposal.topic_id,
   related_topic_id: proposal.related_topic_id,
   topic_name: proposal.topic_name,
@@ -120,7 +121,11 @@ const pendingRow = () => ({
 });
 const approvedRow = () => ({
   ...pendingRow(),
-  id: "react~typescript~related_to",
+  id: recordRowKey("topic-relations", {
+    topic_id: "react",
+    related_topic_id: "typescript",
+    relation: "related_to",
+  }),
   related_topic_id: "typescript",
   related_topic_name: "TypeScript",
   relation: "related_to" as const,
@@ -146,10 +151,16 @@ it("loads combined relationships through the typed adapter with distinct row ide
     { topic_id: "react", limit: 10, offset: 0, sort: "relation" },
     { signal },
   );
-  expect(page.items.map((row) => row.id)).toEqual([
-    "proposal~proposal",
-    "react~typescript~related_to",
-  ]);
+  expect(page.items).toEqual([pendingRow(), approvedRow()]);
+  expect(recordRowKey("topic-relations", page.items[0]!)).not.toBe(
+    recordRowKey("topic-relations", page.items[1]!),
+  );
+  expect(recordIdentity("topic-relations", page.items[1]!)).toEqual({
+    resource: "topic-relations",
+    topicId: "react",
+    relatedTopicId: "typescript",
+    relation: "related_to",
+  });
 });
 
 it.each(["approved", "rejected"] as const)(
@@ -177,7 +188,11 @@ it.each(["approved", "rejected"] as const)(
     expect(screen.queryByRole("link", { name: /Review/ })).toBeNull();
     const reviewed = {
       ...pendingRow(),
-      id: "react~javascript~uses_language",
+      id: recordRowKey("topic-relations", {
+        topic_id: "react",
+        related_topic_id: "javascript",
+        relation: "uses_language",
+      }),
       status: "approved",
       proposal: null,
     };
@@ -321,8 +336,12 @@ it("uses natural discovery and review routes before interpreting relationship ID
     resolveAdminRoute(["taxonomy", "relationships", "react", "uses_language", "javascript"]),
   ).toEqual({
     view: "detail",
-    resource: "topic-relations",
-    id: "react~javascript~uses_language",
+    identity: {
+      resource: "topic-relations",
+      topicId: "react",
+      relatedTopicId: "javascript",
+      relation: "uses_language",
+    },
     section: "details",
   });
 });

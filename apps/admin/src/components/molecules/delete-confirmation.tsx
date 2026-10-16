@@ -1,7 +1,7 @@
 "use client";
 
 import type { ReactNode } from "react";
-import { Input } from "@/components/atoms/input";
+import { Input } from "@devfeed/ui/input";
 import { Field } from "./field";
 
 /** Shared explicit confirmation for individual and bulk deletion. */

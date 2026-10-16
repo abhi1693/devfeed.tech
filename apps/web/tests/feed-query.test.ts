@@ -9,6 +9,7 @@ import {
   outboundArticleUrl,
   displayHost,
   parseFilters,
+  searchParamsFromUrl,
   safeExternalUrl,
 } from "@/lib/feed-query";
 
@@ -176,4 +177,79 @@ it("adds publisher attribution while preserving the article URL", () => {
   expect(displayHost("https://www.example.com:443/a")).toBe("example.com");
   expect(displayHost("https://news.example.com/a")).toBe("news.example.com");
   expect(displayHost("invalid")).toBe("Original publisher");
+});
+
+describe("guest entry filters", () => {
+  it.each([
+    {},
+    { content_type: "" },
+    { q: "engineering", cursor: "next", sort: "oldest" },
+    { content_type: "invalid" },
+  ])("defaults an unscoped guest to All without an API content-type filter: %j", (query) => {
+    const filters = parseFilters(query);
+    expect(filters.content_type).toBe("");
+    expect(feedParams(filters).has("content_type")).toBe(false);
+    expect(latestFeedParams(filters).has("content_type")).toBe(false);
+  });
+  it.each([
+    { topic: "python" },
+    { tag: "backend" },
+    { source_id: "11111111-1111-4111-8111-111111111111" },
+    { content_type: "article" },
+    { content_type: "news" },
+  ])("preserves an explicit scope: %j", (query) => {
+    expect(parseFilters(query)).toMatchObject(query);
+  });
+
+  it("keeps explicit Articles selected until All clears the type and stale pagination", () => {
+    const filters = parseFilters({
+      content_type: "article",
+      q: "engineering",
+      cursor: "old",
+      sort: "oldest",
+    });
+    expect(filters.content_type).toBe("article");
+    expect(feedParams(filters).get("content_type")).toBe("article");
+    expect(feedHref(filters)).toBe("/articles?q=engineering&sort=oldest");
+    const all = new URL(feedHref(filters, { content_type: "" }), "https://devfeed.test");
+    expect(all.pathname).toBe("/latest");
+    expect(Object.fromEntries(all.searchParams)).toEqual({ q: "engineering", sort: "oldest" });
+    const next = parseFilters(searchParamsFromUrl(all.searchParams));
+    expect(next.content_type).toBe("");
+    expect(feedParams(next).has("content_type")).toBe(false);
+  });
+});
+
+describe("extension URL search parameters", () => {
+  it("retains repeated values, empty values and encoded query text", () => {
+    expect(
+      searchParamsFromUrl(new URLSearchParams("topic=rust&topic=javascript&tag=&q=c%2B%2B")),
+    ).toEqual({
+      topic: ["rust", "javascript"],
+      tag: "",
+      q: "c++",
+    });
+    expect(searchParamsFromUrl(new URLSearchParams())).toEqual({});
+  });
+
+  it("gives extension guest filters the same first-value semantics as website search parameters", () => {
+    const params = new URLSearchParams(
+      "content_type=news&content_type=article&topic=rust&topic=javascript",
+    );
+    expect(parseFilters(searchParamsFromUrl(params))).toEqual(
+      parseFilters({ content_type: ["news", "article"], topic: ["rust", "javascript"] }),
+    );
+    expect(parseFilters(searchParamsFromUrl(new URLSearchParams("q=c%2B%2B"))).content_type).toBe(
+      "",
+    );
+  });
+
+  it.each(["", "content_type=", "content_type=invalid", "q=c%2B%2B&cursor=next&sort=newest"])(
+    "defaults extension guest URL parameters to All without filtering the API: %s",
+    (query) => {
+      const filters = parseFilters(searchParamsFromUrl(new URLSearchParams(query)));
+      expect(filters.content_type).toBe("");
+      expect(feedParams(filters).has("content_type")).toBe(false);
+    },
+  );
 });
