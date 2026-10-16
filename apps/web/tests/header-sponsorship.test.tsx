@@ -123,6 +123,7 @@ it("does not request an unregistered header and activates when its slot becomes 
 it("keeps the same creative, delivery and tracking state across pages and replaced header slots", async () => {
   const view = render(<Reader />);
   const link = await screen.findByRole("link", { name: sponsor.name });
+  await waitFor(() => expect(observePartnerPlacement).toHaveBeenCalledTimes(1));
   const host = link.closest(".topbar-sponsorship-content");
   const tracking = vi.mocked(observePartnerPlacement).mock.calls[0][2];
   for (const page of ["Latest", "Search", "Node.js topic", "Article preview", "Bookmarks"]) {
@@ -145,6 +146,7 @@ it("stops tracking while narrow and restores the cached delivery without another
   const added = vi.spyOn(media, "addEventListener");
   const view = render(<Reader />);
   await screen.findByRole("link", { name: sponsor.name });
+  await waitFor(() => expect(observePartnerPlacement).toHaveBeenCalledTimes(1));
   const tracking = vi.mocked(observePartnerPlacement).mock.calls[0][2];
   resize(false);
   expect(screen.queryByRole("link", { name: sponsor.name })).toBeNull();
@@ -152,7 +154,7 @@ it("stops tracking while narrow and restores the cached delivery without another
   resize(true);
   await screen.findByRole("link", { name: sponsor.name });
   expect(readerRequest).toHaveBeenCalledTimes(1);
-  expect(observePartnerPlacement).toHaveBeenCalledTimes(2);
+  await waitFor(() => expect(observePartnerPlacement).toHaveBeenCalledTimes(2));
   expect(vi.mocked(observePartnerPlacement).mock.calls[1][2]).toBe(tracking);
   view.unmount();
   expect(stopTracking).toHaveBeenCalledTimes(2);
@@ -183,6 +185,7 @@ it("expires a continuously mounted header and stops its tracking without a page 
 it("rechecks the header after authentication without exposing the previous owner's creative", async () => {
   const view = render(<Reader />);
   await screen.findByRole("link", { name: sponsor.name });
+  await waitFor(() => expect(observePartnerPlacement).toHaveBeenCalledTimes(1));
   let resolveAuthenticated!: (value: { items: PartnerPlacement[] }) => void;
   vi.mocked(userRequest).mockImplementationOnce(
     () =>
@@ -215,6 +218,7 @@ it("rechecks the header after authentication without exposing the previous owner
 it("pauses tracking behind an article dialog and resumes the same header delivery on close", async () => {
   const view = render(<Reader />);
   const link = await screen.findByRole("link", { name: sponsor.name });
+  await waitFor(() => expect(observePartnerPlacement).toHaveBeenCalledTimes(1));
   const tracking = vi.mocked(observePartnerPlacement).mock.calls[0][2];
   prompts.current.modalOpen = true;
   view.rerender(<Reader page="Article preview" articleOpen />);
@@ -251,5 +255,5 @@ it("defers an initial header request while an article dialog is already open", a
   view.rerender(<Reader />);
   expect(await screen.findByRole("link", { name: sponsor.name })).toBeTruthy();
   expect(readerRequest).toHaveBeenCalledTimes(1);
-  expect(observePartnerPlacement).toHaveBeenCalledTimes(1);
+  await waitFor(() => expect(observePartnerPlacement).toHaveBeenCalledTimes(1));
 });

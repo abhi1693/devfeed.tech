@@ -495,15 +495,21 @@ try {
       .getByRole("region", { name: "Clicks", exact: true })
       .getByText("100", { exact: true })
       .waitFor();
-    const chart = report.getByRole("region", { name: "Delivery trend", exact: true });
-    await chart.locator(".recharts-line-curve").nth(1).waitFor();
-    const curves = await chart.locator(".recharts-line-curve").evaluateAll((nodes) =>
-      nodes.map((node) => ({
-        stroke: node.getAttribute("stroke"),
-        dash: node.getAttribute("stroke-dasharray"),
-        path: node.getAttribute("d"),
-      })),
-    );
+    // Navigation can replace the previous report between a wait and a separate read.
+    const curvesHandle = await page.waitForFunction(() => {
+      const nodes = document.querySelectorAll(
+        '[aria-label="Ad performance"] [aria-label="Delivery trend"] .recharts-line-curve',
+      );
+      return nodes.length === 2
+        ? [...nodes].map((node) => ({
+            stroke: node.getAttribute("stroke"),
+            dash: node.getAttribute("stroke-dasharray"),
+            path: node.getAttribute("d"),
+          }))
+        : null;
+    });
+    const curves = await curvesHandle.jsonValue();
+    await curvesHandle.dispose();
     assert.equal(curves.length, 2, "Impressions and clicks are rendered together");
     assert.notEqual(curves[0].stroke, curves[1].stroke);
     assert.ok(curves[1].dash, "Clicks retain their distinct dashed series");
@@ -737,6 +743,7 @@ try {
   );
   await captureAccountPage("overview");
   await accountSections.getByRole("link", { name: "Performance", exact: true }).click();
+  await page.waitForURL(`**/accounts/${account.id}/performance`);
   await accountReport();
   await page.getByRole("link", { name: "Export daily CSV", exact: true }).waitFor();
   assert.equal(await page.getByRole("table", { name: "Account members", exact: true }).count(), 0);
