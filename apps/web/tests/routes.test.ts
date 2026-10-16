@@ -49,7 +49,10 @@ afterEach(() => vi.unstubAllEnvs());
 it("gives public pages absolute canonicals matching their sitemap URLs", async () => {
   const searchParams = Promise.resolve({ utm_source: "newsletter", fbclid: "tracking" });
   expect(await homeMetadata({ searchParams })).toMatchObject({
+    title: "Latest developer news, tutorials & releases",
     alternates: { canonical: "https://devfeed.tech/latest" },
+    openGraph: { title: "Latest developer news, tutorials & releases · DevFeed" },
+    twitter: { title: "Latest developer news, tutorials & releases · DevFeed" },
   });
   expect((await homeMetadata({ searchParams })).robots).toBeUndefined();
   expect(
