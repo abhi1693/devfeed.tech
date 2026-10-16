@@ -165,6 +165,13 @@ The public API adds the optional `q` parameter to topics/sources. Deploy that AP
 
 ## Partner placements
 
+Product ad cards show the import connection name beside the platform icon and optional
+attribution (for example, "Via Nick Launches") in the bottom row. Empty attribution
+leaves that row empty with its space reserved. Compact ads also show attribution in their footer; header ads include
+it before the tagline. Delivery uses the selected account-owned source, honoring its
+current connection attribution immediately, including when it is cleared. Legacy
+connections without that setting retain their imported listing attribution.
+
 The shared web, Chrome and Edge reader expires product placements one hour after
 their tracking receipt was issued. A timer and tab-resume checks enforce the
 deadline while the page stays mounted. Expired feed cards become hidden, inert
@@ -176,6 +183,8 @@ deadline before impressions, clicks and retries, including after suspended timer
 After building the web app and both extensions, run
 `node apps/web/tests/browser/partner-placements.mjs` and
 `node apps/web/tests/browser/partner-tracking.mjs` for browser parity checks.
+Use `node apps/web/tests/browser/partner-placements.mjs --attribution` for the
+focused attribution checks and light/dark desktop/mobile screenshots.
 
 ## Direct article entry
 

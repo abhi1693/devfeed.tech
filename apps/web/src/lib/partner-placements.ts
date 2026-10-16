@@ -33,6 +33,7 @@ export type PartnerPlacement = {
   url: string;
   link_rel: AdLinkRel[];
   partner_name: string;
+  attribution?: string | null;
   platform: {
     name: string;
     logo_url: string | null;
@@ -195,6 +196,7 @@ export function parsePartnerPlacements(value: unknown): PartnerPlacement[] {
       !text(item.tagline, 160) ||
       item.tagline.trim().length < 3 ||
       !text(item.partner_name, 200) ||
+      (item.attribution != null && !text(item.attribution, 300, false)) ||
       !text(item.reason, 1000) ||
       !text(item.receipt, 256) ||
       !text(item.url, 2048)
@@ -230,6 +232,7 @@ export function parsePartnerPlacements(value: unknown): PartnerPlacement[] {
       url: item.url,
       link_rel: linkRel,
       partner_name: item.partner_name,
+      attribution: typeof item.attribution === "string" ? item.attribution.trim() || null : null,
       platform: parsePlatform(item.platform),
       sponsored: item.sponsored,
       reason: item.reason,

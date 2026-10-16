@@ -40,6 +40,21 @@ it.each([undefined, {}, { name: "" }, { name: "x".repeat(201) }])(
   },
 );
 
+it.each([undefined, null, "", "   ", "  Via Nick Launches  ", "x".repeat(300)])(
+  "preserves optional listing attribution (%j)",
+  async (attribution) => {
+    vi.mocked(fetch).mockResolvedValue(Response.json({ items: [{ ...placement, attribution }] }));
+    const response = await POST(request(query));
+    expect(response.status).toBe(200);
+    expect((await response.json()).items[0].attribution).toBe(attribution?.trim() || null);
+  },
+);
+
+it.each([123, {}, "x".repeat(301)])("rejects malformed attribution (%j)", async (attribution) => {
+  vi.mocked(fetch).mockResolvedValue(Response.json({ items: [{ ...placement, attribution }] }));
+  expect((await POST(request(query))).status).toBe(503);
+});
+
 it.each(["AI", "x".repeat(161)])("rejects an invalid product tagline (%s)", async (tagline) => {
   vi.mocked(fetch).mockResolvedValue(Response.json({ items: [{ ...placement, tagline }] }));
   expect((await POST(request(query))).status).toBe(503);
