@@ -88,6 +88,10 @@ export function createManualProductFixture() {
           ad_formats: null,
           promotion_surfaces: null,
           ad_image_url: null,
+          link_rel: null,
+          effective_link_rel: ["nofollow"],
+          configurable_link_rel: false,
+          link_rel_options: ["nofollow", "sponsored", "ugc", "external"],
         };
         products.push(product);
         response.writeHead(201);

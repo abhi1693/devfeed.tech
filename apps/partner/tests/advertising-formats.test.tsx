@@ -20,6 +20,7 @@ const account: Account = partnerAccount({
   allowed_ad_formats: ["feed", "header_sponsorship", "sponsored_content", "engagement"],
 });
 const product = {
+  link_rel: ["nofollow"],
   id: "33333333-3333-4333-8333-333333333333",
   name: "CronWatch",
   tagline: "Monitor scheduled jobs.",
@@ -30,6 +31,9 @@ const product = {
   listing_url: "https://shipyard.example/cronwatch",
 };
 const policy = {
+  configurable_link_rel: false,
+  effective_link_rel: ["nofollow"],
+  link_rel_options: ["nofollow", "sponsored", "ugc", "external"],
   account_id: account.id,
   product_id: product.id,
   excluded: true,

@@ -93,6 +93,15 @@ def upgrade():
             nullable=False,
         ),
         sa.Column("audience", postgresql.JSONB(), server_default="{}", nullable=False),
+        sa.Column("link_rel", postgresql.JSONB(), server_default='["nofollow"]', nullable=False),
+        sa.CheckConstraint(
+            "jsonb_typeof(link_rel) = 'array' AND jsonb_array_length(link_rel) <= 4 AND "
+            'link_rel <@ \'["nofollow","sponsored","ugc","external"]\'::jsonb AND '
+            "jsonb_array_length(link_rel) = ((link_rel ? 'nofollow')::int + "
+            "(link_rel ? 'sponsored')::int + (link_rel ? 'ugc')::int + "
+            "(link_rel ? 'external')::int)",
+            name="ck_partner_account_link_rel",
+        ),
         sa.Column(
             "ad_formats",
             postgresql.JSONB(),
@@ -397,6 +406,13 @@ def upgrade():
         op.f("ix_partner_campaigns_account_id"), "partner_campaigns", ["account_id"], unique=False
     )
     op.create_index(
+        "ix_partner_campaign_article_sponsor",
+        "partner_campaigns",
+        ["article_id", "id"],
+        unique=False,
+        postgresql_where=sa.text("ad_format = 'sponsored_content' AND status = 'active'"),
+    )
+    op.create_index(
         "uq_partner_managed_campaign",
         "partner_campaigns",
         ["account_id", "ad_format"],
@@ -514,6 +530,16 @@ def upgrade():
         sa.Column("account_id", sa.Uuid(), nullable=False),
         sa.Column("product_id", sa.Uuid(), nullable=False),
         sa.Column("excluded", sa.Boolean(), server_default="false", nullable=False),
+        sa.Column("link_rel", postgresql.JSONB(none_as_null=True), nullable=True),
+        sa.CheckConstraint(
+            "link_rel IS NULL OR (jsonb_typeof(link_rel) = 'array' AND "
+            "jsonb_array_length(link_rel) <= 4 AND "
+            'link_rel <@ \'["nofollow","sponsored","ugc","external"]\'::jsonb AND '
+            "jsonb_array_length(link_rel) = ((link_rel ? 'nofollow')::int + "
+            "(link_rel ? 'sponsored')::int + (link_rel ? 'ugc')::int + "
+            "(link_rel ? 'external')::int))",
+            name="ck_partner_product_link_rel",
+        ),
         sa.Column(
             "promotion_surfaces",
             postgresql.JSONB(none_as_null=True, astext_type=sa.Text()),
@@ -684,6 +710,13 @@ def upgrade():
     )
     op.create_index(
         "ix_partner_asset_product", "partner_assets", ["product_id", "id"], unique=False
+    )
+    op.create_index(
+        "ix_partner_asset_article_sponsor",
+        "partner_assets",
+        ["article_id", "account_id", "product_id"],
+        unique=False,
+        postgresql_where=sa.text("ad_format = 'sponsored_content'"),
     )
     op.create_index(
         op.f("ix_partner_assets_account_id"), "partner_assets", ["account_id"], unique=False

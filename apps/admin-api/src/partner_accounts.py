@@ -17,6 +17,7 @@ from devfeed_core.partner_audiences import (
     audience_topic_options,
     validate_audience,
 )
+from devfeed_core.partner_link_rel import LINK_REL_OPTIONS, validate_link_rel
 from devfeed_core.partner_promotions import (
     request_promotion_enrollment,
 )
@@ -185,7 +186,12 @@ def archive_product(
 @router.get("/tiers", response_model=list[PartnershipTierOut])
 def partnership_tiers(_admin: Superuser):
     return [
-        {"tier": tier, "benefits": list(benefits), **tier_policy(tier)}
+        {
+            "tier": tier,
+            "benefits": list(benefits),
+            "link_rel_options": list(LINK_REL_OPTIONS),
+            **tier_policy(tier),
+        }
         for tier, benefits in TIER_BENEFITS.items()
     ]
 
@@ -331,6 +337,7 @@ def preview_destination(account_id: uuid.UUID, session: DB, admin: Superuser):
 @router.post("", response_model=AccountOut, status_code=201)
 def create_account(payload: AccountInput, _superuser: Superuser, session: DB):
     try:
+        validate_link_rel(payload.tier, payload.link_rel)
         validate_account_formats(payload.tier, payload.ad_formats)
         validate_audience(session, payload.tier, payload.audience)
     except ValueError as exc:
@@ -345,11 +352,15 @@ def create_account(payload: AccountInput, _superuser: Superuser, session: DB):
 def update_account(account_id: uuid.UUID, payload: AccountInput, superuser: Superuser, session: DB):
     account = account_access(session, superuser, account_id, lock=True)
     try:
+        if "link_rel" in payload.model_fields_set:
+            validate_link_rel(payload.tier, payload.link_rel, previous=account.link_rel)
         validate_account_formats(payload.tier, payload.ad_formats, previous=account.ad_formats)
         validate_audience(session, payload.tier, payload.audience, previous=account.audience)
     except ValueError as exc:
         raise HTTPException(422, str(exc)) from None
     for key, value in payload.model_dump(mode="json").items():
+        if key == "link_rel" and key not in payload.model_fields_set:
+            continue
         setattr(account, key, value)
     session.flush()
     request_promotion_enrollment(session, account_id)

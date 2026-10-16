@@ -89,6 +89,6 @@ def bookmarks(
             json.dumps([saved_at.isoformat(), str(article.id)]).encode()
         ).decode()
     return FeedPage(
-        items=[ArticleOut.from_article(article) for article, _ in rows[:limit]],
+        items=ArticleOut.from_articles(article for article, _ in rows[:limit]),
         next_cursor=next_cursor,
     )

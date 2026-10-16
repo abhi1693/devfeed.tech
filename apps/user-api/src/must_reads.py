@@ -98,7 +98,7 @@ def load_selection(session, user_id, timezone):
     result = DailySelection(
         date=day,
         timezone=snapshot.timezone if snapshot else timezone,
-        items=[ArticleOut.from_article(article) for article in articles],
+        items=ArticleOut.from_articles(articles),
         reasons=reasons,
         read_ids=read_ids,
         presented=bool(snapshot and snapshot.presented_at),

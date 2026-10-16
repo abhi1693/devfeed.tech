@@ -44,6 +44,9 @@ const account = {
   promotion_kind: null,
   approval_mode: "qualified",
   outbound_destination: "product_url",
+  link_rel: ["nofollow"],
+  configurable_link_rel: false,
+  link_rel_options: ["nofollow", "sponsored", "ugc", "external"],
   advanced_targeting: false,
   audience: structuredClone(emptyAudience),
   ad_formats: ["feed"],
@@ -83,7 +86,22 @@ const accountRequests = [];
 const memberRequests = [];
 const campaigns = [];
 let productExcluded = false;
-const productPolicy = { promotion_surfaces: null, ad_formats: null, ad_image_url: null };
+const productPolicy = {
+  promotion_surfaces: null,
+  ad_formats: null,
+  ad_image_url: null,
+  link_rel: null,
+};
+function productLinkRelations() {
+  return {
+    configurable_link_rel: account.configurable_link_rel,
+    link_rel_options: account.link_rel_options,
+    account_link_rel: account.configurable_link_rel ? account.link_rel : ["nofollow"],
+    effective_link_rel: account.configurable_link_rel
+      ? (productPolicy.link_rel ?? account.link_rel)
+      : ["nofollow"],
+  };
+}
 const websiteImage = creativeProduct(destinationProduct).image_url;
 const customImage = "https://assets.partner.example/admin-hero.svg";
 const uploadedImage = "https://assets.partner.example/partner-ad-images/800.webp?v=admin-upload-1";
@@ -146,6 +164,7 @@ function updatePolicy(payload) {
   account.effective_promotion_kind = account.promotion_kind ?? (paid ? "ad" : "product");
   account.promotion_kind_source = account.promotion_kind ? "account" : "tier";
   account.advanced_targeting = ["platinum", "diamond"].includes(account.tier);
+  account.configurable_link_rel = account.advanced_targeting;
   account.allowed_ad_formats = paid ? adFormats : ["feed"];
 }
 const fixture = createServer(async (req, res) => {
@@ -204,6 +223,8 @@ const fixture = createServer(async (req, res) => {
       allowed_promotion_kinds: index >= 1 ? ["product", "ad"] : ["product"],
       default_promotion_kind: index >= 1 ? "ad" : "product",
       advanced_targeting: index >= 3,
+      configurable_link_rel: index >= 3,
+      link_rel_options: account.link_rel_options,
       allowed_ad_formats: index >= 1 ? adFormats : ["feed"],
     }));
   } else if (path.endsWith("/sponsor-articles")) {
@@ -304,6 +325,7 @@ const fixture = createServer(async (req, res) => {
         productPolicy.promotion_surfaces = payload.promotion_surfaces;
       if (payload.ad_formats !== undefined) productPolicy.ad_formats = payload.ad_formats;
       if (payload.ad_image_url !== undefined) productPolicy.ad_image_url = payload.ad_image_url;
+      if (payload.link_rel !== undefined) productPolicy.link_rel = payload.link_rel;
     }
     body = {
       account_id: account.id,
@@ -311,6 +333,7 @@ const fixture = createServer(async (req, res) => {
       excluded: productExcluded,
       ...productPolicy,
       ...productAdImage(),
+      ...productLinkRelations(),
     };
   } else if (path.endsWith("/campaigns")) {
     if (req.method === "POST") {
@@ -1299,6 +1322,7 @@ try {
     ad_formats: ["engagement"],
     promotion_surfaces: ["feed"],
     ad_image_url: null,
+    link_rel: null,
   });
   await page.reload();
   await editProductPlacements.click();
@@ -1332,6 +1356,7 @@ try {
     ad_formats: null,
     promotion_surfaces: null,
     ad_image_url: null,
+    link_rel: null,
   });
   await editProductPlacements.click();
   await productDialog.getByRole("combobox", { name: "Ad image", exact: true }).click();
@@ -1760,6 +1785,58 @@ try {
     path: root + "reports/partner/admin-management-mobile.png",
     fullPage: true,
   });
+  updatePolicy({ tier: "platinum" });
+  await page.setViewportSize({ width: 1440, height: 1100 });
+  await page.goto(origin + `/partnerships/accounts/${account.id}/edit?tab=delivery`);
+  await page.getByRole("checkbox", { name: "nofollow", exact: true }).waitFor();
+  await page.getByRole("checkbox", { name: "nofollow", exact: true }).uncheck();
+  await page.getByRole("checkbox", { name: "sponsored", exact: true }).check();
+  await page.screenshot({
+    path: root + "reports/partner/link-rel-admin-account-desktop.png",
+    fullPage: true,
+  });
+  await page.getByRole("button", { name: "Save partnership", exact: true }).click();
+  await page.waitForURL(`**/accounts/${account.id}`);
+  assert.deepEqual(writes.at(-1).payload.link_rel, ["sponsored"]);
+  await page.goto(origin + `/partnerships/accounts/${account.id}/products`);
+  await page
+    .getByRole("button", { name: `Edit placements for ${catalogProduct.name}`, exact: true })
+    .click();
+  await productDialog.getByText("Account default:").waitFor();
+  await productDialog
+    .getByRole("combobox", { name: "Product link relationship", exact: true })
+    .click();
+  await page.getByRole("option", { name: "Choose product relationship", exact: true }).click();
+  await productDialog.getByRole("checkbox", { name: "sponsored", exact: true }).uncheck();
+  await page.setViewportSize({ width: 390, height: 844 });
+  assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
+  await page.screenshot({
+    path: root + "reports/partner/link-rel-admin-product-mobile.png",
+    fullPage: true,
+  });
+  await productDialog.getByRole("button", { name: "Save product placements", exact: true }).click();
+  await productDialog.waitFor({ state: "hidden" });
+  assert.deepEqual(writes.at(-1).payload.link_rel, []);
+  await page
+    .getByRole("button", { name: `Edit placements for ${catalogProduct.name}`, exact: true })
+    .click();
+  await productDialog.getByRole("checkbox", { name: "nofollow", exact: true }).waitFor();
+  for (const token of account.link_rel_options)
+    assert.equal(
+      await productDialog.getByRole("checkbox", { name: token, exact: true }).isChecked(),
+      false,
+    );
+  await productDialog
+    .getByRole("combobox", { name: "Product link relationship", exact: true })
+    .click();
+  await page.getByRole("option", { name: "Inherit account relationship", exact: true }).click();
+  await productDialog.getByRole("button", { name: "Save product placements", exact: true }).click();
+  await productDialog.waitFor({ state: "hidden" });
+  assert.equal(writes.at(-1).payload.link_rel, null);
+  updatePolicy({ tier: "gold" });
+  await page.goto(origin + `/partnerships/accounts/${account.id}/edit?tab=delivery`);
+  await page.getByText("nofollow", { exact: true }).waitFor();
+  assert.equal(await page.getByRole("checkbox", { name: "sponsored", exact: true }).count(), 0);
   assert.deepEqual(errors, []);
   console.log(
     "Admin account route 404s, independent paginated asset deep links and scoped saves, asset ownership/read-only controls, campaign deep links, defaults, automatic inventory search/pagination, readable desktop/mobile Products table, catalog inclusion/exclusion, paid campaign targeting and memberships passed; partner cookie denied.",

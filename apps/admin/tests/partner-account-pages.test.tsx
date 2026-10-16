@@ -69,6 +69,8 @@ const account: AccountOut & { members: number } = {
   members: 1,
   advanced_targeting: false,
   allowed_ad_formats: ["feed"],
+  configurable_link_rel: false,
+  link_rel_options: ["nofollow", "sponsored", "ugc", "external"],
 };
 const asset = {
   id: "asset-1",

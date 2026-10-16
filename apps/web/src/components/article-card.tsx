@@ -16,6 +16,7 @@ import { CatalogIcon } from "./catalog-icon";
 import { TruncatedLink } from "./truncated-link";
 import { ArticleSponsorship } from "./article-sponsorship";
 import { articleDestination } from "@/lib/reader-destination";
+import { adLinkRel } from "@devfeed/ui/ad-link-rel";
 
 export function ArticleCard({
   article,
@@ -66,7 +67,7 @@ export function ArticleCard({
             articleId={article.id}
             href={original}
             target="_blank"
-            rel={sponsored ? "sponsored noopener noreferrer" : "noopener noreferrer"}
+            rel={sponsored ? adLinkRel(article.sponsor_link_rel) : "noopener noreferrer"}
             className="article-read-link"
             aria-label="Read original article in a new tab"
             title="Read original article in a new tab"
@@ -86,7 +87,7 @@ export function ArticleCard({
             href={destination}
             prefetch={false}
             className="card-open-link"
-            rel={sponsored ? "sponsored" : undefined}
+            rel={sponsored ? adLinkRel(article.sponsor_link_rel, false) || undefined : undefined}
             aria-describedby={sponsored ? sponsorshipId : undefined}
             onClick={onOpen}
           >

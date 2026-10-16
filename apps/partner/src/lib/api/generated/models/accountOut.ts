@@ -10,6 +10,8 @@ import type { AccountOutAllowedAdFormatsItem } from './accountOutAllowedAdFormat
 import type { AccountOutAllowedPromotionKindsItem } from './accountOutAllowedPromotionKindsItem';
 import type { AccountOutApprovalMode } from './accountOutApprovalMode';
 import type { AccountOutEffectivePromotionKind } from './accountOutEffectivePromotionKind';
+import type { AccountOutLinkRelItem } from './accountOutLinkRelItem';
+import type { AccountOutLinkRelOptionsItem } from './accountOutLinkRelOptionsItem';
 import type { AccountOutOutboundDestination } from './accountOutOutboundDestination';
 import type { AccountOutPromotionKind } from './accountOutPromotionKind';
 import type { AccountOutPromotionKindSource } from './accountOutPromotionKindSource';
@@ -28,8 +30,12 @@ export interface AccountOut {
   audience?: AudienceInput;
   auto_include_products?: boolean;
   benefits: string[];
+  configurable_link_rel: boolean;
   effective_promotion_kind: AccountOutEffectivePromotionKind;
   id: string;
+  /** @maxItems 4 */
+  link_rel?: AccountOutLinkRelItem[];
+  link_rel_options: AccountOutLinkRelOptionsItem[];
   /**
      * @minLength 1
      * @maxLength 200

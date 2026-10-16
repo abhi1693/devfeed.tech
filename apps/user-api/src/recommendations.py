@@ -331,7 +331,7 @@ def feed(
     result = RecommendationPage(
         status="refreshing" if refreshing else "ready",
         generation=selected_generation,
-        items=[ArticleOut.from_article(article) for article, _, _ in page],
+        items=ArticleOut.from_articles(article for article, _, _ in page),
         next_cursor=next_cursor,
         has_interests=state.interest_count > 0,
         refresh_state=("retrying" if state.attempts else "preparing") if refreshing else "idle",
@@ -349,7 +349,7 @@ def feed(
         starters, kind = starter_articles(
             session, user_id, settings, limit, content_type, source_id
         )
-        result.items = [ArticleOut.from_article(article) for article in starters]
+        result.items = ArticleOut.from_articles(starters)
         result.feed_kind = kind
         result.generation = None
         result.next_cursor = None

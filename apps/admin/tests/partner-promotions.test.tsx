@@ -46,6 +46,8 @@ const account: AccountOut = {
   promotion_surfaces: ["article", "feed"],
   advanced_targeting: false,
   allowed_ad_formats: ["feed"],
+  configurable_link_rel: false,
+  link_rel_options: ["nofollow", "sponsored", "ugc", "external"],
 };
 const paidAccount: AccountOut = {
   ...account,
@@ -71,12 +73,19 @@ const product = {
   excluded: false,
   globally_excluded: false,
   ad_image_url: null,
+  configurable_link_rel: false,
+  effective_link_rel: ["nofollow" as const],
+  link_rel_options: ["nofollow" as const],
 };
 const adImageDefaults = {
   ad_image_url: null,
   image_url: null,
   default_image_url: null,
   ad_image_status: "default" as const,
+  account_link_rel: ["nofollow" as const],
+  configurable_link_rel: false,
+  effective_link_rel: ["nofollow" as const],
+  link_rel_options: ["nofollow" as const],
 };
 const campaign: CampaignOut = {
   id: "campaign-1",
@@ -1004,6 +1013,7 @@ it.each([false, true])(
         logo_url: null,
         image_url: null,
         ad_image_status: "default",
+        link_rel: ["nofollow"],
       },
     });
     renderAdmin(

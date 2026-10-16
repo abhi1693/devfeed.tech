@@ -29,6 +29,7 @@ import { ArticleImage } from "./article-image";
 import { ArticleCard } from "./article-card";
 import { CatalogIcon } from "./catalog-icon";
 import { EngagementProvider } from "./article-engagement";
+import { adLinkRel } from "@devfeed/ui/ad-link-rel";
 
 // Simultaneously mounted feed/article contexts must never show the same catalog product twice.
 const displayed = new Set<string>();
@@ -128,7 +129,7 @@ function Placement({
     ref: link,
     href: item.url,
     target: "_blank",
-    rel: "sponsored noopener noreferrer",
+    rel: adLinkRel(item.link_rel),
     "aria-label": item.name,
     "aria-describedby": sponsorshipId,
     title:

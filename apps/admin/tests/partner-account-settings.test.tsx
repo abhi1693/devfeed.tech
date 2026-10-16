@@ -29,6 +29,9 @@ const account: AccountOut = {
   promotion_kind_source: "tier",
   advanced_targeting: true,
   allowed_ad_formats: ["feed", "header_sponsorship", "engagement"],
+  configurable_link_rel: true,
+  link_rel: ["nofollow"],
+  link_rel_options: ["nofollow", "sponsored", "ugc", "external"],
   ad_formats: ["feed"],
   promotion_surfaces: ["article", "topic", "feed", "search"],
 };
@@ -40,6 +43,8 @@ const tiers: PartnershipTierOut[] = [
     allowed_promotion_kinds: account.allowed_promotion_kinds,
     allowed_ad_formats: account.allowed_ad_formats,
     advanced_targeting: true,
+    configurable_link_rel: true,
+    link_rel_options: account.link_rel_options,
   },
   {
     tier: "bronze",
@@ -48,6 +53,8 @@ const tiers: PartnershipTierOut[] = [
     allowed_promotion_kinds: ["product"],
     allowed_ad_formats: ["feed"],
     advanced_targeting: false,
+    configurable_link_rel: false,
+    link_rel_options: account.link_rel_options,
   },
 ];
 const fetcher = vi.fn();
@@ -206,6 +213,7 @@ it("retains every tab's unsaved draft and submits them together with CSRF", asyn
     promotion_kind: "product",
     approval_mode: "trusted",
     outbound_destination: "listing_url",
+    link_rel: ["nofollow"],
     audience: { experience_levels: ["senior"], language_topic_ids: [], tool_topic_ids: [] },
     ad_formats: ["feed", "engagement"],
   });
@@ -254,6 +262,61 @@ it("returns to Delivery for empty placement selection without discarding the acc
     "Example partner draft",
   );
   expect(fetcher.mock.calls.some(([, init]) => init?.method === "PUT")).toBe(false);
+});
+
+it("edits account link relations from tier capabilities and locks nofollow after a downgrade", async () => {
+  const user = userEvent.setup();
+  const configurable = {
+    ...account,
+    link_rel: ["nofollow"] as const,
+    configurable_link_rel: true,
+    link_rel_options: ["nofollow", "sponsored", "ugc", "external"] as const,
+  };
+  fetcher.mockImplementation(async (_input, init) =>
+    init?.method === "PUT"
+      ? Response.json(configurable)
+      : Response.json(
+          tiers.map((item) => ({
+            ...item,
+            configurable_link_rel: item.tier === "platinum",
+            link_rel_options: item.tier === "platinum" ? configurable.link_rel_options : [],
+          })),
+        ),
+  );
+  renderAdmin(
+    <PartnerAccountManagement
+      account={{
+        ...configurable,
+        link_rel: [...configurable.link_rel],
+        link_rel_options: [...configurable.link_rel_options],
+      }}
+      mode="account"
+      initialTab="delivery"
+    />,
+  );
+  await waitFor(() =>
+    expect((screen.getByRole("checkbox", { name: "nofollow" }) as HTMLInputElement).disabled).toBe(
+      false,
+    ),
+  );
+  await user.click(screen.getByRole("checkbox", { name: "nofollow" }));
+  await user.click(screen.getByRole("checkbox", { name: "sponsored" }));
+  await user.click(screen.getByRole("tab", { name: "General" }));
+  await selectOption(user, "Partnership tier", "Bronze");
+  await user.click(screen.getByRole("tab", { name: "Delivery" }));
+  expect(screen.getByText("nofollow", { selector: "code" })).toBeTruthy();
+  expect(screen.queryByRole("checkbox", { name: "sponsored" })).toBeNull();
+  await user.click(screen.getByRole("tab", { name: "General" }));
+  await selectOption(user, "Partnership tier", "Platinum");
+  await user.click(screen.getByRole("tab", { name: "Delivery" }));
+  expect((screen.getByRole("checkbox", { name: "sponsored" }) as HTMLInputElement).checked).toBe(
+    true,
+  );
+  await user.click(screen.getByRole("button", { name: "Save partnership" }));
+  await waitFor(() => expect(push).toHaveBeenCalled());
+  expect(
+    JSON.parse(fetcher.mock.calls.find(([, init]) => init?.method === "PUT")![1].body),
+  ).toMatchObject({ link_rel: ["sponsored"] });
 });
 
 it("retains restricted audience and format choices when a tier changes", async () => {

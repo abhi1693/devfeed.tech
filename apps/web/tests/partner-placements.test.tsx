@@ -116,10 +116,32 @@ it("keeps Engagement linked and tracked through the whole card with a hostname-o
   expect(footer.querySelector("svg")).toBeNull();
   expect(link.textContent).not.toContain("Explore");
   expect(link.getAttribute("href")).toBe(placement.url);
-  expect(link.getAttribute("rel")).toBe("sponsored noopener noreferrer");
+  expect(link.getAttribute("rel")).toBe("nofollow noopener noreferrer");
   expect(link.closest("article")?.querySelectorAll("a")).toHaveLength(1);
   expect(observePartnerPlacement).toHaveBeenCalledWith(link, placement.receipt, expect.any(Object));
 });
+
+it.each(["feed", "header_sponsorship", "engagement"] as const)(
+  "uses configured relations on %s without losing disclosure or signed tracking",
+  async (ad_format) => {
+    const item = { ...placement, ad_format, link_rel: ["sponsored", "external"] };
+    vi.mocked(readerRequest).mockResolvedValueOnce(Response.json({ items: [item] }));
+    render(
+      <PartnerPlacements
+        surface={ad_format === "header_sponsorship" ? "header" : "feed"}
+        ad_formats={[ad_format]}
+      >
+        {(cards) => <div>{cards}</div>}
+      </PartnerPlacements>,
+    );
+    const link = await screen.findByRole("link", { name: item.name });
+    expect(link.getAttribute("rel")).toBe("sponsored external noopener noreferrer");
+    expect(screen.getByText("Sponsored")).toBeTruthy();
+    await waitFor(() =>
+      expect(observePartnerPlacement).toHaveBeenCalledWith(link, item.receipt, expect.any(Object)),
+    );
+  },
+);
 
 it("expires continuously mounted compact products without refetching or a parent rerender", async () => {
   usePlacementClock();
@@ -434,7 +456,7 @@ it("discloses every compact product as sponsored while retaining its signed asse
   expect(logo.getAttribute("referrerpolicy")).toBe("no-referrer");
   expect(logo.getAttribute("alt")).toBe("");
   expect(screen.getByRole("link", { name: sponsoredPlacement.name }).getAttribute("rel")).toBe(
-    "sponsored noopener noreferrer",
+    "nofollow noopener noreferrer",
   );
   await waitFor(() => expect(observePartnerPlacement).toHaveBeenCalledTimes(2));
   expect(vi.mocked(readerRequest).mock.calls[0][1]).toMatchObject({
@@ -507,7 +529,7 @@ it.each(["compact", "card"])(
     expect(screen.queryByRole("button")).toBeNull();
     for (const item of [placement, sponsoredPlacement]) {
       const link = screen.getByRole("link", { name: item.name });
-      expect(link.getAttribute("rel")).toBe("sponsored noopener noreferrer");
+      expect(link.getAttribute("rel")).toBe("nofollow noopener noreferrer");
       expect(link.getAttribute("href")).toBe(item.url);
       const footer = link.querySelector(".partner-placement-destination")!;
       expect(footer.textContent?.trim()).toBe("partner.example");

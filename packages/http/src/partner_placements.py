@@ -5,6 +5,7 @@ from typing import Literal
 
 from devfeed_core.partner_ad_formats import AdFormat, default_ad_formats
 from devfeed_core.partner_connection_logos import PlacementPlatform
+from devfeed_core.partner_link_rel import LinkRelationships
 from devfeed_core.partner_surfaces import PromotionSurface
 from devfeed_core.partner_taglines import Tagline
 from devfeed_core.schemas import ArticleOut
@@ -101,6 +102,7 @@ class PlacementOut(BaseModel):
     image_url: str | None = None
     image_variants: list[PlacementImageVariant] = Field(default_factory=list)
     url: str
+    link_rel: LinkRelationships
     partner_name: str
     platform: PlacementPlatform | None = None
     # Campaign backing for allocation/reporting; all reader placements must display

@@ -6,6 +6,7 @@ import { ArticleBookmarkButton } from "./article-engagement";
 import type { ReactNode } from "react";
 import { ArticleSponsorship } from "./article-sponsorship";
 import { articleDestination } from "@/lib/reader-destination";
+import { adLinkRel } from "@devfeed/ui/ad-link-rel";
 
 export function ArticleTableFrame({
   children,
@@ -72,7 +73,11 @@ export function ArticleTableRow({ article }: { article: Article }) {
           title={article.title}
           href={articleDestination(article.slug)}
           prefetch={false}
-          rel={article.sponsor_names?.length ? "sponsored" : undefined}
+          rel={
+            article.sponsor_names?.length
+              ? adLinkRel(article.sponsor_link_rel, false) || undefined
+              : undefined
+          }
         >
           {article.title}
         </Link>

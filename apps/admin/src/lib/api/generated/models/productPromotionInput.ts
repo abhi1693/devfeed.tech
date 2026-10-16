@@ -10,5 +10,6 @@ export interface ProductPromotionInput {
   ad_formats?: ('feed' | 'header_sponsorship' | 'sponsored_content' | 'engagement')[] | null;
   ad_image_url?: string | null;
   excluded?: boolean | null;
+  link_rel?: ('nofollow' | 'sponsored' | 'ugc' | 'external')[] | null;
   promotion_surfaces?: ('article' | 'topic' | 'feed' | 'search' | 'header')[] | null;
 }

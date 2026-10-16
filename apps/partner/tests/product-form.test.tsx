@@ -33,6 +33,9 @@ const product: ProductDetailOut = {
   ad_formats: null,
   promotion_surfaces: null,
   ad_image_url: null,
+  configurable_link_rel: false,
+  effective_link_rel: ["nofollow"],
+  link_rel_options: ["nofollow", "sponsored", "ugc", "external"],
 };
 beforeEach(() => vi.clearAllMocks());
 afterEach(() => {

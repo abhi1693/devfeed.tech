@@ -35,6 +35,7 @@ export const sponsoredArticle = {
 export function creativeProduct(product) {
   return {
     ...product,
+    link_rel: ["nofollow"],
     tagline: "Monitor production APIs and diagnose reliability problems.",
     logo_url: "https://assets.partner.example/logo.svg",
     image_url: "https://assets.partner.example/creative.svg",

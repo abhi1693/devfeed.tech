@@ -40,6 +40,9 @@ const account = {
   promotion_kind_source: "tier",
   approval_mode: "trusted",
   outbound_destination: "product_url",
+  link_rel: ["nofollow"],
+  configurable_link_rel: false,
+  link_rel_options: ["nofollow", "sponsored", "ugc", "external"],
   advanced_targeting: false,
   audience: structuredClone(emptyAudience),
   ad_formats: ["feed"],
@@ -173,7 +176,18 @@ const productPolicy = {
   promotion_surfaces: null,
   ad_formats: null,
   ad_image_url: null,
+  link_rel: null,
 };
+function productLinkRelations() {
+  return {
+    configurable_link_rel: account.configurable_link_rel,
+    link_rel_options: account.link_rel_options,
+    account_link_rel: account.configurable_link_rel ? account.link_rel : ["nofollow"],
+    effective_link_rel: account.configurable_link_rel
+      ? (productPolicy.link_rel ?? account.link_rel)
+      : ["nofollow"],
+  };
+}
 const productPolicyWrites = [];
 const websiteImage = creativeProduct(previewProduct).image_url;
 const customImage = "https://assets.partner.example/custom-hero.svg";
@@ -289,7 +303,7 @@ const mock = createServer(async (request, response) => {
     const payload = JSON.parse(raw);
     assert.ok(
       Object.keys(payload).every((key) =>
-        ["outbound_destination", "audience", "ad_formats"].includes(key),
+        ["outbound_destination", "audience", "ad_formats", "link_rel"].includes(key),
       ),
     );
     if (payload.outbound_destination !== undefined)
@@ -299,6 +313,7 @@ const mock = createServer(async (request, response) => {
       account.outbound_destination = payload.outbound_destination;
     if (payload.audience !== undefined) account.audience = payload.audience;
     if (payload.ad_formats !== undefined) account.ad_formats = payload.ad_formats;
+    if (payload.link_rel !== undefined) account.link_rel = payload.link_rel;
     response.end(JSON.stringify(account));
     return;
   }
@@ -347,6 +362,7 @@ const mock = createServer(async (request, response) => {
               approval_source: "qualified",
               globally_excluded: false,
               ...productPolicy,
+              ...productLinkRelations(),
             },
           ]
         : [];
@@ -399,6 +415,7 @@ const mock = createServer(async (request, response) => {
         approval_source: "qualified",
         globally_excluded: false,
         ...productPolicy,
+        ...productLinkRelations(),
       }),
     );
     return;
@@ -446,7 +463,9 @@ const mock = createServer(async (request, response) => {
       const payload = JSON.parse(raw);
       assert.ok(
         Object.keys(payload).every((key) =>
-          ["excluded", "promotion_surfaces", "ad_formats", "ad_image_url"].includes(key),
+          ["excluded", "promotion_surfaces", "ad_formats", "ad_image_url", "link_rel"].includes(
+            key,
+          ),
         ),
       );
       productPolicyWrites.push(payload);
@@ -458,6 +477,7 @@ const mock = createServer(async (request, response) => {
         product_id: previewProduct.id,
         ...productPolicy,
         ...productAdImage(),
+        ...productLinkRelations(),
       }),
     );
     return;
@@ -2291,6 +2311,68 @@ try {
   assert.equal(
     workspaceDashboardRequests.some((request) => request.accountIds.includes(foreignAccountId)),
     false,
+  );
+
+  await context.addCookies([{ name: "devfeed_partner_session", value: "partner", url: origin }]);
+  account.tier = "platinum";
+  account.configurable_link_rel = true;
+  await page.goto(origin + `/settings/${account.id}/destination`);
+  await page.getByRole("checkbox", { name: "nofollow", exact: true }).waitFor();
+  assert.equal(
+    await page.getByRole("checkbox", { name: "nofollow", exact: true }).isChecked(),
+    true,
+  );
+  for (const token of account.link_rel_options)
+    assert.equal(await page.getByRole("checkbox", { name: token, exact: true }).count(), 1);
+  await page.getByRole("checkbox", { name: "nofollow", exact: true }).uncheck();
+  await page.getByRole("checkbox", { name: "sponsored", exact: true }).check();
+  await page.getByRole("button", { name: "Save click destination", exact: true }).click();
+  await page.getByRole("status").filter({ hasText: "Click destination saved." }).waitFor();
+  assert.deepEqual(preferenceWrites.at(-1).link_rel, ["sponsored"]);
+  await page.reload();
+  assert.equal(
+    await page.getByRole("checkbox", { name: "sponsored", exact: true }).isChecked(),
+    true,
+  );
+  await page.screenshot({
+    path: root + "reports/partner/link-rel-account-desktop.png",
+    fullPage: true,
+  });
+  await page.goto(origin + `/products/${previewProduct.id}/placements?account_id=${account.id}`);
+  await page.getByText("Account default:").waitFor();
+  await page.getByRole("combobox", { name: "Product link relationship", exact: true }).click();
+  await page.getByRole("option", { name: "Choose product relationship", exact: true }).click();
+  await page.getByRole("checkbox", { name: "sponsored", exact: true }).uncheck();
+  await page.getByRole("button", { name: "Save product placements", exact: true }).click();
+  await page.waitForURL((url) => !url.pathname.endsWith("/placements"));
+  assert.deepEqual(productPolicyWrites.at(-1).link_rel, []);
+  await page.goto(origin + `/products/${previewProduct.id}/placements?account_id=${account.id}`);
+  await page.getByRole("checkbox", { name: "nofollow", exact: true }).waitFor();
+  for (const token of account.link_rel_options)
+    assert.equal(await page.getByRole("checkbox", { name: token, exact: true }).isChecked(), false);
+  await page.setViewportSize({ width: 390, height: 844 });
+  assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
+  await page.screenshot({
+    path: root + "reports/partner/link-rel-product-mobile.png",
+    fullPage: true,
+  });
+  await page.getByRole("combobox", { name: "Product link relationship", exact: true }).click();
+  await page.getByRole("option", { name: "Inherit account relationship", exact: true }).click();
+  await page.getByRole("button", { name: "Save product placements", exact: true }).click();
+  await page.waitForURL((url) => !url.pathname.endsWith("/placements"));
+  assert.equal(productPolicyWrites.at(-1).link_rel, null);
+  account.tier = "gold";
+  account.configurable_link_rel = false;
+  await page.goto(origin + `/settings/${account.id}/destination`);
+  await page.getByText("nofollow", { exact: true }).waitFor();
+  assert.equal(await page.getByRole("checkbox", { name: "sponsored", exact: true }).count(), 0);
+  await page.getByRole("button", { name: "Save click destination", exact: true }).click();
+  await page.getByRole("status").filter({ hasText: "Click destination saved." }).waitFor();
+  assert.equal("link_rel" in preferenceWrites.at(-1), false);
+  assert.deepEqual(
+    account.link_rel,
+    ["sponsored"],
+    "A downgrade preserves the saved eligible-tier choice",
   );
 
   await context.addCookies([{ name: "devfeed_partner_session", value: "empty", url: origin }]);

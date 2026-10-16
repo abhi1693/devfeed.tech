@@ -5,6 +5,7 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { PartnerProductCatalog, productPlacementStatus } from "../src/app/partner-product-catalog";
 import { PartnerProductPage } from "../src/app/partner-product-page";
 import { partnerAccount } from "./partner-fixtures";
+import { AD_LINK_REL_OPTIONS } from "@devfeed/ui/ad-link-rel";
 
 const { router } = vi.hoisted(() => ({ router: { replace: vi.fn() } }));
 vi.mock("next/navigation", () => ({ useRouter: () => router }));
@@ -29,6 +30,9 @@ const product = {
   ad_formats: null,
   promotion_surfaces: null,
   ad_image_url: null,
+  configurable_link_rel: false,
+  effective_link_rel: ["nofollow" as const],
+  link_rel_options: [...AD_LINK_REL_OPTIONS],
 };
 const policy = {
   account_id: account.id,
@@ -42,6 +46,7 @@ const policy = {
   ad_image_status: "default" as const,
 };
 const creative = {
+  link_rel: ["nofollow"],
   id: product.id,
   name: product.name,
   tagline: "Monitor scheduled jobs.",

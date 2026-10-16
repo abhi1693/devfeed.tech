@@ -18,6 +18,8 @@ export const partnerAccountsListResponseItemsItemAudienceLanguageTopicIdsMax = 1
 
 export const partnerAccountsListResponseItemsItemAudienceToolTopicIdsMax = 100;
 
+export const partnerAccountsListResponseItemsItemLinkRelMax = 4;
+
 export const partnerAccountsListResponseItemsItemNameMax = 200;
 
 export const partnerAccountsListResponseItemsItemPromotionSurfacesMax = 5;
@@ -38,8 +40,11 @@ export const PartnerAccountsListResponse = zod.object({
 }),
   "auto_include_products": zod.boolean(),
   "benefits": zod.array(zod.string()),
+  "configurable_link_rel": zod.boolean(),
   "effective_promotion_kind": zod.enum(['product', 'ad']),
   "id": zod.uuid(),
+  "link_rel": zod.array(zod.enum(['nofollow', 'sponsored', 'ugc', 'external'])).max(partnerAccountsListResponseItemsItemLinkRelMax),
+  "link_rel_options": zod.array(zod.enum(['nofollow', 'sponsored', 'ugc', 'external'])),
   "name": zod.string().min(1).max(partnerAccountsListResponseItemsItemNameMax),
   "organic_enabled": zod.boolean(),
   "outbound_destination": zod.enum(['product_url', 'listing_url']),
@@ -1871,6 +1876,7 @@ export const PartnerCreativePreviewResponse = zod.object({
   "ad_image_status": zod.enum(['default', 'queued', 'running', 'ready', 'failed']),
   "id": zod.uuid(),
   "image_url": zod.union([zod.string(),zod.null()]),
+  "link_rel": zod.array(zod.enum(['nofollow', 'sponsored', 'ugc', 'external'])),
   "listing_url": zod.union([zod.string(),zod.null()]),
   "logo_url": zod.union([zod.string(),zod.null()]),
   "name": zod.string(),
@@ -1899,6 +1905,8 @@ export const dashboardV1PartnerAccountsAccountIdDashboardGetResponseAccountAudie
 
 export const dashboardV1PartnerAccountsAccountIdDashboardGetResponseAccountAudienceToolTopicIdsMax = 100;
 
+export const dashboardV1PartnerAccountsAccountIdDashboardGetResponseAccountLinkRelMax = 4;
+
 export const dashboardV1PartnerAccountsAccountIdDashboardGetResponseAccountNameMax = 200;
 
 export const dashboardV1PartnerAccountsAccountIdDashboardGetResponseAccountPromotionSurfacesMax = 5;
@@ -1924,8 +1932,11 @@ export const DashboardV1PartnerAccountsAccountIdDashboardGetResponse = zod.objec
 }),
   "auto_include_products": zod.boolean(),
   "benefits": zod.array(zod.string()),
+  "configurable_link_rel": zod.boolean(),
   "effective_promotion_kind": zod.enum(['product', 'ad']),
   "id": zod.uuid(),
+  "link_rel": zod.array(zod.enum(['nofollow', 'sponsored', 'ugc', 'external'])).max(dashboardV1PartnerAccountsAccountIdDashboardGetResponseAccountLinkRelMax),
+  "link_rel_options": zod.array(zod.enum(['nofollow', 'sponsored', 'ugc', 'external'])),
   "name": zod.string().min(1).max(dashboardV1PartnerAccountsAccountIdDashboardGetResponseAccountNameMax),
   "organic_enabled": zod.boolean(),
   "outbound_destination": zod.enum(['product_url', 'listing_url']),
@@ -1996,6 +2007,8 @@ export const PartnerDestinationPreviewResponse = zod.object({
 export const partnerInventoryListResponseItemsItemAssessmentReasonDefault = ``;
 export const partnerInventoryListResponseItemsItemAssessmentStateDefault = `waiting`;
 export const partnerInventoryListResponseItemsItemCommercialApprovedDefault = false;
+export const partnerInventoryListResponseItemsItemLinkRelOneMax = 4;
+
 export const partnerInventoryListResponseItemsItemTaglineMin = 3;
 export const partnerInventoryListResponseItemsItemTaglineMax = 160;
 
@@ -2012,10 +2025,14 @@ export const PartnerInventoryListResponse = zod.object({
   "state": zod.enum(['waiting', 'checking', 'qualified', 'attention', 'irrelevant', 'withdrawn']).default(partnerInventoryListResponseItemsItemAssessmentStateDefault)
 }),
   "commercial_approved": zod.boolean().default(partnerInventoryListResponseItemsItemCommercialApprovedDefault),
+  "configurable_link_rel": zod.boolean(),
   "editable": zod.boolean(),
+  "effective_link_rel": zod.array(zod.enum(['nofollow', 'sponsored', 'ugc', 'external'])),
   "excluded": zod.boolean(),
   "globally_excluded": zod.boolean(),
   "id": zod.uuid(),
+  "link_rel": zod.union([zod.array(zod.enum(['nofollow', 'sponsored', 'ugc', 'external'])).max(partnerInventoryListResponseItemsItemLinkRelOneMax),zod.null()]).optional(),
+  "link_rel_options": zod.array(zod.enum(['nofollow', 'sponsored', 'ugc', 'external'])),
   "manual_active": zod.union([zod.boolean(),zod.null()]),
   "name": zod.string(),
   "pricing": zod.enum(['free', 'freemium', 'paid', 'unknown']),
@@ -2042,6 +2059,8 @@ export const partnerAccountPreferencesUpdateResponseAudienceLanguageTopicIdsMax 
 
 export const partnerAccountPreferencesUpdateResponseAudienceToolTopicIdsMax = 100;
 
+export const partnerAccountPreferencesUpdateResponseLinkRelMax = 4;
+
 export const partnerAccountPreferencesUpdateResponseNameMax = 200;
 
 export const partnerAccountPreferencesUpdateResponsePromotionSurfacesMax = 5;
@@ -2061,8 +2080,11 @@ export const PartnerAccountPreferencesUpdateResponse = zod.object({
 }),
   "auto_include_products": zod.boolean(),
   "benefits": zod.array(zod.string()),
+  "configurable_link_rel": zod.boolean(),
   "effective_promotion_kind": zod.enum(['product', 'ad']),
   "id": zod.uuid(),
+  "link_rel": zod.array(zod.enum(['nofollow', 'sponsored', 'ugc', 'external'])).max(partnerAccountPreferencesUpdateResponseLinkRelMax),
+  "link_rel_options": zod.array(zod.enum(['nofollow', 'sponsored', 'ugc', 'external'])),
   "name": zod.string().min(1).max(partnerAccountPreferencesUpdateResponseNameMax),
   "organic_enabled": zod.boolean(),
   "outbound_destination": zod.enum(['product_url', 'listing_url']),
@@ -2080,6 +2102,8 @@ export const PartnerAccountPreferencesUpdateResponse = zod.object({
 export const partnerProductCreateResponseAssessmentReasonDefault = ``;
 export const partnerProductCreateResponseAssessmentStateDefault = `waiting`;
 export const partnerProductCreateResponseCommercialApprovedDefault = false;
+export const partnerProductCreateResponseLinkRelOneMax = 4;
+
 export const partnerProductCreateResponseTaglineMin = 3;
 export const partnerProductCreateResponseTaglineMax = 160;
 
@@ -2097,10 +2121,14 @@ export const PartnerProductCreateResponse = zod.object({
   "state": zod.enum(['waiting', 'checking', 'qualified', 'attention', 'irrelevant', 'withdrawn']).default(partnerProductCreateResponseAssessmentStateDefault)
 }),
   "commercial_approved": zod.boolean().default(partnerProductCreateResponseCommercialApprovedDefault),
+  "configurable_link_rel": zod.boolean(),
   "editable": zod.boolean(),
+  "effective_link_rel": zod.array(zod.enum(['nofollow', 'sponsored', 'ugc', 'external'])),
   "excluded": zod.boolean(),
   "globally_excluded": zod.boolean(),
   "id": zod.uuid(),
+  "link_rel": zod.union([zod.array(zod.enum(['nofollow', 'sponsored', 'ugc', 'external'])).max(partnerProductCreateResponseLinkRelOneMax),zod.null()]).optional(),
+  "link_rel_options": zod.array(zod.enum(['nofollow', 'sponsored', 'ugc', 'external'])),
   "manual_active": zod.union([zod.boolean(),zod.null()]),
   "name": zod.string(),
   "pricing": zod.enum(['free', 'freemium', 'paid', 'unknown']),
@@ -2126,6 +2154,8 @@ export const PartnerProductArchiveResponse = zod.void()
 export const partnerProductGetResponseAssessmentReasonDefault = ``;
 export const partnerProductGetResponseAssessmentStateDefault = `waiting`;
 export const partnerProductGetResponseCommercialApprovedDefault = false;
+export const partnerProductGetResponseLinkRelOneMax = 4;
+
 export const partnerProductGetResponseTaglineMin = 3;
 export const partnerProductGetResponseTaglineMax = 160;
 
@@ -2143,10 +2173,14 @@ export const PartnerProductGetResponse = zod.object({
   "state": zod.enum(['waiting', 'checking', 'qualified', 'attention', 'irrelevant', 'withdrawn']).default(partnerProductGetResponseAssessmentStateDefault)
 }),
   "commercial_approved": zod.boolean().default(partnerProductGetResponseCommercialApprovedDefault),
+  "configurable_link_rel": zod.boolean(),
   "editable": zod.boolean(),
+  "effective_link_rel": zod.array(zod.enum(['nofollow', 'sponsored', 'ugc', 'external'])),
   "excluded": zod.boolean(),
   "globally_excluded": zod.boolean(),
   "id": zod.uuid(),
+  "link_rel": zod.union([zod.array(zod.enum(['nofollow', 'sponsored', 'ugc', 'external'])).max(partnerProductGetResponseLinkRelOneMax),zod.null()]).optional(),
+  "link_rel_options": zod.array(zod.enum(['nofollow', 'sponsored', 'ugc', 'external'])),
   "manual_active": zod.union([zod.boolean(),zod.null()]),
   "name": zod.string(),
   "pricing": zod.enum(['free', 'freemium', 'paid', 'unknown']),
@@ -2166,6 +2200,8 @@ export const PartnerProductGetResponse = zod.object({
 export const partnerProductUpdateResponseAssessmentReasonDefault = ``;
 export const partnerProductUpdateResponseAssessmentStateDefault = `waiting`;
 export const partnerProductUpdateResponseCommercialApprovedDefault = false;
+export const partnerProductUpdateResponseLinkRelOneMax = 4;
+
 export const partnerProductUpdateResponseTaglineMin = 3;
 export const partnerProductUpdateResponseTaglineMax = 160;
 
@@ -2183,10 +2219,14 @@ export const PartnerProductUpdateResponse = zod.object({
   "state": zod.enum(['waiting', 'checking', 'qualified', 'attention', 'irrelevant', 'withdrawn']).default(partnerProductUpdateResponseAssessmentStateDefault)
 }),
   "commercial_approved": zod.boolean().default(partnerProductUpdateResponseCommercialApprovedDefault),
+  "configurable_link_rel": zod.boolean(),
   "editable": zod.boolean(),
+  "effective_link_rel": zod.array(zod.enum(['nofollow', 'sponsored', 'ugc', 'external'])),
   "excluded": zod.boolean(),
   "globally_excluded": zod.boolean(),
   "id": zod.uuid(),
+  "link_rel": zod.union([zod.array(zod.enum(['nofollow', 'sponsored', 'ugc', 'external'])).max(partnerProductUpdateResponseLinkRelOneMax),zod.null()]).optional(),
+  "link_rel_options": zod.array(zod.enum(['nofollow', 'sponsored', 'ugc', 'external'])),
   "manual_active": zod.union([zod.boolean(),zod.null()]),
   "name": zod.string(),
   "pricing": zod.enum(['free', 'freemium', 'paid', 'unknown']),
@@ -2905,6 +2945,8 @@ export const PartnerWorkspaceDashboardResponse = zod.object({
 export const partnerWorkspaceInventoryResponseItemsItemAssessmentReasonDefault = ``;
 export const partnerWorkspaceInventoryResponseItemsItemAssessmentStateDefault = `waiting`;
 export const partnerWorkspaceInventoryResponseItemsItemCommercialApprovedDefault = false;
+export const partnerWorkspaceInventoryResponseItemsItemLinkRelOneMax = 4;
+
 export const partnerWorkspaceInventoryResponseItemsItemTaglineMin = 3;
 export const partnerWorkspaceInventoryResponseItemsItemTaglineMax = 160;
 
@@ -2923,10 +2965,14 @@ export const PartnerWorkspaceInventoryResponse = zod.object({
   "state": zod.enum(['waiting', 'checking', 'qualified', 'attention', 'irrelevant', 'withdrawn']).default(partnerWorkspaceInventoryResponseItemsItemAssessmentStateDefault)
 }),
   "commercial_approved": zod.boolean().default(partnerWorkspaceInventoryResponseItemsItemCommercialApprovedDefault),
+  "configurable_link_rel": zod.boolean(),
   "editable": zod.boolean(),
+  "effective_link_rel": zod.array(zod.enum(['nofollow', 'sponsored', 'ugc', 'external'])),
   "excluded": zod.boolean(),
   "globally_excluded": zod.boolean(),
   "id": zod.uuid(),
+  "link_rel": zod.union([zod.array(zod.enum(['nofollow', 'sponsored', 'ugc', 'external'])).max(partnerWorkspaceInventoryResponseItemsItemLinkRelOneMax),zod.null()]).optional(),
+  "link_rel_options": zod.array(zod.enum(['nofollow', 'sponsored', 'ugc', 'external'])),
   "manual_active": zod.union([zod.boolean(),zod.null()]),
   "name": zod.string(),
   "pricing": zod.enum(['free', 'freemium', 'paid', 'unknown']),

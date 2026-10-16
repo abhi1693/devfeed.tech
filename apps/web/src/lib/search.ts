@@ -1,4 +1,5 @@
 import { contentTypes } from "./feed-query";
+import type { AdLinkRel } from "@devfeed/ui/ad-link-rel";
 import {
   readerDestinationContract,
   validReaderQueryValue,
@@ -18,6 +19,7 @@ export type SearchHit = {
   published_at: string | null;
   click_token?: string | null;
   sponsor_names?: string[];
+  sponsor_link_rel?: AdLinkRel[];
 };
 export type SearchSection = { items: SearchHit[]; next_cursor: string | null };
 export type SearchResponse = {

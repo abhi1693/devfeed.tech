@@ -17,6 +17,7 @@ import { CatalogIcon } from "./catalog-icon";
 import { ArticleSourceBrief } from "./article-source-brief";
 import { PartnerPlacements } from "./partner-placements";
 import { ArticleSponsorship } from "./article-sponsorship";
+import { adLinkRel } from "@devfeed/ui/ad-link-rel";
 
 export function ArticlePreviewContent({
   article,
@@ -65,7 +66,7 @@ export function ArticlePreviewContent({
                     target="_blank"
                     rel={
                       article.sponsor_names?.length
-                        ? "sponsored noopener noreferrer"
+                        ? adLinkRel(article.sponsor_link_rel)
                         : "noopener noreferrer"
                     }
                     title={`Read on ${displayHost(article.canonical_url)}`}

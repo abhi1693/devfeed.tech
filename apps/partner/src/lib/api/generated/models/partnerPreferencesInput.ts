@@ -11,5 +11,6 @@ import type { PartnerPreferencesInputOutboundDestination } from './partnerPrefer
 export interface PartnerPreferencesInput {
   ad_formats?: ('feed' | 'header_sponsorship' | 'sponsored_content' | 'engagement')[] | null;
   audience?: AudienceInput | null;
+  link_rel?: ('nofollow' | 'sponsored' | 'ugc' | 'external')[] | null;
   outbound_destination?: PartnerPreferencesInputOutboundDestination;
 }

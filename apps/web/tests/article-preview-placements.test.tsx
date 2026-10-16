@@ -39,6 +39,25 @@ vi.mock("@/components/article-engagement", () => ({
 beforeEach(() => vi.mocked(readerRequest).mockReset());
 afterEach(cleanup);
 
+it.each(([undefined, [], ["sponsored", "external"]] as const).map((relations) => ({ relations })))(
+  "uses effective sponsorship relations on the original article link (%j)",
+  ({ relations }) => {
+    vi.mocked(readerRequest).mockResolvedValue(Response.json({ items: [] }));
+    render(
+      <ArticlePreviewContent
+        article={{
+          ...article,
+          sponsor_names: ["Example partner"],
+          sponsor_link_rel: relations ? [...relations] : undefined,
+        }}
+      />,
+    );
+    expect(
+      screen.getByRole("link", { name: `Read ${article.content_type}` }).getAttribute("rel"),
+    ).toBe([...(relations ?? ["nofollow"]), "noopener", "noreferrer"].join(" "));
+  },
+);
+
 it.each([
   { hasSource: true, hasTopic: true },
   { hasSource: true, hasTopic: false },

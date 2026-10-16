@@ -92,6 +92,21 @@ it("shows articles first and waits for a section boundary before fetching", () =
   expect(fetcher).not.toHaveBeenCalled();
 });
 
+it.each(
+  ([undefined, [], ["sponsored", "ugc", "external"]] as const).map((relations) => ({ relations })),
+)("uses the live sponsorship relationship on article search links (%j)", ({ relations }) => {
+  const response = result();
+  const article = response.sections.articles!.items[0];
+  article.sponsor_names = ["Example partner"];
+  article.sponsor_link_rel = relations ? [...relations] : undefined;
+  render(<SearchResults result={response} />);
+  const link = screen.getByRole("link", { name: article.title });
+  expect(link.getAttribute("rel")).toBe((relations ?? ["nofollow"]).join(" ") || null);
+  expect(link.getAttribute("target")).toBeNull();
+  expect(screen.getByText("Sponsored").getAttribute("title")).toBe("Sponsored by Example partner");
+  expect(screen.getByRole("link", { name: "topics" }).getAttribute("rel")).toBeNull();
+});
+
 it("keeps the article type on later pages and excludes catalogue sections", async () => {
   fetcher.mockResolvedValue(
     Response.json({

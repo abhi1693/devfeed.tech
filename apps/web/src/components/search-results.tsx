@@ -29,6 +29,7 @@ import { PartnerPlacements } from "./partner-placements";
 import { useReadingAnchor } from "./use-reading-anchor";
 import { ArticleSponsorship } from "./article-sponsorship";
 import { SEARCH_PLACEMENT_RESULT_LIMIT, type PartnerPlacement } from "@/lib/partner-placements";
+import { adLinkRel } from "@devfeed/ui/ad-link-rel";
 
 function ResultSection({
   kind,
@@ -106,7 +107,11 @@ function ResultSection({
                   href={item.href}
                   prefetch={false}
                   scroll={kind === "articles" ? false : undefined}
-                  rel={item.sponsor_names?.length ? "sponsored" : undefined}
+                  rel={
+                    item.sponsor_names?.length
+                      ? adLinkRel(item.sponsor_link_rel, false) || undefined
+                      : undefined
+                  }
                   onClick={() => {
                     const position = index + 1;
                     trackEvent("search_click", {

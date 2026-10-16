@@ -7,6 +7,7 @@
  */
 import type { ArticleOriginOut } from './articleOriginOut';
 import type { ArticleOutMetadataSourceType } from './articleOutMetadataSourceType';
+import type { ArticleOutSponsorLinkRelItem } from './articleOutSponsorLinkRelItem';
 import type { DevfeedCoreSchemasArticleTopicOut } from './devfeedCoreSchemasArticleTopicOut';
 import type { ImageVariant } from './imageVariant';
 import type { SourceRef } from './sourceRef';
@@ -31,6 +32,7 @@ export interface ArticleOut {
   published_to_feed_at?: string | null;
   slug: string;
   sources: SourceRef[];
+  sponsor_link_rel?: ArticleOutSponsorLinkRelItem[];
   sponsor_names?: string[];
   summary: string;
   tags: string[];

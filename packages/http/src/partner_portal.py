@@ -4,6 +4,7 @@ import uuid
 from datetime import UTC, date, datetime, timedelta
 from typing import Annotated, Literal
 
+from devfeed_core.cache_events import mark_dirty
 from devfeed_core.config import get_settings
 from devfeed_core.models import (
     Article,
@@ -26,6 +27,14 @@ from devfeed_core.partner_ad_formats import (
 )
 from devfeed_core.partner_audiences import AudienceInput
 from devfeed_core.partner_connection_logos import PlacementPlatform
+from devfeed_core.partner_link_rel import (
+    LINK_REL_OPTIONS,
+    LinkRel,
+    LinkRelationships,
+    default_link_rel,
+    effective_link_rel,
+    validate_link_rel,
+)
 from devfeed_core.partner_placement_destinations import (
     account_product_creative,
     devfeed_outbound_url,
@@ -103,6 +112,8 @@ class PartnershipTierOut(BaseModel):
     default_promotion_kind: PromotionKind
     advanced_targeting: bool
     allowed_ad_formats: list[AdFormat]
+    configurable_link_rel: bool
+    link_rel_options: list[LinkRel]
 
 
 class AccountInput(BaseModel):
@@ -121,6 +132,7 @@ class AccountInput(BaseModel):
     outbound_destination: Literal["product_url", "listing_url"] = "product_url"
     audience: AudienceInput = Field(default_factory=AudienceInput)
     ad_formats: list[AdFormat] = Field(default_factory=default_ad_formats, max_length=3)
+    link_rel: LinkRelationships = Field(default_factory=default_link_rel)
 
     @model_validator(mode="after")
     def unique_surfaces(self):
@@ -149,6 +161,8 @@ class AccountOut(AccountInput):
     promotion_kind_source: Literal["tier", "account"]
     advanced_targeting: bool
     allowed_ad_formats: list[AdFormat]
+    configurable_link_rel: bool
+    link_rel_options: list[LinkRel]
 
 
 class PartnerPreferencesInput(BaseModel):
@@ -156,11 +170,19 @@ class PartnerPreferencesInput(BaseModel):
     outbound_destination: Literal["product_url", "listing_url"] | None = None
     audience: AudienceInput | None = None
     ad_formats: list[AdFormat] | None = Field(default=None, max_length=3)
+    link_rel: LinkRelationships | None = None
 
     @model_validator(mode="after")
     def supplied_preference(self):
-        if self.outbound_destination is None and self.audience is None and self.ad_formats is None:
+        if (
+            self.outbound_destination is None
+            and self.audience is None
+            and self.ad_formats is None
+            and self.link_rel is None
+        ):
             raise ValueError("Supply at least one partner preference")
+        if "link_rel" in self.model_fields_set and self.link_rel is None:
+            raise ValueError("Account link relationships must be a selection")
         return self
 
 
@@ -194,6 +216,7 @@ class CreativePreviewProduct(DestinationPreviewProduct):
     logo_url: str | None
     image_url: str | None
     platform: PlacementPlatform | None = None
+    link_rel: list[LinkRel]
 
 
 class CreativePreviewOut(BaseModel):
@@ -289,6 +312,7 @@ def creative_preview(session, account, product_id=None) -> CreativePreviewOut:
             platform=creative.platform,
             image_url=product_image_url(product, policy),
             ad_image_status=product_ad_image_status(session, policy),
+            link_rel=effective_link_rel(account, policy),
         )
     )
 
@@ -411,6 +435,7 @@ class ProductPromotionInput(BaseModel):
         default=None, max_length=len(PROMOTION_SURFACES)
     )
     ad_formats: list[AdFormat] | None = Field(default=None, max_length=4)
+    link_rel: LinkRelationships | None = None
 
     ad_image_url: str | None = Field(default=None, max_length=2048)
 
@@ -444,6 +469,10 @@ class ProductPromotionOut(ProductPromotionInput):
     image_url: str | None
     default_image_url: str | None
     ad_image_status: AdImageStatus
+    effective_link_rel: list[LinkRel]
+    account_link_rel: list[LinkRel]
+    configurable_link_rel: bool
+    link_rel_options: list[LinkRel]
 
 
 class InventoryProductOut(BaseModel):
@@ -457,6 +486,10 @@ class InventoryProductOut(BaseModel):
     approval_source: Literal["qualified", "trusted"] | None = None
     promotion_surfaces: list[PromotionSurface] | None = None
     ad_formats: list[AdFormat] | None = None
+    link_rel: LinkRelationships | None = None
+    effective_link_rel: list[LinkRel]
+    configurable_link_rel: bool
+    link_rel_options: list[LinkRel]
     ad_image_url: str | None = None
     product_url: str
     tagline: Tagline
@@ -866,7 +899,7 @@ def sponsor_articles(session, *, q="", article_id=None, offset=0, limit=25):
     rows = session.scalars(
         query.order_by(Article.feed_at.desc(), Article.id).offset(offset).limit(limit)
     ).all()
-    return {"items": [ArticleOut.from_article(row) for row in rows], "total": total}
+    return {"items": ArticleOut.from_articles(rows), "total": total}
 
 
 def inventory_product_view(account, product, policy, now, manual=None, *, active=True):
@@ -898,6 +931,10 @@ def inventory_product_view(account, product, policy, now, manual=None, *, active
         if product.status == "approved"
         else None,
         ad_formats=policy.ad_formats if policy else None,
+        link_rel=policy.link_rel if policy else None,
+        effective_link_rel=effective_link_rel(account, policy),
+        configurable_link_rel=account.configurable_link_rel,
+        link_rel_options=list(LINK_REL_OPTIONS),
         promotion_surfaces=policy.promotion_surfaces if policy else None,
         ad_image_url=policy.ad_image_url if policy else None,
         product_url=product.product_url,
@@ -995,13 +1032,18 @@ def _product_promotion_policy(session, account, product_id, *, lock=False):
     )
 
 
-def _product_promotion_out(session, policy, product, *, status=None):
+def _product_promotion_out(session, account, policy, product, *, status=None):
     return ProductPromotionOut(
         account_id=policy.account_id,
         product_id=policy.product_id,
         excluded=bool(policy.excluded),
         promotion_surfaces=policy.promotion_surfaces,
         ad_formats=policy.ad_formats,
+        link_rel=policy.link_rel,
+        effective_link_rel=effective_link_rel(account, policy),
+        account_link_rel=effective_link_rel(account),
+        configurable_link_rel=account.configurable_link_rel,
+        link_rel_options=list(LINK_REL_OPTIONS),
         ad_image_url=policy.ad_image_url,
         image_url=product_image_url(product, policy),
         default_image_url=product_image_url(product),
@@ -1011,7 +1053,7 @@ def _product_promotion_out(session, policy, product, *, status=None):
 
 def product_promotion(session, account, product_id):
     policy = _product_promotion_policy(session, account, product_id)
-    return _product_promotion_out(session, policy, session.get(PartnerProduct, product_id))
+    return _product_promotion_out(session, account, policy, session.get(PartnerProduct, product_id))
 
 
 def list_product_promotions(session, account_id):
@@ -1038,8 +1080,9 @@ def list_product_promotions(session, account_id):
         .subquery()
     )
     rows = session.execute(
-        select(PartnerProductPromotion, PartnerProduct, statuses.c.status)
+        select(PartnerProductPromotion, PartnerProduct, PartnerAccount, statuses.c.status)
         .join(PartnerProduct, PartnerProduct.id == PartnerProductPromotion.product_id)
+        .join(PartnerAccount, PartnerAccount.id == PartnerProductPromotion.account_id)
         .outerjoin(statuses, statuses.c.product_id == PartnerProductPromotion.product_id)
         .where(PartnerProductPromotion.account_id == account_id)
         .order_by(PartnerProductPromotion.product_id)
@@ -1047,6 +1090,7 @@ def list_product_promotions(session, account_id):
     return [
         _product_promotion_out(
             session,
+            account,
             policy,
             product,
             status="default"
@@ -1057,13 +1101,20 @@ def list_product_promotions(session, account_id):
             if status in {"queued", "running"}
             else "failed",
         )
-        for policy, product, status in rows
+        for policy, product, account, status in rows
     ]
 
 
 def save_product_promotion(session, account, product_id, payload):
     previous = _product_promotion_policy(session, account, product_id, lock=True)
     values = payload.model_dump(mode="json", exclude_unset=True)
+    if "link_rel" in values:
+        try:
+            validate_link_rel(account.tier, values["link_rel"])
+        except ValueError as exc:
+            raise HTTPException(422, str(exc)) from None
+        if values["link_rel"] != previous.link_rel:
+            mark_dirty(session, "partner_product_promotions")
     if values.get("ad_image_url") is not None and not get_settings().image_storage_enabled:
         raise HTTPException(422, "Enable managed image storage before setting a custom ad image")
     if "ad_image_url" in values and (
@@ -1098,4 +1149,4 @@ def save_product_promotion(session, account, product_id, payload):
         .execution_options(populate_existing=True)
     )
 
-    return _product_promotion_out(session, row, session.get(PartnerProduct, product_id))
+    return _product_promotion_out(session, account, row, session.get(PartnerProduct, product_id))

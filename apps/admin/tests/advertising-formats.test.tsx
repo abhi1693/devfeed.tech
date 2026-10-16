@@ -11,6 +11,7 @@ import {
   parseProductPlacementPolicy,
   type ProductPlacementPolicy,
 } from "@devfeed/ui/advertising-formats";
+import { AD_LINK_REL_OPTIONS } from "@devfeed/ui/ad-link-rel";
 
 const product = {
   id: "product-1",
@@ -25,6 +26,108 @@ const allowed = adFormats.map((format) => format.value);
 afterEach(() => {
   cleanup();
   vi.useRealTimers();
+});
+
+it("keeps product link relations inherited until explicitly overridden, including an empty override", async () => {
+  let policy: ProductPlacementPolicy = {
+    excluded: false,
+    ad_formats: null,
+    promotion_surfaces: null,
+    ad_image_url: null,
+    link_rel: null,
+    account_link_rel: ["nofollow"],
+    effective_link_rel: ["nofollow"],
+    configurable_link_rel: true,
+    link_rel_options: [...AD_LINK_REL_OPTIONS],
+  };
+  const save = vi.fn().mockImplementation(async (draft) => {
+    policy = { ...policy, ...draft };
+    return policy;
+  });
+  render(
+    <ProductPlacementDialog
+      name={product.name}
+      allowedFormats={allowed}
+      loadPolicy={async () => policy}
+      savePolicy={save}
+    />,
+  );
+  await userEvent.click(
+    screen.getByRole("button", { name: `Edit placements for ${product.name}` }),
+  );
+  await screen.findByRole("combobox", { name: "Product link relationship" });
+  expect(screen.getByText("Account default:")).toBeTruthy();
+  expect(screen.queryByRole("checkbox", { name: "nofollow" })).toBeNull();
+  await userEvent.click(screen.getByRole("combobox", { name: "Product link relationship" }));
+  await userEvent.click(screen.getByRole("option", { name: "Choose product relationship" }));
+  expect((screen.getByRole("checkbox", { name: "nofollow" }) as HTMLInputElement).checked).toBe(
+    true,
+  );
+  await userEvent.click(screen.getByRole("checkbox", { name: "nofollow" }));
+  await userEvent.click(screen.getByRole("button", { name: "Save product placements" }));
+  await waitFor(() => expect(save).toHaveBeenCalledOnce());
+  expect(save.mock.calls[0][0].link_rel).toEqual([]);
+
+  await userEvent.click(
+    screen.getByRole("button", { name: `Edit placements for ${product.name}` }),
+  );
+  await screen.findByRole("checkbox", { name: "nofollow" });
+  expect((screen.getByRole("checkbox", { name: "nofollow" }) as HTMLInputElement).checked).toBe(
+    false,
+  );
+  await userEvent.click(screen.getByRole("combobox", { name: "Product link relationship" }));
+  await userEvent.click(screen.getByRole("option", { name: "Inherit account relationship" }));
+  await userEvent.click(screen.getByRole("button", { name: "Save product placements" }));
+  await waitFor(() => expect(save).toHaveBeenCalledTimes(2));
+  expect(save.mock.calls[1][0].link_rel).toBeNull();
+});
+
+it("keeps lower-tier product links locked to nofollow and retains a saved override", async () => {
+  const policy: ProductPlacementPolicy = {
+    excluded: false,
+    ad_formats: null,
+    promotion_surfaces: null,
+    ad_image_url: null,
+    link_rel: ["sponsored"],
+    effective_link_rel: ["nofollow"],
+    configurable_link_rel: false,
+    link_rel_options: [],
+  };
+  const save = vi.fn().mockImplementation(async (draft) => ({ ...policy, ...draft }));
+  render(
+    <ProductPlacementDialog
+      name={product.name}
+      allowedFormats={allowed}
+      loadPolicy={async () => policy}
+      savePolicy={save}
+    />,
+  );
+  await userEvent.click(
+    screen.getByRole("button", { name: `Edit placements for ${product.name}` }),
+  );
+  await screen.findByText("nofollow", { selector: "code" });
+  expect(screen.queryByRole("combobox", { name: "Product link relationship" })).toBeNull();
+  expect(screen.queryByRole("checkbox", { name: "sponsored" })).toBeNull();
+  expect(screen.getByText("Saved product settings")).toBeTruthy();
+  await userEvent.click(screen.getByRole("button", { name: "Save product placements" }));
+  await waitFor(() => expect(save).toHaveBeenCalledOnce());
+  expect(save.mock.calls[0][0]).not.toHaveProperty("link_rel");
+});
+
+it.each(
+  [["follow"], ["nofollow", "nofollow"], ["noopener"], "nofollow"].map((link_rel) => ({
+    link_rel,
+  })),
+)("rejects invalid product link relations %j", ({ link_rel }) => {
+  expect(() =>
+    parseProductPlacementPolicy({
+      excluded: false,
+      ad_formats: null,
+      promotion_surfaces: null,
+      ad_image_url: null,
+      link_rel,
+    }),
+  ).toThrow();
 });
 
 async function chooseCustomImage() {

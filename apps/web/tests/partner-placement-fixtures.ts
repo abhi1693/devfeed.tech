@@ -16,6 +16,7 @@ export const placement: PartnerPlacement = {
   name: "TypeScript validator",
   tagline: "Validate application inputs.",
   url: "https://partner.example/validator",
+  link_rel: ["nofollow"],
   logo_url: "https://assets.partner.example/validator.png",
   image_url: null,
   image_variants: [],

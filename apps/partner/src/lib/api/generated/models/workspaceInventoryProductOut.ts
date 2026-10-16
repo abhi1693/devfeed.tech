@@ -7,6 +7,8 @@
  */
 import type { ProductAssessment } from './productAssessment';
 import type { WorkspaceInventoryProductOutApprovalSource } from './workspaceInventoryProductOutApprovalSource';
+import type { WorkspaceInventoryProductOutEffectiveLinkRelItem } from './workspaceInventoryProductOutEffectiveLinkRelItem';
+import type { WorkspaceInventoryProductOutLinkRelOptionsItem } from './workspaceInventoryProductOutLinkRelOptionsItem';
 import type { WorkspaceInventoryProductOutPricing } from './workspaceInventoryProductOutPricing';
 import type { WorkspaceInventoryProductOutSource } from './workspaceInventoryProductOutSource';
 
@@ -19,10 +21,14 @@ export interface WorkspaceInventoryProductOut {
   approval_source?: WorkspaceInventoryProductOutApprovalSource;
   assessment: ProductAssessment;
   commercial_approved?: boolean;
+  configurable_link_rel: boolean;
   editable: boolean;
+  effective_link_rel: WorkspaceInventoryProductOutEffectiveLinkRelItem[];
   excluded: boolean;
   globally_excluded: boolean;
   id: string;
+  link_rel?: ('nofollow' | 'sponsored' | 'ugc' | 'external')[] | null;
+  link_rel_options: WorkspaceInventoryProductOutLinkRelOptionsItem[];
   manual_active: boolean | null;
   name: string;
   pricing: WorkspaceInventoryProductOutPricing;

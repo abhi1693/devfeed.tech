@@ -20,6 +20,7 @@ from devfeed_core.models import (
     PartnerProductURL,
     utcnow,
 )
+from devfeed_core.partner_link_rel import configured_link_rel
 from devfeed_core.partner_tools import ProductFacts, eligible
 from devfeed_core.urls import canonicalize_url, fingerprint
 
@@ -421,7 +422,7 @@ def merge_products(session, donor, recipient):
     )
     transferred_images, discarded_images = [], []
     for policy in donor_policies:
-        session.scalar(
+        account = session.scalar(
             select(PartnerAccount).where(PartnerAccount.id == policy.account_id).with_for_update()
         )
         # The account may have been edited while this merge waited for its lock.
@@ -445,6 +446,13 @@ def merge_products(session, donor, recipient):
         elif policy.managed_ad_image and policy.managed_ad_image.get("upload"):
             discarded_images.append(policy)
         current.excluded = bool(current.excluded or policy.excluded)
+        # Merge relationship requirements conservatively: neither alias may
+        # remove a nofollow (or other relationship) configured on the other.
+        if current.link_rel is not None or policy.link_rel is not None:
+            current.link_rel = sorted(
+                set(configured_link_rel(account, current))
+                | set(configured_link_rel(account, policy))
+            )
         for field in ("ad_formats", "promotion_surfaces"):
             previous, incoming = getattr(current, field), getattr(policy, field)
             if incoming is not None:

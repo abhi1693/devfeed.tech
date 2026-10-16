@@ -7,6 +7,8 @@
  */
 import type { ProductAssessment } from './productAssessment';
 import type { ProductDetailOutApprovalSource } from './productDetailOutApprovalSource';
+import type { ProductDetailOutEffectiveLinkRelItem } from './productDetailOutEffectiveLinkRelItem';
+import type { ProductDetailOutLinkRelOptionsItem } from './productDetailOutLinkRelOptionsItem';
 import type { ProductDetailOutPricing } from './productDetailOutPricing';
 import type { ProductDetailOutSource } from './productDetailOutSource';
 
@@ -19,10 +21,14 @@ export interface ProductDetailOut {
   approval_source?: ProductDetailOutApprovalSource;
   assessment: ProductAssessment;
   commercial_approved?: boolean;
+  configurable_link_rel: boolean;
   editable: boolean;
+  effective_link_rel: ProductDetailOutEffectiveLinkRelItem[];
   excluded: boolean;
   globally_excluded: boolean;
   id: string;
+  link_rel?: ('nofollow' | 'sponsored' | 'ugc' | 'external')[] | null;
+  link_rel_options: ProductDetailOutLinkRelOptionsItem[];
   manual_active: boolean | null;
   name: string;
   pricing: ProductDetailOutPricing;

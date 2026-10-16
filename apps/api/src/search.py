@@ -7,6 +7,7 @@ from datetime import time as day_time
 from typing import Literal
 
 from devfeed_core.config import get_settings
+from devfeed_core.partner_link_rel import LinkRel, default_link_rel
 from devfeed_core.rate_limits import RateLimitBudget, consume_rate_limits
 from devfeed_core.schemas import ContentType, DatabaseText, ImageVariant
 from devfeed_core.search_clicks import SearchClickTokens
@@ -33,6 +34,7 @@ router = APIRouter(prefix="/v1/search", tags=["discovery"], route_class=CachedRe
 
 class SearchHit(BaseModel):
     sponsor_names: list[str] = Field(default_factory=list)
+    sponsor_link_rel: list[LinkRel] = Field(default_factory=default_link_rel)
     logo_variants: list[ImageVariant] = Field(default_factory=list)
     id: uuid.UUID
     title: str

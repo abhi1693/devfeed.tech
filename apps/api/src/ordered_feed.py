@@ -83,5 +83,5 @@ def ordered_page(session, conditions, filters, sort, limit, cursor):
             ).decode()
         )
     return FeedPage(
-        items=[ArticleOut.from_article(article) for article, _ in selected], next_cursor=next_cursor
+        items=ArticleOut.from_articles(article for article, _ in selected), next_cursor=next_cursor
     )

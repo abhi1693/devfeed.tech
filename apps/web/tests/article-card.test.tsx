@@ -47,10 +47,10 @@ it("keeps an article's sponsorship disclosure without an active promotion and pr
     <ArticleCard article={{ ...article, sponsor_names: ["Example partner"] }} />,
   );
   expect(screen.getByText("Sponsored").getAttribute("title")).toBe("Sponsored by Example partner");
-  expect(screen.getByRole("link", { name: article.title }).getAttribute("rel")).toBe("sponsored");
+  expect(screen.getByRole("link", { name: article.title }).getAttribute("rel")).toBe("nofollow");
   expect(
     screen.getByRole("link", { name: "Read original article in a new tab" }).getAttribute("rel"),
-  ).toContain("sponsored");
+  ).toContain("nofollow");
   expect(screen.getByText("news")).toBeTruthy();
   expect(container.querySelector(".partner-placement")).toBeNull();
 });

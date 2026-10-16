@@ -10,6 +10,7 @@ from devfeed_core.partner_audiences import (
     audience_topic_options,
     validate_audience,
 )
+from devfeed_core.partner_link_rel import validate_link_rel
 from devfeed_core.partner_promotions import request_promotion_enrollment
 from devfeed_core.text_search import text_search
 from devfeed_http.body_limits import BodyLimitedRoute
@@ -199,6 +200,12 @@ def update_preferences(
     account_id: uuid.UUID, payload: PartnerPreferencesInput, session: DB, partner: Partner
 ):
     account = PartnerAccountAccess(session, partner).lock(account_id)
+    if payload.link_rel is not None:
+        try:
+            validate_link_rel(account.tier, payload.link_rel)
+        except ValueError as exc:
+            raise HTTPException(422, str(exc)) from None
+        account.link_rel = payload.link_rel
     if payload.audience is not None:
         try:
             validate_audience(session, account.tier, payload.audience, previous=account.audience)

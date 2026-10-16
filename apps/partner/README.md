@@ -438,6 +438,21 @@ relevant match. Gold adds product promotion planning. Platinum adds audience tar
 support; Diamond includes those benefits and custom partnership planning. These are starter
 commercial offerings, independent of role and membership authorization.
 
+### Ad link relationships
+
+All tiers default to `nofollow`. Platinum and Diamond can change the account default in
+**Click destination** settings and override it per product under **Edit placements**.
+Choose any combination of `nofollow`, `sponsored`, `ugc` and `external`; an empty custom
+selection adds no optional relationship. Product settings inherit the current account default
+until an override is selected. Overrides belong to that account's product association.
+
+Bronze, Silver and Gold always deliver `nofollow`, enforced by the API. Downgrades preserve
+saved choices but force `nofollow` until customization is available again. Grid/table feed ads,
+header sponsorship, Engagement and sponsored-content links use the resolved setting while
+retaining `noopener noreferrer`, Sponsored disclosures and signed click tracking.
+Google [recommends `sponsored` for paid links](https://developers.google.com/search/docs/crawling-indexing/qualify-outbound-links);
+`nofollow` also qualifies those links.
+
 ### Audience targeting
 
 Platinum and Diamond can set audience defaults by experience level, programming languages,

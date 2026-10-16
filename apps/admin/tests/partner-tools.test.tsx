@@ -40,6 +40,8 @@ vi.mock("@/lib/api/generated/admin", () => ({
 const account: AccountOut = {
   advanced_targeting: false,
   allowed_ad_formats: ["feed"],
+  configurable_link_rel: false,
+  link_rel_options: ["nofollow", "sponsored", "ugc", "external"],
   id: "55555555-5555-4555-8555-555555555555",
   name: "Example partner account",
   tier: "bronze",

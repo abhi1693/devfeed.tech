@@ -8,6 +8,7 @@
 import type { PartnershipTierOutAllowedAdFormatsItem } from './partnershipTierOutAllowedAdFormatsItem';
 import type { PartnershipTierOutAllowedPromotionKindsItem } from './partnershipTierOutAllowedPromotionKindsItem';
 import type { PartnershipTierOutDefaultPromotionKind } from './partnershipTierOutDefaultPromotionKind';
+import type { PartnershipTierOutLinkRelOptionsItem } from './partnershipTierOutLinkRelOptionsItem';
 import type { PartnershipTierOutTier } from './partnershipTierOutTier';
 
 export interface PartnershipTierOut {
@@ -15,6 +16,8 @@ export interface PartnershipTierOut {
   allowed_ad_formats: PartnershipTierOutAllowedAdFormatsItem[];
   allowed_promotion_kinds: PartnershipTierOutAllowedPromotionKindsItem[];
   benefits: string[];
+  configurable_link_rel: boolean;
   default_promotion_kind: PartnershipTierOutDefaultPromotionKind;
+  link_rel_options: PartnershipTierOutLinkRelOptionsItem[];
   tier: PartnershipTierOutTier;
 }

@@ -8,6 +8,7 @@ import path from "node:path";
 import { chromium } from "playwright";
 
 const searchContextOnly = process.argv.includes("--search-context");
+const linkRelOnly = process.argv.includes("--link-rel");
 
 // Exercise actual production reader bundles and packaged extensions, with controlled
 // delivery responses. Backend integration tests prove relevance and signed receipts.
@@ -62,6 +63,7 @@ const ordinary = {
   name: "TypeScript validator",
   tagline: "Validate application inputs.",
   url: "https://partner.example/validator",
+  link_rel: ["nofollow"],
   logo_url: "https://assets.partner.example/validator.svg",
   image_url: "https://assets.partner.example/og/validator-original.svg",
   image_variants: [
@@ -158,6 +160,7 @@ let sessionReceiptGeneration = 0;
 let feedView = "cards";
 let retryClickReceipt = null;
 let retryClickAttempts = 0;
+let linkRelPolicy = null;
 const acceptedTrackingReceipts = new Set([ordinary.receipt, sponsored.receipt]);
 const callerFixtureKey = "disposable-dedicated-caller-proof-key";
 const callerFixtureIps = { web: "203.0.113.20", chrome: "203.0.113.30", edge: "203.0.113.40" };
@@ -810,6 +813,127 @@ async function assertSitewideHeader(context, base, platform) {
     await page.close();
     headerInventory = false;
     signedIn = previousSignedIn;
+  }
+}
+
+async function assertPlacementLinkRelations(context, base, platform) {
+  const page = await context.newPage();
+  nativeMode = "click-coverage";
+  headerInventory = true;
+  const inspect = async (link, policy, label, external = true) => {
+    const tokens = [...policy, ...(external ? ["noopener", "noreferrer"] : [])];
+    assert.equal(await link.getAttribute("rel"), tokens.join(" ") || null, label);
+    if (external) assert.equal(await link.getAttribute("target"), "_blank", label);
+  };
+  const click = async (link, item, label) => {
+    const receipt = sessionPlacementReceipt(item);
+    await link.scrollIntoViewIfNeeded();
+    await waitForImpression(page, receipt);
+    await link.focus();
+    const [destination] = await Promise.all([context.waitForEvent("page"), link.click()]);
+    await destination.close();
+    await page.bringToFront();
+    await page.waitForFunction(() => document.visibilityState === "visible");
+    for (let attempt = 0; attempt < 100; attempt++) {
+      if (events.some((event) => event.kind === "click" && event.receipt === receipt)) break;
+      await page.waitForTimeout(20);
+    }
+    assert.equal(
+      events.filter((event) => event.kind === "click" && event.receipt === receipt).length,
+      1,
+      `${label}: relation configuration preserves the signed click`,
+    );
+  };
+  try {
+    await page.setViewportSize({ width: 1440, height: 1000 });
+    await page.goto(`${base}/latest`);
+    for (const authenticated of [false, true]) {
+      signedIn = authenticated;
+      for (const policy of [["nofollow"], ["sponsored", "ugc", "external"], []]) {
+        linkRelPolicy = policy;
+        const label = `${platform}/${authenticated ? "member" : "guest"}/${policy.join("+") || "normal"}`;
+        for (const view of ["cards", "compact"]) {
+          feedView = view;
+          sessionReceiptNamespace = `relations:${label}:${view}`;
+          await page.evaluate(
+            (value) => localStorage.setItem("devfeed:feed-view:guest", value),
+            view,
+          );
+          await page.goto("about:blank");
+          await page.goto(`${base}/latest`);
+          const feed = page.locator(
+            `${view === "cards" ? ".article-grid" : ".article-table tbody"} > [data-ad-format="feed"] .partner-placement-link`,
+          );
+          await feed.waitFor();
+          await inspect(feed, policy, `${label}: native Feed ${view}`);
+          await click(feed, ordinary, `${label}: native Feed ${view}`);
+          if (view === "cards") {
+            const header = page.locator('.topbar [data-ad-format="header_sponsorship"] a');
+            await header.waitFor();
+            await inspect(header, policy, `${label}: Header sponsorship`);
+            await click(header, headerSponsor, `${label}: Header sponsorship`);
+            const card = page.locator('.article-grid > [data-ad-format="sponsored_content"]');
+            const title = card.locator(".card-open-link");
+            await title.waitFor();
+            await inspect(title, policy, `${label}: sponsored preview entry`, false);
+            await inspect(
+              card.locator(".article-read-link"),
+              policy,
+              `${label}: sponsored original`,
+            );
+            await click(
+              card.locator(".article-read-link"),
+              sponsoredContent,
+              `${label}: sponsored original`,
+            );
+            await title.click();
+            const dialog = page.locator(".article-modal[open]");
+            await dialog.locator("#article-preview-title").waitFor();
+            await inspect(
+              dialog.locator(".preview-read-button"),
+              policy,
+              `${label}: sponsored preview original`,
+            );
+            await page.getByRole("button", { name: "Close preview", exact: true }).click();
+            await dialog.waitFor({ state: "hidden" });
+          }
+        }
+        sessionReceiptNamespace = `relations:${label}:search`;
+        await page.goto("about:blank");
+        await page.goto(`${base}/search?q=typescript`);
+        const engagement = page.locator('.search-sidebar [data-ad-format="engagement"] a');
+        await engagement.waitFor();
+        await inspect(engagement, policy, `${label}: search Engagement`);
+        await click(engagement, collectionEngagement, `${label}: search Engagement`);
+        const searchResult = page.getByRole("link", { name: article.title, exact: true });
+        await inspect(searchResult, policy, `${label}: sponsored article search result`, false);
+        assert.equal(
+          await searchResult
+            .locator("xpath=ancestor::article")
+            .locator(".partner-placement-label")
+            .getAttribute("title"),
+          `Sponsored by ${sponsored.partner_name}`,
+          `${label}: search retains the sponsorship disclosure`,
+        );
+        await page.goto("about:blank");
+        await page.goto(`${base}/articles/${promotedArticle.slug}`);
+        const original = page.locator(".preview-read-button");
+        await original.waitFor();
+        await inspect(original, policy, `${label}: independently fetched sponsored article`);
+      }
+    }
+    console.log(
+      `${platform}: default, custom and normal link relations passed for anonymous/member Feed grid/table, Header, Engagement and sponsored card/preview/direct article/search result links; signed clicks remain measured.`,
+    );
+  } finally {
+    await page.evaluate(() => localStorage.removeItem("devfeed:feed-view:guest")).catch(() => {});
+    await page.close();
+    linkRelPolicy = null;
+    nativeMode = null;
+    headerInventory = false;
+    signedIn = false;
+    feedView = "cards";
+    sessionReceiptNamespace = null;
   }
 }
 
@@ -2414,6 +2538,7 @@ function deliveryItems(items, query) {
     acceptedTrackingReceipts.add(receipt);
     return {
       ...productMedia(item),
+      link_rel: linkRelPolicy ?? item.link_rel,
       platform:
         platformMode === "manual"
           ? null
@@ -2914,7 +3039,7 @@ function response(requestPath, body, headers = {}, extension = false) {
     const page = organicPage(url);
     const sections = {
       articles: {
-        items: page.items.map((item) => ({
+        items: page.items.map((item, index) => ({
           id: item.id,
           title: item.title,
           description: item.summary,
@@ -2923,6 +3048,9 @@ function response(requestPath, body, headers = {}, extension = false) {
           label: item.content_type,
           published_at: item.published_at,
           click_token: "fixture-result-token",
+          ...(linkRelPolicy !== null && index === 0
+            ? { sponsor_names: [sponsored.partner_name], sponsor_link_rel: linkRelPolicy }
+            : {}),
         })),
         next_cursor: page.next_cursor,
       },
@@ -3001,7 +3129,10 @@ function response(requestPath, body, headers = {}, extension = false) {
         : pathname.endsWith(news.slug)
           ? news
           : (feedArticles.find((item) => pathname.endsWith(item.slug)) ?? article);
-    return extension ? { article: selected, topic } : selected;
+    const result = selected.sponsor_names?.length
+      ? { ...selected, sponsor_link_rel: linkRelPolicy ?? ["nofollow"] }
+      : selected;
+    return extension ? { article: result, topic } : result;
   }
   return {};
 }
@@ -3239,6 +3370,8 @@ try {
         local.setItem("devfeed:dev-card-promo-seen", "true");
       });
       const page = await context.newPage();
+      if (!searchContextOnly) await assertPlacementLinkRelations(context, base, platform);
+      if (linkRelOnly) continue;
       await assertSearchResultContext(context, base, platform);
       if (searchContextOnly) continue;
       await assertSitewideHeader(context, base, platform);
@@ -3264,7 +3397,7 @@ try {
       );
       assert.equal(
         await page.getByRole("link", { name: sponsored.name, exact: true }).getAttribute("rel"),
-        "sponsored noopener noreferrer",
+        "nofollow noopener noreferrer",
       );
       assert.equal(
         await page.getByRole("button", { name: `Hide ${sponsored.name}`, exact: true }).count(),
@@ -3279,7 +3412,7 @@ try {
       assert.equal(await page.locator(".partner-placement button").count(), 0);
       for (const item of [ordinary, sponsored]) {
         const link = page.getByRole("link", { name: item.name, exact: true });
-        assert.equal(await link.getAttribute("rel"), "sponsored noopener noreferrer");
+        assert.equal(await link.getAttribute("rel"), "nofollow noopener noreferrer");
         assert.equal(await link.getAttribute("href"), item.url);
         assert.equal(
           await link.evaluate(

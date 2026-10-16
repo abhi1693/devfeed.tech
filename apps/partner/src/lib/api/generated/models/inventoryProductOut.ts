@@ -6,6 +6,8 @@
  * OpenAPI spec version: 0.0.52
  */
 import type { InventoryProductOutApprovalSource } from './inventoryProductOutApprovalSource';
+import type { InventoryProductOutEffectiveLinkRelItem } from './inventoryProductOutEffectiveLinkRelItem';
+import type { InventoryProductOutLinkRelOptionsItem } from './inventoryProductOutLinkRelOptionsItem';
 import type { InventoryProductOutPricing } from './inventoryProductOutPricing';
 import type { InventoryProductOutSource } from './inventoryProductOutSource';
 import type { ProductAssessment } from './productAssessment';
@@ -17,10 +19,14 @@ export interface InventoryProductOut {
   approval_source?: InventoryProductOutApprovalSource;
   assessment: ProductAssessment;
   commercial_approved?: boolean;
+  configurable_link_rel: boolean;
   editable: boolean;
+  effective_link_rel: InventoryProductOutEffectiveLinkRelItem[];
   excluded: boolean;
   globally_excluded: boolean;
   id: string;
+  link_rel?: ('nofollow' | 'sponsored' | 'ugc' | 'external')[] | null;
+  link_rel_options: InventoryProductOutLinkRelOptionsItem[];
   manual_active: boolean | null;
   name: string;
   pricing: InventoryProductOutPricing;

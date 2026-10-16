@@ -234,7 +234,7 @@ def trending(
     )
     articles = list(session.scalars(statement))
     return FeedPage(
-        items=[ArticleOut.from_article(article) for article in articles[:limit]],
+        items=ArticleOut.from_articles(articles[:limit]),
         next_cursor=str(cursor + limit)
         if len(articles) > limit and cursor + limit <= 1_000_000
         else None,

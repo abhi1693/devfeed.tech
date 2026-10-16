@@ -97,6 +97,58 @@ it("saves only the chosen destination with the partner CSRF token", async () => 
   expect(unavailable).not.toHaveBeenCalled();
 });
 
+it("lets an eligible account select server-provided link relations and clear every selection", async () => {
+  const value = {
+    ...account,
+    tier: "platinum" as const,
+    link_rel: ["nofollow"] as const,
+    configurable_link_rel: true,
+    link_rel_options: ["nofollow", "sponsored", "ugc", "external"] as const,
+  };
+  const write = vi
+    .fn()
+    .mockImplementation((_url, init) => Response.json({ ...value, ...JSON.parse(init.body) }));
+  stubApi(write);
+  mount({ ...value, link_rel: [...value.link_rel], link_rel_options: [...value.link_rel_options] });
+  expect((screen.getByRole("checkbox", { name: "nofollow" }) as HTMLInputElement).checked).toBe(
+    true,
+  );
+  for (const token of value.link_rel_options)
+    expect(screen.getByRole("checkbox", { name: token })).toBeTruthy();
+  await userEvent.click(screen.getByRole("checkbox", { name: "nofollow" }));
+  await userEvent.click(screen.getByRole("checkbox", { name: "sponsored" }));
+  await userEvent.click(screen.getByRole("button", { name: "Save click destination" }));
+  await waitFor(() => expect(saved).toHaveBeenCalledOnce());
+  expect(JSON.parse(write.mock.calls[0][1].body)).toEqual({
+    outbound_destination: "product_url",
+    link_rel: ["sponsored"],
+  });
+  await userEvent.click(screen.getByRole("checkbox", { name: "sponsored" }));
+  await userEvent.click(screen.getByRole("button", { name: "Save click destination" }));
+  await waitFor(() => expect(saved).toHaveBeenCalledTimes(2));
+  expect(JSON.parse(write.mock.calls[1][1].body).link_rel).toEqual([]);
+});
+
+it("shows locked nofollow for a downgraded account and omits stored custom relations on save", async () => {
+  const value: Account = {
+    ...account,
+    tier: "silver",
+    link_rel: ["sponsored", "external"],
+    configurable_link_rel: false,
+    link_rel_options: [],
+  };
+  const write = vi.fn().mockImplementation(() => Response.json(value));
+  stubApi(write);
+  mount(value);
+  expect(screen.getByText("nofollow", { selector: "code" })).toBeTruthy();
+  expect(screen.queryByRole("checkbox", { name: "sponsored" })).toBeNull();
+  await userEvent.click(screen.getByRole("button", { name: "Save click destination" }));
+  await waitFor(() => expect(saved).toHaveBeenCalledOnce());
+  expect(JSON.parse(write.mock.calls[0][1].body)).toEqual({
+    outbound_destination: "product_url",
+  });
+});
+
 it.each([401, 404])("clears account data when saving loses access (%s)", async (status) => {
   stubApi(vi.fn().mockResolvedValue(new Response(null, { status })));
   mount();

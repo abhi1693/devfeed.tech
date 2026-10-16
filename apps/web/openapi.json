@@ -185,6 +185,19 @@
             "title": "Sources",
             "type": "array"
           },
+          "sponsor_link_rel": {
+            "items": {
+              "enum": [
+                "nofollow",
+                "sponsored",
+                "ugc",
+                "external"
+              ],
+              "type": "string"
+            },
+            "title": "Sponsor Link Rel",
+            "type": "array"
+          },
           "sponsor_names": {
             "items": {
               "type": "string"
@@ -1119,6 +1132,20 @@
             "title": "Image Variants",
             "type": "array"
           },
+          "link_rel": {
+            "items": {
+              "enum": [
+                "nofollow",
+                "sponsored",
+                "ugc",
+                "external"
+              ],
+              "type": "string"
+            },
+            "maxItems": 4,
+            "title": "Link Rel",
+            "type": "array"
+          },
           "logo_url": {
             "anyOf": [
               {
@@ -1183,6 +1210,7 @@
           "name",
           "tagline",
           "url",
+          "link_rel",
           "partner_name",
           "sponsored",
           "reason",

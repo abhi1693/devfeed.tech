@@ -9,6 +9,8 @@ import { Input } from "./input";
 import { Button } from "./button";
 import { useDebouncedImagePreview } from "./use-debounced-image-preview";
 import { ConnectionLogo, type ConnectionLogoVariant } from "./connection-logo";
+import { AD_LINK_REL_OPTIONS, type AdLinkRel } from "./ad-link-rel";
+import { AdLinkRelSelector } from "./ad-link-rel-selector";
 
 export const adFormats = [
   {
@@ -146,6 +148,11 @@ export type ProductPlacementPolicy = ProductPlacementRestrictions & {
   image_url?: string | null;
   default_image_url?: string | null;
   ad_image_status?: ProductAdImageStatus;
+  link_rel?: AdLinkRel[] | null;
+  effective_link_rel?: AdLinkRel[];
+  account_link_rel?: AdLinkRel[];
+  configurable_link_rel?: boolean;
+  link_rel_options?: AdLinkRel[];
 };
 function sameSelection(left: string[] | null, right: string[] | null) {
   return left === null || right === null
@@ -157,6 +164,7 @@ function sameProductPolicy(left: ProductPlacementPolicy, right: ProductPlacement
     left.excluded === right.excluded &&
     left.ad_image_url === right.ad_image_url &&
     sameSelection(left.ad_formats, right.ad_formats) &&
+    (right.link_rel === undefined || sameSelection(left.link_rel ?? null, right.link_rel)) &&
     sameSelection(left.promotion_surfaces, right.promotion_surfaces)
   );
 }
@@ -168,6 +176,17 @@ export function parseProductPlacementPolicy(value: unknown): ProductPlacementPol
     !(row.ad_image_url === null || typeof row.ad_image_url === "string") ||
     (typeof row.ad_image_url === "string" && !normalizeAdImageUrl(row.ad_image_url)) ||
     (row.ad_image_status !== undefined && !validAdImageStatus(row.ad_image_status)) ||
+    (row.configurable_link_rel !== undefined && typeof row.configurable_link_rel !== "boolean") ||
+    ["link_rel", "effective_link_rel", "account_link_rel", "link_rel_options"].some((key) => {
+      const tokens = row[key as "link_rel"];
+      return (
+        tokens !== undefined &&
+        !(key === "link_rel" && tokens === null) &&
+        (!Array.isArray(tokens) ||
+          tokens.some((token) => !AD_LINK_REL_OPTIONS.some((option) => option === token)) ||
+          new Set(tokens).size !== tokens.length)
+      );
+    }) ||
     ["image_url", "default_image_url"].some(
       (key) =>
         key in row &&
@@ -275,6 +294,8 @@ export function ProductPlacementEditor({
   const [previewOpen, setPreviewOpen] = useState(previewInline);
   const [formatMode, setFormatMode] = useState("inherit");
   const [surfaceMode, setSurfaceMode] = useState("inherit");
+  const [linkRelMode, setLinkRelMode] = useState("inherit");
+  const [linkRel, setLinkRel] = useState<AdLinkRel[]>(["nofollow"]);
   const imageControlId = useId();
   const [imageMode, setImageMode] = useState("default");
   const [imageUrl, setImageUrl] = useState("");
@@ -299,6 +320,9 @@ export function ProductPlacementEditor({
     ad_formats: formatMode === "inherit" ? null : formats,
     promotion_surfaces: surfaceMode === "inherit" ? null : surfaces,
     ad_image_url: imageMode === "custom" ? normalizeAdImageUrl(imageUrl) : null,
+    ...(policy?.configurable_link_rel
+      ? { link_rel: linkRelMode === "inherit" ? null : linkRel }
+      : {}),
   };
   const dirty =
     policy &&
@@ -333,6 +357,8 @@ export function ProductPlacementEditor({
       setExcluded(next.excluded);
       setFormatMode(next.ad_formats === null ? "inherit" : "custom");
       setSurfaceMode(next.promotion_surfaces === null ? "inherit" : "custom");
+      setLinkRelMode(next.link_rel == null ? "inherit" : "custom");
+      setLinkRel(next.link_rel ?? next.account_link_rel ?? next.effective_link_rel ?? ["nofollow"]);
       setFormats(next.ad_formats ?? [...initial.current.allowedFormats]);
       setSurfaces(next.promotion_surfaces ?? placementSurfaces.map((surface) => surface.value));
       setImageMode(next.ad_image_url ? "custom" : "default");
@@ -546,6 +572,39 @@ export function ProductPlacementEditor({
                   </p>
                 </fieldset>
               )}
+              <div className="space-y-3 border-t pt-4">
+                {policy.configurable_link_rel && (
+                  <Select
+                    label="Product link relationship"
+                    value={linkRelMode}
+                    onChange={setLinkRelMode}
+                    disabled={busy}
+                    required
+                    options={[
+                      { value: "inherit", label: "Inherit account relationship" },
+                      { value: "custom", label: "Choose product relationship" },
+                    ]}
+                  />
+                )}
+                {policy.configurable_link_rel && linkRelMode === "inherit" ? (
+                  <p className="text-sm text-muted-foreground">
+                    Account default:{" "}
+                    <code className="text-foreground">
+                      {(policy.account_link_rel ?? policy.effective_link_rel ?? ["nofollow"]).join(
+                        ", ",
+                      ) || "Standard link"}
+                    </code>
+                  </p>
+                ) : (
+                  <AdLinkRelSelector
+                    value={linkRel}
+                    options={policy.link_rel_options ?? []}
+                    onChange={setLinkRel}
+                    configurable={policy.configurable_link_rel ?? false}
+                    disabled={busy}
+                  />
+                )}
+              </div>
               <div className="space-y-3 border-t pt-4">
                 <label htmlFor={`${imageControlId}-mode`} className="text-sm font-medium">
                   Ad image

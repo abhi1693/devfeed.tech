@@ -295,6 +295,7 @@ def test_responses_preserve_noncampaign_attribution_without_private_metadata(mon
         "image_url": None,
         "image_variants": [],
         "url": "https://partner.example/validator",
+        "link_rel": ["nofollow"],
         "partner_name": "Partner",
         "platform": None,
         "sponsored": False,

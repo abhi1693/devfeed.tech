@@ -9,6 +9,7 @@ from sqlalchemy import and_, delete, exists, func, or_, select, union, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
+from .cache_events import mark_dirty
 from .models import (
     PartnerAccount,
     PartnerAsset,
@@ -301,13 +302,17 @@ def _enroll_automatic_rows(session, rows, now):
     for batch in batched(
         _automatic_asset_values(rows, campaigns, excluded), PROMOTION_INSERT_BATCH_SIZE
     ):
+        sponsored_ids = {row["id"] for row in batch if row["ad_format"] == "sponsored_content"}
         result = session.execute(
             insert(PartnerAsset)
             .values(list(batch))
             .on_conflict_do_nothing()
             .returning(PartnerAsset.id)
         )
-        created += len(result.all())
+        inserted = result.all()
+        if sponsored_ids and any(row[0] in sponsored_ids for row in inserted):
+            mark_dirty(session, "partner_assets")
+        created += len(inserted)
     return created
 
 

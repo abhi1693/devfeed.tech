@@ -32,6 +32,7 @@ from sqlalchemy.ext.hybrid import hybrid_property
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 from sqlalchemy.sql.elements import ColumnElement
 
+from devfeed_core.partner_link_rel import default_link_rel
 from devfeed_core.partner_surfaces import default_campaign_surfaces, default_promotion_surfaces
 from devfeed_core.topic_kinds import TOPIC_KINDS
 
@@ -1746,6 +1747,14 @@ class PartnerAccount(Base):
 
     __tablename__ = "partner_accounts"
     __table_args__ = (
+        CheckConstraint(
+            "jsonb_typeof(link_rel) = 'array' AND jsonb_array_length(link_rel) <= 4 AND "
+            'link_rel <@ \'["nofollow","sponsored","ugc","external"]\'::jsonb AND '
+            "jsonb_array_length(link_rel) = ((link_rel ? 'nofollow')::int + "
+            "(link_rel ? 'sponsored')::int + (link_rel ? 'ugc')::int + "
+            "(link_rel ? 'external')::int)",
+            name="ck_partner_account_link_rel",
+        ),
         CheckConstraint("status IN ('active','paused')", name="ck_partner_account_status"),
         CheckConstraint("jsonb_typeof(audience) = 'object'", name="ck_partner_account_audience"),
         CheckConstraint(
@@ -1805,6 +1814,21 @@ class PartnerAccount(Base):
     ad_formats: Mapped[list] = mapped_column(
         JSONB, default=lambda: ["feed"], server_default='["feed"]'
     )
+    link_rel: Mapped[list] = mapped_column(
+        JSONB, default=default_link_rel, server_default='["nofollow"]'
+    )
+
+    @property
+    def configurable_link_rel(self) -> bool:
+        from .partner_tiers import tier_policy
+
+        return tier_policy(self.tier)["configurable_link_rel"]
+
+    @property
+    def link_rel_options(self) -> list[str]:
+        from .partner_link_rel import LINK_REL_OPTIONS
+
+        return list(LINK_REL_OPTIONS)
 
     @property
     def allowed_ad_formats(self) -> list[str]:
@@ -1938,6 +1962,12 @@ class PartnerCampaign(Base):
         ),
         Index("ix_partner_campaign_live", "status", "starts_at", "ends_at"),
         Index(
+            "ix_partner_campaign_article_sponsor",
+            "article_id",
+            "id",
+            postgresql_where=text("ad_format = 'sponsored_content' AND status = 'active'"),
+        ),
+        Index(
             "uq_partner_managed_campaign",
             "account_id",
             "ad_format",
@@ -1981,6 +2011,15 @@ class PartnerProductPromotion(Base):
     __tablename__ = "partner_product_promotions"
     __table_args__ = (
         CheckConstraint(
+            "link_rel IS NULL OR (jsonb_typeof(link_rel) = 'array' AND "
+            "jsonb_array_length(link_rel) <= 4 AND "
+            'link_rel <@ \'["nofollow","sponsored","ugc","external"]\'::jsonb AND '
+            "jsonb_array_length(link_rel) = ((link_rel ? 'nofollow')::int + "
+            "(link_rel ? 'sponsored')::int + (link_rel ? 'ugc')::int + "
+            "(link_rel ? 'external')::int))",
+            name="ck_partner_product_link_rel",
+        ),
+        CheckConstraint(
             "promotion_surfaces IS NULL OR (jsonb_typeof(promotion_surfaces) = 'array' AND "
             "jsonb_array_length(promotion_surfaces) <= 5 AND "
             'promotion_surfaces <@ \'["article","topic","feed","search","header"]\'::jsonb)',
@@ -2010,6 +2049,7 @@ class PartnerProductPromotion(Base):
     excluded: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
     promotion_surfaces: Mapped[list | None] = mapped_column(JSONB(none_as_null=True))
     ad_formats: Mapped[list | None] = mapped_column(JSONB(none_as_null=True))
+    link_rel: Mapped[list | None] = mapped_column(JSONB(none_as_null=True))
     ad_image_url: Mapped[str | None] = mapped_column(String(2048))
     managed_ad_image: Mapped[dict] = mapped_column(JSONB, default=dict, server_default="{}")
     ad_image_revision: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
@@ -2122,6 +2162,13 @@ class PartnerAsset(Base):
             ondelete="RESTRICT",
         ),
         Index("ix_partner_asset_product", "product_id", "id"),
+        Index(
+            "ix_partner_asset_article_sponsor",
+            "article_id",
+            "account_id",
+            "product_id",
+            postgresql_where=text("ad_format = 'sponsored_content'"),
+        ),
         Index(
             "uq_partner_automatic_organic_asset",
             "account_id",

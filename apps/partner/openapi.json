@@ -70,6 +70,10 @@
             "title": "Benefits",
             "type": "array"
           },
+          "configurable_link_rel": {
+            "title": "Configurable Link Rel",
+            "type": "boolean"
+          },
           "effective_promotion_kind": {
             "enum": [
               "product",
@@ -82,6 +86,33 @@
             "format": "uuid",
             "title": "Id",
             "type": "string"
+          },
+          "link_rel": {
+            "items": {
+              "enum": [
+                "nofollow",
+                "sponsored",
+                "ugc",
+                "external"
+              ],
+              "type": "string"
+            },
+            "maxItems": 4,
+            "title": "Link Rel",
+            "type": "array"
+          },
+          "link_rel_options": {
+            "items": {
+              "enum": [
+                "nofollow",
+                "sponsored",
+                "ugc",
+                "external"
+              ],
+              "type": "string"
+            },
+            "title": "Link Rel Options",
+            "type": "array"
           },
           "name": {
             "maxLength": 200,
@@ -172,7 +203,9 @@
           "effective_promotion_kind",
           "promotion_kind_source",
           "advanced_targeting",
-          "allowed_ad_formats"
+          "allowed_ad_formats",
+          "configurable_link_rel",
+          "link_rel_options"
         ],
         "title": "AccountOut",
         "type": "object"
@@ -1003,6 +1036,19 @@
             ],
             "title": "Image Url"
           },
+          "link_rel": {
+            "items": {
+              "enum": [
+                "nofollow",
+                "sponsored",
+                "ugc",
+                "external"
+              ],
+              "type": "string"
+            },
+            "title": "Link Rel",
+            "type": "array"
+          },
           "listing_url": {
             "anyOf": [
               {
@@ -1058,7 +1104,8 @@
           "ad_image_status",
           "tagline",
           "logo_url",
-          "image_url"
+          "image_url",
+          "link_rel"
         ],
         "title": "CreativePreviewProduct",
         "type": "object"
@@ -1400,9 +1447,26 @@
             "title": "Commercial Approved",
             "type": "boolean"
           },
+          "configurable_link_rel": {
+            "title": "Configurable Link Rel",
+            "type": "boolean"
+          },
           "editable": {
             "title": "Editable",
             "type": "boolean"
+          },
+          "effective_link_rel": {
+            "items": {
+              "enum": [
+                "nofollow",
+                "sponsored",
+                "ugc",
+                "external"
+              ],
+              "type": "string"
+            },
+            "title": "Effective Link Rel",
+            "type": "array"
           },
           "excluded": {
             "title": "Excluded",
@@ -1416,6 +1480,40 @@
             "format": "uuid",
             "title": "Id",
             "type": "string"
+          },
+          "link_rel": {
+            "anyOf": [
+              {
+                "items": {
+                  "enum": [
+                    "nofollow",
+                    "sponsored",
+                    "ugc",
+                    "external"
+                  ],
+                  "type": "string"
+                },
+                "maxItems": 4,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Link Rel"
+          },
+          "link_rel_options": {
+            "items": {
+              "enum": [
+                "nofollow",
+                "sponsored",
+                "ugc",
+                "external"
+              ],
+              "type": "string"
+            },
+            "title": "Link Rel Options",
+            "type": "array"
           },
           "manual_active": {
             "anyOf": [
@@ -1504,6 +1602,9 @@
           "status",
           "excluded",
           "globally_excluded",
+          "effective_link_rel",
+          "configurable_link_rel",
+          "link_rel_options",
           "product_url",
           "tagline",
           "pricing",
@@ -2492,6 +2593,27 @@
               }
             ]
           },
+          "link_rel": {
+            "anyOf": [
+              {
+                "items": {
+                  "enum": [
+                    "nofollow",
+                    "sponsored",
+                    "ugc",
+                    "external"
+                  ],
+                  "type": "string"
+                },
+                "maxItems": 4,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Link Rel"
+          },
           "outbound_destination": {
             "anyOf": [
               {
@@ -2636,9 +2758,26 @@
             "title": "Commercial Approved",
             "type": "boolean"
           },
+          "configurable_link_rel": {
+            "title": "Configurable Link Rel",
+            "type": "boolean"
+          },
           "editable": {
             "title": "Editable",
             "type": "boolean"
+          },
+          "effective_link_rel": {
+            "items": {
+              "enum": [
+                "nofollow",
+                "sponsored",
+                "ugc",
+                "external"
+              ],
+              "type": "string"
+            },
+            "title": "Effective Link Rel",
+            "type": "array"
           },
           "excluded": {
             "title": "Excluded",
@@ -2652,6 +2791,40 @@
             "format": "uuid",
             "title": "Id",
             "type": "string"
+          },
+          "link_rel": {
+            "anyOf": [
+              {
+                "items": {
+                  "enum": [
+                    "nofollow",
+                    "sponsored",
+                    "ugc",
+                    "external"
+                  ],
+                  "type": "string"
+                },
+                "maxItems": 4,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Link Rel"
+          },
+          "link_rel_options": {
+            "items": {
+              "enum": [
+                "nofollow",
+                "sponsored",
+                "ugc",
+                "external"
+              ],
+              "type": "string"
+            },
+            "title": "Link Rel Options",
+            "type": "array"
           },
           "manual_active": {
             "anyOf": [
@@ -2740,6 +2913,9 @@
           "status",
           "excluded",
           "globally_excluded",
+          "effective_link_rel",
+          "configurable_link_rel",
+          "link_rel_options",
           "product_url",
           "tagline",
           "pricing",
@@ -2884,6 +3060,27 @@
             ],
             "title": "Excluded"
           },
+          "link_rel": {
+            "anyOf": [
+              {
+                "items": {
+                  "enum": [
+                    "nofollow",
+                    "sponsored",
+                    "ugc",
+                    "external"
+                  ],
+                  "type": "string"
+                },
+                "maxItems": 4,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Link Rel"
+          },
           "promotion_surfaces": {
             "anyOf": [
               {
@@ -2917,6 +3114,19 @@
             "format": "uuid",
             "title": "Account Id",
             "type": "string"
+          },
+          "account_link_rel": {
+            "items": {
+              "enum": [
+                "nofollow",
+                "sponsored",
+                "ugc",
+                "external"
+              ],
+              "type": "string"
+            },
+            "title": "Account Link Rel",
+            "type": "array"
           },
           "ad_formats": {
             "anyOf": [
@@ -2962,6 +3172,10 @@
             ],
             "title": "Ad Image Url"
           },
+          "configurable_link_rel": {
+            "title": "Configurable Link Rel",
+            "type": "boolean"
+          },
           "default_image_url": {
             "anyOf": [
               {
@@ -2972,6 +3186,19 @@
               }
             ],
             "title": "Default Image Url"
+          },
+          "effective_link_rel": {
+            "items": {
+              "enum": [
+                "nofollow",
+                "sponsored",
+                "ugc",
+                "external"
+              ],
+              "type": "string"
+            },
+            "title": "Effective Link Rel",
+            "type": "array"
           },
           "excluded": {
             "title": "Excluded",
@@ -2987,6 +3214,40 @@
               }
             ],
             "title": "Image Url"
+          },
+          "link_rel": {
+            "anyOf": [
+              {
+                "items": {
+                  "enum": [
+                    "nofollow",
+                    "sponsored",
+                    "ugc",
+                    "external"
+                  ],
+                  "type": "string"
+                },
+                "maxItems": 4,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Link Rel"
+          },
+          "link_rel_options": {
+            "items": {
+              "enum": [
+                "nofollow",
+                "sponsored",
+                "ugc",
+                "external"
+              ],
+              "type": "string"
+            },
+            "title": "Link Rel Options",
+            "type": "array"
           },
           "product_id": {
             "format": "uuid",
@@ -3022,7 +3283,11 @@
           "product_id",
           "image_url",
           "default_image_url",
-          "ad_image_status"
+          "ad_image_status",
+          "effective_link_rel",
+          "account_link_rel",
+          "configurable_link_rel",
+          "link_rel_options"
         ],
         "title": "ProductPromotionOut",
         "type": "object"
@@ -3762,9 +4027,26 @@
             "title": "Commercial Approved",
             "type": "boolean"
           },
+          "configurable_link_rel": {
+            "title": "Configurable Link Rel",
+            "type": "boolean"
+          },
           "editable": {
             "title": "Editable",
             "type": "boolean"
+          },
+          "effective_link_rel": {
+            "items": {
+              "enum": [
+                "nofollow",
+                "sponsored",
+                "ugc",
+                "external"
+              ],
+              "type": "string"
+            },
+            "title": "Effective Link Rel",
+            "type": "array"
           },
           "excluded": {
             "title": "Excluded",
@@ -3778,6 +4060,40 @@
             "format": "uuid",
             "title": "Id",
             "type": "string"
+          },
+          "link_rel": {
+            "anyOf": [
+              {
+                "items": {
+                  "enum": [
+                    "nofollow",
+                    "sponsored",
+                    "ugc",
+                    "external"
+                  ],
+                  "type": "string"
+                },
+                "maxItems": 4,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Link Rel"
+          },
+          "link_rel_options": {
+            "items": {
+              "enum": [
+                "nofollow",
+                "sponsored",
+                "ugc",
+                "external"
+              ],
+              "type": "string"
+            },
+            "title": "Link Rel Options",
+            "type": "array"
           },
           "manual_active": {
             "anyOf": [
@@ -3866,6 +4182,9 @@
           "status",
           "excluded",
           "globally_excluded",
+          "effective_link_rel",
+          "configurable_link_rel",
+          "link_rel_options",
           "product_url",
           "tagline",
           "pricing",

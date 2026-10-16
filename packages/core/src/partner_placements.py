@@ -34,6 +34,7 @@ from devfeed_core.partner_audiences import (
     audience_topics_current,
     effective_audience,
 )
+from devfeed_core.partner_link_rel import effective_link_rel
 from devfeed_core.partner_matching import TAXONOMY_LOCK_KEY, article_fingerprint
 from devfeed_core.partner_placement_capacity import campaign_capacity
 from devfeed_core.partner_placement_destinations import account_product_creative
@@ -931,12 +932,17 @@ def deliver_placements(session, query, key, *, user_id=None, now=None):
                         logo_url=product_logo_url(product),
                         image_url=product_image_url(product, policy),
                         image_variants=product_image_variants(product, policy),
+                        link_rel=effective_link_rel(account, policy),
                         url=url,
                         partner_name=account.name,
                         platform=creative.platform,
                         sponsored=sponsored,
                         ad_format=ad_format,
-                        article=ArticleOut.from_article(article) if article else None,
+                        article=ArticleOut.from_article(
+                            article, sponsor_link_rel=effective_link_rel(account, policy)
+                        )
+                        if article
+                        else None,
                         reason=(
                             "Sponsored by this partner" if phase == "fallback" else reason[:1000]
                         ),

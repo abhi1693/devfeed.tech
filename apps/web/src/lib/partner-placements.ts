@@ -1,6 +1,7 @@
 import type { Article } from "./types";
 import type { SearchKind } from "./search";
 import { safeExternalUrl } from "./feed-query";
+import { parseAdLinkRel, type AdLinkRel } from "@devfeed/ui/ad-link-rel";
 
 export const adFormats = ["feed", "header_sponsorship", "sponsored_content", "engagement"] as const;
 export type AdFormat = (typeof adFormats)[number];
@@ -30,6 +31,7 @@ export type PartnerPlacement = {
   image_url: string | null;
   image_variants: { url: string; width: number }[];
   url: string;
+  link_rel: AdLinkRel[];
   partner_name: string;
   platform: {
     name: string;
@@ -201,7 +203,11 @@ export function parsePartnerPlacements(value: unknown): PartnerPlacement[] {
     const format = item.ad_format ?? "feed";
     if (!adFormats.includes(format as AdFormat))
       throw new Error("Invalid partner placement format");
-    const article = format === "sponsored_content" ? parseSponsoredArticle(item.article) : null;
+    const linkRel = parseAdLinkRel(item.link_rel === undefined ? ["nofollow"] : item.link_rel);
+    const article =
+      format === "sponsored_content"
+        ? { ...parseSponsoredArticle(item.article), sponsor_link_rel: linkRel }
+        : null;
     const url = new URL(item.url, "https://devfeed.tech");
     if (
       url.protocol !== "https:" ||
@@ -222,6 +228,7 @@ export function parsePartnerPlacements(value: unknown): PartnerPlacement[] {
       image_url: safeLogoUrl(item.image_url),
       image_variants: safeImageVariants(item.image_variants),
       url: item.url,
+      link_rel: linkRel,
       partner_name: item.partner_name,
       platform: parsePlatform(item.platform),
       sponsored: item.sponsored,

@@ -182,7 +182,7 @@ it("inserts Feed placements as four-column native rows after the fourth and twel
     expect(row.querySelector(".source-column")?.textContent).toBe(placement.partner_name);
     expect(row.querySelector("img, article, .card-image, .card-copy")).toBeNull();
     expect(link.getAttribute("target")).toBe("_blank");
-    expect(link.getAttribute("rel")).toBe("sponsored noopener noreferrer");
+    expect(link.getAttribute("rel")).toBe("nofollow noopener noreferrer");
     expect(link.getAttribute("referrerpolicy")).toBe("no-referrer");
   }
   expect(view.container.querySelector("tbody > :not(tr)")).toBeNull();

@@ -8,6 +8,8 @@ import {
 } from "@devfeed/ui/product-destination-preview";
 import { Button } from "@devfeed/ui/button";
 import { ResourcePanel } from "@devfeed/ui/resource-layout";
+import { AdLinkRelSelector } from "@devfeed/ui/ad-link-rel-selector";
+import type { AdLinkRel } from "@devfeed/ui/ad-link-rel";
 import type { Account, OutboundDestination } from "@/lib/types";
 import { parseDestinationPreview } from "@/lib/contracts";
 import { isPartnerRequestCancelled } from "@/lib/partner-request";
@@ -27,6 +29,7 @@ function AccountDestination({ account, csrfToken, onSaved, onUnavailable }: Prop
   const [destination, setDestination] = useState<OutboundDestination>(
     account.outbound_destination ?? "product_url",
   );
+  const [linkRel, setLinkRel] = useState<AdLinkRel[]>(account.link_rel ?? ["nofollow"]);
   const {
     request,
     save: savePreferences,
@@ -75,7 +78,13 @@ function AccountDestination({ account, csrfToken, onSaved, onUnavailable }: Prop
 
   async function save(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    await savePreferences({ outbound_destination: destination });
+    const relationshipChanged =
+      linkRel.length !== account.link_rel?.length ||
+      linkRel.some((token) => !account.link_rel?.includes(token));
+    await savePreferences({
+      outbound_destination: destination,
+      ...(account.configurable_link_rel && relationshipChanged ? { link_rel: linkRel } : {}),
+    });
   }
 
   return (
@@ -110,6 +119,18 @@ function AccountDestination({ account, csrfToken, onSaved, onUnavailable }: Prop
             Product cards use this destination with DevFeed attribution. Partner listing requires an
             available listing URL.
           </p>
+          <div className="border-t pt-4">
+            <AdLinkRelSelector
+              value={linkRel}
+              options={account.link_rel_options ?? []}
+              configurable={account.configurable_link_rel ?? false}
+              disabled={saving}
+              onChange={(value) => {
+                setLinkRel(value);
+                clearMessage();
+              }}
+            />
+          </div>
           {error && (
             <p role="alert" className="text-sm text-destructive">
               {error}

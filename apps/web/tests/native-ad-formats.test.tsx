@@ -118,7 +118,7 @@ it("loads header sponsorship independently of an editorial grid card", async () 
   expect(card.textContent).toContain(promoted.content_type);
   expect(card.querySelector(".card-date")).not.toBeNull();
   expect(title.getAttribute("target")).toBeNull();
-  expect(title.getAttribute("rel")).toBe("sponsored");
+  expect(title.getAttribute("rel")).toBe("nofollow");
   expect(card.querySelector("button[aria-label*='Close']")).toBeNull();
   await waitFor(() =>
     expect(observePartnerPlacement).toHaveBeenCalledWith(

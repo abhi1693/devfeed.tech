@@ -3,6 +3,7 @@ from typing import Annotated, Literal, get_args
 
 from devfeed_core.article_reads import PUBLIC_ARTICLE_OPTIONS
 from devfeed_core.models import Article, ArticleOrigin, ArticleTopic, Source, Tag, Topic
+from devfeed_core.partner_link_rel import sponsored_article_link_rel
 from devfeed_core.publication import visible_article
 from devfeed_core.schemas import (
     ArticleOut,
@@ -297,7 +298,7 @@ def feed(
     more = len(articles) > limit
     items = articles[:limit]
     return FeedPage(
-        items=[ArticleOut.from_article(article) for article in items],
+        items=ArticleOut.from_articles(items),
         next_cursor=encode_cursor(items[-1]) if more else None,
     )
 
@@ -317,4 +318,9 @@ def article_detail(article_id: TextInput, session: DB):
     )
     if article is None:
         raise HTTPException(404, "Article not found")
-    return ArticleOut.from_article(article)
+    policy = (
+        sponsored_article_link_rel(session, [article.id]).get(article.id)
+        if article.sponsor_names
+        else None
+    )
+    return ArticleOut.from_article(article, sponsor_link_rel=policy)

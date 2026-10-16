@@ -7,6 +7,7 @@
  */
 import type { AccountInputAdFormatsItem } from './accountInputAdFormatsItem';
 import type { AccountInputApprovalMode } from './accountInputApprovalMode';
+import type { AccountInputLinkRelItem } from './accountInputLinkRelItem';
 import type { AccountInputOutboundDestination } from './accountInputOutboundDestination';
 import type { AccountInputPromotionKind } from './accountInputPromotionKind';
 import type { AccountInputPromotionSurfacesItem } from './accountInputPromotionSurfacesItem';
@@ -20,6 +21,8 @@ export interface AccountInput {
   approval_mode?: AccountInputApprovalMode;
   audience?: AudienceInput;
   auto_include_products?: boolean;
+  /** @maxItems 4 */
+  link_rel?: AccountInputLinkRelItem[];
   /**
      * @minLength 1
      * @maxLength 200

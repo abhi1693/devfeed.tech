@@ -23,6 +23,8 @@
     "./product-destination-preview": "./src/product-destination-preview.tsx",
     "./audience-targeting": "./src/audience-targeting.tsx",
     "./advertising-formats": "./src/advertising-formats.tsx",
+    "./ad-link-rel": "./src/ad-link-rel.ts",
+    "./ad-link-rel-selector": "./src/ad-link-rel-selector.tsx",
     "./connector-fields": "./src/connector-fields.tsx",
     "./connection-logo": "./src/connection-logo.tsx",
     "./connector-response": "./src/connector-response.tsx",

@@ -7,6 +7,8 @@ import { useRouter } from "next/navigation";
 import { Tabs } from "radix-ui";
 import { Button } from "@devfeed/ui/button";
 import { Input } from "@devfeed/ui/input";
+import { AdLinkRelSelector } from "@devfeed/ui/ad-link-rel-selector";
+import type { AdLinkRel } from "@devfeed/ui/ad-link-rel";
 import { listRecords, getRecord } from "@/lib/resource-api";
 import { EntityPicker, type EntityPickerSource } from "@/components/molecules/entity-picker";
 import { Field } from "@/components/molecules/field";
@@ -96,6 +98,7 @@ export function PartnerAccountManagement({
   const [destination, setDestination] = useState<"product_url" | "listing_url">(
     account?.outbound_destination ?? "product_url",
   );
+  const [linkRel, setLinkRel] = useState<AdLinkRel[]>(account?.link_rel ?? ["nofollow"]);
   const [organicEnabled, setOrganicEnabled] = useState(account?.organic_enabled ?? true);
   const [autoInclude, setAutoInclude] = useState(account?.auto_include_products ?? true);
   const [adFormats, setAdFormats] = useState<AdFormat[]>(account?.ad_formats ?? ["feed"]);
@@ -132,6 +135,10 @@ export function PartnerAccountManagement({
     return () => controller.abort();
   }, [mode, catalogRevision]);
   const selectedTier = tiers.find((item) => item.tier === tier);
+  const configurableLinkRel =
+    selectedTier?.configurable_link_rel ??
+    (tier === account?.tier && account.configurable_link_rel === true);
+  const linkRelOptions = selectedTier?.link_rel_options ?? account?.link_rel_options ?? [];
   const selectedBenefits = selectedTier?.benefits;
   const allowedKinds = selectedTier?.allowed_promotion_kinds ??
     account?.allowed_promotion_kinds ?? ["product"];
@@ -186,6 +193,7 @@ export function PartnerAccountManagement({
               promotion_kind: promotionKind === "inherit" ? null : promotionKind,
               approval_mode: approvalMode,
               outbound_destination: destination,
+              ...(configurableLinkRel ? { link_rel: linkRel } : {}),
               audience,
               ad_formats: adFormats,
             };
@@ -429,6 +437,13 @@ export function PartnerAccountManagement({
                   </Field>
                   <PartnerDestinationPreview accountId={account?.id} destination={destination} />
                 </div>
+                <AdLinkRelSelector
+                  value={linkRel}
+                  options={linkRelOptions}
+                  configurable={configurableLinkRel}
+                  onChange={setLinkRel}
+                  disabled={busy || !selectedTier}
+                />
                 <div className="grid gap-5 border-y py-5 sm:grid-cols-2">
                   <label className="flex items-start gap-3 text-sm">
                     <Input
