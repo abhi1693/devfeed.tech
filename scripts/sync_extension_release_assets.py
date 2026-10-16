@@ -30,9 +30,10 @@ def release_info(tag: str) -> dict:
             "gh",
             "release",
             "view",
-            tag,
             "--json",
             "assets,isDraft",
+            "--",
+            tag,
         )
     )
 
@@ -49,7 +50,17 @@ def prepare_draft(tag: str) -> None:
         # create never overwrites an existing release. Permission, network or
         # existing-release failures remain fatal rather than becoming uploads.
         run(
-            "gh", "release", "create", tag, "--draft", "--verify-tag", "--title", tag, "--notes", ""
+            "gh",
+            "release",
+            "create",
+            "--draft",
+            "--verify-tag",
+            "--title",
+            tag,
+            "--notes",
+            "",
+            "--",
+            tag,
         )
         release = release_info(tag)
     require_draft(release)
@@ -76,7 +87,17 @@ def sync_packages(tag: str, *, draft_only: bool = False) -> None:
             if package.name not in existing:
                 missing.append(package)
                 continue
-            run("gh", "release", "download", tag, "--pattern", package.name, "--dir", temporary)
+            run(
+                "gh",
+                "release",
+                "download",
+                "--pattern",
+                package.name,
+                "--dir",
+                temporary,
+                "--",
+                tag,
+            )
             published = directory / package.name
             if not published.is_file() or archive_contents(package) != archive_contents(published):
                 raise SystemExit(
@@ -90,9 +111,19 @@ def sync_packages(tag: str, *, draft_only: bool = False) -> None:
         if missing:
             if draft_only:
                 require_draft(release_info(tag))
-            run("gh", "release", "upload", tag, *(str(path) for path in missing))
+            run("gh", "release", "upload", "--", tag, *(str(path) for path in missing))
             for package in missing:
-                run("gh", "release", "download", tag, "--pattern", package.name, "--dir", temporary)
+                run(
+                    "gh",
+                    "release",
+                    "download",
+                    "--pattern",
+                    package.name,
+                    "--dir",
+                    temporary,
+                    "--",
+                    tag,
+                )
                 if package.read_bytes() != (directory / package.name).read_bytes():
                     raise SystemExit(f"Uploaded release asset failed verification: {package.name}")
 
@@ -141,11 +172,21 @@ def attach_attestation(tag: str, bundle: Path) -> None:
         provenance = Path(temporary) / name.replace(".sigstore.json", ".intoto.jsonl")
         provenance.write_text(json.dumps(envelope, separators=(",", ":")) + "\n")
         require_draft(release_info(tag))
-        run("gh", "release", "upload", tag, str(signed), str(provenance))
+        run("gh", "release", "upload", "--", tag, str(signed), str(provenance))
         downloaded = Path(temporary) / "downloaded"
         downloaded.mkdir()
         for proof in (signed, provenance):
-            run("gh", "release", "download", tag, "--pattern", proof.name, "--dir", str(downloaded))
+            run(
+                "gh",
+                "release",
+                "download",
+                "--pattern",
+                proof.name,
+                "--dir",
+                str(downloaded),
+                "--",
+                tag,
+            )
             if proof.read_bytes() != (downloaded / proof.name).read_bytes():
                 raise SystemExit("Uploaded release provenance failed byte verification.")
     print(f"Verified and attached extension build provenance to draft release {tag}.")
