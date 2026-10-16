@@ -1,5 +1,6 @@
 "use client";
 
+import { prepareReaderLoginAcquisition } from "@/lib/reader-acquisition";
 import Image from "next/image";
 import Link from "@/components/reader-link";
 import { useEffect, useState } from "react";
@@ -25,6 +26,7 @@ export function UserLogin({
   returnTo?: string | ReaderDestination | ReaderDestinationRecord;
   error?: boolean;
 }) {
+  useEffect(prepareReaderLoginAcquisition, []);
   const [config, setConfig] = useState<SignInConfig | null>(null);
   const [unavailable, setUnavailable] = useState(false);
   useEffect(() => {

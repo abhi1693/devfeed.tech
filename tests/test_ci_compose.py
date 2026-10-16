@@ -26,8 +26,13 @@ spec.loader.exec_module(check_compose)
             "DEVFEED_PARTNER_CALLER_IP_HEADER": "cf-connecting-ip",
             "DEVFEED_PARTNER_TRACKING_KEY": "inherited-test-tracking-secret",
         },
+        {
+            "DEVFEED_READER_MEASUREMENT_ENABLED": "true",
+            "DEVFEED_READER_GA_API_SECRET": "inherited-reader-secret",
+            "DEVFEED_READER_ACQUISITION_CAMPAIGNS": '["inherited-campaign"]',
+        },
     ],
-    ids=["x-pixel", "partner-placement"],
+    ids=["x-pixel", "partner-placement", "reader-measurement"],
 )
 def test_compose_render_isolates_inherited_private_configuration(monkeypatch, configuration):
     for key, value in configuration.items():

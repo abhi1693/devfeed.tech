@@ -1011,6 +1011,9 @@ class UserAccount(Base):
     name: Mapped[str | None] = mapped_column(Text)
     email: Mapped[str | None] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    # Set only when the verified reader callback creates this account. Identity
+    # materialization for administration or partners is not a reader signup.
+    reader_signup_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     last_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     profile: Mapped[dict] = mapped_column(JSONB, default=dict, server_default=text("'{}'::jsonb"))
     notification_settings: Mapped[dict] = mapped_column(
@@ -1117,7 +1120,82 @@ class UserReadingEvent(Base):
     rule_version: Mapped[int] = mapped_column(Integer, default=1, server_default="1")
 
 
+class ReaderSignup(Base):
+    """One verified reader cohort and its first original-open milestone."""
+
+    __tablename__ = "reader_signups"
+    __table_args__ = (
+        CheckConstraint(
+            "acquisition_status IN ('attributed','direct','unknown','unavailable')",
+            name="ck_reader_signup_acquisition",
+        ),
+        CheckConstraint(
+            "(activated_at IS NULL) = (activation_article_id IS NULL)",
+            name="ck_reader_signup_activation_pair",
+        ),
+        CheckConstraint(
+            "activated_at IS NULL OR (activated_at >= signup_at "
+            "AND activated_at < signup_at + interval '7 days')",
+            name="ck_reader_signup_activation_window",
+        ),
+    )
+
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("user_accounts.id", ondelete="CASCADE"), primary_key=True
+    )
+    signup_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    acquisition_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    acquisition_status: Mapped[str] = mapped_column(String(20))
+    source: Mapped[str | None] = mapped_column(String(64))
+    medium: Mapped[str | None] = mapped_column(String(64))
+    campaign: Mapped[str | None] = mapped_column(String(64))
+    landing_route: Mapped[str] = mapped_column(String(20))
+    client_platform: Mapped[str] = mapped_column(String(20))
+    activated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # Activity survives article pruning, just like the existing reading ledger.
+    activation_article_id: Mapped[uuid.UUID | None] = mapped_column()
+
+
+class ReaderMilestoneDelivery(Base):
+    """Diagnostic delivery bookkeeping for two outcomes, never a general event log."""
+
+    __tablename__ = "reader_milestone_deliveries"
+    __table_args__ = (
+        CheckConstraint(
+            "event_name IN ('sign_up','reader_activation')", name="ck_reader_milestone_event"
+        ),
+        CheckConstraint(
+            "status IN ('unavailable','pending','attempted','http_accepted','failed','unknown')",
+            name="ck_reader_milestone_status",
+        ),
+        CheckConstraint("attempts >= 0 AND attempts <= 1", name="ck_reader_milestone_attempts"),
+    )
+
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("user_accounts.id", ondelete="CASCADE"), primary_key=True
+    )
+    event_name: Mapped[str] = mapped_column(String(30), primary_key=True)
+    id: Mapped[uuid.UUID] = mapped_column(unique=True, default=uuid.uuid4)
+    occurred_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    status: Mapped[str] = mapped_column(String(20))
+    reason: Mapped[str] = mapped_column(String(64))
+    attempts: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    attempted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    payload: Mapped[dict] = mapped_column(JSONB, default=dict, server_default="{}")
+
+
 Index("ix_user_accounts_created_at", UserAccount.created_at)
+Index(
+    "ix_user_accounts_reader_signup_at",
+    UserAccount.reader_signup_at,
+    postgresql_where=UserAccount.reader_signup_at.is_not(None),
+)
+Index(
+    "ix_reader_milestone_pending",
+    ReaderMilestoneDelivery.status,
+    ReaderMilestoneDelivery.occurred_at,
+)
 
 
 class UserTopic(Base):

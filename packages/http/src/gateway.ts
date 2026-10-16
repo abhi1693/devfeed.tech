@@ -31,7 +31,9 @@ export type GatewayCookiePolicy = "reader" | "reader-attribution" | "omit";
 export type ExtensionTransportPolicy = {
   credentials: "include" | "omit";
   cacheControl: "public-read" | "no-store" | null;
-  requestHeaders: readonly ("Content-Type" | "X-CSRF-Token" | "If-None-Match")[];
+  requestHeaders: readonly (
+    "Content-Type" | "X-CSRF-Token" | "If-None-Match" | "X-Devfeed-Reader-Measurement"
+  )[];
   timeoutMs: number;
 };
 

@@ -1,4 +1,5 @@
 import "server-only";
+import { acquisitionCampaigns } from "../reader-acquisition";
 import { mcpEndpoint } from "../mcp";
 
 function requiredOrigin(name: string) {
@@ -69,4 +70,18 @@ export function clarityProjectId() {
   const enabled = process.env.DEVFEED_ANALYTICS_ENABLED;
   if (enabled !== undefined && enabled.trim().toLowerCase() !== "true") return "";
   return process.env.MICROSOFT_CLARITY_PROJECT_ID?.trim() || "";
+}
+
+export function readerMeasurementEnabled() {
+  return process.env.DEVFEED_READER_MEASUREMENT_ENABLED?.trim().toLowerCase() === "true";
+}
+
+export function readerAcquisitionCampaigns() {
+  try {
+    return acquisitionCampaigns(
+      JSON.parse(process.env.DEVFEED_READER_ACQUISITION_CAMPAIGNS ?? "[]"),
+    );
+  } catch {
+    return [];
+  }
 }

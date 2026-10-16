@@ -42,9 +42,10 @@ class ExtensionTransportPolicy(BaseModel):
     cache_control: Literal["public-read", "no-store"] | None = Field(
         default=None, alias="cacheControl"
     )
-    request_headers: tuple[Literal["Content-Type", "X-CSRF-Token", "If-None-Match"], ...] = Field(
-        default=("Content-Type", "X-CSRF-Token", "If-None-Match"), alias="requestHeaders"
-    )
+    request_headers: tuple[
+        Literal["Content-Type", "X-CSRF-Token", "If-None-Match", "X-Devfeed-Reader-Measurement"],
+        ...,
+    ] = Field(default=("Content-Type", "X-CSRF-Token", "If-None-Match"), alias="requestHeaders")
     timeout_ms: int = Field(default=15_000, gt=0, alias="timeoutMs")
 
 

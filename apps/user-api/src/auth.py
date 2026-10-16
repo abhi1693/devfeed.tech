@@ -35,6 +35,8 @@ from devfeed_user_api import oidc
 from devfeed_user_api.accounts import save_user_with_status, touch_user_activity
 from devfeed_user_api.config import get_settings
 from devfeed_user_api.dependencies import get_redis
+from devfeed_user_api.reader_measurement import bind_measurement, callback_context, capture_context
+from devfeed_user_api.reader_measurement_delivery import send_reader_milestone
 from devfeed_user_api.x_attribution import click_id, valid_click_id
 from devfeed_user_api.x_conversions import send_signup_conversion
 
@@ -209,6 +211,7 @@ def login(
             settings, metadata, register=register, identity_provider_id=provider_id
         )
         flow["destination"] = destination.as_record()
+        flow["reader_acquisition"] = capture_context(request, settings, cookie=True)
         if settings.x_pixel_enabled:
             captured = click_id(request.cookies, secure=settings.cookie_secure)
             if captured:
@@ -267,7 +270,11 @@ def callback(
         ttl = user["expires_at"] - int(time.time())
         if ttl <= 0:
             raise oidc.OIDCError("Expired identity")
+        capture = callback_context(request, settings, flow.get("reader_acquisition"))
+        user["_reader_signup"] = capture
         user["user_id"], created = save_user_with_status(user)
+        user.pop("_reader_signup", None)
+        user["reader_measurement"] = bind_measurement(capture)
         token = secrets.token_urlsafe(32)
         redis.set(key("session", token), json.dumps(user), ex=ttl)
         response = RedirectResponse(str(settings.base_url).rstrip("/") + destination, 302)
@@ -284,6 +291,9 @@ def callback(
                 twclid=valid_click_id(flow.get("x_click_id")) if settings.x_pixel_enabled else None,
                 conversion_time=datetime.now(UTC),
             )
+            background_tasks.add_task(
+                send_reader_milestone, settings, user_id=user["user_id"], event_name="sign_up"
+            )
     except (oidc.OIDCError, RedisError, SQLAlchemyError, ValueError, KeyError, TypeError) as exc:
         logger.warning("user_login_failed", extra={"error_type": type(exc).__name__})
         response = RedirectResponse(
@@ -292,6 +302,16 @@ def callback(
         if bound_flow:
             cookie(response, "session", "", 0)
     cookie(response, "state", "", 0)
+    if bound_flow:
+        response.delete_cookie(
+            "__Host-devfeed_user_acquisition"
+            if settings.cookie_secure
+            else "devfeed_user_acquisition",
+            path="/",
+            secure=settings.cookie_secure,
+            httponly=False,
+            samesite="lax",
+        )
     return response
 
 

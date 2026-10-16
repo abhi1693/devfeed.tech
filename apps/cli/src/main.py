@@ -12,6 +12,7 @@ from devfeed_cli import (
     discovery_commands,
     image_commands,
     operation_commands,
+    reader_commands,
     search_commands,
     source_commands,
     status,
@@ -40,6 +41,7 @@ app.add_typer(topic_commands.app, name="topics")
 app.add_typer(taxonomy_commands.tags, name="tags")
 app.add_typer(operation_commands.cache, name="cache")
 app.add_typer(operation_commands.db, name="db")
+app.add_typer(reader_commands.app, name="readers")
 
 
 def version_option(value: bool) -> None:

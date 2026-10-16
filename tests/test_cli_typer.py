@@ -84,6 +84,7 @@ GROUPS = {
     "cache": ["clear"],
     "db": ["upgrade", "check", "current"],
     "search": ["setup", "backfill", "worker"],
+    "readers": ["acquisition-report"],
 }
 PATHS = [[name] for name in ("worker", "scheduler", "status")] + [
     [group, command]
@@ -155,6 +156,8 @@ def test_every_help_path_is_offline(path, operations, monkeypatch, tmp_path):
 def test_every_command_routes_to_an_operation_with_typed_arguments(path, operations):
     command, action = path[0], path[-1]
     args = list(path)
+    if command == "readers":
+        args += ["--start", "2026-10-01", "--end", "2026-10-17"]
     if command == "discovery":
         if action == "add":
             args += ["https://example.com/blog"]

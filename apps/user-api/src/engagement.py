@@ -1,6 +1,7 @@
 """First-party article interactions; no IP addresses or browser fingerprints stored."""
 
 import hashlib
+import logging
 import secrets
 import uuid
 from datetime import timedelta
@@ -16,10 +17,12 @@ from devfeed_core.models import (
     utcnow,
 )
 from devfeed_core.publication import visible_article
+from devfeed_core.reader_acquisition import record_reader_activation
 from devfeed_core.reading_streaks import record_reading_day
 from devfeed_core.schemas import ArticleOut, FeedPage
 from devfeed_http.agent_permissions import AgentAccessPolicy
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
+from devfeed_http.operation_policies import ExtensionTransportPolicy, ReaderGatewayPolicy
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request, Response
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy import delete, func, literal, select, union_all
 from sqlalchemy.dialects.postgresql import insert
@@ -29,6 +32,10 @@ from devfeed_user_api.auth import TOKEN, User, UserIdentity, require_user
 from devfeed_user_api.config import get_settings
 from devfeed_user_api.dependencies import DB
 from devfeed_user_api.open_limits import limit_open_requests
+from devfeed_user_api.reader_measurement import capture_context, session_binding
+from devfeed_user_api.reader_measurement_delivery import send_reader_milestone
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/v1/user", tags=["article-engagement"])
 
@@ -143,9 +150,27 @@ def like(article_id: uuid.UUID, payload: LikeInput, user: User, session: DB):
     return engagement_rows(session, [article_id], user)[0]
 
 
-@router.post("/articles/{article_id}/open", response_model=EngagementOut)
+@router.post(
+    "/articles/{article_id}/open",
+    response_model=EngagementOut,
+    openapi_extra=ReaderGatewayPolicy(
+        extension=ExtensionTransportPolicy(
+            request_headers=(
+                "Content-Type",
+                "X-CSRF-Token",
+                "If-None-Match",
+                "X-Devfeed-Reader-Measurement",
+            )
+        )
+    ).openapi_extra(),
+)
 def opened(
-    article_id: uuid.UUID, request: Request, response: Response, viewer: Viewer, session: DB
+    article_id: uuid.UUID,
+    request: Request,
+    response: Response,
+    viewer: Viewer,
+    session: DB,
+    background_tasks: BackgroundTasks,
 ):
     settings = get_settings()
     if not settings.base_url or not settings.allows_request_origin(request.headers.get("origin")):
@@ -163,11 +188,30 @@ def opened(
     public_article(session, article_id)
     opened_at = utcnow()
     hour = opened_at.replace(minute=0, second=0, microsecond=0)
+    activation_recorded = False
     if viewer:
         from devfeed_user_api.preferences import lock_account
 
         account = lock_account(session, viewer)
         record_reading_day(session, account, article_id, opened_at)
+        try:
+            with session.begin_nested():
+                binding = session_binding(request, settings, viewer.user_id)
+                new_activation = record_reader_activation(
+                    session,
+                    account,
+                    capture_context(request, settings),
+                    bound_client_id=binding.get("client_id"),
+                    bound_platform=binding.get("client_platform"),
+                    current_open_at=opened_at,
+                    current_article_id=article_id,
+                )
+            activation_recorded = new_activation
+        except Exception as exc:
+            logger.warning(
+                "reader_activation_measurement_unavailable",
+                extra={"error_type": type(exc).__name__},
+            )
     recorded = session.scalar(
         insert(ArticleOpen)
         .values(
@@ -188,6 +232,10 @@ def opened(
             )
         )
     session.commit()
+    if activation_recorded and viewer is not None:
+        background_tasks.add_task(
+            send_reader_milestone, settings, user_id=viewer.user_id, event_name="reader_activation"
+        )
     if new_visitor and not viewer:
         response.set_cookie(
             cookie_name,

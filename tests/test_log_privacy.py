@@ -14,6 +14,18 @@ def test_authentication_redaction_matches_shared_url_contract(case):
     assert redact_auth_text(case["expected"]) == case["expected"]
 
 
+def test_measurement_protocol_secret_is_redacted_from_urls_and_structured_logs():
+    payload = {
+        "api_secret": "private-measurement-secret",
+        "message": "HTTP POST https://www.google-analytics.com/mp/collect"
+        "?measurement_id=G-READER&api_secret=private-measurement-secret",
+    }
+    result = redact_authentication(payload)
+    assert "private-measurement-secret" not in json.dumps(result)
+    assert "measurement_id=G-READER" in result["message"]
+    assert result["api_secret"] == "[REDACTED]"
+
+
 def test_structured_credentials_are_removed_without_losing_status_and_correlation():
     payload = {
         "trace_id": "a" * 32,

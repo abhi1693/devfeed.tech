@@ -1,3 +1,8 @@
+import {
+  startReaderAcquisition,
+  acquisitionCampaigns,
+  readerMeasurementPermitted,
+} from "../../web/src/lib/reader-acquisition";
 import { analyticsEventName } from "../../web/src/lib/analytics";
 import {
   extensionEvent,
@@ -65,16 +70,29 @@ async function session() {
 }
 
 export function startExtensionAnalytics(network: typeof fetch = fetch) {
+  const acquisitionEntry = new URL(window.location.hash.slice(1) || "/", publicOrigin);
+  let stopAcquisition = () => {};
+  const disableAcquisition = () => {
+    stopAcquisition();
+    stopAcquisition = startReaderAcquisition({
+      enabled: false,
+      platform: clientPlatform,
+      url: acquisitionEntry,
+    });
+  };
   const privacy = navigator as Navigator & { globalPrivacyControl?: boolean };
   try {
     if (
       navigator.doNotTrack === "1" ||
       privacy.globalPrivacyControl ||
       localStorage.getItem("devfeed:extension-analytics-disabled") === "true"
-    )
-      return () => {};
+    ) {
+      disableAcquisition();
+      return stopAcquisition;
+    }
   } catch {
-    return () => {};
+    disableAcquisition();
+    return stopAcquisition;
   }
   let enabled = false;
   let stopped = false;
@@ -90,7 +108,7 @@ export function startExtensionAnalytics(network: typeof fetch = fetch) {
     return Math.min(timeout, Math.max(0, Math.floor(duration)));
   };
   const send = (event: ExtensionEvent, engagement = takeTime()) => {
-    if (!enabled || stopped || pending >= 10) return;
+    if (!enabled || stopped || !readerMeasurementPermitted() || pending >= 10) return;
     pending++;
     void session()
       .then((identity) => {
@@ -162,12 +180,52 @@ export function startExtensionAnalytics(network: typeof fetch = fetch) {
     referrerPolicy: "no-referrer",
     signal: AbortSignal.any([controller.signal, AbortSignal.timeout(5000)]),
   })
-    .then(async (response) => response.ok && (await response.json()).enabled === true)
+    .then(async (response) =>
+      response.ok
+        ? ((await response.json()) as {
+            enabled?: boolean;
+            reader_measurement_enabled?: boolean;
+            reader_acquisition_campaigns?: unknown;
+          })
+        : null,
+    )
     .then((value) => {
-      if (!stopped && value) {
+      if (!stopped && value?.enabled === true && readerMeasurementPermitted()) {
         enabled = true;
+        if (value.reader_measurement_enabled === true) {
+          stopAcquisition();
+          stopAcquisition = startReaderAcquisition({
+            enabled: true,
+            campaigns: acquisitionCampaigns(value.reader_acquisition_campaigns),
+            platform: clientPlatform,
+            url: acquisitionEntry,
+            referrer: "",
+            currentIdentity: () => {
+              if (!enabled || stopped || !readerMeasurementPermitted()) return null;
+              try {
+                const client = localStorage.getItem(identityKey);
+                const previous = JSON.parse(localStorage.getItem(sessionKey) ?? "null");
+                if (
+                  client &&
+                  /^\d{1,10}\.\d{1,10}$/.test(client) &&
+                  previous &&
+                  Number.isSafeInteger(previous.id) &&
+                  previous.id > 0 &&
+                  typeof previous.at === "number" &&
+                  previous.at <= Date.now() &&
+                  Date.now() - previous.at < timeout
+                )
+                  return { client_id: client, session_id: previous.id };
+              } catch {
+                /* Existing analytics storage is optional. */
+              }
+              return null;
+            },
+          });
+        }
+        if (value.reader_measurement_enabled !== true) disableAcquisition();
         pageView();
-      }
+      } else if (!stopped) disableAcquisition();
     })
     .catch(() => {});
   window.addEventListener(analyticsEventName, event);
@@ -182,6 +240,7 @@ export function startExtensionAnalytics(network: typeof fetch = fetch) {
   }, 60000);
   return () => {
     stopped = true;
+    stopAcquisition();
     controller.abort();
     window.clearInterval(timer);
     window.removeEventListener(analyticsEventName, event);

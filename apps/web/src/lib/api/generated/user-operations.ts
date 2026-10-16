@@ -340,7 +340,12 @@ export const userGatewayOperations = {
       extension: {
         credentials: "include",
         cacheControl: null,
-        requestHeaders: ["Content-Type", "X-CSRF-Token", "If-None-Match"],
+        requestHeaders: [
+          "Content-Type",
+          "X-CSRF-Token",
+          "If-None-Match",
+          "X-Devfeed-Reader-Measurement",
+        ],
         timeoutMs: 15000,
       },
     },

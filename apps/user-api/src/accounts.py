@@ -5,6 +5,7 @@ from datetime import timedelta
 
 from devfeed_core.db import session_factory
 from devfeed_core.models import UserAccount, utcnow
+from devfeed_core.reader_acquisition import record_verified_signup
 from sqlalchemy import text, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.exc import SQLAlchemyError
@@ -13,7 +14,10 @@ logger = logging.getLogger(__name__)
 
 
 def save_user(identity: dict) -> str:
-    return save_user_with_status(identity)[0]
+    # Generic account saves never grant the callback-only signup marker.
+    return save_user_with_status(
+        {key: value for key, value in identity.items() if key != "_reader_signup"}
+    )[0]
 
 
 def save_user_with_status(identity: dict) -> tuple[str, bool]:
@@ -21,7 +25,11 @@ def save_user_with_status(identity: dict) -> tuple[str, bool]:
     values = {
         name: identity[name] for name in ("issuer", "subject", "organization_id", "name", "email")
     }
-    values["last_seen_at"] = utcnow()
+    now = utcnow()
+    values["last_seen_at"] = now
+    capture = identity.get("_reader_signup")
+    if isinstance(capture, dict):
+        values["created_at"] = values["reader_signup_at"] = now
     with session_factory().begin() as session:
         # The unique constraint arbitrates concurrent callbacks; only the winning
         # insert represents a sign-up. The account must commit before sending it.
@@ -32,6 +40,17 @@ def save_user_with_status(identity: dict) -> tuple[str, bool]:
             .returning(UserAccount.id)
         )
         created = account_id is not None
+        if created and isinstance(capture, dict):
+            try:
+                # Preserve the authoritative account marker even if optional
+                # attribution/outbox persistence is unavailable.
+                with session.begin_nested():
+                    record_verified_signup(session, account_id, now, capture)
+            except Exception as exc:
+                logger.warning(
+                    "reader_signup_measurement_unavailable",
+                    extra={"error_type": type(exc).__name__},
+                )
         if not created:
             account_id = session.scalar(
                 update(UserAccount)
@@ -44,6 +63,7 @@ def save_user_with_status(identity: dict) -> tuple[str, bool]:
                         name: value
                         for name, value in values.items()
                         if name not in {"issuer", "subject"}
+                        and name not in {"created_at", "reader_signup_at"}
                     }
                 )
                 .returning(UserAccount.id)

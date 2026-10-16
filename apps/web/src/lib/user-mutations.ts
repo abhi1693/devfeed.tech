@@ -1,3 +1,9 @@
+import {
+  clearReaderAcquisition,
+  currentReaderMeasurement,
+  type ReaderMeasurement,
+  readerMeasurementHeader,
+} from "./reader-acquisition";
 import { trackEvent, type AnalyticsEvent } from "./analytics";
 import {
   userRequest,
@@ -19,6 +25,7 @@ type MutationContract<Result> = {
   validate?: (result: unknown) => boolean;
   interestsChanged?: boolean;
   analytics?: (result: Result) => AnalyticsEvent;
+  measurement?: ReaderMeasurement | null;
 };
 
 export type Engagement = {
@@ -80,6 +87,9 @@ async function mutate<Result>(
   const result = await userRequest<Result>(path, {
     method: contract.method ?? "PUT",
     headers: {
+      ...(contract.measurement && {
+        [readerMeasurementHeader]: JSON.stringify(contract.measurement),
+      }),
       ...(options.csrfToken && { "X-CSRF-Token": options.csrfToken }),
       ...(payload !== undefined && !multipart && { "Content-Type": "application/json" }),
     },
@@ -132,9 +142,12 @@ export function setArticleBookmark(
 }
 
 export function recordArticleOpen(articleId: string, options: OpenOptions = {}) {
+  // Keep the request synchronous with the click; analytics must never delay its keepalive.
+  const measurement = currentReaderMeasurement();
   // Click analytics are emitted by the link itself, independently of this reading measurement.
   return mutate<Engagement>(`articles/${encodeURIComponent(articleId)}/open`, undefined, options, {
     method: "POST",
+    measurement,
     validate: engagement,
   });
 }
@@ -292,5 +305,6 @@ export function respondToMcpConsent(
 }
 
 export function logOut(options: MutationOptions) {
+  clearReaderAcquisition();
   return mutate<void>("auth/logout", undefined, options, { method: "POST" });
 }

@@ -1,5 +1,6 @@
 // The website uses its own origin and fetch. Bundled clients supply their transport
 // once at startup; presentation components stay identical on both platforms.
+import { readerAcquisitionFragment } from "./reader-acquisition";
 import type { Article } from "./types";
 import {
   readerReturnDestination,
@@ -82,7 +83,7 @@ export function readerLoginLink(returnTo?: string | ReaderDestination | ReaderDe
     "return_to",
     readerReturnDestination(runtime ? "/extension/login-complete" : (returnTo ?? "/")),
   );
-  return readerWebsiteLink(`/login?${params}`);
+  return readerWebsiteLink(`/login?${params}${runtime ? readerAcquisitionFragment() : ""}`);
 }
 
 /** New-tab readers can be visible while the browser address bar retains focus. */

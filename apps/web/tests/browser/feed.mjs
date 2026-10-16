@@ -3,6 +3,7 @@ import {
   keyboardProfile,
   keyboardActivity,
 } from "../../../../scripts/testing/keyboard-reader.mjs";
+import { checkReaderAcquisition } from "../../../../scripts/testing/reader-acquisition.mjs";
 import { checkRouteStyles } from "../../../../scripts/testing/route-styles.mjs";
 import {
   checkGuestDocument,
@@ -130,7 +131,7 @@ import {
 } from "../../../../scripts/testing/reader-dom.mjs";
 
 const root = fileURLToPath(new URL("../../../../", import.meta.url));
-async function createReaderFixture(t, { thumbnailFeed = false } = {}) {
+async function createReaderFixture(t, { thumbnailFeed = false, acquisition = false } = {}) {
   let app, browser, fixture, userFixture;
   let logs = "";
   t.after(async () => {
@@ -178,6 +179,7 @@ async function createReaderFixture(t, { thumbnailFeed = false } = {}) {
   let mode = "ready";
   let notificationCount = 1;
   const defaultAllRequests = [];
+  const acquisitionRequests = [];
   let compactArticles = false;
   let articleFeedGate;
   let feedSettings = {
@@ -209,6 +211,20 @@ async function createReaderFixture(t, { thumbnailFeed = false } = {}) {
         JSON.stringify(path.endsWith("reading-heatmap") ? keyboardActivity : keyboardProfile),
       );
       return;
+    }
+    if (acquisition && (path === "/v1/user/auth/login" || path.endsWith("/open"))) {
+      acquisitionRequests.push({
+        path,
+        cookie: req.headers.cookie,
+        measurement: req.headers["x-devfeed-reader-measurement"],
+      });
+      if (path.endsWith("/open")) {
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(
+          JSON.stringify({ article_id: path.split("/").at(-2), likes: 0, opens: 1, liked: false }),
+        );
+        return;
+      }
     }
     serverReads.record(req.url, req.headers, `http://${req.headers.host}`);
     if (renderReads.handles(requestUrl)) {
@@ -692,6 +708,8 @@ async function createReaderFixture(t, { thumbnailFeed = false } = {}) {
         DEVFEED_MCP_PUBLIC_URL: testMcpEndpoint,
         DEVFEED_USER_API_URL: userUpstream,
         DEVFEED_USER_BASE_URL: origin,
+        DEVFEED_READER_MEASUREMENT_ENABLED: String(acquisition),
+        DEVFEED_READER_ACQUISITION_CAMPAIGNS: JSON.stringify(["organic-launch"]),
       },
       stdio: "pipe",
     },
@@ -1175,6 +1193,7 @@ async function createReaderFixture(t, { thumbnailFeed = false } = {}) {
   return {
     browser,
     origin,
+    acquisitionRequests,
     upstream,
     userUpstream,
     serverReads,
@@ -1245,6 +1264,24 @@ test("thumbnails match rendered widths and device pixel ratios", { timeout: 3600
   const { writeFile } = await import("node:fs/promises");
   await writeFile(`${root}/reports/thumbnail-sizing/web.json`, JSON.stringify(results, null, 2));
 });
+
+test(
+  "reader acquisition preserves first touch and immediate original opens",
+  { timeout: 180000 },
+  async (t) => {
+    const { browser, origin, acquisitionRequests } = await createReaderFixture(t, {
+      acquisition: true,
+    });
+    await withReaderPage(browser, (page) =>
+      checkReaderAcquisition(
+        page,
+        (path) => origin + path,
+        "/tmp/devfeed-issue173-acquisition/web",
+        { requests: acquisitionRequests, origin },
+      ),
+    );
+  },
+);
 
 test("article snippets exclude unrelated content", { timeout: 180000 }, async (t) => {
   const { browser, origin } = await createReaderFixture(t);

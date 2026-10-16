@@ -40,19 +40,35 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 it("exposes only enabled status and uses the website property", async () => {
-  expect(await GET(request()).json()).toEqual({ enabled: true });
+  expect(await GET(request()).json()).toEqual({
+    enabled: true,
+    reader_measurement_enabled: false,
+    reader_acquisition_campaigns: [],
+  });
   for (const value of ["false", ""]) {
     vi.stubEnv("DEVFEED_EXTENSION_ANALYTICS_ENABLED", value);
-    expect(await GET(request()).json()).toEqual({ enabled: false });
+    expect(await GET(request()).json()).toEqual({
+      enabled: false,
+      reader_measurement_enabled: false,
+      reader_acquisition_campaigns: [],
+    });
     expect((await POST(request())).status).toBe(204);
   }
   vi.stubEnv("DEVFEED_EXTENSION_ANALYTICS_ENABLED", "true");
-  expect(await GET(request()).json()).toEqual({ enabled: true });
+  expect(await GET(request()).json()).toEqual({
+    enabled: true,
+    reader_measurement_enabled: false,
+    reader_acquisition_campaigns: [],
+  });
 });
 it("rejects unconfigured extension and missing origins", async () => {
   for (const value of ["https://devfeed.tech", origin + ".evil", "null", ""]) {
     expect((await POST(request(body(), value))).status).toBe(403);
-    expect(await GET(request(body(), value)).json()).toEqual({ enabled: false });
+    expect(await GET(request(body(), value)).json()).toEqual({
+      enabled: false,
+      reader_measurement_enabled: false,
+      reader_acquisition_campaigns: [],
+    });
   }
   expect(fetch).not.toHaveBeenCalled();
 });

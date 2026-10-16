@@ -1,4 +1,5 @@
 import "server-only";
+import { readerMeasurementHeader, sanitizeReaderMeasurement } from "../reader-acquisition";
 import {
   GatewayTransport,
   methodNotAllowed,
@@ -10,15 +11,53 @@ import {
   type ReaderGatewayOperation,
 } from "@devfeed/http/gateway";
 import { traceHeaders } from "@devfeed/telemetry/propagation";
-import { userApiOrigin, userWebOrigin, userRequestOriginAllowed, xPixelEnabled } from "./config";
+import {
+  userApiOrigin,
+  userWebOrigin,
+  userRequestOriginAllowed,
+  xPixelEnabled,
+  readerMeasurementEnabled,
+  readerAcquisitionCampaigns,
+} from "./config";
 import { ReaderCookies } from "./reader-cookies";
 
-const cookies = new ReaderCookies(xPixelEnabled);
+const cookies = new ReaderCookies(xPixelEnabled, readerMeasurementEnabled);
 const transport = new GatewayTransport<ReaderGatewayOperation>({
   apiOrigin: userApiOrigin,
   webOrigin: userWebOrigin,
   originAllowed: userRequestOriginAllowed,
-  filterCookies: (value, operation) => cookies.filter(value, operation.policy.cookiePolicy),
+  filterCookies: (value, operation) =>
+    cookies.filter(
+      value,
+      operation.policy.cookiePolicy,
+      operation.operationId === "user_auth_callback",
+    ),
+  requestHeaders: (request, operation): Record<string, string> => {
+    const forwarded: Record<string, string> = {};
+    const measurementOperation = [
+      "user_auth_login",
+      "user_auth_callback",
+      "opened_v1_user_articles__article_id__open_post",
+    ].includes(operation.operationId);
+    if (measurementOperation) {
+      for (const name of ["dnt", "sec-gpc"])
+        if (request.headers.get(name) === "1") forwarded[name] = "1";
+    }
+    if (
+      !readerMeasurementEnabled() ||
+      operation.operationId !== "opened_v1_user_articles__article_id__open_post"
+    )
+      return forwarded;
+    const raw = request.headers.get(readerMeasurementHeader);
+    if (!raw || raw.length > 1536) return forwarded;
+    try {
+      const value = sanitizeReaderMeasurement(JSON.parse(raw), readerAcquisitionCampaigns());
+      if (value) forwarded[readerMeasurementHeader] = JSON.stringify(value);
+    } catch {
+      /* A malformed optional diagnostic must not interrupt the reader. */
+    }
+    return forwarded;
+  },
   traceHeaders,
   unavailableDetail: "User service unavailable",
 });

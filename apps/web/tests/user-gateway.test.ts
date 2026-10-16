@@ -705,3 +705,84 @@ describe("dedicated personalized placement handler", () => {
     expect(fetcher).not.toHaveBeenCalled();
   });
 });
+
+it("forwards bounded acquisition cookies only to login and callback independently of X", async () => {
+  vi.stubEnv("DEVFEED_READER_MEASUREMENT_ENABLED", "true");
+  const fetcher = vi.fn().mockImplementation(() => Response.json({}));
+  vi.stubGlobal("fetch", fetcher);
+  const cookies =
+    "devfeed_user_acquisition=bounded; __Host-devfeed_user_acquisition=secure; devfeed_user_x_click=private";
+  for (const handler of [login.GET, callback.GET, me.GET])
+    await handler(new Request(`${origin}/api`, { headers: { Cookie: cookies } }), {});
+  expect(fetcher.mock.calls[0][1].headers.get("cookie")).toBe(
+    "devfeed_user_acquisition=bounded; __Host-devfeed_user_acquisition=secure",
+  );
+  expect(fetcher.mock.calls[1][1].headers.get("cookie")).toBe(
+    "devfeed_user_acquisition=bounded; __Host-devfeed_user_acquisition=secure",
+  );
+  expect(fetcher.mock.calls[2][1].headers.get("cookie")).toBeNull();
+});
+
+it("preserves canonical privacy signals only on reader measurement operations", async () => {
+  const fetcher = vi.fn().mockImplementation(() => Response.json({}));
+  vi.stubGlobal("fetch", fetcher);
+  for (const handler of [login.GET, callback.GET, me.GET])
+    await handler(
+      new Request(`${origin}/api`, {
+        headers: { DNT: "1", "Sec-GPC": "1", "Private-Header": "private" },
+      }),
+      {},
+    );
+  expect(fetcher.mock.calls[0][1].headers.get("dnt")).toBe("1");
+  expect(fetcher.mock.calls[1][1].headers.get("sec-gpc")).toBe("1");
+  expect(fetcher.mock.calls[2][1].headers.get("dnt")).toBeNull();
+  expect(fetcher.mock.calls[0][1].headers.get("private-header")).toBeNull();
+});
+
+it("forwards a validated current measurement only on the original-open operation", async () => {
+  vi.stubEnv("DEVFEED_READER_MEASUREMENT_ENABLED", "true");
+  const value = {
+    version: 1,
+    status: "direct",
+    source: "direct",
+    medium: "none",
+    campaign: null,
+    landing_route: "home",
+    captured_at: Math.floor(Date.now() / 1000),
+    client_platform: "web",
+    measurement: "eligible",
+    client_id: "123.456",
+    session_id: 789,
+  };
+  const fetcher = vi.fn().mockImplementation(() => Response.json({}));
+  vi.stubGlobal("fetch", fetcher);
+  await articleOpen.POST(
+    new Request(`${origin}/api`, {
+      method: "POST",
+      headers: { Origin: origin, "X-Devfeed-Reader-Measurement": JSON.stringify(value), DNT: "1" },
+    }),
+    context({ article_id: articleId }),
+  );
+  expect(JSON.parse(fetcher.mock.calls[0][1].headers.get("x-devfeed-reader-measurement"))).toEqual(
+    value,
+  );
+  expect(fetcher.mock.calls[0][1].headers.get("dnt")).toBe("1");
+  await me.GET(
+    new Request(`${origin}/api`, {
+      headers: { "X-Devfeed-Reader-Measurement": JSON.stringify(value) },
+    }),
+    {},
+  );
+  expect(fetcher.mock.calls[1][1].headers.get("x-devfeed-reader-measurement")).toBeNull();
+  await articleOpen.POST(
+    new Request(`${origin}/api`, {
+      method: "POST",
+      headers: {
+        Origin: origin,
+        "X-Devfeed-Reader-Measurement": JSON.stringify({ ...value, email: "private@example.test" }),
+      },
+    }),
+    context({ article_id: articleId }),
+  );
+  expect(fetcher.mock.calls[2][1].headers.get("x-devfeed-reader-measurement")).toBeNull();
+});

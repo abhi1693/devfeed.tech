@@ -98,6 +98,16 @@ def test_reader_cookie_and_body_policy_is_explicit_for_every_operation():
         },
         "user_auth_login": {**default, "cookiePolicy": "reader-attribution", "extension": None},
         "user_auth_callback": {**default, "extension": None},
+        "opened_v1_user_articles__article_id__open_post": {
+            **default,
+            "extension": {
+                **default["extension"],
+                "requestHeaders": [
+                    *default["extension"]["requestHeaders"],
+                    "X-Devfeed-Reader-Measurement",
+                ],
+            },
+        },
         "upload_avatar_v1_user_settings_profile_avatar_post": {
             **default,
             "bodyLimit": 5 * 1024 * 1024 + 65536,

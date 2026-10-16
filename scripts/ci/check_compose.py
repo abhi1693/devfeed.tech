@@ -513,6 +513,8 @@ def check() -> None:
             "DEVFEED_USER_EXTENSION_IDS": "[]",
             "DEVFEED_EXTENSION_ANALYTICS_ENABLED": "false",
             "DEVFEED_EXTENSION_GA_API_SECRET": "",
+            "DEVFEED_READER_MEASUREMENT_ENABLED": "false",
+            "DEVFEED_READER_ACQUISITION_CAMPAIGNS": "[]",
             "DEVFEED_MCP_PUBLIC_URL": "",
         }
         extension_ids = '["hliakjocndflpkmfajndigbpngfcekdm"]'
@@ -544,6 +546,23 @@ def check() -> None:
         )["services"]["web"]["environment"]
         assert analytics["DEVFEED_ANALYTICS_ENABLED"] == "true"
         assert analytics["GOOGLE_ANALYTICS_ID"] == "G-TEST123"
+        reader_options = {
+            "DEVFEED_READER_MEASUREMENT_ENABLED": "true",
+            "DEVFEED_READER_GA_API_SECRET": "fixture-reader-only-secret",
+            "DEVFEED_READER_ACQUISITION_CAMPAIGNS": '["organic-launch"]',
+            "DEVFEED_ANALYTICS_ENABLED": "true",
+            "DEVFEED_EXTENSION_ANALYTICS_ENABLED": "true",
+            "GOOGLE_ANALYTICS_ID": "G-READER123",
+        }
+        reader_services = render({**base, **reader_options}, build=build)["services"]
+        for name, service in reader_services.items():
+            environment = service.get("environment", {})
+            assert ("DEVFEED_READER_GA_API_SECRET" in environment) == (name == "user-api")
+            for key, value in reader_options.items():
+                recipients = {"user-api"} if key.endswith("API_SECRET") else {"web", "user-api"}
+                assert (key in environment) == (name in recipients), (name, key)
+                if name in recipients:
+                    assert environment[key] == value
         x_options = {
             "X_PIXEL_TOKEN": "fixture-only-x-secret",
             "X_SIGNUP_EVENT_ID": "tw-pc5f8-testevent",
