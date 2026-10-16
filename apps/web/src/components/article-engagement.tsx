@@ -3,7 +3,8 @@ import { animateReader } from "@/lib/reader-motion";
 import { readerLoginLink } from "@/lib/reader-runtime";
 import type { ComponentProps } from "react";
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
-import { Bookmark, Eye, Heart } from "lucide-react";
+import { Bookmark, Heart } from "lucide-react";
+import { CardEye as Eye } from "./reader-card-icons";
 import { trackEvent } from "@/lib/analytics";
 import { userRequest } from "@/lib/user";
 import {
@@ -271,7 +272,7 @@ export function ArticleEngagement({
       <span ref={heartRef} className="reader-motion-icon">
         <Heart size={16} fill={user && value?.liked ? "currentColor" : "none"} aria-hidden="true" />
       </span>
-      {value && <span>{count(value.likes)}</span>}
+      {value && count(value.likes)}
     </>
   );
   return (
