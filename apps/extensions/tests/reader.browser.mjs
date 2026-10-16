@@ -63,6 +63,10 @@ import {
 } from "../../../scripts/testing/login-destinations.mjs";
 import { checkServerReads, serverReadFixture } from "../../../scripts/testing/server-reads.mjs";
 import assert from "node:assert/strict";
+import {
+  snippetArticle,
+  checkArticleSnippets,
+} from "../../../scripts/testing/article-snippets.mjs";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -308,6 +312,8 @@ async function readerFixture(t) {
         : { items: feedItems, next_cursor: sorted ? "next+page" : null };
     } else if (["/api/v1/articles/old", "/api/v1/articles/new"].includes(url.pathname)) {
       json = { article: { ...article, slug: url.pathname.split("/").pop() }, topic: null };
+    } else if (url.pathname === "/api/v1/articles/snippet-article") {
+      json = { article: snippetArticle(article), topic: null };
     } else if (url.pathname === "/api/v1/articles/direct-article") {
       json = { article: { ...feedItems[0], slug: "direct-article" }, topic: null };
     } else if (url.pathname === "/api/v1/user/auth/me") {
@@ -400,6 +406,11 @@ async function readerFixture(t) {
     pathFor: (path) => readerBase + path,
   };
 }
+
+test("article snippets exclude related copy in built new tabs", { timeout: 180000 }, async (t) => {
+  const { page, pathFor } = await readerFixture(t);
+  await checkArticleSnippets(page, pathFor("/articles/snippet-article"));
+});
 
 test(
   "server reads retain explicit transport policy in built new tabs",

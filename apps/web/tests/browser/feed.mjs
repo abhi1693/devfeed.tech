@@ -91,6 +91,12 @@ import {
   serverReadFixture,
 } from "../../../../scripts/testing/server-reads.mjs";
 import assert from "node:assert/strict";
+import { JSDOM } from "jsdom";
+import {
+  snippetArticle,
+  checkSnippetDocument,
+  checkArticleSnippets,
+} from "../../../../scripts/testing/article-snippets.mjs";
 import test from "node:test";
 import { createServer, request as httpRequest } from "node:http";
 import { spawn } from "node:child_process";
@@ -307,6 +313,11 @@ async function createReaderFixture(t) {
     if (path === "/v1/user/profiles/promo-reader/reading-heatmap") {
       res.writeHead(404, { "Content-Type": "application/json" });
       res.end(JSON.stringify({ detail: "No activity" }));
+      return;
+    }
+    if (path === "/v1/articles/snippet-article") {
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify(snippetArticle(article)));
       return;
     }
     if (path === `/v1/articles/${article.slug}`) {
@@ -1154,6 +1165,19 @@ async function withReaderPage(browser, check, options = {}) {
     await context.close();
   }
 }
+
+test("article snippets exclude unrelated content", { timeout: 180000 }, async (t) => {
+  const { browser, origin } = await createReaderFixture(t);
+  const href = `${origin}/articles/snippet-article`;
+  for (const userAgent of ["Googlebot", "bingbot"]) {
+    const response = await fetch(href, { headers: { "User-Agent": userAgent } });
+    assert.equal(response.status, 200);
+    const dom = new JSDOM(await response.text());
+    checkSnippetDocument(dom.window.document, true);
+    dom.window.close();
+  }
+  await withReaderPage(browser, (page) => checkArticleSnippets(page, href));
+});
 
 test(
   "server reads retain explicit transport and sitemap policies",
