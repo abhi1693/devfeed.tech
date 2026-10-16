@@ -20,8 +20,8 @@ def test_profile_database_uses_a_fresh_password_without_exposing_it(tmp_path):
     log = tmp_path / "commands.jsonl"
     for name, body in {
         "uv": """
-if sys.argv[1:5] == ['run', '--locked', 'python', '-c']:
-    os.execv(sys.executable, [sys.executable, *sys.argv[4:]])
+if sys.argv[1:6] == ['run', '--no-project', '--no-build', 'python', '-c']:
+    os.execv(sys.executable, [sys.executable, *sys.argv[5:]])
 if sys.argv[1:4] == ['run', '--locked', 'pytest']:
     record['database'] = os.environ['DEVFEED_TEST_DATABASE_URL']
 """,

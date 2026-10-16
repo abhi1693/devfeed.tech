@@ -12,7 +12,8 @@ cleanup() {
   if [[ -n "$profile_search" ]]; then docker rm -f "$profile_search" >/dev/null; fi
 }
 trap cleanup EXIT
-profile_pg_password=$(uv run --locked python -c 'import secrets; print(secrets.token_hex(32))')
+# Password generation needs only the standard library, not workspace dependency setup.
+profile_pg_password=$(uv run --no-project --no-build python -c 'import secrets; print(secrets.token_hex(32))')
 profile_postgres=$(POSTGRES_PASSWORD="$profile_pg_password" docker run -d --rm -p 127.0.0.1::5432 \
   -e POSTGRES_USER=profile -e POSTGRES_PASSWORD -e POSTGRES_DB=devfeed_profile_test \
   postgres:18.6-alpine3.24)
