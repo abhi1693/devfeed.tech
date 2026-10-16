@@ -4,7 +4,11 @@ import type { Article } from "./types";
 
 export type StructuredData = { [key: string]: unknown };
 
-export function siteStructuredData(logoPath: string): StructuredData {
+export function siteStructuredData(logo: {
+  src: string;
+  width: number;
+  height: number;
+}): StructuredData {
   const url = canonicalUrl("/");
   return {
     "@context": "https://schema.org",
@@ -14,7 +18,14 @@ export function siteStructuredData(logoPath: string): StructuredData {
         "@id": `${url}#organization`,
         name: "DevFeed",
         url,
-        logo: { "@type": "ImageObject", url: canonicalUrl(logoPath) },
+        description: SITE_DESCRIPTION,
+        logo: {
+          "@type": "ImageObject",
+          "@id": `${url}#logo`,
+          url: canonicalUrl(logo.src),
+          width: logo.width,
+          height: logo.height,
+        },
       },
       {
         "@type": "WebSite",
@@ -30,25 +41,26 @@ export function siteStructuredData(logoPath: string): StructuredData {
 }
 
 type PageItem = { name: string; path: string };
-export function collectionStructuredData(
+export function pageStructuredData(
   url: string,
   name: string,
-  items: PageItem[],
-  { offset = 0, parent }: { offset?: number; parent?: PageItem } = {},
+  { description, parent }: { description?: string; parent?: PageItem } = {},
 ): StructuredData {
   const crumbs = [{ name: "Home", path: "/" }, ...(parent ? [parent] : [])];
   if (url !== canonicalUrl("/")) crumbs.push({ name, path: url });
   return {
     "@context": "https://schema.org",
-    "@type": "CollectionPage",
+    "@type": "WebPage",
     "@id": `${url}#webpage`,
     url,
     name,
+    ...(description ? { description } : {}),
     isPartOf: { "@id": `${canonicalUrl("/")}#website` },
     ...(crumbs.length > 1
       ? {
           breadcrumb: {
             "@type": "BreadcrumbList",
+            "@id": `${url}#breadcrumb`,
             itemListElement: crumbs.map((item, index) => ({
               "@type": "ListItem",
               position: index + 1,
@@ -58,8 +70,21 @@ export function collectionStructuredData(
           },
         }
       : {}),
+  };
+}
+
+export function collectionStructuredData(
+  url: string,
+  name: string,
+  items: PageItem[],
+  { offset = 0, parent }: { offset?: number; parent?: PageItem } = {},
+): StructuredData {
+  return {
+    ...pageStructuredData(url, name, { parent }),
+    "@type": "CollectionPage",
     mainEntity: {
       "@type": "ItemList",
+      "@id": `${url}#items`,
       // Only the items rendered on this page, not an invented total for the entire feed.
       itemListElement: items.map((item, index) => ({
         "@type": "ListItem",
@@ -77,27 +102,24 @@ export function articleStructuredData(article: Article): StructuredData {
   const image = safeExternalUrl(article.image_url);
   const source = article.sources[0];
   const published = validDate(article.published_at);
+  const description = articleDescription(article);
+  const author = article.author?.trim();
   return {
-    "@context": "https://schema.org",
-    "@type": "WebPage",
-    "@id": `${url}#webpage`,
-    url,
-    name: article.title,
-    description: articleDescription(article),
-    isPartOf: { "@id": `${canonicalUrl("/")}#website` },
+    ...pageStructuredData(url, article.title, { description }),
     // This is a preview of the publisher's article, not an article written by DevFeed.
     mainEntity: {
       "@type": "Article",
       ...(original ? { "@id": original, url: original } : {}),
       headline: article.title,
+      description,
       ...(published ? { datePublished: published } : {}),
       ...(image ? { image: [image] } : {}),
-      ...(article.author ? { author: { "@type": "Person", name: article.author } } : {}),
-      ...(source
+      ...(author ? { author: { "@type": "Person", name: author } } : {}),
+      ...(source?.name.trim()
         ? {
             publisher: {
               "@type": "Organization",
-              name: source.name,
+              name: source.name.trim(),
               ...(safeExternalUrl(source.website_url)
                 ? { url: safeExternalUrl(source.website_url) }
                 : {}),
@@ -106,13 +128,6 @@ export function articleStructuredData(article: Article): StructuredData {
         : {}),
       ...(article.language ? { inLanguage: article.language } : {}),
       ...(article.tags.length ? { keywords: article.tags } : {}),
-    },
-    breadcrumb: {
-      "@type": "BreadcrumbList",
-      itemListElement: [
-        { "@type": "ListItem", position: 1, name: "Home", item: canonicalUrl("/") },
-        { "@type": "ListItem", position: 2, name: article.title, item: url },
-      ],
     },
   };
 }

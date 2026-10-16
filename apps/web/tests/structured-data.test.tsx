@@ -7,8 +7,15 @@ import {
   articleStructuredData,
   collectionStructuredData,
   siteStructuredData,
+  pageStructuredData,
 } from "@/lib/structured-data";
-import { articleDescription, articleMetadata, feedMetadata, socialImage } from "@/lib/metadata";
+import {
+  articleDescription,
+  articleMetadata,
+  feedMetadata,
+  socialImage,
+  SITE_DESCRIPTION,
+} from "@/lib/metadata";
 import { article } from "./fixtures";
 
 afterEach(() => vi.unstubAllEnvs());
@@ -36,6 +43,7 @@ it("describes the local preview separately from the original article and credits
       "@id": article.canonical_url,
       url: article.canonical_url,
       headline: article.title,
+      description: article.ai_summary,
       author: { "@type": "Person", name: article.author },
       publisher: {
         "@type": "Organization",
@@ -217,13 +225,21 @@ it("limits collection markup to the rendered items and preserves pagination and 
 
 it("connects website and organization with absolute stable identifiers and logo URLs", () => {
   vi.stubEnv("DEVFEED_USER_BASE_URL", "https://devfeed.test");
-  expect(siteStructuredData("/_next/static/media/mark.png")).toMatchObject({
+  expect(
+    siteStructuredData({ src: "/_next/static/media/mark.png", width: 512, height: 512 }),
+  ).toMatchObject({
     "@context": "https://schema.org",
     "@graph": [
       {
         "@type": "Organization",
         "@id": "https://devfeed.test/#organization",
-        logo: { url: "https://devfeed.test/_next/static/media/mark.png" },
+        description: SITE_DESCRIPTION,
+        logo: {
+          "@id": "https://devfeed.test/#logo",
+          url: "https://devfeed.test/_next/static/media/mark.png",
+          width: 512,
+          height: 512,
+        },
       },
       {
         "@type": "WebSite",
@@ -232,6 +248,57 @@ it("connects website and organization with absolute stable identifiers and logo 
       },
     ],
   });
+});
+
+it("gives public information pages the same canonical identity and valid breadcrumbs as feeds and articles", () => {
+  vi.stubEnv("DEVFEED_USER_BASE_URL", "https://devfeed.test");
+  for (const [path, name] of [
+    ["/legal/privacy", "Privacy Policy"],
+    ["/mcp", "Connect your agent"],
+  ]) {
+    const url = `https://devfeed.test${path}`;
+    const data = pageStructuredData(url, name, { description: "Visible page introduction." });
+    expect(data).toMatchObject({
+      "@type": "WebPage",
+      "@id": `${url}#webpage`,
+      url,
+      name,
+      description: "Visible page introduction.",
+      isPartOf: { "@id": "https://devfeed.test/#website" },
+      breadcrumb: {
+        "@id": `${url}#breadcrumb`,
+        "@type": "BreadcrumbList",
+        itemListElement: [
+          { "@type": "ListItem", position: 1, name: "Home", item: "https://devfeed.test/" },
+          { "@type": "ListItem", position: 2, name, item: url },
+        ],
+      },
+    });
+  }
+});
+
+it("omits blank optional article identities and preserves only known original publication facts", () => {
+  const item = {
+    ...article,
+    author: "  ",
+    sources: [{ ...article.sources[0], name: "  " }],
+    published_at: null,
+  };
+  const entity = articleStructuredData(item).mainEntity;
+  for (const key of ["author", "publisher", "datePublished", "dateModified", "image"])
+    expect(entity).not.toHaveProperty(key);
+  expect(entity).toHaveProperty("@id", article.canonical_url);
+  expect(entity).toHaveProperty("description", articleDescription(item));
+  expect(entity).not.toHaveProperty("mainEntityOfPage");
+});
+
+it("uses a real organization logo that meets Google's minimum image dimensions", () => {
+  const png = readFileSync(
+    new URL("../../../packages/theme/assets/devfeed-mark.png", import.meta.url),
+  );
+  expect(png.subarray(1, 4).toString()).toBe("PNG");
+  expect(png.readUInt32BE(16)).toBeGreaterThanOrEqual(112);
+  expect(png.readUInt32BE(20)).toBeGreaterThanOrEqual(112);
 });
 
 it("serves an actual PNG matching the declared social image size and Twitter's size limit", () => {
