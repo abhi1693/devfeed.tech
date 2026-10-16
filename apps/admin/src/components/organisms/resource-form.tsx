@@ -160,6 +160,15 @@ function Editor({
         className="space-y-6 rounded-lg border bg-card p-6"
         aria-busy={busy || previewBusy}
       >
+        {resource === "articles" && !record && (
+          <p className="text-sm text-muted-foreground">
+            For YouTube, enter the video’s canonical URL to import verified provider metadata, or{" "}
+            <Link className="underline" href={`${resourceHref("sources")}/new`}>
+              add a channel or playlist
+            </Link>{" "}
+            for recurring discovery. Videos still require individual review.
+          </p>
+        )}
         <ValidationErrors error={error} inlineFields={spec.fields.map((field) => field.key)} />
         {resource === "sources" ? (
           <fieldset disabled={busy}>

@@ -46,6 +46,7 @@ def sources(
             .join(Article, Article.id == ArticleOrigin.article_id)
             .where(
                 ArticleOrigin.source_id == Source.id,
+                ArticleOrigin.active.is_(True),
                 visible_article(),
                 *([Article.language.in_(languages)] if languages else []),
             )

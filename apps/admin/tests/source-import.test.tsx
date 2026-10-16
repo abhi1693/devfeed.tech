@@ -69,7 +69,7 @@ it("submits a collection URL without a vetting override or approval flag", async
     target: { value: "https://collection.example/feeds.opml" },
   });
   fireEvent.click(screen.getByRole("button", { name: "Import for review" }));
-  await screen.findByText(/2 new publishers imported/);
+  await screen.findByText(/2 new sources imported/);
   expect(adminSourceImportSubmit).toHaveBeenCalledWith(
     expect.objectContaining({
       url: "https://collection.example/feeds.opml",
@@ -136,4 +136,27 @@ it("returns to the common sources queue without an imported publishers table", (
     "/content/sources?approval_status=pending",
   );
   expect(screen.queryByRole("table")).toBeNull();
+});
+
+it("selects a playlist import explicitly while automatic leaves YouTube target unset", async () => {
+  mount();
+  fireEvent.change(screen.getByRole("combobox", { name: "Import from" }), {
+    target: { value: "paste" },
+  });
+  fireEvent.change(screen.getByRole("combobox", { name: "Format" }), { target: { value: "urls" } });
+  fireEvent.change(screen.getByLabelText("Collection content", { exact: false }), {
+    target: { value: "https://www.youtube.com/watch?v=dQw4w9WgXcQ&list=PLDeveloperVideos" },
+  });
+  fireEvent.click(screen.getByRole("button", { name: "Import for review" }));
+  await screen.findByText(/2 new sources imported/);
+  expect(vi.mocked(adminSourceImportSubmit).mock.calls[0][0]).not.toHaveProperty("youtube_target");
+  fireEvent.change(screen.getByRole("combobox", { name: "YouTube target" }), {
+    target: { value: "playlist" },
+  });
+  fireEvent.click(screen.getByRole("button", { name: "Import for review" }));
+  await waitFor(() =>
+    expect(vi.mocked(adminSourceImportSubmit).mock.calls.at(-1)?.[0].youtube_target).toBe(
+      "playlist",
+    ),
+  );
 });

@@ -13,6 +13,7 @@ from alembic.util.exc import CommandError
 from devfeed_core.cache import CacheUnavailable
 from devfeed_core.config import get_settings
 from devfeed_core.db import get_engine
+from devfeed_core.feeds.fetcher import FeedError
 from devfeed_core.feeds.validation import FeedValidationError
 from devfeed_core.logging import configure_logging, elapsed_ms, log_context
 from devfeed_core.services import OperationConflict, RecordNotFound
@@ -129,6 +130,7 @@ def execute(args) -> int:
     except (
         InputError,
         FeedValidationError,
+        FeedError,
         RecordNotFound,
         OperationConflict,
     ) as exc:

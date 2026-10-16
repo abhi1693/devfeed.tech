@@ -6,6 +6,7 @@
  * OpenAPI spec version: 0.0.52
  */
 import type { SourceImportRequestFormat } from './sourceImportRequestFormat';
+import type { SourceImportRequestYoutubeTarget } from './sourceImportRequestYoutubeTarget';
 
 export interface SourceImportRequest {
   content?: string | null;
@@ -16,4 +17,5 @@ export interface SourceImportRequest {
      */
   name?: string;
   url?: string | null;
+  youtube_target?: SourceImportRequestYoutubeTarget;
 }

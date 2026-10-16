@@ -1,5 +1,7 @@
 "use client";
 
+import { VideoMetadata } from "./video-metadata";
+
 import "../app/styles/discovery.css";
 
 import Link from "@/components/reader-link";
@@ -161,13 +163,16 @@ function ResultSection({
             </div>
             {item.description && kind !== "tags" && <p>{item.description}</p>}
             {kind === "articles" && (
-              <div className="search-result-meta">
-                <span className="content-type" data-content-type={item.label}>
-                  {item.label}
-                </span>
-                {item.published_at && <UserDate value={item.published_at} />}
-                <ArticleSponsorship names={item.sponsor_names} />
-              </div>
+              <>
+                <VideoMetadata content={item} />
+                <div className="search-result-meta">
+                  <span className="content-type" data-content-type={item.label}>
+                    {item.label}
+                  </span>
+                  {item.published_at && <UserDate value={item.published_at} />}
+                  <ArticleSponsorship names={item.sponsor_names} />
+                </div>
+              </>
             )}
           </div>
           {kind === "articles" && (

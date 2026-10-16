@@ -5,8 +5,10 @@
  * Private administration API. OIDC sessions and CSRF protection required.
  * OpenAPI spec version: 0.0.52
  */
+import type { ResourceChoice } from './resourceChoice';
 
 export interface SourcePreviewOut {
+  canonical_url?: string | null;
   description?: string | null;
   entries_seen: number;
   entries_skipped: number;
@@ -18,6 +20,9 @@ export interface SourcePreviewOut {
      * @maxLength 200
      */
   name: string;
+  provider?: string;
+  resource_kind?: string;
+  resources?: ResourceChoice[];
   warnings: string[];
   website_url?: string | null;
 }

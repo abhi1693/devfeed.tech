@@ -5,6 +5,7 @@
  * Private administration API. OIDC sessions and CSRF protection required.
  * OpenAPI spec version: 0.0.52
  */
+import type { SourcePreviewRequestYoutubeTarget } from './sourcePreviewRequestYoutubeTarget';
 import type { SourceType } from './sourceType';
 
 export interface SourcePreviewRequest {
@@ -13,4 +14,5 @@ export interface SourcePreviewRequest {
   source_id?: string | null;
   source_type: SourceType;
   use_solver?: boolean;
+  youtube_target?: SourcePreviewRequestYoutubeTarget;
 }

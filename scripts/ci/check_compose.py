@@ -179,6 +179,25 @@ def check() -> None:
                 if recipient:
                     assert environment[key] == value, (name, key)
     credential_key = "DEVFEED_PARTNER_CREDENTIAL_KEY"
+    youtube_recipients = {
+        "worker",
+        "codex-client",
+        "admin-api",
+        "user-api",
+        "source-analysis-worker",
+        "source-enrichment-worker",
+        "ingestion-worker",
+        "article-enrichment-worker",
+    }
+    for build in (False, True):
+        youtube_services = render(
+            {**registry_fixtures, "DEVFEED_YOUTUBE_API_KEY": "fixture-youtube-api-key"}, build=build
+        )["services"]
+        for name, service in youtube_services.items():
+            environment = service.get("environment", {})
+            assert ("DEVFEED_YOUTUBE_API_KEY" in environment) == (name in youtube_recipients), name
+            if name in youtube_recipients:
+                assert environment["DEVFEED_YOUTUBE_API_KEY"] == "fixture-youtube-api-key", name
     for build in (False, True):
         connector_services = render(
             {**registry_fixtures, credential_key: "fixture-credential-encryption-key"}, build=build

@@ -17,6 +17,7 @@ from devfeed_core.models import (
     ArticlePublicationDecision,
     ArticleReview,
 )
+from devfeed_core.video_content import substantive_page_kind
 
 POLICY_VERSION = "trusted-source-v3"
 ACTOR = "devfeed:automatic-publication"
@@ -28,7 +29,8 @@ def evaluate_publication(session, article, job, *, taxonomy=None) -> dict:
         (
             origin.source
             for origin in article.origins
-            if origin.source.approval_status == "approved"
+            if getattr(origin, "active", True) is not False
+            and origin.source.approval_status == "approved"
             and origin.source.enabled
             and (full or origin.source.publication_policy in {"preview", "auto"})
         ),
@@ -83,7 +85,7 @@ def evaluate_publication(session, article, job, *, taxonomy=None) -> dict:
     elif (
         job.result.get("outcome") != "ready"
         or job.result.get("developer_relevance") != "relevant"
-        or job.result.get("page_kind") != "article"
+        or not substantive_page_kind(article, job.result.get("page_kind"))
     ):
         reasons.append("analysis_uncertain")
     if job is not None and not analysis_catalog_current(

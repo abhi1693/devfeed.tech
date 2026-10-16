@@ -13,6 +13,7 @@ from devfeed_core.source_relevance import (
     relevance_prompt,
     relevance_schema,
     restore_source_evidence,
+    video_sample,
 )
 
 from devfeed_aggregator.codex_client import CodexClient
@@ -55,6 +56,51 @@ def assess_source(feed_url, source_type, *, feedback=None):
         **base,
         **result.model_dump(mode="json"),
         "model": getattr(client, "model", settings.codex_model),
+        "approval_supported": approval_supported(result, sample),
+        "rejection_supported": rejection_supported(result, sample),
+    }
+
+
+def assess_youtube_source(resource, *, client=None, feedback=None):
+    from devfeed_core.youtube import YouTubeClient
+
+    client = client or YouTubeClient.from_settings()
+    sample = video_sample(client.sample_resource(resource, limit=10))
+    settings = get_settings()
+    base = {
+        "version": VERSION + "-youtube-v1",
+        "provider": "youtube",
+        "resource_kind": resource.kind,
+        "provider_resource_id": resource.resource_id,
+        "checked_at": utcnow().isoformat(),
+        "sample": sample,
+        "approval_supported": False,
+        "rejection_supported": False,
+        "content_not_before": (
+            settings.ai_content_not_before.isoformat() if settings.ai_content_not_before else None
+        ),
+    }
+    if len(sample) < 3:
+        return {
+            **base,
+            "relevance": "uncertain",
+            "reason": (
+                "Fewer than three public videos with usable metadata in the AI content window; "
+                "explicit source review is required."
+            ),
+        }
+    inference = CodexClient(settings)
+    inference.operation = "source_relevance"
+    inference.quality_failure = bool(feedback)
+    output = inference.complete(
+        relevance_prompt(sample, provider="youtube") + feedback_prompt(feedback),
+        relevance_schema(sample),
+    )
+    result = SourceRelevance.model_validate(restore_source_evidence(output, sample))
+    return {
+        **base,
+        **result.model_dump(mode="json"),
+        "model": getattr(inference, "model", settings.codex_model),
         "approval_supported": approval_supported(result, sample),
         "rejection_supported": rejection_supported(result, sample),
     }

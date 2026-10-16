@@ -12,6 +12,7 @@ from devfeed_core.feeds.parser import plain_text
 from devfeed_core.models import Article, ArticleOrigin, ArticleTag, ArticleTopic, Source, Tag, Topic
 from devfeed_core.partner_link_rel import default_link_rel, sponsored_article_link_rel
 from devfeed_core.publication import visible_article
+from devfeed_core.schemas import VideoMetadata
 
 MODELS: dict[str, type[Article] | type[Source] | type[Tag] | type[Topic]] = {
     "articles": Article,
@@ -45,6 +46,10 @@ def public_records(session, kind, ids):
             Article.feed_at,
             Article.image_url,
             Article.content_type,
+            Article.content_format,
+            Article.provider,
+            Article.provider_resource_id,
+            Article.video_metadata,
             Article.sponsor_names,
         ).where(visible_article())
     elif kind == "topics":
@@ -69,6 +74,8 @@ def public_records(session, kind, ids):
             Source.feed_url,
             Source.logo_url,
             Source.managed_logo,
+            Source.provider,
+            Source.resource_kind,
         ).where(Source.approval_status == "approved", Source.enabled.is_(True))
     else:
         statement = select(Tag.id, Tag.name, Tag.slug, Tag.aliases)
@@ -82,6 +89,8 @@ def public_records(session, kind, ids):
         )
         if kind == "topics":
             eligible = eligible.where(ArticleTopic.role.in_(["primary", "supporting"]))
+        if kind == "sources":
+            eligible = eligible.where(ArticleOrigin.active.is_(True))
         statement = statement.where(eligible.exists())
     records = {
         row["id"]: dict(row)
@@ -135,6 +144,14 @@ def hit(kind, record):
         "sponsor_link_rel": record.get("sponsor_link_rel", default_link_rel()),
         "label": record.get("content_type", kind[:-1]),
         "published_at": record["feed_at"].isoformat() if record.get("feed_at") else None,
+        "content_format": record.get("content_format"),
+        "provider": record.get("provider"),
+        "provider_resource_id": record.get("provider_resource_id"),
+        "video_metadata": VideoMetadata.model_validate(
+            record.get("video_metadata") or {}
+        ).model_dump(mode="json")
+        if kind == "articles" and record.get("provider") == "youtube"
+        else None,
     }
 
 
@@ -160,7 +177,9 @@ def documents(session, kind, ids):
                 .where(link.article_id.in_(records))
             )
             if related == "sources":
-                statement = statement.where(Source.approval_status == "approved")
+                statement = statement.where(
+                    Source.approval_status == "approved", ArticleOrigin.active.is_(True)
+                )
             elif related == "topics":
                 statement = statement.where(
                     Topic.status == "active", ArticleTopic.role.in_(["primary", "supporting"])

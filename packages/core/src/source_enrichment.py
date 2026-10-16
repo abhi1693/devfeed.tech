@@ -11,7 +11,7 @@ from devfeed_core.source_profiles import PROFILE_FIELDS
 
 def request_source_review(session, source):
     """All entry points share discovery followed by source enrichment/review."""
-    if source.feed_url:
+    if source.feed_url or getattr(source, "provider", None) == "youtube":
         return request_enrichment(session, source.id)
     from devfeed_core.discovery import enqueue
     from devfeed_core.discovery_import import identity_url
@@ -41,7 +41,7 @@ def request_enrichment(session, source_id, *, supersede=False):
         raise RecordNotFound("Source not found")
     if source.approval_status == "rejected":
         raise OperationConflict("Rejected sources cannot be enriched")
-    if not source.feed_url:
+    if not source.feed_url and getattr(source, "provider", None) != "youtube":
         raise OperationConflict("Feed discovery must complete before enrichment")
     active = session.scalar(
         select(SourceEnrichmentJob).where(

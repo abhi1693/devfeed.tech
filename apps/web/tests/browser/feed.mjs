@@ -1,3 +1,7 @@
+import {
+  youtubeReaderFixture,
+  checkYoutubeReader,
+} from "../../../../scripts/testing/youtube-reader.mjs";
 import { checkRouteStyles } from "../../../../scripts/testing/route-styles.mjs";
 import {
   checkGuestDocument,
@@ -161,6 +165,7 @@ async function createReaderFixture(t, { thumbnailFeed = false } = {}) {
   withManagedSourceLogo(article.sources[0]);
   const mustReadsFixture = dailyFixture(article);
   const readingFixture = readingStreakFixture();
+  const youtube = youtubeReaderFixture(article);
   const mutationFixture = userMutationFixture({ articles: [article], topic });
   const domCatalog = readerDomCatalogFixture();
   const routeFixture = readerRoutesFixture(article);
@@ -194,6 +199,18 @@ async function createReaderFixture(t, { thumbnailFeed = false } = {}) {
   fixture = createServer(async (req, res) => {
     const requestUrl = new URL(req.url, "http://localhost");
     const path = requestUrl.pathname;
+    if (youtube.handles(requestUrl)) {
+      const chunks = [];
+      for await (const chunk of req) chunks.push(chunk);
+      const { json } = youtube.respond(
+        requestUrl,
+        req.method,
+        chunks.length ? JSON.parse(Buffer.concat(chunks).toString()) : undefined,
+      );
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify(json));
+      return;
+    }
     serverReads.record(req.url, req.headers, `http://${req.headers.host}`);
     if (renderReads.handles(requestUrl)) {
       const { status, json } = renderReads.respond(requestUrl, req.headers);
@@ -1147,6 +1164,7 @@ async function createReaderFixture(t, { thumbnailFeed = false } = {}) {
   return {
     browser,
     origin,
+    youtube,
     upstream,
     userUpstream,
     serverReads,
@@ -1204,6 +1222,22 @@ test("thumbnails match rendered widths and device pixel ratios", { timeout: 3600
   const { writeFile } = await import("node:fs/promises");
   await writeFile(`${root}/reports/thumbnail-sizing/web.json`, JSON.stringify(results, null, 2));
 });
+
+test(
+  "YouTube videos retain metadata and shared reader interactions",
+  { timeout: 180000 },
+  async (t) => {
+    const { browser, origin, youtube } = await createReaderFixture(t);
+    await withReaderPage(browser, (page) =>
+      checkYoutubeReader(
+        page,
+        (path) => origin + path,
+        youtube,
+        "/tmp/devfeed-issue120-reader/web",
+      ),
+    );
+  },
+);
 
 test("article snippets exclude unrelated content", { timeout: 180000 }, async (t) => {
   const { browser, origin } = await createReaderFixture(t);

@@ -178,6 +178,7 @@ function Reader({
             logoUrl: item?.logo_url,
             logoVariants: item?.logo_variants,
             section: detail?.kind ?? "feed",
+            source: detail?.kind === "sources" ? (item as Source) : undefined,
           },
         });
     }

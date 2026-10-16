@@ -29,7 +29,7 @@ from sqlalchemy import select
 
 from devfeed_aggregator.codex_client import AnalysisError
 from devfeed_aggregator.solver_jobs import defer_to_solver
-from devfeed_aggregator.source_relevance import assess_source
+from devfeed_aggregator.source_relevance import assess_source, assess_youtube_source
 
 logger = logging.getLogger(__name__)
 
@@ -95,6 +95,12 @@ def _enrich_source(identifier):
             return
         source_id, token, attempt = source.id, job.lease_token, job.attempts
         url, source_type = source.feed_url, source.source_type
+        provider = getattr(source, "provider", None)
+        resource = None
+        if provider == "youtube":
+            from devfeed_core.youtube import resource_from_source
+
+            resource = resource_from_source(source)
         assess = source.approval_status == "pending"
         original = {field: getattr(source, field) for field in PROFILE_FIELDS}
         previous_code = (job.error or "").removeprefix("Source relevance validation failed: ")
@@ -108,14 +114,38 @@ def _enrich_source(identifier):
         candidates, error, assessment = {}, None, None
         stage = "profile"
         try:
-            candidates, error = lookup_profile(url, source_type, original)
+            youtube_client = None
+            if resource is not None:
+                from devfeed_core.youtube import YouTubeClient, YouTubeTarget
+
+                youtube_client = YouTubeClient.from_settings()
+                resource = youtube_client.resolve(
+                    YouTubeTarget(resource.kind, resource.resource_id)
+                )
+                candidates = {
+                    "description": resource.description[:500] or None,
+                    "website_url": resource.canonical_url,
+                    "logo_url": None,
+                    "image_url": resource.thumbnail_url,
+                    "language": None,
+                }
+            else:
+                candidates, error = lookup_profile(url, source_type, original)
             if assess and get_settings().full_automation and get_settings().ai_enabled:
                 stage = "relevance"
-                assessment = (
-                    assess_source(url, source_type, feedback={"code": previous_code, "fields": []})
-                    if previous_code in CODES
-                    else assess_source(url, source_type)
+                feedback_value: dict | None = (
+                    {"code": previous_code, "fields": []} if previous_code in CODES else None
                 )
+                if resource is not None:
+                    assessment = assess_youtube_source(
+                        resource, client=youtube_client, feedback=feedback_value
+                    )
+                else:
+                    assessment = (
+                        assess_source(url, source_type, feedback=feedback_value)
+                        if feedback_value
+                        else assess_source(url, source_type)
+                    )
                 if error is not None:
                     stage = "profile"
         except Exception as exc:
@@ -141,6 +171,14 @@ def _enrich_source(identifier):
                 assessment is not None
                 and source.feed_url == url
                 and source.source_type == source_type
+                and (getattr(source, "provider", None) or "rss") == (provider or "rss")
+                and (
+                    resource is None
+                    or (
+                        source.resource_kind == resource.kind
+                        and source.provider_resource_id == resource.resource_id
+                    )
+                )
             ):
                 source.relevance_assessment = assessment
                 if (
@@ -180,7 +218,7 @@ def _enrich_source(identifier):
                     else f"Source enrichment error: {type(error).__name__}"
                 )
                 if transport and transport.reason != "response_too_large":
-                    resource = transport.resource or "Publisher"
+                    transport_label = transport.resource or "Publisher"
                     status = f" (HTTP {transport.status})" if transport.status is not None else ""
                     detail = {
                         "http_error": "rejected the request",
@@ -190,14 +228,15 @@ def _enrich_source(identifier):
                         "solver_busy": "solver service is busy",
                     }.get(transport.reason)
                     if detail:
-                        message += f". {resource} {detail}{status}."
+                        message += f". {transport_label} {detail}{status}."
                 if transport and transport.reason == "response_too_large" and transport.limit_bytes:
-                    resource = {
+                    transport_label = {
                         "DEVFEED_FEED_MAX_BYTES": "Feed",
                         "DEVFEED_SOURCE_PAGE_MAX_BYTES": "Source website",
                     }.get(transport.limit_setting or "", "Response")
                     message += (
-                        f". {resource} exceeds the configured {transport.limit_bytes:,}-byte "
+                        f". {transport_label} exceeds the configured "
+                        f"{transport.limit_bytes:,}-byte "
                         "download limit"
                     )
                     if transport.limit_setting:

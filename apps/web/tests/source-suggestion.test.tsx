@@ -49,7 +49,7 @@ it("sends only suggestion fields with CSRF and explains pending review", async (
       <SourceSuggestion />
     </UserProvider>,
   );
-  fireEvent.change(await screen.findByLabelText("RSS or Atom URL"), {
+  fireEvent.change(await screen.findByLabelText("Feed or YouTube URL"), {
     target: { value: "https://example.com/rss" },
   });
   fireEvent.change(screen.getByLabelText("Name (optional)"), {
@@ -85,7 +85,7 @@ it.each([409, 422, 429, 503])("retains entered details after a %s response", asy
       <SourceSuggestion />
     </UserProvider>,
   );
-  const input = await screen.findByLabelText("RSS or Atom URL");
+  const input = await screen.findByLabelText("Feed or YouTube URL");
   fireEvent.change(input, { target: { value: "https://example.com/rss" } });
   await waitFor(
     () =>
@@ -111,7 +111,7 @@ it("fills the feed name before submission and lets the reader edit it", async ()
       <SourceSuggestion />
     </UserProvider>,
   );
-  fireEvent.change(await screen.findByLabelText("RSS or Atom URL"), {
+  fireEvent.change(await screen.findByLabelText("Feed or YouTube URL"), {
     target: { value: "https://example.com/rss" },
   });
   await waitFor(
@@ -137,7 +137,7 @@ it("does not replace a manually edited name when the lookup finishes", async () 
       <SourceSuggestion />
     </UserProvider>,
   );
-  fireEvent.change(await screen.findByLabelText("RSS or Atom URL"), {
+  fireEvent.change(await screen.findByLabelText("Feed or YouTube URL"), {
     target: { value: "https://example.com/rss" },
   });
   fireEvent.change(screen.getByLabelText("Name (optional)"), {
@@ -174,7 +174,7 @@ it("aborts a pending submission on unmount and emits no late success event", asy
         <SourceSuggestion />
       </UserProvider>,
     );
-    fireEvent.change(await screen.findByLabelText("RSS or Atom URL"), {
+    fireEvent.change(await screen.findByLabelText("Feed or YouTube URL"), {
       target: { value: "https://example.com/rss" },
     });
     await waitFor(
@@ -207,7 +207,7 @@ it("retains the entered source and emits no success event for a malformed receip
         <SourceSuggestion />
       </UserProvider>,
     );
-    const input = await screen.findByLabelText("RSS or Atom URL");
+    const input = await screen.findByLabelText("Feed or YouTube URL");
     fireEvent.change(input, { target: { value: "https://example.com/rss" } });
     await waitFor(
       () =>
@@ -224,4 +224,87 @@ it("retains the entered source and emits no success event for a malformed receip
   } finally {
     window.removeEventListener("devfeed:analytics", analytics);
   }
+});
+
+it("previews both YouTube resources and submits only the explicitly selected target", async () => {
+  const url = "https://www.youtube.com/watch?v=dQw4w9WgXcQ&list=PLDeveloperVideos";
+  const fetcher = vi.fn(async (path: string, init?: RequestInit) => {
+    if (path.endsWith("auth/me"))
+      return Response.json({ user_id: "one", name: "Reader", csrf_token: "csrf" });
+    if (path.endsWith("suggestions/preview")) {
+      const target = JSON.parse(String(init?.body)).youtube_target ?? "video";
+      return Response.json({
+        name: target === "playlist" ? "Developer playlist" : "Developer video",
+        provider: "youtube",
+        resource_kind: target,
+        canonical_url: url,
+        resources: [
+          { target: "video", canonical_url: "https://www.youtube.com/watch?v=dQw4w9WgXcQ" },
+          {
+            target: "playlist",
+            canonical_url: "https://www.youtube.com/playlist?list=PLDeveloperVideos",
+          },
+        ],
+      });
+    }
+    if (init?.method === "POST")
+      return Response.json({ ...validReceipt, name: "Developer playlist" }, { status: 201 });
+    return Response.json({});
+  });
+  vi.stubGlobal("fetch", fetcher);
+  render(
+    <UserProvider>
+      <SourceSuggestion />
+    </UserProvider>,
+  );
+  fireEvent.change(await screen.findByLabelText("Feed or YouTube URL"), { target: { value: url } });
+  const selector = await screen.findByRole(
+    "combobox",
+    { name: "YouTube target" },
+    { timeout: 2000 },
+  );
+  expect(selector.textContent).toContain("Only this video");
+  fireEvent.click(selector);
+  fireEvent.click(screen.getByRole("option", { name: "Entire playlist" }));
+  await waitFor(
+    () =>
+      expect((screen.getByLabelText("Name (optional)") as HTMLInputElement).value).toBe(
+        "Developer playlist",
+      ),
+    { timeout: 2000 },
+  );
+  fireEvent.click(screen.getByRole("button", { name: "Submit suggestion" }));
+  await screen.findByRole("heading", { name: "Suggestion received" });
+  const request = fetcher.mock.calls.find(
+    ([path, init]) => init?.method === "POST" && path.endsWith("suggestions"),
+  );
+  expect(JSON.parse(String(request?.[1]?.body))).toMatchObject({
+    feed_url: url,
+    youtube_target: "playlist",
+  });
+  expect(fetcher.mock.calls.filter(([path]) => path.endsWith("preview"))).toHaveLength(2);
+});
+
+it("previews and submits a plain YouTube handle without native URL validation blocking it", async () => {
+  const fetcher = setup();
+  render(
+    <UserProvider>
+      <SourceSuggestion />
+    </UserProvider>,
+  );
+  const input = (await screen.findByLabelText("Feed or YouTube URL")) as HTMLInputElement;
+  fireEvent.change(input, { target: { value: "@developers" } });
+  await waitFor(
+    () =>
+      expect(
+        (screen.getByRole("button", { name: "Submit suggestion" }) as HTMLButtonElement).disabled,
+      ).toBe(false),
+    { timeout: 2000 },
+  );
+  expect(input.checkValidity()).toBe(true);
+  fireEvent.click(screen.getByRole("button", { name: "Submit suggestion" }));
+  await screen.findByRole("heading", { name: "Suggestion received" });
+  expect(screen.getByText("YouTube", { exact: true })).toBeTruthy();
+  const post = fetcher.mock.calls.find(([url]) => url.endsWith("sources/suggestions"))!;
+  expect(JSON.parse(String(post[1]?.body)).feed_url).toBe("@developers");
 });

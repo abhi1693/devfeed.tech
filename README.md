@@ -30,7 +30,8 @@ A personal reading feed for developer news, tutorials, and releases.
 
 ---
 
-DevFeed brings RSS and Atom publications into one searchable place. Follow the
+DevFeed brings RSS and Atom publications and developer-focused YouTube videos into
+one searchable place. Follow the
 sources and topics you care about, find something worth reading, and continue at
 the original publisher. Browse without an account; sign in when you want a feed
 that reflects your interests.
@@ -58,8 +59,12 @@ work. Here’s mine:
   readers with a public profile, claimed username, and recorded reading activity.
   Each leaderboard shows your rank in the list, or below it when you are outside
   the displayed ten readers.
-- **Bring a source with you.** Suggest an RSS or Atom feed for review from the web
-  app or browser extensions.
+- **Bring a source with you.** Suggest an RSS or Atom feed, YouTube channel, playlist,
+  or individual video for review from the web app or browser extensions. Videos open
+  on YouTube, with channel attribution and duration when available. Submitting one
+  video does not subscribe to its channel.
+
+[YouTube configuration and indexing →](apps/cli/README.md#youtube-resources)
 
 [Chrome and Edge extensions →](apps/extensions/README.md)
 

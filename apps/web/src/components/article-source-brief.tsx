@@ -1,3 +1,4 @@
+import { canFollowSource, sourceCollectionLabel } from "@/lib/video";
 import Link from "@/components/reader-link";
 import type { Source } from "@/lib/types";
 import { sourceHref } from "@/lib/feed-query";
@@ -13,7 +14,7 @@ export function ArticleSourceBrief({
 }) {
   return (
     <section className="topic-brief source-brief" aria-label={`About ${source.name}`}>
-      <p className="topic-brief-label">About this source</p>
+      <p className="topic-brief-label">{sourceCollectionLabel(source) ?? "About this source"}</p>
       <div className="topic-brief-heading">
         <CatalogIcon url={source.logo_url} variants={source.logo_variants} source />
         <h2>
@@ -21,9 +22,11 @@ export function ArticleSourceBrief({
         </h2>
       </div>
       {source.description && <p className="topic-brief-description">{source.description}</p>}
-      <div className="topic-brief-actions">
-        <SourceFollow sourceId={source.id} returnTo={`/articles/${articleSlug}`} />
-      </div>
+      {canFollowSource(source) && (
+        <div className="topic-brief-actions">
+          <SourceFollow sourceId={source.id} returnTo={`/articles/${articleSlug}`} />
+        </div>
+      )}
     </section>
   );
 }

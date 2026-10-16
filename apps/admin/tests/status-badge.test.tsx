@@ -104,6 +104,8 @@ describe("shared colored status pills", () => {
                 id: "source-1",
                 name: "Example",
                 enabled,
+                provider: "rss",
+                resource_kind: "feed",
                 source_type: "publisher",
                 approval_status: "approved",
                 last_success_at: "2026-09-07T00:00:00Z",

@@ -34,6 +34,18 @@ export type SourceSuggestion = {
   feed_url: string;
   source_type: "publisher" | "aggregator";
   name?: string;
+  youtube_target?: "channel" | "playlist" | "video";
+};
+export type SourcePreview = {
+  name: string;
+  provider?: "rss" | "youtube";
+  resource_kind?: "feed" | "channel" | "playlist" | "video";
+  canonical_url?: string | null;
+  resources?: {
+    target: "channel" | "playlist" | "video";
+    canonical_url: string;
+    name?: string | null;
+  }[];
 };
 export type SuggestionReceipt = {
   id: string;
@@ -218,7 +230,7 @@ export function saveAppearanceSettings(value: Partial<Appearance>, options: Muta
 }
 
 export function previewSourceSuggestion(value: SourceSuggestion, options: MutationOptions) {
-  return mutate<{ name: string }>("sources/suggestions/preview", value, options, {
+  return mutate<SourcePreview>("sources/suggestions/preview", value, options, {
     method: "POST",
     validate: (result) => record(result) && typeof result.name === "string",
   });

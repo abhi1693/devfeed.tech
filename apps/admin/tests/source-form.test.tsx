@@ -82,12 +82,12 @@ describe("automatic source details", () => {
   it("waits for a valid URL and a typing pause, without a lookup button or success box", async () => {
     await mount();
     expect(screen.queryByRole("button", { name: "Fetch details" })).toBeNull();
-    fireEvent.change(input("RSS / Atom URL"), { target: { value: "https://" } });
+    fireEvent.change(input("Feed or YouTube URL"), { target: { value: "https://" } });
     await advance(1000);
     expect(adminSourcePreview).not.toHaveBeenCalled();
-    fireEvent.change(input("RSS / Atom URL"), { target: { value: url + "1" } });
+    fireEvent.change(input("Feed or YouTube URL"), { target: { value: url + "1" } });
     await advance(400);
-    fireEvent.change(input("RSS / Atom URL"), { target: { value: url } });
+    fireEvent.change(input("Feed or YouTube URL"), { target: { value: url } });
     await advance(649);
     expect(adminSourcePreview).not.toHaveBeenCalled();
     await advance(1);
@@ -119,7 +119,7 @@ describe("automatic source details", () => {
     );
     await mount();
     fireEvent.change(input("Name"), { target: { value: "My name" } });
-    fireEvent.change(input("RSS / Atom URL"), { target: { value: url } });
+    fireEvent.change(input("Feed or YouTube URL"), { target: { value: url } });
     await advance();
     expect(
       (screen.getByRole("button", { name: "Create source" }) as HTMLButtonElement).disabled,
@@ -151,7 +151,7 @@ describe("automatic source details", () => {
 
   it("starts the next source with clean fields, defaults, and a fresh metadata lookup", async () => {
     await mount();
-    fireEvent.change(input("RSS / Atom URL"), { target: { value: url } });
+    fireEvent.change(input("Feed or YouTube URL"), { target: { value: url } });
     await advance();
     fireEvent.change(input("Name"), { target: { value: "Custom first feed" } });
     fireEvent.change(input("Poll interval"), { target: { value: "900" } });
@@ -169,7 +169,7 @@ describe("automatic source details", () => {
       undefined,
     );
     for (const field of [
-      "RSS / Atom URL",
+      "Feed or YouTube URL",
       "Name",
       "Website",
       "Short description",
@@ -179,13 +179,15 @@ describe("automatic source details", () => {
       expect(input(field).value).toBe("");
     expect(input("Poll interval").value).toBe("43200");
     expect(screen.queryByLabelText("Enable polling")).toBeNull();
-    expect(document.activeElement).toBe(input("RSS / Atom URL"));
+    expect(document.activeElement).toBe(input("Feed or YouTube URL"));
     vi.mocked(adminSourcePreview).mockResolvedValueOnce({
       ...details,
       name: "Second feed",
       website_url: "https://second.example/",
     });
-    fireEvent.change(input("RSS / Atom URL"), { target: { value: "https://second.example/rss" } });
+    fireEvent.change(input("Feed or YouTube URL"), {
+      target: { value: "https://second.example/rss" },
+    });
     await advance();
     expect(adminSourcePreview).toHaveBeenCalledTimes(2);
     expect(input("Name").value).toBe("Second feed");
@@ -202,10 +204,12 @@ describe("automatic source details", () => {
     );
     vi.mocked(adminSourcePreview).mockResolvedValueOnce({ ...details, name: "Second feed" });
     await mount();
-    fireEvent.change(input("RSS / Atom URL"), { target: { value: url } });
+    fireEvent.change(input("Feed or YouTube URL"), { target: { value: url } });
     await advance();
     const signal = vi.mocked(adminSourcePreview).mock.calls[0][1]?.signal;
-    fireEvent.change(input("RSS / Atom URL"), { target: { value: "https://second.example/rss" } });
+    fireEvent.change(input("Feed or YouTube URL"), {
+      target: { value: "https://second.example/rss" },
+    });
     expect(signal?.aborted).toBe(true);
     await advance();
     await act(async () => {
@@ -216,13 +220,13 @@ describe("automatic source details", () => {
 
   it("clears old automatic metadata but preserves manual edits when the URL changes", async () => {
     await mount();
-    fireEvent.change(input("RSS / Atom URL"), { target: { value: url } });
+    fireEvent.change(input("Feed or YouTube URL"), { target: { value: url } });
     await advance();
     fireEvent.change(input("Name"), { target: { value: "My name" } });
-    fireEvent.change(input("RSS / Atom URL"), { target: { value: "" } });
+    fireEvent.change(input("Feed or YouTube URL"), { target: { value: "" } });
     expect(input("Name").value).toBe("My name");
     expect(input("Website").value).toBe("");
-    fireEvent.change(input("RSS / Atom URL"), { target: { value: url } });
+    fireEvent.change(input("Feed or YouTube URL"), { target: { value: url } });
     await advance();
     expect(adminSourcePreview).toHaveBeenCalledTimes(2);
     expect(input("Website").value).toBe(details.website_url);
@@ -230,20 +234,22 @@ describe("automatic source details", () => {
 
   it("shows duplicate URL errors inline, without retry loops or erasing them on unrelated edits", async () => {
     const message =
-      "A source with this RSS / Atom URL already exists. Edit the existing source instead.";
+      "A source with this Feed or YouTube URL already exists. Edit the existing source instead.";
     vi.mocked(adminSourcePreview).mockRejectedValueOnce(
       new ApiError(409, "Please correct the highlighted fields.", { feed_url: message }),
     );
     await mount();
-    fireEvent.change(input("RSS / Atom URL"), { target: { value: url } });
+    fireEvent.change(input("Feed or YouTube URL"), { target: { value: url } });
     await advance();
     expect(screen.getByText(message)).toBeDefined();
-    expect(input("RSS / Atom URL").getAttribute("aria-invalid")).toBe("true");
+    expect(input("Feed or YouTube URL").getAttribute("aria-invalid")).toBe("true");
     fireEvent.change(input("Name"), { target: { value: "Anything" } });
     await advance(2000);
     expect(screen.getByText(message)).toBeDefined();
     expect(adminSourcePreview).toHaveBeenCalledTimes(1);
-    fireEvent.change(input("RSS / Atom URL"), { target: { value: "https://second.example/rss" } });
+    fireEvent.change(input("Feed or YouTube URL"), {
+      target: { value: "https://second.example/rss" },
+    });
     await advance();
     expect(screen.queryByText(message)).toBeNull();
   });
@@ -254,7 +260,7 @@ describe("automatic source details", () => {
       warnings: ["Website unavailable; fill missing details manually."],
     });
     await mount();
-    fireEvent.change(input("RSS / Atom URL"), { target: { value: url } });
+    fireEvent.change(input("Feed or YouTube URL"), { target: { value: url } });
     await advance();
     expect(toast.warning).toHaveBeenCalledWith(
       "Some source details could not be fetched",
@@ -270,8 +276,8 @@ describe("automatic source details", () => {
     await mount("source-1");
     await advance(2000);
     expect(adminSourcePreview).not.toHaveBeenCalled();
-    expect(input("RSS / Atom URL").disabled).toBe(true);
-    expect(input("RSS / Atom URL").value).toBe(url);
+    expect(input("Feed or YouTube URL").disabled).toBe(true);
+    expect(input("Feed or YouTube URL").value).toBe(url);
     expect(input("Name").value).toBe("Developer News");
   });
 });
@@ -304,7 +310,7 @@ describe("explicit source solver", () => {
       new ApiError(422, "Browser verification required", {}, "browser_challenge"),
     );
     await mount();
-    fireEvent.change(input("RSS / Atom URL"), { target: { value: url } });
+    fireEvent.change(input("Feed or YouTube URL"), { target: { value: url } });
     await advance();
     expect(adminSourcePreview).toHaveBeenCalledTimes(1);
     const retry = screen.getByRole("button", { name: "Retry with solver" });
@@ -320,7 +326,7 @@ describe("explicit source solver", () => {
       "test-csrf",
       undefined,
     );
-    fireEvent.change(input("RSS / Atom URL"), { target: { value: url + "-other" } });
+    fireEvent.change(input("Feed or YouTube URL"), { target: { value: url + "-other" } });
     await advance();
     expect(adminSourcePreview).toHaveBeenLastCalledWith(
       { feed_url: url + "-other", source_type: "publisher" },
@@ -333,7 +339,7 @@ describe("explicit source solver", () => {
   it("does not offer a solver for ordinary failures", async () => {
     vi.mocked(adminSourcePreview).mockRejectedValueOnce(new ApiError(422, "Not a feed"));
     await mount();
-    fireEvent.change(input("RSS / Atom URL"), { target: { value: url } });
+    fireEvent.change(input("Feed or YouTube URL"), { target: { value: url } });
     await advance();
     expect(screen.queryByRole("button", { name: "Retry with solver" })).toBeNull();
     expect(adminSourcePreview).toHaveBeenCalledTimes(1);
@@ -358,4 +364,56 @@ describe("explicit source solver", () => {
     await act(async () => fireEvent.click(screen.getByRole("button", { name: "Save changes" })));
     expect(vi.mocked(saveRecord).mock.calls.at(-1)?.[1]).not.toHaveProperty("use_solver");
   });
+});
+
+it("makes an ambiguous YouTube target explicit and carries the selected playlist into creation", async () => {
+  const watch = "https://www.youtube.com/watch?v=dQw4w9WgXcQ&list=PLDeveloperVideos";
+  vi.mocked(adminSourcePreview).mockImplementation(async (body) => {
+    const target = (body as typeof body & { youtube_target?: string }).youtube_target ?? "video";
+    return {
+      ...details,
+      name: target === "playlist" ? "Developer playlist" : "Developer video",
+      provider: "youtube",
+      resource_kind: target,
+      resources: [
+        { target: "video", canonical_url: "https://www.youtube.com/watch?v=dQw4w9WgXcQ" },
+        {
+          target: "playlist",
+          canonical_url: "https://www.youtube.com/playlist?list=PLDeveloperVideos",
+        },
+      ],
+    } as SourcePreviewOut;
+  });
+  await mount();
+  fireEvent.change(input("Feed or YouTube URL"), { target: { value: watch } });
+  await advance();
+  await advance();
+  fireEvent.click(screen.getByRole("combobox", { name: "YouTube target" }));
+  fireEvent.click(screen.getByRole("option", { name: "Playlist" }));
+  await advance();
+  expect(input("Name").value).toBe("Developer playlist");
+  fireEvent.click(screen.getByRole("button", { name: "Create source" }));
+  await advance(0);
+  expect(saveRecord).toHaveBeenCalledWith(
+    "sources",
+    expect.objectContaining({
+      feed_url: watch,
+      youtube_target: "playlist",
+      name: "Developer playlist",
+    }),
+    "test-csrf",
+    undefined,
+  );
+});
+
+it("previews plain YouTube handles without native URL validation", async () => {
+  await mount();
+  const handle = input("Feed or YouTube URL");
+  fireEvent.change(handle, { target: { value: "@developers" } });
+  await advance();
+  expect(handle.checkValidity()).toBe(true);
+  expect(adminSourcePreview).toHaveBeenCalledWith(
+    { feed_url: "@developers", source_type: "publisher" },
+    { signal: expect.any(AbortSignal), headers: { "X-CSRF-Token": "test-csrf" } },
+  );
 });

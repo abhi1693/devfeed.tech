@@ -59,11 +59,14 @@ export function ArticleShare({
   slug,
   title,
   label = false,
+  contentFormat,
 }: {
   slug: string;
   title: string;
   label?: boolean;
+  contentFormat?: string | null;
 }) {
+  const contentName = contentFormat === "video" ? "video" : "article";
   const trigger = useRef<HTMLButtonElement>(null);
   const input = useRef<HTMLInputElement>(null);
   const [open, setOpen] = useState(false);
@@ -94,8 +97,8 @@ export function ArticleShare({
           ref={trigger}
           type="button"
           className={`article-share-trigger${label ? " button" : ""}`}
-          aria-label={`Share article: ${title}`}
-          title="Share article"
+          aria-label={`Share ${contentName}: ${title}`}
+          title={`Share ${contentName}`}
         >
           <Share2 size={16} aria-hidden="true" />
           {label && <span className="article-share-label">Share</span>}
@@ -108,12 +111,12 @@ export function ArticleShare({
           align="end"
           sideOffset={8}
           collisionPadding={12}
-          aria-label="Share article"
+          aria-label={`Share ${contentName}`}
           onKeyDown={(event) => {
             if (event.key === "ArrowLeft" || event.key === "ArrowRight") event.stopPropagation();
           }}
         >
-          <p className="article-share-heading">Share this article</p>
+          <p className="article-share-heading">Share this {contentName}</p>
           <div className="article-share-options">
             <CopyButton text={url} label="Copy link" onStatusChange={setStatus}>
               {(copyStatus) => (
@@ -154,7 +157,7 @@ export function ArticleShare({
           {status === "failed" && (
             <input
               ref={input}
-              aria-label="Article link"
+              aria-label={contentName === "video" ? "Video link" : "Article link"}
               readOnly
               value={url}
               onFocus={(event) => event.currentTarget.select()}

@@ -17,7 +17,7 @@ import type { SourceImportRequest } from "@/lib/api/generated/models";
 const trail = [...resourceTrail("sources"), { label: "Sources", href: "/content/sources" }];
 const examples = {
   opml: '<opml version="2.0"><body><outline text="Engineering" htmlUrl="https://example.com/blog" xmlUrl="https://example.com/feed" /></body></opml>',
-  urls: "https://example.com/blog\nhttps://another.example/engineering",
+  urls: "https://example.com/blog\nhttps://www.youtube.com/@developer-channel\nhttps://www.youtube.com/playlist?list=PL_EXAMPLE",
   json: '[{"name":"Engineering","homepage_url":"https://example.com/blog","feed_url":"https://example.com/feed"}]',
   markdown: "[Engineering blog](https://example.com/blog)",
 };
@@ -31,6 +31,9 @@ export function SourceImport() {
   const [url, setUrl] = useState("");
   const [content, setContent] = useState("");
   const [filename, setFilename] = useState("");
+  const [youtubeTarget, setYoutubeTarget] = useState<"auto" | "video" | "playlist" | "channel">(
+    "auto",
+  );
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<Error>();
   const [result, setResult] = useState<string>();
@@ -74,11 +77,12 @@ export function SourceImport() {
         {
           format,
           name: filename || "Pasted collection",
+          ...(youtubeTarget !== "auto" && { youtube_target: youtubeTarget }),
           ...(method === "url" ? { url } : { content }),
         },
         { headers: { "X-CSRF-Token": admin.csrf_token } },
       );
-      setResult(`${response.created} new publishers imported; ${response.existing} already known.`);
+      setResult(`${response.created} new sources imported; ${response.existing} already known.`);
     } catch (error) {
       setError(asError(error));
     } finally {
@@ -127,7 +131,7 @@ export function SourceImport() {
                   onChange={(value) => setFormat(value as SourceImportRequest["format"])}
                   options={[
                     { value: "opml", label: "OPML" },
-                    { value: "urls", label: "Publisher URL list" },
+                    { value: "urls", label: "Website and YouTube URL list" },
                     { value: "json", label: "JSON" },
                     { value: "markdown", label: "Markdown links" },
                   ]}
@@ -141,7 +145,7 @@ export function SourceImport() {
               label="Collection URL"
               name="url"
               required
-              subtext="Use a direct public file URL, such as a GitHub raw OPML URL. Publisher pages belong in a URL list."
+              subtext="Use a direct public file URL, such as a GitHub raw OPML URL. Websites and YouTube channels, playlists, or videos belong in a URL list."
             >
               {(control) => (
                 <Input
@@ -176,7 +180,7 @@ export function SourceImport() {
               label="Collection content"
               name="content"
               required
-              subtext="Up to 1 MB and 1,000 entries. URL lists contain one publisher homepage per line."
+              subtext="Up to 1 MB and 1,000 entries. URL lists contain one website, feed, or YouTube URL per line."
             >
               {(control) => (
                 <Textarea
@@ -190,6 +194,26 @@ export function SourceImport() {
               )}
             </Field>
           )}
+          <Field
+            label="YouTube target"
+            name="youtube_target"
+            subtext="Applies to YouTube entries in this collection. Automatic imports a watch URL as one video, even if it includes a playlist. Choose a collection only when you intend recurring discovery."
+          >
+            {(control) => (
+              <Select
+                {...control}
+                label="YouTube target"
+                value={youtubeTarget}
+                onChange={(value) => setYoutubeTarget(value as typeof youtubeTarget)}
+                options={[
+                  { value: "auto", label: "Automatic (watch URLs: one video)" },
+                  { value: "video", label: "Only videos" },
+                  { value: "playlist", label: "Playlists" },
+                  { value: "channel", label: "Channels" },
+                ]}
+              />
+            )}
+          </Field>
           <Button
             type="submit"
             disabled={busy || (method === "url" ? !url.trim() : !content.trim())}

@@ -512,7 +512,15 @@ def test_preview_returns_feed_name_without_saving_or_consuming_submission_quota(
     for _ in range(20):
         response = suggested_client.post(PATH + "/preview", json=BODY)
         assert response.status_code == 200
-        assert set(response.json()) == {"name"} and response.json()["name"]
+        assert set(response.json()) == {
+            "name",
+            "provider",
+            "resource_kind",
+            "canonical_url",
+            "resources",
+        }
+        assert response.json()["name"] and response.json()["provider"] == "rss"
+        assert response.json()["resource_kind"] == "feed" and response.json()["resources"] == []
     limited = suggested_client.post(PATH + "/preview", json=BODY)
     assert limited.status_code == 429 and int(limited.headers["retry-after"]) > 0
     with database() as session:

@@ -53,6 +53,11 @@ x-core-environment: &core-environment
   DEVFEED_FEED_MAX_BYTES:
   DEVFEED_FEED_MAX_ENTRIES:
   DEVFEED_FEED_TIMEOUT_SECONDS:
+  DEVFEED_YOUTUBE_INITIAL_IMPORT_LIMIT:
+  DEVFEED_YOUTUBE_REFRESH_ITEM_LIMIT:
+  DEVFEED_YOUTUBE_REQUEST_LIMIT:
+  DEVFEED_YOUTUBE_REVALIDATE_SECONDS:
+  DEVFEED_YOUTUBE_REVALIDATION_BATCH_SIZE:
   DEVFEED_PAGE_MAX_BYTES:
   DEVFEED_ARTICLE_PAGE_MAX_BYTES:
   DEVFEED_SOURCE_PAGE_MAX_BYTES:
@@ -295,6 +300,7 @@ services:
     # Keep AI enabled so ingestion queues analysis, even with a dedicated consumer.
     environment:
       <<: [*core-environment, *chimely-environment]
+      DEVFEED_YOUTUBE_API_KEY:
       DEVFEED_WORKER_QUEUE: ${DEVFEED_WORKER_QUEUE:-all}
       DEVFEED_PARTNER_CREDENTIAL_KEY:
       # Only delivery workers need Chimely management API keys.
@@ -323,6 +329,7 @@ services:
     command: [uvicorn, devfeed_admin_api.main:app, --host, 0.0.0.0, --port, "8001", --no-proxy-headers, --no-access-log]
     depends_on:
       <<: *ready
+      DEVFEED_YOUTUBE_API_KEY:
       chimely-provision:
         condition: service_completed_successfully
     networks: [default, data]
@@ -409,6 +416,12 @@ services:
     command: [uvicorn, devfeed_user_api.main:app, --host, 0.0.0.0, --port, "8002", --no-proxy-headers, --no-access-log]
     depends_on:
       <<: *ready
+      DEVFEED_YOUTUBE_API_KEY:
+      DEVFEED_YOUTUBE_INITIAL_IMPORT_LIMIT:
+      DEVFEED_YOUTUBE_REFRESH_ITEM_LIMIT:
+      DEVFEED_YOUTUBE_REQUEST_LIMIT:
+      DEVFEED_YOUTUBE_REVALIDATE_SECONDS:
+      DEVFEED_YOUTUBE_REVALIDATION_BATCH_SIZE:
       chimely-provision:
         condition: service_completed_successfully
     volumes:
@@ -627,6 +640,7 @@ services:
     scale: ${DEVFEED_CODEX_CLIENT_REPLICAS:-1}
     environment:
       <<: *core-environment
+      DEVFEED_YOUTUBE_API_KEY:
       DEVFEED_WORKER_QUEUE: analysis
     depends_on:
       <<: *ready
@@ -669,6 +683,7 @@ services:
     scale: ${DEVFEED_SOURCE_ANALYSIS_WORKER_REPLICAS:-1}
     environment:
       <<: *core-environment
+      DEVFEED_YOUTUBE_API_KEY:
       DEVFEED_WORKER_QUEUE: source-analysis
     volumes:
       - codex-socket:/run/codex:ro
@@ -695,6 +710,7 @@ services:
     scale: ${DEVFEED_INGESTION_WORKER_REPLICAS:-1}
     environment:
       <<: *core-environment
+      DEVFEED_YOUTUBE_API_KEY:
       DEVFEED_WORKER_QUEUE: ingestion
       DEVFEED_PARTNER_CREDENTIAL_KEY:
 
@@ -705,12 +721,14 @@ services:
     scale: ${DEVFEED_ARTICLE_ENRICHMENT_WORKER_REPLICAS:-1}
     environment:
       <<: *core-environment
+      DEVFEED_YOUTUBE_API_KEY:
 
   source-enrichment-worker:
     <<: *dedicated-worker
     scale: ${DEVFEED_SOURCE_ENRICHMENT_WORKER_REPLICAS:-1}
     environment:
       <<: *core-environment
+      DEVFEED_YOUTUBE_API_KEY:
       DEVFEED_WORKER_QUEUE: source-enrichment
 
   images-worker:

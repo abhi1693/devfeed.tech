@@ -2,7 +2,7 @@
 
 import uuid
 from collections.abc import Callable
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from urllib.parse import urlsplit
 
 from sqlalchemy import select
@@ -45,6 +45,12 @@ class ValidatedSource:
     image_url: str | None = None
     language: str | None = None
     submitted_by: dict | None = None
+    provider: str = "rss"
+    resource_kind: str = "feed"
+    provider_resource_id: str | None = None
+    provider_collection_id: str | None = None
+    provider_state: dict = field(default_factory=dict)
+    recurring: bool = True
 
 
 def validate_source(
@@ -54,6 +60,28 @@ def validate_source(
     # Snapshot validated inputs before I/O; callers cannot change what gets saved
     # by mutating the request while its preflight is in progress.
     values = body.model_dump()
+    youtube_target = values.pop("youtube_target", None)
+    from devfeed_core.youtube import YouTubeClient, parse_youtube_url
+
+    target = parse_youtube_url(values["feed_url"] or values["website_url"], target=youtube_target)
+    if target is not None:
+        resource = YouTubeClient.from_settings().resolve(target)
+        values.update(
+            name=values["name"] or resource.title[:200],
+            feed_url=None,
+            website_url=resource.canonical_url,
+            provider="youtube",
+            resource_kind=resource.kind,
+            provider_resource_id=resource.resource_id,
+            provider_collection_id=resource.collection_id,
+            provider_state={"status": "ready"},
+            recurring=resource.kind != "video",
+        )
+        values["description"] = values["description"] or (resource.description[:500] or None)
+        values["image_url"] = values["image_url"] or resource.thumbnail_url
+        return ValidatedSource(**values)
+    if youtube_target is not None:
+        raise OperationConflict("A YouTube target requires a supported YouTube URL")
     if not values["feed_url"]:
         values["name"] = (
             values["name"] or (urlsplit(values["website_url"]).hostname or "Publisher")[:200]
@@ -84,25 +112,37 @@ def create_source(session: Session, body: ValidatedSource) -> Source:
     return source
 
 
+def source_identity(body: ValidatedSource):
+    """Stable provider resource identity, independent of an input URL's spelling."""
+    if body.provider == "youtube":
+        return (
+            (Source.provider == "youtube")
+            & (Source.resource_kind == body.resource_kind)
+            & (Source.provider_resource_id == body.provider_resource_id)
+        )
+    return Source.feed_url == body.feed_url
+
+
 def submit_source(
     session: Session, body: ValidatedSource
 ) -> tuple[Source, bool, IngestionJob | None]:
     """Idempotent submission: preserve existing source settings and coalesce active jobs."""
+    statement = insert(Source).values(
+        **asdict(body),
+        approval_status="pending",
+        submission_channel="cli",
+    )
+    conflict = (
+        [Source.provider, Source.resource_kind, Source.provider_resource_id]
+        if body.provider == "youtube"
+        else [Source.feed_url]
+    )
     inserted = session.scalar(
-        insert(Source)
-        .values(
-            **asdict(body),
-            approval_status="pending",
-            submission_channel="cli",
-        )
-        .on_conflict_do_nothing(index_elements=[Source.feed_url])
-        .returning(Source.id)
+        statement.on_conflict_do_nothing(index_elements=conflict).returning(Source.id)
     )
-    source = session.scalar(
-        select(Source).where(Source.feed_url == body.feed_url).with_for_update()
-    )
+    source = session.scalar(select(Source).where(source_identity(body)).with_for_update())
     assert source is not None
-    if source.source_type != body.source_type:
+    if source.source_type != body.source_type and body.provider != "youtube":
         raise OperationConflict("This feed already exists with a different source type")
     if inserted is not None:
         from devfeed_core.source_enrichment import request_source_review
@@ -127,13 +167,22 @@ def update_source(session: Session, source_id: uuid.UUID, body: SourcePatch) -> 
     if source is None:
         raise RecordNotFound("Source not found")
     changes = body.model_dump(exclude_unset=True)
+    if (
+        source.provider == "youtube"
+        and "website_url" in changes
+        and changes["website_url"] != source.website_url
+    ):
+        raise OperationConflict(
+            "YouTube resource identity is immutable; submit the new resource separately"
+        )
     interval_changed = (
         "poll_interval_seconds" in changes
         and changes["poll_interval_seconds"] != source.poll_interval_seconds
     )
     reenabled = changes.get("enabled") is True and not source.enabled
     if (
-        not source.feed_url
+        source.provider != "youtube"
+        and not source.feed_url
         and changes.get("website_url") != source.website_url
         and "website_url" in changes
     ):
@@ -221,7 +270,7 @@ def review_source(
         raise RecordNotFound("Source not found")
     if source.approval_status == body.decision:
         return source  # Repeating a decision does not invent new history/jobs.
-    if body.decision == "approved" and not source.feed_url:
+    if body.decision == "approved" and not source.feed_url and source.provider != "youtube":
         raise OperationConflict("Feed discovery must complete before approval")
     source.approval_status = body.decision
     source.reviewed_at = utcnow()

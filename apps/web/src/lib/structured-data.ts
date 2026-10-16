@@ -1,3 +1,4 @@
+import { isVideo, videoDuration } from "./video";
 import { canonicalUrl, articleDescription, SITE_DESCRIPTION, validDate } from "./metadata";
 import { safeExternalUrl } from "./feed-query";
 import type { Article } from "./types";
@@ -104,6 +105,25 @@ export function articleStructuredData(article: Article): StructuredData {
   const published = validDate(article.published_at);
   const description = articleDescription(article);
   const author = article.author?.trim();
+  if (isVideo(article))
+    return {
+      ...pageStructuredData(url, article.title, { description }),
+      mainEntity: {
+        "@type": "VideoObject",
+        ...(original ? { "@id": original, url: original } : {}),
+        name: article.title,
+        description,
+        ...(published ? { uploadDate: published } : {}),
+        ...(image ? { thumbnailUrl: [image] } : {}),
+        ...(videoDuration(article.video_metadata?.duration_seconds) !== null
+          ? { duration: `PT${article.video_metadata!.duration_seconds}S` }
+          : {}),
+        ...(article.video_metadata?.channel_title
+          ? { creator: { "@type": "Organization", name: article.video_metadata.channel_title } }
+          : {}),
+        ...(article.language ? { inLanguage: article.language } : {}),
+      },
+    };
   return {
     ...pageStructuredData(url, article.title, { description }),
     // This is a preview of the publisher's article, not an article written by DevFeed.

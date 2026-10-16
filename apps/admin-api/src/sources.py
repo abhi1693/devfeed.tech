@@ -6,6 +6,7 @@ from dataclasses import asdict
 from typing import Literal
 
 from devfeed_core import services
+from devfeed_core.feeds.fetcher import FeedError
 from devfeed_core.feeds.validation import FeedValidationError
 from devfeed_core.logging import log_identifier
 from devfeed_core.models import (
@@ -27,11 +28,14 @@ from devfeed_core.schemas import (
     SourcePatch,
     SourceProfileInput,
     SourceReviewOut,
+    YouTubeTargetKind,
+    source_location,
 )
 from devfeed_core.source_preview import preview_source
 from devfeed_core.source_types import SourceType
 from devfeed_core.text_search import text_search
-from devfeed_core.urls import validate_public_url
+from devfeed_core.youtube import parse_youtube_url
+from devfeed_core.youtube_submission import ResourcePreview, provider_error, resource_choices
 from devfeed_http.operation_policies import GatewayPolicy
 from devfeed_http.pagination import (
     Listing,
@@ -108,11 +112,12 @@ class SourcePreviewRequest(InputModel):
     source_id: uuid.UUID | None = None
     feed_url: str = Field(max_length=2048)
     source_type: SourceType
+    youtube_target: YouTubeTargetKind | None = None
 
-    _validate_url = field_validator("feed_url")(validate_public_url)
+    _validate_url = field_validator("feed_url")(source_location)
 
 
-class SourcePreviewOut(SourceProfileInput):
+class SourcePreviewOut(SourceProfileInput, ResourcePreview):
     name: Name
     entries_seen: int
     entries_skipped: int
@@ -139,6 +144,16 @@ def reject_duplicate_feed(session, feed_url: str, source_id: uuid.UUID | None = 
         )
 
 
+def reject_duplicate_resource(session, validated, source_id=None):
+    query = select(Source.id).where(services.source_identity(validated))
+    if source_id is not None:
+        query = query.where(Source.id != source_id)
+    if session.scalar(query) is not None:
+        raise services.OperationConflict(
+            "This YouTube resource already exists; use its source record"
+        )
+
+
 @router.post(
     "/preview",
     response_model=SourcePreviewOut,
@@ -150,9 +165,46 @@ def preview(body: SourcePreviewRequest, session: DB):
     with session.begin():
         if body.source_id is not None:
             source = record(session, Source, body.source_id)
-            if source.feed_url != body.feed_url or source.source_type != body.source_type:
+            if (
+                source.feed_url or source.website_url
+            ) != body.feed_url or source.source_type != body.source_type:
                 raise HTTPException(422, "Use the existing source feed URL and type.")
         reject_duplicate_feed(session, body.feed_url, body.source_id)
+    try:
+        target = parse_youtube_url(body.feed_url, target=body.youtube_target)
+        if target is not None:
+            validated = services.validate_source(
+                SourceCreate(
+                    feed_url=body.feed_url,
+                    source_type=body.source_type,
+                    youtube_target=body.youtube_target,
+                )
+            )
+            with session.begin():
+                reject_duplicate_resource(session, validated, body.source_id)
+            return SourcePreviewOut(
+                name=validated.name,
+                description=validated.description,
+                website_url=validated.website_url,
+                image_url=validated.image_url,
+                provider=validated.provider,
+                resource_kind=validated.resource_kind,
+                canonical_url=validated.website_url,
+                resources=resource_choices(body.feed_url),
+                entries_seen=1 if validated.resource_kind == "video" else 0,
+                entries_skipped=0,
+                warnings=[
+                    "Only the selected video will be submitted; "
+                    "its channel is not subscribed or approved."
+                ]
+                if validated.resource_kind == "video"
+                else [],
+            )
+    except FeedError as exc:
+        code, message = provider_error(exc)
+        raise HTTPException(code, message) from exc
+    except ValueError as exc:
+        raise HTTPException(422, "Use a supported public YouTube resource URL and target.") from exc
     try:
         result = preview_source(
             body.feed_url, body.source_type, **({"solver": solve_feed} if body.use_solver else {})
@@ -164,6 +216,9 @@ def preview(body: SourcePreviewRequest, session: DB):
             if exc.reason in {"browser_challenge", "solver_unavailable"}
             else str(exc),
         ) from exc
+    except FeedError as exc:
+        code, message = provider_error(exc)
+        raise HTTPException(code, message) from exc
     with session.begin():
         reject_duplicate_feed(session, result.final_url or body.feed_url, body.source_id)
     return SourcePreviewOut(
@@ -250,11 +305,18 @@ def create(body: AdminSourceCreate, session: DB, admin: Admin):
             if exc.reason in {"browser_challenge", "solver_unavailable"}
             else str(exc),
         ) from exc
+    except FeedError as exc:
+        code, message = provider_error(exc)
+        raise HTTPException(code, message) from exc
+    except ValueError as exc:
+        raise HTTPException(422, "Use a supported public YouTube resource URL and target.") from exc
     # Preserve the existing channel contract: UI submissions use the API channel.
     # The authenticated administrator then makes an attributed approval decision.
     try:
         if validated.feed_url:
             reject_duplicate_feed(session, validated.feed_url)
+        elif validated.provider == "youtube":
+            reject_duplicate_resource(session, validated)
         source = services.create_source(session, validated)
         session.commit()
     except IntegrityError:
@@ -263,6 +325,8 @@ def create(body: AdminSourceCreate, session: DB, admin: Admin):
         session.rollback()
         if validated.feed_url:
             reject_duplicate_feed(session, validated.feed_url)
+        elif validated.provider == "youtube":
+            reject_duplicate_resource(session, validated)
         raise
     logger.info("source_created", extra={"source_id": source.id})
     return source

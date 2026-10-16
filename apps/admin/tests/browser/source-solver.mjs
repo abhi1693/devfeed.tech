@@ -10,6 +10,11 @@ const root = fileURLToPath(new URL("../../../../", import.meta.url));
 const requests = [];
 const sourceId = "11111111-1111-4111-8111-111111111111";
 const feed = "https://publication.example/feed";
+const youtubeWatch = "https://www.youtube.com/watch?v=dQw4w9WgXcQ&list=PLDeveloperVideos";
+const youtubeChoices = [
+  { target: "video", canonical_url: "https://www.youtube.com/watch?v=dQw4w9WgXcQ" },
+  { target: "playlist", canonical_url: "https://www.youtube.com/playlist?list=PLDeveloperVideos" },
+];
 const fixture = createServer(async (req, res) => {
   const path = new URL(req.url, "http://localhost").pathname;
   let body = {};
@@ -30,7 +35,30 @@ const fixture = createServer(async (req, res) => {
     for await (const chunk of req) raw += chunk;
     const input = JSON.parse(raw);
     requests.push(input);
-    if (!input.use_solver) {
+    if (input.feed_url === youtubeWatch || input.feed_url === "@developers") {
+      const kind = input.feed_url === "@developers" ? "channel" : (input.youtube_target ?? "video");
+      body = {
+        name:
+          kind === "playlist"
+            ? "Concurrency playlist"
+            : kind === "channel"
+              ? "Engineering channel"
+              : "One developer video",
+        provider: "youtube",
+        resource_kind: kind,
+        canonical_url:
+          kind === "channel"
+            ? "https://www.youtube.com/@developers"
+            : youtubeChoices.find((item) => item.target === kind).canonical_url,
+        resources:
+          kind === "channel"
+            ? [{ target: "channel", canonical_url: "https://www.youtube.com/@developers" }]
+            : youtubeChoices,
+        entries_seen: 1,
+        entries_skipped: 0,
+        warnings: [],
+      };
+    } else if (!input.use_solver) {
       res.statusCode = 422;
       body = {
         detail: { code: "browser_challenge", message: "Publisher requires browser verification." },
@@ -124,14 +152,14 @@ try {
   await page.locator('img[alt="Logo preview"][src$="/second.svg"]').waitFor();
   await logo.fill("");
   assert.equal(await page.getByRole("img", { name: "Logo preview" }).count(), 0);
-  await page.getByLabel("RSS / Atom URL", { exact: false }).fill(feed);
+  await page.getByLabel("Feed or YouTube URL", { exact: false }).fill(feed);
   const retry = page.getByRole("button", { name: "Retry with solver" });
   await retry.waitFor();
   assert.equal(requests.length, 1);
   assert.equal(requests[0].use_solver, undefined);
-  await mkdir(`${root}/reports/source-solver`, { recursive: true });
+  await mkdir("/tmp/devfeed-issue120-admin", { recursive: true });
   await page.screenshot({
-    path: `${root}/reports/source-solver/explicit-retry.png`,
+    path: "/tmp/devfeed-issue120-admin/explicit-retry.png",
     fullPage: true,
   });
   await retry.click();
@@ -144,11 +172,11 @@ try {
       }),
   );
   assert.equal(requests[1].use_solver, true);
-  await page.getByLabel("RSS / Atom URL", { exact: false }).fill(feed + "-other");
+  await page.getByLabel("Feed or YouTube URL", { exact: false }).fill(feed + "-other");
   await retry.waitFor();
   assert.equal(requests[2].use_solver, undefined);
   await page.setViewportSize({ width: 390, height: 844 });
-  await page.screenshot({ path: `${root}/reports/source-solver/mobile-retry.png`, fullPage: true });
+  await page.screenshot({ path: "/tmp/devfeed-issue120-admin/mobile-retry.png", fullPage: true });
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
   await page.goto(`${origin}/content/sources/${sourceId}/edit`);
   const lookup = page.getByRole("button", { name: "Fetch source details" });
@@ -170,6 +198,35 @@ try {
   await retry.waitFor({ state: "hidden" });
   assert.equal(requests.at(-1).use_solver, true);
   assert.equal(await page.getByRole("textbox", { name: /^Name/ }).inputValue(), "Existing source");
+  await page.goto(`${origin}/content/sources/new`);
+  await page.getByLabel("Feed or YouTube URL", { exact: false }).fill(youtubeWatch);
+  await page.waitForFunction(
+    () => document.querySelector('input[name="name"]')?.value === "One developer video",
+  );
+  const target = page.getByRole("combobox", { name: "YouTube target", exact: true });
+  await target.waitFor();
+  assert.equal(await target.textContent(), "Video");
+  await target.click();
+  await page.getByRole("option", { name: "Playlist", exact: true }).click();
+  await page.waitForFunction(
+    () => document.querySelector('input[name="name"]')?.value === "Concurrency playlist",
+  );
+  assert.equal(requests.at(-1).youtube_target, "playlist");
+  await page.setViewportSize({ width: 1280, height: 1000 });
+  await page.screenshot({ path: "/tmp/devfeed-issue120-admin/youtube-target.png", fullPage: true });
+  await page.setViewportSize({ width: 390, height: 844 });
+  assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
+  await page.screenshot({
+    path: "/tmp/devfeed-issue120-admin/youtube-target-mobile.png",
+    fullPage: true,
+  });
+  const handle = page.getByLabel("Feed or YouTube URL", { exact: false });
+  await handle.fill("@developers");
+  await page.waitForFunction(
+    () => document.querySelector('input[name="name"]')?.value === "Engineering channel",
+  );
+  assert.equal(await handle.evaluate((input) => input.checkValidity()), true);
+  assert.equal(requests.at(-1).feed_url, "@developers");
   assert.deepEqual(errors, []);
   console.log(
     "Source solver browser checks passed: explicit opt-in, filled metadata, reset, edit preservation, mobile layout.",

@@ -1,3 +1,4 @@
+import { canFollowSource, sourceCollectionLabel } from "@/lib/video";
 import { ReaderDisclosure } from "./reader-disclosure";
 import { SourceFollow } from "./source-follow";
 import { TopicFollow } from "./topic-follow";
@@ -13,7 +14,7 @@ import { RetryFeed } from "@/components/retry-feed";
 import { feedPlacements, type FeedDescriptor } from "@/lib/reader-feed";
 
 import type { ReactNode } from "react";
-import type { FeedPage, FeedOptions } from "@/lib/types";
+import type { FeedPage, FeedOptions, Source } from "@/lib/types";
 
 export type FeedContentProps = {
   filters: FeedFilters;
@@ -23,6 +24,7 @@ export type FeedContentProps = {
   logoVariants?: { url: string; width: number }[];
   topicId?: string;
   section?: "feed" | "topics" | "sources";
+  source?: Source;
   feed: PromiseSettledResult<FeedPage>;
   options: PromiseSettledResult<FeedOptions>;
   children?: ReactNode;
@@ -39,6 +41,7 @@ export function FeedContent({
   logoVariants,
   topicId,
   section = "feed",
+  source,
   feed,
   options,
   children,
@@ -70,6 +73,12 @@ export function FeedContent({
               )}
               <h1>{filters.q ? `Results for “${filters.q}”` : title}</h1>
             </div>
+            {sourceCollectionLabel(source) && (
+              <p className="source-kind">
+                {sourceCollectionLabel(source)}
+                {source?.recurring === false ? " · Single submission" : " · Recurring collection"}
+              </p>
+            )}
             {description &&
               (section === "sources" ? (
                 <div className="source-description">
@@ -81,7 +90,7 @@ export function FeedContent({
                 </ReaderDisclosure>
               ))}
           </div>
-          {section === "sources" && filters.source_id && (
+          {section === "sources" && filters.source_id && canFollowSource(source) && (
             <SourceFollow
               sourceId={filters.source_id}
               returnTo={feedHref(filters, { cursor: filters.cursor })}

@@ -1,6 +1,7 @@
 import logging
 import time
 import uuid
+from dataclasses import replace
 from datetime import timedelta
 
 from devfeed_core.article_jobs import request_article_enrichment
@@ -27,6 +28,7 @@ from devfeed_core.source_tags import attach_source_tags, resolve_source_tags, so
 from devfeed_core.source_types import SourceType
 from devfeed_core.taxonomy import classify, classify_tags, detect_content_type
 from devfeed_core.urls import fingerprint
+from devfeed_core.youtube import parse_youtube_url
 from sqlalchemy import case, func, select, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
@@ -44,7 +46,18 @@ def store_entries(session: Session, source_id: uuid.UUID, parsed: ParsedFeed) ->
     tags = session.scalars(select(Tag)).all()
     created = 0
     # Stable lock order across workers importing the same URLs from different feeds.
-    for entry in sorted(parsed.entries, key=lambda item: item.canonical_url):
+    entries = []
+    for entry in parsed.entries:
+        try:
+            target = parse_youtube_url(entry.canonical_url)
+        except ValueError:
+            target = None
+        video_id = target.resource_id if target is not None and target.kind == "video" else None
+        if video_id:
+            assert target is not None
+            entry = replace(entry, canonical_url=target.canonical_url)
+        entries.append((entry, video_id))
+    for entry, video_id in sorted(entries, key=lambda item: item[0].canonical_url):
         source_tag_ids = [supplied_tags[key] for key in source_tag_names(entry.tags)]
         existing_origin = session.scalar(
             select(ArticleOrigin.article_id).where(
@@ -59,6 +72,9 @@ def store_entries(session: Session, source_id: uuid.UUID, parsed: ParsedFeed) ->
             insert(Article)
             .values(
                 canonical_url=entry.canonical_url,
+                provider="youtube" if video_id else None,
+                provider_resource_id=video_id,
+                content_format="video" if video_id else "article",
                 url_hash=url_hash,
                 title=entry.title,
                 summary=entry.summary,
@@ -77,7 +93,7 @@ def store_entries(session: Session, source_id: uuid.UUID, parsed: ParsedFeed) ->
             created += 1
         else:
             article_id = session.scalar(select(Article.id).where(Article.url_hash == url_hash))
-            if entry.source_type == SourceType.PUBLISHER:
+            if entry.source_type == SourceType.PUBLISHER and not video_id:
                 # A discovery-only placeholder must not win over a publisher feed.
                 # Never change identity or feed ordering as metadata improves.
                 session.execute(
@@ -121,7 +137,8 @@ def store_entries(session: Session, source_id: uuid.UUID, parsed: ParsedFeed) ->
             )
         )
         if (
-            entry.source_type == SourceType.AGGREGATOR
+            video_id
+            or entry.source_type == SourceType.AGGREGATOR
             or not entry.summary
             or get_settings().ai_enabled
         ):
@@ -193,20 +210,54 @@ def _ingest(job_id: str) -> None:
         )
         source_id, attempt = claimed_source.id, claimed_job.attempts
         source_type = SourceType(claimed_source.source_type)
+        provider_snapshot = None
+        if getattr(claimed_source, "provider", "rss") == "youtube":
+            from devfeed_aggregator.youtube_tasks import source_snapshot
+
+            provider_snapshot = source_snapshot(claimed_source)
     with log_context(source_id=source_id, source_type=source_type, attempt=attempt):
-        _ingest_claimed(factory, identifier, lease_token, url, etag, modified, started, source_type)
+        _ingest_claimed(
+            factory,
+            identifier,
+            lease_token,
+            url,
+            etag,
+            modified,
+            started,
+            source_type,
+            provider_snapshot=provider_snapshot,
+        )
 
 
-def _ingest_claimed(factory, identifier, lease_token, url, etag, modified, started, source_type):
+def _ingest_claimed(
+    factory,
+    identifier,
+    lease_token,
+    url,
+    etag,
+    modified,
+    started,
+    source_type,
+    *,
+    provider_snapshot=None,
+):
     logger.info("ingestion_started")
     # No database transaction or connection is held while downloading/parsing.
     try:
-        result = fetch_feed(url, etag, modified)
+        if provider_snapshot is not None:
+            from devfeed_core.feeds.fetcher import FetchResult
+
+            from devfeed_aggregator.youtube_tasks import apply_refresh, fetch_refresh
+
+            provider_refresh = fetch_refresh(factory, provider_snapshot)
+            result = FetchResult(200, b"", "https://www.youtube.com/")
+        else:
+            result = fetch_feed(url, etag, modified)
         parsed = (
             detect_feed_languages(
                 parse_feed(result.body, result.final_url, utcnow(), source_type=source_type)
             )
-            if result.status == 200
+            if result.status == 200 and provider_snapshot is None
             else None
         )
         with factory.begin() as session:
@@ -226,7 +277,26 @@ def _ingest_claimed(factory, identifier, lease_token, url, etag, modified, start
                 fail_job(session, job, "Source was disabled during ingestion", retryable=False)
                 logger.info("ingestion_source_disabled")
                 return
-            if parsed:
+            if provider_snapshot is not None:
+                resource = provider_snapshot["resource"]
+                if (
+                    source.provider,
+                    source.resource_kind,
+                    source.provider_resource_id,
+                    source.provider_collection_id,
+                ) != ("youtube", resource.kind, resource.resource_id, resource.collection_id):
+                    fail_job(
+                        session,
+                        job,
+                        "YouTube source identity changed during ingestion",
+                        retryable=False,
+                    )
+                    return
+                job.articles_created, job.entries_skipped = apply_refresh(
+                    session, source, provider_refresh
+                )
+                job.entries_seen = len(provider_refresh.memberships)
+            elif parsed:
                 job.articles_created = store_entries(session, source.id, parsed)
                 job.entries_seen = parsed.seen
                 job.entries_skipped = parsed.skipped
@@ -274,6 +344,15 @@ def _ingest_claimed(factory, identifier, lease_token, url, etag, modified, start
         with factory.begin() as session:
             job = owned_job(session, IngestionJob, identifier, lease_token)
             if job is not None:
+                if provider_snapshot is not None:
+                    source = session.get(Source, job.source_id)
+                    source.provider_state = {
+                        **(source.provider_state or {}),
+                        "status": "error",
+                        "error_code": feed_error.reason
+                        if feed_error
+                        else "youtube_ingestion_error",
+                    }
                 fail_job(
                     session,
                     job,

@@ -65,6 +65,7 @@ def recommendation_eligibility(user_id):
         (UserRecommendation.source_id.is_not(None))
         & Article.origins.any(
             (ArticleOrigin.source_id == UserRecommendation.source_id)
+            & ArticleOrigin.active.is_(True)
             & ArticleOrigin.source.has(Source.approval_status == "approved")
         )
         & select(UserSource.user_id)
@@ -94,6 +95,7 @@ def starter_articles(session, user_id, settings, limit, content_type, source_id)
         ),
         Article.origins.any(
             ArticleOrigin.source_id.in_(source_follow)
+            & ArticleOrigin.active.is_(True)
             & ArticleOrigin.source.has(Source.approval_status == "approved")
         ),
     )
@@ -103,7 +105,15 @@ def starter_articles(session, user_id, settings, limit, content_type, source_id)
             visible_article(),
             Article.language.in_(settings.languages),
             Article.content_type.in_([content_type] if content_type else settings.content_types),
-            *([Article.origins.any(ArticleOrigin.source_id == source_id)] if source_id else []),
+            *(
+                [
+                    Article.origins.any(
+                        (ArticleOrigin.source_id == source_id) & ArticleOrigin.active.is_(True)
+                    )
+                ]
+                if source_id
+                else []
+            ),
         )
         .order_by(Article.feed_at.desc(), Article.id.desc())
         .limit(limit)
@@ -244,7 +254,12 @@ def feed(
                         [content_type] if content_type else settings.content_types
                     ),
                     *(
-                        [Article.origins.any(ArticleOrigin.source_id == source_id)]
+                        [
+                            Article.origins.any(
+                                (ArticleOrigin.source_id == source_id)
+                                & ArticleOrigin.active.is_(True)
+                            )
+                        ]
                         if source_id
                         else []
                     ),
@@ -300,7 +315,15 @@ def feed(
                 Article.content_type.in_(
                     [content_type] if content_type else settings.content_types
                 ),
-                *([Article.origins.any(ArticleOrigin.source_id == source_id)] if source_id else []),
+                *(
+                    [
+                        Article.origins.any(
+                            (ArticleOrigin.source_id == source_id) & ArticleOrigin.active.is_(True)
+                        )
+                    ]
+                    if source_id
+                    else []
+                ),
             )
             .options(*PUBLIC_ARTICLE_OPTIONS)
         )

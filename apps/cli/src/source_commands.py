@@ -4,6 +4,7 @@ from typing import Annotated
 from uuid import UUID
 
 import typer
+from devfeed_core.schemas import YouTubeTargetKind
 from devfeed_core.source_types import SourceType
 
 from devfeed_cli import commands
@@ -21,13 +22,18 @@ from devfeed_cli.options import (
 )
 from devfeed_cli.runtime import invoke
 
-app = group("Submit, inspect and configure RSS/Atom sources.")
+app = group("Submit, inspect and configure feeds and YouTube resources.")
 
 
 @app.command("add")
 def add(
     ctx: typer.Context,
-    url: Annotated[str, typer.Argument(help="Public RSS/Atom feed URL.")],
+    url: Annotated[
+        str,
+        typer.Argument(
+            help="Public RSS/Atom or YouTube channel, playlist or video URL; @handle is supported."
+        ),
+    ],
     source_type: Annotated[SourceType, typer.Option("--type")],
     name: Annotated[
         str | None, typer.Option(help="Defaults to RSS/Atom title, then hostname.")
@@ -45,6 +51,12 @@ def add(
         str | None, typer.Option(help="Attribution, not verified identity.")
     ] = None,
     submitter_url: str | None = None,
+    youtube_target: Annotated[
+        YouTubeTargetKind | None,
+        typer.Option(
+            help="Select video or playlist explicitly for watch URLs containing both IDs."
+        ),
+    ] = None,
 ):
     """Validate before saving; trust new sources, preserve existing source review/settings."""
     invoke(ctx, commands.source_add, locals())
@@ -56,6 +68,12 @@ def import_sources(
     file: Annotated[str, typer.Argument(help="UTF-8 file of feed URLs, or - for stdin.")],
     source_type: Annotated[SourceType, typer.Option("--type")],
     poll_interval: PollInterval = 43200,
+    youtube_target: Annotated[
+        YouTubeTargetKind | None,
+        typer.Option(
+            help="Explicit target for YouTube entries; omitted watch URLs import only the video."
+        ),
+    ] = None,
 ):
     """Validate every unique feed before saving the batch; one URL per line."""
     invoke(ctx, commands.source_import, locals())

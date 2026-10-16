@@ -11,6 +11,7 @@ export type ClassifyArticlePageKind = typeof ClassifyArticlePageKind[keyof typeo
 
 export const ClassifyArticlePageKind = {
   article: 'article',
+  video: 'video',
   non_article: 'non_article',
   uncertain: 'uncertain',
 } as const;

@@ -6,6 +6,7 @@ import re
 from pydantic import ValidationError
 
 CODES = {
+    "insufficient_video_evidence",
     "invalid_article_title",
     "non_english_ai_prose",
     "unknown_catalog_id",

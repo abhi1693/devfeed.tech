@@ -67,6 +67,19 @@ def feed_sample(parsed):
     ]
 
 
+def video_sample(videos):
+    """Bounded public API descriptions, independent of channel reputation."""
+    entries = [
+        video
+        for video in videos
+        if video.availability == "public" and eligible_content(video.published_at)
+    ][:10]
+    return [
+        {"index": index, "title": video.title, "summary": (video.description or "")[:2000]}
+        for index, video in enumerate(entries)
+    ]
+
+
 def evidence_options(entry):
     """Only offer verbatim, bounded source passages; never manufacture evidence."""
     options = []
@@ -122,7 +135,7 @@ def restore_source_evidence(output, sample):
     return result
 
 
-def relevance_prompt(sample):
+def relevance_prompt(sample, *, provider="rss"):
     return (
         SOURCE_SCOPE_POLICY
         + """
@@ -149,6 +162,14 @@ Use uncertain with evidence "none" when no quote supports a classification. Neve
 quote text itself; the app restores the exact source passage before validating it.
 Return every supplied entry index exactly once. The app decides approval or rejection.
 """
+        + (
+            "\nThis is a YouTube metadata sample. Entries describe distinct videos, not "
+            "articles or transcripts. Judge their supplied descriptions independently; "
+            "do not infer what was demonstrated from titles or a channel's reputation. "
+            "Source approval never approves another channel or every video in this sample.\n"
+            if provider == "youtube"
+            else ""
+        )
         + json.dumps(
             {
                 "entries": [
@@ -208,7 +229,7 @@ def requires_relevance(source):
         settings.full_automation
         and settings.ai_enabled
         and source.approval_status == "pending"
-        and bool(source.feed_url)
+        and (bool(source.feed_url) or getattr(source, "provider", None) == "youtube")
     )
 
 
@@ -219,7 +240,7 @@ def relevance_job_condition():
     return SourceEnrichmentJob.source_id.in_(
         select(Source.id).where(
             Source.approval_status == "pending",
-            Source.feed_url.is_not(None),
+            or_(Source.feed_url.is_not(None), Source.provider == "youtube"),
         )
     )
 
@@ -240,7 +261,7 @@ def schedule_pending_reviews(factory, limit=50):
             select(Source)
             .where(
                 Source.approval_status == "pending",
-                Source.feed_url.is_not(None),
+                or_(Source.feed_url.is_not(None), Source.provider == "youtube"),
                 or_(
                     Source.relevance_assessment == {},
                     Source.relevance_assessment["version"].astext.in_(PREVIOUS_VERSIONS),

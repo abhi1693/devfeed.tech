@@ -47,8 +47,17 @@ from devfeed_core.schemas import (
 )
 from devfeed_core.services import OperationConflict, RecordNotFound
 from devfeed_core.topics import lock_topics
+from devfeed_core.video_content import (
+    automatic_video_evidence,
+    has_video_description,
+    verified_video_metadata,
+    video_description,
+    video_language,
+    video_metadata,
+    youtube_video,
+)
 
-PROMPT_VERSION = "article-analysis-v5-page-purpose"
+PROMPT_VERSION = "article-analysis-v6-substantive-video"
 VALIDATION_VERSION = "article-validation-v2-discard-unpublishable-prose"
 TERMINAL_ANALYSIS_ERRORS = frozenset(
     {"ai_not_configured", "unexpected_tool_execution", "unexpected_server_request"}
@@ -89,7 +98,7 @@ class Classifications(InputModel):
 
 
 class AnalysisResult(Classifications):
-    page_kind: Literal["article", "non_article", "uncertain"]
+    page_kind: Literal["article", "video", "non_article", "uncertain"]
     ai_title: str | None = Field(min_length=1, max_length=200)
     title_evidence: str | None = Field(min_length=4, max_length=500)
     outcome: Literal["ready", "insufficient_evidence"]
@@ -101,12 +110,12 @@ class AnalysisResult(Classifications):
     def check_result(self):
         # Optional presentation cannot invalidate an otherwise usable negative
         # classification. Incomplete/non-article results never apply this prose.
-        if self.outcome != "ready" or self.page_kind != "article":
+        if self.outcome != "ready" or self.page_kind not in {"article", "video"}:
             self.ai_title = self.title_evidence = None
             self.ai_summary = self.ai_description = None
         if self.ai_title is not None:
             if (
-                self.page_kind != "article"
+                self.page_kind not in {"article", "video"}
                 or self.outcome != "ready"
                 or not self.title_evidence
                 or not self.title_evidence.strip()
@@ -134,7 +143,7 @@ class AnalysisResult(Classifications):
 
 
 class ManualClassification(Classifications):
-    page_kind: Literal["article", "non_article", "uncertain"] = "uncertain"
+    page_kind: Literal["article", "video", "non_article", "uncertain"] = "uncertain"
     language: Language
     content_type: ContentType
     content_format: ContentFormat
@@ -144,6 +153,25 @@ class ManualClassification(Classifications):
 
 
 def source_snapshot(article: Article, content: ArticleContent | None) -> dict:
+    if youtube_video(article):
+        description = video_description(article, content)
+        metadata = video_metadata(article)
+        return {
+            "url": article.canonical_url,
+            "title": article.title,
+            "source_summary": description,
+            "text": description,
+            "text_source": "youtube_metadata",
+            "provider": "youtube",
+            "provider_resource_id": article.provider_resource_id,
+            "video_metadata": {
+                "verified": verified_video_metadata(article),
+                "has_description": has_video_description(article, content),
+                "availability": metadata.get("availability"),
+                "channel_id": metadata.get("channel_id"),
+                "language": video_language(article),
+            },
+        }
     use_content = (
         content is not None
         and bool(content.text)
@@ -515,6 +543,22 @@ contact, archive, tag/category indexes, privacy, terms and other site-utility pa
 A genuine tutorial about implementing an RSS reader or generating feeds, or reporting
 on RSS technology, can be an article. Do not reject it solely for an RSS title or URL,
 or a subscription footer. Judge substantive content separately from site boilerplate.
+The supplied provider=youtube identifies a video resource, not a publisher article.
+Use page_kind video with content_format video only for substantive video content
+supported by verified public provider metadata and its description. Assess each video
+independently: an approved or relevant channel does not make every upload relevant.
+The title, channel name, thumbnail and duration alone cannot establish what a video
+teaches. Descriptions are the supplied evidence; no transcript or playback was retrieved.
+Do not claim to have watched it or invent examples, conclusions, or teaching content.
+Sparse descriptions, generic promotion and ambiguous evidence require uncertain or
+insufficient_evidence, not a fabricated summary. Keep unrelated entertainment distinct
+from insufficient evidence. For videos, leave ai_title, title_evidence, ai_summary and
+ai_description null: the application displays only retrieved provider presentation.
+If video_metadata.language is null, keep language null
+and return insufficient_evidence; do not infer spoken language from a translated title
+or description. An editor may resolve unknown language separately. For other providers,
+retain the existing article/non_article/uncertain page-kind rules; do not relabel pages
+as video based on their URL, title or content-format guess.
 Review the title: preserve clear, factual titles by returning ai_title null.
 For vague titles or clickbait, write a concise, specific, neutral title in ai_title.
 State the actual subject and supported finding; remove hype, withheld information,
@@ -554,6 +598,25 @@ The application, not you, decides approval and publication.
 
 
 def validate_evidence(result: Classifications, snapshot: dict, taxonomy: dict) -> None:
+    page_kind = getattr(result, "page_kind", None)
+    if snapshot.get("provider") == "youtube" or page_kind == "video":
+        metadata = snapshot.get("video_metadata") or {}
+        ready = not isinstance(result, AnalysisResult) or result.outcome == "ready"
+        if ready and (
+            snapshot.get("provider") != "youtube"
+            or metadata.get("verified") is not True
+            or metadata.get("has_description") is not True
+            or page_kind != "video"
+            or result.content_format != "video"
+            or (
+                isinstance(result, AnalysisResult)
+                and (not metadata.get("language") or result.language != metadata["language"])
+            )
+        ):
+            raise InferenceValidationError(
+                "insufficient_video_evidence",
+                "A ready video requires verified provider description and language evidence",
+            )
     if isinstance(result, AnalysisResult) and result.ai_title:
         body = " ".join(
             " ".join(str(snapshot.get(field) or "").split()) for field in ("source_summary", "text")
@@ -588,6 +651,49 @@ def validate_evidence(result: Classifications, snapshot: dict, taxonomy: dict) -
             raise InferenceValidationError(
                 "evidence_not_in_input", "Classification evidence is not present in the input"
             )
+
+
+def ground_video_result(result: AnalysisResult, snapshot: dict) -> AnalysisResult:
+    """Do not persist model-written claims about unwatched video contents.
+
+    Sparse evidence completes as insufficient rather than retrying indefinitely.
+    The word floor only controls automation; a human can classify concise evidence.
+    """
+    if snapshot.get("provider") != "youtube":
+        return result
+    description = " ".join(str(snapshot.get("source_summary") or "").split())
+    language = (snapshot.get("video_metadata") or {}).get("language")
+    supported_topic = any(
+        topic.role in {"primary", "supporting"} and " ".join(topic.evidence.split()) in description
+        for topic in result.topics
+    )
+    insufficient = result.outcome != "ready" or (
+        result.page_kind == "video"
+        and result.content_format == "video"
+        and (
+            not language
+            or not automatic_video_evidence(description, str(snapshot.get("title") or ""))
+            or (result.developer_relevance == "relevant" and not supported_topic)
+        )
+    )
+    summary = description[:1200]
+    if len(description) > 1200:
+        summary = summary.rsplit(" ", 1)[0]
+    return result.model_copy(
+        update={
+            "outcome": "insufficient_evidence" if insufficient else result.outcome,
+            "ai_title": None,
+            "title_evidence": None,
+            "ai_summary": summary if not insufficient and language == "en" else None,
+            "ai_description": None,
+            "reasons": [
+                *result.reasons[:11],
+                "Video evidence is insufficient for automation; explicit review is required.",
+            ]
+            if insufficient
+            else result.reasons,
+        }
+    )
 
 
 def request_analysis(
@@ -808,6 +914,9 @@ def apply_analysis(
     if not approved_sources(session, article.id):
         finish_job(job, "unapproved", utcnow())
         return
+    if youtube_video(article):
+        result = ground_video_result(result, current)
+        job.result = {**(job.result or {}), **result.model_dump(mode="json")}
     if result.outcome != "ready":
         # Topic matching is useful even when the article is not publishable yet.
         # Keep this deliberately narrow: incomplete analysis must not write prose,
@@ -929,7 +1038,7 @@ def require_primary_topic(result: AnalysisResult) -> tuple[AnalysisResult, str |
     analysis to an incomplete result so publication automation cannot treat it as
     a completed classification. Never manufacture a topic identity.
     """
-    if result.developer_relevance != "relevant" or result.page_kind != "article":
+    if result.developer_relevance != "relevant" or result.page_kind not in {"article", "video"}:
         return result, None
     topics = _ensure_primary_topic(result.developer_relevance, result.topics)
     if any(topic.role == "primary" for topic in topics):

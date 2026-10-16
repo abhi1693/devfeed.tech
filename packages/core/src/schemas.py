@@ -65,6 +65,17 @@ TagName = Annotated[
 ContentType = Literal["article", "news", "tutorial", "release", "comparison", "opinion"]
 ContentFormat = Literal["article", "podcast", "video", "paper", "discussion"]
 ApprovalStatus = Literal["pending", "approved", "rejected"]
+YouTubeTargetKind = Literal["channel", "playlist", "video"]
+
+
+def source_location(value: str) -> str:
+    """A handle is shorthand for a public YouTube channel, never a feed URL."""
+    value = value.strip()
+    return validate_public_url(
+        "https://www.youtube.com/" + value if value.startswith("@") else value
+    )
+
+
 Language = Annotated[
     str, StringConstraints(pattern=r"^[a-z]{2,3}(?:-[a-z0-9]{2,8})*$", max_length=35)
 ]
@@ -138,8 +149,9 @@ class SourceSubmission(SourceProfileInput):
     feed_url: str = Field(max_length=2048)
     source_type: SourceType
     submitted_by: SourceSubmitter | None = None
+    youtube_target: YouTubeTargetKind | None = None
 
-    _validate_url = field_validator("feed_url")(validate_public_url)
+    _validate_url = field_validator("feed_url")(source_location)
 
     @field_validator("name", mode="before")
     @classmethod
@@ -156,8 +168,9 @@ class SourceCreate(SourceProfileInput):
     source_type: SourceType
     submitted_by: SourceSubmitter | None = None
     feed_url: str | None = Field(default=None, max_length=2048)
+    youtube_target: YouTubeTargetKind | None = None
     _validate_url = field_validator("feed_url")(
-        lambda value: validate_public_url(value) if value is not None else None
+        lambda value: source_location(value) if value is not None else None
     )
     _empty_name = field_validator("name", mode="before")(
         lambda value: None if isinstance(value, str) and not value.strip() else value
@@ -166,7 +179,7 @@ class SourceCreate(SourceProfileInput):
     @model_validator(mode="after")
     def require_location(self):
         if not self.feed_url and not self.website_url:
-            raise ValueError("Provide an RSS / Atom URL or publisher website")
+            raise ValueError("Provide an RSS / Atom, YouTube, or publisher website URL")
         return self
 
     enabled: bool = True
@@ -235,6 +248,21 @@ class SourceRef(ORMModel):
     slug: str
     name: str
     source_type: SourceType
+    provider: Literal["rss", "youtube"] = "rss"
+    resource_kind: Literal["feed", "channel", "playlist", "video"] = "feed"
+    provider_resource_id: str | None = None
+    recurring: bool = True
+
+    @field_validator("provider", "resource_kind", "recurring", mode="before")
+    @classmethod
+    def provider_defaults_before_insert(cls, value, info):
+        # SQL defaults apply at INSERT. Read-only previews may serialize a new ORM record.
+        return (
+            {"provider": "rss", "resource_kind": "feed", "recurring": True}[info.field_name]
+            if value is None
+            else value
+        )
+
     description: str | None = None
     website_url: str | None = None
     logo_url: str | None = None
@@ -283,6 +311,8 @@ class ArticleEnrichmentJobOut(ORMModel):
 
 
 class SourceOut(SourceRef):
+    provider_collection_id: str | None = None
+    provider_state: dict[str, JsonValue] = Field(default_factory=dict)
     relevance_assessment: dict[str, JsonValue] = Field(default_factory=dict)
     full_automation: bool = Field(default_factory=lambda: get_settings().full_automation)
     publication_policy: Literal["manual", "preview", "auto"] = "manual"
@@ -355,6 +385,12 @@ class ArticleOriginOut(ORMModel):
     source_id: uuid.UUID
     original_url: str
     source_metadata: dict[str, JsonValue]
+    active: bool = True
+
+    @field_validator("active", mode="before")
+    @classmethod
+    def active_before_insert(cls, value):
+        return True if value is None else value
 
 
 class ArticleTopicOut(ORMModel):
@@ -371,10 +407,24 @@ class ImageVariant(BaseModel):
     width: int
 
 
+class VideoMetadata(BaseModel):
+    """Public presentation fields; provider evidence and cursors remain server-side."""
+
+    channel_id: str | None = None
+    channel_title: str | None = None
+    channel_url: str | None = None
+    duration_seconds: int | None = None
+    availability: Literal["public", "unavailable"] = "unavailable"
+    retrieved_at: datetime | None = None
+
+
 class ArticleOut(ORMModel):
     id: uuid.UUID
     slug: str
     canonical_url: str
+    provider: Literal["youtube"] | None = None
+    provider_resource_id: str | None = None
+    video_metadata: VideoMetadata | None = None
     title: str
     summary: str
     sponsor_names: list[str] = Field(default_factory=list)
@@ -419,6 +469,7 @@ class ArticleOut(ORMModel):
             }
         }
         values["sponsor_names"] = getattr(article, "sponsor_names", None) or []
+        values["video_metadata"] = article.video_metadata if article.provider == "youtube" else None
         values["sponsor_link_rel"] = (
             default_link_rel() if sponsor_link_rel is None else sponsor_link_rel
         )
@@ -447,7 +498,8 @@ class ArticleOut(ORMModel):
         origins = [
             origin
             for origin in article.origins
-            if not public or origin.source.approval_status == "approved"
+            if not public
+            or (origin.active is not False and origin.source.approval_status == "approved")
         ]
         values["origins"] = origins
         sources = {origin.source.id: origin.source for origin in origins}

@@ -44,6 +44,7 @@ from devfeed_core.models import (
 from devfeed_core.publication_policy import apply_publication_policy, evaluate_publication
 from devfeed_core.tag_topic_discovery import record_keys
 from devfeed_core.topics import TopicWrite, lock_topics
+from devfeed_core.video_content import youtube_video
 
 CHECK_INTERVAL = timedelta(minutes=5)
 TOPIC_WAIT = timedelta(hours=24)
@@ -268,6 +269,7 @@ def _schedule_article_automation(factory) -> dict[str, int]:
         .join(Source)
         .where(
             ArticleOrigin.article_id == Article.id,
+            ArticleOrigin.active.is_(True),
             Source.approval_status == "approved",
             Source.enabled.is_(True),
         )
@@ -307,7 +309,9 @@ def _schedule_article_automation(factory) -> dict[str, int]:
                 or article.publication_status != "unpublished"
                 or article.automation_next_check_at > now
                 or not any(
-                    o.source.enabled and o.source.approval_status == "approved"
+                    getattr(o, "active", True) is not False
+                    and o.source.enabled
+                    and o.source.approval_status == "approved"
                     for o in article.origins
                 )
             ):
@@ -325,7 +329,11 @@ def _schedule_article_automation(factory) -> dict[str, int]:
             )
             if enrichment is not None and enrichment.status in {"queued", "running"}:
                 continue
-            if enrichment is not None and enrichment.status == "failed":
+            if (
+                enrichment is not None
+                and enrichment.status == "failed"
+                and not youtube_video(article)
+            ):
                 content = session.get(ArticleContent, identifier)
                 if not meaningful_text(article.summary) and not meaningful_text(
                     content.text if content is not None else None
@@ -351,7 +359,10 @@ def _schedule_article_automation(factory) -> dict[str, int]:
                     counts["articles_rejected"] += 1
                     continue
             if job is None and enrichment is None:
-                request_article_enrichment(session, identifier, automatic=True)
+                if youtube_video(article):
+                    request_analysis(session, identifier, automatic=True)
+                else:
+                    request_article_enrichment(session, identifier, automatic=True)
                 continue
             negative = (
                 job is not None
@@ -386,6 +397,7 @@ def _schedule_article_automation(factory) -> dict[str, int]:
             # so unchanged pages cannot create an automatic enrichment loop.
             if (
                 enrichment is not None
+                and not youtube_video(article)
                 and enrichment.status == "succeeded"
                 and enrichment.result.get("extraction_version") != EXTRACTION_VERSION
                 and (
