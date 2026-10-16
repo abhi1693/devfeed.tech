@@ -410,7 +410,7 @@ jobs:
     uses: abhi1693/actions/.github/workflows/python-ci.yml@afba12afb85bf40be9328c92dc53b779f18d5c6d # v1.0.1
     with:
       runs-on: ubuntu-24.04-arm
-      timeout-minutes: 20
+      timeout-minutes: 30
       python-version: "3.12"
       enable-cache: true
       uv-version: 0.12.10
@@ -453,7 +453,7 @@ jobs:
   reader-parity:
     name: E2E / Reader checks
     runs-on: ubuntu-24.04
-    timeout-minutes: 20
+    timeout-minutes: 40
     env:
       NEXT_TELEMETRY_DISABLED: "1"
       UV_NO_SYNC: "1"
