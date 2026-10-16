@@ -49,6 +49,15 @@ async function DirectArticle({
 }
 export const dynamic = "force-dynamic";
 type Props = { params: Promise<{ slug: string }> };
+async function ArticleBackgroundFeed() {
+  // Keep the exclusion in the resolved stream segment as well as the loading fallback.
+  const feed = await FeedView({
+    filters: parseFilters({}),
+    feedDescriptor: readerFeeds.latest,
+    structuredData: false,
+  });
+  return <div data-nosnippet>{feed}</div>;
+}
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const article = await loadArticle((await params).slug);
   return article
@@ -73,16 +82,14 @@ export default async function ArticlePage({ params }: Props) {
       </DirectArticle>
       <Suspense
         fallback={
-          <UserShell>
-            <LoadingSkeleton />
-          </UserShell>
+          <div data-nosnippet>
+            <UserShell>
+              <LoadingSkeleton />
+            </UserShell>
+          </div>
         }
       >
-        <FeedView
-          filters={parseFilters({})}
-          feedDescriptor={readerFeeds.latest}
-          structuredData={false}
-        />
+        <ArticleBackgroundFeed />
       </Suspense>
     </>
   );

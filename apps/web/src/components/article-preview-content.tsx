@@ -118,7 +118,7 @@ export function ArticlePreviewContent({
                 </div>
               )}
             </div>
-            <aside className="preview-sidebar">
+            <div className="preview-sidebar" role="complementary" data-nosnippet>
               {source && <ArticleSourceBrief source={source} articleSlug={article.slug} />}
               {topicBrief}
               <PartnerPlacements
@@ -127,7 +127,7 @@ export function ArticlePreviewContent({
                 article_id={article.id}
                 ad_formats={["engagement"]}
               />
-            </aside>
+            </div>
           </div>
         </div>
         <footer className="preview-footer" aria-label="Article actions">

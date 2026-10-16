@@ -94,6 +94,15 @@ are marked noindex; missing articles still return 404 and unexpected exceptions
 still reach the error boundary. Chrome and Edge share the error content and retry
 control. The browser suites exercise failure followed by successful retry.
 
+Direct article pages keep the requested article's title, overview, canonical and
+structured data together. Their streamed background feed and related sidebar
+carry `data-nosnippet` so unrelated text is excluded from Google search snippets.
+The loading fallback and resolved feed segment both carry the exclusion; the
+article overview stays eligible. The shared sidebar also applies in Chrome and
+Edge. This does not hide content or prevent link crawling. Search engines choose
+their own snippets; after deployment, use Search Console URL Inspection and Bing
+Webmaster Tools to request a recrawl and verify the indexed result.
+
 Reader cards and inbox actions pass `articleDestination(slug)` to navigation;
 page actions use `pageDestination(href)` with their scroll policy. `ReaderLink`
 serializes these destinations for native links, and `useReaderRouter` forwards
