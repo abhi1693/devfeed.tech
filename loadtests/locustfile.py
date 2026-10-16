@@ -106,6 +106,7 @@ def quality_gate(environment, **kwargs):
 class PublicReader(HttpUser):
     """Browse, paginate, open articles and change discovery filters with think time."""
 
+    # random.choice selects public GET journeys and resources, never session/security values.
     wait_time = between(0.2, 1.0)
 
     def on_start(self):
