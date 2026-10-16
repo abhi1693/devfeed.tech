@@ -28,17 +28,22 @@ test("server pins the Codex script and its Node interpreter independently of PAT
     },
     "./transport.cjs": {},
   };
-  vm.runInNewContext(fs.readFileSync(require.resolve("../infra/codex/server.cjs"), "utf8"), {
-    require: (name) => modules[name],
-    process: {
-      execPath: "/usr/local/bin/node",
-      argv: ["node", "server.cjs", ...arguments_],
-      env: { PATH: "/workspace/untrusted-bin" },
-      umask() {},
-      on() {},
+  const filename = require.resolve("../infra/codex/server.cjs");
+  vm.runInNewContext(
+    fs.readFileSync(filename, "utf8"),
+    {
+      require: (name) => modules[name],
+      process: {
+        execPath: "/usr/local/bin/node",
+        argv: ["node", "server.cjs", ...arguments_],
+        env: { PATH: "/workspace/untrusted-bin" },
+        umask() {},
+        on() {},
+      },
+      console,
     },
-    console,
-  });
+    { filename },
+  );
   assert.equal(calls.length, 1);
   assert.equal(calls[0][0], "/usr/local/bin/node");
   assert.deepEqual(Array.from(calls[0][1]), [
