@@ -13,6 +13,11 @@ import {
   checkSourceLogoPages,
 } from "../../../scripts/testing/source-logos.mjs";
 
+import {
+  articleTopicContextFixture,
+  checkArticleTopicContext,
+} from "../../../scripts/testing/article-topic-context.mjs";
+
 import { checkPreviewCover } from "../../../scripts/testing/preview-cover.mjs";
 import { checkArticleGrid } from "../../../scripts/testing/article-grid.mjs";
 import { checkDefaultAll, defaultAllFeed } from "../../../scripts/testing/default-all.mjs";
@@ -197,6 +202,7 @@ async function readerFixture(t, imageProfile) {
   const readerDestinations = readerDestinationsFixture(article);
   const loginDestinations = loginDestinationsFixture(article);
   const serverReads = serverReadFixture();
+  const topicContext = articleTopicContextFixture(article);
   await context.route("https://identity.example/authorize?**", (route) =>
     route.fulfill({ contentType: "text/html", body: "<p>Sign-in provider</p>" }),
   );
@@ -209,6 +215,7 @@ async function readerFixture(t, imageProfile) {
   await context.route("https://devfeed.tech/api/**", async (route) => {
     const url = new URL(route.request().url());
     serverReads.record(url.href, route.request().headers(), url.origin);
+    if (topicContext.handles(url)) return route.fulfill(topicContext.respond(url));
     if (loginDestinations.handles(url)) return route.fulfill(loginDestinations.respond(url));
     if (readerDestinations.handles(url))
       return route.fulfill(
@@ -436,6 +443,7 @@ async function readerFixture(t, imageProfile) {
     loginDestinations,
     serverReads,
     domCatalog,
+    topicContext,
     pathFor: (path) => readerBase + path,
   };
 }
@@ -446,6 +454,20 @@ test(
   async (t) => {
     const { page, pathFor } = await readerFixture(t);
     await checkKeyboardReader(page, pathFor, `/tmp/devfeed-sonar-a11y/${browser}`);
+  },
+);
+
+test(
+  "article topic panels preserve contextual assignments in built new tabs",
+  { timeout: 180000 },
+  async (t) => {
+    const { page, pathFor, topicContext } = await readerFixture(t);
+    await checkArticleTopicContext(
+      page,
+      pathFor,
+      topicContext,
+      `${process.env.DEVFEED_TOPIC_CONTEXT_REPORT_DIR ?? path.resolve(import.meta.dirname, "../../../reports/article-topic-context")}/${browser}`,
+    );
   },
 );
 

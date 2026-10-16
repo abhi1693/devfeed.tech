@@ -16,6 +16,12 @@ import {
   checkSourceLogoPages,
 } from "../../../../scripts/testing/source-logos.mjs";
 
+import {
+  articleTopicContextFixture,
+  checkArticleTopicContext,
+  checkArticleTopicDocument,
+} from "../../../../scripts/testing/article-topic-context.mjs";
+
 import { checkPreviewCover } from "../../../../scripts/testing/preview-cover.mjs";
 import { checkNonceCsp } from "../../../../scripts/testing/nonce-csp.mjs";
 import { checkArticleGrid } from "../../../../scripts/testing/article-grid.mjs";
@@ -175,6 +181,7 @@ async function createReaderFixture(t, { thumbnailFeed = false } = {}) {
   const loginDestinations = loginDestinationsFixture(article);
   const serverReads = serverReadFixture();
   const renderReads = renderReadFixture(article, topic);
+  const topicContext = articleTopicContextFixture(article);
   let mode = "ready";
   let notificationCount = 1;
   const defaultAllRequests = [];
@@ -211,6 +218,12 @@ async function createReaderFixture(t, { thumbnailFeed = false } = {}) {
       return;
     }
     serverReads.record(req.url, req.headers, `http://${req.headers.host}`);
+    if (topicContext.handles(requestUrl)) {
+      const { json } = topicContext.respond(requestUrl);
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify(json));
+      return;
+    }
     if (renderReads.handles(requestUrl)) {
       const { status, json } = renderReads.respond(requestUrl, req.headers);
       res.writeHead(status, { "Content-Type": "application/json" });
@@ -1187,6 +1200,7 @@ async function createReaderFixture(t, { thumbnailFeed = false } = {}) {
     runJourney,
     domCatalog,
     renderReads,
+    topicContext,
     setArticleFeedGate: (gate) => {
       articleFeedGate = gate;
     },
@@ -1244,6 +1258,25 @@ test("thumbnails match rendered widths and device pixel ratios", { timeout: 3600
   await mkdir(`${root}/reports/thumbnail-sizing`, { recursive: true });
   const { writeFile } = await import("node:fs/promises");
   await writeFile(`${root}/reports/thumbnail-sizing/web.json`, JSON.stringify(results, null, 2));
+});
+
+test("article topic panels preserve contextual assignments", { timeout: 180000 }, async (t) => {
+  const { browser, origin, topicContext } = await createReaderFixture(t);
+  for (const item of topicContext.cases) {
+    const response = await fetch(`${origin}/articles/${item.article.slug}`);
+    assert.equal(response.status, 200);
+    const dom = new JSDOM(await response.text());
+    checkArticleTopicDocument(dom.window.document, item);
+    dom.window.close();
+  }
+  await withReaderPage(browser, (page) =>
+    checkArticleTopicContext(
+      page,
+      (path) => origin + path,
+      topicContext,
+      `${process.env.DEVFEED_TOPIC_CONTEXT_REPORT_DIR ?? `${root}/reports/article-topic-context`}/web`,
+    ),
+  );
 });
 
 test("article snippets exclude unrelated content", { timeout: 180000 }, async (t) => {
