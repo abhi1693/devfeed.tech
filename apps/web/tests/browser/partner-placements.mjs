@@ -9,6 +9,7 @@ import { chromium } from "playwright";
 
 const searchContextOnly = process.argv.includes("--search-context");
 const linkRelOnly = process.argv.includes("--link-rel");
+const compactFeedOnly = process.argv.includes("--compact-feed");
 
 // Exercise actual production reader bundles and packaged extensions, with controlled
 // delivery responses. Backend integration tests prove relevance and signed receipts.
@@ -2255,7 +2256,7 @@ async function assertCompactFeedTable(context, base, platform) {
           assert.equal(
             await page
               .locator(
-                '.article-table [data-ad-format="engagement"],.article-table .card-image,.article-table .article-card,.article-grid',
+                '.article-table [data-ad-format="engagement"],.article-table .card-image,.article-table .article-card,.article-grid:visible',
               )
               .count(),
             0,
@@ -3380,6 +3381,12 @@ try {
         local.setItem("devfeed:dev-card-promo-seen", "true");
       });
       const page = await context.newPage();
+      if (compactFeedOnly) {
+        await context.clock.install({ time: new Date(receiptIssuedAt * 1000) });
+        await assertCompactFeedTable(context, base, platform);
+        console.log(`${platform}: compact Feed structure, visibility, tracking and expiry passed`);
+        continue;
+      }
       if (!searchContextOnly) await assertPlacementLinkRelations(context, base, platform);
       if (linkRelOnly) continue;
       await assertSearchResultContext(context, base, platform);

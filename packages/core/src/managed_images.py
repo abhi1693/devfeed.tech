@@ -5,6 +5,8 @@ from devfeed_core.config import get_settings
 IMAGE_VERSION = "v1"
 THUMBNAIL_VERSION = "v2"
 THUMBNAIL_QUALITIES = {"v1": 78, "v2": 70}
+ARTICLE_THUMBNAIL_WIDTHS = (320, 480, 640, 768, 960)
+ARTICLE_THUMBNAIL_LAYOUT = "cards-v1"
 
 
 def image_variants(article) -> list[dict]:

@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session, lazyload
 from devfeed_core.config import get_settings
 from devfeed_core.job_lifecycle import finish_job, start_job
 from devfeed_core.jobs import LEASE_SECONDS
-from devfeed_core.managed_images import THUMBNAIL_VERSION, image_variants
+from devfeed_core.managed_images import ARTICLE_THUMBNAIL_LAYOUT, THUMBNAIL_VERSION, image_variants
 from devfeed_core.models import Article, ArticleImageJob, utcnow
 from devfeed_core.services import OperationConflict, RecordNotFound
 
@@ -120,11 +120,16 @@ def retry_image(session: Session, job_id: uuid.UUID) -> ArticleImageJob | None:
         )
     else:
         assert previous.article_id is not None
-        job = (
-            request_thumbnail_recompression(session, previous.article_id)
-            if previous.storage_version == THUMBNAIL_VERSION
-            else request_image(session, previous.article_id)
-        )
+        if (previous.storage or {}).get("thumbnail_layout") == ARTICLE_THUMBNAIL_LAYOUT:
+            job = request_thumbnail_resize(
+                session, previous.article_id, checkpoint=previous.storage
+            )
+        else:
+            job = (
+                request_thumbnail_recompression(session, previous.article_id)
+                if previous.storage_version == THUMBNAIL_VERSION
+                else request_image(session, previous.article_id)
+            )
     if (
         job is not None
         and previous.operation
@@ -280,9 +285,13 @@ def claim_image(session: Session, job_id: uuid.UUID) -> tuple[ArticleImageJob, s
     if job.operation == "store":
         if not get_settings().image_storage_enabled:
             return None
+        resizing = (job.storage or {}).get("thumbnail_layout") == ARTICLE_THUMBNAIL_LAYOUT
+        current_asset = article.managed_image or {}
         already_stored = bool(image_variants(article)) and (
-            job.storage_version != THUMBNAIL_VERSION
-            or (article.managed_image or {}).get("thumbnail_version", "v1") == THUMBNAIL_VERSION
+            current_asset.get("thumbnail_layout") == ARTICLE_THUMBNAIL_LAYOUT
+            if resizing
+            else job.storage_version != THUMBNAIL_VERSION
+            or current_asset.get("thumbnail_version", "v1") == THUMBNAIL_VERSION
         )
         if article.image_url != job.image_url or already_stored:
             finish_job(job, "already_present", now)
@@ -420,3 +429,87 @@ def backfill_thumbnail_encoding(session: Session, limit: int) -> list[ArticleIma
         for identifier in identifiers
         if (job := request_thumbnail_recompression(session, identifier)) is not None
     ]
+
+
+def request_thumbnail_resize(
+    session: Session, article_id: uuid.UUID, *, checkpoint: dict | None = None
+) -> ArticleImageJob | None:
+    article = session.scalar(
+        select(Article).where(Article.id == article_id).with_for_update(of=Article)
+    )
+    if article is None:
+        raise RecordNotFound("Article not found")
+    asset = article.managed_image or {}
+    if (
+        not image_variants(article)
+        or asset.get("thumbnail_version") != THUMBNAIL_VERSION
+        or asset.get("thumbnail_layout") == ARTICLE_THUMBNAIL_LAYOUT
+        or not all(asset.get(key) for key in ("original_key", "hash", "source_width"))
+    ):
+        return None
+    active = session.scalar(
+        select(ArticleImageJob).where(
+            ArticleImageJob.article_id == article_id,
+            ArticleImageJob.status.in_(["queued", "running"]),
+        )
+    )
+    if active is not None:
+        return active
+    if checkpoint and (
+        checkpoint.get("source_url") != article.image_url
+        or checkpoint.get("hash") != asset.get("hash")
+    ):
+        checkpoint = None
+    job = ArticleImageJob(
+        article_id=article.id,
+        operation="store",
+        image_url=article.image_url,
+        storage_version=THUMBNAIL_VERSION,
+        storage={**(checkpoint or asset), "thumbnail_layout": ARTICLE_THUMBNAIL_LAYOUT},
+    )
+    session.add(job)
+    session.flush()
+    return job
+
+
+def backfill_thumbnail_sizes(session: Session, limit: int) -> list[ArticleImageJob]:
+    """Add card variants from saved v2 originals; terminal failures require explicit retry."""
+    if not 1 <= limit <= 500:
+        raise ValueError("Backfill limit must be between 1 and 500")
+    if not get_settings().image_storage_enabled:
+        raise OperationConflict("Enable image storage before scheduling thumbnail resizing")
+    attempted = select(ArticleImageJob.id).where(
+        ArticleImageJob.article_id == Article.id,
+        ArticleImageJob.status.in_(["queued", "running"])
+        | (
+            (ArticleImageJob.storage["thumbnail_layout"].as_string() == ARTICLE_THUMBNAIL_LAYOUT)
+            & (ArticleImageJob.image_url == Article.image_url)
+        ),
+    )
+    articles = session.scalars(
+        select(Article)
+        .options(lazyload("*"))
+        .where(
+            Article.image_url.is_not(None),
+            Article.managed_image["source_url"].as_string() == Article.image_url,
+            Article.managed_image["version"].as_string() == "v1",
+            Article.managed_image["thumbnail_version"].as_string() == THUMBNAIL_VERSION,
+            Article.managed_image["original_key"].as_string().is_not(None),
+            Article.managed_image["hash"].as_string().is_not(None),
+            Article.managed_image["source_width"].as_integer() > 0,
+            func.coalesce(Article.managed_image["thumbnail_layout"].as_string(), "")
+            != ARTICLE_THUMBNAIL_LAYOUT,
+            ~attempted.exists(),
+        )
+        .order_by(
+            (Article.publication_status == "published").desc(), Article.feed_at.desc(), Article.id
+        )
+        .limit(limit)
+        .with_for_update(skip_locked=True, of=Article)
+    ).all()
+    jobs = []
+    for article in articles:
+        job = request_thumbnail_resize(session, article.id)
+        if job is not None:
+            jobs.append(job)
+    return jobs

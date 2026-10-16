@@ -65,6 +65,10 @@ import {
 import { checkServerReads, serverReadFixture } from "../../../scripts/testing/server-reads.mjs";
 import assert from "node:assert/strict";
 import {
+  thumbnailProfiles,
+  checkThumbnailSizing,
+} from "../../../scripts/testing/thumbnail-sizing.mjs";
+import {
   snippetArticle,
   checkArticleSnippets,
 } from "../../../scripts/testing/article-snippets.mjs";
@@ -103,7 +107,7 @@ withManagedSourceLogo(article.sources[0]);
 const filterSource = { ...article.sources[0], id: "99999999-9999-4999-8999-999999999999" };
 
 // Each named test gets a real unpacked extension with isolated storage and mocks.
-async function readerFixture(t) {
+async function readerFixture(t, imageProfile) {
   const profile = await mkdtemp(path.join(tmpdir(), "devfeed-reader-test-"));
   const errors = [];
   let context;
@@ -123,14 +127,17 @@ async function readerFixture(t) {
         ? "msedge"
         : "chromium",
     headless: true,
-    viewport: { width: 1440, height: 1000 },
+    viewport: imageProfile
+      ? { width: imageProfile.width, height: imageProfile.height }
+      : { width: 1440, height: 1000 },
+    deviceScaleFactor: imageProfile?.dpr ?? 1,
     args: [`--disable-extensions-except=${extension}`, `--load-extension=${extension}`],
   });
   context.on("page", (page) => {
     page.on("pageerror", (error) => errors.push(error.message));
     page.on("console", (message) => {
       if (message.type() === "error" && /Content Security Policy|Refused to/.test(message.text()))
-        errors.push(message.text());
+        errors.push({ message: message.text(), location: message.location() });
     });
   });
   const state = {
@@ -155,6 +162,11 @@ async function readerFixture(t) {
     ...article,
     id: `11111111-1111-4111-8111-${String(index).padStart(12, "0")}`,
     slug: `${article.slug}-${index}`,
+    image_url: article.image_url.replace("/fixture/", `/fixture-${index}/`),
+    image_variants: article.image_variants.map((variant) => ({
+      ...variant,
+      url: variant.url.replace("/fixture/", `/fixture-${index}/`),
+    })),
   }));
   const mutationFixture = userMutationFixture({
     articles: feedItems,
@@ -412,6 +424,25 @@ test("article snippets exclude related copy in built new tabs", { timeout: 18000
   const { page, pathFor } = await readerFixture(t);
   await checkArticleSnippets(page, pathFor("/articles/snippet-article"));
 });
+
+test(
+  "thumbnails match rendered widths and DPR in built new tabs",
+  { timeout: 360000 },
+  async (t) => {
+    const results = [];
+    for (const profile of thumbnailProfiles) {
+      for (const sidebar of ["collapsed", "expanded"]) {
+        const { context, page, pathFor } = await readerFixture(t, profile);
+        results.push(...(await checkThumbnailSizing(page, pathFor("/latest"), sidebar)));
+        await context.close();
+      }
+    }
+    const { mkdir, writeFile } = await import("node:fs/promises");
+    const output = path.resolve(import.meta.dirname, "../../../reports/thumbnail-sizing");
+    await mkdir(output, { recursive: true });
+    await writeFile(`${output}/${browser}.json`, JSON.stringify(results, null, 2));
+  },
+);
 
 test(
   "server reads retain explicit transport policy in built new tabs",

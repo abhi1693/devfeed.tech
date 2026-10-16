@@ -75,6 +75,7 @@ GROUPS = {
         "topic-logo",
         "source-logo",
         "recompress",
+        "resize",
     ],
     "jobs": ["list", "show", "retry", "dispatch"],
     "topics": ["list", "add", "update", "relate", "grant-decision-budget"],

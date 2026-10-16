@@ -2,6 +2,7 @@
 import { useEffect, type ReactNode } from "react";
 import { rememberReaderArticles } from "@/lib/reader-runtime";
 import type { Article } from "@/lib/types";
+import { safeExternalUrl } from "@/lib/feed-query";
 import { EngagementProvider } from "./article-engagement";
 import { ArticleCard } from "./article-card";
 import { ArticleTableFrame, ArticleTableRow } from "./article-table";
@@ -69,24 +70,24 @@ export function ArticleGrid({
         ? items[index]?.ad_format === "feed"
         : items[index]?.ad_format === "feed" || items[index]?.ad_format === "sponsored_content",
     );
-    const rows = articles
-      .filter((article) => !promoted.has(article.id))
-      .flatMap((article, index) => {
-        const slot = slots.indexOf(index + 1);
-        return [
-          compact ? (
-            <ArticleTableRow key={article.id} article={article} />
-          ) : (
-            <ArticleCard
-              key={article.id}
-              article={article}
-              recommendation={recommendations[article.id]}
-              priority={priority && index === 0}
-            />
-          ),
-          ...(slot >= 0 && cells[slot] ? [cells[slot]] : []),
-        ];
-      });
+    const visibleArticles = articles.filter((article) => !promoted.has(article.id));
+    const firstImage = visibleArticles.findIndex((article) => safeExternalUrl(article.image_url));
+    const rows = visibleArticles.flatMap((article, index) => {
+      const slot = slots.indexOf(index + 1);
+      return [
+        compact ? (
+          <ArticleTableRow key={article.id} article={article} />
+        ) : (
+          <ArticleCard
+            key={article.id}
+            article={article}
+            recommendation={recommendations[article.id]}
+            priority={priority && index === firstImage}
+          />
+        ),
+        ...(slot >= 0 && cells[slot] ? [cells[slot]] : []),
+      ];
+    });
     return (
       <div ref={gridRef} className="article-placement-feed">
         {compact ? (
