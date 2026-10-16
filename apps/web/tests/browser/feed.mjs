@@ -779,7 +779,8 @@ async function createReaderFixture(t) {
     const csp = policyResponse.headers()["content-security-policy"];
     assert.match(csp, /script-src [^;]*'nonce-[^']+'/);
     assert.doesNotMatch(csp, /script-src [^;]*'unsafe-inline'/);
-    assert.equal(policyResponse.headers()["x-frame-options"], "DENY");
+    assert.equal(policyResponse.headers()["x-frame-options"], undefined);
+    assert.ok(csp.split("; ").includes("frame-ancestors 'self' https://nicklaunches.com"));
     assert.equal(policyResponse.headers()["strict-transport-security"], "max-age=31536000");
     assert.deepEqual(await page.evaluate(() => window.__cspViolations), []);
     assert.equal(await onboarding.count(), 0);
@@ -1310,5 +1311,118 @@ test(
       );
       await checkRenderReads(context.request, origin, renderReads);
     });
+  },
+);
+
+test(
+  "reader framing headers cover every route and allow only the configured ancestors",
+  { timeout: 180000 },
+  async (t) => {
+    const { browser, origin } = await createReaderFixture(t);
+    const context = await browser.newContext();
+    try {
+      await mockManagedImages(context);
+      await mockSourceLogos(context);
+      const probe = await context.newPage();
+      await probe.goto(origin + "/latest");
+      const staticScript = await probe
+        .locator('script[src^="/_next/static/"]')
+        .first()
+        .getAttribute("src");
+      await probe.close();
+      for (const pathname of [
+        staticScript,
+        "/",
+        "/latest",
+        "/login",
+        "/robots.txt",
+        "/llms.txt",
+        "/sitemap.xml",
+        "/favicon.ico",
+        "/api/v1/mcp/config",
+        "/api/v1/users/leader-reader/card.svg",
+        "/metrics",
+        "/route-does-not-exist",
+      ]) {
+        for (const method of ["GET", "HEAD"]) {
+          const response = await context.request.fetch(origin + pathname, { method });
+          const headers = response.headers();
+          assert.equal(headers["x-frame-options"], undefined, pathname);
+          assert.ok(
+            headers["content-security-policy"]
+              ?.split("; ")
+              .includes("frame-ancestors 'self' https://nicklaunches.com"),
+            `Missing framing policy on ${pathname}`,
+          );
+          assert.equal(headers["strict-transport-security"], "max-age=31536000", pathname);
+          assert.equal(headers["x-content-type-options"], "nosniff", pathname);
+          assert.equal(
+            headers["permissions-policy"],
+            "camera=(), microphone=(), geolocation=(), payment=()",
+            pathname,
+          );
+          if (pathname.endsWith("card.svg")) {
+            assert.equal(response.status(), 200);
+            assert.ok(
+              headers["content-security-policy"].includes(
+                "default-src 'none'; img-src data:; style-src 'unsafe-inline'; sandbox",
+              ),
+            );
+          }
+        }
+      }
+      await checkNonceCsp(context, origin + "/latest");
+      await context.route(
+        /^https:\/\/(?:devfeed\.tech|nicklaunches\.com|www\.nicklaunches\.com|blocked\.example\.test)\//,
+        async (route) => {
+          const url = new URL(route.request().url());
+          if (url.pathname === "/iframe-host")
+            return route.fulfill({
+              contentType: "text/html",
+              body: '<iframe src="https://devfeed.tech/latest" title="Reader"></iframe>',
+            });
+          const response = await route.fetch({ url: origin + url.pathname + url.search });
+          await route.fulfill({ response });
+        },
+      );
+      for (const parent of ["https://devfeed.tech", "https://nicklaunches.com"]) {
+        const page = await context.newPage();
+        await page.goto(parent + "/iframe-host");
+        await page
+          .frameLocator("iframe")
+          .getByRole("heading", { name: "Latest feed", exact: true })
+          .waitFor();
+        assert.equal(
+          await page.evaluate(() => {
+            try {
+              return !!document.querySelector("iframe").contentDocument;
+            } catch {
+              return false;
+            }
+          }),
+          parent === "https://devfeed.tech",
+          "Framing must preserve the reader's origin",
+        );
+        await page.close();
+      }
+      for (const parent of ["https://www.nicklaunches.com", "https://blocked.example.test"]) {
+        const page = await context.newPage();
+        const refused = page.waitForEvent("console", {
+          predicate: (message) => /frame-ancestors/.test(message.text()),
+        });
+        await page.goto(parent + "/iframe-host");
+        await refused;
+        assert.equal(
+          await page
+            .frameLocator("iframe")
+            .getByRole("heading", { name: "Latest feed", exact: true })
+            .count(),
+          0,
+        );
+        await page.close();
+      }
+    } finally {
+      await context.close();
+    }
   },
 );

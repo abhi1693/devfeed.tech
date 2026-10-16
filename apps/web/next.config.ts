@@ -66,12 +66,26 @@ const config: NextConfig = {
         source: "/:path*",
         headers: [
           { key: "X-Content-Type-Options", value: "nosniff" },
-          { key: "X-Frame-Options", value: "DENY" },
+          {
+            key: "Content-Security-Policy",
+            value: "frame-ancestors 'self' https://nicklaunches.com",
+          },
           { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
           { key: "Strict-Transport-Security", value: "max-age=31536000" },
           {
             key: "Permissions-Policy",
             value: "camera=(), microphone=(), geolocation=(), payment=()",
+          },
+        ],
+      },
+      {
+        // Next's configured headers also apply to route handlers; retain the SVG sandbox.
+        source: "/api/v1/users/:username/card.svg",
+        headers: [
+          {
+            key: "Content-Security-Policy",
+            value:
+              "default-src 'none'; img-src data:; style-src 'unsafe-inline'; sandbox; frame-ancestors 'self' https://nicklaunches.com",
           },
         ],
       },
