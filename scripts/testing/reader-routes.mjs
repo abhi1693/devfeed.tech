@@ -187,7 +187,7 @@ export async function checkReaderRoutes(page, destination, fixture, output, exte
       }
     }
     if (extension) {
-      for (const hash of ["http://[", "//outside.test/latest"]) {
+      for (const hash of ["https://[", "//outside.test/latest"]) {
         const before = fixture.requests.length;
         await page.goto(destination(hash));
         await missing.waitFor();

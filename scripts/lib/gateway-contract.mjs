@@ -162,6 +162,14 @@ function template(path, label, namespace) {
   return { names, parts };
 }
 
+/** Compare validated route templates without depending on their parameter names. */
+export function gatewayRouteShape(path) {
+  return path
+    .split("/")
+    .map((segment) => (segment.startsWith("{") ? "{}" : segment))
+    .join("/");
+}
+
 /** Validate the ordered backend export without inferring endpoint policy from URLs. */
 export function gatewayOperations(document, { namespace }) {
   if (typeof namespace !== "string" || !/^[a-z][a-z0-9-]*$/u.test(namespace)) {
@@ -221,7 +229,7 @@ export function gatewayOperations(document, { namespace }) {
     if (result.policy.handler === "placement-query" && result.method !== "POST") {
       throw new Error(`${label} placement-query handler requires POST`);
     }
-    const signature = `${route.method} ${route.path.replace(/\{[^}]+\}/gu, "{}")} ${result.parameters.map((item) => item.converter).join(",")}`;
+    const signature = `${route.method} ${gatewayRouteShape(route.path)} ${result.parameters.map((item) => item.converter).join(",")}`;
     if (signatures.has(signature)) throw new Error(`${label} repeats a method/route signature`);
     signatures.add(signature);
     const identity = JSON.stringify({ ...result, method: undefined });

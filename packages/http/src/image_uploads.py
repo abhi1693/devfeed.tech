@@ -86,8 +86,11 @@ class ImageUploadStorage(ImageProcessor):
             raise HTTPException(413, "Choose an image under 5 MB")
         try:
             self.inspect(body)
-            with Image.open(io.BytesIO(body)) as image:
-                ImageOps.exif_transpose(image, in_place=True)
+            with (
+                Image.open(io.BytesIO(body)) as source,
+                ImageOps.exif_transpose(source) as image,
+            ):
+                source.close()
                 if self.square:
                     reduced = self._square(image, max(self.sizes))
                 else:

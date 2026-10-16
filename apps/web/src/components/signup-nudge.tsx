@@ -116,7 +116,9 @@ export function SignupNudge() {
         </button>
         <a
           className={`button primary ${styles.signup}`}
-          {...link}
+          href={link.href}
+          target={link.target}
+          rel={link.rel}
           onClick={refreshSignupLink}
           onAuxClick={refreshSignupLink}
           onContextMenu={refreshSignupLink}

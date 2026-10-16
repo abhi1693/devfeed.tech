@@ -8,6 +8,7 @@ import {
   gatewayOperations,
   gatewayParameterSchema,
   gatewayPolicy,
+  gatewayRouteShape,
   releaseVersion,
 } from "./lib/gateway-contract.mjs";
 import { readRegularFile, writeGeneratedFile } from "./lib/generated-files.mjs";
@@ -244,7 +245,7 @@ export async function extensionOperationPlan(
       ...gatewayPolicy(bounds, "Reader binding policy", "public"),
       extension: extensionTransportPolicy(extension, "Reader binding extension policy"),
     };
-    const signature = `${binding.method} ${template.path.replace(/\{[^}]+\}/gu, "{}")}`;
+    const signature = `${binding.method} ${gatewayRouteShape(template.path)}`;
     if (signatures.has(signature)) throw new Error(`Duplicate public reader route ${signature}`);
     signatures.add(signature);
     routes.push(template.filenames);
@@ -261,7 +262,7 @@ export async function extensionOperationPlan(
     .filter(({ policy }) => policy.extension !== null)
     .map((operation) => ({ ...operation, path: `/api${operation.path}` }));
   for (const operation of privateOperations) {
-    const signature = `${operation.method} ${operation.path.replace(/\{[^}]+\}/gu, "{}")}`;
+    const signature = `${operation.method} ${gatewayRouteShape(operation.path)}`;
     if (signatures.has(signature))
       throw new Error(`Conflicting private/public reader route ${signature}`);
     signatures.add(signature);

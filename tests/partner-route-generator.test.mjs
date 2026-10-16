@@ -338,5 +338,5 @@ test("handwritten dynamic directory conflicts and symlinks cannot redirect gener
 });
 
 test("checked-in concrete handlers and descriptors match the authoritative partner export", async () => {
-  await generatePartnerRoutes({ check: true });
+  await assert.doesNotReject(() => generatePartnerRoutes({ check: true }));
 });

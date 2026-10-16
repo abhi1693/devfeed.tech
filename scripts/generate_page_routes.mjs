@@ -127,9 +127,15 @@ export async function pageRouteCatalogs() {
           await readFile(new URL("../apps/admin/openapi.json", import.meta.url), "utf8"),
         );
         definitions.push(
-          ...gatewayOperations(document, { namespace: "admin" }).map(({ path, parameters }) => ({
-            route: `/api${path.replace(/\{([^}]+)\}/g, (_, name) => (parameters.find((parameter) => parameter.name === name)?.converter === "path" ? `[...${name}]` : `[${name}]`))}`,
-          })),
+          ...gatewayOperations(document, { namespace: "admin" }).map(({ path, parameters }) => {
+            const converters = new Map(parameters.map(({ name, converter }) => [name, converter]));
+            const segments = path.split("/").map((segment) => {
+              if (!segment.startsWith("{")) return segment;
+              const name = segment.slice(1, -1);
+              return converters.get(name) === "path" ? `[...${name}]` : `[${name}]`;
+            });
+            return { route: `/api${segments.join("/")}` };
+          }),
         );
       } else if (app === "admin" && item.route === `${admin.accountsPath}/[id]/[[...section]]`) {
         definitions.push(

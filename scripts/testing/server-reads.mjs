@@ -11,7 +11,7 @@ export function serverReadFixture() {
     unavailable: false,
     record(path, headers, origin) {
       this.requests.push({
-        path: apiPath(new URL(path, "http://fixture").pathname),
+        path: apiPath(new URL(path, "https://fixture").pathname),
         headers,
         origin,
       });

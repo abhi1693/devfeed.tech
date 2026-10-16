@@ -42,7 +42,10 @@ export async function readLogoUpload(request, csrf, origin) {
   const form = await new Response(Buffer.concat(chunks), {
     headers: { "content-type": request.headers["content-type"] },
   }).formData();
-  assert.deepEqual([...form.keys()].sort(), ["expected_revision", "file"]);
+  assert.deepEqual(
+    [...form.keys()].sort((left, right) => left.localeCompare(right)),
+    ["expected_revision", "file"],
+  );
   const file = form.get("file");
   assert.equal(file.name, logoFile.name);
   assert.equal(file.type, logoFile.mimeType);
@@ -56,7 +59,10 @@ export async function readLogoUrl(request, csrf, origin) {
   const chunks = [];
   for await (const chunk of request) chunks.push(chunk);
   const input = JSON.parse(Buffer.concat(chunks).toString());
-  assert.deepEqual(Object.keys(input).sort(), ["expected_revision", "logo_url"]);
+  assert.deepEqual(
+    Object.keys(input).sort((left, right) => left.localeCompare(right)),
+    ["expected_revision", "logo_url"],
+  );
   return input;
 }
 

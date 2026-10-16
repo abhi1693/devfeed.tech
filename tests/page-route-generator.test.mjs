@@ -7,7 +7,7 @@ import { pathToFileURL } from "node:url";
 import { generatePageRoutes, pageRouteTemplates } from "../scripts/generate_page_routes.mjs";
 
 test("generated catalogs stay aligned with registered Next routes and shared route descriptors", async () => {
-  await generatePageRoutes({ check: true });
+  await assert.doesNotReject(() => generatePageRoutes({ check: true }));
 });
 
 test("new concrete pages, endpoints, and dynamic parameters enter the Next descriptor graph", async () => {

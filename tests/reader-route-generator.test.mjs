@@ -236,5 +236,5 @@ test("isolated reader generation detects stale output and cleans only its marked
 });
 
 test("checked-in reader handlers and policies match the authoritative user API export", async () => {
-  await generateReaderRoutes({ check: true });
+  await assert.doesNotReject(() => generateReaderRoutes({ check: true }));
 });

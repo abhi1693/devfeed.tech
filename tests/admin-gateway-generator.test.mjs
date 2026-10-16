@@ -334,5 +334,5 @@ test("generation check catches stale output without overwriting a reviewable fil
 });
 
 test("checked-in descriptors match the current authoritative backend export", async () => {
-  await generateAdminGateway({ check: true });
+  await assert.doesNotReject(() => generateAdminGateway({ check: true }));
 });
