@@ -37,6 +37,7 @@ export function CatalogIcon({
   source = false,
   kind,
   iconSize = 23,
+  className,
 }: {
   url: string | null;
   variants?: { url: string; width: number }[];
@@ -44,13 +45,17 @@ export function CatalogIcon({
   source?: boolean;
   kind?: string;
   iconSize?: number;
+  className?: string;
 }) {
   const src = safeExternalUrl(url);
   const [failedSrc, setFailedSrc] = useState<string>();
   const hasLogo = src && failedSrc !== src;
   const FallbackIcon = source ? Rss : (topicFallbackIcons[kind ?? ""] ?? Hash);
   return (
-    <span className={`topic-icon${hasLogo ? " topic-logo" : ""}`} aria-hidden="true">
+    <span
+      className={`topic-icon${hasLogo ? " topic-logo" : ""}${className ? ` ${className}` : ""}`}
+      aria-hidden="true"
+    >
       {hasLogo ? (
         <img
           ref={(image) => {
