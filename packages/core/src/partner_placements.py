@@ -936,6 +936,7 @@ def deliver_placements(session, query, key, *, user_id=None, now=None):
                         url=url,
                         partner_name=account.name,
                         platform=creative.platform,
+                        attribution=creative.attribution,
                         sponsored=sponsored,
                         ad_format=ad_format,
                         article=ArticleOut.from_article(
