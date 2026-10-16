@@ -1,3 +1,4 @@
+import { checkRouteStyles } from "../../../scripts/testing/route-styles.mjs";
 import { readerDomCatalogFixture, checkReaderDom } from "../../../scripts/testing/reader-dom.mjs";
 import { checkGuestDocument } from "../../../scripts/testing/document-latency.mjs";
 import {
@@ -67,6 +68,10 @@ import {
   thumbnailProfiles,
   checkThumbnailSizing,
 } from "../../../scripts/testing/thumbnail-sizing.mjs";
+import {
+  snippetArticle,
+  checkArticleSnippets,
+} from "../../../scripts/testing/article-snippets.mjs";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -320,6 +325,8 @@ async function readerFixture(t, imageProfile) {
         : { items: feedItems, next_cursor: sorted ? "next+page" : null };
     } else if (["/api/v1/articles/old", "/api/v1/articles/new"].includes(url.pathname)) {
       json = { article: { ...article, slug: url.pathname.split("/").pop() }, topic: null };
+    } else if (url.pathname === "/api/v1/articles/snippet-article") {
+      json = { article: snippetArticle(article), topic: null };
     } else if (url.pathname === "/api/v1/articles/direct-article") {
       json = { article: { ...feedItems[0], slug: "direct-article" }, topic: null };
     } else if (url.pathname === "/api/v1/user/auth/me") {
@@ -412,6 +419,11 @@ async function readerFixture(t, imageProfile) {
     pathFor: (path) => readerBase + path,
   };
 }
+
+test("article snippets exclude related copy in built new tabs", { timeout: 180000 }, async (t) => {
+  const { page, pathFor } = await readerFixture(t);
+  await checkArticleSnippets(page, pathFor("/articles/snippet-article"));
+});
 
 test(
   "thumbnails match rendered widths and DPR in built new tabs",
@@ -999,6 +1011,10 @@ test(
   },
 );
 
+test("route styles are present in built new tabs", { timeout: 180000 }, async (t) => {
+  const { page, pathFor } = await readerFixture(t);
+  await checkRouteStyles(page, pathFor, true);
+});
 test(
   "reader DOM stays bounded per card while retaining long catalogs in built new tabs",
   { timeout: 180000 },

@@ -1,4 +1,7 @@
 "use client";
+
+import "../app/styles/public-profile.css";
+
 import { flushSync } from "react-dom";
 import Link from "@/components/reader-link";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";

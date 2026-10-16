@@ -1,4 +1,8 @@
 import {
+  monitorRouteStyles,
+  assertRouteStyles,
+} from "../../../../scripts/testing/route-styles.mjs";
+import {
   checkAvatarUploads,
   avatarFixtureVariants,
   avatarFixtureImage,
@@ -224,6 +228,7 @@ try {
   }
   browser = await chromium.launch({ headless: true });
   const page = await browser.newPage({ viewport: { width: 1440, height: 1000 } });
+  await monitorRouteStyles(page);
   await page.context().grantPermissions(["clipboard-read", "clipboard-write"], { origin });
   await page.addInitScript(() => {
     if (!sessionStorage.getItem("draft-test-seeded")) {
@@ -529,6 +534,7 @@ try {
   assert.equal((await fetch(`${origin}/users/reader/image`)).status, 404);
   assert.equal((await fetch(`${origin}/api/v1/users/reader/card.svg`)).status, 404);
   assert.equal((await fetch(`${origin}/users/missing-reader`)).status, 404);
+  await assertRouteStyles(page);
   console.log("Profile editing, public card sharing, social images, and guest creation passed.");
 } catch (error) {
   console.error(logs);

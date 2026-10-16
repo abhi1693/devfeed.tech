@@ -85,6 +85,12 @@ it.each([
       />,
     );
     const sidebar = view.container.querySelector(".preview-sidebar")!;
+    expect(sidebar.tagName).toBe("DIV");
+    expect(sidebar.hasAttribute("data-nosnippet")).toBe(true);
+    expect(screen.getByRole("heading", { level: 1 }).closest("[data-nosnippet]")).toBeNull();
+    expect(
+      view.container.querySelector(".preview-summary")?.closest("[data-nosnippet]"),
+    ).toBeNull();
     const briefs = Array.from(sidebar.children);
     expect(briefs).toHaveLength(Number(hasSource) + Number(hasTopic));
     const focused = hasTopic

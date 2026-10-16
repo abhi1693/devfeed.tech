@@ -1,0 +1,24 @@
+.feed-toolbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+.extension-install-button {
+  white-space: nowrap;
+}
+.extension-install-button img {
+  flex-shrink: 0;
+}
+.feed-toolbar-actions > .extension-install-button img {
+  width: 17px;
+  height: 17px;
+}
+@media (max-width: 640px) {
+  .feed-toolbar:has(.extension-install-button) {
+    flex-wrap: wrap;
+  }
+  .feed-toolbar-actions {
+    margin-left: auto;
+  }
+}

@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { createElement, type ReactNode } from "react";
 import { renderToReadableStream } from "react-dom/server";
@@ -123,6 +124,9 @@ it.each([false, true])(
       expect(shell).toContain('data-article-id="article-id"');
       expect(shell).toContain('data-article-slug="requested-article"');
       expect(shell).toContain("Loading background feed");
+      const loading = new DOMParser().parseFromString(shell, "text/html");
+      expect(loading.querySelector("main")?.closest("[data-nosnippet]")).not.toBeNull();
+      expect(loading.querySelector("h1")?.closest("[data-nosnippet]")).toBeNull();
       expect(shell.indexOf("Requested article")).toBeLessThan(
         shell.indexOf("Loading background feed"),
       );
@@ -143,6 +147,9 @@ it.each([false, true])(
         remainder += decoder.decode(chunk.value);
       }
       expect(remainder).toContain(fails ? "Couldn’t load the feed" : "Background article");
+      // Inspect the delayed segment itself: crawlers can see it before React moves it.
+      const background = new DOMParser().parseFromString(remainder, "text/html");
+      expect(background.querySelector("section")?.closest("[data-nosnippet]")).not.toBeNull();
       expect(shell).toContain("Requested article");
       expect(errors).toEqual([]);
     } finally {

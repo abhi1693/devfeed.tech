@@ -62,7 +62,7 @@ beforeEach(() => {
 
 it("shows asaharan's current public card without fabricated sample metadata", async () => {
   render(<DevCardPromo requested />);
-  await screen.findByText("Abhimanyu Saharan");
+  await screen.findByText("Abhimanyu Saharan", {}, { timeout: 3000 });
   expect(runtime.readerRequest).toHaveBeenCalledWith(
     "/api/v1/users/asaharan?include_activity=false",
     expect.objectContaining({
@@ -330,4 +330,123 @@ it("skips automatic previews when persistent storage cannot be written", async (
   await act(() => vi.advanceTimersByTimeAsync(40_000));
   expect(document.querySelector("dialog")).toBeNull();
   expect(document.body.style.overflow).not.toBe("hidden");
+});
+
+it("saves the edited name and selected technologies before signup", async () => {
+  vi.mocked(runtime.readerRequest).mockImplementation(async (path) =>
+    Response.json(
+      String(path).startsWith("/api/v1/topics?")
+        ? {
+            items: [
+              { id: "ts", name: "TypeScript", slug: "typescript", kind: "language" },
+              { id: "py", name: "Python", slug: "python", kind: "language" },
+              { id: "go", name: "Go", slug: "go", kind: "language" },
+              { id: "rs", name: "Rust", slug: "rust", kind: "language" },
+            ],
+            next_cursor: null,
+          }
+        : { profile: featured },
+    ),
+  );
+  render(<DevCardPromo requested />);
+  fireEvent.click(await screen.findByRole("button", { name: "Create your dev card" }));
+  fireEvent.change(screen.getByLabelText("Your display name"), { target: { value: " Maya " } });
+  const search = screen.getByRole("searchbox");
+  for (const name of ["TypeScript", "Python", "Go", "Rust"]) {
+    fireEvent.change(search, { target: { value: name } });
+    // Selected technologies are not offered twice.
+    if (name !== "TypeScript")
+      expect(screen.queryByRole("button", { name: "Add TypeScript" })).toBeNull();
+    fireEvent.click(await screen.findByRole("button", { name: `Add ${name}` }));
+  }
+  expect((search as HTMLInputElement).disabled).toBe(true);
+  fireEvent.click(screen.getByRole("button", { name: "Remove Python" }));
+  expect((search as HTMLInputElement).disabled).toBe(false);
+  const link = screen.getByRole("link", { name: "Save my dev card" });
+  expect(link.getAttribute("href")).toBe(runtime.readerLoginLink("/settings/profile").href);
+  const navigate = vi.fn((event: Event) => {
+    expect(event.defaultPrevented).toBe(false);
+    event.preventDefault(); // jsdom cannot navigate; observe the real handler before cancelling.
+  });
+  window.addEventListener("click", navigate, { once: true });
+  fireEvent.click(link);
+  expect(navigate).toHaveBeenCalledOnce();
+  expect(readDevCardDraft()).toMatchObject({
+    name: "Maya",
+    ready: true,
+    stack: [
+      { topic_id: "ts", name: "TypeScript", section: "primary" },
+      { topic_id: "go", name: "Go", section: "primary" },
+      { topic_id: "rs", name: "Rust", section: "primary" },
+    ],
+  });
+});
+
+it("keeps the editor open and blocks signup when its draft cannot be saved", async () => {
+  render(<DevCardPromo requested />);
+  fireEvent.click(await screen.findByRole("button", { name: "Create your dev card" }));
+  fireEvent.change(screen.getByLabelText("Your display name"), { target: { value: "Maya" } });
+  const save = vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
+    throw new Error("Storage unavailable");
+  });
+  expect(fireEvent.click(screen.getByRole("link", { name: "Save my dev card" }))).toBe(false);
+  expect(screen.getByRole("alert").textContent).toContain("couldn’t keep this preview");
+  expect(screen.getByRole("dialog", { name: "Your dev card preview" })).toBeTruthy();
+  save.mockRestore();
+  expect(readDevCardDraft()).toBeNull();
+});
+
+it("wraps keyboard focus in the dialog and restores the caller on Escape", async () => {
+  const caller = document.createElement("button");
+  document.body.append(caller);
+  caller.focus();
+  vi.spyOn(HTMLElement.prototype, "getClientRects").mockReturnValue([
+    new DOMRect(0, 0, 100, 20),
+  ] as unknown as DOMRectList);
+  try {
+    render(<DevCardPromo requested />);
+    const last = await screen.findByRole("button", { name: "Create your dev card" });
+    const first = screen.getByRole("button", { name: "Dismiss dev card preview" });
+    const dialog = screen.getByRole("dialog", { name: "Your dev card preview" });
+    first.focus();
+    fireEvent.keyDown(dialog, { key: "Tab", shiftKey: true });
+    expect(document.activeElement).toBe(last);
+    fireEvent.keyDown(dialog, { key: "Tab" });
+    expect(document.activeElement).toBe(first);
+    fireEvent.keyDown(dialog, { key: "ArrowRight" });
+    expect(document.activeElement).toBe(first);
+    const cancel = new Event("cancel", { bubbles: false, cancelable: true });
+    fireEvent(dialog, cancel);
+    expect(cancel.defaultPrevented).toBe(true);
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(document.activeElement).toBe(caller);
+    expect(sessionStorage.getItem("devfeed:dev-card-promo-dismissed")).toBe("true");
+  } finally {
+    caller.remove();
+  }
+});
+
+it("tilts artwork for mouse movement only when motion is allowed and resets on leave", async () => {
+  window.matchMedia = vi.fn().mockReturnValue({ matches: true });
+  render(<DevCardPromo requested />);
+  const stage = await screen.findByTestId("dev-card-stage");
+  vi.spyOn(stage, "getBoundingClientRect").mockReturnValue(new DOMRect(0, 0, 200, 100));
+  const move = (pointerType: string) => {
+    const event = new MouseEvent("pointermove", { bubbles: true, clientX: 150, clientY: 25 });
+    Object.defineProperty(event, "pointerType", { value: pointerType });
+    fireEvent(stage, event);
+  };
+  move("touch");
+  const tilt = stage.querySelector('[style*="--tilt-y"]');
+  expect(tilt).toBeNull();
+  move("mouse");
+  const artwork = stage.querySelector<HTMLElement>('[style*="--tilt-y"]')!;
+  expect(artwork.style.getPropertyValue("--tilt-y")).toBe("3.5deg");
+  expect(artwork.style.getPropertyValue("--tilt-x")).toBe("2.5deg");
+  fireEvent.pointerLeave(stage);
+  expect(artwork.style.getPropertyValue("--tilt-y")).toBe("0deg");
+  expect(artwork.style.getPropertyValue("--tilt-x")).toBe("0deg");
+  window.matchMedia = vi.fn().mockReturnValue({ matches: false });
+  move("mouse");
+  expect(artwork.style.getPropertyValue("--tilt-y")).toBe("0deg");
 });

@@ -1,3 +1,4 @@
+import { checkRouteStyles } from "../../../../scripts/testing/route-styles.mjs";
 import {
   checkGuestDocument,
   renderReadFixture,
@@ -95,6 +96,13 @@ import {
   thumbnailProfiles,
   checkThumbnailSizing,
 } from "../../../../scripts/testing/thumbnail-sizing.mjs";
+
+import { JSDOM } from "jsdom";
+import {
+  snippetArticle,
+  checkSnippetDocument,
+  checkArticleSnippets,
+} from "../../../../scripts/testing/article-snippets.mjs";
 import test from "node:test";
 import { createServer, request as httpRequest } from "node:http";
 import { spawn } from "node:child_process";
@@ -311,6 +319,11 @@ async function createReaderFixture(t, { thumbnailFeed = false } = {}) {
     if (path === "/v1/user/profiles/promo-reader/reading-heatmap") {
       res.writeHead(404, { "Content-Type": "application/json" });
       res.end(JSON.stringify({ detail: "No activity" }));
+      return;
+    }
+    if (path === "/v1/articles/snippet-article") {
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify(snippetArticle(article)));
       return;
     }
     if (path === `/v1/articles/${article.slug}`) {
@@ -1191,6 +1204,19 @@ test("thumbnails match rendered widths and device pixel ratios", { timeout: 3600
   await writeFile(`${root}/reports/thumbnail-sizing/web.json`, JSON.stringify(results, null, 2));
 });
 
+test("article snippets exclude unrelated content", { timeout: 180000 }, async (t) => {
+  const { browser, origin } = await createReaderFixture(t);
+  const href = `${origin}/articles/snippet-article`;
+  for (const userAgent of ["Googlebot", "bingbot"]) {
+    const response = await fetch(href, { headers: { "User-Agent": userAgent } });
+    assert.equal(response.status, 200);
+    const dom = new JSDOM(await response.text());
+    checkSnippetDocument(dom.window.document, true);
+    dom.window.close();
+  }
+  await withReaderPage(browser, (page) => checkArticleSnippets(page, href));
+});
+
 test(
   "server reads retain explicit transport and sitemap policies",
   { timeout: 180000 },
@@ -1321,6 +1347,10 @@ test("reader journey works at desktop and mobile sizes", { timeout: 360000 }, as
   await runJourney();
 });
 
+test("route styles load before reader surfaces paint", { timeout: 180000 }, async (t) => {
+  const { browser, origin } = await createReaderFixture(t);
+  await withReaderPage(browser, (page) => checkRouteStyles(page, (path) => origin + path));
+});
 test(
   "reader DOM stays bounded per card while retaining long catalogs",
   { timeout: 180000 },
