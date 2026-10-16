@@ -13,6 +13,12 @@ the established public feed routes; verified sessions still receive private My
 feed metadata and content. Chrome and Edge use the same guest defaults and keep
 root entry in place after session detection.
 
+For guests, both entry points canonicalize to `/latest`. The homepage search title
+is "Developer news, tutorials & releases"; `/latest` uses "Latest developer news,
+tutorials & releases" in HTML and social metadata. After deploying title changes,
+recrawl HTTP and HTTPS entry points and check their titles and shared HTTPS
+canonical in Search Console and Bing Webmaster Tools.
+
 After a production build, run `node apps/web/tests/browser/home-entry.mjs` for
 entry, query, canonical and session regression checks. Set
 `DEVFEED_ENTRY_BENCH=before` or `after` to capture three paired root/direct-latest

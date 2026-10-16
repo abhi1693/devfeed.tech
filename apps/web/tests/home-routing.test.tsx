@@ -62,6 +62,7 @@ it("uses existing public canonical URLs for guests and private metadata for memb
     searchParams: Promise.resolve({ utm_source: "linkedin" }),
   });
   expect(metadata.alternates?.canonical).toBe("https://devfeed.tech/latest");
+  expect(metadata.title).toBe("Developer news, tutorials & releases");
   expect(metadata.robots).toBeUndefined();
   vi.mocked(hasUserSession).mockResolvedValue(true);
   expect(await generateMetadata({ searchParams: Promise.resolve({}) })).toEqual({

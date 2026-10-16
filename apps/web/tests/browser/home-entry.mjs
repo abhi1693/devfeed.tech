@@ -138,6 +138,41 @@ try {
     browser = await chromium.launch({ headless: true });
     const context = await browser.newContext({ reducedMotion: "reduce" });
     const page = await context.newPage();
+    // The public homepage is an alternate entry to /latest, while signed-in / is personal.
+    // Keep titles descriptive without creating a redirect that breaks either entry point.
+    for (const path of ["/", "/latest"]) {
+      const redirect = await context.request.get(`${origin}${path}?utm_source=audit`, {
+        headers: { host: "devfeed.tech", "x-forwarded-proto": "http" },
+        maxRedirects: 0,
+      });
+      assert.equal(redirect.status(), 308);
+      assert.equal(
+        new URL(redirect.headers().location).href,
+        `https://devfeed.tech${path}?utm_source=audit`,
+      );
+    }
+    const titles = [];
+    for (const path of ["/", "/latest"]) {
+      const response = await page.goto(`${origin}${path}`);
+      assert.equal(response.status(), 200);
+      assert.equal(
+        await page.locator('link[rel="canonical"]').getAttribute("href"),
+        `${origin}/latest`,
+      );
+      titles.push(await page.title());
+      assert.equal(
+        await page.locator('meta[property="og:title"]').getAttribute("content"),
+        titles.at(-1),
+      );
+      assert.equal(
+        await page.locator('meta[name="twitter:title"]').getAttribute("content"),
+        titles.at(-1),
+      );
+    }
+    assert.deepEqual(titles, [
+      "Developer news, tutorials & releases · DevFeed",
+      "Latest developer news, tutorials & releases · DevFeed",
+    ]);
     const documents = [];
     page.on("request", (request) => {
       if (request.isNavigationRequest() && request.frame() === page.mainFrame())
