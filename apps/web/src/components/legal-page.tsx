@@ -4,6 +4,7 @@ import type { ReactNode } from "react";
 import { UserShell } from "./user-shell";
 import { JsonLd } from "./json-ld";
 import { canonicalUrl } from "@/lib/metadata";
+import { pageStructuredData } from "@/lib/structured-data";
 import { legalEmail, legalPages, legalSocialUrl, type LegalDocument } from "@/lib/legal";
 
 export type LegalSection = { id: string; title: string; content: ReactNode };
@@ -30,13 +31,8 @@ export function LegalPage({
     <UserShell section="legal">
       <JsonLd
         data={{
-          "@context": "https://schema.org",
-          "@type": "WebPage",
-          name: title,
-          url: canonicalUrl(path),
-          description,
+          ...pageStructuredData(canonicalUrl(path), title, { description }),
           dateModified: updated,
-          isPartOf: { "@id": `${canonicalUrl("/")}#website` },
         }}
       />
       <article className="legal-document">

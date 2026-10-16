@@ -6,7 +6,11 @@ import { readerFeeds, resolveFeed } from "@/lib/reader-feed";
 import { feedMetadata, SITE_DESCRIPTION } from "@/lib/metadata";
 export const dynamic = "force-dynamic";
 export async function generateMetadata({ searchParams }: { searchParams: Promise<SearchParams> }) {
-  return feedMetadata("Developer news, tutorials & releases", SITE_DESCRIPTION, await searchParams);
+  return feedMetadata(
+    "Latest developer news, tutorials & releases",
+    SITE_DESCRIPTION,
+    await searchParams,
+  );
 }
 export default async function Feed({ searchParams }: { searchParams: Promise<SearchParams> }) {
   const query = await searchParams;

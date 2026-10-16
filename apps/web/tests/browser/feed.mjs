@@ -1,5 +1,10 @@
 import { checkRouteStyles } from "../../../../scripts/testing/route-styles.mjs";
 import {
+  checkGuestDocument,
+  renderReadFixture,
+  checkRenderReads,
+} from "../../../../scripts/testing/document-latency.mjs";
+import {
   withManagedSourceLogo,
   mockSourceLogos,
   checkSourceLogos,
@@ -147,6 +152,7 @@ async function createReaderFixture(t) {
   const readerDestinations = readerDestinationsFixture(article);
   const loginDestinations = loginDestinationsFixture(article);
   const serverReads = serverReadFixture();
+  const renderReads = renderReadFixture(article, topic);
   let mode = "ready";
   const defaultAllRequests = [];
   let compactArticles = false;
@@ -172,6 +178,12 @@ async function createReaderFixture(t) {
     const requestUrl = new URL(req.url, "http://localhost");
     const path = requestUrl.pathname;
     serverReads.record(req.url, req.headers, `http://${req.headers.host}`);
+    if (renderReads.handles(requestUrl)) {
+      const { status, json } = renderReads.respond(requestUrl, req.headers);
+      res.writeHead(status, { "Content-Type": "application/json" });
+      res.end(JSON.stringify(json));
+      return;
+    }
     if (serverReads.handles(requestUrl)) {
       const { status, json } = serverReads.respond(requestUrl);
       res.writeHead(status, { "Content-Type": "application/json" });
@@ -1106,6 +1118,10 @@ async function createReaderFixture(t) {
     routeFixture,
     mutationFixture,
     runJourney,
+    renderReads,
+    setArticleFeedGate: (gate) => {
+      articleFeedGate = gate;
+    },
   };
 }
 
@@ -1262,3 +1278,19 @@ test("route styles load before reader surfaces paint", { timeout: 180000 }, asyn
   const { browser, origin } = await createReaderFixture(t);
   await withReaderPage(browser, (page) => checkRouteStyles(page, (path) => origin + path));
 });
+test(
+  "guest document streams before results and render reads stay isolated",
+  { timeout: 180000 },
+  async (t) => {
+    const { browser, origin, setArticleFeedGate, renderReads } = await createReaderFixture(t);
+    await withReaderPage(browser, async (page, context) => {
+      await checkGuestDocument(
+        page,
+        (path) => origin + path,
+        setArticleFeedGate,
+        `${root}/reports/document-latency/web`,
+      );
+      await checkRenderReads(context.request, origin, renderReads);
+    });
+  },
+);

@@ -1,4 +1,5 @@
 import { checkRouteStyles } from "../../../scripts/testing/route-styles.mjs";
+import { checkGuestDocument } from "../../../scripts/testing/document-latency.mjs";
 import {
   withManagedSourceLogo,
   mockSourceLogos,
@@ -968,3 +969,18 @@ test("route styles are present in built new tabs", { timeout: 180000 }, async (t
   const { page, pathFor } = await readerFixture(t);
   await checkRouteStyles(page, pathFor, true);
 });
+test(
+  "guest document displays its shell before fresh results in built new tabs",
+  { timeout: 180000 },
+  async (t) => {
+    const { page, pathFor, state } = await readerFixture(t);
+    await checkGuestDocument(
+      page,
+      pathFor,
+      (gate) => {
+        state.articleFeedGate = gate;
+      },
+      path.resolve(import.meta.dirname, `../../../reports/document-latency/${browser}`),
+    );
+  },
+);

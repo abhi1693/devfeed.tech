@@ -56,6 +56,9 @@ export async function getReaderFeedPreferences(signal?: AbortSignal, cookieHeade
     signal,
   );
 }
+// Metadata and page content share one snapshot during a React server render.
+// This cache ends with the request; the API still validates visibility on every new request.
+const renderFeed = cache((path: string) => publicApi.read<FeedPage>(path));
 export async function getFeed(filters: FeedFilters, signal?: AbortSignal, cookieHeader?: string) {
   const params = latestFeedParams(filters);
   params.set("limit", "24");
@@ -64,7 +67,9 @@ export async function getFeed(filters: FeedFilters, signal?: AbortSignal, cookie
   for (const language of settings.languages) params.append("languages", language);
   if (!filters.content_type && settings.content_types.length < contentTypes.length)
     for (const type of settings.content_types) params.append("content_types", type);
-  return publicApi.read<FeedPage>(`/v1/feed?${params}`, { signal });
+  const path = `/v1/feed?${params}`;
+  // Independently cancellable reads must retain their own transport lifetime.
+  return signal ? publicApi.read<FeedPage>(path, { signal }) : renderFeed(path);
 }
 export async function getFeedOptions(
   filters: FeedFilters,

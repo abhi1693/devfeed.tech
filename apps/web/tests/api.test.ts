@@ -168,3 +168,26 @@ it("preserves article-count sorting through the topic catalog gateway and pagina
   expect(url.searchParams.get("offset")).toBe("60");
   expect(url.searchParams.get("has_articles")).toBe("true");
 });
+
+it("keeps independently cancellable feed reads separate", async () => {
+  const controllers = [new AbortController(), new AbortController()];
+  const completions: ((response: Response) => void)[] = [];
+  const fetcher = vi.fn(
+    (_url: URL, options: RequestInit) =>
+      new Promise<Response>((resolve, reject) => {
+        completions.push(resolve);
+        options.signal!.addEventListener("abort", () => reject(options.signal!.reason), {
+          once: true,
+        });
+      }),
+  );
+  vi.stubGlobal("fetch", fetcher);
+  const reads = controllers.map(({ signal }) => getFeed(parseFilters({}), signal, ""));
+  const cancelled = expect(reads[0]).rejects.toEqual(new UserApiError(503));
+  await vi.waitFor(() => expect(fetcher).toHaveBeenCalledTimes(2));
+  controllers[0].abort();
+  await cancelled;
+  expect(fetcher.mock.calls[1][1].signal!.aborted).toBe(false);
+  completions[1](Response.json({ items: [], next_cursor: null }));
+  expect(await reads[1]).toEqual({ items: [], next_cursor: null });
+});
