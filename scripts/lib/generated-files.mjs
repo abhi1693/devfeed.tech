@@ -1,6 +1,8 @@
 import { constants } from "node:fs";
 import { open } from "node:fs/promises";
 
+// Generators require a trusted checkout with stable parent directories.
+// O_NOFOLLOW constrains the final path component; it cannot prevent parent directory renames.
 const noFollow = constants.O_NOFOLLOW | constants.O_NONBLOCK;
 
 async function openFile(path, flags, label) {
