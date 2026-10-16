@@ -646,7 +646,7 @@ def tables():
             analysis=["queued", "not_run", "running", "enriched", "no_additions", "failed"],
             missing=[
                 "any",
-                "tagline",
+                "description",
                 "aliases",
                 "keywords",
                 "website_url",
@@ -856,7 +856,7 @@ def check_filters(spec, values, records, source_enabled):
             else:
                 assert analysis["status"] == state
         if "missing" in values:
-            fields = ("tagline", "aliases", "keywords", "website_url", "logo_url", "facts")
+            fields = ("description", "aliases", "keywords", "website_url", "logo_url", "facts")
             assert any(
                 not row["proposed"].get(f)
                 for f in (fields if values["missing"] == "any" else [values["missing"]])
