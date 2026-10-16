@@ -1,6 +1,7 @@
 """Typer command contracts: no database, Redis, workers or migrations are run."""
 
 import json
+import re
 from pathlib import Path
 from uuid import UUID
 
@@ -115,14 +116,24 @@ def test_typer_tree_preserves_every_command():
     assert app.pretty_exceptions_show_locals is False
 
 
-def test_invalid_identifier_cannot_emit_terminal_control_commands(operations):
+@pytest.mark.parametrize("color", [False, True])
+def test_invalid_identifier_cannot_emit_terminal_control_commands(operations, monkeypatch, color):
+    monkeypatch.delenv("NO_COLOR", raising=False)
+    if color:
+        monkeypatch.setenv("FORCE_COLOR", "1")
+    else:
+        monkeypatch.delenv("FORCE_COLOR", raising=False)
     payload = "\x1b]52;c;clipboard-change\x07"
-    result = runner.invoke(app, ["articles", "show", payload])
+    result = runner.invoke(app, ["articles", "show", payload], color=color)
 
     assert result.exit_code == 2 and not operations
     assert "not a valid" in result.stderr
-    assert "\x1b" not in result.stderr and "\x07" not in result.stderr
-    assert "\\x1b" in result.stderr and "\\x07" in result.stderr
+    if color:
+        assert "\x1b[" in result.stderr
+    # Rich's own SGR styling is safe; input must not emit any raw control commands.
+    message = re.sub(r"\x1b\[[0-9;]*m", "", result.stderr)
+    assert "\x1b" not in message and "\x07" not in message
+    assert r"\x1b]52;c;clipboard-change\x07" in message
 
 
 @pytest.mark.parametrize(
