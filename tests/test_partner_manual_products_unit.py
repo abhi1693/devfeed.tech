@@ -5,7 +5,13 @@ from types import SimpleNamespace as NS
 from unittest.mock import Mock
 
 import pytest
-from devfeed_core.models import PartnerManualProduct, PartnerProduct, PartnerProductURL, utcnow
+from devfeed_core.models import (
+    PartnerAccount,
+    PartnerManualProduct,
+    PartnerProduct,
+    PartnerProductURL,
+    utcnow,
+)
 from devfeed_http import partner_products as products
 from fastapi import HTTPException
 from pydantic import ValidationError
@@ -130,7 +136,14 @@ def test_inventory_archive_option_uses_batched_projected_availability(include_ar
     from sqlalchemy import select
     from sqlalchemy.dialects import postgresql
 
-    account, session = NS(id=uuid.uuid4(), name="Business", approval_mode="qualified"), Mock()
+    account = PartnerAccount(
+        id=uuid.uuid4(),
+        name="Business",
+        approval_mode="qualified",
+        tier="gold",
+        link_rel=["nofollow"],
+    )
+    session = Mock()
     row = product(account, status="withdrawn" if include_archived else "approved")
     source = NS(active=not include_archived)
     session.scalar.return_value = 1
@@ -147,6 +160,9 @@ def test_inventory_archive_option_uses_batched_projected_availability(include_ar
     assert result["total"] == 1 and result["items"][0]["active"] is not include_archived
     assert result["items"][0]["manual_active"] is not include_archived
     assert result["items"][0]["commercial_approved"] is not include_archived
+    assert result["items"][0]["link_rel"] is None
+    assert result["items"][0]["effective_link_rel"] == ["nofollow"]
+    assert result["items"][0]["configurable_link_rel"] is False
     session.scalar.assert_called_once()
     session.execute.assert_called_once()
     query = str(
@@ -394,7 +410,13 @@ def test_private_crud_routes_authorize_scope_apply_write_limits_and_commit(
     from fastapi.testclient import TestClient
 
     routes = portal if service == "partner" else admin_routes
-    account = NS(id=uuid.uuid4(), name="Business", approval_mode="qualified")
+    account = PartnerAccount(
+        id=uuid.uuid4(),
+        name="Business",
+        approval_mode="qualified",
+        tier="gold",
+        link_rel=["nofollow"],
+    )
     row = product(account)
     summary = {
         "id": str(row.id),
@@ -414,6 +436,10 @@ def test_private_crud_routes_authorize_scope_apply_write_limits_and_commit(
         "manual_active": True,
         "excluded": False,
         "globally_excluded": False,
+        "link_rel": None,
+        "effective_link_rel": ["nofollow"],
+        "configurable_link_rel": account.configurable_link_rel,
+        "link_rel_options": account.link_rel_options,
     }
     session, limiter, redis = Mock(), Mock(), Mock()
     identity_type = PartnerIdentity if service == "partner" else AdminIdentity
@@ -470,6 +496,11 @@ def test_private_crud_routes_authorize_scope_apply_write_limits_and_commit(
             ),
         )
     assert response.status_code == {"post": 201, "delete": 204}.get(method, 200), response.text
+    if method != "delete":
+        assert response.json()["link_rel"] is None
+        assert response.json()["effective_link_rel"] == ["nofollow"]
+        assert response.json()["configurable_link_rel"] is False
+        assert response.json()["link_rel_options"] == ["nofollow", "sponsored", "ugc", "external"]
     access.assert_called()
     if method == "get":
         limiter.assert_not_called()

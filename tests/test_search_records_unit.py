@@ -24,8 +24,14 @@ def test_empty_record_requests_perform_no_database_work(kind):
 @pytest.mark.parametrize("kind", search_records.MODELS)
 def test_record_hydration_is_keyed_by_identity_and_returns_plain_values(kind):
     session = Mock()
-    session.execute.return_value.mappings.return_value = [{"id": ID, "name": "Python"}]
-    assert search_records.public_records(session, kind, [ID]) == {ID: {"id": ID, "name": "Python"}}
+    row = (
+        {"id": ID, "title": "Python", "sponsor_names": []}
+        if kind == "articles"
+        else {"id": ID, "name": "Python"}
+    )
+    session.execute.return_value.mappings.return_value = [row]
+    expected = {**row, "sponsor_link_rel": ["nofollow"]} if kind == "articles" else row
+    assert search_records.public_records(session, kind, [ID]) == {ID: expected}
     assert session.execute.call_count == 1
 
 

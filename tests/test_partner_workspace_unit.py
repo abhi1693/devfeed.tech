@@ -6,7 +6,7 @@ from types import SimpleNamespace as NS
 from unittest.mock import Mock
 
 import pytest
-from devfeed_core.models import utcnow
+from devfeed_core.models import PartnerAccount, utcnow
 from devfeed_http.partner_portal import inventory_product_view
 from devfeed_partner_api import workspace
 from devfeed_partner_api.auth import PartnerIdentity, require_partner
@@ -249,9 +249,11 @@ def test_global_reads_reject_unbounded_or_invalid_parameters(api, path):
 )
 def test_inventory_policy_summary_uses_loaded_account_product_policy(mode, accepted):
     now = utcnow()
-    account = NS(
+    account = PartnerAccount(
         id=uuid.uuid4(),
         name="Account",
+        tier="platinum",
+        link_rel=["nofollow"],
         approval_mode="trusted" if mode in {"trusted", "wrong-source", "excluded"} else "qualified",
     )
     product = NS(
@@ -277,16 +279,22 @@ def test_inventory_policy_summary_uses_loaded_account_product_policy(mode, accep
         ad_formats=["feed"],
         promotion_surfaces=["article"],
         ad_image_url=None,
+        link_rel=["sponsored"],
     )
     data = inventory_product_view(account, product, policy, now)
     assert data["commercial_approved"] is accepted
     assert data["account_id"] == account.id and data["account_name"] == account.name
     assert data["ad_formats"] == ["feed"] and data["promotion_surfaces"] == ["article"]
+    assert data["link_rel"] == data["effective_link_rel"] == ["sponsored"]
+    assert data["configurable_link_rel"] is True
+    assert data["link_rel_options"] == ["nofollow", "sponsored", "ugc", "external"]
 
 
 def test_inventory_without_policy_inherits_account_defaults_without_querying():
     now = utcnow()
-    account = NS(id=uuid.uuid4(), name="Account", approval_mode="trusted")
+    account = PartnerAccount(
+        id=uuid.uuid4(), name="Account", approval_mode="trusted", tier="gold", link_rel=["nofollow"]
+    )
     product = NS(
         id=uuid.uuid4(),
         name="Product",
@@ -304,3 +312,6 @@ def test_inventory_without_policy_inherits_account_defaults_without_querying():
     result = inventory_product_view(account, product, None, now)
     assert not result["excluded"] and not result["commercial_approved"]
     assert result["ad_formats"] is None and result["promotion_surfaces"] is None
+    assert result["link_rel"] is None and result["effective_link_rel"] == ["nofollow"]
+    assert result["configurable_link_rel"] is False
+    assert result["link_rel_options"] == ["nofollow", "sponsored", "ugc", "external"]

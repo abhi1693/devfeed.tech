@@ -100,6 +100,8 @@ def test_valid_admin_session_can_create_account(admin_boundary):
         },
     )
     assert response.status_code == 201
+    assert response.json()["link_rel"] == ["nofollow"]
+    assert response.json()["configurable_link_rel"] is False
     session.commit.assert_called_once()
 
 
@@ -133,7 +135,12 @@ def test_partner_service_only_exposes_scoped_product_marketing_and_image_writes(
     assert set(paths[preference_path]) == {"put"}
     schema = app.openapi()["components"]["schemas"]["PartnerPreferencesInput"]
     assert schema["additionalProperties"] is False
-    assert set(schema["properties"]) == {"outbound_destination", "audience", "ad_formats"}
+    assert set(schema["properties"]) == {
+        "outbound_destination",
+        "audience",
+        "ad_formats",
+        "link_rel",
+    }
     assert all(
         set(operations) == {"get"}
         for path, operations in paths.items()
@@ -192,6 +199,7 @@ def test_tier_catalog_requires_superuser_and_returns_code_benefits(admin_boundar
             {
                 "tier": tier,
                 "benefits": list(benefits),
+                "link_rel_options": ["nofollow", "sponsored", "ugc", "external"],
                 **{
                     key: list(value) if isinstance(value, tuple) else value
                     for key, value in tier_policy(tier).items()

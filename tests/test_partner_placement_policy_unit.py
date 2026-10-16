@@ -7,7 +7,7 @@ from unittest.mock import Mock
 
 import pytest
 from devfeed_core import partner_placements as placements
-from devfeed_core.models import PartnerProductTopic
+from devfeed_core.models import PartnerAccount, PartnerProductTopic
 from devfeed_core.partner_placement_destinations import AccountProductCreative
 from devfeed_core.partner_tracking import BusyPartnerAsset, PartnerTrackingTokens
 from devfeed_http.partner_placements import PlacementQuery
@@ -259,7 +259,13 @@ def test_personal_context_chooses_best_grounded_topic_per_product(monkeypatch):
 
 
 def test_funded_canonical_product_appears_once_with_independent_best_organic_slot(monkeypatch):
-    account = NS(id=uuid.uuid4(), name="Partner", outbound_destination="product_url")
+    account = PartnerAccount(
+        id=uuid.uuid4(),
+        name="Partner",
+        outbound_destination="product_url",
+        tier="gold",
+        link_rel=["nofollow"],
+    )
     products = [
         NS(
             id=uuid.uuid4(),
@@ -323,6 +329,7 @@ def test_funded_canonical_product_appears_once_with_independent_best_organic_slo
         ("funded", True),
     ]
     assert result[1]["campaign_id"] == campaigns[1].id
+    assert [row["link_rel"] for row in result] == [["nofollow"], ["nofollow"]]
     signer = PartnerTrackingTokens(KEY, clock=lambda: NOW.timestamp())
     assert all(signer.verify(row["receipt"]).asset_id == row["asset_id"] for row in result)
     assert session.add.call_count == 2
