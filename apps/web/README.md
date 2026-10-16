@@ -453,6 +453,10 @@ Consequently, `ensureStatic`, `navigation()`, and `prefetch()` are not applied t
 these request-rendered routes. Adopting them requires a compatible CSP design
 and verification of runtime settings, authentication, and personalized feeds.
 
+The reader allows same-origin and `https://nicklaunches.com` iframe embedding through
+`frame-ancestors` on every route, including static files and API responses. It does not
+send `X-Frame-Options`; the existing nonce CSP and other security headers remain in place.
+
 Validate with `npm run web:lint`, `npm run web:test`, and `npm run web:build`.
 
 Public `/latest`, `/sources`, and `/topics` documents stream the shared navigation
