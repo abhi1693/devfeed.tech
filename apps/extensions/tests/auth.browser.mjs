@@ -584,6 +584,15 @@ async function withAuthenticatedReader(t, check) {
   assert.deepEqual(errors, [], "browser and fixture errors");
 }
 
+test(
+  "website recognition badges are absent from the built reader extension",
+  { timeout: 180000 },
+  (t) =>
+    withAuthenticatedReader(t, async ({ page }) => {
+      assert.equal(await page.locator(".sidebar-featured").count(), 0);
+    }),
+);
+
 test("authenticated navigation works in the built reader extension", { timeout: 180000 }, (t) =>
   withAuthenticatedReader(t, async ({ page, state, mustReadsFixture, signIn }) => {
     const directory = path.resolve(
