@@ -256,7 +256,7 @@ jobs:
             apps/api apps/user-api apps/admin-api apps/mcp packages/core packages/http \
             apps/admin/openapi.json pyproject.toml uv.lock .env.example \
             scripts/ci/api_contracts.py tests/test_api_compatibility.py tests/test_api_contracts.py \
-            .github/workflows/ci.yml > "$RUNNER_TEMP/api-files.txt"
+            .github/api-compatibility .github/workflows/ci.yml > "$RUNNER_TEMP/api-files.txt"
           if [[ -s "$RUNNER_TEMP/api-files.txt" ]]; then
             echo 'changed=true' >> "$GITHUB_OUTPUT"
           else
@@ -333,6 +333,7 @@ jobs:
           allow-external-refs: false
           review: false
           github-token: ""
+          err-ignore: .github/api-compatibility/user-feed-reasons.txt
           output-to-file: reports/api-compatibility/user.breaking.txt
       - name: Check admin API
         id: admin

@@ -759,7 +759,7 @@ def tables():
         dict(has_articles=["true", "false"], languages=[["en"], ["fr"]]),
         search="Topic",
     )
-    yield Table("/v1/tags", 1)
+    yield Table("/v1/tags", 1, {"letter": ["T", "A", "#"]}, search="Tag")
     yield Table("/v1/topics/{slug}/relations", 2, bindings={"slug": "topic-0"})
     yield Table(
         "/v1/feed",
@@ -835,6 +835,12 @@ def check_filters(spec, values, records, source_enabled):
             assert row["topic_id"] != values["exclude_topic_id"]
         if "tag_id" in values:
             assert values["tag_id"] in [tag["id"] for tag in row["tags"]]
+        if "letter" in values:
+            initial = row["name"][:1].upper()
+            if values["letter"] == "#":
+                assert not "A" <= initial <= "Z"
+            else:
+                assert initial == values["letter"]
         if "retryable_only" in values and values["retryable_only"] == "true":
             assert row["retryable"]
         if "kind" in values:

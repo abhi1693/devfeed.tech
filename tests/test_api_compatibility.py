@@ -126,7 +126,9 @@ def test_classifier_probes_reject_invalid_output(tmp_path, monkeypatch, stdout):
 
 
 def test_classifier_probes_cover_nested_and_required_changes(tmp_path, monkeypatch):
-    results = iter([(0, "[]"), *[(1, '[{"id":"breaking"}]')] * 4])
+    results = iter(
+        [(0, "[]"), *[(1, '[{"id":"breaking"}]')] * 4, (0, "[]"), *[(1, '[{"id":"breaking"}]')] * 2]
+    )
 
     def run(command):
         code, stdout = next(results)
@@ -139,6 +141,27 @@ def test_classifier_probes_cover_nested_and_required_changes(tmp_path, monkeypat
         nested["components"]["schemas"]["get_article__output__Article"]["properties"]["id"]["type"]
         == "integer"
     )
+
+
+@pytest.mark.parametrize("change", ["unknown-reason", "response-type"])
+def test_user_feed_exception_probes_reject_overly_broad_exemptions(change, tmp_path, monkeypatch):
+    def run(command):
+        assert command[-2:] == [
+            "--err-ignore",
+            str(ROOT / ".github/api-compatibility/user-feed-reasons.txt"),
+        ]
+        failure = command[3].endswith(f"user-feed-{change}.json")
+        suppressed = failure or "followed-tag" in command[3]
+        return subprocess.CompletedProcess(
+            command,
+            0 if suppressed else 1,
+            "[]" if suppressed else '[{"id":"breaking"}]',
+            "",
+        )
+
+    monkeypatch.setattr(contracts, "run_diff", run)
+    with pytest.raises(ValueError, match=f"user-feed-{change} regression probe"):
+        contracts.verify_user_feed_reason_exception(tmp_path)
 
 
 @pytest.mark.parametrize(

@@ -833,7 +833,27 @@ test(
       "Comparisons",
       "Opinions",
     ]);
-    assert.equal(await page.locator(".sidebar .nav-item").count(), 7);
+    assert.deepEqual(
+      await page
+        .locator(".sidebar .nav-item")
+        .evaluateAll((links) =>
+          links.map((link) => [
+            link.getAttribute("aria-label") || link.textContent.trim(),
+            link.getAttribute("href"),
+          ]),
+        ),
+      [
+        ["Latest feed", "#/latest"],
+        ["Explore topics", "#/topics"],
+        ["Explore tags", "#/tags"],
+        ["Sources", "#/sources"],
+        ["Connect your agent", "#/mcp"],
+        ["Leaderboard", "#/leaderboard"],
+        ["What’s new (opens in a new tab)", "https://changelog.devfeed.tech/"],
+        ["Star us on GitHub (opens in a new tab)", "https://github.com/abhi1693/devfeed.tech"],
+      ],
+      "Sidebar preserves every guest destination, including tags",
+    );
     await checkSidebarGitHub(page, path.resolve(extension, `../${browser}-sidebar-github.png`));
     await checkMcp(page, path.resolve(extension, `../${browser}-mcp`));
     const whatsNew = page

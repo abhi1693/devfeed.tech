@@ -217,7 +217,81 @@ def verify_diff_rules(output: Path, binary: str = "oasdiff") -> None:
             or bool(findings) != bool(expected)
         ):
             raise ValueError(f"oasdiff failed the {change} regression probe: {result.stderr}")
-    print("oasdiff regression probes: 5 passed")
+    verify_user_feed_reason_exception(output, binary)
+    print("oasdiff regression probes: 8 passed")
+
+
+def verify_user_feed_reason_exception(output: Path, binary: str = "oasdiff") -> None:
+    """The tag-follow exception must not hide another enum or response type change."""
+    kind = {
+        "type": "string",
+        "enum": ["followed_topic", "liked_topic", "related_topic", "followed_source"],
+    }
+    base: dict = {
+        "openapi": "3.1.0",
+        "info": {"title": "User feed compatibility probes", "version": "1"},
+        "paths": {
+            "/v1/user/feed": {
+                "get": {
+                    "responses": {
+                        "200": {
+                            "description": "Personalized feed",
+                            "content": {
+                                "application/json": {
+                                    "schema": {
+                                        "type": "object",
+                                        "properties": {
+                                            "reasons": {
+                                                "type": "object",
+                                                "additionalProperties": {
+                                                    "type": "object",
+                                                    "properties": {
+                                                        "kind": kind,
+                                                        "tag_id": {"type": "string"},
+                                                    },
+                                                },
+                                            }
+                                        },
+                                    }
+                                }
+                            },
+                        }
+                    }
+                }
+            }
+        },
+    }
+    base_path = output / "user-feed-base.json"
+    write_json(base_path, base)
+    for change in ("followed-tag", "unknown-reason", "response-type"):
+        head = copy.deepcopy(base)
+        schema = head["paths"]["/v1/user/feed"]["get"]["responses"]["200"]["content"][
+            "application/json"
+        ]["schema"]
+        reason = schema["properties"]["reasons"]["additionalProperties"]["properties"]
+        reason["kind"]["enum"].append("followed_tag")
+        if change == "unknown-reason":
+            reason["kind"]["enum"].append("unknown_reason")
+        elif change == "response-type":
+            reason["tag_id"]["type"] = "integer"
+        head_path = output / f"user-feed-{change}.json"
+        write_json(head_path, head)
+        command = breaking_command(binary, output / "oasdiff.yaml", base_path, head_path, "json")
+        command.extend(
+            ["--err-ignore", str(ROOT / ".github/api-compatibility/user-feed-reasons.txt")]
+        )
+        result = run_diff(command)
+        (output / f"user-feed-{change}.findings.json").write_text(result.stdout)
+        expected = 0 if change == "followed-tag" else 1
+        findings = json.loads(result.stdout)
+        if (
+            not isinstance(findings, list)
+            or result.returncode != expected
+            or bool(findings) != bool(expected)
+        ):
+            raise ValueError(
+                f"oasdiff failed the user-feed-{change} regression probe: {result.stderr}"
+            )
 
 
 def main() -> int:
