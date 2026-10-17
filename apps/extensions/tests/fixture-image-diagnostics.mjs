@@ -71,10 +71,13 @@ function documentMetadata() {
 // Only fixture-image metadata is retained: no headers, bodies, URL credentials, or queries.
 // The reader fixture's existing fatal console assertion still fails the journey.
 export async function fixtureImageDiagnostics(context) {
+  // observedAt uses Node epoch milliseconds; browser timestamp fields name their clock.
   const requests = [];
   const failures = [];
   const violations = [];
   const consoleLocations = [];
+  const browserLogs = [];
+  const browserIssues = [];
   const diagnosticErrors = [];
   let failureDocument;
   const noteError = (error) => appendBounded(diagnosticErrors, String(error).slice(0, 300), 8);
@@ -133,6 +136,8 @@ export async function fixtureImageDiagnostics(context) {
       appendBounded(
         consoleLocations,
         {
+          pageIndex: index,
+          observedAt: Date.now(),
           currentURL: safeUrl(page.url()),
           ...location,
           url: safeUrl(location.url),
@@ -141,10 +146,17 @@ export async function fixtureImageDiagnostics(context) {
       );
     });
     const session = await context.newCDPSession(page);
+    let lastFixtureRequestFrameId;
     session.on("Network.requestWillBeSent", (event) => {
       const url = fixtureImage(event.request.url);
       if (!url) return;
+      lastFixtureRequestFrameId = event.frameId;
       appendBounded(requests, {
+        pageIndex: index,
+        observedAt: Date.now(),
+        networkMonotonicSeconds: event.timestamp,
+        frameId: event.frameId,
+        loaderId: event.loaderId,
         requestId: `${index}:${event.requestId}`,
         url,
         currentURL: safeUrl(page.url()),
@@ -159,11 +171,67 @@ export async function fixtureImageDiagnostics(context) {
       if (request)
         appendBounded(failures, {
           ...request,
+          observedAt: Date.now(),
+          networkMonotonicSeconds: event.timestamp,
           blockedReason: event.blockedReason,
           errorText: event.errorText,
           canceled: event.canceled,
         });
     });
+    session.on("Log.entryAdded", ({ entry }) => {
+      const urls = entry.text.slice(0, 4096).match(/https:\/\/[^\s"'<>]+/g) ?? [];
+      const blockedURLs = urls.map(fixtureImage).filter(Boolean);
+      if (!blockedURLs.length) return;
+      appendBounded(
+        browserLogs,
+        {
+          pageIndex: index,
+          observedAt: Date.now(),
+          logEpochMilliseconds: entry.timestamp,
+          lastFixtureRequestFrameId,
+          currentURL: safeUrl(page.url()),
+          source: entry.source,
+          level: entry.level,
+          blockedURLs,
+          url: safeUrl(entry.url),
+          lineNumber: entry.lineNumber,
+          networkRequestId: entry.networkRequestId,
+          frames: initiatorDetails({ stack: entry.stackTrace }).frames,
+        },
+        32,
+      );
+      failureDocument ??= page.evaluate(documentMetadata).catch(noteError);
+    });
+    session.on("Audits.issueAdded", ({ issue }) => {
+      const detail = issue.details.contentSecurityPolicyIssueDetails;
+      const blockedURL = fixtureImage(detail?.blockedURL);
+      if (!blockedURL) return;
+      appendBounded(
+        browserIssues,
+        {
+          pageIndex: index,
+          observedAt: Date.now(),
+          lastFixtureRequestFrameId,
+          currentURL: safeUrl(page.url()),
+          code: issue.code,
+          blockedURL,
+          violatedDirective: detail.violatedDirective,
+          isReportOnly: detail.isReportOnly,
+          violationType: detail.contentSecurityPolicyViolationType,
+          sourceCodeLocation: detail.sourceCodeLocation
+            ? {
+                url: safeUrl(detail.sourceCodeLocation.url),
+                lineNumber: detail.sourceCodeLocation.lineNumber,
+                columnNumber: detail.sourceCodeLocation.columnNumber,
+              }
+            : undefined,
+        },
+        32,
+      );
+      failureDocument ??= page.evaluate(documentMetadata).catch(noteError);
+    });
+    await session.send("Log.enable");
+    await session.send("Audits.enable");
     await session.send("Network.enable");
   }
   context.on("page", (page) => void attach(page).catch(noteError));
@@ -195,6 +263,8 @@ export async function fixtureImageDiagnostics(context) {
               failures,
               violations,
               consoleLocations,
+              browserLogs,
+              browserIssues,
               firstViolationDocument,
               pages,
               diagnosticErrors,
