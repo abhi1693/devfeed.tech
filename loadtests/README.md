@@ -136,8 +136,12 @@ and throughput, individual-run health, and interpretation details.
 CI checks out the event's exact base and head commits into separate directories
 and installs each revision's own locked application dependencies. The candidate's
 Locust harness drives both versions, including bases that predate this harness.
-Each gets a new database, seed dataset, Redis, PgBouncer and API process. Three matrix
-jobs run in parallel, **each on a fresh GitHub-hosted ARM64 runner**. Each job measures
+Each gets a new database, seed dataset, Redis, PgBouncer and API process.
+The runner explicitly enables `TCP_NODELAY` on the loopback listener inherited by
+Uvicorn for both revisions. This prevents event-loop differences in inherited-socket
+defaults from adding Nagle/delayed-ACK latency to reused HTTP connections.
+
+Three matrix jobs run in parallel, **each on a fresh GitHub-hosted ARM64 runner**. Each job measures
 base and head sequentially, alternating which revision runs first. This produces six
 isolated samples, three per revision, while keeping each base/head pair on the same
 host. The harness cleans up each sample's resources before the next sample starts.
