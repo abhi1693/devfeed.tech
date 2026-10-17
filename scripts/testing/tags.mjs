@@ -158,15 +158,97 @@ async function runTags(page, pathFor, output) {
   assert.equal(await page.locator(".tags-group li").count(), 0);
 }
 
-export async function checkTagFollow(page, pathFor, output) {
+async function followAppearance(page, button) {
+  const result = {};
+  const originalClasses = await page.locator("html").getAttribute("class");
+  for (const theme of ["light", "dark"]) {
+    await page.evaluate((theme) => {
+      document.documentElement.classList.remove("light", "dark");
+      document.documentElement.classList.add(theme);
+    }, theme);
+    const sample = () =>
+      button.evaluate(async (node) => {
+        // Compare settled colors, independent of the reader's theme transitions.
+        void getComputedStyle(node).backgroundColor;
+        const transitions = node.getAnimations();
+        for (const transition of transitions) transition.finish();
+        await Promise.allSettled(transitions.map((transition) => transition.finished));
+        const style = getComputedStyle(node);
+        const bounds = node.getBoundingClientRect();
+        const properties = [
+          "backgroundColor",
+          "color",
+          "borderColor",
+          "borderWidth",
+          "borderRadius",
+          "paddingTop",
+          "paddingRight",
+          "paddingBottom",
+          "paddingLeft",
+          "gap",
+          "minHeight",
+          "minInlineSize",
+          "fontSize",
+          "fontWeight",
+          "lineHeight",
+          "boxShadow",
+        ];
+        return {
+          ...Object.fromEntries(properties.map((name) => [name, style[name]])),
+          width: bounds.width,
+          height: bounds.height,
+        };
+      });
+    await page.mouse.move(0, 0);
+    const normal = await sample();
+    await button.hover();
+    result[theme] = { normal, hover: await sample() };
+  }
+  await page.locator("html").evaluate((node, classes) => {
+    if (classes === null) node.removeAttribute("class");
+    else node.setAttribute("class", classes);
+  }, originalClasses);
+  return result;
+}
+
+export async function checkTagFollow(page, pathFor, output, topicPath) {
+  await page.goto(pathFor(topicPath));
+  const topicHeading = page.locator(".topic-feed-heading");
+  const topicFollow = topicHeading.getByRole("button", { name: "Follow", exact: true });
+  await topicFollow.waitFor();
+  await page.waitForFunction(
+    () => !document.querySelector(".topic-feed-heading .follow-button")?.disabled,
+  );
+  const topicAppearance = await followAppearance(page, topicFollow);
+  await topicFollow.click();
+  await topicHeading
+    .getByText("Couldn’t update this topic. Please try again.", { exact: true })
+    .waitFor();
+  await topicFollow.click();
+  const topicFollowing = topicHeading.getByRole("button", { name: "Following", exact: true });
+  await topicFollowing.waitFor();
+  const topicFollowingAppearance = await followAppearance(page, topicFollowing);
   await page.goto(pathFor("/tags/c%2B%2B"));
   const heading = page.locator(".topic-feed-heading");
   await heading.getByRole("heading", { name: "C++", exact: true }).waitFor();
   await heading.getByRole("button", { name: "Follow", exact: true }).waitFor();
+  await page.waitForFunction(
+    () => !document.querySelector(".topic-feed-heading .follow-button")?.disabled,
+  );
+  assert.deepEqual(
+    await followAppearance(page, heading.getByRole("button", { name: "Follow", exact: true })),
+    topicAppearance,
+    "Tag Follow matches topic Follow in both themes and on hover",
+  );
   await heading.getByRole("button", { name: "Follow", exact: true }).click();
   await heading.getByText("Couldn’t update this tag. Please try again.", { exact: true }).waitFor();
   await heading.getByRole("button", { name: "Follow", exact: true }).click();
   await heading.getByRole("button", { name: "Following", exact: true }).waitFor();
+  assert.deepEqual(
+    await followAppearance(page, heading.getByRole("button", { name: "Following", exact: true })),
+    topicFollowingAppearance,
+    "Tag Following matches topic Following in both themes and on hover",
+  );
   await page.reload();
   await heading.getByRole("button", { name: "Following", exact: true }).waitFor();
   await heading.getByRole("button", { name: "Following", exact: true }).click();

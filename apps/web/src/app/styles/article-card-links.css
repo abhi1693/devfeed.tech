@@ -189,11 +189,11 @@
 }
 
 
-.topic-follow .button {
+:is(.topic-follow, .tag-follow) .button {
   padding: 8px 12px;
   min-height: 36px;
 }
-.topic-follow p {
+:is(.topic-follow, .tag-follow) p {
   color: var(--destructive);
   font-size: 12px;
 }

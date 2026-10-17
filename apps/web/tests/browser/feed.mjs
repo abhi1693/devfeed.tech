@@ -1607,6 +1607,11 @@ test("tag follow controls persist and recover from errors", { timeout: 180000 },
   mutationFixture.active = true;
   await withReaderPage(browser, async (page, context) => {
     await context.addCookies([{ name: "devfeed_user_session", value: "valid", url: origin }]);
-    await checkTagFollow(page, (path) => origin + path, "/tmp/devfeed-tags/web");
+    await checkTagFollow(
+      page,
+      (path) => origin + path,
+      "/tmp/devfeed-tags/web",
+      `/topics/${mutationFixture.topic.slug}`,
+    );
   });
 });

@@ -1129,5 +1129,10 @@ test("tag directory and detail pages work in built new tabs", { timeout: 180000 
 test("tag follow controls persist in built new tabs", { timeout: 180000 }, async (t) => {
   const { page, pathFor, mutationFixture } = await readerFixture(t);
   mutationFixture.active = true;
-  await checkTagFollow(page, pathFor, `/tmp/devfeed-tags/${browser}`);
+  await checkTagFollow(
+    page,
+    pathFor,
+    `/tmp/devfeed-tags/${browser}`,
+    `/topics/${mutationFixture.topic.slug}`,
+  );
 });
