@@ -107,8 +107,12 @@ def test_validation_feedback_does_not_extend_the_attempt_budget(runtime, monkeyp
         "fallback",
         "relevant_added",
         "relevant_changed",
+        "relevant_description_changed",
+        "relevant_ai_description_changed",
         "selected_removed",
         "selected_changed",
+        "selected_description_changed",
+        "selected_ai_description_changed",
         "unselected_removed",
         "legacy",
     ],
@@ -124,7 +128,7 @@ def test_catalog_equivalence_preserves_relevant_and_selected_identity_guards(cha
         result={"topics": [], "tags": []},
     )
     current = deepcopy(taxonomy)
-    if change in {"selected_removed", "selected_changed"}:
+    if change.startswith("selected_"):
         job.result["topics"] = [{"topic_id": fallback["id"]}]
     if change in {"selected_removed", "unselected_removed"}:
         current["topics"].remove(fallback)
@@ -134,6 +138,12 @@ def test_catalog_equivalence_preserves_relevant_and_selected_identity_guards(cha
         current["topics"].append(entry("Routing"))
     elif change == "relevant_changed":
         current["topics"][0]["aliases"] = ["Angular framework"]
+    elif change in {"relevant_description_changed", "relevant_ai_description_changed"}:
+        field = change.removeprefix("relevant_").removesuffix("_changed")
+        current["topics"][0][field] = "A changed subject definition requires fresh inference."
+    elif change in {"selected_description_changed", "selected_ai_description_changed"}:
+        field = change.removeprefix("selected_").removesuffix("_changed")
+        current["topics"][1][field] = "A changed subject definition requires fresh inference."
     else:
         current["topics"].append(entry("Another fallback"))
     if change == "legacy":
