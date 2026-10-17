@@ -217,6 +217,7 @@ function LogViewer({ kind, id, followExecution = false }: Props) {
                 ]}
               />
             </div>
+            {/* Keep keyboard access to entries beyond the visible log viewport. */}
             <div
               role="region"
               aria-label="Runtime log entries"

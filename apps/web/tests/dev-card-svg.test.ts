@@ -1,11 +1,38 @@
 import { afterEach, expect, it, vi } from "vitest";
 vi.mock("server-only", () => ({}));
-import { renderDevCardSvg } from "@/lib/server/dev-card-svg";
+import { readLightThemeTokens, renderDevCardSvg } from "@/lib/server/dev-card-svg";
 import * as avatar from "@/lib/server/card-avatar";
 import * as logos from "@/lib/server/card-logos";
 import { classicCardDots } from "@devfeed/theme/dev-card-motion";
 
 afterEach(() => vi.restoreAllMocks());
+
+it("reads complete light-theme declarations and preserves literal token values", () => {
+  expect(
+    readLightThemeTokens(`:root {
+      color-scheme: light;
+      --font-family-sans: Arial, Helvetica, sans-serif;
+      --accent: #111111; --accent: #222222;
+      --reference: var(--accent);
+      --uri: url(https://example.com/font);
+      --blank: ;
+    }
+    .dark { --accent: #ffffff; }`),
+  ).toEqual({
+    "--font-family-sans": "Arial, Helvetica, sans-serif",
+    "--accent": "#222222",
+    "--reference": "var(--accent)",
+    "--uri": "url(https://example.com/font)",
+    "--blank": "",
+  });
+});
+
+it("ignores long malformed and unterminated token declarations", () => {
+  const malformed = "-".repeat(200_000);
+  expect(
+    readLightThemeTokens(`:root { ${malformed}; --valid: #123456; --unterminated: ${malformed}`),
+  ).toEqual({ "--valid": "#123456" });
+});
 
 it("embeds only the selected stat's matching icon as self-contained SVG", async () => {
   const svg = await renderDevCardSvg({

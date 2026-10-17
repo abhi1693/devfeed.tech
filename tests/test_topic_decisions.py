@@ -1,3 +1,4 @@
+import copy
 import json
 import uuid
 from datetime import timedelta
@@ -266,6 +267,92 @@ def test_reservations_fail_closed_and_unknown_usage_is_not_free():
         )
         == settled
     )
+
+
+@pytest.mark.parametrize(
+    "succeeded,measured_tokens,searches,expected_tokens,expected_searches",
+    [
+        (True, 0, 0, 8000, 0),
+        (True, 1200, 1, 1200, 1),
+        (True, 10000, 4, 10000, 4),
+        (False, 0, 0, 8000, 3),
+        (False, 1200, 1, 8000, 3),
+        (False, 10000, 4, 10000, 4),
+    ],
+)
+def test_running_call_settlement_preserves_reservations_and_exact_charges(
+    succeeded, measured_tokens, searches, expected_tokens, expected_searches
+):
+    settings = get_settings().model_copy(
+        update={
+            "topic_decision_call_tokens": 8000,
+            "topic_decision_max_tokens": 16000,
+            "topic_decision_max_searches": 3,
+        }
+    )
+    state = reserve(initial_state(settings), "discovery", web=True)
+    before = copy.deepcopy(state)
+    reserved = state["calls"][0]
+    usage = {"totalTokens": measured_tokens}
+
+    settled = settle(
+        state,
+        0,
+        usage=usage,
+        searches=searches,
+        seconds=2.5,
+        model="settled-model",
+        effort="medium",
+        succeeded=succeeded,
+    )
+
+    call = settled["calls"][0]
+    assert state == before
+    assert call["status"] == ("returned" if succeeded else "failed")
+    assert call["reserved_tokens"] == reserved["reserved_tokens"]
+    assert call["charged_tokens"] == expected_tokens
+    assert call["charged_searches"] == expected_searches
+    assert call["tokens"] == usage and call["usage_known"] is bool(measured_tokens)
+    assert (call["seconds"], call["model"], call["reasoning_effort"]) == (
+        2.5,
+        "settled-model",
+        "medium",
+    )
+    assert call["finished_at"]
+    settled["limits"]["tokens"] = 0
+    call["reserved_tokens"] = 0
+    assert state == before
+
+
+@pytest.mark.parametrize("succeeded", [False, True])
+def test_finished_settlement_replay_returns_an_independent_unchanged_snapshot(succeeded):
+    state = settle(
+        reserve(initial_state(get_settings()), "discovery", web=True),
+        0,
+        usage={"totalTokens": 3000, "details": {"cached": 100}},
+        searches=1,
+        seconds=2,
+        model="first-model",
+        effort="medium",
+        succeeded=succeeded,
+    )
+    before = copy.deepcopy(state)
+
+    replayed = settle(
+        state,
+        0,
+        usage={"totalTokens": 1},
+        searches=0,
+        seconds=0,
+        model="replacement-model",
+        effort="low",
+        succeeded=not succeeded,
+    )
+
+    assert replayed == state == before
+    replayed["calls"][0]["tokens"]["details"]["cached"] = 0
+    replayed["limits"]["tokens"] = 0
+    assert state == before
 
 
 @pytest.mark.parametrize(

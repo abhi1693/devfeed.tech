@@ -9,7 +9,11 @@ const socketPath = "/run/codex/app-server.sock";
 const sockets = new Set();
 process.umask(0o077);
 fs.rmSync(socketPath, { force: true });
-const child = spawn("codex", process.argv.slice(2), { stdio: "inherit" });
+const child = spawn(
+  process.execPath,
+  ["/usr/local/lib/node_modules/@openai/codex/bin/codex.js", ...process.argv.slice(2)],
+  { stdio: "inherit" },
+);
 const tlsServer = process.env.DEVFEED_CODEX_TLS_CERT
   ? createTransport({
       cert: fs.readFileSync(process.env.DEVFEED_CODEX_TLS_CERT),

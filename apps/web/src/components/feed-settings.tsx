@@ -226,7 +226,9 @@ function FeedSettingsForm() {
                           setSelectedLanguages((previous) =>
                             previous.includes(code)
                               ? previous.filter((value) => value !== code)
-                              : [...previous, code].sort(),
+                              : [...previous, code].sort((left, right) =>
+                                  left < right ? -1 : left > right ? 1 : 0,
+                                ),
                           );
                           setMessage("");
                         }}
