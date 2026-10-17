@@ -235,7 +235,7 @@ export function RecordTable({
                   <Link
                     prefetch={false}
                     href={recordHref(recordIdentity(resource, row.original))}
-                    className="block max-w-lg break-words font-medium text-blue-700 dark:text-blue-400 hover:underline"
+                    className="block max-w-lg whitespace-normal break-words font-medium text-blue-700 dark:text-blue-400 hover:underline"
                   >
                     <ColumnValue
                       value={column.key === "id" ? String(value).slice(0, 8) : value}
