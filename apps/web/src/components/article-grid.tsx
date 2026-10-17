@@ -13,7 +13,7 @@ import { PartnerPlacements, type PartnerPlacementContext } from "./partner-place
 import { useReadingAnchor } from "./use-reading-anchor";
 import type { PartnerPlacement } from "@/lib/partner-placements";
 export type RecommendationReason = {
-  kind: "followed_topic" | "liked_topic" | "related_topic" | "followed_source";
+  kind: "followed_topic" | "liked_topic" | "related_topic" | "followed_source" | "followed_tag";
   topic_id?: string | null;
   seed_topic_id?: string | null;
 };
@@ -53,6 +53,7 @@ export function ArticleGrid({
       id,
       {
         followed_source: "From a source you follow",
+        followed_tag: "From a tag you follow",
         followed_topic: "From a topic you follow",
         liked_topic: "Based on articles you like",
         related_topic: "Related to your interests",

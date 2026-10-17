@@ -37,6 +37,7 @@ export function serverReadFixture() {
               "feed:news": "2030-02-02T01:02:03Z",
               topics: "2030-02-01T00:00:00Z",
               sources: "2030-01-31T00:00:00Z",
+              tags: "2030-01-30T00:00:00Z",
             },
           },
         };
@@ -157,7 +158,25 @@ export async function checkSitemapPolicy(request, origin, fixture) {
   assert.equal(pages.status(), 200);
   assert.equal(pages.headers()["cache-control"], "public, max-age=300, s-maxage=300");
   const entries = xmlEntries(await pages.text(), "url");
-  assert.equal(entries.length, 11);
+  assert.deepEqual(
+    entries
+      .map((entry) => new URL(entry.loc).pathname)
+      .sort((left, right) => left.localeCompare(right)),
+    [
+      "/latest",
+      "/articles",
+      "/news",
+      "/tutorials",
+      "/releases",
+      "/comparisons",
+      "/opinions",
+      "/topics",
+      "/sources",
+      "/tags",
+      "/legal/privacy",
+      "/legal/terms",
+    ].sort((left, right) => left.localeCompare(right)),
+  );
   assert.ok(entries.every((entry) => new URL(entry.loc).origin === origin));
   const entry = (path) => entries.find((item) => item.loc === origin + path);
   assert.deepEqual(entry("/latest"), {
@@ -172,6 +191,12 @@ export async function checkSitemapPolicy(request, origin, fixture) {
   assert.equal(entry("/topics").changefreq, "daily");
   assert.equal(entry("/topics").priority, "0.7");
   assert.equal(entry("/sources").changefreq, "daily");
+  assert.deepEqual(entry("/tags"), {
+    loc: origin + "/tags",
+    lastmod: "2030-01-30T00:00:00.000Z",
+    changefreq: "daily",
+    priority: "0.7",
+  });
   assert.deepEqual(entry("/legal/privacy"), {
     loc: origin + "/legal/privacy",
     lastmod: "2026-09-14T00:00:00.000Z",

@@ -76,14 +76,14 @@ it("omits unknown original dates, authors, publishers and unsafe URLs without in
 });
 
 it("uses the runtime origin and identical local canonical/OG URLs for scoped and paginated feeds", () => {
-  vi.stubEnv("DEVFEED_USER_BASE_URL", "http://192.168.1.101:3000");
+  vi.stubEnv("DEVFEED_USER_BASE_URL", "http://192.0.2.10:3000");
   const metadata = feedMetadata(
     "Engineering",
     "Developer articles",
     { cursor: "next-page" },
     { source_id: article.sources[0].id, source_slug: "engineering", content_type: "tutorial" },
   );
-  const url = "http://192.168.1.101:3000/sources/engineering/tutorials?cursor=next-page";
+  const url = "http://192.0.2.10:3000/sources/engineering/tutorials?cursor=next-page";
   expect(metadata.alternates?.canonical).toBe(url);
   expect(metadata.openGraph).toMatchObject({
     url,
@@ -93,7 +93,7 @@ it("uses the runtime origin and identical local canonical/OG URLs for scoped and
   });
   expect(metadata.twitter).toMatchObject({
     card: "summary_large_image",
-    images: [{ url: "http://192.168.1.101:3000/opengraph.png", alt: socialImage().alt }],
+    images: [{ url: "http://192.0.2.10:3000/opengraph.png", alt: socialImage().alt }],
   });
   expect(metadata.robots).toEqual({ index: false, follow: true });
 });

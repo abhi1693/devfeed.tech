@@ -1,3 +1,4 @@
+import { tagsFixture, checkTags, checkTagFollow } from "../../../../scripts/testing/tags.mjs";
 import { checkCatalogSharing } from "../../../../scripts/testing/catalog-sharing.mjs";
 import {
   checkKeyboardReader,
@@ -301,6 +302,12 @@ async function createReaderFixture(t, { thumbnailFeed = false } = {}) {
       );
       res.writeHead(status, { "Content-Type": "application/json" });
       res.end(JSON.stringify(json));
+      return;
+    }
+    const tagResponse = tagsFixture(requestUrl);
+    if (tagResponse && !path.includes("/seo-")) {
+      res.writeHead(tagResponse.status ?? 200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify(tagResponse.json));
       return;
     }
     // Collection indexing fixtures: metadata and page content use the same feed.
@@ -702,6 +709,7 @@ async function createReaderFixture(t, { thumbnailFeed = false } = {}) {
       cwd: `${root}/apps/web`,
       env: {
         ...env,
+        DEVFEED_ANALYTICS_ENABLED: "false",
         DEVFEED_PUBLIC_API_URL: upstream,
         DEVFEED_MCP_PUBLIC_URL: testMcpEndpoint,
         DEVFEED_USER_API_URL: userUpstream,
@@ -1583,3 +1591,28 @@ test(
     }
   },
 );
+
+test(
+  "tag directory and detail pages work across desktop and mobile",
+  { timeout: 180000 },
+  async (t) => {
+    const { browser, origin } = await createReaderFixture(t);
+    await withReaderPage(browser, (page) =>
+      checkTags(page, (path) => origin + path, "/tmp/devfeed-tags/web"),
+    );
+  },
+);
+
+test("tag follow controls persist and recover from errors", { timeout: 180000 }, async (t) => {
+  const { browser, origin, mutationFixture } = await createReaderFixture(t);
+  mutationFixture.active = true;
+  await withReaderPage(browser, async (page, context) => {
+    await context.addCookies([{ name: "devfeed_user_session", value: "valid", url: origin }]);
+    await checkTagFollow(
+      page,
+      (path) => origin + path,
+      "/tmp/devfeed-tags/web",
+      `/topics/${mutationFixture.topic.slug}`,
+    );
+  });
+});

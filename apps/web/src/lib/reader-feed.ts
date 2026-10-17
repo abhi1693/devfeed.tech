@@ -41,7 +41,10 @@ export function resolveFeed(
 export function feedPlacements(
   descriptor: FeedDescriptor,
   filters: FeedFilters,
-  { section = "feed", topicId }: { section?: "feed" | "topics" | "sources"; topicId?: string } = {},
+  {
+    section = "feed",
+    topicId,
+  }: { section?: "feed" | "topics" | "sources" | "tags"; topicId?: string } = {},
 ): Omit<PlacementQuery, "article_ids"> | undefined {
   if (!descriptor.capabilities.placements || filters.cursor) return undefined;
   if (section === "topics" && topicId && !filters.q && !filters.source_id)

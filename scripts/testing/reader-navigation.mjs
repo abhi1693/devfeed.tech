@@ -6,6 +6,14 @@ import { assertAccessible } from "../../apps/web/tests/browser/accessibility.mjs
 
 const widths = [320, 360, 375, 390, 430, 520, 768, 801, 1440];
 const tags = ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa"];
+const mobileNavigation = (signedIn) => [
+  ...(signedIn ? [["My feed", "/"]] : []),
+  ["Latest", "/latest"],
+  ...(signedIn ? [["Read later", "/read-later"]] : []),
+  ["Topics", "/topics"],
+  ["Tags", "/tags"],
+  ["Sources", "/sources"],
+];
 
 async function measure(page) {
   return page.evaluate(() => {
@@ -25,6 +33,7 @@ async function measure(page) {
     const footer = document.querySelector(".mobile-nav");
     return {
       width: innerWidth,
+      extension: location.protocol === "chrome-extension:",
       scrollWidth: document.documentElement.scrollWidth,
       sidebar: document.documentElement.dataset.sidebarState,
       brand: rect(document.querySelector(".topbar .brand")),
@@ -39,7 +48,10 @@ async function measure(page) {
       mainBottomPadding: Number.parseFloat(
         getComputedStyle(document.querySelector(".main-content")).paddingBottom,
       ),
-      links: [...footer.querySelectorAll("a")].filter(visible).map(rect),
+      links: [...footer.querySelectorAll("a")].filter(visible).map((link) => ({
+        ...rect(link),
+        href: link.getAttribute("href"),
+      })),
     };
   });
 }
@@ -78,8 +90,15 @@ function defects(snapshot, signedIn) {
     if (!footer) issues.push("mobile navigation is hidden");
     if (footer && snapshot.mainBottomPadding < footer.height)
       issues.push("fixed navigation covers the end of the main content");
-    if (links.length !== (signedIn ? 5 : 3)) {
-      issues.push(`expected ${signedIn ? 5 : 3} mobile links, got ${links.length}`);
+    const expected = mobileNavigation(signedIn).map(([name, route]) => [
+      name,
+      `${snapshot.extension ? "#" : ""}${route}`,
+    ]);
+    const actual = links.map(({ name, href }) => [name, href]);
+    if (JSON.stringify(actual) !== JSON.stringify(expected)) {
+      issues.push(
+        `expected mobile links ${JSON.stringify(expected)}, got ${JSON.stringify(actual)}`,
+      );
     }
     for (const [index, link] of links.entries()) {
       if (link.width < 43.5 || link.height < 43.5)
@@ -296,31 +315,19 @@ export async function checkReaderNavigation(
     if (geometryOnly) return report;
     await page.setViewportSize({ width: 390, height: 900 });
     const nav = page.locator(".mobile-nav");
-    const expected = signedIn
-      ? ["My feed", "Latest", "Read later", "Topics", "Sources"]
-      : ["Latest", "Topics", "Sources"];
+    const expected = mobileNavigation(signedIn);
     assert.deepEqual(
       await nav
         .getByRole("link")
         .allTextContents()
         .then((items) => items.map((item) => item.trim())),
-      expected,
+      expected.map(([name]) => name),
     );
     assert.equal(await nav.getByRole("link", { name: "Leaderboard" }).count(), 0);
     assert.equal(await nav.getByRole("link", { name: "Connect your agent" }).count(), 0);
     const extension = page.url().startsWith("chrome-extension:");
     const base = extension ? `${page.url().split("#")[0]}#` : new URL(page.url()).origin;
-    for (const [name, route] of [
-      ["Latest", "/latest"],
-      ["Topics", "/topics"],
-      ["Sources", "/sources"],
-      ...(signedIn
-        ? [
-            ["Read later", "/read-later"],
-            ["My feed", "/"],
-          ]
-        : []),
-    ]) {
+    for (const [name, route] of expected) {
       const link = nav.getByRole("link", { name, exact: true });
       await link.focus();
       assert.equal(await link.evaluate((node) => document.activeElement === node), true);

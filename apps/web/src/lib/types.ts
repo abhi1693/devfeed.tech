@@ -1,5 +1,11 @@
 import type { AdLinkRel } from "@devfeed/ui/ad-link-rel";
 
+export type Tag = {
+  id: string;
+  name: string;
+  slug: string;
+};
+
 export type Source = {
   id: string;
   slug: string;

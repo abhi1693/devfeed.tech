@@ -1,3 +1,4 @@
+import { TagFollowsProvider } from "@/components/tag-follows";
 import { HeaderSponsorshipProvider } from "@/components/header-sponsorship";
 import { TopicFollowsProvider } from "@/components/topic-follows";
 import { BrowserTelemetry } from "@devfeed/telemetry/browser";
@@ -84,10 +85,12 @@ export default async function RootLayout({
                     <FeedPreferencesProvider>
                       <WebArticleNavigationProvider>
                         <SourceFollowsProvider>
-                          <TopicFollowsProvider>
-                            {children}
-                            {modal}
-                          </TopicFollowsProvider>
+                          <TagFollowsProvider>
+                            <TopicFollowsProvider>
+                              {children}
+                              {modal}
+                            </TopicFollowsProvider>
+                          </TagFollowsProvider>
                         </SourceFollowsProvider>
                         <SignupNudge />
                       </WebArticleNavigationProvider>

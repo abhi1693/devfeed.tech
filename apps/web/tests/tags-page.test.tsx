@@ -1,0 +1,54 @@
+import { beforeEach, expect, it, vi } from "vitest";
+import Tags, { generateMetadata } from "@/app/tags/page";
+import { getTags } from "@/lib/api";
+import type { SearchParams } from "@/lib/feed-query";
+
+vi.mock("@/lib/api", () => ({ getTags: vi.fn() }));
+vi.mock("@/components/user-shell", () => ({ UserShell: () => null }));
+beforeEach(() => vi.mocked(getTags).mockReset());
+
+it.each<[SearchParams, number, string, string]>([
+  [{}, 0, "", ""],
+  [{ q: "  C++  ", letter: "C", offset: "60" }, 60, "C++", "C"],
+  [{ q: ["ignored"], letter: "cc", offset: "-1" }, 0, "", ""],
+  [{ q: "x".repeat(201), letter: "#", offset: "1000001" }, 1000000, "x".repeat(200), "#"],
+])(
+  "normalizes directory filters before loading a bounded page: %j",
+  async (params, offset, query, letter) => {
+    const tags = [{ id: "cpp", name: "C++", slug: "c++" }];
+    vi.mocked(getTags).mockResolvedValue(tags);
+    const page = await Tags({ searchParams: Promise.resolve(params) });
+    expect(getTags).toHaveBeenCalledWith(offset, 60, query, letter);
+    expect(page.props.section).toBe("tags");
+    expect(page.props.children.props).toEqual({ tags, query, letter, nextCursor: null });
+    expect(page.props.children.key).toBe(`${query}:${letter}:${offset}`);
+  },
+);
+
+it("continues a full directory page using its bounded catalog cursor", async () => {
+  vi.mocked(getTags).mockResolvedValue(
+    Array.from({ length: 60 }, (_, id) => ({
+      id: String(id),
+      name: `Tag ${id}`,
+      slug: `tag-${id}`,
+    })),
+  );
+  const page = await Tags({ searchParams: Promise.resolve({ offset: "60" }) });
+  expect(page.props.children.props.nextCursor).toBe("120");
+});
+
+it("canonicalizes tag discovery independently of transient search filters", async () => {
+  const metadata = await generateMetadata({
+    searchParams: Promise.resolve({ q: "C++", letter: "C", offset: "60" }),
+  });
+  expect(metadata.title).toBe("Explore tags");
+  expect(metadata.description).toBe("Discover developer articles by tag.");
+  expect(metadata.alternates?.canonical).toBe("https://devfeed.tech/tags?offset=60");
+});
+
+it("preserves upstream outages so the route can show its error boundary", async () => {
+  vi.mocked(getTags).mockRejectedValueOnce(new Error("tag service unavailable"));
+  await expect(Tags({ searchParams: Promise.resolve({}) })).rejects.toThrow(
+    "tag service unavailable",
+  );
+});

@@ -25,7 +25,7 @@ function deferred<T>() {
   });
   return { promise, resolve };
 }
-function Controls({ kind, copy }: { kind: "source" | "topic"; copy: number }) {
+function Controls({ kind, copy }: { kind: "source" | "topic" | "tag"; copy: number }) {
   const queryClient = useQueryClient();
   useEffect(() => {
     client = queryClient;
@@ -45,7 +45,7 @@ function Controls({ kind, copy }: { kind: "source" | "topic"; copy: number }) {
     </section>
   );
 }
-function App({ kind, copies = 1 }: { kind: "source" | "topic"; copies?: number }) {
+function App({ kind, copies = 1 }: { kind: "source" | "topic" | "tag"; copies?: number }) {
   return (
     <ReaderQueryProvider>
       {Array.from({ length: copies }, (_, copy) => (
@@ -67,14 +67,30 @@ beforeEach(() => {
 });
 afterEach(cleanup);
 
-for (const kind of ["topic", "source"] as const) {
-  const path = kind === "topic" ? "preferences" : "preferences/sources";
+for (const kind of ["topic", "source", "tag"] as const) {
+  const path = kind === "topic" ? "preferences" : `preferences/${kind}s`;
   const field = `${kind}_ids`;
   const ready = () =>
     waitFor(() =>
       expect(screen.getByRole("button", { name: "Follow A 0" })).toHaveProperty("disabled", false),
     );
   const puts = () => vi.mocked(userRequest).mock.calls.filter(([, init]) => init?.method === "PUT");
+
+  it(`${kind}: replaces the whole selection only after a valid acknowledgement`, async () => {
+    vi.mocked(userRequest).mockResolvedValue({ [field]: ["confirmed"] });
+    render(<App kind={kind} copies={2} />);
+    await ready();
+    vi.mocked(userRequest).mockResolvedValueOnce({ [field]: ["bulk"] });
+    fireEvent.click(screen.getByRole("button", { name: "Bulk 0" }));
+    await waitFor(() => expect(screen.getByTestId("ids-1").textContent).toBe("bulk"));
+    expect(puts()[0][0]).toBe(path);
+    expect(puts()[0][1]!.body).toBe(JSON.stringify({ [field]: ["bulk"] }));
+    vi.mocked(userRequest).mockResolvedValueOnce({ [field]: [null] });
+    fireEvent.click(screen.getByRole("button", { name: "Bulk 0" }));
+    await waitFor(() => expect(screen.getByTestId("error-0").textContent).toContain("Couldn’t"));
+    expect(screen.getByTestId("ids-0").textContent).toBe("bulk");
+    expect(screen.getByTestId("ids-1").textContent).toBe("bulk");
+  });
 
   it(`${kind}: deduplicates reads and duplicate writes across independent consumers`, async () => {
     vi.mocked(userRequest).mockResolvedValue({ [field]: [] });

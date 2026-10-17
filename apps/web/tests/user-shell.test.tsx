@@ -67,19 +67,19 @@ afterEach(() => {
   delete document.documentElement.dataset.sidebarState;
 });
 
-it("keeps five direct mobile destinations and retains secondary destinations on desktop", async () => {
+it("keeps six direct mobile destinations and retains secondary destinations on desktop", async () => {
   render(<App />);
   await signedIn();
   expect(
     mobile()
       .getAllByRole("link")
       .map((link) => link.textContent),
-  ).toEqual(["My feed", "Latest", "Read later", "Topics", "Sources"]);
+  ).toEqual(["My feed", "Latest", "Read later", "Topics", "Tags", "Sources"]);
   expect(
     mobile()
       .getAllByRole("link")
       .map((link) => link.getAttribute("href")),
-  ).toEqual(["/", "/latest", "/read-later", "/topics", "/sources"]);
+  ).toEqual(["/", "/latest", "/read-later", "/topics", "/tags", "/sources"]);
   expect(mobile().queryByRole("link", { name: "Connect your agent" })).toBeNull();
   expect(mobile().queryByRole("link", { name: "Leaderboard" })).toBeNull();
   expect(desktop().getByRole("link", { name: "Connect your agent" }).getAttribute("href")).toBe(
@@ -98,7 +98,7 @@ it("shows only public mobile destinations to guests and hides Read later on both
     mobile()
       .getAllByRole("link")
       .map((link) => link.textContent),
-  ).toEqual(["Latest", "Topics", "Sources"]);
+  ).toEqual(["Latest", "Topics", "Tags", "Sources"]);
   for (const navigation of [mobile(), desktop()]) {
     expect(navigation.queryByRole("link", { name: "Read later" })).toBeNull();
     expect(navigation.queryByRole("link", { name: "My feed" })).toBeNull();
@@ -114,7 +114,7 @@ it("removes private destinations in both layouts when the session expires", asyn
     "page",
   );
   act(() => window.dispatchEvent(new Event("devfeed:user-session-expired")));
-  expect(mobile().getAllByRole("link")).toHaveLength(3);
+  expect(mobile().getAllByRole("link")).toHaveLength(4);
   for (const navigation of [mobile(), desktop()]) {
     expect(navigation.queryByRole("link", { name: "Read later" })).toBeNull();
     expect(navigation.queryByRole("link", { name: "My feed" })).toBeNull();
@@ -126,6 +126,7 @@ it.each([
   ["feed", "Latest"],
   ["bookmarks", "Read later"],
   ["topics", "Topics"],
+  ["tags", "Tags"],
   ["sources", "Sources"],
 ] as const)("marks only the current mobile destination for %s", async (section, label) => {
   render(<App section={section} />);

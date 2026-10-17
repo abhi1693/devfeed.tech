@@ -260,7 +260,7 @@ def test_admin_service_logs_keep_human_events_and_supplied_fields():
 
 def test_text_request_summary_uses_full_url_and_duration():
     identifier = str(uuid.uuid4())
-    url = f"http://192.168.1.101:8001/v1/admin/sources/{identifier}"
+    url = f"http://192.0.2.10:8001/v1/admin/sources/{identifier}"
     record = logging.makeLogRecord(
         {
             "name": "devfeed_api.logging",

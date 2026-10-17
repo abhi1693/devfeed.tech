@@ -50,6 +50,18 @@ export const extensionGatewayOperations = [
     path: "/api/v1/user/preferences/sources/{source_id}",
   },
   {
+    ...userGatewayOperations["tag_preferences_v1_user_preferences_tags_get"],
+    path: "/api/v1/user/preferences/tags",
+  },
+  {
+    ...userGatewayOperations["save_tag_preferences_v1_user_preferences_tags_put"],
+    path: "/api/v1/user/preferences/tags",
+  },
+  {
+    ...userGatewayOperations["follow_tag_v1_user_preferences_tags__tag_id__put"],
+    path: "/api/v1/user/preferences/tags/{tag_id}",
+  },
+  {
     ...userGatewayOperations["engagement_v1_user_engagement_get"],
     path: "/api/v1/user/engagement",
   },
@@ -496,6 +508,42 @@ export const extensionGatewayOperations = [
         credentials: "omit",
         cacheControl: "no-store",
         requestHeaders: ["Content-Type"],
+        timeoutMs: 15000,
+      },
+    },
+  },
+  {
+    operationId: "readerTags",
+    method: "GET",
+    path: "/api/v1/tags",
+    parameters: [],
+    policy: {
+      bodyLimit: 1000000,
+      bodyTimeoutMs: 2000,
+      upstreamTimeoutMs: 45000,
+      extension: {
+        credentials: "include",
+        cacheControl: "public-read",
+        requestHeaders: [],
+        timeoutMs: 15000,
+      },
+    },
+  },
+  {
+    operationId: "readerTag",
+    method: "GET",
+    path: "/api/v1/tags/{slug}",
+    parameters: [
+      { name: "slug", converter: "str", schema: { type: "string", minLength: 1, maxLength: 200 } },
+    ],
+    policy: {
+      bodyLimit: 1000000,
+      bodyTimeoutMs: 2000,
+      upstreamTimeoutMs: 45000,
+      extension: {
+        credentials: "include",
+        cacheControl: "public-read",
+        requestHeaders: [],
         timeoutMs: 15000,
       },
     },

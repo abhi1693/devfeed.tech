@@ -486,11 +486,11 @@ def test_native_workflow_requires_all_six_integration_artifacts():
     )
 
 
-def test_integration_measures_ci_utilities_without_changing_backend_unit_reports():
+def test_integration_measures_ci_utilities_and_migrations_without_changing_backend_unit_reports():
     script = (ROOT / "scripts/ci/python-tests.sh").read_text()
     assert script.count("backend_sources=$(") == 1
     assert script.index("backend_sources=$(") < script.index('if [[ "$suite" != integration ]]')
-    assert script.count('--source="$backend_sources,scripts" -m pytest') == 2
+    assert script.count('--source="$backend_sources,scripts,migrations" -m pytest') == 2
     assert "backend_include='apps/*/src/**,packages/*/src/**'" in script
     assert script.count('--include="$backend_include"') == 4
 

@@ -1,3 +1,4 @@
+import { tagFixtures } from "./tags.mjs";
 import assert from "node:assert/strict";
 
 /** One backend fixture drives the real website and both unpacked extension readers. */
@@ -5,12 +6,13 @@ export function userMutationFixture({ articles, topic }) {
   let liked = false;
   let bookmarked = false;
   let followed = false;
+  const tagIds = new Set();
   let feed = {
     view: "cards",
     content_types: ["article", "news", "tutorial", "release", "comparison", "opinion"],
     languages: ["en"],
   };
-  const failures = new Set(["like", "follow", "feed"]);
+  const failures = new Set(["like", "follow", "feed", "tag-follow"]);
   const writes = [];
   const response = (json, status = 200) => ({ status, json });
   const attempt = (operation, payload, apply) => {
@@ -58,6 +60,16 @@ export function userMutationFixture({ articles, topic }) {
     ],
     ["GET /v1/user/preferences", () => response({ topic_ids: followed ? [topic.id] : [] })],
     ["GET /v1/user/preferences/sources", () => response({ source_ids: [] })],
+    ["GET /v1/user/preferences/tags", () => response({ tag_ids: [...tagIds] })],
+    ...tagFixtures.map((tag) => [
+      `PUT /v1/user/preferences/tags/${tag.id}`,
+      (payload) =>
+        attempt("tag-follow", payload, () => {
+          if (payload.followed) tagIds.add(tag.id);
+          else tagIds.delete(tag.id);
+          return { followed: payload.followed };
+        }),
+    ]),
     [
       `PUT /v1/user/preferences/topics/${encodeURIComponent(topic.id)}`,
       (payload) =>

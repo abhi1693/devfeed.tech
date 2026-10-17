@@ -37,6 +37,7 @@ export async function proxy(request: NextRequest) {
   ].join("; ");
 
   const headers = new Headers(request.headers);
+  headers.set("x-devfeed-reader-pathname", pathname);
   headers.set("Content-Security-Policy", csp);
   const next = () => {
     const response = NextResponse.next({ request: { headers } });

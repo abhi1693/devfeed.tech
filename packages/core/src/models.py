@@ -1171,6 +1171,18 @@ class UserTopic(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 
+class UserTag(Base):
+    __tablename__ = "user_tags"
+
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("user_accounts.id", ondelete="CASCADE"), primary_key=True
+    )
+    tag_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("tags.id", ondelete="CASCADE"), primary_key=True, index=True
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
 class UserSource(Base):
     __tablename__ = "user_sources"
     user_id: Mapped[uuid.UUID] = mapped_column(
@@ -1303,6 +1315,7 @@ class UserRecommendation(Base):
     topic_id: Mapped[uuid.UUID | None] = mapped_column()
     seed_topic_id: Mapped[uuid.UUID | None] = mapped_column()
     source_id: Mapped[uuid.UUID | None] = mapped_column()
+    tag_id: Mapped[uuid.UUID | None] = mapped_column()
     reason: Mapped[str] = mapped_column(String(30))
 
 

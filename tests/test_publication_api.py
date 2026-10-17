@@ -186,3 +186,64 @@ def test_topic_uuid_and_slug_match_across_pages_options_and_visibility(
             "content_types": [],
             "sources": [],
         }
+
+
+def test_tag_directory_filters_keep_publication_gate_and_escape_search(reader):
+    client, state = reader
+    response = client.get("/v1/tags", params={"q": "C%_", "letter": "C", "offset": 60})
+    assert response.status_code == 200
+    query = state.queries[-1]
+    assert "publication_status = 'published'" in query
+    assert "review_status = 'approved'" in query
+    assert "C/%%/_" in query
+    assert "upper(substr(tags.name, 1, 1)) = 'C'" in query
+    assert "lower(tags.name), tags.slug" in query
+    assert "OFFSET 60" in query
+
+
+def test_tag_directory_other_initials_and_validation(reader):
+    client, state = reader
+    assert client.get("/v1/tags", params={"letter": "#"}).status_code == 200
+    assert "NOT BETWEEN 'A' AND 'Z'" in state.queries[-1]
+    assert client.get("/v1/tags", params={"letter": "AB"}).status_code == 422
+    assert client.get("/v1/tags", params={"q": "x" * 201}).status_code == 422
+
+
+@pytest.mark.integration
+def test_tag_directory_search_and_initials_on_published_articles(client, database):
+    from devfeed_core.models import Tag
+
+    public = record()
+    public.tags = [
+        Tag(name=name, slug=slug)
+        for name, slug in [
+            ("C++", "c++"),
+            ("CSS", "css"),
+            ("C%_", "c-percent"),
+            (".NET", ".net"),
+            ("数据库", "数据库"),
+        ]
+    ]
+    private = record(
+        publication_status="unpublished",
+        canonical_url="https://example.com/private",
+    )
+    private.origins[0].source = public.origins[0].source
+    private.origins[0].entry_key = "private"
+    private.tags = [Tag(name="Confidential", slug="confidential")]
+    with database.begin() as session:
+        session.add_all([public, private, Tag(name="Catalog only", slug="catalog-only")])
+
+    def names(**params):
+        response = client.get("/v1/tags", params=params)
+        assert response.status_code == 200
+        return [tag["name"] for tag in response.json()]
+
+    assert names(letter="C") == ["C%_", "C++", "CSS"]
+    assert names(q="c++") == ["C++"]
+    assert names(q="%_") == ["C%_"]
+    assert names(letter="#") == [".NET", "数据库"]
+    assert names(letter="C", q="ss") == ["CSS"]
+    assert names(letter="C", offset=1, limit=1) == ["C++"]
+    assert names(q="Confidential") == []
+    assert names(q="Catalog only") == []

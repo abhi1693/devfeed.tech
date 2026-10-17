@@ -1,3 +1,4 @@
+import { tagsFixture, checkTags, checkTagFollow } from "../../../scripts/testing/tags.mjs";
 import { checkCatalogSharing } from "../../../scripts/testing/catalog-sharing.mjs";
 import {
   checkKeyboardReader,
@@ -330,6 +331,8 @@ async function readerFixture(t, imageProfile) {
       return route.fulfill({ json: { enabled: true, providers: [] } });
     if (url.pathname === "/api/v1/user/auth/login")
       return route.fulfill(await signInResponse(url.pathname.slice(4) + url.search));
+    const tagResponse = tagsFixture(url);
+    if (tagResponse) return route.fulfill(tagResponse);
     let json;
     if (url.pathname === "/api/v1/user/trending") {
       json = { items: feedItems, next_cursor: null };
@@ -830,7 +833,27 @@ test(
       "Comparisons",
       "Opinions",
     ]);
-    assert.equal(await page.locator(".sidebar .nav-item").count(), 7);
+    assert.deepEqual(
+      await page
+        .locator(".sidebar .nav-item")
+        .evaluateAll((links) =>
+          links.map((link) => [
+            link.getAttribute("aria-label") || link.textContent.trim(),
+            link.getAttribute("href"),
+          ]),
+        ),
+      [
+        ["Latest feed", "#/latest"],
+        ["Explore topics", "#/topics"],
+        ["Explore tags", "#/tags"],
+        ["Sources", "#/sources"],
+        ["Connect your agent", "#/mcp"],
+        ["Leaderboard", "#/leaderboard"],
+        ["What’s new (opens in a new tab)", "https://changelog.devfeed.tech/"],
+        ["Star us on GitHub (opens in a new tab)", "https://github.com/abhi1693/devfeed.tech"],
+      ],
+      "Sidebar preserves every guest destination, including tags",
+    );
     await checkSidebarGitHub(page, path.resolve(extension, `../${browser}-sidebar-github.png`));
     await checkMcp(page, path.resolve(extension, `../${browser}-mcp`));
     const whatsNew = page
@@ -1117,3 +1140,19 @@ test(
     );
   },
 );
+
+test("tag directory and detail pages work in built new tabs", { timeout: 180000 }, async (t) => {
+  const { page, pathFor } = await readerFixture(t);
+  await checkTags(page, pathFor, `/tmp/devfeed-tags/${browser}`);
+});
+
+test("tag follow controls persist in built new tabs", { timeout: 180000 }, async (t) => {
+  const { page, pathFor, mutationFixture } = await readerFixture(t);
+  mutationFixture.active = true;
+  await checkTagFollow(
+    page,
+    pathFor,
+    `/tmp/devfeed-tags/${browser}`,
+    `/topics/${mutationFixture.topic.slug}`,
+  );
+});

@@ -511,15 +511,18 @@ def check() -> None:
             "GOOGLE_ANALYTICS_ID": "G-N4V5CW5C0M",
             "DEVFEED_X_PIXEL_ENABLED": "false",
             "DEVFEED_USER_EXTENSION_IDS": "[]",
+            "DEVFEED_USER_ALLOWED_ORIGINS": "[]",
             "DEVFEED_EXTENSION_ANALYTICS_ENABLED": "false",
             "DEVFEED_EXTENSION_GA_API_SECRET": "",
             "DEVFEED_MCP_PUBLIC_URL": "",
         }
         extension_ids = '["hliakjocndflpkmfajndigbpngfcekdm"]'
+        reader_origins = '["http://192.0.2.10:3000"]'
         extensions = render(
             {
                 **base,
                 "DEVFEED_USER_EXTENSION_IDS": extension_ids,
+                "DEVFEED_USER_ALLOWED_ORIGINS": reader_origins,
                 "DEVFEED_EXTENSION_ANALYTICS_ENABLED": "true",
                 "DEVFEED_EXTENSION_GA_API_SECRET": "fixture-only-secret",
             },
@@ -528,9 +531,11 @@ def check() -> None:
         for name, service in extensions.items():
             environment = service.get("environment", {})
             assert ("DEVFEED_USER_EXTENSION_IDS" in environment) == (name in {"web", "user-api"})
+            assert ("DEVFEED_USER_ALLOWED_ORIGINS" in environment) == (name in {"web", "user-api"})
             assert ("DEVFEED_EXTENSION_GA_API_SECRET" in environment) == (name == "web")
         for name in ("web", "user-api"):
             assert extensions[name]["environment"]["DEVFEED_USER_EXTENSION_IDS"] == extension_ids
+            assert extensions[name]["environment"]["DEVFEED_USER_ALLOWED_ORIGINS"] == reader_origins
         extension_web = extensions["web"]["environment"]
         assert extension_web["DEVFEED_EXTENSION_ANALYTICS_ENABLED"] == "true"
         assert extension_web["DEVFEED_EXTENSION_GA_API_SECRET"] == "fixture-only-secret"

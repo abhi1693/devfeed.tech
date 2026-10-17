@@ -4,7 +4,7 @@ A Chrome and Microsoft Edge Manifest V3 extension that renders DevFeed directly 
 without redirecting to the website or embedding it in an iframe.
 
 The extension bundles the web reader's React components and styles. Feed, search,
-article previews, personalized feed, read later, trending, topics, sources, source suggestions,
+article previews, personalized feed, read later, trending, topics, tags, sources, source suggestions,
 and all six settings sections use local hash routes. Publisher links and website
 sign-in open a separate tab. Chrome's own new-tab footer is browser UI and is not
 part of the extension's layout.
@@ -146,6 +146,15 @@ The `/api/v1/feed/options` route provides contextual filter choices and is requi
 for extension feed filters. If options are unavailable, successfully loaded articles
 remain readable, and refreshing the tab restores filters once the route recovers.
 Topics and sources use the existing paginated public catalog endpoints.
+The shared `/tags` directory searches published tags, filters by A–Z or other initials,
+and appends results with infinite scroll. Tag detail routes (`/tags/{slug}` and content
+suffixes) stay in the extension, with the same article filters and sharing controls as
+on the website. The public tag API supports `q`, `letter`, `offset`, and `limit`; search
+and letter filters are preserved on every automatically loaded page.
+Tag detail pages share the topic layout and support account-owned Follow/Following
+controls. Followed tags contribute direct article matches to the personalized feed.
+Run `uv run devfeed db upgrade` to apply migration `0026` before starting the updated
+backend services.
 
 ## Reader parity
 

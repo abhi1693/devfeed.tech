@@ -6,7 +6,7 @@ import { NotificationInbox } from "./notification-inbox";
 import { ReadingTools } from "./reading-tools";
 import { ThemeToggle } from "./theme-toggle";
 import { UserAccount, PersonalFeedNav, ReadLaterNav } from "./user-account";
-import { Bot, Compass, House, Rss, Sparkles, Trophy } from "lucide-react";
+import { Bot, Compass, House, Hash, Rss, Sparkles, Trophy } from "lucide-react";
 import { legalPages } from "@/lib/legal";
 import { UserSearch } from "./user-search";
 import { SkipToContent } from "./skip-to-content";
@@ -17,6 +17,7 @@ import { HeaderSponsorshipSlot } from "./header-sponsorship";
 
 type ReaderSection =
   | "feed"
+  | "tags"
   | "topics"
   | "article"
   | "sources"
@@ -31,6 +32,7 @@ type ReaderSection =
 const promptPolicies: Record<ReaderSection, ReaderPromptEligibility> = {
   feed: readerPromptPolicies.browsing,
   topics: readerPromptPolicies.browsing,
+  tags: readerPromptPolicies.browsing,
   article: readerPromptPolicies.quiet,
   sources: readerPromptPolicies.browsing,
   account: readerPromptPolicies.quiet,
@@ -115,6 +117,14 @@ export function UserShell({
             <span>Explore topics</span>
           </Link>
           <Link
+            href="/tags"
+            className={`nav-item ${section === "tags" ? "active" : ""}`}
+            aria-current={section === "tags" ? "page" : undefined}
+          >
+            <Hash size={18} />
+            <span>Explore tags</span>
+          </Link>
+          <Link
             href="/sources"
             className={`nav-item ${section === "sources" ? "active" : ""}`}
             aria-current={section === "sources" ? "page" : undefined}
@@ -184,6 +194,10 @@ export function UserShell({
         <Link href="/topics" aria-current={section === "topics" ? "page" : undefined}>
           <Compass size={20} aria-hidden="true" />
           Topics
+        </Link>
+        <Link href="/tags" aria-current={section === "tags" ? "page" : undefined}>
+          <Hash size={20} aria-hidden="true" />
+          Tags
         </Link>
         <Link href="/sources" aria-current={section === "sources" ? "page" : undefined}>
           <Rss size={20} aria-hidden="true" />

@@ -192,3 +192,17 @@ it("includes the visible tag in the filter removal name", () => {
   expect(link.textContent).toContain("typescript");
   expect(link.getAttribute("href")).toBe("/latest");
 });
+
+it("keeps tag scope when clearing other filters and hides the owning tag chip", () => {
+  render(
+    <FeedFiltersBar
+      tagPage
+      filters={parseFilters({ tag: "c++", q: "guide", content_type: "tutorial" })}
+      sources={[]}
+    />,
+  );
+  expect(screen.queryByRole("link", { name: "Remove tag filter: c++" })).toBeNull();
+  expect(screen.getByRole("link", { name: "Clear all" }).getAttribute("href")).toBe(
+    "/tags/c%2B%2B/tutorials",
+  );
+});

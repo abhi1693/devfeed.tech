@@ -17,10 +17,12 @@ EXPECTED = {
     "bookmarks_v1_user_bookmarks_get": ("GET", "devfeed:read"),
     "preferences_v1_user_preferences_get": ("GET", "devfeed:read"),
     "source_preferences_v1_user_preferences_sources_get": ("GET", "devfeed:read"),
+    "tag_preferences_v1_user_preferences_tags_get": ("GET", "devfeed:read"),
     "bookmark_v1_user_articles__article_id__bookmark_put": ("PUT", "devfeed:write"),
     "like_v1_user_articles__article_id__like_put": ("PUT", "devfeed:write"),
     "follow_topic_v1_user_preferences_topics__topic_id__put": ("PUT", "devfeed:write"),
     "follow_source_v1_user_preferences_sources__source_id__put": ("PUT", "devfeed:write"),
+    "follow_tag_v1_user_preferences_tags__tag_id__put": ("PUT", "devfeed:write"),
 }
 
 
@@ -31,7 +33,7 @@ def dependency_calls(dependant):
         yield from dependency_calls(dependency)
 
 
-def test_only_the_nine_existing_personal_operations_declare_an_agent_permission():
+def test_only_the_declared_personal_operations_grant_an_agent_permission():
     actual = {}
     for context in iter_route_contexts(create_app().routes):
         if not isinstance(context.original_route, APIRoute):
@@ -66,7 +68,7 @@ def test_agent_permissions_are_exported_on_operations_without_entering_gateway_t
             assert AGENT_POLICY_EXTENSION not in operation[GATEWAY_POLICY_EXTENSION]
     assert actual == EXPECTED
     operations = document[GATEWAY_ROUTES_EXTENSION]
-    assert len(operations) == 61
+    assert len(operations) == 64
     for operation in operations:
         assert set(operation) == {"operationId", "method", "path", "parameters", "policy"}
         assert set(operation["policy"]) == {
@@ -78,6 +80,15 @@ def test_agent_permissions_are_exported_on_operations_without_entering_gateway_t
             "extension",
         }
     assert set(EXPECTED) <= {operation["operationId"] for operation in operations}
+
+
+def test_tag_preferences_grant_agents_reads_and_single_follows_without_bulk_replacement():
+    document = export_gateway_document(create_app(), policy_type=ReaderGatewayPolicy)
+    preferences = document["paths"]["/v1/user/preferences/tags"]
+    follow = document["paths"]["/v1/user/preferences/tags/{tag_id}"]["put"]
+    assert preferences["get"][AGENT_POLICY_EXTENSION] == {"scope": "devfeed:read"}
+    assert follow[AGENT_POLICY_EXTENSION] == {"scope": "devfeed:write"}
+    assert AGENT_POLICY_EXTENSION not in preferences["put"]
 
 
 def test_browser_only_dependencies_do_not_accept_endpoint_agent_permissions():

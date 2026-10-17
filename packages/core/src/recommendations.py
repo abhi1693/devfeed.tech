@@ -27,6 +27,7 @@ from devfeed_core.models import (
     UserRecommendation,
     UserRecommendationState,
     UserSource,
+    UserTag,
     UserTopic,
     utcnow,
 )
@@ -48,7 +49,14 @@ def has_recommendation_work(user_id):
     return or_(
         *[
             select(model.user_id).where(model.user_id == user_id).exists()
-            for model in (UserTopic, UserSource, ArticleLike, UserInterest, UserRecommendation)
+            for model in (
+                UserTopic,
+                UserSource,
+                UserTag,
+                ArticleLike,
+                UserInterest,
+                UserRecommendation,
+            )
         ]
     )
 
@@ -290,7 +298,7 @@ def ranked_candidates(session, user_id, now, interest_count, content_types, lang
     # At most 10,000 candidates, up to 500 per interest. Only scoring data is loaded.
     rows = session.execute(
         text("""
-        SELECT i.topic_id, i.seed_topic_id, NULL::uuid AS source_id,
+        SELECT i.topic_id, i.seed_topic_id, NULL::uuid AS source_id, NULL::uuid AS tag_id,
                i.weight, i.reason, a.id, a.feed_at
         FROM user_interests i
         CROSS JOIN LATERAL (
@@ -308,7 +316,8 @@ def ranked_candidates(session, user_id, now, interest_count, content_types, lang
         ) a
         WHERE i.user_id = :user_id
         UNION ALL
-        SELECT NULL::uuid, NULL::uuid, f.source_id, 100, 'followed_source', a.id, a.feed_at
+        SELECT NULL::uuid, NULL::uuid, f.source_id, NULL::uuid,
+               100, 'followed_source', a.id, a.feed_at
         FROM user_sources f JOIN sources source ON source.id = f.source_id
         CROSS JOIN LATERAL (
           SELECT DISTINCT article.id, article.feed_at
@@ -320,6 +329,23 @@ def ranked_candidates(session, user_id, now, interest_count, content_types, lang
           ORDER BY article.feed_at DESC, article.id DESC LIMIT :candidate_limit
         ) a
         WHERE f.user_id = :user_id AND source.approval_status = 'approved'
+        UNION ALL
+        SELECT NULL::uuid, NULL::uuid, NULL::uuid, f.tag_id, 100, 'followed_tag', a.id, a.feed_at
+        FROM user_tags f
+        CROSS JOIN LATERAL (
+          SELECT article.id, article.feed_at
+          FROM article_tags link JOIN articles article ON article.id = link.article_id
+          WHERE link.tag_id = f.tag_id
+            AND article.publication_status = 'published' AND article.review_status = 'approved'
+            AND article.content_type = ANY(:content_types)
+            AND article.language = ANY(:languages)
+            AND EXISTS (SELECT 1 FROM article_origins origin
+                        JOIN sources source ON source.id = origin.source_id
+                        WHERE origin.article_id = article.id
+                          AND source.approval_status = 'approved')
+          ORDER BY article.feed_at DESC, article.id DESC LIMIT :candidate_limit
+        ) a
+        WHERE f.user_id = :user_id
     """),
         {
             "user_id": user_id,
@@ -334,17 +360,23 @@ def ranked_candidates(session, user_id, now, interest_count, content_types, lang
         score = row["weight"] + 40 / (1 + age_days / 7)
         candidate = dict(row, score=score)
         previous = unique.get(row["id"])
-        if previous is None or (score, str(row["source_id"] or row["topic_id"])) > (
+        if previous is None or (
+            score,
+            str(row["source_id"] or row.get("tag_id") or row["topic_id"]),
+        ) > (
             previous["score"],
-            str(previous["source_id"] or previous["topic_id"]),
+            str(previous["source_id"] or previous.get("tag_id") or previous["topic_id"]),
         ):
             unique[row["id"]] = candidate
     groups = defaultdict(list)
     for row in unique.values():
-        groups[(row["reason"] == "followed_source", row["source_id"] or row["topic_id"])].append(
-            row
-        )
-    heap: list[tuple[float, float, str, int, tuple[bool, uuid.UUID]]] = []
+        groups[
+            (
+                2 if row["reason"] == "followed_tag" else int(row["reason"] == "followed_source"),
+                row["source_id"] or row.get("tag_id") or row["topic_id"],
+            )
+        ].append(row)
+    heap: list[tuple[float, float, str, int, tuple[int, uuid.UUID]]] = []
     for topic, group in groups.items():
         group.sort(key=lambda r: (r["score"], r["feed_at"], r["id"]), reverse=True)
         heapq.heappush(
@@ -370,6 +402,7 @@ def ranked_candidates(session, user_id, now, interest_count, content_types, lang
                 topic_id=row["topic_id"],
                 seed_topic_id=row["seed_topic_id"],
                 source_id=row["source_id"],
+                tag_id=row.get("tag_id"),
                 reason=row["reason"],
             )
         )
@@ -440,7 +473,10 @@ def refresh_recommendations(factory, user_id):
                     .join(Source)
                     .where(UserSource.user_id == user_id, Source.approval_status == "approved")
                 )
-                interest_count = len(selected) + source_count
+                tag_count = session.scalar(
+                    select(func.count()).select_from(UserTag).where(UserTag.user_id == user_id)
+                )
+                interest_count = len(selected) + source_count + tag_count
                 settings = FeedSettings.model_validate(
                     session.scalar(
                         select(UserAccount.feed_settings).where(UserAccount.id == user_id)

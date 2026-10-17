@@ -6,6 +6,8 @@ import { useUser } from "@/components/user-account";
 import { AccountError, userRequest } from "./user";
 import {
   saveSourcePreferences,
+  saveTagPreferences,
+  setTagFollow,
   saveTopicPreferences,
   setSourceFollow,
   setTopicFollow,
@@ -13,6 +15,18 @@ import {
 } from "./user-mutations";
 
 const collections = {
+  tag: {
+    path: "preferences/tags",
+    field: "tag_ids",
+    setFollow: setTagFollow,
+    save: async (ids: string[], options: MutationOptions) => ({
+      ids: (await saveTagPreferences(ids, options)).tag_ids,
+    }),
+    limitError: "You can follow up to 100 published tags.",
+    error: "Couldn’t update this tag. Please try again.",
+    followed: "Tag followed.",
+    unfollowed: "Tag unfollowed.",
+  },
   topic: {
     path: "preferences",
     field: "topic_ids",
@@ -49,7 +63,7 @@ type Write = {
   signal: AbortSignal;
 };
 type Result = { ids: string[] } | { followed: boolean };
-type Payload = { topic_ids?: string[]; source_ids?: string[] };
+type Payload = { topic_ids?: string[]; source_ids?: string[]; tag_ids?: string[] };
 
 /** The same account-safe query and write lifecycle serves source and topic follows. */
 export function useFollowPreferences(kind: Collection) {

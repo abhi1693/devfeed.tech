@@ -818,3 +818,34 @@ def test_dispatch_prioritizes_first_feeds_over_periodic_refreshes(user_data, dat
     assert dispatch_recommendations(database, queue, batch=1) == 1
     assert calls[1][0][1] == str(user)
     assert calls[1][1]["at_front"] is False
+
+
+def test_followed_tags_seed_and_rank_feed_then_unfollow_removes_results(user_data, database):
+    from devfeed_core.models import ArticleTag, Tag
+
+    client, _, user, _, _ = user_data
+    with database.begin() as session:
+        tag = Tag(name="Only tag", slug="only-tag")
+        session.add(tag)
+        session.flush()
+        tag_id = tag.id
+        article_id = session.scalar(select(Article.id).where(Article.title == "Article 000"))
+        session.add(ArticleTag(article_id=article_id, tag_id=tag_id))
+    endpoint = f"/v1/user/preferences/tags/{tag_id}"
+    assert client.put(endpoint, json={"followed": True}).status_code == 200
+    starter = client.get("/v1/user/feed").json()
+    assert [item["id"] for item in starter["items"]] == [str(article_id)]
+    assert starter["feed_kind"] == "following"
+    make_due(database, user)
+    assert refresh_recommendations(database, user) == 1
+    response = client.get("/v1/user/feed")
+    assert response.status_code == 200
+    result = response.json()
+    assert [item["id"] for item in result["items"]] == [str(article_id)]
+    assert result["reasons"][str(article_id)]["kind"] == "followed_tag"
+    assert result["reasons"][str(article_id)]["tag_id"] == str(tag_id)
+    assert client.put(endpoint, json={"followed": False}).status_code == 200
+    result = client.get("/v1/user/feed").json()
+    assert str(article_id) not in result["reasons"]
+    make_due(database, user)
+    assert refresh_recommendations(database, user) == 0

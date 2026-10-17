@@ -1,0 +1,3 @@
+# Shared by local regression probes and every API compatibility job.
+# Response enums may grow; all other checks keep their upstream severities.
+severity-levels: .github/api-compatibility/severity-levels.txt

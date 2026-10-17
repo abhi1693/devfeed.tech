@@ -6,7 +6,7 @@ from devfeed_core.schemas import (
     TextInput,
 )
 from fastapi import APIRouter, Query
-from sqlalchemy import select
+from sqlalchemy import case, func, select
 
 from devfeed_api.cache import CachedReadRoute, CachePolicy
 from devfeed_api.dependencies import DB
@@ -17,12 +17,14 @@ router = APIRouter(prefix="/v1", tags=["taxonomy"], route_class=CachedReadRoute)
 @router.get(
     "/tags",
     response_model=list[TagPublicOut],
-    openapi_extra=CachePolicy(namespace="tags", revision=1, ttl="metadata").openapi_extra(),
+    openapi_extra=CachePolicy(namespace="tags", revision=2, ttl="metadata").openapi_extra(),
 )
 def tags(
     session: DB,
     limit: int = Query(100, ge=1, le=500),
     offset: int = Query(0, ge=0, le=MAX_OFFSET),
+    q: str = Query("", max_length=200),
+    letter: str = Query("", pattern=r"^[A-Z#]?$"),
 ):
     statement = select(Tag).where(
         select(ArticleTag.article_id)
@@ -30,7 +32,21 @@ def tags(
         .where(ArticleTag.tag_id == Tag.id, visible_article())
         .exists()
     )
-    return session.scalars(statement.order_by(Tag.slug).offset(offset).limit(limit)).all()
+    if q.strip():
+        statement = statement.where(Tag.name.icontains(q.strip(), autoescape=True))
+    if letter == "#":
+        statement = statement.where(~func.upper(func.substr(Tag.name, 1, 1)).between("A", "Z"))
+    elif letter:
+        statement = statement.where(func.upper(func.substr(Tag.name, 1, 1)) == letter)
+    return session.scalars(
+        statement.order_by(
+            case((func.upper(func.substr(Tag.name, 1, 1)).between("A", "Z"), 0), else_=1),
+            func.lower(Tag.name),
+            Tag.slug,
+        )
+        .offset(offset)
+        .limit(limit)
+    ).all()
 
 
 @router.get(

@@ -562,10 +562,19 @@ def test_user_session_does_not_accept_admin_cookie_or_namespace(oidc_app):
         ("PUT", "preferences"),
         ("GET", "feed"),
         ("PUT", "preferences/topics/00000000-0000-0000-0000-000000000001"),
+        ("GET", "preferences/tags"),
+        ("PUT", "preferences/tags"),
+        ("PUT", "preferences/tags/00000000-0000-0000-0000-000000000001"),
     ],
 )
 def test_personalization_requires_session_and_csrf_before_database(oidc_app, method, path):
-    payload = {"followed": True} if "/topics/" in path else {"topic_ids": []}
+    payload = (
+        {"followed": True}
+        if "/topics/" in path or "/tags/" in path
+        else {"tag_ids": []}
+        if path.endswith("tags")
+        else {"topic_ids": []}
+    )
     response = oidc_app.client.request(
         method, "/v1/user/" + path, json=payload if method == "PUT" else None
     )

@@ -47,6 +47,12 @@ From the repository root, run `npm ci` then `npm run web:dev`. Set
 `DEVFEED_PUBLIC_API_URL` to the API origin (default `http://127.0.0.1:8000`).
 For user sign-in, also set `DEVFEED_USER_API_URL` and
 `DEVFEED_USER_BASE_URL`. See [user accounts](../../docs/user-accounts.md).
+When opening the reader through an additional LAN address or hostname, configure
+`DEVFEED_USER_ALLOWED_ORIGINS` on both web and user-api with an explicit JSON list,
+for example `["http://192.0.2.10:3000"]`. These aliases permit authenticated,
+CSRF-protected writes; they do not change the canonical URL or registered sign-in
+callback. Unlisted origins remain blocked. Recreate both services after changing
+this setting.
 Set `DEVFEED_MCP_PUBLIC_URL` on the web service to the full MCP ingress URL to
 populate the reader’s `/mcp` setup page, for example `https://mcp.example.com/mcp`.
 This setting is read at runtime and is also exposed to Chrome and Edge through

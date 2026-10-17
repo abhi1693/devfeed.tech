@@ -304,6 +304,52 @@
           "timeoutMs": 15000
         }
       }
+    },
+    {
+      "operationId": "readerTags",
+      "routeFile": "v1/tags/route.ts",
+      "method": "GET",
+      "parameters": [],
+      "backendOperations": ["tags_v1_tags_get"],
+      "policy": {
+        "bodyLimit": 1000000,
+        "bodyTimeoutMs": 2000,
+        "upstreamTimeoutMs": 45000,
+        "extension": {
+          "credentials": "include",
+          "cacheControl": "public-read",
+          "requestHeaders": [],
+          "timeoutMs": 15000
+        }
+      }
+    },
+    {
+      "operationId": "readerTag",
+      "routeFile": "v1/tags/[slug]/route.ts",
+      "method": "GET",
+      "parameters": [
+        {
+          "name": "slug",
+          "converter": "str",
+          "schema": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          }
+        }
+      ],
+      "backendOperations": ["tag_v1_tags__slug__get"],
+      "policy": {
+        "bodyLimit": 1000000,
+        "bodyTimeoutMs": 2000,
+        "upstreamTimeoutMs": 45000,
+        "extension": {
+          "credentials": "include",
+          "cacheControl": "public-read",
+          "requestHeaders": [],
+          "timeoutMs": 15000
+        }
+      }
     }
   ]
 }

@@ -11,18 +11,18 @@ from pydantic import ValidationError
 from starlette.requests import Request
 
 EXPECTED = {
-    "/v1/feed": ("feed", "content"),
-    "/v1/feed/options": ("feed-options", "content"),
-    "/v1/articles/{article_id}": ("article", "content"),
-    "/v1/search": ("search", "content"),
-    "/v1/search/suggestions": ("search-suggestions", "content"),
-    "/v1/sources": ("sources", "metadata"),
-    "/v1/sources/{source_id}": ("source", "metadata"),
-    "/v1/tags": ("tags", "metadata"),
-    "/v1/tags/{slug}": ("tag", "metadata"),
-    "/v1/topics": ("topics", "metadata"),
-    "/v1/topics/{slug}": ("topic", "metadata"),
-    "/v1/topics/{slug}/relations": ("topic-relations", "metadata"),
+    "/v1/feed": ("feed", 1, "content"),
+    "/v1/feed/options": ("feed-options", 1, "content"),
+    "/v1/articles/{article_id}": ("article", 1, "content"),
+    "/v1/search": ("search", 1, "content"),
+    "/v1/search/suggestions": ("search-suggestions", 1, "content"),
+    "/v1/sources": ("sources", 1, "metadata"),
+    "/v1/sources/{source_id}": ("source", 1, "metadata"),
+    "/v1/tags": ("tags", 2, "metadata"),
+    "/v1/tags/{slug}": ("tag", 1, "metadata"),
+    "/v1/topics": ("topics", 1, "metadata"),
+    "/v1/topics/{slug}": ("topic", 1, "metadata"),
+    "/v1/topics/{slug}/relations": ("topic-relations", 1, "metadata"),
 }
 
 
@@ -41,8 +41,7 @@ def test_public_cache_inventory_marks_only_the_twelve_shared_read_operations():
         policy = CachePolicy.model_validate(extra[CACHE_POLICY_EXTENSION])
         assert policy.namespace not in namespaces
         namespaces.add(policy.namespace)
-        actual[context.path] = (policy.namespace, policy.ttl)
-        assert policy.revision == 1
+        actual[context.path] = (policy.namespace, policy.revision, policy.ttl)
         exported = app.openapi()["paths"][context.path]["get"][CACHE_POLICY_EXTENSION]
         assert exported == policy.model_dump()
     assert actual == EXPECTED

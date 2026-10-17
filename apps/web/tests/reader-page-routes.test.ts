@@ -1,3 +1,4 @@
+import { headers } from "next/headers";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import ContentPage, { generateMetadata as contentMetadata } from "@/app/[contentType]/page";
 import TopicPage, { generateMetadata as topicMetadata } from "@/app/topics/[slug]/page";
@@ -16,6 +17,7 @@ import { FeedView } from "@/components/feed-view";
 import * as api from "@/lib/api";
 import { article, source, topic } from "./fixtures";
 
+vi.mock("next/headers", () => ({ headers: vi.fn(async () => new Headers()) }));
 vi.mock("next/navigation", () => ({
   notFound: () => {
     throw new Error("NOT_FOUND");
@@ -35,6 +37,7 @@ vi.mock("@/lib/api", async (original) => ({
 
 beforeEach(() => {
   vi.clearAllMocks();
+  vi.mocked(headers).mockResolvedValue(new Headers());
   vi.mocked(api.getTopic).mockResolvedValue(topic);
   vi.mocked(api.getSource).mockResolvedValue(source);
   vi.mocked(api.getTag).mockResolvedValue({ id: "tag", slug: "c++", name: "C++" });
@@ -186,5 +189,23 @@ it.each(["", "unknown", "article", "NEWS", "n%65ws", "topics/python/news", "news
     await expect(contentMetadata(props)).rejects.toThrow("NOT_FOUND");
     await expect(ContentPage(props)).rejects.toThrow("NOT_FOUND");
     expectNoDataRequests();
+  },
+);
+
+it.each(["c++", "c#", "数据库", "literal%25"])(
+  "uses the request path to decode %s once during client transitions",
+  async (slug) => {
+    vi.mocked(headers).mockResolvedValue(
+      new Headers({ "x-devfeed-reader-pathname": `/tags/${encodeURIComponent(slug)}` }),
+    );
+    vi.mocked(api.getTag).mockResolvedValue({ id: "tag", slug, name: slug });
+    await TagPage({
+      params: Promise.resolve({ slug: encodeURIComponent(slug) }),
+      searchParams: Promise.resolve({}),
+    });
+    expect(api.getTag).toHaveBeenCalledWith(slug);
+    expect(FeedView).toHaveBeenCalledWith(
+      expect.objectContaining({ section: "tags", filters: expect.objectContaining({ tag: slug }) }),
+    );
   },
 );

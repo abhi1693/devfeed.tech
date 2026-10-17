@@ -1,3 +1,4 @@
+import { headers } from "next/headers";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import Home, { generateMetadata as homeMetadata } from "@/app/latest/page";
 import { generateMetadata as tagMetadata } from "@/app/tags/[slug]/page";
@@ -11,6 +12,7 @@ import { generateMetadata as articleMetadata } from "@/app/articles/[slug]/page"
 import { FeedView } from "@/components/feed-view";
 import * as api from "@/lib/api";
 import { article, source, topic } from "./fixtures";
+vi.mock("next/headers", () => ({ headers: vi.fn(async () => new Headers()) }));
 vi.mock("next/navigation", () => ({
   notFound: () => {
     throw new Error("NOT_FOUND");
@@ -36,6 +38,7 @@ vi.mock("@/lib/api", async (original) => ({
 }));
 beforeEach(() => {
   vi.clearAllMocks();
+  vi.mocked(headers).mockResolvedValue(new Headers());
   vi.mocked(api.getFeed).mockResolvedValue({ items: [article], next_cursor: null });
   vi.mocked(api.getTopic).mockResolvedValue(topic);
   vi.mocked(api.getSource).mockResolvedValue(source);

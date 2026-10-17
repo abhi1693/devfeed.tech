@@ -42,13 +42,13 @@ def test_reader_gateway_covers_user_operations_and_hidden_inbox_without_exposing
         for method, operation in methods.items()
         if path.startswith("/v1/user/")
     }
-    assert len(actual) == len(operations) == 61
+    assert len(actual) == len(operations) == 64
     assert len({operation["operationId"] for operation in operations}) == len(operations)
-    assert len({operation["path"] for operation in operations}) == 52
+    assert len({operation["path"] for operation in operations}) == 54
     assert Counter(operation["method"] for operation in operations) == {
-        "GET": 28,
+        "GET": 29,
         "POST": 20,
-        "PUT": 11,
+        "PUT": 13,
         "DELETE": 2,
     }
     for key, operation in documented.items():
@@ -140,7 +140,34 @@ def test_extension_auth_grants_keep_oidc_navigation_out_of_fetch_transport():
         for operation in auth
         if operation["policy"]["extension"] is not None
     } == {("user_auth_config", "GET"), ("user_auth_me", "GET"), ("user_auth_logout", "POST")}
-    assert sum(operation["policy"]["extension"] is not None for operation in operations) == 59
+    assert sum(operation["policy"]["extension"] is not None for operation in operations) == 62
+
+
+def test_tag_preference_transport_exports_reads_bulk_saves_and_single_follows():
+    operations = exporter.build_contract()[GATEWAY_ROUTES_EXTENSION]
+    tags = {
+        (operation["path"], operation["method"]): operation
+        for operation in operations
+        if operation["path"].startswith("/v1/user/preferences/tags")
+    }
+    assert {key: operation["operationId"] for key, operation in tags.items()} == {
+        ("/v1/user/preferences/tags", "GET"): "tag_preferences_v1_user_preferences_tags_get",
+        ("/v1/user/preferences/tags", "PUT"): "save_tag_preferences_v1_user_preferences_tags_put",
+        (
+            "/v1/user/preferences/tags/{tag_id}",
+            "PUT",
+        ): "follow_tag_v1_user_preferences_tags__tag_id__put",
+    }
+    for operation in tags.values():
+        policy = operation["policy"]
+        assert policy["cookiePolicy"] == "reader"
+        assert policy["handler"] == "forward"
+        assert policy["extension"] == {
+            "credentials": "include",
+            "cacheControl": None,
+            "requestHeaders": ["Content-Type", "X-CSRF-Token", "If-None-Match"],
+            "timeoutMs": 15_000,
+        }
 
 
 def test_public_operation_provenance_catalog_is_complete_unique_and_deterministic():
@@ -181,18 +208,27 @@ def test_public_operation_provenance_catalog_is_complete_unique_and_deterministi
 
 def test_reader_export_keeps_uuid_validation_and_strict_placement_input():
     document = exporter.build_contract()
-    follow = next(
-        operation
-        for operation in document[GATEWAY_ROUTES_EXTENSION]
-        if operation["path"] == "/v1/user/preferences/topics/{topic_id}"
-    )
-    assert follow["parameters"] == [
-        {
-            "name": "topic_id",
-            "schema": {"type": "string", "format": "uuid", "title": "Topic Id"},
-            "converter": "str",
-        }
-    ]
+    for collection, parameter in (
+        ("topics", "topic_id"),
+        ("sources", "source_id"),
+        ("tags", "tag_id"),
+    ):
+        follow = next(
+            operation
+            for operation in document[GATEWAY_ROUTES_EXTENSION]
+            if operation["path"] == f"/v1/user/preferences/{collection}/{{{parameter}}}"
+        )
+        assert follow["parameters"] == [
+            {
+                "name": parameter,
+                "schema": {
+                    "type": "string",
+                    "format": "uuid",
+                    "title": parameter.replace("_", " ").title(),
+                },
+                "converter": "str",
+            }
+        ]
     placement = document["components"]["schemas"]["PlacementQuery"]
     assert placement["additionalProperties"] is False
     assert placement["required"] == ["surface"]

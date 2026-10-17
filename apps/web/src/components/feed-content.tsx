@@ -1,3 +1,4 @@
+import { TagFollow } from "./tag-follow";
 import { ReaderShare } from "./reader-share";
 import { ReaderDisclosure } from "./reader-disclosure";
 import { SourceFollow } from "./source-follow";
@@ -23,7 +24,8 @@ export type FeedContentProps = {
   logoUrl?: string | null;
   logoVariants?: { url: string; width: number }[];
   topicId?: string;
-  section?: "feed" | "topics" | "sources";
+  tagId?: string;
+  section?: "feed" | "topics" | "sources" | "tags";
   feed: PromiseSettledResult<FeedPage>;
   options: PromiseSettledResult<FeedOptions>;
   children?: ReactNode;
@@ -39,6 +41,7 @@ export function FeedContent({
   logoUrl,
   logoVariants,
   topicId,
+  tagId,
   section = "feed",
   feed,
   options,
@@ -56,7 +59,7 @@ export function FeedContent({
         <div
           className={
             filters.q || section !== "feed"
-              ? `page-heading feed-heading${section === "sources" ? " source-feed-heading" : section === "topics" ? " topic-feed-heading" : ""}`
+              ? `page-heading feed-heading${section === "sources" ? " source-feed-heading" : section === "topics" || section === "tags" ? " topic-feed-heading" : ""}`
               : "sr-only"
           }
         >
@@ -71,7 +74,8 @@ export function FeedContent({
               )}
               <h1>{filters.q ? `Results for “${filters.q}”` : title}</h1>
             </div>
-            {description &&
+            {section !== "tags" &&
+              description &&
               (section === "sources" ? (
                 <div className="source-description">
                   <Markdown>{description}</Markdown>
@@ -96,6 +100,19 @@ export function FeedContent({
               />
             </div>
           )}
+          {section === "tags" && filters.tag && (
+            <div className="feed-heading-actions">
+              <ReaderShare
+                path={`/tags/${encodeURIComponent(filters.tag)}`}
+                title={title}
+                kind="tag"
+                label
+              />
+              {tagId && (
+                <TagFollow tagId={tagId} returnTo={feedHref(filters, { cursor: filters.cursor })} />
+              )}
+            </div>
+          )}
           {section === "topics" && topicId && (
             <div className="feed-heading-actions">
               <ReaderShare
@@ -116,6 +133,7 @@ export function FeedContent({
           key={feedParams(filters).toString()}
           filters={filters}
           topicPage={section === "topics"}
+          tagPage={section === "tags"}
           sourcePage={section === "sources"}
           sources={options.status === "fulfilled" ? options.value.sources : []}
           availableTypes={options.status === "fulfilled" ? options.value.content_types : []}

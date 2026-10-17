@@ -4,7 +4,7 @@ import { cache } from "react";
 import { cookies } from "next/headers";
 import { ReaderCookies } from "./server/reader-cookies";
 import { xPixelEnabled } from "./server/config";
-import type { Article, FeedPage, FeedOptions, Source, Topic } from "./types";
+import type { Article, FeedPage, FeedOptions, Source, Topic, Tag } from "./types";
 import { privateApi, publicApi, UserApiError } from "./server/api-client";
 import { contentTypes, feedParams, latestFeedParams, type FeedFilters } from "./feed-query";
 
@@ -149,11 +149,8 @@ export async function getSearch(
   });
 }
 
-export const getTag = (slug: string) =>
-  publicApi.read<{ id: string; name: string; slug: string }>(
-    `/v1/tags/${encodeURIComponent(slug)}`,
-  );
-export const getTags = (offset = 0, limit = 60) =>
-  publicApi.read<{ id: string; name: string; slug: string }[]>(
-    `/v1/tags?limit=${limit}&offset=${offset}`,
+export const getTag = (slug: string) => publicApi.read<Tag>(`/v1/tags/${encodeURIComponent(slug)}`);
+export const getTags = (offset = 0, limit = 60, query = "", letter = "") =>
+  publicApi.read<Tag[]>(
+    `/v1/tags?${new URLSearchParams({ limit: String(limit), offset: String(offset), q: query, letter })}`,
   );

@@ -136,8 +136,7 @@ def integration_environment():
     if get_engine.cache_info().currsize:
         get_engine().dispose()
     get_engine.cache_clear()
-    # Migrations only provision the disposable schema for application tests;
-    # generated revisions are not test subjects.
+    # Provision the disposable schema for application and migration round-trip tests.
     command.upgrade(Config(str(ROOT / "alembic.ini")), "head")
     yield
     get_engine().dispose()

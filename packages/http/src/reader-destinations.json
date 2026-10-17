@@ -86,6 +86,9 @@
     },
     "request": {
       "pattern": "[A-Za-z0-9_-]{43}"
+    },
+    "letter": {
+      "pattern": "[A-Z#]"
     }
   },
   "queryProfiles": {
@@ -128,6 +131,13 @@
         "request": "request"
       },
       "required": ["request"]
+    },
+    "tagCatalog": {
+      "fields": {
+        "offset": "offset",
+        "q": "q",
+        "letter": "letter"
+      }
     }
   },
   "routes": [
@@ -210,6 +220,28 @@
       "labels": {
         "telemetry": "/trending",
         "screen": "/trending"
+      }
+    },
+    {
+      "id": "tags",
+      "segments": ["tags"],
+      "sitemap": {
+        "kind": "page",
+        "changefreq": "daily",
+        "priority": 0.7,
+        "publication": { "source": "inventory", "key": "tags" }
+      },
+      "query": "tagCatalog",
+      "login": true,
+      "embedded": true,
+      "navigation": {
+        "type": "local",
+        "page": "catalog",
+        "catalog": "tags"
+      },
+      "labels": {
+        "telemetry": "/tags",
+        "screen": "/tags"
       }
     },
     {
@@ -541,7 +573,7 @@
       ],
       "query": "feed",
       "login": true,
-      "embedded": false,
+      "embedded": true,
       "navigation": {
         "type": "reader",
         "feed": "contextual",
@@ -568,7 +600,7 @@
       ],
       "query": "feed",
       "login": true,
-      "embedded": false,
+      "embedded": true,
       "navigation": {
         "type": "reader",
         "feed": "contextual",
@@ -587,7 +619,11 @@
         "kind": "page",
         "changefreq": "hourly",
         "priority": 0.7,
-        "publication": { "source": "inventory", "key": "feed", "parameter": "contentType" }
+        "publication": {
+          "source": "inventory",
+          "key": "feed",
+          "parameter": "contentType"
+        }
       },
       "segments": [
         {
