@@ -305,6 +305,7 @@ function ReadingCalendar({ activity }: { activity: PublicReadingActivity }) {
       <div className="public-profile-calendar-heading">
         <strong>{activity.year}</strong>
       </div>
+      {/* Keyboard users must be able to scroll this calendar on narrow screens. */}
       <div
         className="public-profile-calendar-scroll"
         tabIndex={0}
