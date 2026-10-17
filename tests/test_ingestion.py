@@ -130,8 +130,8 @@ def test_database_failure_rolls_back_articles_and_retries(database, rss_bytes, m
     monkeypatch.setattr(tasks, "fetch_feed", lambda *a: FetchResult(200, rss_bytes, a[0]))
     original = tasks.store_entries
 
-    def crash_after_store(*args):
-        original(*args)
+    def crash_after_store(*args, **kwargs):
+        original(*args, **kwargs)
         raise RuntimeError("simulated transaction failure")
 
     monkeypatch.setattr(tasks, "store_entries", crash_after_store)

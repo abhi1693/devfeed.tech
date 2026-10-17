@@ -45,6 +45,16 @@ separate scheduling and queue delays from computation; they are not a promised
 user-facing ETA. End-to-end production latency still requires observing these
 logs alongside browser requests after deployment.
 
+### Optional adaptive source cadence
+
+Adaptive polling is disabled by default. Configure the shared gate and bounds on
+both scheduler and ingestion workers, restart them together, and explicitly opt in
+sources through the admin UI or CLI. Apply migration 0025 first. See
+[CLI polling controls](../cli/README.md#adaptive-source-polling) for policy tuning,
+manual-fetch semantics, gate-off reconciliation bounds and a reproducible workload
+comparison. Successful lease-owned ingestion commits source evidence and cadence
+atomically; failures and upstream cooldowns retain their existing retry policy.
+
 ## Partner catalog processing
 
 A separate one-second dispatcher refills partner import, qualification and evaluation work

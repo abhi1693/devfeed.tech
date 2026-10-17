@@ -679,8 +679,9 @@ def fake_ingestion(monkeypatch):
         entries_seen=0,
         entries_skipped=0,
         articles_created=0,
+        automatic=False,
     )
-    source = SimpleNamespace(
+    source = Source(
         id=job.source_id,
         feed_url="https://example.com/rss",
         source_type="publisher",
@@ -689,6 +690,8 @@ def fake_ingestion(monkeypatch):
         last_modified=None,
         enabled=True,
         poll_interval_seconds=1800,
+        polling_state={},
+        last_attempt_at=utcnow(),
     )
     commits = []
 

@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 
 from devfeed_core.job_lifecycle import DEFAULT_RETRY, fail_or_retry, start_job
 from devfeed_core.models import IngestionJob, Source, utcnow
+from devfeed_core.polling import schedule
 
 MAX_ATTEMPTS = DEFAULT_RETRY.max_attempts
 JOB_TIMEOUT_SECONDS = 180
@@ -38,7 +39,7 @@ def owned_job(session: Session, model, job_id: uuid.UUID, token: uuid.UUID):
     return job if job is not None and job.status == "running" and job.lease_token == token else None
 
 
-def request_ingestion(session: Session, source: Source) -> IngestionJob:
+def request_ingestion(session: Session, source: Source, *, automatic: bool = False) -> IngestionJob:
     """Caller must lock the source row. The partial unique index is a second guard."""
     if source.approval_status != "approved":
         raise ValueError("Only approved sources can be ingested")
@@ -49,9 +50,15 @@ def request_ingestion(session: Session, source: Source) -> IngestionJob:
     )
     if existing:
         return existing
-    job = IngestionJob(source_id=source.id)
+    now = utcnow()
+    cooldown = (
+        source.next_fetch_at
+        if source.consecutive_failures and source.effective_polling_mode == "adaptive"
+        else now
+    )
+    job = IngestionJob(source_id=source.id, automatic=automatic, available_at=max(now, cooldown))
     session.add(job)
-    source.next_fetch_at = utcnow() + timedelta(seconds=source.poll_interval_seconds)
+    source.next_fetch_at = max(cooldown, schedule(source, now))
     session.flush()
     return job
 
@@ -81,9 +88,7 @@ def reconcile_source_schedule(session: Session, source: Source, *, immediate: bo
         source.next_fetch_at = now
     else:
         assert source.last_success_at is not None
-        source.next_fetch_at = max(
-            now, source.last_success_at + timedelta(seconds=source.poll_interval_seconds)
-        )
+        source.next_fetch_at = max(now, schedule(source, source.last_success_at))
 
 
 def fail_job(

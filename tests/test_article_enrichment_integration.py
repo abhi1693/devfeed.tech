@@ -220,8 +220,8 @@ def test_failed_ingestion_rolls_back_page_jobs_with_articles(database, monkeypat
     monkeypatch.setattr(tasks, "fetch_feed", lambda *a: FetchResult(200, rss_bytes, a[0]))
     store = tasks.store_entries
 
-    def fail(*args):
-        store(*args)
+    def fail(*args, **kwargs):
+        store(*args, **kwargs)
         raise RuntimeError("simulated failure after outbox creation")
 
     monkeypatch.setattr(tasks, "store_entries", fail)

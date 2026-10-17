@@ -168,6 +168,7 @@ function Editor({
               onValuesChange={setValues}
               editing={!!record}
               sourceId={record?.id}
+              pollingDetails={record ?? undefined}
               submissionError={error}
               onSolverChoice={setUseSolver}
               disabled={busy}

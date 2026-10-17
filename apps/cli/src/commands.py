@@ -81,6 +81,7 @@ def source_add(args):
         source_type=args.source_type,
         name=args.name,
         interval=args.poll_interval,
+        polling_mode=args.polling_mode,
         enabled=not args.disabled,
         **{field: getattr(args, field) for field in PROFILE_FIELDS},
         submitted_by={"name": args.submitted_by, "profile_url": args.submitter_url}
