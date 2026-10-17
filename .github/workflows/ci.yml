@@ -496,9 +496,9 @@ jobs:
           sh scripts/ci/python-bootstrap.sh . --editable --all-packages
           npm ci --ignore-scripts
       - name: Next.js compiler cache
-        uses: ./.github/actions/next-build-cache
+        uses: abhi1693/actions/next-build-cache@4e28b0a541caa7ee57c3791a6d662c2422a82bc0 # reusable compiler cache
         with:
-          app: web
+          app-directory: apps/web
           profile: reader-parity-v1
       - name: Check
         run: npm run ci:reader-parity
@@ -622,9 +622,9 @@ jobs:
         run: node node_modules/playwright/cli.js install --with-deps chromium
       - name: Next.js compiler cache
         if: steps.changes.outputs.needed == 'true'
-        uses: ./.github/actions/next-build-cache
+        uses: abhi1693/actions/next-build-cache@4e28b0a541caa7ee57c3791a6d662c2422a82bc0 # reusable compiler cache
         with:
-          app: web
+          app-directory: apps/web
           profile: browser-budgets-v1
       - name: Budgets
         if: steps.changes.outputs.needed == 'true'

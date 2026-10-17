@@ -95,15 +95,15 @@ jobs:
           node node_modules/playwright/cli.js install --with-deps chromium
       - name: Reader compiler cache
         if: steps.select.outputs.needed == 'true'
-        uses: ./.github/actions/next-build-cache
+        uses: abhi1693/actions/next-build-cache@4e28b0a541caa7ee57c3791a6d662c2422a82bc0 # reusable compiler cache
         with:
-          app: web
+          app-directory: apps/web
           profile: dast-web-v1
       - name: Admin compiler cache
         if: steps.select.outputs.needed == 'true'
-        uses: ./.github/actions/next-build-cache
+        uses: abhi1693/actions/next-build-cache@4e28b0a541caa7ee57c3791a6d662c2422a82bc0 # reusable compiler cache
         with:
-          app: admin
+          app-directory: apps/admin
           profile: dast-admin-v1
       - name: Browser tests
         if: steps.select.outputs.needed == 'true'
