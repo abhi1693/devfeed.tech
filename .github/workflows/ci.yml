@@ -168,6 +168,12 @@ jobs:
       timeout-minutes: 20
       runs-on: ubuntu-24.04-arm
       node-version: "24"
+      build-cache-paths: |
+        apps/admin/.next/cache/turbopack
+        apps/admin/.next/cache/webpack
+        apps/admin/.next/cache/swc
+        apps/admin/.next/cache/.tsbuildinfo
+      build-cache-scope: next-admin-unit-v1
       project-env: '{"NEXT_TELEMETRY_DISABLED":"1","DEVFEED_DATABASE_URL":"postgresql+psycopg://ci@database.invalid/ci","DEVFEED_REDIS_URL":"redis://redis.invalid/15"}'
       test-results-path: |
         reports/admin.xml
@@ -187,6 +193,12 @@ jobs:
       timeout-minutes: 20
       runs-on: ubuntu-24.04-arm
       node-version: "24"
+      build-cache-paths: |
+        apps/partner/.next/cache/turbopack
+        apps/partner/.next/cache/webpack
+        apps/partner/.next/cache/swc
+        apps/partner/.next/cache/.tsbuildinfo
+      build-cache-scope: next-partner-browser-v1
       test-results-path: |
         reports/partner.xml
         reports/coverage/partner/lcov.info
@@ -200,6 +212,12 @@ jobs:
       timeout-minutes: 15
       runs-on: ubuntu-24.04-arm
       node-version: "24"
+      build-cache-paths: |
+        apps/web/.next/cache/turbopack
+        apps/web/.next/cache/webpack
+        apps/web/.next/cache/swc
+        apps/web/.next/cache/.tsbuildinfo
+      build-cache-scope: next-web-unit-v1
       project-env: '{"NEXT_TELEMETRY_DISABLED":"1"}'
       test-results-path: |
         reports/user.xml
@@ -493,6 +511,12 @@ jobs:
         run: |
           sh scripts/ci/python-bootstrap.sh . --editable --all-packages
           npm ci --ignore-scripts
+      - name: Next.js compiler cache
+        if: matrix.suite == 'web' || startsWith(matrix.suite, 'partner-')
+        uses: abhi1693/actions/next-build-cache@bf8cd38aa8456310278ed96bfa83a3132f235df1 # v1.0.4
+        with:
+          app-directory: apps/web
+          profile: reader-${{ matrix.suite }}-v1
       - name: Check
         env:
           READER_SUITE: ${{ matrix.suite }}
@@ -636,6 +660,12 @@ jobs:
       timeout-minutes: 20
       runs-on: ubuntu-24.04
       node-version: "24"
+      build-cache-paths: |
+        apps/admin/.next/cache/turbopack
+        apps/admin/.next/cache/webpack
+        apps/admin/.next/cache/swc
+        apps/admin/.next/cache/.tsbuildinfo
+      build-cache-scope: next-admin-browser-v1
       project-env: '{"NEXT_TELEMETRY_DISABLED":"1"}'
       browser-results-path: reports
       test-results-name: admin-browser-${{ github.run_attempt }}
@@ -648,6 +678,12 @@ jobs:
       timeout-minutes: 20
       runs-on: ubuntu-24.04
       node-version: "24"
+      build-cache-paths: |
+        apps/web/.next/cache/turbopack
+        apps/web/.next/cache/webpack
+        apps/web/.next/cache/swc
+        apps/web/.next/cache/.tsbuildinfo
+      build-cache-scope: next-live-browser-v1
       python-version: "3.12"
       uv-version: 0.13.1
       uv-sync-args: '["--all-packages"]'
@@ -693,6 +729,12 @@ jobs:
       - name: Chromium
         if: steps.changes.outputs.needed == 'true'
         run: node node_modules/playwright/cli.js install --with-deps chromium
+      - name: Next.js compiler cache
+        if: steps.changes.outputs.needed == 'true'
+        uses: abhi1693/actions/next-build-cache@bf8cd38aa8456310278ed96bfa83a3132f235df1 # v1.0.4
+        with:
+          app-directory: apps/web
+          profile: browser-budgets-v1
       - name: Budgets
         if: steps.changes.outputs.needed == 'true'
         run: npm run ci:browser-budgets

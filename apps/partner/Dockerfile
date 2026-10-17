@@ -21,7 +21,8 @@ COPY apps/partner apps/partner
 # Contract tests participate in Next.js type checking and import the route generator.
 COPY scripts/generate_partner_routes.mjs scripts/generate_partner_routes.mjs
 COPY scripts/lib scripts/lib
-RUN npm run partner:build && node packages/telemetry/scripts/private-sourcemaps.mjs apps/partner/.next
+RUN --mount=type=cache,target=/app/apps/partner/.next/cache,sharing=locked \
+    npm run partner:build && node packages/telemetry/scripts/private-sourcemaps.mjs apps/partner/.next
 
 FROM ${DOCKERHUB_PREFIX}alpine:3.24@sha256:28bd5fe8b56d1bd048e5babf5b10710ebe0bae67db86916198a6eec434943f8b AS runtime
 WORKDIR /app
