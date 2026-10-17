@@ -1,4 +1,5 @@
 "use client";
+import { clearReaderAcquisition } from "@/lib/reader-acquisition";
 import { flushSync } from "react-dom";
 import { LoadingSkeleton } from "./loading-skeleton";
 import { readerLoginLink, readerSignedOut } from "@/lib/reader-runtime";
@@ -66,6 +67,13 @@ export function UserProvider({
   } | null>(null);
   const [profileVersion, setProfileVersion] = useState(0);
   const userId = user?.user_id;
+  const measurementOwner = useRef<string | null | undefined>(undefined);
+  useEffect(() => {
+    if (loading) return;
+    if (measurementOwner.current && measurementOwner.current !== (userId ?? null))
+      clearReaderAcquisition();
+    measurementOwner.current = userId ?? null;
+  }, [loading, userId]);
   const profileWrites = useRef(new Set<AbortController>());
   useEffect(() => {
     const pending = profileWrites.current;
@@ -171,7 +179,10 @@ export function UserProvider({
   }
   useEffect(() => {
     const controller = new AbortController();
-    const expire = () => setUser(null);
+    const expire = () => {
+      clearReaderAcquisition();
+      setUser(null);
+    };
     window.addEventListener("devfeed:user-session-expired", expire);
     userRequest<UserIdentity | null>("auth/me", {
       signal: AbortSignal.any([controller.signal, AbortSignal.timeout(15000)]),

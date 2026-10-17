@@ -115,12 +115,18 @@ test("generated extension operations declare policies and omit direct OAuth exch
     73,
   );
   for (const operation of operations) {
+    assert.equal(
+      operation.policy.extension.requestHeaders.includes("X-Devfeed-Reader-Measurement"),
+      operation.operationId === "opened_v1_user_articles__article_id__open_post",
+    );
     assert.ok(operation.policy.extension);
     assert.ok(["include", "omit"].includes(operation.policy.extension.credentials));
     assert.ok([null, "public-read", "no-store"].includes(operation.policy.extension.cacheControl));
     assert.ok(
       operation.policy.extension.requestHeaders.every((name) =>
-        ["Content-Type", "X-CSRF-Token", "If-None-Match"].includes(name),
+        ["Content-Type", "X-CSRF-Token", "If-None-Match", "X-Devfeed-Reader-Measurement"].includes(
+          name,
+        ),
       ),
     );
   }

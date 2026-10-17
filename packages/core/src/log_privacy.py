@@ -20,6 +20,7 @@ _CREDENTIAL_FIELDS = frozenset(
         "passwd",
         "secret",
         "apikey",
+        "apisecret",
         "authorization",
         "cookie",
         "setcookie",

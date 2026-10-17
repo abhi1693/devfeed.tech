@@ -9,6 +9,7 @@ const readerCookies = new Set([
   "devfeed_user_visitor",
   "__Host-devfeed_user_visitor",
 ]);
+const measurementCookies = new Set(["devfeed_user_acquisition", "__Host-devfeed_user_acquisition"]);
 const attributionCookies = new Set([
   "devfeed_user_x_click",
   "__Host-devfeed_user_x_click",
@@ -17,10 +18,15 @@ const attributionCookies = new Set([
 
 /** Forward only the cookie families declared by the selected reader operation. */
 export class ReaderCookies {
-  constructor(private readonly attributionEnabled: () => boolean) {}
+  constructor(
+    private readonly attributionEnabled: () => boolean,
+    private readonly measurementEnabled: () => boolean = () => false,
+  ) {}
 
-  filter(value: string, policy: GatewayCookiePolicy): string {
+  filter(value: string, policy: GatewayCookiePolicy, measurementCallback = false): string {
     if (policy === "omit") return "";
+    const measurement =
+      (policy === "reader-attribution" || measurementCallback) && this.measurementEnabled();
     const attribution = policy === "reader-attribution" && this.attributionEnabled();
     return value
       .split(";")
@@ -29,7 +35,11 @@ export class ReaderCookies {
         const separator = part.indexOf("=");
         if (separator < 1) return false;
         const name = part.slice(0, separator);
-        return readerCookies.has(name) || (attribution && attributionCookies.has(name));
+        return (
+          readerCookies.has(name) ||
+          (attribution && attributionCookies.has(name)) ||
+          (measurement && measurementCookies.has(name) && part.slice(separator + 1).length <= 1536)
+        );
       })
       .join("; ");
   }

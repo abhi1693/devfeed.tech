@@ -3,6 +3,8 @@ import {
   keyboardProfile,
   keyboardActivity,
 } from "../../../scripts/testing/keyboard-reader.mjs";
+import { acquisitionLoginServer } from "../../../scripts/testing/acquisition-login-server.mjs";
+import { checkReaderAcquisition } from "../../../scripts/testing/reader-acquisition.mjs";
 import { checkRouteStyles } from "../../../scripts/testing/route-styles.mjs";
 import { readerDomCatalogFixture, checkReaderDom } from "../../../scripts/testing/reader-dom.mjs";
 import { checkGuestDocument } from "../../../scripts/testing/document-latency.mjs";
@@ -113,7 +115,8 @@ withManagedSourceLogo(article.sources[0]);
 const filterSource = { ...article.sources[0], id: "99999999-9999-4999-8999-999999999999" };
 
 // Each named test gets a real unpacked extension with isolated storage and mocks.
-async function readerFixture(t, imageProfile) {
+async function readerFixture(t, imageProfile, { acquisition = false } = {}) {
+  const loginServer = acquisition ? await acquisitionLoginServer(t) : null;
   const profile = await mkdtemp(path.join(tmpdir(), "devfeed-reader-test-"));
   const errors = [];
   let context;
@@ -316,7 +319,13 @@ async function readerFixture(t, imageProfile) {
         analytics.push(route.request().postDataJSON());
         return route.fulfill({ status: 204 });
       }
-      return route.fulfill({ json: { enabled: true } });
+      return route.fulfill({
+        json: {
+          enabled: true,
+          reader_measurement_enabled: acquisition,
+          reader_acquisition_campaigns: ["organic-launch"],
+        },
+      });
     }
     if (url.pathname === "/api/v1/user/auth/config")
       return route.fulfill({ json: { enabled: true, providers: [] } });
@@ -418,6 +427,39 @@ async function readerFixture(t, imageProfile) {
       json = { ...json, items: json.items.map(compactListArticle) };
     return route.fulfill({ json });
   });
+  if (loginServer) {
+    await context.route("https://devfeed.tech/**", async (route) => {
+      const url = new URL(route.request().url());
+      const fromWeb =
+        !route.request().isNavigationRequest() &&
+        route.request().frame().url().startsWith("https://devfeed.tech/");
+      if (
+        url.pathname === "/login" ||
+        url.pathname === "/api/v1/user/auth/login" ||
+        url.pathname.startsWith("/_next/") ||
+        (fromWeb && url.pathname.startsWith("/api/"))
+      ) {
+        const response = await route.fetch({
+          url: loginServer.origin + url.pathname + url.search,
+          maxRedirects: 0,
+        });
+        return route.fulfill({ response });
+      }
+      return route.fallback();
+    });
+  }
+  if (acquisition)
+    await context.addInitScript(() => {
+      if (
+        location.protocol === "chrome-extension:" &&
+        !sessionStorage.getItem("devfeed:reader-acquisition:v1")
+      )
+        history.replaceState(
+          null,
+          "",
+          `${location.pathname}#/?utm_source=google&utm_medium=organic&utm_campaign=organic-launch`,
+        );
+    });
   const page = await context.newPage();
   await page.goto(newTab);
   await page.locator(".article-card").first().waitFor();
@@ -427,6 +469,7 @@ async function readerFixture(t, imageProfile) {
     page,
     requests,
     analytics,
+    loginServer,
     state,
     mutationFixture,
     routeFixture,
@@ -446,6 +489,18 @@ test(
   async (t) => {
     const { page, pathFor } = await readerFixture(t);
     await checkKeyboardReader(page, pathFor, `/tmp/devfeed-sonar-a11y/${browser}`);
+  },
+);
+
+test(
+  "reader acquisition uses existing identities and respects opt out in built new tabs",
+  { timeout: 180000 },
+  async (t) => {
+    const { page, pathFor, loginServer } = await readerFixture(t, undefined, { acquisition: true });
+    await checkReaderAcquisition(page, pathFor, `/tmp/devfeed-issue173-acquisition/${browser}`, {
+      extension: true,
+      loginServer,
+    });
   },
 );
 

@@ -25,7 +25,12 @@ export function extensionTransportPolicy(value, label = "Extension policy") {
   if (!["public-read", "no-store", null].includes(value.cacheControl)) {
     throw new Error(`${label}.cacheControl must declare a supported cache policy`);
   }
-  const headers = new Set(["Content-Type", "X-CSRF-Token", "If-None-Match"]);
+  const headers = new Set([
+    "Content-Type",
+    "X-CSRF-Token",
+    "If-None-Match",
+    "X-Devfeed-Reader-Measurement",
+  ]);
   if (
     !Array.isArray(value.requestHeaders) ||
     value.requestHeaders.some((header) => !headers.has(header)) ||

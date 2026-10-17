@@ -1,5 +1,9 @@
 import { extensionPayload } from "@/lib/extension-analytics";
-import { extensionOriginAllowed } from "@/lib/server/config";
+import {
+  extensionOriginAllowed,
+  readerMeasurementEnabled,
+  readerAcquisitionCampaigns,
+} from "@/lib/server/config";
 
 export const dynamic = "force-dynamic";
 const headers = { "Cache-Control": "no-store" };
@@ -19,7 +23,11 @@ function allowed(request: Request) {
 }
 export function GET(request: Request) {
   return Response.json(
-    { enabled: (!request.headers.has("origin") || allowed(request)) && !!configuration() },
+    {
+      enabled: (!request.headers.has("origin") || allowed(request)) && !!configuration(),
+      reader_measurement_enabled: readerMeasurementEnabled(),
+      reader_acquisition_campaigns: readerAcquisitionCampaigns(),
+    },
     { headers },
   );
 }

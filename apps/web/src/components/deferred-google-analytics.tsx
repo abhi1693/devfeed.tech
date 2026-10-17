@@ -1,5 +1,6 @@
 "use client";
 
+import { refreshReaderMeasurement } from "@/lib/reader-acquisition";
 import { useEffect } from "react";
 import { analyticsEventName, type AnalyticsEvent } from "@/lib/analytics";
 
@@ -46,6 +47,7 @@ export function DeferredGoogleAnalytics({ gaId }: { gaId: string }) {
 
     const loadOnce = () => {
       const gtag = loadGoogleAnalytics(gaId);
+      refreshReaderMeasurement();
       if (!loaded) {
         loaded = true;
         for (const pageLocation of pendingViews.splice(0))

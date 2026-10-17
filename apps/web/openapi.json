@@ -3138,7 +3138,8 @@
             "requestHeaders": [
               "Content-Type",
               "X-CSRF-Token",
-              "If-None-Match"
+              "If-None-Match",
+              "X-Devfeed-Reader-Measurement"
             ],
             "timeoutMs": 15000
           },
@@ -7065,7 +7066,8 @@
           "requestHeaders": [
             "Content-Type",
             "X-CSRF-Token",
-            "If-None-Match"
+            "If-None-Match",
+            "X-Devfeed-Reader-Measurement"
           ],
           "timeoutMs": 15000
         },

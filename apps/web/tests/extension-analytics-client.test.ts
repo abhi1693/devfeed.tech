@@ -8,9 +8,10 @@ afterEach(() => {
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
   localStorage.clear();
+  sessionStorage.clear();
   window.location.hash = "";
 });
-function setup(enabled = true) {
+function setup(enabled = true, measurement = false) {
   vi.spyOn(document, "hasFocus").mockReturnValue(true);
   vi.spyOn(document, "visibilityState", "get").mockReturnValue("visible");
   Object.defineProperty(navigator, "locks", {
@@ -18,7 +19,13 @@ function setup(enabled = true) {
     value: { request: async (_name: string, callback: () => unknown) => callback() },
   });
   const network = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) =>
-    init?.method === "POST" ? new Response(null, { status: 204 }) : Response.json({ enabled }),
+    init?.method === "POST"
+      ? new Response(null, { status: 204 })
+      : Response.json({
+          enabled,
+          reader_measurement_enabled: measurement,
+          reader_acquisition_campaigns: ["organic-launch"],
+        }),
   );
   stop = startExtensionAnalytics(network);
   return network;
@@ -118,4 +125,36 @@ it("does not interfere with browsing when local storage is blocked", () => {
     stop = startExtensionAnalytics(network);
   }).not.toThrow();
   expect(network).not.toHaveBeenCalled();
+});
+
+it("preserves the first extension touch across restart while configuration is pending", async () => {
+  window.location.hash = "#/?utm_source=google&utm_medium=organic&utm_campaign=organic-launch";
+  const first = setup(true, true);
+  await vi.waitFor(() => expect(first).toHaveBeenCalledTimes(2));
+  const captured = sessionStorage.getItem("devfeed:reader-acquisition:v1");
+  expect(JSON.parse(captured!)).toMatchObject({
+    status: "attributed",
+    source: "google",
+    campaign: "organic-launch",
+  });
+  stop();
+  window.location.hash = "#/latest?utm_source=github&utm_medium=referral";
+  let resolveConfig: (value: Response) => void = () => {};
+  const network = vi.fn(
+    () =>
+      new Promise<Response>((resolve) => {
+        resolveConfig = resolve;
+      }),
+  );
+  stop = startExtensionAnalytics(network);
+  expect(sessionStorage.getItem("devfeed:reader-acquisition:v1")).toBe(captured);
+  resolveConfig(
+    Response.json({
+      enabled: true,
+      reader_measurement_enabled: true,
+      reader_acquisition_campaigns: ["organic-launch"],
+    }),
+  );
+  await vi.waitFor(() => expect(network).toHaveBeenCalledTimes(2));
+  expect(sessionStorage.getItem("devfeed:reader-acquisition:v1")).toBe(captured);
 });

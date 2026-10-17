@@ -18,6 +18,20 @@ class Settings(BaseSettings):
     mcp_resource_url: str | None = None
     mcp_issuer_url: str | None = None
     base_url: str | None = None
+    reader_measurement_enabled: bool = Field(
+        default=False, validation_alias="DEVFEED_READER_MEASUREMENT_ENABLED"
+    )
+    analytics_enabled: bool = Field(default=False, validation_alias="DEVFEED_ANALYTICS_ENABLED")
+    extension_analytics_enabled: bool = Field(
+        default=False, validation_alias="DEVFEED_EXTENSION_ANALYTICS_ENABLED"
+    )
+    ga4_measurement_id: str | None = Field(default=None, validation_alias="GOOGLE_ANALYTICS_ID")
+    reader_ga_api_secret: SecretStr | None = Field(
+        default=None, validation_alias="DEVFEED_READER_GA_API_SECRET"
+    )
+    reader_acquisition_campaigns: list[str] = Field(
+        default_factory=list, validation_alias="DEVFEED_READER_ACQUISITION_CAMPAIGNS"
+    )
     x_pixel_enabled: bool = Field(default=False, validation_alias="DEVFEED_X_PIXEL_ENABLED")
     x_pixel_token: SecretStr | None = Field(default=None, validation_alias="X_PIXEL_TOKEN")
     x_signup_event_id: str | None = Field(default=None, validation_alias="X_SIGNUP_EVENT_ID")
@@ -54,6 +68,22 @@ class Settings(BaseSettings):
             raise ValueError("Extension IDs must be exact 32-character Chrome extension IDs")
         return value
 
+    @field_validator("ga4_measurement_id")
+    @classmethod
+    def validate_ga4_measurement_id(cls, value):
+        if value is not None and not re.fullmatch(r"G-[A-Z0-9]+", value):
+            raise ValueError("GA4 measurement ID must be a valid G-ID")
+        return value
+
+    @field_validator("reader_acquisition_campaigns")
+    @classmethod
+    def validate_reader_campaigns(cls, value):
+        if len(value) > 100 or any(
+            not re.fullmatch(r"[a-z][a-z0-9_-]{0,63}", item) for item in value
+        ):
+            raise ValueError("Acquisition campaigns must be at most 100 bounded labels")
+        return list(dict.fromkeys(value))
+
     def allows_request_origin(self, origin: str | None) -> bool:
         if not origin:
             return False
@@ -65,6 +95,8 @@ class Settings(BaseSettings):
         "base_url",
         "x_pixel_token",
         "x_signup_event_id",
+        "ga4_measurement_id",
+        "reader_ga_api_secret",
         "mcp_resource_url",
         "mcp_issuer_url",
         "oidc_issuer_url",

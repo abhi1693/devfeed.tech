@@ -7,6 +7,7 @@ type TransportOptions<Operation extends GatewayOperation> = {
   webOrigin: () => string;
   originAllowed?: (origin: string | null) => boolean;
   filterCookies?: (value: string, operation: Operation) => string;
+  requestHeaders?: (request: Request, operation: Operation) => Record<string, string>;
   traceHeaders: () => Record<string, string>;
   unavailableDetail: string;
 };
@@ -63,6 +64,10 @@ export class GatewayTransport<Operation extends GatewayOperation = GatewayOperat
           value = this.options.filterCookies(value, operation);
         if (value) headers.set(name, value);
       }
+      for (const [name, value] of Object.entries(
+        this.options.requestHeaders?.(request, operation) ?? {},
+      ))
+        headers.set(name, value);
       let body: ArrayBuffer | undefined;
       if (!safe.has(operation.method)) {
         body = await readRequestBody(request, policy.bodyLimit, policy.bodyTimeoutMs);

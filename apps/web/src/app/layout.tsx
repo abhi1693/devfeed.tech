@@ -2,6 +2,7 @@ import { HeaderSponsorshipProvider } from "@/components/header-sponsorship";
 import { TopicFollowsProvider } from "@/components/topic-follows";
 import { BrowserTelemetry } from "@devfeed/telemetry/browser";
 import { browserSettings } from "@devfeed/telemetry/receiver";
+import { ReaderAcquisition } from "@/components/reader-acquisition";
 import { DeferredGoogleAnalytics } from "@/components/deferred-google-analytics";
 import { DeferredClarity } from "@/components/deferred-clarity";
 import { WebArticleNavigationProvider } from "@/components/web-article-navigation";
@@ -12,7 +13,12 @@ import { siteStructuredData } from "@/lib/structured-data";
 import { canonicalUrl, socialMetadata, SITE_DESCRIPTION } from "@/lib/metadata";
 import { connection } from "next/server";
 import { headers } from "next/headers";
-import { analyticsMeasurementId, clarityProjectId } from "@/lib/server/config";
+import {
+  analyticsMeasurementId,
+  clarityProjectId,
+  readerMeasurementEnabled,
+  readerAcquisitionCampaigns,
+} from "@/lib/server/config";
 import brandMark from "@devfeed/theme/assets/devfeed-mark.png";
 import browserIcon from "@devfeed/theme/assets/devfeed-icon-32.png";
 import appleIcon from "@devfeed/theme/assets/devfeed-icon-180.png";
@@ -72,6 +78,12 @@ export default async function RootLayout({
         <NotificationStyles nonce={nonce} />
       </head>
       <body>
+        <ReaderAcquisition
+          enabled={readerMeasurementEnabled()}
+          extensionEnabled={process.env.DEVFEED_EXTENSION_ANALYTICS_ENABLED === "true"}
+          gaId={gaId}
+          campaigns={readerAcquisitionCampaigns()}
+        />
         <ReaderNavigationRecovery />
         <BrowserTelemetry {...browserSettings("web")} />
         <JsonLd data={siteStructuredData(brandMark)} />

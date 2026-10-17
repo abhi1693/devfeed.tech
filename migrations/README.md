@@ -150,3 +150,21 @@ topic and source image jobs remain. Sponsored articles are unpublished before th
 removed; clear reader response caches and rebuild the search index before starting the older
 runtime. Retain a database backup if partnership data must survive a rollback. No production rollout
 is implied by committing the migration.
+
+## 0025: verified reader acquisition outcomes
+
+Revision `0025` adds the nullable `user_accounts.reader_signup_at` marker, written only when
+the verified reader callback creates an account. Existing accounts are not backfilled because
+their creation path and original acquisition cannot be established retrospectively.
+
+The private `reader_signups` cohort retains bounded acquisition labels and the first recorded
+original-article open within the seven-day activation window. `reader_milestone_deliveries`
+records optional diagnostic delivery independently from first-party outcomes. Both tables
+cascade on account deletion. Activation article UUIDs survive article pruning, consistent
+with the authenticated reading ledger. No email, raw referrer or arbitrary URL is added.
+
+Apply `uv run devfeed db upgrade` before starting runtimes requiring schema `0025`.
+The migration preserves existing account and reading history. Downgrading to `0024` removes
+the signup marker, acquisition cohorts and diagnostic history; roll back application code
+first and retain a backup if those records must survive. Measurement remains separately
+disabled until configured. Committing this migration does not deploy it.
