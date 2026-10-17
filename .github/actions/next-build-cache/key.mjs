@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
-import { appendFile, lstat, readFile } from "node:fs/promises";
+import { constants } from "node:fs";
+import { appendFile, open } from "node:fs/promises";
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 
@@ -12,15 +13,24 @@ const runtime = {
 
 async function configuration(root, filename, required = false) {
   const path = resolve(root, filename);
-  let stat;
+  let file;
   try {
-    stat = await lstat(path);
+    file = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
   } catch (error) {
     if (!required && error.code === "ENOENT") return null;
+    if (error.code === "ELOOP") {
+      throw new Error(`Build cache input must be a regular file: ${filename}`);
+    }
     throw error;
   }
-  if (!stat.isFile()) throw new Error(`Build cache input must be a regular file: ${filename}`);
-  return readFile(path);
+  try {
+    if (!(await file.stat()).isFile()) {
+      throw new Error(`Build cache input must be a regular file: ${filename}`);
+    }
+    return await file.readFile();
+  } finally {
+    await file.close();
+  }
 }
 
 export async function nextBuildCachePlan({ root, app, profile, source, environment = runtime }) {

@@ -18,18 +18,17 @@ jobs:
           node-version: "24"
           cache: npm
           cache-dependency-path: package-lock.json
-      - name: Test Next.js compiler cache contract
-        run: node --test tests/next-build-cache.test.mjs
       - name: Audit locked Codex dependencies
         run: npm audit --prefix infra/codex --omit=dev --audit-level=high
       - name: Install locked JavaScript coverage tooling
         run: npm ci --ignore-scripts
-      - name: Test private Codex transport with coverage
+      - name: Test Codex transport and compiler caching with coverage
         run: |
           node node_modules/c8/bin/c8.js --include 'infra/codex/*.cjs' \
+            --include '.github/actions/next-build-cache/key.mjs' \
             --reporter=lcovonly --reporter=json-summary \
             --reports-dir=reports/coverage/security \
-            node --test tests/codex_transport.test.cjs
+            node --test tests/codex_transport.test.cjs tests/next-build-cache.test.mjs
       - name: Upload private Codex transport coverage
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:

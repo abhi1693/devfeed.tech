@@ -161,7 +161,7 @@ jobs:
             }
             if (!summary) core.setFailed('Backend coverage artifact is missing or invalid');
   admin-web:
-    uses: abhi1693/actions/.github/workflows/node-ci.yml@0464b5d06b5467502bf111b18fed14224b63f295 # build cache support (actions#12)
+    uses: abhi1693/actions/.github/workflows/node-ci.yml@c18ee599bfcd48fc931e0ffd103ef9952288ea5f # build cache support (actions#12)
     with:
       checks: '["generate", "lint", "test", "build"]'
       scripts: '{"generate": "admin:generate", "lint": "admin:lint", "test": "ci:admin-web-test", "build": "admin:build"}'
@@ -186,7 +186,7 @@ jobs:
     name: Unit / Admin UI lint, tests and build
   partner-web:
     name: Unit / Partner portal lint, tests, build and browser checks
-    uses: abhi1693/actions/.github/workflows/node-ci.yml@0464b5d06b5467502bf111b18fed14224b63f295 # build cache support (actions#12)
+    uses: abhi1693/actions/.github/workflows/node-ci.yml@c18ee599bfcd48fc931e0ffd103ef9952288ea5f # build cache support (actions#12)
     with:
       checks: '["lint", "test", "build"]'
       scripts: '{"lint": "partner:lint", "test": "ci:partner-test", "build": "ci:partner-browser"}'
@@ -205,7 +205,7 @@ jobs:
       test-results-name: partner-test-results-${{ github.run_attempt }}
       project-env: '{"NEXT_TELEMETRY_DISABLED":"1"}'
   user-web:
-    uses: abhi1693/actions/.github/workflows/node-ci.yml@0464b5d06b5467502bf111b18fed14224b63f295 # build cache support (actions#12)
+    uses: abhi1693/actions/.github/workflows/node-ci.yml@c18ee599bfcd48fc931e0ffd103ef9952288ea5f # build cache support (actions#12)
     with:
       checks: '["lint", "test", "build"]'
       scripts: '{"lint": "web:lint", "test": "ci:user-web-test", "build": "web:build"}'
@@ -518,7 +518,7 @@ jobs:
           retention-days: 14
   admin-browser:
     name: E2E / Admin browser journeys
-    uses: abhi1693/actions/.github/workflows/node-ci.yml@0464b5d06b5467502bf111b18fed14224b63f295 # build cache support (actions#12)
+    uses: abhi1693/actions/.github/workflows/node-ci.yml@c18ee599bfcd48fc931e0ffd103ef9952288ea5f # build cache support (actions#12)
     with:
       checks: '["test"]'
       scripts: '{"test": "ci:admin-browser"}'
@@ -536,7 +536,7 @@ jobs:
       test-results-name: admin-browser-${{ github.run_attempt }}
   live-browser:
     name: E2E / Login and persistence through real APIs
-    uses: abhi1693/actions/.github/workflows/node-ci.yml@0464b5d06b5467502bf111b18fed14224b63f295 # build cache support (actions#12)
+    uses: abhi1693/actions/.github/workflows/node-ci.yml@c18ee599bfcd48fc931e0ffd103ef9952288ea5f # build cache support (actions#12)
     with:
       checks: '["test"]'
       scripts: '{"test": "ci:live-browser"}'

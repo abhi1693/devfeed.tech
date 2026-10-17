@@ -182,6 +182,29 @@ test("missing or symlinked compatibility inputs fail instead of selecting a broa
   await assert.rejects(plan(), /regular file/);
 });
 
+test("a non-regular compatibility input is rejected without blocking on a FIFO", async (t) => {
+  const { root } = await fixture(t);
+  const lock = join(root, "package-lock.json");
+  await rm(lock);
+  const fifo = spawnSync("mkfifo", [lock], { encoding: "utf8" });
+  assert.equal(fifo.status, 0, fifo.stderr);
+  const result = spawnSync(process.execPath, [helper], {
+    encoding: "utf8",
+    timeout: 5000,
+    env: {
+      ...process.env,
+      GITHUB_WORKSPACE: root,
+      GITHUB_OUTPUT: join(root, "outputs"),
+      GITHUB_SHA: source,
+      NEXT_CACHE_APP: "web",
+      NEXT_CACHE_PROFILE: "production",
+    },
+  });
+  assert.equal(result.error, undefined, result.error?.message);
+  assert.equal(result.status, 1, result.stdout + result.stderr);
+  assert.match(result.stderr, /regular file/);
+});
+
 test("the composite consumes only the computed paths and pins its cache action", async () => {
   const action = await readFile(
     new URL("../.github/actions/next-build-cache/action.yml", import.meta.url),
