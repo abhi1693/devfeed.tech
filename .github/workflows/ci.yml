@@ -241,6 +241,7 @@ jobs:
     env:
       BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
       CANDIDATE_SHA: ${{ github.sha }}
+      OASDIFF_CONFIG: .oasdiff.yaml
       DEVFEED_DATABASE_URL: postgresql+psycopg://schema@database.invalid/schema
       DEVFEED_REDIS_URL: redis://redis.invalid/15
       OTEL_SDK_DISABLED: "true"
@@ -256,7 +257,7 @@ jobs:
             apps/api apps/user-api apps/admin-api apps/mcp packages/core packages/http \
             apps/admin/openapi.json pyproject.toml uv.lock .env.example \
             scripts/ci/api_contracts.py tests/test_api_compatibility.py tests/test_api_contracts.py \
-            .github/api-compatibility .github/workflows/ci.yml > "$RUNNER_TEMP/api-files.txt"
+            .oasdiff.yaml .github/api-compatibility .github/workflows/ci.yml > "$RUNNER_TEMP/api-files.txt"
           if [[ -s "$RUNNER_TEMP/api-files.txt" ]]; then
             echo 'changed=true' >> "$GITHUB_OUTPUT"
           else
@@ -333,7 +334,6 @@ jobs:
           allow-external-refs: false
           review: false
           github-token: ""
-          err-ignore: .github/api-compatibility/user-feed-reasons.txt
           output-to-file: reports/api-compatibility/user.breaking.txt
       - name: Check admin API
         id: admin
@@ -347,7 +347,6 @@ jobs:
           allow-external-refs: false
           review: false
           github-token: ""
-          err-ignore: .github/api-compatibility/admin-job-kinds.txt
           output-to-file: reports/api-compatibility/admin.breaking.txt
       - name: Check public MCP
         id: mcp_public

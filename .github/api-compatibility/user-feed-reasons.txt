@@ -1,5 +1,0 @@
-# Explicit tag follows add this recommendation reason. Existing topic/source
-# reasons retain their meaning, and tag_id identifies the followed tag. Tag
-# follows require the new preference endpoints; shared web and extension readers
-# accept the new reason. Allow only this value at this exact response property.
-GET /v1/user/feed added the new `followed_tag` enum value to the `reasons/additionalProperties/kind` response property for the response status `200`

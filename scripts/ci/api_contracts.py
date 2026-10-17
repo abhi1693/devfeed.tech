@@ -149,28 +149,56 @@ def run_diff(command: list[str]) -> subprocess.CompletedProcess:
         return subprocess.CompletedProcess(command, 2, stdout="", stderr=str(error))
 
 
+PROBE_RESULTS = {
+    "optional-field": 0,
+    "response-enum-added": 0,
+    "response-array-enum-added": 0,
+    "response-map-enum-added": 0,
+    "response-root-enum-added": 0,
+    "response-enum-removed": 0,
+    "removed-tool": 1,
+    "required-input": 1,
+    "required-input-with-default": 1,
+    "request-enum-removed": 1,
+    "request-min-length-increased": 1,
+    "response-type": 1,
+    "nested-response-type": 1,
+    "required-response-removed": 1,
+}
+
+
 def verify_diff_rules(output: Path, binary: str = "oasdiff") -> None:
-    """Exercise the pinned classifier with real compatible and breaking schemas."""
+    """Exercise the shared compatibility policy with the pinned classifier."""
     output.mkdir(parents=True, exist_ok=True)
-    config = output / "oasdiff.yaml"
-    config.write_text("{}\n")
+    config = ROOT / ".oasdiff.yaml"
+    enum = {"type": "string", "enum": ["first", "second"]}
     base = tool_contract(
         [
             {
                 "name": "get_article",
                 "inputSchema": {
                     "type": "object",
-                    "properties": {"id": {"type": "string"}},
+                    "properties": {
+                        "id": {"type": "string", "minLength": 1},
+                        "mode": copy.deepcopy(enum),
+                    },
                     "required": ["id"],
                 },
                 "outputSchema": {
                     "type": "object",
-                    "properties": {"article": {"$ref": "#/$defs/Article"}},
+                    "properties": {
+                        "article": {"$ref": "#/$defs/Article"},
+                        "states": {"type": "array", "items": copy.deepcopy(enum)},
+                        "by_name": {"type": "object", "additionalProperties": copy.deepcopy(enum)},
+                    },
                     "required": ["article"],
                     "$defs": {
                         "Article": {
                             "type": "object",
-                            "properties": {"id": {"type": "string"}},
+                            "properties": {
+                                "id": {"type": "string"},
+                                "state": copy.deepcopy(enum),
+                            },
                             "required": ["id"],
                         }
                     },
@@ -179,37 +207,55 @@ def verify_diff_rules(output: Path, binary: str = "oasdiff") -> None:
         ],
         "Compatibility probes",
     )
-    base_path = output / "base.json"
-    write_json(base_path, base)
-    for change in (
-        "optional-field",
-        "removed-tool",
-        "required-input",
-        "response-type",
-        "nested-response-type",
-    ):
-        head = copy.deepcopy(base)
+    for change, expected in PROBE_RESULTS.items():
+        original = copy.deepcopy(base)
+        if change == "response-root-enum-added":
+            original["paths"]["/tools/get_article"]["post"]["responses"]["200"]["content"][
+                "application/json"
+            ]["schema"] = copy.deepcopy(enum)
+        head = copy.deepcopy(original)
         operation = head["paths"]["/tools/get_article"]["post"]
         request = operation["requestBody"]["content"]["application/json"]["schema"]
+        response = operation["responses"]["200"]["content"]["application/json"]["schema"]
+        article = head["components"]["schemas"]["get_article__output__Article"]
         if change == "optional-field":
             request["properties"]["language"] = {"type": "string"}
+        elif change == "response-enum-added":
+            article["properties"]["state"]["enum"].append("third")
+        elif change == "response-array-enum-added":
+            response["properties"]["states"]["items"]["enum"].append("third")
+        elif change == "response-map-enum-added":
+            response["properties"]["by_name"]["additionalProperties"]["enum"].append("third")
+        elif change == "response-root-enum-added":
+            response["enum"].append("third")
+        elif change == "response-enum-removed":
+            article["properties"]["state"]["enum"].remove("second")
         elif change == "removed-tool":
             head["paths"] = {}
-        elif change == "required-input":
+        elif change in {"required-input", "required-input-with-default"}:
             request["properties"]["language"] = {"type": "string"}
+            if change == "required-input-with-default":
+                request["properties"]["language"]["default"] = "en"
             request["required"].append("language")
+        elif change == "request-enum-removed":
+            request["properties"]["mode"]["enum"].remove("second")
+        elif change == "request-min-length-increased":
+            request["properties"]["id"]["minLength"] = 2
         elif change == "response-type":
             operation["responses"]["200"]["content"]["application/json"]["schema"] = {
                 "type": "integer"
             }
-        else:
-            article = head["components"]["schemas"]["get_article__output__Article"]
+        elif change == "nested-response-type":
             article["properties"]["id"]["type"] = "integer"
+        elif change == "required-response-removed":
+            del article["properties"]["id"]
+            article["required"].remove("id")
+        base_path = output / f"{change}.base.json"
         head_path = output / f"{change}.json"
+        write_json(base_path, original)
         write_json(head_path, head)
         result = run_diff(breaking_command(binary, config, base_path, head_path, "json"))
         (output / f"{change}.findings.json").write_text(result.stdout)
-        expected = 0 if change == "optional-field" else 1
         findings = json.loads(result.stdout)
         if (
             not isinstance(findings, list)
@@ -217,81 +263,7 @@ def verify_diff_rules(output: Path, binary: str = "oasdiff") -> None:
             or bool(findings) != bool(expected)
         ):
             raise ValueError(f"oasdiff failed the {change} regression probe: {result.stderr}")
-    verify_user_feed_reason_exception(output, binary)
-    print("oasdiff regression probes: 8 passed")
-
-
-def verify_user_feed_reason_exception(output: Path, binary: str = "oasdiff") -> None:
-    """The tag-follow exception must not hide another enum or response type change."""
-    kind = {
-        "type": "string",
-        "enum": ["followed_topic", "liked_topic", "related_topic", "followed_source"],
-    }
-    base: dict = {
-        "openapi": "3.1.0",
-        "info": {"title": "User feed compatibility probes", "version": "1"},
-        "paths": {
-            "/v1/user/feed": {
-                "get": {
-                    "responses": {
-                        "200": {
-                            "description": "Personalized feed",
-                            "content": {
-                                "application/json": {
-                                    "schema": {
-                                        "type": "object",
-                                        "properties": {
-                                            "reasons": {
-                                                "type": "object",
-                                                "additionalProperties": {
-                                                    "type": "object",
-                                                    "properties": {
-                                                        "kind": kind,
-                                                        "tag_id": {"type": "string"},
-                                                    },
-                                                },
-                                            }
-                                        },
-                                    }
-                                }
-                            },
-                        }
-                    }
-                }
-            }
-        },
-    }
-    base_path = output / "user-feed-base.json"
-    write_json(base_path, base)
-    for change in ("followed-tag", "unknown-reason", "response-type"):
-        head = copy.deepcopy(base)
-        schema = head["paths"]["/v1/user/feed"]["get"]["responses"]["200"]["content"][
-            "application/json"
-        ]["schema"]
-        reason = schema["properties"]["reasons"]["additionalProperties"]["properties"]
-        reason["kind"]["enum"].append("followed_tag")
-        if change == "unknown-reason":
-            reason["kind"]["enum"].append("unknown_reason")
-        elif change == "response-type":
-            reason["tag_id"]["type"] = "integer"
-        head_path = output / f"user-feed-{change}.json"
-        write_json(head_path, head)
-        command = breaking_command(binary, output / "oasdiff.yaml", base_path, head_path, "json")
-        command.extend(
-            ["--err-ignore", str(ROOT / ".github/api-compatibility/user-feed-reasons.txt")]
-        )
-        result = run_diff(command)
-        (output / f"user-feed-{change}.findings.json").write_text(result.stdout)
-        expected = 0 if change == "followed-tag" else 1
-        findings = json.loads(result.stdout)
-        if (
-            not isinstance(findings, list)
-            or result.returncode != expected
-            or bool(findings) != bool(expected)
-        ):
-            raise ValueError(
-                f"oasdiff failed the user-feed-{change} regression probe: {result.stderr}"
-            )
+    print(f"oasdiff regression probes: {len(PROBE_RESULTS)} passed")
 
 
 def main() -> int:

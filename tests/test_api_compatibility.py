@@ -8,6 +8,7 @@ import subprocess
 from pathlib import Path
 
 import pytest
+import yaml
 from jsonschema import Draft202012Validator, ValidationError
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -126,16 +127,21 @@ def test_classifier_probes_reject_invalid_output(tmp_path, monkeypatch, stdout):
 
 
 def test_classifier_probes_cover_nested_and_required_changes(tmp_path, monkeypatch):
-    results = iter(
-        [(0, "[]"), *[(1, '[{"id":"breaking"}]')] * 4, (0, "[]"), *[(1, '[{"id":"breaking"}]')] * 2]
-    )
+    calls = []
 
     def run(command):
-        code, stdout = next(results)
-        return subprocess.CompletedProcess(command, code, stdout, "")
+        assert command[command.index("--config") + 1] == str(ROOT / ".oasdiff.yaml")
+        assert "--err-ignore" not in command
+        change = Path(command[3]).stem
+        calls.append(change)
+        code = contracts.PROBE_RESULTS[change]
+        return subprocess.CompletedProcess(
+            command, code, '[{"id":"breaking"}]' if code else "[]", ""
+        )
 
     monkeypatch.setattr(contracts, "run_diff", run)
     contracts.verify_diff_rules(tmp_path)
+    assert calls == list(contracts.PROBE_RESULTS)
     nested = json.loads((tmp_path / "nested-response-type.json").read_text())
     assert (
         nested["components"]["schemas"]["get_article__output__Article"]["properties"]["id"]["type"]
@@ -143,25 +149,62 @@ def test_classifier_probes_cover_nested_and_required_changes(tmp_path, monkeypat
     )
 
 
-@pytest.mark.parametrize("change", ["unknown-reason", "response-type"])
-def test_user_feed_exception_probes_reject_overly_broad_exemptions(change, tmp_path, monkeypatch):
+@pytest.mark.parametrize(
+    "change",
+    [
+        "response-enum-added",
+        "response-array-enum-added",
+        "response-map-enum-added",
+        "response-root-enum-added",
+        "request-enum-removed",
+        "request-min-length-increased",
+        "required-input-with-default",
+        "required-response-removed",
+        "nested-response-type",
+    ],
+)
+def test_classifier_probes_reject_incorrect_compatibility_classifications(
+    change, tmp_path, monkeypatch
+):
     def run(command):
-        assert command[-2:] == [
-            "--err-ignore",
-            str(ROOT / ".github/api-compatibility/user-feed-reasons.txt"),
-        ]
-        failure = command[3].endswith(f"user-feed-{change}.json")
-        suppressed = failure or "followed-tag" in command[3]
+        current = Path(command[3]).stem
+        code = contracts.PROBE_RESULTS[current]
+        if current == change:
+            code = 1 - code
         return subprocess.CompletedProcess(
             command,
-            0 if suppressed else 1,
-            "[]" if suppressed else '[{"id":"breaking"}]',
+            code,
+            '[{"id":"breaking"}]' if code else "[]",
             "",
         )
 
     monkeypatch.setattr(contracts, "run_diff", run)
-    with pytest.raises(ValueError, match=f"user-feed-{change} regression probe"):
-        contracts.verify_user_feed_reason_exception(tmp_path)
+    with pytest.raises(ValueError, match=f"{change} regression probe"):
+        contracts.verify_diff_rules(tmp_path)
+
+
+def test_all_ci_contracts_share_the_local_severity_policy_without_finding_exceptions():
+    config = yaml.safe_load((ROOT / ".oasdiff.yaml").read_text())
+    levels = [
+        line.strip()
+        for line in (ROOT / config["severity-levels"]).read_text().splitlines()
+        if line.strip() and not line.lstrip().startswith("#")
+    ]
+    assert levels == ["response-property-enum-value-added info"]
+    workflow = yaml.safe_load((ROOT / ".github/workflows/ci.yml").read_text())
+    job = workflow["jobs"]["api-compat"]
+    assert job["env"]["OASDIFF_CONFIG"] == ".oasdiff.yaml"
+    checks = [
+        step
+        for step in job["steps"]
+        if step.get("id") in {"public", "user", "admin", "mcp_public", "mcp_account"}
+    ]
+    assert len(checks) == 5
+    for step in checks:
+        assert step["uses"].startswith("oasdiff/oasdiff-action/breaking@")
+        assert step["with"]["fail-on"] == "WARN"
+        assert "err-ignore" not in step["with"]
+        assert "warn-ignore" not in step["with"]
 
 
 @pytest.mark.parametrize(

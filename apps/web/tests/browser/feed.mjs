@@ -709,6 +709,7 @@ async function createReaderFixture(t, { thumbnailFeed = false } = {}) {
       cwd: `${root}/apps/web`,
       env: {
         ...env,
+        DEVFEED_ANALYTICS_ENABLED: "false",
         DEVFEED_PUBLIC_API_URL: upstream,
         DEVFEED_MCP_PUBLIC_URL: testMcpEndpoint,
         DEVFEED_USER_API_URL: userUpstream,
