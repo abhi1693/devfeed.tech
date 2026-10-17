@@ -101,7 +101,14 @@ export async function checkKeyboardReader(page, destination, output) {
   await page.getByRole("heading", { name: keyboardProfile.display_name, exact: true }).waitFor();
   const calendar = page.getByRole("region", { name: "Reading activity for 2026", exact: true });
   assert.equal(await calendar.getAttribute("tabindex"), "0");
-  assert.equal(await calendar.evaluate((node) => node.scrollWidth > node.clientWidth), true);
+  // Visibility revalidation can replace the server-rendered calendar during hydration.
+  const overflowingCalendar = await page.waitForFunction(() => {
+    const current = document.querySelector(".public-profile-calendar-scroll");
+    return Boolean(
+      current?.isConnected && current.clientWidth > 0 && current.scrollWidth > current.clientWidth,
+    );
+  });
+  assert.equal(await overflowingCalendar.jsonValue(), true);
   await page.getByRole("link").first().focus();
   await tabTo(page, calendar);
   await page.keyboard.press("ArrowRight");
