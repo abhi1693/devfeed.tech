@@ -53,7 +53,9 @@ to that API and your server environment. Compose routes it to submission APIs an
 provider-facing workers; it is absent from web/admin/partner frontend containers and
 public API responses. Missing configuration and quota exhaustion remain explicit errors
 in source/job state; quota and rate failures retain checkpoints and use normal backoff.
-The key is sent in an HTTP header, never a URL.
+The key is sent in an HTTP header, never a URL. YouTube watch links discovered
+inside existing RSS feeds also use the video metadata and publication checks, so
+configure the provider before expecting those links to publish as videos.
 
 | Setting | Default | Purpose |
 | --- | --- | --- |

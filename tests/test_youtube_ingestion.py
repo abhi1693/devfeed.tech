@@ -489,3 +489,52 @@ def test_scheduler_does_not_turn_single_video_submissions_into_recurring_sources
         session.get(Source, identifier).next_fetch_at = utcnow() - timedelta(days=1)
     assert scheduler.tick()["scheduled"] == int(kind == "channel")
     assert scheduler.tick()["scheduled"] == 0
+
+
+def test_concurrent_origins_share_one_video_identity(database):
+    from concurrent.futures import ThreadPoolExecutor
+    from threading import Barrier
+
+    from sqlalchemy import event
+
+    first = source(database)
+    second = source(database, kind="video", identifier=VIDEO)
+    engine = database.kw["bind"]
+    arrivals = Barrier(2)
+
+    def race_insert(connection, cursor, statement, parameters, context, executemany):
+        if statement.startswith("INSERT INTO articles "):
+            arrivals.wait(timeout=10)
+
+    event.listen(engine, "before_cursor_execute", race_insert)
+    try:
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            results = list(
+                pool.map(lambda identifier: import_video(database, identifier), [first, second])
+            )
+    finally:
+        event.remove(engine, "before_cursor_execute", race_insert)
+    assert sum(counts[0] for counts, _ in results) == 1
+    assert len({identifier for _, identifier in results}) == 1
+    with database() as session:
+        assert session.scalar(select(func.count()).select_from(Article)) == 1
+        assert session.scalar(select(func.count()).select_from(ArticleOrigin)) == 2
+        assert session.scalar(select(func.count()).select_from(YouTubeMembership)) == 2
+
+
+def test_failed_video_commit_rolls_back_metadata_origins_and_checkpoint(
+    database, provider, monkeypatch
+):
+    identifier = source(database)
+
+    def interrupted(*args):
+        raise RuntimeError("Interrupted after storing provider metadata")
+
+    monkeypatch.setattr(tasks, "schedule", interrupted)
+    job_id = run_job(database, identifier)
+    with database() as session:
+        assert session.get(IngestionJob, job_id).status == "queued"
+        assert session.scalar(select(func.count()).select_from(Article)) == 0
+        assert session.scalar(select(func.count()).select_from(ArticleOrigin)) == 0
+        assert session.scalar(select(func.count()).select_from(YouTubeMembership)) == 0
+        assert not session.get(Source, identifier).provider_state.get("generation")
