@@ -1,3 +1,4 @@
+import { checkCatalogSharing } from "../../../../scripts/testing/catalog-sharing.mjs";
 import {
   checkKeyboardReader,
   keyboardProfile,
@@ -1225,6 +1226,22 @@ async function withReaderPage(browser, check, options = {}) {
     await context.close();
   }
 }
+
+test("source and topic sharing uses public collection links", { timeout: 180000 }, async (t) => {
+  const { browser, origin } = await createReaderFixture(t);
+  await withReaderPage(browser, (page) =>
+    checkCatalogSharing(
+      page,
+      (path) => origin + path,
+      [
+        { kind: "source", path: "/sources/example-source" },
+        { kind: "topic", path: "/topics/typescript" },
+      ],
+      "/tmp/devfeed-catalog-sharing/web",
+      origin,
+    ),
+  );
+});
 
 test(
   "keyboard access preserves native links and readable scroll regions",

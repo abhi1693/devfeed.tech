@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, expect, it, vi } from "vitest";
 import type { ReactNode } from "react";
 import { FeedContent, type FeedContentProps } from "@/components/feed-content";
@@ -191,3 +191,43 @@ it("preserves the source tab, sort and pagination in the sign-in destination", (
     "/sources/publisher/news?sort=oldest&cursor=next+page",
   );
 });
+
+it.each(["source", "topic"] as const)(
+  "shares the canonical %s beside its follow action",
+  (kind) => {
+    const sourceId = "11111111-1111-4111-8111-111111111111";
+    render(
+      <FeedContent
+        filters={{
+          ...parseFilters({
+            source_id: kind === "source" ? sourceId : "",
+            topic: kind === "topic" ? "typed & safe" : "",
+            q: "private query",
+            cursor: "page-2",
+            tag: "private-tag",
+          }),
+          source_slug: "engineering-journal",
+        }}
+        title="Engineering & TypeScript"
+        section={kind === "source" ? "sources" : "topics"}
+        topicId={kind === "topic" ? "topic-id" : undefined}
+        feedDescriptor={readerFeeds.contextual}
+        feed={firstPage}
+        options={options}
+      />,
+    );
+    const trigger = screen.getByRole("button", { name: `Share ${kind}: Engineering & TypeScript` });
+    expect(trigger.parentElement?.className).toBe("feed-heading-actions");
+    expect(trigger.textContent).toBe("Share");
+    fireEvent.click(trigger);
+    const panel = screen.getByRole("dialog", { name: `Share ${kind}` });
+    const canonical = new URL(
+      kind === "source" ? "/sources/engineering-journal" : "/topics/typed%20%26%20safe",
+      window.location.origin,
+    ).href;
+    for (const link of within(panel).getAllByRole("link")) {
+      expect(new URL(link.getAttribute("href")!).searchParams.get("url")).toBe(canonical);
+      expect(link.getAttribute("rel")).toContain("noopener");
+    }
+  },
+);

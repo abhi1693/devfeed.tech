@@ -604,7 +604,7 @@ Other styles load through the component that owns the surface:
 | Profile editing and dev card previews | `ProfileSettings`, `DevCardPreview`, and shared dev card controls |
 | Optional dev card invitation          | `DevCardPromoContent`, loaded lazily after hydration              |
 | Public profiles                       | `PublicUserProfile`                                               |
-| Article previews and sharing          | `ArticleModal`, `ArticlePreviewContent`, and `ArticleShare`       |
+| Article previews and sharing          | `ArticleModal`, `ArticlePreviewContent`, and `ReaderShare`        |
 | Agent setup/consent                   | `McpContent` and `McpConsent`                                     |
 | Search and legal documents            | Search components and `LegalPage`                                 |
 | Reading streaks                       | The existing lazy account reading tools/menu                      |
@@ -616,6 +616,11 @@ profile overrides, and shared dev card controls before preview overrides. Next.j
 stylesheets, so route styles must not change the shell or feed after navigation. Chrome and Edge
 render these surfaces in one bundled document; `apps/extensions/src/newtab.css` explicitly includes
 the complete stylesheet set.
+
+Source and topic page headings offer **Share** beside **Follow** on web, Chrome, and Edge.
+The shared menu copies the public collection link or opens Reddit, X, or LinkedIn. Collection
+links exclude active filters and pagination; extensions share the website URL. Clipboard failures
+offer a selectable link for manual copying, using the same behavior as article sharing.
 
 The optional dev card invitation renders no server content. Its lazy boundary keeps the hidden
 dialog's stylesheet out of the initial feed response, while Suspense waits for that stylesheet

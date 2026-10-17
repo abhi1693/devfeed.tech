@@ -1,3 +1,4 @@
+import { ReaderShare } from "./reader-share";
 import { ReaderDisclosure } from "./reader-disclosure";
 import { SourceFollow } from "./source-follow";
 import { TopicFollow } from "./topic-follow";
@@ -82,17 +83,33 @@ export function FeedContent({
               ))}
           </div>
           {section === "sources" && filters.source_id && (
-            <SourceFollow
-              sourceId={filters.source_id}
-              returnTo={feedHref(filters, { cursor: filters.cursor })}
-            />
+            <div className="feed-heading-actions">
+              <SourceFollow
+                sourceId={filters.source_id}
+                returnTo={feedHref(filters, { cursor: filters.cursor })}
+              />
+              <ReaderShare
+                path={sourceHref({ id: filters.source_id, slug: filters.source_slug })}
+                title={title}
+                kind="source"
+                label
+              />
+            </div>
           )}
           {section === "topics" && topicId && (
-            <TopicFollow
-              key={topicId}
-              topicId={topicId}
-              returnTo={feedHref(filters, { cursor: filters.cursor })}
-            />
+            <div className="feed-heading-actions">
+              <TopicFollow
+                key={topicId}
+                topicId={topicId}
+                returnTo={feedHref(filters, { cursor: filters.cursor })}
+              />
+              <ReaderShare
+                path={`/topics/${encodeURIComponent(filters.topic)}`}
+                title={title}
+                kind="topic"
+                label
+              />
+            </div>
           )}
         </div>
         <FeedFiltersBar

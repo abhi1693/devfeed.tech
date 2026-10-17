@@ -1,3 +1,4 @@
+import { checkCatalogSharing } from "../../../scripts/testing/catalog-sharing.mjs";
 import {
   checkKeyboardReader,
   keyboardProfile,
@@ -447,6 +448,20 @@ async function readerFixture(t, imageProfile) {
     pathFor: (path) => readerBase + path,
   };
 }
+
+test("source and topic sharing uses public collection links", { timeout: 180000 }, async (t) => {
+  const { page, pathFor } = await readerFixture(t);
+  await checkCatalogSharing(
+    page,
+    pathFor,
+    [
+      { kind: "source", path: "/sources/publisher" },
+      { kind: "topic", path: "/topics/javascript" },
+    ],
+    `/tmp/devfeed-catalog-sharing/${browser}`,
+    "https://devfeed.tech",
+  );
+});
 
 test(
   "keyboard access preserves native links and readable scroll regions",

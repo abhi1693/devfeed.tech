@@ -352,6 +352,19 @@
 .source-feed-heading .source-description p:first-child {
   margin-top: 0;
 }
+.feed-heading-actions {
+  display: flex;
+  align-items: flex-start;
+  flex-wrap: wrap;
+  justify-self: end;
+  gap: 8px;
+}
+.feed-heading-actions .article-share-trigger.button {
+  min-height: 36px;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  color: var(--foreground);
+}
 .source-feed-heading .source-follow,
 .topic-feed-heading .topic-follow {
   max-width: 20rem;
@@ -365,6 +378,9 @@
   .source-feed-heading,
   .topic-feed-heading {
     grid-template-columns: minmax(0, 1fr);
+  }
+  .feed-heading-actions {
+    justify-self: start;
   }
   .source-feed-heading .source-follow,
   .topic-feed-heading .topic-follow {
