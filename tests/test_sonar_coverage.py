@@ -48,6 +48,7 @@ def sonar_matches(properties, key, source):
         ("scripts/testing/default-all.mjs", True),
         ("scripts/testing/sign-in.py", True),
         ("scripts/testing/tags.mjs", True),
+        ("scripts/testing/featured-on.mjs", True),
         ("scripts/testing/server-reads.mjs", True),
         ("scripts/testing/user-mutations.mjs", True),
         ("apps/web/tests/date-format.test.ts", True),

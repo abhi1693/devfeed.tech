@@ -1,3 +1,4 @@
+import { checkFeaturedOn } from "../../../../scripts/testing/featured-on.mjs";
 import { tagsFixture, checkTags, checkTagFollow } from "../../../../scripts/testing/tags.mjs";
 import { checkCatalogSharing } from "../../../../scripts/testing/catalog-sharing.mjs";
 import {
@@ -858,6 +859,7 @@ async function createReaderFixture(t, { thumbnailFeed = false } = {}) {
     await checkDevCardPromo(page, `${root}/reports/reader-feed/dev-card-promo`);
     await checkSignupPrompts(context, origin, `${root}/reports/reader-feed/signup`);
     await page.bringToFront();
+    await checkFeaturedOn(page);
     await checkSidebarGitHub(page, `${root}/reports/reader-feed/sidebar-github.png`);
     await checkMcp(page, `${root}/reports/reader-feed/mcp`);
     const whatsNew = page

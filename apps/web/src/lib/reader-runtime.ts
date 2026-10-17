@@ -25,6 +25,11 @@ export function configureReaderRuntime(value: ReaderRuntime) {
   runtime = value;
 }
 
+/** Website-only presentation is omitted by configured extension runtimes. */
+export function readerIsWebsite() {
+  return runtime === undefined;
+}
+
 export const readerRequest: typeof fetch = (input, init) =>
   runtime ? runtime.request(input, init) : fetch(input, init);
 
