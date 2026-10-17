@@ -3,6 +3,7 @@ import { McpConsent } from "../../web/src/components/mcp-consent";
 import { McpContent } from "../../web/src/components/mcp-content";
 import { UserShell } from "../../web/src/components/user-shell";
 import { LoadingSkeleton } from "../../web/src/components/loading-skeleton";
+import { TagsContent } from "../../web/src/components/tags-content";
 import { TopicsContent } from "../../web/src/components/topics-content";
 import { SourcesContent } from "../../web/src/components/sources-content";
 import { ProfileSettings } from "../../web/src/components/profile-settings";
@@ -16,7 +17,7 @@ import { SourcePreferences } from "../../web/src/components/source-preferences";
 import { SourceSuggestion } from "../../web/src/components/source-suggestion";
 import { catalogOffset } from "../../web/src/lib/catalog-page";
 import type { CatalogPage } from "../../web/src/lib/catalog-page";
-import type { Source, Topic } from "../../web/src/lib/types";
+import type { Source, Topic, Tag } from "../../web/src/lib/types";
 import type { UserProfile } from "../../web/src/lib/user";
 import type { PublicReadingActivity } from "../../web/src/lib/server/public-dev-card";
 import { PublicUserProfile } from "../../web/src/components/public-user-profile";
@@ -127,18 +128,37 @@ export function LocalPage({
           key={route}
           kind={match.catalog}
           offset={catalogOffset(url.searchParams.get("offset"))}
+          query={url.searchParams.get("q") ?? ""}
+          letter={url.searchParams.get("letter") ?? ""}
         />
       );
   }
 }
-function CatalogPage({ kind, offset }: { kind: CatalogKind; offset: number }) {
-  const [page, setPage] = useState<CatalogPage<Topic | Source>>();
+function CatalogPage({
+  kind,
+  offset,
+  query,
+  letter,
+}: {
+  kind: CatalogKind;
+  offset: number;
+  query: string;
+  letter: string;
+}) {
+  const [page, setPage] = useState<CatalogPage<Topic | Source | Tag>>();
   const [error, setError] = useState(false);
   const [retry, setRetry] = useState(0);
   useEffect(() => {
     const controller = new AbortController();
     setError(false);
-    void catalog(kind, AbortSignal.any([controller.signal, AbortSignal.timeout(30000)]), offset)
+    setPage(undefined);
+    void catalog(
+      kind,
+      AbortSignal.any([controller.signal, AbortSignal.timeout(30000)]),
+      offset,
+      query,
+      letter,
+    )
       .then((value) => {
         if (!controller.signal.aborted) setPage(value);
       })
@@ -146,11 +166,18 @@ function CatalogPage({ kind, offset }: { kind: CatalogKind; offset: number }) {
         if (!controller.signal.aborted) setError(true);
       });
     return () => controller.abort();
-  }, [kind, offset, retry]);
+  }, [kind, offset, query, letter, retry]);
   return (
     <UserShell section={kind}>
       {page ? (
-        kind === "topics" ? (
+        kind === "tags" ? (
+          <TagsContent
+            tags={page.items as Tag[]}
+            query={query}
+            letter={letter}
+            nextCursor={page.next_cursor}
+          />
+        ) : kind === "topics" ? (
           <TopicsContent
             topics={page.items as Topic[]}
             initialPage={page as CatalogPage<Topic>}

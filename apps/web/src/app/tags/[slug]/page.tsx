@@ -1,4 +1,6 @@
 import { cache } from "react";
+import { headers } from "next/headers";
+import { matchReaderDestinationPath } from "@devfeed/http/reader-destinations";
 import { notFound, permanentRedirect } from "next/navigation";
 import { getTag, UserApiError } from "@/lib/api";
 import { FeedView } from "@/components/feed-view";
@@ -12,7 +14,14 @@ type Props = {
   searchParams: Promise<SearchParams>;
 };
 const load = cache(async (slug: string, contentType?: string) => {
-  const route = collectionRoute("tags", slug, contentType);
+  // Client transitions can supply encoded params. Decode the request path once,
+  // preserving literal percent sequences as well as punctuation and Unicode.
+  const pathname = (await headers()).get("x-devfeed-reader-pathname");
+  const matched = pathname ? matchReaderDestinationPath(pathname) : null;
+  const resolvedSlug = matched?.destination.routeId.startsWith("tags-")
+    ? matched.destination.parameters.slug
+    : slug;
+  const route = collectionRoute("tags", resolvedSlug, contentType);
   if (!route) notFound();
   try {
     return { route, tag: await getTag(route.slug) };
@@ -49,6 +58,7 @@ export default async function Page({ params, searchParams }: Props) {
     filters,
     feedDescriptor: readerFeeds.contextual,
     title: tag.name,
+    section: "tags",
     description: `Articles tagged ${tag.name}.`,
   });
 }

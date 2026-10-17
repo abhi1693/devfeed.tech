@@ -500,4 +500,40 @@ export const extensionGatewayOperations = [
       },
     },
   },
+  {
+    operationId: "readerTags",
+    method: "GET",
+    path: "/api/v1/tags",
+    parameters: [],
+    policy: {
+      bodyLimit: 1000000,
+      bodyTimeoutMs: 2000,
+      upstreamTimeoutMs: 45000,
+      extension: {
+        credentials: "include",
+        cacheControl: "public-read",
+        requestHeaders: [],
+        timeoutMs: 15000,
+      },
+    },
+  },
+  {
+    operationId: "readerTag",
+    method: "GET",
+    path: "/api/v1/tags/{slug}",
+    parameters: [
+      { name: "slug", converter: "str", schema: { type: "string", minLength: 1, maxLength: 200 } },
+    ],
+    policy: {
+      bodyLimit: 1000000,
+      bodyTimeoutMs: 2000,
+      upstreamTimeoutMs: 45000,
+      extension: {
+        credentials: "include",
+        cacheControl: "public-read",
+        requestHeaders: [],
+        timeoutMs: 15000,
+      },
+    },
+  },
 ] as const satisfies readonly ExtensionGatewayOperation[];

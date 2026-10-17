@@ -465,8 +465,8 @@ test("repository registry exposes exactly the declared private and public adapte
   );
   const plan = await extensionOperationPlan(input, declaration);
   assert.equal(plan.privateOperations.length, 59);
-  assert.equal(plan.publicOperations.length, 14);
-  assert.equal(plan.privateOperations.length + plan.publicOperations.length, 73);
+  assert.equal(plan.publicOperations.length, 16);
+  assert.equal(plan.privateOperations.length + plan.publicOperations.length, 75);
   const inboxPrefix = "/api/v1/user/notifications/chimely/v1/inbox/";
   const inbox = plan.privateOperations.filter(({ path }) => path.startsWith(inboxPrefix));
   const inboxOperations = [

@@ -22,7 +22,7 @@ import { configureReaderRuntime, readerRequest } from "../../web/src/lib/reader-
 import { feedParams, searchParamsFromUrl, latestFeedParams } from "../../web/src/lib/feed-query";
 import { readerFeeds, resolveFeed } from "../../web/src/lib/reader-feed";
 import { parseSearchOptions, normalizeSearch, type SearchResponse } from "../../web/src/lib/search";
-import type { FeedPage, FeedOptions, Topic, Source } from "../../web/src/lib/types";
+import type { FeedPage, FeedOptions, Topic, Source, Tag } from "../../web/src/lib/types";
 import { ExtensionReaderTransport, publicOrigin } from "./transport";
 import { destinationHref, linkDestination, navigate, useNavigationState } from "./navigation";
 import { LocalPage, PublicProfilePage } from "./pages";
@@ -131,7 +131,7 @@ function Reader({
         if (!signal.aborted) setState({ key, search: result });
         return;
       }
-      let item: Source | Topic | undefined;
+      let item: Source | Topic | Tag | undefined;
       let resolvedFilters = filters;
       if (detail) {
         try {
@@ -142,9 +142,11 @@ function Reader({
             return;
           }
           resolvedFilters =
-            kind === "topics"
-              ? { ...filters, topic: item.slug }
-              : { ...filters, source_id: item.id, source_slug: item.slug };
+            kind === "tags"
+              ? { ...filters, tag: item.slug }
+              : kind === "topics"
+                ? { ...filters, topic: item.slug }
+                : { ...filters, source_id: item.id, source_slug: item.slug };
         } catch (reason) {
           if (!signal.aborted)
             setState({
@@ -174,9 +176,9 @@ function Reader({
             filters: resolvedFilters,
             title: item?.name,
             topicId: detail?.kind === "topics" ? item?.id : undefined,
-            description: item?.description,
-            logoUrl: item?.logo_url,
-            logoVariants: item?.logo_variants,
+            description: item && "description" in item ? item.description : undefined,
+            logoUrl: item && "logo_url" in item ? item.logo_url : undefined,
+            logoVariants: item && "logo_variants" in item ? item.logo_variants : undefined,
             section: detail?.kind ?? "feed",
           },
         });

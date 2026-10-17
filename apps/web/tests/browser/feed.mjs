@@ -1,3 +1,4 @@
+import { tagsFixture, checkTags } from "../../../../scripts/testing/tags.mjs";
 import { checkCatalogSharing } from "../../../../scripts/testing/catalog-sharing.mjs";
 import {
   checkKeyboardReader,
@@ -301,6 +302,12 @@ async function createReaderFixture(t, { thumbnailFeed = false } = {}) {
       );
       res.writeHead(status, { "Content-Type": "application/json" });
       res.end(JSON.stringify(json));
+      return;
+    }
+    const tagResponse = tagsFixture(requestUrl);
+    if (tagResponse && !path.includes("/seo-")) {
+      res.writeHead(tagResponse.status ?? 200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify(tagResponse.json));
       return;
     }
     // Collection indexing fixtures: metadata and page content use the same feed.
@@ -1581,5 +1588,16 @@ test(
     } finally {
       await context.close();
     }
+  },
+);
+
+test(
+  "tag directory and detail pages work across desktop and mobile",
+  { timeout: 180000 },
+  async (t) => {
+    const { browser, origin } = await createReaderFixture(t);
+    await withReaderPage(browser, (page) =>
+      checkTags(page, (path) => origin + path, "/tmp/devfeed-tags/web"),
+    );
   },
 );

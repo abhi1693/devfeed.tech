@@ -9,8 +9,8 @@ import {
 import { contentTypeFromRoute, type ContentType } from "./feed-query";
 import { readerFeeds, type FeedDescriptor } from "./reader-feed";
 
-export type CatalogKind = "topics" | "sources";
-type CollectionKind = CatalogKind | "tags";
+export type CatalogKind = "topics" | "sources" | "tags";
+type CollectionKind = CatalogKind;
 export type SettingsPage = ReaderSettingsSection;
 
 export type ReaderRoute =
@@ -206,7 +206,7 @@ function navigationRoute(
       return {
         type: "reader",
         feed: readerFeeds[navigation.feed],
-        ...(navigation.collection && navigation.collection !== "tags"
+        ...(navigation.collection
           ? {
               detail: {
                 kind: navigation.collection,

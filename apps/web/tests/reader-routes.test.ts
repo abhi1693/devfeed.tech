@@ -62,7 +62,6 @@ describe("shared reader route boundaries", () => {
     "/latest#news",
     "latest",
     "/settings/unknown",
-    "/tags/c%2B%2B",
     "/legal/privacy",
   ])("leaves unsupported reader path %s unresolved", (path) => {
     expect(resolveReaderRoute(path)).toBeNull();

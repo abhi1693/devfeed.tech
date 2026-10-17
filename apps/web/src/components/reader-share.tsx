@@ -63,7 +63,7 @@ export function ReaderShare({
 }: {
   path: string;
   title: string;
-  kind: "article" | "source" | "topic";
+  kind: "article" | "source" | "topic" | "tag";
   label?: boolean;
 }) {
   const trigger = useRef<HTMLButtonElement>(null);

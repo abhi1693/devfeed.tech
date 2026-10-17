@@ -1,3 +1,4 @@
+import { TagHeader } from "./tags-content";
 import { ReaderShare } from "./reader-share";
 import { ReaderDisclosure } from "./reader-disclosure";
 import { SourceFollow } from "./source-follow";
@@ -23,7 +24,7 @@ export type FeedContentProps = {
   logoUrl?: string | null;
   logoVariants?: { url: string; width: number }[];
   topicId?: string;
-  section?: "feed" | "topics" | "sources";
+  section?: "feed" | "topics" | "sources" | "tags";
   feed: PromiseSettledResult<FeedPage>;
   options: PromiseSettledResult<FeedOptions>;
   children?: ReactNode;
@@ -52,10 +53,11 @@ export function FeedContent({
   const content = (
     <>
       {children}
+      {section === "tags" && filters.tag && <TagHeader name={title} slug={filters.tag} />}
       <section className="feed-header" aria-label="Feed controls">
         <div
           className={
-            filters.q || section !== "feed"
+            filters.q || (section !== "feed" && section !== "tags")
               ? `page-heading feed-heading${section === "sources" ? " source-feed-heading" : section === "topics" ? " topic-feed-heading" : ""}`
               : "sr-only"
           }
@@ -69,7 +71,11 @@ export function FeedContent({
                   source={section === "sources"}
                 />
               )}
-              <h1>{filters.q ? `Results for “${filters.q}”` : title}</h1>
+              {section === "tags" ? (
+                <h2>{filters.q ? `Results for “${filters.q}”` : `Articles tagged ${title}`}</h2>
+              ) : (
+                <h1>{filters.q ? `Results for “${filters.q}”` : title}</h1>
+              )}
             </div>
             {description &&
               (section === "sources" ? (

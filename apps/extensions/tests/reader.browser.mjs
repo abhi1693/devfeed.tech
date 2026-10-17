@@ -1,3 +1,4 @@
+import { tagsFixture, checkTags } from "../../../scripts/testing/tags.mjs";
 import { checkCatalogSharing } from "../../../scripts/testing/catalog-sharing.mjs";
 import {
   checkKeyboardReader,
@@ -330,6 +331,8 @@ async function readerFixture(t, imageProfile) {
       return route.fulfill({ json: { enabled: true, providers: [] } });
     if (url.pathname === "/api/v1/user/auth/login")
       return route.fulfill(await signInResponse(url.pathname.slice(4) + url.search));
+    const tagResponse = tagsFixture(url);
+    if (tagResponse) return route.fulfill(tagResponse);
     let json;
     if (url.pathname === "/api/v1/user/trending") {
       json = { items: feedItems, next_cursor: null };
@@ -1117,3 +1120,8 @@ test(
     );
   },
 );
+
+test("tag directory and detail pages work in built new tabs", { timeout: 180000 }, async (t) => {
+  const { page, pathFor } = await readerFixture(t);
+  await checkTags(page, pathFor, `/tmp/devfeed-tags/${browser}`);
+});

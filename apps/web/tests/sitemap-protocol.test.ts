@@ -192,9 +192,9 @@ it("includes public browsing routes and validates optional metadata", async () =
     "/legal/privacy",
   ])
     expect(xml).toContain(`<loc>${origin}${path}</loc>`);
-  expect(xml).not.toContain("<loc>" + origin + "/tags</loc>");
-  expect((xml.match(/<lastmod>/g) ?? []).length).toBe(11);
-  expect((xml.match(/<priority>/g) ?? []).length).toBe(11);
+  expect(xml).toContain("<loc>" + origin + "/tags</loc>");
+  expect((xml.match(/<lastmod>/g) ?? []).length).toBe(12);
+  expect((xml.match(/<priority>/g) ?? []).length).toBe(12);
   validate(xml, "sitemap");
   for (const entry of [
     { loc: origin + "/", lastmod: "2026-02-30T00:00:00.000Z" },

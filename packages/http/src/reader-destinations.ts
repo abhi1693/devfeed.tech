@@ -17,7 +17,7 @@ type Segment = string | { name: string; type: string; static?: boolean };
 export type ReaderNavigationDefinition =
   | { type: "article"; slugParameter: string }
   | { type: "profile"; usernameParameter: string }
-  | { type: "local"; page: "catalog"; catalog: "topics" | "sources" }
+  | { type: "local"; page: "catalog"; catalog: "topics" | "sources" | "tags" }
   | { type: "local"; page: "settings"; settingsParameter: string }
   | {
       type: "local";
