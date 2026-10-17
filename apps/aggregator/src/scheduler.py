@@ -175,6 +175,7 @@ def _tick() -> dict[str, int]:
             select(Source)
             .where(
                 Source.enabled.is_(True),
+                Source.recurring.is_(True),
                 Source.approval_status == "approved",
                 Source.next_fetch_at <= now,
                 ~active.exists(),

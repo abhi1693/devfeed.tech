@@ -62,6 +62,8 @@ export function youtubeReaderFixture(article) {
       retrieved_at: "2026-10-17T00:00:00Z",
     },
   };
+  const topic = { ...article.topics[0], id: "55555555-5555-4555-8555-555555555555" };
+  video.topics = [topic];
   const state = {
     active: false,
     liked: false,
@@ -89,6 +91,7 @@ export function youtubeReaderFixture(article) {
     "/v1/user/engagement",
     "/v1/user/bookmarks",
     "/v1/search",
+    "/v1/sources",
   ]);
   return {
     state,
@@ -96,12 +99,14 @@ export function youtubeReaderFixture(article) {
     channel,
     playlist,
     direct,
+    topic,
     handles(url) {
       const path = apiPath(url);
       return (
         state.active &&
         (paths.has(path) ||
           path === `/v1/articles/${video.slug}` ||
+          path === `/v1/topics/${topic.slug}` ||
           [channel, playlist, direct].some((source) => path === `/v1/sources/${source.slug}`) ||
           path.startsWith(`/v1/user/articles/${video.id}/`) ||
           path.startsWith("/v1/user/preferences/sources/"))
@@ -136,10 +141,14 @@ export function youtubeReaderFixture(article) {
           items: path.endsWith("bookmarks") && !state.bookmarked ? [] : [video],
           next_cursor: null,
         };
-      else if (path === "/v1/feed/options")
+      else if (path === "/v1/sources") {
+        const items = [channel, playlist, direct];
+        json = url.pathname.startsWith("/api/") ? { items, next_cursor: null } : items;
+      } else if (path === "/v1/feed/options")
         json = { sources: [channel, playlist], languages: ["en"], content_types: ["tutorial"] };
       else if (path === `/v1/articles/${video.slug}`)
         json = url.pathname.startsWith("/api/") ? { article: video, topic: null } : video;
+      else if (path === `/v1/topics/${topic.slug}`) json = topic;
       else if (path === `/v1/sources/${channel.slug}`) json = channel;
       else if (path === `/v1/sources/${playlist.slug}`) json = playlist;
       else if (path === `/v1/sources/${direct.slug}`) json = direct;
@@ -310,6 +319,13 @@ export async function checkYoutubeReader(page, destination, fixture, output) {
   await hit.waitFor();
   assert.equal(await hit.getByText("Video", { exact: true }).count(), 1);
   assert.equal(await hit.getByText("1:02:03", { exact: true }).count(), 1);
+  await page.goto(destination(`/topics/${fixture.topic.slug}`));
+  await page.getByRole("heading", { name: fixture.topic.name, exact: true }).waitFor();
+  await page
+    .locator(".article-list-row, .article-card")
+    .filter({ hasText: fixture.video.title })
+    .waitFor();
+  assert.equal(await page.getByText("Video", { exact: true }).count(), 1);
   await page.goto(destination(`/sources/${fixture.direct.slug}`));
   await page.getByRole("heading", { name: fixture.direct.name, exact: true }).waitFor();
   await page.getByText("YouTube video · Single submission", { exact: true }).waitFor();
@@ -318,6 +334,21 @@ export async function checkYoutubeReader(page, destination, fixture, output) {
       .getByRole("region", { name: "Feed controls" })
       .getByRole("button", { name: /Follow source|Following source/ })
       .count(),
+    0,
+  );
+  await page
+    .getByRole("button", { name: `Share source: ${fixture.direct.name}`, exact: true })
+    .click();
+  await page.getByRole("dialog", { name: "Share source", exact: true }).waitFor();
+  await page.keyboard.press("Escape");
+  await page.goto(destination("/settings/sources"));
+  await page.getByRole("button", { name: fixture.channel.name, exact: true }).waitFor();
+  assert.equal(
+    await page.getByRole("button", { name: fixture.playlist.name, exact: true }).count(),
+    1,
+  );
+  assert.equal(
+    await page.getByRole("button", { name: fixture.direct.name, exact: true }).count(),
     0,
   );
   assert.ok(

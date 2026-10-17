@@ -48,7 +48,7 @@ def transport(monkeypatch):
         def __init__(self, data, status=200, headers=None):
             self.status = status
             self.headers = headers or [(b"content-type", b"application/json")]
-            self.body = json.dumps(data).encode()
+            self.body = data if isinstance(data, bytes) else json.dumps(data).encode()
 
         def __enter__(self):
             return self
@@ -274,3 +274,31 @@ def test_non_string_provider_id_is_rejected_as_incomplete_metadata(transport, fi
     with pytest.raises(youtube.YouTubeError) as caught:
         youtube.YouTubeClient("test").videos([VIDEO])
     assert caught.value.reason == "youtube_invalid_response"
+
+
+@pytest.mark.parametrize(
+    "body,headers,reason",
+    [
+        (b"not json", None, "youtube_invalid_response"),
+        (b"\xff", None, "youtube_invalid_response"),
+        (b"x" * 2_000_001, None, "youtube_response_budget"),
+        ({"items": []}, [(b"content-encoding", b"gzip")], "youtube_encoding"),
+    ],
+)
+def test_provider_response_bytes_and_encoding_are_bounded(transport, body, headers, reason):
+    replies, _, _ = transport
+    replies.append((body, 200, headers))
+    with pytest.raises(youtube.YouTubeError) as caught:
+        youtube.YouTubeClient("test").videos([VIDEO])
+    assert caught.value.reason == reason
+
+
+def test_provider_network_failure_is_retryable_without_leaking_credentials(monkeypatch):
+    def connection(**kwargs):
+        raise youtube.httpcore.ConnectError("secret-provider-key: upstream unavailable")
+
+    monkeypatch.setattr(youtube.httpcore, "ConnectionPool", connection)
+    with pytest.raises(youtube.YouTubeError) as caught:
+        youtube.YouTubeClient("secret-provider-key").videos([VIDEO])
+    assert caught.value.reason == "youtube_transport_error" and caught.value.retryable
+    assert "secret-provider-key" not in str(caught.value)

@@ -539,7 +539,8 @@ class YouTubeClient:
             identifier = item.get("id")
             snippet = _object(item.get("snippet", {}))
             if (
-                identifier not in identifiers
+                not isinstance(identifier, str)
+                or identifier not in identifiers
                 or identifier in result
                 or not isinstance(snippet, dict)
             ):

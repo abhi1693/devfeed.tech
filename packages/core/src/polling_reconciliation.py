@@ -31,6 +31,7 @@ def reconcile_polling(factory, batch, now):
             select(Source)
             .where(
                 Source.enabled.is_(True),
+                Source.recurring.is_(True),
                 Source.approval_status == "approved",
                 Source.consecutive_failures == 0,
                 mismatch,

@@ -416,3 +416,76 @@ def test_youtube_polling_counts_new_origins_without_recounting_refreshes(databas
     final_id = run_job(database, identifier)
     with database() as session:
         assert session.get(IngestionJob, final_id).new_source_entries == 0
+
+
+@pytest.mark.parametrize("change", ["lease", "approval", "identity", "disabled"])
+def test_provider_results_cannot_commit_after_ingestion_ownership_changes(
+    database, provider, monkeypatch, change
+):
+    identifier = source(database)
+    read = provider.playlist_items
+    changed = False
+
+    def changed_during_request(*args, **kwargs):
+        nonlocal changed
+        page = read(*args, **kwargs)
+        if not changed:
+            changed = True
+            # Provider I/O must leave the source unlocked for concurrent edits.
+            with database.begin() as session:
+                origin = session.scalar(
+                    select(Source).where(Source.id == identifier).with_for_update(nowait=True)
+                )
+                if change == "lease":
+                    session.scalar(select(IngestionJob)).lease_token = uuid.uuid4()
+                elif change == "approval":
+                    origin.approval_status = "pending"
+                elif change == "identity":
+                    origin.provider_collection_id = "PLreplacement"
+                else:
+                    origin.enabled = False
+        return page
+
+    monkeypatch.setattr(provider, "playlist_items", changed_during_request)
+    run_job(database, identifier)
+    with database() as session:
+        assert session.scalar(select(func.count()).select_from(Article)) == 0
+        assert not session.get(Source, identifier).provider_state.get("generation")
+        assert session.scalar(select(IngestionJob)).status != "succeeded"
+
+
+def test_full_collection_reconciliation_confirms_removal_without_withdrawing_other_origin(
+    database, provider
+):
+    identifier = source(database)
+    for _ in range(4):
+        run_job(database, identifier)
+    removed = provider.items[-1]
+    other = source(database, kind="video", identifier=removed.video_id)
+    _, article_id = import_video(database, other, provider.values[removed.video_id])
+    provider.items = provider.items[:-1]
+    for _ in range(8):
+        run_job(database, identifier)
+    with database() as session:
+        assert not session.get(YouTubeMembership, (identifier, article_id)).active
+        assert session.get(YouTubeMembership, (other, article_id)).active
+        assert session.get(Article, article_id).video_metadata["availability"] == "public"
+    assert any(video_id == removed.video_id for _, _, video_id in provider.calls)
+
+
+@pytest.mark.parametrize("kind", ["channel", "video"])
+def test_scheduler_does_not_turn_single_video_submissions_into_recurring_sources(
+    database, provider, kind
+):
+    from devfeed_aggregator import scheduler
+
+    identifier = source(
+        database,
+        kind=kind,
+        identifier=CHANNEL if kind == "channel" else next(iter(provider.values)),
+    )
+    run_job(database, identifier)
+    with database.begin() as session:
+        session.get(Source, identifier).next_fetch_at = utcnow() - timedelta(days=1)
+    assert scheduler.tick()["scheduled"] == int(kind == "channel")
+    assert scheduler.tick()["scheduled"] == 0
