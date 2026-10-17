@@ -159,7 +159,9 @@ export async function checkSitemapPolicy(request, origin, fixture) {
   assert.equal(pages.headers()["cache-control"], "public, max-age=300, s-maxage=300");
   const entries = xmlEntries(await pages.text(), "url");
   assert.deepEqual(
-    entries.map((entry) => new URL(entry.loc).pathname).sort(),
+    entries
+      .map((entry) => new URL(entry.loc).pathname)
+      .sort((left, right) => left.localeCompare(right)),
     [
       "/latest",
       "/articles",
@@ -173,7 +175,7 @@ export async function checkSitemapPolicy(request, origin, fixture) {
       "/tags",
       "/legal/privacy",
       "/legal/terms",
-    ].sort(),
+    ].sort((left, right) => left.localeCompare(right)),
   );
   assert.ok(entries.every((entry) => new URL(entry.loc).origin === origin));
   const entry = (path) => entries.find((item) => item.loc === origin + path);

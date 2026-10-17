@@ -26,9 +26,9 @@ if [[ "$suite" != integration ]]; then
   unit_coverage=reports/coverage/python-unit/coverage.db
   backend_include='apps/*/src/**,packages/*/src/**'
   unit_status=0
-  # Keep CI utility measurements for Sonar; the unit floor/report covers every backend file.
+  # Keep CI utilities and migration measurements for Sonar; the unit floor covers backend files.
   COVERAGE_FILE="$unit_coverage" uv run --locked --no-sync --no-build coverage run \
-    --source="$backend_sources,scripts" -m pytest -q -m 'not integration' \
+    --source="$backend_sources,scripts,migrations" -m pytest -q -m 'not integration' \
     --junitxml=reports/python-unit.xml || unit_status=$?
   report_status=0
   uv run --locked --no-sync --no-build coverage report --data-file="$unit_coverage" \
@@ -95,7 +95,7 @@ report="reports/python-integration-${shard_index}.xml"
 mkdir -p "reports/coverage/python-integration-${shard_index}"
 COVERAGE_FILE="reports/coverage/python-integration-${shard_index}/coverage.db" \
   DEVFEED_TEST_DATABASE_FAILURES=1 uv run --locked --no-sync --no-build coverage run \
-  --source="$backend_sources,scripts" -m pytest \
+  --source="$backend_sources,scripts,migrations" -m pytest \
   -p scripts.ci.pytest_shard --ci-shard-index "$shard_index" --ci-shard-count "$shard_count" \
   -q -m 'integration and not failure_recovery' --junitxml="$report"
 uv run --locked --no-sync --no-build python scripts/ci/check_reports.py junit "$report"

@@ -17,6 +17,13 @@ vi.mock("@/components/source-follow", () => ({
   SourceFollow: ({ returnTo }: { returnTo: string }) => <a href={returnTo}>Follow source</a>,
 }));
 vi.mock("@/components/topic-follow", () => ({ TopicFollow: () => null }));
+vi.mock("@/components/tag-follow", () => ({
+  TagFollow: ({ tagId, returnTo }: { tagId: string; returnTo: string }) => (
+    <a href={returnTo} data-tag-id={tagId}>
+      Follow tag
+    </a>
+  ),
+}));
 vi.mock("@/components/infinite-feed", () => ({
   InfiniteFeed: ({ placements }: { placements?: PlacementQuery }) => (
     <div data-testid="infinite-feed" data-placements={JSON.stringify(placements)} />
@@ -192,7 +199,7 @@ it("preserves the source tab, sort and pagination in the sign-in destination", (
   );
 });
 
-it.each(["source", "topic"] as const)(
+it.each(["source", "topic", "tag"] as const)(
   "shares the canonical %s beside its follow action",
   (kind) => {
     const sourceId = "11111111-1111-4111-8111-111111111111";
@@ -204,13 +211,14 @@ it.each(["source", "topic"] as const)(
             topic: kind === "topic" ? "typed & safe" : "",
             q: "private query",
             cursor: "page-2",
-            tag: "private-tag",
+            tag: kind === "tag" ? "C++" : "private-tag",
           }),
           source_slug: "engineering-journal",
         }}
         title="Engineering & TypeScript"
-        section={kind === "source" ? "sources" : "topics"}
+        section={kind === "source" ? "sources" : kind === "tag" ? "tags" : "topics"}
         topicId={kind === "topic" ? "topic-id" : undefined}
+        tagId={kind === "tag" ? "tag-id" : undefined}
         feedDescriptor={readerFeeds.contextual}
         feed={firstPage}
         options={options}
@@ -223,12 +231,21 @@ it.each(["source", "topic"] as const)(
     fireEvent.click(trigger);
     const panel = screen.getByRole("dialog", { name: `Share ${kind}` });
     const canonical = new URL(
-      kind === "source" ? "/sources/engineering-journal" : "/topics/typed%20%26%20safe",
+      kind === "source"
+        ? "/sources/engineering-journal"
+        : kind === "tag"
+          ? "/tags/C%2B%2B"
+          : "/topics/typed%20%26%20safe",
       window.location.origin,
     ).href;
     for (const link of within(panel).getAllByRole("link")) {
       expect(new URL(link.getAttribute("href")!).searchParams.get("url")).toBe(canonical);
       expect(link.getAttribute("rel")).toContain("noopener");
+    }
+    if (kind === "tag") {
+      const follow = screen.getByRole("link", { name: "Follow tag" });
+      expect(follow.getAttribute("data-tag-id")).toBe("tag-id");
+      expect(follow.getAttribute("href")).toContain("/tags/C%2B%2B");
     }
   },
 );

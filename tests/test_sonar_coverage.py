@@ -24,6 +24,21 @@ normalize_lcov = sonar_coverage.normalize_lcov
 prepare_reports = sonar_coverage.prepare_reports
 
 
+def sonar_properties():
+    contents = (ROOT / "sonar-project.properties").read_text().replace("\\\n", "")
+    return dict(
+        line.split("=", 1) for line in contents.splitlines() if line and not line.startswith("#")
+    )
+
+
+def sonar_matches(properties, key, source):
+    return any(
+        fnmatchcase(source, pattern.strip())
+        for pattern in properties.get(key, "").split(",")
+        if pattern.strip()
+    )
+
+
 @pytest.mark.parametrize(
     ("source", "expected_test"),
     [
@@ -32,7 +47,11 @@ prepare_reports = sonar_coverage.prepare_reports
         ("scripts/testing/nonce-csp.mjs", True),
         ("scripts/testing/default-all.mjs", True),
         ("scripts/testing/sign-in.py", True),
+        ("scripts/testing/tags.mjs", True),
+        ("scripts/testing/server-reads.mjs", True),
+        ("scripts/testing/user-mutations.mjs", True),
         ("apps/web/tests/date-format.test.ts", True),
+        ("scripts/testing/adaptive_polling.py", False),
         ("scripts/testing/dast-browser.mjs", False),
         ("scripts/testing/dast-selectors.mjs", False),
         ("scripts/testing/live-browser.mjs", False),
@@ -42,17 +61,10 @@ prepare_reports = sonar_coverage.prepare_reports
     ],
 )
 def test_sonar_keeps_browser_helpers_as_tests_and_runtime_helpers_as_source(source, expected_test):
-    contents = (ROOT / "sonar-project.properties").read_text().replace("\\\n", "")
-    properties = dict(
-        line.split("=", 1) for line in contents.splitlines() if line and not line.startswith("#")
-    )
+    properties = sonar_properties()
 
     def matches(key):
-        return any(
-            fnmatchcase(source, pattern.strip())
-            for pattern in properties.get(key, "").split(",")
-            if pattern.strip()
-        )
+        return sonar_matches(properties, key, source)
 
     path = Path(source)
     assert (ROOT / path).is_file()
@@ -71,6 +83,80 @@ def test_sonar_keeps_browser_helpers_as_tests_and_runtime_helpers_as_source(sour
     )
     assert is_source == (not expected_test)
     assert not matches("sonar.coverage.exclusions")
+
+
+def test_every_testing_helper_has_an_explicit_fixture_or_operational_source_role():
+    # These drivers run as measured CI utilities; fixtures and assertion helpers
+    # belong to the test manifest instead. Keep the special source roles explicit.
+    operational_sources = {
+        "scripts/testing/adaptive_polling.py": "Measured deterministic polling workload",
+        "scripts/testing/dast-browser.mjs": "Measured authenticated DAST browser driver",
+        "scripts/testing/dast-selectors.mjs": "Measured DAST page-selection logic",
+        "scripts/testing/live-browser.mjs": "Measured live browser login/profile driver",
+    }
+    properties = sonar_properties()
+    helpers = {
+        path.relative_to(ROOT).as_posix()
+        for path in (ROOT / "scripts/testing").rglob("*")
+        if path.is_file() and path.suffix in {".py", ".mjs"}
+    }
+    tests = {
+        source for source in helpers if sonar_matches(properties, "sonar.test.inclusions", source)
+    }
+    assert tests.isdisjoint(operational_sources)
+    assert helpers - tests == operational_sources.keys()
+    assert all(operational_sources.values())
+    for source in helpers:
+        assert not sonar_matches(properties, "sonar.exclusions", source)
+        assert not sonar_matches(properties, "sonar.coverage.exclusions", source)
+        assert not sonar_matches(properties, "sonar.cpd.exclusions", source)
+
+
+def test_generated_duplication_policy_uses_only_shared_generator_output_conventions():
+    properties = sonar_properties()
+    assert properties["sonar.cpd.exclusions"].split(",") == [
+        "**/src/lib/api/generated/**",
+        "**/*.generated.*",
+    ]
+    generated = [
+        *ROOT.glob("apps/*/src/lib/api/generated/**/*.ts"),
+        *ROOT.glob("packages/*/src/**/*.generated.ts"),
+    ]
+    assert generated
+    for path in generated:
+        source = path.relative_to(ROOT).as_posix()
+        header = "\n".join(path.read_text().splitlines()[:5])
+        assert "generated" in header.lower(), source
+        assert sonar_matches(properties, "sonar.cpd.exclusions", source)
+        assert not sonar_matches(properties, "sonar.coverage.exclusions", source)
+        # The pre-existing admin client exclusion is retained. Other generated
+        # reader/partner descriptors remain available for static security checks.
+        if not source.startswith("apps/admin/"):
+            assert not sonar_matches(properties, "sonar.exclusions", source)
+
+
+@pytest.mark.parametrize(
+    "source",
+    [
+        "apps/web/src/components/tags-content.tsx",
+        "apps/web/src/lib/api.ts",
+        "apps/web/src/lib/server/gateway.ts",
+        "packages/telemetry/src/propagation.ts",
+        "migrations/versions/0026_user_tag_follows.py",
+        "scripts/generate_reader_routes.mjs",
+        "scripts/ci/sonar_coverage.py",
+    ],
+)
+def test_handwritten_product_migration_and_generator_code_keeps_all_quality_checks(source):
+    assert (ROOT / source).is_file()
+    properties = sonar_properties()
+    for parameter in (
+        "sonar.test.inclusions",
+        "sonar.exclusions",
+        "sonar.coverage.exclusions",
+        "sonar.cpd.exclusions",
+    ):
+        assert not sonar_matches(properties, parameter, source), parameter
 
 
 def write_lcov(path: Path, source: str) -> None:

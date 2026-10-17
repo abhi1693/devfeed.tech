@@ -68,6 +68,28 @@ it("returns a recoverable error when tag loading fails", async () => {
   expect((await list(new Request("https://devfeed.test/api/v1/tags"))).status).toBe(503);
 });
 
+it.each([404, 503])(
+  "preserves tag detail upstream status %i without caching the error",
+  async (status) => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json({}, { status })));
+    const response = await detail(new Request("https://devfeed.test/api/v1/tags/missing"), {
+      params: Promise.resolve({ slug: "missing" }),
+    });
+    expect(response.status).toBe(status);
+    expect(response.headers.get("cache-control")).toBe("no-store");
+    expect(await response.json()).toEqual({ detail: "Couldn’t load tag" });
+  },
+);
+
+it("returns a recoverable uncached detail error for an unavailable upstream", async () => {
+  vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("offline")));
+  const response = await detail(new Request("https://devfeed.test/api/v1/tags/rust"), {
+    params: Promise.resolve({ slug: "rust" }),
+  });
+  expect(response.status).toBe(503);
+  expect(response.headers.get("cache-control")).toBe("no-store");
+});
+
 it("overwrites supplied reader path headers with the actual request path", async () => {
   const response = await proxy(
     new NextRequest("https://devfeed.tech/tags/c%2B%2B", {

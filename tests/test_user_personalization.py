@@ -409,3 +409,72 @@ def test_tag_follows_are_owned_visible_and_independent(user_data, database):
         assert session.get(UserTag, (user, ids[0])) is None
     assert client.put("/v1/user/preferences/tags", json={"tag_ids": []}).status_code == 200
     assert client.get("/v1/user/preferences/tags").json() == {"tag_ids": []}
+
+
+def test_bulk_tag_preferences_preserve_dates_and_reject_hidden_tags_atomically(user_data, database):
+    from devfeed_core.models import ArticleTag, Tag, UserTag
+
+    client, _, user, other_user, _ = user_data
+    with database.begin() as session:
+        tags = [Tag(name=f"Bulk tag {index}", slug=f"bulk-tag-{index}") for index in range(3)]
+        session.add_all(tags)
+        session.flush()
+        ids = [tag.id for tag in tags]
+        public = session.scalar(select(Article.id).where(Article.title == "Article 000"))
+        hidden = session.scalar(select(Article.id).where(Article.title == "Article 110"))
+        session.add_all(
+            [
+                ArticleTag(article_id=public, tag_id=ids[0]),
+                ArticleTag(article_id=public, tag_id=ids[1]),
+                ArticleTag(article_id=hidden, tag_id=ids[2]),
+                UserTag(user_id=other_user, tag_id=ids[0]),
+            ]
+        )
+    endpoint = "/v1/user/preferences/tags"
+    assert client.put(endpoint, json={"tag_ids": [str(ids[0])]}).status_code == 200
+    with database() as session:
+        followed_at = session.get(UserTag, (user, ids[0])).created_at
+    replacement = [str(ids[1]), str(ids[0]), str(ids[1])]
+    response = client.put(endpoint, json={"tag_ids": replacement})
+    expected = {"tag_ids": [str(identifier) for identifier in sorted(ids[:2])]}
+    assert response.status_code == 200
+    assert response.json() == expected
+    with database() as session:
+        assert session.get(UserTag, (user, ids[0])).created_at == followed_at
+    for unavailable in (ids[2], uuid.uuid4()):
+        response = client.put(endpoint, json={"tag_ids": [str(ids[1]), str(unavailable)]})
+        assert response.status_code == 422
+        assert response.json()["detail"] == "Choose published tags"
+        assert client.get(endpoint).json() == expected
+    assert client.put(endpoint, json={"tag_ids": [str(ids[1])]}).status_code == 200
+    assert client.get(endpoint).json() == {"tag_ids": [str(ids[1])]}
+    with database() as session:
+        assert session.get(UserTag, (user, ids[0])) is None
+        assert session.get(UserTag, (other_user, ids[0])) is not None
+
+
+def test_tag_follow_limit_allows_idempotence_and_replacement(user_data, database):
+    from devfeed_core.models import ArticleTag, Tag
+
+    client, _, _, _, _ = user_data
+    with database.begin() as session:
+        tags = [
+            Tag(name=f"Bounded tag {index}", slug=f"bounded-tag-{index}") for index in range(101)
+        ]
+        session.add_all(tags)
+        session.flush()
+        ids = [tag.id for tag in tags]
+        public = session.scalar(select(Article.id).where(Article.title == "Article 000"))
+        session.add_all(ArticleTag(article_id=public, tag_id=tag_id) for tag_id in ids)
+    endpoint = "/v1/user/preferences/tags"
+    original = list(map(str, ids[:100]))
+    assert client.put(endpoint, json={"tag_ids": original}).status_code == 200
+    assert client.put(f"{endpoint}/{ids[0]}", json={"followed": True}).status_code == 200
+    response = client.put(f"{endpoint}/{ids[100]}", json={"followed": True})
+    assert response.status_code == 422
+    assert response.json()["detail"] == "You can follow up to 100 tags"
+    assert client.put(endpoint, json={"tag_ids": list(map(str, ids))}).status_code == 422
+    assert set(client.get(endpoint).json()["tag_ids"]) == set(original)
+    assert client.put(f"{endpoint}/{ids[0]}", json={"followed": False}).status_code == 200
+    assert client.put(f"{endpoint}/{ids[100]}", json={"followed": True}).status_code == 200
+    assert set(client.get(endpoint).json()["tag_ids"]) == set(map(str, ids[1:]))
