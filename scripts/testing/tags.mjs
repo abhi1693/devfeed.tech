@@ -173,4 +173,13 @@ export async function checkTagFollow(page, pathFor, output) {
   await heading.getByRole("button", { name: "Follow", exact: true }).waitFor();
   assert.equal(await page.getByRole("link", { name: /^Remove tag filter/ }).count(), 0);
   await page.screenshot({ path: `${output}/tag-follow.png`, animations: "disabled" });
+  await page.setViewportSize({ width: 320, height: 844 });
+  assert.deepEqual(
+    (await page.locator(".mobile-nav").getByRole("link").allTextContents()).map((value) =>
+      value.trim(),
+    ),
+    ["My feed", "Latest", "Read later", "Topics", "Tags", "Sources"],
+  );
+  assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
+  await page.screenshot({ path: `${output}/tag-follow-mobile.png`, animations: "disabled" });
 }

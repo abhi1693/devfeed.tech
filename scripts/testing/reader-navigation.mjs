@@ -297,8 +297,8 @@ export async function checkReaderNavigation(
     await page.setViewportSize({ width: 390, height: 900 });
     const nav = page.locator(".mobile-nav");
     const expected = signedIn
-      ? ["My feed", "Latest", "Read later", "Topics", "Sources"]
-      : ["Latest", "Topics", "Sources"];
+      ? ["My feed", "Latest", "Read later", "Topics", "Tags", "Sources"]
+      : ["Latest", "Topics", "Tags", "Sources"];
     assert.deepEqual(
       await nav
         .getByRole("link")
@@ -313,6 +313,7 @@ export async function checkReaderNavigation(
     for (const [name, route] of [
       ["Latest", "/latest"],
       ["Topics", "/topics"],
+      ["Tags", "/tags"],
       ["Sources", "/sources"],
       ...(signedIn
         ? [
