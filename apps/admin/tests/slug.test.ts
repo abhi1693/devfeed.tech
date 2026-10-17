@@ -34,4 +34,17 @@ describe("slug generation", () => {
     expect(slugify(`${"a".repeat(99)} b`)).toBe("a".repeat(99));
     expect(slugify("React Native", 6)).toBe("react");
   });
+
+  it("collapses long punctuation runs while retaining Unicode normalization", () => {
+    const punctuation = "- /🛠️_".repeat(50_000);
+    expect(slugify(`${punctuation}Développeur’s Café${punctuation}`)).toBe("developpeurs-cafe");
+    expect(slugify(punctuation)).toBe("");
+    expect(tagSlugify(`${punctuation}C++${punctuation}`)).toBe("c-plus-plus");
+  });
+
+  it("retains existing slice boundaries after separator normalization", () => {
+    expect(slugify("A B", 2)).toBe("a");
+    expect(slugify("React Native", 0)).toBe("");
+    expect(slugify("React Native", -1)).toBe("react-nativ");
+  });
 });
