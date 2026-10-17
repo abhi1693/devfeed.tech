@@ -1364,8 +1364,7 @@ it.each(["preview", "save"])(
   },
 );
 
-it("offers no empty connector choices while preserving explicit no-pagination and no-auth modes", async () => {
-  vi.mocked(api.adminPartnerConnectionCreate).mockResolvedValue(connection);
+it("offers only named platform choices", () => {
   renderAdmin(
     <PartnerConnectionForm providers={[provider]} onSaved={vi.fn()} onCancel={vi.fn()} />,
   );
@@ -1375,20 +1374,34 @@ it("offers no empty connector choices while preserving explicit no-pagination an
     "Custom API",
   ]);
   expect(screen.queryByRole("option", { name: "None" })).toBeNull();
+});
+
+it.each([
+  { label: "Pagination mode", enabled: "Cursor", off: "None" },
+  { label: "Authentication method", enabled: "Bearer token", off: "No authentication" },
+])("offers an explicit $off choice for $label", (setting) => {
+  renderAdmin(
+    <PartnerConnectionForm providers={[provider]} onSaved={vi.fn()} onCancel={vi.fn()} />,
+  );
+  fireEvent.click(screen.getByRole("combobox", { name: "Platform" }));
   fireEvent.click(screen.getByRole("option", { name: "Custom API" }));
-  for (const setting of [
-    { label: "Pagination mode", enabled: "Cursor", off: "None" },
-    { label: "Authentication method", enabled: "Bearer token", off: "No authentication" },
-  ]) {
-    const trigger = screen.getByRole("combobox", { name: setting.label });
-    expect(trigger.getAttribute("aria-required")).toBe("true");
-    fireEvent.click(trigger);
-    expect(screen.getAllByRole("option", { name: setting.off })).toHaveLength(1);
-    fireEvent.click(screen.getByRole("option", { name: setting.enabled }));
-    fireEvent.click(trigger);
-    fireEvent.click(screen.getByRole("option", { name: setting.off }));
-    expect(trigger.textContent).toBe(setting.off);
-  }
+  const trigger = screen.getByRole("combobox", { name: setting.label });
+  expect(trigger.getAttribute("aria-required")).toBe("true");
+  fireEvent.click(trigger);
+  expect(screen.getAllByRole("option", { name: setting.off })).toHaveLength(1);
+  fireEvent.click(screen.getByRole("option", { name: setting.enabled }));
+  fireEvent.click(trigger);
+  fireEvent.click(screen.getByRole("option", { name: setting.off }));
+  expect(trigger.textContent).toBe(setting.off);
+});
+
+it("submits explicit no-pagination and no-auth connector modes", async () => {
+  vi.mocked(api.adminPartnerConnectionCreate).mockResolvedValue(connection);
+  renderAdmin(
+    <PartnerConnectionForm providers={[provider]} onSaved={vi.fn()} onCancel={vi.fn()} />,
+  );
+  fireEvent.click(screen.getByRole("combobox", { name: "Platform" }));
+  fireEvent.click(screen.getByRole("option", { name: "Custom API" }));
   await selectAccount();
   fireEvent.change(screen.getByRole("textbox", { name: "Identifier" }), {
     target: { value: "public-catalog" },

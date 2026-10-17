@@ -122,6 +122,7 @@ const filterSource = { ...article.sources[0], id: "99999999-9999-4999-8999-99999
 async function readerFixture(t, imageProfile) {
   const profile = await mkdtemp(path.join(tmpdir(), "devfeed-reader-test-"));
   const errors = [];
+  const cloudflareRequests = [];
   let context;
   let imageDiagnostics;
   t.after(async () => {
@@ -138,6 +139,11 @@ async function readerFixture(t, imageProfile) {
       }
       await context?.close();
       assert.deepEqual(errors, []);
+      assert.deepEqual(
+        cloudflareRequests,
+        [],
+        "Local extension documents must not load the edge beacon",
+      );
     } finally {
       await rm(profile, { recursive: true, force: true });
     }
@@ -155,6 +161,11 @@ async function readerFixture(t, imageProfile) {
       : { width: 1440, height: 1000 },
     deviceScaleFactor: imageProfile?.dpr ?? 1,
     args: [`--disable-extensions-except=${extension}`, `--load-extension=${extension}`],
+  });
+  context.on("request", (request) => {
+    const url = new URL(request.url());
+    if (url.hostname === "static.cloudflareinsights.com" || url.pathname === "/cdn-cgi/rum")
+      cloudflareRequests.push(url.pathname);
   });
   context.on("page", (page) => {
     page.on("pageerror", (error) => errors.push(error.message));
