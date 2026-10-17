@@ -226,8 +226,11 @@ def _analyze(identifier):
                     outcome = apply_topic_research(proposal, job, result)
             finish_job(job, outcome, utcnow())
             auto_approve_research(session, job)
-            if isinstance(result, TopicResearchResult) and outcome == "enriched":
-                assert proposal is not None
+            if (
+                isinstance(result, TopicResearchResult)
+                and proposal is not None
+                and outcome == "enriched"
+            ):
                 queue_relationships_after_enrichment(session, proposal, job)
             elif isinstance(result, RelationshipResearchResult) and outcome == "superseded":
                 resume_relationships_after_superseded(session, job)
