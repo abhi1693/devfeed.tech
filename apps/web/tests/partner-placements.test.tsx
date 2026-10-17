@@ -164,7 +164,13 @@ it("keeps Engagement linked and tracked without an empty attribution footer", as
   expect(link.getAttribute("href")).toBe(placement.url);
   expect(link.getAttribute("rel")).toBe("nofollow noopener noreferrer");
   expect(link.closest("article")?.querySelectorAll("a")).toHaveLength(1);
-  expect(observePartnerPlacement).toHaveBeenCalledWith(link, placement.receipt, expect.any(Object));
+  await waitFor(() =>
+    expect(observePartnerPlacement).toHaveBeenCalledWith(
+      link,
+      placement.receipt,
+      expect.any(Object),
+    ),
+  );
 });
 
 it.each(["feed", "header_sponsorship", "engagement"] as const)(
