@@ -361,7 +361,7 @@ export async function checkUnclaimedDevCardPromo(
     }
   });
   const dialog = page.getByRole("dialog", { name: "Your dev card preview" });
-  const menu = page.locator('button[aria-label="User menu: Promo Reader"]');
+  const menu = page.locator('button[aria-label="User menu: PR Promo Reader"]');
   try {
     await page.goto(feedUrl);
     if (extension) await page.reload();
@@ -417,7 +417,7 @@ export async function checkUnclaimedDevCardPromo(
     // Same-route links leave the textbox mounted; wait for Radix's deferred
     // focus restoration before reopening, or it can dismiss the new menu.
     await page.waitForFunction(() => {
-      const trigger = document.querySelector('button[aria-label="User menu: Promo Reader"]');
+      const trigger = document.querySelector('button[aria-label="User menu: PR Promo Reader"]');
       return (
         trigger?.getAttribute("aria-expanded") === "false" && document.activeElement === trigger
       );

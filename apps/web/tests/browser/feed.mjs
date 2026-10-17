@@ -176,6 +176,7 @@ async function createReaderFixture(t, { thumbnailFeed = false } = {}) {
   const serverReads = serverReadFixture();
   const renderReads = renderReadFixture(article, topic);
   let mode = "ready";
+  let notificationCount = 1;
   const defaultAllRequests = [];
   let compactArticles = false;
   let articleFeedGate;
@@ -454,7 +455,7 @@ async function createReaderFixture(t, { thumbnailFeed = false } = {}) {
     else if (path.endsWith("/items") && path.includes("/notifications/chimely/"))
       body = notificationFixture();
     else if (path.endsWith("/counts") && path.includes("/notifications/chimely/"))
-      body = { unread: 1, unseen: 1 };
+      body = { unread: 1, unseen: notificationCount };
     else if (path.endsWith("/stream") && path.includes("/notifications/chimely/")) {
       res.writeHead(200, { "Content-Type": "text/event-stream" });
       res.end(": connected\n\n");
@@ -886,11 +887,23 @@ async function createReaderFixture(t, { thumbnailFeed = false } = {}) {
     try {
       mustReadsFixture.enabled = true;
       mustReadsFixture.presented = true;
-      await navigationPage.goto(origin);
-      await checkReaderNavigation(navigationPage, `${root}/reports/mobile-navigation/web`, {
-        signedIn: true,
-      });
+      for (const count of [1, 123]) {
+        notificationCount = count;
+        await navigationPage.goto(origin);
+        await navigationPage
+          .getByRole("button", {
+            name: count === 123 ? "Notifications, 99+ new (123 in total)" : "Notifications, 1 new",
+            exact: true,
+          })
+          .waitFor();
+        await checkReaderNavigation(
+          navigationPage,
+          `${root}/reports/mobile-navigation/web/count-${count}`,
+          { signedIn: true },
+        );
+      }
     } finally {
+      notificationCount = 1;
       Object.assign(mustReadsFixture, navigationMustReads);
       await navigationPage.close();
     }

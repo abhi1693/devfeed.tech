@@ -15,6 +15,7 @@ import tempfile
 import time
 import urllib.request
 import uuid
+from contextlib import contextmanager
 from datetime import UTC, datetime
 from importlib.metadata import version
 from pathlib import Path
@@ -32,6 +33,18 @@ def docker(*args):
 
 def port(container, target):
     return docker("port", container, f"{target}/tcp").split(":")[-1]
+
+
+@contextmanager
+def api_listener():
+    with socket.socket() as listener:
+        # Uvicorn inherits this socket through --fd. Set the normal HTTP
+        # no-delay behavior explicitly rather than relying on the event loop
+        # to configure inherited sockets (uvloop 0.23 no longer does).
+        listener.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+        listener.bind(("127.0.0.1", 0))
+        listener.listen(128)
+        yield listener
 
 
 def ready(check, description):
@@ -214,9 +227,7 @@ pidfile = /tmp/pgbouncer.pid
             env["DEVFEED_DATABASE_URL"] = (
                 f"postgresql+psycopg://load:load@127.0.0.1:{proxy_port}/devfeed_load_test"
             )
-            with socket.socket() as listener, (args.output / "api.log").open("w") as log:
-                listener.bind(("127.0.0.1", 0))
-                listener.listen(128)
+            with api_listener() as listener, (args.output / "api.log").open("w") as log:
                 api_port = listener.getsockname()[1]
                 api = subprocess.Popen(
                     [

@@ -227,6 +227,53 @@ class Zap:
         return evidence
 
 
+def zap_startup_diagnostics(container, key):
+    # Inspect only lifecycle state: Config includes the private API key in argv.
+    state_format = (
+        '{"Running":{{json .State.Running}},"ExitCode":{{json .State.ExitCode}},'
+        '"OOMKilled":{{json .State.OOMKilled}},"Error":{{json .State.Error}}}'
+    )
+    report = {"state": {}, "log_tail": "", "diagnostic_errors": []}
+    try:
+        result = subprocess.run(
+            ["docker", "inspect", "--format", state_format, container],
+            check=True,
+            capture_output=True,
+            text=True,
+            errors="replace",
+            timeout=5,
+        )
+        state = json.loads(result.stdout)
+        fields = {"Running": bool, "ExitCode": int, "OOMKilled": bool, "Error": str}
+        if not isinstance(state, dict) or any(
+            type(state.get(name)) is not expected for name, expected in fields.items()
+        ):
+            raise ValueError("Invalid container lifecycle state")
+        report["state"] = {name: state[name] for name in fields}
+        report["state"]["Error"] = state["Error"].replace(key, "[REDACTED]")[:2048]
+    except (OSError, ValueError, subprocess.SubprocessError):
+        report["diagnostic_errors"].append("Container state unavailable")
+    try:
+        result = subprocess.run(
+            ["docker", "logs", "--tail", "100", container],
+            check=True,
+            capture_output=True,
+            text=True,
+            errors="replace",
+            timeout=5,
+        )
+        # Redact before truncation, including keys crossing the retained tail boundary.
+        report["log_tail"] = (result.stdout + result.stderr).replace(key, "[REDACTED]")[-16384:]
+    except (OSError, subprocess.SubprocessError):
+        report["diagnostic_errors"].append("Container logs unavailable")
+    try:
+        REPORTS.mkdir(parents=True, exist_ok=True)
+        (REPORTS / "zap-startup.json").write_text(json.dumps(report, indent=2) + "\n")
+    except OSError:
+        # Diagnostics must never replace the original readiness failure.
+        pass
+
+
 @contextmanager
 def zap_server():
     origin = f"http://127.0.0.1:{port()}"
@@ -234,7 +281,6 @@ def zap_server():
     container = docker(
         "run",
         "-d",
-        "--rm",
         "--no-healthcheck",
         "--network",
         "host",
@@ -252,13 +298,14 @@ def zap_server():
         "-config",
         f"api.key={key}",
         "-config",
-        "autoupdate.checkOnStart=false",
+        "start.checkForUpdates=false",
         "-config",
-        "autoupdate.downloadNewRelease=false",
+        "start.downloadNewRelease=false",
         "-config",
         "connection.timeoutInSecs=10",
     )
     zap = Zap(origin, key)
+    failed = False
     try:
         for _ in range(120):
             try:
@@ -268,13 +315,30 @@ def zap_server():
                 pass
             time.sleep(1)
         else:
+            zap_startup_diagnostics(container, key)
             raise RuntimeError("Pinned ZAP did not become ready")
         yield zap
+    except BaseException:
+        failed = True
+        raise
     finally:
-        zap.client.close()
-        subprocess.run(
-            ["docker", "rm", "-f", container], check=True, capture_output=True, timeout=30
-        )
+        cleanup_failed = False
+        try:
+            zap.client.close()
+        except Exception:
+            cleanup_failed = True
+        try:
+            subprocess.run(
+                ["docker", "rm", "-f", container], check=True, capture_output=True, timeout=30
+            )
+        except Exception:
+            cleanup_failed = True
+        if cleanup_failed:
+            message = "Unable to fully clean up CI-owned ZAP resources"
+            if failed:
+                print(message, file=sys.stderr)
+            else:
+                raise RuntimeError(message)
 
 
 def seed(env):

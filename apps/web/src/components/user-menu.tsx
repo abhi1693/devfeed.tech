@@ -16,6 +16,7 @@ import {
 import { useUser } from "./user-account";
 import { ProfileAvatar } from "./profile-avatar";
 import { ReadingStreakProgress } from "./reading-streak";
+import { avatarInitials } from "@/lib/avatar";
 
 export function UserMenu() {
   const { user, profile, profileUnavailable, signOut } = useUser();
@@ -24,6 +25,8 @@ export function UserMenu() {
   if (!user) return null;
   const name = profile?.display_name || user.name;
   const label = name || user.email || "Your account";
+  const initials = avatarInitials(name);
+  const accountLabel = initials ? `${initials} ${label}` : label;
   const profileHref =
     profile?.username && profile.visibility?.public && !profileUnavailable
       ? `/users/${encodeURIComponent(profile.username)}`
@@ -43,12 +46,12 @@ export function UserMenu() {
     <>
       <DropdownMenu.Root modal={false}>
         <DropdownMenu.Trigger asChild>
-          <button className="user-menu-trigger" aria-label={`User menu: ${label}`}>
+          <button className="user-menu-trigger" aria-label={`User menu: ${accountLabel}`}>
             <ProfileAvatar
               name={name}
               url={profile?.avatar_url}
               variants={profile?.avatar_variants}
-            />
+            />{" "}
             <span className="user-menu-name">{label}</span>
             <ChevronDown className="user-menu-chevron" size={14} aria-hidden="true" />
           </button>

@@ -3,6 +3,7 @@
 import importlib.util
 import json
 import os
+import socket
 import subprocess
 import sys
 from pathlib import Path
@@ -17,6 +18,19 @@ spec = importlib.util.spec_from_file_location(
 assert spec and spec.loader
 runner = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(runner)
+
+
+def test_api_listener_disables_nagle_on_inherited_connections_and_closes():
+    with runner.api_listener() as listener:
+        assert listener.getsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY) == 1
+        assert listener.getsockname()[0] == "127.0.0.1"
+        with socket.create_connection(listener.getsockname(), timeout=2) as client:
+            connection, _ = listener.accept()
+            with connection:
+                assert connection.getsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY) == 1
+                client.sendall(b"probe")
+                assert connection.recv(5) == b"probe"
+    assert listener.fileno() == -1
 
 
 @pytest.mark.parametrize("absolute", [False, True])

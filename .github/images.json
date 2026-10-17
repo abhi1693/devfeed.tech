@@ -124,7 +124,24 @@
       "platforms": [
         "linux/arm64"
       ],
-      "smoke-script": ".github/scripts/smoke-image.sh"
+      "smoke-script": ".github/scripts/smoke-image.sh",
+      "compiler-cache-target": "/app/apps/admin/.next/cache",
+      "compiler-cache-key-files": [
+        "package.json",
+        "package-lock.json",
+        "apps/admin/package.json",
+        "apps/partner/package.json",
+        "apps/web/package.json",
+        "packages/http/package.json",
+        "packages/theme/package.json",
+        "packages/ui/package.json",
+        "packages/telemetry/package.json",
+        "packages/braces/package.json",
+        "packages/ui/tsconfig.json",
+        "apps/admin/next.config.ts",
+        "apps/admin/tsconfig.json",
+        "apps/admin/postcss.config.mjs"
+      ]
     },
     {
       "id": "web",
@@ -134,7 +151,23 @@
       "platforms": [
         "linux/arm64"
       ],
-      "smoke-script": ".github/scripts/smoke-image.sh"
+      "smoke-script": ".github/scripts/smoke-image.sh",
+      "compiler-cache-target": "/app/apps/web/.next/cache",
+      "compiler-cache-key-files": [
+        "package.json",
+        "package-lock.json",
+        "apps/admin/package.json",
+        "apps/partner/package.json",
+        "apps/web/package.json",
+        "packages/http/package.json",
+        "packages/theme/package.json",
+        "packages/ui/package.json",
+        "packages/telemetry/package.json",
+        "packages/braces/package.json",
+        "packages/ui/tsconfig.json",
+        "apps/web/next.config.ts",
+        "apps/web/tsconfig.json"
+      ]
     },
     {
       "id": "codex",
@@ -164,7 +197,24 @@
       "platforms": [
         "linux/arm64"
       ],
-      "smoke-script": ".github/scripts/smoke-image.sh"
+      "smoke-script": ".github/scripts/smoke-image.sh",
+      "compiler-cache-target": "/app/apps/partner/.next/cache",
+      "compiler-cache-key-files": [
+        "package.json",
+        "package-lock.json",
+        "apps/admin/package.json",
+        "apps/partner/package.json",
+        "apps/web/package.json",
+        "packages/http/package.json",
+        "packages/theme/package.json",
+        "packages/ui/package.json",
+        "packages/telemetry/package.json",
+        "packages/braces/package.json",
+        "packages/ui/tsconfig.json",
+        "apps/partner/next.config.ts",
+        "apps/partner/tsconfig.json",
+        "apps/partner/postcss.config.mjs"
+      ]
     }
   ]
 }

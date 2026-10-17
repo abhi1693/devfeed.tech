@@ -409,7 +409,7 @@ it("links the avatar menu to settings and reports inline export failures", async
       <DevCardPreview profile={profile} user={user} unsaved={false} />
     </UserProvider>,
   );
-  const menu = await screen.findByRole("button", { name: "User menu: Maya Chen" });
+  const menu = await screen.findByRole("button", { name: "User menu: MC Maya Chen" });
   fireEvent.keyDown(menu, { key: "ArrowDown" });
   const cardLink = await screen.findByRole("menuitem", { name: "Your Dev Card" });
   expect(screen.queryByRole("menuitem", { name: "Dev card" })).toBeNull();

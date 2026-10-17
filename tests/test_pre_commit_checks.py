@@ -19,11 +19,11 @@ def test_docs_do_not_run_project_suites():
 
 
 @pytest.mark.parametrize("workspace", ["admin", "web", "partner"])
-def test_frontend_changes_only_test_affected_app(workspace):
+def test_frontend_changes_only_lint_affected_app(workspace):
     commands = hooks.checks_for({f"apps/{workspace}/src/app/page.tsx"})
-    assert ("npm", "run", f"{workspace}:test") in commands
+    assert ("npm", "run", "lint", "--workspace", f"@devfeed/{workspace}") in commands
     other = "web" if workspace == "admin" else "admin"
-    assert ("npm", "run", f"{other}:test") not in commands
+    assert ("npm", "run", "lint", "--workspace", f"@devfeed/{other}") not in commands
     assert not any("pytest" in command for command in commands)
 
 
@@ -38,10 +38,10 @@ def test_frontend_changes_only_test_affected_app(workspace):
         "package-lock.json",
     ],
 )
-def test_shared_frontend_changes_test_both_apps(path):
+def test_shared_frontend_changes_check_all_apps(path):
     commands = hooks.checks_for({path})
     for workspace in ("admin", "web", "partner"):
-        assert ("npm", "run", f"{workspace}:test") in commands
+        assert ("npm", "run", "lint", "--workspace", f"@devfeed/{workspace}") in commands
 
 
 @pytest.mark.parametrize(
@@ -53,36 +53,28 @@ def test_shared_frontend_changes_test_both_apps(path):
         "apps/api/pyproject.toml",
     ],
 )
-def test_python_changes_run_types_and_only_unit_tests(path):
+def test_python_changes_run_static_checks(path):
     commands = hooks.checks_for({path})
     assert ("uv", "run", "--locked", "mypy") in commands
-    assert (
-        "uv",
-        "run",
-        "--locked",
-        "pytest",
-        "-q",
-        "-m",
-        "not integration",
-        "--cov",
-        "--cov-report=term:skip-covered",
-    ) in commands
+    assert not any("pytest" in command for command in commands)
     assert not any(command[0] == "npm" for command in commands)
 
 
-def test_hook_config_exercises_every_suite_once():
+def test_hook_config_checks_every_project_once():
     commands = hooks.checks_for({".pre-commit-config.yaml", "scripts/pre_commit_checks.py"})
     assert len(commands) == len(set(commands))
     for workspace in ("admin", "web", "partner"):
-        assert ("npm", "run", f"{workspace}:test") in commands
-    assert any("pytest" in command for command in commands)
-    assert ("node", "--test", "tests/codex_transport.test.cjs") in commands
+        assert ("npm", "run", "lint", "--workspace", f"@devfeed/{workspace}") in commands
+    assert ("npm", "run", "extension:check") in commands
+    assert not any(
+        part in {"pytest", "--test"} or ":test" in part or ":build" in part
+        for command in commands
+        for part in command
+    )
 
 
-def test_codex_changes_run_transport_tests():
-    assert hooks.checks_for({"infra/codex/transport.cjs"}) == [
-        ("node", "--test", "tests/codex_transport.test.cjs")
-    ]
+def test_codex_changes_do_not_launch_transport_tests():
+    assert hooks.checks_for({"infra/codex/transport.cjs"}) == []
 
 
 def test_staged_deletion_triggers_checks_and_first_failure_stops(monkeypatch):
@@ -124,18 +116,18 @@ def test_runner_removes_integration_credentials(monkeypatch):
     "path",
     ["apps/web/src/app/page.tsx", "apps/extensions/src/entry.tsx", "packages/ui/src/button.tsx"],
 )
-def test_reader_changes_always_check_both_extension_builds(path):
+def test_reader_changes_check_extension_types(path):
     commands = hooks.checks_for({path})
-    for command in ("extension:check", "extension:test", "extension:build:all"):
-        assert ("npm", "run", command) in commands
+    assert ("npm", "run", "extension:check") in commands
+    assert ("npm", "run", "extension:test") not in commands
+    assert ("npm", "run", "extension:build:all") not in commands
 
 
-def test_shared_destination_json_exercises_both_contract_consumers():
+def test_shared_destination_json_checks_both_contract_consumers():
     commands = hooks.checks_for({"packages/http/src/reader-destinations.json"})
     assert ("uv", "run", "--locked", "mypy") in commands
-    assert ("npm", "run", "web:test") in commands
-    assert ("npm", "run", "extension:build:all") in commands
-    assert ("npm", "run", "test:reader-destinations") in commands
+    assert ("npm", "run", "lint", "--workspace", "@devfeed/web") in commands
+    assert ("npm", "run", "extension:check") in commands
 
 
 @pytest.mark.parametrize(
@@ -146,5 +138,8 @@ def test_shared_destination_json_exercises_both_contract_consumers():
         "tests/reader-destinations.test.mjs",
     ],
 )
-def test_destination_runtime_changes_require_cross_language_parity(path):
-    assert ("npm", "run", "test:reader-destinations") in hooks.checks_for({path})
+def test_destination_runtime_changes_run_static_checks(path):
+    commands = hooks.checks_for({path})
+    assert not any("test:reader-destinations" in command for command in commands)
+    if path.endswith(".py"):
+        assert ("uv", "run", "--locked", "mypy") in commands

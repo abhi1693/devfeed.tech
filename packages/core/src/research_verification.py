@@ -31,7 +31,7 @@ def metadata_input_current(job: TopicAnalysisJob, proposal: TopicProposal) -> bo
         return current == recorded
     # Recover old successful runs only if their original draft + recorded patch
     # still describes the entire current proposal. Never bless later human edits.
-    evidence = next(
+    evidence: dict = next(
         (
             item
             for item in reversed(proposal.evidence or [])
