@@ -1,0 +1,733 @@
+{
+  "version": 1,
+  "source": {
+    "head": "c0fab34fb17bd58d0213466871214fc31b75fbf1",
+    "run_id": 39011793740,
+    "artifacts": {
+      "0": 12093606861,
+      "1": 12093835233,
+      "2": 12093906098
+    },
+    "test_cases": 2184,
+    "files": 179
+  },
+  "fallback_seconds": 6.561,
+  "files": {
+    "tests/test_admin_crud_integration.py": {
+      "seconds": 10.797,
+      "cases": 7
+    },
+    "tests/test_admin_job_page_load.py": {
+      "seconds": 2.954,
+      "cases": 1
+    },
+    "tests/test_admin_overview.py": {
+      "seconds": 7.29,
+      "cases": 6
+    },
+    "tests/test_admin_overview_concurrency.py": {
+      "seconds": 19.92,
+      "cases": 14
+    },
+    "tests/test_admin_partner_asset_detail.py": {
+      "seconds": 2.633,
+      "cases": 8
+    },
+    "tests/test_admin_search_integration.py": {
+      "seconds": 27.944,
+      "cases": 26
+    },
+    "tests/test_admin_users.py": {
+      "seconds": 30.274,
+      "cases": 13
+    },
+    "tests/test_ai_analysis_jobs_integration.py": {
+      "seconds": 9.368,
+      "cases": 8
+    },
+    "tests/test_ai_content_cutoff_integration.py": {
+      "seconds": 0.651,
+      "cases": 2
+    },
+    "tests/test_ai_optimization.py": {
+      "seconds": 2.915,
+      "cases": 13
+    },
+    "tests/test_analysis_application_locks.py": {
+      "seconds": 3.925,
+      "cases": 9
+    },
+    "tests/test_analysis_catalog.py": {
+      "seconds": 5.095,
+      "cases": 1
+    },
+    "tests/test_analysis_worker_integration.py": {
+      "seconds": 2.984,
+      "cases": 14
+    },
+    "tests/test_api.py": {
+      "seconds": 7.972,
+      "cases": 12
+    },
+    "tests/test_api_query_budgets.py": {
+      "seconds": 16.887,
+      "cases": 4
+    },
+    "tests/test_api_security_boundaries.py": {
+      "seconds": 48.103,
+      "cases": 31
+    },
+    "tests/test_article_engagement.py": {
+      "seconds": 20.358,
+      "cases": 16
+    },
+    "tests/test_article_enrichment_integration.py": {
+      "seconds": 9.911,
+      "cases": 20
+    },
+    "tests/test_article_reads.py": {
+      "seconds": 1.664,
+      "cases": 5
+    },
+    "tests/test_article_slugs.py": {
+      "seconds": 0.844,
+      "cases": 2
+    },
+    "tests/test_article_topic_pause.py": {
+      "seconds": 1.198,
+      "cases": 4
+    },
+    "tests/test_automation_integration.py": {
+      "seconds": 14.781,
+      "cases": 28
+    },
+    "tests/test_avatar_uploads.py": {
+      "seconds": 3.534,
+      "cases": 5
+    },
+    "tests/test_backend_refactor.py": {
+      "seconds": 0.853,
+      "cases": 3
+    },
+    "tests/test_cache_integration.py": {
+      "seconds": 5.474,
+      "cases": 10
+    },
+    "tests/test_catalog_search.py": {
+      "seconds": 1.084,
+      "cases": 2
+    },
+    "tests/test_catalog_snapshots.py": {
+      "seconds": 4.327,
+      "cases": 13
+    },
+    "tests/test_cli_integration.py": {
+      "seconds": 11.743,
+      "cases": 22
+    },
+    "tests/test_database_connection.py": {
+      "seconds": 0.163,
+      "cases": 1
+    },
+    "tests/test_database_health_fixes.py": {
+      "seconds": 32.925,
+      "cases": 6
+    },
+    "tests/test_database_pooler_recovery.py": {
+      "seconds": 133.117,
+      "cases": 6
+    },
+    "tests/test_dedicated_queues_integration.py": {
+      "seconds": 5.62,
+      "cases": 9
+    },
+    "tests/test_discovery_query_budgets.py": {
+      "seconds": 4.128,
+      "cases": 1
+    },
+    "tests/test_dispatch_claim_integration.py": {
+      "seconds": 1.327,
+      "cases": 5
+    },
+    "tests/test_dispatch_order_integration.py": {
+      "seconds": 1.619,
+      "cases": 6
+    },
+    "tests/test_editorial_integration.py": {
+      "seconds": 4.059,
+      "cases": 13
+    },
+    "tests/test_feed_aliases.py": {
+      "seconds": 3.299,
+      "cases": 4
+    },
+    "tests/test_feed_notifications.py": {
+      "seconds": 3.868,
+      "cases": 10
+    },
+    "tests/test_feed_options.py": {
+      "seconds": 1.06,
+      "cases": 2
+    },
+    "tests/test_full_app_automation.py": {
+      "seconds": 24.016,
+      "cases": 63
+    },
+    "tests/test_health_regressions.py": {
+      "seconds": 1.255,
+      "cases": 5
+    },
+    "tests/test_image_integration.py": {
+      "seconds": 5.036,
+      "cases": 8
+    },
+    "tests/test_image_storage_integration.py": {
+      "seconds": 6.131,
+      "cases": 16
+    },
+    "tests/test_ingestion.py": {
+      "seconds": 9.041,
+      "cases": 16
+    },
+    "tests/test_job_logs.py": {
+      "seconds": 1.031,
+      "cases": 10
+    },
+    "tests/test_job_retries_integration.py": {
+      "seconds": 42.903,
+      "cases": 39
+    },
+    "tests/test_languages_integration.py": {
+      "seconds": 1.707,
+      "cases": 3
+    },
+    "tests/test_latest_diversity.py": {
+      "seconds": 2.487,
+      "cases": 4
+    },
+    "tests/test_logo_integration.py": {
+      "seconds": 11.516,
+      "cases": 25
+    },
+    "tests/test_mcp_integration.py": {
+      "seconds": 15.264,
+      "cases": 1
+    },
+    "tests/test_mcp_oauth.py": {
+      "seconds": 17.664,
+      "cases": 51
+    },
+    "tests/test_must_reads.py": {
+      "seconds": 1.743,
+      "cases": 1
+    },
+    "tests/test_notification_delivery_policy.py": {
+      "seconds": 0.253,
+      "cases": 1
+    },
+    "tests/test_notifications_integration.py": {
+      "seconds": 2.293,
+      "cases": 10
+    },
+    "tests/test_observability.py": {
+      "seconds": 0.685,
+      "cases": 1
+    },
+    "tests/test_open_limits.py": {
+      "seconds": 0.607,
+      "cases": 3
+    },
+    "tests/test_overview_insights.py": {
+      "seconds": 10.262,
+      "cases": 9
+    },
+    "tests/test_overview_panels.py": {
+      "seconds": 6.378,
+      "cases": 6
+    },
+    "tests/test_partner_account_access.py": {
+      "seconds": 3.352,
+      "cases": 7
+    },
+    "tests/test_partner_account_creatives.py": {
+      "seconds": 3.914,
+      "cases": 12
+    },
+    "tests/test_partner_ad_image_uploads.py": {
+      "seconds": 10.505,
+      "cases": 14
+    },
+    "tests/test_partner_admin_credentials.py": {
+      "seconds": 10.617,
+      "cases": 9
+    },
+    "tests/test_partner_audiences.py": {
+      "seconds": 8.892,
+      "cases": 16
+    },
+    "tests/test_partner_authenticated_placements.py": {
+      "seconds": 21.525,
+      "cases": 28
+    },
+    "tests/test_partner_catalog_freshness.py": {
+      "seconds": 4.72,
+      "cases": 9
+    },
+    "tests/test_partner_click_attribution.py": {
+      "seconds": 61.476,
+      "cases": 58
+    },
+    "tests/test_partner_commercial_policy.py": {
+      "seconds": 13.062,
+      "cases": 24
+    },
+    "tests/test_partner_connection_logos.py": {
+      "seconds": 7.472,
+      "cases": 10
+    },
+    "tests/test_partner_connection_pagination.py": {
+      "seconds": 20.395,
+      "cases": 19
+    },
+    "tests/test_partner_connection_settings.py": {
+      "seconds": 8.205,
+      "cases": 6
+    },
+    "tests/test_partner_connector_integration.py": {
+      "seconds": 8.861,
+      "cases": 7
+    },
+    "tests/test_partner_connector_preview.py": {
+      "seconds": 14.964,
+      "cases": 33
+    },
+    "tests/test_partner_destination_preview.py": {
+      "seconds": 9.246,
+      "cases": 24
+    },
+    "tests/test_partner_dispatcher_integration.py": {
+      "seconds": 0.958,
+      "cases": 1
+    },
+    "tests/test_partner_engagement_relevance.py": {
+      "seconds": 11.022,
+      "cases": 18
+    },
+    "tests/test_partner_evaluation_publication.py": {
+      "seconds": 1.096,
+      "cases": 2
+    },
+    "tests/test_partner_exposure_caps.py": {
+      "seconds": 3.568,
+      "cases": 1
+    },
+    "tests/test_partner_feed_fallback_context.py": {
+      "seconds": 3.062,
+      "cases": 6
+    },
+    "tests/test_partner_feed_placements.py": {
+      "seconds": 9.782,
+      "cases": 21
+    },
+    "tests/test_partner_header_placements.py": {
+      "seconds": 17.195,
+      "cases": 23
+    },
+    "tests/test_partner_identity_integration.py": {
+      "seconds": 14.888,
+      "cases": 11
+    },
+    "tests/test_partner_jobs_ui.py": {
+      "seconds": 3.315,
+      "cases": 2
+    },
+    "tests/test_partner_link_rel.py": {
+      "seconds": 18.205,
+      "cases": 33
+    },
+    "tests/test_partner_manual_products.py": {
+      "seconds": 13.307,
+      "cases": 20
+    },
+    "tests/test_partner_matching_invalidation.py": {
+      "seconds": 17.438,
+      "cases": 25
+    },
+    "tests/test_partner_migration.py": {
+      "seconds": 2.718,
+      "cases": 2
+    },
+    "tests/test_partner_native_formats.py": {
+      "seconds": 11.112,
+      "cases": 18
+    },
+    "tests/test_partner_pipeline_dispatch.py": {
+      "seconds": 23.065,
+      "cases": 16
+    },
+    "tests/test_partner_placement_destinations.py": {
+      "seconds": 3.282,
+      "cases": 13
+    },
+    "tests/test_partner_placement_history_scope.py": {
+      "seconds": 11.709,
+      "cases": 6
+    },
+    "tests/test_partner_placement_locking.py": {
+      "seconds": 7.43,
+      "cases": 14
+    },
+    "tests/test_partner_placement_query_budgets.py": {
+      "seconds": 30.999,
+      "cases": 45
+    },
+    "tests/test_partner_placement_rotation.py": {
+      "seconds": 19.543,
+      "cases": 10
+    },
+    "tests/test_partner_placement_rotation_boundaries.py": {
+      "seconds": 16.556,
+      "cases": 21
+    },
+    "tests/test_partner_placements_integration.py": {
+      "seconds": 13.537,
+      "cases": 21
+    },
+    "tests/test_partner_portal.py": {
+      "seconds": 6.561,
+      "cases": 10
+    },
+    "tests/test_partner_portal_connections.py": {
+      "seconds": 37.718,
+      "cases": 33
+    },
+    "tests/test_partner_product_ad_images.py": {
+      "seconds": 7.22,
+      "cases": 12
+    },
+    "tests/test_partner_product_formats.py": {
+      "seconds": 2.759,
+      "cases": 6
+    },
+    "tests/test_partner_product_images.py": {
+      "seconds": 2.931,
+      "cases": 5
+    },
+    "tests/test_partner_product_logos.py": {
+      "seconds": 5.65,
+      "cases": 12
+    },
+    "tests/test_partner_product_sync.py": {
+      "seconds": 19.997,
+      "cases": 14
+    },
+    "tests/test_partner_promotion_enrollment.py": {
+      "seconds": 99.18,
+      "cases": 11
+    },
+    "tests/test_partner_promotions.py": {
+      "seconds": 4.608,
+      "cases": 9
+    },
+    "tests/test_partner_public_rate_limits.py": {
+      "seconds": 5.574,
+      "cases": 8
+    },
+    "tests/test_partner_qualification_renewal.py": {
+      "seconds": 13.64,
+      "cases": 21
+    },
+    "tests/test_partner_relevance_fence.py": {
+      "seconds": 3.835,
+      "cases": 7
+    },
+    "tests/test_partner_relevance_locking.py": {
+      "seconds": 4.988,
+      "cases": 10
+    },
+    "tests/test_partner_reporting_formats.py": {
+      "seconds": 1.636,
+      "cases": 3
+    },
+    "tests/test_partner_reporting_sort.py": {
+      "seconds": 11.48,
+      "cases": 23
+    },
+    "tests/test_partner_search_intent.py": {
+      "seconds": 29.676,
+      "cases": 44
+    },
+    "tests/test_partner_search_placements.py": {
+      "seconds": 17.867,
+      "cases": 27
+    },
+    "tests/test_partner_sync_intervals.py": {
+      "seconds": 4.003,
+      "cases": 3
+    },
+    "tests/test_partner_tools_integration.py": {
+      "seconds": 29.443,
+      "cases": 18
+    },
+    "tests/test_partner_tracking_integration.py": {
+      "seconds": 2.417,
+      "cases": 5
+    },
+    "tests/test_partner_tracking_retention.py": {
+      "seconds": 5.188,
+      "cases": 11
+    },
+    "tests/test_partner_workspace.py": {
+      "seconds": 6.205,
+      "cases": 8
+    },
+    "tests/test_pipeline_throughput.py": {
+      "seconds": 0.664,
+      "cases": 3
+    },
+    "tests/test_production_query_hotspots.py": {
+      "seconds": 3.026,
+      "cases": 8
+    },
+    "tests/test_profile_foundation.py": {
+      "seconds": 6.484,
+      "cases": 6
+    },
+    "tests/test_public_projection.py": {
+      "seconds": 3.785,
+      "cases": 3
+    },
+    "tests/test_public_search_integration.py": {
+      "seconds": 15.38,
+      "cases": 4
+    },
+    "tests/test_public_source_availability.py": {
+      "seconds": 0.701,
+      "cases": 1
+    },
+    "tests/test_public_topic_availability.py": {
+      "seconds": 2.281,
+      "cases": 2
+    },
+    "tests/test_publication_api.py": {
+      "seconds": 4.523,
+      "cases": 9
+    },
+    "tests/test_queue_failure_regressions.py": {
+      "seconds": 0.508,
+      "cases": 1
+    },
+    "tests/test_reader_language_preferences.py": {
+      "seconds": 13.986,
+      "cases": 12
+    },
+    "tests/test_reading_leaderboard.py": {
+      "seconds": 3.504,
+      "cases": 7
+    },
+    "tests/test_reading_week_integration.py": {
+      "seconds": 5.884,
+      "cases": 6
+    },
+    "tests/test_recurring_query_budgets.py": {
+      "seconds": 319.478,
+      "cases": 12
+    },
+    "tests/test_relationship_coverage.py": {
+      "seconds": 16.197,
+      "cases": 15
+    },
+    "tests/test_research_verification.py": {
+      "seconds": 30.253,
+      "cases": 26
+    },
+    "tests/test_scheduler_catalog_reuse.py": {
+      "seconds": 2.334,
+      "cases": 5
+    },
+    "tests/test_search_click_integration.py": {
+      "seconds": 0.768,
+      "cases": 1
+    },
+    "tests/test_search_query_budgets.py": {
+      "seconds": 1.202,
+      "cases": 1
+    },
+    "tests/test_search_relevance_integration.py": {
+      "seconds": 0.212,
+      "cases": 1
+    },
+    "tests/test_search_suggestions.py": {
+      "seconds": 0.525,
+      "cases": 3
+    },
+    "tests/test_seed_dev.py": {
+      "seconds": 1.583,
+      "cases": 2
+    },
+    "tests/test_sitemaps.py": {
+      "seconds": 7.962,
+      "cases": 18
+    },
+    "tests/test_solver_jobs.py": {
+      "seconds": 1.018,
+      "cases": 4
+    },
+    "tests/test_source_auto_rejection.py": {
+      "seconds": 3.643,
+      "cases": 13
+    },
+    "tests/test_source_deletion_integration.py": {
+      "seconds": 8.33,
+      "cases": 7
+    },
+    "tests/test_source_discovery.py": {
+      "seconds": 10.415,
+      "cases": 22
+    },
+    "tests/test_source_import_admin.py": {
+      "seconds": 16.736,
+      "cases": 17
+    },
+    "tests/test_source_notifications.py": {
+      "seconds": 3.148,
+      "cases": 13
+    },
+    "tests/test_source_review.py": {
+      "seconds": 1.081,
+      "cases": 4
+    },
+    "tests/test_source_review_integration.py": {
+      "seconds": 8.052,
+      "cases": 12
+    },
+    "tests/test_source_schedule_integration.py": {
+      "seconds": 28.815,
+      "cases": 20
+    },
+    "tests/test_source_slugs.py": {
+      "seconds": 3.385,
+      "cases": 5
+    },
+    "tests/test_source_tags_integration.py": {
+      "seconds": 6.264,
+      "cases": 10
+    },
+    "tests/test_table_query_budgets.py": {
+      "seconds": 73.743,
+      "cases": 1
+    },
+    "tests/test_tag_normalization_integration.py": {
+      "seconds": 0.582,
+      "cases": 3
+    },
+    "tests/test_tag_topic_discovery.py": {
+      "seconds": 5.949,
+      "cases": 14
+    },
+    "tests/test_taxonomy.py": {
+      "seconds": 4.77,
+      "cases": 3
+    },
+    "tests/test_topic_analysis.py": {
+      "seconds": 28.965,
+      "cases": 20
+    },
+    "tests/test_topic_auto_approval.py": {
+      "seconds": 18.509,
+      "cases": 16
+    },
+    "tests/test_topic_branding.py": {
+      "seconds": 1.497,
+      "cases": 3
+    },
+    "tests/test_topic_decisions.py": {
+      "seconds": 2.757,
+      "cases": 5
+    },
+    "tests/test_topic_deletion.py": {
+      "seconds": 21.248,
+      "cases": 19
+    },
+    "tests/test_topic_logo_storage.py": {
+      "seconds": 1.2,
+      "cases": 2
+    },
+    "tests/test_topic_proposal_filters_integration.py": {
+      "seconds": 24.577,
+      "cases": 24
+    },
+    "tests/test_topic_proposals_integration.py": {
+      "seconds": 39.682,
+      "cases": 29
+    },
+    "tests/test_topic_relationships.py": {
+      "seconds": 25.921,
+      "cases": 22
+    },
+    "tests/test_topic_remediation.py": {
+      "seconds": 7.087,
+      "cases": 22
+    },
+    "tests/test_topic_verification.py": {
+      "seconds": 19.058,
+      "cases": 16
+    },
+    "tests/test_topics.py": {
+      "seconds": 1.154,
+      "cases": 1
+    },
+    "tests/test_typesense_container_integration.py": {
+      "seconds": 14.036,
+      "cases": 7
+    },
+    "tests/test_unified_source_pipeline.py": {
+      "seconds": 10.587,
+      "cases": 16
+    },
+    "tests/test_user_feed_settings.py": {
+      "seconds": 19.713,
+      "cases": 17
+    },
+    "tests/test_user_notification_settings.py": {
+      "seconds": 8.117,
+      "cases": 9
+    },
+    "tests/test_user_personalization.py": {
+      "seconds": 9.803,
+      "cases": 10
+    },
+    "tests/test_user_profile.py": {
+      "seconds": 13.268,
+      "cases": 12
+    },
+    "tests/test_user_profile_experience.py": {
+      "seconds": 8.517,
+      "cases": 9
+    },
+    "tests/test_user_recommendations.py": {
+      "seconds": 46.331,
+      "cases": 35
+    },
+    "tests/test_user_settings.py": {
+      "seconds": 2.36,
+      "cases": 3
+    },
+    "tests/test_user_source_suggestions.py": {
+      "seconds": 17.105,
+      "cases": 33
+    },
+    "tests/test_user_sources.py": {
+      "seconds": 11.001,
+      "cases": 8
+    },
+    "tests/test_user_theme_settings.py": {
+      "seconds": 11.079,
+      "cases": 12
+    },
+    "tests/test_workers_integration.py": {
+      "seconds": 1.31,
+      "cases": 1
+    }
+  }
+}

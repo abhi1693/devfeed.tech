@@ -406,7 +406,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        shard: [0, 1, 2]
+        shard: [0, 1, 2, 3, 4, 5]
     uses: abhi1693/actions/.github/workflows/python-ci.yml@afba12afb85bf40be9328c92dc53b779f18d5c6d # v1.0.1
     with:
       runs-on: ubuntu-24.04-arm
@@ -415,7 +415,7 @@ jobs:
       enable-cache: true
       uv-version: 0.12.10
       sync-command: sh scripts/ci/python-bootstrap.sh . --editable --all-packages
-      test-command: bash scripts/ci/python-tests.sh integration ${{ matrix.shard }} 3
+      test-command: bash scripts/ci/python-tests.sh integration ${{ matrix.shard }} 6
       test-results-path: |
         reports/python-integration-${{ matrix.shard }}.xml
         reports/coverage/python-integration-${{ matrix.shard }}/coverage.db
@@ -450,8 +450,12 @@ jobs:
           path: reports/migration-upgrade.log
           if-no-files-found: error
   # Browser E2E jobs cover the reader, admin and real API boundary independently.
-  reader-parity:
-    name: E2E / Reader checks
+  reader-browser:
+    name: E2E / Reader ${{ matrix.suite }}
+    strategy:
+      fail-fast: false
+      matrix:
+        suite: [web, chrome, edge, partner]
     runs-on: ubuntu-24.04
     timeout-minutes: 40
     env:
@@ -478,19 +482,100 @@ jobs:
           sh scripts/ci/python-bootstrap.sh . --editable --all-packages
           npm ci --ignore-scripts
       - name: Check
-        run: npm run ci:reader-parity
-      - name: Summary
-        if: always()
-        run: node scripts/ci/accessibility-report.mjs
+        env:
+          READER_SUITE: ${{ matrix.suite }}
+        run: |
+          bash scripts/ci/reader-parity.sh "$READER_SUITE"
+          mkdir -p reports
+          printf '{"suite":"%s","sha":"%s","status":"success"}\n' \
+            "$READER_SUITE" "$GITHUB_SHA" > reports/reader-parity-result.json
       - name: Reports
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: reader-parity-${{ github.run_attempt }}
+          name: reader-parity-${{ matrix.suite }}-${{ github.run_attempt }}
           path: |
             reports
             apps/extensions/dist/*.png
             apps/extensions/dist/**/*-*.png
+          if-no-files-found: error
+          retention-days: 14
+  reader-parity:
+    name: E2E / Reader checks
+    needs: reader-browser
+    if: always() && !cancelled()
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "24"
+          package-manager-cache: false
+      - name: Download web reports
+        if: always() && !cancelled()
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: reader-parity-web-${{ github.run_attempt }}
+          path: reader-reports/web
+      - name: Download chrome reports
+        if: always() && !cancelled()
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: reader-parity-chrome-${{ github.run_attempt }}
+          path: reader-reports/chrome
+      - name: Download edge reports
+        if: always() && !cancelled()
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: reader-parity-edge-${{ github.run_attempt }}
+          path: reader-reports/edge
+      - name: Download partner reports
+        if: always() && !cancelled()
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: reader-parity-partner-${{ github.run_attempt }}
+          path: reader-reports/partner
+      - name: Require all reader suites
+        if: always() && !cancelled()
+        env:
+          READER_RESULT: ${{ needs.reader-browser.result }}
+          SOURCE_SHA: ${{ github.sha }}
+        run: |
+          status=0
+          if [[ "$READER_RESULT" != success ]]; then
+            echo "Reader worker result: $READER_RESULT"
+            status=1
+          fi
+          for suite in web chrome edge partner; do
+            if ! jq -e --arg suite "$suite" --arg sha "$SOURCE_SHA" \
+              '.suite == $suite and .sha == $sha and .status == "success"' \
+              "reader-reports/$suite/reports/reader-parity-result.json"; then
+              echo "Missing or unsuccessful current-source report: $suite"
+              status=1
+            fi
+          done
+          mkdir -p reports/accessibility
+          for surface in web chrome edge; do
+            if ! cp -R -- "reader-reports/$surface/reports/accessibility/$surface" \
+              reports/accessibility/; then
+              status=1
+            fi
+          done
+          exit "$status"
+      - name: Summary
+        if: always() && !cancelled()
+        run: node scripts/ci/accessibility-report.mjs
+      - name: Reports
+        if: always() && !cancelled()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: reader-parity-${{ github.run_attempt }}
+          path: |
+            reader-reports
+            reports/accessibility
           if-no-files-found: error
           retention-days: 14
   admin-browser:
@@ -522,36 +607,10 @@ jobs:
       test-results-name: live-browser-${{ github.run_attempt }}
   browser-budgets:
     name: Browser budgets
-    needs:
-      - python-unit
-      - python-integration
-      - admin-web
-      - user-web
-      - extensions
-      - reader-parity
-      - admin-browser
-      - live-browser
-      - api-fuzz
-      - mutation
-      - property
-      - recovery
     if: >-
       always() && !cancelled() &&
       (github.event_name == 'pull_request' || github.event_name == 'merge_group' ||
-       (github.event_name == 'push' && github.ref == 'refs/heads/master')) &&
-      needs.python-unit.result == 'success' &&
-      needs.python-integration.result == 'success' &&
-      needs.admin-web.result == 'success' &&
-      needs.user-web.result == 'success' &&
-      needs.extensions.result == 'success' &&
-      needs.reader-parity.result == 'success' &&
-      needs.admin-browser.result == 'success' &&
-      needs.live-browser.result == 'success' &&
-      needs.mutation.result == 'success' &&
-      needs.property.result == 'success' &&
-      needs.recovery.result == 'success' &&
-      (needs.api-fuzz.result == 'success' ||
-       (github.event_name == 'push' && needs.api-fuzz.result == 'skipped'))
+       (github.event_name == 'push' && github.ref == 'refs/heads/master'))
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     outputs:
@@ -645,7 +704,7 @@ jobs:
             const skipped = process.env.BUDGET_RESULT === 'skipped';
             let summary;
             if (skipped) {
-              summary = 'Tests did not pass for this commit.';
+              summary = 'Browser budgets were unavailable for this commit.';
             } else {
               try {
                 const file = 'report/summary.md';

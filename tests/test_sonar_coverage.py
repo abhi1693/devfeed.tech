@@ -152,6 +152,25 @@ def test_prepare_rejects_missing_shards(tmp_path):
         prepare_reports(tmp_path)
 
 
+@pytest.mark.parametrize("shard", range(6))
+@pytest.mark.parametrize("empty", [False, True])
+def test_prepare_requires_every_one_of_the_six_integration_databases(tmp_path, shard, empty):
+    assert ("python-unit", *(f"python-integration-{i}" for i in range(6))) == PYTHON_SUITES
+    for suite in PYTHON_SUITES:
+        path = tmp_path / "reports/coverage" / suite / "coverage.db"
+        path.parent.mkdir(parents=True)
+        if suite != f"python-integration-{shard}":
+            path.write_bytes(b"coverage placeholder")
+        elif empty:
+            path.touch()
+    for frontend in FRONTENDS:
+        write_lcov(tmp_path / "reports/coverage" / frontend / "lcov.info", "src/page.ts")
+    with pytest.raises(
+        ValueError, match=f"Missing or empty coverage report.*python-integration-{shard}"
+    ):
+        prepare_reports(tmp_path)
+
+
 @pytest.mark.parametrize("empty", [False, True])
 def test_prepare_requires_browser_coverage_when_the_job_ran(tmp_path, empty):
     for suite in PYTHON_SUITES:
@@ -210,12 +229,18 @@ def test_prepare_combines_complementary_shard_coverage(
         {(-1, 2), (2, 3), (3, -1)},
         {(-1, 2), (2, 4), (4, -1)},
         {(-1, 1), (1, -1)},
-    ]
+    ] + [{(-1, 1), (1, -1)}] * (len(PYTHON_SUITES) - 4)
+    shard_sources = {
+        suite: f"scripts/ci/shard_{index}.py" for index, suite in enumerate(PYTHON_SUITES)
+    }
     for suite, covered in zip(PYTHON_SUITES, arcs, strict=True):
         path = tmp_path / "reports/coverage" / suite / "coverage.db"
         path.parent.mkdir(parents=True)
         data = CoverageData(basename=str(path))
         measured = {"apps/api/src/main.py": covered}
+        exclusive_source = shard_sources[suite]
+        (tmp_path / exclusive_source).write_text("value = 1\n")
+        measured[exclusive_source] = {(-1, 1), (1, -1)}
         if suite == "python-unit":
             measured.update({filename: {(-1, 1), (1, -1)} for filename in additional})
         data.add_arcs(measured)
@@ -283,7 +308,7 @@ def test_prepare_combines_complementary_shard_coverage(
     )
     report = ET.parse(tmp_path / "reports/coverage/python.xml")
     classes = {entry.get("filename"): entry for entry in report.findall(".//class")}
-    assert set(classes) == {"apps/api/src/main.py", *additional} | (
+    assert set(classes) == {"apps/api/src/main.py", *additional, *shard_sources.values()} | (
         {"scripts/ci/dast.py"} if dast_coverage else set()
     ) | ({"scripts/ci/failure_recovery.py"} if recovery_coverage else set())
     if recovery_coverage:
@@ -303,6 +328,10 @@ def test_prepare_combines_complementary_shard_coverage(
     assert measured.find("./lines/line[@number='2']").get("condition-coverage") == "100% (2/2)"
     assert all(
         (tmp_path / "reports/coverage" / suite / "coverage.db").is_file() for suite in PYTHON_SUITES
+    )
+    assert all(
+        classes[filename].find("./lines/line[@number='1']").get("hits") == "1"
+        for filename in shard_sources.values()
     )
     if browser_coverage:
         assert "SF:scripts/ci/browser-performance.mjs\n" in browser_report.read_text()
