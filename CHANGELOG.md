@@ -2,14 +2,35 @@
 
 Application releases and Alembic schema revisions are separate identifiers.
 
-## Unreleased
+## 0.1.0 — 2026-10-18
+
+### Enhancements
+
+- Discover tags through a searchable directory with A–Z filters, and follow tags to add matching articles to My feed on web, Chrome, and Edge.
+- Share source, topic, and tag pages using Copy link, Reddit, X, or LinkedIn, including canonical website links from browser extensions.
+- Manage partner accounts, product catalogs, API import connections, and campaign targeting through a dedicated partner portal.
+- Promote eligible products through contextual sponsored cards and header sponsorship, with creative previews and impression and click reporting.
+- Upload custom product artwork and advertise manually added products without an import connection.
+- Opt individual sources into adaptive polling to check active publishers more frequently and quiet publishers less often; the feature remains disabled by default.
+- Load the public reader sooner with streamed content, route-specific styles, smaller card markup, and thumbnails sized for the display.
 
 ### Fixes
 
+- Restore All as the default feed content filter across web, Chrome, and Edge.
+- Keep article search snippets focused on the selected article and distinguish homepage and Latest feed search titles.
+- Preserve topic meaning during article classification so contextual matches stay within the topic definition.
+- Keep empty topic and tag collections out of search indexing and include eligible public search pages in structured data.
+- Preserve native reader links and keyboard navigation, and wrap long record titles within admin tables.
 - Include visible avatar initials in account-menu labels for speech navigation on web, Chrome, and Edge.
 - Match notification-button labels to visible badge counts while preserving the exact number of new notifications.
 - Display terminal control sequences as plain text in CLI validation errors.
 - Keep unsupported resource-subscription capabilities out of public MCP discovery.
+
+### Upgrade notes
+
+- Upgrade the database through migration `0026` before starting the updated backend services. Revisions `0024`–`0026` add partnerships, adaptive source polling, and saved tag follows.
+- Deploy the updated APIs before distributing browser extensions `0.1.21`, which use the new tag directory and follow endpoints.
+- To enable adaptive polling, set `DEVFEED_ADAPTIVE_SOURCE_POLLING_ENABLED=true` consistently for the scheduler, ingestion workers, and admin API, then opt in individual sources. Existing sources retain fixed intervals by default.
 
 ## 0.0.52 — 2026-10-11
 
