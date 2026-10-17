@@ -225,6 +225,7 @@ def execute(cases, plan, destination, *, frozen=True, client_factory=CodexClient
         for variant in plan["variants"]
         for repeat in range(plan["repeats"])
     ]
+    # Reproduce comparison order, without generating secrets or access-control values.
     random.Random(plan["seed"]).shuffle(jobs)
     results, spent_calls = [], 0
     write(

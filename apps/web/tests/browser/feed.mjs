@@ -1,3 +1,8 @@
+import {
+  checkKeyboardReader,
+  keyboardProfile,
+  keyboardActivity,
+} from "../../../../scripts/testing/keyboard-reader.mjs";
 import { checkRouteStyles } from "../../../../scripts/testing/route-styles.mjs";
 import {
   checkGuestDocument,
@@ -195,6 +200,16 @@ async function createReaderFixture(t, { thumbnailFeed = false } = {}) {
   fixture = createServer(async (req, res) => {
     const requestUrl = new URL(req.url, "http://localhost");
     const path = requestUrl.pathname;
+    if (
+      path === "/v1/user/profiles/keyboard-reader" ||
+      path === "/v1/user/profiles/keyboard-reader/reading-heatmap"
+    ) {
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(
+        JSON.stringify(path.endsWith("reading-heatmap") ? keyboardActivity : keyboardProfile),
+      );
+      return;
+    }
     serverReads.record(req.url, req.headers, `http://${req.headers.host}`);
     if (renderReads.handles(requestUrl)) {
       const { status, json } = renderReads.respond(requestUrl, req.headers);
@@ -1196,6 +1211,19 @@ async function withReaderPage(browser, check, options = {}) {
     await context.close();
   }
 }
+
+test(
+  "keyboard access preserves native links and readable scroll regions",
+  { timeout: 180000 },
+  async (t) => {
+    const { browser, origin } = await createReaderFixture(t);
+    await withReaderPage(
+      browser,
+      (page) => checkKeyboardReader(page, (path) => origin + path, "/tmp/devfeed-sonar-a11y/web"),
+      { viewport: { width: 1280, height: 1000 } },
+    );
+  },
+);
 
 test("thumbnails match rendered widths and device pixel ratios", { timeout: 360000 }, async (t) => {
   const { browser, origin } = await createReaderFixture(t, { thumbnailFeed: true });

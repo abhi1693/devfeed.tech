@@ -457,6 +457,25 @@ it("defaults to English, saves multiple languages and prevents an empty selectio
   );
 });
 
+it("saves language codes in a deterministic order after adding an earlier code", async () => {
+  session.user = account;
+  const fetcher = vi
+    .fn()
+    .mockResolvedValueOnce(
+      Response.json({ view: "cards", content_types: [...contentTypes], languages: ["zh", "en"] }),
+    )
+    .mockImplementation((_url, init) => Promise.resolve(Response.json(JSON.parse(init.body))));
+  vi.stubGlobal("fetch", fetcher);
+  render(<App />);
+  await screen.findByRole("checkbox", { name: "English" });
+  fireEvent.change(screen.getByRole("searchbox", { name: "Find a language" }), {
+    target: { value: "German" },
+  });
+  fireEvent.click(screen.getByRole("checkbox", { name: "German" }));
+  await act(async () => fireEvent.click(screen.getByRole("button", { name: "Save changes" })));
+  expect(JSON.parse(fetcher.mock.calls[1][1].body).languages).toEqual(["de", "en", "zh"]);
+});
+
 it("retains the confirmed owner's article DOM during history checks and clears it for another owner", async () => {
   session.user = account;
   vi.stubGlobal(

@@ -1,11 +1,13 @@
 """Coverage import regressions for the Python shards and two frontend workspaces."""
 
 import importlib.util
+import runpy
 import subprocess
 import sys
 import xml.etree.ElementTree as ET
 from fnmatch import fnmatchcase
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from coverage import CoverageData
@@ -363,7 +365,7 @@ def test_prepare_requires_both_dast_reports_when_scan_ran(tmp_path, missing, emp
 
 
 @pytest.mark.parametrize("empty", [False, True])
-@pytest.mark.parametrize("suite", ["mutation", "property"])
+@pytest.mark.parametrize("suite", ["mutation", "property", "security"])
 def test_prepare_requires_utility_coverage_when_the_job_ran(tmp_path, empty, suite):
     for python_suite in PYTHON_SUITES:
         path = tmp_path / "reports/coverage" / python_suite / "coverage.db"
@@ -393,3 +395,119 @@ def test_prepare_requires_recovery_measurements_when_the_job_ran(tmp_path, empty
         path.touch()
     with pytest.raises(ValueError, match="Missing or empty coverage report.*recovery"):
         prepare_reports(tmp_path, recovery_coverage=True)
+
+
+def test_prepare_rejects_security_reports_without_line_measurements(tmp_path):
+    for suite in PYTHON_SUITES:
+        path = tmp_path / "reports/coverage" / suite / "coverage.db"
+        path.parent.mkdir(parents=True)
+        path.write_bytes(b"coverage placeholder")
+    for frontend in FRONTENDS:
+        source = tmp_path / "apps" / frontend / "src/page.ts"
+        source.parent.mkdir(parents=True)
+        source.write_text("export const page = 1;\n")
+        write_lcov(tmp_path / "reports/coverage" / frontend / "lcov.info", "src/page.ts")
+    report = tmp_path / "reports/coverage/security/lcov.info"
+    report.parent.mkdir(parents=True)
+    report.write_text("TN:\nend_of_record\n")
+
+    with pytest.raises(ValueError, match="No line coverage.*security"):
+        prepare_reports(tmp_path, security_coverage=True)
+
+
+def test_prepare_imports_security_launcher_and_transport_coverage(tmp_path):
+    (tmp_path / "pyproject.toml").write_text("[tool.coverage.run]\nrelative_files = true\n")
+    source = tmp_path / "apps/api/src/main.py"
+    source.parent.mkdir(parents=True)
+    source.write_text("value = 1\n")
+    for suite in PYTHON_SUITES:
+        path = tmp_path / "reports/coverage" / suite / "coverage.db"
+        path.parent.mkdir(parents=True)
+        data = CoverageData(basename=str(path))
+        data.add_arcs({"apps/api/src/main.py": {(-1, 1), (1, -1)}})
+        data.write()
+    for frontend in FRONTENDS:
+        source = tmp_path / "apps" / frontend / "src/page.ts"
+        source.parent.mkdir(parents=True)
+        source.write_text("export const page = 1;\n")
+        write_lcov(tmp_path / "reports/coverage" / frontend / "lcov.info", "src/page.ts")
+    records = []
+    expected = []
+    for filename, hits in (("server.cjs", 1), ("transport.cjs", 2)):
+        source = tmp_path / "infra/codex" / filename
+        source.parent.mkdir(parents=True, exist_ok=True)
+        source.write_text("module.exports = {};\n")
+        measurement = f"DA:1,{hits}\nLF:1\nLH:1\nend_of_record\n"
+        records.append(f"TN:\nSF:{source}\n{measurement}")
+        expected.append(f"TN:\nSF:infra/codex/{filename}\n{measurement}")
+    report = tmp_path / "reports/coverage/security/lcov.info"
+    report.parent.mkdir(parents=True)
+    report.write_text("".join(records))
+    # Keep Coverage.py's process-wide path handling separate from the real suite.
+    subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            "import runpy; from pathlib import Path; "
+            "import sys; runpy.run_path(sys.argv[1])['prepare_reports']("
+            "Path.cwd(), security_coverage=True)",
+            str(ROOT / "scripts/ci/sonar_coverage.py"),
+        ],
+        cwd=tmp_path,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    assert report.read_text() == "".join(expected)
+    measured = ET.parse(tmp_path / "reports/coverage/python.xml").find(".//class")
+    assert measured.get("filename") == "apps/api/src/main.py"
+    assert measured.find("./lines/line").attrib == {"number": "1", "hits": "1"}
+    assert all(
+        (tmp_path / "reports/coverage" / suite / "coverage.db").is_file() for suite in PYTHON_SUITES
+    )
+
+
+def test_cli_requires_security_measurements_when_requested(monkeypatch, capsys):
+    reports = ROOT / "reports/coverage"
+    baseline = {reports / suite / "coverage.db" for suite in PYTHON_SUITES} | {
+        reports / frontend / "lcov.info" for frontend in FRONTENDS
+    }
+    security_report = reports / "security/lcov.info"
+    original_is_file = Path.is_file
+    original_stat = Path.stat
+    original_open = Path.open
+
+    def is_file(path, *args, **kwargs):
+        if path in baseline:
+            return True
+        if path == security_report:
+            return False
+        return original_is_file(path, *args, **kwargs)
+
+    def stat(path, *args, **kwargs):
+        if path in baseline:
+            return SimpleNamespace(st_size=1)
+        return original_stat(path, *args, **kwargs)
+
+    def open_file(path, *args, **kwargs):
+        if path in baseline:
+            raise AssertionError(
+                "CLI opened a legacy report before rejecting missing security coverage"
+            )
+        return original_open(path, *args, **kwargs)
+
+    # The CLI must reject the absent security artifact before reading or writing
+    # real repository reports. All unrelated filesystem operations remain real.
+    monkeypatch.setattr(Path, "is_file", is_file)
+    monkeypatch.setattr(Path, "stat", stat)
+    monkeypatch.setattr(Path, "open", open_file)
+    for suite in ("BROWSER", "DAST", "MUTATION", "PROPERTY", "RECOVERY"):
+        monkeypatch.setenv(f"{suite}_COVERAGE_REQUIRED", "false")
+    monkeypatch.setenv("SECURITY_COVERAGE_REQUIRED", "true")
+
+    with pytest.raises(SystemExit) as error:
+        runpy.run_path(str(ROOT / "scripts/ci/sonar_coverage.py"), run_name="__main__")
+
+    assert error.value.code == 1
+    assert capsys.readouterr().err == f"Missing or empty coverage report: {security_report}\n"

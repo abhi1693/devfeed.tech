@@ -11,7 +11,7 @@ concurrency:
 jobs:
   fuzz:
     name: Nightly fuzzing
-    uses: abhi1693/actions/.github/workflows/python-ci.yml@afba12afb85bf40be9328c92dc53b779f18d5c6d # v1.0.1
+    uses: abhi1693/actions/.github/workflows/python-ci.yml@bf8cd38aa8456310278ed96bfa83a3132f235df1 # v1.0.4
     with:
       runs-on: ubuntu-24.04-arm
       timeout-minutes: 40

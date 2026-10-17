@@ -12,6 +12,17 @@ pytest. It is pinned in the optional `loadtest` dependency group, outside runtim
 images. This suite complements the SQL budgets and destructive disposable pooler
 fault tests; it does not replace them.
 
+Random choices select public article, topic, source and search journeys only.
+They do not generate credentials, session identifiers, or authorization values;
+cryptographic randomness would add no protection to this workload simulation.
+
+`loadtests/compare.py --output` intentionally selects a local artifact directory
+for reading samples and writing comparison reports. It is an operator-only CLI,
+not a sandboxed service, and accepts absolute paths. Its `GITHUB_STEP_SUMMARY`
+destination is supplied by the invoking CI job. Do not pass model-generated or
+untrusted remote-request paths to either interface. This differs from the disposable
+runner's resource-creation and `reports/` boundary described below.
+
 ## Disposable local run
 
 Requires Linux, Docker and uv. The runner creates its own PostgreSQL database,
