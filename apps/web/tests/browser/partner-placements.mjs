@@ -1952,6 +1952,14 @@ async function assertSearchResultContext(context, base, platform) {
             await page.locator(".search-section-articles .partner-placement").count(),
             0,
           );
+          // Hydration can finish before React removes hidden streamed copies.
+          // Keep the whole-DOM assertion after those pending segments have cleared.
+          await page.waitForFunction(() => {
+            const links = [
+              ...document.querySelectorAll(".search-section-articles .search-result-link"),
+            ];
+            return links.length > 0 && links.every((link) => !link.closest("[hidden]"));
+          });
           assert.deepEqual(
             await page.locator(".search-section-articles .search-result-link").allTextContents(),
             feedArticles.slice(0, count).map(({ title }) => title),
@@ -3152,6 +3160,16 @@ function response(requestPath, body, headers = {}, extension = false) {
     return {
       profile: response("/v1/user/profiles/fixture-reader"),
       activity: null,
+    };
+  if (pathname === "/v1/user/must-reads")
+    return {
+      date: new Date(receiptIssuedAt * 1000).toISOString().slice(0, 10),
+      timezone: url.searchParams.get("timezone") ?? "UTC",
+      items: [],
+      reasons: {},
+      read_ids: [],
+      presented: false,
+      preparing: false,
     };
   if (pathname === "/v1/user/bookmarks") return { items: feedArticles, next_cursor: null };
   if (pathname === "/v1/user/settings/appearance")

@@ -51,6 +51,7 @@ def prepare_reports(
     mutation_coverage: bool = False,
     property_coverage: bool = False,
     recovery_coverage: bool = False,
+    security_coverage: bool = False,
 ) -> None:
     root = root.resolve()
     reports = root / "reports/coverage"
@@ -61,6 +62,7 @@ def prepare_reports(
         "dast": dast_coverage,
         "mutation": mutation_coverage,
         "property": property_coverage,
+        "security": security_coverage,
     }
     lcov_reports.extend(
         reports / suite / "lcov.info" for suite, required in utilities.items() if required
@@ -99,6 +101,7 @@ if __name__ == "__main__":
             mutation_coverage=os.environ.get("MUTATION_COVERAGE_REQUIRED") == "true",
             property_coverage=os.environ.get("PROPERTY_COVERAGE_REQUIRED") == "true",
             recovery_coverage=os.environ.get("RECOVERY_COVERAGE_REQUIRED") == "true",
+            security_coverage=os.environ.get("SECURITY_COVERAGE_REQUIRED") == "true",
         )
     except ValueError as error:
         print(error, file=sys.stderr)

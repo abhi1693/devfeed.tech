@@ -1,14 +1,16 @@
 /** Match the API's lowercase ASCII, hyphen-separated slug format. */
 export function slugify(name: string, maxLength = 100): string {
+  // Separator runs collapse to one hyphen before either edge is trimmed.
   return name
     .normalize("NFKD")
     .replace(/\p{M}/gu, "")
     .toLowerCase()
     .replace(/['’]/g, "")
     .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "")
+    .replace(/^-/, "")
+    .replace(/-$/, "")
     .slice(0, maxLength)
-    .replace(/-+$/g, "");
+    .replace(/-$/, "");
 }
 
 /** Feed-style markers are presentation; language punctuation is part of identity. */
