@@ -791,7 +791,7 @@ async function assertSitewideHeader(context, base, platform) {
     await page.goBack();
     await page.locator(".article-modal[open]").waitFor({ state: "detached" });
     await continuity(`${platform}: article Back`);
-    await page.getByRole("button", { name: "User menu: Reader", exact: true }).click();
+    await page.getByRole("button", { name: "User menu: R Reader", exact: true }).click();
     await page.getByRole("menuitem", { name: "Your Dev Card", exact: true }).click();
     await page.locator(".profile-settings-nav").waitFor();
     await continuity(`${platform}: profile settings`);
@@ -801,7 +801,7 @@ async function assertSitewideHeader(context, base, platform) {
       .click();
     await page.getByRole("region", { name: "Feed preferences" }).waitFor();
     await continuity(`${platform}: feed settings`);
-    await page.getByRole("button", { name: "User menu: Reader", exact: true }).click();
+    await page.getByRole("button", { name: "User menu: R Reader", exact: true }).click();
     await page.getByRole("menuitem", { name: "Your Profile", exact: true }).click();
     await page.locator(".public-profile h1").waitFor();
     await continuity(`${platform}: public profile`);
@@ -1461,7 +1461,7 @@ async function assertAuthenticationPlacementParity(context, base, platform) {
           await page
             .locator(
               authenticated
-                ? '.topbar [aria-label="User menu: Reader"]'
+                ? '.topbar [aria-label="User menu: R Reader"]'
                 : '.topbar .account-link[aria-label="Sign in"]',
             )
             .waitFor();
@@ -2122,7 +2122,7 @@ async function assertSearchResultContext(context, base, platform) {
         await page.evaluate(() => {
           window.dispatchEvent(new PageTransitionEvent("pageshow", { persisted: true }));
         });
-        await page.locator('.topbar [aria-label="User menu: Reader"]').waitFor();
+        await page.locator('.topbar [aria-label="User menu: R Reader"]').waitFor();
         await waitForSelection();
         // The account boundary clears prior-owner state. Reload the later public
         // result through the new reader, including focus-aware extension paging.

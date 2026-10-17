@@ -26,7 +26,7 @@ jobs:
       python-version: "3.12"
       node-version: "24"
       enable-cache: true
-      uv-version: 0.12.10
+      uv-version: 0.13.1
       sync-command: sh scripts/ci/python-bootstrap.sh . --editable --all-packages
       lint-command: bash .github/scripts/python-checks.sh
       test-command: bash scripts/ci/python-tests.sh unit
@@ -174,7 +174,7 @@ jobs:
         reports/coverage/admin/lcov.info
       test-results-name: admin-test-results-${{ github.run_attempt }}
       python-version: "3.12"
-      uv-version: 0.12.10
+      uv-version: 0.13.1
       uv-sync-args: '["--all-packages"]'
       generated-paths: '["apps/admin/openapi.json","apps/admin/src/lib/api/generated"]'
     name: Unit / Admin UI lint, tests and build
@@ -259,7 +259,7 @@ jobs:
       - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
         if: steps.changes.outputs.changed == 'true'
         with:
-          version: "0.12.10"
+          version: "0.13.1"
           enable-cache: true
       - name: Tool
         if: steps.changes.outputs.changed == 'true'
@@ -395,7 +395,7 @@ jobs:
       runs-on: ubuntu-24.04-arm
       timeout-minutes: 15
       python-version: "3.12"
-      uv-version: 0.12.10
+      uv-version: 0.13.1
       sync-command: sh scripts/ci/python-bootstrap.sh . --editable --all-packages --group fuzz
       test-command: uv run --group fuzz --locked --no-sync --no-build python scripts/ci/api_fuzz.py --profile pr
       test-results-path: reports/api-fuzz/
@@ -413,7 +413,7 @@ jobs:
       timeout-minutes: 30
       python-version: "3.12"
       enable-cache: true
-      uv-version: 0.12.10
+      uv-version: 0.13.1
       sync-command: sh scripts/ci/python-bootstrap.sh . --editable --all-packages
       test-command: bash scripts/ci/python-tests.sh integration ${{ matrix.shard }} 6
       test-results-path: |
@@ -435,7 +435,7 @@ jobs:
           python-version: "3.12"
       - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
         with:
-          version: "0.12.10"
+          version: "0.13.1"
           enable-cache: true
       - run: sh scripts/ci/python-bootstrap.sh . --editable --all-packages
       - name: Upgrade the previous release and populated legacy schemas
@@ -487,7 +487,7 @@ jobs:
           python-version: "3.12"
       - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
         with:
-          version: "0.12.10"
+          version: "0.13.1"
           enable-cache: true
       - name: Install
         run: |
@@ -649,7 +649,7 @@ jobs:
       runs-on: ubuntu-24.04
       node-version: "24"
       python-version: "3.12"
-      uv-version: 0.12.10
+      uv-version: 0.13.1
       uv-sync-args: '["--all-packages"]'
       project-env: '{"NEXT_TELEMETRY_DISABLED":"1"}'
       browser-results-path: reports/live-browser
@@ -910,7 +910,7 @@ jobs:
       - name: Set up uv
         uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
         with:
-          version: "0.12.10"
+          version: "0.13.1"
           enable-cache: true
       - name: Set up Node.js for JavaScript and TypeScript analysis
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0

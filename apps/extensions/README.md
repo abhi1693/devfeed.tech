@@ -53,7 +53,7 @@ pending daily claim. Logout and account changes clear that state.
 
 ## Build and install
 
-From the repository root, with Node.js 22.13+:
+From the repository root, with Node.js 22.22.2+ on 22.x, 24.15.0+ on 24.x, or 26+:
 
 ```sh
 npm ci

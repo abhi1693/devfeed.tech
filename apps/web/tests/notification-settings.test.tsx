@@ -75,7 +75,7 @@ function mount() {
 it("persists display and delivery choices with CSRF, updates the bell and reloads saved values", async () => {
   const user = userEvent.setup();
   const view = mount();
-  await screen.findByRole("button", { name: "Notifications (2 new)" });
+  await screen.findByRole("button", { name: "Notifications, 2 new" });
   await user.click(await screen.findByRole("checkbox", { name: "Show unread badge" }));
   await user.click(screen.getByRole("checkbox", { name: "Notification sound" }));
   await user.click(screen.getByRole("checkbox", { name: "New articles from followed topics" }));

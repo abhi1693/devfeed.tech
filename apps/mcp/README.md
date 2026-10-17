@@ -5,6 +5,9 @@ publications. The public endpoint calls only the public API and needs no databas
 or account credentials. Optional OAuth on the same endpoint accesses personal tools through
 the user API and shared Redis.
 
+The transport is stateless and exposes tools only. It does not advertise resource
+subscriptions or resource-change notifications; clients retrieve current data with tool calls.
+
 ## Reader setup page
 
 The reader’s **Connect your agent** sidebar entry opens `/mcp`, with two setup paths:

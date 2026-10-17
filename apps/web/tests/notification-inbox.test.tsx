@@ -83,7 +83,7 @@ it("uses the shared inbox, marks seen and read with CSRF, opens an article modal
     </UserProvider>,
   );
   const user = userEvent.setup();
-  await user.click(await screen.findByRole("button", { name: "Notifications (1 new)" }));
+  await user.click(await screen.findByRole("button", { name: "Notifications, 1 new" }));
   expect(await screen.findByRole("tab", { name: /Unread/ })).toBeTruthy();
   expect(
     requests.some((r) => r.path.endsWith("seen-all") && r.headers.get("x-csrf-token") === "csrf"),

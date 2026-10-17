@@ -87,10 +87,10 @@ dev = [
   "pytest-cov>=7,<8",
 ]
 fuzz = [
-    "schemathesis==4.29.2",
+    "schemathesis==4.31.1",
 ]
 loadtest = [
-    "locust==2.46.6",
+    "locust==2.46.7",
 ]
 
 [tool.ruff]
