@@ -314,11 +314,11 @@ def test_integration_measures_ci_utilities_without_changing_backend_unit_reports
     assert script.count('--include="$backend_include"') == 4
 
 
-def test_duration_plan_balances_whole_files_and_includes_unknown_files_deterministically():
-    paths = ["heavy.py", "medium.py", "new_a.py", "new_b.py", "light.py"]
-    weights = {"heavy.py": 60, "medium.py": 30, "light.py": 5}
-    plan = shards.balanced_shards(paths, weights, 15, 3)
-    assert plan == shards.balanced_shards(reversed(paths), weights, 15, 3)
+def test_case_count_plan_balances_all_current_files_deterministically():
+    weights = {"heavy.py": 60, "medium.py": 30, "new_a.py": 15, "new_b.py": 15, "light.py": 5}
+    paths = [path for path, cases in weights.items() for _ in range(cases)]
+    plan = shards.balanced_shards(paths, 3)
+    assert plan == shards.balanced_shards(reversed(paths), 3)
     assert plan == {
         "heavy.py": 0,
         "medium.py": 1,
@@ -327,116 +327,46 @@ def test_duration_plan_balances_whole_files_and_includes_unknown_files_determini
         "light.py": 1,
     }
     assert set(plan) == set(paths)
-    loads = [sum(weights.get(path, 15) for path in paths if plan[path] == i) for i in range(3)]
+    loads = [sum(weights[path] for path in weights if plan[path] == i) for i in range(3)]
     assert loads == [60, 35, 30]
+    assert shards.balanced_shards([], 3) == {}
 
 
-def copied_shard_plugin(directory):
-    (directory / "ci_shard_fixture.py").write_bytes(
-        (ROOT / "scripts/ci/pytest_shard.py").read_bytes()
+def test_case_count_plan_uses_marker_and_keyword_filtered_collection_before_balancing(tmp_path):
+    (tmp_path / "test_excluded.py").write_text(
+        "import pytest\n"
+        "@pytest.mark.parametrize('value', range(100))\n"
+        "def test_selected_case(value): raise AssertionError('unit')\n"
     )
-    profile = json.loads((ROOT / "scripts/ci/integration-durations.json").read_text())
-    path = directory / "integration-durations.json"
-    path.write_text(json.dumps(profile))
-    return path, profile
-
-
-def test_checked_in_duration_profile_preserves_all_measured_weights_and_fallback():
-    profile = json.loads(shards.PROFILE.read_text())
-    weights, fallback = shards.load_durations(shards.PROFILE)
-    assert weights == {
-        path: measurement["seconds"] for path, measurement in profile["files"].items()
-    }
-    assert fallback == profile["fallback_seconds"]
-    assert shards.balanced_shards(["new_unmeasured.py"], weights, fallback, 1) == {
-        "new_unmeasured.py": 0
-    }
-
-
-def test_duration_plan_uses_marker_filtered_collection_before_balancing(tmp_path):
-    path, profile = copied_shard_plugin(tmp_path)
-    (tmp_path / "pytest.ini").write_text("[pytest]\nmarkers = integration\n")
-    profile["files"] = {
-        "test_excluded.py": {"seconds": 999, "cases": 1},
-        "test_selected_a.py": {"seconds": 3, "cases": 1},
-        "test_selected_b.py": {"seconds": 2, "cases": 1},
-    }
-    profile["source"].update(files=3, test_cases=3)
-    path.write_text(json.dumps(profile))
-    (tmp_path / "test_excluded.py").write_text("def test_unit(): raise AssertionError('unit')\n")
-    for suffix in ("a", "b"):
+    for suffix, count in (("a", 3), ("b", 2), ("c", 1)):
         (tmp_path / f"test_selected_{suffix}.py").write_text(
-            "import pytest\n@pytest.mark.integration\ndef test_selected(): pass\n"
+            "import pytest\n@pytest.mark.integration\n"
+            f"@pytest.mark.parametrize('value', range({count}))\n"
+            "def test_selected_case(value): pass\n"
+            + (
+                "@pytest.mark.integration\n"
+                "@pytest.mark.parametrize('value', range(100))\n"
+                "def test_keyword_excluded(value): raise AssertionError('keyword')\n"
+                if suffix == "b"
+                else ""
+            )
         )
-    for index, expected in enumerate(("test_selected_a", "test_selected_b")):
-        result, report = run_shard(tmp_path, index, 2, "ci_shard_fixture")
+    # Only the six selected cases influence the plan; excluded marker/keyword
+    # cases must not shift a file into a different shard.
+    (tmp_path / "pytest.ini").write_text(
+        "[pytest]\nmarkers = integration\naddopts = -k test_selected_case\n"
+    )
+    for index, expected in enumerate(
+        ({"test_selected_a": 3}, {"test_selected_b": 2, "test_selected_c": 1})
+    ):
+        result, report = run_shard(tmp_path, index, 2)
         assert result.returncode == 0, result.stdout + result.stderr
         cases = list(ET.parse(report).getroot().iter("testcase"))
-        assert [(case.get("classname"), case.get("name")) for case in cases] == [
-            (expected, "test_selected")
-        ]
-
-
-@pytest.mark.parametrize(
-    "defect",
-    [
-        "missing",
-        "invalid-json",
-        "version",
-        "provenance",
-        "empty",
-        "negative",
-        "nan",
-        "boolean",
-        "counts",
-        "path",
-        "weight",
-    ],
-)
-def test_invalid_duration_profile_is_rejected(tmp_path, defect):
-    path, profile = copied_shard_plugin(tmp_path)
-    if defect == "missing":
-        path.unlink()
-    elif defect == "invalid-json":
-        path.write_text("not-json")
-    else:
-        if defect == "version":
-            profile["version"] = 2
-        elif defect == "provenance":
-            profile["source"]["head"] = "not-a-source-sha"
-        elif defect == "empty":
-            profile["files"] = {}
-        elif defect in {"negative", "nan", "boolean"}:
-            profile["fallback_seconds"] = {"negative": -1, "nan": float("nan"), "boolean": True}[
-                defect
-            ]
-        elif defect == "counts":
-            profile["source"]["test_cases"] += 1
-        elif defect == "path":
-            profile["files"]["../outside.py"] = profile["files"].pop(next(iter(profile["files"])))
-        elif defect == "weight":
-            next(iter(profile["files"].values()))["seconds"] = 0
-        path.write_text(json.dumps(profile))
-    with pytest.raises(pytest.UsageError, match="Invalid CI duration profile"):
-        shards.load_durations(path)
-
-
-@pytest.mark.parametrize("defect", ["missing", "invalid-json"])
-def test_invalid_duration_profile_fails_before_collection_or_test_execution(tmp_path, defect):
-    path, _ = copied_shard_plugin(tmp_path)
-    (tmp_path / "pytest.ini").write_text("[pytest]\nmarkers = integration\n")
-    (tmp_path / "test_never.py").write_text(
-        "from pathlib import Path\nPath(__file__).with_suffix('.collected').touch()\n"
-        "import pytest\n@pytest.mark.integration\ndef test_never(): pass\n"
-    )
-    if defect == "missing":
-        path.unlink()
-    else:
-        path.write_text("not-json")
-    result, _ = run_shard(tmp_path, 0, 6, "ci_shard_fixture")
-    assert result.returncode == 4
-    assert "Invalid CI duration profile" in result.stderr
-    assert not list(tmp_path.glob("*.collected"))
+        observed = {}
+        for case in cases:
+            name = case.get("classname")
+            observed[name] = observed.get(name, 0) + 1
+        assert observed == expected
 
 
 @pytest.mark.parametrize("index,count", [(-1, 3), (3, 3), (0, 0)])
