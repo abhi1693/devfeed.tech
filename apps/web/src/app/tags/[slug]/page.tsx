@@ -60,6 +60,5 @@ export default async function Page({ params, searchParams }: Props) {
     title: tag.name,
     tagId: tag.id,
     section: "tags",
-    description: `Articles tagged ${tag.name}.`,
   });
 }

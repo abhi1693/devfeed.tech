@@ -74,18 +74,15 @@ export function FeedContent({
               )}
               <h1>{filters.q ? `Results for “${filters.q}”` : title}</h1>
             </div>
-            {description &&
+            {section !== "tags" &&
+              description &&
               (section === "sources" ? (
                 <div className="source-description">
                   <Markdown>{description}</Markdown>
                 </div>
               ) : (
                 <ReaderDisclosure className="topic-description" title={<>About {title}</>}>
-                  {section === "topics" || section === "tags" ? (
-                    <p>{description}</p>
-                  ) : (
-                    <Markdown>{description}</Markdown>
-                  )}
+                  {section === "topics" ? <p>{description}</p> : <Markdown>{description}</Markdown>}
                 </ReaderDisclosure>
               ))}
           </div>

@@ -178,12 +178,7 @@ function Reader({
             title: item?.name,
             topicId: detail?.kind === "topics" ? item?.id : undefined,
             tagId: detail?.kind === "tags" ? item?.id : undefined,
-            description:
-              detail?.kind === "tags"
-                ? `Articles tagged ${item?.name}.`
-                : item && "description" in item
-                  ? item.description
-                  : undefined,
+            description: item && "description" in item ? item.description : undefined,
             logoUrl: item && "logo_url" in item ? item.logo_url : undefined,
             logoVariants: item && "logo_variants" in item ? item.logo_variants : undefined,
             section: detail?.kind ?? "feed",

@@ -219,6 +219,7 @@ export async function checkTagFollow(page, pathFor, output, topicPath) {
   await page.waitForFunction(
     () => !document.querySelector(".topic-feed-heading .follow-button")?.disabled,
   );
+  await topicHeading.locator(".topic-description").waitFor();
   const topicAppearance = await followAppearance(page, topicFollow);
   await topicFollow.click();
   await topicHeading
@@ -231,6 +232,7 @@ export async function checkTagFollow(page, pathFor, output, topicPath) {
   await page.goto(pathFor("/tags/c%2B%2B"));
   const heading = page.locator(".topic-feed-heading");
   await heading.getByRole("heading", { name: "C++", exact: true }).waitFor();
+  assert.equal(await heading.locator(".topic-description").count(), 0, "Tag pages omit About");
   await heading.getByRole("button", { name: "Follow", exact: true }).waitFor();
   await page.waitForFunction(
     () => !document.querySelector(".topic-feed-heading .follow-button")?.disabled,
