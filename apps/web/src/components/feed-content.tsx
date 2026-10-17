@@ -84,30 +84,30 @@ export function FeedContent({
           </div>
           {section === "sources" && filters.source_id && (
             <div className="feed-heading-actions">
-              <SourceFollow
-                sourceId={filters.source_id}
-                returnTo={feedHref(filters, { cursor: filters.cursor })}
-              />
               <ReaderShare
                 path={sourceHref({ id: filters.source_id, slug: filters.source_slug })}
                 title={title}
                 kind="source"
                 label
               />
+              <SourceFollow
+                sourceId={filters.source_id}
+                returnTo={feedHref(filters, { cursor: filters.cursor })}
+              />
             </div>
           )}
           {section === "topics" && topicId && (
             <div className="feed-heading-actions">
-              <TopicFollow
-                key={topicId}
-                topicId={topicId}
-                returnTo={feedHref(filters, { cursor: filters.cursor })}
-              />
               <ReaderShare
                 path={`/topics/${encodeURIComponent(filters.topic)}`}
                 title={title}
                 kind="topic"
                 label
+              />
+              <TopicFollow
+                key={topicId}
+                topicId={topicId}
+                returnTo={feedHref(filters, { cursor: filters.cursor })}
               />
             </div>
           )}

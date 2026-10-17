@@ -218,6 +218,7 @@ it.each(["source", "topic"] as const)(
     );
     const trigger = screen.getByRole("button", { name: `Share ${kind}: Engineering & TypeScript` });
     expect(trigger.parentElement?.className).toBe("feed-heading-actions");
+    expect(trigger.parentElement?.firstElementChild).toBe(trigger);
     expect(trigger.textContent).toBe("Share");
     fireEvent.click(trigger);
     const panel = screen.getByRole("dialog", { name: `Share ${kind}` });

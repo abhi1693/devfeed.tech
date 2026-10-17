@@ -15,7 +15,7 @@ export async function checkCatalogSharing(page, pathFor, collections, output, pu
       const actions = document.querySelector(`.${kind}-feed-heading .feed-heading-actions`);
       const follow = actions?.querySelector(".follow-button")?.getBoundingClientRect();
       const share = actions?.querySelector(".article-share-trigger")?.getBoundingClientRect();
-      return follow?.width && share?.width && share.x >= follow.right;
+      return follow?.width && share?.width && share.right <= follow.x;
     }, kind);
     await page.evaluate(() => {
       Object.defineProperty(navigator, "clipboard", {
