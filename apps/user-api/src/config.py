@@ -3,9 +3,37 @@
 import re
 from functools import lru_cache
 from typing import Literal
+from urllib.parse import urlsplit
 
-from pydantic import AliasChoices, Field, SecretStr, field_validator, model_validator
+from pydantic import AliasChoices, AnyHttpUrl, Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+def normalize_allowed_origin(value: str) -> str:
+    """Store explicit browser origins with the same normalization as URL.origin."""
+    message = "Allowed origins must be exact HTTP or HTTPS origins without credentials or paths"
+    if (
+        not re.match(r"https?://", value, re.IGNORECASE)
+        or any(char.isspace() or ord(char) < 32 or ord(char) == 127 for char in value)
+        or any(char in value for char in "\\*?#\ufeff")
+    ):
+        raise ValueError(message)
+    try:
+        parts = urlsplit(value)
+        if (
+            not parts.hostname
+            or "@" in parts.netloc
+            or parts.netloc.endswith(":")
+            or parts.path not in {"", "/"}
+        ):
+            raise ValueError(message)
+        # Pydantic uses browser-compatible URL parsing for host, IDNA and port normalization.
+        origin = AnyHttpUrl(value)
+        if not origin.host or "*" in origin.host:
+            raise ValueError(message)
+    except ValueError as exc:
+        raise ValueError(message) from exc
+    return str(origin).removesuffix("/")
 
 
 class Settings(BaseSettings):
@@ -18,6 +46,7 @@ class Settings(BaseSettings):
     mcp_resource_url: str | None = None
     mcp_issuer_url: str | None = None
     base_url: str | None = None
+    allowed_origins: list[str] = Field(default_factory=list)
     x_pixel_enabled: bool = Field(default=False, validation_alias="DEVFEED_X_PIXEL_ENABLED")
     x_pixel_token: SecretStr | None = Field(default=None, validation_alias="X_PIXEL_TOKEN")
     x_signup_event_id: str | None = Field(default=None, validation_alias="X_SIGNUP_EVENT_ID")
@@ -47,6 +76,11 @@ class Settings(BaseSettings):
     oidc_organization_scope_template: str = "urn:zitadel:iam:org:id:{organization_id}"
     oidc_organization_claim: str = "urn:zitadel:iam:user:resourceowner:id"
 
+    @field_validator("allowed_origins")
+    @classmethod
+    def validate_allowed_origins(cls, value: list[str]) -> list[str]:
+        return list(dict.fromkeys(normalize_allowed_origin(origin) for origin in value))
+
     @field_validator("extension_ids")
     @classmethod
     def validate_extension_ids(cls, value: list[str]) -> list[str]:
@@ -57,8 +91,13 @@ class Settings(BaseSettings):
     def allows_request_origin(self, origin: str | None) -> bool:
         if not origin:
             return False
-        return bool(self.base_url and origin == self.base_url.rstrip("/")) or any(
-            origin == f"chrome-extension://{extension_id}" for extension_id in self.extension_ids
+        return (
+            bool(self.base_url and origin == self.base_url.rstrip("/"))
+            or origin in self.allowed_origins
+            or any(
+                origin == f"chrome-extension://{extension_id}"
+                for extension_id in self.extension_ids
+            )
         )
 
     @field_validator(
@@ -100,8 +139,6 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def validate_user_configuration(self):
-        from urllib.parse import urlsplit
-
         if self.mcp_session_ttl_seconds > self.mcp_session_absolute_ttl_seconds:
             raise ValueError("MCP inactivity timeout cannot exceed its absolute lifetime")
         if bool(self.mcp_resource_url) != bool(self.mcp_issuer_url):

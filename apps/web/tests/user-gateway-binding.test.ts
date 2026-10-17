@@ -56,3 +56,27 @@ it.each([["GET"], ["GET", "POST"], ["PUT", "DELETE"]])(
     expect(fetcher).not.toHaveBeenCalled();
   },
 );
+
+it("forwards tag follows from a configured LAN origin while preserving CSRF and canonical origin", async () => {
+  const operation = userGatewayOperations["follow_tag_v1_user_preferences_tags__tag_id__put"];
+  const handler = bindReaderOperation(operation);
+  const tagId = "55555555-5555-4555-8555-555555555555";
+  const lan = "http://192.0.2.10:3000";
+  const request = () =>
+    new Request(`${lan}/api/v1/user/preferences/tags/${tagId}`, {
+      method: "PUT",
+      headers: { Origin: lan, "Content-Type": "application/json", "X-CSRF-Token": "csrf" },
+      body: '{"followed":true}',
+    });
+  const context = { params: Promise.resolve({ tag_id: tagId }) };
+  const fetcher = vi.fn().mockResolvedValue(Response.json({ followed: true }));
+  vi.stubGlobal("fetch", fetcher);
+  vi.stubEnv("DEVFEED_USER_ALLOWED_ORIGINS", "[]");
+  expect((await handler(request(), context)).status).toBe(403);
+  expect(fetcher).not.toHaveBeenCalled();
+  vi.stubEnv("DEVFEED_USER_ALLOWED_ORIGINS", JSON.stringify([lan]));
+  expect((await handler(request(), context)).status).toBe(200);
+  expect(fetcher.mock.calls[0][1].headers.get("origin")).toBe(lan);
+  expect(fetcher.mock.calls[0][1].headers.get("x-csrf-token")).toBe("csrf");
+  expect(process.env.DEVFEED_USER_BASE_URL).toBe(origin);
+});

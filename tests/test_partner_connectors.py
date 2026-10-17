@@ -261,7 +261,7 @@ def test_filters_and_missing_pages_fail_explicitly():
     [
         {"base_url": "http://api.platform.example"},
         {"base_url": "https://localhost"},
-        {"base_url": "https://192.168.1.101"},
+        {"base_url": "https://192.168.1.10"},
         {"base_url": "https://user:password@api.platform.example"},
         {"list_path": "//evil.example/products"},
         {"detail_path": "/products/{other}"},

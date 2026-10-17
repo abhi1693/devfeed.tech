@@ -31,9 +31,38 @@ export function extensionOriginAllowed(origin: string | null) {
   return ids.some((id) => origin === `chrome-extension://${id}`);
 }
 
+function additionalUserOrigins(): string[] {
+  const values: unknown = JSON.parse(process.env.DEVFEED_USER_ALLOWED_ORIGINS || "[]");
+  if (!Array.isArray(values))
+    throw new Error("DEVFEED_USER_ALLOWED_ORIGINS must be an origin list");
+  return values.map((value: unknown) => {
+    if (
+      typeof value !== "string" ||
+      /[\s\\]/u.test(value) ||
+      Array.from(value).some((char) => char.charCodeAt(0) < 32 || char.charCodeAt(0) === 127) ||
+      !/^https?:\/\/[^/?#]+\/?$/i.test(value)
+    )
+      throw new Error("DEVFEED_USER_ALLOWED_ORIGINS must contain exact HTTP(S) origins");
+    const url = new URL(value);
+    if (
+      value.includes("@") ||
+      url.username ||
+      url.password ||
+      !url.hostname ||
+      url.hostname.includes("*") ||
+      /:\/?$/.test(value)
+    )
+      throw new Error("DEVFEED_USER_ALLOWED_ORIGINS must contain exact HTTP(S) origins");
+    return url.origin;
+  });
+}
+
 export function userRequestOriginAllowed(origin: string | null) {
   const extension = extensionOriginAllowed(origin);
-  return origin === userWebOrigin() || extension;
+  const additional = additionalUserOrigins();
+  return (
+    origin === userWebOrigin() || (origin !== null && additional.includes(origin)) || extension
+  );
 }
 
 export function publicSiteOrigin() {

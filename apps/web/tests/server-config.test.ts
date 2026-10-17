@@ -5,6 +5,7 @@ import {
   publicSiteOrigin,
   userApiOrigin,
   userWebOrigin,
+  userRequestOriginAllowed,
 } from "@/lib/server/config";
 
 afterEach(() => vi.unstubAllEnvs());
@@ -53,4 +54,46 @@ it("requires an exact extension origin and defaults to no trusted extensions", (
   expect(extensionOriginAllowed(`chrome-extension://${"p".repeat(32)}`)).toBe(true);
   expect(extensionOriginAllowed(`chrome-extension://${"p".repeat(32)}/`)).toBe(false);
   expect(extensionOriginAllowed(`https://${"p".repeat(32)}`)).toBe(false);
+});
+
+it("trusts only explicitly configured additional reader origins", () => {
+  vi.stubEnv("DEVFEED_USER_BASE_URL", "http://localhost:3000");
+  vi.stubEnv("DEVFEED_USER_EXTENSION_IDS", "[]");
+  vi.stubEnv("DEVFEED_USER_ALLOWED_ORIGINS", "[]");
+  expect(userRequestOriginAllowed("http://192.0.2.10:3000")).toBe(false);
+  vi.stubEnv(
+    "DEVFEED_USER_ALLOWED_ORIGINS",
+    '["http://192.0.2.10:3000", "https://EXAMPLE.COM:443/"]',
+  );
+  expect(userRequestOriginAllowed("http://192.0.2.10:3000")).toBe(true);
+  expect(userRequestOriginAllowed("https://example.com")).toBe(true);
+  expect(userRequestOriginAllowed("http://192.0.2.11:3000")).toBe(false);
+  expect(userRequestOriginAllowed(null)).toBe(false);
+  expect(userWebOrigin()).toBe("http://localhost:3000");
+});
+it.each([
+  {},
+  [null],
+  [42],
+  ["*"],
+  ["null"],
+  ["ftp://example.com"],
+  ["https://user@example.com"],
+  ["https://@example.com"],
+  ["https://*.example.com"],
+  ["https://example.com/path"],
+  ["https://example.com/."],
+  ["https://example.com?"],
+  ["https://example.com#"],
+  ["https://example.com:"],
+  ["https://example.com:99999"],
+  [" https://example.com"],
+  ["https://example.com\\path"],
+  ["https://example.com\u0000"],
+  ["https://example.com\u007f"],
+])("rejects invalid additional reader origins: %j", (values) => {
+  vi.stubEnv("DEVFEED_USER_BASE_URL", "http://localhost:3000");
+  vi.stubEnv("DEVFEED_USER_EXTENSION_IDS", "[]");
+  vi.stubEnv("DEVFEED_USER_ALLOWED_ORIGINS", JSON.stringify(values));
+  expect(() => userRequestOriginAllowed("http://localhost:3000")).toThrow();
 });
