@@ -16,6 +16,10 @@ jobs:
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: "24"
+          cache: npm
+          cache-dependency-path: package-lock.json
+      - name: Test Next.js compiler cache contract
+        run: node --test tests/next-build-cache.test.mjs
       - name: Audit locked Codex dependencies
         run: npm audit --prefix infra/codex --omit=dev --audit-level=high
       - name: Install locked JavaScript coverage tooling

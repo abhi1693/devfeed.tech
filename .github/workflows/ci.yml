@@ -161,13 +161,19 @@ jobs:
             }
             if (!summary) core.setFailed('Backend coverage artifact is missing or invalid');
   admin-web:
-    uses: abhi1693/actions/.github/workflows/node-ci.yml@afba12afb85bf40be9328c92dc53b779f18d5c6d # v1.0.1
+    uses: abhi1693/actions/.github/workflows/node-ci.yml@0464b5d06b5467502bf111b18fed14224b63f295 # build cache support (actions#12)
     with:
       checks: '["generate", "lint", "test", "build"]'
       scripts: '{"generate": "admin:generate", "lint": "admin:lint", "test": "ci:admin-web-test", "build": "admin:build"}'
       timeout-minutes: 20
       runs-on: ubuntu-24.04-arm
       node-version: "24"
+      build-cache-paths: |
+        apps/admin/.next/cache/turbopack
+        apps/admin/.next/cache/webpack
+        apps/admin/.next/cache/swc
+        apps/admin/.next/cache/.tsbuildinfo
+      build-cache-scope: next-admin-unit-v1
       project-env: '{"NEXT_TELEMETRY_DISABLED":"1","DEVFEED_DATABASE_URL":"postgresql+psycopg://ci@database.invalid/ci","DEVFEED_REDIS_URL":"redis://redis.invalid/15"}'
       test-results-path: |
         reports/admin.xml
@@ -180,26 +186,38 @@ jobs:
     name: Unit / Admin UI lint, tests and build
   partner-web:
     name: Unit / Partner portal lint, tests, build and browser checks
-    uses: abhi1693/actions/.github/workflows/node-ci.yml@afba12afb85bf40be9328c92dc53b779f18d5c6d # v1.0.1
+    uses: abhi1693/actions/.github/workflows/node-ci.yml@0464b5d06b5467502bf111b18fed14224b63f295 # build cache support (actions#12)
     with:
       checks: '["lint", "test", "build"]'
       scripts: '{"lint": "partner:lint", "test": "ci:partner-test", "build": "ci:partner-browser"}'
       timeout-minutes: 20
       runs-on: ubuntu-24.04-arm
       node-version: "24"
+      build-cache-paths: |
+        apps/partner/.next/cache/turbopack
+        apps/partner/.next/cache/webpack
+        apps/partner/.next/cache/swc
+        apps/partner/.next/cache/.tsbuildinfo
+      build-cache-scope: next-partner-browser-v1
       test-results-path: |
         reports/partner.xml
         reports/coverage/partner/lcov.info
       test-results-name: partner-test-results-${{ github.run_attempt }}
       project-env: '{"NEXT_TELEMETRY_DISABLED":"1"}'
   user-web:
-    uses: abhi1693/actions/.github/workflows/node-ci.yml@afba12afb85bf40be9328c92dc53b779f18d5c6d # v1.0.1
+    uses: abhi1693/actions/.github/workflows/node-ci.yml@0464b5d06b5467502bf111b18fed14224b63f295 # build cache support (actions#12)
     with:
       checks: '["lint", "test", "build"]'
       scripts: '{"lint": "web:lint", "test": "ci:user-web-test", "build": "web:build"}'
       timeout-minutes: 15
       runs-on: ubuntu-24.04-arm
       node-version: "24"
+      build-cache-paths: |
+        apps/web/.next/cache/turbopack
+        apps/web/.next/cache/webpack
+        apps/web/.next/cache/swc
+        apps/web/.next/cache/.tsbuildinfo
+      build-cache-scope: next-web-unit-v1
       project-env: '{"NEXT_TELEMETRY_DISABLED":"1"}'
       test-results-path: |
         reports/user.xml
@@ -477,6 +495,11 @@ jobs:
         run: |
           sh scripts/ci/python-bootstrap.sh . --editable --all-packages
           npm ci --ignore-scripts
+      - name: Next.js compiler cache
+        uses: ./.github/actions/next-build-cache
+        with:
+          app: web
+          profile: reader-parity-v1
       - name: Check
         run: npm run ci:reader-parity
       - name: Summary
@@ -495,25 +518,37 @@ jobs:
           retention-days: 14
   admin-browser:
     name: E2E / Admin browser journeys
-    uses: abhi1693/actions/.github/workflows/node-ci.yml@afba12afb85bf40be9328c92dc53b779f18d5c6d # v1.0.1
+    uses: abhi1693/actions/.github/workflows/node-ci.yml@0464b5d06b5467502bf111b18fed14224b63f295 # build cache support (actions#12)
     with:
       checks: '["test"]'
       scripts: '{"test": "ci:admin-browser"}'
       timeout-minutes: 20
       runs-on: ubuntu-24.04
       node-version: "24"
+      build-cache-paths: |
+        apps/admin/.next/cache/turbopack
+        apps/admin/.next/cache/webpack
+        apps/admin/.next/cache/swc
+        apps/admin/.next/cache/.tsbuildinfo
+      build-cache-scope: next-admin-browser-v1
       project-env: '{"NEXT_TELEMETRY_DISABLED":"1"}'
       browser-results-path: reports
       test-results-name: admin-browser-${{ github.run_attempt }}
   live-browser:
     name: E2E / Login and persistence through real APIs
-    uses: abhi1693/actions/.github/workflows/node-ci.yml@afba12afb85bf40be9328c92dc53b779f18d5c6d # v1.0.1
+    uses: abhi1693/actions/.github/workflows/node-ci.yml@0464b5d06b5467502bf111b18fed14224b63f295 # build cache support (actions#12)
     with:
       checks: '["test"]'
       scripts: '{"test": "ci:live-browser"}'
       timeout-minutes: 20
       runs-on: ubuntu-24.04
       node-version: "24"
+      build-cache-paths: |
+        apps/web/.next/cache/turbopack
+        apps/web/.next/cache/webpack
+        apps/web/.next/cache/swc
+        apps/web/.next/cache/.tsbuildinfo
+      build-cache-scope: next-live-browser-v1
       python-version: "3.12"
       uv-version: 0.12.10
       uv-sync-args: '["--all-packages"]'
@@ -585,6 +620,12 @@ jobs:
       - name: Chromium
         if: steps.changes.outputs.needed == 'true'
         run: node node_modules/playwright/cli.js install --with-deps chromium
+      - name: Next.js compiler cache
+        if: steps.changes.outputs.needed == 'true'
+        uses: ./.github/actions/next-build-cache
+        with:
+          app: web
+          profile: browser-budgets-v1
       - name: Budgets
         if: steps.changes.outputs.needed == 'true'
         run: npm run ci:browser-budgets

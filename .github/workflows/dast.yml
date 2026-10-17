@@ -93,6 +93,18 @@ jobs:
           sh scripts/ci/python-bootstrap.sh . --editable --all-packages
           npm ci --ignore-scripts
           node node_modules/playwright/cli.js install --with-deps chromium
+      - name: Reader compiler cache
+        if: steps.select.outputs.needed == 'true'
+        uses: ./.github/actions/next-build-cache
+        with:
+          app: web
+          profile: dast-web-v1
+      - name: Admin compiler cache
+        if: steps.select.outputs.needed == 'true'
+        uses: ./.github/actions/next-build-cache
+        with:
+          app: admin
+          profile: dast-admin-v1
       - name: Browser tests
         if: steps.select.outputs.needed == 'true'
         run: node --test tests/dast-browser.test.mjs
