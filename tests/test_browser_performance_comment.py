@@ -160,38 +160,39 @@ def test_browser_comment_uses_pinned_sticky_action_without_executing_pr_code():
     assert "path: browser-comment.md\n" in job
 
 
-def test_lighthouse_waits_for_tests_and_does_not_hide_their_failures():
+def test_browser_budgets_run_independently_and_keep_measurement_and_report_gates():
     workflow = yaml.safe_load((ROOT / ".github/workflows/ci.yml").read_text())
     job = workflow["jobs"]["browser-budgets"]
-    tests = {
-        "python-unit",
-        "python-integration",
-        "admin-web",
-        "user-web",
-        "extensions",
-        "reader-parity",
-        "admin-browser",
-        "live-browser",
-        "api-fuzz",
-        "mutation",
-        "property",
-        "recovery",
-    }
-    assert set(job["needs"]) == tests
-    for name in tests:
-        assert f"needs.{name}.result == 'success'" in job["if"]
-    assert "github.event_name == 'push' && needs.api-fuzz.result == 'skipped'" in job["if"]
+    assert not job.get("needs")
+    assert "needs." not in job["if"]
+    assert "github.event_name == 'pull_request'" in job["if"]
+    assert "github.event_name == 'merge_group'" in job["if"]
+    assert "github.event_name == 'push' && github.ref == 'refs/heads/master'" in job["if"]
     assert "continue-on-error" not in job
+    assert job["outputs"]["coverage"] == "${{ steps.changes.outputs.needed }}"
+    steps = {step["name"]: step for step in job["steps"]}
+    assert "node scripts/ci/browser-performance-changes.mjs" in steps["Select changes"]["run"]
+    assert "needed=true" in steps["Select changes"]["run"]
+    assert steps["Budgets"]["run"] == "npm run ci:browser-budgets"
+    assert steps["Budgets"]["if"] == "steps.changes.outputs.needed == 'true'"
+    for name in ("Coverage", "Reports"):
+        assert steps[name]["if"] == "always() && steps.changes.outputs.needed == 'true'"
+        assert steps[name]["with"]["if-no-files-found"] == "error"
+    assert "reports/coverage/browser-budgets/lcov.info" in steps["Coverage"]["with"]["path"]
     assert workflow["jobs"]["browser-report"]["needs"] == "browser-budgets"
+    assert "browser-budgets" in workflow["jobs"]["required"]["needs"]
+    assert "reader-parity" in workflow["jobs"]["required"]["needs"]
+    assert "browser-budgets" in workflow["jobs"]["sonarqube"]["needs"]
 
 
-def test_browser_comment_replaces_stale_metrics_when_tests_prevent_measurement():
+def test_browser_comment_replaces_stale_metrics_when_measurements_are_unavailable():
     result = format_comment(status="skipped", missing=True)
     assert not result["failures"]
     assert result["outputs"] == {"current": "true"}
     body = result["files"]["browser-comment.md"]
     assert "Lighthouse · ⏸️ Not measured" in body
-    assert "Tests did not pass for this commit." in body
+    assert "Browser budgets were unavailable for this commit." in body
+    assert "Tests did not pass" not in body
     assert "| Page | FCP |" not in body
     assert "a" * 40 in body
     assert format_comment(status="skipped", stale=True, missing=True) == {

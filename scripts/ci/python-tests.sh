@@ -17,14 +17,14 @@ fi
 mkdir -p reports
 export DEVFEED_DATABASE_URL=postgresql+psycopg://ci@database.invalid/ci
 export DEVFEED_REDIS_URL=redis://redis.invalid/15
+backend_sources=$(uv run --locked --no-sync --no-build python -c \
+  'import tomllib; print(",".join(tomllib.load(open("pyproject.toml", "rb"))["tool"]["coverage"]["run"]["source"]))')
 if [[ "$suite" != integration ]]; then
   rm -rf reports/coverage
   rm -f reports/python-unit.xml
   mkdir -p reports/coverage/python-unit
   unit_coverage=reports/coverage/python-unit/coverage.db
   backend_include='apps/*/src/**,packages/*/src/**'
-  backend_sources=$(uv run --locked --no-sync --no-build python -c \
-    'import tomllib; print(",".join(tomllib.load(open("pyproject.toml", "rb"))["tool"]["coverage"]["run"]["source"]))')
   unit_status=0
   # Keep CI utility measurements for Sonar; the unit floor/report covers every backend file.
   COVERAGE_FILE="$unit_coverage" uv run --locked --no-sync --no-build coverage run \
@@ -94,7 +94,8 @@ export DEVFEED_TEST_REDIS_URL="redis://127.0.0.1:${ci_redis_port}/15"
 report="reports/python-integration-${shard_index}.xml"
 mkdir -p "reports/coverage/python-integration-${shard_index}"
 COVERAGE_FILE="reports/coverage/python-integration-${shard_index}/coverage.db" \
-  DEVFEED_TEST_DATABASE_FAILURES=1 uv run --locked --no-sync --no-build coverage run -m pytest \
+  DEVFEED_TEST_DATABASE_FAILURES=1 uv run --locked --no-sync --no-build coverage run \
+  --source="$backend_sources,scripts" -m pytest \
   -p scripts.ci.pytest_shard --ci-shard-index "$shard_index" --ci-shard-count "$shard_count" \
   -q -m 'integration and not failure_recovery' --junitxml="$report"
 uv run --locked --no-sync --no-build python scripts/ci/check_reports.py junit "$report"

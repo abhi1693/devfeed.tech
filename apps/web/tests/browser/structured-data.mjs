@@ -88,6 +88,21 @@ function validateDocument(document, path, article) {
   return graphs;
 }
 
+async function validateRenderedDocument(page, path, article, expected) {
+  // React can retain an inert streamed copy while it hydrates the active page.
+  // Wait for that handoff, then validate every graph without filtering duplicates.
+  await page.waitForFunction((count) => {
+    const scripts = [...document.querySelectorAll('script[type="application/ld+json"]')];
+    return scripts.length >= count && scripts.every((script) => !script.closest("[hidden]"));
+  }, expected.length);
+  const dom = new JSDOM(await page.content());
+  try {
+    assert.deepEqual(validateDocument(dom.window.document, path, article), expected);
+  } finally {
+    dom.window.close();
+  }
+}
+
 test(
   "public structured data matches crawler HTML, rendered pages and profile privacy",
   { timeout: 180000 },
@@ -216,19 +231,135 @@ test(
       }
       const response = await page.goto(origin + path);
       assert.equal(response.status(), 200);
-      await page.waitForFunction(
-        (count) => document.querySelectorAll('script[type="application/ld+json"]').length === count,
-        expected.length,
-      );
-      const dom = new JSDOM(await page.content());
-      assert.deepEqual(validateDocument(dom.window.document, path, article), expected);
-      dom.window.close();
+      await validateRenderedDocument(page, path, article, expected);
       results.push({
         path,
         canonical: await page.locator('link[rel="canonical"]').getAttribute("href"),
         graphs: expected.length,
       });
     }
+    await t.test("streamed graphs wait for reveal and genuine duplicates still fail", async (t) => {
+      const page = await browser.newPage();
+      let releaseChunks;
+      t.after(async () => {
+        releaseChunks?.();
+        await page.close();
+      });
+      await page.addInitScript(() => {
+        let current;
+        let released = false;
+        const pending = [];
+        window.releaseStructuredDataStream = () => {
+          released = true;
+          for (const entry of pending.splice(0)) {
+            Reflect.apply(entry.fn, entry.thisArg, entry.args);
+          }
+        };
+        Object.defineProperty(window, "$RV", {
+          configurable: true,
+          get: () => current,
+          set(fn) {
+            current = function (...args) {
+              const segments = Array.isArray(args[0]) ? args[0] : [];
+              const hasGraph = segments.some(
+                (segment, index) =>
+                  index % 2 === 1 && segment?.querySelector?.('script[type="application/ld+json"]'),
+              );
+              if (hasGraph && !released) {
+                pending.push({ fn, thisArg: this, args });
+                return;
+              }
+              return Reflect.apply(fn, this, args);
+            };
+          },
+        });
+      });
+      const crawlerResponse = await fetch(`${origin}/latest`, {
+        headers: { "User-Agent": "Googlebot" },
+      });
+      const crawler = new JSDOM(await crawlerResponse.text());
+      const expected = validateDocument(crawler.window.document, "/latest", article);
+      crawler.window.close();
+      const chunks = new Promise((resolve) => {
+        releaseChunks = resolve;
+      });
+      await page.route("**/_next/static/chunks/*.js", async (route) => {
+        await chunks;
+        await route.continue();
+      });
+      const response = await page.goto(`${origin}/latest`, { waitUntil: "commit" });
+      assert.equal(response.status(), 200);
+      await page.waitForFunction(() => {
+        const scripts = [...document.querySelectorAll('script[type="application/ld+json"]')];
+        return scripts.length === 2 && scripts.some((script) => script.closest("[hidden]"));
+      });
+      let outcome = "pending";
+      const validation = validateRenderedDocument(page, "/latest", article, expected);
+      void validation.then(
+        () => {
+          outcome = "passed";
+        },
+        () => {
+          outcome = "failed";
+        },
+      );
+      releaseChunks();
+      await page.waitForFunction(() => {
+        const scripts = [...document.querySelectorAll('script[type="application/ld+json"]')];
+        return (
+          scripts.length === 3 &&
+          scripts.filter((script) => script.closest("[hidden]")).length === 1
+        );
+      });
+      const copies = await page.evaluate(() =>
+        [...document.querySelectorAll('script[type="application/ld+json"]')]
+          .filter((script) => JSON.parse(script.textContent)["@type"] === "CollectionPage")
+          .map((script) => ({
+            data: JSON.parse(script.textContent),
+            hidden: !!script.closest("[hidden]"),
+          })),
+      );
+      assert.equal(copies.length, 2);
+      assert.deepEqual(copies[0].data, copies[1].data);
+      assert.equal(copies.filter((copy) => copy.hidden).length, 1);
+      assert.equal(
+        outcome,
+        "pending",
+        "the hidden streamed copy cannot satisfy rendered validation",
+      );
+      await page.evaluate(() => window.releaseStructuredDataStream());
+      await validation;
+      assert.equal(outcome, "passed");
+      await page.evaluate(() => {
+        const graph = [...document.querySelectorAll('script[type="application/ld+json"]')].find(
+          (script) => JSON.parse(script.textContent)["@type"] === "CollectionPage",
+        );
+        const duplicate = graph.cloneNode(true);
+        duplicate.id = "duplicate-structured-data-control";
+        graph.after(duplicate);
+      });
+      await assert.rejects(
+        validateRenderedDocument(page, "/latest", article, expected),
+        /has one site and at most one page graph/,
+      );
+      await page.evaluate(() => {
+        document.getElementById("duplicate-structured-data-control").remove();
+        const scripts = [...document.querySelectorAll('script[type="application/ld+json"]')];
+        const site = scripts
+          .map((script) => JSON.parse(script.textContent))
+          .find((data) => data["@graph"]);
+        const graph = scripts.find(
+          (script) => JSON.parse(script.textContent)["@type"] === "CollectionPage",
+        );
+        const data = JSON.parse(graph.textContent);
+        data.conflictingOrganization = { ...site["@graph"][0], name: "Conflicting organization" };
+        graph.textContent = JSON.stringify(data);
+      });
+      await assert.rejects(
+        validateRenderedDocument(page, "/latest", article, expected),
+        /has no conflicting entity definitions/,
+      );
+    });
     await writeFile(`${destination}/summary.json`, JSON.stringify(results, null, 2));
     console.log(
       `Validated crawler HTML and browser JSON-LD on ${paths.length} representative routes.`,
