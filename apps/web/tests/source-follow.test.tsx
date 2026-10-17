@@ -137,3 +137,16 @@ it("offers recurring video collections in preferences without offering single su
   expect(screen.getByRole("button", { name: "Video playlist" })).toBeTruthy();
   expect(screen.queryByRole("button", { name: "Single video" })).toBeNull();
 });
+
+it("explains an empty follow selection when the catalog contains only single videos", async () => {
+  setup();
+  render(
+    shell(
+      <SourcePreferences
+        sources={[{ ...source, provider: "youtube", resource_kind: "video", recurring: false }]}
+      />,
+    ),
+  );
+  expect(await screen.findByText("No recurring sources match your search.")).toBeTruthy();
+  expect(screen.queryByRole("button", { name: source.name })).toBeNull();
+});

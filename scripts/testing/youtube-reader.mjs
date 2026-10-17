@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
-import { mkdir } from "node:fs/promises";
+import { mkdir, writeFile } from "node:fs/promises";
+import AxeBuilder from "@axe-core/playwright";
+import { assertAccessible } from "../../apps/web/tests/browser/accessibility.mjs";
 
 const apiPath = (url) => url.pathname.replace(/^\/api(?=\/v1\/)/, "");
 export function youtubeReaderFixture(article) {
@@ -66,6 +68,8 @@ export function youtubeReaderFixture(article) {
   video.topics = [topic];
   const state = {
     active: false,
+    signedIn: true,
+    singleSourceOnly: false,
     liked: false,
     bookmarked: false,
     opens: 0,
@@ -117,12 +121,14 @@ export function youtubeReaderFixture(article) {
       state.requests.push({ path, method });
       let json;
       if (path === "/v1/user/auth/me")
-        json = {
-          user_id: "44444444-4444-4444-8444-444444444444",
-          name: "Video reader",
-          csrf_token: "test",
-          expires_at: 4102444800,
-        };
+        json = state.signedIn
+          ? {
+              user_id: "44444444-4444-4444-8444-444444444444",
+              name: "Video reader",
+              csrf_token: "test",
+              expires_at: 4102444800,
+            }
+          : null;
       else if (path === "/v1/user/settings/profile")
         json = {
           display_name: "Video reader",
@@ -142,7 +148,7 @@ export function youtubeReaderFixture(article) {
           next_cursor: null,
         };
       else if (path === "/v1/sources") {
-        const items = [channel, playlist, direct];
+        const items = state.singleSourceOnly ? [direct] : [channel, playlist, direct];
         json = url.pathname.startsWith("/api/") ? { items, next_cursor: null } : items;
       } else if (path === "/v1/feed/options")
         json = { sources: [channel, playlist], languages: ["en"], content_types: ["tutorial"] };
@@ -224,7 +230,33 @@ export async function checkYoutubeReader(page, destination, fixture, output) {
     if (["http:", "https:", "chrome-extension:"].includes(location.protocol))
       localStorage.setItem("devfeed:dev-card-promo-seen", "true");
   });
+  const scan = async (selector, name) => {
+    const result = await new AxeBuilder({ page })
+      .include(selector)
+      .withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa"])
+      .analyze();
+    await writeFile(`${output}/${name}-axe.json`, JSON.stringify(result, null, 2));
+    assertAccessible(result, `Video ${name}`);
+  };
   await page.setViewportSize({ width: 1280, height: 1000 });
+  fixture.state.signedIn = false;
+  await page.goto(destination("/latest"));
+  const guest = page.locator(".article-card").filter({ hasText: fixture.video.title });
+  const saveForLater = guest.getByRole("link", {
+    name: "Sign in to save video for later",
+    exact: true,
+  });
+  await saveForLater.waitFor();
+  assert.match(await saveForLater.getAttribute("href"), /\/login\?/);
+  await guest.getByRole("link", { name: /^Sign in to like this video(?:, 0 likes)?$/ }).waitFor();
+  assert.equal(
+    await guest
+      .getByRole("link", { name: "Watch on YouTube in a new tab", exact: true })
+      .getAttribute("href"),
+    fixture.video.canonical_url,
+  );
+  await scan(".article-card", "guest-card");
+  fixture.state.signedIn = true;
   await page.goto("about:blank");
   await page.goto(destination("/latest"));
   const card = page.locator(".article-card").filter({ hasText: fixture.video.title });
@@ -290,9 +322,12 @@ export async function checkYoutubeReader(page, destination, fixture, output) {
       .getAttribute("href"),
   );
   assert.equal(new URL(reddit.searchParams.get("url")).pathname, `/articles/${fixture.video.slug}`);
+  await scan(".article-share-popover", "sharing");
   await page.keyboard.press("Escape");
+  await share.waitFor({ state: "hidden" });
   await page.setViewportSize({ width: 390, height: 844 });
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
+  await scan(".article-modal", "mobile-preview");
   await page.screenshot({ path: `${output}/video-preview-mobile.png`, animations: "disabled" });
   await page.setViewportSize({ width: 1280, height: 1000 });
   await preview.getByRole("button", { name: "Close preview", exact: true }).click();
@@ -351,6 +386,9 @@ export async function checkYoutubeReader(page, destination, fixture, output) {
     await page.getByRole("button", { name: fixture.direct.name, exact: true }).count(),
     0,
   );
+  fixture.state.singleSourceOnly = true;
+  await page.reload();
+  await page.getByText("No recurring sources match your search.", { exact: true }).waitFor();
   assert.ok(
     fixture.state.mutations.some((item) => item.path.endsWith(`/${fixture.video.id}/like`)),
   );
