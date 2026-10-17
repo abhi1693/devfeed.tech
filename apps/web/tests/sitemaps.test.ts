@@ -22,6 +22,27 @@ afterEach(() => {
   vi.unstubAllEnvs();
 });
 
+it("selects the newest page-index modification date from unsorted publication dates", async () => {
+  vi.stubEnv("DEVFEED_USER_BASE_URL", "https://devfeed.tech");
+  vi.stubGlobal(
+    "fetch",
+    vi.fn().mockResolvedValue(
+      Response.json({
+        generation: version,
+        parts: [],
+        latest_publication: {
+          articles: "2099-09-12T12:00:00Z",
+          sources: "2099-12-01T08:00:00Z",
+          topics: "2099-02-20T09:00:00Z",
+        },
+      }),
+    ),
+  );
+  const response = await sitemapIndex(new Request("https://devfeed.tech/sitemap.xml"));
+  expect(response.status).toBe(200);
+  expect(await response.text()).toContain("<lastmod>2099-12-01T08:00:00.000Z</lastmod>");
+});
+
 it("publishes the privacy update without changing the terms modification date", async () => {
   vi.stubEnv("DEVFEED_USER_BASE_URL", "https://devfeed.tech");
   vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json({ latest_publication: {} })));

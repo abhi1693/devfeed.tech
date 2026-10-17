@@ -217,7 +217,8 @@ def _ingest_claimed(factory, identifier, lease_token, url, etag, modified, start
             source = session.scalar(
                 select(Source).where(Source.id == job.source_id).with_for_update()
             )
-            assert source is not None
+            if source is None:
+                raise RuntimeError("Ingestion source disappeared before applying feed results")
             if source.approval_status != "approved":
                 cancel_unapproved_job(job)
                 logger.info("ingestion_source_unapproved")

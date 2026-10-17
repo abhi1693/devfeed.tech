@@ -1,5 +1,6 @@
 const assert = require("node:assert/strict");
 const { test } = require("node:test");
+const { spawnSync } = require("node:child_process");
 const braces = require("braces");
 const micromatch = require("micromatch");
 
@@ -23,6 +24,37 @@ test("deep patterns fail safely below the upstream character cap", () => {
       message: /maximum depth/,
     });
   }
+});
+
+test("long malformed inputs terminate within a bounded child process", () => {
+  const patterns = [
+    "a".repeat(9000),
+    "[".repeat(9000),
+    '"' + "a".repeat(8999),
+    "\\".repeat(9000),
+    "\u00a0\ufeff".repeat(4500),
+    "{a,b" + "x".repeat(8995),
+  ];
+  const result = spawnSync(
+    process.execPath,
+    [
+      "-e",
+      `const assert = require("node:assert/strict");
+       const braces = require("braces");
+       const patterns = JSON.parse(require("node:fs").readFileSync(0, "utf8"));
+       for (const pattern of patterns) {
+         const ast = braces.parse(pattern);
+         assert.equal(ast.input, pattern);
+         assert.equal(ast.nodes.at(-1).type, "eos");
+         assert.equal(typeof braces.stringify(ast), "string");
+       }
+       process.stdout.write("complete");`,
+    ],
+    { input: JSON.stringify(patterns), encoding: "utf8", timeout: 3000 },
+  );
+  assert.ifError(result.error);
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(result.stdout, "complete");
 });
 
 test("walker limits cover caller-supplied deep and cyclic ASTs", () => {
