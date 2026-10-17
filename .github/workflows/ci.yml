@@ -513,7 +513,7 @@ jobs:
           npm ci --ignore-scripts
       - name: Next.js compiler cache
         if: matrix.suite == 'web' || startsWith(matrix.suite, 'partner-')
-        uses: abhi1693/actions/next-build-cache@bf8cd38aa8456310278ed96bfa83a3132f235df1 # v1.0.4
+        uses: abhi1693/actions/next-build-cache@4bc25a3100cbfbece517ddad161d59d13c029675 # v1.0.5
         with:
           app-directory: apps/web
           profile: reader-${{ matrix.suite }}-v1
@@ -731,7 +731,7 @@ jobs:
         run: node node_modules/playwright/cli.js install --with-deps chromium
       - name: Next.js compiler cache
         if: steps.changes.outputs.needed == 'true'
-        uses: abhi1693/actions/next-build-cache@bf8cd38aa8456310278ed96bfa83a3132f235df1 # v1.0.4
+        uses: abhi1693/actions/next-build-cache@4bc25a3100cbfbece517ddad161d59d13c029675 # v1.0.5
         with:
           app-directory: apps/web
           profile: browser-budgets-v1

@@ -95,13 +95,13 @@ jobs:
           node node_modules/playwright/cli.js install --with-deps chromium
       - name: Reader compiler cache
         if: steps.select.outputs.needed == 'true'
-        uses: abhi1693/actions/next-build-cache@bf8cd38aa8456310278ed96bfa83a3132f235df1 # v1.0.4
+        uses: abhi1693/actions/next-build-cache@4bc25a3100cbfbece517ddad161d59d13c029675 # v1.0.5
         with:
           app-directory: apps/web
           profile: dast-web-v1
       - name: Admin compiler cache
         if: steps.select.outputs.needed == 'true'
-        uses: abhi1693/actions/next-build-cache@bf8cd38aa8456310278ed96bfa83a3132f235df1 # v1.0.4
+        uses: abhi1693/actions/next-build-cache@4bc25a3100cbfbece517ddad161d59d13c029675 # v1.0.5
         with:
           app-directory: apps/admin
           profile: dast-admin-v1
@@ -132,5 +132,6 @@ jobs:
           path: |
             reports/dast/results.json
             reports/dast/summary.md
+            reports/dast/zap-startup.json
           if-no-files-found: error
           retention-days: 14

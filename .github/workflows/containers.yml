@@ -9,7 +9,7 @@ permissions:
   contents: read
 jobs:
   images:
-    uses: abhi1693/actions/.github/workflows/container-images.yml@351ff1d65fa492004066ccd4f331ca51f7a2ae0d # Docker compiler cache mounts
+    uses: abhi1693/actions/.github/workflows/container-images.yml@4bc25a3100cbfbece517ddad161d59d13c029675 # v1.0.5
     with:
       manifest: .github/images.json
       publish: ${{ inputs.publish }}

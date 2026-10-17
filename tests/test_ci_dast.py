@@ -104,6 +104,185 @@ def test_dast_rejects_zap_api_errors(dast):
         zap.client.close()
 
 
+@pytest.fixture
+def zap_startup(dast, monkeypatch):
+    events = []
+    key = "known-private-zap-api-key"
+    state = {
+        "Running": False,
+        "ExitCode": 137,
+        "OOMKilled": True,
+        "Error": f"startup failure {key}",
+        "Config": {"Env": ["unrelated-private-value"]},
+    }
+    logs = "prefix" * 4000 + key + " startup-tail\n"
+    monkeypatch.setattr(dast, "port", lambda: 48123)
+    monkeypatch.setattr(dast.secrets, "token_urlsafe", lambda size: key)
+    monkeypatch.setattr(dast.time, "sleep", lambda seconds: events.append(("sleep", seconds)))
+    monkeypatch.setattr(
+        dast, "docker", lambda *args: events.append(("start", args)) or "owned-zap-container"
+    )
+
+    def request(*args, **kwargs):
+        events.append(("version",))
+        raise httpx.ConnectError("not ready")
+
+    def run(command, **kwargs):
+        events.append((command[1], command, kwargs))
+        if command[1] == "inspect":
+            return SimpleNamespace(stdout=json.dumps(state), stderr="")
+        if command[1] == "logs":
+            return SimpleNamespace(stdout=logs, stderr="stderr-tail\n")
+        assert command == ["docker", "rm", "-f", "owned-zap-container"]
+        return SimpleNamespace(returncode=0)
+
+    monkeypatch.setattr(dast.Zap, "call", request)
+    monkeypatch.setattr(dast.subprocess, "run", run)
+    return SimpleNamespace(events=events, key=key, state=state, logs=logs, run=run)
+
+
+def test_zap_startup_timeout_retains_bounded_redacted_evidence_before_cleanup(dast, zap_startup):
+    with (
+        pytest.raises(RuntimeError, match="^Pinned ZAP did not become ready$"),
+        dast.zap_server(),
+    ):
+        pytest.fail("An unready scanner must not scan")
+    events = zap_startup.events
+    assert sum(event[0] == "version" for event in events) == 120
+    assert [event for event in events if event[0] == "sleep"] == [("sleep", 1)] * 120
+    assert [event[0] for event in events[-3:]] == ["inspect", "logs", "rm"]
+    start = events[0][1]
+    assert "--rm" not in start
+    assert start[start.index("--memory") + 1] == "2g"
+    assert start[start.index("--cpus") + 1] == "2"
+    assert "start.checkForUpdates=false" in start
+    assert "start.downloadNewRelease=false" in start
+    report_text = (dast.REPORTS / "zap-startup.json").read_text()
+    report = json.loads(report_text)
+    assert report["state"] == {
+        "Running": False,
+        "ExitCode": 137,
+        "OOMKilled": True,
+        "Error": "startup failure [REDACTED]",
+    }
+    expected_tail = (zap_startup.logs + "stderr-tail\n").replace(zap_startup.key, "[REDACTED]")[
+        -16384:
+    ]
+    assert report["log_tail"] == expected_tail
+    assert "[REDACTED] startup-tail" in report["log_tail"]
+    assert len(report["log_tail"]) <= 16384
+    assert report["diagnostic_errors"] == []
+    assert zap_startup.key not in report_text
+    assert "unrelated-private-value" not in report_text
+    inspect = next(event for event in events if event[0] == "inspect")
+    assert ".Config" not in inspect[1][3] and ".State" in inspect[1][3]
+    assert inspect[2]["timeout"] == 5
+
+
+def test_zap_startup_success_keeps_strict_version_without_failure_artifacts(
+    dast, zap_startup, monkeypatch
+):
+    monkeypatch.setattr(dast.Zap, "call", lambda *args: {"version": "2.17.0"})
+    with dast.zap_server() as zap:
+        assert zap.key == zap_startup.key
+    assert [event[0] for event in zap_startup.events] == ["start", "rm"]
+    assert not (dast.REPORTS / "zap-startup.json").exists()
+
+
+def test_zap_startup_does_not_accept_a_different_ready_version(dast, zap_startup, monkeypatch):
+    monkeypatch.setattr(dast.Zap, "call", lambda *args: {"version": "2.16.0"})
+    with (
+        pytest.raises(RuntimeError, match="^Pinned ZAP did not become ready$"),
+        dast.zap_server(),
+    ):
+        pytest.fail("A different scanner version must not scan")
+    assert sum(event[0] == "sleep" for event in zap_startup.events) == 120
+    assert zap_startup.events[-1][0] == "rm"
+
+
+@pytest.mark.parametrize("failure", ["inspect", "logs", "write"])
+def test_zap_startup_diagnostic_failures_preserve_readiness_failure_and_cleanup(
+    dast, zap_startup, monkeypatch, failure, capsys
+):
+    def run(command, **kwargs):
+        if command[1] == failure:
+            raise subprocess.TimeoutExpired(command, 5, output=zap_startup.key)
+        return zap_startup.run(command, **kwargs)
+
+    monkeypatch.setattr(dast.subprocess, "run", run)
+    if failure == "write":
+
+        def fail_write(*args, **kwargs):
+            raise OSError(zap_startup.key)
+
+        monkeypatch.setattr(Path, "write_text", fail_write)
+    with (
+        pytest.raises(RuntimeError, match="^Pinned ZAP did not become ready$"),
+        dast.zap_server(),
+    ):
+        pytest.fail("Failed diagnostics must not allow scanning")
+    assert zap_startup.events[-1][0] == "rm"
+    assert sum(event[0] == "version" for event in zap_startup.events) == 120
+    captured = capsys.readouterr()
+    assert zap_startup.key not in captured.out + captured.err
+    if failure != "write":
+        report_text = (dast.REPORTS / "zap-startup.json").read_text()
+        report = json.loads(report_text)
+        assert len(report["diagnostic_errors"]) == 1
+        assert zap_startup.key not in report_text
+
+
+@pytest.mark.parametrize("field,value", [("Running", "false"), ("ExitCode", True)])
+def test_zap_startup_rejects_malformed_state_without_serializing_it(
+    dast, zap_startup, field, value
+):
+    zap_startup.state[field] = value
+    dast.zap_startup_diagnostics("owned-zap-container", zap_startup.key)
+    report = json.loads((dast.REPORTS / "zap-startup.json").read_text())
+    assert report["state"] == {}
+    assert report["diagnostic_errors"] == ["Container state unavailable"]
+    assert report["log_tail"].endswith("startup-tail\nstderr-tail\n")
+
+
+@pytest.mark.parametrize("operation", ["close", "rm"])
+@pytest.mark.parametrize("phase", ["startup", "scan", "success"])
+def test_zap_cleanup_attempts_removal_and_preserves_an_existing_failure(
+    dast, zap_startup, monkeypatch, capsys, operation, phase
+):
+    close = dast.httpx.Client.close
+
+    def close_client(client):
+        zap_startup.events.append(("close",))
+        close(client)
+        if operation == "close":
+            raise RuntimeError(zap_startup.key)
+
+    def run(command, **kwargs):
+        if command[1] == "rm" and operation == "rm":
+            zap_startup.events.append(("rm", command, kwargs))
+            raise subprocess.CalledProcessError(1, command, stderr=zap_startup.key)
+        return zap_startup.run(command, **kwargs)
+
+    monkeypatch.setattr(dast.httpx.Client, "close", close_client)
+    monkeypatch.setattr(dast.subprocess, "run", run)
+    if phase != "startup":
+        monkeypatch.setattr(dast.Zap, "call", lambda *args: {"version": "2.17.0"})
+    message = {
+        "startup": "Pinned ZAP did not become ready",
+        "scan": "Original scan failure",
+        "success": "Unable to fully clean up CI-owned ZAP resources",
+    }[phase]
+    with pytest.raises(RuntimeError, match=f"^{message}$"), dast.zap_server():
+        if phase == "scan":
+            raise RuntimeError(message)
+        assert phase == "success"
+    assert [event[0] for event in zap_startup.events[-2:]] == ["close", "rm"]
+    captured = capsys.readouterr()
+    assert zap_startup.key not in captured.out + captured.err
+    if phase != "success":
+        assert "Unable to fully clean up CI-owned ZAP resources" in captured.err
+
+
 def test_dast_active_scan_requires_real_attack_requests(dast, monkeypatch):
     zap = dast.Zap("http://127.0.0.1:8000", "secret")
 
