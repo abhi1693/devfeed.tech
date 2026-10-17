@@ -970,6 +970,13 @@ test(
     const second = await context.newPage();
     await second.goto(newTab);
     await second.waitForFunction(() => document.documentElement.classList.contains("dark"));
+    await second.locator(".article-card").first().waitFor();
+    // Finish the fixture's intercepted image loads before destroying its document.
+    // Otherwise lazy image delivery can race the tab's teardown in Chromium.
+    await second.locator("img").evaluateAll(async (images) => {
+      for (const image of images) image.loading = "eager";
+      await Promise.all(images.map((image) => image.decode()));
+    });
     await second.close();
     await page.bringToFront();
 
