@@ -45,7 +45,7 @@ repos:
         exclude: (^|/)next-env\.d\.ts$|^apps/(admin|partner)/src/lib/api/generated/
         require_serial: true
       - id: project-checks
-        name: Affected project lint, types and unit tests
+        name: Affected project lint, types and configuration
         entry: uv run --locked python scripts/pre_commit_checks.py
         language: system
         always_run: true

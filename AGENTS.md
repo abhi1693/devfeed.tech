@@ -10,7 +10,7 @@ Alembic migrations belong in `migrations/`, backend tests in `tests/`, and front
 
 ## Build, Test, and Development Commands
 
-Use Python 3.12+, uv, and Node.js 22.13+.
+Use Python 3.12+, uv, and Node.js 22.22.2+ on 22.x, 24.15.0+ on 24.x, or 26+.
 
 - `uv sync --all-packages --locked` and `npm ci`: install locked dependencies.
 - `npm run hooks:install`: enable scoped pre-commit checks.

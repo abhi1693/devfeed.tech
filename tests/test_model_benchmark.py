@@ -57,6 +57,54 @@ def test_dry_run_and_price_ceiling(tmp_path):
         benchmark.run(data, [case()], tmp_path)
 
 
+def test_private_artifact_write_ignores_predictable_temporary_symlinks(tmp_path):
+    destination = tmp_path / "operator-selected" / "result.json"
+    destination.parent.mkdir()
+    victim = tmp_path / "unrelated.json"
+    victim.write_text("keep unrelated file")
+    predictable = destination.with_suffix(".json.tmp")
+    predictable.symlink_to(victim)
+
+    benchmark.write(destination, {"private": "Développeur"})
+
+    assert victim.read_text() == "keep unrelated file"
+    assert predictable.is_symlink()
+    assert benchmark.read(destination) == {"private": "Développeur"}
+    assert destination.stat().st_mode & 0o777 == 0o600
+    assert not list(destination.parent.glob(".devfeed-benchmark-*.tmp"))
+
+
+def test_artifact_replacement_does_not_follow_final_symlinks(tmp_path):
+    victim = tmp_path / "unrelated.md"
+    victim.write_text("keep unrelated report")
+    destination = tmp_path / "REPORT.md"
+    destination.symlink_to(victim)
+
+    benchmark.write_text(destination, "# New report\n")
+
+    assert victim.read_text() == "keep unrelated report"
+    assert not destination.is_symlink()
+    assert destination.read_text() == "# New report\n"
+    assert destination.stat().st_mode & 0o777 == 0o600
+
+
+def test_failed_artifact_replacement_cleans_temporary_and_preserves_original(tmp_path, monkeypatch):
+    destination = tmp_path / "result.json"
+    destination.write_text("original complete artifact")
+
+    def fail_replace(source, target):
+        assert source.stat().st_mode & 0o777 == 0o600
+        assert source.parent == destination.parent and target == destination
+        raise OSError("replacement failed")
+
+    monkeypatch.setattr(Path, "replace", fail_replace)
+    with pytest.raises(OSError, match="replacement failed"):
+        benchmark.write(destination, {"private": "new result"})
+
+    assert destination.read_text() == "original complete artifact"
+    assert list(tmp_path.iterdir()) == [destination]
+
+
 def test_resume_grading_and_paired_review(tmp_path, monkeypatch):
     calls = []
 
@@ -72,6 +120,7 @@ def test_resume_grading_and_paired_review(tmp_path, monkeypatch):
     monkeypatch.setattr(benchmark, "invoke", invoke)
     monkeypatch.setattr(benchmark.subprocess, "check_output", lambda *a, **kw: "test")
     summary = benchmark.run(plan(), [case()], tmp_path, True)
+    assert (tmp_path / "REPORT.md").stat().st_mode & 0o777 == 0o600
     assert summary["comparisons"][0]["decision"] == "quality_failures"
     benchmark.run(plan(), [case()], tmp_path, True)
     assert len(calls) == 2

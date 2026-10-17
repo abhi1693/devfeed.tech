@@ -16,10 +16,29 @@ jobs:
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: "24"
+          cache: npm
+          cache-dependency-path: package-lock.json
+      - name: Test reader CI dispatch
+        run: node --test tests/reader-parity.test.mjs
       - name: Audit locked Codex dependencies
         run: npm audit --prefix infra/codex --omit=dev --audit-level=high
-      - name: Test private Codex transport
-        run: node --test tests/codex_transport.test.cjs
+      - name: Install locked JavaScript coverage tooling
+        run: npm ci --ignore-scripts
+      - name: Test private Codex transport with coverage
+        run: |
+          node node_modules/c8/bin/c8.js --include 'infra/codex/*.cjs' \
+            --reporter=lcovonly --reporter=json-summary \
+            --reports-dir=reports/coverage/security \
+            node --test tests/codex_transport.test.cjs
+      - name: Upload private Codex transport coverage
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: security-coverage-${{ github.run_attempt }}
+          path: |
+            reports/coverage/security/lcov.info
+            reports/coverage/security/coverage-summary.json
+          if-no-files-found: error
+          retention-days: 14
       - name: Validate Docker Compose configuration
         env:
           POSTGRES_PASSWORD: compose-validation-only
@@ -28,11 +47,11 @@ jobs:
           docker compose --env-file compose.env.example -f compose.yaml -f compose.build.yaml config --quiet
           python scripts/ci/check_compose.py
   security:
-    uses: abhi1693/actions/.github/workflows/security.yml@afba12afb85bf40be9328c92dc53b779f18d5c6d # v1.0.1
+    uses: abhi1693/actions/.github/workflows/security.yml@bf8cd38aa8456310278ed96bfa83a3132f235df1 # v1.0.4
     with:
       node-version: "24"
       python-version: "3.12"
-      uv-version: 0.12.10
+      uv-version: 0.13.1
       npm-audit: true
       python-audit: true
       python-all-packages: true

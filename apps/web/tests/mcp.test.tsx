@@ -73,6 +73,8 @@ it("shows manual steps for all five tools", () => {
     "--transport http --scope local devfeed",
   );
   expect(screen.getByText("Run this command in your project.")).toBeTruthy();
+  expect(screen.getByLabelText("MCP configuration").hasAttribute("tabindex")).toBe(false);
+  expect(screen.getByRole("button", { name: "Copy command" }).tabIndex).toBe(0);
 });
 
 it("copies the current configuration and clears stale feedback after edits", async () => {

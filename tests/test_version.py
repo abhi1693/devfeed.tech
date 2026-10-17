@@ -128,6 +128,27 @@ def test_release_versions_are_validated(value):
         command.validate(value)
 
 
+@pytest.mark.parametrize("ending", ["", '\n[tool.example]\nversion = "independent"\n'])
+def test_project_version_stays_within_its_section_for_long_and_unicode_content(ending):
+    prelude = '[tool.before]\nversion = "independent"\n'
+    body = (
+        '[project]\u00a0\t\nname = "Développeur"\n'
+        'description = "' + "long [text] # content " * 10_000 + '"\n'
+        "version = '0.1.0' # retained punctuation\n"
+    )
+    original = prelude + body + ending
+    assert command.replace_version(original, "0.2.0") == (
+        prelude + body.replace("version = '0.1.0'", "version = '0.2.0'") + ending
+    )
+
+
+def test_project_version_cannot_be_taken_from_a_following_section():
+    with pytest.raises(ValueError, match="exactly one literal project version"):
+        command.replace_version(
+            '[project]\nname = "example"\n[tool.test]\nversion = "0.1.0"', "0.2.0"
+        )
+
+
 def test_set_updates_only_project_versions_and_locks_once(workspace):
     calls = []
 

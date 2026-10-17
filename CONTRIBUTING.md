@@ -88,14 +88,14 @@ npm run admin:build
 
 Run `npm run admin:generate` after backend contract changes and include the updated
 schema and generated client. Shared changes may require checking both frontends.
-Pre-commit runs formatting and the affected projects' lint, type and unit checks;
-it does not replace CI or integration testing. If a formatter changes files,
+Pre-commit runs formatting and the affected projects' lint, type and configuration
+checks. Test suites, coverage and production builds run separately and in CI. If a formatter changes files,
 review and stage those changes before retrying the commit.
 
 Backend unit coverage includes every Python source file in all 13 backend
 workspaces, including modules the tests never import. The minimum combined line
 and branch coverage is **67.60%**, configured by `tool.coverage.report.fail_under` in
-`pyproject.toml`; both CI and backend pre-commit checks enforce it. Keep this
+`pyproject.toml`; CI enforces it. Keep this
 minimum when adding code, and raise it as coverage improves. A missing workspace,
 missing report, empty suite, failure, or skipped unit test fails the CI report gate.
 

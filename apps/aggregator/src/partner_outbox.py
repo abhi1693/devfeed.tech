@@ -41,7 +41,7 @@ class PartnerOutbox:
     def publish(
         self,
         queue_name: str,
-        statement: Select[tuple[Job]],
+        statement: Select[Job],
         *,
         model: type[Job],
         handler: str,

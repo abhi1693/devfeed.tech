@@ -1,3 +1,8 @@
+import {
+  checkKeyboardReader,
+  keyboardProfile,
+  keyboardActivity,
+} from "../../../../scripts/testing/keyboard-reader.mjs";
 import { checkRouteStyles } from "../../../../scripts/testing/route-styles.mjs";
 import {
   checkGuestDocument,
@@ -171,6 +176,7 @@ async function createReaderFixture(t, { thumbnailFeed = false } = {}) {
   const serverReads = serverReadFixture();
   const renderReads = renderReadFixture(article, topic);
   let mode = "ready";
+  let notificationCount = 1;
   const defaultAllRequests = [];
   let compactArticles = false;
   let articleFeedGate;
@@ -194,6 +200,16 @@ async function createReaderFixture(t, { thumbnailFeed = false } = {}) {
   fixture = createServer(async (req, res) => {
     const requestUrl = new URL(req.url, "http://localhost");
     const path = requestUrl.pathname;
+    if (
+      path === "/v1/user/profiles/keyboard-reader" ||
+      path === "/v1/user/profiles/keyboard-reader/reading-heatmap"
+    ) {
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(
+        JSON.stringify(path.endsWith("reading-heatmap") ? keyboardActivity : keyboardProfile),
+      );
+      return;
+    }
     serverReads.record(req.url, req.headers, `http://${req.headers.host}`);
     if (renderReads.handles(requestUrl)) {
       const { status, json } = renderReads.respond(requestUrl, req.headers);
@@ -439,7 +455,7 @@ async function createReaderFixture(t, { thumbnailFeed = false } = {}) {
     else if (path.endsWith("/items") && path.includes("/notifications/chimely/"))
       body = notificationFixture();
     else if (path.endsWith("/counts") && path.includes("/notifications/chimely/"))
-      body = { unread: 1, unseen: 1 };
+      body = { unread: 1, unseen: notificationCount };
     else if (path.endsWith("/stream") && path.includes("/notifications/chimely/")) {
       res.writeHead(200, { "Content-Type": "text/event-stream" });
       res.end(": connected\n\n");
@@ -871,11 +887,23 @@ async function createReaderFixture(t, { thumbnailFeed = false } = {}) {
     try {
       mustReadsFixture.enabled = true;
       mustReadsFixture.presented = true;
-      await navigationPage.goto(origin);
-      await checkReaderNavigation(navigationPage, `${root}/reports/mobile-navigation/web`, {
-        signedIn: true,
-      });
+      for (const count of [1, 123]) {
+        notificationCount = count;
+        await navigationPage.goto(origin);
+        await navigationPage
+          .getByRole("button", {
+            name: count === 123 ? "Notifications, 99+ new (123 in total)" : "Notifications, 1 new",
+            exact: true,
+          })
+          .waitFor();
+        await checkReaderNavigation(
+          navigationPage,
+          `${root}/reports/mobile-navigation/web/count-${count}`,
+          { signedIn: true },
+        );
+      }
     } finally {
+      notificationCount = 1;
       Object.assign(mustReadsFixture, navigationMustReads);
       await navigationPage.close();
     }
@@ -1183,6 +1211,19 @@ async function withReaderPage(browser, check, options = {}) {
     await context.close();
   }
 }
+
+test(
+  "keyboard access preserves native links and readable scroll regions",
+  { timeout: 180000 },
+  async (t) => {
+    const { browser, origin } = await createReaderFixture(t);
+    await withReaderPage(
+      browser,
+      (page) => checkKeyboardReader(page, (path) => origin + path, "/tmp/devfeed-sonar-a11y/web"),
+      { viewport: { width: 1280, height: 1000 } },
+    );
+  },
+);
 
 test("thumbnails match rendered widths and device pixel ratios", { timeout: 360000 }, async (t) => {
   const { browser, origin } = await createReaderFixture(t, { thumbnailFeed: true });

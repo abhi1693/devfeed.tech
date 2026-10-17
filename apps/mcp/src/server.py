@@ -38,6 +38,8 @@ READ_ONLY = ToolAnnotations(
 def create_server(api: PublicAPI, **options: Any) -> MCPServer:
     server = MCPServer(
         "DevFeed",
+        # This stateless tool API has no resource subscriptions or change bus.
+        subscriptions=False,
         **options,
         version=version("devfeed-mcp"),
         instructions=(

@@ -90,7 +90,7 @@ function CodeBlock({
         <span>{title}</span>
         <McpCopyButton key={text} text={text} label={copyLabel} />
       </div>
-      <pre tabIndex={0} aria-label={label}>
+      <pre aria-label={label}>
         <code>{text}</code>
       </pre>
     </div>

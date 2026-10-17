@@ -1,4 +1,4 @@
-"""Run full checks for projects affected by the files supplied by pre-commit."""
+"""Run static checks for projects affected by the files supplied by pre-commit."""
 
 from __future__ import annotations
 
@@ -51,17 +51,6 @@ def checks_for(paths: set[str]) -> list[tuple[str, ...]]:
                 ("uv", "run", "--locked", "ruff", "check", "."),
                 ("uv", "run", "--locked", "ruff", "format", "--check", "."),
                 ("uv", "run", "--locked", "mypy"),
-                (
-                    "uv",
-                    "run",
-                    "--locked",
-                    "pytest",
-                    "-q",
-                    "-m",
-                    "not integration",
-                    "--cov",
-                    "--cov-report=term:skip-covered",
-                ),
             ]
         )
     admin = shared_web or any(
@@ -75,38 +64,10 @@ def checks_for(paths: set[str]) -> list[tuple[str, ...]]:
         commands.append(("npm", "run", "format:typescript:check"))
     for workspace, affected in (("admin", admin), ("web", web), ("partner", partner)):
         if affected:
-            commands.extend(
-                [
-                    ("npm", "run", "lint", "--workspace", f"@devfeed/{workspace}"),
-                    ("npm", "run", f"{workspace}:test"),
-                ]
-            )
+            commands.append(("npm", "run", "lint", "--workspace", f"@devfeed/{workspace}"))
     extensions = web or any(path.startswith("apps/extensions/") for path in paths)
     if extensions:
-        commands.extend(
-            ("npm", "run", command)
-            for command in ("extension:check", "extension:test", "extension:build:all")
-        )
-    if all_projects or any(
-        path
-        in {
-            READER_DESTINATION_CONTRACT,
-            "packages/http/src/reader-destinations.ts",
-            "packages/http/src/reader_destinations.py",
-            "tests/reader-destinations.test.mjs",
-        }
-        for path in paths
-    ):
-        commands.append(("npm", "run", "test:reader-destinations"))
-    if (
-        all_projects
-        or bool(paths & {"package.json", "package-lock.json"})
-        or any(
-            path.startswith("infra/codex/") or path == "tests/codex_transport.test.cjs"
-            for path in paths
-        )
-    ):
-        commands.append(("node", "--test", "tests/codex_transport.test.cjs"))
+        commands.append(("npm", "run", "extension:check"))
     return commands
 
 
@@ -118,7 +79,7 @@ def main(filenames: list[str]) -> int:
     )
     paths = set(filenames) | {os.fsdecode(path) for path in deleted.split(b"\0") if path}
     env = os.environ.copy()
-    # Match CI's unit-test isolation even when developers have services in .env.
+    # Static checks must not inherit production or disposable service credentials.
     env["DEVFEED_DATABASE_URL"] = "postgresql+psycopg://unit@database.invalid/unit_test"
     env["DEVFEED_REDIS_URL"] = "redis://redis.invalid/15"
     env.pop("DEVFEED_TEST_DATABASE_URL", None)

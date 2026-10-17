@@ -131,7 +131,7 @@ it("preserves reader state across credential refreshes and clears it on account 
     </>
   );
   const view = render(<UserProvider refreshKey={0}>{children}</UserProvider>);
-  await screen.findByRole("button", { name: "User menu: Reader A" });
+  await screen.findByRole("button", { name: "User menu: RA Reader A" });
   const input = screen.getByRole("textbox", { name: "Reader state" });
   fireEvent.change(input, { target: { value: "keep this" } });
   identity = { ...identity, csrf_token: "rotated-token" };
@@ -143,7 +143,7 @@ it("preserves reader state across credential refreshes and clears it on account 
   expect(input).toHaveProperty("value", "keep this");
   identity = { user_id: "reader-b", csrf_token: "session-b", name: "Reader B" };
   view.rerender(<UserProvider refreshKey={2}>{children}</UserProvider>);
-  await screen.findByRole("button", { name: "User menu: Reader B" });
+  await screen.findByRole("button", { name: "User menu: RB Reader B" });
   expect(screen.getByRole("textbox", { name: "Reader state" })).not.toBe(input);
   expect(screen.getByRole("textbox", { name: "Reader state" })).toHaveProperty("value", "initial");
 });
@@ -190,7 +190,7 @@ it("renews the session when returning to a tab without resetting reader state", 
         <input aria-label="Reader state" />
       </UserProvider>,
     );
-    await screen.findByRole("button", { name: "User menu: Reader" });
+    await screen.findByRole("button", { name: "User menu: R Reader" });
     fireEvent.change(screen.getByRole("textbox"), { target: { value: "preserved" } });
     now += 12 * 3600 * 1000;
     fireEvent.focus(window);
@@ -241,12 +241,12 @@ it("reauthorizes immediate history returns, retaining same-account state and hid
   );
   const input = await screen.findByRole("textbox");
   fireEvent.change(input, { target: { value: "preserved" } });
-  await screen.findByRole("button", { name: "User menu: Reader" });
+  await screen.findByRole("button", { name: "User menu: R Reader" });
   input.focus();
   delay = true;
   fireEvent(window, new PopStateEvent("popstate"));
   expect(screen.queryByRole("textbox")).toBeNull();
-  expect(screen.queryByRole("button", { name: "User menu: Reader" })).toBeNull();
+  expect(screen.queryByRole("button", { name: "User menu: R Reader" })).toBeNull();
   expect(screen.queryByRole("link", { name: "My feed" })).toBeNull();
   expect(screen.queryByRole("link", { name: "Read later" })).toBeNull();
   await act(async () => resolveCheck!(Response.json(identity)));
