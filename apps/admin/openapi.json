@@ -557,6 +557,28 @@
             ],
             "title": "Language"
           },
+          "provider": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Provider"
+          },
+          "provider_resource_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Provider Resource Id"
+          },
           "publication_blockers": {
             "items": {
               "type": "string"
@@ -624,6 +646,16 @@
             },
             "title": "Topics",
             "type": "array"
+          },
+          "video_metadata": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/VideoMetadata"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "required": [
@@ -1283,6 +1315,22 @@
               }
             ],
             "title": "Website Url"
+          },
+          "youtube_target": {
+            "anyOf": [
+              {
+                "enum": [
+                  "channel",
+                  "playlist",
+                  "video"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Youtube Target"
           }
         },
         "required": [
@@ -2789,6 +2837,11 @@
       },
       "ArticleOriginOut": {
         "properties": {
+          "active": {
+            "default": true,
+            "title": "Active",
+            "type": "boolean"
+          },
           "original_url": {
             "title": "Original Url",
             "type": "string"
@@ -2936,6 +2989,29 @@
             "title": "Origins",
             "type": "array"
           },
+          "provider": {
+            "anyOf": [
+              {
+                "const": "youtube",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Provider"
+          },
+          "provider_resource_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Provider Resource Id"
+          },
           "published_at": {
             "anyOf": [
               {
@@ -3012,6 +3088,16 @@
             },
             "title": "Topics",
             "type": "array"
+          },
+          "video_metadata": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/VideoMetadata"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "required": [
@@ -4144,6 +4230,7 @@
             "default": "uncertain",
             "enum": [
               "article",
+              "video",
               "non_article",
               "uncertain"
             ],
@@ -12185,6 +12272,40 @@
         "title": "RelationshipReview",
         "type": "object"
       },
+      "ResourceChoice": {
+        "properties": {
+          "canonical_url": {
+            "title": "Canonical Url",
+            "type": "string"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "target": {
+            "enum": [
+              "channel",
+              "playlist",
+              "video"
+            ],
+            "title": "Target",
+            "type": "string"
+          }
+        },
+        "required": [
+          "target",
+          "canonical_url"
+        ],
+        "title": "ResourceChoice",
+        "type": "object"
+      },
       "ReviewArticle": {
         "additionalProperties": false,
         "properties": {
@@ -12459,6 +12580,22 @@
               }
             ],
             "title": "Url"
+          },
+          "youtube_target": {
+            "anyOf": [
+              {
+                "enum": [
+                  "channel",
+                  "playlist",
+                  "video"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Youtube Target"
           }
         },
         "required": [
@@ -12690,6 +12827,44 @@
             "title": "Polling State",
             "type": "object"
           },
+          "provider": {
+            "default": "rss",
+            "enum": [
+              "rss",
+              "youtube"
+            ],
+            "title": "Provider",
+            "type": "string"
+          },
+          "provider_collection_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Provider Collection Id"
+          },
+          "provider_resource_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Provider Resource Id"
+          },
+          "provider_state": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/JsonValue"
+            },
+            "title": "Provider State",
+            "type": "object"
+          },
           "publication_policy": {
             "default": "manual",
             "enum": [
@@ -12705,12 +12880,28 @@
             "title": "Publication Policy Revision",
             "type": "integer"
           },
+          "recurring": {
+            "default": true,
+            "title": "Recurring",
+            "type": "boolean"
+          },
           "relevance_assessment": {
             "additionalProperties": {
               "$ref": "#/components/schemas/JsonValue"
             },
             "title": "Relevance Assessment",
             "type": "object"
+          },
+          "resource_kind": {
+            "default": "feed",
+            "enum": [
+              "feed",
+              "channel",
+              "playlist",
+              "video"
+            ],
+            "title": "Resource Kind",
+            "type": "string"
           },
           "review_note": {
             "anyOf": [
@@ -12935,6 +13126,17 @@
       "SourcePreviewOut": {
         "additionalProperties": false,
         "properties": {
+          "canonical_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Canonical Url"
+          },
           "description": {
             "anyOf": [
               {
@@ -12999,6 +13201,23 @@
             "title": "Name",
             "type": "string"
           },
+          "provider": {
+            "default": "rss",
+            "title": "Provider",
+            "type": "string"
+          },
+          "resource_kind": {
+            "default": "feed",
+            "title": "Resource Kind",
+            "type": "string"
+          },
+          "resources": {
+            "items": {
+              "$ref": "#/components/schemas/ResourceChoice"
+            },
+            "title": "Resources",
+            "type": "array"
+          },
           "warnings": {
             "items": {
               "type": "string"
@@ -13055,6 +13274,22 @@
             "default": false,
             "title": "Use Solver",
             "type": "boolean"
+          },
+          "youtube_target": {
+            "anyOf": [
+              {
+                "enum": [
+                  "channel",
+                  "playlist",
+                  "video"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Youtube Target"
           }
         },
         "required": [
@@ -13124,6 +13359,42 @@
           },
           "name": {
             "title": "Name",
+            "type": "string"
+          },
+          "provider": {
+            "default": "rss",
+            "enum": [
+              "rss",
+              "youtube"
+            ],
+            "title": "Provider",
+            "type": "string"
+          },
+          "provider_resource_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Provider Resource Id"
+          },
+          "recurring": {
+            "default": true,
+            "title": "Recurring",
+            "type": "boolean"
+          },
+          "resource_kind": {
+            "default": "feed",
+            "enum": [
+              "feed",
+              "channel",
+              "playlist",
+              "video"
+            ],
+            "title": "Resource Kind",
             "type": "string"
           },
           "slug": {
@@ -14816,6 +15087,78 @@
           "type"
         ],
         "title": "ValidationIssue",
+        "type": "object"
+      },
+      "VideoMetadata": {
+        "description": "Public presentation fields; provider evidence and cursors remain server-side.",
+        "properties": {
+          "availability": {
+            "default": "unavailable",
+            "enum": [
+              "public",
+              "unavailable"
+            ],
+            "title": "Availability",
+            "type": "string"
+          },
+          "channel_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Channel Id"
+          },
+          "channel_title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Channel Title"
+          },
+          "channel_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Channel Url"
+          },
+          "duration_seconds": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Duration Seconds"
+          },
+          "retrieved_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Retrieved At"
+          }
+        },
+        "title": "VideoMetadata",
         "type": "object"
       },
       "WorkerJob": {

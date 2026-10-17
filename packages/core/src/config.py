@@ -101,6 +101,19 @@ class Settings(BaseSettings):
     feed_max_bytes: int = Field(default=5_000_000, ge=1024, le=20_000_000)
     feed_max_entries: int = Field(default=500, ge=1, le=2000)
     feed_timeout_seconds: int = Field(default=20, ge=1, le=30)
+    # YouTube Data API credentials belong only in provider-facing backend services.
+    youtube_api_key: SecretStr | None = None
+    youtube_initial_import_limit: int = Field(default=100, ge=1, le=1000)
+    youtube_refresh_item_limit: int = Field(default=100, ge=2, le=500)
+    youtube_request_limit: int = Field(default=20, ge=4, le=100)
+    youtube_revalidate_seconds: int = Field(default=86400, ge=3600, le=604800)
+    youtube_revalidation_batch_size: int = Field(default=5, ge=1, le=50)
+
+    @field_validator("youtube_api_key", mode="before")
+    @classmethod
+    def empty_youtube_key(cls, value):
+        return None if value == "" else value
+
     page_max_bytes: int = Field(default=2_000_000, ge=1024, le=5_000_000)
     article_page_max_bytes: int = Field(default=10_000_000, ge=1024, le=20_000_000)
     source_page_max_bytes: int = Field(default=10_000_000, ge=1024, le=20_000_000)

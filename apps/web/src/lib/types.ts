@@ -4,6 +4,10 @@ export type Source = {
   id: string;
   slug: string;
   name: string;
+  provider?: "rss" | "youtube";
+  resource_kind?: "feed" | "channel" | "playlist" | "video";
+  provider_resource_id?: string | null;
+  recurring?: boolean;
   website_url: string | null;
   logo_url: string | null;
   logo_variants?: { url: string; width: number }[];
@@ -21,7 +25,18 @@ export type Topic = {
   logo_variants?: { url: string; width: number }[];
   website_url: string | null;
 };
+export type VideoMetadata = {
+  channel_id?: string | null;
+  channel_title?: string | null;
+  channel_url?: string | null;
+  duration_seconds?: number | null;
+  availability?: "public" | "unavailable";
+  retrieved_at?: string | null;
+};
 export type Article = {
+  provider?: "youtube" | null;
+  provider_resource_id?: string | null;
+  video_metadata?: VideoMetadata | null;
   id: string;
   slug: string;
   canonical_url: string;

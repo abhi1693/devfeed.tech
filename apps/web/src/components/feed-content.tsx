@@ -1,3 +1,4 @@
+import { canFollowSource, sourceCollectionLabel } from "@/lib/video";
 import { ReaderShare } from "./reader-share";
 import { ReaderDisclosure } from "./reader-disclosure";
 import { SourceFollow } from "./source-follow";
@@ -14,7 +15,7 @@ import { RetryFeed } from "@/components/retry-feed";
 import { feedPlacements, type FeedDescriptor } from "@/lib/reader-feed";
 
 import type { ReactNode } from "react";
-import type { FeedPage, FeedOptions } from "@/lib/types";
+import type { FeedPage, FeedOptions, Source } from "@/lib/types";
 
 export type FeedContentProps = {
   filters: FeedFilters;
@@ -24,6 +25,7 @@ export type FeedContentProps = {
   logoVariants?: { url: string; width: number }[];
   topicId?: string;
   section?: "feed" | "topics" | "sources";
+  source?: Source;
   feed: PromiseSettledResult<FeedPage>;
   options: PromiseSettledResult<FeedOptions>;
   children?: ReactNode;
@@ -40,6 +42,7 @@ export function FeedContent({
   logoVariants,
   topicId,
   section = "feed",
+  source,
   feed,
   options,
   children,
@@ -71,6 +74,12 @@ export function FeedContent({
               )}
               <h1>{filters.q ? `Results for “${filters.q}”` : title}</h1>
             </div>
+            {sourceCollectionLabel(source) && (
+              <p className="source-kind">
+                {sourceCollectionLabel(source)}
+                {source?.recurring === false ? " · Single submission" : " · Recurring collection"}
+              </p>
+            )}
             {description &&
               (section === "sources" ? (
                 <div className="source-description">
@@ -90,10 +99,12 @@ export function FeedContent({
                 kind="source"
                 label
               />
-              <SourceFollow
-                sourceId={filters.source_id}
-                returnTo={feedHref(filters, { cursor: filters.cursor })}
-              />
+              {canFollowSource(source) && (
+                <SourceFollow
+                  sourceId={filters.source_id}
+                  returnTo={feedHref(filters, { cursor: filters.cursor })}
+                />
+              )}
             </div>
           )}
           {section === "topics" && topicId && (

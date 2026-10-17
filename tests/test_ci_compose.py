@@ -16,6 +16,7 @@ spec.loader.exec_module(check_compose)
 @pytest.mark.parametrize(
     "configuration",
     [
+        {"DEVFEED_YOUTUBE_API_KEY": "inherited-test-youtube-secret"},
         {
             "DEVFEED_X_PIXEL_ENABLED": "true",
             "X_PIXEL_TOKEN": "inherited-test-secret",
@@ -27,7 +28,7 @@ spec.loader.exec_module(check_compose)
             "DEVFEED_PARTNER_TRACKING_KEY": "inherited-test-tracking-secret",
         },
     ],
-    ids=["x-pixel", "partner-placement"],
+    ids=["youtube", "x-pixel", "partner-placement"],
 )
 def test_compose_render_isolates_inherited_private_configuration(monkeypatch, configuration):
     for key, value in configuration.items():

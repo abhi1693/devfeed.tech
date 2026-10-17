@@ -47,7 +47,11 @@ def record_publication(session, article, published_at):
         session.scalars(
             select(ArticleOrigin.source_id)
             .join(Source)
-            .where(ArticleOrigin.article_id == article.id, Source.approval_status == "approved")
+            .where(
+                ArticleOrigin.article_id == article.id,
+                ArticleOrigin.active.is_(True),
+                Source.approval_status == "approved",
+            )
             .distinct()
         )
     )
@@ -90,6 +94,7 @@ def recipient_ids(event):
             UserSource.source_id.in_(event.source_ids or []),
             Source.approval_status == "approved",
             ArticleOrigin.article_id == event.article_id,
+            ArticleOrigin.active.is_(True),
         )
     )
     audience = topics.union(sources).subquery()

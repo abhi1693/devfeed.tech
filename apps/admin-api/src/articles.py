@@ -5,6 +5,7 @@ import uuid
 from datetime import datetime
 from typing import Literal
 
+from devfeed_core import services
 from devfeed_core.analysis import ManualClassification, classify_manually
 from devfeed_core.editorial import (
     EditorialDecision,
@@ -12,6 +13,7 @@ from devfeed_core.editorial import (
     invalidate_editorial,
     publication_blockers,
 )
+from devfeed_core.feeds.fetcher import FeedError
 from devfeed_core.json_types import JsonValue
 from devfeed_core.logging import log_identifier
 from devfeed_core.models import (
@@ -39,10 +41,15 @@ from devfeed_core.schemas import (
     ReviewNote,
     SourceRef,
     TagOut,
+    VideoMetadata,
 )
 from devfeed_core.services import OperationConflict, RecordNotFound
+from devfeed_core.source_types import SourceType
 from devfeed_core.text_search import text_search
 from devfeed_core.urls import canonicalize_url, fingerprint, validate_public_url
+from devfeed_core.youtube import YouTubeClient, parse_youtube_url
+from devfeed_core.youtube_ingestion import store_direct_submission
+from devfeed_core.youtube_submission import provider_error
 from devfeed_http.pagination import (
     Listing,
     Page,
@@ -115,6 +122,9 @@ class ArticleTopicOut(ORMModel):
 
 
 class AdminArticleOut(ORMModel):
+    provider: str | None = None
+    provider_resource_id: str | None = None
+    video_metadata: VideoMetadata | None = None
     id: uuid.UUID
     canonical_url: str
     title: str
@@ -172,6 +182,8 @@ class ClassifyArticle(ManualClassification):
 
 def article_view(article):
     result = AdminArticleOut.model_validate(article)
+    if article.provider != "youtube":
+        result.video_metadata = None
     result.sources = [SourceRef.model_validate(origin.source) for origin in article.origins]
     result.topics = [
         ArticleTopicOut(
@@ -242,6 +254,67 @@ def detail(article_id: uuid.UUID, session: DB):
     "", response_model=AdminArticleOut, status_code=201, operation_id="admin_article_create"
 )
 def create(body: AdminArticleCreate, session: DB, admin: Admin):
+    try:
+        target = parse_youtube_url(body.canonical_url)
+    except ValueError as exc:
+        raise HTTPException(422, "Use a supported public YouTube video URL.") from exc
+    if target is not None:
+        if target.kind != "video":
+            raise HTTPException(422, "Submit YouTube channels and playlists through Sources.")
+        # Resolve outside the transaction. The selected publisher grants no approval
+        # or recurring subscription to a video's channel.
+        with session.begin():
+            record(session, Source, body.source_id)
+        try:
+            video = (
+                YouTubeClient.from_settings().videos([target.resource_id]).get(target.resource_id)
+            )
+        except FeedError as exc:
+            code, message = provider_error(exc)
+            raise HTTPException(code, message) from exc
+        if video is None or video.availability != "public":
+            raise HTTPException(422, "The selected YouTube video is not publicly available.")
+        source, created, _ = services.submit_source(
+            session,
+            services.ValidatedSource(
+                name=video.title[:200],
+                feed_url=None,
+                source_type=SourceType.PUBLISHER,
+                enabled=False,
+                poll_interval_seconds=43200,
+                description=video.description[:500] or None,
+                website_url=video.canonical_url,
+                image_url=video.thumbnail_url,
+                provider="youtube",
+                resource_kind="video",
+                provider_resource_id=video.id,
+                recurring=False,
+                provider_state={"status": "ready"},
+            ),
+        )
+        if source.approval_status == "rejected":
+            raise OperationConflict(
+                "This video submission was rejected; review its source record first"
+            )
+        if created:
+            source.submission_channel = "api"
+        article = store_direct_submission(session, source, video)
+        if not session.scalar(
+            select(ArticleReview.id)
+            .where(ArticleReview.article_id == article.id, ArticleReview.action == "create")
+            .limit(1)
+        ):
+            session.add(
+                ArticleReview(
+                    article_id=article.id,
+                    action="create",
+                    actor=admin.subject,
+                    revision=article.editorial_revision,
+                )
+            )
+        session.commit()
+        session.expire(article, ["origins"])
+        return article_view(article)
     record(session, Source, body.source_id)
     article = Article(
         **body.model_dump(exclude={"source_id"}),

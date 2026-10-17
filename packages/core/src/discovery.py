@@ -130,25 +130,57 @@ def import_publishers(
     checksum=None,
     background=False,
     assess_after=False,
+    youtube_target=None,
 ):
     if not origin.strip() or len(origin) > 2048:
         raise ValueError("Provenance must contain 1-2048 characters")
+    from devfeed_core import services
+    from devfeed_core.schemas import SourceCreate
+    from devfeed_core.youtube import parse_youtube_url
+
+    # Provider lookups resolve stable identities before the write transaction.
+    # Imported videos remain single submissions, even if their URL contains a playlist.
+    provider_inputs = [hint for hint in hints if parse_youtube_url(hint.feed_hint or hint.homepage)]
+    if len(provider_inputs) > 25:
+        raise ValueError("Import at most 25 YouTube resources per batch")
+    providers = {
+        (hint.homepage, hint.feed_hint): services.validate_source(
+            SourceCreate(
+                feed_url=hint.feed_hint or hint.homepage,
+                source_type="publisher",
+                youtube_target=youtube_target,
+            )
+        )
+        for hint in provider_inputs
+    }
     created = 0
     ids = []
     with session_factory().begin() as session:
         for hint in hints:
+            provider = providers.get((hint.homepage, hint.feed_hint))
+            if provider is not None:
+                source, is_new, _ = services.submit_source(session, provider)
+                assert source.website_url is not None
+                identity = source.website_url
+                source_id = source.id
+            else:
+                identity, source_id, is_new = hint.homepage, None, False
             new_id = session.scalar(
                 insert(SourceCandidate)
-                .values(identity_url=hint.homepage, name=hint.name)
+                .values(
+                    identity_url=identity,
+                    name=provider.name if provider else hint.name,
+                    **({"source_id": source_id, "status": "linked"} if provider else {}),
+                )
                 .on_conflict_do_nothing()
                 .returning(SourceCandidate.id)
             )
             row = session.scalar(
-                select(SourceCandidate).where(SourceCandidate.identity_url == hint.homepage)
+                select(SourceCandidate).where(SourceCandidate.identity_url == identity)
             )
             assert row is not None
             attach_source(session, row)
-            created += new_id is not None
+            created += is_new if provider else new_id is not None
             ids.append(str(row.id))
             key = hashlib.sha256((origin + "\n" + (hint.feed_hint or "")).encode()).hexdigest()
             session.execute(
@@ -163,6 +195,9 @@ def import_publishers(
                 )
                 .on_conflict_do_nothing()
             )
+            if provider:
+                # The common source review owns YouTube; never send it through RSS discovery.
+                continue
             if new_id is not None:
                 enqueue(session, row.id, background=background, assess_after=assess_after)
             elif background:

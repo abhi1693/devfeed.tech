@@ -8,6 +8,7 @@
 import type { ArticleOriginOutSourceMetadata } from './articleOriginOutSourceMetadata';
 
 export interface ArticleOriginOut {
+  active?: boolean;
   original_url: string;
   source_id: string;
   source_metadata: ArticleOriginOutSourceMetadata;

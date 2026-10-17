@@ -53,9 +53,17 @@ def feed_conditions(
     if exclude_tag:
         conditions.append(~Article.tags.any(Tag.slug.in_(exclude_tag)))
     if source_id:
-        conditions.append(Article.origins.any(ArticleOrigin.source_id == source_id))
+        conditions.append(
+            Article.origins.any(
+                (ArticleOrigin.source_id == source_id) & ArticleOrigin.active.is_(True)
+            )
+        )
     if exclude_source:
-        conditions.append(~Article.origins.any(ArticleOrigin.source_id.in_(exclude_source)))
+        conditions.append(
+            ~Article.origins.any(
+                ArticleOrigin.source_id.in_(exclude_source) & ArticleOrigin.active.is_(True)
+            )
+        )
     if content_type:
         conditions.append(Article.content_type == content_type)
     elif content_types:
@@ -126,6 +134,7 @@ def feed_options(
         .join(Article, Article.id == ArticleOrigin.article_id)
         .where(
             ArticleOrigin.source_id == Source.id,
+            ArticleOrigin.active.is_(True),
             *conditions,
         )
         .limit(1)
@@ -166,7 +175,9 @@ def _filtered_feed_options(session, *, q, topic, tag, languages, content_type, s
             conditions.append(
                 select(ArticleOrigin.id)
                 .where(
-                    ArticleOrigin.article_id == visible.c.id, ArticleOrigin.source_id == source_id
+                    ArticleOrigin.article_id == visible.c.id,
+                    ArticleOrigin.source_id == source_id,
+                    ArticleOrigin.active.is_(True),
                 )
                 .exists()
             )
@@ -177,7 +188,7 @@ def _filtered_feed_options(session, *, q, topic, tag, languages, content_type, s
         select(ArticleOrigin.source_id)
         .distinct()
         .join(visible, visible.c.id == ArticleOrigin.article_id)
-        .where(*facet_conditions(kind=True))
+        .where(ArticleOrigin.active.is_(True), *facet_conditions(kind=True))
     )
 
     # Deduplicate before aggregation: hash a small set instead of sorting every

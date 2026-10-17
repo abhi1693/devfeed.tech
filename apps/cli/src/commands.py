@@ -83,6 +83,7 @@ def source_add(args):
         interval=args.poll_interval,
         polling_mode=args.polling_mode,
         enabled=not args.disabled,
+        youtube_target=getattr(args, "youtube_target", None),
         **{field: getattr(args, field) for field in PROFILE_FIELDS},
         submitted_by={"name": args.submitted_by, "profile_url": args.submitter_url}
         if args.submitted_by
@@ -116,7 +117,12 @@ def source_import(args):
     bodies = {
         body.feed_url: body
         for body in (
-            source_body(url, source_type=args.source_type, interval=args.poll_interval)
+            source_body(
+                url,
+                source_type=args.source_type,
+                interval=args.poll_interval,
+                youtube_target=getattr(args, "youtube_target", None),
+            )
             for url in lines
         )
     }

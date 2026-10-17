@@ -31,6 +31,17 @@ removed rows and must be handled separately; do not flush a shared Redis instanc
 
 ## Future changes
 
+Revision `0026` adds provider/resource identities, video metadata, active origin state
+and retained YouTube memberships. Existing sources remain RSS/Atom feeds and existing
+articles retain their current identity. Apply it before starting runtimes that require
+this schema. YouTube credentials are not needed to run the migration. Downgrading to
+`0025` removes provider identities and membership history, unpublishes YouTube videos,
+and returns YouTube sources to disabled/pending state; it cannot restore that history
+on a later upgrade. Back up the database before downgrading.
+
+This revision follows adaptive source polling revision `0025`, retaining one Alembic head.
+RSS/Atom polling state and configured intervals survive the upgrade and downgrade.
+
 Revision `0019` restricts topic kinds to the canonical values in
 `packages/core/src/topic_kinds.py`. Before upgrading a database containing historical
 kinds, mount a JSON object mapping each historical kind to a canonical value and set

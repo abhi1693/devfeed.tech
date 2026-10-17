@@ -234,6 +234,31 @@ function Details({
         <div className="grid items-start gap-6 xl:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)]">
           <div className="space-y-6">
             {!!fields.length && <ResourcePanel title={spec.singular} fields={fields} />}
+            {resource === "sources" && record.provider === "youtube" && (
+              <ResourcePanel
+                title="YouTube source"
+                fields={[
+                  { label: "Kind", value: <DataValue value={record.resource_kind} /> },
+                  {
+                    label: "YouTube resource ID",
+                    value: <DataValue value={record.provider_resource_id} />,
+                  },
+                  { label: "Recurring collection", value: <DataValue value={record.recurring} /> },
+                  {
+                    label: "Indexing state",
+                    value: (
+                      <DataValue
+                        value={
+                          (record.provider_state as Record<string, unknown> | undefined)?.status ??
+                          "Not indexed"
+                        }
+                      />
+                    ),
+                  },
+                  { label: "Last error", value: <DataValue value={record.last_error} /> },
+                ]}
+              />
+            )}
             {resource === "tags" && (
               <ResourcePanel
                 title="Topic discovery"

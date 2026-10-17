@@ -14,6 +14,13 @@ from devfeed_core.models import Article, ArticleReview, utcnow
 from devfeed_core.schemas import ContentFormat, ContentType, InputModel, Name, ReviewNote
 from devfeed_core.services import OperationConflict, RecordNotFound
 from devfeed_core.urls import validate_public_url
+from devfeed_core.video_content import (
+    automatic_video_evidence,
+    has_video_description,
+    verified_video_metadata,
+    video_description,
+    youtube_video,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -58,7 +65,26 @@ def publication_blockers(article: Article) -> list[str]:
         reasons.append("missing_active_primary_topic")
     if (article.classification_provenance or {}).get("developer_relevance") != "relevant":
         reasons.append("developer_relevance_unresolved")
-    if (article.classification_provenance or {}).get("page_kind") != "article":
+    if youtube_video(article):
+        if (article.classification_provenance or {}).get(
+            "page_kind"
+        ) != "video" or article.content_format != "video":
+            reasons.append("not_substantive_video")
+        if not verified_video_metadata(article):
+            reasons.append("video_metadata_unavailable")
+        if not has_video_description(article):
+            reasons.append("insufficient_video_evidence")
+        if (article.classification_provenance or {}).get("origin") != "manual":
+            description = video_description(article)
+            if not automatic_video_evidence(description, article.title):
+                reasons.append("insufficient_video_evidence")
+            if (
+                article.ai_title
+                or article.ai_description
+                or (article.ai_summary and article.ai_summary not in description)
+            ):
+                reasons.append("ungrounded_video_presentation")
+    elif (article.classification_provenance or {}).get("page_kind") != "article":
         reasons.append("not_substantive_article")
     if article.review_status != "approved":
         reasons.append("not_approved")
@@ -95,8 +121,10 @@ def decide_article(
     blockers = publication_blockers(article)
     if not approved_sources(session, article.id):
         blockers.append("no_approved_source")
-    if body.action == "approve" and "not_substantive_article" in blockers:
-        raise OperationConflict("Approval blocked: not_substantive_article")
+    if body.action == "approve":
+        purpose = {"not_substantive_article", "not_substantive_video"}.intersection(blockers)
+        if purpose:
+            raise OperationConflict("Approval blocked: " + ", ".join(sorted(purpose)))
     if body.action == "publish" and blockers:
         raise OperationConflict("Publication blocked: " + ", ".join(blockers))
     if dry_run:

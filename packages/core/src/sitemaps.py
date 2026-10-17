@@ -82,6 +82,8 @@ def snapshot_statement():
             membership = membership.where(visible.c.language == "en")
         if kind == "topics":
             membership = membership.where(ArticleTopic.role.in_(["primary", "supporting"]))
+        if kind == "sources":
+            membership = membership.where(ArticleOrigin.active.is_(True))
         members = membership.group_by(foreign).subquery()
         branches.append(
             select(

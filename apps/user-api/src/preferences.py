@@ -138,7 +138,11 @@ def source_preferences(user: User, session: DB):
     ids = session.scalars(
         select(UserSource.source_id)
         .join(Source)
-        .where(UserSource.user_id == account, Source.approval_status == "approved")
+        .where(
+            UserSource.user_id == account,
+            Source.approval_status == "approved",
+            Source.recurring.is_(True),
+        )
         .order_by(UserSource.source_id)
     ).all()
     return SourcePreferences(source_ids=list(ids))
@@ -150,7 +154,9 @@ def save_source_preferences(payload: SourcePreferences, user: User, session: DB)
     account = lock_account(session, user)
     approved = set(
         session.scalars(
-            select(Source.id).where(Source.id.in_(ids), Source.approval_status == "approved")
+            select(Source.id).where(
+                Source.id.in_(ids), Source.approval_status == "approved", Source.recurring.is_(True)
+            )
         )
     )
     if approved != set(ids):
@@ -181,7 +187,9 @@ def follow_source(source_id: uuid.UUID, payload: TopicFollow, user: User, sessio
         if (
             session.scalar(
                 select(Source.id).where(
-                    Source.id == source_id, Source.approval_status == "approved"
+                    Source.id == source_id,
+                    Source.approval_status == "approved",
+                    Source.recurring.is_(True),
                 )
             )
             is None

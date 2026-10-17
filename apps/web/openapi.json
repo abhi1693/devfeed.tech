@@ -3,6 +3,11 @@
     "schemas": {
       "ArticleOriginOut": {
         "properties": {
+          "active": {
+            "default": true,
+            "title": "Active",
+            "type": "boolean"
+          },
           "original_url": {
             "title": "Original Url",
             "type": "string"
@@ -150,6 +155,29 @@
             "title": "Origins",
             "type": "array"
           },
+          "provider": {
+            "anyOf": [
+              {
+                "const": "youtube",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Provider"
+          },
+          "provider_resource_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Provider Resource Id"
+          },
           "published_at": {
             "anyOf": [
               {
@@ -226,6 +254,16 @@
             },
             "title": "Topics",
             "type": "array"
+          },
+          "video_metadata": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/VideoMetadata"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "required": [
@@ -1797,6 +1835,40 @@
         "title": "RequestDetails",
         "type": "object"
       },
+      "ResourceChoice": {
+        "properties": {
+          "canonical_url": {
+            "title": "Canonical Url",
+            "type": "string"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "target": {
+            "enum": [
+              "channel",
+              "playlist",
+              "video"
+            ],
+            "title": "Target",
+            "type": "string"
+          }
+        },
+        "required": [
+          "target",
+          "canonical_url"
+        ],
+        "title": "ResourceChoice",
+        "type": "object"
+      },
       "SearchPlacementContext": {
         "additionalProperties": false,
         "properties": {
@@ -1853,10 +1925,39 @@
         "type": "object"
       },
       "SourcePreview": {
+        "additionalProperties": false,
         "properties": {
+          "canonical_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Canonical Url"
+          },
           "name": {
             "title": "Name",
             "type": "string"
+          },
+          "provider": {
+            "default": "rss",
+            "title": "Provider",
+            "type": "string"
+          },
+          "resource_kind": {
+            "default": "feed",
+            "title": "Resource Kind",
+            "type": "string"
+          },
+          "resources": {
+            "items": {
+              "$ref": "#/components/schemas/ResourceChoice"
+            },
+            "title": "Resources",
+            "type": "array"
           }
         },
         "required": [
@@ -1876,6 +1977,22 @@
           },
           "source_type": {
             "$ref": "#/components/schemas/SourceType"
+          },
+          "youtube_target": {
+            "anyOf": [
+              {
+                "enum": [
+                  "channel",
+                  "playlist",
+                  "video"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Youtube Target"
           }
         },
         "required": [
@@ -1947,6 +2064,42 @@
             "title": "Name",
             "type": "string"
           },
+          "provider": {
+            "default": "rss",
+            "enum": [
+              "rss",
+              "youtube"
+            ],
+            "title": "Provider",
+            "type": "string"
+          },
+          "provider_resource_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Provider Resource Id"
+          },
+          "recurring": {
+            "default": true,
+            "title": "Recurring",
+            "type": "boolean"
+          },
+          "resource_kind": {
+            "default": "feed",
+            "enum": [
+              "feed",
+              "channel",
+              "playlist",
+              "video"
+            ],
+            "title": "Resource Kind",
+            "type": "string"
+          },
           "slug": {
             "title": "Slug",
             "type": "string"
@@ -1999,6 +2152,22 @@
           },
           "source_type": {
             "$ref": "#/components/schemas/SourceType"
+          },
+          "youtube_target": {
+            "anyOf": [
+              {
+                "enum": [
+                  "channel",
+                  "playlist",
+                  "video"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Youtube Target"
           }
         },
         "required": [
@@ -2730,6 +2899,78 @@
           "type"
         ],
         "title": "ValidationIssue",
+        "type": "object"
+      },
+      "VideoMetadata": {
+        "description": "Public presentation fields; provider evidence and cursors remain server-side.",
+        "properties": {
+          "availability": {
+            "default": "unavailable",
+            "enum": [
+              "public",
+              "unavailable"
+            ],
+            "title": "Availability",
+            "type": "string"
+          },
+          "channel_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Channel Id"
+          },
+          "channel_title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Channel Title"
+          },
+          "channel_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Channel Url"
+          },
+          "duration_seconds": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Duration Seconds"
+          },
+          "retrieved_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Retrieved At"
+          }
+        },
+        "title": "VideoMetadata",
         "type": "object"
       }
     },

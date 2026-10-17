@@ -1,3 +1,4 @@
+import { VideoMetadata } from "./video-metadata";
 import { UserDate } from "./user-date";
 import Link from "@/components/reader-link";
 import type { Article } from "@/lib/types";
@@ -81,6 +82,7 @@ export function ArticleTableRow({ article }: { article: Article }) {
         >
           {article.title}
         </Link>
+        <VideoMetadata content={article} />
         <ArticleSponsorship names={article.sponsor_names} />
       </td>
       <td className="source-column">
@@ -96,7 +98,11 @@ export function ArticleTableRow({ article }: { article: Article }) {
         <UserDate value={date} />
       </td>
       <td className="bookmark-column">
-        <ArticleBookmarkButton articleId={article.id} articleSlug={article.slug} />
+        <ArticleBookmarkButton
+          articleId={article.id}
+          articleSlug={article.slug}
+          contentFormat={article.content_format}
+        />
       </td>
     </tr>
   );

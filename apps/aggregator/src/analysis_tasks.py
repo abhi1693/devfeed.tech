@@ -282,6 +282,9 @@ class ArticleAnalysisService:
         result, topic_match_status = require_primary_topic(
             AnalysisResult.model_validate(attempt.output)
         )
+        from devfeed_core.analysis import ground_video_result
+
+        result = ground_video_result(result, context.snapshot)
         validate_english_ai_prose(result.ai_summary, result.ai_description)
         validate_evidence(result, context.snapshot, prepared.taxonomy)
         return result, topic_match_status
@@ -290,7 +293,7 @@ class ArticleAnalysisService:
         if not (
             self.settings.full_automation
             and result.developer_relevance == "relevant"
-            and result.page_kind == "article"
+            and result.page_kind in {"article", "video"}
         ):
             return
         from devfeed_core.article_automation import propose_source_topics

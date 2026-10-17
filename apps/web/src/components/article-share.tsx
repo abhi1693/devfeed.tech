@@ -7,16 +7,18 @@ export function ArticleShare({
   slug,
   title,
   label = false,
+  contentFormat,
 }: {
   slug: string;
   title: string;
   label?: boolean;
+  contentFormat?: string | null;
 }) {
   return (
     <ReaderShare
       path={`/articles/${encodeURIComponent(slug)}`}
       title={title}
-      kind="article"
+      kind={contentFormat === "video" ? "video" : "article"}
       label={label}
     />
   );

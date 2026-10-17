@@ -92,7 +92,20 @@ class Source(Base):
             name="ck_sources_slug",
         ),
         CheckConstraint(
-            "approval_status <> 'approved' OR feed_url IS NOT NULL", name="ck_sources_approved_feed"
+            "approval_status <> 'approved' OR feed_url IS NOT NULL OR provider = 'youtube'",
+            name="ck_sources_approved_feed",
+        ),
+        CheckConstraint(
+            "(provider = 'rss' AND resource_kind = 'feed' AND provider_resource_id IS NULL "
+            "AND provider_collection_id IS NULL AND recurring) OR "
+            "(provider = 'youtube' AND feed_url IS NULL AND provider_resource_id IS NOT NULL "
+            "AND ((resource_kind IN ('channel','playlist') AND recurring "
+            "AND provider_collection_id IS NOT NULL) OR "
+            "(resource_kind = 'video' AND NOT recurring AND provider_collection_id IS NULL)))",
+            name="ck_sources_provider_resource",
+        ),
+        UniqueConstraint(
+            "provider", "resource_kind", "provider_resource_id", name="uq_sources_provider_resource"
         ),
         CheckConstraint("poll_interval_seconds >= 300"),
         CheckConstraint("polling_mode IN ('fixed','adaptive')", name="ck_sources_polling_mode"),
@@ -117,6 +130,12 @@ class Source(Base):
     name: Mapped[str] = mapped_column(String(200))
     slug: Mapped[str] = mapped_column(String(200), unique=True, server_default=FetchedValue())
     feed_url: Mapped[str | None] = mapped_column(String(2048), unique=True)
+    provider: Mapped[str] = mapped_column(String(20), default="rss", server_default="rss")
+    resource_kind: Mapped[str] = mapped_column(String(20), default="feed", server_default="feed")
+    provider_resource_id: Mapped[str | None] = mapped_column(String(128))
+    provider_collection_id: Mapped[str | None] = mapped_column(String(128))
+    provider_state: Mapped[dict] = mapped_column(JSONB, default=dict, server_default="{}")
+    recurring: Mapped[bool] = mapped_column(Boolean, default=True, server_default="true")
     source_type: Mapped[str] = mapped_column(String(20))
     description: Mapped[str | None] = mapped_column(String(500))
     website_url: Mapped[str | None] = mapped_column(String(2048))
@@ -441,6 +460,14 @@ TAG_TOPIC_CATALOG_REVISION = Sequence("tag_topic_catalog_revision", metadata=Bas
 class Article(Base):
     __tablename__ = "articles"
     __table_args__ = (
+        UniqueConstraint("provider", "provider_resource_id", name="uq_articles_provider_resource"),
+        CheckConstraint(
+            "(provider IS NULL AND provider_resource_id IS NULL) OR "
+            "(provider IS NOT NULL AND provider = 'youtube' AND provider_resource_id IS NOT NULL "
+            "AND provider_resource_id ~ '^[A-Za-z0-9_-]{11}$' "
+            "AND content_format = 'video')",
+            name="ck_articles_provider_resource",
+        ),
         CheckConstraint(
             "metadata_source_type IN ('publisher', 'aggregator', 'page')",
             name="ck_articles_metadata_source_type",
@@ -462,6 +489,9 @@ class Article(Base):
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
     canonical_url: Mapped[str] = mapped_column(String(2048))
+    provider: Mapped[str | None] = mapped_column(String(20))
+    provider_resource_id: Mapped[str | None] = mapped_column(String(128))
+    video_metadata: Mapped[dict] = mapped_column(JSONB, default=dict, server_default="{}")
     url_hash: Mapped[str] = mapped_column(String(64), unique=True)
     title: Mapped[str] = mapped_column(String(500))
     slug: Mapped[str] = mapped_column(String(200), unique=True, server_default=FetchedValue())
@@ -572,12 +602,29 @@ class ArticleOrigin(Base):
     source_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("sources.id"), index=True)
     entry_key: Mapped[str] = mapped_column(String(64))
     original_url: Mapped[str] = mapped_column(String(2048))
+    active: Mapped[bool] = mapped_column(Boolean, default=True, server_default="true")
     # Bounded entry evidence, not authoritative metadata of the linked resource.
     source_metadata: Mapped[dict] = mapped_column(JSONB, default=dict)
     source: Mapped[Source] = relationship(lazy="joined")
 
 
 Index("ix_article_origins_article_source", ArticleOrigin.article_id, ArticleOrigin.source_id)
+
+
+class YouTubeMembership(Base):
+    """Retained collection provenance, reconciled only after a complete bounded scan."""
+
+    __tablename__ = "youtube_memberships"
+    source_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("sources.id", ondelete="CASCADE"), primary_key=True
+    )
+    article_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("articles.id", ondelete="CASCADE"), primary_key=True
+    )
+    playlist_item_id: Mapped[str | None] = mapped_column(String(128))
+    added_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    seen_generation: Mapped[uuid.UUID | None]
+    active: Mapped[bool] = mapped_column(Boolean, default=True, server_default="true")
 
 
 class IngestionJob(LeasedJobMixin, Base):

@@ -1,3 +1,5 @@
+import { articleAction, isVideo } from "@/lib/video";
+import { VideoMetadata } from "./video-metadata";
 import "../app/styles/article.css";
 import type { ReactNode } from "react";
 import { ArticleShare } from "./article-share";
@@ -6,7 +8,7 @@ import { Markdown } from "@devfeed/ui/markdown";
 import Link from "@/components/reader-link";
 import { ArrowUpRight, ChevronDown, Sparkles } from "lucide-react";
 import type { Article } from "@/lib/types";
-import { displayHost, sourceHref, outboundArticleUrl, safeExternalUrl } from "@/lib/feed-query";
+import { displayHost, sourceHref, safeExternalUrl } from "@/lib/feed-query";
 import {
   EngagementProvider,
   ArticleEngagement,
@@ -29,7 +31,8 @@ export function ArticlePreviewContent({
   topicBrief?: ReactNode;
   children?: ReactNode;
 }) {
-  const original = outboundArticleUrl(article.canonical_url);
+  const action = articleAction(article);
+  const original = action.href;
   const cover = safeExternalUrl(article.image_url);
   const source = article.sources[0];
   const overview = article.ai_summary || article.summary;
@@ -70,14 +73,26 @@ export function ArticlePreviewContent({
                         ? adLinkRel(article.sponsor_link_rel)
                         : "noopener noreferrer"
                     }
-                    title={`Read on ${displayHost(article.canonical_url)}`}
+                    title={
+                      isVideo(article)
+                        ? action.accessibleLabel
+                        : `Read on ${displayHost(article.canonical_url)}`
+                    }
+                    aria-label={isVideo(article) ? action.accessibleLabel : undefined}
                   >
-                    Read {article.content_type}
+                    {isVideo(article) ? action.label : `Read ${article.content_type}`}
                     <ArrowUpRight size={17} aria-hidden="true" />
                   </ArticleReadLink>
                 )}
               </div>
               <h1 id="article-preview-title">{article.title}</h1>
+              <VideoMetadata content={article} />
+              {isVideo(article) && (
+                <p className="preview-watch-note">
+                  Watch links count as original opens in your activity. Opening a link does not
+                  confirm playback or completion.
+                </p>
+              )}
               <ArticleSponsorship names={article.sponsor_names} />
               {article.author && <p className="preview-author">By {article.author}</p>}
               {overview && (
@@ -103,7 +118,7 @@ export function ArticlePreviewContent({
               {showExcerpt && (
                 <details className="preview-excerpt">
                   <summary>
-                    Source excerpt
+                    {isVideo(article) ? "Video description" : "Source excerpt"}
                     <ChevronDown size={15} aria-hidden="true" />
                   </summary>
                   <Markdown>{article.summary}</Markdown>
@@ -120,7 +135,9 @@ export function ArticlePreviewContent({
               )}
             </div>
             <div className="preview-sidebar" role="complementary" data-nosnippet>
-              {source && <ArticleSourceBrief source={source} articleSlug={article.slug} />}
+              {(isVideo(article) ? article.sources : source ? [source] : []).map((item) => (
+                <ArticleSourceBrief key={item.id} source={item} articleSlug={article.slug} />
+              ))}
               {topicBrief}
               <PartnerPlacements
                 key={article.id}
@@ -134,9 +151,24 @@ export function ArticlePreviewContent({
         <footer className="preview-footer" aria-label="Article actions">
           <div className="preview-footer-content">
             <div className="preview-footer-toolbar" role="group" aria-label="Article interactions">
-              <ArticleEngagement articleId={article.id} articleSlug={article.slug} />
-              <ArticleBookmarkButton articleId={article.id} articleSlug={article.slug} label />
-              <ArticleShare key={article.id} slug={article.slug} title={article.title} label />
+              <ArticleEngagement
+                articleId={article.id}
+                articleSlug={article.slug}
+                contentFormat={article.content_format}
+              />
+              <ArticleBookmarkButton
+                articleId={article.id}
+                articleSlug={article.slug}
+                contentFormat={article.content_format}
+                label
+              />
+              <ArticleShare
+                key={article.id}
+                slug={article.slug}
+                title={article.title}
+                contentFormat={article.content_format}
+                label
+              />
             </div>
           </div>
         </footer>

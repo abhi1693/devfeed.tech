@@ -6,6 +6,7 @@
  * OpenAPI spec version: 0.0.52
  */
 import type { AdminSourceCreatePollingMode } from './adminSourceCreatePollingMode';
+import type { AdminSourceCreateYoutubeTarget } from './adminSourceCreateYoutubeTarget';
 import type { SourceSubmitter } from './sourceSubmitter';
 import type { SourceType } from './sourceType';
 
@@ -27,4 +28,5 @@ export interface AdminSourceCreate {
   submitted_by?: SourceSubmitter | null;
   use_solver?: boolean;
   website_url?: string | null;
+  youtube_target?: AdminSourceCreateYoutubeTarget;
 }

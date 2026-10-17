@@ -1,3 +1,7 @@
+import {
+  youtubeReaderFixture,
+  checkYoutubeReader,
+} from "../../../../scripts/testing/youtube-reader.mjs";
 import { checkCatalogSharing } from "../../../../scripts/testing/catalog-sharing.mjs";
 import {
   checkKeyboardReader,
@@ -173,6 +177,7 @@ async function createReaderFixture(t, { thumbnailFeed = false } = {}) {
   withManagedSourceLogo(article.sources[0]);
   const mustReadsFixture = dailyFixture(article);
   const readingFixture = readingStreakFixture();
+  const youtube = youtubeReaderFixture(article);
   const mutationFixture = userMutationFixture({ articles: [article], topic });
   const domCatalog = readerDomCatalogFixture();
   const routeFixture = readerRoutesFixture(article);
@@ -208,6 +213,18 @@ async function createReaderFixture(t, { thumbnailFeed = false } = {}) {
   fixture = createServer(async (req, res) => {
     const requestUrl = new URL(req.url, "http://localhost");
     const path = requestUrl.pathname;
+    if (youtube.handles(requestUrl)) {
+      const chunks = [];
+      for await (const chunk of req) chunks.push(chunk);
+      const { json } = youtube.respond(
+        requestUrl,
+        req.method,
+        chunks.length ? JSON.parse(Buffer.concat(chunks).toString()) : undefined,
+      );
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify(json));
+      return;
+    }
     if (
       path === "/v1/user/profiles/keyboard-reader" ||
       path === "/v1/user/profiles/keyboard-reader/reading-heatmap"
@@ -768,7 +785,7 @@ async function createReaderFixture(t, { thumbnailFeed = false } = {}) {
       assert.equal(redirect.statusCode, 308);
       assert.equal(redirect.headers.location, `https://devfeed.tech${path}`);
     }
-    const context = await browser.newContext({
+    const context = await readerBrowserContext(browser, {
       viewport: { width: 1440, height: 1000 },
       reducedMotion: "reduce",
     });
@@ -1097,7 +1114,7 @@ async function createReaderFixture(t, { thumbnailFeed = false } = {}) {
       { relayClick: true },
     );
     assert.deepEqual(searchClicks.slice(clicksBeforeSecurity), [searchSecurityEvent]);
-    const edgeContext = await browser.newContext({
+    const edgeContext = await readerBrowserContext(browser, {
       userAgent:
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36 Edg/130.0.0.0",
       viewport: { width: 1440, height: 1000 },
@@ -1135,7 +1152,7 @@ async function createReaderFixture(t, { thumbnailFeed = false } = {}) {
     await preparationPage.close();
     for (const fail of [false, true]) {
       articleFeedGate = blockedFeed(fail);
-      const directContext = await browser.newContext({
+      const directContext = await readerBrowserContext(browser, {
         viewport: fail ? { width: 412, height: 823 } : { width: 1440, height: 1000 },
       });
       const directPage = await directContext.newPage();
@@ -1156,7 +1173,9 @@ async function createReaderFixture(t, { thumbnailFeed = false } = {}) {
         await directContext.close();
       }
     }
-    const earlyContext = await browser.newContext({ viewport: { width: 412, height: 823 } });
+    const earlyContext = await readerBrowserContext(browser, {
+      viewport: { width: 412, height: 823 },
+    });
     const earlyPage = await earlyContext.newPage();
     await earlyPage.route(/\/_next\/static\/.*\.js(?:\?.*)?$/, (route) => route.abort());
     await earlyPage.goto(`${origin}/articles/${article.slug}`, { waitUntil: "domcontentloaded" });
@@ -1164,7 +1183,9 @@ async function createReaderFixture(t, { thumbnailFeed = false } = {}) {
     await earlyPage.keyboard.press("Escape");
     await earlyPage.waitForURL(`${origin}/`);
     await earlyContext.close();
-    const retryContext = await browser.newContext({ viewport: { width: 390, height: 844 } });
+    const retryContext = await readerBrowserContext(browser, {
+      viewport: { width: 390, height: 844 },
+    });
     const retryPage = await retryContext.newPage();
     await checkArticleBeforeHydration(
       retryPage,
@@ -1189,6 +1210,7 @@ async function createReaderFixture(t, { thumbnailFeed = false } = {}) {
   return {
     browser,
     origin,
+    youtube,
     upstream,
     userUpstream,
     serverReads,
@@ -1208,8 +1230,18 @@ async function createReaderFixture(t, { thumbnailFeed = false } = {}) {
   };
 }
 
+async function readerBrowserContext(browser, options = {}) {
+  const context = await browser.newContext(options);
+  // Keep production analytics markup and first-party event assertions, but do
+  // not download a changing third-party SDK or send fixture traffic to Google.
+  await context.route("https://www.googletagmanager.com/**", (route) =>
+    route.fulfill({ contentType: "text/javascript", body: "window.gtag = () => {};" }),
+  );
+  return context;
+}
+
 async function withReaderPage(browser, check, options = {}) {
-  const context = await browser.newContext({ reducedMotion: "reduce", ...options });
+  const context = await readerBrowserContext(browser, { reducedMotion: "reduce", ...options });
   try {
     await mockManagedImages(context);
     await mockSourceLogos(context);
@@ -1277,6 +1309,16 @@ test("thumbnails match rendered widths and device pixel ratios", { timeout: 3600
   await writeFile(`${root}/reports/thumbnail-sizing/web.json`, JSON.stringify(results, null, 2));
 });
 
+test(
+  "YouTube videos retain metadata and shared reader interactions",
+  { timeout: 180000 },
+  async (t) => {
+    const { browser, origin, youtube } = await createReaderFixture(t);
+    await withReaderPage(browser, (page) =>
+      checkYoutubeReader(page, (path) => origin + path, youtube, "web"),
+    );
+  },
+);
 test("article topic panels preserve contextual assignments", { timeout: 180000 }, async (t) => {
   const { browser, origin, topicContext } = await createReaderFixture(t);
   for (const item of topicContext.cases) {
@@ -1476,7 +1518,7 @@ test(
   { timeout: 180000 },
   async (t) => {
     const { browser, origin } = await createReaderFixture(t);
-    const context = await browser.newContext();
+    const context = await readerBrowserContext(browser);
     try {
       await mockManagedImages(context);
       await mockSourceLogos(context);

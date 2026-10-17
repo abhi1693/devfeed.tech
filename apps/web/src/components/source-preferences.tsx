@@ -14,6 +14,7 @@ import { LoadingSkeleton } from "./loading-skeleton";
 import { UserSettingsLayout } from "./user-settings-layout";
 import { AccountGate } from "./user-account";
 import { useSourceFollows } from "./source-follow";
+import { canFollowSource } from "@/lib/video";
 import type { Source } from "@/lib/types";
 export function SourcePreferences({ sources }: { sources?: Source[] }) {
   return (
@@ -80,9 +81,9 @@ function SourceSelection({ sources }: { sources?: Source[] }) {
         <SuggestSourceLink />
       </div>
       <InfiniteChoices items={sources} label="sources" query={query}>
-        {(choices) => (
+        {(choices, complete) => (
           <div className="source-choice-grid">
-            {choices.map((source) => {
+            {choices.filter(canFollowSource).map((source) => {
               const active = selected.includes(source.id);
               return (
                 <button
@@ -105,6 +106,9 @@ function SourceSelection({ sources }: { sources?: Source[] }) {
                 </button>
               );
             })}
+            {complete && choices.length > 0 && !choices.some(canFollowSource) && (
+              <p role="status">No recurring sources match your search.</p>
+            )}
           </div>
         )}
       </InfiniteChoices>

@@ -18,7 +18,9 @@ def approved_sources(session: Session, article_id: uuid.UUID, *, lock=False) -> 
         select(Source.id)
         .where(
             Source.id.in_(
-                select(ArticleOrigin.source_id).where(ArticleOrigin.article_id == article_id)
+                select(ArticleOrigin.source_id).where(
+                    ArticleOrigin.article_id == article_id, ArticleOrigin.active.is_(True)
+                )
             ),
             Source.approval_status == "approved",
         )
@@ -74,7 +76,11 @@ def backfill_articles(session: Session, limit: int, *, source_id: uuid.UUID | No
     origin = (
         select(ArticleOrigin.id)
         .join(Source, Source.id == ArticleOrigin.source_id)
-        .where(ArticleOrigin.article_id == Article.id, Source.approval_status == "approved")
+        .where(
+            ArticleOrigin.article_id == Article.id,
+            ArticleOrigin.active.is_(True),
+            Source.approval_status == "approved",
+        )
     )
     if source_id is not None:
         origin = origin.where(ArticleOrigin.source_id == source_id)

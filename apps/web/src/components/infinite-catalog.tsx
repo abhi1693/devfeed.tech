@@ -1,4 +1,6 @@
 "use client";
+
+import { canFollowSource, sourceCollectionLabel } from "@/lib/video";
 import { readerRequest } from "@/lib/reader-runtime";
 import { sourceHref } from "@/lib/feed-query";
 
@@ -73,8 +75,19 @@ export function InfiniteCatalog({
               logoUrl={item.logo_url}
               logoVariants={item.logo_variants}
               source
-              description={item.description && <Markdown compact>{item.description}</Markdown>}
-              followAction={<SourceFollow sourceId={item.id} returnTo={sourceHref(item)} compact />}
+              description={
+                <>
+                  {sourceCollectionLabel(item) && (
+                    <p className="source-kind">{sourceCollectionLabel(item)}</p>
+                  )}
+                  {item.description && <Markdown compact>{item.description}</Markdown>}
+                </>
+              }
+              followAction={
+                canFollowSource(item) ? (
+                  <SourceFollow sourceId={item.id} returnTo={sourceHref(item)} compact />
+                ) : undefined
+              }
             />
           ),
         )}

@@ -8,12 +8,14 @@ import { useEffect, useRef, useState } from "react";
 import { Check, LoaderCircle, Plus } from "lucide-react";
 import { Select } from "@devfeed/ui/select";
 import { AccountError } from "@/lib/user";
-import { previewSourceSuggestion, suggestSource } from "@/lib/user-mutations";
+import { previewSourceSuggestion, suggestSource, type SourcePreview } from "@/lib/user-mutations";
 import { AccountGate, useUser } from "./user-account";
 
 function validFeedUrl(value: string) {
+  if (/^@[\p{L}\p{N}_.\-·]{3,30}$/u.test(value)) return true;
   try {
-    return ["http:", "https:"].includes(new URL(value).protocol);
+    const url = new URL(value);
+    return ["http:", "https:"].includes(url.protocol) && !url.username && !url.password;
   } catch {
     return false;
   }
@@ -47,7 +49,7 @@ export function SourceSuggestion() {
       <AccountGate
         returnTo={returnTo}
         title="Sign in to suggest a source"
-        description="Share a developer-focused RSS or Atom feed for review."
+        description="Share a developer-focused feed, YouTube channel, playlist, or video for review."
       >
         <SuggestionForm />
       </AccountGate>
@@ -65,16 +67,17 @@ function SuggestionForm() {
   }, [userId, sessionRevision]);
   const [name, setName] = useState("");
   const [nameEdited, setNameEdited] = useState(false);
-  const [preview, setPreview] = useState<{ key: string; name: string; error?: string } | null>(
+  const [preview, setPreview] = useState<(SourcePreview & { key: string; error?: string }) | null>(
     null,
   );
   const [url, setUrl] = useState("");
+  const [youtubeTarget, setYoutubeTarget] = useState<"channel" | "playlist" | "video">();
   const [sourceType, setSourceType] = useState<"publisher" | "aggregator">("publisher");
   const [busy, setBusy] = useState(false);
   const inFlight = useRef(false);
   const [error, setError] = useState("");
   const [saved, setSaved] = useState<{ name: string } | null>(null);
-  const previewKey = `${sourceType}:${url.trim()}`;
+  const previewKey = `${sourceType}:${youtubeTarget ?? ""}:${url.trim()}`;
   const canPreview = validFeedUrl(url.trim());
   const lookingUp = canPreview && preview?.key !== previewKey;
   const displayName = nameEdited ? name : preview?.key === previewKey ? preview.name : "";
@@ -84,13 +87,17 @@ function SuggestionForm() {
     const timer = setTimeout(async () => {
       try {
         const result = await previewSourceSuggestion(
-          { feed_url: url.trim(), source_type: sourceType },
+          {
+            feed_url: url.trim(),
+            source_type: sourceType,
+            ...(youtubeTarget && { youtube_target: youtubeTarget }),
+          },
           {
             csrfToken: user.csrf_token,
             signal: AbortSignal.any([controller.signal, AbortSignal.timeout(45000)]),
           },
         );
-        if (!controller.signal.aborted) setPreview({ key: previewKey, name: result.name });
+        if (!controller.signal.aborted) setPreview({ ...result, key: previewKey });
       } catch (cause) {
         if (!controller.signal.aborted)
           setPreview({
@@ -98,7 +105,7 @@ function SuggestionForm() {
             name: "",
             error:
               cause instanceof AccountError && cause.status === 422
-                ? "Couldn’t read this feed. Check the RSS or Atom URL."
+                ? "Couldn’t read this source. Check the public feed or YouTube URL."
                 : cause instanceof AccountError && cause.status === 429
                   ? "Feed lookup limit reached. You can enter a name yourself."
                   : "Couldn’t look up the name. You can enter it yourself or retry when submitting.",
@@ -109,7 +116,7 @@ function SuggestionForm() {
       clearTimeout(timer);
       controller.abort();
     };
-  }, [user, canPreview, url, sourceType, previewKey, saved]);
+  }, [user, canPreview, url, sourceType, youtubeTarget, previewKey, saved]);
   if (saved)
     return (
       <section className="source-suggestion-confirmation" aria-labelledby="suggestion-confirmed">
@@ -131,7 +138,7 @@ function SuggestionForm() {
         <div className="suggestion-confirmation-source">
           <div>
             <strong>{saved.name}</strong>
-            <span>{new URL(url.trim()).hostname}</span>
+            <span>{url.trim().startsWith("@") ? "YouTube" : new URL(url.trim()).hostname}</span>
           </div>
           <span className="suggestion-review-status">Pending review</span>
         </div>
@@ -147,6 +154,7 @@ function SuggestionForm() {
               setNameEdited(false);
               setPreview(null);
               setUrl("");
+              setYoutubeTarget(undefined);
             }}
           >
             Suggest another source
@@ -164,7 +172,7 @@ function SuggestionForm() {
         className="profile-form"
         onSubmit={async (event) => {
           event.preventDefault();
-          if (!user || inFlight.current || lookingUp) return;
+          if (!user || inFlight.current || !canPreview || lookingUp) return;
           const controller = account.current;
           if (!controller || controller.signal.aborted) return;
           inFlight.current = true;
@@ -175,6 +183,13 @@ function SuggestionForm() {
               {
                 feed_url: url.trim(),
                 source_type: sourceType,
+                ...((youtubeTarget ||
+                  (preview?.provider === "youtube" &&
+                    preview.resource_kind !== "feed" &&
+                    preview.resource_kind)) && {
+                  youtube_target:
+                    youtubeTarget ?? (preview!.resource_kind as "channel" | "playlist" | "video"),
+                }),
                 ...(displayName.trim() ? { name: displayName.trim() } : {}),
               },
               {
@@ -191,7 +206,7 @@ function SuggestionForm() {
                   : cause instanceof AccountError && cause.status === 429
                     ? "You can suggest up to five sources per hour. Please try again later."
                     : cause instanceof AccountError && cause.status === 422
-                      ? "Enter a public RSS or Atom feed URL that opens without signing in."
+                      ? "Enter a public feed or YouTube URL that opens without signing in."
                       : cause instanceof AccountError && cause.status === 401
                         ? "Please sign in again to submit your suggestion."
                         : "Couldn’t submit your suggestion. Your details are still here; please try again.",
@@ -205,10 +220,10 @@ function SuggestionForm() {
         <fieldset disabled={busy}>
           <legend className="sr-only">Source details</legend>
           <div className="settings-field">
-            <label htmlFor="suggest-feed-url">RSS or Atom URL</label>
+            <label htmlFor="suggest-feed-url">Feed or YouTube URL</label>
             <input
               id="suggest-feed-url"
-              type="url"
+              type="text"
               inputMode="url"
               required
               maxLength={2048}
@@ -219,12 +234,47 @@ function SuggestionForm() {
               value={url}
               onChange={(event) => {
                 setUrl(event.target.value);
+                setYoutubeTarget(undefined);
                 setError("");
               }}
               aria-describedby="suggest-url-help"
             />
-            <p id="suggest-url-help">Use the feed URL, not a website or article link.</p>
+            <p id="suggest-url-help">
+              Use an RSS or Atom feed, YouTube @handle, channel, playlist, or video URL. A single
+              video does not subscribe to channel uploads.
+            </p>
           </div>
+          {!!preview?.resources?.length && (
+            <div className="settings-field">
+              <label htmlFor="suggest-youtube-target">YouTube target</label>
+              <Select
+                id="suggest-youtube-target"
+                label="YouTube target"
+                value={
+                  youtubeTarget ??
+                  (preview.resource_kind === "feed" ? "video" : preview.resource_kind) ??
+                  "video"
+                }
+                onChange={(value) => {
+                  if (value === "video" || value === "playlist" || value === "channel")
+                    setYoutubeTarget(value);
+                }}
+                options={preview.resources.map((item) => ({
+                  value: item.target,
+                  label:
+                    item.target === "video"
+                      ? "Only this video"
+                      : item.target === "playlist"
+                        ? "Entire playlist"
+                        : "Channel uploads",
+                }))}
+              />
+              <p>
+                Choose what to submit. Videos are reviewed individually; a collection does not
+                approve every upload.
+              </p>
+            </div>
+          )}
           <div className="settings-field">
             <label htmlFor="suggest-source-name">Name (optional)</label>
             <input
@@ -239,10 +289,10 @@ function SuggestionForm() {
             />
             <p id="suggest-name-help" aria-live="polite">
               {lookingUp
-                ? "Looking up the feed name…"
+                ? "Looking up the source name…"
                 : preview?.key === previewKey && preview.error
                   ? preview.error
-                  : "Filled from the feed. You can edit it before submitting."}
+                  : "Filled from the source. You can edit it before submitting."}
             </p>
           </div>
           <div className="settings-field">
@@ -276,11 +326,11 @@ function SuggestionForm() {
           <button
             className="settings-button"
             type="submit"
-            disabled={busy || !url.trim() || lookingUp}
+            disabled={busy || !canPreview || lookingUp}
             aria-busy={busy}
           >
             {busy && <LoaderCircle size={16} className="settings-spinner" aria-hidden="true" />}
-            {busy ? "Checking feed…" : "Submit suggestion"}
+            {busy ? "Checking source…" : "Submit suggestion"}
           </button>
         </div>
       </form>

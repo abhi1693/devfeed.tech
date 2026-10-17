@@ -100,3 +100,53 @@ it("preserves followed sources outside the loaded catalog page", async () => {
   await screen.findByText("Your sources are saved.");
   expect(mock.ids()).toEqual(["unloaded-source", source.id]);
 });
+
+it("offers recurring video collections in preferences without offering single submissions", async () => {
+  setup();
+  render(
+    shell(
+      <SourcePreferences
+        sources={[
+          {
+            ...source,
+            id: "channel",
+            name: "Video channel",
+            provider: "youtube",
+            resource_kind: "channel",
+          },
+          {
+            ...source,
+            id: "playlist",
+            name: "Video playlist",
+            provider: "youtube",
+            resource_kind: "playlist",
+          },
+          {
+            ...source,
+            id: "video",
+            name: "Single video",
+            provider: "youtube",
+            resource_kind: "video",
+            recurring: false,
+          },
+        ]}
+      />,
+    ),
+  );
+  expect(await screen.findByRole("button", { name: "Video channel" })).toBeTruthy();
+  expect(screen.getByRole("button", { name: "Video playlist" })).toBeTruthy();
+  expect(screen.queryByRole("button", { name: "Single video" })).toBeNull();
+});
+
+it("explains an empty follow selection when the catalog contains only single videos", async () => {
+  setup();
+  render(
+    shell(
+      <SourcePreferences
+        sources={[{ ...source, provider: "youtube", resource_kind: "video", recurring: false }]}
+      />,
+    ),
+  );
+  expect(await screen.findByText("No recurring sources match your search.")).toBeTruthy();
+  expect(screen.queryByRole("button", { name: source.name })).toBeNull();
+});

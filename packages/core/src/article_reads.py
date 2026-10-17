@@ -12,6 +12,9 @@ PUBLIC_ARTICLE_OPTIONS = (
     load_only(
         Article.id,
         Article.canonical_url,
+        Article.provider,
+        Article.provider_resource_id,
+        Article.video_metadata,
         Article.title,
         Article.ai_title,
         Article.slug,
@@ -36,6 +39,7 @@ PUBLIC_ARTICLE_OPTIONS = (
     selectinload(Article.origins)
     .load_only(
         ArticleOrigin.source_id,
+        ArticleOrigin.active,
         ArticleOrigin.original_url,
         ArticleOrigin.source_metadata,
         raiseload=True,
@@ -47,6 +51,10 @@ PUBLIC_ARTICLE_OPTIONS = (
         Source.name,
         Source.slug,
         Source.source_type,
+        Source.provider,
+        Source.resource_kind,
+        Source.provider_resource_id,
+        Source.recurring,
         Source.description,
         Source.website_url,
         Source.logo_url,

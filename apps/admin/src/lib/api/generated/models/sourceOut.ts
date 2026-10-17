@@ -10,8 +10,11 @@ import type { SourceOutApprovalStatus } from './sourceOutApprovalStatus';
 import type { SourceOutEffectivePollingMode } from './sourceOutEffectivePollingMode';
 import type { SourceOutPollingMode } from './sourceOutPollingMode';
 import type { SourceOutPollingState } from './sourceOutPollingState';
+import type { SourceOutProvider } from './sourceOutProvider';
+import type { SourceOutProviderState } from './sourceOutProviderState';
 import type { SourceOutPublicationPolicy } from './sourceOutPublicationPolicy';
 import type { SourceOutRelevanceAssessment } from './sourceOutRelevanceAssessment';
+import type { SourceOutResourceKind } from './sourceOutResourceKind';
 import type { SourceSubmitterOut } from './sourceSubmitterOut';
 import type { SourceType } from './sourceType';
 
@@ -41,9 +44,15 @@ export interface SourceOut {
   poll_interval_seconds: number;
   polling_mode?: SourceOutPollingMode;
   polling_state?: SourceOutPollingState;
+  provider?: SourceOutProvider;
+  provider_collection_id?: string | null;
+  provider_resource_id?: string | null;
+  provider_state?: SourceOutProviderState;
   publication_policy?: SourceOutPublicationPolicy;
   publication_policy_revision?: number;
+  recurring?: boolean;
   relevance_assessment?: SourceOutRelevanceAssessment;
+  resource_kind?: SourceOutResourceKind;
   review_note: string | null;
   reviewed_at: string | null;
   reviewed_by: string | null;

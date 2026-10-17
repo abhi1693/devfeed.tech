@@ -9,6 +9,7 @@ import type { AdminArticleOutClassificationProvenance } from './adminArticleOutC
 import type { DevfeedAdminApiArticlesArticleTopicOut } from './devfeedAdminApiArticlesArticleTopicOut';
 import type { SourceRef } from './sourceRef';
 import type { TagOut } from './tagOut';
+import type { VideoMetadata } from './videoMetadata';
 
 export interface AdminArticleOut {
   ai_description: string | null;
@@ -23,6 +24,8 @@ export interface AdminArticleOut {
   id: string;
   image_url: string | null;
   language: string | null;
+  provider?: string | null;
+  provider_resource_id?: string | null;
   publication_blockers?: string[];
   publication_status: string;
   published_at: string | null;
@@ -33,4 +36,5 @@ export interface AdminArticleOut {
   tags: TagOut[];
   title: string;
   topics?: DevfeedAdminApiArticlesArticleTopicOut[];
+  video_metadata?: VideoMetadata | null;
 }

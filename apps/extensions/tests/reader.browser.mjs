@@ -1,3 +1,7 @@
+import {
+  youtubeReaderFixture,
+  checkYoutubeReader,
+} from "../../../scripts/testing/youtube-reader.mjs";
 import { checkCatalogSharing } from "../../../scripts/testing/catalog-sharing.mjs";
 import {
   checkKeyboardReader,
@@ -203,6 +207,7 @@ async function readerFixture(t, imageProfile) {
   const readerDestinations = readerDestinationsFixture(article);
   const loginDestinations = loginDestinationsFixture(article);
   const serverReads = serverReadFixture();
+  const youtube = youtubeReaderFixture(article);
   const topicContext = articleTopicContextFixture(article);
   await context.route("https://identity.example/authorize?**", (route) =>
     route.fulfill({ contentType: "text/html", body: "<p>Sign-in provider</p>" }),
@@ -216,6 +221,14 @@ async function readerFixture(t, imageProfile) {
   await context.route("https://devfeed.tech/api/**", async (route) => {
     const url = new URL(route.request().url());
     serverReads.record(url.href, route.request().headers(), url.origin);
+    if (youtube.handles(url))
+      return route.fulfill(
+        youtube.respond(
+          url,
+          route.request().method(),
+          route.request().postData() ? route.request().postDataJSON() : undefined,
+        ),
+      );
     if (topicContext.handles(url)) return route.fulfill(topicContext.respond(url));
     if (loginDestinations.handles(url)) return route.fulfill(loginDestinations.respond(url));
     if (readerDestinations.handles(url))
@@ -435,6 +448,7 @@ async function readerFixture(t, imageProfile) {
     page,
     requests,
     analytics,
+    youtube,
     state,
     mutationFixture,
     routeFixture,
@@ -448,6 +462,15 @@ async function readerFixture(t, imageProfile) {
     pathFor: (path) => readerBase + path,
   };
 }
+
+test(
+  "YouTube videos retain metadata and shared interactions in built new tabs",
+  { timeout: 180000 },
+  async (t) => {
+    const { page, pathFor, youtube } = await readerFixture(t);
+    await checkYoutubeReader(page, pathFor, youtube, browser);
+  },
+);
 
 test("source and topic sharing uses public collection links", { timeout: 180000 }, async (t) => {
   const { page, pathFor } = await readerFixture(t);

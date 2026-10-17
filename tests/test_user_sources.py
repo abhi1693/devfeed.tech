@@ -163,3 +163,21 @@ def test_admin_source_inspection(user_data, database, admin_client):
     assert recommendations["items"] and all(
         row["source_id"] == str(source) for row in recommendations["items"]
     )
+
+
+@pytest.mark.parametrize("kind", ["channel", "playlist", "video"])
+def test_only_recurring_youtube_collections_can_be_followed(user_data, database, kind):
+    from test_youtube import CHANNEL, PLAYLIST, VIDEO
+    from test_youtube_ingestion import source
+
+    client = user_data[0]
+    identifier = source(
+        database,
+        kind=kind,
+        identifier={"channel": CHANNEL, "playlist": PLAYLIST, "video": VIDEO}[kind],
+    )
+    expected = 422 if kind == "video" else 200
+    assert client.put(f"{PATH}/{identifier}", json={"followed": True}).status_code == expected
+    assert client.put(PATH, json={"source_ids": [str(identifier)]}).status_code == expected
+    assert client.get(PATH).json()["source_ids"] == ([] if kind == "video" else [str(identifier)])
+    assert client.put(f"{PATH}/{identifier}", json={"followed": False}).status_code == 200

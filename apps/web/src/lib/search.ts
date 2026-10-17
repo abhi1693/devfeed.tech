@@ -1,3 +1,4 @@
+import type { VideoMetadata } from "./types";
 import { contentTypes } from "./feed-query";
 import type { AdLinkRel } from "@devfeed/ui/ad-link-rel";
 import {
@@ -9,6 +10,9 @@ export type SearchKind = "articles" | "topics" | "sources" | "tags";
 export const searchKinds = readerDestinationContract.queryFields.searchSection
   .values as readonly SearchKind[];
 export type SearchHit = {
+  provider?: string | null;
+  content_format?: string | null;
+  video_metadata?: VideoMetadata | null;
   id: string;
   title: string;
   description: string;

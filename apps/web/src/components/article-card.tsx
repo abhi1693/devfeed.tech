@@ -1,9 +1,11 @@
+import { articleAction } from "@/lib/video";
+import { VideoMetadata } from "./video-metadata";
 import { UserDate } from "./user-date";
 import Link from "@/components/reader-link";
 import { ArrowUpRight, X } from "lucide-react";
 import { useId, useState, type Ref } from "react";
 import type { Article } from "@/lib/types";
-import { displayHost, outboundArticleUrl, safeExternalUrl, sourceHref } from "@/lib/feed-query";
+import { displayHost, safeExternalUrl, sourceHref } from "@/lib/feed-query";
 
 import {
   ArticleEngagement,
@@ -35,7 +37,8 @@ export function ArticleCard({
 }) {
   const destination = articleDestination(article.slug);
   const image = safeExternalUrl(article.image_url);
-  const original = outboundArticleUrl(article.canonical_url);
+  const action = articleAction(article);
+  const original = action.href;
   const source = article.sources[0];
   const [feedbackOpen, setFeedbackOpen] = useState(false);
   const engagement = useArticleEngagement(article.id);
@@ -69,13 +72,13 @@ export function ArticleCard({
             target="_blank"
             rel={sponsored ? adLinkRel(article.sponsor_link_rel) : "noopener noreferrer"}
             className="article-read-link"
-            aria-label="Read original article in a new tab"
-            title="Read original article in a new tab"
+            aria-label={action.accessibleLabel}
+            title={action.accessibleLabel}
             onClick={() => {
               if (!promotion) setFeedbackOpen(true);
             }}
           >
-            Read
+            {action.label}
             <ArrowUpRight size={15} aria-hidden="true" />
           </ArticleReadLink>
         )}
@@ -94,6 +97,7 @@ export function ArticleCard({
             {article.title}
           </TruncatedLink>
         </h2>
+        <VideoMetadata content={article} />
         <div className="card-tags">
           {article.topics.slice(0, 2).map((topic) => (
             <Link href={`/topics/${encodeURIComponent(topic.slug)}`} key={topic.id}>
@@ -129,8 +133,16 @@ export function ArticleCard({
         <div className="card-bottom">
           <UserDate className="card-date" value={article.published_at ?? article.feed_at} />
           <div className="article-quick-actions">
-            <ArticleEngagement articleId={article.id} articleSlug={article.slug} />
-            <ArticleBookmarkButton articleId={article.id} articleSlug={article.slug} />
+            <ArticleEngagement
+              articleId={article.id}
+              articleSlug={article.slug}
+              contentFormat={article.content_format}
+            />
+            <ArticleBookmarkButton
+              articleId={article.id}
+              articleSlug={article.slug}
+              contentFormat={article.content_format}
+            />
           </div>
         </div>
       </div>
@@ -145,7 +157,11 @@ export function ArticleCard({
             <X size={18} aria-hidden="true" />
           </button>
           <p>Want to see more {article.content_type} like this?</p>
-          <ArticleEngagement articleId={article.id} articleSlug={article.slug} />
+          <ArticleEngagement
+            articleId={article.id}
+            articleSlug={article.slug}
+            contentFormat={article.content_format}
+          />
           <div className="article-feedback-card">
             <h2>{article.title}</h2>
             <ArticleImage

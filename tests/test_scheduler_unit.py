@@ -116,6 +116,7 @@ def test_unsupported_recovery_requires_an_explicit_policy():
         "minimal",
         "all",
         "retention-failed",
+        "youtube-revalidation-failed",
         "partner-retention-failed",
         "overview-failed",
         "partner-matching-failed",
@@ -180,6 +181,15 @@ def test_tick_dispatches_outside_transactions_and_preserves_cleanup(monkeypatch,
     monkeypatch.setattr(
         scheduler, "schedule_automation", Mock(return_value={"automation_scheduled": 4})
     )
+
+    def revalidate(factory):
+        assert opened == 0, "YouTube orchestration runs outside existing transactions"
+        if mode == "youtube-revalidation-failed":
+            raise RuntimeError("YouTube revalidation unavailable")
+        return 2
+
+    youtube = Mock(side_effect=revalidate)
+    monkeypatch.setattr(scheduler, "schedule_youtube_revalidation", youtube)
     monkeypatch.setattr(scheduler, "schedule_verification", Mock(return_value=2))
     monkeypatch.setattr(scheduler, "fail_job", Mock())
     monkeypatch.setattr(scheduler, "request_ingestion", Mock(return_value=NS(id=uuid.UUID(int=5))))
@@ -229,6 +239,9 @@ def test_tick_dispatches_outside_transactions_and_preserves_cleanup(monkeypatch,
     else:
         result = scheduler._tick()
         assert result["recovered"] == result["scheduled"] == result["dispatched"] == 1
+        assert result["youtube_revalidations_scheduled"] == (
+            0 if mode == "youtube-revalidation-failed" else 2
+        )
         assert result["automation_scheduled"] == 4 and result["recommendation_users_queued"] == 3
         assert result["analyses_dispatched"] == (0 if mode == "minimal" else 2)
         assert result["notifications_dispatched"] == int(mode == "all")
@@ -241,6 +254,7 @@ def test_tick_dispatches_outside_transactions_and_preserves_cleanup(monkeypatch,
             "devfeed:scheduler:heartbeat", NOW.isoformat(), ex=120
         )
     assert prune.call_count == int(mode != "overview-failed")
+    youtube.assert_called_once_with(factory)
     partner_retention.assert_called_once_with(factory)
     scheduler.dispatch_partner_pipeline.assert_called_once_with(factory, limit=5)
     scheduler.dispatch_partner_evaluations.assert_called_once_with(factory, limit=5)

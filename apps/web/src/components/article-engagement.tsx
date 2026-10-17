@@ -229,10 +229,13 @@ export function ArticleReadLink({
 export function ArticleEngagement({
   articleId,
   articleSlug,
+  contentFormat,
 }: {
   articleId: string;
   articleSlug: string;
+  contentFormat?: string | null;
 }) {
+  const contentName = contentFormat === "video" ? "video" : "article";
   const value = useArticleEngagement(articleId);
   const { user, loading } = useUser();
   const [busy, setBusy] = useState(false);
@@ -284,7 +287,7 @@ export function ArticleEngagement({
           className={`heart-button ${value?.liked ? "liked" : ""}`}
           type="button"
           disabled={loading || busy || !value}
-          aria-label={`${value?.liked ? "Unlike article" : "Like article"}${likeCount}`}
+          aria-label={`${value?.liked ? "Unlike" : "Like"} ${contentName}${likeCount}`}
           aria-pressed={!!value?.liked}
           onClick={toggle}
         >
@@ -294,7 +297,7 @@ export function ArticleEngagement({
         <a
           className="heart-button"
           {...readerLoginLink(`/articles/${articleSlug}`)}
-          aria-label={`Sign in to like this article${likeCount}`}
+          aria-label={`Sign in to like this ${contentName}${likeCount}`}
           title="Sign in to like"
         >
           {heart}
@@ -304,8 +307,8 @@ export function ArticleEngagement({
         <span
           className="open-count"
           role="img"
-          title={`${value.opens} clicks to the original article`}
-          aria-label={`${value.opens} clicks to the original article`}
+          title={`${value.opens} clicks to the original ${contentName}${contentName === "video" ? " (not playback or completion)" : ""}`}
+          aria-label={`${value.opens} clicks to the original ${contentName}${contentName === "video" ? " (not playback or completion)" : ""}`}
         >
           <Eye size={15} aria-hidden="true" />
           {count(value.opens)}
@@ -324,11 +327,14 @@ export function ArticleBookmarkButton({
   articleId,
   articleSlug,
   label = false,
+  contentFormat,
 }: {
   articleId: string;
   articleSlug: string;
   label?: boolean;
+  contentFormat?: string | null;
 }) {
+  const contentName = contentFormat === "video" ? "video" : "article";
   const values = useContext(Context);
   const value = values[articleId];
   const { user, loading } = useUser();
@@ -377,7 +383,7 @@ export function ArticleBookmarkButton({
         <a
           className="bookmark-button"
           {...readerLoginLink(`/articles/${articleSlug}`)}
-          aria-label="Sign in to save article for later"
+          aria-label={`Sign in to save ${contentName} for later`}
           title="Sign in to save for later"
         >
           {icon}
@@ -391,7 +397,7 @@ export function ArticleBookmarkButton({
           aria-disabled={busy}
           aria-busy={busy}
           aria-pressed={saved}
-          aria-label={saved ? "Remove bookmark" : "Save article for later"}
+          aria-label={saved ? "Remove bookmark" : `Save ${contentName} for later`}
           title={saved ? "Remove from Read later" : "Save for later"}
           onClick={toggle}
         >

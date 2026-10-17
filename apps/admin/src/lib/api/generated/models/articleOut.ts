@@ -11,6 +11,7 @@ import type { ArticleOutSponsorLinkRelItem } from './articleOutSponsorLinkRelIte
 import type { DevfeedCoreSchemasArticleTopicOut } from './devfeedCoreSchemasArticleTopicOut';
 import type { ImageVariant } from './imageVariant';
 import type { SourceRef } from './sourceRef';
+import type { VideoMetadata } from './videoMetadata';
 
 export interface ArticleOut {
   ai_description?: string | null;
@@ -28,6 +29,8 @@ export interface ArticleOut {
   language: string | null;
   metadata_source_type?: ArticleOutMetadataSourceType;
   origins: ArticleOriginOut[];
+  provider?: 'youtube' | null;
+  provider_resource_id?: string | null;
   published_at: string | null;
   published_to_feed_at?: string | null;
   slug: string;
@@ -38,4 +41,5 @@ export interface ArticleOut {
   tags: string[];
   title: string;
   topics?: DevfeedCoreSchemasArticleTopicOut[];
+  video_metadata?: VideoMetadata | null;
 }

@@ -12,8 +12,9 @@ from devfeed_core.discovery_import import parse_import
 from devfeed_core.discovery_quality import Quality
 from devfeed_core.feeds.fetcher import FeedError
 from devfeed_core.models import Source, SourceCandidate
-from devfeed_core.schemas import DatabaseText, InputModel, ORMModel, ReviewNote
+from devfeed_core.schemas import DatabaseText, InputModel, ORMModel, ReviewNote, YouTubeTargetKind
 from devfeed_core.urls import validate_public_url
+from devfeed_core.youtube import parse_youtube_url
 from devfeed_http.operation_policies import GatewayPolicy
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import Field, field_validator, model_validator
@@ -32,6 +33,7 @@ class SourceImportRequest(InputModel):
     url: str | None = Field(default=None, max_length=2048)
     content: str | None = Field(default=None, max_length=1_000_000)
     name: DatabaseText = Field(default="Admin import", min_length=1, max_length=200)
+    youtube_target: YouTubeTargetKind | None = None
 
     @field_validator("url")
     @classmethod
@@ -155,7 +157,11 @@ def require_ai():
 )
 def submit(body: SourceImportRequest, admin: Admin):
     try:
-        if body.url:
+        if body.url and parse_youtube_url(body.url) is not None:
+            if body.format != "urls":
+                raise ValueError("Use URL format for a YouTube resource")
+            content = body.url.encode("utf-8")
+        elif body.url:
             content = CrawlSession().get(body.url).body
         else:
             content = (body.content or "").encode("utf-8")
@@ -168,13 +174,22 @@ def submit(body: SourceImportRequest, admin: Admin):
         ) from exc
     if not hints:
         raise HTTPException(422, "No publisher entries found in the collection.")
-    result = discovery.import_publishers(
-        hints,
-        f"admin:{admin.subject}:{body.url or body.name}"[:2048],
-        checksum=hashlib.sha256(content).hexdigest(),
-        background=True,
-        assess_after=get_settings().full_automation,
-    )
+    try:
+        result = discovery.import_publishers(
+            hints,
+            f"admin:{admin.subject}:{body.url or body.name}"[:2048],
+            checksum=hashlib.sha256(content).hexdigest(),
+            background=True,
+            assess_after=get_settings().full_automation,
+            youtube_target=body.youtube_target,
+        )
+    except FeedError as exc:
+        from devfeed_core.youtube_submission import provider_error
+
+        code, message = provider_error(exc)
+        raise HTTPException(code, message) from exc
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
     total = len(result["candidates"])
     return SourceImportResult(
         created=result["created"], existing=total - result["created"], total=total

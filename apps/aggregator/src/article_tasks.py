@@ -33,6 +33,7 @@ from devfeed_core.models import (
 from devfeed_core.publication_policy import apply_publication_policy
 from devfeed_core.source_tags import attach_source_tags, resolve_source_tags
 from devfeed_core.taxonomy import classify, classify_tags, detect_content_type
+from devfeed_core.video_content import youtube_video
 from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import lazyload
@@ -170,14 +171,23 @@ def _enrich(job_id: str) -> None:
             return
         job, url = claimed
         token, article_id, attempt = job.lease_token, job.article_id, job.attempts
+        article = session.scalar(
+            select(Article).where(Article.id == article_id).options(lazyload("*"))
+        )
+        video_id = (
+            article.provider_resource_id if article is not None and youtube_video(article) else None
+        )
     with log_context(article_id=article_id, attempt=attempt):
-        _enrich_claimed(factory, identifier, token, article_id, url, started)
+        _enrich_claimed(factory, identifier, token, article_id, url, started, video_id=video_id)
 
 
-def _enrich_claimed(factory, identifier, token, article_id, url, started):
+def _enrich_claimed(factory, identifier, token, article_id, url, started, *, video_id=None):
     logger.info("article_enrichment_started")
     try:
         # All network, DOM processing and inference happen outside a DB transaction.
+        if video_id is not None:
+            _enrich_video(factory, identifier, token, article_id, url, video_id)
+            return
         result = fetch_article_page(url)
         followed = [url]
         for _ in range(2):
@@ -294,7 +304,10 @@ def _enrich_claimed(factory, identifier, token, article_id, url, started):
                     article is not None
                     and article.canonical_url == url
                     and article.review_status != "rejected"
-                    and not reject_missing_article(session, article, job, transport, url)
+                    and (
+                        youtube_video(article)
+                        or not reject_missing_article(session, article, job, transport, url)
+                    )
                 ):
                     request_analysis(session, article_id, automatic=True)
             fields = {
@@ -313,3 +326,48 @@ def _enrich_claimed(factory, identifier, token, article_id, url, started):
             extra=fields,
             exc_info=transport is None,
         )
+
+
+def _enrich_video(factory, identifier, token, article_id, url, video_id):
+    from devfeed_core.youtube import YouTubeClient
+    from devfeed_core.youtube_ingestion import apply_video_metadata
+
+    # The documented metadata API is the only video transport. Never download a
+    # watch page or imply that an unavailable transcript has been inspected.
+    video = YouTubeClient.from_settings().videos([video_id]).get(video_id)
+    with factory.begin() as session:
+        job = owned_job(session, ArticleEnrichmentJob, identifier, token)
+        if job is None:
+            return
+        if not approved_sources(session, article_id, lock=True):
+            finish_job(job, "unapproved", utcnow())
+            return
+        article = session.scalar(
+            select(Article).where(Article.id == article_id).with_for_update(of=Article)
+        )
+        if (
+            article is None
+            or not youtube_video(article)
+            or article.provider_resource_id != video_id
+            or article.canonical_url != url
+        ):
+            finish_job(job, "superseded", utcnow())
+            return
+        changed = apply_video_metadata(session, article, video)
+        job.changed_fields = ["video_metadata"] if changed else []
+        job.result = {
+            **(job.result or {}),
+            "provider": "youtube",
+            "text_source": "youtube_metadata",
+            "availability": video.availability if video else "unavailable",
+        }
+        finish_job(job, "enriched" if video and video.description else "metadata_only", utcnow())
+        session.flush()
+        if (
+            video is not None
+            and video.availability == "public"
+            and meaningful_text(video.description)
+            and get_settings().ai_enabled
+            and article.review_status != "rejected"
+        ):
+            request_analysis(session, article.id, automatic=True)

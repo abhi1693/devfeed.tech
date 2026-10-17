@@ -6,6 +6,8 @@
  * OpenAPI spec version: 0.0.52
  */
 import type { ImageVariant } from './imageVariant';
+import type { SourceRefProvider } from './sourceRefProvider';
+import type { SourceRefResourceKind } from './sourceRefResourceKind';
 import type { SourceType } from './sourceType';
 
 export interface SourceRef {
@@ -16,6 +18,10 @@ export interface SourceRef {
   logo_url?: string | null;
   logo_variants?: ImageVariant[];
   name: string;
+  provider?: SourceRefProvider;
+  provider_resource_id?: string | null;
+  recurring?: boolean;
+  resource_kind?: SourceRefResourceKind;
   slug: string;
   source_type: SourceType;
   website_url?: string | null;

@@ -74,5 +74,6 @@ export default async function Page({ params, searchParams }: Props) {
     logoUrl: item.logo_url,
     logoVariants: item.logo_variants,
     section: "sources",
+    source: item,
   });
 }

@@ -29,6 +29,7 @@ const profileFields = [
 type Values = Record<string, unknown>;
 
 function validFeedUrl(value: string) {
+  if (/^@[\p{L}\p{N}_.\-·]{3,30}$/u.test(value)) return true;
   try {
     const url = new URL(value);
     return (
@@ -67,10 +68,20 @@ export function SourceFormFields({
   const lastAttempt = useRef<string | null>(null);
   const edited = useRef(new Set<string>());
   const filled = useRef<Record<string, string>>({});
+  const [targets, setTargets] = useState<
+    { target: "video" | "playlist" | "channel"; canonical_url: string; name?: string | null }[]
+  >([]);
+  const [providerKind, setProviderKind] = useState<string>();
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<Error>();
   const solverError = error ?? submissionError;
   const feedUrl = String(values.feed_url ?? "").trim();
+  const youtubeTarget =
+    values.youtube_target === "video" ||
+    values.youtube_target === "playlist" ||
+    values.youtube_target === "channel"
+      ? values.youtube_target
+      : undefined;
   const sourceType = values.source_type as SourcePreviewRequest["source_type"];
 
   useEffect(
@@ -82,7 +93,7 @@ export function SourceFormFields({
   );
 
   function change(key: string, value: unknown) {
-    if (key === "feed_url" || key === "source_type") {
+    if (key === "feed_url" || key === "source_type" || key === "youtube_target") {
       onSolverChoice?.(false);
       setError(undefined);
       request.current?.abort();
@@ -90,10 +101,17 @@ export function SourceFormFields({
       lastAttempt.current = null;
       setPending(false);
       onPreviewBusyChange(false);
+      if (key === "feed_url") {
+        setTargets([]);
+        setProviderKind(undefined);
+      }
       const previousFill = filled.current;
       filled.current = {};
       onValuesChange((previous) => {
         const next = { ...previous, [key]: value };
+        if (key === "feed_url") {
+          next.youtube_target = "";
+        }
         // A different feed must not inherit the previous feed's branding.
         // Deliberate edits, including intentionally cleared fields, are kept.
         for (const [field, candidate] of Object.entries(previousFill)) {
@@ -110,7 +128,7 @@ export function SourceFormFields({
 
   const lookup = useCallback(
     async (useSolver = false, manual = false) => {
-      const identity = `${sourceType}\n${feedUrl}`;
+      const identity = `${sourceType}\n${feedUrl}\n${youtubeTarget ?? ""}`;
       if (disabled || request.current || (!manual && lastAttempt.current === identity)) return;
       if (!validFeedUrl(feedUrl) || !sourceType) return;
       if (useSolver) onSolverChoice?.(true);
@@ -125,14 +143,34 @@ export function SourceFormFields({
           {
             feed_url: feedUrl,
             source_type: sourceType,
+            ...(youtubeTarget && { youtube_target: youtubeTarget }),
             ...(useSolver ? { use_solver: true } : {}),
             ...(sourceId ? { source_id: sourceId } : {}),
           },
           { signal: controller.signal, headers: { "X-CSRF-Token": admin.csrf_token } },
         );
         if (request.current !== controller) return;
+        const detected = details as typeof details & {
+          provider?: string;
+          resource_kind?: string;
+          resources?: {
+            target: "video" | "playlist" | "channel";
+            canonical_url: string;
+            name?: string | null;
+          }[];
+        };
+        setTargets(detected.resources ?? []);
+        setProviderKind(
+          detected.provider === "youtube" ? `YouTube ${detected.resource_kind}` : undefined,
+        );
         onValuesChange((previous) => {
           const next = { ...previous };
+          if (
+            detected.provider === "youtube" &&
+            ["video", "playlist", "channel"].includes(detected.resource_kind ?? "") &&
+            !previous.youtube_target
+          )
+            next.youtube_target = detected.resource_kind;
           for (const field of profileFields) {
             const candidate = details[field];
             if (candidate && !edited.current.has(field) && !String(next[field] ?? "").trim()) {
@@ -164,6 +202,7 @@ export function SourceFormFields({
       disabled,
       feedUrl,
       sourceType,
+      youtubeTarget,
       onValuesChange,
       onPreviewBusyChange,
       sourceId,
@@ -183,7 +222,11 @@ export function SourceFormFields({
     const spec = resources.sources.fields.find((item) => item.key === key)!;
     return (
       <FormField
-        field={{ ...spec, required: spec.required || (editing && key === "name") }}
+        field={{
+          ...spec,
+          ...(key === "youtube_target" && { choices: targets.map((item) => item.target) }),
+          required: spec.required || (editing && key === "name"),
+        }}
         value={values[key]}
         onChange={(value) => change(key, value)}
         disabled={editing && spec.createOnly}
@@ -199,15 +242,25 @@ export function SourceFormFields({
       <section aria-labelledby="source-feed-heading" className="space-y-5">
         <div>
           <h2 id="source-feed-heading" className="font-semibold">
-            Feed setup
+            Source setup
           </h2>
           <p className="mt-1 text-sm text-muted-foreground">
             {editing
-              ? "The feed URL and source type cannot be changed after creation."
-              : "Enter a feed URL or website."}
+              ? "The source URL and source type cannot be changed after creation."
+              : "Enter an RSS or Atom feed, website, YouTube channel, playlist, or video."}
           </p>
         </div>
         {field("feed_url")}
+        {providerKind && <p className="text-sm text-muted-foreground">{providerKind}</p>}
+        {!editing && targets.length > 0 && (
+          <div className="sm:max-w-md">
+            {field("youtube_target")}
+            <p className="mt-2 text-sm text-muted-foreground">
+              Choose only this video, an entire playlist, or channel uploads. Every video still
+              requires relevance and publication review.
+            </p>
+          </div>
+        )}
         <div className="sm:max-w-md">{field("source_type")}</div>
         {editing && (
           <Button

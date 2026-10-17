@@ -69,6 +69,7 @@ def unit_test_settings(request, monkeypatch):
     monkeypatch.setenv("DEVFEED_CACHE_ENABLED", "false")
     monkeypatch.setenv("DEVFEED_IMAGE_STORAGE_ENABLED", "false")
     monkeypatch.setenv("DEVFEED_AI_ENABLED", "false")
+    monkeypatch.delenv("DEVFEED_YOUTUBE_API_KEY", raising=False)
     # Historical fixtures exercise lifecycle behavior independently of the production
     # content window. Cutoff tests opt into the real default or a specific date.
     monkeypatch.setenv("DEVFEED_AI_CONTENT_NOT_BEFORE", "")

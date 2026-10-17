@@ -298,11 +298,13 @@ def ranked_candidates(session, user_id, now, interest_count, content_types, lang
           FROM article_topics link JOIN articles article ON article.id = link.article_id
           WHERE link.topic_id = i.topic_id AND link.role IN ('primary', 'supporting')
             AND article.publication_status = 'published' AND article.review_status = 'approved'
+            AND (article.provider IS NULL OR article.video_metadata->>'availability' = 'public')
             AND article.content_type = ANY(:content_types)
             AND article.language = ANY(:languages)
             AND EXISTS (SELECT 1 FROM article_origins origin
                         JOIN sources source ON source.id = origin.source_id
                         WHERE origin.article_id = article.id
+                          AND origin.active
                           AND source.approval_status = 'approved')
           ORDER BY article.feed_at DESC, article.id DESC LIMIT :candidate_limit
         ) a
@@ -314,7 +316,9 @@ def ranked_candidates(session, user_id, now, interest_count, content_types, lang
           SELECT DISTINCT article.id, article.feed_at
           FROM article_origins origin JOIN articles article ON article.id = origin.article_id
           WHERE origin.source_id = f.source_id
+            AND origin.active
             AND article.publication_status = 'published' AND article.review_status = 'approved'
+            AND (article.provider IS NULL OR article.video_metadata->>'availability' = 'public')
             AND article.content_type = ANY(:content_types)
             AND article.language = ANY(:languages)
           ORDER BY article.feed_at DESC, article.id DESC LIMIT :candidate_limit

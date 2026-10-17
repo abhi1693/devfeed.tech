@@ -82,6 +82,7 @@ def snapshot(session, conditions, identity, *, as_of=None, after=None):
             .join(Source)
             .where(
                 ArticleOrigin.article_id.in_([r.id for r in rows]),
+                ArticleOrigin.active.is_(True),
                 Source.approval_status == "approved",
             )
             .distinct(ArticleOrigin.article_id)

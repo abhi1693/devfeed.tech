@@ -32,6 +32,7 @@ from devfeed_core.recommendations import (
 from devfeed_core.research_verification import fail_verification, schedule_verification
 from devfeed_core.telemetry import background_cycle, start_runtime, stop_runtime
 from devfeed_core.version import __version__
+from devfeed_core.youtube_revalidation import schedule_youtube_revalidation
 from sqlalchemy import select
 
 from devfeed_aggregator.discovery_tasks import dispatch_discovery
@@ -89,6 +90,11 @@ def _tick() -> dict[str, int]:
 
     refresh_quota()
     factory = session_factory()
+    youtube_revalidations = 0
+    try:
+        youtube_revalidations = schedule_youtube_revalidation(factory)
+    except Exception as exc:
+        logger.warning("youtube_revalidation_deferred", extra={"error_type": type(exc).__name__})
     try:
         refresh_overview_daily(factory)
     except Exception:
@@ -169,6 +175,7 @@ def _tick() -> dict[str, int]:
             select(Source)
             .where(
                 Source.enabled.is_(True),
+                Source.recurring.is_(True),
                 Source.approval_status == "approved",
                 Source.next_fetch_at <= now,
                 ~active.exists(),
@@ -299,6 +306,7 @@ def _tick() -> dict[str, int]:
         "partner_pipeline_dispatched": partner_pipeline_dispatched,
         "partner_evaluations_dispatched": partner_evaluations_dispatched,
         "scheduled": scheduled,
+        "youtube_revalidations_scheduled": youtube_revalidations,
         "dispatched": dispatched,
         "recovered": recovered,
         "images_dispatched": images_dispatched,

@@ -38,7 +38,7 @@ def test_actual_article_and_image_handlers_handoff_without_using_attempts(
 
     @contextmanager
     def begin():
-        yield SimpleNamespace()
+        yield SimpleNamespace(scalar=lambda statement: None)
 
     factory = SimpleNamespace(begin=begin)
     monkeypatch.setattr(handler, "session_factory", lambda: factory)
