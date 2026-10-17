@@ -45,8 +45,9 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 
 FROM python-base AS runtime
 # Apply published fixes newer than the pinned Python image's OS packages.
+# Require the libexpat fix for CVE-2026-77214, including when reusing build caches.
 RUN apk upgrade --no-cache \
-    && apk add --no-cache cairo font-dejavu \
+    && apk add --no-cache cairo font-dejavu 'libexpat>=2.9.0-r0' \
     && addgroup -S -g 10001 devfeed \
     && adduser -S -D -H -u 10001 -G devfeed devfeed
 COPY --from=builder /app/.venv /app/.venv
