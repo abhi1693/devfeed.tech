@@ -68,7 +68,8 @@ configure the provider before expecting those links to publish as videos.
 Collection refreshes revisit the head and advance durable history checkpoints within
 these bounds. Video metadata reads are batched. Known videos also rotate through
 availability checks; stale videos from RSS-only or inactive collections use the existing
-enrichment outbox. Source approval and active-job coalescing still apply. Limits bound
+enrichment outbox. The scheduler queues this work without receiving the provider key;
+only the provider-facing worker needs it. Source approval and active-job coalescing still apply. Limits bound
 each pass rather than silently truncating the collection's lifetime history.
 
 Playlist insertion time, video publication time and DevFeed discovery time are separate.

@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdtemp, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import AxeBuilder from "@axe-core/playwright";
 import { assertAccessible } from "../../apps/web/tests/browser/accessibility.mjs";
 
@@ -204,8 +206,8 @@ export function youtubeReaderFixture(article) {
 }
 
 /** Exercise shared production reader components in the website and both unpacked extensions. */
-export async function checkYoutubeReader(page, destination, fixture, output) {
-  await mkdir(output, { recursive: true });
+export async function checkYoutubeReader(page, destination, fixture, surface) {
+  const output = await mkdtemp(path.join(tmpdir(), `devfeed-youtube-${surface}-`));
   fixture.state.active = true;
   await page.context().route("https://i.ytimg.com/**", (route) =>
     route.fulfill({
@@ -235,7 +237,10 @@ export async function checkYoutubeReader(page, destination, fixture, output) {
       .include(selector)
       .withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa"])
       .analyze();
-    await writeFile(`${output}/${name}-axe.json`, JSON.stringify(result, null, 2));
+    await writeFile(`${output}/${name}-axe.json`, JSON.stringify(result, null, 2), {
+      flag: "wx",
+      mode: 0o600,
+    });
     assertAccessible(result, `Video ${name}`);
   };
   await page.setViewportSize({ width: 1280, height: 1000 });
@@ -395,4 +400,5 @@ export async function checkYoutubeReader(page, destination, fixture, output) {
   assert.ok(
     fixture.state.mutations.some((item) => item.path.endsWith(`/${fixture.video.id}/bookmark`)),
   );
+  console.log(`YouTube reader checks passed (${surface}); artifacts: ${output}`);
 }

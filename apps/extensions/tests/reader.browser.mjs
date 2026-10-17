@@ -468,7 +468,7 @@ test(
   { timeout: 180000 },
   async (t) => {
     const { page, pathFor, youtube } = await readerFixture(t);
-    await checkYoutubeReader(page, pathFor, youtube, `/tmp/devfeed-issue120-reader/${browser}`);
+    await checkYoutubeReader(page, pathFor, youtube, browser);
   },
 );
 

@@ -12,8 +12,7 @@ from devfeed_core.services import OperationConflict
 
 def schedule_youtube_revalidation(factory, *, now=None) -> int:
     settings = get_settings()
-    if not settings.youtube_api_key:
-        return 0
+    # The scheduler only queues work; provider credentials belong to its workers.
     moment = now or utcnow()
     cutoff = moment - timedelta(seconds=settings.youtube_revalidate_seconds)
     recent_attempt = (

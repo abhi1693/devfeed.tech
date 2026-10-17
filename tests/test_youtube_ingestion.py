@@ -26,7 +26,6 @@ from devfeed_core.youtube_ingestion import (
     store_videos,
 )
 from devfeed_core.youtube_revalidation import schedule_youtube_revalidation
-from pydantic import SecretStr
 from sqlalchemy import func, select
 from test_youtube import CHANNEL, PLAYLIST, VIDEO
 
@@ -340,7 +339,7 @@ def test_direct_source_only_refreshes_video_availability(database, provider):
 def test_stale_revalidation_is_bounded_coalesced_and_respects_active_approved_origins(
     database, monkeypatch
 ):
-    monkeypatch.setattr(get_settings(), "youtube_api_key", SecretStr("test-no-network"))
+    monkeypatch.setattr(get_settings(), "youtube_api_key", None)
     monkeypatch.setattr(get_settings(), "youtube_revalidation_batch_size", 1)
     origin = source(database)
     old = replace(video(), retrieved_at=utcnow() - timedelta(days=2))
@@ -538,3 +537,27 @@ def test_failed_video_commit_rolls_back_metadata_origins_and_checkpoint(
         assert session.scalar(select(func.count()).select_from(ArticleOrigin)) == 0
         assert session.scalar(select(func.count()).select_from(YouTubeMembership)) == 0
         assert not session.get(Source, identifier).provider_state.get("generation")
+
+
+def test_revalidation_is_queued_without_scheduler_credentials_and_reports_worker_misconfiguration(
+    database, monkeypatch
+):
+    from devfeed_aggregator import article_tasks
+
+    monkeypatch.setattr(get_settings(), "youtube_api_key", None)
+    origin = source(database, kind="video", identifier=VIDEO)
+    old = replace(video(), retrieved_at=utcnow() - timedelta(days=2))
+    _, identifier = import_video(database, origin, old)
+    assert schedule_youtube_revalidation(database) == 1
+    with database() as session:
+        job_id = session.scalar(select(ArticleEnrichmentJob.id))
+    # The scheduler has no provider key in Compose. The worker reports missing
+    # configuration explicitly instead of silently preventing availability checks.
+    article_tasks.enrich_article(str(job_id))
+    with database() as session:
+        job = session.get(ArticleEnrichmentJob, job_id)
+        assert job.status == "failed" and "youtube_not_configured" in job.error
+        article = session.get(Article, identifier)
+        assert article.video_metadata["availability"] == "public"
+        assert article.video_metadata["retrieved_at"] == old.retrieved_at.isoformat()
+    assert schedule_youtube_revalidation(database) == 0

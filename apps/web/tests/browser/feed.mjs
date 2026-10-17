@@ -1315,12 +1315,7 @@ test(
   async (t) => {
     const { browser, origin, youtube } = await createReaderFixture(t);
     await withReaderPage(browser, (page) =>
-      checkYoutubeReader(
-        page,
-        (path) => origin + path,
-        youtube,
-        "/tmp/devfeed-issue120-reader/web",
-      ),
+      checkYoutubeReader(page, (path) => origin + path, youtube, "web"),
     );
   },
 );
