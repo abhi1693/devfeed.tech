@@ -32,7 +32,7 @@ def public_records(session, kind, ids):
     if not ids:
         return {}
     model = MODELS[kind]
-    statement: Select[Any]
+    statement: Select[*tuple[Any, ...]]
     if kind == "articles":
         statement = select(
             Article.id,

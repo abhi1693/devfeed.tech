@@ -19,14 +19,14 @@ concurrency:
 jobs:
   # Unit tests, including each suite's static checks and builds.
   python-unit:
-    uses: abhi1693/actions/.github/workflows/python-ci.yml@afba12afb85bf40be9328c92dc53b779f18d5c6d # v1.0.1
+    uses: abhi1693/actions/.github/workflows/python-ci.yml@bf8cd38aa8456310278ed96bfa83a3132f235df1 # v1.0.4
     with:
       runs-on: ubuntu-24.04-arm
       timeout-minutes: 30
       python-version: "3.12"
       node-version: "24"
       enable-cache: true
-      uv-version: 0.12.10
+      uv-version: 0.13.1
       sync-command: sh scripts/ci/python-bootstrap.sh . --editable --all-packages
       lint-command: bash .github/scripts/python-checks.sh
       test-command: bash scripts/ci/python-tests.sh unit
@@ -161,7 +161,7 @@ jobs:
             }
             if (!summary) core.setFailed('Backend coverage artifact is missing or invalid');
   admin-web:
-    uses: abhi1693/actions/.github/workflows/node-ci.yml@c18ee599bfcd48fc931e0ffd103ef9952288ea5f # build cache support (actions#12)
+    uses: abhi1693/actions/.github/workflows/node-ci.yml@bf8cd38aa8456310278ed96bfa83a3132f235df1 # v1.0.4
     with:
       checks: '["generate", "lint", "test", "build"]'
       scripts: '{"generate": "admin:generate", "lint": "admin:lint", "test": "ci:admin-web-test", "build": "admin:build"}'
@@ -180,13 +180,13 @@ jobs:
         reports/coverage/admin/lcov.info
       test-results-name: admin-test-results-${{ github.run_attempt }}
       python-version: "3.12"
-      uv-version: 0.12.10
+      uv-version: 0.13.1
       uv-sync-args: '["--all-packages"]'
       generated-paths: '["apps/admin/openapi.json","apps/admin/src/lib/api/generated"]'
     name: Unit / Admin UI lint, tests and build
   partner-web:
     name: Unit / Partner portal lint, tests, build and browser checks
-    uses: abhi1693/actions/.github/workflows/node-ci.yml@c18ee599bfcd48fc931e0ffd103ef9952288ea5f # build cache support (actions#12)
+    uses: abhi1693/actions/.github/workflows/node-ci.yml@bf8cd38aa8456310278ed96bfa83a3132f235df1 # v1.0.4
     with:
       checks: '["lint", "test", "build"]'
       scripts: '{"lint": "partner:lint", "test": "ci:partner-test", "build": "ci:partner-browser"}'
@@ -205,7 +205,7 @@ jobs:
       test-results-name: partner-test-results-${{ github.run_attempt }}
       project-env: '{"NEXT_TELEMETRY_DISABLED":"1"}'
   user-web:
-    uses: abhi1693/actions/.github/workflows/node-ci.yml@c18ee599bfcd48fc931e0ffd103ef9952288ea5f # build cache support (actions#12)
+    uses: abhi1693/actions/.github/workflows/node-ci.yml@bf8cd38aa8456310278ed96bfa83a3132f235df1 # v1.0.4
     with:
       checks: '["lint", "test", "build"]'
       scripts: '{"lint": "web:lint", "test": "ci:user-web-test", "build": "web:build"}'
@@ -226,7 +226,7 @@ jobs:
     name: Unit / User UI lint, tests and build
   extensions:
     name: Unit / Browser extension types, tests and builds
-    uses: abhi1693/actions/.github/workflows/node-ci.yml@afba12afb85bf40be9328c92dc53b779f18d5c6d # v1.0.1
+    uses: abhi1693/actions/.github/workflows/node-ci.yml@bf8cd38aa8456310278ed96bfa83a3132f235df1 # v1.0.4
     with:
       checks: '["lint", "test", "build"]'
       scripts: '{"lint": "extension:check", "test": "extension:test", "build": "extension:build:all"}'
@@ -277,7 +277,7 @@ jobs:
       - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
         if: steps.changes.outputs.changed == 'true'
         with:
-          version: "0.12.10"
+          version: "0.13.1"
           enable-cache: true
       - name: Tool
         if: steps.changes.outputs.changed == 'true'
@@ -408,12 +408,12 @@ jobs:
   api-fuzz:
     name: API fuzzing
     if: github.event_name == 'pull_request' || github.event_name == 'merge_group'
-    uses: abhi1693/actions/.github/workflows/python-ci.yml@afba12afb85bf40be9328c92dc53b779f18d5c6d # v1.0.1
+    uses: abhi1693/actions/.github/workflows/python-ci.yml@bf8cd38aa8456310278ed96bfa83a3132f235df1 # v1.0.4
     with:
       runs-on: ubuntu-24.04-arm
       timeout-minutes: 15
       python-version: "3.12"
-      uv-version: 0.12.10
+      uv-version: 0.13.1
       sync-command: sh scripts/ci/python-bootstrap.sh . --editable --all-packages --group fuzz
       test-command: uv run --group fuzz --locked --no-sync --no-build python scripts/ci/api_fuzz.py --profile pr
       test-results-path: reports/api-fuzz/
@@ -424,16 +424,16 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        shard: [0, 1, 2]
-    uses: abhi1693/actions/.github/workflows/python-ci.yml@afba12afb85bf40be9328c92dc53b779f18d5c6d # v1.0.1
+        shard: [0, 1, 2, 3, 4, 5]
+    uses: abhi1693/actions/.github/workflows/python-ci.yml@bf8cd38aa8456310278ed96bfa83a3132f235df1 # v1.0.4
     with:
       runs-on: ubuntu-24.04-arm
       timeout-minutes: 30
       python-version: "3.12"
       enable-cache: true
-      uv-version: 0.12.10
+      uv-version: 0.13.1
       sync-command: sh scripts/ci/python-bootstrap.sh . --editable --all-packages
-      test-command: bash scripts/ci/python-tests.sh integration ${{ matrix.shard }} 3
+      test-command: bash scripts/ci/python-tests.sh integration ${{ matrix.shard }} 6
       test-results-path: |
         reports/python-integration-${{ matrix.shard }}.xml
         reports/coverage/python-integration-${{ matrix.shard }}/coverage.db
@@ -453,7 +453,7 @@ jobs:
           python-version: "3.12"
       - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
         with:
-          version: "0.12.10"
+          version: "0.13.1"
           enable-cache: true
       - run: sh scripts/ci/python-bootstrap.sh . --editable --all-packages
       - name: Upgrade the previous release and populated legacy schemas
@@ -468,8 +468,24 @@ jobs:
           path: reports/migration-upgrade.log
           if-no-files-found: error
   # Browser E2E jobs cover the reader, admin and real API boundary independently.
-  reader-parity:
-    name: E2E / Reader checks
+  reader-browser:
+    name: Reader browser (${{ matrix.label }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - suite: web
+            label: Web
+          - suite: chrome
+            label: Chrome extension
+          - suite: edge
+            label: Edge extension
+          - suite: partner-web
+            label: Partner web
+          - suite: partner-chrome
+            label: Partner Chrome
+          - suite: partner-edge
+            label: Partner Edge
     runs-on: ubuntu-24.04
     timeout-minutes: 40
     env:
@@ -489,36 +505,155 @@ jobs:
           python-version: "3.12"
       - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
         with:
-          version: "0.12.10"
+          version: "0.13.1"
           enable-cache: true
       - name: Install
         run: |
           sh scripts/ci/python-bootstrap.sh . --editable --all-packages
           npm ci --ignore-scripts
       - name: Next.js compiler cache
-        uses: abhi1693/actions/next-build-cache@4e28b0a541caa7ee57c3791a6d662c2422a82bc0 # reusable compiler cache
+        if: matrix.suite == 'web' || startsWith(matrix.suite, 'partner-')
+        uses: abhi1693/actions/next-build-cache@bf8cd38aa8456310278ed96bfa83a3132f235df1 # v1.0.4
         with:
           app-directory: apps/web
-          profile: reader-parity-v1
+          profile: reader-${{ matrix.suite }}-v1
       - name: Check
-        run: npm run ci:reader-parity
-      - name: Summary
-        if: always()
-        run: node scripts/ci/accessibility-report.mjs
+        env:
+          READER_SUITE: ${{ matrix.suite }}
+        run: |
+          bash scripts/ci/reader-parity.sh "$READER_SUITE"
+          mkdir -p reports
+          printf '{"suite":"%s","sha":"%s","attempt":"%s","status":"success"}\n' \
+            "$READER_SUITE" "$GITHUB_SHA" "$GITHUB_RUN_ATTEMPT" > reports/reader-parity-result.json
       - name: Reports
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: reader-parity-${{ github.run_attempt }}
+          name: reader-parity-${{ matrix.suite }}-${{ github.run_attempt }}
           path: |
             reports
             apps/extensions/dist/*.png
             apps/extensions/dist/**/*-*.png
           if-no-files-found: error
           retention-days: 14
+  reader-parity:
+    name: Reader browser gate
+    needs: reader-browser
+    if: always() && !cancelled()
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "24"
+          package-manager-cache: false
+      - name: Download web reports
+        if: always() && !cancelled()
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: reader-parity-web-${{ github.run_attempt }}
+          path: reader-reports/web
+      - name: Download chrome reports
+        if: always() && !cancelled()
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: reader-parity-chrome-${{ github.run_attempt }}
+          path: reader-reports/chrome
+      - name: Download edge reports
+        if: always() && !cancelled()
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: reader-parity-edge-${{ github.run_attempt }}
+          path: reader-reports/edge
+      - name: Download partner-web reports
+        if: always() && !cancelled()
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: reader-parity-partner-web-${{ github.run_attempt }}
+          path: reader-reports/partner-web
+      - name: Download partner-chrome reports
+        if: always() && !cancelled()
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: reader-parity-partner-chrome-${{ github.run_attempt }}
+          path: reader-reports/partner-chrome
+      - name: Download partner-edge reports
+        if: always() && !cancelled()
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: reader-parity-partner-edge-${{ github.run_attempt }}
+          path: reader-reports/partner-edge
+      - name: Require all reader suites
+        if: always() && !cancelled()
+        env:
+          READER_RESULT: ${{ needs.reader-browser.result }}
+          SOURCE_SHA: ${{ github.sha }}
+          SOURCE_ATTEMPT: ${{ github.run_attempt }}
+        run: |
+          status=0
+          if [[ "$READER_RESULT" != success ]]; then
+            echo "Reader worker result: $READER_RESULT"
+            status=1
+          fi
+          for suite in web chrome edge partner-web partner-chrome partner-edge; do
+            if ! jq -e --arg suite "$suite" --arg sha "$SOURCE_SHA" --arg attempt "$SOURCE_ATTEMPT" \
+              '.suite == $suite and .sha == $sha and .attempt == $attempt and .status == "success"' \
+              "reader-reports/$suite/reports/reader-parity-result.json"; then
+              echo "Missing or unsuccessful current-source report: $suite"
+              status=1
+            fi
+          done
+          # Each selected worker proves all three callers on its SAME live gateway.
+          for runtime in web chrome edge; do
+            if ! jq -e --arg runtime "$runtime" --arg sha "$SOURCE_SHA" --arg attempt "$SOURCE_ATTEMPT" '
+              {web: "203.0.113.20", chrome: "203.0.113.30", edge: "203.0.113.40"} as $ips |
+              ["/v1/partner-placements/query", "/v1/partner-tracking/events"] as $paths |
+              def proofs($ip): . == {($paths[0]): [$ip], ($paths[1]): [$ip]};
+              .version == 1 and .source_sha == $sha and .attempt == $attempt and
+              .completed == true and .full_runtime_count == 1 and
+              (.gateway_process_id | type == "number" and . > 0 and floor == .) and
+              .caller_ips == [$ips.web, $ips.chrome, $ips.edge] and
+              (.caller_probes | map(.caller) == ["web", "chrome", "edge"]) and
+              all(.caller_probes[]; .caller as $caller | .caller_proofs | proofs($ips[$caller])) and
+              (.full_runtime_checks | length == 1) and
+              .full_runtime_checks[0].runtime == $runtime and
+              (.full_runtime_checks[0].caller_proofs | proofs($ips[$runtime])) and
+              .full_runtime_checks[0].checkpoints == [
+                "history-isolation", "feed-continuity", "mounted-expiry",
+                "gateway-caller-proofs", "full-placement-matrix"
+              ]
+            ' "reader-reports/partner-$runtime/reports/partner-placements/runtime-proof-$runtime.json"; then
+              echo "Missing or incomplete same-gateway partner proof: $runtime"
+              status=1
+            fi
+          done
+          mkdir -p reports/accessibility
+          for surface in web chrome edge; do
+            if ! cp -R -- "reader-reports/$surface/reports/accessibility/$surface" \
+              reports/accessibility/; then
+              status=1
+            fi
+          done
+          exit "$status"
+      - name: Summary
+        if: always() && !cancelled()
+        run: node scripts/ci/accessibility-report.mjs
+      - name: Reports
+        if: always() && !cancelled()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: reader-parity-${{ github.run_attempt }}
+          path: |
+            reader-reports
+            reports/accessibility
+          if-no-files-found: error
+          retention-days: 14
   admin-browser:
-    name: E2E / Admin browser journeys
-    uses: abhi1693/actions/.github/workflows/node-ci.yml@c18ee599bfcd48fc931e0ffd103ef9952288ea5f # build cache support (actions#12)
+    name: Admin browser tests
+    uses: abhi1693/actions/.github/workflows/node-ci.yml@bf8cd38aa8456310278ed96bfa83a3132f235df1 # v1.0.4
     with:
       checks: '["test"]'
       scripts: '{"test": "ci:admin-browser"}'
@@ -535,8 +670,8 @@ jobs:
       browser-results-path: reports
       test-results-name: admin-browser-${{ github.run_attempt }}
   live-browser:
-    name: E2E / Login and persistence through real APIs
-    uses: abhi1693/actions/.github/workflows/node-ci.yml@c18ee599bfcd48fc931e0ffd103ef9952288ea5f # build cache support (actions#12)
+    name: Live API browser tests
+    uses: abhi1693/actions/.github/workflows/node-ci.yml@bf8cd38aa8456310278ed96bfa83a3132f235df1 # v1.0.4
     with:
       checks: '["test"]'
       scripts: '{"test": "ci:live-browser"}'
@@ -550,43 +685,17 @@ jobs:
         apps/web/.next/cache/.tsbuildinfo
       build-cache-scope: next-live-browser-v1
       python-version: "3.12"
-      uv-version: 0.12.10
+      uv-version: 0.13.1
       uv-sync-args: '["--all-packages"]'
       project-env: '{"NEXT_TELEMETRY_DISABLED":"1"}'
       browser-results-path: reports/live-browser
       test-results-name: live-browser-${{ github.run_attempt }}
   browser-budgets:
     name: Browser budgets
-    needs:
-      - python-unit
-      - python-integration
-      - admin-web
-      - user-web
-      - extensions
-      - reader-parity
-      - admin-browser
-      - live-browser
-      - api-fuzz
-      - mutation
-      - property
-      - recovery
     if: >-
       always() && !cancelled() &&
       (github.event_name == 'pull_request' || github.event_name == 'merge_group' ||
-       (github.event_name == 'push' && github.ref == 'refs/heads/master')) &&
-      needs.python-unit.result == 'success' &&
-      needs.python-integration.result == 'success' &&
-      needs.admin-web.result == 'success' &&
-      needs.user-web.result == 'success' &&
-      needs.extensions.result == 'success' &&
-      needs.reader-parity.result == 'success' &&
-      needs.admin-browser.result == 'success' &&
-      needs.live-browser.result == 'success' &&
-      needs.mutation.result == 'success' &&
-      needs.property.result == 'success' &&
-      needs.recovery.result == 'success' &&
-      (needs.api-fuzz.result == 'success' ||
-       (github.event_name == 'push' && needs.api-fuzz.result == 'skipped'))
+       (github.event_name == 'push' && github.ref == 'refs/heads/master'))
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     outputs:
@@ -622,7 +731,7 @@ jobs:
         run: node node_modules/playwright/cli.js install --with-deps chromium
       - name: Next.js compiler cache
         if: steps.changes.outputs.needed == 'true'
-        uses: abhi1693/actions/next-build-cache@4e28b0a541caa7ee57c3791a6d662c2422a82bc0 # reusable compiler cache
+        uses: abhi1693/actions/next-build-cache@bf8cd38aa8456310278ed96bfa83a3132f235df1 # v1.0.4
         with:
           app-directory: apps/web
           profile: browser-budgets-v1
@@ -686,7 +795,7 @@ jobs:
             const skipped = process.env.BUDGET_RESULT === 'skipped';
             let summary;
             if (skipped) {
-              summary = 'Tests did not pass for this commit.';
+              summary = 'Browser budgets were unavailable for this commit.';
             } else {
               try {
                 const file = 'report/summary.md';
@@ -843,7 +952,7 @@ jobs:
       - name: Set up uv
         uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
         with:
-          version: "0.12.10"
+          version: "0.13.1"
           enable-cache: true
       - name: Set up Node.js for JavaScript and TypeScript analysis
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0

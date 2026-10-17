@@ -10,6 +10,10 @@ import {
 } from "../scripts/generate_extension_operations.mjs";
 import { extensionTransportPolicy, gatewayOperations } from "../scripts/lib/gateway-contract.mjs";
 
+test("committed extension operation registry matches current contracts", async () => {
+  await assert.doesNotReject(() => generateExtensionOperations({ check: true }));
+});
+
 const extension = {
   credentials: "include",
   cacheControl: null,

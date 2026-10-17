@@ -72,6 +72,7 @@ def test_only_current_complete_batches_advance_the_cursor(outcome, stale, full, 
 @pytest.mark.parametrize("existing", [False, True])
 def test_identity_change_resets_progress_and_allocates_a_new_generation(monkeypatch, existing):
     session, topic = Mock(), SimpleNamespace(id=ID)
+    session.no_autoflush = nullcontext()
     session.scalar.return_value = 42
     monkeypatch.setattr(coverage, "topic_snapshot", lambda _: {"name": "New"})
     monkeypatch.setattr(coverage, "utcnow", lambda: NOW)

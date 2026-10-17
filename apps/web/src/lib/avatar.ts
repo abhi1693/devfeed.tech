@@ -4,6 +4,15 @@ import type { AvatarVariant } from "./user";
 
 export const githubAvatarWidths = [32, 64, 96, 128, 192, 256, 512] as const;
 
+export function avatarInitials(name?: string | null) {
+  const words = name?.trim().split(/\s+/).filter(Boolean) ?? [];
+  return [words[0], ...(words.length > 1 ? [words.at(-1)] : [])]
+    .filter(Boolean)
+    .map((word) => Array.from(word!)[0])
+    .join("")
+    .toUpperCase();
+}
+
 function githubAvatar(source: string) {
   const avatar = new URL(source);
   return avatar.origin === "https://avatars.githubusercontent.com" &&

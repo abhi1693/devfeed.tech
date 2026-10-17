@@ -2,10 +2,15 @@ import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { createHash, createHmac } from "node:crypto";
 import { createServer, request as httpRequest } from "node:http";
-import { cp, mkdir, mkdtemp, readFile, rm } from "node:fs/promises";
+import { cp, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { chromium } from "playwright";
+import { assertPartnerCallerProofs, partnerRuntimePlan } from "./partner-runtimes.mjs";
+
+// Validate selectors before opening temporary directories, servers, or browsers.
+const runtimePlan = partnerRuntimePlan(process.argv.slice(2));
+const selectedRuntimes = [...new Set(runtimePlan.map(({ platform }) => platform))];
 
 const searchContextOnly = process.argv.includes("--search-context");
 const linkRelOnly = process.argv.includes("--link-rel");
@@ -130,7 +135,15 @@ const feedArticles = Array.from({ length: 24 }, (_, index) =>
 );
 const temp = await mkdtemp(path.join(tmpdir(), "devfeed-placement-browser-"));
 // Pin the built packages while repository hooks may rebuild their output directories.
-await cp(path.resolve("apps/extensions/dist"), path.join(temp, "extensions"), { recursive: true });
+for (const platform of selectedRuntimes.filter((platform) => platform !== "web")) {
+  await cp(
+    path.resolve("apps/extensions/dist", platform),
+    path.join(temp, "extensions", platform),
+    {
+      recursive: true,
+    },
+  );
+}
 const reportDirectory = process.env.CI
   ? "reports/partner-placements"
   : await mkdtemp(path.join(tmpdir(), "devfeed-placement-reports-"));
@@ -170,6 +183,37 @@ const callerFixtureIps = { web: "203.0.113.20", chrome: "203.0.113.30", edge: "2
 let callerFixtureIp = callerFixtureIps.web;
 const observedCallerProofs = new Map();
 const observedCallerIps = new Set();
+const callerProbeEvidence = [];
+const fullRuntimeEvidence = [];
+
+function currentCallerProofs() {
+  return Object.fromEntries(
+    [...observedCallerProofs].map(([pathname, ips]) => [pathname, [...ips].sort()]),
+  );
+}
+
+function resetSelectedRuntimeFixture() {
+  sessionCsrfToken = "fixture-csrf";
+  appearanceTheme = "system";
+  deliveryGate = null;
+  platformMode = "managed";
+  listingAttribution = null;
+  platformLogoGate = null;
+  searchDeliveryMode = "contextual";
+  organicPagesDelivered = 0;
+  placementLimited = false;
+  isolateArticleReceipts = false;
+  articleReceiptSequence = 0;
+  sessionReceiptNamespace = null;
+  sessionReceiptGeneration = 0;
+  feedView = "cards";
+  retryClickReceipt = null;
+  retryClickAttempts = 0;
+  linkRelPolicy = null;
+  acceptedTrackingReceipts.clear();
+  acceptedTrackingReceipts.add(ordinary.receipt);
+  acceptedTrackingReceipts.add(sponsored.receipt);
+}
 
 function verifyCallerProof(headers, pathname) {
   const proof = headers["x-devfeed-partner-caller"];
@@ -747,7 +791,7 @@ async function assertSitewideHeader(context, base, platform) {
     await page.goBack();
     await page.locator(".article-modal[open]").waitFor({ state: "detached" });
     await continuity(`${platform}: article Back`);
-    await page.getByRole("button", { name: "User menu: Reader", exact: true }).click();
+    await page.getByRole("button", { name: "User menu: R Reader", exact: true }).click();
     await page.getByRole("menuitem", { name: "Your Dev Card", exact: true }).click();
     await page.locator(".profile-settings-nav").waitFor();
     await continuity(`${platform}: profile settings`);
@@ -757,7 +801,7 @@ async function assertSitewideHeader(context, base, platform) {
       .click();
     await page.getByRole("region", { name: "Feed preferences" }).waitFor();
     await continuity(`${platform}: feed settings`);
-    await page.getByRole("button", { name: "User menu: Reader", exact: true }).click();
+    await page.getByRole("button", { name: "User menu: R Reader", exact: true }).click();
     await page.getByRole("menuitem", { name: "Your Profile", exact: true }).click();
     await page.locator(".public-profile h1").waitFor();
     await continuity(`${platform}: public profile`);
@@ -1417,7 +1461,7 @@ async function assertAuthenticationPlacementParity(context, base, platform) {
           await page
             .locator(
               authenticated
-                ? '.topbar [aria-label="User menu: Reader"]'
+                ? '.topbar [aria-label="User menu: R Reader"]'
                 : '.topbar .account-link[aria-label="Sign in"]',
             )
             .waitFor();
@@ -2078,7 +2122,7 @@ async function assertSearchResultContext(context, base, platform) {
         await page.evaluate(() => {
           window.dispatchEvent(new PageTransitionEvent("pageshow", { persisted: true }));
         });
-        await page.locator('.topbar [aria-label="User menu: Reader"]').waitFor();
+        await page.locator('.topbar [aria-label="User menu: R Reader"]').waitFor();
         await waitForSelection();
         // The account boundary clears prior-owner state. Reload the later public
         // result through the new reader, including focus-aware extension paging.
@@ -3396,8 +3440,9 @@ try {
     }
   }
   assert.ok(ready, logs);
-  for (const platform of ["web", "chrome", "edge"]) {
-    callerFixtureIp = callerFixtureIps[platform];
+  for (const { platform, caller, probe } of runtimePlan) {
+    if (selectedRuntimes.length === 1) resetSelectedRuntimeFixture();
+    callerFixtureIp = callerFixtureIps[caller];
     observedCallerProofs.clear();
     signedIn = false;
     queries = [];
@@ -3411,19 +3456,26 @@ try {
     organicCount = 24;
     promotedArrival = false;
     const extension = platform === "web" ? null : path.join(temp, "extensions", platform);
-    const context = await chromium.launchPersistentContext(path.join(temp, platform), {
-      executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH,
-      channel: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH
-        ? undefined
-        : platform === "edge"
-          ? "msedge"
-          : "chromium",
-      headless: true,
-      viewport: { width: 1280, height: 900 },
-      args: extension
-        ? [`--disable-extensions-except=${extension}`, `--load-extension=${extension}`]
-        : [],
-    });
+    const phase = probe ? `caller-${caller}` : "full-matrix";
+    console.log(`[${new Date().toISOString()}] Partner ${platform} ${phase} BEGIN`);
+    const checkpoints = [];
+    let evidence;
+    const context = await chromium.launchPersistentContext(
+      path.join(temp, probe ? `${platform}-${phase}` : platform),
+      {
+        executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH,
+        channel: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH
+          ? undefined
+          : platform === "edge"
+            ? "msedge"
+            : "chromium",
+        headless: true,
+        viewport: { width: 1280, height: 900 },
+        args: extension
+          ? [`--disable-extensions-except=${extension}`, `--load-extension=${extension}`]
+          : [],
+      },
+    );
     const browserErrors = [];
     context.on("weberror", (error) => browserErrors.push(error.error().stack));
     context.on("requestfailed", (request) =>
@@ -3525,6 +3577,20 @@ try {
         local.setItem("devfeed:dev-card-promo-seen", "true");
       });
       const page = await context.newPage();
+      if (probe) {
+        await page.goto(`${base}/articles/${article.slug}`);
+        const placement = page.getByRole("link", { name: ordinary.name, exact: true });
+        await placement.waitFor();
+        await placement.scrollIntoViewIfNeeded();
+        await waitForImpression(page, ordinary.receipt);
+        assert.ok(
+          events.some((event) => event.kind === "impression" && event.receipt === ordinary.receipt),
+          `${platform}/${caller}: actual viewable placement sends its signed impression`,
+        );
+        assertPartnerCallerProofs(observedCallerProofs, callerFixtureIps[caller]);
+        evidence = { caller, caller_proofs: currentCallerProofs() };
+        continue;
+      }
       if (attributionOnly) {
         await assertListingAttribution(context, base, platform);
         continue;
@@ -4748,19 +4814,25 @@ try {
         placementLimited = false;
       }
       await assertNoPlacementHistory(page, `${platform}: reader navigation`);
+      checkpoints.push("history-isolation");
       await assertFeedPlacementContinuity(page, base, platform);
+      checkpoints.push("feed-continuity");
       await assertMountedPlacementExpiry(context, base, platform);
+      checkpoints.push("mounted-expiry");
       for (const pathname of ["/v1/partner-placements/query", "/v1/partner-tracking/events"])
         assert.ok(
           observedCallerProofs.get(pathname)?.has(callerFixtureIps[platform]),
           `${platform}: production gateway preserves distinct caller identity for ${pathname}`,
         );
+      checkpoints.push("gateway-caller-proofs");
       console.log(
         `${platform}: built web/extension sitewide Header sponsorship, stable header DOM and signed receipts through page navigation and article overlays, independent Header expiry, narrow inventory gating, compact search and article sidebars; topic/source native Feed grid and table parity with Latest, four-article eligibility and no collection sidebar; category cards; managed custom product creatives, clearing to default OG, responsive sources and failed-image fallback; compact formats preserve logos and sponsored content preserves its article image; every product disclosed as Sponsored with quiet header text and amber card pills; no dismissal; compact preview sidebar; unchanged feed nodes, receipts and tracking through article overlays; focus/layout stability; signed campaign and non-campaign tracking; configured production gateway caller proofs, credential isolation and placement429 retry guidance; mounted receipt expiry and background wake preserve reading position without refreshing or tracking; viewable placements never read, write or remove abandoned local history; private session routing; optional private experience save/reload/clear; article priority passed`,
       );
+      checkpoints.push("full-placement-matrix");
+      evidence = { runtime: platform, caller_proofs: currentCallerProofs(), checkpoints };
     } catch (error) {
       const page = context.pages().findLast((page) => page.url() !== "about:blank");
-      console.error("Placement browser failure", platform, {
+      console.error("Placement browser failure", platform, phase, {
         signedIn,
         nativeMode,
         queries,
@@ -4781,6 +4853,12 @@ try {
       throw error;
     } finally {
       await context.close();
+      // Only fully checked, closed contexts contribute completion evidence.
+      if (evidence) {
+        if (probe) callerProbeEvidence.push(evidence);
+        else fullRuntimeEvidence.push(evidence);
+        console.log(`[${new Date().toISOString()}] Partner ${platform} ${phase} END success`);
+      }
     }
   }
   assert.equal(
@@ -4788,6 +4866,31 @@ try {
     3,
     "The gateway keeps all three anonymous reader callers distinct",
   );
+  // Focused modes return early and can never claim the complete feature matrix.
+  if (!searchContextOnly && !linkRelOnly && !attributionOnly && !compactFeedOnly) {
+    assert.equal(fullRuntimeEvidence.length, selectedRuntimes.length);
+    await writeFile(
+      path.join(
+        reportDirectory,
+        `runtime-proof-${selectedRuntimes.length === 1 ? selectedRuntimes[0] : "all"}.json`,
+      ),
+      `${JSON.stringify(
+        {
+          version: 1,
+          source_sha: process.env.GITHUB_SHA ?? null,
+          attempt: process.env.GITHUB_RUN_ATTEMPT ?? null,
+          completed: true,
+          gateway_process_id: app.pid,
+          full_runtime_count: fullRuntimeEvidence.length,
+          caller_ips: [...observedCallerIps].sort(),
+          caller_probes: callerProbeEvidence,
+          full_runtime_checks: fullRuntimeEvidence,
+        },
+        null,
+        2,
+      )}\n`,
+    );
+  }
 } catch (error) {
   console.error(logs);
   throw error;

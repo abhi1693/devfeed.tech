@@ -18,6 +18,8 @@ jobs:
           node-version: "24"
           cache: npm
           cache-dependency-path: package-lock.json
+      - name: Test reader CI dispatch
+        run: node --test tests/reader-parity.test.mjs
       - name: Audit locked Codex dependencies
         run: npm audit --prefix infra/codex --omit=dev --audit-level=high
       - name: Install locked JavaScript coverage tooling
@@ -45,11 +47,11 @@ jobs:
           docker compose --env-file compose.env.example -f compose.yaml -f compose.build.yaml config --quiet
           python scripts/ci/check_compose.py
   security:
-    uses: abhi1693/actions/.github/workflows/security.yml@afba12afb85bf40be9328c92dc53b779f18d5c6d # v1.0.1
+    uses: abhi1693/actions/.github/workflows/security.yml@bf8cd38aa8456310278ed96bfa83a3132f235df1 # v1.0.4
     with:
       node-version: "24"
       python-version: "3.12"
-      uv-version: 0.12.10
+      uv-version: 0.13.1
       npm-audit: true
       python-audit: true
       python-all-packages: true
