@@ -204,7 +204,7 @@ export async function sitemapIndex(request: Request) {
             pageBuildTime,
             ...pageEntries(latest_publication).map((entry) => entry.lastmod!),
           ]
-            .sort()
+            .sort((left, right) => (left < right ? -1 : left > right ? 1 : 0))
             .at(-1)!,
         },
         ...entries,
