@@ -58,6 +58,7 @@ export default async function Page({ params, searchParams }: Props) {
     filters,
     feedDescriptor: readerFeeds.contextual,
     title: tag.name,
+    tagId: tag.id,
     section: "tags",
     description: `Articles tagged ${tag.name}.`,
   });

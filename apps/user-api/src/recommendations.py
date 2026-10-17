@@ -18,11 +18,13 @@ from devfeed_core.models import (
     ArticleOrigin,
     ArticleTopic,
     Source,
+    Tag,
     Topic,
     UserAccount,
     UserRecommendation,
     UserRecommendationState,
     UserSource,
+    UserTag,
     UserTopic,
     utcnow,
 )
@@ -45,10 +47,13 @@ router = APIRouter(prefix="/v1/user", tags=["personalization"])
 
 
 class RecommendationReason(BaseModel):
-    kind: Literal["followed_topic", "liked_topic", "related_topic", "followed_source"]
+    kind: Literal[
+        "followed_topic", "liked_topic", "related_topic", "followed_source", "followed_tag"
+    ]
     topic_id: uuid.UUID | None = None
     seed_topic_id: uuid.UUID | None = None
     source_id: uuid.UUID | None = None
+    tag_id: uuid.UUID | None = None
 
 
 class RecommendationPage(FeedPage):
@@ -62,6 +67,11 @@ class RecommendationPage(FeedPage):
 
 def recommendation_eligibility(user_id):
     return or_(
+        (UserRecommendation.tag_id.is_not(None))
+        & Article.tags.any(Tag.id == UserRecommendation.tag_id)
+        & select(UserTag.user_id)
+        .where(UserTag.user_id == user_id, UserTag.tag_id == UserRecommendation.tag_id)
+        .exists(),
         (UserRecommendation.source_id.is_not(None))
         & Article.origins.any(
             (ArticleOrigin.source_id == UserRecommendation.source_id)
@@ -86,7 +96,9 @@ def starter_articles(session, user_id, settings, limit, content_type, source_id)
     """A bounded first page from direct follows; never compute the recommendation graph here."""
     topic_follow = select(UserTopic.topic_id).where(UserTopic.user_id == user_id)
     source_follow = select(UserSource.source_id).where(UserSource.user_id == user_id)
+    tag_follow = select(UserTag.tag_id).where(UserTag.user_id == user_id)
     followed = or_(
+        Article.tags.any(Tag.id.in_(tag_follow)),
         Article.topic_links.any(
             ArticleTopic.topic_id.in_(topic_follow)
             & ArticleTopic.role.in_(["primary", "supporting"])
@@ -179,7 +191,7 @@ def feed(
             or_(
                 *[
                     select(model.user_id).where(model.user_id == user_id).exists()
-                    for model in (UserTopic, UserSource, ArticleLike)
+                    for model in (UserTopic, UserSource, UserTag, ArticleLike)
                 ]
             )
         )
@@ -341,6 +353,7 @@ def feed(
                 topic_id=entry.topic_id,
                 seed_topic_id=entry.seed_topic_id,
                 source_id=entry.source_id,
+                tag_id=entry.tag_id,
             )
             for _, entry, _ in page
         },

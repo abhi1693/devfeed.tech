@@ -3,7 +3,19 @@
 import uuid
 from typing import Annotated
 
-from devfeed_core.models import Source, Topic, UserAccount, UserSource, UserTopic, utcnow
+from devfeed_core.models import (
+    Article,
+    ArticleTag,
+    Source,
+    Tag,
+    Topic,
+    UserAccount,
+    UserSource,
+    UserTag,
+    UserTopic,
+    utcnow,
+)
+from devfeed_core.publication import visible_article
 from devfeed_http.agent_permissions import AgentAccessPolicy
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, ConfigDict, Field
@@ -205,5 +217,75 @@ def follow_source(source_id: uuid.UUID, payload: TopicFollow, user: User, sessio
                 UserSource.user_id == account, UserSource.source_id == source_id
             )
         )
+    session.commit()
+    return payload
+
+
+class TagPreferences(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    tag_ids: Annotated[list[uuid.UUID], Field(max_length=100)]
+
+
+def published_tags():
+    return select(Tag.id).where(
+        select(ArticleTag.article_id)
+        .join(Article, Article.id == ArticleTag.article_id)
+        .where(ArticleTag.tag_id == Tag.id, visible_article())
+        .exists()
+    )
+
+
+@router.get(
+    "/preferences/tags",
+    response_model=TagPreferences,
+    openapi_extra=AgentAccessPolicy(scope="devfeed:read").openapi_extra(),
+)
+def tag_preferences(user: User, session: DB):
+    ids = session.scalars(
+        select(UserTag.tag_id)
+        .where(UserTag.user_id == uuid.UUID(user.user_id))
+        .order_by(UserTag.tag_id)
+    ).all()
+    return TagPreferences(tag_ids=list(ids))
+
+
+@router.put("/preferences/tags", response_model=TagPreferences)
+def save_tag_preferences(payload: TagPreferences, user: User, session: DB):
+    ids = sorted(set(payload.tag_ids))
+    account = lock_account(session, user)
+    if set(session.scalars(published_tags().where(Tag.id.in_(ids)))) != set(ids):
+        raise HTTPException(422, "Choose published tags")
+    session.execute(delete(UserTag).where(UserTag.user_id == account, UserTag.tag_id.not_in(ids)))
+    if ids:
+        session.execute(
+            pg_insert(UserTag).on_conflict_do_nothing(),
+            [{"user_id": account, "tag_id": tag_id, "created_at": utcnow()} for tag_id in ids],
+        )
+    session.commit()
+    return TagPreferences(tag_ids=ids)
+
+
+@router.put(
+    "/preferences/tags/{tag_id}",
+    response_model=TopicFollow,
+    openapi_extra=AgentAccessPolicy(scope="devfeed:write").openapi_extra(),
+)
+def follow_tag(tag_id: uuid.UUID, payload: TopicFollow, user: User, session: DB):
+    account = lock_account(session, user)
+    if payload.followed:
+        if session.scalar(published_tags().where(Tag.id == tag_id)) is None:
+            raise HTTPException(422, "Choose a published tag")
+        count = session.scalar(
+            select(func.count())
+            .select_from(UserTag)
+            .where(UserTag.user_id == account, UserTag.tag_id != tag_id)
+        )
+        if count is not None and count >= 100:
+            raise HTTPException(422, "You can follow up to 100 tags")
+        session.execute(
+            pg_insert(UserTag).values(user_id=account, tag_id=tag_id).on_conflict_do_nothing()
+        )
+    else:
+        session.execute(delete(UserTag).where(UserTag.user_id == account, UserTag.tag_id == tag_id))
     session.commit()
     return payload

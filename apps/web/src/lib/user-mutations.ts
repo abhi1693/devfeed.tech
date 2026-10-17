@@ -294,3 +294,21 @@ export function respondToMcpConsent(
 export function logOut(options: MutationOptions) {
   return mutate<void>("auth/logout", undefined, options, { method: "POST" });
 }
+
+export function setTagFollow(tagId: string, followed: boolean, options: MutationOptions) {
+  return mutate<FollowResult>(
+    `preferences/tags/${encodeURIComponent(tagId)}`,
+    { followed },
+    options,
+    {
+      validate: (value) => record(value) && typeof value.followed === "boolean",
+      interestsChanged: true,
+    },
+  );
+}
+export function saveTagPreferences(ids: string[], options: MutationOptions) {
+  return mutate<{ tag_ids: string[] }>("preferences/tags", { tag_ids: ids }, options, {
+    validate: (value) => record(value) && strings(value.tag_ids),
+    interestsChanged: true,
+  });
+}

@@ -368,3 +368,44 @@ def test_withdrawn_bookmarks_are_hidden_but_removable(user_data, database):
     assert client.get("/v1/user/bookmarks").json()["items"] == []
     assert client.put(path, json={"bookmarked": True}).status_code == 404
     assert client.put(path, json={"bookmarked": False}).status_code == 200
+
+
+def test_tag_follows_are_owned_visible_and_independent(user_data, database):
+    from devfeed_core.models import ArticleTag, Tag, UserTag
+
+    client, _, user, other_user, _ = user_data
+    with database.begin() as session:
+        tags = [Tag(name=f"Follow tag {i}", slug=f"follow-tag-{i}") for i in range(3)]
+        session.add_all(tags)
+        session.flush()
+        ids = [tag.id for tag in tags]
+        public = session.scalar(select(Article.id).where(Article.title == "Article 000"))
+        hidden = session.scalar(select(Article.id).where(Article.title == "Article 110"))
+        session.add_all(
+            [
+                ArticleTag(article_id=public, tag_id=ids[0]),
+                ArticleTag(article_id=public, tag_id=ids[1]),
+                ArticleTag(article_id=hidden, tag_id=ids[2]),
+                UserTag(user_id=other_user, tag_id=ids[1]),
+            ]
+        )
+    assert client.get("/v1/user/preferences/tags").json() == {"tag_ids": []}
+    first, second, hidden = [f"/v1/user/preferences/tags/{tag_id}" for tag_id in ids]
+    assert client.put(first, json={"followed": True}).status_code == 200
+    assert client.put(first, json={"followed": True}).status_code == 200
+    assert client.put(second, json={"followed": True}).status_code == 200
+    assert set(client.get("/v1/user/preferences/tags").json()["tag_ids"]) == {
+        str(ids[0]),
+        str(ids[1]),
+    }
+    assert client.put(hidden, json={"followed": True}).status_code == 422
+    assert (
+        client.put(first, json={"followed": False, "user_id": str(other_user)}).status_code == 422
+    )
+    assert client.put(first, json={"followed": False}).status_code == 200
+    assert client.get("/v1/user/preferences/tags").json() == {"tag_ids": [str(ids[1])]}
+    with database() as session:
+        assert session.scalar(select(UserTag.tag_id).where(UserTag.user_id == other_user)) == ids[1]
+        assert session.get(UserTag, (user, ids[0])) is None
+    assert client.put("/v1/user/preferences/tags", json={"tag_ids": []}).status_code == 200
+    assert client.get("/v1/user/preferences/tags").json() == {"tag_ids": []}

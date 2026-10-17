@@ -26,6 +26,7 @@ const origin = "https://devfeed.tech";
 const params = {
   article_id: "11111111-1111-4111-8111-111111111111",
   topic_id: "22222222-2222-4222-8222-222222222222",
+  tag_id: "55555555-5555-4555-8555-555555555555",
   source_id: "33333333-3333-4333-8333-333333333333",
   grant_id: "44444444-4444-4444-8444-444444444444",
   request_id: "opaque-request-id",
@@ -108,11 +109,11 @@ function resource(operation) {
 }
 
 test("generated extension operations declare policies and omit direct OAuth exchange operations", () => {
-  assert.equal(operations.length, 75);
-  assert.equal(new Set(operations.map((operation) => operation.operationId)).size, 75);
+  assert.equal(operations.length, 78);
+  assert.equal(new Set(operations.map((operation) => operation.operationId)).size, 78);
   assert.equal(
     new Set(operations.map((operation) => `${operation.method} ${operation.path}`)).size,
-    75,
+    78,
   );
   for (const operation of operations) {
     assert.ok(operation.policy.extension);

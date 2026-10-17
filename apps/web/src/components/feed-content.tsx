@@ -1,4 +1,4 @@
-import { TagHeader } from "./tags-content";
+import { TagFollow } from "./tag-follow";
 import { ReaderShare } from "./reader-share";
 import { ReaderDisclosure } from "./reader-disclosure";
 import { SourceFollow } from "./source-follow";
@@ -24,6 +24,7 @@ export type FeedContentProps = {
   logoUrl?: string | null;
   logoVariants?: { url: string; width: number }[];
   topicId?: string;
+  tagId?: string;
   section?: "feed" | "topics" | "sources" | "tags";
   feed: PromiseSettledResult<FeedPage>;
   options: PromiseSettledResult<FeedOptions>;
@@ -40,6 +41,7 @@ export function FeedContent({
   logoUrl,
   logoVariants,
   topicId,
+  tagId,
   section = "feed",
   feed,
   options,
@@ -53,12 +55,11 @@ export function FeedContent({
   const content = (
     <>
       {children}
-      {section === "tags" && filters.tag && <TagHeader name={title} slug={filters.tag} />}
       <section className="feed-header" aria-label="Feed controls">
         <div
           className={
-            filters.q || (section !== "feed" && section !== "tags")
-              ? `page-heading feed-heading${section === "sources" ? " source-feed-heading" : section === "topics" ? " topic-feed-heading" : ""}`
+            filters.q || section !== "feed"
+              ? `page-heading feed-heading${section === "sources" ? " source-feed-heading" : section === "topics" || section === "tags" ? " topic-feed-heading" : ""}`
               : "sr-only"
           }
         >
@@ -71,11 +72,7 @@ export function FeedContent({
                   source={section === "sources"}
                 />
               )}
-              {section === "tags" ? (
-                <h2>{filters.q ? `Results for “${filters.q}”` : `Articles tagged ${title}`}</h2>
-              ) : (
-                <h1>{filters.q ? `Results for “${filters.q}”` : title}</h1>
-              )}
+              <h1>{filters.q ? `Results for “${filters.q}”` : title}</h1>
             </div>
             {description &&
               (section === "sources" ? (
@@ -84,7 +81,11 @@ export function FeedContent({
                 </div>
               ) : (
                 <ReaderDisclosure className="topic-description" title={<>About {title}</>}>
-                  {section === "topics" ? <p>{description}</p> : <Markdown>{description}</Markdown>}
+                  {section === "topics" || section === "tags" ? (
+                    <p>{description}</p>
+                  ) : (
+                    <Markdown>{description}</Markdown>
+                  )}
                 </ReaderDisclosure>
               ))}
           </div>
@@ -100,6 +101,19 @@ export function FeedContent({
                 sourceId={filters.source_id}
                 returnTo={feedHref(filters, { cursor: filters.cursor })}
               />
+            </div>
+          )}
+          {section === "tags" && filters.tag && (
+            <div className="feed-heading-actions">
+              <ReaderShare
+                path={`/tags/${encodeURIComponent(filters.tag)}`}
+                title={title}
+                kind="tag"
+                label
+              />
+              {tagId && (
+                <TagFollow tagId={tagId} returnTo={feedHref(filters, { cursor: filters.cursor })} />
+              )}
             </div>
           )}
           {section === "topics" && topicId && (
@@ -122,6 +136,7 @@ export function FeedContent({
           key={feedParams(filters).toString()}
           filters={filters}
           topicPage={section === "topics"}
+          tagPage={section === "tags"}
           sourcePage={section === "sources"}
           sources={options.status === "fulfilled" ? options.value.sources : []}
           availableTypes={options.status === "fulfilled" ? options.value.content_types : []}

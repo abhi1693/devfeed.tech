@@ -366,6 +366,7 @@
   color: var(--foreground);
 }
 .source-feed-heading .source-follow,
+.topic-feed-heading .tag-follow,
 .topic-feed-heading .topic-follow {
   max-width: 20rem;
   justify-self: end;
@@ -383,6 +384,7 @@
     justify-self: start;
   }
   .source-feed-heading .source-follow,
+  .topic-feed-heading .tag-follow,
   .topic-feed-heading .topic-follow {
     max-width: none;
   }

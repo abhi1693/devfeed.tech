@@ -1718,7 +1718,8 @@
               "followed_topic",
               "liked_topic",
               "related_topic",
-              "followed_source"
+              "followed_source",
+              "followed_tag"
             ],
             "title": "Kind",
             "type": "string"
@@ -1746,6 +1747,18 @@
               }
             ],
             "title": "Source Id"
+          },
+          "tag_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tag Id"
           },
           "topic_id": {
             "anyOf": [
@@ -2045,6 +2058,25 @@
           "created_at"
         ],
         "title": "SuggestionReceipt",
+        "type": "object"
+      },
+      "TagPreferences": {
+        "additionalProperties": false,
+        "properties": {
+          "tag_ids": {
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "maxItems": 100,
+            "title": "Tag Ids",
+            "type": "array"
+          }
+        },
+        "required": [
+          "tag_ids"
+        ],
+        "title": "TagPreferences",
         "type": "object"
       },
       "TopicFollow": {
@@ -5137,6 +5169,261 @@
         }
       }
     },
+    "/v1/user/preferences/tags": {
+      "get": {
+        "operationId": "tag_preferences_v1_user_preferences_tags_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TagPreferences"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Request validation failed"
+          },
+          "4XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Invalid or unauthorized request"
+          },
+          "5XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service or dependency unavailable"
+          }
+        },
+        "security": [
+          {
+            "APIKeyCookie": []
+          }
+        ],
+        "summary": "Tag Preferences",
+        "tags": [
+          "personalization"
+        ],
+        "x-devfeed-agent": {
+          "scope": "devfeed:read"
+        },
+        "x-devfeed-gateway": {
+          "bodyLimit": 1000000,
+          "bodyTimeoutMs": 2000,
+          "cookiePolicy": "reader",
+          "extension": {
+            "cacheControl": null,
+            "credentials": "include",
+            "requestHeaders": [
+              "Content-Type",
+              "X-CSRF-Token",
+              "If-None-Match"
+            ],
+            "timeoutMs": 15000
+          },
+          "handler": "forward",
+          "upstreamTimeoutMs": 45000
+        }
+      },
+      "put": {
+        "operationId": "save_tag_preferences_v1_user_preferences_tags_put",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TagPreferences"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TagPreferences"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Request validation failed"
+          },
+          "4XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Invalid or unauthorized request"
+          },
+          "5XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service or dependency unavailable"
+          }
+        },
+        "security": [
+          {
+            "APIKeyCookie": []
+          }
+        ],
+        "summary": "Save Tag Preferences",
+        "tags": [
+          "personalization"
+        ],
+        "x-devfeed-gateway": {
+          "bodyLimit": 1000000,
+          "bodyTimeoutMs": 2000,
+          "cookiePolicy": "reader",
+          "extension": {
+            "cacheControl": null,
+            "credentials": "include",
+            "requestHeaders": [
+              "Content-Type",
+              "X-CSRF-Token",
+              "If-None-Match"
+            ],
+            "timeoutMs": 15000
+          },
+          "handler": "forward",
+          "upstreamTimeoutMs": 45000
+        }
+      }
+    },
+    "/v1/user/preferences/tags/{tag_id}": {
+      "put": {
+        "operationId": "follow_tag_v1_user_preferences_tags__tag_id__put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "tag_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Tag Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TopicFollow"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TopicFollow"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Request validation failed"
+          },
+          "4XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Invalid or unauthorized request"
+          },
+          "5XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service or dependency unavailable"
+          }
+        },
+        "security": [
+          {
+            "APIKeyCookie": []
+          }
+        ],
+        "summary": "Follow Tag",
+        "tags": [
+          "personalization"
+        ],
+        "x-devfeed-agent": {
+          "scope": "devfeed:write"
+        },
+        "x-devfeed-gateway": {
+          "bodyLimit": 1000000,
+          "bodyTimeoutMs": 2000,
+          "cookiePolicy": "reader",
+          "extension": {
+            "cacheControl": null,
+            "credentials": "include",
+            "requestHeaders": [
+              "Content-Type",
+              "X-CSRF-Token",
+              "If-None-Match"
+            ],
+            "timeoutMs": 15000
+          },
+          "handler": "forward",
+          "upstreamTimeoutMs": 45000
+        }
+      }
+    },
     "/v1/user/preferences/topics/{topic_id}": {
       "put": {
         "operationId": "follow_topic_v1_user_preferences_topics__topic_id__put",
@@ -6966,6 +7253,85 @@
         }
       ],
       "path": "/v1/user/preferences/sources/{source_id}",
+      "policy": {
+        "bodyLimit": 1000000,
+        "bodyTimeoutMs": 2000,
+        "cookiePolicy": "reader",
+        "extension": {
+          "cacheControl": null,
+          "credentials": "include",
+          "requestHeaders": [
+            "Content-Type",
+            "X-CSRF-Token",
+            "If-None-Match"
+          ],
+          "timeoutMs": 15000
+        },
+        "handler": "forward",
+        "upstreamTimeoutMs": 45000
+      }
+    },
+    {
+      "method": "GET",
+      "operationId": "tag_preferences_v1_user_preferences_tags_get",
+      "parameters": [],
+      "path": "/v1/user/preferences/tags",
+      "policy": {
+        "bodyLimit": 1000000,
+        "bodyTimeoutMs": 2000,
+        "cookiePolicy": "reader",
+        "extension": {
+          "cacheControl": null,
+          "credentials": "include",
+          "requestHeaders": [
+            "Content-Type",
+            "X-CSRF-Token",
+            "If-None-Match"
+          ],
+          "timeoutMs": 15000
+        },
+        "handler": "forward",
+        "upstreamTimeoutMs": 45000
+      }
+    },
+    {
+      "method": "PUT",
+      "operationId": "save_tag_preferences_v1_user_preferences_tags_put",
+      "parameters": [],
+      "path": "/v1/user/preferences/tags",
+      "policy": {
+        "bodyLimit": 1000000,
+        "bodyTimeoutMs": 2000,
+        "cookiePolicy": "reader",
+        "extension": {
+          "cacheControl": null,
+          "credentials": "include",
+          "requestHeaders": [
+            "Content-Type",
+            "X-CSRF-Token",
+            "If-None-Match"
+          ],
+          "timeoutMs": 15000
+        },
+        "handler": "forward",
+        "upstreamTimeoutMs": 45000
+      }
+    },
+    {
+      "method": "PUT",
+      "operationId": "follow_tag_v1_user_preferences_tags__tag_id__put",
+      "parameters": [
+        {
+          "converter": "str",
+          "name": "tag_id",
+          "schema": {
+            "format": "uuid",
+            "title": "Tag Id",
+            "type": "string"
+          }
+        }
+      ],
+      "path": "/v1/user/preferences/tags/{tag_id}",
       "policy": {
         "bodyLimit": 1000000,
         "bodyTimeoutMs": 2000,

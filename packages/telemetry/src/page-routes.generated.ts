@@ -142,6 +142,7 @@ export const pageRouteCatalogs = {
     { path: "/api/v1/user/mcp/connections/:id", label: "/v1/user/mcp/connections/:id" },
     { path: "/api/v1/user/mcp/requests/:id", label: "/v1/user/mcp/requests/:id" },
     { path: "/api/v1/user/preferences/sources/:id", label: "/v1/user/preferences/sources/:id" },
+    { path: "/api/v1/user/preferences/tags/:id", label: "/v1/user/preferences/tags/:id" },
     { path: "/api/v1/user/preferences/topics/:id", label: "/v1/user/preferences/topics/:id" },
     {
       path: "/api/v1/user/profiles/:id/reading-heatmap",
@@ -159,6 +160,7 @@ export const pageRouteCatalogs = {
     { path: "/api/v1/user/notifications/config", label: "/v1/user/notifications/config" },
     { path: "/api/v1/user/partner-placements/query", label: "/v1/user/partner-placements/query" },
     { path: "/api/v1/user/preferences/sources", label: "/v1/user/preferences/sources" },
+    { path: "/api/v1/user/preferences/tags", label: "/v1/user/preferences/tags" },
     { path: "/api/v1/user/settings/appearance", label: "/v1/user/settings/appearance" },
     { path: "/api/v1/user/settings/feed", label: "/v1/user/settings/feed" },
     { path: "/api/v1/user/settings/notifications", label: "/v1/user/settings/notifications" },
@@ -176,6 +178,7 @@ export const pageRouteCatalogs = {
     { path: "/v1/user/mcp/connections/:id", label: "/v1/user/mcp/connections/:id" },
     { path: "/v1/user/mcp/requests/:id", label: "/v1/user/mcp/requests/:id" },
     { path: "/v1/user/preferences/sources/:id", label: "/v1/user/preferences/sources/:id" },
+    { path: "/v1/user/preferences/tags/:id", label: "/v1/user/preferences/tags/:id" },
     { path: "/v1/user/preferences/topics/:id", label: "/v1/user/preferences/topics/:id" },
     {
       path: "/v1/user/profiles/:id/reading-heatmap",
@@ -205,6 +208,7 @@ export const pageRouteCatalogs = {
     { path: "/v1/user/notifications/config", label: "/v1/user/notifications/config" },
     { path: "/v1/user/partner-placements/query", label: "/v1/user/partner-placements/query" },
     { path: "/v1/user/preferences/sources", label: "/v1/user/preferences/sources" },
+    { path: "/v1/user/preferences/tags", label: "/v1/user/preferences/tags" },
     { path: "/v1/user/settings/appearance", label: "/v1/user/settings/appearance" },
     { path: "/v1/user/settings/feed", label: "/v1/user/settings/feed" },
     { path: "/v1/user/settings/notifications", label: "/v1/user/settings/notifications" },

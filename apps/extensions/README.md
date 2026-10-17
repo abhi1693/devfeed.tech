@@ -151,6 +151,10 @@ and appends results with infinite scroll. Tag detail routes (`/tags/{slug}` and 
 suffixes) stay in the extension, with the same article filters and sharing controls as
 on the website. The public tag API supports `q`, `letter`, `offset`, and `limit`; search
 and letter filters are preserved on every automatically loaded page.
+Tag detail pages share the topic layout and support account-owned Follow/Following
+controls. Followed tags contribute direct article matches to the personalized feed.
+Run `uv run devfeed db upgrade` to apply migration `0026` before starting the updated
+backend services.
 
 ## Reader parity
 

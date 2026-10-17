@@ -1,4 +1,4 @@
-import { tagsFixture, checkTags } from "../../../scripts/testing/tags.mjs";
+import { tagsFixture, checkTags, checkTagFollow } from "../../../scripts/testing/tags.mjs";
 import { checkCatalogSharing } from "../../../scripts/testing/catalog-sharing.mjs";
 import {
   checkKeyboardReader,
@@ -1124,4 +1124,10 @@ test(
 test("tag directory and detail pages work in built new tabs", { timeout: 180000 }, async (t) => {
   const { page, pathFor } = await readerFixture(t);
   await checkTags(page, pathFor, `/tmp/devfeed-tags/${browser}`);
+});
+
+test("tag follow controls persist in built new tabs", { timeout: 180000 }, async (t) => {
+  const { page, pathFor, mutationFixture } = await readerFixture(t);
+  mutationFixture.active = true;
+  await checkTagFollow(page, pathFor, `/tmp/devfeed-tags/${browser}`);
 });

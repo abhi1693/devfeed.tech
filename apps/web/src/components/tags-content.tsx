@@ -8,7 +8,6 @@ import { readerRequest } from "@/lib/reader-runtime";
 import { flattenPageItems, uniquePageItems, useInfinitePages } from "@/lib/use-infinite-pages";
 import type { CatalogPage } from "@/lib/catalog-page";
 import Link from "./reader-link";
-import { ReaderShare } from "./reader-share";
 import { useReaderRouter } from "@/lib/reader-navigation";
 import type { Tag } from "@/lib/types";
 
@@ -137,21 +136,5 @@ export function TagsContent({
         )}
       </InfiniteScroll>
     </div>
-  );
-}
-export function TagHeader({ name, slug }: { name: string; slug: string }) {
-  return (
-    <section className="tag-detail-header" aria-label={`About ${name}`}>
-      <Link className="tag-back" href="/tags">
-        ← All tags
-      </Link>
-      <div className="tag-symbol">
-        <Hash size={28} aria-hidden="true" />
-      </div>
-      <p className="tags-eyebrow">TAG</p>
-      <h1>{name}</h1>
-      <p>Discover articles, fresh perspectives, and updates tagged {name}.</p>
-      <ReaderShare kind="tag" path={`/tags/${encodeURIComponent(slug)}`} title={name} label />
-    </section>
   );
 }

@@ -132,40 +132,6 @@
   color: var(--muted-foreground);
   opacity: 0.6;
 }
-.tag-detail-header {
-  position: relative;
-  text-align: center;
-  padding: 42px 20px 36px;
-  margin-bottom: 24px;
-  border-bottom: 1px solid var(--border);
-}
-.tag-back {
-  display: block;
-  width: fit-content;
-  color: var(--muted-foreground);
-  font-size: 13px;
-  margin-bottom: 28px;
-}
-.tag-symbol {
-  display: grid;
-  place-items: center;
-  width: 60px;
-  height: 60px;
-  margin: 0 auto 16px;
-  border: 1px solid var(--border);
-  background: var(--card);
-  color: var(--primary);
-  border-radius: 18px;
-}
-.tag-detail-header h1 {
-  font-size: clamp(30px, 4vw, 40px);
-  letter-spacing: -0.03em;
-  margin: 10px 0 16px;
-  overflow-wrap: anywhere;
-}
-.tag-detail-header .article-share-trigger {
-  margin: auto;
-}
 .tags-directory .pagination {
   display: flex;
   gap: 12px;
@@ -190,8 +156,5 @@
   .tags-alphabet a {
     min-width: 36px;
     min-height: 40px;
-  }
-  .tag-detail-header {
-    padding: 16px 0 28px;
   }
 }

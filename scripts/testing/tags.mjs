@@ -2,12 +2,12 @@ import assert from "node:assert/strict";
 import { mkdir } from "node:fs/promises";
 
 export const tagFixtures = [
-  { id: "tag-net", name: ".NET", slug: ".net" },
-  { id: "tag-ai", name: "Artificial intelligence", slug: "ai" },
-  { id: "tag-cpp", name: "C++", slug: "c++" },
-  { id: "tag-css", name: "CSS", slug: "css" },
-  { id: "tag-rust", name: "Rust", slug: "rust" },
-  { id: "tag-unicode", name: "数据库", slug: "数据库" },
+  { id: "55555555-5555-4555-8555-000000000001", name: ".NET", slug: ".net" },
+  { id: "55555555-5555-4555-8555-000000000002", name: "Artificial intelligence", slug: "ai" },
+  { id: "55555555-5555-4555-8555-000000000003", name: "C++", slug: "c++" },
+  { id: "55555555-5555-4555-8555-000000000004", name: "CSS", slug: "css" },
+  { id: "55555555-5555-4555-8555-000000000005", name: "Rust", slug: "rust" },
+  { id: "55555555-5555-4555-8555-000000000006", name: "数据库", slug: "数据库" },
 ];
 export function tagsFixture(url) {
   const path = url.pathname.replace(/^\/api/, "");
@@ -73,7 +73,7 @@ async function runTags(page, pathFor, output) {
   assert.equal(await page.locator(".tags-group li").count(), 2);
   await page.getByRole("link", { name: "C++", exact: true }).click();
   await page
-    .locator(".tag-detail-header")
+    .locator(".topic-feed-heading")
     .getByRole("heading", { name: "C++", exact: true })
     .waitFor();
   await page.locator(".article-card").first().waitFor();
@@ -82,7 +82,7 @@ async function runTags(page, pathFor, output) {
     (url.hash ? url.hash.slice(1) : url.pathname).endsWith("/tags/c%2B%2B/articles"),
   );
   await page
-    .locator(".tag-detail-header")
+    .locator(".topic-feed-heading")
     .getByRole("heading", { name: "C++", exact: true })
     .waitFor();
   await page.getByRole("button", { name: "Share tag: C++", exact: true }).click();
@@ -95,11 +95,11 @@ async function runTags(page, pathFor, output) {
     );
   await page.keyboard.press("Escape");
   await page.screenshot({ path: `${output}/tag-desktop.png`, animations: "disabled" });
-  await page.getByRole("link", { name: "← All tags", exact: true }).click();
+  await page.getByRole("link", { name: "Explore tags", exact: true }).click();
   await page.getByRole("textbox", { name: "Search all tags" }).fill("rust");
   await page.locator(".tags-search").getByRole("button", { name: "Search", exact: true }).click();
   await page.getByRole("link", { name: "Rust", exact: true }).waitFor();
-  assert.equal(await page.locator(".tags-group li").count(), 1);
+  await page.waitForFunction(() => document.querySelectorAll(".tags-group li").length === 1);
   await page.getByRole("textbox", { name: "Search all tags" }).fill("no-such-tag");
   await page.locator(".tags-search").getByRole("button", { name: "Search", exact: true }).click();
   await page.getByRole("heading", { name: "No tags found", exact: true }).waitFor();
@@ -117,7 +117,7 @@ async function runTags(page, pathFor, output) {
   await page.getByRole("link", { name: ".NET", exact: true }).waitFor();
   await page.getByRole("link", { name: "数据库", exact: true }).click();
   await page
-    .locator(".tag-detail-header")
+    .locator(".topic-feed-heading")
     .getByRole("heading", { name: "数据库", exact: true })
     .waitFor();
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
@@ -156,4 +156,21 @@ async function runTags(page, pathFor, output) {
   await page.locator(".tags-search").getByRole("button", { name: "Search", exact: true }).click();
   await page.getByRole("heading", { name: "No tags found", exact: true }).waitFor();
   assert.equal(await page.locator(".tags-group li").count(), 0);
+}
+
+export async function checkTagFollow(page, pathFor, output) {
+  await page.goto(pathFor("/tags/c%2B%2B"));
+  const heading = page.locator(".topic-feed-heading");
+  await heading.getByRole("heading", { name: "C++", exact: true }).waitFor();
+  await heading.getByRole("button", { name: "Follow", exact: true }).waitFor();
+  await heading.getByRole("button", { name: "Follow", exact: true }).click();
+  await heading.getByText("Couldn’t update this tag. Please try again.", { exact: true }).waitFor();
+  await heading.getByRole("button", { name: "Follow", exact: true }).click();
+  await heading.getByRole("button", { name: "Following", exact: true }).waitFor();
+  await page.reload();
+  await heading.getByRole("button", { name: "Following", exact: true }).waitFor();
+  await heading.getByRole("button", { name: "Following", exact: true }).click();
+  await heading.getByRole("button", { name: "Follow", exact: true }).waitFor();
+  assert.equal(await page.getByRole("link", { name: /^Remove tag filter/ }).count(), 0);
+  await page.screenshot({ path: `${output}/tag-follow.png`, animations: "disabled" });
 }

@@ -1,3 +1,4 @@
+import { TagFollowsProvider } from "../../web/src/components/tag-follows";
 import { HeaderSponsorshipProvider } from "../../web/src/components/header-sponsorship";
 import { TopicFollowsProvider } from "../../web/src/components/topic-follows";
 import "./newtab.css";
@@ -176,7 +177,13 @@ function Reader({
             filters: resolvedFilters,
             title: item?.name,
             topicId: detail?.kind === "topics" ? item?.id : undefined,
-            description: item && "description" in item ? item.description : undefined,
+            tagId: detail?.kind === "tags" ? item?.id : undefined,
+            description:
+              detail?.kind === "tags"
+                ? `Articles tagged ${item?.name}.`
+                : item && "description" in item
+                  ? item.description
+                  : undefined,
             logoUrl: item && "logo_url" in item ? item.logo_url : undefined,
             logoVariants: item && "logo_variants" in item ? item.logo_variants : undefined,
             section: detail?.kind ?? "feed",
@@ -303,10 +310,12 @@ createRoot(document.getElementById("root")!).render(
               <FeedPreferencesProvider>
                 <ArticleNavigationProvider>
                   <SourceFollowsProvider>
-                    <TopicFollowsProvider>
-                      <ExtensionReader />
-                      <SignupNudge />
-                    </TopicFollowsProvider>
+                    <TagFollowsProvider>
+                      <TopicFollowsProvider>
+                        <ExtensionReader />
+                        <SignupNudge />
+                      </TopicFollowsProvider>
+                    </TagFollowsProvider>
                   </SourceFollowsProvider>
                 </ArticleNavigationProvider>
               </FeedPreferencesProvider>

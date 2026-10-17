@@ -34,6 +34,7 @@ export function FeedFiltersBar({
   sources,
   availableTypes = contentTypes,
   topicPage = false,
+  tagPage = false,
   sourcePage = false,
   personal = false,
 }: {
@@ -41,6 +42,7 @@ export function FeedFiltersBar({
   sources: Source[];
   availableTypes?: readonly string[];
   topicPage?: boolean;
+  tagPage?: boolean;
   sourcePage?: boolean;
   personal?: boolean;
 }) {
@@ -70,6 +72,7 @@ export function FeedFiltersBar({
       key !== "source_slug" &&
       key !== "content_type" &&
       !(topicPage && key === "topic") &&
+      !(tagPage && key === "tag") &&
       !(sourcePage && key === "source_id"),
   );
   const filterCount = Number(!sourcePage && !!filters.source_id);
@@ -204,11 +207,13 @@ export function FeedFiltersBar({
                     }),
                     source_slug: filters.source_slug,
                   })
-                : topicPage
-                  ? hrefFor(
-                      parseFilters({ topic: filters.topic, content_type: filters.content_type }),
-                    )
-                  : hrefFor(parseFilters({ content_type: filters.content_type }))
+                : tagPage
+                  ? hrefFor(parseFilters({ tag: filters.tag, content_type: filters.content_type }))
+                  : topicPage
+                    ? hrefFor(
+                        parseFilters({ topic: filters.topic, content_type: filters.content_type }),
+                      )
+                    : hrefFor(parseFilters({ content_type: filters.content_type }))
             }
             className="clear-filters"
           >

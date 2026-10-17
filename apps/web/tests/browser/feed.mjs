@@ -1,4 +1,4 @@
-import { tagsFixture, checkTags } from "../../../../scripts/testing/tags.mjs";
+import { tagsFixture, checkTags, checkTagFollow } from "../../../../scripts/testing/tags.mjs";
 import { checkCatalogSharing } from "../../../../scripts/testing/catalog-sharing.mjs";
 import {
   checkKeyboardReader,
@@ -1601,3 +1601,12 @@ test(
     );
   },
 );
+
+test("tag follow controls persist and recover from errors", { timeout: 180000 }, async (t) => {
+  const { browser, origin, mutationFixture } = await createReaderFixture(t);
+  mutationFixture.active = true;
+  await withReaderPage(browser, async (page, context) => {
+    await context.addCookies([{ name: "devfeed_user_session", value: "valid", url: origin }]);
+    await checkTagFollow(page, (path) => origin + path, "/tmp/devfeed-tags/web");
+  });
+});

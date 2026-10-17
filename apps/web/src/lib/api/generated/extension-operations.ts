@@ -50,6 +50,18 @@ export const extensionGatewayOperations = [
     path: "/api/v1/user/preferences/sources/{source_id}",
   },
   {
+    ...userGatewayOperations["tag_preferences_v1_user_preferences_tags_get"],
+    path: "/api/v1/user/preferences/tags",
+  },
+  {
+    ...userGatewayOperations["save_tag_preferences_v1_user_preferences_tags_put"],
+    path: "/api/v1/user/preferences/tags",
+  },
+  {
+    ...userGatewayOperations["follow_tag_v1_user_preferences_tags__tag_id__put"],
+    path: "/api/v1/user/preferences/tags/{tag_id}",
+  },
+  {
     ...userGatewayOperations["engagement_v1_user_engagement_get"],
     path: "/api/v1/user/engagement",
   },
