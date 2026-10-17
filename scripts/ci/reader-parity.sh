@@ -2,11 +2,11 @@
 set -euo pipefail
 suite=${1-all}
 if (( $# > 1 )); then
-  echo 'Usage: reader-parity.sh [all|web|chrome|edge|partner]' >&2
+  echo 'Usage: reader-parity.sh [all|web|chrome|edge|partner|partner-web|partner-chrome|partner-edge]' >&2
   exit 2
 fi
 case "$suite" in
-  all|web|chrome|edge|partner) ;;
+  all|web|chrome|edge|partner|partner-web|partner-chrome|partner-edge) ;;
   *) echo "Unknown reader suite: $suite" >&2; exit 2 ;;
 esac
 
@@ -76,20 +76,31 @@ edge_checks() {
 }
 
 partner_checks() {
-  local ready=1
-  # This suite runs on its own runner, so it cannot rely on another suite's output.
+  local runtime=${1-all} ready=1
+  # Every runtime starts the real Next gateway in this isolated workspace.
   if ! run_timed npm run web:build; then ready=0; status=1; fi
-  if ! run_timed npm run extension:build; then ready=0; status=1; fi
-  if ! run_timed npm run extension:edge:build; then ready=0; status=1; fi
+  if [[ $runtime == all || $runtime == web || $runtime == chrome ]]; then
+    if ! run_timed npm run extension:build; then ready=0; status=1; fi
+  fi
+  if [[ $runtime == all || $runtime == web || $runtime == edge ]]; then
+    if ! run_timed npm run extension:edge:build; then ready=0; status=1; fi
+  fi
   if (( ready )); then
-    run_check node apps/web/tests/browser/partner-tracking.mjs
-    run_check node apps/web/tests/browser/partner-placements.mjs
+    # Tracking stays unchanged and covers all three runtimes once.
+    if [[ $runtime == all || $runtime == web ]]; then
+      run_check node apps/web/tests/browser/partner-tracking.mjs
+    fi
+    if [[ $runtime == all ]]; then
+      run_check node apps/web/tests/browser/partner-placements.mjs
+    else
+      run_check node apps/web/tests/browser/partner-placements.mjs "--runtime=$runtime"
+    fi
   fi
 }
 
 # Edge is available on Linux x86_64; these CI suites use the matching runner.
 case "$suite" in
-  web|chrome) browsers=(chromium) ;;
+  web|chrome|partner-chrome) browsers=(chromium) ;;
   *) browsers=(chromium msedge) ;;
 esac
 if run_timed npx --no-install --ignore-scripts playwright install --with-deps "${browsers[@]}"; then
@@ -100,15 +111,18 @@ else
   exit "$code"
 fi
 
-for group in web chrome edge partner; do
-  if [[ $suite == all || $suite == "$group" ]]; then
-    case "$group" in
-      web) web_checks ;;
-      chrome) chrome_checks ;;
-      edge) edge_checks ;;
-      partner) partner_checks ;;
-    esac
-  fi
+groups=(web chrome edge partner)
+if [[ $suite != all ]]; then groups=("$suite"); fi
+for group in "${groups[@]}"; do
+  case "$group" in
+    web) web_checks ;;
+    chrome) chrome_checks ;;
+    edge) edge_checks ;;
+    partner) partner_checks ;;
+    partner-web) partner_checks web ;;
+    partner-chrome) partner_checks chrome ;;
+    partner-edge) partner_checks edge ;;
+  esac
 done
 print_summary "$status"
 exit "$status"
