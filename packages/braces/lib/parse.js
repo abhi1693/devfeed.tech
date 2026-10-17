@@ -77,7 +77,8 @@ const parse = (input, options = {}) => {
 
   while (index < length) {
     block = stack[stack.length - 1];
-    value = advance();
+    value = input[index];
+    index++;
 
     /**
      * Invalid chars

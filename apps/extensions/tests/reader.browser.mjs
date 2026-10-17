@@ -1,3 +1,8 @@
+import {
+  checkKeyboardReader,
+  keyboardProfile,
+  keyboardActivity,
+} from "../../../scripts/testing/keyboard-reader.mjs";
 import { checkRouteStyles } from "../../../scripts/testing/route-styles.mjs";
 import { readerDomCatalogFixture, checkReaderDom } from "../../../scripts/testing/reader-dom.mjs";
 import { checkGuestDocument } from "../../../scripts/testing/document-latency.mjs";
@@ -78,6 +83,7 @@ import path from "node:path";
 import test from "node:test";
 import { chromium } from "playwright";
 import { prepareSearchDraft, checkSearchDraft } from "../../../scripts/testing/search-draft.mjs";
+import { fixtureImageDiagnostics } from "./fixture-image-diagnostics.mjs";
 
 const browser = process.env.DEVFEED_EXTENSION_BROWSER ?? "chrome";
 const extension = path.resolve(import.meta.dirname, `../dist/${browser}`);
@@ -111,8 +117,19 @@ async function readerFixture(t, imageProfile) {
   const profile = await mkdtemp(path.join(tmpdir(), "devfeed-reader-test-"));
   const errors = [];
   let context;
+  let imageDiagnostics;
   t.after(async () => {
     try {
+      if (errors.length) {
+        const filename = `${t.name.replace(/[^a-z0-9]+/gi, "-")}.json`;
+        await imageDiagnostics?.writeFailure(
+          path.resolve(
+            import.meta.dirname,
+            `../../../reports/reader-diagnostics/${browser}`,
+            filename,
+          ),
+        );
+      }
       await context?.close();
       assert.deepEqual(errors, []);
     } finally {
@@ -140,6 +157,7 @@ async function readerFixture(t, imageProfile) {
         errors.push({ message: message.text(), location: message.location() });
     });
   });
+  imageDiagnostics = await fixtureImageDiagnostics(context);
   const state = {
     engagementPagination: false,
     defaultAll: false,
@@ -260,6 +278,8 @@ async function readerFixture(t, imageProfile) {
             json: { article: { ...article, slug: "retry-article" }, topic: null },
           });
     }
+    if (url.pathname === "/api/v1/users/keyboard-reader")
+      return route.fulfill({ json: { profile: keyboardProfile, activity: keyboardActivity } });
     if (url.pathname === "/api/v1/users/reader")
       return route.fulfill({
         json: {
@@ -419,6 +439,15 @@ async function readerFixture(t, imageProfile) {
     pathFor: (path) => readerBase + path,
   };
 }
+
+test(
+  "keyboard access preserves native links and readable scroll regions",
+  { timeout: 180000 },
+  async (t) => {
+    const { page, pathFor } = await readerFixture(t);
+    await checkKeyboardReader(page, pathFor, `/tmp/devfeed-sonar-a11y/${browser}`);
+  },
+);
 
 test("article snippets exclude related copy in built new tabs", { timeout: 180000 }, async (t) => {
   const { page, pathFor } = await readerFixture(t);
