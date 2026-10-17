@@ -173,8 +173,9 @@ npm run reader:test:parity
 ```
 
 CI runs this gate on Linux x86_64 with Chromium and Microsoft Edge installed.
-Pre-commit also checks extension types, unit tests and both builds whenever reader
-or shared UI code changes. Store uploads remain separate from website deployment.
+Pre-commit checks extension types whenever reader or shared UI code changes.
+Extension unit tests and both builds run separately and in CI.
+Store uploads remain separate from website deployment.
 
 Browser scenarios are separate named tests with isolated fixtures. The default run
 includes every scenario; use Node's test-name filter for a focused run after fresh
