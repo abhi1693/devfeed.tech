@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { beforeEach, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
   initialize: vi.fn(),
   tracing: vi.fn(),
@@ -14,6 +14,7 @@ vi.mock("@grafana/faro-web-sdk", () => ({
 }));
 vi.mock("@grafana/faro-web-tracing", () => ({ TracingInstrumentation: mocks.tracing }));
 import { initializeBrowserTelemetry } from "../../../packages/telemetry/src/browser-initialize";
+afterEach(() => vi.unstubAllGlobals());
 const settings = { enabled: true, app: "web" as const, version: "test", environment: "test" };
 beforeEach(() => {
   vi.clearAllMocks();
@@ -62,4 +63,58 @@ it("allows another sampled session to retry a failed tracing import/initializati
     attributes: { isSampled: "true" },
   });
   await vi.waitFor(() => expect(mocks.add).toHaveBeenCalledOnce());
+});
+
+it("skips optional telemetry entirely when Web Crypto cannot create a session", async () => {
+  vi.stubGlobal("crypto", undefined);
+  expect(await initializeBrowserTelemetry(settings)).toBeUndefined();
+  expect(mocks.initialize).not.toHaveBeenCalled();
+  expect(mocks.pushEvent).not.toHaveBeenCalled();
+  expect(mocks.tracing).not.toHaveBeenCalled();
+});
+
+it("keeps telemetry disabled after crypto fails, even if secure randomness later recovers", async () => {
+  await initializeBrowserTelemetry(settings);
+  const config = mocks.initialize.mock.calls[0][0];
+  expect(config.sessionTracking.generateSessionId()).toMatch(/^[0-9a-f-]{36}$/);
+  vi.stubGlobal("crypto", undefined);
+  expect(config.sessionTracking.generateSessionId()).toBe("");
+  expect(config.beforeSend({ type: "event", payload: { name: "route_change" } })).toBeNull();
+  vi.stubGlobal("crypto", { randomUUID: () => "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee" });
+  expect(config.sessionTracking.generateSessionId()).toBe("");
+  expect(config.beforeSend({ type: "event", payload: { name: "route_change" } })).toBeNull();
+  config.sessionTracking.onSessionChange(null, { attributes: { isSampled: "true" } });
+  await vi.dynamicImportSettled();
+  expect(mocks.tracing).not.toHaveBeenCalled();
+});
+
+it("does not add tracing when crypto fails while the tracing module is loading", async () => {
+  let startImport!: () => void;
+  let finishImport!: () => void;
+  const started = new Promise<void>((resolve) => {
+    startImport = resolve;
+  });
+  vi.doMock(
+    "@grafana/faro-web-tracing",
+    () =>
+      new Promise((resolve) => {
+        finishImport = () => resolve({ TracingInstrumentation: mocks.tracing });
+        startImport();
+      }),
+  );
+  try {
+    await initializeBrowserTelemetry(settings);
+    const config = mocks.initialize.mock.calls[0][0];
+    config.sessionTracking.onSessionChange(null, { attributes: { isSampled: "true" } });
+    await started;
+    vi.stubGlobal("crypto", undefined);
+    expect(config.sessionTracking.generateSessionId()).toBe("");
+    finishImport();
+    await vi.dynamicImportSettled();
+    expect(mocks.tracing).not.toHaveBeenCalled();
+    expect(mocks.add).not.toHaveBeenCalled();
+  } finally {
+    finishImport?.();
+    vi.doMock("@grafana/faro-web-tracing", () => ({ TracingInstrumentation: mocks.tracing }));
+  }
 });

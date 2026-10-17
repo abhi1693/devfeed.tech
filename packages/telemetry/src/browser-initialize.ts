@@ -2,15 +2,20 @@ import type { Faro } from "@grafana/faro-web-sdk";
 import { routeName, normalizeMeta, normalizePayload, type BrowserSettings } from "./privacy";
 import { generateSessionId } from "./session";
 
-export async function initializeBrowserTelemetry(settings: BrowserSettings): Promise<Faro> {
+export async function initializeBrowserTelemetry(
+  settings: BrowserSettings,
+): Promise<Faro | undefined> {
+  if (!generateSessionId()) return undefined;
+  let secureSession = true;
   return import("@grafana/faro-web-sdk").then((sdk) => {
     const collector = `${location.origin}/telemetry/collect`;
     let tracingStarted = false;
     const enableTracing = () => {
-      if (tracingStarted) return;
+      if (tracingStarted || !secureSession) return;
       tracingStarted = true;
       void import("@grafana/faro-web-tracing")
         .then((tracing) => {
+          if (!secureSession) return;
           faro.instrumentations.add(
             new tracing.TracingInstrumentation({
               instrumentationOptions: {
@@ -39,7 +44,11 @@ export async function initializeBrowserTelemetry(settings: BrowserSettings): Pro
         enabled: true,
         persistent: false,
         samplingRate: 0.1,
-        generateSessionId,
+        generateSessionId() {
+          const id = generateSessionId();
+          secureSession &&= !!id;
+          return secureSession ? id : "";
+        },
         onSessionChange(_previous, session) {
           if (session.attributes?.isSampled === "true") enableTracing();
         },
@@ -54,6 +63,8 @@ export async function initializeBrowserTelemetry(settings: BrowserSettings): Pro
         }),
       ],
       beforeSend(item) {
+        // An empty string also prevents Faro from falling back to its own ID generator.
+        if (!secureSession) return null;
         const payload = normalizePayload(item.type, item.payload, settings);
         return payload
           ? ({
