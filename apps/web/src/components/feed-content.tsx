@@ -1,4 +1,5 @@
 import { canFollowSource, sourceCollectionLabel } from "@/lib/video";
+import { ReaderShare } from "./reader-share";
 import { ReaderDisclosure } from "./reader-disclosure";
 import { SourceFollow } from "./source-follow";
 import { TopicFollow } from "./topic-follow";
@@ -90,18 +91,36 @@ export function FeedContent({
                 </ReaderDisclosure>
               ))}
           </div>
-          {section === "sources" && filters.source_id && canFollowSource(source) && (
-            <SourceFollow
-              sourceId={filters.source_id}
-              returnTo={feedHref(filters, { cursor: filters.cursor })}
-            />
+          {section === "sources" && filters.source_id && (
+            <div className="feed-heading-actions">
+              <ReaderShare
+                path={sourceHref({ id: filters.source_id, slug: filters.source_slug })}
+                title={title}
+                kind="source"
+                label
+              />
+              {canFollowSource(source) && (
+                <SourceFollow
+                  sourceId={filters.source_id}
+                  returnTo={feedHref(filters, { cursor: filters.cursor })}
+                />
+              )}
+            </div>
           )}
           {section === "topics" && topicId && (
-            <TopicFollow
-              key={topicId}
-              topicId={topicId}
-              returnTo={feedHref(filters, { cursor: filters.cursor })}
-            />
+            <div className="feed-heading-actions">
+              <ReaderShare
+                path={`/topics/${encodeURIComponent(filters.topic)}`}
+                title={title}
+                kind="topic"
+                label
+              />
+              <TopicFollow
+                key={topicId}
+                topicId={topicId}
+                returnTo={feedHref(filters, { cursor: filters.cursor })}
+              />
+            </div>
           )}
         </div>
         <FeedFiltersBar

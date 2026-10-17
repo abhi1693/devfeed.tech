@@ -329,7 +329,6 @@ services:
     command: [uvicorn, devfeed_admin_api.main:app, --host, 0.0.0.0, --port, "8001", --no-proxy-headers, --no-access-log]
     depends_on:
       <<: *ready
-      DEVFEED_YOUTUBE_API_KEY:
       chimely-provision:
         condition: service_completed_successfully
     networks: [default, data]
@@ -340,6 +339,7 @@ services:
       - ./infra/chimely/consumer.py:/opt/devfeed/chimely-consumer.py:ro
       - chimely-admin-credentials:/run/devfeed-chimely:ro
     environment:
+      DEVFEED_YOUTUBE_API_KEY:
       <<: [*core-environment, *chimely-environment]
       # The inbox API uses its HMAC secret, never the management API key.
       DEVFEED_CHIMELY_ADMIN_HMAC_SECRET:
@@ -416,12 +416,6 @@ services:
     command: [uvicorn, devfeed_user_api.main:app, --host, 0.0.0.0, --port, "8002", --no-proxy-headers, --no-access-log]
     depends_on:
       <<: *ready
-      DEVFEED_YOUTUBE_API_KEY:
-      DEVFEED_YOUTUBE_INITIAL_IMPORT_LIMIT:
-      DEVFEED_YOUTUBE_REFRESH_ITEM_LIMIT:
-      DEVFEED_YOUTUBE_REQUEST_LIMIT:
-      DEVFEED_YOUTUBE_REVALIDATE_SECONDS:
-      DEVFEED_YOUTUBE_REVALIDATION_BATCH_SIZE:
       chimely-provision:
         condition: service_completed_successfully
     volumes:
@@ -429,6 +423,7 @@ services:
       - chimely-user-credentials:/run/devfeed-chimely:ro
     networks: [default, data]
     environment:
+      DEVFEED_YOUTUBE_API_KEY:
       <<: *chimely-environment
       DEVFEED_NOTIFICATIONS_ENABLED:
       DEVFEED_CHIMELY_USER_HMAC_SECRET:

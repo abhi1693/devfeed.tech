@@ -68,7 +68,8 @@ GENERATED_ROUTES = (
 )
 SPEC_VERSION = re.compile(r"(?m)^ \* OpenAPI spec version: ([^\r\n]+)$")
 RELEASE = re.compile(r"(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\Z")
-PROJECT = re.compile(r"(?ms)^\[project\][^\S\n]*\n(?P<body>.*?)(?=^\[|\Z)")
+PROJECT_HEADER = re.compile(r"(?m)^\[project\][^\S\n]*\n")
+SECTION_HEADER = re.compile(r"(?m)^\[")
 VERSION = re.compile(r"(?m)^(version\s*=\s*)([\"'])([^\"'\n]+)(\2)")
 
 
@@ -162,15 +163,18 @@ def next_version(value: str, part: str) -> str:
 
 
 def replace_version(content: str, value: str) -> str:
-    section = PROJECT.search(content)
+    section = PROJECT_HEADER.search(content)
     if section is None:
         raise ValueError("Missing [project] section")
+    body_start = section.end()
+    following = SECTION_HEADER.search(content, body_start)
+    body_end = following.start() if following is not None else len(content)
     body, count = VERSION.subn(
-        lambda match: f"{match[1]}{match[2]}{value}{match[4]}", section["body"]
+        lambda match: f"{match[1]}{match[2]}{value}{match[4]}", content[body_start:body_end]
     )
     if count != 1:
         raise ValueError("Expected exactly one literal project version")
-    return content[: section.start("body")] + body + content[section.end("body") :]
+    return content[:body_start] + body + content[body_end:]
 
 
 def set_version(root: Path, value: str, *, dry_run=False, runner=subprocess.run) -> str:

@@ -183,9 +183,10 @@ function ScopedEngagementProvider({
 
 export function ArticleReadLink({
   articleId,
+  href,
   children,
   ...props
-}: ComponentProps<"a"> & { articleId: string }) {
+}: Omit<ComponentProps<"a">, "href"> & { articleId: string; href: string }) {
   const { onClick, onAuxClick, ...anchorProps } = props;
   const { user, profile, refreshProfile } = useUser();
   function recordOpen() {
@@ -208,6 +209,7 @@ export function ArticleReadLink({
   return (
     <a
       {...anchorProps}
+      href={href}
       onClick={(event) => {
         recordOpen();
         onClick?.(event);

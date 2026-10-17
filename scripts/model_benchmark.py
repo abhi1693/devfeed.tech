@@ -8,6 +8,7 @@ import os
 import random
 import statistics
 import subprocess
+import tempfile
 import time
 from datetime import UTC, datetime
 from pathlib import Path
@@ -124,12 +125,30 @@ def read(path):
 
 
 def write(path, value):
+    write_text(path, json.dumps(value, indent=2, ensure_ascii=False) + "\n")
+
+
+def write_text(path, value):
+    """Publish a private complete artifact without following a predictable temp symlink."""
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
-    temporary = path.with_suffix(path.suffix + ".tmp")
-    temporary.write_text(json.dumps(value, indent=2, ensure_ascii=False) + "\n")
-    temporary.chmod(0o600)
-    temporary.replace(path)
+    temporary = None
+    try:
+        # NamedTemporaryFile creates a unique file with mode 0600 before writing.
+        with tempfile.NamedTemporaryFile(
+            mode="w",
+            encoding="utf-8",
+            dir=path.parent,
+            prefix=".devfeed-benchmark-",
+            suffix=".tmp",
+            delete=False,
+        ) as stream:
+            temporary = Path(stream.name)
+            stream.write(value)
+        temporary.replace(path)
+    finally:
+        if temporary is not None:
+            temporary.unlink(missing_ok=True)
 
 
 def load_cases(path):
@@ -413,6 +432,7 @@ def run(plan, cases, destination, execute=False):
         ).strip()
         write(destination / "manifest.json", manifest)
     work = [(c, v, r) for c in cases for v in plan.variants for r in range(plan.repeats)]
+    # Reproducible experiment ordering, never credentials or authorization decisions.
     random.Random(plan.seed).shuffle(work)
     last_call_started = 0.0
     for case, variant, repeat in work:
@@ -611,6 +631,7 @@ def report(destination):
                 "decision": decision,
             }
         )
+    # Review presentation order is reproducible; opaque IDs use a separate digest.
     random.Random(plan.seed).shuffle(review)
     write(destination / "review-queue.json", review)
     summary = {
@@ -645,7 +666,7 @@ def report(destination):
             f"{comparison['decision']}; {comparison['paired_cases']} paired cases, "
             f"{comparison['regressions']} regressions."
         )
-    (destination / "REPORT.md").write_text("\n".join(lines) + "\n")
+    write_text(destination / "REPORT.md", "\n".join(lines) + "\n")
     return summary
 
 

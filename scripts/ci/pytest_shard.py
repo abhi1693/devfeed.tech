@@ -1,8 +1,20 @@
-"""Partition collected tests by file; each CI job owns its disposable services."""
+"""Balance selected whole test files; each CI job owns its disposable services."""
 
-import hashlib
+from collections import Counter
 
 import pytest
+
+
+def balanced_shards(paths, count):
+    """Place files with most selected cases first; break ties by path and bin index."""
+    weights = Counter(paths)
+    loads = [0] * count
+    assignments = {}
+    for path in sorted(weights, key=lambda path: (-weights[path], path)):
+        shard = min(range(count), key=lambda index: (loads[index], index))
+        assignments[path] = shard
+        loads[shard] += weights[path]
+    return assignments
 
 
 def pytest_addoption(parser):
@@ -18,15 +30,20 @@ def pytest_configure(config):
         raise pytest.UsageError("Require 0 <= ci-shard-index < ci-shard-count")
 
 
+@pytest.hookimpl(wrapper=True, tryfirst=True)
 def pytest_collection_modifyitems(config, items):
+    # Resume after pytest's -m/-k deselection. Every runner plans from the same
+    # selected cases, without a generated timing snapshot or file allowlist.
+    yield
     index = config.getoption("ci_shard_index")
     count = config.getoption("ci_shard_count")
-    selected, deselected = [], []
-    for item in items:
-        # Keep module fixtures and all parametrizations together. SHA-256 is stable
-        # across processes, unlike Python's randomized hash(). New files need no list.
-        path = item.path.relative_to(config.rootpath).as_posix()
-        shard = int(hashlib.sha256(path.encode()).hexdigest(), 16) % count
+    paths = [item.path.relative_to(config.rootpath).as_posix() for item in items]
+    assignments = balanced_shards(paths, count)
+    selected: list[pytest.Item] = []
+    deselected: list[pytest.Item] = []
+    for item, path in zip(items, paths, strict=True):
+        # Keep module fixtures, cases and all parametrizations in one process.
+        shard = assignments[path]
         (selected if shard == index else deselected).append(item)
     items[:] = selected
     config.hook.pytest_deselected(items=deselected)

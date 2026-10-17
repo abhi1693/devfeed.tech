@@ -79,8 +79,8 @@ def test_failed_ingestion_rolls_back_image_outbox_together_with_articles(
         identifier = request_ingestion(session, source).id
     store = tasks.store_entries
 
-    def fail(*args):
-        store(*args)
+    def fail(*args, **kwargs):
+        store(*args, **kwargs)
         raise RuntimeError("rollback")
 
     monkeypatch.setattr(tasks, "store_entries", fail)

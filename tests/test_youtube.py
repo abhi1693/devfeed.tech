@@ -243,3 +243,34 @@ def test_video_retrieval_time_does_not_change_semantic_metadata(transport):
     assert {key: value for key, value in video.metadata.items() if key != "retrieved_at"} == {
         key: value for key, value in other.metadata.items() if key != "retrieved_at"
     }
+
+
+@pytest.mark.parametrize("field", ["snippet", "contentDetails", "status"])
+@pytest.mark.parametrize("bad", [None, [], "malformed"])
+def test_malformed_nested_video_metadata_is_a_retryable_provider_error(transport, field, bad):
+    replies, _, _ = transport
+    replies.append({"items": [video_item(**{field: bad})]})
+    with pytest.raises(youtube.YouTubeError) as caught:
+        youtube.YouTubeClient("test").videos([VIDEO])
+    assert caught.value.reason == "youtube_invalid_response" and caught.value.retryable
+
+
+@pytest.mark.parametrize("value", [None, 123, [], "PT", "P0D", "PT" + "9" * 101 + "S"])
+def test_invalid_or_unknown_duration_never_fabricates_a_length(transport, value):
+    replies, _, _ = transport
+    replies.append({"items": [video_item(contentDetails={"duration": value})]})
+    assert youtube.YouTubeClient("test").videos([VIDEO])[VIDEO].duration_seconds is None
+
+
+@pytest.mark.parametrize("field", ["id", "channelId"])
+def test_non_string_provider_id_is_rejected_as_incomplete_metadata(transport, field):
+    replies, _, _ = transport
+    item = video_item()
+    if field == "id":
+        item[field] = None
+    else:
+        item["snippet"][field] = None
+    replies.append({"items": [item]})
+    with pytest.raises(youtube.YouTubeError) as caught:
+        youtube.YouTubeClient("test").videos([VIDEO])
+    assert caught.value.reason == "youtube_invalid_response"

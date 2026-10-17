@@ -12,6 +12,17 @@ pytest. It is pinned in the optional `loadtest` dependency group, outside runtim
 images. This suite complements the SQL budgets and destructive disposable pooler
 fault tests; it does not replace them.
 
+Random choices select public article, topic, source and search journeys only.
+They do not generate credentials, session identifiers, or authorization values;
+cryptographic randomness would add no protection to this workload simulation.
+
+`loadtests/compare.py --output` intentionally selects a local artifact directory
+for reading samples and writing comparison reports. It is an operator-only CLI,
+not a sandboxed service, and accepts absolute paths. Its `GITHUB_STEP_SUMMARY`
+destination is supplied by the invoking CI job. Do not pass model-generated or
+untrusted remote-request paths to either interface. This differs from the disposable
+runner's resource-creation and `reports/` boundary described below.
+
 ## Disposable local run
 
 Requires Linux, Docker and uv. The runner creates its own PostgreSQL database,
@@ -125,8 +136,12 @@ and throughput, individual-run health, and interpretation details.
 CI checks out the event's exact base and head commits into separate directories
 and installs each revision's own locked application dependencies. The candidate's
 Locust harness drives both versions, including bases that predate this harness.
-Each gets a new database, seed dataset, Redis, PgBouncer and API process. Three matrix
-jobs run in parallel, **each on a fresh GitHub-hosted ARM64 runner**. Each job measures
+Each gets a new database, seed dataset, Redis, PgBouncer and API process.
+The runner explicitly enables `TCP_NODELAY` on the loopback listener inherited by
+Uvicorn for both revisions. This prevents event-loop differences in inherited-socket
+defaults from adding Nagle/delayed-ACK latency to reused HTTP connections.
+
+Three matrix jobs run in parallel, **each on a fresh GitHub-hosted ARM64 runner**. Each job measures
 base and head sequentially, alternating which revision runs first. This produces six
 isolated samples, three per revision, while keeping each base/head pair on the same
 host. The harness cleans up each sample's resources before the next sample starts.

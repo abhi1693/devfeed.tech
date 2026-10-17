@@ -2,6 +2,12 @@ import {
   youtubeReaderFixture,
   checkYoutubeReader,
 } from "../../../scripts/testing/youtube-reader.mjs";
+import { checkCatalogSharing } from "../../../scripts/testing/catalog-sharing.mjs";
+import {
+  checkKeyboardReader,
+  keyboardProfile,
+  keyboardActivity,
+} from "../../../scripts/testing/keyboard-reader.mjs";
 import { checkRouteStyles } from "../../../scripts/testing/route-styles.mjs";
 import { readerDomCatalogFixture, checkReaderDom } from "../../../scripts/testing/reader-dom.mjs";
 import { checkGuestDocument } from "../../../scripts/testing/document-latency.mjs";
@@ -11,6 +17,11 @@ import {
   checkSourceLogos,
   checkSourceLogoPages,
 } from "../../../scripts/testing/source-logos.mjs";
+
+import {
+  articleTopicContextFixture,
+  checkArticleTopicContext,
+} from "../../../scripts/testing/article-topic-context.mjs";
 
 import { checkPreviewCover } from "../../../scripts/testing/preview-cover.mjs";
 import { checkArticleGrid } from "../../../scripts/testing/article-grid.mjs";
@@ -82,6 +93,7 @@ import path from "node:path";
 import test from "node:test";
 import { chromium } from "playwright";
 import { prepareSearchDraft, checkSearchDraft } from "../../../scripts/testing/search-draft.mjs";
+import { fixtureImageDiagnostics } from "./fixture-image-diagnostics.mjs";
 
 const browser = process.env.DEVFEED_EXTENSION_BROWSER ?? "chrome";
 const extension = path.resolve(import.meta.dirname, `../dist/${browser}`);
@@ -115,8 +127,19 @@ async function readerFixture(t, imageProfile) {
   const profile = await mkdtemp(path.join(tmpdir(), "devfeed-reader-test-"));
   const errors = [];
   let context;
+  let imageDiagnostics;
   t.after(async () => {
     try {
+      if (errors.length) {
+        const filename = `${t.name.replace(/[^a-z0-9]+/gi, "-")}.json`;
+        await imageDiagnostics?.writeFailure(
+          path.resolve(
+            import.meta.dirname,
+            `../../../reports/reader-diagnostics/${browser}`,
+            filename,
+          ),
+        );
+      }
       await context?.close();
       assert.deepEqual(errors, []);
     } finally {
@@ -144,6 +167,7 @@ async function readerFixture(t, imageProfile) {
         errors.push({ message: message.text(), location: message.location() });
     });
   });
+  imageDiagnostics = await fixtureImageDiagnostics(context);
   const state = {
     engagementPagination: false,
     defaultAll: false,
@@ -184,6 +208,7 @@ async function readerFixture(t, imageProfile) {
   const loginDestinations = loginDestinationsFixture(article);
   const serverReads = serverReadFixture();
   const youtube = youtubeReaderFixture(article);
+  const topicContext = articleTopicContextFixture(article);
   await context.route("https://identity.example/authorize?**", (route) =>
     route.fulfill({ contentType: "text/html", body: "<p>Sign-in provider</p>" }),
   );
@@ -204,6 +229,7 @@ async function readerFixture(t, imageProfile) {
           route.request().postData() ? route.request().postDataJSON() : undefined,
         ),
       );
+    if (topicContext.handles(url)) return route.fulfill(topicContext.respond(url));
     if (loginDestinations.handles(url)) return route.fulfill(loginDestinations.respond(url));
     if (readerDestinations.handles(url))
       return route.fulfill(
@@ -273,6 +299,8 @@ async function readerFixture(t, imageProfile) {
             json: { article: { ...article, slug: "retry-article" }, topic: null },
           });
     }
+    if (url.pathname === "/api/v1/users/keyboard-reader")
+      return route.fulfill({ json: { profile: keyboardProfile, activity: keyboardActivity } });
     if (url.pathname === "/api/v1/users/reader")
       return route.fulfill({
         json: {
@@ -430,6 +458,7 @@ async function readerFixture(t, imageProfile) {
     loginDestinations,
     serverReads,
     domCatalog,
+    topicContext,
     pathFor: (path) => readerBase + path,
   };
 }
@@ -440,6 +469,43 @@ test(
   async (t) => {
     const { page, pathFor, youtube } = await readerFixture(t);
     await checkYoutubeReader(page, pathFor, youtube, `/tmp/devfeed-issue120-reader/${browser}`);
+  },
+);
+
+test("source and topic sharing uses public collection links", { timeout: 180000 }, async (t) => {
+  const { page, pathFor } = await readerFixture(t);
+  await checkCatalogSharing(
+    page,
+    pathFor,
+    [
+      { kind: "source", path: "/sources/publisher" },
+      { kind: "topic", path: "/topics/javascript" },
+    ],
+    `/tmp/devfeed-catalog-sharing/${browser}`,
+    "https://devfeed.tech",
+  );
+});
+
+test(
+  "keyboard access preserves native links and readable scroll regions",
+  { timeout: 180000 },
+  async (t) => {
+    const { page, pathFor } = await readerFixture(t);
+    await checkKeyboardReader(page, pathFor, `/tmp/devfeed-sonar-a11y/${browser}`);
+  },
+);
+
+test(
+  "article topic panels preserve contextual assignments in built new tabs",
+  { timeout: 180000 },
+  async (t) => {
+    const { page, pathFor, topicContext } = await readerFixture(t);
+    await checkArticleTopicContext(
+      page,
+      pathFor,
+      topicContext,
+      `${process.env.DEVFEED_TOPIC_CONTEXT_REPORT_DIR ?? path.resolve(import.meta.dirname, "../../../reports/article-topic-context")}/${browser}`,
+    );
   },
 );
 
@@ -964,6 +1030,13 @@ test(
     const second = await context.newPage();
     await second.goto(newTab);
     await second.waitForFunction(() => document.documentElement.classList.contains("dark"));
+    await second.locator(".article-card").first().waitFor();
+    // Finish the fixture's intercepted image loads before destroying its document.
+    // Otherwise lazy image delivery can race the tab's teardown in Chromium.
+    await second.locator("img").evaluateAll(async (images) => {
+      for (const image of images) image.loading = "eager";
+      await Promise.all(images.map((image) => image.decode()));
+    });
     await second.close();
     await page.bringToFront();
 

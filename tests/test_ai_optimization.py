@@ -3,7 +3,12 @@ import json
 import uuid
 
 import pytest
-from devfeed_core.analysis import AnalysisResult, analysis_prompt, validate_evidence
+from devfeed_core.analysis import (
+    AnalysisResult,
+    analysis_candidates,
+    analysis_prompt,
+    validate_evidence,
+)
 from devfeed_core.analysis_wire import compact_request, restore_identities
 from devfeed_core.inference_validation import InferenceValidationError
 
@@ -61,6 +66,63 @@ def test_wire_compaction_preserves_candidates_evidence_and_uuid_contract():
         validate_evidence(
             AnalysisResult.model_validate(restore_identities(output, ids)), snapshot, taxonomy
         )
+
+
+@pytest.mark.parametrize("wire", ["original", "compact", "passages"])
+def test_topic_context_survives_transport_without_becoming_source_evidence(wire):
+    topic = {
+        **catalog_item("Iteration"),
+        "description": "Programming loops repeat instructions using for, foreach, do, and while.",
+        "ai_description": "Control flow repeats a block of program statements.",
+    }
+    snapshot = {
+        "title": "Design iteration",
+        "text": "Software product designers test prototypes and iterate on human feedback.",
+    }
+    candidates = analysis_candidates({"topics": [topic], "tags": []}, snapshot)
+    if wire == "original":
+        prompt = analysis_prompt(snapshot, candidates)
+        identities = None
+    else:
+        prompt, _, identities = compact_request(
+            snapshot, candidates, evidence_refs=wire == "passages"
+        )
+    payload = json.loads(prompt.rsplit("\n", 1)[1])
+    emitted = payload["catalog"]["topics"][0]
+    assert emitted["description"] == topic["description"]
+    assert emitted["ai_description"] == topic["ai_description"]
+    assert "Do not use incidental or comparison roles to attach a different meaning" in prompt
+    assert len(prompt.encode()) <= 240_000
+    output = dict(
+        outcome="ready",
+        developer_relevance="relevant",
+        language="en",
+        content_type="article",
+        content_format="article",
+        ai_summary=snapshot["text"],
+        ai_description=None,
+        ai_title=None,
+        title_evidence=None,
+        page_kind="article",
+        topics=[
+            dict(
+                topic_id=topic["id"],
+                role="primary",
+                relevance=1,
+                evidence=topic["description"],
+            )
+        ],
+        tags=[],
+        reasons=[],
+    )
+    if wire == "passages":
+        assert topic["description"] not in identities["evidence"].values()
+        with pytest.raises(InferenceValidationError, match="Unknown source passage"):
+            restore_identities(output, identities)
+    else:
+        restored = restore_identities(output, identities) if identities else output
+        with pytest.raises(InferenceValidationError, match="not present"):
+            validate_evidence(AnalysisResult.model_validate(restored), snapshot, candidates)
 
 
 @pytest.mark.parametrize("identifier", ["g0", "t100", str(uuid.uuid4()), None, []])

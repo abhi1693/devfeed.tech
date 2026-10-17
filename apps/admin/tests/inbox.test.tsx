@@ -2,6 +2,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { toast } from "sonner";
 import { NotificationInbox } from "@/components/organisms/notification-inbox";
 import { inboxAction, inboxPath } from "@/lib/inbox";
 import { adminNotificationConfig } from "@/lib/api/generated/admin";
@@ -93,7 +94,7 @@ describe("persistent Chimely inbox (separate from toasts)", () => {
   it("loads unseen count, opens on click only, marks seen with CSRF, and links to run", async () => {
     const user = userEvent.setup();
     render(<NotificationInbox csrfToken="csrf" />);
-    const bell = await screen.findByRole("button", { name: "Notifications (1 new)" });
+    const bell = await screen.findByRole("button", { name: "Notifications, 1 new" });
     await user.hover(bell);
     expect(screen.queryByText("Feed ingestion failed")).toBeNull();
     await user.click(bell);
@@ -125,17 +126,17 @@ describe("persistent Chimely inbox (separate from toasts)", () => {
     ];
     const user = userEvent.setup();
     render(<NotificationInbox csrfToken="csrf" />);
-    await user.click(await screen.findByRole("button", { name: "Notifications (1 new)" }));
+    await user.click(await screen.findByRole("button", { name: "Notifications, 1 new" }));
     await user.click(await screen.findByText("Topic research completed"));
     expect(router.push).toHaveBeenCalledWith("/jobs/analysis/topics/topic-run");
   });
 
   it("refreshes on real-time hints and closes its stream on unmount", async () => {
     const { unmount } = render(<NotificationInbox csrfToken="csrf" />);
-    await screen.findByRole("button", { name: "Notifications (1 new)" });
+    await screen.findByRole("button", { name: "Notifications, 1 new" });
     unseen = 3;
     act(() => Events.instances.at(-1)!.emit("hint"));
-    await screen.findByRole("button", { name: "Notifications (3 new)" });
+    await screen.findByRole("button", { name: "Notifications, 3 new" });
     unmount();
     expect(Events.instances.every((event) => event.closed)).toBe(true);
   });
@@ -147,7 +148,7 @@ describe("persistent Chimely inbox (separate from toasts)", () => {
       await act(async () => {
         render(<NotificationInbox csrfToken="csrf" />);
       });
-      expect(screen.getByRole("button", { name: "Notifications (1 new)" })).toBeTruthy();
+      expect(screen.getByRole("button", { name: "Notifications, 1 new" })).toBeTruthy();
       const before = requests.length;
       const streams = Events.instances.length;
       focus.mockReturnValue(false);
@@ -188,12 +189,26 @@ describe("persistent Chimely inbox (separate from toasts)", () => {
   });
 
   it("allows retrying configuration failure without toast spam", async () => {
+    const errorToast = vi.spyOn(toast, "error").mockReturnValue("unexpected-toast");
     vi.mocked(adminNotificationConfig).mockRejectedValueOnce(new Error("offline"));
     render(<NotificationInbox csrfToken="csrf" />);
     fireEvent.click(await screen.findByRole("button", { name: "Notifications" }));
     await screen.findByText("Notifications are temporarily unavailable.");
+    expect(adminNotificationConfig).toHaveBeenCalledTimes(1);
+    expect(requests).toEqual([]);
+
     fireEvent.click(screen.getByRole("button", { name: "Retry" }));
-    await screen.findByRole("button", { name: "Notifications (1 new)" });
+    const recoveredBell = await screen.findByRole("button", { name: "Notifications, 1 new" });
+    expect(adminNotificationConfig).toHaveBeenCalledTimes(2);
+    expect(screen.queryByText("Notifications are temporarily unavailable.")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Retry" })).toBeNull();
+    fireEvent.click(recoveredBell);
+    await screen.findByText("Feed ingestion failed");
+    expect(screen.getByRole("dialog", { name: "Notifications" }).textContent).toContain(
+      "Open the run for logs.",
+    );
+    expect(Events.instances).toHaveLength(1);
+    expect(errorToast).not.toHaveBeenCalled();
   });
 
   it("ends the local session flow when an inbox call is no longer authorized", async () => {

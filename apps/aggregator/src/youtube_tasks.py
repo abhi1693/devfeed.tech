@@ -176,12 +176,12 @@ def fetch_refresh(factory, snapshot) -> YouTubeRefresh:
     )
 
 
-def apply_refresh(session, source, refresh) -> tuple[int, int]:
+def apply_refresh(session, source, refresh, *, activity: list | None = None) -> tuple[int, int]:
     generation = (
         uuid.UUID(refresh.state["generation"]) if refresh.state.get("generation") else uuid.uuid4()
     )
     created, skipped = store_videos(
-        session, source, refresh.videos, refresh.memberships, generation
+        session, source, refresh.videos, refresh.memberships, generation, activity=activity
     )
     imported = {item.video_id for item in refresh.memberships}
     for video_id in sorted(set(refresh.revalidated_ids) - imported):

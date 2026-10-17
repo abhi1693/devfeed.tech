@@ -1,3 +1,4 @@
+import json
 import uuid
 from types import SimpleNamespace
 
@@ -283,6 +284,103 @@ def test_article_analysis_contract_only_selects_existing_topics():
     assert "Do not create or propose new topics" in prompt
     assert "leave it unassigned" in prompt
     analysis.validate_evidence(result(topics=[]), SNAPSHOT, {"topics": [], "tags": []})
+
+
+@pytest.mark.parametrize("compact", [False, True], ids=["original", "passages"])
+@pytest.mark.parametrize("case", ["design", "programming-loops", "design-topic-absent"])
+def test_contextual_topic_fixtures_pass_through_inference_and_application(
+    monkeypatch, compact, case
+):
+    from devfeed_aggregator.analysis_tasks import (
+        AnalysisAttempt,
+        AnalysisContext,
+        ArticleAnalysisService,
+        PreparedAnalysis,
+    )
+
+    # Reviewed responses exercise the production inference/application contract;
+    # they do not stand in for a live model's semantic accuracy evaluation.
+    design = {
+        "id": str(uuid.uuid4()),
+        "name": "Design iteration",
+        "slug": "design-iteration",
+        "description": "Testing design ideas and refining solutions using human feedback.",
+        "ai_description": "An iterative process for designing software products.",
+    }
+    loops = {
+        "id": str(uuid.uuid4()),
+        "name": "Iteration",
+        "slug": "iteration",
+        "description": "Programming loops repeat instructions using for, foreach, do, and while.",
+        "ai_description": "Control flow repeats a block of program statements.",
+    }
+    programming = case == "programming-loops"
+    title = "Iteration with Python loops" if programming else "Designing through ambiguity"
+    text = (
+        "Python for and while loops repeat statements until a condition is met."
+        if programming
+        else "Software product designers test prototypes with people and iterate on feedback."
+    )
+    taxonomy = {"topics": [loops] if case == "design-topic-absent" else [design, loops], "tags": []}
+    article, content, job, session, added = inputs()
+    article.title = title
+    content.text = text
+    snapshot = analysis.source_snapshot(article, content)
+    job.input_snapshot, job.input_hash = snapshot, analysis.snapshot_hash(snapshot)
+    candidates = analysis.analysis_candidates(taxonomy, snapshot)
+    selected = None if case == "design-topic-absent" else loops if programming else design
+    calls = []
+
+    def complete(prompt, schema):
+        payload = json.loads(prompt.rsplit("\n", 1)[1])
+        calls.append(payload)
+        by_id = {item["id"]: item for item in payload["catalog"]["topics"]}
+        assert by_id[loops["id"]]["description"] == loops["description"]
+        assert by_id[loops["id"]]["ai_description"] == loops["ai_description"]
+        assert set(schema["$defs"]["TopicSelection"]["properties"]["topic_id"]["enum"]) == set(
+            by_id
+        )
+        evidence = payload["article"]["text"][0]["id"] if compact else text
+        return result(
+            # Even an otherwise ready completion must remain incomplete when the
+            # approved catalog has no supported primary topic.
+            topics=[]
+            if selected is None
+            else [
+                {
+                    "topic_id": selected["id"],
+                    "role": "primary",
+                    "relevance": 0.95,
+                    "evidence": evidence,
+                }
+            ],
+            ai_summary=text,
+        ).model_dump(mode="json")
+
+    settings = SimpleNamespace(codex_model="reviewed-fixture-model")
+    service = ArticleAnalysisService(settings, None, lambda _: SimpleNamespace(complete=complete))
+    context = AnalysisContext(job.id, uuid.uuid4(), snapshot, article.id)
+    inferred, marker = service.infer(
+        context,
+        PreparedAnalysis(candidates, None, compact, "contextual-topic-regression"),
+        AnalysisAttempt(number=1),
+    )
+    monkeypatch.setattr(analysis, "approved_sources", lambda *_: [uuid.uuid4()])
+    analysis.apply_analysis(session, article, job, inferred)
+    assigned = [item for item in added if isinstance(item, ArticleTopic)]
+    assert len(calls) == 1
+    assert article.publication_status == "unpublished" and article.review_status == "pending"
+    if selected is None:
+        assert inferred.outcome == "insufficient_evidence" and marker == "no_topic_match"
+        assert not assigned and article.ai_summary is None
+        assert job.outcome == "insufficient_evidence"
+    else:
+        assert inferred.outcome == "ready" and marker is None
+        assert [(str(item.topic_id), item.role, item.origin) for item in assigned] == [
+            (selected["id"], "primary", "ai")
+        ]
+        assert assigned[0].evidence == text
+        assert article.ai_summary == text and job.outcome == "applied"
 
 
 @pytest.mark.parametrize("wire", ["original", "compact", "passages"])

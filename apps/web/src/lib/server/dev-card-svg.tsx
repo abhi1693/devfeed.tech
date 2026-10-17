@@ -12,6 +12,23 @@ import type { UserProfile } from "@/lib/user";
 import { cachedCardAvatar, warmCardAvatar } from "./card-avatar";
 import { cachedCardLogos, warmCardLogos } from "./card-logos";
 
+/** Read the flat light-theme declarations without rescanning malformed token runs. */
+export function readLightThemeTokens(css: string): Record<string, string> {
+  const declarations = css.split(".dark", 1)[0].split(";");
+  // A declaration requires its terminating semicolon, like the stylesheet contract.
+  declarations.pop();
+  return Object.fromEntries(
+    declarations.flatMap((declaration) => {
+      const text = declaration.slice(declaration.lastIndexOf("{") + 1).trimStart();
+      const colon = text.indexOf(":");
+      if (colon < 0 || colon === text.length - 1) return [];
+      const name = text.slice(0, colon);
+      if (!/^--[\w-]+$/.test(name)) return [];
+      return [[name, text.slice(colon + 1).trim()]];
+    }),
+  );
+}
+
 let assets: Promise<{ tokens: Record<string, string>; brand: string }> | undefined;
 function cardAssets() {
   return (assets ??= Promise.all([
@@ -19,12 +36,7 @@ function cardAssets() {
     readFile(path.join(process.cwd(), "../../packages/theme/assets/devfeed-mark.png")),
   ])
     .then(async ([css, png]) => ({
-      tokens: Object.fromEntries(
-        Array.from(css.split(".dark")[0].matchAll(/(--[\w-]+):\s*([^;]+);/g), (match) => [
-          match[1],
-          match[2].trim(),
-        ]),
-      ),
+      tokens: readLightThemeTokens(css),
       brand: `data:image/webp;base64,${(await sharp(png).resize(96, 96).webp({ lossless: true }).toBuffer()).toString("base64")}`,
     }))
     .catch((error) => {

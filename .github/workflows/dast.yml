@@ -79,7 +79,7 @@ jobs:
         if: steps.select.outputs.needed == 'true'
         uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
         with:
-          version: "0.12.10"
+          version: "0.13.1"
           enable-cache: true
       - name: Node
         if: steps.select.outputs.needed == 'true'
@@ -93,6 +93,18 @@ jobs:
           sh scripts/ci/python-bootstrap.sh . --editable --all-packages
           npm ci --ignore-scripts
           node node_modules/playwright/cli.js install --with-deps chromium
+      - name: Reader compiler cache
+        if: steps.select.outputs.needed == 'true'
+        uses: abhi1693/actions/next-build-cache@4bc25a3100cbfbece517ddad161d59d13c029675 # v1.0.5
+        with:
+          app-directory: apps/web
+          profile: dast-web-v1
+      - name: Admin compiler cache
+        if: steps.select.outputs.needed == 'true'
+        uses: abhi1693/actions/next-build-cache@4bc25a3100cbfbece517ddad161d59d13c029675 # v1.0.5
+        with:
+          app-directory: apps/admin
+          profile: dast-admin-v1
       - name: Browser tests
         if: steps.select.outputs.needed == 'true'
         run: node --test tests/dast-browser.test.mjs
@@ -120,5 +132,6 @@ jobs:
           path: |
             reports/dast/results.json
             reports/dast/summary.md
+            reports/dast/zap-startup.json
           if-no-files-found: error
           retention-days: 14

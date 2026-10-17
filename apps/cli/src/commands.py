@@ -81,6 +81,7 @@ def source_add(args):
         source_type=args.source_type,
         name=args.name,
         interval=args.poll_interval,
+        polling_mode=args.polling_mode,
         enabled=not args.disabled,
         youtube_target=getattr(args, "youtube_target", None),
         **{field: getattr(args, field) for field in PROFILE_FIELDS},

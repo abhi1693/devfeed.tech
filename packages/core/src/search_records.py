@@ -33,7 +33,7 @@ def public_records(session, kind, ids):
     if not ids:
         return {}
     model = MODELS[kind]
-    statement: Select[Any]
+    statement: Select[*tuple[Any, ...]]
     if kind == "articles":
         statement = select(
             Article.id,
@@ -44,6 +44,7 @@ def public_records(session, kind, ids):
             Article.ai_description,
             Article.author,
             Article.feed_at,
+            Article.published_at,
             Article.image_url,
             Article.content_type,
             Article.content_format,
@@ -129,6 +130,11 @@ def hit(kind, record):
         320,
     )
     identifier = str(record["id"])
+    published = (
+        record.get("published_at")
+        if record.get("content_format") == "video"
+        else record.get("feed_at")
+    )
     if kind == "tags":
         href = "/tags/" + quote(record["slug"], safe="")
     else:
@@ -143,7 +149,7 @@ def hit(kind, record):
         "sponsor_names": record.get("sponsor_names", []),
         "sponsor_link_rel": record.get("sponsor_link_rel", default_link_rel()),
         "label": record.get("content_type", kind[:-1]),
-        "published_at": record["feed_at"].isoformat() if record.get("feed_at") else None,
+        "published_at": published.isoformat() if published else None,
         "content_format": record.get("content_format"),
         "provider": record.get("provider"),
         "provider_resource_id": record.get("provider_resource_id"),

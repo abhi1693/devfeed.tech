@@ -130,8 +130,8 @@ def test_database_failure_rolls_back_articles_and_retries(database, rss_bytes, m
     monkeypatch.setattr(tasks, "fetch_feed", lambda *a: FetchResult(200, rss_bytes, a[0]))
     original = tasks.store_entries
 
-    def crash_after_store(*args):
-        original(*args)
+    def crash_after_store(*args, **kwargs):
+        original(*args, **kwargs)
         raise RuntimeError("simulated transaction failure")
 
     monkeypatch.setattr(tasks, "store_entries", crash_after_store)
@@ -226,6 +226,7 @@ def test_scheduler_publishes_durable_jobs_to_real_rq(database, rss_bytes, monkey
         "topic_analyses_dispatched": 0,
         "topic_analyses_recovered": 0,
         "verifications_scheduled": 0,
+        "youtube_revalidations_scheduled": 0,
         "verifications_dispatched": 0,
         "verifications_recovered": 0,
         "recommendation_users_queued": 0,
@@ -259,6 +260,7 @@ def test_scheduler_publishes_durable_jobs_to_real_rq(database, rss_bytes, monkey
         "topic_analyses_dispatched": 0,
         "topic_analyses_recovered": 0,
         "verifications_scheduled": 0,
+        "youtube_revalidations_scheduled": 0,
         "verifications_dispatched": 0,
         "verifications_recovered": 0,
         "recommendation_users_queued": 0,

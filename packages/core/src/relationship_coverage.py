@@ -35,7 +35,10 @@ def reset_scan(session, topic, scan=None):
     if scan is None:
         scan = TopicRelationshipScan(topic_id=topic.id, topic=topic)
         session.add(scan)
-    scan.generation = session.scalar(RELATIONSHIP_GENERATION.next_value())
+    # The sequence lookup must not flush the scan before its snapshot is assigned.
+    # SQLAlchemy 2.1 autoflushes Core statements as well as ORM queries.
+    with session.no_autoflush:
+        scan.generation = session.scalar(RELATIONSHIP_GENERATION.next_value())
     scan.topic_snapshot = topic_snapshot(topic)
     scan.after_topic_id = scan.job_id = scan.finished_at = scan.last_error = None
     scan.next_run_at, scan.failures = utcnow(), 0

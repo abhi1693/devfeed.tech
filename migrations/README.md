@@ -35,13 +35,12 @@ Revision `0026` adds provider/resource identities, video metadata, active origin
 and retained YouTube memberships. Existing sources remain RSS/Atom feeds and existing
 articles retain their current identity. Apply it before starting runtimes that require
 this schema. YouTube credentials are not needed to run the migration. Downgrading to
-`0024` removes provider identities and membership history, unpublishes YouTube videos,
+`0025` removes provider identities and membership history, unpublishes YouTube videos,
 and returns YouTube sources to disabled/pending state; it cannot restore that history
 on a later upgrade. Back up the database before downgrading.
 
-This revision follows the current master schema `0024`. The separate reader acquisition
-PR has revision `0025`; reconcile the migration chain when integrating both branches
-so the final default branch has one Alembic head.
+This revision follows adaptive source polling revision `0025`, retaining one Alembic head.
+RSS/Atom polling state and configured intervals survive the upgrade and downgrade.
 
 Revision `0019` restricts topic kinds to the canonical values in
 `packages/core/src/topic_kinds.py`. Before upgrading a database containing historical
@@ -162,3 +161,8 @@ topic and source image jobs remain. Sponsored articles are unpublished before th
 removed; clear reader response caches and rebuild the search index before starting the older
 runtime. Retain a database backup if partnership data must survive a rollback. No production rollout
 is implied by committing the migration.
+
+## Adaptive source polling
+
+Revision `0025` adds adaptive source polling after partnership revision `0024`.
+Apply it before starting this feature. Existing source-logo and partnership migrations remain unchanged.

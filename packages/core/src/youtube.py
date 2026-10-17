@@ -203,10 +203,20 @@ def _language(value):
     )
 
 
+def _object(value):
+    if not isinstance(value, dict):
+        raise YouTubeError(
+            "YouTube returned malformed metadata",
+            reason="youtube_invalid_response",
+            retryable=True,
+        )
+    return value
+
+
 def _thumbnail(snippet):
-    thumbnails = snippet.get("thumbnails", {})
+    thumbnails = _object(snippet.get("thumbnails", {}))
     for size in ("maxres", "standard", "high", "medium", "default"):
-        value = thumbnails.get(size, {}).get("url")
+        value = _object(thumbnails.get(size, {})).get("url")
         if isinstance(value, str):
             try:
                 value = validate_public_url(value)
@@ -223,8 +233,10 @@ def _thumbnail(snippet):
 
 
 def _duration(value):
-    match = re.fullmatch(r"P(?:(\d+)D)?T(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?", value or "")
-    if not match:
+    if not isinstance(value, str) or len(value) > 100:
+        return None
+    match = re.fullmatch(r"P(?:(\d+)D)?T(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?", value)
+    if not match or not any(match.groups()):
         return None
     return sum(
         int(count or 0) * factor
@@ -320,13 +332,15 @@ class YouTubeClient:
                         retryable=True,
                     ) from None
                 if response.status != 200:
+                    error = _object(data.get("error", {})) if isinstance(data, dict) else {}
+                    errors = error.get("errors", [])
                     reasons = (
                         {
                             item.get("reason")
-                            for item in data.get("error", {}).get("errors", [])
-                            if isinstance(item, dict)
+                            for item in errors
+                            if isinstance(item, dict) and isinstance(item.get("reason"), str)
                         }
-                        if isinstance(data, dict)
+                        if isinstance(errors, list)
                         else set()
                     )
                     quota = (
@@ -407,16 +421,20 @@ class YouTubeClient:
                 reason="youtube_resource_unavailable",
             )
         item = data["items"][0]
-        snippet = item.get("snippet", {})
+        snippet = _object(item.get("snippet", {}))
         identifier = item.get("id", "")
-        if not (CHANNEL_ID if target.kind == "channel" else RESOURCE_ID).fullmatch(identifier):
+        if not isinstance(identifier, str) or not (
+            CHANNEL_ID if target.kind == "channel" else RESOURCE_ID
+        ).fullmatch(identifier):
             raise YouTubeError(
                 "YouTube returned an invalid collection identity",
                 reason="youtube_invalid_response",
                 retryable=True,
             )
         collection = (
-            item.get("contentDetails", {}).get("relatedPlaylists", {}).get("uploads")
+            _object(_object(item.get("contentDetails", {})).get("relatedPlaylists", {})).get(
+                "uploads"
+            )
             if target.kind == "channel"
             else identifier
         )
@@ -475,9 +493,9 @@ class YouTubeClient:
             )
         items = []
         for item in data["items"]:
-            snippet = item.get("snippet", {})
-            identifier = item.get("contentDetails", {}).get("videoId") or snippet.get(
-                "resourceId", {}
+            snippet = _object(item.get("snippet", {}))
+            identifier = _object(item.get("contentDetails", {})).get("videoId") or _object(
+                snippet.get("resourceId", {})
             ).get("videoId")
             item_id = item.get("id")
             if (
@@ -519,7 +537,7 @@ class YouTubeClient:
         result = {}
         for item in data["items"]:
             identifier = item.get("id")
-            snippet = item.get("snippet", {})
+            snippet = _object(item.get("snippet", {}))
             if (
                 identifier not in identifiers
                 or identifier in result
@@ -531,13 +549,13 @@ class YouTubeClient:
                     retryable=True,
                 )
             title, channel = _text(snippet.get("title", ""), 500), snippet.get("channelId", "")
-            if not title or not CHANNEL_ID.fullmatch(channel):
+            if not title or not isinstance(channel, str) or not CHANNEL_ID.fullmatch(channel):
                 raise YouTubeError(
                     "YouTube returned incomplete video metadata",
                     reason="youtube_invalid_response",
                     retryable=True,
                 )
-            status = item.get("status", {})
+            status = _object(item.get("status", {}))
             available = (
                 status.get("privacyStatus") == "public"
                 and status.get("uploadStatus") == "processed"
@@ -554,7 +572,7 @@ class YouTubeClient:
                 _text(snippet.get("channelTitle", ""), 200),
                 _date(snippet.get("publishedAt")),
                 _thumbnail(snippet),
-                _duration(item.get("contentDetails", {}).get("duration")),
+                _duration(_object(item.get("contentDetails", {})).get("duration")),
                 audio or default,
                 "public" if available else "unavailable",
                 default_audio_language=audio,

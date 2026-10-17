@@ -36,11 +36,13 @@ ROOT = Path(__file__).parents[1]
 def test_partnership_revision_follows_master_schema():
     scripts = ScriptDirectory.from_config(Config(str(ROOT / "alembic.ini")))
     assert scripts.get_heads() == [SCHEMA_REVISION] == ["0026"]
-    assert scripts.get_revision("0026").down_revision == "0024"
+    assert scripts.get_revision("0026").down_revision == "0025"
+    assert scripts.get_revision("0025").down_revision == "0024"
     assert scripts.get_revision("0024").down_revision == "0023"
     assert scripts.get_revision("0023").down_revision == "0022"
     assert [revision.revision for revision in scripts.walk_revisions("0022", "head")] == [
         "0026",
+        "0025",
         "0024",
         "0023",
         "0022",

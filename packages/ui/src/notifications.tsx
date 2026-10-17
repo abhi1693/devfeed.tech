@@ -99,11 +99,12 @@ export function NotificationBell({
     );
     return () => animation.cancel();
   }, [count, latest, loading, animateBadge, openedAt]);
+  const countLabel = count > 99 ? `99+ new (${count} in total)` : `${count} new`;
   return (
     <button
       type="button"
       className="devfeed-notification-bell"
-      aria-label={count ? `Notifications (${count} new)` : "Notifications"}
+      aria-label={count ? `Notifications, ${countLabel}` : "Notifications"}
       {...props}
     >
       <Bell size={16} aria-hidden />

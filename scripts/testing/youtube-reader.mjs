@@ -296,7 +296,7 @@ export async function checkYoutubeReader(page, destination, fixture, output) {
     .click();
   await page
     .getByRole("region", { name: "Feed controls" })
-    .getByRole("button", { name: "Unfollow source", exact: true })
+    .getByRole("button", { name: "Following source", exact: true })
     .waitFor();
   assert.deepEqual(fixture.state.sourceIds, [fixture.playlist.id]);
   await page.getByRole("button", { name: "List view", exact: true }).click();
@@ -316,7 +316,7 @@ export async function checkYoutubeReader(page, destination, fixture, output) {
   assert.equal(
     await page
       .getByRole("region", { name: "Feed controls" })
-      .getByRole("button", { name: /Follow source|Unfollow source/ })
+      .getByRole("button", { name: /Follow source|Following source/ })
       .count(),
     0,
   );

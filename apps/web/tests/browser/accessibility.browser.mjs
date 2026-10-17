@@ -1,9 +1,66 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { randomBytes } from "node:crypto";
+import { createServer } from "node:http";
 import { chromium } from "playwright";
 import AxeBuilder from "@axe-core/playwright";
 import { assertAccessible } from "./accessibility.mjs";
 import { observeAnimations } from "./animation-recorder.mjs";
+import { checkNonceCsp } from "../../../../scripts/testing/nonce-csp.mjs";
+
+async function nonceFixture(t, { brokenInitial = false } = {}) {
+  const server = createServer((request, response) => {
+    if (request.url === "/_next/static/chunks/trusted.js") {
+      response.writeHead(200, { "Content-Type": "application/javascript" });
+      response.end('console.info("Trusted chunk executed")');
+      return;
+    }
+    const nonce = randomBytes(16).toString("base64");
+    response.writeHead(200, {
+      "Content-Type": "text/html",
+      "Content-Security-Policy": `script-src 'self' 'nonce-${nonce}' 'strict-dynamic'`,
+    });
+    response.end(`<!doctype html><html lang="en"><head><title>Nonce fixture</title></head>
+      <body><main><h1>Nonce fixture</h1></main>
+      <script${brokenInitial ? "" : ` nonce="${nonce}"`}>
+        const chunk = document.createElement("script");
+        chunk.src = "/_next/static/chunks/trusted.js";
+        document.body.appendChild(chunk);
+      </script></body></html>`);
+  });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  t.after(() => new Promise((resolve) => server.close(resolve)));
+  return `http://127.0.0.1:${server.address().port}`;
+}
+
+test("the nonce gate accepts chunks loaded by a trusted nonced bootstrap", async (t) => {
+  const url = await nonceFixture(t);
+  const browser = await chromium.launch();
+  try {
+    const context = await browser.newContext();
+    const executions = [];
+    context.on("page", (page) => {
+      page.on("console", (message) => {
+        if (message.text() === "Trusted chunk executed") executions.push(message.text());
+      });
+    });
+    await checkNonceCsp(context, url);
+    assert.equal(executions.length, 2, "The nonce-less chunk executes on both real navigations");
+  } finally {
+    await browser.close();
+  }
+});
+
+test("the nonce gate rejects an initial bootstrap without its response nonce", async (t) => {
+  const url = await nonceFixture(t, { brokenInitial: true });
+  const browser = await chromium.launch();
+  try {
+    const context = await browser.newContext();
+    await assert.rejects(checkNonceCsp(context, url), /Server-rendered script must use/);
+  } finally {
+    await browser.close();
+  }
+});
 
 test("the accessibility gate rejects contrast, missing names and invalid ARIA", async () => {
   const browser = await chromium.launch();

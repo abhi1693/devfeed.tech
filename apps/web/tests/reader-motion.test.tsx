@@ -36,6 +36,21 @@ function animations() {
   vi.spyOn(Element.prototype, "animate").mockImplementation(animate);
   return { animate, effects };
 }
+it.each([
+  [0, "Notifications", null],
+  [1, "Notifications, 1 new", "1"],
+  [99, "Notifications, 99 new", "99"],
+  [100, "Notifications, 99+ new (100 in total)", "99+"],
+  [500, "Notifications, 99+ new (500 in total)", "99+"],
+])(
+  "keeps the visible new-notification badge and exact count in its name: %i",
+  (count, label, badge) => {
+    render(<NotificationBell count={count} />);
+    const button = screen.getByRole("button", { name: label });
+    expect(button.querySelector(".devfeed-notification-count")?.textContent ?? null).toBe(badge);
+  },
+);
+
 it("skips animations when motion is reduced or the browser lacks support", () => {
   const element = document.createElement("div");
   expect(animateReader(element, [])).toBeNull();

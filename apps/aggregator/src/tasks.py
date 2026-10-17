@@ -2,7 +2,7 @@ import logging
 import time
 import uuid
 from dataclasses import replace
-from datetime import timedelta
+from datetime import datetime
 
 from devfeed_core.article_jobs import request_article_enrichment
 from devfeed_core.config import get_settings
@@ -24,9 +24,11 @@ from devfeed_core.models import (
     Topic,
     utcnow,
 )
+from devfeed_core.polling import observe, schedule
 from devfeed_core.source_tags import attach_source_tags, resolve_source_tags, source_tag_names
 from devfeed_core.source_types import SourceType
 from devfeed_core.taxonomy import classify, classify_tags, detect_content_type
+from devfeed_core.telemetry import current
 from devfeed_core.urls import fingerprint
 from devfeed_core.youtube import parse_youtube_url
 from sqlalchemy import case, func, select, update
@@ -38,7 +40,9 @@ from devfeed_aggregator.languages import detect_feed_languages
 logger = logging.getLogger(__name__)
 
 
-def store_entries(session: Session, source_id: uuid.UUID, parsed: ParsedFeed) -> int:
+def store_entries(
+    session: Session, source_id: uuid.UUID, parsed: ParsedFeed, *, activity: list | None = None
+) -> int:
     topics = session.scalars(select(Topic).where(Topic.status == "active")).all()
     supplied_tags, _ = resolve_source_tags(
         session, (tag for entry in parsed.entries for tag in entry.tags)
@@ -67,6 +71,8 @@ def store_entries(session: Session, source_id: uuid.UUID, parsed: ParsedFeed) ->
         if existing_origin is not None:
             attach_source_tags(session, existing_origin, source_tag_ids)
             continue
+        if activity is not None:
+            activity.append(entry.published_at)
         url_hash = fingerprint(entry.canonical_url)
         article_id = session.scalar(
             insert(Article)
@@ -268,7 +274,8 @@ def _ingest_claimed(
             source = session.scalar(
                 select(Source).where(Source.id == job.source_id).with_for_update()
             )
-            assert source is not None
+            if source is None:
+                raise RuntimeError("Ingestion source disappeared before applying feed results")
             if source.approval_status != "approved":
                 cancel_unapproved_job(job)
                 logger.info("ingestion_source_unapproved")
@@ -277,6 +284,15 @@ def _ingest_claimed(
                 fail_job(session, job, "Source was disabled during ingestion", retryable=False)
                 logger.info("ingestion_source_disabled")
                 return
+            # A response for a replaced feed must never repopulate its learning state.
+            if source.feed_url != url:
+                job.status = "failed"
+                job.error = "Feed changed during ingestion"
+                job.finished_at = utcnow()
+                job.lease_token = None
+                job.lease_until = None
+                return
+            activity: list = []
             if provider_snapshot is not None:
                 resource = provider_snapshot["resource"]
                 if (
@@ -293,11 +309,11 @@ def _ingest_claimed(
                     )
                     return
                 job.articles_created, job.entries_skipped = apply_refresh(
-                    session, source, provider_refresh
+                    session, source, provider_refresh, activity=activity
                 )
                 job.entries_seen = len(provider_refresh.memberships)
             elif parsed:
-                job.articles_created = store_entries(session, source.id, parsed)
+                job.articles_created = store_entries(session, source.id, parsed, activity=activity)
                 job.entries_seen = parsed.seen
                 job.entries_skipped = parsed.skipped
             job.status = "succeeded"
@@ -309,7 +325,23 @@ def _ingest_claimed(
             source.last_success_at = job.finished_at
             source.last_error = None
             source.consecutive_failures = 0
-            source.next_fetch_at = job.finished_at + timedelta(seconds=source.poll_interval_seconds)
+            job.new_source_entries = len(activity)
+            previous_observation = (source.polling_state or {}).get("observed_at")
+            # Old backfills count as newly seen origins, but not current velocity.
+            arrivals = sum(
+                1
+                for published in activity
+                if published is None
+                or (
+                    published > job.finished_at
+                    or (
+                        not previous_observation
+                        or published >= datetime.fromisoformat(previous_observation)
+                    )
+                )
+            )
+            observe(source, job.finished_at, arrivals, automatic=job.automatic)
+            source.next_fetch_at = schedule(source, job.finished_at)
             # A 200 without validators must clear old validators. A 304 may omit them.
             source.etag = result.etag if result.status == 200 else result.etag or source.etag
             source.last_modified = (
@@ -318,11 +350,35 @@ def _ingest_claimed(
                 else result.last_modified or source.last_modified
             )
             metrics = {
+                "new_source_entries": job.new_source_entries,
+                "interval_seconds": source.effective_interval_seconds,
+                "polling_mode": source.effective_polling_mode,
+                "queue_delay_seconds": max(
+                    0, (source.last_attempt_at - job.available_at).total_seconds()
+                ),
                 "articles_created": job.articles_created,
                 "entries_seen": job.entries_seen,
                 "entries_skipped": job.entries_skipped,
                 "upstream_status": result.status,
             }
+            discovery_delays = [
+                (job.finished_at - published).total_seconds()
+                for published in activity
+                if published is not None
+                and 0 <= (job.finished_at - published).total_seconds() <= 604800
+            ]
+        if runtime := current():
+            attributes = {"mode": metrics["polling_mode"]}
+            runtime.instruments["polling_interval"].record(metrics["interval_seconds"], attributes)
+            runtime.instruments["polling_queue_delay"].record(
+                metrics["queue_delay_seconds"], attributes
+            )
+            if metrics["new_source_entries"]:
+                runtime.instruments["polling_new_entries"].add(1, attributes)
+            if result.status == 304 or not metrics["new_source_entries"]:
+                runtime.instruments["polling_unchanged"].add(1, attributes)
+            for delay in discovery_delays:
+                runtime.instruments["polling_discovery_delay"].record(delay, attributes)
         logger.info("ingestion_succeeded", extra={**metrics, "duration_ms": elapsed_ms(started)})
     except Exception as exc:
         # Keep URLs, feed contents, credentials and database parameters out of job errors/logs.

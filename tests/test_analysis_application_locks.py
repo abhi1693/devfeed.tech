@@ -10,9 +10,9 @@ import pytest
 from devfeed_aggregator import analysis_tasks
 from devfeed_core import analysis
 from devfeed_core.db import get_engine
-from devfeed_core.models import Article, ArticleAnalysisJob, utcnow
+from devfeed_core.models import Article, ArticleAnalysisJob, Topic, utcnow
 from devfeed_core.topics import lock_topics
-from sqlalchemy import event, select, text
+from sqlalchemy import event, select, text, update
 from sqlalchemy.orm import Session
 from test_automation_integration import enable, seed
 
@@ -107,8 +107,9 @@ def unlocked_ranking(worker_article, monkeypatch):
             event.remove(target, name, callback)
 
 
+@pytest.mark.parametrize("definition", ["description", "ai_description"])
 def test_catalog_writer_commits_while_worker_ranking_is_paused(
-    database, worker_article, unlocked_ranking
+    database, worker_article, unlocked_ranking, definition
 ):
     paused, resume = Event(), Event()
 
@@ -126,17 +127,27 @@ def test_catalog_writer_commits_while_worker_ranking_is_paused(
                 writer.execute(text("SET LOCAL lock_timeout='2s'"))
                 lock_topics(writer)
                 writer.execute(
-                    text(
-                        "UPDATE topics SET description='Catalog maintenance metadata' WHERE id=:id"
-                    ),
-                    {"id": worker_article.topic_id},
+                    update(Topic)
+                    .where(Topic.id == worker_article.topic_id)
+                    .values({definition: "Catalog maintenance metadata"})
                 )
         finally:
             resume.set()
         worker.result(timeout=15)
     with database() as session:
-        assert session.get(Article, worker_article.article_id).publication_status == "published"
-        assert session.get(ArticleAnalysisJob, worker_article.job_id).outcome == "applied"
+        # Definitions now participate in inference. The writer must progress,
+        # but its changed meaning invalidates the already inferred result.
+        assert session.get(Article, worker_article.article_id).publication_status == "unpublished"
+        assert session.get(ArticleAnalysisJob, worker_article.job_id).outcome == "superseded"
+        replacement = session.scalar(
+            select(ArticleAnalysisJob).where(ArticleAnalysisJob.id != worker_article.job_id)
+        )
+        assert replacement is not None
+        assert replacement.status == "queued"
+        assert (
+            replacement.catalog_hash
+            != session.get(ArticleAnalysisJob, worker_article.job_id).catalog_hash
+        )
     assert unlocked_ranking.calls == 3  # Revision changed, so prepare again outside locks.
     assert len(worker_article.inferences) == 1
 

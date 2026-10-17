@@ -61,7 +61,7 @@ def test_shared_alias_keeps_both_ai_candidates_without_fallback_assignment():
     assert classify("CD workflows", "", [], topics) == []
 
 
-def test_topic_descriptions_improve_candidate_retrieval_without_expanding_prompt():
+def test_topic_descriptions_reach_inference_as_bounded_semantic_context():
     described = entry(
         "Career advice",
         description="Guidance on interviewing, resumes, and professional growth.",
@@ -76,12 +76,44 @@ def test_topic_descriptions_improve_candidate_retrieval_without_expanding_prompt
         {"title": "Interviewing and resumes", "text": "Improve your professional growth."},
     )
     assert candidates["topics"][0]["id"] == described["id"]
-    assert "description" not in candidates["topics"][0]
+    assert candidates["topics"][0]["description"] == described["description"]
+    assert "description" not in candidates["topics"][1]
+
+
+def test_catalog_context_normalizes_whitespace_and_bounds_utf8_without_mutating_catalog():
+    description = "  Design\n  iteration " + "設計" * 5000
+    generated = " \tUser-centered\nprototyping " + "é" * 5000
+    topic = entry("iteration", description=description, ai_description=generated)
+    prompt_item = analysis._prompt_catalog_item(topic)
+    for field, prefix in (
+        ("description", "Design iteration"),
+        ("ai_description", "User-centered prototyping"),
+    ):
+        assert prompt_item[field].startswith(prefix)
+        assert len(prompt_item[field].encode()) <= analysis.TOPIC_CONTEXT_BYTES
+        assert "�" not in prompt_item[field]
+    assert topic["description"] == description
+    assert topic["ai_description"] == generated
+
+
+def test_catalog_context_keeps_ai_definition_when_description_is_blank():
+    topic = entry("iteration", description=" \n ", ai_description="Programming loop execution.")
+    prompt_item = analysis._prompt_catalog_item(topic)
+    assert "description" not in prompt_item
+    assert prompt_item["ai_description"] == topic["ai_description"]
 
 
 def test_prompt_budget_counts_unicode_article_and_long_aliases():
     taxonomy = {
-        field: [entry(f"Subject {i}", aliases=["編程" * 30] * 20) for i in range(650)]
+        field: [
+            entry(
+                f"Subject {i}",
+                aliases=["編程" * 30] * 20,
+                description="文脈 " * 5000,
+                ai_description="Bounded semantic definitions. " * 1000,
+            )
+            for i in range(650)
+        ]
         for field in ("topics", "tags")
     }
     snapshot = {"title": "Subject 649", "text": "工程 " * 12_000}

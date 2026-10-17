@@ -18,7 +18,8 @@ COPY packages/theme packages/theme
 COPY packages/ui packages/ui
 COPY packages/telemetry packages/telemetry
 COPY apps/admin apps/admin
-RUN npm run admin:build && node packages/telemetry/scripts/private-sourcemaps.mjs apps/admin/.next
+RUN --mount=type=cache,target=/app/apps/admin/.next/cache,sharing=locked \
+    npm run admin:build && node packages/telemetry/scripts/private-sourcemaps.mjs apps/admin/.next
 
 FROM ${DOCKERHUB_PREFIX}alpine:3.24@sha256:28bd5fe8b56d1bd048e5babf5b10710ebe0bae67db86916198a6eec434943f8b AS runtime
 WORKDIR /app

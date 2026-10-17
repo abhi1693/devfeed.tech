@@ -71,6 +71,7 @@ def store_videos(
     generation: uuid.UUID,
     *,
     _allow_pending_direct=False,
+    activity: list | None = None,
 ) -> tuple[int, int]:
     """Only an owned, approved-source ingestion transaction may attach origins."""
     pending_direct = (
@@ -155,6 +156,16 @@ def store_videos(
         )
         changed = apply_video_metadata(session, article, video)
         item = by_video[video_id]
+        if (
+            activity is not None
+            and session.scalar(
+                select(ArticleOrigin.id).where(
+                    ArticleOrigin.source_id == source.id, ArticleOrigin.entry_key == video_id
+                )
+            )
+            is None
+        ):
+            activity.append(video.published_at if video else article.published_at)
         source_metadata = {
             "provider": "youtube",
             "resource_kind": source.resource_kind,

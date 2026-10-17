@@ -357,3 +357,62 @@ def test_stale_revalidation_is_bounded_coalesced_and_respects_active_approved_or
         session.get(YouTubeMembership, (origin, identifier)).active = False
         session.scalar(select(ArticleOrigin)).active = False
     assert schedule_youtube_revalidation(database) == 0
+
+
+@pytest.mark.parametrize("withdrawal", ["membership", "approval", "availability"])
+def test_public_feed_and_detail_withhold_withdrawn_videos(client, database, withdrawal):
+    from devfeed_core.publication import visible_article
+    from devfeed_core.search_records import hit, public_records
+
+    first = source(database)
+    second = source(database, kind="video", identifier=VIDEO)
+    _, identifier = import_video(database, first)
+    import_video(database, second)
+    with database.begin() as session:
+        article = session.get(Article, identifier)
+        article.review_status, article.publication_status = "approved", "published"
+        article.slug = "tested-developer-video"
+    with database() as session:
+        records = public_records(session, "articles", [identifier])
+        search_hit = hit("articles", records[identifier])
+        assert search_hit["published_at"] == records[identifier]["published_at"].isoformat()
+        assert search_hit["video_metadata"]["channel_title"] == "Engineering"
+    response = client.get("/v1/feed")
+    assert response.status_code == 200
+    assert [row["id"] for row in response.json()["items"]] == [str(identifier)]
+    value = client.get("/v1/articles/tested-developer-video")
+    assert value.status_code == 200
+    assert value.json()["content_format"] == "video"
+    assert value.json()["video_metadata"]["channel_title"] == "Engineering"
+    with database.begin() as session:
+        remove_memberships(session, first, [identifier])
+    # A second approved origin retains visibility after playlist withdrawal.
+    assert client.get("/v1/articles/tested-developer-video").status_code == 200
+    with database.begin() as session:
+        if withdrawal == "membership":
+            remove_memberships(session, second, [identifier])
+        elif withdrawal == "approval":
+            session.get(Source, second).approval_status = "pending"
+        else:
+            # Even stale editorial status cannot leak unavailable provider content.
+            article = session.get(Article, identifier)
+            article.video_metadata = {**article.video_metadata, "availability": "unavailable"}
+    assert client.get("/v1/feed").json()["items"] == []
+    assert client.get("/v1/articles/tested-developer-video").status_code == 404
+    with database() as session:
+        assert session.scalars(select(Article).where(visible_article())).all() == []
+        assert public_records(session, "articles", [identifier]) == {}
+
+
+def test_youtube_polling_counts_new_origins_without_recounting_refreshes(database, provider):
+    identifier = source(database)
+    job_id = run_job(database, identifier)
+    with database() as session:
+        assert session.get(IngestionJob, job_id).new_source_entries == 4
+    next_id = run_job(database, identifier)
+    with database() as session:
+        assert session.get(IngestionJob, next_id).new_source_entries == 2
+    run_job(database, identifier)
+    final_id = run_job(database, identifier)
+    with database() as session:
+        assert session.get(IngestionJob, final_id).new_source_entries == 0
