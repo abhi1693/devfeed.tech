@@ -7,6 +7,7 @@ long-lived stream never consumes an interactive request slot.
 
 from collections.abc import Sequence
 from dataclasses import dataclass
+from time import monotonic
 from typing import Any, Literal
 
 from devfeed_core.telemetry import current
@@ -24,6 +25,10 @@ class _AdmissionLease:
     controller: "AdmissionController"
     lane: BoundedLane
     admitted: Any
+    route: str = "unmatched"
+    started: float = 0.0
+    route_active: Any = None
+    duration: Any = None
     closed: bool = False
 
     def close(self) -> None:
@@ -34,6 +39,11 @@ class _AdmissionLease:
         self.controller.active[self.lane] -= 1
         if self.admitted:
             self.admitted.add(-1, {"kind": self.lane})
+        attributes = {"kind": self.lane, "http.route": self.route}
+        if self.route_active:
+            self.route_active.add(-1, attributes)
+        if self.duration:
+            self.duration.record(monotonic() - self.started, attributes)
 
 
 @dataclass
@@ -43,12 +53,12 @@ class _AdmissionContext:
     rejected: bool = False
     lease: _AdmissionLease | None = None
 
-    def claim(self, lane: AdmissionLane) -> bool:
+    def claim(self, lane: AdmissionLane, route: str = "unmatched") -> bool:
         if self.claimed:
             return not self.rejected
         self.claimed = True
         if lane != "exempt":
-            self.lease = self.controller.acquire(lane)
+            self.lease = self.controller.acquire(lane, route=route)
             self.rejected = self.lease is None
         return not self.rejected
 
@@ -64,7 +74,7 @@ class AdmissionController:
         self.limits = {"request": requests, "stream": streams}
         self.active = {"request": 0, "stream": 0}
 
-    def acquire(self, lane: BoundedLane) -> _AdmissionLease | None:
+    def acquire(self, lane: BoundedLane, *, route: str = "unmatched") -> _AdmissionLease | None:
         # No await between the check and increment: atomic on the ASGI event loop.
         if self.active[lane] >= self.limits[lane]:
             if (runtime := current()) and (instrument := runtime.instruments.get("rejections")):
@@ -76,7 +86,11 @@ class AdmissionController:
         if admitted and runtime:
             admitted.add(1, {"kind": lane})
             runtime.instruments["limit"].set(self.limits[lane], {"kind": lane})
-        return _AdmissionLease(self, lane, admitted)
+        route_active = runtime.instruments.get("admission_route_active") if runtime else None
+        duration = runtime.instruments.get("admission_duration") if runtime else None
+        if route_active:
+            route_active.add(1, {"kind": lane, "http.route": route})
+        return _AdmissionLease(self, lane, admitted, route, monotonic(), route_active, duration)
 
     @staticmethod
     def busy_response(headers: Sequence[tuple[bytes, bytes]] = ()) -> JSONResponse:
@@ -111,7 +125,7 @@ class AdmissionController:
             scope[_CONTEXT_SCOPE_KEY] = context
             owns_context = True
         try:
-            if context.claim(lane):
+            if context.claim(lane, route=getattr(scope.get("route"), "path", "unmatched")):
                 await app(scope, receive, send)
             else:
                 await self.busy_response()(scope, receive, send)
