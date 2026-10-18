@@ -252,9 +252,8 @@ def candidate_score(item: dict, snapshot: dict, *, evidence=None) -> int:
     )
 
 
-@lru_cache(maxsize=8)
 def candidate_index(terms: tuple[tuple[frozenset[str], frozenset[str]], ...]) -> dict:
-    """Index immutable catalog terms; edits change the key without caching decisions."""
+    """Build an index owned by the prepared catalog, never a process-wide generation."""
     root: dict = {}
     for index, groups in enumerate(terms):
         for group, values in enumerate(groups):
@@ -266,9 +265,8 @@ def candidate_index(terms: tuple[tuple[frozenset[str], frozenset[str]], ...]) ->
     return root
 
 
-@lru_cache(maxsize=2)
 def candidate_description_index(descriptions: tuple[tuple[str | None, str | None], ...]):
-    """Reuse only immutable retrieval vocabulary; edits and ordering change the key."""
+    """Build retrieval vocabulary with the same lifetime as its prepared catalog."""
     description_terms = [
         {
             word
