@@ -1,3 +1,4 @@
+import { checkAppIcons } from "../../../scripts/testing/app-icons.mjs";
 import assert from "node:assert/strict";
 import { createServer, request as httpRequest } from "node:http";
 import { spawn } from "node:child_process";
@@ -1253,6 +1254,7 @@ try {
   await page.goto(origin);
   await page.waitForURL("**/login");
   await page.getByRole("heading", { name: "Sign in to DevFeed Partners" }).waitFor();
+  await checkAppIcons(page);
   await mkdir(root + "reports/partner", { recursive: true });
   await page.screenshot({ path: root + "reports/partner/login-desktop.png", fullPage: true });
   await page.setViewportSize({ width: 390, height: 844 });
