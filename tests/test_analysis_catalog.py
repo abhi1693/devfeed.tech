@@ -365,3 +365,34 @@ def test_tick_ranking_releases_old_article_results(monkeypatch):
         assert len(calls) == 10  # Recent results stay available to locked checks.
         assert analysis.analysis_candidates(taxonomy, snapshots[0]) == original
         assert len(calls) == 11  # Older results are discarded without changing selection.
+
+
+def test_prepared_catalog_indexes_are_released_after_scope_and_cancellation(monkeypatch):
+    import gc
+    import weakref
+
+    prepared = []
+    original = analysis._PreparedCatalog
+
+    class TrackedCatalog(original):
+        def __init__(self, taxonomy):
+            super().__init__(taxonomy)
+            prepared.append(weakref.ref(self))
+
+    monkeypatch.setattr(analysis, "_PreparedCatalog", TrackedCatalog)
+    for generation in range(12):
+        taxonomy = {
+            "topics": [entry(f"Generation {generation} topic {index}") for index in range(200)],
+            "tags": [],
+        }
+        with pytest.raises(RuntimeError), analysis.reuse_candidates():
+            first = analysis.analysis_candidates(taxonomy, {"title": "topic"})
+            assert analysis.analysis_candidates(taxonomy, {"title": "topic"}) == first
+            assert prepared[-1]() is not None
+            raise RuntimeError("cancelled tick")
+        gc.collect()
+        assert all(item() is None for item in prepared)
+    # Complete tries and description postings must not retain prior generations
+    # independently of the prepared catalog's explicit lifetime.
+    assert not hasattr(analysis.candidate_index, "cache_info")
+    assert not hasattr(analysis.candidate_description_index, "cache_info")
