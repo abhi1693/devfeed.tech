@@ -55,32 +55,43 @@ def _visible_tag_count(session):
     )
 
 
+def _visible_topic_count_query():
+    # Keep the early-exit query for cache misses and cache-disabled deployments.
+    return (
+        select(func.count())
+        .select_from(Topic)
+        .where(
+            Topic.status == "active",
+            select(1)
+            .select_from(ArticleTopic)
+            .join(Article, Article.id == ArticleTopic.article_id)
+            .where(
+                ArticleTopic.topic_id == Topic.id,
+                ArticleTopic.role.in_(["primary", "supporting"]),
+                visible_article(),
+            )
+            .limit(1)
+            .correlate(Topic)
+            .scalar_subquery()
+            .is_not(None),
+        )
+    )
+
+
+def _visible_topic_count(session):
+    return snapshot(
+        session,
+        ("search_tag_visibility", "topics"),
+        lambda: session.scalar(_visible_topic_count_query()),
+    )
+
+
 def _visible_counts(session):
     counts = {
         "articles": session.scalar(
             select(func.count()).select_from(Article).where(visible_article())
         ),
-        # A scalar LIMIT preserves early exit; EXISTS can be flattened into a
-        # hash aggregate over every assignment (including its large evidence rows).
-        "topics": session.scalar(
-            select(func.count())
-            .select_from(Topic)
-            .where(
-                Topic.status == "active",
-                select(1)
-                .select_from(ArticleTopic)
-                .join(Article, Article.id == ArticleTopic.article_id)
-                .where(
-                    ArticleTopic.topic_id == Topic.id,
-                    ArticleTopic.role.in_(["primary", "supporting"]),
-                    visible_article(),
-                )
-                .limit(1)
-                .correlate(Topic)
-                .scalar_subquery()
-                .is_not(None),
-            )
-        ),
+        "topics": _visible_topic_count(session),
         "sources": session.scalar(
             select(func.count())
             .select_from(Source)
