@@ -209,6 +209,7 @@ export function createConnectionFixture({ account, origin }) {
         provider: id,
         account_id: owner.id,
         account_name: owner.name,
+        account_tier: owner.tier,
         credentials_available: true,
         name: input.name,
         ...connectionLogo(input.logo_url ?? null),
@@ -578,11 +579,19 @@ export async function assertConnectionJourneys({ page, origin, account, fixture,
     path: join(artifactDir, "partner-connection-create-desktop.png"),
     fullPage: true,
   });
+  await page.getByRole("combobox", { name: "Sync interval", exact: true }).click();
+  assert.deepEqual(await page.getByRole("option").allTextContents(), ["12 hours", "24 hours"]);
+  await page.screenshot({
+    path: join(artifactDir, "partner-sync-interval-options.png"),
+    fullPage: true,
+  });
+  await page.getByRole("option", { name: "12 hours", exact: true }).click();
   await page.getByRole("button", { name: "Create connection", exact: true }).click();
   await page.waitForURL(/\/connections\/partner-browser-connection-1$/);
   const created = fixture.writes.find((item) => item.method === "POST" && !item.subresource);
   assert.equal(created.input.logo_url, logoSource);
   assert.equal(created.input.enabled, true);
+  assert.equal(created.input.sync_interval_minutes, 720);
   assert.equal(created.input.connector.auth.mode, "bearer");
   assert.equal(created.input.connector.pagination.mode, "cursor");
   assert.equal(created.input.connector.pagination.parameter, "after");

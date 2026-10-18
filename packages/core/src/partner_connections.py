@@ -36,6 +36,7 @@ from devfeed_core.partner_connectors import (
     connector_snapshot,
 )
 from devfeed_core.partner_credentials import credential_storage_available
+from devfeed_core.partner_tiers import PartnerTier, sync_intervals
 from devfeed_core.partner_tools import (
     QUALIFICATION_TTL,
     Evidence,
@@ -114,6 +115,7 @@ class ConnectionOut(ORMModel):
     commercial_approved: int = 0
     approval_mode: Literal["qualified", "trusted"] | None = None
     account_id: uuid.UUID | None = None
+    account_tier: PartnerTier | None = None
     sync_interval_minutes: int
     revision: int
     partnership_type: Literal["launch_platform"] = "launch_platform"
@@ -160,6 +162,13 @@ class Qualification(InputModel):
     evidence: list[Evidence] = Field(max_length=10)
 
 
+def connection_sync_interval(session, connection):
+    """Apply current account entitlements to existing and downgraded schedules."""
+    account = session.get(PartnerAccount, connection.account_id) if connection.account_id else None
+    minutes = connection.sync_interval_minutes
+    return minutes if account is None or minutes in sync_intervals(account.tier) else 1440
+
+
 def request_sync(session, connection):
     active = session.scalar(
         select(PartnerPipelineJob).where(
@@ -202,7 +211,9 @@ def request_sync(session, connection):
         previous.status, previous.attempts, previous.error = "queued", 0, None
         previous.available_at, previous.dispatched_at, previous.finished_at = utcnow(), None, None
         connection.last_error = None
-        connection.next_sync_at = utcnow() + timedelta(minutes=connection.sync_interval_minutes)
+        connection.next_sync_at = utcnow() + timedelta(
+            minutes=connection_sync_interval(session, connection)
+        )
         return previous
     # Saved malformed candidates cannot be repaired by replaying them forever.
     # Fence any remaining child deliveries before starting a fresh API scan.
@@ -230,7 +241,9 @@ def request_sync(session, connection):
         },
     )
     session.add(job)
-    connection.next_sync_at = utcnow() + timedelta(minutes=connection.sync_interval_minutes)
+    connection.next_sync_at = utcnow() + timedelta(
+        minutes=connection_sync_interval(session, connection)
+    )
     return job
 
 
@@ -428,6 +441,7 @@ def connection_views(session, connections):
             select(
                 PartnerConnection.provider,
                 PartnerAccount.approval_mode,
+                PartnerAccount.tier.label("account_tier"),
                 syncing.label("syncing"),
                 count.label("products"),
                 count.filter(
@@ -487,6 +501,7 @@ def _connection_view(connection, statistics, *, ai_enabled):
         approval_mode=statistics.approval_mode,
         provider=provider,
         account_id=connection.account_id,
+        account_tier=statistics.account_tier,
         revision=connection.revision,
         sync_interval_minutes=connection.sync_interval_minutes,
         name=connection.name or provider.replace("-", " ").title(),
