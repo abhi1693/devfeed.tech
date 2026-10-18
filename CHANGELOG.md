@@ -6,27 +6,34 @@ Application releases and Alembic schema revisions are separate identifiers.
 
 ### Enhancements
 
-- Discover tags through a searchable directory with A–Z filters, and follow tags to add matching articles to My feed on web, Chrome, and Edge.
-- Share source, topic, and tag pages using Copy link, Reddit, X, or LinkedIn, including canonical website links from browser extensions.
-- Manage partner accounts, product catalogs, API import connections, and campaign targeting through a dedicated partner portal.
-- Promote eligible products through contextual sponsored cards and header sponsorship, with creative previews and impression and click reporting.
-- Upload custom product artwork and advertise manually added products without an import connection.
-- Opt individual sources into adaptive polling to check active publishers more frequently and quiet publishers less often; the feature remains disabled by default.
-- Load the public reader sooner with streamed content, route-specific styles, smaller card markup, and thumbnails sized for the display.
+- [#210](https://github.com/abhi1693/devfeed.tech/pull/210) - Discover tags through a searchable directory with A–Z filters, and follow tags to add matching articles to My feed on web, Chrome, and Edge.
+- [#209](https://github.com/abhi1693/devfeed.tech/pull/209), [#210](https://github.com/abhi1693/devfeed.tech/pull/210) - Share source, topic, and tag pages using Copy link, Reddit, X, or LinkedIn, including canonical website links from browser extensions.
+- [#59](https://github.com/abhi1693/devfeed.tech/pull/59) - Manage partner accounts, product catalogs, API import connections, and campaign targeting through a dedicated partner portal.
+- [#59](https://github.com/abhi1693/devfeed.tech/pull/59) - Promote eligible products through contextual sponsored cards and header sponsorship, with creative previews and impression and click reporting.
+- [#59](https://github.com/abhi1693/devfeed.tech/pull/59) - Upload custom product artwork and advertise manually added products without an import connection.
+- [#143](https://github.com/abhi1693/devfeed.tech/pull/143) - Opt individual sources into adaptive polling to check active publishers more frequently and quiet publishers less often; the feature remains disabled by default.
+- [#176](https://github.com/abhi1693/devfeed.tech/pull/176) - Allow Nick Launches to embed the public reader.
+- [#179](https://github.com/abhi1693/devfeed.tech/pull/179) - Show optional platform attribution in sponsored card footers.
+- [#211](https://github.com/abhi1693/devfeed.tech/pull/211) - Display a theme-aware Nick Launches recognition badge in the expanded website sidebar.
 
-### Fixes
+### Performance Improvements
 
-- Restore All as the default feed content filter across web, Chrome, and Edge.
-- Keep article search snippets focused on the selected article and distinguish homepage and Latest feed search titles.
-- Preserve topic meaning during article classification so contextual matches stay within the topic definition.
-- Keep empty topic and tag collections out of search indexing and include eligible public search pages in structured data.
-- Preserve native reader links and keyboard navigation, and wrap long record titles within admin tables.
+- [#170](https://github.com/abhi1693/devfeed.tech/pull/170), [#168](https://github.com/abhi1693/devfeed.tech/pull/168), [#169](https://github.com/abhi1693/devfeed.tech/pull/169), [#167](https://github.com/abhi1693/devfeed.tech/pull/167) - Load the public reader sooner with streamed content, route-specific styles, smaller card markup, and thumbnails sized for the display.
+
+### Bug Fixes
+
+- [#158](https://github.com/abhi1693/devfeed.tech/pull/158) - Restore All as the default feed content filter across web, Chrome, and Edge.
+- [#165](https://github.com/abhi1693/devfeed.tech/pull/165), [#164](https://github.com/abhi1693/devfeed.tech/pull/164) - Keep article search snippets focused on the selected article and distinguish homepage and Latest feed search titles.
+- [#180](https://github.com/abhi1693/devfeed.tech/pull/180) - Preserve topic meaning during article classification so contextual matches stay within the topic definition.
+- [#160](https://github.com/abhi1693/devfeed.tech/pull/160), [#166](https://github.com/abhi1693/devfeed.tech/pull/166) - Keep empty topic and tag collections out of search indexing and include eligible public search pages in structured data.
+- [#187](https://github.com/abhi1693/devfeed.tech/pull/187), [#205](https://github.com/abhi1693/devfeed.tech/pull/205) - Preserve native reader links and keyboard navigation, and wrap long record titles within admin tables.
 - Include visible avatar initials in account-menu labels for speech navigation on web, Chrome, and Edge.
 - Match notification-button labels to visible badge counts while preserving the exact number of new notifications.
 - Display terminal control sequences as plain text in CLI validation errors.
 - Keep unsupported resource-subscription capabilities out of public MCP discovery.
+- [#177](https://github.com/abhi1693/devfeed.tech/pull/177) - Qualify paid partner links across all partnership tiers.
 
-### Upgrade notes
+### Upgrade Notes
 
 - Upgrade the database through migration `0026` before starting the updated backend services. Revisions `0024`–`0026` add partnerships, adaptive source polling, and saved tag follows.
 - Deploy the updated APIs before distributing browser extensions `0.1.21`, which use the new tag directory and follow endpoints.
