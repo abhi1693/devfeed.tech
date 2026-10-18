@@ -2328,3 +2328,11 @@ class UserMustRead(Base):
     timezone: Mapped[str] = mapped_column(String(100))
     picks: Mapped[list] = mapped_column(JSONB, default=list)
     presented_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+# The overview selects one latest run per article before inspecting result JSON.
+for _job_model, _index_name in (
+    (ArticleAnalysisJob, "ix_article_analysis_latest"),
+    (ArticleEnrichmentJob, "ix_article_enrichment_latest"),
+):
+    Index(_index_name, _job_model.article_id, _job_model.created_at.desc(), _job_model.id.desc())
