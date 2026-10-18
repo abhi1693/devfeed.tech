@@ -378,3 +378,38 @@ def test_image_cookie_replay_rejects_header_injection(change):
 
     with pytest.raises(SolverUnavailable):
         image_headers({"userAgent": "Browser", "cookies": [], **change}, URL)
+
+
+@pytest.mark.parametrize("status", [403, 429, 500, 503])
+def test_solver_http_failures_retain_only_safe_stage_and_status(
+    monkeypatch, services, caplog, status
+):
+    use_pool(
+        monkeypatch,
+        [httpcore.Response(status, content=b"private-token internal-url") for _ in range(2)],
+    )
+    with caplog.at_level("INFO"), pytest.raises(SolverUnavailable) as failure:
+        solve()
+    assert failure.value.stage == "http" and failure.value.status == status
+    assert failure.value.retryable and not failure.value.work_may_continue
+    attempts = [record for record in caplog.records if record.msg == "solver_attempt_unavailable"]
+    assert len(attempts) == 2
+    assert all(
+        record.solver_stage == "http" and record.solver_http_status == status for record in attempts
+    )
+    assert "private-token" not in caplog.text and "internal-url" not in caplog.text
+
+
+def test_solver_transport_stage_retains_work_may_continue_cleanup(monkeypatch, services, caplog):
+    def unavailable(_request):
+        raise SolverUnavailable(stage="transport", work_may_continue=True)
+
+    monkeypatch.setattr(solvers, "create_solver", lambda _: SimpleNamespace(solve=unavailable))
+    with caplog.at_level("INFO"), pytest.raises(SolverUnavailable) as failure:
+        solve()
+    assert failure.value.stage == "transport" and failure.value.work_may_continue
+    assert not services["released"]
+    assert (
+        len([record for record in caplog.records if record.msg == "solver_attempt_unavailable"])
+        == 1
+    )
