@@ -413,3 +413,93 @@ def test_solver_transport_stage_retains_work_may_continue_cleanup(monkeypatch, s
         len([record for record in caplog.records if record.msg == "solver_attempt_unavailable"])
         == 1
     )
+
+
+@pytest.mark.parametrize(
+    ("error", "stage", "work_may_continue"),
+    [
+        (httpcore.ConnectError, "connect", False),
+        (httpcore.ConnectTimeout, "connect", False),
+        (httpcore.ReadError, "transport", True),
+        (httpcore.ReadTimeout, "transport", True),
+        (httpcore.RemoteProtocolError, "transport", True),
+    ],
+)
+def test_adapter_classifies_transport_failures(monkeypatch, error, stage, work_may_continue):
+    pool = use_pool(monkeypatch, [])
+
+    def fail(*args, **kwargs):
+        raise error("private upstream detail")
+
+    monkeypatch.setattr(pool, "stream", fail)
+    with pytest.raises(SolverUnavailable) as failure:
+        FlareSolverr("http://solver.internal:8191").solve(SolveRequest(URL, 10, 1024, "TEST"))
+    assert failure.value.stage == stage
+    assert failure.value.work_may_continue is work_may_continue
+    assert failure.value.status is None
+    assert failure.value.retryable
+    assert "private" not in str(failure.value)
+
+
+@pytest.mark.parametrize("image", [False, True])
+def test_adapter_classifies_deadlines_before_return_or_image_replay(monkeypatch, image):
+    from devfeed_core.feeds.solver_providers import flaresolverr
+
+    payload = {"status": "ok", "solution": {"status": 200, "url": URL}}
+    use_pool(monkeypatch, [httpcore.Response(200, content=json.dumps(payload).encode())])
+    clock = iter([0, 1, 11] if image else [0, 16])
+    monkeypatch.setattr(flaresolverr, "time", SimpleNamespace(monotonic=lambda: next(clock)))
+    monkeypatch.setattr(flaresolverr, "_fetch", lambda *a, **k: pytest.fail("Expired replay"))
+    with pytest.raises(SolverUnavailable) as failure:
+        FlareSolverr("http://solver.internal:8191").solve(
+            SolveRequest(URL, 10, 1024, "TEST", image=image)
+        )
+    assert failure.value.stage == "deadline"
+    assert failure.value.work_may_continue is (not image)
+    assert failure.value.status is None
+
+
+@pytest.mark.parametrize("content", [b"not JSON", b"\xff", b'{"status":"ok","solution":null}'])
+def test_adapter_classifies_malformed_payloads(monkeypatch, content):
+    use_pool(monkeypatch, [httpcore.Response(200, content=content)])
+    with pytest.raises(SolverUnavailable) as failure:
+        FlareSolverr("http://solver.internal:8191").solve(SolveRequest(URL, 10, 1024, "TEST"))
+    assert failure.value.stage == "invalid_response"
+    assert not failure.value.work_may_continue
+    assert failure.value.status is None
+
+
+@pytest.mark.parametrize(
+    "cookies",
+    [
+        None,
+        [{}] * 101,
+        [
+            {"name": f"cookie{i}", "value": "x" * 4096, "domain": "publisher.example"}
+            for i in range(3)
+        ],
+    ],
+)
+def test_image_cookie_limits_produce_safe_invalid_response_stage(cookies):
+    from devfeed_core.feeds.solver_providers.flaresolverr import image_headers
+
+    with pytest.raises(SolverUnavailable) as failure:
+        image_headers({"userAgent": "Browser", "cookies": cookies}, URL)
+    assert failure.value.stage == "invalid_response"
+    assert failure.value.status is None
+    assert str(failure.value) == "Solver service unavailable"
+
+
+def test_redis_outage_has_coordination_stage_without_claiming_remote_work(monkeypatch, services):
+    from redis.exceptions import RedisError
+
+    def unavailable(*args, **kwargs):
+        raise RedisError("private redis endpoint")
+
+    monkeypatch.setattr(solvers, "create_redis", unavailable)
+    with pytest.raises(SolverUnavailable) as failure:
+        solve()
+    assert failure.value.stage == "coordination"
+    assert not failure.value.work_may_continue
+    assert failure.value.status is None
+    assert "private" not in str(failure.value)
