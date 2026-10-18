@@ -135,6 +135,8 @@ def breaking_command(binary: str, config: Path, base: Path, head: Path, format: 
         str(config),
         "--allow-external-refs=false",
         "--flatten-allof",
+        "--err-ignore",
+        str(ROOT / ".github/api-compatibility/admin-page-limit-errors.txt"),
         "--fail-on",
         "WARN",
         "--format",
@@ -164,6 +166,10 @@ PROBE_RESULTS = {
     "response-type": 1,
     "nested-response-type": 1,
     "required-response-removed": 1,
+    "page-limit-unset": 0,
+    "page-limit-other-field": 1,
+    "page-limit-other-endpoint": 1,
+    "page-limit-increased": 1,
 }
 
 
@@ -213,6 +219,39 @@ def verify_diff_rules(output: Path, binary: str = "oasdiff") -> None:
             original["paths"]["/tools/get_article"]["post"]["responses"]["200"]["content"][
                 "application/json"
             ]["schema"] = copy.deepcopy(enum)
+        if change.startswith("page-limit-"):
+            original["components"]["schemas"]["ConnectorConfig"] = {
+                "title": "ConnectorConfig",
+                "type": "object",
+                "properties": {
+                    "max_pages": {"type": "integer", "maximum": 1000},
+                    "timeout_seconds": {"type": "integer", "maximum": 1000},
+                },
+            }
+            endpoint = "/v1/admin/partner-tools/connections/{provider}"
+            if change == "page-limit-other-endpoint":
+                endpoint += "/unreviewed"
+            connector_response = {
+                "type": "object",
+                "properties": {
+                    "connector": {
+                        "anyOf": [
+                            {"$ref": "#/components/schemas/ConnectorConfig"},
+                            {"type": "null"},
+                        ]
+                    }
+                },
+            }
+            original["paths"][endpoint] = {
+                "get": {
+                    "responses": {
+                        "200": {
+                            "description": "Connection",
+                            "content": {"application/json": {"schema": connector_response}},
+                        }
+                    }
+                }
+            }
         head = copy.deepcopy(original)
         operation = head["paths"]["/tools/get_article"]["post"]
         request = operation["requestBody"]["content"]["application/json"]["schema"]
@@ -247,6 +286,13 @@ def verify_diff_rules(output: Path, binary: str = "oasdiff") -> None:
             }
         elif change == "nested-response-type":
             article["properties"]["id"]["type"] = "integer"
+        elif change.startswith("page-limit-"):
+            properties = head["components"]["schemas"]["ConnectorConfig"]["properties"]
+            field = "timeout_seconds" if change == "page-limit-other-field" else "max_pages"
+            if change == "page-limit-increased":
+                properties[field]["maximum"] = 2000
+            else:
+                del properties[field]["maximum"]
         elif change == "required-response-removed":
             del article["properties"]["id"]
             article["required"].remove("id")

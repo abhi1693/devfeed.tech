@@ -131,7 +131,9 @@ def test_classifier_probes_cover_nested_and_required_changes(tmp_path, monkeypat
 
     def run(command):
         assert command[command.index("--config") + 1] == str(ROOT / ".oasdiff.yaml")
-        assert "--err-ignore" not in command
+        assert command[command.index("--err-ignore") + 1] == str(
+            ROOT / ".github/api-compatibility/admin-page-limit-errors.txt"
+        )
         change = Path(command[3]).stem
         calls.append(change)
         code = contracts.PROBE_RESULTS[change]
@@ -183,7 +185,7 @@ def test_classifier_probes_reject_incorrect_compatibility_classifications(
         contracts.verify_diff_rules(tmp_path)
 
 
-def test_all_ci_contracts_share_the_local_severity_policy_without_finding_exceptions():
+def test_ci_contracts_share_severity_policy_and_scope_page_limit_exception_to_admin():
     config = yaml.safe_load((ROOT / ".oasdiff.yaml").read_text())
     levels = [
         line.strip()
@@ -203,7 +205,12 @@ def test_all_ci_contracts_share_the_local_severity_policy_without_finding_except
     for step in checks:
         assert step["uses"].startswith("oasdiff/oasdiff-action/breaking@")
         assert step["with"]["fail-on"] == "WARN"
-        assert "err-ignore" not in step["with"]
+        if step["id"] == "admin":
+            assert step["with"]["err-ignore"] == (
+                ".github/api-compatibility/admin-page-limit-errors.txt"
+            )
+        else:
+            assert "err-ignore" not in step["with"]
         assert "warn-ignore" not in step["with"]
 
 
