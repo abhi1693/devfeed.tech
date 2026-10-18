@@ -2336,3 +2336,13 @@ for _job_model, _index_name in (
     (ArticleEnrichmentJob, "ix_article_enrichment_latest"),
 ):
     Index(_index_name, _job_model.article_id, _job_model.created_at.desc(), _job_model.id.desc())
+
+
+for _target in (TopicAnalysisJob.topic_id, TopicAnalysisJob.proposal_id):
+    Index(
+        f"ix_topic_analysis_{_target.key}_newer",
+        _target,
+        TopicAnalysisJob.created_at,
+        TopicAnalysisJob.id,
+        postgresql_where=_target.is_not(None),
+    )
