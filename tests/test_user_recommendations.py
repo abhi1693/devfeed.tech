@@ -27,10 +27,10 @@ from devfeed_core.recommendations import (
 from sqlalchemy import delete, func, insert, select, update
 from test_user_personalization import user_data as user_data
 
-pytestmark = pytest.mark.integration
+pytestmark = [pytest.mark.integration, pytest.mark.usefixtures("candidate_query_strategy")]
 
 
-@pytest.fixture(params=[False, True], autouse=True)
+@pytest.fixture(params=[False, True], ids=["narrow", "broad"])
 def candidate_query_strategy(request, monkeypatch):
     from devfeed_core import recommendations
 
