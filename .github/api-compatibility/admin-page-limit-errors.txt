@@ -1,7 +1,0 @@
-GET /v1/admin/partner-tools/connections the `items/items/connector/anyOf[subschema #1: ConnectorConfig]/max_pages` response property's max was unset from `1000.00` for the response status `200`
-POST /v1/admin/partner-tools/connections the `connector/anyOf[subschema #1: ConnectorConfig]/max_pages` response property's max was unset from `1000.00` for the response status `201`
-GET /v1/admin/partner-tools/connections/{provider} the `connector/anyOf[subschema #1: ConnectorConfig]/max_pages` response property's max was unset from `1000.00` for the response status `200`
-POST /v1/admin/partner-tools/connections/{provider} the `connector/anyOf[subschema #1: ConnectorConfig]/max_pages` response property's max was unset from `1000.00` for the response status `200`
-PUT /v1/admin/partner-tools/connections/{provider} the `connector/anyOf[subschema #1: ConnectorConfig]/max_pages` response property's max was unset from `1000.00` for the response status `200`
-POST /v1/admin/partner-tools/connections/{provider}/logo the `connector/anyOf[subschema #1: ConnectorConfig]/max_pages` response property's max was unset from `1000.00` for the response status `200`
-PUT /v1/admin/partner-tools/connections/{provider}/logo the `connector/anyOf[subschema #1: ConnectorConfig]/max_pages` response property's max was unset from `1000.00` for the response status `200`

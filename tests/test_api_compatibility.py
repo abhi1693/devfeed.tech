@@ -131,9 +131,7 @@ def test_classifier_probes_cover_nested_and_required_changes(tmp_path, monkeypat
 
     def run(command):
         assert command[command.index("--config") + 1] == str(ROOT / ".oasdiff.yaml")
-        assert command[command.index("--err-ignore") + 1] == str(
-            ROOT / ".github/api-compatibility/admin-page-limit-errors.txt"
-        )
+        assert "--err-ignore" not in command
         change = Path(command[3]).stem
         calls.append(change)
         code = contracts.PROBE_RESULTS[change]
@@ -185,14 +183,17 @@ def test_classifier_probes_reject_incorrect_compatibility_classifications(
         contracts.verify_diff_rules(tmp_path)
 
 
-def test_ci_contracts_share_severity_policy_and_scope_page_limit_exception_to_admin():
+def test_ci_contracts_share_the_local_severity_policy_without_finding_exceptions():
     config = yaml.safe_load((ROOT / ".oasdiff.yaml").read_text())
     levels = [
         line.strip()
         for line in (ROOT / config["severity-levels"]).read_text().splitlines()
         if line.strip() and not line.lstrip().startswith("#")
     ]
-    assert levels == ["response-property-enum-value-added info"]
+    assert levels == [
+        "response-property-enum-value-added info",
+        "response-property-max-unset info",
+    ]
     workflow = yaml.safe_load((ROOT / ".github/workflows/ci.yml").read_text())
     job = workflow["jobs"]["api-compat"]
     assert job["env"]["OASDIFF_CONFIG"] == ".oasdiff.yaml"
@@ -205,12 +206,7 @@ def test_ci_contracts_share_severity_policy_and_scope_page_limit_exception_to_ad
     for step in checks:
         assert step["uses"].startswith("oasdiff/oasdiff-action/breaking@")
         assert step["with"]["fail-on"] == "WARN"
-        if step["id"] == "admin":
-            assert step["with"]["err-ignore"] == (
-                ".github/api-compatibility/admin-page-limit-errors.txt"
-            )
-        else:
-            assert "err-ignore" not in step["with"]
+        assert "err-ignore" not in step["with"]
         assert "warn-ignore" not in step["with"]
 
 
