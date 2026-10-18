@@ -109,7 +109,7 @@ class ConnectorConfig(InputModel):
     requests_per_minute: int = Field(default=60, ge=1, le=600)
     timeout_seconds: int = Field(default=15, ge=1, le=30)
     max_response_bytes: int = Field(default=2000000, ge=1024, le=5000000)
-    max_pages: int = Field(default=1000, ge=1, le=1000)
+    max_pages: int = Field(default=1000, ge=1, strict=True)
 
     @field_validator("base_url")
     @classmethod

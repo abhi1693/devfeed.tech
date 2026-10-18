@@ -578,11 +578,19 @@ export async function assertConnectionJourneys({ page, origin, account, fixture,
     path: join(artifactDir, "partner-connection-create-desktop.png"),
     fullPage: true,
   });
+  const maximumPages = page.getByRole("spinbutton", { name: "Maximum pages", exact: true });
+  const limitsSection = maximumPages.locator("xpath=ancestor::details");
+  if ((await limitsSection.getAttribute("open")) === null) {
+    await limitsSection.locator("summary").click();
+  }
+  assert.equal(await maximumPages.getAttribute("max"), null);
+  await maximumPages.fill("1000000");
   await page.getByRole("button", { name: "Create connection", exact: true }).click();
   await page.waitForURL(/\/connections\/partner-browser-connection-1$/);
   const created = fixture.writes.find((item) => item.method === "POST" && !item.subresource);
   assert.equal(created.input.logo_url, logoSource);
   assert.equal(created.input.enabled, true);
+  assert.equal(created.input.connector.max_pages, 1000000);
   assert.equal(created.input.connector.auth.mode, "bearer");
   assert.equal(created.input.connector.pagination.mode, "cursor");
   assert.equal(created.input.connector.pagination.parameter, "after");

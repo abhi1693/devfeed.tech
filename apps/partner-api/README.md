@@ -122,3 +122,10 @@ An archived connection disappears from current lists and cannot be read, edited,
 resumed, or synchronized through partner or admin connection routes. It no longer grants
 product ownership or serving eligibility and does not count toward the account's
 connection limit. Connecting the API again creates a new connection identifier.
+
+## Catalog page limits
+
+`connector.max_pages` accepts any positive integer with no fixed upper limit. Partner
+connections default to 100 pages; the admin default is 1,000 pages. Increase the value
+for larger catalogs. The importer still stops at the configured limit and rejects
+repeated cursors; request rate, timeout and response-size limits continue to apply.

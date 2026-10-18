@@ -39,7 +39,6 @@ export type ConnectionFormInput = {
 };
 
 const limits = {
-  max_pages: 100,
   requests_per_minute: 60,
   timeout_seconds: 15,
   max_response_bytes: 2000000,
@@ -67,6 +66,7 @@ function defaultConnector(): ConnectorConfig {
       next_path: "nextCursor",
     },
     auth: { mode: "none", header: "X-API-Key" },
+    max_pages: 100,
     ...limits,
   };
 }
@@ -139,7 +139,7 @@ export function PartnerConnectionForm({
   const definition = useMemo<PartnerConnectorConfig>(
     () => ({
       ...connector,
-      max_pages: Math.min(connector.max_pages ?? limits.max_pages, limits.max_pages),
+      max_pages: connector.max_pages ?? 100,
       requests_per_minute: Math.min(
         connector.requests_per_minute ?? limits.requests_per_minute,
         limits.requests_per_minute,

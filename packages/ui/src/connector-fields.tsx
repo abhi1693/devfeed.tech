@@ -361,7 +361,7 @@ export function ConnectorFields<C extends ConnectorDefinition>({
     label: string,
     key: "requests_per_minute" | "timeout_seconds" | "max_pages" | "max_response_bytes",
     min: number,
-    max: number,
+    max?: number,
   ) {
     return (
       <Field key={key} label={label} disabled={disabled} required error={fieldError(key)}>
@@ -635,7 +635,7 @@ export function ConnectorFields<C extends ConnectorDefinition>({
           )}
           {number("Requests per minute", "requests_per_minute", 1, 600)}
           {number("Timeout (seconds)", "timeout_seconds", 1, 30)}
-          {number("Maximum pages", "max_pages", 1, 1000)}
+          {number("Maximum pages", "max_pages", 1)}
           {number("Maximum response (bytes)", "max_response_bytes", 1024, 5000000)}
         </div>
       </details>

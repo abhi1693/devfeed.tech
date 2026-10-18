@@ -150,7 +150,6 @@ export const partnerConnectionsListResponseItemsItemConnectorOneListPathMax = 50
 export const partnerConnectionsListResponseItemsItemConnectorOneListingUrlTemplateOneMax = 500;
 
 export const partnerConnectionsListResponseItemsItemConnectorOneMaxPagesDefault = 1000;
-export const partnerConnectionsListResponseItemsItemConnectorOneMaxPagesMax = 1000;
 
 export const partnerConnectionsListResponseItemsItemConnectorOneMaxResponseBytesDefault = 2000000;
 export const partnerConnectionsListResponseItemsItemConnectorOneMaxResponseBytesMin = 1024;
@@ -235,7 +234,7 @@ export const PartnerConnectionsListResponse = zod.object({
   "items_paths": zod.array(zod.string().max(partnerConnectionsListResponseItemsItemConnectorOneItemsPathsItemMax).regex(partnerConnectionsListResponseItemsItemConnectorOneItemsPathsItemRegExp)).min(1).max(partnerConnectionsListResponseItemsItemConnectorOneItemsPathsMax).optional(),
   "list_path": zod.string().min(1).max(partnerConnectionsListResponseItemsItemConnectorOneListPathMax).default(partnerConnectionsListResponseItemsItemConnectorOneListPathDefault),
   "listing_url_template": zod.union([zod.string().max(partnerConnectionsListResponseItemsItemConnectorOneListingUrlTemplateOneMax),zod.null()]).optional(),
-  "max_pages": zod.int().min(1).max(partnerConnectionsListResponseItemsItemConnectorOneMaxPagesMax).default(partnerConnectionsListResponseItemsItemConnectorOneMaxPagesDefault),
+  "max_pages": zod.int().min(1).default(partnerConnectionsListResponseItemsItemConnectorOneMaxPagesDefault),
   "max_response_bytes": zod.int().min(partnerConnectionsListResponseItemsItemConnectorOneMaxResponseBytesMin).max(partnerConnectionsListResponseItemsItemConnectorOneMaxResponseBytesMax).default(partnerConnectionsListResponseItemsItemConnectorOneMaxResponseBytesDefault),
   "pagination": zod.object({
   "has_more_path": zod.union([zod.string().max(partnerConnectionsListResponseItemsItemConnectorOnePaginationHasMorePathOneMax).regex(partnerConnectionsListResponseItemsItemConnectorOnePaginationHasMorePathOneRegExp),zod.null()]).optional(),
@@ -361,7 +360,6 @@ export const partnerConnectionCreateResponseConnectorOneListPathMax = 500;
 export const partnerConnectionCreateResponseConnectorOneListingUrlTemplateOneMax = 500;
 
 export const partnerConnectionCreateResponseConnectorOneMaxPagesDefault = 1000;
-export const partnerConnectionCreateResponseConnectorOneMaxPagesMax = 1000;
 
 export const partnerConnectionCreateResponseConnectorOneMaxResponseBytesDefault = 2000000;
 export const partnerConnectionCreateResponseConnectorOneMaxResponseBytesMin = 1024;
@@ -444,7 +442,7 @@ export const PartnerConnectionCreateResponse = zod.object({
   "items_paths": zod.array(zod.string().max(partnerConnectionCreateResponseConnectorOneItemsPathsItemMax).regex(partnerConnectionCreateResponseConnectorOneItemsPathsItemRegExp)).min(1).max(partnerConnectionCreateResponseConnectorOneItemsPathsMax).optional(),
   "list_path": zod.string().min(1).max(partnerConnectionCreateResponseConnectorOneListPathMax).default(partnerConnectionCreateResponseConnectorOneListPathDefault),
   "listing_url_template": zod.union([zod.string().max(partnerConnectionCreateResponseConnectorOneListingUrlTemplateOneMax),zod.null()]).optional(),
-  "max_pages": zod.int().min(1).max(partnerConnectionCreateResponseConnectorOneMaxPagesMax).default(partnerConnectionCreateResponseConnectorOneMaxPagesDefault),
+  "max_pages": zod.int().min(1).default(partnerConnectionCreateResponseConnectorOneMaxPagesDefault),
   "max_response_bytes": zod.int().min(partnerConnectionCreateResponseConnectorOneMaxResponseBytesMin).max(partnerConnectionCreateResponseConnectorOneMaxResponseBytesMax).default(partnerConnectionCreateResponseConnectorOneMaxResponseBytesDefault),
   "pagination": zod.object({
   "has_more_path": zod.union([zod.string().max(partnerConnectionCreateResponseConnectorOnePaginationHasMorePathOneMax).regex(partnerConnectionCreateResponseConnectorOnePaginationHasMorePathOneRegExp),zod.null()]).optional(),
@@ -629,7 +627,6 @@ export const partnerConnectionDeleteResponseConnectorOneListPathMax = 500;
 export const partnerConnectionDeleteResponseConnectorOneListingUrlTemplateOneMax = 500;
 
 export const partnerConnectionDeleteResponseConnectorOneMaxPagesDefault = 1000;
-export const partnerConnectionDeleteResponseConnectorOneMaxPagesMax = 1000;
 
 export const partnerConnectionDeleteResponseConnectorOneMaxResponseBytesDefault = 2000000;
 export const partnerConnectionDeleteResponseConnectorOneMaxResponseBytesMin = 1024;
@@ -712,7 +709,7 @@ export const PartnerConnectionDeleteResponse = zod.object({
   "items_paths": zod.array(zod.string().max(partnerConnectionDeleteResponseConnectorOneItemsPathsItemMax).regex(partnerConnectionDeleteResponseConnectorOneItemsPathsItemRegExp)).min(1).max(partnerConnectionDeleteResponseConnectorOneItemsPathsMax).optional(),
   "list_path": zod.string().min(1).max(partnerConnectionDeleteResponseConnectorOneListPathMax).default(partnerConnectionDeleteResponseConnectorOneListPathDefault),
   "listing_url_template": zod.union([zod.string().max(partnerConnectionDeleteResponseConnectorOneListingUrlTemplateOneMax),zod.null()]).optional(),
-  "max_pages": zod.int().min(1).max(partnerConnectionDeleteResponseConnectorOneMaxPagesMax).default(partnerConnectionDeleteResponseConnectorOneMaxPagesDefault),
+  "max_pages": zod.int().min(1).default(partnerConnectionDeleteResponseConnectorOneMaxPagesDefault),
   "max_response_bytes": zod.int().min(partnerConnectionDeleteResponseConnectorOneMaxResponseBytesMin).max(partnerConnectionDeleteResponseConnectorOneMaxResponseBytesMax).default(partnerConnectionDeleteResponseConnectorOneMaxResponseBytesDefault),
   "pagination": zod.object({
   "has_more_path": zod.union([zod.string().max(partnerConnectionDeleteResponseConnectorOnePaginationHasMorePathOneMax).regex(partnerConnectionDeleteResponseConnectorOnePaginationHasMorePathOneRegExp),zod.null()]).optional(),
@@ -834,7 +831,6 @@ export const partnerConnectionGetResponseConnectorOneListPathMax = 500;
 export const partnerConnectionGetResponseConnectorOneListingUrlTemplateOneMax = 500;
 
 export const partnerConnectionGetResponseConnectorOneMaxPagesDefault = 1000;
-export const partnerConnectionGetResponseConnectorOneMaxPagesMax = 1000;
 
 export const partnerConnectionGetResponseConnectorOneMaxResponseBytesDefault = 2000000;
 export const partnerConnectionGetResponseConnectorOneMaxResponseBytesMin = 1024;
@@ -917,7 +913,7 @@ export const PartnerConnectionGetResponse = zod.object({
   "items_paths": zod.array(zod.string().max(partnerConnectionGetResponseConnectorOneItemsPathsItemMax).regex(partnerConnectionGetResponseConnectorOneItemsPathsItemRegExp)).min(1).max(partnerConnectionGetResponseConnectorOneItemsPathsMax).optional(),
   "list_path": zod.string().min(1).max(partnerConnectionGetResponseConnectorOneListPathMax).default(partnerConnectionGetResponseConnectorOneListPathDefault),
   "listing_url_template": zod.union([zod.string().max(partnerConnectionGetResponseConnectorOneListingUrlTemplateOneMax),zod.null()]).optional(),
-  "max_pages": zod.int().min(1).max(partnerConnectionGetResponseConnectorOneMaxPagesMax).default(partnerConnectionGetResponseConnectorOneMaxPagesDefault),
+  "max_pages": zod.int().min(1).default(partnerConnectionGetResponseConnectorOneMaxPagesDefault),
   "max_response_bytes": zod.int().min(partnerConnectionGetResponseConnectorOneMaxResponseBytesMin).max(partnerConnectionGetResponseConnectorOneMaxResponseBytesMax).default(partnerConnectionGetResponseConnectorOneMaxResponseBytesDefault),
   "pagination": zod.object({
   "has_more_path": zod.union([zod.string().max(partnerConnectionGetResponseConnectorOnePaginationHasMorePathOneMax).regex(partnerConnectionGetResponseConnectorOnePaginationHasMorePathOneRegExp),zod.null()]).optional(),
@@ -1039,7 +1035,6 @@ export const partnerConnectionUpdateResponseConnectorOneListPathMax = 500;
 export const partnerConnectionUpdateResponseConnectorOneListingUrlTemplateOneMax = 500;
 
 export const partnerConnectionUpdateResponseConnectorOneMaxPagesDefault = 1000;
-export const partnerConnectionUpdateResponseConnectorOneMaxPagesMax = 1000;
 
 export const partnerConnectionUpdateResponseConnectorOneMaxResponseBytesDefault = 2000000;
 export const partnerConnectionUpdateResponseConnectorOneMaxResponseBytesMin = 1024;
@@ -1122,7 +1117,7 @@ export const PartnerConnectionUpdateResponse = zod.object({
   "items_paths": zod.array(zod.string().max(partnerConnectionUpdateResponseConnectorOneItemsPathsItemMax).regex(partnerConnectionUpdateResponseConnectorOneItemsPathsItemRegExp)).min(1).max(partnerConnectionUpdateResponseConnectorOneItemsPathsMax).optional(),
   "list_path": zod.string().min(1).max(partnerConnectionUpdateResponseConnectorOneListPathMax).default(partnerConnectionUpdateResponseConnectorOneListPathDefault),
   "listing_url_template": zod.union([zod.string().max(partnerConnectionUpdateResponseConnectorOneListingUrlTemplateOneMax),zod.null()]).optional(),
-  "max_pages": zod.int().min(1).max(partnerConnectionUpdateResponseConnectorOneMaxPagesMax).default(partnerConnectionUpdateResponseConnectorOneMaxPagesDefault),
+  "max_pages": zod.int().min(1).default(partnerConnectionUpdateResponseConnectorOneMaxPagesDefault),
   "max_response_bytes": zod.int().min(partnerConnectionUpdateResponseConnectorOneMaxResponseBytesMin).max(partnerConnectionUpdateResponseConnectorOneMaxResponseBytesMax).default(partnerConnectionUpdateResponseConnectorOneMaxResponseBytesDefault),
   "pagination": zod.object({
   "has_more_path": zod.union([zod.string().max(partnerConnectionUpdateResponseConnectorOnePaginationHasMorePathOneMax).regex(partnerConnectionUpdateResponseConnectorOnePaginationHasMorePathOneRegExp),zod.null()]).optional(),
@@ -1244,7 +1239,6 @@ export const partnerConnectionActionResponseConnectorOneListPathMax = 500;
 export const partnerConnectionActionResponseConnectorOneListingUrlTemplateOneMax = 500;
 
 export const partnerConnectionActionResponseConnectorOneMaxPagesDefault = 1000;
-export const partnerConnectionActionResponseConnectorOneMaxPagesMax = 1000;
 
 export const partnerConnectionActionResponseConnectorOneMaxResponseBytesDefault = 2000000;
 export const partnerConnectionActionResponseConnectorOneMaxResponseBytesMin = 1024;
@@ -1327,7 +1321,7 @@ export const PartnerConnectionActionResponse = zod.object({
   "items_paths": zod.array(zod.string().max(partnerConnectionActionResponseConnectorOneItemsPathsItemMax).regex(partnerConnectionActionResponseConnectorOneItemsPathsItemRegExp)).min(1).max(partnerConnectionActionResponseConnectorOneItemsPathsMax).optional(),
   "list_path": zod.string().min(1).max(partnerConnectionActionResponseConnectorOneListPathMax).default(partnerConnectionActionResponseConnectorOneListPathDefault),
   "listing_url_template": zod.union([zod.string().max(partnerConnectionActionResponseConnectorOneListingUrlTemplateOneMax),zod.null()]).optional(),
-  "max_pages": zod.int().min(1).max(partnerConnectionActionResponseConnectorOneMaxPagesMax).default(partnerConnectionActionResponseConnectorOneMaxPagesDefault),
+  "max_pages": zod.int().min(1).default(partnerConnectionActionResponseConnectorOneMaxPagesDefault),
   "max_response_bytes": zod.int().min(partnerConnectionActionResponseConnectorOneMaxResponseBytesMin).max(partnerConnectionActionResponseConnectorOneMaxResponseBytesMax).default(partnerConnectionActionResponseConnectorOneMaxResponseBytesDefault),
   "pagination": zod.object({
   "has_more_path": zod.union([zod.string().max(partnerConnectionActionResponseConnectorOnePaginationHasMorePathOneMax).regex(partnerConnectionActionResponseConnectorOnePaginationHasMorePathOneRegExp),zod.null()]).optional(),
@@ -1530,7 +1524,6 @@ export const partnerConnectionLogoUploadResponseConnectorOneListPathMax = 500;
 export const partnerConnectionLogoUploadResponseConnectorOneListingUrlTemplateOneMax = 500;
 
 export const partnerConnectionLogoUploadResponseConnectorOneMaxPagesDefault = 1000;
-export const partnerConnectionLogoUploadResponseConnectorOneMaxPagesMax = 1000;
 
 export const partnerConnectionLogoUploadResponseConnectorOneMaxResponseBytesDefault = 2000000;
 export const partnerConnectionLogoUploadResponseConnectorOneMaxResponseBytesMin = 1024;
@@ -1613,7 +1606,7 @@ export const PartnerConnectionLogoUploadResponse = zod.object({
   "items_paths": zod.array(zod.string().max(partnerConnectionLogoUploadResponseConnectorOneItemsPathsItemMax).regex(partnerConnectionLogoUploadResponseConnectorOneItemsPathsItemRegExp)).min(1).max(partnerConnectionLogoUploadResponseConnectorOneItemsPathsMax).optional(),
   "list_path": zod.string().min(1).max(partnerConnectionLogoUploadResponseConnectorOneListPathMax).default(partnerConnectionLogoUploadResponseConnectorOneListPathDefault),
   "listing_url_template": zod.union([zod.string().max(partnerConnectionLogoUploadResponseConnectorOneListingUrlTemplateOneMax),zod.null()]).optional(),
-  "max_pages": zod.int().min(1).max(partnerConnectionLogoUploadResponseConnectorOneMaxPagesMax).default(partnerConnectionLogoUploadResponseConnectorOneMaxPagesDefault),
+  "max_pages": zod.int().min(1).default(partnerConnectionLogoUploadResponseConnectorOneMaxPagesDefault),
   "max_response_bytes": zod.int().min(partnerConnectionLogoUploadResponseConnectorOneMaxResponseBytesMin).max(partnerConnectionLogoUploadResponseConnectorOneMaxResponseBytesMax).default(partnerConnectionLogoUploadResponseConnectorOneMaxResponseBytesDefault),
   "pagination": zod.object({
   "has_more_path": zod.union([zod.string().max(partnerConnectionLogoUploadResponseConnectorOnePaginationHasMorePathOneMax).regex(partnerConnectionLogoUploadResponseConnectorOnePaginationHasMorePathOneRegExp),zod.null()]).optional(),
@@ -1735,7 +1728,6 @@ export const partnerConnectionLogoUpdateResponseConnectorOneListPathMax = 500;
 export const partnerConnectionLogoUpdateResponseConnectorOneListingUrlTemplateOneMax = 500;
 
 export const partnerConnectionLogoUpdateResponseConnectorOneMaxPagesDefault = 1000;
-export const partnerConnectionLogoUpdateResponseConnectorOneMaxPagesMax = 1000;
 
 export const partnerConnectionLogoUpdateResponseConnectorOneMaxResponseBytesDefault = 2000000;
 export const partnerConnectionLogoUpdateResponseConnectorOneMaxResponseBytesMin = 1024;
@@ -1818,7 +1810,7 @@ export const PartnerConnectionLogoUpdateResponse = zod.object({
   "items_paths": zod.array(zod.string().max(partnerConnectionLogoUpdateResponseConnectorOneItemsPathsItemMax).regex(partnerConnectionLogoUpdateResponseConnectorOneItemsPathsItemRegExp)).min(1).max(partnerConnectionLogoUpdateResponseConnectorOneItemsPathsMax).optional(),
   "list_path": zod.string().min(1).max(partnerConnectionLogoUpdateResponseConnectorOneListPathMax).default(partnerConnectionLogoUpdateResponseConnectorOneListPathDefault),
   "listing_url_template": zod.union([zod.string().max(partnerConnectionLogoUpdateResponseConnectorOneListingUrlTemplateOneMax),zod.null()]).optional(),
-  "max_pages": zod.int().min(1).max(partnerConnectionLogoUpdateResponseConnectorOneMaxPagesMax).default(partnerConnectionLogoUpdateResponseConnectorOneMaxPagesDefault),
+  "max_pages": zod.int().min(1).default(partnerConnectionLogoUpdateResponseConnectorOneMaxPagesDefault),
   "max_response_bytes": zod.int().min(partnerConnectionLogoUpdateResponseConnectorOneMaxResponseBytesMin).max(partnerConnectionLogoUpdateResponseConnectorOneMaxResponseBytesMax).default(partnerConnectionLogoUpdateResponseConnectorOneMaxResponseBytesDefault),
   "pagination": zod.object({
   "has_more_path": zod.union([zod.string().max(partnerConnectionLogoUpdateResponseConnectorOnePaginationHasMorePathOneMax).regex(partnerConnectionLogoUpdateResponseConnectorOnePaginationHasMorePathOneRegExp),zod.null()]).optional(),
@@ -2317,7 +2309,6 @@ export const partnerWorkspaceConnectionsResponseItemsItemConnectorOneListPathMax
 export const partnerWorkspaceConnectionsResponseItemsItemConnectorOneListingUrlTemplateOneMax = 500;
 
 export const partnerWorkspaceConnectionsResponseItemsItemConnectorOneMaxPagesDefault = 1000;
-export const partnerWorkspaceConnectionsResponseItemsItemConnectorOneMaxPagesMax = 1000;
 
 export const partnerWorkspaceConnectionsResponseItemsItemConnectorOneMaxResponseBytesDefault = 2000000;
 export const partnerWorkspaceConnectionsResponseItemsItemConnectorOneMaxResponseBytesMin = 1024;
@@ -2403,7 +2394,7 @@ export const PartnerWorkspaceConnectionsResponse = zod.object({
   "items_paths": zod.array(zod.string().max(partnerWorkspaceConnectionsResponseItemsItemConnectorOneItemsPathsItemMax).regex(partnerWorkspaceConnectionsResponseItemsItemConnectorOneItemsPathsItemRegExp)).min(1).max(partnerWorkspaceConnectionsResponseItemsItemConnectorOneItemsPathsMax).optional(),
   "list_path": zod.string().min(1).max(partnerWorkspaceConnectionsResponseItemsItemConnectorOneListPathMax).default(partnerWorkspaceConnectionsResponseItemsItemConnectorOneListPathDefault),
   "listing_url_template": zod.union([zod.string().max(partnerWorkspaceConnectionsResponseItemsItemConnectorOneListingUrlTemplateOneMax),zod.null()]).optional(),
-  "max_pages": zod.int().min(1).max(partnerWorkspaceConnectionsResponseItemsItemConnectorOneMaxPagesMax).default(partnerWorkspaceConnectionsResponseItemsItemConnectorOneMaxPagesDefault),
+  "max_pages": zod.int().min(1).default(partnerWorkspaceConnectionsResponseItemsItemConnectorOneMaxPagesDefault),
   "max_response_bytes": zod.int().min(partnerWorkspaceConnectionsResponseItemsItemConnectorOneMaxResponseBytesMin).max(partnerWorkspaceConnectionsResponseItemsItemConnectorOneMaxResponseBytesMax).default(partnerWorkspaceConnectionsResponseItemsItemConnectorOneMaxResponseBytesDefault),
   "pagination": zod.object({
   "has_more_path": zod.union([zod.string().max(partnerWorkspaceConnectionsResponseItemsItemConnectorOnePaginationHasMorePathOneMax).regex(partnerWorkspaceConnectionsResponseItemsItemConnectorOnePaginationHasMorePathOneRegExp),zod.null()]).optional(),
@@ -2529,7 +2520,6 @@ export const partnerWorkspaceConnectionCreateResponseConnectorOneListPathMax = 5
 export const partnerWorkspaceConnectionCreateResponseConnectorOneListingUrlTemplateOneMax = 500;
 
 export const partnerWorkspaceConnectionCreateResponseConnectorOneMaxPagesDefault = 1000;
-export const partnerWorkspaceConnectionCreateResponseConnectorOneMaxPagesMax = 1000;
 
 export const partnerWorkspaceConnectionCreateResponseConnectorOneMaxResponseBytesDefault = 2000000;
 export const partnerWorkspaceConnectionCreateResponseConnectorOneMaxResponseBytesMin = 1024;
@@ -2613,7 +2603,7 @@ export const PartnerWorkspaceConnectionCreateResponse = zod.object({
   "items_paths": zod.array(zod.string().max(partnerWorkspaceConnectionCreateResponseConnectorOneItemsPathsItemMax).regex(partnerWorkspaceConnectionCreateResponseConnectorOneItemsPathsItemRegExp)).min(1).max(partnerWorkspaceConnectionCreateResponseConnectorOneItemsPathsMax).optional(),
   "list_path": zod.string().min(1).max(partnerWorkspaceConnectionCreateResponseConnectorOneListPathMax).default(partnerWorkspaceConnectionCreateResponseConnectorOneListPathDefault),
   "listing_url_template": zod.union([zod.string().max(partnerWorkspaceConnectionCreateResponseConnectorOneListingUrlTemplateOneMax),zod.null()]).optional(),
-  "max_pages": zod.int().min(1).max(partnerWorkspaceConnectionCreateResponseConnectorOneMaxPagesMax).default(partnerWorkspaceConnectionCreateResponseConnectorOneMaxPagesDefault),
+  "max_pages": zod.int().min(1).default(partnerWorkspaceConnectionCreateResponseConnectorOneMaxPagesDefault),
   "max_response_bytes": zod.int().min(partnerWorkspaceConnectionCreateResponseConnectorOneMaxResponseBytesMin).max(partnerWorkspaceConnectionCreateResponseConnectorOneMaxResponseBytesMax).default(partnerWorkspaceConnectionCreateResponseConnectorOneMaxResponseBytesDefault),
   "pagination": zod.object({
   "has_more_path": zod.union([zod.string().max(partnerWorkspaceConnectionCreateResponseConnectorOnePaginationHasMorePathOneMax).regex(partnerWorkspaceConnectionCreateResponseConnectorOnePaginationHasMorePathOneRegExp),zod.null()]).optional(),
@@ -2735,7 +2725,6 @@ export const partnerWorkspaceConnectionGetResponseConnectorOneListPathMax = 500;
 export const partnerWorkspaceConnectionGetResponseConnectorOneListingUrlTemplateOneMax = 500;
 
 export const partnerWorkspaceConnectionGetResponseConnectorOneMaxPagesDefault = 1000;
-export const partnerWorkspaceConnectionGetResponseConnectorOneMaxPagesMax = 1000;
 
 export const partnerWorkspaceConnectionGetResponseConnectorOneMaxResponseBytesDefault = 2000000;
 export const partnerWorkspaceConnectionGetResponseConnectorOneMaxResponseBytesMin = 1024;
@@ -2819,7 +2808,7 @@ export const PartnerWorkspaceConnectionGetResponse = zod.object({
   "items_paths": zod.array(zod.string().max(partnerWorkspaceConnectionGetResponseConnectorOneItemsPathsItemMax).regex(partnerWorkspaceConnectionGetResponseConnectorOneItemsPathsItemRegExp)).min(1).max(partnerWorkspaceConnectionGetResponseConnectorOneItemsPathsMax).optional(),
   "list_path": zod.string().min(1).max(partnerWorkspaceConnectionGetResponseConnectorOneListPathMax).default(partnerWorkspaceConnectionGetResponseConnectorOneListPathDefault),
   "listing_url_template": zod.union([zod.string().max(partnerWorkspaceConnectionGetResponseConnectorOneListingUrlTemplateOneMax),zod.null()]).optional(),
-  "max_pages": zod.int().min(1).max(partnerWorkspaceConnectionGetResponseConnectorOneMaxPagesMax).default(partnerWorkspaceConnectionGetResponseConnectorOneMaxPagesDefault),
+  "max_pages": zod.int().min(1).default(partnerWorkspaceConnectionGetResponseConnectorOneMaxPagesDefault),
   "max_response_bytes": zod.int().min(partnerWorkspaceConnectionGetResponseConnectorOneMaxResponseBytesMin).max(partnerWorkspaceConnectionGetResponseConnectorOneMaxResponseBytesMax).default(partnerWorkspaceConnectionGetResponseConnectorOneMaxResponseBytesDefault),
   "pagination": zod.object({
   "has_more_path": zod.union([zod.string().max(partnerWorkspaceConnectionGetResponseConnectorOnePaginationHasMorePathOneMax).regex(partnerWorkspaceConnectionGetResponseConnectorOnePaginationHasMorePathOneRegExp),zod.null()]).optional(),
