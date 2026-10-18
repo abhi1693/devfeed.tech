@@ -1,11 +1,14 @@
 import { beforeEach, expect, it, vi } from "vitest";
 import Tags, { generateMetadata } from "@/app/tags/page";
-import { getTags } from "@/lib/api";
+import { getTags, UserApiError } from "@/lib/api";
 import type { SearchParams } from "@/lib/feed-query";
 
-vi.mock("@/lib/api", () => ({ getTags: vi.fn() }));
+vi.mock("@/lib/api", async (original) => ({
+  ...(await original<typeof import("@/lib/api")>()),
+  getTags: vi.fn(),
+}));
 vi.mock("@/components/user-shell", () => ({ UserShell: () => null }));
-beforeEach(() => vi.mocked(getTags).mockReset());
+beforeEach(() => vi.mocked(getTags).mockReset().mockResolvedValue([]));
 
 it.each<[SearchParams, number, string, string]>([
   [{}, 0, "", ""],
@@ -52,3 +55,16 @@ it("preserves upstream outages so the route can show its error boundary", async 
     "tag service unavailable",
   );
 });
+
+it.each([502, 503, 504])(
+  "renders directory recovery and noindex metadata for %s",
+  async (status) => {
+    vi.mocked(getTags).mockRejectedValue(new UserApiError(status));
+    const props = { searchParams: Promise.resolve({ q: "Rust", letter: "R" }) };
+    expect(await generateMetadata(props)).toMatchObject({ robots: { index: false } });
+    expect(await Tags(props)).toMatchObject({ props: { kind: "tags" } });
+    vi.mocked(getTags).mockResolvedValue([{ id: "rust", slug: "rust", name: "Rust" }]);
+    expect(await Tags(props)).toMatchObject({ props: { section: "tags" } });
+    expect(await generateMetadata(props)).not.toMatchObject({ robots: { index: false } });
+  },
+);

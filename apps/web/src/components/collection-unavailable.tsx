@@ -1,7 +1,7 @@
 import { UserShell } from "./user-shell";
 import { RetryFeed } from "./retry-feed";
 
-export function CollectionUnavailable({ kind }: { kind: "sources" | "topics" }) {
+export function CollectionUnavailable({ kind }: { kind: "sources" | "topics" | "tags" }) {
   return (
     <UserShell section={kind}>
       <section className="empty-state" role="alert">

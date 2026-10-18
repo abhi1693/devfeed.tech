@@ -210,10 +210,15 @@ it.each(["c++", "c#", "数据库", "literal%25"])(
   },
 );
 
-it.each(collections.filter((collection) => collection.kind !== "tags"))(
+it.each(collections)(
   "$kind detail failures render a retry state with noindex metadata and recover",
   async (collection) => {
-    const loader = collection.kind === "sources" ? api.getSource : api.getTopic;
+    const loader =
+      collection.kind === "sources"
+        ? api.getSource
+        : collection.kind === "tags"
+          ? api.getTag
+          : api.getTopic;
     vi.mocked(loader).mockRejectedValue(new api.UserApiError(503));
     const props = {
       params: Promise.resolve({ ...collection.params, contentType: "tutorials" }),
@@ -224,6 +229,12 @@ it.each(collections.filter((collection) => collection.kind !== "tags"))(
     expect(result).toMatchObject({ props: { kind: collection.kind } });
     expect(FeedView).not.toHaveBeenCalled();
     if (collection.kind === "sources") vi.mocked(api.getSource).mockResolvedValue(source);
+    else if (collection.kind === "tags")
+      vi.mocked(api.getTag).mockResolvedValue({
+        id: "tag",
+        name: "TypeScript",
+        slug: "typescript",
+      });
     else vi.mocked(api.getTopic).mockResolvedValue(topic);
     await collection.page(props);
     expect(FeedView).toHaveBeenCalledOnce();
