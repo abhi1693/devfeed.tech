@@ -6,6 +6,7 @@ from datetime import UTC, datetime
 from sqlalchemy import delete, func, insert, literal, select, text
 
 from devfeed_core.cache import invalidate_public_cache
+from devfeed_core.catalog_cache import snapshot
 from devfeed_core.config import get_settings
 from devfeed_core.models import (
     Article,
@@ -44,6 +45,14 @@ def _visible_tag_count_query():
         .subquery()
     )
     return select(func.count()).select_from(visible_tags)
+
+
+def _visible_tag_count(session):
+    # Revisions are changed in the same transaction as every relevant SQL write.
+    # Redis expiry bounds storage, never decides publication/approval freshness.
+    return snapshot(
+        session, ("search_tag_visibility",), lambda: session.scalar(_visible_tag_count_query())
+    )
 
 
 def _visible_counts(session):
@@ -85,7 +94,7 @@ def _visible_counts(session):
                 .exists(),
             )
         ),
-        "tags": session.scalar(_visible_tag_count_query()),
+        "tags": _visible_tag_count(session),
     }
     return {kind: int(value or 0) for kind, value in counts.items()}
 
