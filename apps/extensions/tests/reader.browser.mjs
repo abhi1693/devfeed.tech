@@ -171,6 +171,7 @@ async function readerFixture(t, imageProfile) {
     compactArticles: false,
     failNextPage: true,
     failArticle: true,
+    failCollection: true,
     feedOptionsStatus: 200,
     articleFeedGate: undefined,
     listingGate: undefined,
@@ -216,6 +217,14 @@ async function readerFixture(t, imageProfile) {
   );
   await context.route("https://devfeed.tech/api/**", async (route) => {
     const url = new URL(route.request().url());
+    if (["/api/v1/topics/retry-topic", "/api/v1/sources/retry-source"].includes(url.pathname)) {
+      const item = url.pathname.includes("/topics/") ? article.topics[0] : article.sources[0];
+      return route.fulfill({
+        status: state.failCollection ? 503 : 200,
+        json: state.failCollection ? {} : { ...item, slug: url.pathname.split("/").at(-1) },
+      });
+    }
+
     serverReads.record(url.href, route.request().headers(), url.origin);
     if (topicContext.handles(url)) return route.fulfill(topicContext.respond(url));
     if (loginDestinations.handles(url)) return route.fulfill(loginDestinations.respond(url));
@@ -773,6 +782,29 @@ test(
       ),
     );
     await tagged.close();
+    for (const [kind, slug] of [
+      ["topics", "retry-topic"],
+      ["sources", "retry-source"],
+    ]) {
+      for (const suffix of ["", "/tutorials"]) {
+        state.failCollection = true;
+        const recoveryPage = await context.newPage();
+        await recoveryPage.goto(page.url().split("#")[0] + `#/${kind}/${slug}${suffix}`);
+        await recoveryPage
+          .getByRole("heading", { name: "Couldn’t load the feed", exact: true })
+          .waitFor();
+        state.failCollection = false;
+        await recoveryPage.getByRole("button", { name: "Try again", exact: true }).click();
+        await recoveryPage
+          .getByRole("heading", {
+            name: kind === "topics" ? article.topics[0].name : article.sources[0].name,
+            exact: true,
+          })
+          .first()
+          .waitFor();
+        await recoveryPage.close();
+      }
+    }
     const retryPage = await context.newPage();
     await retryPage.goto(page.url().split("#")[0] + "#/articles/retry-article");
     await retryPage.getByRole("heading", { name: "Couldn’t load the article" }).waitFor();

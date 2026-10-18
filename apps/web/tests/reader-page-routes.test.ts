@@ -209,3 +209,25 @@ it.each(["c++", "c#", "数据库", "literal%25"])(
     );
   },
 );
+
+it.each(collections.filter((collection) => collection.kind !== "tags"))(
+  "$kind detail failures render a retry state with noindex metadata and recover",
+  async (collection) => {
+    const loader = collection.kind === "sources" ? api.getSource : api.getTopic;
+    vi.mocked(loader).mockRejectedValue(new api.UserApiError(503));
+    const props = {
+      params: Promise.resolve({ ...collection.params, contentType: "tutorials" }),
+      searchParams: Promise.resolve({ q: "engineering" }),
+    };
+    expect(await collection.metadata(props)).toMatchObject({ robots: { index: false } });
+    const result = await collection.page(props);
+    expect(result).toMatchObject({ props: { kind: collection.kind } });
+    expect(FeedView).not.toHaveBeenCalled();
+    if (collection.kind === "sources") vi.mocked(api.getSource).mockResolvedValue(source);
+    else vi.mocked(api.getTopic).mockResolvedValue(topic);
+    await collection.page(props);
+    expect(FeedView).toHaveBeenCalledOnce();
+    vi.mocked(loader).mockRejectedValue(new api.UserApiError(404));
+    await expect(collection.page(props)).rejects.toThrow("NOT_FOUND");
+  },
+);

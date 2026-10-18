@@ -196,6 +196,7 @@ async function createReaderFixture(t, { thumbnailFeed = false } = {}) {
     languages: ["en"],
   };
   let failArticle = true;
+  let failCollection = true;
   let bookmarked = false;
   const bookmarkedArticleIds = new Set();
   let personalFeedRequests = 0;
@@ -210,6 +211,13 @@ async function createReaderFixture(t, { thumbnailFeed = false } = {}) {
   fixture = createServer(async (req, res) => {
     const requestUrl = new URL(req.url, "http://localhost");
     const path = requestUrl.pathname;
+    if (["/v1/topics/retry-topic", "/v1/sources/retry-source"].includes(path)) {
+      res.writeHead(failCollection ? 503 : 200, { "Content-Type": "application/json" });
+      const item = path.includes("/topics/") ? topic : source;
+      res.end(JSON.stringify(failCollection ? {} : { ...item, slug: path.split("/").at(-1) }));
+      return;
+    }
+
     if (
       path === "/v1/user/profiles/keyboard-reader" ||
       path === "/v1/user/profiles/keyboard-reader/reading-heatmap"
@@ -1174,6 +1182,31 @@ async function createReaderFixture(t, { thumbnailFeed = false } = {}) {
     await earlyPage.keyboard.press("Escape");
     await earlyPage.waitForURL(`${origin}/`);
     await earlyContext.close();
+    for (const [kind, slug] of [
+      ["topics", "retry-topic"],
+      ["sources", "retry-source"],
+    ]) {
+      for (const suffix of ["", "/tutorials"]) {
+        failCollection = true;
+        const recoveryPage = await browser.newPage();
+        const response = await recoveryPage.goto(`${origin}/${kind}/${slug}${suffix}`);
+        assert.equal(response.status(), 200);
+        await recoveryPage
+          .getByRole("heading", { name: "This page couldn’t load", exact: true })
+          .waitFor();
+        assert.match(
+          await recoveryPage.locator('meta[name="robots"]').getAttribute("content"),
+          /noindex/,
+        );
+        failCollection = false;
+        await recoveryPage.getByRole("button", { name: "Try again", exact: true }).click();
+        await recoveryPage
+          .getByRole("heading", { name: kind === "topics" ? topic.name : source.name, exact: true })
+          .first()
+          .waitFor();
+        await recoveryPage.close();
+      }
+    }
     const retryContext = await browser.newContext({ viewport: { width: 390, height: 844 } });
     const retryPage = await retryContext.newPage();
     await checkArticleBeforeHydration(
