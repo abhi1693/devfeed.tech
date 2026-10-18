@@ -34,7 +34,12 @@ export function productPlacementStatus(product: InventoryProductOut) {
   if (!product.active) return "Archived";
   if (product.globally_excluded) return "Blocked";
   if (product.excluded) return "Excluded";
-  if (!product.commercial_approved) return "In review";
+  if (!product.commercial_approved) {
+    if (product.status === "rejected") return "Rejected";
+    if (product.status === "paused") return "Paused";
+    if (product.status === "withdrawn") return "Withdrawn";
+    return "In review";
+  }
   if (product.ad_formats?.length === 0 || product.promotion_surfaces?.length === 0)
     return "No placements";
   return "Allowed";

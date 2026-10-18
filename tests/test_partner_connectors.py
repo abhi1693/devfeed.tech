@@ -58,7 +58,7 @@ def test_nested_mapping_and_detail_identity_keep_ai_independent():
     assert product.provider == "platform" and product.external_id == "a/b"
     assert product.listing_url == "https://platform.example/products/a%2Fb"
     assert product.evidence == product.technologies == []
-    with pytest.raises(ValueError, match="different product identity"):
+    with pytest.raises(ValueError, match="different product ID"):
         connectors.ConnectorClient(
             "platform", config, fetch=lambda _: {"data": {"product": entry("someone-else")}}
         ).product(ProductCandidate.model_validate(candidates[0]))
@@ -400,7 +400,7 @@ def test_shipyard_platform_host_guard_rejects_reversed_url_roles(wrong_role):
         "description": "Cron monitoring",
     }
     record[wrong_role] = record["url" if wrong_role == "productUrl" else "productUrl"]
-    with pytest.raises(ValueError, match="website or platform listing is missing"):
+    with pytest.raises(ValueError, match="platform host"):
         connectors.ConnectorClient("shipyardhq", connectors.SHIPYARD_CONNECTOR).product(
             ProductCandidate(external_id=record["id"], data=record)
         )
