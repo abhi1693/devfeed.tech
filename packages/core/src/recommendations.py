@@ -294,59 +294,147 @@ def interests(session, user_id):
     ]
 
 
-def ranked_candidates(session, user_id, now, interest_count, content_types, languages):
-    # At most 10,000 candidates, up to 500 per interest. Only scoring data is loaded.
+# Both paths retain the same per-interest limits and eligibility rules.
+_LATERAL_CANDIDATES_SQL = """
+SELECT i.topic_id, i.seed_topic_id, NULL::uuid AS source_id, NULL::uuid AS tag_id,
+       i.weight, i.reason, a.id, a.feed_at
+FROM user_interests i
+CROSS JOIN LATERAL (
+  SELECT article.id, article.feed_at
+  FROM article_topics link JOIN articles article ON article.id = link.article_id
+  WHERE link.topic_id = i.topic_id AND link.role IN ('primary', 'supporting')
+    AND article.publication_status = 'published' AND article.review_status = 'approved'
+    AND article.content_type = ANY(:content_types)
+    AND article.language = ANY(:languages)
+    AND EXISTS (SELECT 1 FROM article_origins origin
+                JOIN sources source ON source.id = origin.source_id
+                WHERE origin.article_id = article.id
+                  AND source.approval_status = 'approved')
+  ORDER BY article.feed_at DESC, article.id DESC LIMIT :candidate_limit
+) a
+WHERE i.user_id = :user_id
+UNION ALL
+SELECT NULL::uuid, NULL::uuid, f.source_id, NULL::uuid,
+       100, 'followed_source', a.id, a.feed_at
+FROM user_sources f JOIN sources source ON source.id = f.source_id
+CROSS JOIN LATERAL (
+  SELECT DISTINCT article.id, article.feed_at
+  FROM article_origins origin JOIN articles article ON article.id = origin.article_id
+  WHERE origin.source_id = f.source_id
+    AND article.publication_status = 'published' AND article.review_status = 'approved'
+    AND article.content_type = ANY(:content_types)
+    AND article.language = ANY(:languages)
+  ORDER BY article.feed_at DESC, article.id DESC LIMIT :candidate_limit
+) a
+WHERE f.user_id = :user_id AND source.approval_status = 'approved'
+UNION ALL
+SELECT NULL::uuid, NULL::uuid, NULL::uuid, f.tag_id, 100, 'followed_tag', a.id, a.feed_at
+FROM user_tags f
+CROSS JOIN LATERAL (
+  SELECT article.id, article.feed_at
+  FROM article_tags link JOIN articles article ON article.id = link.article_id
+  WHERE link.tag_id = f.tag_id
+    AND article.publication_status = 'published' AND article.review_status = 'approved'
+    AND article.content_type = ANY(:content_types)
+    AND article.language = ANY(:languages)
+    AND EXISTS (SELECT 1 FROM article_origins origin
+                JOIN sources source ON source.id = origin.source_id
+                WHERE origin.article_id = article.id
+                  AND source.approval_status = 'approved')
+  ORDER BY article.feed_at DESC, article.id DESC LIMIT :candidate_limit
+) a
+WHERE f.user_id = :user_id
+"""
+
+_BROAD_CANDIDATES_SQL = """
+WITH topic_candidates AS (
+  SELECT i.topic_id, i.seed_topic_id, i.weight, i.reason, article.id, article.feed_at,
+         row_number() OVER (PARTITION BY i.topic_id
+             ORDER BY article.feed_at DESC, article.id DESC) AS candidate_rank
+  FROM user_interests i
+  JOIN article_topics link ON link.topic_id=i.topic_id
+  JOIN articles article ON article.id=link.article_id
+  WHERE i.user_id=:user_id AND link.role IN ('primary','supporting')
+    AND article.publication_status='published' AND article.review_status='approved'
+    AND article.content_type=ANY(:content_types) AND article.language=ANY(:languages)
+    AND EXISTS (SELECT 1 FROM article_origins origin
+                JOIN sources source ON source.id=origin.source_id
+                WHERE origin.article_id=article.id AND source.approval_status='approved')
+), source_matches AS (
+  SELECT DISTINCT f.source_id, article.id, article.feed_at
+  FROM user_sources f
+  JOIN sources source ON source.id=f.source_id
+  JOIN article_origins origin ON origin.source_id=f.source_id
+  JOIN articles article ON article.id=origin.article_id
+  WHERE f.user_id=:user_id AND source.approval_status='approved'
+    AND article.publication_status='published' AND article.review_status='approved'
+    AND article.content_type=ANY(:content_types) AND article.language=ANY(:languages)
+), source_candidates AS (
+  SELECT source_id,id,feed_at,
+         row_number() OVER (PARTITION BY source_id ORDER BY feed_at DESC,id DESC) AS candidate_rank
+  FROM source_matches
+), tag_candidates AS (
+  SELECT f.tag_id, article.id, article.feed_at,
+         row_number() OVER (PARTITION BY f.tag_id
+             ORDER BY article.feed_at DESC, article.id DESC) AS candidate_rank
+  FROM user_tags f JOIN article_tags link ON link.tag_id=f.tag_id
+  JOIN articles article ON article.id=link.article_id
+  WHERE f.user_id=:user_id
+    AND article.publication_status='published' AND article.review_status='approved'
+    AND article.content_type=ANY(:content_types) AND article.language=ANY(:languages)
+    AND EXISTS (SELECT 1 FROM article_origins origin
+                JOIN sources source ON source.id=origin.source_id
+                WHERE origin.article_id=article.id AND source.approval_status='approved')
+)
+SELECT topic_id,seed_topic_id,NULL::uuid AS source_id,NULL::uuid AS tag_id,weight,reason,id,feed_at
+FROM topic_candidates WHERE candidate_rank<=:candidate_limit
+UNION ALL
+SELECT NULL::uuid,NULL::uuid,source_id,NULL::uuid,100,'followed_source',id,feed_at
+FROM source_candidates WHERE candidate_rank<=:candidate_limit
+UNION ALL
+SELECT NULL::uuid,NULL::uuid,NULL::uuid,tag_id,100,'followed_tag',id,feed_at
+FROM tag_candidates WHERE candidate_rank<=:candidate_limit
+"""
+
+
+def _use_broad_candidate_query(session, interest_count, content_types, languages):
+    # Dense/narrow profiles benefit from early-exit LATERAL probes. For broad,
+    # selective profiles, rank qualifying matches in sets instead of repeating
+    # sparse filtering per follow. Estimates select a strategy, never eligibility.
+    if interest_count < 8:
+        return False
     rows = session.execute(
         text("""
-        SELECT i.topic_id, i.seed_topic_id, NULL::uuid AS source_id, NULL::uuid AS tag_id,
-               i.weight, i.reason, a.id, a.feed_at
-        FROM user_interests i
-        CROSS JOIN LATERAL (
-          SELECT article.id, article.feed_at
-          FROM article_topics link JOIN articles article ON article.id = link.article_id
-          WHERE link.topic_id = i.topic_id AND link.role IN ('primary', 'supporting')
-            AND article.publication_status = 'published' AND article.review_status = 'approved'
-            AND article.content_type = ANY(:content_types)
-            AND article.language = ANY(:languages)
-            AND EXISTS (SELECT 1 FROM article_origins origin
-                        JOIN sources source ON source.id = origin.source_id
-                        WHERE origin.article_id = article.id
-                          AND source.approval_status = 'approved')
-          ORDER BY article.feed_at DESC, article.id DESC LIMIT :candidate_limit
-        ) a
-        WHERE i.user_id = :user_id
-        UNION ALL
-        SELECT NULL::uuid, NULL::uuid, f.source_id, NULL::uuid,
-               100, 'followed_source', a.id, a.feed_at
-        FROM user_sources f JOIN sources source ON source.id = f.source_id
-        CROSS JOIN LATERAL (
-          SELECT DISTINCT article.id, article.feed_at
-          FROM article_origins origin JOIN articles article ON article.id = origin.article_id
-          WHERE origin.source_id = f.source_id
-            AND article.publication_status = 'published' AND article.review_status = 'approved'
-            AND article.content_type = ANY(:content_types)
-            AND article.language = ANY(:languages)
-          ORDER BY article.feed_at DESC, article.id DESC LIMIT :candidate_limit
-        ) a
-        WHERE f.user_id = :user_id AND source.approval_status = 'approved'
-        UNION ALL
-        SELECT NULL::uuid, NULL::uuid, NULL::uuid, f.tag_id, 100, 'followed_tag', a.id, a.feed_at
-        FROM user_tags f
-        CROSS JOIN LATERAL (
-          SELECT article.id, article.feed_at
-          FROM article_tags link JOIN articles article ON article.id = link.article_id
-          WHERE link.tag_id = f.tag_id
-            AND article.publication_status = 'published' AND article.review_status = 'approved'
-            AND article.content_type = ANY(:content_types)
-            AND article.language = ANY(:languages)
-            AND EXISTS (SELECT 1 FROM article_origins origin
-                        JOIN sources source ON source.id = origin.source_id
-                        WHERE origin.article_id = article.id
-                          AND source.approval_status = 'approved')
-          ORDER BY article.feed_at DESC, article.id DESC LIMIT :candidate_limit
-        ) a
-        WHERE f.user_id = :user_id
-    """),
+        SELECT attname, most_common_vals::text::text[] AS identities,
+               most_common_freqs AS frequencies
+        FROM pg_stats
+        WHERE schemaname=current_schema() AND tablename='articles'
+          AND attname IN ('content_type','language') AND NOT inherited
+    """)
+    ).mappings()
+    selected = {"content_type": set(content_types), "language": set(languages)}
+    fractions = {}
+    for row in rows:
+        identities, frequencies = row["identities"], row["frequencies"]
+        if not identities or not frequencies or len(identities) != len(frequencies):
+            return False
+        fractions[row["attname"]] = sum(
+            frequency
+            for identity, frequency in zip(identities, frequencies, strict=True)
+            if identity in selected[row["attname"]]
+        )
+    return len(fractions) == 2 and fractions["content_type"] * fractions["language"] <= 0.25
+
+
+def ranked_candidates(session, user_id, now, interest_count, content_types, languages):
+    candidate_sql = (
+        _BROAD_CANDIDATES_SQL
+        if _use_broad_candidate_query(session, interest_count, content_types, languages)
+        else _LATERAL_CANDIDATES_SQL
+    )
+    # At most 10,000 candidates, up to 500 per interest. Only scoring data is loaded.
+    rows = session.execute(
+        text(candidate_sql),
         {
             "user_id": user_id,
             "content_types": content_types,

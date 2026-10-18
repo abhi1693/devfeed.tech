@@ -30,6 +30,13 @@ from test_user_personalization import user_data as user_data
 pytestmark = pytest.mark.integration
 
 
+@pytest.fixture(params=[False, True], autouse=True)
+def candidate_query_strategy(request, monkeypatch):
+    from devfeed_core import recommendations
+
+    monkeypatch.setattr(recommendations, "_use_broad_candidate_query", lambda *_: request.param)
+
+
 def make_due(database, user):
     with database.begin() as session:
         session.get(UserRecommendationState, user).next_refresh_at = utcnow()
@@ -849,3 +856,65 @@ def test_followed_tags_seed_and_rank_feed_then_unfollow_removes_results(user_dat
     assert str(article_id) not in result["reasons"]
     make_due(database, user)
     assert refresh_recommendations(database, user) == 0
+
+
+def test_source_candidates_deduplicate_origins_before_the_per_follow_limit(database, monkeypatch):
+    from devfeed_core import recommendations
+    from devfeed_core.models import ArticleOrigin, Source, UserAccount, UserSource
+
+    now = utcnow()
+    user_id = uuid.uuid4()
+    with database.begin() as session:
+        session.add(
+            UserAccount(
+                id=user_id,
+                issuer="https://identity.example",
+                subject="dedup",
+                organization_id="test",
+            )
+        )
+        sources = [
+            Source(
+                name=f"Source {index}",
+                feed_url=f"https://example.test/{index}/rss",
+                source_type="publisher",
+                approval_status="approved",
+            )
+            for index in range(8)
+        ]
+        session.add_all(sources)
+        session.flush()
+        session.add_all([UserSource(user_id=user_id, source_id=source.id) for source in sources])
+        articles = [
+            Article(
+                title=f"Candidate {index}",
+                canonical_url=f"https://example.test/{index}",
+                url_hash=f"{index:064x}",
+                feed_at=now - timedelta(minutes=index),
+                language="en",
+                content_type="article",
+                review_status="rejected" if index == 1 else "approved",
+                publication_status="unpublished" if index < 2 else "published",
+            )
+            for index in range(35)
+        ]
+        session.add_all(articles)
+        session.flush()
+        session.add_all(
+            [
+                ArticleOrigin(
+                    article_id=article.id,
+                    source_id=sources[0].id,
+                    entry_key=f"{index}-{copy}",
+                    original_url=article.canonical_url,
+                )
+                for index, article in enumerate(articles)
+                for copy in range(2)
+            ]
+        )
+        expected = [article.id for article in articles[2:12]]
+    monkeypatch.setattr(recommendations, "CANDIDATE_BUDGET", 80)
+    with database() as session:
+        result = recommendations.ranked_candidates(session, user_id, now, 8, ["article"], ["en"])
+    assert [row["article_id"] for row in result] == expected
+    assert all(row["reason"] == "followed_source" for row in result)
