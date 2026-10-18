@@ -3,7 +3,7 @@
  * Do not edit manually.
  * DevFeed Partner API
  * Partner analytics API with role-gated sessions and live memberships.
- * OpenAPI spec version: 0.0.52
+ * OpenAPI spec version: 0.1.0
  */
 
 export type AccountOutAllowedAdFormatsItem = typeof AccountOutAllowedAdFormatsItem[keyof typeof AccountOutAllowedAdFormatsItem];
