@@ -32,7 +32,12 @@ def checkpoint(factory, identifier, token, asset) -> bool:
         job = owned_job(session, ArticleImageJob, identifier, token)
         if job is None:
             return False
-        job.storage = dict(asset)
+        marker = (job.storage or {}).get("source_pipeline_request")
+        job.storage = {
+            **asset,
+            **({"source_pipeline_request": marker} if marker else {}),
+            **({"article_refresh": True} if (job.storage or {}).get("article_refresh") else {}),
+        }
     return True
 
 
@@ -158,9 +163,13 @@ def _lock_subject(session, model, subject_id):
 
 
 def _current_source(subject, job, source_field, source):
-    return getattr(subject, source_field) == source and (
-        not isinstance(subject, PartnerProductPromotion)
-        or subject.ad_image_revision == job.subject_revision
+    return (
+        (not isinstance(subject, Article) or subject.publication_status != "published")
+        and getattr(subject, source_field) == source
+        and (
+            not isinstance(subject, PartnerProductPromotion)
+            or subject.ad_image_revision == job.subject_revision
+        )
     )
 
 
@@ -204,7 +213,12 @@ def store_logo(factory, identifier, token, subject_id, source, *, model):
 
 
 def _replacement(session, model, subject, *, asset_field="managed_logo"):
-    if model is PartnerProductPromotion:
+    if model is Article:
+        from devfeed_core.image_jobs import request_image
+
+        session.flush()
+        request_image(session, subject.id, automatic=True)
+    elif model is PartnerProductPromotion:
         from devfeed_core.partner_product_images import request_product_ad_image
 
         session.flush()
@@ -240,7 +254,11 @@ def _store_asset(
             job = session.get(ArticleImageJob, identifier)
             if job is None or job.status != "running" or job.lease_token != token:
                 return
-            asset = dict(job.storage or {})
+            asset = {
+                key: value
+                for key, value in (job.storage or {}).items()
+                if key not in {"article_refresh", "source_pipeline_request"}
+            }
         with storage_client() as client:
             original = original_store(client)
             variants = variant_store(client)
@@ -290,10 +308,16 @@ def _store_asset(
                     else asset,
                 )
             job.method = method
-            job.storage = dict(asset)
+            marker = (job.storage or {}).get("source_pipeline_request")
+            job.storage = {**asset, **({"source_pipeline_request": marker} if marker else {})}
             finish_job(job, "found" if current else "already_present", utcnow())
             if not current:
                 _replacement(session, model, subject, asset_field=asset_field)
+            elif model is Source:
+                session.flush()
+                from devfeed_core.source_lifecycle import reconcile_source_processing
+
+                reconcile_source_processing(session, subject, automatic=True)
         logger.info("image_storage_completed", extra={"variant_count": len(asset["variants"])})
     except Exception as exc:
         transport = exc if isinstance(exc, FeedError) else None

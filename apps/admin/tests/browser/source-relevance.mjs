@@ -4,6 +4,7 @@ import { spawn } from "node:child_process";
 import { mkdir } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { chromium } from "playwright";
+import { activeSourceReadiness } from "./fixtures/source-readiness.mjs";
 
 // Run after npm run admin:build. The API is a disposable local fixture.
 const root = fileURLToPath(new URL("../../../../", import.meta.url));
@@ -36,6 +37,19 @@ assessment.entries = assessment.sample.map(({ index, title }) => ({
   relevance: [1, 6, 8].includes(index) ? "uncertain" : "relevant",
   evidence: [1, 6, 8].includes(index) ? "" : title,
 }));
+const source = {
+  id: sourceId,
+  name: "Engineering Leadership",
+  slug: "engineering-leadership",
+  feed_url: "https://newsletter.eng-leadership.com/feed",
+  source_type: "publisher",
+  enabled: true,
+  poll_interval_seconds: 43200,
+  approval_status: "approved",
+  relevance_assessment: assessment,
+  publication_policy: "manual",
+  publication_policy_revision: 0,
+};
 const fixture = createServer(async (req, res) => {
   const path = new URL(req.url, "http://localhost").pathname;
   let body = {};
@@ -51,20 +65,9 @@ const fixture = createServer(async (req, res) => {
   else if (path.endsWith("/settings"))
     body = { appearance: { theme: "light" }, defaults: { refresh_seconds: 0 } };
   else if (path.endsWith("/notifications/config")) body = { enabled: false };
-  else if (path.endsWith(`/sources/${sourceId}`))
-    body = {
-      id: sourceId,
-      name: "Engineering Leadership",
-      slug: "engineering-leadership",
-      feed_url: "https://newsletter.eng-leadership.com/feed",
-      source_type: "publisher",
-      enabled: true,
-      poll_interval_seconds: 43200,
-      approval_status: "approved",
-      relevance_assessment: assessment,
-      publication_policy: "manual",
-      publication_policy_revision: 0,
-    };
+  else if (path === `/v1/admin/source-pipeline/items/source/${sourceId}`)
+    body = activeSourceReadiness(source);
+  else if (path.endsWith(`/sources/${sourceId}`)) body = source;
   res.setHeader("content-type", "application/json");
   res.end(JSON.stringify(body));
 });

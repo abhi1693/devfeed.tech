@@ -64,6 +64,9 @@ def prune_job_payloads(factory) -> int:
                     Article.classification_provenance["analysis_id"].astext.is_distinct_from(
                         model.id.cast(String)
                     ),
+                    Article.classification_provenance["ai_generation"][
+                        "analysis_id"
+                    ].astext.is_distinct_from(model.id.cast(String)),
                 )
             )
         else:
@@ -96,6 +99,11 @@ def prune_job_payloads(factory) -> int:
                 job.input_snapshot = {}
                 if isinstance(job, ArticleAnalysisJob):
                     job.catalog_snapshot = {}
+                    job.steps = {
+                        name: {field: value for field, value in step.items() if field != "output"}
+                        for name, step in job.steps.items()
+                        if isinstance(step, dict)
+                    }
                 job.inputs_pruned_at = now
                 job.usage = {**job.usage, "input_payload_pruned_at": now.isoformat()}
             pruned += len(jobs)

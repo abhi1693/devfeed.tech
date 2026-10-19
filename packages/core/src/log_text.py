@@ -47,6 +47,8 @@ _MESSAGES = {
     "cache_invalidated": "User response cache invalidated after commit",
     "ingestion_source_unapproved": "Ingestion stopped because the source is no longer approved",
     "source_relevance_rerouted": "Source relevance check returned to the AI queue",
+    "source_relevance_started": "Assessing source relevance with Codex",
+    "source_relevance_completed": "Source relevance assessment completed",
     "source_enrichment_source_deleted": "Source deleted; profile results discarded",
     "source_enrichment_started": "Looking up source profile",
     "source_enrichment_completed": "Source profile enriched",

@@ -19,6 +19,7 @@ from sqlalchemy.orm import Session
 
 from devfeed_core.ai_content import eligible_article, eligible_articles
 from devfeed_core.article_jobs import approved_sources
+from devfeed_core.article_quality import identifying_title, readable_presentation
 from devfeed_core.cache_events import PRIVATE_ARTICLES
 from devfeed_core.config import get_settings
 from devfeed_core.editorial import meaningful_text
@@ -48,9 +49,12 @@ from devfeed_core.schemas import (
 from devfeed_core.services import OperationConflict, RecordNotFound
 from devfeed_core.topics import lock_topics
 
-PROMPT_VERSION = "article-analysis-v7-grounded-overview"
+PROMPT_VERSION = "article-analysis-v9-specialist-steps"
 TOPIC_CONTEXT_BYTES = 640
-VALIDATION_VERSION = "article-validation-v2-discard-unpublishable-prose"
+ARTICLE_INPUT_BYTES = 250_000
+ARTICLE_SOURCE_BYTES = 190_000
+ARTICLE_INPUT_RESERVE_BYTES = 32_000
+VALIDATION_VERSION = "article-validation-v4-specialist-steps"
 TERMINAL_ANALYSIS_ERRORS = frozenset(
     {"ai_not_configured", "unexpected_tool_execution", "unexpected_server_request"}
 )
@@ -140,6 +144,16 @@ class AnalysisResult(Classifications):
                 "unresolved_ready_analysis",
                 "Ready analysis requires a resolved language and content type",
             )
+        if (
+            self.outcome == "ready"
+            and self.page_kind == "article"
+            and self.developer_relevance == "relevant"
+        ):
+            for name in ("ai_summary", "ai_description"):
+                if not readable_presentation(getattr(self, name)):
+                    raise InferenceValidationError(
+                        f"missing_{name}", "Ready relevant articles require readable AI prose"
+                    )
         return self
 
 
@@ -174,6 +188,63 @@ def snapshot_hash(snapshot: dict) -> str:
     return hashlib.sha256(
         json.dumps(snapshot, sort_keys=True, ensure_ascii=False).encode()
     ).hexdigest()
+
+
+def _json_bytes(value) -> int:
+    return len(json.dumps(value, ensure_ascii=False).encode())
+
+
+def _source_excerpt(value: str, budget: int) -> tuple[str, bool]:
+    """Keep source head and tail within a serialized UTF-8 budget, without broken codepoints."""
+    if _json_bytes(value) <= budget:
+        return value, False
+    marker = "\n[... source excerpt omitted ...]\n"
+    low, high = 0, len(value)
+    while low < high:
+        count = (low + high + 1) // 2
+        head = (count * 2 + 2) // 3
+        tail = count - head
+        sample = value[:head] + marker + (value[-tail:] if tail else "")
+        if _json_bytes(sample) <= budget:
+            low = count
+        else:
+            high = count - 1
+    head = (low * 2 + 2) // 3
+    tail = low - head
+    return value[:head] + marker + (value[-tail:] if tail else ""), True
+
+
+def bounded_analysis_source(source: dict) -> dict:
+    """Bound only inference context; retain the complete snapshot for freshness and final checks."""
+    result = {
+        f"{field}_is_excerpt": source[f"{field}_is_excerpt"]
+        for field in ("title", "url", "text_source", "source_summary", "text")
+        if isinstance(source.get(f"{field}_is_excerpt"), bool)
+    }
+    for field, limit in (("title", 2000), ("url", 4000), ("text_source", 256)):
+        if field in source:
+            value, excerpted = _source_excerpt(str(source[field] or ""), limit)
+            result[field] = value
+            if excerpted:
+                result[f"{field}_is_excerpt"] = True
+    if "source_summary" in source:
+        summary = str(source["source_summary"] or "")
+        if summary and summary == source.get("text"):
+            result["source_summary"] = ""
+            result["source_summary_matches_text"] = True
+        else:
+            value, excerpted = _source_excerpt(summary, 12_000)
+            result["source_summary"] = value
+            if excerpted:
+                result["source_summary_is_excerpt"] = True
+    if "text" in source:
+        # Include JSON keys, flags, escaped control characters and the excerpt marker.
+        budget = ARTICLE_SOURCE_BYTES - _json_bytes({**result, "text": ""}) - 128
+        value, excerpted = _source_excerpt(str(source["text"] or ""), budget)
+        result["text"] = value
+        if excerpted:
+            result["text_is_excerpt"] = True
+    return result
 
 
 def catalog(session: Session) -> dict:
@@ -409,9 +480,12 @@ def analysis_candidates(taxonomy: dict, snapshot: dict) -> dict:
     root, frequency, postings = prepared.indexes
     scores = _candidate_scores(root, frequency, postings, len(prepared.entries), snapshot)
     result: dict[str, list] = {"topics": [], "tags": []}
-    # Codex allows 250 KB. Reserve space for the article, instructions and JSON
-    # separators rather than assuming a count alone bounds long alias lists.
-    remaining = 240_000 - len(analysis_prompt(snapshot, result).encode())
+    # Specialist prompts share a bounded source, not the legacy aggregate prompt.
+    # Reserve instructions, schema (including candidate ID enums), wrappers and
+    # feedback rather than assuming a candidate count bounds long Unicode aliases.
+    remaining = (
+        240_000 - _json_bytes(bounded_analysis_source(snapshot)) - ARTICLE_INPUT_RESERVE_BYTES
+    )
     fallback = {"topics": 0, "tags": 0}
     for index in sorted(range(len(scores)), key=lambda i: (-scores[i], *prepared.sort_keys[i])):
         score = scores[index]
@@ -534,6 +608,13 @@ on RSS technology, can be an article. Do not reject it solely for an RSS title o
 or a subscription footer. Judge substantive content separately from site boilerplate.
 Review the title: preserve clear, factual titles by returning ai_title null.
 For vague titles or clickbait, write a concise, specific, neutral title in ai_title.
+Version-only release titles such as v0.18.1 or Release v0.18.1 do not identify the
+project. For those, provide a title naming the project and version only when the
+actual source_summary or text identifies that project. Preserve a supported useful
+release detail when available; a project and version alone can be sufficient.
+Never guess the project from catalog topics or an approved source's name. If the
+body/summary cannot identify it, return insufficient_evidence instead of a ready
+article with a bare release title. Preserve clear project-identifying release titles.
 State the actual subject and supported finding; remove hype, withheld information,
 exaggeration and sensational claims. Preserve uncertainty, scope and product names.
 Never invent facts, outcomes, numbers or stronger claims. Do not optimize for clicks.
@@ -563,6 +644,9 @@ If the source cannot support a useful faithful overview, return insufficient_evi
 with null prose instead of expanding sparse input. Keep ai_summary within 1200 characters.
 Use ai_description for a shorter description of the article's scope, not an extra
 takeaway or claims absent from ai_summary and the supplied evidence.
+Both ai_summary and ai_description must contain readable prose for a relevant ready
+article. Nulls, empty strings, markup-only text and links alone are not complete.
+Do not pad to meet a length target; insufficient source evidence must stay incomplete.
 Classify subjects, not mere keywords: Vault Agent is not automatically an AI agent;
 JavaScript+Angular does not imply React; OpenTofu is not automatically Terraform.
 Compare each topic's description and ai_description with the subject actually
@@ -600,6 +684,16 @@ The application, not you, decides approval and publication.
 
 
 def validate_evidence(result: Classifications, snapshot: dict, taxonomy: dict) -> None:
+    if (
+        isinstance(result, AnalysisResult)
+        and result.outcome == "ready"
+        and result.page_kind == "article"
+        and result.developer_relevance == "relevant"
+        and not identifying_title(result.ai_title or snapshot.get("title"))
+    ):
+        raise InferenceValidationError(
+            "unidentifiable_title", "A ready article needs a source-supported identifying title"
+        )
     if isinstance(result, AnalysisResult) and result.ai_title:
         body = " ".join(
             " ".join(str(snapshot.get(field) or "").split()) for field in ("source_summary", "text")
@@ -644,6 +738,10 @@ def request_analysis(
     )
     if article is None:
         raise RecordNotFound("Article not found")
+    if article.publication_status == "published":
+        if automatic:
+            return None
+        raise OperationConflict("Unpublish the article before requesting analysis")
     if not eligible_article(article):
         if automatic:
             return None
@@ -675,7 +773,7 @@ def request_analysis(
     current_candidates = analysis_candidates(current_catalog, snapshot)
     catalog_digest = snapshot_hash(current_candidates)
     settings = get_settings()
-    wire_format = "compact-evidence-v3" if settings.ai_compact_article_prompts else "original"
+    wire_format = "specialist-steps-v1"
     if automatic and not force:
         previous = session.scalars(
             select(ArticleAnalysisJob)
@@ -880,12 +978,16 @@ def apply_analysis(
     )
     article.ai_title = result.ai_title
     article.ai_summary, article.ai_description = result.ai_summary, result.ai_description
-    article.classification_provenance = {
-        "origin": "ai",
+    generation = {
         "analysis_id": str(job.id),
         "model": job.model,
         "prompt_version": job.prompt_version,
         "input_hash": job.input_hash,
+    }
+    article.classification_provenance = {
+        "origin": "ai",
+        **generation,
+        "ai_generation": generation,
         "generated_at": utcnow().isoformat(),
         "developer_relevance": result.developer_relevance,
         "page_kind": result.page_kind,
@@ -1061,6 +1163,25 @@ def classify_manually(session: Session, identifier: uuid.UUID, body: ManualClass
     lock_topics(session, read=True)
     snapshot = source_snapshot(article, session.get(ArticleContent, identifier))
     validate_evidence(body, snapshot, catalog(session))
+    digest = snapshot_hash(snapshot)
+    previous = article.classification_provenance or {}
+    generation = previous.get("ai_generation")
+    if not isinstance(generation, dict):
+        # Existing rows identify generation directly in classification provenance.
+        generation = previous
+    preserved_generation = (
+        {
+            field: generation.get(field)
+            for field in ("analysis_id", "input_hash", "prompt_version", "model")
+        }
+        if previous.get("input_hash") == digest
+        and generation.get("input_hash") == digest
+        and isinstance(generation.get("analysis_id"), str)
+        and generation["analysis_id"]
+        and readable_presentation(article.ai_summary)
+        and readable_presentation(article.ai_description)
+        else None
+    )
     assigned = replace_classifications(session, article, body, origin="manual")
     article.classification_provenance = {
         "origin": "manual",
@@ -1068,7 +1189,8 @@ def classify_manually(session: Session, identifier: uuid.UUID, body: ManualClass
         "developer_relevance": body.developer_relevance,
         "page_kind": body.page_kind,
         "generated_at": utcnow().isoformat(),
-        "input_hash": snapshot_hash(snapshot),
+        "input_hash": digest,
+        **({"ai_generation": preserved_generation} if preserved_generation else {}),
         **assigned,
     }
     article.publication_status = "unpublished"

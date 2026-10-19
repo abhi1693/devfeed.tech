@@ -8,6 +8,7 @@ from devfeed_core.models import Article, Tag, Topic
 from devfeed_core.schemas import SourceDecision
 from source_suggestions import suggest_source
 from sqlalchemy import select
+from test_api import complete_source_profile
 
 pytestmark = pytest.mark.integration
 
@@ -50,6 +51,7 @@ def test_runtime_tags_aliases_topic_grouping_and_rename(
     ).json()
     with database.begin() as session:
         source_id = uuid.UUID(source["id"])
+        complete_source_profile(session, source_id)
         services.review_source(session, source_id, SourceDecision(decision="approved"))
         job = {"id": str(services.fetch_source(session, source_id).id)}
     monkeypatch.setattr(tasks, "fetch_feed", lambda *a: FetchResult(200, rss_bytes, a[0]))
@@ -114,6 +116,7 @@ def test_feed_tags_are_imported_without_creating_topics(
     ).json()
     with database.begin() as session:
         source_id = uuid.UUID(source["id"])
+        complete_source_profile(session, source_id)
         services.review_source(session, source_id, SourceDecision(decision="approved"))
         job = {"id": str(services.fetch_source(session, source_id).id)}
     monkeypatch.setattr(tasks, "fetch_feed", lambda *a: FetchResult(200, rss_bytes, a[0]))

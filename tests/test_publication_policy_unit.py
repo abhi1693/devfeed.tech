@@ -18,6 +18,9 @@ def scenario(monkeypatch):
     monkeypatch.setattr(policy, "get_settings", lambda: settings)
     monkeypatch.setattr(policy, "analysis_catalog_current", lambda *_: True)
     monkeypatch.setattr(policy, "catalog", lambda _: {"topics": [], "tags": []})
+    # These tests isolate automatic authority/freshness; processing admission has
+    # separate real-job unit and PostgreSQL integration coverage.
+    monkeypatch.setattr(policy, "processing_readiness", lambda *_, **__: NS(blockers=[]))
     article = NS(
         id=ID,
         canonical_url="https://example.com/article",

@@ -3,11 +3,20 @@
 import uuid
 
 import pytest
+from article_processing_helpers import complete_processing
 from devfeed_core import services
-from devfeed_core.models import Article, ArticleEnrichmentJob, IngestionJob, SourceEnrichmentJob
+from devfeed_core.models import (
+    Article,
+    ArticleEnrichmentJob,
+    IngestionJob,
+    Source,
+    SourceEnrichmentJob,
+    utcnow,
+)
 from devfeed_core.services import ValidatedSource
+from devfeed_core.source_enrichment import source_identity
 from devfeed_core.urls import fingerprint
-from sqlalchemy import update
+from sqlalchemy import select, update
 
 pytestmark = pytest.mark.integration
 
@@ -21,6 +30,17 @@ def create(client, resource, body):
 def identity(name):
     suffix = uuid.uuid4().hex[:12]
     return {"name": f"CRUD test {name} {suffix}", "slug": f"crud-{name}-{suffix}"}
+
+
+def complete_profile(database, source):
+    with database.begin() as session:
+        record = session.get(Source, uuid.UUID(source["id"]))
+        profile = session.scalar(
+            select(SourceEnrichmentJob).where(SourceEnrichmentJob.source_id == record.id)
+        )
+        profile.status, profile.finished_at = "succeeded", utcnow()
+        profile.result = {"input": source_identity(record), "sample": []}
+        record.metadata_enriched_at = profile.finished_at
 
 
 def test_admin_taxonomy_crud_and_references(admin_client):
@@ -77,7 +97,7 @@ def test_admin_taxonomy_crud_and_references(admin_client):
         assert client.get(f"/v1/admin/{resource}/{obj['id']}").status_code == 404
 
 
-def test_admin_article_crud_classification_and_publication(admin_client, monkeypatch):
+def test_admin_article_crud_classification_and_publication(admin_client, database, monkeypatch):
     client = admin_client
     monkeypatch.setattr(
         services,
@@ -99,6 +119,7 @@ def test_admin_article_crud_classification_and_publication(admin_client, monkeyp
             "source_type": "publisher",
         },
     )
+    complete_profile(database, source)
     assert (
         client.post(
             f"/v1/admin/sources/{source['id']}/review", json={"decision": "approved"}
@@ -149,6 +170,12 @@ def test_admin_article_crud_classification_and_publication(admin_client, monkeyp
     assert client.get("/v1/admin/articles", params={"topic_id": topic["id"]}).json()["total"] == 1
     approved = client.post(path + "/review", json={"action": "approve", "expected_revision": 1})
     assert approved.status_code == 200
+    blocked = client.post(path + "/review", json={"action": "publish", "expected_revision": 2})
+    assert blocked.status_code == 409
+    assert "enrichment_required" in blocked.json()["detail"]
+    assert "current_analysis_required" in blocked.json()["detail"]
+    with database.begin() as session:
+        complete_processing(session, session.get(Article, uuid.UUID(article["id"])))
     published = client.post(path + "/review", json={"action": "publish", "expected_revision": 2})
     assert published.status_code == 200, published.text
     assert published.json()["publication_status"] == "published"
@@ -244,6 +271,8 @@ def test_admin_source_validation_review_jobs_and_delete(admin_client, database, 
     source = create(client, "sources", body)
     path = f"/v1/admin/sources/{source['id']}"
     assert source["approval_status"] == "pending"
+    assert client.post(path + "/review", json={"decision": "approved"}).status_code == 409
+    complete_profile(database, source)
     reviewed = client.post(path + "/review", json={"decision": "approved"})
     assert reviewed.status_code == 200
     assert reviewed.json()["reviewed_by"] == "integration-admin"

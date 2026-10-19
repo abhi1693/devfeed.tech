@@ -3,7 +3,7 @@ from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
 
 import pytest
-from devfeed_core import jobs, services
+from devfeed_core import jobs, services, source_lifecycle
 from devfeed_core.models import Source
 from devfeed_core.schemas import SourcePatch
 
@@ -36,6 +36,9 @@ def update(monkeypatch, record, patch, active=None):
         return next(rows)
 
     session = SimpleNamespace(scalar=scalar, flush=lambda: None)
+    # These fixtures exercise cadence only; real prerequisite guards and pause
+    # intent are tested by the source lifecycle and admin API regressions.
+    monkeypatch.setattr(source_lifecycle, "source_activation_blockers", lambda *a: [])
     monkeypatch.setattr(jobs, "utcnow", lambda: NOW)
     assert services.update_source(session, record.id, SourcePatch(**patch)) is record
     assert statements[0]._for_update_arg is not None

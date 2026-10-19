@@ -103,19 +103,22 @@ def test_claim_cannot_steal_or_repeat_job(state):
     current = job(status="queued" if state == "delayed" else state)
     if state == "delayed":
         current.available_at = utcnow() + timedelta(minutes=10)
-    assert image_jobs.claim_image(session_with(None, None, None, None, current), current.id) is None
+    assert (
+        image_jobs.claim_image(session_with(None, None, None, None, None, current), current.id)
+        is None
+    )
     assert current.attempts == 0
 
 
 def test_claim_has_lease_and_skips_fetch_if_publisher_supplied_an_image():
     current = job()
     article = Article(canonical_url="https://publisher.example/article", image_url=None)
-    session = session_with(None, None, None, None, current)
+    session = session_with(None, None, None, None, None, current)
     session.get = lambda *a, **kw: article
     assert image_jobs.claim_image(session, current.id) == (current, article.canonical_url)
     assert current.attempts == 1 and current.lease_token and current.lease_until > utcnow()
     current = job()
-    session = session_with(None, None, None, None, current)
+    session = session_with(None, None, None, None, None, current)
     article.image_url = "https://cdn.example/cover.png"
     session.get = lambda *a, **kw: article
     assert image_jobs.claim_image(session, current.id) is None
@@ -209,6 +212,7 @@ def test_worker_fetches_outside_transaction_and_updates_only_missing_image(image
     assert current.lease_token is None
     sql = str(statements[-1].compile(dialect=postgresql.dialect()))
     assert "articles.image_url IS NULL" in sql and "SET image_url=" in sql
+    assert "articles.canonical_url =" in sql and "articles.publication_status !=" in sql
     assert "feed_at" not in sql and "title" not in sql
     assert "private-token" not in caplog.text
 

@@ -23,6 +23,7 @@ from devfeed_core.models import (
 )
 from devfeed_core.urls import fingerprint
 from sqlalchemy import event, select, text
+from test_automation_integration import extracted
 
 pytestmark = pytest.mark.integration
 
@@ -77,7 +78,7 @@ def test_applying_article_analysis_never_creates_topic_proposals(database, assig
             ai_title=None,
             title_evidence=None,
             page_kind="article",
-            ai_description=None,
+            ai_description="A guide to Angular application routing.",
             topics=[
                 analysis.TopicSelection(
                     topic_id=topic_id, role="primary", relevance=0.9, evidence="Angular routing"
@@ -230,7 +231,7 @@ def test_analysis_then_explicit_publication_and_cached_unpublish(database, clien
                 ai_title="How Angular routing works",
                 title_evidence="Angular routing",
                 page_kind="article",
-                ai_description=None,
+                ai_description="Angular routing for application navigation.",
                 topics=[
                     analysis.TopicSelection(
                         topic_id=topic_id,
@@ -243,7 +244,9 @@ def test_analysis_then_explicit_publication_and_cached_unpublish(database, clien
                 reasons=[],
             )
             analysis.validate_evidence(result, job.input_snapshot, analysis.catalog(session))
+            job.result = result.model_dump(mode="json")
             analysis.apply_analysis(session, session.get(Article, article_id), job, result)
+            extracted(session, session.get(Article, article_id))
             assert job.outcome == "applied"
         assert client.get(path).status_code == 404
         with database.begin() as session:
@@ -319,11 +322,11 @@ def test_analysis_assignments_and_topic_slug_edits_use_consistent_lock_order(dat
         language="en",
         content_type="tutorial",
         content_format="article",
-        ai_summary=None,
+        ai_summary="Angular routing supports navigation between application pages.",
         ai_title=None,
         title_evidence=None,
         page_kind="article",
-        ai_description=None,
+        ai_description="Angular application navigation and routing.",
         tags=[],
         reasons=[],
         topics=[

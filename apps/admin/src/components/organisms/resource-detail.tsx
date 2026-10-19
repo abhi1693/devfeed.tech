@@ -32,7 +32,7 @@ import {
   type RecordIdentity,
   type SimpleResource,
 } from "@/lib/record-identities";
-import { useRefreshInterval } from "@/lib/use-refresh-interval";
+import { useBoardRefreshInterval, useRefreshInterval } from "@/lib/use-refresh-interval";
 import { useRequest } from "@/lib/use-request";
 import { adminArticleContent } from "@/lib/api/generated/admin";
 import { imagePreviewUrl } from "@/lib/image-preview";
@@ -49,6 +49,8 @@ import {
 } from "./user-details";
 import type { AdminUserDetail } from "@/lib/api/generated/models";
 import { AutomationHistory } from "./automation-history";
+import { ArticleReadiness } from "./article-readiness";
+import { SourceReadiness } from "./source-readiness";
 
 export function ResourceDetail({
   identity,
@@ -58,12 +60,14 @@ export function ResourceDetail({
   section?: DetailSection;
 }) {
   const refreshSeconds = useRefreshInterval();
+  const sourceSeconds = useBoardRefreshInterval();
   const [revision, setRevision] = useState(0);
   const load = useCallback((signal: AbortSignal) => getRecord(identity, signal), [identity]);
   const result = useRequest(
-    `${recordIdentityKey(identity)}/${revision}`,
+    recordIdentityKey(identity),
     load,
-    refreshSeconds * 1000,
+    (identity.resource === "sources" ? sourceSeconds : refreshSeconds) * 1000,
+    revision,
   );
   return (
     <>
@@ -230,9 +234,28 @@ function Details({
       {tab === "details" && resource === "users" && (
         <UserDetailsOverview user={record as unknown as AdminUserDetail} />
       )}
+      {tab === "details" && resource === "source-jobs" && record.details != null && (
+        <ResourcePanel
+          title="Source processing result"
+          fields={[
+            {
+              label: "Operation",
+              value: <DataValue value={(record.details as Record<string, unknown>).operation} />,
+            },
+            {
+              label: "Result",
+              value: <DataValue value={(record.details as Record<string, unknown>).result} />,
+            },
+          ]}
+        />
+      )}
       {tab === "details" && resource !== "users" && (
         <div className="grid items-start gap-6 xl:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)]">
           <div className="space-y-6">
+            {resource === "articles" && <ArticleReadiness id={record.id} />}
+            {resource === "sources" && (
+              <SourceReadiness id={identity.id} onUpdated={onAnalysisQueued} />
+            )}
             {!!fields.length && <ResourcePanel title={spec.singular} fields={fields} />}
             {resource === "tags" && (
               <ResourcePanel
@@ -280,17 +303,6 @@ function Details({
                     { label: "Tags", value: <LinkedItems resource="tags" items={record.tags} /> },
                   ]}
                 />
-                <ResourcePanel title="Publication requirements">
-                  <ul className="list-inside list-disc space-y-1 text-sm">
-                    {(record.publication_blockers as string[]).length ? (
-                      (record.publication_blockers as string[]).map((reason) => (
-                        <li key={reason}>{humanize(reason)}</li>
-                      ))
-                    ) : (
-                      <li>All publication requirements are met.</li>
-                    )}
-                  </ul>
-                </ResourcePanel>
               </>
             )}
             {kind && (
@@ -360,7 +372,13 @@ function Details({
                 <DataValue
                   value={
                     resource === "articles"
-                      ? { ai_summary: record.ai_summary, ai_description: record.ai_description }
+                      ? {
+                          ...(typeof record.ai_title === "string" && record.ai_title.trim()
+                            ? { ai_title: record.ai_title }
+                            : {}),
+                          ai_summary: record.ai_summary,
+                          ai_description: record.ai_description,
+                        }
                       : { ai_description: record.ai_description }
                   }
                 />

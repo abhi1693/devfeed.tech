@@ -258,6 +258,27 @@ def test_admin_service_logs_keep_human_events_and_supplied_fields():
     assert "private-" in output
 
 
+@pytest.mark.parametrize(
+    "event,expected",
+    [
+        ("source_relevance_started", "Assessing source relevance with Codex"),
+        ("source_relevance_completed", "Source relevance assessment completed"),
+    ],
+)
+def test_source_assessment_logs_identify_the_independent_task(event, expected):
+    record = logging.makeLogRecord(
+        {
+            "name": "devfeed_aggregator.source_tasks",
+            "msg": event,
+            "levelno": logging.INFO,
+            "operation": "relevance",
+        }
+    )
+    output = TextFormatter("worker").format(record)
+    assert expected in output
+    assert "profile" not in output
+
+
 def test_text_request_summary_uses_full_url_and_duration():
     identifier = str(uuid.uuid4())
     url = f"http://192.0.2.10:8001/v1/admin/sources/{identifier}"

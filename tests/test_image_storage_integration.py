@@ -11,6 +11,7 @@ from devfeed_core.models import Article, ArticleImageJob, utcnow
 from devfeed_core.object_storage import R2Storage
 from devfeed_core.schemas import ArticleOut
 from devfeed_core.urls import fingerprint
+from sqlalchemy import select
 
 pytestmark = pytest.mark.integration
 
@@ -119,7 +120,12 @@ def test_source_change_during_upload_does_not_publish_stale_image(enabled, monke
     with enabled.begin() as session:
         assert session.get(Article, identifier).managed_image == {}
         assert session.get(ArticleImageJob, job_id).outcome == "already_present"
-        assert len(backfill_storage(session, 100)) == 1
+        # Completion queued the current source's successor; backfill coalesces it.
+        assert backfill_storage(session, 100) == []
+        pending = session.scalars(
+            select(ArticleImageJob).where(ArticleImageJob.status == "queued")
+        ).all()
+        assert len(pending) == 1 and pending[0].image_url.endswith("/replacement.png")
 
 
 def test_storage_backfill_skips_active_and_failed_attempts(enabled):

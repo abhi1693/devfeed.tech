@@ -519,10 +519,20 @@ export const resources: Record<Resource, ResourceSpec> = {
       { key: "created_at", label: "Created", kind: "datetime", sort: true },
     ],
   },
-  "source-jobs": job("Source enrichment", "sources", {
-    href: "/jobs/enrichment/sources",
-    ...enrichmentNavigation,
-  }),
+  "source-jobs": {
+    ...job("Source enrichment", "sources", {
+      href: "/jobs/enrichment/sources",
+      ...enrichmentNavigation,
+    }),
+    columns: [
+      { key: "id", label: "Run" },
+      { key: "status", label: "Status", kind: "pill", sort: true },
+      { key: "operation", label: "Operation" },
+      { key: "source_id", label: "Source", resource: "sources" },
+      { key: "attempts", label: "Attempts", kind: "number" },
+      { key: "created_at", label: "Created", kind: "datetime", sort: true },
+    ],
+  },
   "analysis-jobs": {
     ...job("AI analysis", "articles", {
       href: "/jobs/analysis",

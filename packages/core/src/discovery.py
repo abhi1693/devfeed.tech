@@ -22,6 +22,7 @@ from devfeed_core.models import (
     Source,
     SourceCandidate,
     SourceDiscoveryJob,
+    SourceReview,
     utcnow,
 )
 from devfeed_core.schemas import SourceDecision
@@ -105,6 +106,14 @@ def handoff(session, row):
         select(Source).where(Source.feed_url == feed.url, Source.id != source.id)
     )
     if existing:
+        # Reopened placeholders may carry real editorial history. An exact-feed
+        # link preserves those decisions without applying them to the current
+        # approval or enablement of the canonical source.
+        session.execute(
+            update(SourceReview)
+            .where(SourceReview.source_id == source.id)
+            .values(source_id=existing.id)
+        )
         row.source_id = existing.id
         row.status = "linked"
         session.flush()

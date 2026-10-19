@@ -5,6 +5,9 @@ import type { PillTone } from "@/lib/column-kinds";
 
 const tones: Record<string, PillTone> = {
   ready: "success",
+  complete: "success",
+  retry_wait: "warning",
+  blocked: "danger",
   qualified: "success",
   resolved: "success",
   checking: "info",

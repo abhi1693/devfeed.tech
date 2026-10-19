@@ -5,6 +5,7 @@ import uuid
 from pathlib import Path
 
 import pytest
+from article_processing_helpers import complete_processing
 from devfeed_core import article_topic_corrections as corrections
 from devfeed_core import cache_events
 from devfeed_core.models import (
@@ -176,6 +177,7 @@ def correction_data(database):
                 ),
             ]
         )
+        complete_processing(session, article)
         return {
             "article": article.id,
             "original": original.id,
