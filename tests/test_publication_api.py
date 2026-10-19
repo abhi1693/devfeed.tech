@@ -143,6 +143,7 @@ def test_topic_uuid_and_slug_match_across_pages_options_and_visibility(
     articles = []
     for index in range(2):
         article = record(
+            publication_status="unpublished",
             slug=f"routing-{index}",
             canonical_url=f"https://example.com/{index}",
             feed_at=utcnow() - timedelta(minutes=index),

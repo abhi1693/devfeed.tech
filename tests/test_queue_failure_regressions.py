@@ -6,6 +6,7 @@ from copy import deepcopy
 from types import SimpleNamespace
 
 import pytest
+from article_step_helpers import article_step_client
 from devfeed_aggregator import analysis_tasks
 from devfeed_core import analysis
 from devfeed_core.inference_validation import feedback_prompt, validation_feedback
@@ -17,7 +18,15 @@ from test_analysis_tasks import runtime as runtime
 
 
 @pytest.mark.parametrize(
-    "failure", ["unknown_catalog_id", "evidence_not_in_input", "schema_validation"]
+    "failure",
+    [
+        "unknown_catalog_id",
+        "evidence_not_in_input",
+        "schema_validation",
+        "missing_ai_summary",
+        "missing_ai_description",
+        "unidentifiable_title",
+    ],
 )
 def test_durable_retry_repairs_invalid_output_without_retaining_it(runtime, monkeypatch, failure):
     article, job, _, _ = runtime
@@ -39,27 +48,60 @@ def test_durable_retry_repairs_invalid_output_without_retaining_it(runtime, monk
         invalid["topics"][0]["topic_id"] = str(uuid.uuid4())
     elif failure == "evidence_not_in_input":
         invalid["topics"][0]["evidence"] = "private fabricated evidence"
+    elif failure in {"missing_ai_summary", "missing_ai_description"}:
+        invalid[failure.removeprefix("missing_")] = "<p></p>"
+    elif failure == "unidentifiable_title":
+        article.title = "Release v0.18.1"
+        job.input_snapshot = analysis.source_snapshot(article, None)
+        job.input_hash = analysis.snapshot_hash(job.input_snapshot)
+        invalid.update(ai_title="Release v0.18.1", title_evidence=article.summary)
+        valid.update(ai_title="Infrastructure automation v0.18.1", title_evidence=article.summary)
     else:
         invalid["language"] = "private-invalid-language"
     calls = []
+    failed_step = {
+        "unknown_catalog_id": "topics",
+        "evidence_not_in_input": "topics",
+        "schema_validation": "language",
+        "missing_ai_summary": "overview",
+        "missing_ai_description": "description",
+        "unidentifiable_title": "identifying_title",
+    }[failure]
+    failed_property = {
+        "overview": "ai_summary",
+        "description": "ai_description",
+        "identifying_title": "ai_title",
+    }.get(failed_step, failed_step)
+    invalid_sent = False
 
     def complete(prompt, schema):
+        nonlocal invalid_sent
         calls.append(prompt)
-        assert schema["$defs"]["TopicSelection"]["properties"]["topic_id"]["enum"] == [topic["id"]]
-        assert schema["properties"]["tags"]["maxItems"] == 0
-        return invalid if len(calls) == 1 else valid
+        if "topics" in schema["properties"]:
+            assert schema["$defs"]["TopicSelection"]["properties"]["topic_id"]["enum"] == [
+                topic["id"]
+            ]
+        if "tags" in schema["properties"]:
+            assert schema["properties"]["tags"]["maxItems"] == 0
+        if failed_property in schema["properties"] and not invalid_sent:
+            invalid_sent = True
+            return invalid
+        return valid
 
-    monkeypatch.setattr(analysis_tasks, "CodexClient", lambda _: SimpleNamespace(complete=complete))
+    monkeypatch.setattr(
+        analysis_tasks, "CodexClient", lambda _: article_step_client(complete=complete)
+    )
     analysis_tasks._analyze(job.id)
     assert job.status == "queued" and job.attempts == 1
-    assert job.result["validation_feedback"]["code"] == failure
+    assert job.steps[failed_step]["validation_feedback"]["code"] == failure
     assert "private" not in json.dumps(job.result)
     assert article.ai_summary is None
     job.available_at = utcnow()
     analysis_tasks._analyze(job.id)
     assert job.status == "succeeded" and job.attempts == 2
-    assert failure in calls[1] and "previous attempt failed validation" in calls[1]
-    assert "private" not in calls[1]
+    correction = next(prompt for prompt in calls if "previous attempt at this task" in prompt)
+    assert failure in correction and "previous attempt at this task failed validation" in correction
+    assert "private" not in correction
     assert "validation_feedback" not in job.result
     assert article.publication_status == "unpublished"
 
@@ -90,7 +132,9 @@ def test_validation_feedback_does_not_extend_the_attempt_budget(runtime, monkeyp
         calls.append(prompt)
         return {"private-output": "must not persist"}
 
-    monkeypatch.setattr(analysis_tasks, "CodexClient", lambda _: SimpleNamespace(complete=complete))
+    monkeypatch.setattr(
+        analysis_tasks, "CodexClient", lambda _: article_step_client(complete=complete)
+    )
     for _ in range(3):
         job.available_at = utcnow()
         analysis_tasks._analyze(job.id)

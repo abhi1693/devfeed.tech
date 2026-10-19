@@ -2,9 +2,9 @@
 
 import uuid
 from datetime import timedelta
-from types import SimpleNamespace
 
 import pytest
+from article_step_helpers import article_step_client
 from devfeed_aggregator import analysis_tasks, article_tasks, source_tasks, tasks
 from devfeed_core import analysis, services
 from devfeed_core.article_automation import schedule_article_automation, schedule_source_admission
@@ -33,7 +33,7 @@ from devfeed_core.schemas import SourceCreate
 from devfeed_core.tag_topic_discovery import schedule_tag_topic_discovery
 from sqlalchemy import func, select
 from test_article_enrichment_integration import PAGE
-from test_automation_integration import enable, ready, seed
+from test_automation_integration import enable, extracted, ready, seed
 
 pytestmark = pytest.mark.integration
 
@@ -70,7 +70,7 @@ def test_corrected_extractor_recovers_old_description_once(database, monkeypatch
     full(monkeypatch)
     with database.begin() as session:
         _, article, topic = seed(session)
-        job = ready(session, article, topic)
+        job = ready(session, article, topic, processed=False)
         finish_job(job, "insufficient_evidence", utcnow())
         old = ArticleEnrichmentJob(
             article_id=article.id,
@@ -152,7 +152,7 @@ def test_worker_rejects_incomplete_negative_without_applied_provenance(database,
     monkeypatch.setattr(
         analysis_tasks,
         "CodexClient",
-        lambda settings: SimpleNamespace(
+        lambda settings: article_step_client(
             complete=lambda *args: {
                 "outcome": "insufficient_evidence",
                 "page_kind": "non_article",
@@ -266,7 +266,6 @@ def test_short_relevant_summary_without_extracted_text_publishes(database, monke
         _, article, topic = seed(session)
         article.summary = "Angular routing."
         job = ready(session, article, topic)
-        article.ai_summary = None
         assert evaluate_publication(session, article, job)["status"] == "would_publish"
         identifier = article.id
     counts = schedule_article_automation(database)
@@ -350,7 +349,7 @@ def test_validated_source_to_public_article_and_exact_tag_association(
         "content_type": "tutorial",
         "content_format": "article",
         "ai_summary": "Angular routing helps developers organize and navigate their applications.",
-        "ai_description": None,
+        "ai_description": "A guide to navigation in Angular applications.",
         "ai_title": None,
         "title_evidence": None,
         "page_kind": "article",
@@ -363,7 +362,7 @@ def test_validated_source_to_public_article_and_exact_tag_association(
     monkeypatch.setattr(
         analysis_tasks,
         "CodexClient",
-        lambda settings: SimpleNamespace(
+        lambda settings: article_step_client(
             complete=lambda *args: result,
         ),
     )
@@ -607,6 +606,7 @@ def test_pending_topic_waits_then_new_catalog_automatically_reanalyzes(database,
     full(monkeypatch)
     with database.begin() as session:
         _, article, _ = seed(session, topic=False)
+        extracted(session, article)
         job = analysis.request_analysis(session, article.id)
         job.result = {"developer_relevance": "relevant"}
         finish_job(job, "insufficient_evidence", utcnow())
@@ -703,7 +703,9 @@ def test_full_mode_respects_disabled_sources_and_completed_decisions(
             source.approval_status = "rejected"
         else:
             article.review_status = protection.split("_")[0]
-    assert schedule_article_automation(database)["articles_checked"] == 0
+    assert schedule_article_automation(database)["articles_checked"] == (
+        protection == "approved_article"
+    )
 
 
 def test_backlog_admission_and_article_scans_are_bounded(database, monkeypatch):
@@ -738,6 +740,7 @@ def test_source_labels_propose_once_without_creating_topics_or_guessing_associat
     full(monkeypatch)
     with database.begin() as session:
         _, article, _ = seed(session, topic=False)
+        extracted(session, article)
         tag = Tag(name="Angular", slug="angular")
         session.add(tag)
         session.flush()
@@ -794,6 +797,7 @@ def test_invalid_evidence_stays_pending_without_retry_or_review_loop(database, m
     full(monkeypatch)
     with database.begin() as session:
         _, article, _ = seed(session, topic=False)
+        extracted(session, article)
         article.editorial_revision = 1
         article.title = "GitHub's Elasticsearch Problem Was Seven Years in the Making"
         article.summary = (

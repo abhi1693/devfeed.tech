@@ -432,7 +432,8 @@ try {
       ),
       `The real inbox SDK requested ${suffix} through the native gateway operation`,
     );
-  await page.getByRole("button", { name: "Notifications", exact: true }).click();
+  // Closing the open panel must not depend on concurrent badge/count refreshes.
+  await page.getByRole("button", { name: /^Notifications(?:, 1 new)?$/, expanded: true }).click();
   await page.locator(".devfeed-inbox-panel").waitFor({ state: "hidden" });
   await page.getByRole("button", { name: "AI connection: AI connected" }).click();
   const connection = page.getByRole("dialog", { name: "AI connection" });

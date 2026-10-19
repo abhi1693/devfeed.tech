@@ -394,7 +394,7 @@ def test_article_benchmark_grades_restored_evidence():
         content_type="article",
         content_format="article",
         ai_summary="Rust deployment",
-        ai_description=None,
+        ai_description="A guide to Rust deployment.",
         ai_title=None,
         title_evidence=None,
         page_kind="article",

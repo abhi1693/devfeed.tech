@@ -238,6 +238,27 @@ it("automatically moves source stages every five seconds when ordinary refresh i
   expect(screen.queryByRole("button", { name: /Refresh/ })).toBeNull();
 });
 
+it("keeps source navigation and retries keyboard accessible without a container tab stop", async () => {
+  const user = userEvent.setup();
+  const target = { stage: "profile" as const, job_id: "old-profile-job" };
+  const retryable = { ...item, stage: "branding" as const, retry_targets: [target] };
+  vi.mocked(getSourcePipeline).mockResolvedValue(board(retryable));
+  renderAdmin(<SourcePipeline query="view=pipeline&stage=branding" />);
+  const link = await screen.findByRole("link", { name: item.name });
+  const region = screen.getByRole("region", { name: "Source lifecycle pipeline" });
+  expect(region.getAttribute("tabindex")).toBeNull();
+  link.focus();
+  await user.tab();
+  expect(document.activeElement).toBe(
+    screen.getByRole("button", { name: `Source actions ${item.name}` }),
+  );
+  await user.keyboard("{Enter}");
+  const retry = await screen.findByRole("menuitem", { name: "Retry profile" });
+  expect(document.activeElement).toBe(retry);
+  await user.keyboard("{Enter}");
+  expect(retrySourcePipeline).toHaveBeenCalledWith(retryable, target, "test-csrf");
+});
+
 it("persists collapsed and hidden columns independently and keeps a visible mobile stage", async () => {
   const view = renderAdmin(<SourcePipeline query="view=pipeline&stage=profile" />);
   await screen.findByRole("link", { name: item.name });

@@ -5,12 +5,14 @@ import uuid
 import pytest
 from devfeed_aggregator import image_tasks, source_tasks, tasks
 from devfeed_core import cache, services
+from devfeed_core.article_processing_retry import request_processing_retry
 from devfeed_core.cache_events import DIRTY, REASONS
 from devfeed_core.config import get_settings
 from devfeed_core.db import get_engine
+from devfeed_core.editorial import EditorialDecision, decide_article
 from devfeed_core.feeds.fetcher import FetchResult
 from devfeed_core.jobs import request_ingestion
-from devfeed_core.models import ArticleImageJob, Source, Tag, utcnow
+from devfeed_core.models import Article, ArticleImageJob, Source, Tag, utcnow
 from devfeed_core.schemas import SourceDecision
 from devfeed_core.search_engine import SearchUnavailable
 from devfeed_core.search_index import sync_batch
@@ -109,11 +111,30 @@ def test_worker_ingestion_images_and_profiles_invalidate_cached_reads(
     publish_for_read_test()
     feed = client.get("/v1/feed")
     assert feed.headers["x-cache"] == "MISS" and len(feed.json()["items"]) == 2
-    with database() as session:
+    with database.begin() as session:
         image_job = session.scalar(select(ArticleImageJob))
-        image_id, article_id = image_job.id, image_job.article_id
+        article_id = image_job.article_id
+        assert image_job.status == "succeeded"
     path = f"/v1/articles/{article_id}"
     assert client.get(path).json()["image_url"] is None
+    assert client.get(path).headers["x-cache"] == "HIT"
+    with database.begin() as session:
+        article = session.get(Article, article_id)
+        request_processing_retry(
+            session,
+            article_id,
+            target="images",
+            expected_revision=article.editorial_revision,
+            expected_job_id=image_job.id,
+            actor={"subject": "cache-test"},
+        )
+        image_job = session.scalar(
+            select(ArticleImageJob).where(
+                ArticleImageJob.article_id == article_id, ArticleImageJob.status == "queued"
+            )
+        )
+        image_id = image_job.id
+    assert client.get(path).status_code == 404
     monkeypatch.setattr(
         image_tasks,
         "fetch_page",
@@ -122,7 +143,12 @@ def test_worker_ingestion_images_and_profiles_invalidate_cached_reads(
         ),
     )
     image_tasks.enrich_image(str(image_id))
-    assert client.get(path).json()["image_url"] == "https://example.com/cover.png"
+    assert client.get(path).status_code == 404
+    with database.begin() as session:
+        decide_article(session, article_id, EditorialDecision(action="publish"))
+    refreshed = client.get(path)
+    assert refreshed.headers["x-cache"] == "MISS"
+    assert refreshed.json()["image_url"] == "https://example.com/cover.png"
     source_path = f"/v1/sources/{identifier}"
     assert client.get(source_path).json()["logo_url"] is None
     with database.begin() as session:

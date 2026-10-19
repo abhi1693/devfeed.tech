@@ -11,6 +11,7 @@ from unittest.mock import Mock
 import pytest
 from devfeed_aggregator import quota_monitor, scheduler
 from devfeed_core import feed_notifications, job_retention, notification_delivery
+from devfeed_core.models import ArticleAnalysisJob
 
 NOW = datetime(2026, 10, 4, tzinfo=UTC)
 
@@ -108,6 +109,35 @@ def test_unsupported_recovery_requires_an_explicit_policy():
     with pytest.raises(ValueError, match="own recovery policy"):
         scheduler.recover_jobs(factory, 10, NOW, kind="ingestion")
     factory.begin.assert_not_called()
+
+
+@pytest.mark.parametrize("attempts,status", [(1, "queued"), (3, "failed")])
+def test_specialist_recovery_uses_its_own_attempts_and_preserves_completed_work(attempts, status):
+    job = ArticleAnalysisJob(
+        id=uuid.uuid4(),
+        article_id=uuid.uuid4(),
+        status="running",
+        attempts=99,
+        available_at=NOW,
+        lease_token=uuid.uuid4(),
+        lease_until=NOW,
+        usage={
+            "active_step": "overview",
+            "article_steps": {
+                "developer_relevance": {"status": "succeeded", "output": {"relevant": True}},
+                "overview": {"status": "running", "attempts": attempts},
+            },
+        },
+    )
+    session, factory = Mock(), Mock()
+    session.scalars.return_value.all.return_value = [job]
+    factory.begin.return_value = nullcontext(session)
+    assert scheduler.recover_jobs(factory, 10, NOW) == 1
+    assert job.status == status
+    assert job.lease_token is None and job.active_step == "overview"
+    assert job.steps["overview"]["status"] == ("pending" if status == "queued" else "failed")
+    assert job.steps["overview"]["error"] == "worker_lease_expired"
+    assert job.steps["developer_relevance"]["output"] == {"relevant": True}
 
 
 @pytest.mark.parametrize(

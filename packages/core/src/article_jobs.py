@@ -42,6 +42,10 @@ def request_article_enrichment(
     )
     if article is None:
         raise RecordNotFound("Article not found")
+    if article.publication_status == "published":
+        if automatic:
+            return None
+        raise OperationConflict("Unpublish the article before requesting enrichment")
     # Ingestion inserts the origin before requesting enrichment, in the same transaction.
     if not approved_sources(session, article_id):
         raise OperationConflict("Article enrichment requires an approved source origin")
@@ -60,7 +64,8 @@ def request_article_enrichment(
     ):
         return None  # Never re-fetch failed, empty or completed pages on every RSS poll.
     job = ArticleEnrichmentJob(
-        article_id=article_id, result={"extraction_version": EXTRACTION_VERSION}
+        article_id=article_id,
+        result={"extraction_version": EXTRACTION_VERSION, "input_url": article.canonical_url},
     )
     session.add(job)
     session.flush()

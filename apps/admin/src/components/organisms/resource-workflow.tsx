@@ -21,7 +21,9 @@ import { notify, notifyFailure } from "@/lib/notifications";
 import { StatusBadge } from "@/components/molecules/status-badge";
 import { SourceReadiness } from "./source-readiness";
 import type { SourcePipelineDetail } from "@/lib/source-pipeline";
-import { useSourcePipelineInterval } from "@/lib/use-source-pipeline-interval";
+import { useBoardRefreshInterval } from "@/lib/use-refresh-interval";
+import { getArticlePipelineDetail } from "@/lib/article-pipeline";
+import { DateTime } from "@/components/molecules/date-time";
 type WorkflowIdentity = Extract<RecordIdentity, { resource: "articles" | "sources" }>;
 export type Workflow = "review" | "classify" | "fetch";
 export function ResourceWorkflow({
@@ -32,14 +34,14 @@ export function ResourceWorkflow({
   action: Workflow;
 }) {
   const resource = identity.resource;
-  const seconds = useSourcePipelineInterval();
+  const seconds = useBoardRefreshInterval();
   const [revision, setRevision] = useState(0);
   const [sourceReadiness, setSourceReadiness] = useState<SourcePipelineDetail>();
   const load = useCallback((signal: AbortSignal) => getRecord(identity, signal), [identity]);
   const result = useRequest(
     recordIdentityKey(identity),
     load,
-    resource === "sources" ? seconds * 1000 : 0,
+    resource === "sources" || action === "review" ? seconds * 1000 : 0,
     revision,
   );
   return (
@@ -59,7 +61,11 @@ export function ResourceWorkflow({
           },
         ]}
       />
-      <RequestState loading={result.loading} error={result.error} />
+      <RequestState
+        loading={result.loading}
+        error={result.error}
+        retry={() => setRevision((value) => value + 1)}
+      />
       {resource === "sources" && (
         <SourceReadiness
           id={identity.id}
@@ -104,6 +110,28 @@ function Decision({
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<Error>();
+  const [readinessRevision, setReadinessRevision] = useState(0);
+  const refreshSeconds = useBoardRefreshInterval();
+  const readinessLoad = useCallback(
+    async (signal: AbortSignal) =>
+      resource === "articles"
+        ? {
+            ...(await getArticlePipelineDetail(identity.id, signal)),
+            receivedAt: new Date().toISOString(),
+          }
+        : null,
+    [resource, identity.id],
+  );
+  const readiness = useRequest(
+    `review-readiness/${resource}/${identity.id}/${readinessRevision}`,
+    readinessLoad,
+    resource === "articles" ? refreshSeconds * 1000 : 0,
+  );
+  const publicationBlocked =
+    resource === "articles" &&
+    decision === "publish" &&
+    (!readiness.data?.can_publish ||
+      readiness.data.editorial_revision !== Number(record.editorial_revision));
   const sourceBlocked =
     resource === "sources" &&
     (action === "fetch"
@@ -111,7 +139,7 @@ function Decision({
       : decision === "approved" && !sourceReadiness?.item.can_approve);
   async function submit(event: React.FormEvent) {
     event.preventDefault();
-    if (busy || sourceBlocked) return;
+    if (busy || sourceBlocked || publicationBlocked) return;
     setBusy(true);
     setError(undefined);
     const options = { headers: { "X-CSRF-Token": admin.csrf_token } };
@@ -178,8 +206,18 @@ function Decision({
                 <StatusBadge value={record.publication_status} />
               </p>
               <p className="text-muted-foreground">
-                Approval and publication are separate decisions. Publication still requires complete
-                article details, an active primary topic, and an approved source.
+                Approval and publication are separate decisions. Enrichment, AI analysis, and image
+                processing must finish before publication, alongside the editorial and source
+                requirements.
+              </p>
+              <p className="text-xs text-muted-foreground">
+                Updates every {refreshSeconds} seconds while visible.
+                {readiness.data && (
+                  <>
+                    {" "}
+                    Updated <DateTime value={readiness.data.receivedAt} />.
+                  </>
+                )}
               </p>
               {(record.publication_blockers as string[]).length > 0 && (
                 <ul className="list-inside list-disc text-xs text-muted-foreground">
@@ -187,6 +225,31 @@ function Decision({
                     <li key={reason}>{humanize(reason)}</li>
                   ))}
                 </ul>
+              )}
+              {decision === "publish" && (
+                <>
+                  <RequestState
+                    loading={readiness.loading}
+                    error={readiness.error}
+                    retry={() => setReadinessRevision((value) => value + 1)}
+                  />
+                  {publicationBlocked && !readiness.loading && (
+                    <p role="status" className="text-sm text-muted-foreground">
+                      Publication is not ready.{" "}
+                      <Link className="text-primary underline" href={recordHref(identity)}>
+                        Open publication readiness
+                      </Link>{" "}
+                      for the current processing requirements.
+                    </p>
+                  )}
+                  {!!readiness.data?.blockers.length && (
+                    <ul className="list-inside list-disc text-xs text-muted-foreground">
+                      {readiness.data.blockers.map((reason) => (
+                        <li key={reason}>{humanize(reason)}</li>
+                      ))}
+                    </ul>
+                  )}
+                </>
               )}
             </div>
           )}
@@ -229,7 +292,12 @@ function Decision({
               : "Complete the source profile and branding before approving. Manual rejection remains available."}
         </p>
       )}
-      <Button type="submit" disabled={sourceBlocked} loading={busy} loadingText="Submitting…">
+      <Button
+        type="submit"
+        disabled={sourceBlocked || publicationBlocked}
+        loading={busy}
+        loadingText="Submitting…"
+      >
         {action === "fetch" ? "Queue fetch" : "Apply decision"}
       </Button>
     </form>
