@@ -92,7 +92,7 @@ Complete URL inventory: ${origin}/sitemap.xml
 
 ## Reading public content
 
-Request an existing public page with \`Accept: text/markdown\`, or append \`.md\` to its path. The latest feed is \`/latest.md\`. Normal browser requests continue to receive HTML. HTML pages advertise their Markdown twin with a Link response header. Known AI agents may receive Markdown when their Accept header permits it; an explicit HTML preference is respected.
+Request an existing public page with \`Accept: text/markdown\`, or append \`.md\` to its path. The homepage also supports negotiation and its public Markdown twin is \`/index.md\`; it never includes a signed-in personal feed. The latest feed is \`/latest.md\`. Normal browser requests continue to receive HTML. HTML pages advertise their Markdown twin with a Link response header. Known AI agents may receive Markdown when their Accept header permits it; an explicit HTML preference is respected.
 
 - Article preview: \`/articles/{slug}.md\`
 - Topic and its articles: \`/topics/{slug}.md\`
