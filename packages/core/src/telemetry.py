@@ -389,6 +389,10 @@ def create_instruments(meter):
         "db_connections": meter.create_up_down_counter(
             "db.client.connection.count", unit="{connection}"
         ),
+        "admission_route_active": meter.create_up_down_counter(
+            "devfeed.admission.route.active", unit="{request}"
+        ),
+        "admission_duration": meter.create_histogram("devfeed.admission.hold.duration", unit="s"),
         "rejections": meter.create_counter("devfeed.admission.rejections", unit="{request}"),
         "admitted": meter.create_up_down_counter("devfeed.admission.active", unit="{request}"),
         "limit": meter.create_gauge("devfeed.admission.limit", unit="{request}"),

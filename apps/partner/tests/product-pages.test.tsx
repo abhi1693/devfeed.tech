@@ -501,3 +501,10 @@ it("keeps the archived filter when resolving a product's account policy", async 
     expect.anything(),
   );
 });
+
+it.each(["rejected", "paused", "withdrawn"])("shows the actual %s placement status", (status) => {
+  expect(productPlacementStatus({ ...product, status, commercial_approved: false })).toBe(
+    status[0].toUpperCase() + status.slice(1),
+  );
+  expect(productPlacementStatus({ ...product, status, commercial_approved: true })).toBe("Allowed");
+});

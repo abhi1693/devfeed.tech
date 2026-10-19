@@ -1,10 +1,27 @@
 import assert from "node:assert/strict";
 
 export function snippetArticle(article) {
+  const publisher = {
+    id: "68686868-6868-4868-8868-686868686868",
+    slug: "rabbit-engineering",
+    name: "Rabbit Engineering",
+    website_url: "https://publisher.example.test/",
+    logo_url: null,
+    description: null,
+  };
   return {
     ...article,
     slug: "snippet-article",
     title: "Android Studio Rabbit 1 now available",
+    original_title: "Android Studio Rabbit 1 stable release",
+    canonical_url: "https://publisher.example.test/rabbit-1",
+    publisher,
+    author: "Rabbit team",
+    authors: [{ type: "Organization", name: "Rabbit team" }],
+    sources: [
+      { ...publisher, id: "curator", slug: "a-digest", name: "A developer digest" },
+      publisher,
+    ],
     ai_summary: "Android Studio Rabbit 1 is available in the Stable channel.",
     summary: "Install this Android Studio stable release.",
   };
@@ -36,7 +53,19 @@ export function checkSnippetDocument(document, background = false) {
     const pages = graphs.filter((graph) => graph["@type"] === "WebPage");
     assert.equal(pages.length, 1);
     assert.equal(pages[0].description, description);
-    assert.equal(pages[0].mainEntity.headline, snippetArticle({}).title);
+    assert.equal(pages[0].mainEntity.headline, snippetArticle({}).original_title);
+    assert.equal(pages[0].mainEntity.publisher.name, snippetArticle({}).publisher.name);
+    const organization = graphs
+      .find((graph) => graph["@graph"])
+      ["@graph"].find((entity) => entity["@type"] === "Organization");
+    assert.equal(pages[0].publisher["@id"], organization["@id"]);
+    assert.equal(pages[0].hasPart.text, snippetArticle({}).ai_summary);
+    assert.equal(pages[0].hasPart.inLanguage, "en");
+    assert.equal(pages[0].hasPart.isBasedOn["@id"], snippetArticle({}).canonical_url);
+    assert.deepEqual(
+      pages[0].breadcrumb.itemListElement.map((item) => item.name),
+      ["Home", snippetArticle({}).publisher.name, snippetArticle({}).title],
+    );
     assert.equal(pages[0].url, document.querySelector('link[rel="canonical"]').href);
     assert.equal(
       graphs.some((graph) => graph["@type"] === "CollectionPage"),
@@ -58,6 +87,18 @@ export async function checkArticleSnippets(page, href) {
       false,
     );
   assert.equal(await page.locator(".preview-sidebar").getAttribute("data-nosnippet"), "true");
+  const { publisher, original_title, ai_summary } = snippetArticle({});
+  assert.equal(await page.locator(".preview-publisher a").first().textContent(), publisher.name);
+  assert.ok(
+    (await page.locator(".preview-publisher a").first().getAttribute("href")).includes(
+      publisher.slug,
+    ),
+  );
+  assert.equal(await page.locator(".source-brief h2").textContent(), publisher.name);
+  assert.equal(await page.locator("#article-overview h2").textContent(), "AI overview");
+  assert.equal(await page.locator("#article-overview p").textContent(), ai_summary);
+  assert.equal(await page.getByText("A developer digest", { exact: true }).count(), 0);
+  assert.equal(await page.getByRole("heading", { name: original_title, exact: true }).count(), 0);
   await page.getByRole("button", { name: "Close preview", exact: true }).click();
   await page.locator("dialog.article-modal[open]").waitFor({ state: "hidden" });
   await page.locator(".article-card").first().waitFor();

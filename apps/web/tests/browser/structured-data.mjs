@@ -64,15 +64,24 @@ function validateDocument(document, path, article) {
   );
   if (path.startsWith("/articles/")) {
     const entity = page.mainEntity;
+    assert.equal(document.querySelector('meta[name="keywords"]').content, article.tags.join(","));
+    assert.deepEqual(page.keywords, article.tags);
+    assert.deepEqual(entity.keywords, article.tags);
     assert.equal(entity["@type"], "Article");
     assert.equal(entity["@id"], article.canonical_url);
     assert.equal(entity.url, article.canonical_url);
     assert.notEqual(entity.url, canonical);
-    assert.equal(entity.publisher.name, article.sources[0].name);
-    assert.equal(entity.author.name, article.author);
-    assert.equal(entity.headline, document.querySelector("#article-preview-title").textContent);
-    assert.equal(entity.description, document.querySelector('meta[name="description"]').content);
-    assert.equal(page.description, entity.description);
+    assert.equal(entity.publisher.name, article.publisher.name);
+    assert.equal(entity.author[0].name, article.author);
+    assert.equal(entity.headline, article.original_title);
+    assert.equal(entity.description, article.summary);
+    assert.equal(page.description, document.querySelector('meta[name="description"]').content);
+    assert.equal(page.publisher["@id"], organization["@id"]);
+    assert.equal(page.hasPart.publisher["@id"], organization["@id"]);
+    assert.equal(page.hasPart.text, document.querySelector("#article-overview p").textContent);
+    assert.equal(page.hasPart.isBasedOn["@id"], article.canonical_url);
+    assert.ok(!("datePublished" in page.hasPart));
+    assert.equal(crumbs[1].name, article.publisher.name);
     assert.equal(entity.datePublished, new Date(article.published_at).toISOString());
     assert.ok(!("dateModified" in entity));
     assert.ok(!("image" in entity), "The fallback social card is not an original illustration");
@@ -118,6 +127,12 @@ test(
     const { article, topic, source } = await import(
       `data:text/javascript;base64,${Buffer.from(bundle.outputFiles[0].text).toString("base64")}`
     );
+    article.publisher = source;
+    article.authors = [{ type: "Person", name: article.author }];
+    article.sources = [
+      { ...source, id: "aggregator", slug: "community-digest", name: "A community digest" },
+      source,
+    ];
     const fixture = createServer((req, res) => {
       const url = new URL(req.url, "http://fixture");
       const path = url.pathname;
@@ -232,6 +247,8 @@ test(
       const response = await page.goto(origin + path);
       assert.equal(response.status(), 200);
       await validateRenderedDocument(page, path, article, expected);
+      if (path.startsWith("/articles/"))
+        await page.screenshot({ path: `${destination}/article-preview.png`, fullPage: true });
       results.push({
         path,
         canonical: await page.locator('link[rel="canonical"]').getAttribute("href"),

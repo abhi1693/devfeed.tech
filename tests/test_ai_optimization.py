@@ -6,6 +6,7 @@ import pytest
 from devfeed_core.analysis import (
     AnalysisResult,
     analysis_candidates,
+    analysis_output_schema,
     analysis_prompt,
     validate_evidence,
 )
@@ -66,6 +67,45 @@ def test_wire_compaction_preserves_candidates_evidence_and_uuid_contract():
         validate_evidence(
             AnalysisResult.model_validate(restore_identities(output, ids)), snapshot, taxonomy
         )
+
+
+@pytest.mark.parametrize("wire", ["original", "compact", "passages"])
+def test_overview_generation_contract_retains_body_evidence_and_source_limits(wire):
+    snapshot = {
+        "title": "Comparing structured outputs",
+        "source_summary": "A quick comparison of schema enforcement across AI providers.",
+        "text": (
+            "Provider A rejects unsupported schema keywords before generation. "
+            "Provider B accepts the schema but requires clients to handle refusals separately. "
+            "The comparison covers JSON responses only; streaming was not tested."
+        ),
+        "text_source": "body",
+    }
+    taxonomy = {"topics": [], "tags": []}
+    if wire == "original":
+        prompt, schema = analysis_prompt(snapshot, taxonomy), analysis_output_schema(taxonomy)
+    else:
+        prompt, schema, _ = compact_request(snapshot, taxonomy, evidence_refs=wire == "passages")
+    payload = json.loads(prompt.rsplit("\n", 1)[1])
+    article = payload["article"]
+    if wire == "passages":
+        body = " ".join(passage["text"] for passage in article["text"])
+        teaser = " ".join(passage["text"] for passage in article["source_summary"])
+    else:
+        body, teaser = article["text"], article["source_summary"]
+
+    assert body == snapshot["text"] and teaser == snapshot["source_summary"]
+    assert article["text_source"] == "body"
+    assert "Prefer substantive extracted text over a partial feed teaser" in prompt
+    assert "Compare only\nthe tools and dimensions discussed" in prompt
+    assert "never invent comparisons, examples, advice" in prompt
+    assert "Do not imply full-article coverage" in prompt
+    assert "There is no minimum word count" in prompt
+    assert "return insufficient_evidence\nwith null prose" in prompt
+    summary_schema = schema["properties"]["ai_summary"]
+    assert any(option.get("maxLength") == 1200 for option in summary_schema["anyOf"])
+    assert "source-grounded English overview" in summary_schema["description"]
+    assert "without new claims" in schema["properties"]["ai_description"]["description"]
 
 
 @pytest.mark.parametrize("wire", ["original", "compact", "passages"])

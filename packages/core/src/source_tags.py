@@ -5,13 +5,14 @@ import re
 import unicodedata
 import uuid
 from collections.abc import Iterable
+from types import MappingProxyType
 
 from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session, lazyload
 
 from devfeed_core.feeds.parser import plain_text
-from devfeed_core.models import Article, ArticleTag, Tag
+from devfeed_core.models import Article, ArticleTag, CatalogRevision, Tag
 from devfeed_core.tag_names import normalize_tag_name
 
 
@@ -40,22 +41,43 @@ def source_tag_slug(name: str) -> str:
     return slug if len(slug) <= 100 else f"{slug[:87].rstrip('-')}-{digest}"
 
 
+# A single immutable projection, keyed by the transactional catalog revision.
+# Do not retain ORM objects, sessions, or prior catalog generations.
+_identity_snapshot: tuple | None = None
+
+
+def _source_tag_index(session):
+    global _identity_snapshot
+    session.flush()
+    revision_query = select(CatalogRevision.revision).where(CatalogRevision.name == "tags")
+    revision = session.scalar(revision_query)
+    key = (session.get_bind(), revision)
+    saved = _identity_snapshot
+    if revision is not None and saved is not None and saved[0] == key:
+        return saved[1:]
+    tags = session.execute(select(Tag.id, Tag.name, Tag.slug, Tag.aliases).order_by(Tag.slug)).all()
+    identities: dict[str, uuid.UUID] = {}
+    # Exact names/slugs take priority over aliases, with a deterministic tie-break.
+    for tag in tags:
+        for name in source_tag_names([tag.name, tag.slug]):
+            identities.setdefault(name, tag.id)
+    for tag in tags:
+        for name in source_tag_names(tag.aliases):
+            identities.setdefault(name, tag.id)
+    result = (MappingProxyType(identities), MappingProxyType({tag.slug: tag.id for tag in tags}))
+    if revision is not None and session.scalar(revision_query) == revision:
+        _identity_snapshot = (key, *result)
+    return result
+
+
 def resolve_source_tags(
     session: Session, values: Iterable[object]
 ) -> tuple[dict[str, uuid.UUID], int]:
     names = source_tag_names(values)
     if not names:
         return {}, 0
-    tags = session.scalars(select(Tag).order_by(Tag.slug)).all()
-    identities: dict[str, uuid.UUID] = {}
-    # Exact names/slugs take priority over aliases, with a deterministic tie-break.
-    for tag in tags:
-        for key in source_tag_names([tag.name, tag.slug]):
-            identities.setdefault(key, tag.id)
-    for tag in tags:
-        for key in source_tag_names(tag.aliases):
-            identities.setdefault(key, tag.id)
-    by_slug = {tag.slug: tag.id for tag in tags}
+    identities, cached_slugs = _source_tag_index(session)
+    by_slug = cached_slugs
     resolved: dict[str, uuid.UUID] = {}
     missing: dict[str, str] = {}
     for key, name in sorted(names.items()):
@@ -67,6 +89,7 @@ def resolve_source_tags(
             missing.setdefault(slug, name)
     created = 0
     if missing:
+        by_slug = dict(cached_slugs)
         # Resolve all labels in slug order before taking article locks, including
         # overlapping imports by different workers. Never overwrite admin edits.
         created = len(

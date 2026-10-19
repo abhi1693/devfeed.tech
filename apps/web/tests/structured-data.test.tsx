@@ -16,13 +16,45 @@ import {
   socialImage,
   SITE_DESCRIPTION,
 } from "@/lib/metadata";
-import { article } from "./fixtures";
+import { article as fixtureArticle } from "./fixtures";
+
+const article = {
+  ...fixtureArticle,
+  publisher: fixtureArticle.sources[0],
+  authors: [{ type: "Person" as const, name: fixtureArticle.author! }],
+};
 
 afterEach(() => vi.unstubAllEnvs());
 
+it("uses article tags consistently for HTML keywords, page/article JSON-LD and Open Graph", () => {
+  const tags = ["python", "json-schema", "openai"];
+  const item = { ...article, tags };
+  const metadata = articleMetadata(item);
+  expect(metadata.keywords).toEqual(tags);
+  expect(metadata.openGraph).toHaveProperty("tags", tags);
+  const data = articleStructuredData(item);
+  expect(data.keywords).toEqual(tags);
+  expect(data.mainEntity).toHaveProperty("keywords", tags);
+});
+
+it("omits keywords when an article has no tags", () => {
+  const item = { ...article, tags: [] };
+  expect(articleMetadata(item)).not.toHaveProperty("keywords");
+  const data = articleStructuredData(item);
+  expect(data).not.toHaveProperty("keywords");
+  expect(data.mainEntity).not.toHaveProperty("keywords");
+});
+
 it("escapes script termination in publisher strings while preserving valid JSON", () => {
   const title = '</script><script>alert("publisher")</script><img src=x onerror=alert(1)>';
-  const data = articleStructuredData({ ...article, title });
+  const data = articleStructuredData({
+    ...article,
+    title,
+    original_title: title,
+    ai_summary: title,
+    publisher: { ...article.publisher, name: title },
+    authors: [{ type: "Organization", name: title }],
+  });
   const html = renderToStaticMarkup(<JsonLd data={data} />);
   expect(html.match(/<script/g)).toHaveLength(1);
   expect(html.match(/<\/script>/g)).toHaveLength(1);
@@ -38,13 +70,21 @@ it("describes the local preview separately from the original article and credits
     "@type": "WebPage",
     url: `https://devfeed.test/articles/${article.slug}`,
     description: article.ai_summary,
+    publisher: { "@id": "https://devfeed.test/#organization" },
+    hasPart: {
+      "@type": "CreativeWork",
+      "@id": `https://devfeed.test/articles/${article.slug}#overview`,
+      text: article.ai_summary,
+      publisher: { "@id": "https://devfeed.test/#organization" },
+      isBasedOn: { "@id": article.canonical_url },
+    },
     mainEntity: {
       "@type": "Article",
       "@id": article.canonical_url,
       url: article.canonical_url,
       headline: article.title,
-      description: article.ai_summary,
-      author: { "@type": "Person", name: article.author },
+      description: article.summary,
+      author: [{ "@type": "Person", name: article.author }],
       publisher: {
         "@type": "Organization",
         name: article.sources[0].name,
@@ -63,6 +103,8 @@ it("omits unknown original dates, authors, publishers and unsafe URLs without in
     ...article,
     published_at: "invalid",
     author: null,
+    authors: [],
+    publisher: null,
     sources: [],
     image_url: "javascript:alert(1)",
     canonical_url: "https://user:secret@example.com",
@@ -73,6 +115,102 @@ it("omits unknown original dates, authors, publishers and unsafe URLs without in
   const metadata = articleMetadata(item);
   expect(metadata.openGraph).not.toHaveProperty("publishedTime");
   expect(metadata.openGraph).toHaveProperty("images", [socialImage()]);
+});
+
+it("keeps the original headline and publisher independent of the local title and discovery order", () => {
+  const publisher = article.sources[0];
+  const aggregator = { ...publisher, id: "aggregator", name: "A digest", slug: "a-digest" };
+  const data = articleStructuredData({
+    ...article,
+    title: "DevFeed's guide to boundaries",
+    sources: [aggregator, publisher],
+    authors: [{ type: "Organization", name: "Engineering team", url: "https://example.com/team" }],
+  });
+  expect(data.name).toBe("DevFeed's guide to boundaries");
+  expect(data.mainEntity).toMatchObject({
+    headline: article.original_title,
+    publisher: { name: publisher.name },
+    author: [
+      { "@type": "Organization", name: "Engineering team", url: "https://example.com/team" },
+    ],
+  });
+  expect(data.breadcrumb).toMatchObject({
+    itemListElement: [
+      { position: 1, name: "Home" },
+      {
+        position: 2,
+        name: publisher.name,
+        item: expect.stringContaining(`/sources/${publisher.slug}`),
+      },
+      { position: 3, name: "DevFeed's guide to boundaries" },
+    ],
+  });
+});
+
+it("does not promote legacy discovery metadata or untyped bylines into original attribution", () => {
+  const { publisher, authors, original_title, ...legacy } = article;
+  void publisher;
+  void authors;
+  void original_title;
+  const data = articleStructuredData(legacy);
+  for (const key of ["publisher", "author", "headline"])
+    expect(data.mainEntity).not.toHaveProperty(key);
+  expect(data.breadcrumb).toHaveProperty("itemListElement.1.name", article.sources[0].name);
+});
+
+it.each([null, "", "  \n "])(
+  "does not claim a source excerpt is a DevFeed overview (%j)",
+  (ai_summary) => {
+    const data = articleStructuredData({ ...article, ai_summary });
+    expect(data).not.toHaveProperty("hasPart");
+    expect(data.description).toBe(article.summary);
+  },
+);
+
+it("keeps the full English overview separate from the original language, dates and description", () => {
+  const ai_summary =
+    "## A **useful** overview.\n\n" + "A supported technical takeaway. ".repeat(20);
+  const data = articleStructuredData({ ...article, ai_summary, language: "es" });
+  expect(data.hasPart).toMatchObject({
+    "@type": "CreativeWork",
+    name: "AI overview",
+    text: ai_summary.trim(),
+    encodingFormat: "text/markdown",
+    inLanguage: "en",
+  });
+  expect((data.hasPart as { text: string }).text.length).toBeGreaterThan(180);
+  for (const key of [
+    "datePublished",
+    "dateModified",
+    "author",
+    "timeRequired",
+    "interactionStatistic",
+  ])
+    expect(data.hasPart).not.toHaveProperty(key);
+  expect(data.mainEntity).toMatchObject({ description: article.summary, inLanguage: "es" });
+});
+
+it("preserves technical identifiers and Markdown in the overview's declared source format", () => {
+  const ai_summary =
+    "Use `max_tokens` and `foo_bar` when `x < y`.\n\n" +
+    "- Keep escaped \\*punctuation\\* and [provider limits](https://example.com/limits).";
+  expect(articleStructuredData({ ...article, ai_summary }).hasPart).toMatchObject({
+    text: ai_summary,
+    encodingFormat: "text/markdown",
+  });
+});
+
+it("omits unsafe attribution links and a derivation link without a safe original", () => {
+  const data = articleStructuredData({
+    ...article,
+    canonical_url: "javascript:alert(1)",
+    publisher: { ...article.publisher, website_url: "https://user:secret@example.com" },
+    authors: [{ type: "Organization", name: "Team", url: "javascript:alert(1)" }],
+  });
+  expect(data.hasPart).not.toHaveProperty("isBasedOn");
+  expect(data.mainEntity).not.toHaveProperty("url");
+  expect(data.mainEntity).not.toHaveProperty("publisher.url");
+  expect(data.mainEntity).not.toHaveProperty("author.0.url");
 });
 
 it("uses the runtime origin and identical local canonical/OG URLs for scoped and paginated feeds", () => {
@@ -281,6 +419,8 @@ it("omits blank optional article identities and preserves only known original pu
   const item = {
     ...article,
     author: "  ",
+    authors: [{ type: "Person" as const, name: "  " }],
+    publisher: { ...article.publisher, name: "  " },
     sources: [{ ...article.sources[0], name: "  " }],
     published_at: null,
   };
@@ -288,7 +428,7 @@ it("omits blank optional article identities and preserves only known original pu
   for (const key of ["author", "publisher", "datePublished", "dateModified", "image"])
     expect(entity).not.toHaveProperty(key);
   expect(entity).toHaveProperty("@id", article.canonical_url);
-  expect(entity).toHaveProperty("description", articleDescription(item));
+  expect(entity).toHaveProperty("description", article.summary);
   expect(entity).not.toHaveProperty("mainEntityOfPage");
 });
 

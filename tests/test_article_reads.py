@@ -78,9 +78,14 @@ def test_public_projection_serializes_disclosures_without_lazy_loading(
                 assert "classification_provenance" in inspect(article).unloaded
                 with pytest.raises(InvalidRequestError, match="raiseload=True"):
                     _ = article.classification_provenance
-                assert "feed_url" in inspect(article.origins[0].source).unloaded
+                source = article.origins[0].source
+                assert source.website_url is None
+                assert source.feed_url == "https://publisher.example/feed"
+                assert actual[article.id]["publisher"]["id"] == str(source.id)
+                assert "feed_url" not in actual[article.id]["publisher"]
+                assert "last_error" in inspect(source).unloaded
                 with pytest.raises(InvalidRequestError, match="raiseload=True"):
-                    _ = article.origins[0].source.feed_url
+                    _ = source.last_error
         finally:
             event.remove(engine, "before_cursor_execute", capture)
     assert not statements

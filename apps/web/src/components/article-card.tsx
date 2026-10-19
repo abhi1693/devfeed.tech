@@ -17,6 +17,7 @@ import { TruncatedLink } from "./truncated-link";
 import { ArticleSponsorship } from "./article-sponsorship";
 import { articleDestination } from "@/lib/reader-destination";
 import { adLinkRel } from "@devfeed/ui/ad-link-rel";
+import { articleSource } from "@/lib/article-attribution";
 
 export function ArticleCard({
   article,
@@ -36,7 +37,7 @@ export function ArticleCard({
   const destination = articleDestination(article.slug);
   const image = safeExternalUrl(article.image_url);
   const original = outboundArticleUrl(article.canonical_url);
-  const source = article.sources[0];
+  const source = articleSource(article);
   const [feedbackOpen, setFeedbackOpen] = useState(false);
   const engagement = useArticleEngagement(article.id);
   const sponsorshipId = useId();
