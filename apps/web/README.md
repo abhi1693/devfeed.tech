@@ -752,3 +752,19 @@ delivery from earlier article delivery. Deployment/network latency needs a separ
 Reader browser regressions verify the shell with feed responses held pending on web and both
 built extensions, as well as distinct reader preferences, per-response nonces, and subsequent
 unpublication/republication. These checks avoid relying on machine-dependent timing limits.
+
+## Agent authentication discovery
+
+`/auth.md` is a request-time Markdown guide to the existing MCP OAuth public-client
+registration and browser consent flow. It uses `DEVFEED_MCP_PUBLIC_URL` to point
+agents to the path-specific Protected Resource Metadata, which supplies the actual
+authorization-server issuer. The reader never guesses issuer or token URLs.
+When no MCP resource is configured, the guide says so; invalid configuration
+returns a generic, non-cacheable 503 without exposing the configured value.
+
+This discovery document does not implement Auth.md identity assertions, anonymous
+account provisioning, verified-email registration, or device-code claims. Those
+require a separately selected registration flow and matching server implementation
+before advertising an `agent_auth` method. The reader's session-cookie API remains
+separate from the MCP bearer-token resource. Passive validation must use GET/HEAD
+only; do not POST to registration or token endpoints during a scan.
