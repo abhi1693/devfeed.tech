@@ -264,6 +264,11 @@ def recurring_query_data(database):
             """INSERT INTO tags(id,name,slug,aliases)
                 SELECT md5('t'||i)::uuid,'Tag '||i,'tag-'||i,ARRAY[]::varchar[]
                 FROM generate_series(1,34074) i""",
+        ):
+            connection.execute(text(sql), {"now": NOW})
+        # Matching projection runs for every inserted article. Bound each setup
+        # statement without reducing production cardinality or bypassing triggers.
+        article_sql = text(
             """INSERT INTO articles(id,canonical_url,url_hash,title,summary,review_status,
                 publication_status,feed_at,published_to_feed_at,discovered_at,content_type,slug)
                 SELECT md5('a'||i)::uuid,'https://article.test/'||i,md5('a'||i),'Article '||i,
@@ -273,7 +278,19 @@ def recurring_query_data(database):
                     :now - (i%30)*interval '1 day',
                     CASE WHEN i<=55730 THEN :now - (i%30)*interval '1 day' END,
                     :now - interval '10 minutes' - (i%30)*interval '1 day','article','article-'||i
-                FROM generate_series(1,60340) i""",
+                FROM generate_series(
+                    CAST(:batch_start AS integer),CAST(:batch_end AS integer)) i"""
+        )
+        for batch_start in range(1, 60341, 5000):
+            connection.execute(
+                article_sql,
+                {
+                    "now": NOW,
+                    "batch_start": batch_start,
+                    "batch_end": min(batch_start + 4999, 60340),
+                },
+            )
+        for sql in (
             """INSERT INTO article_origins(id,article_id,source_id,entry_key,original_url,
                 source_metadata)
                 SELECT gen_random_uuid(),md5('a'||i)::uuid,md5('s'||(1+i%1261))::uuid,i::text,

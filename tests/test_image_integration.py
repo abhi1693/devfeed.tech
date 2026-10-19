@@ -91,11 +91,10 @@ def test_failed_ingestion_rolls_back_image_outbox_together_with_articles(
         assert session.get(IngestionJob, identifier).status == "queued"
 
 
-def test_real_rq_enrichment_updates_api_without_changing_other_metadata(
+def test_real_rq_enrichment_prepares_article_before_publication(
     database, client, monkeypatch, publish_for_read_test
 ):
     identifier = article(database)
-    publish_for_read_test([identifier])
     with database.begin() as session:
         image_job = request_image(session, identifier).id
         original = session.get(Article, identifier)
@@ -118,6 +117,7 @@ def test_real_rq_enrichment_updates_api_without_changing_other_metadata(
         assert saved.image_url == "https://publisher.example/cover.png"
         assert (saved.title, saved.canonical_url, saved.feed_at, saved.published_at) == stable
         assert session.get(ArticleImageJob, image_job).outcome == "found"
+    publish_for_read_test([identifier])
     assert (
         client.get(f"/v1/articles/{identifier}").json()["image_url"]
         == "https://publisher.example/cover.png"

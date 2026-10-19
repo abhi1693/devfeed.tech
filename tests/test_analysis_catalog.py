@@ -123,6 +123,16 @@ def test_prompt_budget_counts_unicode_article_and_long_aliases():
     assert sum(map(len, candidates.values())) < 1000
 
 
+def test_candidate_budget_does_not_build_the_legacy_aggregate_prompt(monkeypatch):
+    def legacy_prompt(*_):
+        pytest.fail("Production candidate ranking must not build the legacy giant prompt")
+
+    monkeypatch.setattr(analysis, "analysis_prompt", legacy_prompt)
+    taxonomy = {"topics": [entry("Rust")], "tags": []}
+    candidates = analysis.analysis_candidates(taxonomy, {"title": "Rust release", "text": "Rust"})
+    assert candidates["topics"][0]["id"] == taxonomy["topics"][0]["id"]
+
+
 @pytest.mark.integration
 def test_large_catalog_runs_analysis_and_manual_classification(database, monkeypatch):
     with database.begin() as session:
@@ -181,12 +191,22 @@ def test_large_catalog_runs_analysis_and_manual_classification(database, monkeyp
         assert len(full["topics"]) == 1301 and len(full["tags"]) == 520
         assert str(hidden.id) not in {item["id"] for item in full["topics"]}
 
+    calls = []
+
     def complete(prompt, schema):
         assert len(prompt.encode()) <= 240_000
-        data = json.loads(prompt[prompt.index('{"article":') :])
-        assert str(relevant_id) in {item["id"] for item in data["catalog"]["topics"]}
-        return {
-            "outcome": "ready",
+        assert len(prompt.encode()) + len(json.dumps(schema).encode()) <= 250_000
+        data = json.loads(prompt.rsplit("\n", 1)[1])
+        fields = set(schema["properties"]) - {"outcome", "reason"}
+        calls.append(fields)
+        if fields == {"topics"}:
+            assert set(data["catalog"]) == {"topics"}
+            assert str(relevant_id) in {item["id"] for item in data["catalog"]["topics"]}
+        elif fields == {"tags"}:
+            assert set(data["catalog"]) == {"tags"}
+        else:
+            assert "catalog" not in data
+        values = {
             "developer_relevance": "relevant",
             "language": "en",
             "content_type": "tutorial",
@@ -195,7 +215,7 @@ def test_large_catalog_runs_analysis_and_manual_classification(database, monkeyp
             "ai_title": None,
             "title_evidence": None,
             "page_kind": "article",
-            "ai_description": None,
+            "ai_description": "A guide to autonomous assistants.",
             "topics": [
                 {
                     "topic_id": str(relevant_id),
@@ -205,7 +225,11 @@ def test_large_catalog_runs_analysis_and_manual_classification(database, monkeyp
                 }
             ],
             "tags": [],
-            "reasons": [],
+        }
+        return {
+            "outcome": "ready",
+            "reason": "Supported by the supplied source.",
+            **{field: values[field] for field in fields},
         }
 
     monkeypatch.setattr(analysis_tasks, "session_factory", lambda: database)
@@ -218,6 +242,17 @@ def test_large_catalog_runs_analysis_and_manual_classification(database, monkeyp
     )
     monkeypatch.setattr(analysis_tasks, "CodexClient", lambda _: SimpleNamespace(complete=complete))
     analysis_tasks._analyze(job_id)
+    assert calls == [
+        {"developer_relevance"},
+        {"page_kind"},
+        {"language"},
+        {"content_type"},
+        {"content_format"},
+        {"topics"},
+        {"tags"},
+        {"ai_summary"},
+        {"ai_description"},
+    ]
     with database.begin() as session:
         job = session.get(ArticleAnalysisJob, job_id)
         assert job.status == "succeeded" and job.outcome == "applied", job.error

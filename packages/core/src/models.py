@@ -531,7 +531,7 @@ Index(
     "ix_articles_automation_due",
     Article.automation_next_check_at,
     Article.id,
-    postgresql_where=(Article.review_status == "pending")
+    postgresql_where=(Article.review_status.in_(["pending", "approved"]))
     & (Article.publication_status == "unpublished"),
 )
 Index(
@@ -904,6 +904,38 @@ class ArticleAnalysisJob(LeasedJobMixin, Base):
     usage: Mapped[dict] = mapped_column(JSONB, default=dict, server_default="{}")
     duration_ms: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
     inputs_pruned_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+    @property
+    def steps(self) -> dict:
+        """Durable specialist progress in the existing parent outbox row.
+
+        Assign a new dictionary through the setter when changing a step. This
+        keeps JSONB change tracking and telemetry merges safe without introducing
+        another queue, lease, or partially applied article representation.
+        """
+        value = (self.usage or {}).get("article_steps", {})
+        return value if isinstance(value, dict) else {}
+
+    @steps.setter
+    def steps(self, value: dict) -> None:
+        self.usage = {**(self.usage or {}), "article_steps": value}
+
+    @property
+    def active_step(self) -> str | None:
+        value = (self.usage or {}).get("active_step")
+        return value if isinstance(value, str) else None
+
+    @active_step.setter
+    def active_step(self, value: str | None) -> None:
+        self.usage = {**(self.usage or {}), "active_step": value}
+
+
+Index(
+    "ix_article_image_history",
+    ArticleImageJob.article_id,
+    ArticleImageJob.created_at.desc(),
+    ArticleImageJob.id.desc(),
+)
 
 
 class TopicReanalysis(Base):

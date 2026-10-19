@@ -31,7 +31,10 @@ def test_classification_locks_coexist_and_exclude_catalog_writes(database):
         assert failure.value.orig.sqlstate == "55P03"
 
 
-def test_retention_preserves_latest_failures_provenance_and_pending_articles(database):
+@pytest.mark.parametrize("nested_generation", [False, True])
+def test_retention_preserves_latest_failures_provenance_and_pending_articles(
+    database, nested_generation
+):
     old = utcnow() - timedelta(days=40)
     with database.begin() as session:
         _, article, _ = seed(session)
@@ -47,11 +50,23 @@ def test_retention_preserves_latest_failures_provenance_and_pending_articles(dat
                 catalog_snapshot={"topics": ["evidence"]},
                 result={"outcome": "ready"},
                 input_hash="a" * 64,
+                usage={
+                    "article_steps": {
+                        "overview": {
+                            "status": "succeeded",
+                            "prompt_version": "article-overview-v1",
+                            "output": {"ai_summary": "Private retained source overview."},
+                        }
+                    }
+                },
             )
             session.add(job)
             jobs.append(job)
         session.flush()
-        article.classification_provenance = {"analysis_id": str(jobs[2].id)}
+        generation = {"analysis_id": str(jobs[2].id)}
+        article.classification_provenance = (
+            {"origin": "manual", "ai_generation": generation} if nested_generation else generation
+        )
         ids = [j.id for j in jobs]
     assert prune_job_payloads(database) == 1
     assert prune_job_payloads(database) == 0
@@ -61,6 +76,11 @@ def test_retention_preserves_latest_failures_provenance_and_pending_articles(dat
         assert jobs[0].inputs_pruned_at is not None
         assert jobs[0].input_hash == "a" * 64
         assert jobs[0].result == {"outcome": "ready"}
+        assert jobs[0].steps["overview"] == {
+            "status": "succeeded",
+            "prompt_version": "article-overview-v1",
+        }
+        assert jobs[2].steps["overview"]["output"]
         assert all(j.input_snapshot and j.inputs_pruned_at is None for j in jobs[1:])
 
 

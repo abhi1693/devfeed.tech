@@ -15,7 +15,7 @@ import { RequestState } from "@/components/molecules/request-state";
 import { StatusBadge } from "@/components/molecules/status-badge";
 import { DateTime } from "@/components/molecules/date-time";
 import { useRequest } from "@/lib/use-request";
-import { useSourcePipelineInterval } from "@/lib/use-source-pipeline-interval";
+import { useBoardRefreshInterval } from "@/lib/use-refresh-interval";
 import { humanize } from "@/lib/resources";
 import { notify, notifyFailure } from "@/lib/notifications";
 import {
@@ -45,7 +45,7 @@ export function SourceReadiness({
   onChange?: (detail: SourcePipelineDetail | undefined) => void;
 }) {
   const admin = useAdmin();
-  const seconds = useSourcePipelineInterval();
+  const seconds = useBoardRefreshInterval();
   const [revision, setRevision] = useState(0);
   const [busy, setBusy] = useState(false);
   const pending = useRef(false);

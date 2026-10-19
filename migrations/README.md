@@ -161,3 +161,18 @@ is implied by committing the migration.
 
 Revision `0025` adds adaptive source polling after partnership revision `0024`.
 Apply it before starting this feature. Existing source-logo and partnership migrations remain unchanged.
+
+## Article processing lifecycle (0032)
+
+Revision `0032` follows inference-summary revision `0031`. It builds the article-image
+history index and expands the due-automation predicate to include approved unpublished
+articles. Analysis and enrichment lookups reuse the `*_latest` indexes owned by `0027`;
+this revision does not create duplicate history indexes for those tables.
+
+The builds run concurrently with a five-second metadata lock timeout and repair invalid
+interrupted builds on retry. Downgrade restores the pending-only automation predicate and
+removes only the image-history index, preserving the parent indexes and all article data.
+The new runtime accepts schemas `0026` through `0032`, with exact ledger reporting on
+compatible schemas before `0031`. Deploy compatible processes before applying `0032`;
+when returning to older binaries, first restore the schema they support. No production
+migration or publication repair is performed by viewing the pipeline.

@@ -6,6 +6,7 @@ from types import SimpleNamespace
 
 import httpx
 import pytest
+from article_processing_helpers import complete_processing
 from devfeed_core.config import get_settings
 from devfeed_core.db import get_engine
 from devfeed_core.editorial import EditorialDecision, decide_article
@@ -99,6 +100,7 @@ def published_data(database, monkeypatch):
         ]
         session.add(article)
         session.flush()
+        complete_processing(session, article)
         identifier = article.id
     return SimpleNamespace(factory=database, article=identifier, users=users, topics=topics)
 

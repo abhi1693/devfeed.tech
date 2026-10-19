@@ -3,15 +3,8 @@ import { act, cleanup, render, renderHook, screen, waitFor } from "@testing-libr
 import { renderToString } from "react-dom/server";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { useBoardColumns } from "@/lib/use-board-columns";
-const pipelineStages = [
-  "ingested",
-  "analysis",
-  "images",
-  "ready",
-  "published",
-  "rejected",
-] as const;
-const pipelineColumnsStorageKey = "devfeed:test-board-columns";
+import { pipelineColumnsStorageKey, pipelineStages } from "@/lib/article-pipeline";
+import { sourceColumnsStorageKey, sourcePipelineStages } from "@/lib/source-pipeline";
 function usePipelineColumns() {
   return useBoardColumns(pipelineColumnsStorageKey, pipelineStages);
 }
@@ -45,6 +38,24 @@ it("keeps column preferences independent between boards", () => {
   expect(first.result.current.collapsed).toEqual(["analysis"]);
   expect(second.result.current.visible).toEqual(pipelineStages);
   expect(second.result.current.collapsed).toEqual([]);
+});
+
+it("preserves existing article preferences independently from source preferences", () => {
+  localStorage.setItem(
+    "devfeed:admin-article-pipeline-columns",
+    JSON.stringify({ hidden: ["images"], collapsed: ["analysis"] }),
+  );
+  const article = renderHook(() => usePipelineColumns());
+  const source = renderHook(() => useBoardColumns(sourceColumnsStorageKey, sourcePipelineStages));
+  expect(pipelineColumnsStorageKey).toBe("devfeed:admin-article-pipeline-columns");
+  expect(article.result.current.visible).not.toContain("images");
+  expect(article.result.current.collapsed).toEqual(["analysis"]);
+  expect(source.result.current.visible).toEqual(sourcePipelineStages);
+  act(() => source.result.current.toggleCollapsed("profile"));
+  act(() => article.result.current.showAll());
+  expect(article.result.current.visible).toEqual(pipelineStages);
+  expect(source.result.current.collapsed).toEqual(["profile"]);
+  expect(article.result.current.collapsed).toEqual(["analysis"]);
 });
 
 it("hydrates the all-visible server fallback before restoring browser preferences", async () => {

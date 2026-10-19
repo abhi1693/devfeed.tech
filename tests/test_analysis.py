@@ -65,7 +65,7 @@ def result(**values):
             "ai_title": None,
             "title_evidence": None,
             "page_kind": "article",
-            "ai_description": None,
+            "ai_description": "A guide to application navigation with Angular routing.",
             "topics": [
                 {
                     "topic_id": str(TOPIC_ID),
@@ -286,19 +286,19 @@ def test_article_analysis_contract_only_selects_existing_topics():
     analysis.validate_evidence(result(topics=[]), SNAPSHOT, {"topics": [], "tags": []})
 
 
-@pytest.mark.parametrize("compact", [False, True], ids=["original", "passages"])
+@pytest.mark.parametrize("persisted", [False, True], ids=["direct", "resumed"])
 @pytest.mark.parametrize("case", ["design", "programming-loops", "design-topic-absent"])
 def test_contextual_topic_fixtures_pass_through_inference_and_application(
-    monkeypatch, compact, case
+    monkeypatch, persisted, case
 ):
-    from devfeed_aggregator.analysis_tasks import (
-        AnalysisAttempt,
-        AnalysisContext,
-        ArticleAnalysisService,
-        PreparedAnalysis,
+    from devfeed_core.article_analysis_steps import (
+        assemble_article_analysis,
+        next_article_step,
+        prepare_article_step,
+        validate_article_step,
     )
 
-    # Reviewed responses exercise the production inference/application contract;
+    # Reviewed responses exercise specialist preparation, validation and application;
     # they do not stand in for a live model's semantic accuracy evaluation.
     design = {
         "id": str(uuid.uuid4()),
@@ -329,49 +329,54 @@ def test_contextual_topic_fixtures_pass_through_inference_and_application(
     job.input_snapshot, job.input_hash = snapshot, analysis.snapshot_hash(snapshot)
     candidates = analysis.analysis_candidates(taxonomy, snapshot)
     selected = None if case == "design-topic-absent" else loops if programming else design
-    calls = []
-
-    def complete(prompt, schema):
+    reviewed = result(
+        # Even otherwise ready evidence must remain incomplete when the approved
+        # catalog has no supported primary topic.
+        topics=[]
+        if selected is None
+        else [
+            {
+                "topic_id": selected["id"],
+                "role": "primary",
+                "relevance": 0.95,
+                "evidence": text,
+            }
+        ],
+        ai_summary=text,
+    ).model_dump(mode="json")
+    calls, outputs = [], {}
+    while (name := next_article_step(snapshot, outputs)) is not None:
+        prompt, schema, _ = prepare_article_step(name, snapshot, candidates, outputs)
         payload = json.loads(prompt.rsplit("\n", 1)[1])
-        calls.append(payload)
-        by_id = {item["id"]: item for item in payload["catalog"]["topics"]}
-        assert by_id[loops["id"]]["description"] == loops["description"]
-        assert by_id[loops["id"]]["ai_description"] == loops["ai_description"]
-        assert set(schema["$defs"]["TopicSelection"]["properties"]["topic_id"]["enum"]) == set(
-            by_id
-        )
-        evidence = payload["article"]["text"][0]["id"] if compact else text
-        return result(
-            # Even an otherwise ready completion must remain incomplete when the
-            # approved catalog has no supported primary topic.
-            topics=[]
-            if selected is None
-            else [
-                {
-                    "topic_id": selected["id"],
-                    "role": "primary",
-                    "relevance": 0.95,
-                    "evidence": evidence,
-                }
-            ],
-            ai_summary=text,
-        ).model_dump(mode="json")
-
-    settings = SimpleNamespace(codex_model="reviewed-fixture-model")
-    service = ArticleAnalysisService(settings, None, lambda _: SimpleNamespace(complete=complete))
-    context = AnalysisContext(job.id, uuid.uuid4(), snapshot, article.id)
-    inferred, marker = service.infer(
-        context,
-        PreparedAnalysis(candidates, None, compact, "contextual-topic-regression"),
-        AnalysisAttempt(number=1),
-    )
+        calls.append(name)
+        if name == "topics":
+            by_id = {item["id"]: item for item in payload["catalog"]["topics"]}
+            assert by_id[loops["id"]]["description"] == loops["description"]
+            assert by_id[loops["id"]]["ai_description"] == loops["ai_description"]
+            assert payload["source"]["text"] == text
+            assert set(schema["$defs"]["TopicSelection"]["properties"]["topic_id"]["enum"]) == set(
+                by_id
+            )
+        response = {
+            field: reviewed[field]
+            for field in schema["properties"]
+            if field not in {"outcome", "reason"}
+        }
+        response.update(outcome="ready", reason=f"Reviewed {name} source evidence.")
+        outputs[name] = validate_article_step(name, response, snapshot, candidates, outputs)
+        if persisted:
+            outputs = json.loads(json.dumps(outputs))
+    inferred, marker = analysis.require_primary_topic(assemble_article_analysis(snapshot, outputs))
+    analysis.validate_evidence(inferred, snapshot, candidates)
     monkeypatch.setattr(analysis, "approved_sources", lambda *_: [uuid.uuid4()])
     analysis.apply_analysis(session, article, job, inferred)
     assigned = [item for item in added if isinstance(item, ArticleTopic)]
-    assert len(calls) == 1
+    assert calls.count("topics") == 1
+    assert "identifying_title" not in calls
     assert article.publication_status == "unpublished" and article.review_status == "pending"
     if selected is None:
         assert inferred.outcome == "insufficient_evidence" and marker == "no_topic_match"
+        assert "overview" not in calls and "description" not in calls
         assert not assigned and article.ai_summary is None
         assert job.outcome == "insufficient_evidence"
     else:
@@ -435,6 +440,12 @@ def test_analysis_applies_classification_and_ai_prose_but_never_publishes(monkey
     assert current.language == "en" and current.content_type == "tutorial"
     assert current.review_status == "pending" and current.publication_status == "unpublished"
     assert current.classification_provenance["analysis_id"] == str(job.id)
+    assert current.classification_provenance["ai_generation"] == {
+        "analysis_id": str(job.id),
+        "input_hash": job.input_hash,
+        "prompt_version": job.prompt_version,
+        "model": job.model,
+    }
     assert any(isinstance(value, ArticleTopic) for value in added)
     assert job.outcome == "applied" and job.finished_at
 
@@ -462,6 +473,23 @@ def test_request_coalesces_and_does_not_query_network(monkeypatch):
     rows = iter([current, job])
     db.scalar = lambda _: next(rows)
     assert analysis.request_analysis(db, current.id) is job
+
+
+@pytest.mark.parametrize("automatic", [False, True])
+def test_published_article_cannot_start_analysis_or_change_public_prose(automatic):
+    current, _, _, db, added = inputs()
+    current.publication_status = "published"
+    current.review_status = "approved"
+    current.ai_summary = "The published overview remains available."
+    db.scalar = lambda _: current
+    if automatic:
+        assert analysis.request_analysis(db, current.id, automatic=True) is None
+    else:
+        with pytest.raises(OperationConflict, match="Unpublish the article"):
+            analysis.request_analysis(db, current.id)
+    assert current.publication_status == "published" and current.review_status == "approved"
+    assert current.ai_summary == "The published overview remains available."
+    assert not added
 
 
 def test_request_rejects_title_only_evidence(monkeypatch):
@@ -539,6 +567,63 @@ def test_manual_correction_is_audited_preserves_prose_and_invalidates_approval(
     )
 
 
+@pytest.mark.parametrize("binding", ["legacy", "nested"])
+@pytest.mark.parametrize("change", [None, "source", "summary", "description"])
+def test_manual_classification_retains_only_current_readable_ai_generation(
+    monkeypatch, binding, change
+):
+    article, content, job, db, _ = inputs()
+    article.ai_summary = "Existing generated overview."
+    article.ai_description = "Existing generated description."
+    generation = {
+        "analysis_id": str(job.id),
+        "input_hash": job.input_hash,
+        "prompt_version": job.prompt_version,
+        "model": job.model,
+    }
+    article.classification_provenance = {
+        "origin": "ai" if binding == "legacy" else "manual",
+        "input_hash": job.input_hash,
+        **(generation if binding == "legacy" else {"ai_generation": generation}),
+    }
+    if change == "source":
+        content.text += " New publisher evidence."
+    elif change == "summary":
+        article.ai_summary = "<p></p>"
+    elif change == "description":
+        article.ai_description = None
+    db.scalar = lambda _: article
+    monkeypatch.setattr(analysis, "catalog", lambda _: CATALOG)
+    monkeypatch.setattr(
+        analysis, "request_analysis", lambda *a, **kw: pytest.fail("Started inference")
+    )
+    body = analysis.ManualClassification(
+        **result().model_dump(
+            exclude={
+                "outcome",
+                "ai_summary",
+                "ai_description",
+                "reasons",
+                "ai_title",
+                "title_evidence",
+            }
+        ),
+        actor="Editor",
+        expected_revision=article.editorial_revision,
+    )
+
+    analysis.classify_manually(db, article.id, body)
+
+    assert article.classification_provenance["origin"] == "manual"
+    assert article.classification_provenance["actor"] == "Editor"
+    if change is None:
+        assert article.classification_provenance["ai_generation"] == generation
+        assert article.ai_summary == "Existing generated overview."
+        assert article.ai_description == "Existing generated description."
+    else:
+        assert "ai_generation" not in article.classification_provenance
+
+
 @pytest.mark.parametrize("force", [False, True])
 def test_analysis_backfill_is_bounded_and_skips_active_or_nonpending_candidates(monkeypatch, force):
     identifier, after = uuid.uuid4(), uuid.uuid4()
@@ -580,6 +665,48 @@ def test_title_rewrite_requires_body_evidence():
         result(ai_title="New title")
     with pytest.raises(ValidationError):
         result(ai_title="<b>Title</b>", title_evidence="Angular routing")
+
+
+@pytest.mark.parametrize("field", ["ai_summary", "ai_description"])
+@pytest.mark.parametrize("value", [None, "", "<p></p>", "---", "https://example.com"])
+def test_ready_relevant_articles_require_readable_ai_presentation(field, value):
+    with pytest.raises(ValidationError) as failure:
+        result(**{field: value})
+    from devfeed_core.inference_validation import feedback_prompt, validation_feedback
+
+    feedback = validation_feedback(failure.value)
+    assert feedback["code"] == f"missing_{field}"
+    assert "return insufficient_evidence" in feedback_prompt(feedback)
+
+
+@pytest.mark.parametrize("relevance", ["unrelated", "uncertain"])
+def test_missing_prose_does_not_discard_independent_negative_or_uncertain_classifications(
+    relevance,
+):
+    value = result(developer_relevance=relevance, ai_summary=None, ai_description=None)
+    assert value.developer_relevance == relevance
+    assert value.ai_summary is value.ai_description is None
+
+
+def test_version_only_release_needs_a_body_supported_project_title():
+    snapshot = {
+        **SNAPSHOT,
+        "title": "v0.18.1",
+        "text": "Angular routing improves navigation in JavaScript applications in release 0.18.1.",
+    }
+    with pytest.raises(ValueError, match="identifying title"):
+        analysis.validate_evidence(result(), snapshot, CATALOG)
+    analysis.validate_evidence(
+        result(ai_title="Angular 0.18.1 improves navigation", title_evidence=snapshot["text"]),
+        snapshot,
+        CATALOG,
+    )
+    with pytest.raises(ValueError, match="evidence"):
+        analysis.validate_evidence(
+            result(ai_title="Angular 0.18.1 release", title_evidence="A fabricated project name"),
+            snapshot,
+            CATALOG,
+        )
 
 
 def test_utility_pages_cannot_receive_rewritten_headlines():

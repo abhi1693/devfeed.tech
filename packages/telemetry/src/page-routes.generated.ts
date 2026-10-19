@@ -478,6 +478,14 @@ export const pageRouteCatalogs = {
       label: "/v1/admin/source-pipeline/items/:id/:id/retry",
     },
     {
+      path: "/api/v1/admin/articles/:id/pipeline/advance",
+      label: "/v1/admin/articles/:id/pipeline/advance",
+    },
+    {
+      path: "/api/v1/admin/articles/:id/pipeline/retry",
+      label: "/v1/admin/articles/:id/pipeline/retry",
+    },
+    {
       path: "/api/v1/admin/automation/articles/:id/decisions",
       label: "/v1/admin/automation/articles/:id/decisions",
     },
@@ -559,6 +567,7 @@ export const pageRouteCatalogs = {
     },
     { path: "/api/v1/admin/articles/:id/classify", label: "/v1/admin/articles/:id/classify" },
     { path: "/api/v1/admin/articles/:id/content", label: "/v1/admin/articles/:id/content" },
+    { path: "/api/v1/admin/articles/:id/pipeline", label: "/v1/admin/articles/:id/pipeline" },
     { path: "/api/v1/admin/articles/:id/review", label: "/v1/admin/articles/:id/review" },
     { path: "/api/v1/admin/articles/:id/reviews", label: "/v1/admin/articles/:id/reviews" },
     {
@@ -677,6 +686,14 @@ export const pageRouteCatalogs = {
     },
     { path: "/api/v1/admin/users/:id/sources", label: "/v1/admin/users/:id/sources" },
     { path: "/api/v1/admin/users/:id/topics", label: "/v1/admin/users/:id/topics" },
+    {
+      path: "/v1/admin/articles/:id/pipeline/advance",
+      label: "/v1/admin/articles/:id/pipeline/advance",
+    },
+    {
+      path: "/v1/admin/articles/:id/pipeline/retry",
+      label: "/v1/admin/articles/:id/pipeline/retry",
+    },
     {
       path: "/v1/admin/automation/articles/:id/decisions",
       label: "/v1/admin/automation/articles/:id/decisions",
@@ -881,6 +898,7 @@ export const pageRouteCatalogs = {
       path: "/v1/admin/source-pipeline/items/:id/:id",
       label: "/v1/admin/source-pipeline/items/:id/:id",
     },
+    { path: "/api/v1/admin/article-pipeline/:id", label: "/v1/admin/article-pipeline/:id" },
     { path: "/api/v1/admin/articles/:id", label: "/v1/admin/articles/:id" },
     { path: "/api/v1/admin/jobs/:id", label: "/v1/admin/jobs/:id" },
     { path: "/api/v1/admin/partner-accounts/:id", label: "/v1/admin/partner-accounts/:id" },
@@ -922,6 +940,7 @@ export const pageRouteCatalogs = {
     },
     { path: "/v1/admin/articles/:id/classify", label: "/v1/admin/articles/:id/classify" },
     { path: "/v1/admin/articles/:id/content", label: "/v1/admin/articles/:id/content" },
+    { path: "/v1/admin/articles/:id/pipeline", label: "/v1/admin/articles/:id/pipeline" },
     { path: "/v1/admin/articles/:id/review", label: "/v1/admin/articles/:id/review" },
     { path: "/v1/admin/articles/:id/reviews", label: "/v1/admin/articles/:id/reviews" },
     { path: "/v1/admin/ingestion/article-jobs/:id", label: "/v1/admin/ingestion/article-jobs/:id" },
@@ -1019,6 +1038,7 @@ export const pageRouteCatalogs = {
     { path: "/v1/admin/users/:id/recommendations", label: "/v1/admin/users/:id/recommendations" },
     { path: "/v1/admin/users/:id/sources", label: "/v1/admin/users/:id/sources" },
     { path: "/v1/admin/users/:id/topics", label: "/v1/admin/users/:id/topics" },
+    { path: "/api/v1/admin/article-pipeline", label: "/v1/admin/article-pipeline" },
     { path: "/api/v1/admin/articles", label: "/v1/admin/articles" },
     { path: "/api/v1/admin/overview", label: "/v1/admin/overview" },
     { path: "/api/v1/admin/partner-accounts", label: "/v1/admin/partner-accounts" },
@@ -1182,6 +1202,7 @@ export const pageRouteCatalogs = {
     { path: "/taxonomy/topics/:id/enrich", label: "/taxonomy/topics/:id/enrich" },
     { path: "/taxonomy/topics/:id/related", label: "/taxonomy/topics/:id/related" },
     { path: "/taxonomy/topics/proposals/:id", label: "/taxonomy/topics/proposals/:id" },
+    { path: "/v1/admin/article-pipeline/:id", label: "/v1/admin/article-pipeline/:id" },
     { path: "/v1/admin/articles/:id", label: "/v1/admin/articles/:id" },
     { path: "/v1/admin/jobs/:id", label: "/v1/admin/jobs/:id" },
     { path: "/v1/admin/partner-accounts/:id", label: "/v1/admin/partner-accounts/:id" },
@@ -1212,6 +1233,7 @@ export const pageRouteCatalogs = {
     { path: "/taxonomy/tags/new", label: "/taxonomy/tags/new" },
     { path: "/taxonomy/topics/import", label: "/taxonomy/topics/import" },
     { path: "/taxonomy/topics/new", label: "/taxonomy/topics/new" },
+    { path: "/v1/admin/article-pipeline", label: "/v1/admin/article-pipeline" },
     { path: "/v1/admin/articles", label: "/v1/admin/articles" },
     { path: "/v1/admin/overview", label: "/v1/admin/overview" },
     { path: "/v1/admin/partner-accounts", label: "/v1/admin/partner-accounts" },
