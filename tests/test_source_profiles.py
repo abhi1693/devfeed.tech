@@ -1,5 +1,7 @@
 import gzip
 from dataclasses import asdict
+from datetime import timedelta
+from types import SimpleNamespace
 
 import httpcore
 import pytest
@@ -11,7 +13,7 @@ from devfeed_core.feeds.fetcher import FeedError, FetchResult
 from devfeed_core.feeds.parser import parse_feed
 from devfeed_core.models import Source, utcnow
 from devfeed_core.schemas import SourceCreate, SourcePatch, SourceSubmission
-from devfeed_core.source_enrichment import fill_profile
+from devfeed_core.source_enrichment import fill_profile, profile_current, source_identity
 from devfeed_core.source_profiles import (
     PROFILE_FIELDS,
     merge_profile_candidates,
@@ -353,3 +355,49 @@ def test_source_profile_failure_identifies_the_feed(monkeypatch):
     with pytest.raises(FeedError) as exc:
         source_tasks.lookup_profile(URL, "publisher", dict.fromkeys(PROFILE_FIELDS))
     assert exc.value.resource == "Feed" and exc.value.status == 429
+
+
+@pytest.mark.parametrize("reopening", [False, True])
+def test_missing_profile_job_is_never_current(reopening):
+    source = Source(
+        feed_url=URL,
+        website_url="https://publisher.example/",
+        source_type="publisher",
+        approval_status="pending",
+    )
+    source.processing_request = (
+        {"kind": "reopen_review", "requested_at": utcnow().isoformat()} if reopening else None
+    )
+    assert profile_current(source, None) is False
+
+
+@pytest.mark.parametrize(
+    ("status", "offset", "expected"),
+    [
+        ("queued", 1, False),
+        ("running", 1, False),
+        ("failed", 1, False),
+        ("succeeded", -1, False),
+        ("succeeded", 0, True),
+        ("succeeded", 1, True),
+        ("succeeded", None, False),
+    ],
+)
+def test_reopened_source_requires_a_successful_profile_created_after_reopening(
+    status, offset, expected
+):
+    source = Source(
+        feed_url=URL,
+        website_url="https://publisher.example/",
+        source_type="publisher",
+        approval_status="pending",
+    )
+    requested_at = utcnow()
+    source.processing_request = {"kind": "reopen_review", "requested_at": requested_at.isoformat()}
+    job = SimpleNamespace(
+        status=status,
+        operation="profile",
+        result={"input": source_identity(source)},
+        created_at=requested_at + timedelta(seconds=offset) if offset is not None else None,
+    )
+    assert profile_current(source, job) is expected
