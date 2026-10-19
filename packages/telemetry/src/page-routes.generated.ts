@@ -307,6 +307,7 @@ export const pageRouteCatalogs = {
     { path: "/read-later", label: "/read-later" },
     { path: "/register", label: "/register" },
     { path: "/releases", label: "/releases" },
+    { path: "/robots.txt", label: "/robots.txt" },
     { path: "/search", label: "/search" },
     { path: "/settings", label: "/settings/profile" },
     { path: "/sitemap-pages.xml", label: "/sitemap-pages.xml" },
