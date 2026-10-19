@@ -394,3 +394,54 @@ and verification of runtime settings, authentication, and personalized feeds.
 Validate with `npm run admin:lint`, `npm run admin:test`, and `npm run admin:build`.
 The overview browser suite checks nonce rotation after its overview scenarios so
 the extra page loads do not affect panel concurrency or lazy-loading measurements.
+
+## Source lifecycle pipeline
+
+Open **Sources → Pipeline** to follow source preparation, review and ingestion. The
+existing **List** remains the default view with its approval filters and page-size
+preferences. The board shows Discovery, Profile, AI assessment, Branding, Review,
+Ingestion, Active, Paused and Rejected. Each compact card contains the source name,
+host and an accessible status icon. Color distinguishes waiting, running, retrying,
+blocked, ready and completed work; running sources appear first in processing lanes.
+
+The board and readiness panels refresh automatically while visible, at least every
+five seconds when ordinary refresh is off or faster. A saved slower interval is
+respected. Loaded cards remain visible while refreshing, and a newer snapshot replaces
+old extra pages. The initial board and each **Load more** request are bounded to
+20 cards per lane. Active, Paused and Rejected show activity from the last seven days
+by default; the existing list and history remain available for older sources.
+
+Double-click a desktop column heading, or use its **Collapse/Expand** button, to switch
+between a full lane and a narrow rail. **Columns** hides or restores lanes, keeping at
+least one visible. These choices are saved separately for this browser’s source board.
+On mobile, the stage selector includes visible columns and shows one normal lane;
+desktop collapse choices do not compress the mobile lane. Card movement respects both
+the operating system and admin **Reduce motion** setting.
+
+A source card opens its existing record. An unlinked candidate opens a readiness
+dialog; once discovery links it to a source, the dialog offers **Open source** and
+uses the source’s current identity for actions. The board shows that source only once.
+**Source readiness** explains blockers, current runs, attempts and retry availability.
+Source enrichment run lists and details distinguish operations and show saved results.
+
+Use a card’s action menu or drag it to a server-listed processing lane to retry that
+step. Retrying upstream processing for an enabled, approved source pauses new feed
+ingestion and preserves its approval, articles and history. The menu says **Pause and
+retry**; use **Resume** after required processing settles. An ingestion retry only
+recovers fetching and does not pause the source. Dragging into Active or Review cannot
+approve or enable a source.
+
+Manual approval remains an explicit review decision. It requires a current profile
+and settled branding; an unsuccessful or uncertain AI assessment does not prevent an
+operator from reviewing the evidence and approving manually. Approval and feed-fetch
+controls use the server’s current readiness flags. Existing approved sources retain
+the core lifecycle’s compatibility rules; an Active card describes scheduled ingestion
+without claiming that every historical preparation step was rerun.
+
+A rejected source with incomplete preparation offers **Reopen for review**. This
+explicit action prepares the source again while ingestion stays disabled and keeps
+its earlier review history. Processing cannot automatically overturn the rejection;
+an operator must review and approve it after its prerequisites settle.
+
+Validate with `npm run admin:test`, `npm run admin:lint` and, after
+`npm run admin:build`, `node apps/admin/tests/browser/source-pipeline.mjs`.

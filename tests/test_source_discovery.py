@@ -222,6 +222,9 @@ def test_import_is_idempotent_and_rejection_survives_reimport(database):
 
 @pytest.mark.integration
 def test_worker_admission_and_existing_source_preservation(database, monkeypatch, feed):
+    from devfeed_aggregator import source_tasks
+    from devfeed_core.models import SourceEnrichmentJob
+
     def get(self, url):
         if url != "https://publisher.example/":
             raise FeedError("Not found", status=404, reason="http_error")
@@ -234,6 +237,9 @@ def test_worker_admission_and_existing_source_preservation(database, monkeypatch
     state = discovery.show(candidate_id)
     assert state["status"] == "ready"
     assert len(state["assessments"]) == 1
+    with database() as session:
+        profile_id = session.scalar(select(SourceEnrichmentJob.id))
+    source_tasks.enrich_source(str(profile_id))
     admitted = discovery.approve(candidate_id, "tester", "Reviewed original engineering content")
     assert admitted["status"] == "approved"
     with database() as session:

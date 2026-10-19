@@ -7,8 +7,17 @@ from devfeed_aggregator import tasks
 from devfeed_core import services
 from devfeed_core.db import session_factory
 from devfeed_core.feeds.fetcher import FetchResult
-from devfeed_core.models import Article, Base, IngestionJob, Topic, utcnow
+from devfeed_core.models import (
+    Article,
+    Base,
+    IngestionJob,
+    Source,
+    SourceEnrichmentJob,
+    Topic,
+    utcnow,
+)
 from devfeed_core.schemas import JobOut, SourceDecision, SourcePatch
+from devfeed_core.source_enrichment import source_identity
 from devfeed_core.urls import fingerprint
 from source_suggestions import suggest_source
 from sqlalchemy import func, select
@@ -16,8 +25,24 @@ from sqlalchemy import func, select
 pytestmark = pytest.mark.integration
 
 
+def complete_source_profile(session, identifier):
+    source = session.get(Source, identifier)
+    profile = session.scalar(
+        select(SourceEnrichmentJob).where(
+            SourceEnrichmentJob.source_id == identifier,
+            SourceEnrichmentJob.operation == "profile",
+            SourceEnrichmentJob.status == "queued",
+        )
+    )
+    assert source is not None and profile is not None
+    profile.status, profile.finished_at = "succeeded", utcnow()
+    profile.result = {"input": source_identity(source), "sample": []}
+    source.metadata_enriched_at = profile.finished_at
+
+
 def approve_source(identifier):
     with session_factory().begin() as session:
+        complete_source_profile(session, uuid.UUID(identifier))
         services.review_source(session, uuid.UUID(identifier), SourceDecision(decision="approved"))
 
 

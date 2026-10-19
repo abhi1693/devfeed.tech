@@ -19,6 +19,7 @@ import { type Resource, resources, humanize } from "@/lib/resources";
 import { useRefreshInterval } from "@/lib/use-refresh-interval";
 import { useRequest } from "@/lib/use-request";
 import { loadMatchingRows } from "@/lib/table-selection";
+import { SourcePipeline } from "./source-pipeline";
 export function ResourceList({
   resource,
   analysisType,
@@ -35,8 +36,59 @@ export function ResourceList({
   }
   return resource === "topics" ? (
     <TopicsScreen query={search.toString()} />
+  ) : resource === "sources" ? (
+    <SourcesScreen query={search.toString()} />
   ) : (
     <ResourceListTable resource={resource} analysisType={analysisType} query={search.toString()} />
+  );
+}
+
+function SourcesScreen({ query }: { query: string }) {
+  const search = new URLSearchParams(query);
+  const pipeline = search.get("view") === "pipeline";
+  function href(view: "list" | "pipeline") {
+    const next = new URLSearchParams(search);
+    next.set("view", view);
+    next.delete("offset");
+    for (const key of view === "list"
+      ? ["stage", "source_type", "needs_attention", "terminal_since"]
+      : ["approval_status", "enabled", "sort"])
+      next.delete(key);
+    return `/content/sources?${next}`;
+  }
+  return (
+    <section className="min-w-0 space-y-6">
+      <ResourceHeading title="Sources" trail={resourceTrail("sources")}>
+        <Button variant="outline" size="sm" asChild>
+          <Link href="/content/sources/import">Import</Link>
+        </Button>
+        <Button size="sm" asChild>
+          <Link href="/content/sources/new" prefetch={false}>
+            <Plus aria-hidden />
+            Add source
+          </Link>
+        </Button>
+      </ResourceHeading>
+      <nav aria-label="Source views" className="flex gap-6 overflow-x-auto border-b">
+        {(["list", "pipeline"] as const).map((view) => (
+          <Link
+            key={view}
+            href={href(view)}
+            prefetch={false}
+            scroll={false}
+            aria-current={(view === "pipeline") === pipeline ? "page" : undefined}
+            className={`shrink-0 border-b-2 px-1 pb-3 text-sm ${(view === "pipeline") === pipeline ? "border-primary font-medium" : "border-transparent text-muted-foreground hover:text-foreground"}`}
+          >
+            {view === "pipeline" ? "Pipeline" : "List"}
+          </Link>
+        ))}
+      </nav>
+      {pipeline ? (
+        <SourcePipeline query={query} />
+      ) : (
+        <ResourceListTable resource="sources" query={query} embedded />
+      )}
+    </section>
   );
 }
 

@@ -128,7 +128,7 @@ def claim_job(session: Session, job_id: uuid.UUID) -> tuple[IngestionJob, Source
         cancel_unapproved_job(job)
         return None
     if not source.enabled:
-        fail_job(session, job, "Source is disabled", retryable=False)
+        cancel_disabled_job(job)
         return None
     start_job(job, now, LEASE_SECONDS)
     source.last_attempt_at = now
@@ -142,3 +142,9 @@ def cancel_unapproved_job(job: IngestionJob) -> None:
     job.finished_at = utcnow()
     job.lease_token = None
     job.lease_until = None
+
+
+def cancel_disabled_job(job: IngestionJob) -> None:
+    """An intentional pause must not count as an upstream feed failure."""
+    cancel_unapproved_job(job)
+    job.error = "Source is disabled"

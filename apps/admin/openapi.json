@@ -12996,6 +12996,691 @@
         "title": "SourcePatch",
         "type": "object"
       },
+      "SourcePipelineAdvance": {
+        "additionalProperties": false,
+        "properties": {
+          "expected_snapshot": {
+            "maxLength": 64,
+            "minLength": 64,
+            "pattern": "^[a-f0-9]{64}$",
+            "title": "Expected Snapshot",
+            "type": "string"
+          }
+        },
+        "required": [
+          "expected_snapshot"
+        ],
+        "title": "SourcePipelineAdvance",
+        "type": "object"
+      },
+      "SourcePipelineBoard": {
+        "properties": {
+          "as_of": {
+            "format": "date-time",
+            "title": "As Of",
+            "type": "string"
+          },
+          "columns": {
+            "items": {
+              "$ref": "#/components/schemas/SourcePipelineColumn"
+            },
+            "title": "Columns",
+            "type": "array"
+          },
+          "counts": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "propertyNames": {
+              "enum": [
+                "discovery",
+                "profile",
+                "assessment",
+                "branding",
+                "review",
+                "ingestion",
+                "active",
+                "paused",
+                "rejected"
+              ]
+            },
+            "title": "Counts",
+            "type": "object"
+          },
+          "terminal_since": {
+            "format": "date-time",
+            "title": "Terminal Since",
+            "type": "string"
+          }
+        },
+        "required": [
+          "as_of",
+          "terminal_since",
+          "counts",
+          "columns"
+        ],
+        "title": "SourcePipelineBoard",
+        "type": "object"
+      },
+      "SourcePipelineCard": {
+        "properties": {
+          "advance_label": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Advance Label"
+          },
+          "approval_status": {
+            "enum": [
+              "pending",
+              "approved",
+              "rejected"
+            ],
+            "title": "Approval Status",
+            "type": "string"
+          },
+          "can_advance": {
+            "title": "Can Advance",
+            "type": "boolean"
+          },
+          "can_approve": {
+            "title": "Can Approve",
+            "type": "boolean"
+          },
+          "can_ingest": {
+            "title": "Can Ingest",
+            "type": "boolean"
+          },
+          "candidate_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Candidate Id"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "enabled": {
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "feed_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Feed Url"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "key": {
+            "title": "Key",
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "source",
+              "candidate"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "next_action": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Action"
+          },
+          "retry_targets": {
+            "items": {
+              "$ref": "#/components/schemas/SourcePipelineRetryTarget"
+            },
+            "title": "Retry Targets",
+            "type": "array"
+          },
+          "snapshot": {
+            "title": "Snapshot",
+            "type": "string"
+          },
+          "source_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Id"
+          },
+          "source_type": {
+            "$ref": "#/components/schemas/SourceType"
+          },
+          "stage": {
+            "enum": [
+              "discovery",
+              "profile",
+              "assessment",
+              "branding",
+              "review",
+              "ingestion",
+              "active",
+              "paused",
+              "rejected"
+            ],
+            "title": "Stage",
+            "type": "string"
+          },
+          "state": {
+            "enum": [
+              "waiting",
+              "running",
+              "retry_wait",
+              "blocked",
+              "ready",
+              "complete"
+            ],
+            "title": "State",
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "title": "Updated At",
+            "type": "string"
+          },
+          "website_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Website Url"
+          }
+        },
+        "required": [
+          "key",
+          "kind",
+          "id",
+          "source_id",
+          "candidate_id",
+          "name",
+          "website_url",
+          "feed_url",
+          "source_type",
+          "approval_status",
+          "enabled",
+          "stage",
+          "state",
+          "created_at",
+          "updated_at",
+          "snapshot",
+          "can_advance",
+          "can_approve",
+          "can_ingest",
+          "next_action",
+          "advance_label",
+          "retry_targets"
+        ],
+        "title": "SourcePipelineCard",
+        "type": "object"
+      },
+      "SourcePipelineCheck": {
+        "properties": {
+          "available_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Available At"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          },
+          "job_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Job Id"
+          },
+          "key": {
+            "title": "Key",
+            "type": "string"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "key",
+          "status"
+        ],
+        "title": "SourcePipelineCheck",
+        "type": "object"
+      },
+      "SourcePipelineColumn": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/SourcePipelineCard"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Cursor"
+          },
+          "stage": {
+            "enum": [
+              "discovery",
+              "profile",
+              "assessment",
+              "branding",
+              "review",
+              "ingestion",
+              "active",
+              "paused",
+              "rejected"
+            ],
+            "title": "Stage",
+            "type": "string"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "stage",
+          "total",
+          "items",
+          "next_cursor"
+        ],
+        "title": "SourcePipelineColumn",
+        "type": "object"
+      },
+      "SourcePipelineDetail": {
+        "properties": {
+          "assessment": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "$ref": "#/components/schemas/JsonValue"
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Assessment"
+          },
+          "blockers": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Blockers",
+            "type": "array"
+          },
+          "candidate_ids": {
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "title": "Candidate Ids",
+            "type": "array"
+          },
+          "checks": {
+            "items": {
+              "$ref": "#/components/schemas/SourcePipelineCheck"
+            },
+            "title": "Checks",
+            "type": "array"
+          },
+          "item": {
+            "$ref": "#/components/schemas/SourcePipelineCard"
+          },
+          "profile": {
+            "$ref": "#/components/schemas/SourcePipelineProfile"
+          },
+          "reviews": {
+            "items": {
+              "$ref": "#/components/schemas/SourcePipelineReview"
+            },
+            "title": "Reviews",
+            "type": "array"
+          },
+          "tasks": {
+            "items": {
+              "$ref": "#/components/schemas/SourcePipelineTask"
+            },
+            "title": "Tasks",
+            "type": "array"
+          }
+        },
+        "required": [
+          "item",
+          "checks",
+          "blockers",
+          "tasks",
+          "profile",
+          "assessment",
+          "reviews",
+          "candidate_ids"
+        ],
+        "title": "SourcePipelineDetail",
+        "type": "object"
+      },
+      "SourcePipelineProfile": {
+        "properties": {
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "image_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Image Url"
+          },
+          "language": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Language"
+          },
+          "logo_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Logo Url"
+          },
+          "website_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Website Url"
+          }
+        },
+        "title": "SourcePipelineProfile",
+        "type": "object"
+      },
+      "SourcePipelineRetry": {
+        "additionalProperties": false,
+        "properties": {
+          "expected_snapshot": {
+            "maxLength": 64,
+            "minLength": 64,
+            "pattern": "^[a-f0-9]{64}$",
+            "title": "Expected Snapshot",
+            "type": "string"
+          },
+          "job_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Job Id"
+          },
+          "target": {
+            "enum": [
+              "discovery",
+              "profile",
+              "assessment",
+              "branding",
+              "ingestion"
+            ],
+            "title": "Target",
+            "type": "string"
+          }
+        },
+        "required": [
+          "expected_snapshot",
+          "target"
+        ],
+        "title": "SourcePipelineRetry",
+        "type": "object"
+      },
+      "SourcePipelineRetryTarget": {
+        "properties": {
+          "job_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Job Id"
+          },
+          "stage": {
+            "enum": [
+              "discovery",
+              "profile",
+              "assessment",
+              "branding",
+              "ingestion"
+            ],
+            "title": "Stage",
+            "type": "string"
+          }
+        },
+        "required": [
+          "stage"
+        ],
+        "title": "SourcePipelineRetryTarget",
+        "type": "object"
+      },
+      "SourcePipelineReview": {
+        "properties": {
+          "actor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Actor"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "decision": {
+            "title": "Decision",
+            "type": "string"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          }
+        },
+        "required": [
+          "decision",
+          "actor",
+          "note",
+          "created_at"
+        ],
+        "title": "SourcePipelineReview",
+        "type": "object"
+      },
+      "SourcePipelineTask": {
+        "properties": {
+          "attempts": {
+            "title": "Attempts",
+            "type": "integer"
+          },
+          "available_at": {
+            "format": "date-time",
+            "title": "Available At",
+            "type": "string"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          },
+          "finished_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Finished At"
+          },
+          "job_id": {
+            "format": "uuid",
+            "title": "Job Id",
+            "type": "string"
+          },
+          "stage": {
+            "enum": [
+              "discovery",
+              "profile",
+              "assessment",
+              "branding",
+              "ingestion"
+            ],
+            "title": "Stage",
+            "type": "string"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "stage",
+          "job_id",
+          "status",
+          "attempts",
+          "created_at",
+          "available_at",
+          "finished_at",
+          "error"
+        ],
+        "title": "SourcePipelineTask",
+        "type": "object"
+      },
       "SourcePreviewOut": {
         "additionalProperties": false,
         "properties": {
@@ -24735,6 +25420,574 @@
         }
       }
     },
+    "/v1/admin/source-pipeline": {
+      "get": {
+        "operationId": "admin_source_pipeline",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "q",
+            "required": false,
+            "schema": {
+              "default": "",
+              "maxLength": 200,
+              "title": "Q",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "source_type",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/SourceType"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Source Type"
+            }
+          },
+          {
+            "in": "query",
+            "name": "needs_attention",
+            "required": false,
+            "schema": {
+              "default": false,
+              "title": "Needs Attention",
+              "type": "boolean"
+            }
+          },
+          {
+            "in": "query",
+            "name": "terminal_since",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Terminal Since"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 20,
+              "maximum": 50,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SourcePipelineBoard"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Request validation failed"
+          },
+          "4XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Invalid or unauthorized request"
+          },
+          "5XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service or dependency unavailable"
+          }
+        },
+        "security": [
+          {
+            "APIKeyCookie": []
+          }
+        ],
+        "summary": "Board",
+        "tags": [
+          "admin-sources"
+        ],
+        "x-devfeed-gateway": {
+          "bodyLimit": 1000000,
+          "bodyTimeoutMs": 2000,
+          "upstreamTimeoutMs": 45000
+        }
+      }
+    },
+    "/v1/admin/source-pipeline/columns/{stage}": {
+      "get": {
+        "operationId": "admin_source_pipeline_column",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "stage",
+            "required": true,
+            "schema": {
+              "enum": [
+                "discovery",
+                "profile",
+                "assessment",
+                "branding",
+                "review",
+                "ingestion",
+                "active",
+                "paused",
+                "rejected"
+              ],
+              "title": "Stage",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "cursor",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "maximum": 2147483647,
+              "minimum": 0,
+              "title": "Cursor",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "q",
+            "required": false,
+            "schema": {
+              "default": "",
+              "maxLength": 200,
+              "title": "Q",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "source_type",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/SourceType"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Source Type"
+            }
+          },
+          {
+            "in": "query",
+            "name": "needs_attention",
+            "required": false,
+            "schema": {
+              "default": false,
+              "title": "Needs Attention",
+              "type": "boolean"
+            }
+          },
+          {
+            "in": "query",
+            "name": "terminal_since",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "date-time",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Terminal Since"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 20,
+              "maximum": 50,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SourcePipelineColumn"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Request validation failed"
+          },
+          "4XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Invalid or unauthorized request"
+          },
+          "5XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service or dependency unavailable"
+          }
+        },
+        "security": [
+          {
+            "APIKeyCookie": []
+          }
+        ],
+        "summary": "Column",
+        "tags": [
+          "admin-sources"
+        ],
+        "x-devfeed-gateway": {
+          "bodyLimit": 1000000,
+          "bodyTimeoutMs": 2000,
+          "upstreamTimeoutMs": 45000
+        }
+      }
+    },
+    "/v1/admin/source-pipeline/items/{kind}/{identifier}": {
+      "get": {
+        "operationId": "admin_source_pipeline_detail",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "kind",
+            "required": true,
+            "schema": {
+              "enum": [
+                "source",
+                "candidate"
+              ],
+              "title": "Kind",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "identifier",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Identifier",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SourcePipelineDetail"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Request validation failed"
+          },
+          "4XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Invalid or unauthorized request"
+          },
+          "5XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service or dependency unavailable"
+          }
+        },
+        "security": [
+          {
+            "APIKeyCookie": []
+          }
+        ],
+        "summary": "Detail",
+        "tags": [
+          "admin-sources"
+        ],
+        "x-devfeed-gateway": {
+          "bodyLimit": 1000000,
+          "bodyTimeoutMs": 2000,
+          "upstreamTimeoutMs": 45000
+        }
+      }
+    },
+    "/v1/admin/source-pipeline/items/{kind}/{identifier}/advance": {
+      "post": {
+        "operationId": "admin_source_pipeline_advance",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "kind",
+            "required": true,
+            "schema": {
+              "enum": [
+                "source",
+                "candidate"
+              ],
+              "title": "Kind",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "identifier",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Identifier",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SourcePipelineAdvance"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SourcePipelineDetail"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Request validation failed"
+          },
+          "4XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Invalid or unauthorized request"
+          },
+          "5XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service or dependency unavailable"
+          }
+        },
+        "security": [
+          {
+            "APIKeyCookie": []
+          }
+        ],
+        "summary": "Advance",
+        "tags": [
+          "admin-sources"
+        ],
+        "x-devfeed-gateway": {
+          "bodyLimit": 1000000,
+          "bodyTimeoutMs": 2000,
+          "upstreamTimeoutMs": 45000
+        }
+      }
+    },
+    "/v1/admin/source-pipeline/items/{kind}/{identifier}/retry": {
+      "post": {
+        "operationId": "admin_source_pipeline_retry",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "kind",
+            "required": true,
+            "schema": {
+              "enum": [
+                "source",
+                "candidate"
+              ],
+              "title": "Kind",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "identifier",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Identifier",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SourcePipelineRetry"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SourcePipelineDetail"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Request validation failed"
+          },
+          "4XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Invalid or unauthorized request"
+          },
+          "5XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service or dependency unavailable"
+          }
+        },
+        "security": [
+          {
+            "APIKeyCookie": []
+          }
+        ],
+        "summary": "Retry",
+        "tags": [
+          "admin-sources"
+        ],
+        "x-devfeed-gateway": {
+          "bodyLimit": 1000000,
+          "bodyTimeoutMs": 2000,
+          "upstreamTimeoutMs": 45000
+        }
+      }
+    },
     "/v1/admin/sources": {
       "get": {
         "operationId": "admin_sources_list",
@@ -32890,6 +34143,147 @@
       "operationId": "admin_source_import_bulk_delete",
       "parameters": [],
       "path": "/v1/admin/source-imports/bulk-delete",
+      "policy": {
+        "bodyLimit": 1000000,
+        "bodyTimeoutMs": 2000,
+        "upstreamTimeoutMs": 45000
+      }
+    },
+    {
+      "method": "GET",
+      "operationId": "admin_source_pipeline",
+      "parameters": [],
+      "path": "/v1/admin/source-pipeline",
+      "policy": {
+        "bodyLimit": 1000000,
+        "bodyTimeoutMs": 2000,
+        "upstreamTimeoutMs": 45000
+      }
+    },
+    {
+      "method": "GET",
+      "operationId": "admin_source_pipeline_column",
+      "parameters": [
+        {
+          "converter": "str",
+          "name": "stage",
+          "schema": {
+            "enum": [
+              "discovery",
+              "profile",
+              "assessment",
+              "branding",
+              "review",
+              "ingestion",
+              "active",
+              "paused",
+              "rejected"
+            ],
+            "title": "Stage",
+            "type": "string"
+          }
+        }
+      ],
+      "path": "/v1/admin/source-pipeline/columns/{stage}",
+      "policy": {
+        "bodyLimit": 1000000,
+        "bodyTimeoutMs": 2000,
+        "upstreamTimeoutMs": 45000
+      }
+    },
+    {
+      "method": "GET",
+      "operationId": "admin_source_pipeline_detail",
+      "parameters": [
+        {
+          "converter": "str",
+          "name": "kind",
+          "schema": {
+            "enum": [
+              "source",
+              "candidate"
+            ],
+            "title": "Kind",
+            "type": "string"
+          }
+        },
+        {
+          "converter": "str",
+          "name": "identifier",
+          "schema": {
+            "format": "uuid",
+            "title": "Identifier",
+            "type": "string"
+          }
+        }
+      ],
+      "path": "/v1/admin/source-pipeline/items/{kind}/{identifier}",
+      "policy": {
+        "bodyLimit": 1000000,
+        "bodyTimeoutMs": 2000,
+        "upstreamTimeoutMs": 45000
+      }
+    },
+    {
+      "method": "POST",
+      "operationId": "admin_source_pipeline_advance",
+      "parameters": [
+        {
+          "converter": "str",
+          "name": "kind",
+          "schema": {
+            "enum": [
+              "source",
+              "candidate"
+            ],
+            "title": "Kind",
+            "type": "string"
+          }
+        },
+        {
+          "converter": "str",
+          "name": "identifier",
+          "schema": {
+            "format": "uuid",
+            "title": "Identifier",
+            "type": "string"
+          }
+        }
+      ],
+      "path": "/v1/admin/source-pipeline/items/{kind}/{identifier}/advance",
+      "policy": {
+        "bodyLimit": 1000000,
+        "bodyTimeoutMs": 2000,
+        "upstreamTimeoutMs": 45000
+      }
+    },
+    {
+      "method": "POST",
+      "operationId": "admin_source_pipeline_retry",
+      "parameters": [
+        {
+          "converter": "str",
+          "name": "kind",
+          "schema": {
+            "enum": [
+              "source",
+              "candidate"
+            ],
+            "title": "Kind",
+            "type": "string"
+          }
+        },
+        {
+          "converter": "str",
+          "name": "identifier",
+          "schema": {
+            "format": "uuid",
+            "title": "Identifier",
+            "type": "string"
+          }
+        }
+      ],
+      "path": "/v1/admin/source-pipeline/items/{kind}/{identifier}/retry",
       "policy": {
         "bodyLimit": 1000000,
         "bodyTimeoutMs": 2000,

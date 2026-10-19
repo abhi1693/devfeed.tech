@@ -19,6 +19,9 @@ import { ClassificationForm } from "./classification-form";
 import { ValidationErrors } from "@/components/molecules/validation-errors";
 import { notify, notifyFailure } from "@/lib/notifications";
 import { StatusBadge } from "@/components/molecules/status-badge";
+import { SourceReadiness } from "./source-readiness";
+import type { SourcePipelineDetail } from "@/lib/source-pipeline";
+import { useSourcePipelineInterval } from "@/lib/use-source-pipeline-interval";
 type WorkflowIdentity = Extract<RecordIdentity, { resource: "articles" | "sources" }>;
 export type Workflow = "review" | "classify" | "fetch";
 export function ResourceWorkflow({
@@ -29,8 +32,16 @@ export function ResourceWorkflow({
   action: Workflow;
 }) {
   const resource = identity.resource;
+  const seconds = useSourcePipelineInterval();
+  const [revision, setRevision] = useState(0);
+  const [sourceReadiness, setSourceReadiness] = useState<SourcePipelineDetail>();
   const load = useCallback((signal: AbortSignal) => getRecord(identity, signal), [identity]);
-  const result = useRequest(recordIdentityKey(identity), load);
+  const result = useRequest(
+    recordIdentityKey(identity),
+    load,
+    resource === "sources" ? seconds * 1000 : 0,
+    revision,
+  );
   return (
     <section className="max-w-4xl space-y-6">
       <ResourceHeading
@@ -49,11 +60,23 @@ export function ResourceWorkflow({
         ]}
       />
       <RequestState loading={result.loading} error={result.error} />
+      {resource === "sources" && (
+        <SourceReadiness
+          id={identity.id}
+          onChange={setSourceReadiness}
+          onUpdated={() => setRevision((value) => value + 1)}
+        />
+      )}
       {result.data &&
         (action === "classify" ? (
           <ClassificationForm article={result.data as unknown as AdminArticleOut} />
         ) : (
-          <Decision identity={identity} record={result.data} action={action} />
+          <Decision
+            identity={identity}
+            record={result.data}
+            action={action}
+            sourceReadiness={sourceReadiness?.item.id === identity.id ? sourceReadiness : undefined}
+          />
         ))}
       <Button variant="outline" asChild>
         <Link prefetch={false} href={recordHref(identity)}>
@@ -67,10 +90,12 @@ function Decision({
   identity,
   record,
   action,
+  sourceReadiness,
 }: {
   identity: WorkflowIdentity;
   record: RecordData;
   action: "review" | "fetch";
+  sourceReadiness?: SourcePipelineDetail;
 }) {
   const resource = identity.resource;
   const admin = useAdmin();
@@ -79,9 +104,14 @@ function Decision({
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<Error>();
+  const sourceBlocked =
+    resource === "sources" &&
+    (action === "fetch"
+      ? !sourceReadiness?.item.can_ingest
+      : decision === "approved" && !sourceReadiness?.item.can_approve);
   async function submit(event: React.FormEvent) {
     event.preventDefault();
-    if (busy) return;
+    if (busy || sourceBlocked) return;
     setBusy(true);
     setError(undefined);
     const options = { headers: { "X-CSRF-Token": admin.csrf_token } };
@@ -190,7 +220,16 @@ function Decision({
           />
         </>
       )}
-      <Button type="submit" loading={busy} loadingText="Submitting…">
+      {sourceBlocked && (
+        <p className="text-sm text-muted-foreground">
+          {!sourceReadiness
+            ? "Checking source readiness…"
+            : action === "fetch"
+              ? "Resolve the source readiness blockers or resume ingestion before fetching."
+              : "Complete the source profile and branding before approving. Manual rejection remains available."}
+        </p>
+      )}
+      <Button type="submit" disabled={sourceBlocked} loading={busy} loadingText="Submitting…">
         {action === "fetch" ? "Queue fetch" : "Apply decision"}
       </Button>
     </form>

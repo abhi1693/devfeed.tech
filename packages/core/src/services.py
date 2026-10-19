@@ -137,6 +137,9 @@ def update_source(session: Session, source_id: uuid.UUID, body: SourcePatch) -> 
         "polling_mode" in changes and changes["polling_mode"] != source.polling_mode
     )
     reenabled = changes.get("enabled") is True and not source.enabled
+    profile_identity_changed = (
+        "website_url" in changes and changes["website_url"] != source.website_url
+    )
     if (
         not source.feed_url
         and changes.get("website_url") != source.website_url
@@ -190,7 +193,25 @@ def update_source(session: Session, source_id: uuid.UUID, body: SourcePatch) -> 
             )
             enqueue(session, candidate.id, background=True)
     for key, value in changes.items():
-        setattr(source, key, value)
+        if key != "enabled":
+            setattr(source, key, value)
+    if reenabled and source.approval_status == "approved":
+        from devfeed_core.source_lifecycle import source_activation_blockers
+
+        blockers = source_activation_blockers(session, source)
+        if blockers:
+            raise OperationConflict(
+                "Complete source processing before enabling: " + ", ".join(blockers)
+            )
+        source.processing_request = {}
+    if "enabled" in changes:
+        source.enabled = changes["enabled"]
+    if source.feed_url and profile_identity_changed:
+        from devfeed_core.source_enrichment import request_enrichment
+
+        # Capture the corrected identity; active owners retain their lease and
+        # discard obsolete results before queuing the replacement profile.
+        request_enrichment(session, source.id)
     if interval_changed:
         reconcile_source_schedule(session, source)
     elif reenabled:
@@ -217,7 +238,7 @@ def review_source(
     *,
     enable_on_approval: bool = True,
 ) -> Source:
-    from devfeed_core.source_enrichment import request_enrichment
+    from devfeed_core.source_lifecycle import source_activation_blockers
 
     if body.decision == "rejected" and not body.note:
         raise OperationConflict("A reason is required when rejecting a source")
@@ -228,7 +249,17 @@ def review_source(
         return source  # Repeating a decision does not invent new history/jobs.
     if body.decision == "approved" and not source.feed_url:
         raise OperationConflict("Feed discovery must complete before approval")
+    if body.decision == "approved":
+        blockers = source_activation_blockers(session, source)
+        if blockers:
+            raise OperationConflict(
+                "Complete source processing before approval: " + ", ".join(blockers)
+            )
     source.approval_status = body.decision
+    if body.decision == "approved":
+        # A new admission decision supersedes an earlier paused request. The
+        # idempotent approved review returned above, preserving its pause.
+        source.processing_request = {}
     source.reviewed_at = utcnow()
     source.reviewed_by = body.actor
     source.review_note = body.note
@@ -240,7 +271,6 @@ def review_source(
     if source.enabled:
         source.next_fetch_at = utcnow()
         request_ingestion(session, source)
-        request_enrichment(session, source.id)
     session.flush()
     from devfeed_core.source_notifications import notify_source_review
 

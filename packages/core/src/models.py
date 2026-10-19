@@ -125,6 +125,7 @@ class Source(Base):
     image_url: Mapped[str | None] = mapped_column(String(2048))
     language: Mapped[str | None] = mapped_column(String(35))
     relevance_assessment: Mapped[dict] = mapped_column(JSONB, default=dict, server_default="{}")
+    processing_request: Mapped[dict] = mapped_column(JSONB, default=dict, server_default="{}")
     submitted_by: Mapped[dict | None] = mapped_column(JSONB)
     submission_channel: Mapped[str] = mapped_column(String(20), default="cli")
     approval_status: Mapped[str] = mapped_column(String(20), default="pending", index=True)
@@ -210,12 +211,19 @@ class SourceReview(Base):
 
 class SourceEnrichmentJob(LeasedJobMixin, Base):
     __tablename__ = "source_enrichment_jobs"
-    __table_args__ = (CheckConstraint("status IN ('queued','running','succeeded','failed')"),)
+    __table_args__ = (
+        CheckConstraint("status IN ('queued','running','succeeded','failed')"),
+        CheckConstraint(
+            "operation IN ('legacy','profile','relevance')", name="ck_source_enrichment_operation"
+        ),
+    )
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
     source_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("sources.id", ondelete="CASCADE"), index=True
     )
     error: Mapped[str | None] = mapped_column(String(1000))
+    operation: Mapped[str] = mapped_column(String(20), default="legacy", server_default="legacy")
+    result: Mapped[dict] = mapped_column(JSONB, default=dict, server_default="{}")
     changed_fields: Mapped[list[str]] = mapped_column(ARRAY(String(30)), default=list)
     requires_solver: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
 
@@ -230,6 +238,13 @@ Index(
     "ix_source_enrichment_dispatch",
     SourceEnrichmentJob.available_at,
     postgresql_where=SourceEnrichmentJob.status == "queued",
+)
+Index(
+    "ix_source_enrichment_current",
+    SourceEnrichmentJob.source_id,
+    SourceEnrichmentJob.operation,
+    SourceEnrichmentJob.created_at.desc(),
+    SourceEnrichmentJob.id.desc(),
 )
 
 

@@ -9,6 +9,7 @@ export function useRequest<T>(
   key: string,
   load: (signal: AbortSignal) => Promise<T>,
   pollInterval = 0,
+  refreshKey = 0,
 ) {
   const [state, setState] = useState<{
     key: string;
@@ -30,12 +31,12 @@ export function useRequest<T>(
         );
       try {
         const data = await load(signal);
-        if (!signal.aborted) {
+        if (!signal.aborted && pending.current === signal) {
           failed.current = false;
           setState({ key, data });
         }
       } catch (error) {
-        if (signal.aborted) return;
+        if (signal.aborted || pending.current !== signal) return;
         if (error instanceof ApiError && error.status === 401) {
           unauthorized.current = true;
           returnToLogin();
@@ -71,7 +72,7 @@ export function useRequest<T>(
         if (!signal.aborted) complete = true;
       });
     });
-  }, [refresh]);
+  }, [refresh, refreshKey]);
   usePolling((signal) => refresh(signal, true), pollInterval, key);
   return state?.key === key
     ? { ...state, loading: false, refreshing: !!state.refreshing && pollInterval > 0 }

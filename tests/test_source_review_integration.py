@@ -19,7 +19,7 @@ from devfeed_core.models import (
     utcnow,
 )
 from devfeed_core.schemas import SourceCreate, SourceDecision
-from devfeed_core.source_enrichment import request_enrichment
+from devfeed_core.source_enrichment import request_enrichment, source_identity
 from source_suggestions import suggest_source
 from sqlalchemy import func, select
 from test_feed_validation import transport as transport
@@ -38,6 +38,18 @@ def submitted(client):
     return uuid.UUID(result.json()["id"])
 
 
+def finish_profile(session, identifier):
+    """Admission requires the submission's current metadata request to settle."""
+    source = session.get(Source, identifier)
+    job = session.scalar(
+        select(SourceEnrichmentJob).where(SourceEnrichmentJob.source_id == identifier)
+    )
+    job.status, job.finished_at = "succeeded", utcnow()
+    job.result = {"input": source_identity(source), "sample": []}
+    source.metadata_enriched_at = utcnow()
+    session.flush()
+
+
 def test_external_submission_stays_pending_and_private_until_operator_approval(database, client):
     identifier = submitted(client)
     assert client.get("/v1/sources").json() == []
@@ -50,6 +62,7 @@ def test_external_submission_stays_pending_and_private_until_operator_approval(d
         assert session.scalar(select(func.count()).select_from(IngestionJob)) == 0
         assert session.scalar(select(func.count()).select_from(SourceEnrichmentJob)) == 1
     with database.begin() as session:
+        finish_profile(session, identifier)
         services.review_source(
             session, identifier, SourceDecision(decision="approved", actor="Operator")
         )
@@ -95,6 +108,7 @@ def test_rejection_after_claim_blocks_commit_and_reapproval_preserves_history(
 ):
     identifier = submitted(client)
     with database.begin() as session:
+        finish_profile(session, identifier)
         services.review_source(session, identifier, SourceDecision(decision="approved"))
         job_id = services.fetch_source(session, identifier).id
 
@@ -121,6 +135,8 @@ def test_rejection_after_claim_blocks_commit_and_reapproval_preserves_history(
 
 def test_concurrent_approval_creates_one_review_and_one_active_run(database, client):
     identifier = submitted(client)
+    with database.begin() as session:
+        finish_profile(session, identifier)
 
     def approve(_):
         with database.begin() as session:
