@@ -380,11 +380,28 @@ class ImageVariant(BaseModel):
     width: int
 
 
+class ArticleAuthorOut(BaseModel):
+    type: Literal["Person", "Organization"]
+    name: str
+    url: str | None = None
+
+
 class ArticleOut(ORMModel):
     id: uuid.UUID
     slug: str
     canonical_url: str
     title: str
+    original_title: str | None = Field(
+        default=None, description="Publisher headline, when original metadata provenance is known."
+    )
+    publisher: SourceRef | None = Field(
+        default=None,
+        description="Unambiguous approved publisher of the original article, when known.",
+    )
+    authors: list[ArticleAuthorOut] = Field(
+        default_factory=list,
+        description="Authors with explicitly known entity types; untyped bylines remain in author.",
+    )
     summary: str
     sponsor_names: list[str] = Field(default_factory=list)
     sponsor_link_rel: list[LinkRel] = Field(default_factory=default_link_rel)
@@ -425,6 +442,9 @@ class ArticleOut(ORMModel):
                 "image_variants",
                 "sponsor_names",
                 "sponsor_link_rel",
+                "original_title",
+                "publisher",
+                "authors",
             }
         }
         values["sponsor_names"] = getattr(article, "sponsor_names", None) or []
@@ -438,6 +458,9 @@ class ArticleOut(ORMModel):
             values["image_url"] = values["image_variants"][-1]["url"]
         if public:
             values["title"] = article.ai_title or article.title
+        # Legacy feed/page bylines have no retained Person/Organization evidence.
+        # Keep their display string without guessing a structured author type.
+        values["authors"] = []
         values["topics"] = [
             {
                 "id": link.topic.id,
@@ -459,6 +482,11 @@ class ArticleOut(ORMModel):
             if not public or origin.source.approval_status == "approved"
         ]
         values["origins"] = origins
+        from devfeed_core.article_attribution import original_headline, original_publisher
+
+        publisher = original_publisher(article, origins)
+        values["publisher"] = publisher
+        values["original_title"] = original_headline(article, origins, publisher)
         sources = {origin.source.id: origin.source for origin in origins}
         values["sources"] = sorted(sources.values(), key=lambda source: source.name)
         return cls.model_validate(values)
