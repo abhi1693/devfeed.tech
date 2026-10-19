@@ -183,6 +183,16 @@ replaced by an old recompression job. Do not roll back to workers that lack v2
 support while v2 jobs remain queued or running. Reader rollback can still consume
 both URL versions because the metadata schema is unchanged.
 
+The article pipeline board can explicitly retry image discovery or storage even
+when an article already has a usable image. These jobs carry an `article_refresh`
+marker in their existing storage metadata. Workers preserve the current URL and
+managed variants until a current discovery result or complete replacement asset
+can apply; captured URL checks prevent late results replacing a newer image.
+Failed refreshes remain publication blockers and use the existing finite retries
+and checkpoints. Deploy the updated image workers before using the board's forced
+image retries: older workers ignore this marker and can short-circuit the request
+as `already_present`. This change adds no queue or database schema.
+
 For a repeatable encoder comparison, mount representative local inputs read-only
 into the pinned Compose imgproxy image with `IMGPROXY_LOCAL_FILESYSTEM_ROOT`,
 allow `local:///` only in that isolated benchmark container, and run

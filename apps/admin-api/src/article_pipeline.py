@@ -25,6 +25,13 @@ from devfeed_core.article_lifecycle import (
     publication_readiness,
     reconcile_processing,
 )
+from devfeed_core.article_processing_retry import (
+    RetryTarget,
+    current_processing_job,
+    processing_retry_targets,
+    request_processing_retry,
+    retry_readiness,
+)
 from devfeed_core.config import get_settings
 from devfeed_core.job_retries import retry_candidate
 from devfeed_core.models import (
@@ -50,7 +57,7 @@ from sqlalchemy import case, func, literal, select, tuple_
 from sqlalchemy.dialects.postgresql import distinct_on
 from sqlalchemy.orm import defer, lazyload, load_only, selectinload
 
-from devfeed_admin_api.auth import Admin, require_admin
+from devfeed_admin_api.auth import Admin, actor, require_admin
 from devfeed_admin_api.dependencies import DB
 
 Stage = Literal[
@@ -102,6 +109,7 @@ class PipelineCard(ORMModel):
     jobs: PipelineJobs
     allowed_actions: list[str] = Field(default_factory=list)
     current_analysis_step: str | None = None
+    retry_targets: list[RetryTarget] = Field(default_factory=list)
 
 
 class PipelineColumn(ORMModel):
@@ -149,10 +157,17 @@ class PipelineDetail(ORMModel):
     allowed_actions: list[str]
     advance_label: str | None
     analysis_steps: list[AnalysisStepOut] = Field(default_factory=list)
+    retry_targets: list[RetryTarget] = Field(default_factory=list)
 
 
 class AdvancePipeline(InputModel):
     expected_revision: int = Field(ge=0)
+
+
+class RetryPipeline(InputModel):
+    expected_revision: int = Field(ge=0)
+    target: RetryTarget
+    expected_job_id: uuid.UUID | None
 
 
 def _statement(q, source_id):
@@ -409,15 +424,7 @@ def _job(job, *, retryable=True):
 
 
 def _jobs(facts, *, allow_retry=True, readiness=None):
-    images = [job for job in (facts["discovery"], facts["storage"]) if job is not None]
-    latest_image = max(
-        images,
-        key=lambda job: (job.status in {"queued", "running"}, job.created_at, job.id),
-        default=None,
-    )
-    if readiness is not None and "images" in readiness.checks:
-        blocking_id = readiness.checks["images"].job_id
-        latest_image = next((job for job in images if job.id == blocking_id), latest_image)
+    latest_image = current_processing_job(facts, "images", readiness=readiness)
     return PipelineJobs(
         enrichment=_job(facts["enrichment"], retryable=allow_retry),
         analysis=_job(facts["analysis"], retryable=allow_retry and get_settings().ai_enabled),
@@ -530,12 +537,13 @@ def _actions(readiness):
     return []
 
 
-def _card(article, readiness, facts):
+def _card(article, readiness, facts, *, taxonomy=None):
     sources = sorted(
         (origin.source for origin in article.origins),
         key=lambda source: (source.approval_status != "approved", source.name, source.id),
     )
     source = sources[0] if sources else None
+    processing = retry_readiness(article, readiness, facts, taxonomy=taxonomy)
     return PipelineCard(
         id=article.id,
         title=article.ai_title or article.title,
@@ -547,9 +555,10 @@ def _card(article, readiness, facts):
         blockers=readiness.blockers,
         editorial_revision=article.editorial_revision,
         next_check_at=article.automation_next_check_at if readiness.state != "complete" else None,
-        jobs=_jobs(facts, readiness=readiness),
+        jobs=_jobs(facts, readiness=processing),
         allowed_actions=_actions(readiness),
         current_analysis_step=_current_analysis_step(facts["analysis"]),
+        retry_targets=processing_retry_targets(article, processing, facts),
     )
 
 
@@ -580,13 +589,13 @@ def _active_cards(session, statement, *, taxonomy, settings, now):
         for article in batch:
             current = {key: values.get(article.id) for key, values in facts.items()}
             readiness = readiness_by_id[article.id]
-            yield _card(article, readiness, current)
+            yield _card(article, readiness, current, taxonomy=taxonomy)
         after = (batch[-1].discovered_at, batch[-1].id)
         # Do not retain ORM instances/evidence for the entire waiting population.
         session.expunge_all()
 
 
-def _terminal_column(session, statement, stage, *, since, limit, cursor, needs_attention):
+def _terminal_column(session, statement, stage, *, since, limit, cursor, needs_attention, taxonomy):
     terminal_at = (
         Article.published_to_feed_at
         if stage == "published"
@@ -620,11 +629,15 @@ def _terminal_column(session, statement, stage, *, since, limit, cursor, needs_a
     )
     cards = []
     if articles:
-        # Terminal precedence avoids fetching content or inference history.
+        # Published retry controls need their prospective processing prerequisites.
+        batch = _batch_facts(session, articles) if stage == "published" else None
         empty = {key: None for key in ("content", "enrichment", "analysis", "discovery", "storage")}
         for article in articles:
             readiness = derive_publication_readiness(article)
-            cards.append(_card(article, readiness, empty))
+            facts = (
+                {key: values.get(article.id) for key, values in batch.items()} if batch else empty
+            )
+            cards.append(_card(article, readiness, facts, taxonomy=taxonomy))
     return PipelineColumn(
         stage=stage,
         total=total,
@@ -682,6 +695,7 @@ def _board(session, *, q, source_id, needs_attention, limit, stage=None, cursor=
                 limit=limit,
                 cursor=cursor if stage else 0,
                 needs_attention=needs_attention,
+                taxonomy=taxonomy,
             )
     return PipelineBoard(
         as_of=now,
@@ -738,7 +752,9 @@ def column(
 def _detail(session, article):
     batch = _batch_facts(session, [article])
     facts = {key: values.get(article.id) for key, values in batch.items()}
-    readiness = derive_publication_readiness(article, **facts, taxonomy=catalog(session))
+    taxonomy = catalog(session)
+    readiness = derive_publication_readiness(article, **facts, taxonomy=taxonomy)
+    processing = retry_readiness(article, readiness, facts, taxonomy=taxonomy)
     checks = [
         PipelineCheck(
             code=code,
@@ -843,11 +859,14 @@ def _detail(session, article):
         blockers=readiness.blockers,
         can_publish=readiness.stage == "ready" and not readiness.blockers,
         jobs=_jobs(
-            facts, allow_retry=readiness.stage not in {"published", "rejected"}, readiness=readiness
+            facts,
+            allow_retry=readiness.stage not in {"published", "rejected"},
+            readiness=processing,
         ),
         allowed_actions=actions,
         advance_label=labels.get(readiness.stage) if actions else None,
         analysis_steps=_analysis_steps(facts["analysis"]),
+        retry_targets=processing_retry_targets(article, processing, facts),
     )
 
 
@@ -879,6 +898,26 @@ def advance(article_id: uuid.UUID, body: AdvancePipeline, session: DB, admin: Ad
         request_article_enrichment(session, article_id)
     else:
         reconcile_processing(session, article)
+    session.commit()
+    result = _detail(session, article)
+    session.close()
+    return result
+
+
+@router.post(
+    "/v1/admin/articles/{article_id}/pipeline/retry",
+    response_model=PipelineDetail,
+    operation_id="admin_article_pipeline_retry",
+)
+def retry(article_id: uuid.UUID, body: RetryPipeline, session: DB, admin: Admin):
+    article = request_processing_retry(
+        session,
+        article_id,
+        target=body.target,
+        expected_revision=body.expected_revision,
+        expected_job_id=body.expected_job_id,
+        actor=actor(admin),
+    )
     session.commit()
     result = _detail(session, article)
     session.close()

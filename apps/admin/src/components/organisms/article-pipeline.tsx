@@ -13,10 +13,17 @@ import {
   Clock3,
   Columns3,
   LoaderCircle,
+  MoreHorizontal,
   TimerReset,
 } from "lucide-react";
 import { Button } from "@devfeed/ui/button";
 import { Input } from "@devfeed/ui/input";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@devfeed/ui/dropdown-menu";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/atoms/popover";
 import { SearchField, searchScope } from "@/components/molecules/search-field";
 import { Select } from "@/components/molecules/select";
@@ -26,27 +33,33 @@ import { useRequest } from "@/lib/use-request";
 import { useArticlePipelineInterval } from "@/lib/use-refresh-interval";
 import { usePipelineMotion } from "@/lib/use-pipeline-motion";
 import { usePipelineColumns } from "@/lib/use-pipeline-columns";
+import { useAdmin } from "@/components/molecules/admin-session";
 import { recordHref } from "@/lib/routes";
-import { notifyFailure } from "@/lib/notifications";
+import { notify, notifyFailure } from "@/lib/notifications";
 import {
   getArticlePipeline,
   getArticlePipelineColumn,
+  retryArticlePipeline,
   pipelineLabels,
   pipelineStages,
   type PipelineBoard,
   type PipelineColumn,
   type PipelineArticle,
   type PipelineStage,
+  type PipelineRetryTarget,
 } from "@/lib/article-pipeline";
 
 export function ArticlePipeline({ query }: { query: string }) {
   const router = useRouter();
   const search = new URLSearchParams(query);
   const [revision, setRevision] = useState(0);
+  const admin = useAdmin();
+  const [retrying, setRetrying] = useState<string | null>(null);
+  const retryPending = useRef(false);
   const columns = usePipelineColumns();
   const refreshSeconds = useArticlePipelineInterval();
   const load = useCallback((signal: AbortSignal) => getArticlePipeline(query, signal), [query]);
-  const result = useRequest(`article-pipeline/${query}/${revision}`, load, refreshSeconds * 1000);
+  const result = useRequest(`article-pipeline/${query}`, load, refreshSeconds * 1000, revision);
   const stage =
     columns.visible.find((value) => value === search.get("stage")) ??
     result.data?.columns.find(
@@ -61,6 +74,31 @@ export function ArticlePipeline({ query }: { query: string }) {
       else next.delete(key);
     }
     router[replace ? "replace" : "push"](`/content/articles?${next}`, { scroll: false });
+  }
+  async function retry(article: PipelineArticle, target: PipelineRetryTarget) {
+    if (retryPending.current || !article.retry_targets?.includes(target)) return;
+    retryPending.current = true;
+    setRetrying(article.id);
+    try {
+      await retryArticlePipeline(
+        article.id,
+        target,
+        article.editorial_revision,
+        admin.csrf_token,
+        article.jobs[target]?.id ?? null,
+      );
+      notify.success(
+        article.stage === "published"
+          ? `Unpublished and queued ${pipelineLabels[target]} retry`
+          : `${pipelineLabels[target]} retry queued`,
+      );
+    } catch (cause) {
+      notifyFailure(cause, "Could not retry article processing");
+    } finally {
+      retryPending.current = false;
+      setRetrying(null);
+      setRevision((value) => value + 1);
+    }
   }
   return (
     <div className="min-w-0 space-y-4">
@@ -143,6 +181,8 @@ export function ArticlePipeline({ query }: { query: string }) {
           visible={columns.visible}
           collapsed={columns.collapsed}
           onCollapse={columns.toggleCollapsed}
+          retrying={retrying}
+          onRetry={(article, target) => void retry(article, target)}
         />
       )}
     </div>
@@ -157,6 +197,8 @@ function PipelineColumns({
   visible,
   collapsed,
   onCollapse,
+  retrying,
+  onRetry,
 }: {
   data: PipelineBoard;
   query: string;
@@ -165,6 +207,8 @@ function PipelineColumns({
   visible: PipelineStage[];
   collapsed: PipelineStage[];
   onCollapse: (stage: PipelineStage) => void;
+  retrying: string | null;
+  onRetry: (article: PipelineArticle, target: PipelineRetryTarget) => void;
 }) {
   const motionRef = usePipelineMotion(`${visible.join(",")}|${collapsed.join(",")}`);
   const [additional, setAdditional] = useState<{
@@ -173,6 +217,14 @@ function PipelineColumns({
   }>();
   const [busy, setBusy] = useState<PipelineStage>();
   const [error, setError] = useState<{ stage: PipelineStage; message: string }>();
+  const dragging = useRef<PipelineArticle | null>(null);
+  const [dragged, setDragged] = useState<PipelineArticle | null>(null);
+  const [dropStage, setDropStage] = useState<PipelineStage | null>(null);
+  function clearDrag() {
+    dragging.current = null;
+    setDragged(null);
+    setDropStage(null);
+  }
   const current = useRef(data);
   useEffect(() => {
     current.current = data;
@@ -242,6 +294,8 @@ function PipelineColumns({
         <div className="grid gap-4 lg:flex lg:w-max lg:items-stretch">
           {visible.map((value) => {
             const isCollapsed = collapsed.includes(value);
+            const canDrop =
+              !retrying && (dragged?.retry_targets ?? []).some((target) => target === value);
             const original = data.columns.find((column) => column.stage === value);
             const column = extra[value] ??
               original ?? {
@@ -270,7 +324,39 @@ function PipelineColumns({
                 key={value}
                 aria-labelledby={`pipeline-${value}`}
                 data-pipeline-collapsed={isCollapsed}
-                className={`min-w-0 rounded-lg border bg-muted/30 lg:shrink-0 ${isCollapsed ? "lg:w-12" : "lg:w-72"} ${stage === value ? "" : "hidden lg:block"}`}
+                data-pipeline-drop-target={canDrop || undefined}
+                title={
+                  canDrop
+                    ? `${dragged?.stage === "published" ? "Unpublish and retry" : "Retry"} ${pipelineLabels[value]}`
+                    : undefined
+                }
+                className={`min-w-0 rounded-lg border bg-muted/30 lg:shrink-0 ${isCollapsed ? "lg:w-12" : "lg:w-72"} ${stage === value ? "" : "hidden lg:block"} ${canDrop ? (dropStage === value ? "ring-2 ring-primary" : "ring-1 ring-primary/40") : ""}`}
+                onDragOver={(event) => {
+                  if (!canDrop || !dragging.current) return;
+                  event.preventDefault();
+                  event.dataTransfer.dropEffect = "move";
+                  setDropStage(value);
+                }}
+                onDragLeave={(event) => {
+                  if (
+                    !(event.relatedTarget instanceof Node) ||
+                    !event.currentTarget.contains(event.relatedTarget)
+                  )
+                    setDropStage(null);
+                }}
+                onDrop={(event) => {
+                  const article = dragging.current;
+                  if (
+                    !article ||
+                    retrying ||
+                    event.dataTransfer.getData(pipelineDragType) !== article.id ||
+                    !article.retry_targets?.some((target) => target === value)
+                  )
+                    return;
+                  event.preventDefault();
+                  clearDrag();
+                  onRetry(article, value as PipelineRetryTarget);
+                }}
               >
                 <div
                   className={`flex select-none items-center gap-2 border-b px-4 py-3 ${isCollapsed ? "lg:h-full lg:min-h-40 lg:flex-col lg:border-b-0 lg:px-2" : ""}`}
@@ -317,7 +403,29 @@ function PipelineColumns({
                   className={`space-y-3 p-3 ${isCollapsed ? "lg:hidden" : ""}`}
                 >
                   {items.map((item) => (
-                    <PipelineCard key={item.id} article={item} />
+                    <PipelineCard
+                      key={item.id}
+                      article={item}
+                      busy={retrying !== null}
+                      retrying={retrying === item.id}
+                      onRetry={onRetry}
+                      onDragStart={(event) => {
+                        if (
+                          retrying ||
+                          !item.retry_targets?.length ||
+                          (event.target as HTMLElement).closest("button")
+                        ) {
+                          event.preventDefault();
+                          return;
+                        }
+                        event.dataTransfer.effectAllowed = "move";
+                        event.dataTransfer.setData(pipelineDragType, item.id);
+                        event.dataTransfer.setData("text/plain", item.id);
+                        dragging.current = item;
+                        setDragged(item);
+                      }}
+                      onDragEnd={clearDrag}
+                    />
                   ))}
                   {!items.length && (
                     <p className="py-6 text-center text-sm text-muted-foreground">
@@ -350,6 +458,8 @@ function PipelineColumns({
     </>
   );
 }
+
+const pipelineDragType = "application/x-devfeed-article-pipeline";
 
 const cardStatuses = {
   waiting: {
@@ -402,17 +512,36 @@ const cardStatuses = {
   },
 };
 
-function PipelineCard({ article }: { article: PipelineArticle }) {
+function PipelineCard({
+  article,
+  busy,
+  retrying,
+  onRetry,
+  onDragStart,
+  onDragEnd,
+}: {
+  article: PipelineArticle;
+  busy: boolean;
+  retrying: boolean;
+  onRetry: (article: PipelineArticle, target: PipelineRetryTarget) => void;
+  onDragStart: React.DragEventHandler<HTMLElement>;
+  onDragEnd: React.DragEventHandler<HTMLElement>;
+}) {
   const key =
     article.stage === "published" || article.stage === "rejected" ? article.stage : article.state;
   const status = cardStatuses[key as keyof typeof cardStatuses] ?? cardStatuses.waiting;
   const Icon = status.icon;
+  const targets = article.retry_targets ?? [];
   return (
     <article
-      className={`relative space-y-2 rounded-md border border-l-4 p-3 shadow-sm ${status.card}`}
+      className={`relative space-y-2 rounded-md border border-l-4 p-3 shadow-sm ${status.card} ${targets.length && !busy ? "cursor-grab active:cursor-grabbing" : ""} ${retrying ? "opacity-60" : ""}`}
       data-pipeline-article-id={article.id}
       data-pipeline-stage={article.stage}
       data-pipeline-state={article.state}
+      aria-busy={retrying || undefined}
+      draggable={targets.length > 0 && !busy}
+      onDragStart={onDragStart}
+      onDragEnd={onDragEnd}
     >
       <div className="flex items-start gap-2">
         <h3 className="min-w-0 flex-1 break-words text-sm font-medium leading-snug">
@@ -420,6 +549,7 @@ function PipelineCard({ article }: { article: PipelineArticle }) {
             prefetch={false}
             href={recordHref({ resource: "articles", id: article.id })}
             className="hover:underline"
+            draggable={false}
           >
             {article.title}
           </Link>
@@ -432,6 +562,30 @@ function PipelineCard({ article }: { article: PipelineArticle }) {
         >
           <Icon aria-hidden="true" className="size-3.5" />
         </span>
+        {targets.length > 0 && (
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                className="-my-1 -mr-1 size-6 shrink-0"
+                aria-label={`Move back ${article.title}`}
+                disabled={busy}
+              >
+                <MoreHorizontal aria-hidden="true" className="size-3.5" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent aria-label={`Move back ${article.title}`}>
+              {targets.map((target) => (
+                <DropdownMenuItem key={target} onSelect={() => onRetry(article, target)}>
+                  {article.stage === "published" ? "Unpublish and retry" : "Retry"}{" "}
+                  {target === "analysis" ? "AI analysis" : pipelineLabels[target].toLowerCase()}
+                </DropdownMenuItem>
+              ))}
+            </DropdownMenuContent>
+          </DropdownMenu>
+        )}
       </div>
       <p className="break-words text-xs text-muted-foreground">
         {article.source_name || "Unknown source"}

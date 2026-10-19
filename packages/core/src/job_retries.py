@@ -57,6 +57,14 @@ def retry_candidate(model):
                                     .as_string()
                                     .is_not_distinct_from(model.storage["input_url"].as_string()),
                                 ),
+                                or_(
+                                    model.storage["article_refresh"].as_boolean().is_not(True),
+                                    newer.storage["previous_image_url"]
+                                    .as_string()
+                                    .is_not_distinct_from(
+                                        model.storage["previous_image_url"].as_string()
+                                    ),
+                                ),
                             ),
                         ),
                     ),
@@ -106,10 +114,22 @@ def retry_candidate(model):
                     ),
                     and_(
                         model.operation == "discover",
-                        Article.image_url.is_(None),
                         or_(
                             model.storage["input_url"].as_string().is_(None),
                             model.storage["input_url"].as_string() == Article.canonical_url,
+                        ),
+                        or_(
+                            and_(
+                                model.storage["article_refresh"].as_boolean().is_not(True),
+                                Article.image_url.is_(None),
+                            ),
+                            and_(
+                                model.storage["article_refresh"].as_boolean().is_(True),
+                                model.storage["input_url"].as_string() == Article.canonical_url,
+                                model.storage["previous_image_url"]
+                                .as_string()
+                                .is_not_distinct_from(Article.image_url),
+                            ),
                         ),
                     ),
                 ),

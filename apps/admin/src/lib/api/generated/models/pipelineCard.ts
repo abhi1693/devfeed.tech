@@ -5,6 +5,7 @@
  * Private administration API. OIDC sessions and CSRF protection required.
  * OpenAPI spec version: 0.1.0
  */
+import type { PipelineCardRetryTargetsItem } from './pipelineCardRetryTargetsItem';
 import type { PipelineCardStage } from './pipelineCardStage';
 import type { PipelineJobs } from './pipelineJobs';
 
@@ -17,6 +18,7 @@ export interface PipelineCard {
   id: string;
   jobs: PipelineJobs;
   next_check_at: string | null;
+  retry_targets?: PipelineCardRetryTargetsItem[];
   source_id: string | null;
   source_name: string | null;
   stage: PipelineCardStage;

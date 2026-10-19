@@ -145,6 +145,7 @@ def apply_publication_policy(session, article, job, *, taxonomy=None, evaluation
         and not {
             "current_catalog_required",
             "source_policy_manual",
+            "enrichment_pending",
         }.intersection(decision["reasons"])
         # Publication needs a complete ready result, but rejection only needs a
         # current explicit negative on an independent classification dimension.

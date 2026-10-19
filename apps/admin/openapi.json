@@ -10579,6 +10579,18 @@
             ],
             "title": "Next Check At"
           },
+          "retry_targets": {
+            "items": {
+              "enum": [
+                "enrichment",
+                "analysis",
+                "images"
+              ],
+              "type": "string"
+            },
+            "title": "Retry Targets",
+            "type": "array"
+          },
           "source_id": {
             "anyOf": [
               {
@@ -10778,6 +10790,18 @@
           },
           "jobs": {
             "$ref": "#/components/schemas/PipelineJobs"
+          },
+          "retry_targets": {
+            "items": {
+              "enum": [
+                "enrichment",
+                "analysis",
+                "images"
+              ],
+              "type": "string"
+            },
+            "title": "Retry Targets",
+            "type": "array"
           },
           "stage": {
             "enum": [
@@ -12778,6 +12802,44 @@
           "expected_input_hash"
         ],
         "title": "RelationshipReview",
+        "type": "object"
+      },
+      "RetryPipeline": {
+        "additionalProperties": false,
+        "properties": {
+          "expected_job_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expected Job Id"
+          },
+          "expected_revision": {
+            "minimum": 0.0,
+            "title": "Expected Revision",
+            "type": "integer"
+          },
+          "target": {
+            "enum": [
+              "enrichment",
+              "analysis",
+              "images"
+            ],
+            "title": "Target",
+            "type": "string"
+          }
+        },
+        "required": [
+          "expected_revision",
+          "target",
+          "expected_job_id"
+        ],
+        "title": "RetryPipeline",
         "type": "object"
       },
       "ReviewArticle": {
@@ -17216,6 +17278,89 @@
           }
         ],
         "summary": "Advance",
+        "tags": [
+          "admin-articles"
+        ],
+        "x-devfeed-gateway": {
+          "bodyLimit": 1000000,
+          "bodyTimeoutMs": 2000,
+          "upstreamTimeoutMs": 45000
+        }
+      }
+    },
+    "/v1/admin/articles/{article_id}/pipeline/retry": {
+      "post": {
+        "operationId": "admin_article_pipeline_retry",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "article_id",
+            "required": true,
+            "schema": {
+              "format": "uuid",
+              "title": "Article Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RetryPipeline"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PipelineDetail"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Request validation failed"
+          },
+          "4XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Invalid or unauthorized request"
+          },
+          "5XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service or dependency unavailable"
+          }
+        },
+        "security": [
+          {
+            "APIKeyCookie": []
+          }
+        ],
+        "summary": "Retry",
         "tags": [
           "admin-articles"
         ],
@@ -34140,6 +34285,27 @@
         }
       ],
       "path": "/v1/admin/articles/{article_id}/pipeline/advance",
+      "policy": {
+        "bodyLimit": 1000000,
+        "bodyTimeoutMs": 2000,
+        "upstreamTimeoutMs": 45000
+      }
+    },
+    {
+      "method": "POST",
+      "operationId": "admin_article_pipeline_retry",
+      "parameters": [
+        {
+          "converter": "str",
+          "name": "article_id",
+          "schema": {
+            "format": "uuid",
+            "title": "Article Id",
+            "type": "string"
+          }
+        }
+      ],
+      "path": "/v1/admin/articles/{article_id}/pipeline/retry",
       "policy": {
         "bodyLimit": 1000000,
         "bodyTimeoutMs": 2000,

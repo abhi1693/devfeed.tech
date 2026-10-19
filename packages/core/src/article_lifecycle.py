@@ -106,11 +106,12 @@ def derive_processing_readiness(
     taxonomy: dict | None = None,
     settings: Settings | None = None,
     now: datetime | None = None,
+    allow_published: bool = False,
 ) -> ProcessingReadiness:
     """Derive stages from preloaded facts; callers may share one catalog per batch."""
     if article.review_status == "rejected":
         return ProcessingReadiness(stage="rejected", state="complete")
-    if article.publication_status == "published":
+    if article.publication_status == "published" and not allow_published:
         return ProcessingReadiness(stage="published", state="complete")
     from devfeed_core.ai_content import eligible_article
     from devfeed_core.analysis import (
@@ -197,6 +198,23 @@ def derive_processing_readiness(
     image_job = active_image or (
         storage if article.image_url and settings.image_storage_enabled else discovery
     )
+    current_failed_refresh = (
+        discovery is not None
+        and discovery.status == "failed"
+        and (discovery.storage or {}).get("article_refresh") is True
+        and (discovery.storage or {}).get("input_url") == article.canonical_url
+        and (discovery.storage or {}).get("previous_image_url") == article.image_url
+    )
+    if (
+        active_image is None
+        and current_failed_refresh
+        and discovery is not None
+        and (
+            image_job is None
+            or (discovery.created_at, discovery.id) >= (image_job.created_at, image_job.id)
+        )
+    ):
+        image_job = discovery
     image = checks["images"] = _check(image_job, now)
     if active_image is not None:
         groups["images"].append("image_processing_pending")
@@ -204,13 +222,19 @@ def derive_processing_readiness(
         image_job is not None
         and image.status == "failed"
         and (
-            image_job.image_url == article.image_url
+            (
+                image_job.image_url == article.image_url
+                if image_job.operation == "store"
+                else (image_job.storage or {}).get("article_refresh") is True
+                and (image_job.storage or {}).get("input_url") == article.canonical_url
+                and (image_job.storage or {}).get("previous_image_url") == article.image_url
+            )
             if article.image_url
             else (image_job.storage or {}).get("input_url") == article.canonical_url
         )
     ):
         groups["images"].append(
-            "image_storage_failed" if article.image_url else "image_discovery_failed"
+            "image_storage_failed" if image_job.operation == "store" else "image_discovery_failed"
         )
     elif article.image_url:
         if not settings.image_storage_enabled or _stored_image(article, settings):

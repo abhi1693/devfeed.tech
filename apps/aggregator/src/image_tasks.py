@@ -98,7 +98,11 @@ def _enrich_claimed(factory, identifier, token, article_id, url, started):
                         Article.id == article_id,
                         Article.canonical_url == url,
                         Article.publication_status != "published",
-                        Article.image_url.is_(None),
+                        Article.image_url.is_not_distinct_from(
+                            (job.storage or {}).get("previous_image_url")
+                        )
+                        if (job.storage or {}).get("article_refresh")
+                        else Article.image_url.is_(None),
                     )
                     .values(image_url=image.url)
                     .returning(Article.id)

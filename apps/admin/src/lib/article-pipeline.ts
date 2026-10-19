@@ -3,6 +3,7 @@ import {
   adminArticlePipelineAdvance,
   adminArticlePipelineColumn,
   adminArticlePipelineDetail,
+  adminArticlePipelineRetry,
 } from "./api/generated/admin";
 import type { AdminArticlePipelineParams, PipelineCard } from "./api/generated/models";
 import { recordHref } from "./routes";
@@ -26,6 +27,7 @@ export const pipelineStages = [
   "rejected",
 ] as const;
 export type PipelineStage = (typeof pipelineStages)[number];
+export type PipelineRetryTarget = Extract<PipelineStage, "enrichment" | "analysis" | "images">;
 export type PipelineJobKey = "enrichment" | "analysis" | "images";
 export const pipelineLabels: Record<PipelineStage, string> = {
   ingested: "Ingested",
@@ -89,6 +91,19 @@ export function advanceArticlePipeline(id: string, expected_revision: number, cs
   return adminArticlePipelineAdvance(
     id,
     { expected_revision },
+    { headers: { "X-CSRF-Token": csrf } },
+  );
+}
+export function retryArticlePipeline(
+  id: string,
+  target: PipelineRetryTarget,
+  expected_revision: number,
+  csrf: string,
+  expected_job_id: string | null,
+) {
+  return adminArticlePipelineRetry(
+    id,
+    { target, expected_revision, expected_job_id },
     { headers: { "X-CSRF-Token": csrf } },
   );
 }

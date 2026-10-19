@@ -469,6 +469,10 @@ export const pageRouteCatalogs = {
       label: "/v1/admin/articles/:id/pipeline/advance",
     },
     {
+      path: "/api/v1/admin/articles/:id/pipeline/retry",
+      label: "/v1/admin/articles/:id/pipeline/retry",
+    },
+    {
       path: "/api/v1/admin/automation/articles/:id/decisions",
       label: "/v1/admin/automation/articles/:id/decisions",
     },
@@ -656,6 +660,10 @@ export const pageRouteCatalogs = {
     {
       path: "/v1/admin/articles/:id/pipeline/advance",
       label: "/v1/admin/articles/:id/pipeline/advance",
+    },
+    {
+      path: "/v1/admin/articles/:id/pipeline/retry",
+      label: "/v1/admin/articles/:id/pipeline/retry",
     },
     {
       path: "/v1/admin/automation/articles/:id/decisions",

@@ -7,6 +7,7 @@
  */
 import type { AnalysisStepOut } from './analysisStepOut';
 import type { PipelineCheck } from './pipelineCheck';
+import type { PipelineDetailRetryTargetsItem } from './pipelineDetailRetryTargetsItem';
 import type { PipelineDetailStage } from './pipelineDetailStage';
 import type { PipelineJobs } from './pipelineJobs';
 
@@ -20,6 +21,7 @@ export interface PipelineDetail {
   checks: PipelineCheck[];
   editorial_revision: number;
   jobs: PipelineJobs;
+  retry_targets?: PipelineDetailRetryTargetsItem[];
   stage: PipelineDetailStage;
   state: string;
 }

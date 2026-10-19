@@ -32,7 +32,10 @@ def checkpoint(factory, identifier, token, asset) -> bool:
         job = owned_job(session, ArticleImageJob, identifier, token)
         if job is None:
             return False
-        job.storage = dict(asset)
+        job.storage = {
+            **asset,
+            **({"article_refresh": True} if (job.storage or {}).get("article_refresh") else {}),
+        }
     return True
 
 
@@ -249,7 +252,9 @@ def _store_asset(
             job = session.get(ArticleImageJob, identifier)
             if job is None or job.status != "running" or job.lease_token != token:
                 return
-            asset = dict(job.storage or {})
+            asset = {
+                key: value for key, value in (job.storage or {}).items() if key != "article_refresh"
+            }
         with storage_client() as client:
             original = original_store(client)
             variants = variant_store(client)

@@ -1,6 +1,8 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, screen, waitFor, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { toast } from "sonner";
 import { renderAdmin } from "./render-admin";
 import { RefreshSettings, saveRefresh } from "./refresh-settings";
 import { ArticlePipeline } from "@/components/organisms/article-pipeline";
@@ -13,6 +15,7 @@ import {
   getArticlePipeline,
   getArticlePipelineColumn,
   getArticlePipelineDetail,
+  retryArticlePipeline,
   pipelineQuery,
   pipelineLabels,
   pipelineStages,
@@ -38,6 +41,7 @@ vi.mock("@/lib/article-pipeline", async (original) => ({
   getArticlePipelineColumn: vi.fn(),
   getArticlePipelineDetail: vi.fn(),
   advanceArticlePipeline: vi.fn(),
+  retryArticlePipeline: vi.fn(),
 }));
 vi.mock("@/lib/resource-api", async (original) => ({
   ...(await original<typeof import("@/lib/resource-api")>()),
@@ -140,6 +144,7 @@ beforeEach(() => {
   vi.mocked(getArticlePipeline).mockResolvedValue(board());
   vi.mocked(getArticlePipelineDetail).mockResolvedValue(detail);
   vi.mocked(advanceArticlePipeline).mockResolvedValue(detail);
+  vi.mocked(retryArticlePipeline).mockResolvedValue(detail);
   vi.mocked(listRecords).mockResolvedValue({ items: [], total: 0, limit: 25, offset: 0 });
   vi.mocked(getRecord).mockResolvedValue({
     id: card.id,
@@ -155,12 +160,232 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
+function dragTransfer() {
+  const values = new Map<string, string>();
+  return {
+    setData: (type: string, value: string) => values.set(type, value),
+    getData: (type: string) => values.get(type) ?? "",
+    get types() {
+      return [...values.keys()];
+    },
+    effectAllowed: "all",
+    dropEffect: "none",
+    setDragImage: vi.fn(),
+  };
+}
+
 it("forwards only bounded pipeline filters to the API", () => {
   expect(
     pipelineQuery(
       "q=Python&source_id=source-one&needs_attention=true&offset=500&limit=100&sort=title&view=pipeline",
     ).toString(),
   ).toBe("limit=20&q=Python&source_id=source-one&needs_attention=true");
+});
+
+it("requests a retry with the target job baseline and keeps the old card until the new snapshot", async () => {
+  const user = userEvent.setup();
+  const ready = {
+    ...card,
+    stage: "ready" as const,
+    state: "ready",
+    retry_targets: ["analysis" as const],
+  };
+  let finishPost!: (value: PipelineDetail) => void;
+  let finishGet!: (value: PipelineBoard) => void;
+  vi.mocked(getArticlePipeline)
+    .mockResolvedValueOnce(board(ready))
+    .mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finishGet = resolve;
+        }),
+    );
+  vi.mocked(retryArticlePipeline).mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        finishPost = resolve;
+      }),
+  );
+  renderAdmin(<ArticlePipeline query="view=pipeline&stage=ready" />);
+  await user.click(await screen.findByRole("button", { name: `Move back ${card.title}` }));
+  expect(screen.queryByRole("menuitem", { name: "Retry enrichment" })).toBeNull();
+  await user.click(screen.getByRole("menuitem", { name: "Retry AI analysis" }));
+  expect(retryArticlePipeline).toHaveBeenCalledWith(card.id, "analysis", 7, "test-csrf", "ai-job");
+  const original = screen.getByRole("link", { name: card.title });
+  expect(original.closest("article")?.getAttribute("data-pipeline-stage")).toBe("ready");
+  await act(async () => finishPost({ ...detail, stage: "analysis" }));
+  await waitFor(() => expect(getArticlePipeline).toHaveBeenCalledTimes(2));
+  expect(screen.getByRole("link", { name: card.title })).toBe(original);
+  expect(original.closest("article")?.getAttribute("data-pipeline-stage")).toBe("ready");
+  expect(screen.queryByText("Loading…")).toBeNull();
+  await act(async () =>
+    finishGet(board({ ...ready, stage: "analysis", state: "waiting", retry_targets: [] })),
+  );
+  expect(screen.getAllByRole("link", { name: card.title })).toHaveLength(1);
+  expect(
+    screen
+      .getByRole("link", { name: card.title })
+      .closest("article")
+      ?.getAttribute("data-pipeline-stage"),
+  ).toBe("analysis");
+});
+
+it("retries through a real card drag onto an authorized earlier column and ignores duplicate busy drops", async () => {
+  const ready = {
+    ...card,
+    stage: "ready" as const,
+    state: "ready",
+    retry_targets: ["enrichment" as const],
+  };
+  vi.mocked(getArticlePipeline).mockResolvedValue(board(ready));
+  let finish!: (value: PipelineDetail) => void;
+  vi.mocked(retryArticlePipeline).mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        finish = resolve;
+      }),
+  );
+  renderAdmin(<ArticlePipeline query="view=pipeline&stage=ready" />);
+  const item = (await screen.findByRole("link", { name: card.title })).closest("article")!;
+  expect(item.getAttribute("draggable")).toBe("true");
+  const target = screen.getByRole("heading", { name: "Enrichment", level: 2 }).closest("section")!;
+  const transfer = dragTransfer();
+  fireEvent.dragStart(item, { dataTransfer: transfer });
+  fireEvent.dragOver(target, { dataTransfer: transfer });
+  fireEvent.drop(target, { dataTransfer: transfer });
+  await waitFor(() =>
+    expect(retryArticlePipeline).toHaveBeenCalledWith(
+      card.id,
+      "enrichment",
+      7,
+      "test-csrf",
+      "text-job",
+    ),
+  );
+  fireEvent.dragStart(item, { dataTransfer: transfer });
+  fireEvent.dragOver(target, { dataTransfer: transfer });
+  fireEvent.drop(target, { dataTransfer: transfer });
+  expect(retryArticlePipeline).toHaveBeenCalledTimes(1);
+  await act(async () => finish(detail));
+});
+
+it("ignores ineligible columns and external transfer IDs without a board dragstart", async () => {
+  const ready = {
+    ...card,
+    stage: "ready" as const,
+    state: "ready",
+    retry_targets: ["images" as const],
+  };
+  vi.mocked(getArticlePipeline).mockResolvedValue(board(ready));
+  renderAdmin(<ArticlePipeline query="view=pipeline&stage=ready" />);
+  const item = (await screen.findByRole("link", { name: card.title })).closest("article")!;
+  const transfer = dragTransfer();
+  transfer.setData("application/x-devfeed-article-pipeline", card.id);
+  transfer.setData("text/plain", card.id);
+  const images = screen.getByRole("heading", { name: "Images", level: 2 }).closest("section")!;
+  fireEvent.dragOver(images, { dataTransfer: transfer });
+  fireEvent.drop(images, { dataTransfer: transfer });
+  expect(retryArticlePipeline).not.toHaveBeenCalled();
+  fireEvent.dragStart(item, { dataTransfer: transfer });
+  const review = screen.getByRole("heading", { name: "Review", level: 2 }).closest("section")!;
+  fireEvent.dragOver(review, { dataTransfer: transfer });
+  fireEvent.drop(review, { dataTransfer: transfer });
+  fireEvent.dragEnd(item, { dataTransfer: transfer });
+  expect(retryArticlePipeline).not.toHaveBeenCalled();
+});
+
+it("uses a null job baseline for an allowed target without a previous run", async () => {
+  const user = userEvent.setup();
+  vi.mocked(getArticlePipeline).mockResolvedValue(
+    board({
+      ...card,
+      stage: "ready",
+      state: "ready",
+      jobs: { ...card.jobs, enrichment: null },
+      retry_targets: ["enrichment"],
+    }),
+  );
+  renderAdmin(<ArticlePipeline query="view=pipeline&stage=ready" />);
+  await user.click(await screen.findByRole("button", { name: `Move back ${card.title}` }));
+  await user.click(screen.getByRole("menuitem", { name: "Retry enrichment" }));
+  expect(retryArticlePipeline).toHaveBeenCalledWith(card.id, "enrichment", 7, "test-csrf", null);
+});
+
+it("refreshes a stale retry rejection without moving the card optimistically", async () => {
+  const user = userEvent.setup();
+  const ready = {
+    ...card,
+    stage: "ready" as const,
+    state: "ready",
+    retry_targets: ["images" as const],
+  };
+  vi.mocked(getArticlePipeline)
+    .mockResolvedValueOnce(board(ready))
+    .mockResolvedValue(board({ ...ready, editorial_revision: 8 }));
+  vi.mocked(retryArticlePipeline).mockRejectedValueOnce(
+    new ApiError(409, "The job changed; refresh and try again."),
+  );
+  renderAdmin(<ArticlePipeline query="view=pipeline&stage=ready" />);
+  await user.click(await screen.findByRole("button", { name: `Move back ${card.title}` }));
+  await user.click(screen.getByRole("menuitem", { name: "Retry images" }));
+  await waitFor(() => expect(getArticlePipeline).toHaveBeenCalledTimes(2));
+  expect(
+    screen
+      .getByRole("link", { name: card.title })
+      .closest("article")
+      ?.getAttribute("data-pipeline-stage"),
+  ).toBe("ready");
+  expect(screen.queryByText("Loading…")).toBeNull();
+});
+
+it("notifies a failed retry and keeps the existing card available for another attempt", async () => {
+  const user = userEvent.setup();
+  vi.mocked(getArticlePipeline).mockResolvedValue(
+    board({ ...card, stage: "ready", state: "ready", retry_targets: ["images"] }),
+  );
+  vi.mocked(retryArticlePipeline).mockRejectedValueOnce(new ApiError(503));
+  renderAdmin(<ArticlePipeline query="view=pipeline&stage=ready" />);
+  await user.click(await screen.findByRole("button", { name: `Move back ${card.title}` }));
+  await user.click(screen.getByRole("menuitem", { name: "Retry images" }));
+  await waitFor(() => expect(toast.error).toHaveBeenCalled());
+  expect(
+    screen
+      .getByRole("link", { name: card.title })
+      .closest("article")
+      ?.getAttribute("data-pipeline-stage"),
+  ).toBe("ready");
+  expect(
+    (screen.getByRole("button", { name: `Move back ${card.title}` }) as HTMLButtonElement).disabled,
+  ).toBe(false);
+});
+
+it("makes the unpublish effect explicit for Published retry actions", async () => {
+  const user = userEvent.setup();
+  vi.mocked(getArticlePipeline).mockResolvedValue(
+    board({
+      ...card,
+      stage: "published",
+      state: "complete",
+      retry_targets: ["enrichment", "analysis", "images"],
+    }),
+  );
+  renderAdmin(<ArticlePipeline query="view=pipeline&stage=published" />);
+  await user.click(await screen.findByRole("button", { name: `Move back ${card.title}` }));
+  for (const label of ["enrichment", "AI analysis", "images"])
+    expect(screen.getByRole("menuitem", { name: `Unpublish and retry ${label}` })).toBeDefined();
+  expect(screen.queryByRole("menuitem", { name: /^Retry/ })).toBeNull();
+  await user.click(screen.getByRole("menuitem", { name: "Unpublish and retry AI analysis" }));
+  expect(retryArticlePipeline).toHaveBeenCalledWith(card.id, "analysis", 7, "test-csrf", "ai-job");
+});
+
+it("keeps rejected cards without processing retry targets actionless", async () => {
+  vi.mocked(getArticlePipeline).mockResolvedValue(
+    board({ ...card, stage: "rejected", state: "complete", retry_targets: [] }),
+  );
+  renderAdmin(<ArticlePipeline query="view=pipeline&stage=rejected" />);
+  const item = (await screen.findByRole("link", { name: card.title })).closest("article")!;
+  expect(item.getAttribute("draggable")).not.toBe("true");
+  expect(screen.queryByRole("button", { name: `Move back ${card.title}` })).toBeNull();
 });
 
 it("collapses a column by double-click and expands it through its accessible control", async () => {

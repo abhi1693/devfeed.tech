@@ -41,12 +41,15 @@ let stage = "enrichment";
 let imageMissing = false;
 let analysisRetry = false;
 let editorialRevision = 7;
+let retryQueued = false;
+let publishedToFeedAt = null;
+const jobGenerations = { enrichment: 0, analysis: 0, images: 0 };
 let posts = [];
 const requests = [];
 const now = "2026-10-19T09:00:00Z";
 function job(key, status) {
   return {
-    id: `${key === "enrichment" ? "33333333" : key === "analysis" ? "44444444" : "55555555"}-3333-4333-8333-333333333333`,
+    id: `${key === "enrichment" ? "33333333" : key === "analysis" ? "44444444" : "55555555"}-3333-4333-8333-${333333333333 + jobGenerations[key]}`,
     status,
     outcome:
       status === "succeeded"
@@ -68,20 +71,20 @@ function jobs() {
       index > 1
         ? job("enrichment", "succeeded")
         : index === 1
-          ? job("enrichment", "running")
+          ? job("enrichment", retryQueued ? "queued" : "running")
           : null,
     analysis:
       index > 2
         ? job("analysis", "succeeded")
         : index === 2
-          ? job("analysis", analysisRetry ? "queued" : "running")
+          ? job("analysis", analysisRetry || retryQueued ? "queued" : "running")
           : null,
     images: imageMissing
       ? null
       : index > 3
         ? job("images", "succeeded")
         : index === 3
-          ? job("images", "running")
+          ? job("images", retryQueued ? "queued" : "running")
           : null,
   };
 }
@@ -108,7 +111,9 @@ function card(cardStage = stage, index = 0) {
               : cardStage === "review" || imageMissing
                 ? "blocked"
                 : ["enrichment", "analysis", "images"].includes(cardStage)
-                  ? "running"
+                  ? retryQueued
+                    ? "waiting"
+                    : "running"
                   : "waiting",
     blockers:
       cardStage === "ready" || ["published", "rejected"].includes(cardStage)
@@ -119,6 +124,10 @@ function card(cardStage = stage, index = 0) {
     current_analysis_step: cardStage === "analysis" ? "overview" : null,
     jobs: index ? { enrichment: null, analysis: null, images: null } : jobs(),
     allowed_actions: imageMissing ? ["advance"] : [],
+    retry_targets:
+      !index && ["review", "ready", "published"].includes(cardStage)
+        ? ["enrichment", "analysis", "images"]
+        : [],
   };
 }
 function board(url) {
@@ -230,7 +239,7 @@ function article() {
     editorial_revision: editorialRevision,
     published_at: now,
     discovered_at: now,
-    published_to_feed_at: stage === "published" ? now : null,
+    published_to_feed_at: stage === "published" ? now : publishedToFeedAt,
     classification_provenance: { developer_relevance: "relevant", page_kind: "article" },
     sources: [source],
     topics: [],
@@ -266,12 +275,27 @@ const fixture = createServer(async (req, res) => {
     for await (const chunk of req) chunks.push(chunk);
     const payload = JSON.parse(Buffer.concat(chunks).toString());
     posts.push({ path: url.pathname, payload, csrf: req.headers["x-csrf-token"] });
-    if (url.pathname.endsWith("/pipeline/advance")) {
+    if (url.pathname.endsWith("/pipeline/retry")) {
+      assert.equal(payload.expected_revision, editorialRevision);
+      assert.equal(payload.expected_job_id, jobs()[payload.target]?.id ?? null);
+      assert.ok(card().retry_targets.includes(payload.target));
+      if (stage === "published") {
+        editorialRevision++;
+        publishedToFeedAt = now;
+      }
+      stage = payload.target;
+      imageMissing = false;
+      analysisRetry = false;
+      retryQueued = true;
+      jobGenerations[payload.target]++;
+      body = detail();
+    } else if (url.pathname.endsWith("/pipeline/advance")) {
       imageMissing = false;
       body = detail();
     } else if (url.pathname.endsWith("/review")) {
       assert.equal(payload.action, "publish");
       stage = "published";
+      publishedToFeedAt = now;
       body = article();
     } else {
       res.statusCode = 404;
@@ -627,6 +651,142 @@ try {
   assert.equal(posts.at(-1).payload.action, "publish");
   assert.equal(posts.at(-1).payload.expected_revision, 8);
   assert.equal(posts.at(-1).csrf, "fixture-csrf");
+  await page.setViewportSize({ width: 1600, height: 1100 });
+  await page.goto(`${origin}/content/articles?view=pipeline&stage=published`);
+  await focusCard.waitFor();
+  const moveBack = page.getByRole("button", { name: `Move back ${card().title}`, exact: true });
+  await moveBack.focus();
+  await moveBack.press("Enter");
+  for (const label of ["enrichment", "AI analysis", "images"])
+    await page
+      .getByRole("menuitem", { name: `Unpublish and retry ${label}`, exact: true })
+      .waitFor();
+  await page.screenshot({
+    path: `${destination}/board-retry-desktop.png`,
+    fullPage: true,
+    animations: "disabled",
+  });
+  await page.keyboard.press("Escape");
+  await page.getByRole("button", { name: "Collapse Images column", exact: true }).click();
+  const publishedCard = focusCard.locator("xpath=ancestor::article");
+  const originalImageJobId = jobs().images.id;
+  const retryPostOffset = posts.length;
+  const externalTransfer = await page.evaluateHandle((id) => {
+    const transfer = new DataTransfer();
+    transfer.setData("application/x-devfeed-article-pipeline", id);
+    transfer.setData("text/plain", id);
+    return transfer;
+  }, id);
+  await imagesColumn.dispatchEvent("dragover", { dataTransfer: externalTransfer });
+  await imagesColumn.dispatchEvent("drop", { dataTransfer: externalTransfer });
+  await externalTransfer.dispose();
+  await page.evaluate(
+    () => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))),
+  );
+  assert.equal(posts.length, retryPostOffset);
+  await page
+    .getByRole("region", { name: "Article publication pipeline" })
+    .evaluate((region, id) => {
+      const item = region.querySelector(`[data-pipeline-article-id="${id}"]`);
+      region.scrollLeft += Math.max(
+        0,
+        item.getBoundingClientRect().right - region.getBoundingClientRect().right + 16,
+      );
+    }, id);
+  const dragBounds = await publishedCard.boundingBox();
+  await publishedCard.dragTo(page.getByRole("heading", { name: "Images", exact: true }), {
+    sourcePosition: { x: 8, y: dragBounds.height - 6 },
+  });
+  await waitForStage("images", null);
+  assert.equal(posts.length, retryPostOffset + 1);
+  assert.deepEqual(posts.at(-1), {
+    path: `/v1/admin/articles/${id}/pipeline/retry`,
+    payload: { expected_revision: 8, expected_job_id: originalImageJobId, target: "images" },
+    csrf: "fixture-csrf",
+  });
+  assert.equal(editorialRevision, 9);
+  assert.equal(jobs().images.status, "queued");
+  assert.notEqual(jobs().images.id, originalImageJobId);
+  assert.equal(await imagesColumn.getAttribute("data-pipeline-collapsed"), "true");
+  await page.getByRole("button", { name: "Expand Images column", exact: true }).click();
+  await focusCard.waitFor({ state: "visible" });
+  await page.screenshot({
+    path: `${destination}/board-retry-dropped-desktop.png`,
+    fullPage: true,
+    animations: "disabled",
+  });
+  await page.goto(`${origin}/content/articles/${id}`);
+  const recordInformation = page
+    .getByRole("heading", { name: "Record information", exact: true })
+    .locator("xpath=ancestor::section[1]");
+  await recordInformation.getByText("Unpublished", { exact: true }).waitFor();
+  await recordInformation.getByText("Approved", { exact: true }).waitFor();
+  assert.equal(publishedToFeedAt, now);
+  retryQueued = false;
+  stage = "ready";
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto(`${origin}/content/articles?view=pipeline&stage=ready`);
+  await focusCard.waitFor();
+  await page.getByRole("button", { name: /^Columns/ }).click();
+  await page.getByRole("checkbox", { name: "Enrichment", exact: true }).uncheck();
+  await page.getByRole("button", { name: /^Columns/ }).click();
+  const originalTextJobId = jobs().enrichment.id;
+  await moveBack.focus();
+  await moveBack.press("Enter");
+  await page.getByRole("menuitem", { name: "Retry enrichment", exact: true }).waitFor();
+  await page.screenshot({
+    path: `${destination}/board-retry-mobile.png`,
+    fullPage: true,
+    animations: "disabled",
+  });
+  const retrySnapshot = page.waitForResponse(async (response) => {
+    if (new URL(response.url()).pathname !== "/api/v1/admin/article-pipeline" || !response.ok())
+      return false;
+    const snapshot = await response.json();
+    return snapshot.columns.some(
+      (column) =>
+        column.stage === "enrichment" &&
+        column.items.some((item) => item.id === id && item.jobs.enrichment?.status === "queued"),
+    );
+  });
+  await page.getByRole("menuitem", { name: "Retry enrichment", exact: true }).focus();
+  await page.getByRole("menuitem", { name: "Retry enrichment", exact: true }).press("Enter");
+  const retriedBoard = await (await retrySnapshot).json();
+  const retriedCard = retriedBoard.columns
+    .find((column) => column.stage === "enrichment")
+    .items.find((item) => item.id === id);
+  assert.equal(retriedCard.jobs.enrichment.status, "queued");
+  assert.deepEqual(posts.at(-1), {
+    path: `/v1/admin/articles/${id}/pipeline/retry`,
+    payload: { expected_revision: 9, expected_job_id: originalTextJobId, target: "enrichment" },
+    csrf: "fixture-csrf",
+  });
+  assert.equal(editorialRevision, 9);
+  retryQueued = false;
+  stage = "ready";
+  await page.setViewportSize({ width: 1600, height: 1100 });
+  await page.goto(`${origin}/content/articles?view=pipeline&stage=ready`);
+  await focusCard.waitFor();
+  const originalAnalysisJobId = jobs().analysis.id;
+  await moveBack.click();
+  const retryMovement = waitForStage("analysis", "backward");
+  await page.getByRole("menuitem", { name: "Retry AI analysis", exact: true }).click();
+  await retryMovement;
+  assert.deepEqual(posts.at(-1), {
+    path: `/v1/admin/articles/${id}/pipeline/retry`,
+    payload: { expected_revision: 9, expected_job_id: originalAnalysisJobId, target: "analysis" },
+    csrf: "fixture-csrf",
+  });
+  await focusCard
+    .locator("xpath=ancestor::article")
+    .evaluate((item) =>
+      Promise.all(item.getAnimations().map((animation) => animation.finished.catch(() => {}))),
+    );
+  await page.screenshot({
+    path: `${destination}/board-retry-queued-desktop.png`,
+    fullPage: true,
+    animations: "disabled",
+  });
   assert.deepEqual(errors, []);
   await writeFile(
     `${destination}/summary.json`,
@@ -649,6 +809,11 @@ try {
         automaticStageUpdates: true,
         automaticReviewRevisionUpdates: true,
         minimalCards: true,
+        retryActions: posts.filter((post) => post.path.endsWith("/pipeline/retry")),
+        publishedRetryUnpublished: true,
+        hiddenStageKeyboardRetry: true,
+        serverRetryBackwardAnimation: true,
+        externalDropIgnored: true,
         publicationBlockedWhileImagesRunning: true,
         recoveryCsrfChecked: true,
         analysisStepRetryVisible: true,
@@ -658,6 +823,10 @@ try {
           "board-mobile.png",
           "board-columns-desktop.png",
           "board-columns-mobile.png",
+          "board-retry-desktop.png",
+          "board-retry-mobile.png",
+          "board-retry-dropped-desktop.png",
+          "board-retry-queued-desktop.png",
           "readiness-desktop.png",
           "readiness-mobile.png",
           "analysis-steps-desktop.png",

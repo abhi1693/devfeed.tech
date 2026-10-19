@@ -15,7 +15,7 @@ from devfeed_core.services import OperationConflict, RecordNotFound
 
 
 def request_image(
-    session: Session, article_id: uuid.UUID, *, automatic=False
+    session: Session, article_id: uuid.UUID, *, automatic=False, refresh=False
 ) -> ArticleImageJob | None:
     article = session.scalar(
         select(Article)
@@ -30,7 +30,7 @@ def request_image(
             return None
         raise OperationConflict("Unpublish the article before requesting image processing")
     store = bool(article.image_url and get_settings().image_storage_enabled)
-    if article.image_url and (not store or image_variants(article)):
+    if article.image_url and (not store or image_variants(article)) and not refresh:
         return None
     active = session.scalar(
         select(ArticleImageJob).where(
@@ -58,7 +58,11 @@ def request_image(
         article_id=article_id,
         operation="store" if store else "discover",
         image_url=article.image_url if store else None,
-        storage={"input_url": article.canonical_url} if not store else {},
+        storage={
+            **({"input_url": article.canonical_url} if not store else {}),
+            **({"article_refresh": True} if refresh else {}),
+            **({"previous_image_url": article.image_url} if refresh and not store else {}),
+        },
     )
     session.add(job)
     session.flush()
@@ -84,7 +88,7 @@ def backfill_images(session: Session, limit: int) -> list[ArticleImageJob]:
     return jobs
 
 
-def retry_image(session: Session, job_id: uuid.UUID) -> ArticleImageJob | None:
+def retry_image(session: Session, job_id: uuid.UUID, *, refresh=False) -> ArticleImageJob | None:
     from devfeed_core.logos import logo_job_target, request_logo
     from devfeed_core.models import PartnerProduct
 
@@ -134,11 +138,12 @@ def retry_image(session: Session, job_id: uuid.UUID) -> ArticleImageJob | None:
                 session, previous.article_id, checkpoint=previous.storage
             )
         else:
-            job = (
-                request_thumbnail_recompression(session, previous.article_id)
-                if previous.storage_version == THUMBNAIL_VERSION
-                else request_image(session, previous.article_id)
-            )
+            if previous.storage_version == THUMBNAIL_VERSION:
+                job = request_thumbnail_recompression(session, previous.article_id)
+            elif refresh or (previous.storage or {}).get("article_refresh"):
+                job = request_image(session, previous.article_id, refresh=True)
+            else:
+                job = request_image(session, previous.article_id)
     if (
         job is not None
         and previous.operation
@@ -157,6 +162,7 @@ def retry_image(session: Session, job_id: uuid.UUID) -> ArticleImageJob | None:
         and previous.subject_revision == job.subject_revision
         and (
             not job.storage
+            or job.storage == {"article_refresh": True}
             or (
                 job.storage_version == THUMBNAIL_VERSION
                 and job.operation == "store"
@@ -165,7 +171,10 @@ def retry_image(session: Session, job_id: uuid.UUID) -> ArticleImageJob | None:
             )
         )
     ):
-        job.storage = dict(previous.storage or {})
+        job.storage = {
+            **(previous.storage or {}),
+            **({"article_refresh": True} if (job.storage or {}).get("article_refresh") else {}),
+        }
     return job
 
 
@@ -311,7 +320,9 @@ def claim_image(session: Session, job_id: uuid.UUID) -> tuple[ArticleImageJob, s
             else job.storage_version != THUMBNAIL_VERSION
             or current_asset.get("thumbnail_version", "v1") == THUMBNAIL_VERSION
         )
-        if article.image_url != job.image_url or already_stored:
+        if article.image_url != job.image_url or (
+            already_stored and not (job.storage or {}).get("article_refresh")
+        ):
             finish_job(job, "already_present", now)
             session.flush()
             request_image(session, article.id, automatic=True)
@@ -319,7 +330,7 @@ def claim_image(session: Session, job_id: uuid.UUID) -> tuple[ArticleImageJob, s
         start_job(job, now, LEASE_SECONDS)
         assert job.image_url
         return job, job.image_url
-    if article.image_url:
+    if article.image_url and not (job.storage or {}).get("article_refresh"):
         finish_job(job, "already_present", utcnow())
         session.flush()
         if get_settings().image_storage_enabled:

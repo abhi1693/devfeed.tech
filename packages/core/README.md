@@ -160,15 +160,15 @@ stage flag or introduce a new queue. The scheduler and explicit admin recovery
 use `reconcile_processing`; final publication uses the same readiness checks in
 the locked editorial transaction. Approving an article does not bypass processing.
 
-| Stage | Requirement to advance |
-| --- | --- |
-| Ingested | An approved source origin and an original-page enrichment request |
-| Enrichment | A completed attempt for the current canonical URL |
-| AI analysis | Current source and catalog evidence, resolved classification, an identifying title, readable overview and description |
-| Images | No active or failed current image work; managed variants complete when storage is enabled |
-| Review | Valid metadata, an active primary topic, relevant article classification, approved source, and editorial approval |
-| Ready | Every publication prerequisite passes; manual or configured source policy may publish |
-| Published / Rejected | Terminal editorial outcome; normal reconciliation does not reprocess it |
+| Stage                | Requirement to advance                                                                                                |
+| -------------------- | --------------------------------------------------------------------------------------------------------------------- |
+| Ingested             | An approved source origin and an original-page enrichment request                                                     |
+| Enrichment           | A completed attempt for the current canonical URL                                                                     |
+| AI analysis          | Current source and catalog evidence, resolved classification, an identifying title, readable overview and description |
+| Images               | No active or failed current image work; managed variants complete when storage is enabled                             |
+| Review               | Valid metadata, an active primary topic, relevant article classification, approved source, and editorial approval     |
+| Ready                | Every publication prerequisite passes; manual or configured source policy may publish                                 |
+| Published / Rejected | Terminal editorial outcome; normal reconciliation does not reprocess it                                               |
 
 A successful lookup that finds no article image permits the reader's existing
 fallback. Failed or unfinished discovery does not. Missing authors remain unknown;
@@ -189,12 +189,35 @@ has a readiness checklist and revision-checked recovery. Publication is enforced
 by the server even for bulk review, CLI or stale clients. Active lanes include all
 waiting ages; terminal lanes explicitly cover the last seven days.
 
+Cards expose only the server's eligible processing retry targets: source enrichment,
+AI analysis and images. Moving a card backward or selecting a retry queues that
+task through its existing durable outbox; it never writes a stage flag. Requests
+compare both the article revision and the selected current job ID. A delayed or
+duplicate request conflicts after a new job exists, even if that job already finished.
+The selected task cannot be retried while active or waiting for a provider cooldown;
+an independent later task keeps its lease. Source changes still invalidate old AI
+results before they can apply. A failed analysis retry carries verified successful
+specialist results forward, while an explicit rerun of a completed analysis starts
+a fresh run. Processing audits carry an explicit marker and do not create a new
+human-review requirement.
+
+Published-card retries validate source approval, the AI content date window and
+the selected task's earlier prerequisites before atomically unpublishing and queuing
+work. An image-only retry requires current enrichment and AI presentation evidence,
+preserves that AI output and the original feed-publication timestamp, and returns
+to Ready after image completion. Publishing again remains an explicit editorial
+action and does not send another first-publication notification. Rejected cards
+require an editorial decision before processing recovery. Existing image assets
+remain intact during a forced refresh; an exhausted refresh blocks publication
+until resolved, and stale discovery cannot replace a newer image URL.
+
 Board counts use the same pure policy as admission. Current facts are loaded in
 keyset batches, with current jobs selected through history indexes. Exact active
 counts scan the waiting population; process-local readiness caching avoids loading
 large extraction and inference snapshots again when their input identities, catalog,
 article fields, settings and job state are unchanged. The publication transaction
-never trusts this display cache. Historical terminal counts and paging stay in SQL.
+never trusts this display cache. Historical terminal counts and paging stay in SQL;
+only the displayed Published page loads current processing facts for retry actions.
 
 Migration `0027` adds current-job history indexes and includes approved unpublished
 articles in the automation due index. Indexes build concurrently, with resumable
@@ -204,9 +227,10 @@ Old processes require 0026 and must be drained before upgrading the database;
 if rolling back to those binaries, downgrade this index-only migration first.
 The v9 specialist workflow applies to eligible unpublished work. It does not launch a
 published-article backfill. Published content, URLs, feed order and notification
-history remain intact. Explicit reprocessing requires unpublishing first; editing
-old live titles/descriptions is a separate editorial operation and is not performed
-by this migration or by viewing the board.
+history remain intact. Explicit board reprocessing unpublishes an eligible Published
+article in the retry transaction; other processing entrypoints require unpublishing
+first. Editing old live titles/descriptions is a separate editorial operation and is
+not performed by this migration or by viewing the board.
 
 ### Focused AI tasks
 

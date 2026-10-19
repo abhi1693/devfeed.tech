@@ -9,6 +9,7 @@ export function useRequest<T>(
   key: string,
   load: (signal: AbortSignal) => Promise<T>,
   pollInterval = 0,
+  refreshKey = 0,
 ) {
   const [state, setState] = useState<{
     key: string;
@@ -71,7 +72,7 @@ export function useRequest<T>(
         if (!signal.aborted) complete = true;
       });
     });
-  }, [refresh]);
+  }, [refresh, refreshKey]);
   usePolling((signal) => refresh(signal, true), pollInterval, key);
   return state?.key === key
     ? { ...state, loading: false, refreshing: !!state.refreshing && pollInterval > 0 }

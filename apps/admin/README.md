@@ -138,6 +138,19 @@ collapse choices are remembered in this browser through refreshes and navigation
 On mobile, the stage selector includes only visible columns and always opens the full
 column. Changing the column layout does not animate cards as processing transitions.
 
+Drag a card onto an earlier **Enrichment**, **AI analysis**, or **Images** column to
+retry that task, including onto a collapsed rail. The card menu provides the same
+actions for keyboard and mobile use, including tasks whose columns are hidden.
+Only eligible destinations are offered; active work and scheduled retries retain
+their leases and timing. Independent tasks can continue while the selected task runs.
+
+Moving a **Published** card back unpublishes it and queues the selected task together.
+The menu labels state this explicitly. An image-only retry preserves the existing
+approval, current AI content, original feed timestamp, and notification history; when
+it completes, the article returns to **Ready** for the normal Publish action. Source
+or AI retries go through the usual content and review requirements. The board waits
+for server results before moving a card and refreshes stale cards after conflicts.
+
 The AI analysis run shows its ordered steps for eligibility, classification, topics,
 tags, title, overview, and description. Each row reports its status, prompt version,
 attempt count, and scheduled retry or error when applicable. These are steps of one
