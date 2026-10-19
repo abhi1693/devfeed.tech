@@ -6,7 +6,14 @@ import uuid
 from datetime import datetime, timedelta
 from typing import Annotated, Literal
 
-from pydantic import AliasChoices, Field, SecretStr, StringConstraints, field_validator
+from pydantic import (
+    AliasChoices,
+    Field,
+    SecretStr,
+    StringConstraints,
+    ValidationError,
+    field_validator,
+)
 from sqlalchemy import and_, exists, func, or_, select
 from sqlalchemy.orm import aliased
 
@@ -290,22 +297,49 @@ def qualification_prompt(product, page):
     )
 
 
+QUALIFICATION_FAILURES = {
+    "invalid_output": "The assessment response did not match the required qualification format.",
+    "missing_capability_evidence": "The assessment omitted capability evidence or technologies.",
+    "evidence_url_mismatch": "Assessment evidence did not cite the fetched official page URL.",
+    "evidence_quote_mismatch": (
+        "An assessment quotation did not occur in the fetched official page."
+    ),
+    "generic_technology": "The assessment included a generic category as a technology.",
+    "technology_not_in_evidence": "An assessed technology was unsupported by the cited quotations.",
+}
+
+
+class QualificationError(ValueError):
+    """Only fixed diagnostic codes/messages may cross assessment boundaries."""
+
+    def __init__(self, code: str):
+        self.code = code
+        super().__init__(QUALIFICATION_FAILURES[code])
+
+
 def validate_qualification(raw, page):
-    result = Qualification.model_validate(raw)
+    try:
+        result = Qualification.model_validate(raw)
+    except ValidationError:
+        raise QualificationError("invalid_output") from None
     if result.decision != "qualified":
         result.technologies, result.evidence = [], []
         return result
     if not result.evidence or not result.technologies:
-        raise ValueError("Qualification lacks capability evidence")
+        raise QualificationError("missing_capability_evidence")
     for evidence in result.evidence:
-        if evidence.url != page["final_url"] or normalized(evidence.quote) not in page["text"]:
-            raise ValueError("Qualification cites unsupported evidence")
+        if evidence.url != page["final_url"]:
+            raise QualificationError("evidence_url_mismatch")
+        if normalized(evidence.quote) not in page["text"]:
+            raise QualificationError("evidence_quote_mismatch")
     for technology in result.technologies:
-        if technology.casefold() in {"ai", "developer tools", "productivity"} or not any(
+        if technology.casefold() in {"ai", "developer tools", "productivity"}:
+            raise QualificationError("generic_technology")
+        if not any(
             re.search(r"(?<!\w)" + re.escape(technology) + r"(?!\w)", evidence.quote, re.I)
             for evidence in result.evidence
         ):
-            raise ValueError("Qualification lacks technology evidence")
+            raise QualificationError("technology_not_in_evidence")
     return result
 
 
