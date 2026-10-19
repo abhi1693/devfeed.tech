@@ -29,6 +29,7 @@ from devfeed_core.partner_catalog import (
 from devfeed_core.partner_connections import (
     Qualification,
     QualificationError,
+    connection_sync_interval,
     qualification_prompt,
     queue_evaluation,
     request_assessment,
@@ -181,7 +182,9 @@ def finish_discovery(session, job, connection):
         clear_lease(job)
         return
     connection.last_sync_at, connection.last_error = utcnow(), None
-    connection.next_sync_at = utcnow() + timedelta(minutes=connection.sync_interval_minutes)
+    connection.next_sync_at = utcnow() + timedelta(
+        minutes=connection_sync_interval(session, connection)
+    )
     job.status, job.error, job.finished_at = "succeeded", None, utcnow()
     clear_lease(job)
     logger.info(
@@ -579,6 +582,12 @@ def schedule_partner_syncs(factory):
             .with_for_update(skip_locked=True)
         ).all()
         for connection in connections:
+            interval = connection_sync_interval(session, connection)
+            if interval != connection.sync_interval_minutes and connection.last_sync_at:
+                connection.next_sync_at = max(
+                    connection.next_sync_at,
+                    connection.last_sync_at + timedelta(minutes=interval),
+                )
             if connection.next_sync_at <= now:
                 job = request_sync(session, connection)
                 created = job in session.new

@@ -204,6 +204,7 @@ export * from './connectionCreate';
 export * from './connectionLogoUpdate';
 export * from './connectionLogoVariant';
 export * from './connectionOut';
+export * from './connectionOutAccountTier';
 export * from './connectionOutApprovalMode';
 export * from './connectionOutState';
 export * from './connectionSettings';

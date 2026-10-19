@@ -6,12 +6,14 @@
  * OpenAPI spec version: 0.1.0
  */
 import type { ConnectionLogoVariant } from './connectionLogoVariant';
+import type { ConnectionOutAccountTier } from './connectionOutAccountTier';
 import type { ConnectionOutApprovalMode } from './connectionOutApprovalMode';
 import type { ConnectionOutState } from './connectionOutState';
 import type { ConnectorConfig } from './connectorConfig';
 
 export interface ConnectionOut {
   account_id?: string | null;
+  account_tier?: ConnectionOutAccountTier;
   ai_enabled: boolean;
   api_url: string;
   approval_mode?: ConnectionOutApprovalMode;
