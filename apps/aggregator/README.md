@@ -263,3 +263,18 @@ A completely cold cache, incompatible snapshot format, or sitemap-cache outage
 returns a retryable 503 until background generation succeeds. During rollout,
 verify `/sitemap.xml` and a listed part return 200 before declaring the sitemap
 ready. No schema migration is required.
+
+## Partner assessment diagnostics
+
+Qualification validation failures retain fixed messages for malformed responses, missing
+capability evidence, evidence URL or quotation mismatches, generic technology categories,
+and technologies absent from the evidence. The durable job error and terminal product
+assessment reason carry the safe message. Job payloads retain `diagnostic.code` and
+`diagnostic.stage`; retry/failure logs include `diagnostic_code` and `assessment_stage`
+alongside the existing job, product and attempt identifiers. Successful retries clear
+the stored diagnostic.
+
+Unknown failures retain a generic message and stage. Raw model responses, page text,
+credentials and arbitrary exception messages are excluded from these diagnostics. Evidence
+rules, qualification gates and retry timing/limits are unchanged. Existing failed jobs
+are not rewritten or retried automatically.

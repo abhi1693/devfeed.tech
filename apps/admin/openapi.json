@@ -4644,6 +4644,24 @@
             ],
             "title": "Account Id"
           },
+          "account_tier": {
+            "anyOf": [
+              {
+                "enum": [
+                  "bronze",
+                  "silver",
+                  "gold",
+                  "platinum",
+                  "diamond"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Account Tier"
+          },
           "ai_enabled": {
             "title": "Ai Enabled",
             "type": "boolean"
@@ -5020,7 +5038,6 @@
           },
           "max_pages": {
             "default": 1000,
-            "maximum": 1000.0,
             "minimum": 1.0,
             "title": "Max Pages",
             "type": "integer"

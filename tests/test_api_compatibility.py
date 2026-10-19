@@ -183,14 +183,17 @@ def test_classifier_probes_reject_incorrect_compatibility_classifications(
         contracts.verify_diff_rules(tmp_path)
 
 
-def test_all_ci_contracts_share_the_local_severity_policy_without_finding_exceptions():
+def test_ci_contracts_share_the_local_severity_policy_without_finding_exceptions():
     config = yaml.safe_load((ROOT / ".oasdiff.yaml").read_text())
     levels = [
         line.strip()
         for line in (ROOT / config["severity-levels"]).read_text().splitlines()
         if line.strip() and not line.lstrip().startswith("#")
     ]
-    assert levels == ["response-property-enum-value-added info"]
+    assert levels == [
+        "response-property-enum-value-added info",
+        "response-property-max-unset info",
+    ]
     workflow = yaml.safe_load((ROOT / ".github/workflows/ci.yml").read_text())
     job = workflow["jobs"]["api-compat"]
     assert job["env"]["OASDIFF_CONFIG"] == ".oasdiff.yaml"

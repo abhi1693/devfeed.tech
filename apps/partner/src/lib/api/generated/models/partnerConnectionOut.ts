@@ -7,12 +7,14 @@
  */
 import type { ConnectionLogoVariant } from './connectionLogoVariant';
 import type { ConnectorConfig } from './connectorConfig';
+import type { PartnerConnectionOutAccountTier } from './partnerConnectionOutAccountTier';
 import type { PartnerConnectionOutApprovalMode } from './partnerConnectionOutApprovalMode';
 import type { PartnerConnectionOutAuthMode } from './partnerConnectionOutAuthMode';
 import type { PartnerConnectionOutState } from './partnerConnectionOutState';
 
 export interface PartnerConnectionOut {
   account_id?: string | null;
+  account_tier?: PartnerConnectionOutAccountTier;
   ai_enabled: boolean;
   api_url: string;
   approval_mode?: PartnerConnectionOutApprovalMode;

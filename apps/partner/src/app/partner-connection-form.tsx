@@ -2,6 +2,8 @@
 
 import { useMemo, useState, type FormEvent, type ReactNode } from "react";
 import Link from "next/link";
+import { Select } from "@devfeed/ui/select";
+import { syncIntervals } from "@/lib/sync-intervals";
 import { Input } from "@devfeed/ui/input";
 import { Button } from "@devfeed/ui/button";
 import { Checkbox } from "@devfeed/ui/choice-controls";
@@ -39,7 +41,6 @@ export type ConnectionFormInput = {
 };
 
 const limits = {
-  max_pages: 100,
   requests_per_minute: 60,
   timeout_seconds: 15,
   max_response_bytes: 2000000,
@@ -67,6 +68,7 @@ function defaultConnector(): ConnectorConfig {
       next_path: "nextCursor",
     },
     auth: { mode: "none", header: "X-API-Key" },
+    max_pages: 100,
     ...limits,
   };
 }
@@ -110,7 +112,7 @@ export function PartnerConnectionForm({
   const [logoError, setLogoError] = useState("");
   const [logoBusy, setLogoBusy] = useState(false);
   const [enabled, setEnabled] = useState(connection?.enabled ?? true);
-  const [interval, setInterval] = useState(String(connection?.sync_interval_minutes ?? 360));
+  const [interval, setInterval] = useState(String(connection?.sync_interval_minutes ?? 1440));
   const [connector, setConnectorState] = useState(connection?.connector ?? defaultConnector());
   const [connectorDirty, setConnectorDirty] = useState(false);
   const [credential, setCredential] = useState("");
@@ -132,14 +134,17 @@ export function PartnerConnectionForm({
     auth !== "none" && (!configured || replaceCredential || authenticationChanged);
   const credentialReady =
     auth === "none" || (credentialsAvailable && (!needsCredential || Boolean(credential.trim())));
-  const intervalChanged = !connection || interval !== String(connection.sync_interval_minutes);
+  const allowedIntervals = syncIntervals(connection?.account_tier ?? account?.tier);
+  const selectedInterval = allowedIntervals.includes(Number(interval)) ? interval : "1440";
+  const intervalChanged =
+    !connection || selectedInterval !== String(connection.sync_interval_minutes);
   const busy = saving || testing || logoBusy;
   const accountId = connection?.account_id ?? account?.id;
   const request = usePartnerRequest({ accountId, onUnavailable });
   const definition = useMemo<PartnerConnectorConfig>(
     () => ({
       ...connector,
-      max_pages: Math.min(connector.max_pages ?? limits.max_pages, limits.max_pages),
+      max_pages: connector.max_pages ?? 100,
       requests_per_minute: Math.min(
         connector.requests_per_minute ?? limits.requests_per_minute,
         limits.requests_per_minute,
@@ -230,9 +235,9 @@ export function PartnerConnectionForm({
       setValidation("Choose the partner account that owns this connection.");
       return;
     }
-    const minutes = Number(interval);
-    if (intervalChanged && (!Number.isInteger(minutes) || minutes < 15 || minutes > 10080)) {
-      setValidation("Enter a whole number of minutes between 15 and 10,080.");
+    const minutes = Number(selectedInterval);
+    if (!allowedIntervals.includes(minutes)) {
+      setValidation("Choose a sync interval available for your partnership tier.");
       return;
     }
     if (needsCredential && !credentialsAvailable) {
@@ -319,16 +324,18 @@ export function PartnerConnectionForm({
               />
             </Field>
             <Field
-              label="Sync interval (minutes)"
-              hint="How often DevFeed checks for product updates."
+              label="Sync interval"
+              hint="How often DevFeed checks for product updates. Options depend on your partnership tier."
             >
-              <Input
-                type="number"
-                value={interval}
-                onChange={(event) => setInterval(event.target.value)}
-                min={intervalChanged ? 15 : 1}
-                max={10080}
-                step={1}
+              <Select
+                label="Sync interval"
+                value={selectedInterval}
+                onChange={setInterval}
+                options={allowedIntervals.map((minutes) => ({
+                  value: String(minutes),
+                  label: `${minutes / 60} ${minutes === 60 ? "hour" : "hours"}`,
+                }))}
+                disabled={busy}
                 required
               />
             </Field>

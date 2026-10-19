@@ -266,7 +266,9 @@ def test_filters_and_missing_pages_fail_explicitly():
         {"list_path": "//evil.example/products"},
         {"detail_path": "/products/{other}"},
         {"fields": {"name": ["__import__('os')"]}},
-        {"max_pages": 1001},
+        {"max_pages": 0},
+        {"max_pages": 1.5},
+        {"max_pages": True},
         {
             "auth": {
                 "mode": "api_key",
@@ -497,3 +499,22 @@ def test_normalized_internal_candidate_never_calls_the_import_transport():
 def test_unknown_provider_requires_an_explicit_connector_definition():
     with pytest.raises(ValueError, match="configuration is missing"):
         connectors.ConnectorClient("unconfigured-platform")
+
+
+@pytest.mark.parametrize("pages", [101, 1001, 1000000])
+def test_max_pages_accepts_positive_integers_without_upper_bound(pages):
+    from devfeed_partner_api.connections import PartnerConnectorConfig
+
+    assert definition(max_pages=pages).max_pages == pages
+    assert (
+        PartnerConnectorConfig(base_url="https://catalog.example", max_pages=pages).max_pages
+        == pages
+    )
+
+
+@pytest.mark.parametrize("pages", [0, -1, 1.5, True])
+def test_partner_max_pages_requires_positive_whole_numbers(pages):
+    from devfeed_partner_api.connections import PartnerConnectorConfig
+
+    with pytest.raises(ValueError):
+        PartnerConnectorConfig(base_url="https://catalog.example", max_pages=pages)

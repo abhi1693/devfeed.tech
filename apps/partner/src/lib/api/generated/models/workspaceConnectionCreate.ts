@@ -19,8 +19,8 @@ export interface WorkspaceConnectionCreate {
      */
   name: string;
   /**
-     * @minimum 15
-     * @maximum 10080
+     * @minimum 60
+     * @maximum 1440
      */
   sync_interval_minutes?: number;
 }
