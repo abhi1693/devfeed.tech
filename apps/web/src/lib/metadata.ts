@@ -4,6 +4,7 @@ import { catalogOffset } from "./catalog-page";
 import { safeExternalUrl, contentTypeRoutes, contentTypes } from "./feed-query";
 import type { Article } from "./types";
 import { publicSiteOrigin } from "./server/config";
+import { articleSource } from "./article-attribution";
 
 export function canonicalUrl(path: string) {
   if (!path.startsWith("/") || path.startsWith("//") || /[\\#]/.test(path))
@@ -123,14 +124,20 @@ function withoutTags(value: string): string {
   return parts.join("");
 }
 
-export function articleDescription(article: Article): string {
-  // Match the visible overview. Remove common Markdown presentation from the short preview.
-  return withoutTags(markdownLabels(article.ai_summary || article.summary || article.title))
+export function articlePlainText(value: string): string {
+  return withoutTags(markdownLabels(value))
     .replace(/(^|\n)\s{0,3}(?:#{1,6}\s+|>\s*|[-*+]\s+)/g, "$1")
     .replace(/[*_`~]/g, "")
     .replace(/\s+/g, " ")
-    .trim()
-    .slice(0, 180);
+    .trim();
+}
+
+export function articleDescription(article: Article): string {
+  // Match the visible overview. Remove common Markdown presentation from the short preview.
+  return articlePlainText(article.ai_summary?.trim() || article.summary || article.title).slice(
+    0,
+    180,
+  );
 }
 
 export function articleMetadata(article: Article): Metadata {
@@ -141,11 +148,13 @@ export function articleMetadata(article: Article): Metadata {
   );
   const cover =
     safeExternalUrl(article.image_url) ||
+    safeExternalUrl(articleSource(article)?.image_url) ||
     safeExternalUrl(article.sources.find((source) => source.image_url)?.image_url);
   const image = cover ? { url: cover, alt: article.title } : socialImage();
   const published = validDate(article.published_at);
   return {
     ...metadata,
+    ...(article.tags.length ? { keywords: article.tags } : {}),
     openGraph: {
       ...metadata.openGraph,
       type: "article",

@@ -18,7 +18,7 @@ result, indexing, or a particular search snippet.
 | `/news`, `/articles`, `/tutorials`, `/releases`, `/comparisons`, `/opinions` | `CollectionPage`, rendered `ItemList`, `BreadcrumbList` | Breadcrumb. The ordinary article list is not a Google carousel. |
 | `/topics`, `/sources`, including `?offset=60` | `CollectionPage`, visible directory entries in `ItemList`, `BreadcrumbList` | Breadcrumb. Later pages keep distinct canonical and entity IDs and their actual list offsets. |
 | `/topics/{slug}`, `/sources/{slug}`, `/tags/{slug}` and their content-type subfeeds | `CollectionPage`, rendered `ItemList`, `BreadcrumbList` | Breadcrumb. Existing empty/refined-feed noindex policies still apply; missing collections remain 404. |
-| `/articles/{slug}` | Local `WebPage` with original publisher's `Article` as `mainEntity`, plus `BreadcrumbList` | Article and Breadcrumb markup. DevFeed provides a summary preview, not the original publication; publisher attribution and original article URL stay distinct from the local canonical. Google decides eligibility for the preview. |
+| `/articles/{slug}` | Local `WebPage` with original publisher's `Article` as `mainEntity`, a local AI overview `CreativeWork` when present, plus `BreadcrumbList` | Article and Breadcrumb markup. DevFeed publishes the preview and overview; original publisher attribution and article URL stay distinct from the local canonical. Google decides eligibility for the preview. |
 | `/legal/terms`, `/legal/privacy` | `WebPage`, visible update date, `BreadcrumbList` | Breadcrumb. Legal text is not an Article, FAQ, or how-to. |
 | `/mcp` | `WebPage`, `BreadcrumbList` | Breadcrumb. Setup instructions do not make this a software listing or educational course. |
 | `/users/{username}` | Site identity only; existing social metadata and `noindex, follow` | ProfilePage deferred. Keep profiles out of search and the sitemap. Visibility-filtered public sharing does not imply consent to search indexing. |
@@ -40,8 +40,8 @@ software listings with their required offer/review data; jobs and employer
 ratings; local businesses and vacation rentals; events; books/movies; recipes;
 courses and education Q&A/math solvers; datasets; discussion forums/Q&A; and
 licensed image metadata. Article links about these subjects do not qualify the
-DevFeed preview for those features. DevFeed is not a government/health FAQ site,
-a news publisher offering Speakable passages, or a paywall for these previews.
+DevFeed preview for those features. DevFeed does not offer Speakable news passages
+or a paywall for these previews.
 No ratings, prices, availability, author profiles or licensing terms are invented.
 Google's host [carousel](https://developers.google.com/search/docs/appearance/structured-data/carousel)
 requires a supported content feature; an ordinary feed/directory `ItemList`
@@ -58,19 +58,33 @@ does not establish eligibility.
 - [Article](https://developers.google.com/search/docs/appearance/structured-data/article)
   has no required properties. Recommended headline, original publication date,
   image and author name are emitted when known, alongside source attribution.
-  Both preview and article descriptions use the visible overview, matching HTML
-  and social metadata. Unknown `dateModified` and author profile URLs are omitted;
+  The local preview description follows its visible overview and matches HTML
+  and social metadata. The original article description follows the source excerpt.
+  Original headlines are separate from DevFeed's display titles and are emitted
+  only when their provenance is known. Publisher identity requires one approved
+  publisher origin matching the original website; discovery-source order does not
+  establish publication identity. Unknown `dateModified` and author profile URLs are omitted;
   feed discovery/publication time is never substituted for an original date.
   An original cover is optional; the DevFeed social fallback is not an article
   illustration. Missing author/image/date warnings are assessed as missing source
-  facts, not filled with guesses. Current author data is a byline string; reliable
-  multiple-author identities or Person/Organization disambiguation need richer
-  upstream data before adding author URLs or inferred identities.
+  facts, not filled with guesses. Existing untyped bylines remain visible but do
+  not become inferred `Person` identities. Only explicitly typed author data is
+  eligible for structured author attribution.
+- A nonempty AI overview is a local DevFeed-published `CreativeWork`, linked from
+  the page with `hasPart` and to the original with `isBasedOn`. Its full English
+  Markdown source is preserved as `text`, with `encodingFormat: text/markdown`.
+  It does not inherit the original article's byline or publication date. A source
+  excerpt without an AI overview is not claimed as a DevFeed-created work.
+- Article tags supply the HTML `keywords` metadata, Open Graph article tags, and
+  local page/original article JSON-LD `keywords`. No extra keywords are generated;
+  articles without tags omit keywords metadata.
 - [Breadcrumb](https://developers.google.com/search/docs/appearance/structured-data/breadcrumb)
   requires at least two ordered `ListItem` entries with positions and names, and
   an item URL for every non-final entry. The shared page helper supplies absolute
   URLs for every entry, including the final page, and stable breadcrumb IDs.
   Trails follow reader navigation: Home, optional Topics/Sources directory, page.
+  Article trails include the same source link shown in the preview, preferring
+  the verified publisher when available and a discovery source otherwise.
   The root alone has no one-item trail. Breadcrumbs are navigational context,
   not an invented content taxonomy.
 

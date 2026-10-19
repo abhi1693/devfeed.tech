@@ -420,7 +420,12 @@ def processing(session, start, now):
                 .label("oldest_queued_at"),
                 func.coalesce(func.sum(duration).filter(measured), 0).label("duration_ms"),
                 func.count().filter(measured).label("duration_runs"),
-            ).select_from(model)
+            )
+            .select_from(model)
+            .where(
+                model.status.in_(["queued", "running"])
+                | ((model.finished_at >= start) & (model.finished_at <= now))
+            )
         )
     return [OverviewProcessing(**row) for row in session.execute(union_all(*statements)).mappings()]
 

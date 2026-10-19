@@ -1,3 +1,4 @@
+import { checkAppIcons } from "../../../scripts/testing/app-icons.mjs";
 import assert from "node:assert/strict";
 import { createServer, request as httpRequest } from "node:http";
 import { spawn } from "node:child_process";
@@ -1253,6 +1254,7 @@ try {
   await page.goto(origin);
   await page.waitForURL("**/login");
   await page.getByRole("heading", { name: "Sign in to DevFeed Partners" }).waitFor();
+  await checkAppIcons(page);
   await mkdir(root + "reports/partner", { recursive: true });
   await page.screenshot({ path: root + "reports/partner/login-desktop.png", fullPage: true });
   await page.setViewportSize({ width: 390, height: 844 });
@@ -2131,6 +2133,33 @@ try {
     .getByRole("table", { name: "Products" })
     .getByText(account.name, { exact: true })
     .waitFor();
+  const rejectedInventory = "**/api/v1/partner/inventory?*";
+  await page.route(rejectedInventory, async (route) => {
+    const response = await route.fetch();
+    const body = await response.json();
+    body.items = body.items.map((item) => ({
+      ...item,
+      status: "rejected",
+      commercial_approved: false,
+    }));
+    await route.fulfill({ response, json: body });
+  });
+  await page.getByRole("button", { name: "Refresh", exact: true }).click();
+  await page
+    .getByRole("table", { name: "Products" })
+    .getByText("Rejected", { exact: true })
+    .first()
+    .waitFor();
+  assert.equal(
+    await page
+      .getByRole("table", { name: "Products" })
+      .getByText("In review", { exact: true })
+      .count(),
+    0,
+  );
+  await page.screenshot({ path: root + "reports/partner/rejected-products.png", fullPage: true });
+  await page.unroute(rejectedInventory);
+  await page.getByRole("button", { name: "Refresh", exact: true }).click();
   const productAccountFilter = page
     .getByRole("table", { name: "Products" })
     .getByRole("columnheader", { name: /Partner account/ })

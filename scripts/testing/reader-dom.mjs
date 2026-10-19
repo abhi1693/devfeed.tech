@@ -47,7 +47,7 @@ export async function checkReaderDom(page, destination, fixture, output) {
       await page.setViewportSize({ width, height: 823 });
       await page.goto("about:blank");
       await page.goto(destination("/latest"));
-      const card = page.locator(".article-card").first();
+      const card = page.locator(".article-card:visible").first();
       await card.locator(".open-count").waitFor({ state: "attached" });
       const count = await card.evaluate(
         (node) =>
@@ -60,8 +60,14 @@ export async function checkReaderDom(page, destination, fixture, output) {
       await card.locator("time.card-date[datetime]").waitFor();
       for (const kind of ["topics", "sources"]) {
         await page.goto(destination(`/${kind}`));
-        const cards = page.locator(".catalog-card");
-        await page.waitForFunction(() => document.querySelectorAll(".catalog-card").length === 60);
+        const cards = page.locator(".catalog-card:visible");
+        // Streamed documents can temporarily retain a hidden copy of the old tree.
+        await page.waitForFunction(
+          () =>
+            [...document.querySelectorAll(".catalog-card")].filter(
+              (node) => node.getClientRects().length,
+            ).length === 60,
+        );
         const first = cards.first();
         await first.locator("a.follow-button").waitFor();
         const count = await first.evaluate(
@@ -73,10 +79,13 @@ export async function checkReaderDom(page, destination, fixture, output) {
         assert.ok(count <= 9, `Catalog card element budget: ${count}`);
         for (const expected of [120, 130]) {
           await page
-            .locator('div.pagination[data-has-more="true"]')
+            .locator('div.pagination[data-has-more="true"]:visible')
             .evaluate((node) => node.scrollIntoView({ block: "end" }));
           await page.waitForFunction(
-            (expected) => document.querySelectorAll(".catalog-card").length === expected,
+            (expected) =>
+              [...document.querySelectorAll(".catalog-card")].filter(
+                (node) => node.getClientRects().length,
+              ).length === expected,
             expected,
           );
         }
