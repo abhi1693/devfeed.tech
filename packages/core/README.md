@@ -1,5 +1,47 @@
 # Shared backend core
 
+## Source admission and recovery
+
+`source_lifecycle` derives Discovery, Profile, Assessment, Branding, Review, Ingestion,
+Active, Paused and Rejected from source decisions and existing durable jobs. Reading
+the board does not schedule work or change already-approved polling. Batch fact
+loading selects active work before terminal history; the same checks protect board
+actions, manual approval and enabling a source.
+
+First approval requires a successful profile captured for the current feed, source
+type and website, plus settled branding. A completed profile without a logo, or
+disabled image storage after active logo work settles, permits the normal fallback.
+Manual review may override uncertain or failed relevance assessment. Automatic
+decisions retain the existing grounded source-relevance policy and require current
+assessment evidence; supported rejection need not wait for branding. Approval queues
+ingestion once rather than starting a second profile request.
+
+Profile fetching and AI relevance use separate `SourceEnrichmentJob` operations. A
+relevance job uses the bounded feed sample saved by its successful profile and can
+retry without downloading metadata again. An obsolete source identity cannot apply
+results. Existing queued/running jobs retain their leases and coalesce requests.
+
+An explicit upstream retry on an approved source pauses new ingestion and records a
+private `processing_request` with required phases and operator attribution. That
+intent survives job replacement and additional retries. It clears only after an
+explicit successful Resume/enable or a new approval decision. Background completion
+never resumes the source. An ingestion-only retry keeps the source enabled. Pausing
+also fences an already-running fetch before article writes, without counting an
+intentional pause as a feed failure. Existing articles and approval history remain.
+
+Rejected sources may explicitly Reopen for review through the snapshot-guarded board
+action. This records operator intent, returns the source to pending and disabled, and
+requests fresh profile/discovery work without inventing an approval or ingestion.
+Older in-flight work retains its lease but cannot replace that fresh inspection.
+Reopened sources require manual approval even when full automation is enabled; prior
+reviews and existing articles remain available.
+
+Migration `0032_source_processing` defaults historical job operations to `legacy`
+and preserves source approval/enablement. Unbound historical profile evidence may
+support existing approved polling, but cannot prove first admission for a pending
+source. The private intent is not an independently persisted workflow stage. It follows schema `0031`; deploy migration `0032` before starting the new API
+and workers because older schemas lack the required processing fields.
+
 ## Original article attribution
 
 `ArticleOut` keeps DevFeed's display title separate from `original_title`. A publisher

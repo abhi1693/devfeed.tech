@@ -465,6 +465,14 @@ export const pageRouteCatalogs = {
       label: "/v1/admin/partner-accounts/:id/products/:id/promotion",
     },
     {
+      path: "/api/v1/admin/source-pipeline/items/:id/:id/advance",
+      label: "/v1/admin/source-pipeline/items/:id/:id/advance",
+    },
+    {
+      path: "/api/v1/admin/source-pipeline/items/:id/:id/retry",
+      label: "/v1/admin/source-pipeline/items/:id/:id/retry",
+    },
+    {
       path: "/api/v1/admin/automation/articles/:id/decisions",
       label: "/v1/admin/automation/articles/:id/decisions",
     },
@@ -521,6 +529,10 @@ export const pageRouteCatalogs = {
       label: "/v1/admin/partner-accounts/:id/products/:id",
     },
     {
+      path: "/api/v1/admin/source-pipeline/items/:id/:id",
+      label: "/v1/admin/source-pipeline/items/:id/:id",
+    },
+    {
       path: "/v1/admin/partner-accounts/:id/assets/:id/metrics",
       label: "/v1/admin/partner-accounts/:id/assets/:id/metrics",
     },
@@ -531,6 +543,14 @@ export const pageRouteCatalogs = {
     {
       path: "/v1/admin/partner-accounts/:id/products/:id/promotion",
       label: "/v1/admin/partner-accounts/:id/products/:id/promotion",
+    },
+    {
+      path: "/v1/admin/source-pipeline/items/:id/:id/advance",
+      label: "/v1/admin/source-pipeline/items/:id/:id/advance",
+    },
+    {
+      path: "/v1/admin/source-pipeline/items/:id/:id/retry",
+      label: "/v1/admin/source-pipeline/items/:id/:id/retry",
     },
     { path: "/api/v1/admin/articles/:id/classify", label: "/v1/admin/articles/:id/classify" },
     { path: "/api/v1/admin/articles/:id/content", label: "/v1/admin/articles/:id/content" },
@@ -610,6 +630,10 @@ export const pageRouteCatalogs = {
     {
       path: "/api/v1/admin/source-imports/:id/review",
       label: "/v1/admin/source-imports/:id/review",
+    },
+    {
+      path: "/api/v1/admin/source-pipeline/columns/:id",
+      label: "/v1/admin/source-pipeline/columns/:id",
     },
     { path: "/api/v1/admin/sources/:id/fetch", label: "/v1/admin/sources/:id/fetch" },
     {
@@ -848,6 +872,10 @@ export const pageRouteCatalogs = {
       path: "/v1/admin/partner-accounts/:id/products/:id",
       label: "/v1/admin/partner-accounts/:id/products/:id",
     },
+    {
+      path: "/v1/admin/source-pipeline/items/:id/:id",
+      label: "/v1/admin/source-pipeline/items/:id/:id",
+    },
     { path: "/api/v1/admin/articles/:id", label: "/v1/admin/articles/:id" },
     { path: "/api/v1/admin/jobs/:id", label: "/v1/admin/jobs/:id" },
     { path: "/api/v1/admin/partner-accounts/:id", label: "/v1/admin/partner-accounts/:id" },
@@ -954,6 +982,10 @@ export const pageRouteCatalogs = {
     },
     { path: "/v1/admin/settings/tables/:id", label: "/v1/admin/settings/tables/:id" },
     { path: "/v1/admin/source-imports/:id/review", label: "/v1/admin/source-imports/:id/review" },
+    {
+      path: "/v1/admin/source-pipeline/columns/:id",
+      label: "/v1/admin/source-pipeline/columns/:id",
+    },
     { path: "/v1/admin/sources/:id/fetch", label: "/v1/admin/sources/:id/fetch" },
     {
       path: "/v1/admin/sources/:id/publication-policy",
@@ -990,6 +1022,7 @@ export const pageRouteCatalogs = {
     { path: "/api/v1/admin/search-suggestions", label: "/v1/admin/search-suggestions" },
     { path: "/api/v1/admin/settings", label: "/v1/admin/settings" },
     { path: "/api/v1/admin/source-imports", label: "/v1/admin/source-imports" },
+    { path: "/api/v1/admin/source-pipeline", label: "/v1/admin/source-pipeline" },
     { path: "/api/v1/admin/sources", label: "/v1/admin/sources" },
     { path: "/api/v1/admin/tags", label: "/v1/admin/tags" },
     { path: "/api/v1/admin/topic-imports", label: "/v1/admin/topic-imports" },
@@ -1182,6 +1215,7 @@ export const pageRouteCatalogs = {
     { path: "/v1/admin/search-suggestions", label: "/v1/admin/search-suggestions" },
     { path: "/v1/admin/settings", label: "/v1/admin/settings" },
     { path: "/v1/admin/source-imports", label: "/v1/admin/source-imports" },
+    { path: "/v1/admin/source-pipeline", label: "/v1/admin/source-pipeline" },
     { path: "/v1/admin/sources", label: "/v1/admin/sources" },
     { path: "/v1/admin/tags", label: "/v1/admin/tags" },
     { path: "/v1/admin/topic-imports", label: "/v1/admin/topic-imports" },

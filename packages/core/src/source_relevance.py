@@ -7,7 +7,7 @@ from copy import deepcopy
 from typing import Literal
 
 from pydantic import Field
-from sqlalchemy import false, or_, select
+from sqlalchemy import or_, select
 
 from devfeed_core.ai_content import eligible_content
 from devfeed_core.config import get_settings
@@ -202,7 +202,9 @@ def classification_supported(
     )
 
 
-def requires_relevance(source):
+def requires_relevance(source, job=None):
+    if job is not None and job.operation != "legacy":
+        return job.operation == "relevance"
     settings = get_settings()
     return (
         settings.full_automation
@@ -215,12 +217,16 @@ def requires_relevance(source):
 def relevance_job_condition():
     settings = get_settings()
     if not (settings.full_automation and settings.ai_enabled):
-        return false()
-    return SourceEnrichmentJob.source_id.in_(
-        select(Source.id).where(
-            Source.approval_status == "pending",
-            Source.feed_url.is_not(None),
-        )
+        return SourceEnrichmentJob.operation == "relevance"
+    return or_(
+        SourceEnrichmentJob.operation == "relevance",
+        (SourceEnrichmentJob.operation == "legacy")
+        & SourceEnrichmentJob.source_id.in_(
+            select(Source.id).where(
+                Source.approval_status == "pending",
+                Source.feed_url.is_not(None),
+            )
+        ),
     )
 
 
@@ -229,13 +235,11 @@ def schedule_pending_reviews(factory, limit=50):
     settings = get_settings()
     if not (settings.full_automation and settings.ai_enabled):
         return 0
-    from devfeed_core.source_enrichment import request_enrichment
+    if limit <= 0:
+        return 0
+    from devfeed_core.source_lifecycle import reconcile_source_processing, source_readiness_batch
 
     with factory.begin() as session:
-        blocked = select(SourceEnrichmentJob.id).where(
-            SourceEnrichmentJob.source_id == Source.id,
-            SourceEnrichmentJob.status.in_(["queued", "running", "failed"]),
-        )
         sources = session.scalars(
             select(Source)
             .where(
@@ -244,13 +248,43 @@ def schedule_pending_reviews(factory, limit=50):
                 or_(
                     Source.relevance_assessment == {},
                     Source.relevance_assessment["version"].astext.in_(PREVIOUS_VERSIONS),
+                    Source.relevance_assessment["approval_supported"].as_boolean().is_(True),
+                    Source.relevance_assessment["rejection_supported"].as_boolean().is_(True),
                 ),
-                ~blocked.exists(),
             )
             .order_by(Source.created_at, Source.id)
-            .limit(limit)
-            .with_for_update(skip_locked=True)
-        ).all()
-        for source in sources:
-            request_enrichment(session, source.id)
-        return len(sources)
+            .execution_options(yield_per=200)
+        )
+        count = 0
+        for batch in sources.partitions(200):
+            facts = source_readiness_batch(session, batch)
+            for source in batch:
+                current = facts[f"source:{source.id}"]
+                output = source.relevance_assessment or {}
+                supported = (
+                    not (source.processing_request or {}).get("manual_review")
+                    and current.readiness.checks["assessment"].status == "complete"
+                    and (
+                        output.get("rejection_supported") is True
+                        or output.get("approval_supported") is True
+                        and current.readiness.can_approve
+                    )
+                )
+                if supported or current.readiness.next_action in {
+                    "profile",
+                    "assessment",
+                    "branding",
+                }:
+                    locked = session.scalar(
+                        select(Source)
+                        .where(Source.id == source.id, Source.approval_status == "pending")
+                        .with_for_update(skip_locked=True)
+                        .execution_options(populate_existing=True)
+                    )
+                    if locked is None:
+                        continue
+                    reconcile_source_processing(session, locked, automatic=True)
+                    count += 1
+                    if count >= limit:
+                        return count
+        return count

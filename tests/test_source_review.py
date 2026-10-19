@@ -6,7 +6,7 @@ from types import SimpleNamespace
 import pytest
 from devfeed_aggregator import dispatch, scheduler, source_tasks, tasks
 from devfeed_cli.main import run
-from devfeed_core import jobs, services, source_enrichment
+from devfeed_core import jobs, services, source_enrichment, source_lifecycle
 from devfeed_core.job_lifecycle import fail_or_retry
 from devfeed_core.models import IngestionJob, Source, SourceEnrichmentJob, utcnow
 from devfeed_core.schemas import SourceDecision
@@ -91,7 +91,10 @@ def test_source_intake_requires_ai_or_operator_approval(
     monkeypatch.setattr(
         source_tasks,
         "assess_source",
-        lambda *args: {"approval_supported": ai_approved, "reason": "Feed evidence assessed"},
+        lambda *args, **kwargs: {
+            "approval_supported": ai_approved,
+            "reason": "Feed evidence assessed",
+        },
     )
     with database.begin() as session:
         body = services.ValidatedSource(
@@ -109,6 +112,17 @@ def test_source_intake_requires_ai_or_operator_approval(
         assert session.scalar(select(SourceReview.id)) is None
     source_tasks.enrich_source(str(job_id))
     source_tasks.enrich_source(str(job_id))
+    with database() as session:
+        record = session.get(Source, source_id)
+        assert record.approval_status == "pending" and not record.relevance_assessment
+        assessment_id = session.scalar(
+            select(SourceEnrichmentJob.id).where(
+                SourceEnrichmentJob.operation == "relevance", SourceEnrichmentJob.status == "queued"
+            )
+        )
+        assert assessment_id is not None and assessment_id != job_id
+    source_tasks.enrich_source(str(assessment_id))
+    source_tasks.enrich_source(str(assessment_id))
     with database.begin() as session:
         record = session.get(Source, source_id)
         assert record.relevance_assessment["approval_supported"] is ai_approved
@@ -144,20 +158,28 @@ def test_approval_records_actor_and_queues_work_but_repetition_is_idempotent(mon
     record = source()
     calls = []
     monkeypatch.setattr(services, "request_ingestion", lambda *a: calls.append("ingest"))
-    monkeypatch.setattr(source_enrichment, "request_enrichment", lambda *a: calls.append("enrich"))
+    # Admission prerequisites are covered by the lifecycle/API regressions; this
+    # test isolates the attributed decision and idempotent ingestion request.
+    monkeypatch.setattr(source_lifecycle, "source_activation_blockers", lambda *a: [])
+    monkeypatch.setattr(
+        source_enrichment,
+        "request_enrichment",
+        lambda *a: pytest.fail("Repeated completed profile work"),
+    )
     session = session_with(record, record)
     decision = SourceDecision(decision="approved", actor="Operator", note="Reviewed")
     assert services.review_source(session, record.id, decision) is record
     assert record.enabled and record.reviewed_by == "Operator" and record.reviewed_at
-    assert calls == ["ingest", "enrich"]
+    assert calls == ["ingest"]
     assert session.added[0].actor == "Operator"
     services.review_source(session, record.id, decision)
-    assert calls == ["ingest", "enrich"] and len(session.added) == 1
+    assert calls == ["ingest"] and len(session.added) == 1
 
 
 def test_approval_can_leave_source_disabled_without_queuing_work(monkeypatch):
     record = source()
     session = session_with(record)
+    monkeypatch.setattr(source_lifecycle, "source_activation_blockers", lambda *a: [])
     monkeypatch.setattr(
         services, "request_ingestion", lambda *a: pytest.fail("Queued disabled source")
     )
@@ -263,6 +285,8 @@ def test_enrichment_fetch_is_outside_transaction_and_does_not_change_review(monk
         lease_token=uuid.uuid4(),
         attempts=1,
         changed_fields=[],
+        operation="profile",
+        result={"input": source_enrichment.source_identity(record)},
     )
     events = []
 
@@ -280,11 +304,19 @@ def test_enrichment_fetch_is_outside_transaction_and_does_not_change_review(monk
         return {"description": "Engineering news", "logo_url": "https://example.com/logo"}, None
 
     monkeypatch.setattr(source_tasks, "lookup_profile", lookup)
+    reconciled = []
+
+    def reconcile(session, actual, *, automatic):
+        assert job.status == "succeeded"
+        reconciled.append((actual, automatic))
+
+    monkeypatch.setattr(source_lifecycle, "reconcile_source_processing", reconcile)
     source_tasks.enrich_source(str(job.id))
     assert events == ["begin", "commit", "begin", "commit"]
     assert job.status == "succeeded" and record.description == "Engineering news"
     assert record.approval_status == "pending" and record.submitted_by == {"name": "Contributor"}
     assert record.last_success_at is None and record.metadata_enriched_at
+    assert reconciled == [(record, True)]
 
 
 def test_scheduler_dispatches_source_profile_jobs_with_distinct_function():
@@ -383,6 +415,8 @@ def test_profile_dispatch_commits_override_before_targeted_broker_call(monkeypat
         dispatched_at=utcnow(),
         error="Previous failure",
         changed_fields=[],
+        operation="profile",
+        result={"input": source_enrichment.source_identity(record)},
     )
     session = session_with(job)
     session.get = lambda model, _: job if model is SourceEnrichmentJob else record

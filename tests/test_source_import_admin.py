@@ -7,10 +7,23 @@ from devfeed_core import discovery
 from devfeed_core.config import get_settings
 from devfeed_core.discovery_crawler import CrawlSession
 from devfeed_core.feeds.fetcher import FetchResult
-from devfeed_core.models import Source, SourceDiscoveryJob
+from devfeed_core.models import Source, SourceDiscoveryJob, SourceEnrichmentJob
 from sqlalchemy import func, select
 
 pytestmark = pytest.mark.integration
+
+
+def complete_profile(database):
+    from devfeed_aggregator.source_tasks import enrich_source
+
+    with database() as session:
+        identifier = session.scalar(
+            select(SourceEnrichmentJob.id).where(
+                SourceEnrichmentJob.operation == "profile", SourceEnrichmentJob.status == "queued"
+            )
+        )
+    assert identifier is not None
+    enrich_source(str(identifier))
 
 
 @pytest.mark.parametrize(
@@ -82,6 +95,13 @@ def test_import_never_approves_and_manual_review_is_explicit(
     assert admin_client.post(path + "/review", json={"action": "approve"}).status_code == 422
     assert (
         admin_client.post(
+            path + "/review", json={"action": "approve", "note": "Processing is not complete"}
+        ).status_code
+        == 409
+    )
+    complete_profile(database)
+    assert (
+        admin_client.post(
             path + "/review",
             json={"action": "approve", "note": "Reviewed original technical articles"},
         ).status_code
@@ -96,7 +116,7 @@ def test_import_never_approves_and_manual_review_is_explicit(
 
 def test_ai_import_uses_normal_source_review(admin_client, database, monkeypatch, import_feed):
     from devfeed_aggregator import source_tasks
-    from devfeed_core.models import SourceEnrichmentJob, SourceReview
+    from devfeed_core.models import SourceReview
 
     monkeypatch.setattr(get_settings(), "ai_enabled", True)
     monkeypatch.setattr(get_settings(), "full_automation", True)
@@ -133,6 +153,17 @@ def test_ai_import_uses_normal_source_review(admin_client, database, monkeypatch
         },
     )
     source_tasks.enrich_source(str(job_id))
+    with database() as session:
+        source = session.get(Source, identifier)
+        assert source.approval_status == "pending"
+        assessment_job = session.scalar(
+            select(SourceEnrichmentJob).where(
+                SourceEnrichmentJob.operation == "relevance", SourceEnrichmentJob.status == "queued"
+            )
+        )
+        assert assessment_job is not None
+        assessment_id = assessment_job.id
+    source_tasks.enrich_source(str(assessment_id))
     with database() as session:
         source = session.get(Source, identifier)
         assert source.approval_status == "approved"
@@ -226,6 +257,7 @@ def test_delete_import_keeps_approved_source(admin_client, database, monkeypatch
     )
     discovery.run_one()
     identifier = admin_client.get("/v1/admin/source-imports").json()["items"][0]["id"]
+    complete_profile(database)
     admin_client.post(
         f"/v1/admin/source-imports/{identifier}/review",
         json={"action": "approve", "note": "Verified original articles"},
