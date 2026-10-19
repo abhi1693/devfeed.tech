@@ -1556,6 +1556,36 @@
         "title": "ProfileVisibility",
         "type": "object"
       },
+      "ProtectedResourceMetadataResponse": {
+        "properties": {
+          "authorization_servers": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Authorization Servers",
+            "type": "array"
+          },
+          "bearer_methods_supported": {
+            "items": {
+              "const": "header",
+              "type": "string"
+            },
+            "title": "Bearer Methods Supported",
+            "type": "array"
+          },
+          "resource": {
+            "title": "Resource",
+            "type": "string"
+          }
+        },
+        "required": [
+          "resource",
+          "authorization_servers",
+          "bearer_methods_supported"
+        ],
+        "title": "ProtectedResourceMetadataResponse",
+        "type": "object"
+      },
       "PublicUserProfile": {
         "additionalProperties": false,
         "properties": {
@@ -2852,7 +2882,9 @@
           "200": {
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/ProtectedResourceMetadataResponse"
+                }
               }
             },
             "description": "Successful Response"
