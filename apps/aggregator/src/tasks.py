@@ -90,6 +90,7 @@ def store_entries(
                     update(Article)
                     .where(
                         Article.id == article_id,
+                        Article.publication_status != "published",
                         Article.metadata_source_type.in_([SourceType.AGGREGATOR, "page"]),
                     )
                     .values(
@@ -108,6 +109,7 @@ def store_entries(
                         editorial_revision=Article.editorial_revision + 1,
                         ai_summary=None,
                         ai_description=None,
+                        ai_title=None,
                         classification_provenance={},
                     )
                 )

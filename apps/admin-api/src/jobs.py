@@ -56,6 +56,10 @@ def retry_candidates(model):
     run, even if that active run has an older timestamp. Single-job operations keep
     using the indexed correlated predicate in core.job_retries.
     """
+    if model is ArticleImageJob:
+        # Image stages share one active lease, but later discovery cannot hide
+        # a failed storage operation still required for the current asset.
+        return select(model.id).where(retry_candidate(model))
     if model is NotificationDelivery:
         return select(model.id).where(model.status == "failed")
     subject = (

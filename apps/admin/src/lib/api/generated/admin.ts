@@ -13,6 +13,8 @@ import type {
   AdminAiAnalysisJobsListParams,
   AdminArticleCreate,
   AdminArticleOut,
+  AdminArticlePipelineColumnParams,
+  AdminArticlePipelineParams,
   AdminArticleReviewsParams,
   AdminArticleUpdate,
   AdminArticlesListParams,
@@ -68,6 +70,7 @@ import type {
   AdminUserSourcesParams,
   AdminUserTopicsParams,
   AdminUsersListParams,
+  AdvancePipeline,
   AppearanceSettings,
   ArticleContentOut,
   AssetInput,
@@ -146,6 +149,9 @@ import type {
   PartnerPipelineOut,
   PartnerProviderOut,
   PartnershipTierOut,
+  PipelineBoard,
+  PipelineColumn,
+  PipelineDetail,
   ProductAction,
   ProductDetailOut,
   ProductOut,
@@ -273,6 +279,70 @@ return adminFetch<void>(getAdminAiLoginCancelUrl(),
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
     body: JSON.stringify(cancelLogin)
+  }
+);}
+
+
+
+export const getAdminArticlePipelineUrl = (params?: AdminArticlePipelineParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/v1/admin/article-pipeline?${stringifiedParams}` : `/v1/admin/article-pipeline`
+}
+
+/**
+ * @summary Board
+ */
+export const adminArticlePipeline = async (params?: AdminArticlePipelineParams, options?: Parameters<typeof adminFetch>[1]): Promise<PipelineBoard> => {
+
+  return adminFetch<PipelineBoard>(getAdminArticlePipelineUrl(params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+export const getAdminArticlePipelineColumnUrl = (stage: 'ingested' | 'enrichment' | 'analysis' | 'images' | 'review' | 'ready' | 'published' | 'rejected',
+    params?: AdminArticlePipelineColumnParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/v1/admin/article-pipeline/${stage}?${stringifiedParams}` : `/v1/admin/article-pipeline/${stage}`
+}
+
+/**
+ * @summary Column
+ */
+export const adminArticlePipelineColumn = async (stage: 'ingested' | 'enrichment' | 'analysis' | 'images' | 'review' | 'ready' | 'published' | 'rejected',
+    params?: AdminArticlePipelineColumnParams, options?: Parameters<typeof adminFetch>[1]): Promise<PipelineColumn> => {
+
+  return adminFetch<PipelineColumn>(getAdminArticlePipelineColumnUrl(stage,params),
+  {
+    ...options,
+    method: 'GET'
+
+
   }
 );}
 
@@ -492,6 +562,69 @@ export const adminArticleContent = async (articleId: string, options?: Parameter
     method: 'GET'
 
 
+  }
+);}
+
+
+
+export const getAdminArticlePipelineDetailUrl = (articleId: string,) => {
+
+
+
+
+  return `/v1/admin/articles/${articleId}/pipeline`
+}
+
+/**
+ * @summary Detail
+ */
+export const adminArticlePipelineDetail = async (articleId: string, options?: Parameters<typeof adminFetch>[1]): Promise<PipelineDetail> => {
+
+  return adminFetch<PipelineDetail>(getAdminArticlePipelineDetailUrl(articleId),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+export const getAdminArticlePipelineAdvanceUrl = (articleId: string,) => {
+
+
+
+
+  return `/v1/admin/articles/${articleId}/pipeline/advance`
+}
+
+/**
+ * @summary Advance
+ */
+export const adminArticlePipelineAdvance = async (articleId: string,
+    advancePipeline: AdvancePipeline, options?: Parameters<typeof adminFetch>[1]): Promise<PipelineDetail> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
+  };
+return adminFetch<PipelineDetail>(getAdminArticlePipelineAdvanceUrl(articleId),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(advancePipeline)
   }
 );}
 

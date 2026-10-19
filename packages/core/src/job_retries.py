@@ -7,7 +7,13 @@ from devfeed_core.analysis import request_analysis
 from devfeed_core.article_jobs import retry_article
 from devfeed_core.config import get_settings
 from devfeed_core.image_jobs import retry_image
-from devfeed_core.models import ArticleImageJob, NotificationDelivery, TopicAnalysisJob, utcnow
+from devfeed_core.models import (
+    Article,
+    ArticleImageJob,
+    NotificationDelivery,
+    TopicAnalysisJob,
+    utcnow,
+)
 from devfeed_core.notification_delivery import DELIVERY_POLICY
 from devfeed_core.services import OperationConflict, RecordNotFound, retry_job
 from devfeed_core.source_enrichment import request_enrichment
@@ -31,7 +37,31 @@ def retry_candidate(model):
     newer = aliased(model)
     if model is ArticleImageJob:
         same_subject = or_(
-            and_(model.article_id.is_not(None), newer.article_id == model.article_id),
+            and_(
+                model.article_id.is_not(None),
+                newer.article_id == model.article_id,
+                or_(
+                    newer.status.in_(("queued", "running")),
+                    and_(
+                        newer.operation == model.operation,
+                        or_(
+                            and_(
+                                model.operation == "store",
+                                newer.image_url.is_not_distinct_from(model.image_url),
+                            ),
+                            and_(
+                                model.operation == "discover",
+                                or_(
+                                    model.storage["input_url"].as_string().is_(None),
+                                    newer.storage["input_url"]
+                                    .as_string()
+                                    .is_not_distinct_from(model.storage["input_url"].as_string()),
+                                ),
+                            ),
+                        ),
+                    ),
+                ),
+            ),
             and_(model.source_id.is_not(None), newer.source_id == model.source_id),
             and_(model.topic_id.is_not(None), newer.topic_id == model.topic_id),
             and_(
@@ -62,7 +92,33 @@ def retry_candidate(model):
         .correlate(model)
         .exists()
     )
-    return and_(failed, ~superseded)
+    eligibility = and_(failed, ~superseded)
+    if model is ArticleImageJob:
+        current_article = (
+            select(Article.id)
+            .where(
+                Article.id == model.article_id,
+                Article.publication_status != "published",
+                or_(
+                    and_(
+                        model.operation == "store",
+                        Article.image_url == model.image_url,
+                    ),
+                    and_(
+                        model.operation == "discover",
+                        Article.image_url.is_(None),
+                        or_(
+                            model.storage["input_url"].as_string().is_(None),
+                            model.storage["input_url"].as_string() == Article.canonical_url,
+                        ),
+                    ),
+                ),
+            )
+            .correlate(model)
+            .exists()
+        )
+        eligibility = and_(eligibility, or_(model.article_id.is_(None), current_article))
+    return eligibility
 
 
 def retry_notification(session, identifier):
@@ -111,7 +167,21 @@ def retry_failed_job(session, job, kind, actor):
     if kind == "source-enrichment":
         return request_enrichment(session, job.source_id)
     if kind == "analysis":
-        return request_analysis(session, job.article_id)
+        successor = request_analysis(session, job.article_id)
+        if (
+            job.steps
+            and successor.id != job.id
+            and successor.input_hash == job.input_hash
+            and successor.status == "queued"
+            and not successor.attempts
+            and not successor.steps
+        ):
+            successor.steps = {
+                name: dict(step)
+                for name, step in job.steps.items()
+                if isinstance(step, dict) and step.get("status") == "succeeded"
+            }
+        return successor
     if kind == "topic-analysis":
         if job.proposal_id:
             return request_topic_analysis(session, job.proposal_id, actor)

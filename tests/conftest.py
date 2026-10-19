@@ -237,8 +237,22 @@ def publish_for_read_test(database):
     """Explicit editorial setup for read/cache tests; never used by ingestion tests implicitly."""
     import uuid
 
+    from devfeed_core import analysis
+    from devfeed_core.article_quality import identifying_title
     from devfeed_core.editorial import EditorialDecision, decide_article, meaningful_text
-    from devfeed_core.models import Article, ArticleOrigin, ArticleTopic, Source, Topic
+    from devfeed_core.job_lifecycle import finish_job
+    from devfeed_core.models import (
+        Article,
+        ArticleAnalysisJob,
+        ArticleContent,
+        ArticleEnrichmentJob,
+        ArticleImageJob,
+        ArticleOrigin,
+        ArticleTopic,
+        Source,
+        Topic,
+        utcnow,
+    )
     from devfeed_core.urls import fingerprint
     from sqlalchemy import select
 
@@ -258,6 +272,8 @@ def publish_for_read_test(database):
             if identifiers is not None:
                 statement = statement.where(Article.id.in_(identifiers))
             for article in session.scalars(statement).all():
+                if article.publication_status == "published":
+                    continue
                 if not article.origins:
                     source = Source(
                         name="Fixture publisher",
@@ -288,15 +304,96 @@ def publish_for_read_test(database):
                         )
                     )
                 article.language = article.language or "en"
-                if not meaningful_text(article.summary) and not meaningful_text(article.ai_summary):
+                if not meaningful_text(article.ai_summary):
                     article.ai_summary = (
                         "This test article describes software engineering practices "
                         "for developers building applications."
                     )
+                article.ai_description = (
+                    article.ai_description or "A fixture software engineering article."
+                )
+                if not identifying_title(article.ai_title or article.title):
+                    article.ai_title = "Fixture engineering update"
+                if (
+                    not meaningful_text(article.summary)
+                    and session.get(ArticleContent, article.id) is None
+                ):
+                    evidence = (
+                        f"Fixture source evidence about {article.title} for software developers."
+                    )
+                    session.add(
+                        ArticleContent(
+                            article_id=article.id,
+                            url=article.canonical_url,
+                            text=evidence,
+                            content_hash=fingerprint(evidence),
+                            method="body",
+                        )
+                    )
+                # Reader/cache tests explicitly request a fully processed fixture.
+                # They do not run HTTP, model inference or image transformations.
+                for model in (ArticleEnrichmentJob, ArticleAnalysisJob, ArticleImageJob):
+                    for active in session.scalars(
+                        select(model).where(
+                            model.article_id == article.id, model.status.in_(["queued", "running"])
+                        )
+                    ):
+                        finish_job(
+                            active,
+                            "not_found" if model is ArticleImageJob else "superseded",
+                            utcnow(),
+                        )
+                session.flush()
+                extraction = session.scalar(
+                    select(ArticleEnrichmentJob)
+                    .where(
+                        ArticleEnrichmentJob.article_id == article.id,
+                        ArticleEnrichmentJob.status == "succeeded",
+                        ArticleEnrichmentJob.outcome.in_(
+                            ["enriched", "metadata_only", "not_found"]
+                        ),
+                    )
+                    .order_by(ArticleEnrichmentJob.created_at.desc())
+                    .limit(1)
+                )
+                if extraction is None:
+                    extraction = ArticleEnrichmentJob(article_id=article.id, result={})
+                    session.add(extraction)
+                    finish_job(extraction, "enriched", utcnow())
+                extraction.result = {
+                    **(extraction.result or {}),
+                    "input_url": article.canonical_url,
+                    "image_url": article.image_url,
+                }
+                snapshot = analysis.source_snapshot(
+                    article, session.get(ArticleContent, article.id)
+                )
+                candidates = analysis.analysis_candidates(analysis.catalog(session), snapshot)
+                completed = ArticleAnalysisJob(
+                    article_id=article.id,
+                    input_hash=analysis.snapshot_hash(snapshot),
+                    input_snapshot=snapshot,
+                    catalog_hash=analysis.snapshot_hash(candidates),
+                    catalog_snapshot=candidates,
+                    editorial_revision=article.editorial_revision,
+                    prompt_version=analysis.PROMPT_VERSION,
+                    result={
+                        "outcome": "ready",
+                        "developer_relevance": "relevant",
+                        "page_kind": "article",
+                        "topics": [],
+                        "tags": [],
+                    },
+                )
+                session.add(completed)
+                finish_job(completed, "applied", utcnow())
+                session.flush()
                 article.classification_provenance = {
                     "page_kind": "article",
                     "origin": "manual",
                     "developer_relevance": "relevant",
+                    "analysis_id": str(completed.id),
+                    "input_hash": completed.input_hash,
                 }
                 session.flush()
                 session.expire(article, ["origins", "topic_links"])

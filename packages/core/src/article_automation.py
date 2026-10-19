@@ -24,6 +24,7 @@ from devfeed_core.article_jobs import (
     approved_sources,
     request_article_enrichment,
 )
+from devfeed_core.article_lifecycle import reconcile_processing
 from devfeed_core.catalog_cache import reuse_snapshots, snapshot_current
 from devfeed_core.catalog_cache import snapshot as catalog_snapshot
 from devfeed_core.config import get_settings
@@ -260,8 +261,6 @@ def _schedule_article_automation(factory) -> dict[str, int]:
     }
     # Access policy is independent of AI mode, source enablement and the AI date window.
     counts["articles_rejected"] += reject_known_paywalled_articles(factory)
-    if not get_settings().full_automation:
-        return counts
     now = utcnow()
     origin = (
         select(ArticleOrigin.id)
@@ -276,7 +275,7 @@ def _schedule_article_automation(factory) -> dict[str, int]:
         identifiers = session.scalars(
             select(Article.id)
             .where(
-                Article.review_status == "pending",
+                Article.review_status.in_(["pending", "approved"]),
                 Article.publication_status == "unpublished",
                 Article.automation_next_check_at <= now,
                 eligible_articles(),
@@ -303,7 +302,7 @@ def _schedule_article_automation(factory) -> dict[str, int]:
             if (
                 article is None
                 or not eligible_article(article)
-                or article.review_status != "pending"
+                or article.review_status not in {"pending", "approved"}
                 or article.publication_status != "unpublished"
                 or article.automation_next_check_at > now
                 or not any(
@@ -315,6 +314,9 @@ def _schedule_article_automation(factory) -> dict[str, int]:
             article.automation_started_at = article.automation_started_at or now
             article.automation_next_check_at = now + CHECK_INTERVAL
             counts["articles_checked"] += 1
+            reconcile_processing(session, article, taxonomy=prepared[0] if prepared else None)
+            if not get_settings().full_automation or article.review_status == "approved":
+                continue
             if job is not None and job.status in {"queued", "running"}:
                 continue  # Includes provider cooldowns; durable retries own this work.
             enrichment = session.scalar(

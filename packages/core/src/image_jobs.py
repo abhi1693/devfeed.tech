@@ -25,6 +25,10 @@ def request_image(
     )
     if article is None:
         raise RecordNotFound("Article not found")
+    if article.publication_status == "published":
+        if automatic:
+            return None
+        raise OperationConflict("Unpublish the article before requesting image processing")
     store = bool(article.image_url and get_settings().image_storage_enabled)
     if article.image_url and (not store or image_variants(article)):
         return None
@@ -41,7 +45,11 @@ def request_image(
         .where(
             ArticleImageJob.article_id == article_id,
             ArticleImageJob.operation == ("store" if store else "discover"),
-            *([ArticleImageJob.image_url == article.image_url] if store else []),
+            *(
+                [ArticleImageJob.image_url == article.image_url]
+                if store
+                else [ArticleImageJob.storage["input_url"].as_string() == article.canonical_url]
+            ),
         )
         .limit(1)
     ):
@@ -50,6 +58,7 @@ def request_image(
         article_id=article_id,
         operation="store" if store else "discover",
         image_url=article.image_url if store else None,
+        storage={"input_url": article.canonical_url} if not store else {},
     )
     session.add(job)
     session.flush()
@@ -191,6 +200,12 @@ def claim_image(session: Session, job_id: uuid.UUID) -> tuple[ArticleImageJob, s
         .where(ArticleImageJob.id == job_id)
         .with_for_update(of=PartnerProductPromotion)
     )
+    session.scalar(
+        select(Article.id)
+        .join(ArticleImageJob, ArticleImageJob.article_id == Article.id)
+        .where(ArticleImageJob.id == job_id)
+        .with_for_update(of=Article)
+    )
     # Targeted claims wait for dispatch to commit; a locked row is not a missing job.
     job = session.scalar(
         select(ArticleImageJob).where(ArticleImageJob.id == job_id).with_for_update()
@@ -282,6 +297,9 @@ def claim_image(session: Session, job_id: uuid.UUID) -> tuple[ArticleImageJob, s
     article = session.get(Article, job.article_id, options=[lazyload("*")])
     if article is None:
         return None  # FK cascade removes jobs for deleted articles.
+    if article.publication_status == "published":
+        finish_job(job, "already_present", now)
+        return None
     if job.operation == "store":
         if not get_settings().image_storage_enabled:
             return None
@@ -295,13 +313,19 @@ def claim_image(session: Session, job_id: uuid.UUID) -> tuple[ArticleImageJob, s
         )
         if article.image_url != job.image_url or already_stored:
             finish_job(job, "already_present", now)
+            session.flush()
+            request_image(session, article.id, automatic=True)
             return None
         start_job(job, now, LEASE_SECONDS)
         assert job.image_url
         return job, job.image_url
     if article.image_url:
         finish_job(job, "already_present", utcnow())
+        session.flush()
+        if get_settings().image_storage_enabled:
+            request_image(session, article.id, automatic=True)
         return None
+    job.storage = {**(job.storage or {}), "input_url": article.canonical_url}
     start_job(job, now, LEASE_SECONDS)
     return job, article.canonical_url
 

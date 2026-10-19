@@ -15,7 +15,7 @@ from devfeed_core.jobs import owned_job
 from devfeed_core.logging import elapsed_ms, log_context
 from devfeed_core.logos import logo_job_target
 from devfeed_core.models import Article, ArticleImageJob, utcnow
-from sqlalchemy import update
+from sqlalchemy import select, update
 
 from devfeed_aggregator.solver_jobs import defer_to_solver
 
@@ -84,6 +84,8 @@ def _enrich_claimed(factory, identifier, token, article_id, url, started):
         result = fetch_page(url)
         image = extract_image(result, allow_article_image=True)
         with factory.begin() as session:
+            # Match claims and storage completion: article before image job.
+            session.scalar(select(Article.id).where(Article.id == article_id).with_for_update())
             job = owned_job(session, ArticleImageJob, identifier, token)
             if job is None:
                 logger.warning("image_lease_lost")
@@ -92,7 +94,12 @@ def _enrich_claimed(factory, identifier, token, article_id, url, started):
             if image:
                 changed = session.scalar(
                     update(Article)
-                    .where(Article.id == article_id, Article.image_url.is_(None))
+                    .where(
+                        Article.id == article_id,
+                        Article.canonical_url == url,
+                        Article.publication_status != "published",
+                        Article.image_url.is_(None),
+                    )
                     .values(image_url=image.url)
                     .returning(Article.id)
                 )
@@ -100,7 +107,7 @@ def _enrich_claimed(factory, identifier, token, article_id, url, started):
                 job.image_url, job.method = image.url, image.method
             job.http_status = result.status
             finish_job(job, outcome, utcnow())
-            if image and get_settings().image_storage_enabled:
+            if get_settings().image_storage_enabled:
                 session.flush()
                 request_image(session, article_id, automatic=True)
         logger.info(

@@ -17,6 +17,7 @@ from devfeed_core.job_lifecycle import fail_or_retry
 from devfeed_core.jobs import fail_job, request_ingestion
 from devfeed_core.logging import configure_logging, elapsed_ms, log_context
 from devfeed_core.models import (
+    ArticleAnalysisJob,
     IngestionJob,
     Source,
     utcnow,
@@ -326,6 +327,38 @@ RECOVERY_ERRORS = {
 }
 
 
+def recover_article_step(job: ArticleAnalysisJob, reason: str, now) -> bool:
+    """Recover interrupted specialists against their own bounded attempt budget."""
+    name = job.active_step or next(
+        (
+            name
+            for name, step in job.steps.items()
+            if isinstance(step, dict) and step.get("status") == "running"
+        ),
+        None,
+    )
+    step = job.steps.get(name) if name else None
+    if not isinstance(step, dict) or type(step.get("attempts")) is not int:
+        return False  # Legacy parent jobs retain their existing recovery policy.
+    step = dict(step)
+    deferrals = step.get("capacity_deferrals", 0)
+    fail_or_retry(
+        job,
+        reason,
+        now,
+        attempts=max(1, step["attempts"] - (deferrals if type(deferrals) is int else 0)),
+    )
+    step.update(
+        status="pending" if job.status == "queued" else "failed",
+        error=reason,
+        finished_at=now.isoformat(),
+        available_at=job.available_at.isoformat(),
+    )
+    job.steps = {**job.steps, name: step}
+    job.active_step = name
+    return True
+
+
 def recover_jobs(factory, batch, now, *, kind="analysis") -> int:
     if kind not in RECOVERY_ERRORS and kind not in {
         "analysis",
@@ -349,6 +382,8 @@ def recover_jobs(factory, batch, now, *, kind="analysis") -> int:
         for job in jobs:
             if kind == "research-verification":
                 fail_verification(job, reason)
+            elif isinstance(job, ArticleAnalysisJob) and recover_article_step(job, reason, now):
+                pass
             elif kind in {"analysis", "topic-analysis"}:
                 fail_analysis(job, reason)
             else:

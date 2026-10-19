@@ -2469,6 +2469,86 @@ export const adminGatewayOperations = [
     },
   },
   {
+    operationId: "admin_article_pipeline",
+    method: "GET",
+    path: "/v1/admin/article-pipeline",
+    parameters: [],
+    policy: {
+      bodyLimit: 1000000,
+      bodyTimeoutMs: 2000,
+      upstreamTimeoutMs: 45000,
+    },
+  },
+  {
+    operationId: "admin_article_pipeline_column",
+    method: "GET",
+    path: "/v1/admin/article-pipeline/{stage}",
+    parameters: [
+      {
+        name: "stage",
+        schema: {
+          type: "string",
+          enum: [
+            "ingested",
+            "enrichment",
+            "analysis",
+            "images",
+            "review",
+            "ready",
+            "published",
+            "rejected",
+          ],
+        },
+        converter: "str",
+      },
+    ],
+    policy: {
+      bodyLimit: 1000000,
+      bodyTimeoutMs: 2000,
+      upstreamTimeoutMs: 45000,
+    },
+  },
+  {
+    operationId: "admin_article_pipeline_detail",
+    method: "GET",
+    path: "/v1/admin/articles/{article_id}/pipeline",
+    parameters: [
+      {
+        name: "article_id",
+        schema: {
+          type: "string",
+          format: "uuid",
+        },
+        converter: "str",
+      },
+    ],
+    policy: {
+      bodyLimit: 1000000,
+      bodyTimeoutMs: 2000,
+      upstreamTimeoutMs: 45000,
+    },
+  },
+  {
+    operationId: "admin_article_pipeline_advance",
+    method: "POST",
+    path: "/v1/admin/articles/{article_id}/pipeline/advance",
+    parameters: [
+      {
+        name: "article_id",
+        schema: {
+          type: "string",
+          format: "uuid",
+        },
+        converter: "str",
+      },
+    ],
+    policy: {
+      bodyLimit: 1000000,
+      bodyTimeoutMs: 2000,
+      upstreamTimeoutMs: 45000,
+    },
+  },
+  {
     operationId: "admin_topics_list",
     method: "GET",
     path: "/v1/admin/topics",

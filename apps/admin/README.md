@@ -111,6 +111,37 @@ jobs; current-version assessments are not repeatedly queued.
 
 ## Article eligibility
 
+The Articles page has **Pipeline** and **List** views. Open
+`/content/articles?view=pipeline` to follow ingestion, enrichment, AI analysis, images,
+review, readiness, and publication. The desktop board has independently paginated
+columns; mobile uses a stage selector. Search, source, and needs-attention filters
+remain in the URL. Published and rejected columns show the last seven days; processing
+columns include all waiting articles. The board, readiness panel, and article review
+update automatically every five seconds when general refresh is disabled, or use a
+saved slower interval. Updates pause while the page is inactive. The article revision
+also updates during review so completed processing can enable publication automatically.
+
+Cards show the article title and source, with a status color and accessible icon.
+Running work appears first within each column, with stable discovery order inside each
+priority group. Automatic updates animate forward, backward, and priority changes;
+reduced-motion preferences disable movement. Open an article for job details, retry
+timing, the **Publication readiness** checklist, and links to current runs and logs.
+Missing or outdated work can expose a server-authorized next-step action. Failed runs
+link to their existing guarded retry workflow. The board never changes a stage directly.
+Publication remains disabled while any required processing or editorial check is incomplete, and the API
+rechecks readiness before accepting a publication decision.
+
+The AI analysis run shows its ordered steps for eligibility, classification, topics,
+tags, title, overview, and description. Each row reports its status, prompt version,
+attempt count, and scheduled retry or error when applicable. These are steps of one
+durable analysis job; run logs and retries use the existing analysis-job workflow.
+
+Validate with
+`npm run admin:test -- tests/article-pipeline.test.tsx tests/analysis-step-list.test.tsx`, then
+`npm run admin:build` and `node apps/admin/tests/browser/article-pipeline.mjs`.
+The browser test uses a disposable local API fixture and writes desktop/mobile
+screenshots and a result summary under ignored `reports/article-pipeline/`.
+
 Classifying an article requires a page-kind decision before approval or publication.
 The form preserves an existing decision and defaults missing/legacy decisions to
 `uncertain`. Select `non_article` for RSS subscription/feed-link pages, signup forms,

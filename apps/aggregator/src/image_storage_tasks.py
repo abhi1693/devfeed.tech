@@ -158,9 +158,13 @@ def _lock_subject(session, model, subject_id):
 
 
 def _current_source(subject, job, source_field, source):
-    return getattr(subject, source_field) == source and (
-        not isinstance(subject, PartnerProductPromotion)
-        or subject.ad_image_revision == job.subject_revision
+    return (
+        (not isinstance(subject, Article) or subject.publication_status != "published")
+        and getattr(subject, source_field) == source
+        and (
+            not isinstance(subject, PartnerProductPromotion)
+            or subject.ad_image_revision == job.subject_revision
+        )
     )
 
 
@@ -204,7 +208,12 @@ def store_logo(factory, identifier, token, subject_id, source, *, model):
 
 
 def _replacement(session, model, subject, *, asset_field="managed_logo"):
-    if model is PartnerProductPromotion:
+    if model is Article:
+        from devfeed_core.image_jobs import request_image
+
+        session.flush()
+        request_image(session, subject.id, automatic=True)
+    elif model is PartnerProductPromotion:
         from devfeed_core.partner_product_images import request_product_ad_image
 
         session.flush()

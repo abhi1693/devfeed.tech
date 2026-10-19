@@ -49,7 +49,7 @@ def test_wire_compaction_preserves_candidates_evidence_and_uuid_contract():
         content_type="article",
         content_format="article",
         ai_summary="Rust integrates with Python.",
-        ai_description=None,
+        ai_description="Rust and Python interoperability.",
         ai_title=None,
         title_evidence=None,
         page_kind="article",
@@ -140,7 +140,7 @@ def test_topic_context_survives_transport_without_becoming_source_evidence(wire)
         content_type="article",
         content_format="article",
         ai_summary=snapshot["text"],
-        ai_description=None,
+        ai_description="A workflow for testing software product designs with user feedback.",
         ai_title=None,
         title_evidence=None,
         page_kind="article",
@@ -189,17 +189,16 @@ def test_wire_mapping_rejects_foreign_and_malformed_ids(identifier):
         "wire_success",
         "wire_v2_success",
         "wire_original_success",
+        "wire_specialist_success",
         "wire_failed",
     ],
 )
-def test_reanalysis_skips_only_irrelevant_fallback_churn(database, change, monkeypatch):
+def test_reanalysis_skips_only_irrelevant_fallback_churn(database, change):
     from devfeed_core import analysis
     from devfeed_core.config import get_settings
     from devfeed_core.models import Article, ArticleOrigin, Source
     from devfeed_core.urls import fingerprint
 
-    if change.startswith("wire_"):
-        monkeypatch.setattr(get_settings(), "ai_compact_article_prompts", True)
     relevant, fallback = catalog_item("Rust"), catalog_item("Unrelated")
     taxonomy = {"topics": [relevant, fallback], "tags": []}
     with database.begin() as session:
@@ -240,6 +239,8 @@ def test_reanalysis_skips_only_irrelevant_fallback_churn(database, change, monke
                 job.usage = {"prompt_format": "compact-evidence-v2"}
             elif change == "wire_original_success":
                 job.usage = {"prompt_format": "original"}
+            elif change == "wire_specialist_success":
+                job.usage = {"prompt_format": "specialist-steps-v1"}
             if change == "wire_failed":
                 job.status, job.outcome = "failed", None
         elif change == "fallback":
@@ -260,9 +261,7 @@ def test_reanalysis_skips_only_irrelevant_fallback_churn(database, change, monke
         next_job = analysis.request_analysis(
             session, article.id, automatic=True, force=change == "force", taxonomy=taxonomy
         )
-        assert (next_job is None) == (
-            change in {"fallback", "wire_success", "wire_v2_success", "wire_original_success"}
-        )
+        assert (next_job is None) == (change in {"fallback", "wire_specialist_success"})
 
 
 @pytest.mark.integration

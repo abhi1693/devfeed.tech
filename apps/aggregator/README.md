@@ -15,13 +15,24 @@ language-detection sample. Thin publisher redirect pages require a matching visi
 each target uses the guarded article fetcher, with a two-hop limit. A page description never
 replaces a longer publisher feed summary as analysis evidence.
 
-Article analysis prompt `article-analysis-v7-grounded-overview` requests concrete,
-source-supported takeaways, mechanisms, comparisons and limitations when the evidence
-permits them. Overview length stays proportionate to the source within the existing
-1,200-character limit, without filler or invented facts. Sparse evidence remains an
-insufficient-evidence outcome rather than a reason to expand a teaser. Prompt tests
-verify this contract and evidence transport; actual output quality requires reviewing
-generated samples.
+Article analysis `article-analysis-v9-specialist-steps` runs separate typed tasks for
+developer relevance, page eligibility, source language, content type, content format,
+topics, tags, title, overview and search description. Each prompt has one job, its
+own version and required context. Matching tasks receive their respective catalog;
+description generation uses the accepted overview. Identifying source titles skip
+title inference. Eligibility checks stop unnecessary work on negative content.
+
+The parent job persists each task's validated result and bounded retry state. A later
+failure reuses completed work instead of sending the whole article through every task
+again. The worker renews its lease before each call and permits a bounded 1,500-second
+RQ run; calls hold no database transaction. Article fields apply together only after
+the complete aggregate validates. Admin shows each task and its current retry/error.
+
+The overview task requests concrete source-supported findings, mechanisms, comparisons
+and limitations. Its length stays proportionate to the source within 1,200 characters,
+without filler or invented facts. Sparse evidence remains insufficient rather than a
+reason to expand a teaser. Contract/transport tests use deterministic responses;
+semantic output quality still requires reviewing generated samples.
 
 After a deployment, pending unpublished candidates with an older prompt version can
 receive a current analysis through the normal scheduler. The prompt change does not

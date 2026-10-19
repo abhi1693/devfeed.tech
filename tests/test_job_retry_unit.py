@@ -8,7 +8,7 @@ from unittest.mock import Mock
 import pytest
 from devfeed_core import job_retries, models
 from devfeed_core.services import OperationConflict, RecordNotFound
-from sqlalchemy import Column, MetaData, Table, create_engine, select
+from sqlalchemy import JSON, Column, MetaData, Table, create_engine, select
 
 NOW = datetime(2026, 10, 4, tzinfo=UTC)
 ID = uuid.UUID(int=10)
@@ -46,16 +46,27 @@ def test_retry_selection_keeps_only_unresolved_latest_failure_even_with_out_of_o
         "product_id",
         "operation",
         "account_id",
+        "storage",
+        "image_url",
     ]
     table = Table(
         model.__tablename__,
         metadata,
         *[
-            Column(name, model.__table__.c[name].type.copy())
+            Column(name, JSON if name == "storage" else model.__table__.c[name].type.copy())
             for name in names
             if name in model.__table__.c
         ],
     )
+    if model is models.ArticleImageJob:
+        article_table = Table(
+            "articles",
+            metadata,
+            *[
+                Column(name, models.Article.__table__.c[name].type.copy())
+                for name in ("id", "image_url", "canonical_url", "publication_status")
+            ],
+        )
     engine = create_engine("sqlite://")
     metadata.create_all(engine)
     base = {column.name: None for column in table.c}
@@ -70,6 +81,9 @@ def test_retry_selection_keeps_only_unresolved_latest_failure_even_with_out_of_o
         }
         if subject == "product_id":
             values["operation"] = "product-image"
+        if model is models.ArticleImageJob and subject == "article_id":
+            values["operation"] = "discover"
+            values["storage"] = {"input_url": f"https://publisher.example/{owner}"}
         return values
 
     rows = [
@@ -84,6 +98,16 @@ def test_retry_selection_keeps_only_unresolved_latest_failure_even_with_out_of_o
         row(9, 5),  # Different subject remains retryable.
     ]
     expected = {uuid.UUID(int=2), uuid.UUID(int=9)}
+    if model is models.ArticleImageJob and subject == "article_id":
+        rows.extend(
+            [
+                {**row(10, 6), "storage": {}},
+                row(11, 6, age=1),  # A current discovery supersedes unknown legacy history.
+                row(12, 7),
+                {**row(13, 7, age=1), "storage": {}},  # Unknown history cannot hide known input.
+            ]
+        )
+        expected.update(uuid.UUID(int=value) for value in (11, 12, 13))
     if subject == "product_id":
         # Logo and featured-image histories are independent, even for one product.
         rows.extend(
@@ -109,6 +133,19 @@ def test_retry_selection_keeps_only_unresolved_latest_failure_even_with_out_of_o
         )
         expected.add(uuid.UUID(int=12))
     with engine.begin() as connection:
+        if model is models.ArticleImageJob:
+            connection.execute(
+                article_table.insert(),
+                [
+                    {
+                        "id": uuid.UUID(int=owner),
+                        "image_url": None,
+                        "canonical_url": f"https://publisher.example/{owner}",
+                        "publication_status": "unpublished",
+                    }
+                    for owner in range(1, 8)
+                ],
+            )
         connection.execute(table.insert(), rows)
         eligible = set(
             connection.scalars(select(model.id).where(job_retries.retry_candidate(model)))

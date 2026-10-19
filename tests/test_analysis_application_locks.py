@@ -7,6 +7,7 @@ from types import SimpleNamespace
 from uuid import uuid4
 
 import pytest
+from article_step_helpers import article_step_client
 from devfeed_aggregator import analysis_tasks
 from devfeed_core import analysis
 from devfeed_core.db import get_engine
@@ -14,7 +15,7 @@ from devfeed_core.models import Article, ArticleAnalysisJob, Topic, utcnow
 from devfeed_core.topics import lock_topics
 from sqlalchemy import event, select, text, update
 from sqlalchemy.orm import Session
-from test_automation_integration import enable, seed
+from test_automation_integration import enable, extracted, seed
 
 pytestmark = pytest.mark.integration
 
@@ -24,6 +25,7 @@ def worker_article(database, monkeypatch):
     enable(monkeypatch)
     with database.begin() as session:
         source, article, topic = seed(session, mode="auto")
+        extracted(session, article)
         job = analysis.request_analysis(session, article.id)
         state = SimpleNamespace(
             source_id=source.id,
@@ -45,7 +47,7 @@ def worker_article(database, monkeypatch):
             "ai_title": None,
             "title_evidence": None,
             "page_kind": "article",
-            "ai_description": None,
+            "ai_description": "A guide to navigation in Angular applications.",
             "topics": [
                 {
                     "topic_id": str(state.topic_id),
@@ -59,7 +61,9 @@ def worker_article(database, monkeypatch):
         }
 
     monkeypatch.setattr(analysis_tasks, "session_factory", lambda: database)
-    monkeypatch.setattr(analysis_tasks, "CodexClient", lambda _: SimpleNamespace(complete=complete))
+    monkeypatch.setattr(
+        analysis_tasks, "CodexClient", lambda _: article_step_client(complete=complete)
+    )
     return state
 
 
@@ -149,7 +153,7 @@ def test_catalog_writer_commits_while_worker_ranking_is_paused(
             != session.get(ArticleAnalysisJob, worker_article.job_id).catalog_hash
         )
     assert unlocked_ranking.calls == 3  # Revision changed, so prepare again outside locks.
-    assert len(worker_article.inferences) == 1
+    assert len(worker_article.inferences) == 9
 
 
 @pytest.mark.parametrize(
@@ -238,7 +242,7 @@ def test_changed_inputs_or_ownership_cannot_apply_a_stale_result(
                 assert replacement.input_snapshot["text"] == article.summary
             else:
                 assert replacement.catalog_hash != job.catalog_hash
-    assert len(worker_article.inferences) == 1
+    assert len(worker_article.inferences) == 9
 
 
 def test_continuously_changing_catalog_uses_bounded_dependency_retry(
@@ -262,4 +266,4 @@ def test_continuously_changing_catalog_uses_bounded_dependency_retry(
         assert job.available_at > utcnow() and job.attempts == 1
         assert not job.lease_token
     assert unlocked_ranking.calls == 4  # One inference ranking plus three preparations.
-    assert len(worker_article.inferences) == 1
+    assert len(worker_article.inferences) == 9

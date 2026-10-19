@@ -123,6 +123,16 @@ def test_prompt_budget_counts_unicode_article_and_long_aliases():
     assert sum(map(len, candidates.values())) < 1000
 
 
+def test_candidate_budget_does_not_build_the_legacy_aggregate_prompt(monkeypatch):
+    def legacy_prompt(*_):
+        pytest.fail("Production candidate ranking must not build the legacy giant prompt")
+
+    monkeypatch.setattr(analysis, "analysis_prompt", legacy_prompt)
+    taxonomy = {"topics": [entry("Rust")], "tags": []}
+    candidates = analysis.analysis_candidates(taxonomy, {"title": "Rust release", "text": "Rust"})
+    assert candidates["topics"][0]["id"] == taxonomy["topics"][0]["id"]
+
+
 @pytest.mark.integration
 def test_large_catalog_runs_analysis_and_manual_classification(database, monkeypatch):
     with database.begin() as session:
@@ -195,7 +205,7 @@ def test_large_catalog_runs_analysis_and_manual_classification(database, monkeyp
             "ai_title": None,
             "title_evidence": None,
             "page_kind": "article",
-            "ai_description": None,
+            "ai_description": "A guide to autonomous assistants.",
             "topics": [
                 {
                     "topic_id": str(relevant_id),
