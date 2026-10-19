@@ -1,3 +1,4 @@
+import { checkAppIcons } from "../../../scripts/testing/app-icons.mjs";
 import { tagsFixture, checkTags, checkTagFollow } from "../../../scripts/testing/tags.mjs";
 import { checkCatalogSharing } from "../../../scripts/testing/catalog-sharing.mjs";
 import {
@@ -1210,4 +1211,9 @@ test("tag follow controls persist in built new tabs", { timeout: 180000 }, async
     `/tmp/devfeed-tags/${browser}`,
     `/topics/${mutationFixture.topic.slug}`,
   );
+});
+
+test("built new tab favicon loads the shared brand asset", async (t) => {
+  const { page } = await readerFixture(t);
+  await checkAppIcons(page, { apple: false });
 });
