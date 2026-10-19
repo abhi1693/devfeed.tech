@@ -890,3 +890,18 @@ it("keeps preview rate failures actionable and does not publish a successful imp
   expect(screen.queryByRole("status", { name: "Import test result" })).toBeNull();
   expect(save).not.toHaveBeenCalled();
 });
+
+it("saves maximum pages above previous caps without clamping", async () => {
+  const save = form(connection());
+  const input = screen.getByRole("spinbutton", { name: "Maximum pages" });
+  expect(input.getAttribute("max")).toBeNull();
+  fireEvent.change(input, { target: { value: "1000000" } });
+  fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+  await waitFor(() =>
+    expect(save).toHaveBeenCalledWith(
+      expect.objectContaining({
+        connector: expect.objectContaining({ max_pages: 1000000 }),
+      }),
+    ),
+  );
+});

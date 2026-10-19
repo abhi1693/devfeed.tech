@@ -78,7 +78,7 @@ class PartnerConnectorConfig(ConnectorConfig):
     requests_per_minute: int = Field(default=60, ge=1, le=60)
     timeout_seconds: int = Field(default=15, ge=1, le=15)
     max_response_bytes: int = Field(default=2_000_000, ge=1024, le=2_000_000)
-    max_pages: int = Field(default=100, ge=1, le=100)
+    max_pages: int = Field(default=100, ge=1, strict=True)
 
 
 class PartnerConnectionCreate(ConnectionLogoInput):
