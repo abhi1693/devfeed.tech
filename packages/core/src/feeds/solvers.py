@@ -6,6 +6,7 @@ cannot police a remote browser's redirects, TLS, or subresource requests.
 
 import base64
 import ipaddress
+import logging
 import re
 import socket
 import time
@@ -166,6 +167,15 @@ def fetch_solved_page(
                         result = create_solver(service).solve(request)
                         return _validate_page(result, request, feed=feed)
                     except SolverUnavailable as exc:
+                        logging.getLogger(__name__).info(
+                            "solver_attempt_unavailable",
+                            extra={
+                                "solver_stage": exc.stage,
+                                "solver_http_status": exc.status,
+                                "solver_work_may_continue": exc.work_may_continue,
+                                "solver_provider": service.provider,
+                            },
+                        )
                         last_error = exc
                         work_may_continue = exc.work_may_continue
                         if work_may_continue:
@@ -181,7 +191,7 @@ def fetch_solved_page(
                     with suppress(RedisError):
                         lock.release()
     except RedisError as exc:
-        raise SolverUnavailable() from exc
+        raise SolverUnavailable(stage="coordination") from exc
 
 
 class _FeedDocument(HTMLParser):
