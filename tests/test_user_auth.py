@@ -82,6 +82,7 @@ def oidc_app(monkeypatch):
     )
     monkeypatch.setattr(auth, "get_settings", lambda: settings)
     monkeypatch.setattr(main, "get_settings", lambda: settings)
+    monkeypatch.setattr("devfeed_user_api.oidc_discovery.get_settings", lambda: settings)
     monkeypatch.setattr(
         auth,
         "save_user_with_status",
@@ -1127,3 +1128,50 @@ def test_verified_signup_sends_captured_click_and_email_to_real_conversion_funct
         {"hashed_email": hashlib.sha256(b"person@example.test").hexdigest()},
         {"twclid": "landing-click"},
     ]
+
+
+def test_public_oidc_discovery_preserves_provider_and_excludes_credentials(oidc_app):
+    oidc_app.metadata = {
+        "grant_types_supported": ["authorization_code", "refresh_token"],
+        "response_types_supported": ["code"],
+        "client_secret": "must-not-be-published",
+    }
+    response = oidc_app.client.get("/.well-known/openid-configuration")
+    assert response.status_code == 200
+    document = response.json()
+    assert document["issuer"] == ISSUER
+    assert document["authorization_endpoint"] == ISSUER + "/authorize"
+    assert document["token_endpoint"] == ISSUER + "/token"
+    assert document["jwks_uri"] == ISSUER + "/keys"
+    assert document["response_types_supported"] == ["code"]
+    assert document["grant_types_supported"] == ["authorization_code", "refresh_token"]
+    assert "must-not-be-published" not in response.text
+    assert "set-cookie" not in response.headers
+    assert response.headers["cache-control"] == "no-store"
+    assert all(request.method == "GET" for request in oidc_app.requests)
+
+
+@pytest.mark.parametrize(
+    "metadata",
+    [
+        {"issuer": "https://wrong.example"},
+        {"jwks_uri": "http://insecure.example/keys"},
+        {"grant_types_supported": []},
+        {"response_types_supported": "code"},
+    ],
+)
+def test_public_oidc_discovery_fails_closed(oidc_app, metadata):
+    oidc_app.metadata = {
+        "grant_types_supported": ["authorization_code"],
+        "response_types_supported": ["code"],
+        **metadata,
+    }
+    response = oidc_app.client.get("/.well-known/openid-configuration")
+    assert response.status_code == 503
+    assert response.json() == {"detail": "Identity provider discovery is unavailable"}
+
+
+def test_public_oidc_discovery_is_not_available_without_reader_auth(oidc_app):
+    oidc_app.settings.oidc_issuer_url = None
+    assert oidc_app.client.get("/.well-known/openid-configuration").status_code == 404
+    assert not oidc_app.requests
