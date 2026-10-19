@@ -12,7 +12,10 @@ vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: vi.fn(), replace: vi.fn() }),
   useSearchParams: () => new URLSearchParams(),
 }));
-vi.mock("@/lib/use-refresh-interval", () => ({ useRefreshInterval: () => 0 }));
+vi.mock("@/lib/use-refresh-interval", () => ({
+  useRefreshInterval: () => 0,
+  useBoardRefreshInterval: () => 5,
+}));
 vi.mock("@/lib/api/generated/admin", () => ({
   adminJobsList: vi.fn(),
   adminJobGet: vi.fn(),

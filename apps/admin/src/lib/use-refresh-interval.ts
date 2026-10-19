@@ -8,6 +8,6 @@ export function useRefreshInterval() {
 }
 
 /** Processing views stay current even when general table refresh is disabled. */
-export function useArticlePipelineInterval() {
+export function useBoardRefreshInterval() {
   return Math.max(5, useRefreshInterval() || 5);
 }

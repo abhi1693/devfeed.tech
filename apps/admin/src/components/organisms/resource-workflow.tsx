@@ -19,12 +19,11 @@ import { ClassificationForm } from "./classification-form";
 import { ValidationErrors } from "@/components/molecules/validation-errors";
 import { notify, notifyFailure } from "@/lib/notifications";
 import { StatusBadge } from "@/components/molecules/status-badge";
-import { getArticlePipelineDetail } from "@/lib/article-pipeline";
-import { useArticlePipelineInterval } from "@/lib/use-refresh-interval";
-import { DateTime } from "@/components/molecules/date-time";
 import { SourceReadiness } from "./source-readiness";
 import type { SourcePipelineDetail } from "@/lib/source-pipeline";
-import { useSourcePipelineInterval } from "@/lib/use-source-pipeline-interval";
+import { useBoardRefreshInterval } from "@/lib/use-refresh-interval";
+import { getArticlePipelineDetail } from "@/lib/article-pipeline";
+import { DateTime } from "@/components/molecules/date-time";
 type WorkflowIdentity = Extract<RecordIdentity, { resource: "articles" | "sources" }>;
 export type Workflow = "review" | "classify" | "fetch";
 export function ResourceWorkflow({
@@ -35,15 +34,14 @@ export function ResourceWorkflow({
   action: Workflow;
 }) {
   const resource = identity.resource;
-  const sourceSeconds = useSourcePipelineInterval();
-  const [sourceReadiness, setSourceReadiness] = useState<SourcePipelineDetail>();
+  const seconds = useBoardRefreshInterval();
   const [revision, setRevision] = useState(0);
-  const refreshSeconds = useArticlePipelineInterval();
+  const [sourceReadiness, setSourceReadiness] = useState<SourcePipelineDetail>();
   const load = useCallback((signal: AbortSignal) => getRecord(identity, signal), [identity]);
   const result = useRequest(
     recordIdentityKey(identity),
     load,
-    resource === "sources" ? sourceSeconds * 1000 : action === "review" ? refreshSeconds * 1000 : 0,
+    resource === "sources" || action === "review" ? seconds * 1000 : 0,
     revision,
   );
   return (
@@ -113,7 +111,7 @@ function Decision({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<Error>();
   const [readinessRevision, setReadinessRevision] = useState(0);
-  const refreshSeconds = useArticlePipelineInterval();
+  const refreshSeconds = useBoardRefreshInterval();
   const readinessLoad = useCallback(
     async (signal: AbortSignal) =>
       resource === "articles"
@@ -141,7 +139,7 @@ function Decision({
       : decision === "approved" && !sourceReadiness?.item.can_approve);
   async function submit(event: React.FormEvent) {
     event.preventDefault();
-    if (busy || publicationBlocked || sourceBlocked) return;
+    if (busy || sourceBlocked || publicationBlocked) return;
     setBusy(true);
     setError(undefined);
     const options = { headers: { "X-CSRF-Token": admin.csrf_token } };
@@ -296,9 +294,9 @@ function Decision({
       )}
       <Button
         type="submit"
+        disabled={sourceBlocked || publicationBlocked}
         loading={busy}
         loadingText="Submitting…"
-        disabled={publicationBlocked || sourceBlocked}
       >
         {action === "fetch" ? "Queue fetch" : "Apply decision"}
       </Button>

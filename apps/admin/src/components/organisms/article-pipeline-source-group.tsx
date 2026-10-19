@@ -16,7 +16,7 @@ import {
 import { notifyFailure } from "@/lib/notifications";
 import { pipelineCardStatuses } from "@/lib/pipeline-status";
 import { useRequest } from "@/lib/use-request";
-import { useArticlePipelineInterval } from "@/lib/use-refresh-interval";
+import { useBoardRefreshInterval } from "@/lib/use-refresh-interval";
 
 const stateOrder = ["running", "blocked", "retry_wait", "waiting", "ready", "complete"];
 
@@ -144,7 +144,7 @@ function SourceArticles({
     snapshot: PipelineBoard;
     firstPage: PipelineColumn;
   }>();
-  const refreshSeconds = useArticlePipelineInterval();
+  const refreshSeconds = useBoardRefreshInterval();
   const request = useRef<AbortController | null>(null);
   const current = useRef(snapshot);
   useEffect(() => {
