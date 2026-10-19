@@ -10706,6 +10706,13 @@
             ],
             "title": "Next Cursor"
           },
+          "source_groups": {
+            "items": {
+              "$ref": "#/components/schemas/PipelineSourceGroup"
+            },
+            "title": "Source Groups",
+            "type": "array"
+          },
           "stage": {
             "enum": [
               "ingested",
@@ -11010,6 +11017,52 @@
           "kind"
         ],
         "title": "PipelineQueue",
+        "type": "object"
+      },
+      "PipelineSourceGroup": {
+        "properties": {
+          "source_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Id"
+          },
+          "source_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Name"
+          },
+          "state_counts": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "title": "State Counts",
+            "type": "object"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "source_id",
+          "source_name",
+          "total",
+          "state_counts"
+        ],
+        "title": "PipelineSourceGroup",
         "type": "object"
       },
       "PipelineThroughput": {
@@ -16263,6 +16316,23 @@
               "title": "Limit",
               "type": "integer"
             }
+          },
+          {
+            "in": "query",
+            "name": "group_by",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "const": "source",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Group By"
+            }
           }
         ],
         "responses": {
@@ -16412,6 +16482,44 @@
               "minimum": 0,
               "title": "Cursor",
               "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "group_by",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "const": "source",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Group By"
+            }
+          },
+          {
+            "in": "query",
+            "name": "source_group",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                {
+                  "const": "unknown",
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Source Group"
             }
           }
         ],

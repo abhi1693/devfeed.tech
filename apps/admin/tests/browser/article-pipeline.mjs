@@ -43,6 +43,9 @@ let analysisRetry = false;
 let editorialRevision = 7;
 let retryQueued = false;
 let publishedToFeedAt = null;
+let sourceGroupingDemo = false;
+const otherSourceId = "77777777-7777-4777-8777-777777777777";
+const pipelineReads = [];
 const jobGenerations = { enrichment: 0, analysis: 0, images: 0 };
 let posts = [];
 const requests = [];
@@ -132,16 +135,74 @@ function card(cardStage = stage, index = 0) {
 }
 function board(url) {
   const attention = url.searchParams.get("needs_attention") === "true";
+  const grouped = url.searchParams.get("group_by") === "source";
+  const sourceGroup = url.searchParams.get("source_group");
+  assert.ok(!grouped || sourceGroup === null);
+  const cursor = Number(url.searchParams.get("cursor") || 0);
+  const limit = Number(url.searchParams.get("limit") || 20);
   const columns = stages.map((value, index) => {
-    const items = [card(value, index + 1), ...(value === stage ? [card()] : [])]
-      .filter((item) => !attention || ["blocked", "retry_wait"].includes(item.state))
+    const extra = sourceGroupingDemo
+      ? Array.from({ length: value === "images" ? 21 : 1 }, (_, position) => ({
+          ...card(value, 100 + index * 100 + position),
+          source_id: otherSourceId,
+          source_name: "Platform Journal",
+          title: `Platform ${value} article ${position + 1}`,
+        }))
+      : [];
+    if (sourceGroupingDemo && value === "images")
+      extra.push({
+        ...card(value, 999),
+        source_id: null,
+        source_name: null,
+        state: "blocked",
+        title: "Source attribution needs review",
+      });
+    const items = [card(value, index + 1), ...(value === stage ? [card()] : []), ...extra]
+      .filter(
+        (item) =>
+          (!attention || ["blocked", "retry_wait"].includes(item.state)) &&
+          (!url.searchParams.get("source_id") ||
+            item.source_id === url.searchParams.get("source_id")) &&
+          (sourceGroup === null ||
+            (sourceGroup === "unknown" ? item.source_id === null : item.source_id === sourceGroup)),
+      )
       .sort(
         (a, b) =>
           Number(b.state === "running") - Number(a.state === "running") ||
           a.discovered_at.localeCompare(b.discovered_at) ||
           a.id.localeCompare(b.id),
       );
-    return { stage: value, total: items.length, items, next_cursor: null };
+    const groups = new Map();
+    for (const item of items) {
+      const group = groups.get(item.source_id) || {
+        source_id: item.source_id,
+        source_name: item.source_name,
+        total: 0,
+        state_counts: {},
+      };
+      group.total++;
+      group.state_counts[item.state] = (group.state_counts[item.state] || 0) + 1;
+      groups.set(item.source_id, group);
+    }
+    const groupRank = (group) =>
+      group.state_counts.running
+        ? 0
+        : group.state_counts.blocked || group.state_counts.retry_wait
+          ? 1
+          : 2;
+    const sourceGroups = [...groups.values()].sort(
+      (a, b) =>
+        groupRank(a) - groupRank(b) ||
+        (a.source_name || "Unknown source").localeCompare(b.source_name || "Unknown source"),
+    );
+    const values = grouped ? sourceGroups : items;
+    return {
+      stage: value,
+      total: items.length,
+      items: grouped ? [] : items.slice(cursor, cursor + limit),
+      source_groups: grouped ? sourceGroups.slice(cursor, cursor + limit) : [],
+      next_cursor: cursor + limit < values.length ? cursor + limit : null,
+    };
   });
   return {
     as_of: now,
@@ -250,6 +311,8 @@ function article() {
 const fixture = createServer(async (req, res) => {
   const url = new URL(req.url, "http://fixture");
   requests.push(`${req.method} ${url.pathname}`);
+  if (req.method === "GET" && url.pathname.startsWith("/v1/admin/article-pipeline"))
+    pipelineReads.push({ path: url.pathname, query: Object.fromEntries(url.searchParams) });
   let body;
   if (url.pathname.endsWith("/auth/me"))
     body = {
@@ -787,6 +850,245 @@ try {
     fullPage: true,
     animations: "disabled",
   });
+  sourceGroupingDemo = true;
+  retryQueued = false;
+  stage = "images";
+  await page.goto(`${origin}/content/articles?view=pipeline&stage=images`);
+  await focusCard.waitFor();
+  assert.match(await page.getByRole("combobox", { name: "Group cards" }).innerText(), /Articles/);
+  await page.getByRole("combobox", { name: "Group cards" }).click();
+  await page.getByRole("option", { name: "Source", exact: true }).click();
+  await page.waitForURL((url) => url.searchParams.get("group_by") === "source");
+  const engineeringGroup = imagesColumn.getByRole("group", {
+    name: "Engineering Journal source group",
+    exact: true,
+  });
+  const platformGroup = imagesColumn.getByRole("group", {
+    name: "Platform Journal source group",
+    exact: true,
+  });
+  const unknownGroup = imagesColumn.getByRole("group", { name: "Unknown source source group" });
+  await engineeringGroup
+    .getByLabel("2 articles from Engineering Journal", { exact: true })
+    .waitFor();
+  await engineeringGroup.getByLabel("1 Running", { exact: true }).waitFor();
+  await engineeringGroup.getByLabel("1 Waiting", { exact: true }).waitFor();
+  await platformGroup.getByLabel("21 Waiting", { exact: true }).waitFor();
+  await unknownGroup.getByLabel("1 Blocked", { exact: true }).waitFor();
+  assert.equal(await imagesColumn.getByLabel("24 articles", { exact: true }).count(), 1);
+  assert.deepEqual(
+    await imagesColumn
+      .getByRole("group")
+      .evaluateAll((groups) =>
+        groups.map((group) => group.getAttribute("data-pipeline-source-id")),
+      ),
+    [source.id, "unknown", otherSourceId],
+  );
+  assert.equal(await focusCard.count(), 0);
+  assert.equal(await engineeringGroup.getAttribute("draggable"), null);
+  assert.equal(await engineeringGroup.getByRole("button", { name: /Move back/ }).count(), 0);
+  await page.screenshot({
+    path: `${destination}/source-groups-desktop.png`,
+    fullPage: true,
+    animations: "disabled",
+  });
+  const sourcePoll = page.waitForResponse((response) => {
+    const url = new URL(response.url());
+    return (
+      url.pathname.endsWith("/article-pipeline/images") &&
+      url.searchParams.get("source_group") === source.id &&
+      response.ok()
+    );
+  });
+  await engineeringGroup
+    .getByRole("button", { name: "Expand Engineering Journal articles" })
+    .focus();
+  await engineeringGroup
+    .getByRole("button", { name: "Expand Engineering Journal articles" })
+    .press("Enter");
+  await sourcePoll;
+  await focusCard.waitFor();
+  assert.equal(await focusCard.locator("xpath=ancestor::article").locator("p").count(), 0);
+  const pollReadOffset = pipelineReads.length;
+  await page.waitForResponse((response) => {
+    const url = new URL(response.url());
+    return (
+      url.pathname.endsWith("/article-pipeline/images") &&
+      url.searchParams.get("source_group") === source.id &&
+      response.ok()
+    );
+  });
+  assert.equal(
+    await engineeringGroup
+      .getByRole("button", { name: "Collapse Engineering Journal articles" })
+      .getAttribute("aria-expanded"),
+    "true",
+  );
+  assert.equal(await focusCard.count(), 1);
+  assert.ok(pipelineReads.length > pollReadOffset);
+  await unknownGroup.getByRole("button", { name: "Expand Unknown source articles" }).click();
+  await unknownGroup.getByRole("link", { name: "Source attribution needs review" }).waitFor();
+  await platformGroup.getByRole("button", { name: "Expand Platform Journal articles" }).click();
+  await platformGroup
+    .getByRole("link", { name: "Platform images article 20", exact: true })
+    .waitFor();
+  assert.equal(await platformGroup.getByRole("link").count(), 20);
+  await platformGroup.getByRole("button", { name: "Load more Platform Journal articles" }).click();
+  await platformGroup
+    .getByRole("link", { name: "Platform images article 21", exact: true })
+    .waitFor();
+  assert.equal(await platformGroup.getByRole("link").count(), 21);
+  await page.waitForFunction((sourceId) => {
+    const group = document.querySelector(
+      `[data-pipeline-source-id="${sourceId}"][data-pipeline-stage="images"]`,
+    );
+    return group?.querySelectorAll("article").length === 20;
+  }, otherSourceId);
+  assert.equal(
+    await platformGroup
+      .getByRole("button", { name: "Collapse Platform Journal articles" })
+      .getAttribute("aria-expanded"),
+    "true",
+  );
+  await unknownGroup.getByRole("button", { name: "Collapse Unknown source articles" }).click();
+  await page.evaluate(
+    () => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))),
+  );
+  assert.equal(
+    await platformGroup
+      .locator("article")
+      .evaluateAll((items) =>
+        items.reduce((total, item) => total + item.getAnimations().length, 0),
+      ),
+    0,
+  );
+  await platformGroup.getByRole("button", { name: "Collapse Platform Journal articles" }).click();
+  await page.screenshot({
+    path: `${destination}/source-groups-expanded-desktop.png`,
+    fullPage: true,
+    animations: "disabled",
+  });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await engineeringGroup
+    .getByRole("button", { name: "Collapse Engineering Journal articles" })
+    .focus();
+  await engineeringGroup
+    .getByRole("button", { name: "Collapse Engineering Journal articles" })
+    .press("Enter");
+  await engineeringGroup
+    .getByRole("button", { name: "Expand Engineering Journal articles" })
+    .press("Enter");
+  await focusCard.waitFor();
+  assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
+  await page.screenshot({
+    path: `${destination}/source-groups-mobile.png`,
+    fullPage: true,
+    animations: "disabled",
+  });
+  stage = "ready";
+  await page.setViewportSize({ width: 1600, height: 1100 });
+  await page.goto(`${origin}/content/articles?view=pipeline&group_by=source&stage=ready`);
+  const readyGroup = page
+    .locator('section[aria-labelledby="pipeline-ready"]')
+    .getByRole("group", { name: "Engineering Journal source group", exact: true });
+  await readyGroup.getByRole("button", { name: "Expand Engineering Journal articles" }).click();
+  await focusCard.waitFor();
+  await moveBack.click();
+  await page.getByRole("menuitem", { name: "Retry images", exact: true }).waitFor();
+  await page.screenshot({
+    path: `${destination}/source-groups-actions-desktop.png`,
+    fullPage: true,
+    animations: "disabled",
+  });
+  await page.keyboard.press("Escape");
+  await page.getByRole("button", { name: "Collapse Images column", exact: true }).click();
+  const groupedImageBaseline = jobs().images.id;
+  const groupedRetryOffset = posts.length;
+  const groupedCard = focusCard.locator("xpath=ancestor::article");
+  const groupedBounds = await groupedCard.boundingBox();
+  const groupedRetrySnapshot = page.waitForResponse(async (response) => {
+    const url = new URL(response.url());
+    if (!url.pathname.endsWith("/article-pipeline") || !response.ok()) return false;
+    const snapshot = await response.json();
+    return snapshot.columns
+      .find((column) => column.stage === "images")
+      ?.source_groups.some(
+        (group) =>
+          group.source_id === source.id && group.total === 2 && group.state_counts.waiting === 2,
+      );
+  });
+  await groupedCard.dragTo(page.getByRole("heading", { name: "Images", exact: true }), {
+    sourcePosition: { x: 8, y: groupedBounds.height - 6 },
+  });
+  await groupedRetrySnapshot;
+  assert.equal(posts.length, groupedRetryOffset + 1);
+  assert.deepEqual(posts.at(-1), {
+    path: `/v1/admin/articles/${id}/pipeline/retry`,
+    payload: { expected_revision: 9, expected_job_id: groupedImageBaseline, target: "images" },
+    csrf: "fixture-csrf",
+  });
+  await page.getByRole("button", { name: "Expand Images column", exact: true }).click();
+  await engineeringGroup
+    .getByRole("button", { name: "Expand Engineering Journal articles" })
+    .click();
+  await focusCard.waitFor();
+  await page.screenshot({
+    path: `${destination}/source-groups-dropped-desktop.png`,
+    fullPage: true,
+    animations: "disabled",
+  });
+  retryQueued = false;
+  stage = "ready";
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto(`${origin}/content/articles?view=pipeline&group_by=source&stage=ready`);
+  await readyGroup
+    .getByRole("button", { name: "Expand Engineering Journal articles" })
+    .press("Enter");
+  await focusCard.waitFor();
+  await moveBack.press("Enter");
+  const groupedTextBaseline = jobs().enrichment.id;
+  const groupedTextRetry = page.waitForResponse(
+    (response) => new URL(response.url()).pathname.endsWith("/pipeline/retry") && response.ok(),
+  );
+  await page.getByRole("menuitem", { name: "Retry enrichment", exact: true }).press("Enter");
+  await groupedTextRetry;
+  assert.deepEqual(posts.at(-1).payload, {
+    expected_revision: 9,
+    expected_job_id: groupedTextBaseline,
+    target: "enrichment",
+  });
+  stage = "images";
+  retryQueued = false;
+  await page.goto(
+    `${origin}/content/articles?view=pipeline&group_by=source&stage=images&source_id=${source.id}`,
+  );
+  await engineeringGroup
+    .getByRole("button", { name: "Expand Engineering Journal articles" })
+    .click();
+  await focusCard.waitFor();
+  assert.equal(await imagesColumn.getByRole("group").count(), 1);
+  assert.ok(
+    pipelineReads.some(
+      (read) =>
+        read.path.endsWith("/images") &&
+        read.query.source_group === source.id &&
+        read.query.source_id === source.id &&
+        !read.query.group_by &&
+        read.query.limit === "20",
+    ),
+  );
+  await page.screenshot({
+    path: `${destination}/source-groups-filtered-mobile.png`,
+    fullPage: true,
+    animations: "disabled",
+  });
+  await page.getByRole("combobox", { name: "Group cards" }).click();
+  await page.getByRole("option", { name: "Articles", exact: true }).click();
+  await page.waitForURL(
+    (url) => !url.searchParams.has("group_by") && url.searchParams.get("source_id") === source.id,
+  );
+  await focusCard.waitFor();
+  assert.equal(await imagesColumn.getByRole("group").count(), 0);
   assert.deepEqual(errors, []);
   await writeFile(
     `${destination}/summary.json`,
@@ -813,6 +1115,18 @@ try {
         publishedRetryUnpublished: true,
         hiddenStageKeyboardRetry: true,
         serverRetryBackwardAnimation: true,
+        sourceGrouping: {
+          collapsedSummaries: true,
+          exactArticleAndStatusCounts: true,
+          runningSourcesFirst: true,
+          boundedPaginationResetsOnPoll: true,
+          expansionSurvivesPolling: true,
+          accordionDoesNotAnimateArticles: true,
+          keyboardAndMobile: true,
+          individualDragAndRetry: true,
+          sourceFilterRetained: true,
+          unknownGroupExplicit: true,
+        },
         externalDropIgnored: true,
         publicationBlockedWhileImagesRunning: true,
         recoveryCsrfChecked: true,
@@ -831,6 +1145,12 @@ try {
           "readiness-mobile.png",
           "analysis-steps-desktop.png",
           "analysis-steps-mobile.png",
+          "source-groups-desktop.png",
+          "source-groups-expanded-desktop.png",
+          "source-groups-mobile.png",
+          "source-groups-actions-desktop.png",
+          "source-groups-dropped-desktop.png",
+          "source-groups-filtered-mobile.png",
         ],
       },
       null,

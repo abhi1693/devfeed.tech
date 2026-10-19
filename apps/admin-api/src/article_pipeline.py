@@ -112,11 +112,19 @@ class PipelineCard(ORMModel):
     retry_targets: list[RetryTarget] = Field(default_factory=list)
 
 
+class PipelineSourceGroup(ORMModel):
+    source_id: uuid.UUID | None
+    source_name: str | None
+    total: int
+    state_counts: dict[str, int]
+
+
 class PipelineColumn(ORMModel):
     stage: Stage
     total: int
     items: list[PipelineCard]
     next_cursor: int | None
+    source_groups: list[PipelineSourceGroup] = Field(default_factory=list)
 
 
 class PipelineBoard(ORMModel):
@@ -170,7 +178,20 @@ class RetryPipeline(InputModel):
     expected_job_id: uuid.UUID | None
 
 
-def _statement(q, source_id):
+def _display_source_id():
+    """Match the source attribution displayed by _card, including missing origins."""
+    return (
+        select(Source.id)
+        .join(ArticleOrigin, ArticleOrigin.source_id == Source.id)
+        .where(ArticleOrigin.article_id == Article.id)
+        .order_by(Source.approval_status != "approved", Source.name.collate("C"), Source.id)
+        .limit(1)
+        .correlate(Article)
+        .scalar_subquery()
+    )
+
+
+def _statement(q, source_id, source_group=None):
     statement = select(Article).options(
         lazyload(Article.tags),
         selectinload(Article.origins)
@@ -191,6 +212,11 @@ def _statement(q, source_id):
             select(ArticleOrigin.id)
             .where(ArticleOrigin.article_id == Article.id, ArticleOrigin.source_id == source_id)
             .exists()
+        )
+    if source_group is not None:
+        displayed = _display_source_id()
+        statement = statement.where(
+            displayed.is_(None) if source_group == "unknown" else displayed == source_group
         )
     return statement
 
@@ -595,7 +621,34 @@ def _active_cards(session, statement, *, taxonomy, settings, now):
         session.expunge_all()
 
 
-def _terminal_column(session, statement, stage, *, since, limit, cursor, needs_attention, taxonomy):
+def _source_group_order(group):
+    priority = (
+        0
+        if group.state_counts.get("running", 0)
+        else 1
+        if group.state_counts.get("blocked", 0) or group.state_counts.get("retry_wait", 0)
+        else 2
+    )
+    return (
+        priority,
+        group.source_name is None,
+        (group.source_name or "").casefold(),
+        str(group.source_id or ""),
+    )
+
+
+def _terminal_column(
+    session,
+    statement,
+    stage,
+    *,
+    since,
+    limit,
+    cursor,
+    needs_attention,
+    taxonomy,
+    group_by=None,
+):
     terminal_at = (
         Article.published_to_feed_at
         if stage == "published"
@@ -613,6 +666,37 @@ def _terminal_column(session, statement, stage, *, since, limit, cursor, needs_a
         else Article.review_status == "rejected",
         terminal_at >= since,
     )
+    if group_by == "source":
+        displayed = terminal.with_only_columns(
+            _display_source_id().label("source_id"), maintain_column_froms=True
+        ).subquery()
+        grouped = (
+            select(displayed.c.source_id, Source.name, func.count())
+            .select_from(displayed)
+            .outerjoin(Source, Source.id == displayed.c.source_id)
+            .group_by(displayed.c.source_id, Source.name)
+        )
+        groups = (
+            []
+            if needs_attention
+            else [
+                PipelineSourceGroup(
+                    source_id=identifier,
+                    source_name=name,
+                    total=count,
+                    state_counts={"complete": count},
+                )
+                for identifier, name, count in session.execute(grouped)
+            ]
+        )
+        groups.sort(key=_source_group_order)
+        return PipelineColumn(
+            stage=stage,
+            total=sum(group.total for group in groups),
+            items=[],
+            source_groups=groups[cursor : cursor + limit],
+            next_cursor=cursor + limit if cursor + limit < len(groups) else None,
+        )
     total = (
         0
         if needs_attention
@@ -646,10 +730,21 @@ def _terminal_column(session, statement, stage, *, since, limit, cursor, needs_a
     )
 
 
-def _board(session, *, q, source_id, needs_attention, limit, stage=None, cursor=0):
+def _board(
+    session,
+    *,
+    q,
+    source_id,
+    needs_attention,
+    limit,
+    stage=None,
+    cursor=0,
+    group_by=None,
+    source_group=None,
+):
     now = utcnow()
     since = now - timedelta(days=7)
-    statement = _statement(q, source_id)
+    statement = _statement(q, source_id, source_group)
     settings = get_settings()
     taxonomy = catalog(session)
     stages = (stage,) if stage else STAGES
@@ -661,6 +756,9 @@ def _board(session, *, q, source_id, needs_attention, limit, stage=None, cursor=
         end = start + limit
         running: dict[Stage, list[PipelineCard]] = {value: [] for value in stages}
         other: dict[Stage, list[PipelineCard]] = {value: [] for value in stages}
+        groups: dict[Stage, dict[uuid.UUID | None, PipelineSourceGroup]] = {
+            value: {} for value in stages
+        }
         for card in _active_cards(
             session, statement, taxonomy=taxonomy, settings=settings, now=now
         ):
@@ -670,6 +768,18 @@ def _board(session, *, q, source_id, needs_attention, limit, stage=None, cursor=
                 continue
             column = columns[card.stage]
             column.total += 1
+            if group_by == "source":
+                group = groups[card.stage].get(card.source_id)
+                if group is None:
+                    group = groups[card.stage][card.source_id] = PipelineSourceGroup(
+                        source_id=card.source_id,
+                        source_name=card.source_name,
+                        total=0,
+                        state_counts={},
+                    )
+                group.total += 1
+                group.state_counts[card.state] = group.state_counts.get(card.state, 0) + 1
+                continue
             active, remaining = running[card.stage], other[card.stage]
             # The stream is FIFO. Partition the complete column before paging,
             # retaining only its first cursor + limit cards in the new order.
@@ -681,6 +791,11 @@ def _board(session, *, q, source_id, needs_attention, limit, stage=None, cursor=
             elif len(active) + len(remaining) < end:
                 remaining.append(card)
         for column in columns.values():
+            if group_by == "source":
+                ordered = sorted(groups[column.stage].values(), key=_source_group_order)
+                column.source_groups = ordered[start:end]
+                column.next_cursor = end if end < len(ordered) else None
+                continue
             column.items = list(
                 islice(chain(running[column.stage], other[column.stage]), start, end)
             )
@@ -696,6 +811,7 @@ def _board(session, *, q, source_id, needs_attention, limit, stage=None, cursor=
                 cursor=cursor if stage else 0,
                 needs_attention=needs_attention,
                 taxonomy=taxonomy,
+                group_by=group_by,
             )
     return PipelineBoard(
         as_of=now,
@@ -716,8 +832,16 @@ def board(
     source_id: uuid.UUID | None = None,
     needs_attention: bool = False,
     limit: Annotated[int, Query(ge=1, le=50)] = 20,
+    group_by: Literal["source"] | None = None,
 ):
-    result = _board(session, q=q, source_id=source_id, needs_attention=needs_attention, limit=limit)
+    result = _board(
+        session,
+        q=q,
+        source_id=source_id,
+        needs_attention=needs_attention,
+        limit=limit,
+        group_by=group_by,
+    )
     session.close()
     return result
 
@@ -735,6 +859,8 @@ def column(
     needs_attention: bool = False,
     limit: Annotated[int, Query(ge=1, le=50)] = 20,
     cursor: Annotated[int, Query(ge=0, le=2**31 - 1)] = 0,
+    group_by: Literal["source"] | None = None,
+    source_group: uuid.UUID | Literal["unknown"] | None = None,
 ):
     result = _board(
         session,
@@ -744,6 +870,8 @@ def column(
         limit=limit,
         stage=stage,
         cursor=cursor,
+        group_by=group_by,
+        source_group=source_group,
     ).columns[0]
     session.close()
     return result

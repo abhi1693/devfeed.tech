@@ -15,6 +15,7 @@ import {
   getArticlePipeline,
   getArticlePipelineColumn,
   getArticlePipelineDetail,
+  getArticlePipelineSourceArticles,
   retryArticlePipeline,
   pipelineQuery,
   pipelineLabels,
@@ -24,7 +25,7 @@ import {
   type PipelineDetail,
 } from "@/lib/article-pipeline";
 import { getRecord, listRecords } from "@/lib/resource-api";
-import { adminArticleReview } from "@/lib/api/generated/admin";
+import { adminArticlePipelineColumn, adminArticleReview } from "@/lib/api/generated/admin";
 import { ApiError } from "@/lib/api/client";
 
 const navigation = vi.hoisted(() => ({ query: "view=pipeline" }));
@@ -40,6 +41,7 @@ vi.mock("@/lib/article-pipeline", async (original) => ({
   getArticlePipeline: vi.fn(),
   getArticlePipelineColumn: vi.fn(),
   getArticlePipelineDetail: vi.fn(),
+  getArticlePipelineSourceArticles: vi.fn(),
   advanceArticlePipeline: vi.fn(),
   retryArticlePipeline: vi.fn(),
 }));
@@ -51,6 +53,7 @@ vi.mock("@/lib/resource-api", async (original) => ({
 vi.mock("@/lib/api/generated/admin", async (original) => ({
   ...(await original<typeof import("@/lib/api/generated/admin")>()),
   adminArticleReview: vi.fn(),
+  adminArticlePipelineColumn: vi.fn(),
 }));
 
 const card: PipelineArticle = {
@@ -106,6 +109,22 @@ function board(item = card): PipelineBoard {
     })),
   };
 }
+function groupedBoard(stage: PipelineArticle["stage"] = "images"): PipelineBoard {
+  const result = board({ ...card, stage });
+  const column = result.columns.find((column) => column.stage === stage)!;
+  column.items = [];
+  column.total = 31;
+  column.source_groups = [
+    {
+      source_id: card.source_id,
+      source_name: card.source_name,
+      total: 31,
+      state_counts: { running: 1, waiting: 29, blocked: 1 },
+    },
+  ];
+  result.counts[stage] = 31;
+  return result;
+}
 const detail: PipelineDetail = {
   article_id: card.id,
   editorial_revision: 7,
@@ -143,6 +162,12 @@ beforeEach(() => {
   navigation.query = "view=pipeline";
   vi.mocked(getArticlePipeline).mockResolvedValue(board());
   vi.mocked(getArticlePipelineDetail).mockResolvedValue(detail);
+  vi.mocked(getArticlePipelineSourceArticles).mockResolvedValue({
+    stage: "images",
+    total: 1,
+    items: [card],
+    next_cursor: null,
+  });
   vi.mocked(advanceArticlePipeline).mockResolvedValue(detail);
   vi.mocked(retryArticlePipeline).mockResolvedValue(detail);
   vi.mocked(listRecords).mockResolvedValue({ items: [], total: 0, limit: 25, offset: 0 });
@@ -180,6 +205,324 @@ it("forwards only bounded pipeline filters to the API", () => {
       "q=Python&source_id=source-one&needs_attention=true&offset=500&limit=100&sort=title&view=pipeline",
     ).toString(),
   ).toBe("limit=20&q=Python&source_id=source-one&needs_attention=true");
+});
+
+it("keeps Articles as the default and selects source grouping through the URL", async () => {
+  renderAdmin(<ArticlePipeline query="view=pipeline&stage=images" />);
+  await screen.findByRole("link", { name: card.title });
+  expect(screen.getByRole("combobox", { name: "Group cards" }).textContent).toContain("Articles");
+  expect(getArticlePipelineSourceArticles).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole("combobox", { name: "Group cards" }));
+  fireEvent.click(screen.getByRole("option", { name: /^Source$/ }));
+  expect(router.push).toHaveBeenCalledWith(expect.stringContaining("group_by=source"), {
+    scroll: false,
+  });
+});
+
+it("loads bounded source articles without grouping while retaining the article filters", async () => {
+  const actual =
+    await vi.importActual<typeof import("@/lib/article-pipeline")>("@/lib/article-pipeline");
+  vi.mocked(adminArticlePipelineColumn).mockResolvedValue({
+    stage: "images",
+    total: 0,
+    items: [],
+    next_cursor: null,
+  });
+  const signal = new AbortController().signal;
+  await actual.getArticlePipelineSourceArticles(
+    "images",
+    "view=pipeline&group_by=source&q=Python&source_id=selected&needs_attention=true&limit=100",
+    null,
+    20,
+    signal,
+  );
+  expect(adminArticlePipelineColumn).toHaveBeenCalledWith(
+    "images",
+    {
+      limit: 20,
+      q: "Python",
+      source_id: "selected",
+      needs_attention: true,
+      source_group: "unknown",
+      cursor: 20,
+    },
+    { signal },
+  );
+});
+
+it("renders collapsed source summaries using exact server article totals and state counts", async () => {
+  const initial = groupedBoard();
+  vi.mocked(getArticlePipeline).mockResolvedValue(initial);
+  renderAdmin(<ArticlePipeline query="view=pipeline&group_by=source&stage=images" />);
+  const group = await screen.findByRole("group", { name: "Engineering Journal source group" });
+  expect(
+    within(group)
+      .getByRole("button", { name: "Expand Engineering Journal articles" })
+      .getAttribute("aria-expanded"),
+  ).toBe("false");
+  expect(within(group).getByLabelText("31 articles from Engineering Journal")).toBeDefined();
+  for (const state of ["1 Running", "29 Waiting", "1 Blocked"])
+    expect(within(group).getByLabelText(state)).toBeDefined();
+  expect(group.getAttribute("draggable")).not.toBe("true");
+  expect(within(group).queryByRole("button", { name: /Move back/ })).toBeNull();
+  expect(screen.queryByRole("link", { name: card.title })).toBeNull();
+  expect(getArticlePipelineSourceArticles).not.toHaveBeenCalled();
+  expect(screen.getByLabelText("31 articles")).toBeDefined();
+});
+
+it("opens unknown-source articles with the explicit unknown group rather than an unfiltered page", async () => {
+  const initial = groupedBoard();
+  initial.columns.find((column) => column.stage === "images")!.source_groups![0] = {
+    source_id: null,
+    source_name: null,
+    total: 1,
+    state_counts: { waiting: 1 },
+  };
+  initial.columns.find((column) => column.stage === "images")!.total = 1;
+  initial.counts.images = 1;
+  vi.mocked(getArticlePipeline).mockResolvedValue(initial);
+  const query = "view=pipeline&group_by=source&stage=images";
+  renderAdmin(<ArticlePipeline query={query} />);
+  fireEvent.click(await screen.findByRole("button", { name: "Expand Unknown source articles" }));
+  await screen.findByRole("link", { name: card.title });
+  expect(getArticlePipelineSourceArticles).toHaveBeenCalledWith(
+    "images",
+    query,
+    null,
+    0,
+    expect.any(AbortSignal),
+  );
+});
+
+it("pages source groups without duplicate summaries and promotes a newly running group", async () => {
+  const initial = groupedBoard();
+  const images = initial.columns.find((column) => column.stage === "images")!;
+  images.total = 4;
+  initial.counts.images = 4;
+  images.source_groups = [
+    { source_id: "first", source_name: "Waiting Journal", total: 2, state_counts: { waiting: 2 } },
+    { source_id: "later", source_name: "Later Journal", total: 2, state_counts: { waiting: 2 } },
+  ];
+  images.next_cursor = 20;
+  vi.mocked(getArticlePipeline).mockResolvedValue(initial);
+  vi.mocked(getArticlePipelineColumn).mockResolvedValue({
+    stage: "images",
+    total: 4,
+    items: [],
+    source_groups: [
+      {
+        source_id: "later",
+        source_name: "Later Journal",
+        total: 2,
+        state_counts: { running: 1, waiting: 1 },
+      },
+    ],
+    next_cursor: null,
+  });
+  const query = "view=pipeline&group_by=source&stage=images";
+  renderAdmin(<ArticlePipeline query={query} />);
+  fireEvent.click(await screen.findByRole("button", { name: "Load more images sources" }));
+  await screen.findByLabelText("1 Running");
+  const lane = screen.getByRole("heading", { name: "Images", level: 2 }).closest("section")!;
+  expect(
+    within(lane)
+      .getAllByRole("group")
+      .map((group) => group.getAttribute("data-pipeline-source-id")),
+  ).toEqual(["later", "first"]);
+  expect(screen.getAllByRole("button", { name: "Expand Later Journal articles" })).toHaveLength(1);
+  expect(getArticlePipelineColumn).toHaveBeenCalledWith(
+    "images",
+    query,
+    20,
+    expect.any(AbortSignal),
+  );
+  expect(getArticlePipelineSourceArticles).not.toHaveBeenCalled();
+});
+
+it("keeps a source open across polling while refreshing its bounded first page", async () => {
+  vi.useFakeTimers();
+  const initial = groupedBoard();
+  const refreshed = groupedBoard();
+  refreshed.as_of = "2026-10-19T08:03:05Z";
+  for (const snapshot of [initial, refreshed]) {
+    const column = snapshot.columns.find((column) => column.stage === "images")!;
+    column.total = 21;
+    column.source_groups![0].total = 21;
+    column.source_groups![0].state_counts = { running: 21 };
+    snapshot.counts.images = 21;
+  }
+  vi.mocked(getArticlePipeline).mockResolvedValueOnce(initial).mockResolvedValue(refreshed);
+  const firstPage = Array.from({ length: 20 }, (_, index) => ({
+    ...card,
+    id: `article-${index}`,
+    title: `Grouped article ${index}`,
+  }));
+  const extra = { ...card, id: "article-20", title: "Grouped article 20" };
+  vi.mocked(getArticlePipelineSourceArticles)
+    .mockResolvedValueOnce({ stage: "images", total: 21, items: firstPage, next_cursor: 20 })
+    .mockResolvedValueOnce({ stage: "images", total: 21, items: [extra], next_cursor: null })
+    .mockResolvedValue({ stage: "images", total: 21, items: firstPage, next_cursor: 20 });
+  await act(async () => {
+    renderAdmin(
+      <RefreshSettings>
+        <ArticlePipeline query="view=pipeline&group_by=source&stage=images" />
+      </RefreshSettings>,
+    );
+  });
+  await saveRefresh(0);
+  await act(async () => {
+    fireEvent.click(screen.getByRole("button", { name: "Expand Engineering Journal articles" }));
+  });
+  await act(async () => {
+    fireEvent.click(screen.getByRole("button", { name: "Load more Engineering Journal articles" }));
+  });
+  expect(screen.getByRole("link", { name: extra.title })).toBeDefined();
+  await act(() => vi.advanceTimersByTimeAsync(5000));
+  expect(
+    screen
+      .getByRole("button", { name: "Collapse Engineering Journal articles" })
+      .getAttribute("aria-expanded"),
+  ).toBe("true");
+  expect(screen.queryByRole("link", { name: extra.title })).toBeNull();
+  expect(screen.getAllByRole("link", { name: /^Grouped article/ })).toHaveLength(20);
+  expect(vi.mocked(getArticlePipelineSourceArticles).mock.calls.map((call) => call[3])).toEqual([
+    0, 20, 0,
+  ]);
+  expect(
+    screen.getByRole("button", { name: "Load more Engineering Journal articles" }),
+  ).toBeDefined();
+});
+
+it("keeps individual retry actions when a source is expanded across column collapse", async () => {
+  const user = userEvent.setup();
+  const initial = groupedBoard("ready");
+  initial.columns.find((column) => column.stage === "ready")!.total = 1;
+  initial.columns.find((column) => column.stage === "ready")!.source_groups![0].total = 1;
+  initial.columns.find((column) => column.stage === "ready")!.source_groups![0].state_counts = {
+    ready: 1,
+  };
+  initial.counts.ready = 1;
+  vi.mocked(getArticlePipeline).mockResolvedValue(initial);
+  vi.mocked(getArticlePipelineSourceArticles).mockResolvedValue({
+    stage: "ready",
+    total: 1,
+    items: [{ ...card, stage: "ready", state: "ready", retry_targets: ["analysis"] }],
+    next_cursor: null,
+  });
+  renderAdmin(<ArticlePipeline query="view=pipeline&group_by=source&stage=ready" />);
+  await user.click(
+    await screen.findByRole("button", { name: "Expand Engineering Journal articles" }),
+  );
+  await screen.findByRole("link", { name: card.title });
+  fireEvent.doubleClick(screen.getByRole("heading", { name: "Ready", level: 2 }));
+  expect(screen.getByRole("button", { name: "Expand Ready column" })).toBeDefined();
+  fireEvent.click(screen.getByRole("button", { name: "Expand Ready column" }));
+  expect(
+    screen.getByRole("button", { name: "Collapse Engineering Journal articles" }),
+  ).toBeDefined();
+  await user.click(screen.getByRole("button", { name: `Move back ${card.title}` }));
+  await user.click(screen.getByRole("menuitem", { name: "Retry AI analysis" }));
+  expect(retryArticlePipeline).toHaveBeenCalledWith(card.id, "analysis", 7, "test-csrf", "ai-job");
+});
+
+it("finishes a slow source request across multiple board polls without restarting it", async () => {
+  vi.useFakeTimers();
+  vi.mocked(getArticlePipeline).mockImplementation(async () => groupedBoard());
+  let finish!: (value: Awaited<ReturnType<typeof getArticlePipelineSourceArticles>>) => void;
+  vi.mocked(getArticlePipelineSourceArticles).mockImplementationOnce(
+    () => new Promise((resolve) => (finish = resolve)),
+  );
+  await act(async () => {
+    renderAdmin(
+      <RefreshSettings>
+        <ArticlePipeline query="view=pipeline&group_by=source&stage=images" />
+      </RefreshSettings>,
+    );
+  });
+  await saveRefresh(0);
+  await act(async () => {
+    fireEvent.click(screen.getByRole("button", { name: "Expand Engineering Journal articles" }));
+  });
+  const signal = vi.mocked(getArticlePipelineSourceArticles).mock.calls[0][4];
+  await act(() => vi.advanceTimersByTimeAsync(10000));
+  expect(getArticlePipeline).toHaveBeenCalledTimes(3);
+  expect(getArticlePipelineSourceArticles).toHaveBeenCalledTimes(1);
+  expect(signal.aborted).toBe(false);
+  await act(async () => {
+    finish({ stage: "images", total: 1, items: [card], next_cursor: null });
+  });
+  expect(screen.getByRole("link", { name: card.title })).toBeDefined();
+  expect(
+    screen
+      .getByRole("button", { name: "Collapse Engineering Journal articles" })
+      .getAttribute("aria-expanded"),
+  ).toBe("true");
+});
+
+it("fences an old source page while its refreshed first page is still pending", async () => {
+  vi.useFakeTimers();
+  vi.mocked(getArticlePipeline).mockImplementation(async () => groupedBoard());
+  const firstPage = Array.from({ length: 20 }, (_, index) => ({
+    ...card,
+    id: `source-article-${index}`,
+    title: `Source article ${index}`,
+  }));
+  const extra = { ...card, id: "late-page-two", title: "Stale source page two" };
+  let finishMore!: (value: Awaited<ReturnType<typeof getArticlePipelineSourceArticles>>) => void;
+  let finishRefresh!: (value: Awaited<ReturnType<typeof getArticlePipelineSourceArticles>>) => void;
+  vi.mocked(getArticlePipelineSourceArticles)
+    .mockResolvedValueOnce({ stage: "images", total: 21, items: firstPage, next_cursor: 20 })
+    .mockImplementationOnce(() => new Promise((resolve) => (finishMore = resolve)))
+    .mockImplementationOnce(() => new Promise((resolve) => (finishRefresh = resolve)));
+  await act(async () => {
+    renderAdmin(
+      <RefreshSettings>
+        <ArticlePipeline query="view=pipeline&group_by=source&stage=images" />
+      </RefreshSettings>,
+    );
+  });
+  await saveRefresh(0);
+  await act(async () => {
+    fireEvent.click(screen.getByRole("button", { name: "Expand Engineering Journal articles" }));
+  });
+  await act(async () => {
+    fireEvent.click(screen.getByRole("button", { name: "Load more Engineering Journal articles" }));
+  });
+  const oldPageSignal = vi.mocked(getArticlePipelineSourceArticles).mock.calls[1][4];
+  await act(() => vi.advanceTimersByTimeAsync(5000));
+  expect(oldPageSignal.aborted).toBe(true);
+  expect(getArticlePipelineSourceArticles).toHaveBeenCalledTimes(3);
+  await act(async () => {
+    finishMore({ stage: "images", total: 21, items: [extra], next_cursor: null });
+  });
+  expect(screen.queryByRole("link", { name: extra.title })).toBeNull();
+  expect(
+    (
+      screen.getByRole("button", {
+        name: "Load more Engineering Journal articles",
+      }) as HTMLButtonElement
+    ).disabled,
+  ).toBe(true);
+  await act(async () => {
+    finishRefresh({
+      stage: "images",
+      total: 21,
+      items: firstPage.map((item) => ({ ...item, title: `Refreshed ${item.title}` })),
+      next_cursor: 20,
+    });
+  });
+  expect(screen.getAllByRole("link", { name: /^Refreshed Source article/ })).toHaveLength(20);
+  expect(screen.queryByRole("link", { name: extra.title })).toBeNull();
+  expect(
+    (
+      screen.getByRole("button", {
+        name: "Load more Engineering Journal articles",
+      }) as HTMLButtonElement
+    ).disabled,
+  ).toBe(false);
+  expect(
+    screen.getByRole("button", { name: "Collapse Engineering Journal articles" }),
+  ).toBeDefined();
 });
 
 it("requests a retry with the target job baseline and keeps the old card until the new snapshot", async () => {
@@ -457,8 +800,10 @@ it("retains hidden and collapsed columns through polling, query changes, and rem
 });
 
 it("uses Pipeline/List views without loading the ordinary article table for the board", async () => {
+  navigation.query = "view=pipeline&group_by=source&stage=images&needs_attention=true";
+  vi.mocked(getArticlePipeline).mockResolvedValue(groupedBoard());
   renderAdmin(<ResourceList resource="articles" />);
-  await screen.findByRole("link", { name: card.title });
+  await screen.findByRole("button", { name: "Expand Engineering Journal articles" });
   expect(listRecords).not.toHaveBeenCalled();
   const views = screen.getByRole("navigation", { name: "Article views" });
   expect(within(views).getByRole("link", { name: "Pipeline" }).getAttribute("aria-current")).toBe(
@@ -466,6 +811,9 @@ it("uses Pipeline/List views without loading the ordinary article table for the 
   );
   expect(within(views).getByRole("link", { name: "List" }).getAttribute("href")).toContain(
     "view=list",
+  );
+  expect(within(views).getByRole("link", { name: "List" }).getAttribute("href")).not.toContain(
+    "group_by",
   );
 });
 

@@ -25,6 +25,7 @@ from devfeed_core.models import (
     utcnow,
 )
 from sqlalchemy import event, func, select
+from test_admin_auth import oidc_app as oidc_app
 
 
 def make_article(session, *, state="ready", source=None, age=0, title="Python task tracing"):
@@ -128,6 +129,15 @@ def make_article(session, *, state="ready", source=None, age=0, title="Python ta
             )
         )
     return article
+
+
+def test_source_grouping_requires_admin_before_database_access(oidc_app):
+    for path in (
+        "/v1/admin/article-pipeline?group_by=source",
+        "/v1/admin/article-pipeline/enrichment?group_by=source",
+        "/v1/admin/article-pipeline/enrichment?source_group=unknown",
+    ):
+        assert oidc_app.client.get(path).status_code == 401
 
 
 @pytest.mark.integration
@@ -301,6 +311,183 @@ def test_running_articles_precede_other_states_across_batches_and_pages(
         f"/v1/admin/article-pipeline/{stage}", params={"limit": 2, "cursor": 2}
     ).json()
     assert [card["id"] for card in repeated["items"]] == expected[2:4]
+
+
+@pytest.mark.integration
+def test_source_groups_count_complete_columns_before_group_pagination(
+    admin_client, database, monkeypatch
+):
+    from devfeed_admin_api import article_pipeline
+
+    monkeypatch.setattr(article_pipeline, "BATCH_SIZE", 2)
+    with database.begin() as session:
+        sources = {
+            name: Source(
+                name=name,
+                source_type="publisher",
+                feed_url=f"https://{key}.example/feed",
+                approval_status="approved",
+            )
+            for key, name in (
+                ("a", "A waiting"),
+                ("b", "B attention"),
+                ("z", "Z running"),
+            )
+        }
+        for name, states in (
+            ("A waiting", ["queued", "queued"]),
+            ("B attention", ["failed", "retry_wait"]),
+            ("Z running", ["running", "queued", "running"]),
+        ):
+            for state in states:
+                article = make_article(session, state="enrichment", source=sources[name], age=30)
+                job = session.scalar(
+                    select(ArticleEnrichmentJob).where(
+                        ArticleEnrichmentJob.article_id == article.id
+                    )
+                )
+                job.status = "queued" if state == "retry_wait" else state
+                job.attempts = 1 if state == "retry_wait" else 0
+                job.available_at = (
+                    utcnow() + timedelta(minutes=10) if state == "retry_wait" else utcnow()
+                )
+        identifiers = {name: str(source.id) for name, source in sources.items()}
+    response = admin_client.get(
+        "/v1/admin/article-pipeline", params={"group_by": "source", "limit": 1}
+    )
+    assert response.status_code == 200, response.text
+    board = response.json()
+    initial = next(column for column in board["columns"] if column["stage"] == "enrichment")
+    assert board["counts"]["enrichment"] == initial["total"] == 7
+    assert initial["items"] == [] and initial["next_cursor"] == 1
+    assert initial["source_groups"] == [
+        {
+            "source_id": identifiers["Z running"],
+            "source_name": "Z running",
+            "total": 3,
+            "state_counts": {"running": 2, "waiting": 1},
+        }
+    ]
+    groups, cursor = [], 0
+    while cursor is not None:
+        response = admin_client.get(
+            "/v1/admin/article-pipeline/enrichment",
+            params={"group_by": "source", "limit": 1, "cursor": cursor},
+        )
+        assert response.status_code == 200, response.text
+        page = response.json()
+        assert page["total"] == 7 and page["items"] == []
+        groups.extend(page["source_groups"])
+        cursor = page["next_cursor"]
+    assert [group["source_name"] for group in groups] == [
+        "Z running",
+        "B attention",
+        "A waiting",
+    ]
+    assert groups[1]["state_counts"] == {"blocked": 1, "retry_wait": 1}
+    assert len({group["source_id"] for group in groups}) == 3
+    attention = admin_client.get(
+        "/v1/admin/article-pipeline/enrichment",
+        params={"group_by": "source", "needs_attention": True},
+    ).json()
+    assert attention["total"] == 2
+    assert attention["source_groups"] == [groups[1]]
+    normal = admin_client.get("/v1/admin/article-pipeline/enrichment?limit=1").json()
+    assert normal["source_groups"] == [] and normal["items"][0]["state"] == "running"
+    expanded, cursor = [], 0
+    while cursor is not None:
+        page = admin_client.get(
+            "/v1/admin/article-pipeline/enrichment",
+            params={"source_group": identifiers["Z running"], "limit": 1, "cursor": cursor},
+        ).json()
+        assert page["total"] == 3
+        expanded.extend(page["items"])
+        cursor = page["next_cursor"]
+    assert [card["state"] for card in expanded] == ["running", "running", "waiting"]
+    assert len({card["id"] for card in expanded}) == 3
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize("stage", ["ingested", "published", "rejected"])
+def test_group_expansion_uses_displayed_source_with_multi_origin_unknown_and_filters(
+    admin_client, database, stage
+):
+    with database.begin() as session:
+        first = Source(
+            name="A approved",
+            source_type="publisher",
+            feed_url="https://first.example/feed",
+            approval_status="approved",
+        )
+        second = Source(
+            name="B approved",
+            source_type="publisher",
+            feed_url="https://second.example/feed",
+            approval_status="approved",
+        )
+        rejected = Source(
+            name="0 rejected",
+            source_type="publisher",
+            feed_url="https://rejected.example/feed",
+            approval_status="rejected",
+        )
+        multi = make_article(session, state=stage, source=first, title="Grouped Python multi")
+        multi.origins.extend(
+            ArticleOrigin(
+                source=source, entry_key=uuid.uuid4().hex, original_url=multi.canonical_url
+            )
+            for source in (second, rejected)
+        )
+        own = make_article(session, state=stage, source=second, title="Grouped Python own")
+        unknown = make_article(session, state=stage, title="Grouped Python unknown")
+        for origin in unknown.origins:
+            session.delete(origin)
+        make_article(session, state=stage, source=second, title="Excluded title")
+        if stage != "ingested":
+            old = make_article(
+                session, state=stage, source=second, age=30, title="Grouped Python old"
+            )
+            if stage == "rejected":
+                session.scalar(
+                    select(ArticleReview).where(ArticleReview.article_id == old.id)
+                ).created_at = utcnow() - timedelta(days=30)
+        session.flush()
+        first_id, second_id = str(first.id), str(second.id)
+        multi_id, own_id, unknown_id = str(multi.id), str(own.id), str(unknown.id)
+    params = {"group_by": "source", "q": "Grouped Python"}
+    response = admin_client.get(f"/v1/admin/article-pipeline/{stage}", params=params)
+    assert response.status_code == 200, response.text
+    column = response.json()
+    assert column["total"] == 3
+    assert [(group["source_id"], group["total"]) for group in column["source_groups"]] == [
+        (first_id, 1),
+        (second_id, 1),
+        (None, 1),
+    ]
+    expected_state = "waiting" if stage == "ingested" else "complete"
+    assert all(group["state_counts"] == {expected_state: 1} for group in column["source_groups"])
+    for group, expected in ((first_id, multi_id), (second_id, own_id), ("unknown", unknown_id)):
+        expanded = admin_client.get(
+            f"/v1/admin/article-pipeline/{stage}",
+            params={"q": "Grouped Python", "source_group": group},
+        )
+        assert expanded.status_code == 200, expanded.text
+        page = expanded.json()
+        assert page["total"] == 1 and page["next_cursor"] is None
+        assert [card["id"] for card in page["items"]] == [expected]
+    # The existing source filter includes any origin; group expansion must still
+    # distinguish the displayed primary source from a secondary origin.
+    filtered = admin_client.get(
+        f"/v1/admin/article-pipeline/{stage}",
+        params={**params, "source_id": second_id},
+    ).json()
+    assert filtered["total"] == 2
+    assert [group["source_id"] for group in filtered["source_groups"]] == [first_id, second_id]
+    expanded = admin_client.get(
+        f"/v1/admin/article-pipeline/{stage}",
+        params={"q": "Grouped Python", "source_id": second_id, "source_group": first_id},
+    ).json()
+    assert [card["id"] for card in expanded["items"]] == [multi_id]
 
 
 @pytest.mark.integration

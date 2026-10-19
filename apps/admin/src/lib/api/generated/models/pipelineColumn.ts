@@ -7,10 +7,12 @@
  */
 import type { PipelineCard } from './pipelineCard';
 import type { PipelineColumnStage } from './pipelineColumnStage';
+import type { PipelineSourceGroup } from './pipelineSourceGroup';
 
 export interface PipelineColumn {
   items: PipelineCard[];
   next_cursor: number | null;
+  source_groups?: PipelineSourceGroup[];
   stage: PipelineColumnStage;
   total: number;
 }

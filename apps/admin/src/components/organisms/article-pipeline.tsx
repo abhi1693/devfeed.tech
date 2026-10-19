@@ -3,19 +3,7 @@
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import {
-  CheckCheck,
-  ChevronsLeft,
-  ChevronsRight,
-  CircleAlert,
-  CircleCheck,
-  CircleX,
-  Clock3,
-  Columns3,
-  LoaderCircle,
-  MoreHorizontal,
-  TimerReset,
-} from "lucide-react";
+import { ChevronsLeft, ChevronsRight, Columns3, MoreHorizontal } from "lucide-react";
 import { Button } from "@devfeed/ui/button";
 import { Input } from "@devfeed/ui/input";
 import {
@@ -32,6 +20,8 @@ import { RequestState } from "@/components/molecules/request-state";
 import { useRequest } from "@/lib/use-request";
 import { useArticlePipelineInterval } from "@/lib/use-refresh-interval";
 import { usePipelineMotion } from "@/lib/use-pipeline-motion";
+import { pipelineCardStatuses as cardStatuses } from "@/lib/pipeline-status";
+import { ArticlePipelineSourceGroup } from "./article-pipeline-source-group";
 import { usePipelineColumns } from "@/lib/use-pipeline-columns";
 import { useAdmin } from "@/components/molecules/admin-session";
 import { recordHref } from "@/lib/routes";
@@ -47,6 +37,7 @@ import {
   type PipelineArticle,
   type PipelineStage,
   type PipelineRetryTarget,
+  type PipelineSourceGroup,
 } from "@/lib/article-pipeline";
 
 export function ArticlePipeline({ query }: { query: string }) {
@@ -127,6 +118,15 @@ export function ArticlePipeline({ query }: { query: string }) {
           clearLabel="All articles"
           options={[{ value: "true", label: "Needs attention" }]}
         />
+        <Select
+          label="Group cards"
+          className="w-full sm:w-40"
+          value={search.get("group_by") === "source" ? "source" : ""}
+          onChange={(group_by) => change({ group_by })}
+          placeholder="Articles"
+          clearLabel="Articles"
+          options={[{ value: "source", label: "Source" }]}
+        />
         <Popover>
           <PopoverTrigger asChild>
             <Button variant="outline" className="sm:ml-auto">
@@ -181,6 +181,7 @@ export function ArticlePipeline({ query }: { query: string }) {
           visible={columns.visible}
           collapsed={columns.collapsed}
           onCollapse={columns.toggleCollapsed}
+          refreshKey={revision}
           retrying={retrying}
           onRetry={(article, target) => void retry(article, target)}
         />
@@ -197,6 +198,7 @@ function PipelineColumns({
   visible,
   collapsed,
   onCollapse,
+  refreshKey,
   retrying,
   onRetry,
 }: {
@@ -207,10 +209,18 @@ function PipelineColumns({
   visible: PipelineStage[];
   collapsed: PipelineStage[];
   onCollapse: (stage: PipelineStage) => void;
+  refreshKey: number;
   retrying: string | null;
   onRetry: (article: PipelineArticle, target: PipelineRetryTarget) => void;
 }) {
-  const motionRef = usePipelineMotion(`${visible.join(",")}|${collapsed.join(",")}`);
+  const grouped = new URLSearchParams(query).get("group_by") === "source";
+  const [groupLayout, setGroupLayout] = useState(0);
+  const motionRef = usePipelineMotion(
+    `${grouped}|${groupLayout}|${visible.join(",")}|${collapsed.join(",")}`,
+  );
+  const [, setGroupRevision] = useState(0);
+  const onGroupArticlesChange = useCallback(() => setGroupRevision((value) => value + 1), []);
+  const onGroupExpansionChange = useCallback(() => setGroupLayout((value) => value + 1), []);
   const [additional, setAdditional] = useState<{
     snapshot: PipelineBoard;
     columns: Partial<Record<PipelineStage, PipelineColumn>>;
@@ -258,7 +268,11 @@ function PipelineColumns({
           snapshot,
           columns: {
             ...(previous?.snapshot === snapshot ? previous.columns : {}),
-            [column.stage]: { ...next, items: [...column.items, ...next.items] },
+            [column.stage]: {
+              ...next,
+              items: [...column.items, ...next.items],
+              source_groups: [...(column.source_groups ?? []), ...(next.source_groups ?? [])],
+            },
           },
         }));
     } catch (cause) {
@@ -269,6 +283,34 @@ function PipelineColumns({
     } finally {
       if (request.current === controller) setBusy(undefined);
     }
+  }
+  function renderArticle(item: PipelineArticle) {
+    return (
+      <PipelineCard
+        key={item.id}
+        article={item}
+        showSource={!grouped}
+        busy={retrying !== null}
+        retrying={retrying === item.id}
+        onRetry={onRetry}
+        onDragStart={(event) => {
+          if (
+            retrying ||
+            !item.retry_targets?.length ||
+            (event.target as HTMLElement).closest("button")
+          ) {
+            event.preventDefault();
+            return;
+          }
+          event.dataTransfer.effectAllowed = "move";
+          event.dataTransfer.setData(pipelineDragType, item.id);
+          event.dataTransfer.setData("text/plain", item.id);
+          dragging.current = item;
+          setDragged(item);
+        }}
+        onDragEnd={clearDrag}
+      />
+    );
   }
   return (
     <>
@@ -319,6 +361,11 @@ function PipelineColumns({
                   fractionA.localeCompare(fractionB) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0)
                 );
               });
+            const groups = [
+              ...new Map(
+                (column.source_groups ?? []).map((group) => [group.source_id, group]),
+              ).values(),
+            ].sort((a, b) => sourcePriority(a) - sourcePriority(b));
             return (
               <section
                 key={value}
@@ -402,32 +449,22 @@ function PipelineColumns({
                   id={`pipeline-${value}-articles`}
                   className={`space-y-3 p-3 ${isCollapsed ? "lg:hidden" : ""}`}
                 >
-                  {items.map((item) => (
-                    <PipelineCard
-                      key={item.id}
-                      article={item}
-                      busy={retrying !== null}
-                      retrying={retrying === item.id}
-                      onRetry={onRetry}
-                      onDragStart={(event) => {
-                        if (
-                          retrying ||
-                          !item.retry_targets?.length ||
-                          (event.target as HTMLElement).closest("button")
-                        ) {
-                          event.preventDefault();
-                          return;
-                        }
-                        event.dataTransfer.effectAllowed = "move";
-                        event.dataTransfer.setData(pipelineDragType, item.id);
-                        event.dataTransfer.setData("text/plain", item.id);
-                        dragging.current = item;
-                        setDragged(item);
-                      }}
-                      onDragEnd={clearDrag}
-                    />
-                  ))}
-                  {!items.length && (
+                  {grouped
+                    ? groups.map((group) => (
+                        <ArticlePipelineSourceGroup
+                          key={group.source_id ?? "unknown"}
+                          group={group}
+                          stage={value}
+                          query={query}
+                          snapshot={data}
+                          refreshKey={refreshKey}
+                          renderArticle={renderArticle}
+                          onArticlesChange={onGroupArticlesChange}
+                          onExpansionChange={onGroupExpansionChange}
+                        />
+                      ))
+                    : items.map(renderArticle)}
+                  {!(grouped ? groups.length : items.length) && (
                     <p className="py-6 text-center text-sm text-muted-foreground">
                       No articles in this stage.
                     </p>
@@ -446,7 +483,8 @@ function PipelineColumns({
                       loading={busy === value}
                       onClick={() => void more(column)}
                     >
-                      Load more {pipelineLabels[value].toLowerCase()} articles
+                      Load more {pipelineLabels[value].toLowerCase()}{" "}
+                      {grouped ? "sources" : "articles"}
                     </Button>
                   )}
                 </div>
@@ -461,59 +499,14 @@ function PipelineColumns({
 
 const pipelineDragType = "application/x-devfeed-article-pipeline";
 
-const cardStatuses = {
-  waiting: {
-    label: "Waiting",
-    icon: Clock3,
-    color: "text-amber-700 dark:text-amber-300",
-    card: "border-amber-200 border-l-amber-400 bg-amber-50/70 dark:border-amber-900 dark:border-l-amber-500 dark:bg-amber-950/25",
-  },
-  running: {
-    label: "Running",
-    icon: LoaderCircle,
-    color: "text-blue-700 dark:text-blue-300",
-    card: "border-blue-200 border-l-blue-400 bg-blue-50/70 dark:border-blue-900 dark:border-l-blue-500 dark:bg-blue-950/25",
-  },
-  retry_wait: {
-    label: "Waiting to retry",
-    icon: TimerReset,
-    color: "text-violet-700 dark:text-violet-300",
-    card: "border-violet-200 border-l-violet-400 bg-violet-50/70 dark:border-violet-900 dark:border-l-violet-500 dark:bg-violet-950/25",
-  },
-  blocked: {
-    label: "Blocked",
-    icon: CircleAlert,
-    color: "text-rose-700 dark:text-rose-300",
-    card: "border-rose-200 border-l-rose-400 bg-rose-50/70 dark:border-rose-900 dark:border-l-rose-500 dark:bg-rose-950/25",
-  },
-  ready: {
-    label: "Ready",
-    icon: CircleCheck,
-    color: "text-emerald-700 dark:text-emerald-300",
-    card: "border-emerald-200 border-l-emerald-400 bg-emerald-50/70 dark:border-emerald-900 dark:border-l-emerald-500 dark:bg-emerald-950/25",
-  },
-  complete: {
-    label: "Complete",
-    icon: CheckCheck,
-    color: "text-slate-600 dark:text-slate-300",
-    card: "border-slate-200 border-l-slate-400 bg-slate-50/70 dark:border-slate-800 dark:border-l-slate-500 dark:bg-slate-950/25",
-  },
-  published: {
-    label: "Published",
-    icon: CheckCheck,
-    color: "text-green-700 dark:text-green-300",
-    card: "border-green-200 border-l-green-400 bg-green-50/70 dark:border-green-900 dark:border-l-green-500 dark:bg-green-950/25",
-  },
-  rejected: {
-    label: "Rejected",
-    icon: CircleX,
-    color: "text-rose-700 dark:text-rose-300",
-    card: "border-rose-200 border-l-rose-400 bg-rose-50/70 dark:border-rose-900 dark:border-l-rose-500 dark:bg-rose-950/25",
-  },
-};
+function sourcePriority(group: PipelineSourceGroup) {
+  if (group.state_counts.running > 0) return 0;
+  return group.state_counts.blocked > 0 || group.state_counts.retry_wait > 0 ? 1 : 2;
+}
 
 function PipelineCard({
   article,
+  showSource,
   busy,
   retrying,
   onRetry,
@@ -521,6 +514,7 @@ function PipelineCard({
   onDragEnd,
 }: {
   article: PipelineArticle;
+  showSource: boolean;
   busy: boolean;
   retrying: boolean;
   onRetry: (article: PipelineArticle, target: PipelineRetryTarget) => void;
@@ -587,9 +581,11 @@ function PipelineCard({
           </DropdownMenu>
         )}
       </div>
-      <p className="break-words text-xs text-muted-foreground">
-        {article.source_name || "Unknown source"}
-      </p>
+      {showSource && (
+        <p className="break-words text-xs text-muted-foreground">
+          {article.source_name || "Unknown source"}
+        </p>
+      )}
     </article>
   );
 }

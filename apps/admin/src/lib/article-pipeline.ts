@@ -14,6 +14,7 @@ export type {
   PipelineDetail,
   PipelineJob,
   PipelineJobs,
+  PipelineSourceGroup,
 } from "./api/generated/models";
 export type PipelineArticle = PipelineCard;
 export const pipelineStages = [
@@ -62,6 +63,7 @@ export function pipelineQuery(query: string): URLSearchParams {
   const params = new URLSearchParams({ limit: "20" });
   for (const key of ["q", "source_id", "needs_attention"])
     if (original.get(key)) params.set(key, original.get(key)!);
+  if (original.get("group_by") === "source") params.set("group_by", "source");
   return params;
 }
 function pipelineParams(query: string): AdminArticlePipelineParams {
@@ -71,6 +73,7 @@ function pipelineParams(query: string): AdminArticlePipelineParams {
     ...(params.get("q") ? { q: params.get("q")! } : {}),
     ...(params.get("source_id") ? { source_id: params.get("source_id")! } : {}),
     ...(params.get("needs_attention") === "true" ? { needs_attention: true } : {}),
+    ...(params.get("group_by") === "source" ? { group_by: "source" as const } : {}),
   };
 }
 export function getArticlePipeline(query: string, signal: AbortSignal) {
@@ -86,6 +89,21 @@ export function getArticlePipelineColumn(
 }
 export function getArticlePipelineDetail(id: string, signal: AbortSignal) {
   return adminArticlePipelineDetail(id, { signal });
+}
+export function getArticlePipelineSourceArticles(
+  stage: PipelineStage,
+  query: string,
+  source_id: string | null,
+  cursor: number,
+  signal: AbortSignal,
+) {
+  const params = pipelineParams(query);
+  delete params.group_by;
+  return adminArticlePipelineColumn(
+    stage,
+    { ...params, source_group: source_id ?? "unknown", cursor },
+    { signal },
+  );
 }
 export function advanceArticlePipeline(id: string, expected_revision: number, csrf: string) {
   return adminArticlePipelineAdvance(

@@ -15,4 +15,5 @@ needs_attention?: boolean;
  * @maximum 50
  */
 limit?: number;
+group_by?: 'source' | null;
 };

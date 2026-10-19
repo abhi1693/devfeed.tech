@@ -53,7 +53,7 @@ function ArticlesScreen({ query }: { query: string }) {
     // View-specific filters must not silently narrow the other view.
     for (const key of view === "pipeline"
       ? ["review_status", "publication_status", "sort", "topic_id", "tag_id"]
-      : ["needs_attention", "stage"])
+      : ["needs_attention", "stage", "group_by"])
       params.delete(key);
     return `/content/articles?${params}`;
   }

@@ -20,4 +20,6 @@ limit?: number;
  * @maximum 2147483647
  */
 cursor?: number;
+group_by?: 'source' | null;
+source_group?: string | 'unknown' | null;
 };

@@ -138,6 +138,15 @@ collapse choices are remembered in this browser through refreshes and navigation
 On mobile, the stage selector includes only visible columns and always opens the full
 column. Changing the column layout does not animate cards as processing transitions.
 
+Use **Group cards → Source** to replace individual cards with a compact source
+summary in each column. Each summary shows the full matching article count and
+colored status counts; sources with running articles appear first. Expand a source
+to load its articles and use the same per-article retry and drag controls. Source
+summaries do not retry articles in bulk. Grouping respects search, source, and
+attention filters, and remains selected in the page URL. Open groups refresh
+automatically with the board, resetting extra article pages to the current first
+page. Source groups and the articles inside each group paginate independently.
+
 Drag a card onto an earlier **Enrichment**, **AI analysis**, or **Images** column to
 retry that task, including onto a collapsed rail. The card menu provides the same
 actions for keyboard and mobile use, including tasks whose columns are hidden.

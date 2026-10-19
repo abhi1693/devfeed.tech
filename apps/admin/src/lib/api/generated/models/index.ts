@@ -391,6 +391,8 @@ export * from './pipelineHour';
 export * from './pipelineJob';
 export * from './pipelineJobs';
 export * from './pipelineQueue';
+export * from './pipelineSourceGroup';
+export * from './pipelineSourceGroupStateCounts';
 export * from './pipelineThroughput';
 export * from './placementPlatform';
 export * from './productAction';
