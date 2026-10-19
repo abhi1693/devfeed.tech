@@ -267,6 +267,10 @@ export const pageRouteCatalogs = {
     { path: "/v1/topics/:id", label: "/v1/topics/:id" },
     { path: "/v1/users/:id", label: "/v1/users/:id" },
     { path: "/_next/image", label: "/_next/image" },
+    {
+      path: "/.well-known/oauth-protected-resource",
+      label: "/.well-known/oauth-protected-resource",
+    },
     { path: "/extension/login-complete", label: "/extension/login-complete" },
     { path: "/legal/privacy", label: "/legal/privacy" },
     { path: "/legal/terms", label: "/legal/terms" },

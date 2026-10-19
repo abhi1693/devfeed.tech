@@ -752,3 +752,25 @@ delivery from earlier article delivery. Deployment/network latency needs a separ
 Reader browser regressions verify the shell with feed responses held pending on web and both
 built extensions, as well as distinct reader preferences, per-response nonces, and subsequent
 unpublication/republication. These checks avoid relying on machine-dependent timing limits.
+
+## OAuth protected-resource discovery
+
+`/.well-known/oauth-protected-resource` publishes JSON for the configured MCP
+bearer-token resource. It reads the user API's existing `DEVFEED_USER_MCP_RESOURCE_URL`
+and `DEVFEED_USER_MCP_ISSUER_URL` settings, which are also used by agent token validation.
+Compose already derives these from the MCP resource and issuer configuration; no new
+frontend issuer setting is needed. Disabled agent authentication returns 404, and
+upstream failure returns a generic 503. Responses are not cached.
+
+This root endpoint is a discovery mirror for MCP, not a declaration that the reader's
+browser-session gateway accepts bearer tokens. The resource and authorization-server
+identifiers remain the actual MCP values. Content-Location and canonical Link headers
+point to the MCP resource's authoritative path-specific metadata, preserving custom
+resource paths and trailing slashes. Clients should verify metadata at that canonical
+location and read its scopes and authorization-server capabilities before authenticating.
+Existing MCP 401 discovery challenges continue pointing to that canonical metadata.
+
+Deploy the user API and reader updates together. After rollout, verify GET and HEAD on
+the public root URL and follow its canonical metadata and issuer discovery links.
+Run the agent-readiness scan and check `checks.discovery.oauthProtectedResource.status`.
+A local check is not proof of the deployed/CDN response.
