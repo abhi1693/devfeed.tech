@@ -109,6 +109,81 @@ article review is unchanged. Automatic rejection retains its 80% evidence requir
 The scheduler requeues pending assessments from v1–v4 once, excluding active or failed
 jobs; current-version assessments are not repeatedly queued.
 
+## Reusable Kanban views
+
+`components/organisms/kanban-board.tsx` supplies the shared board, column, card,
+column picker, action menu and pagination footer. Compose them with a feature's
+own filters, title links, detail panels and menu items. The components accept
+labels, counts and React children; they do not import article/source models,
+call APIs or decide which transitions are allowed.
+
+- Use `useBoardColumns(storageKey, stages)` with a unique, stable browser key.
+  Pass its visible stages and collapsed choices to `KanbanBoard`,
+  `KanbanColumn` and `BoardColumnsMenu`. Keep existing keys when migrating a view.
+- `KanbanCard` receives a status presentation, title and optional actions.
+  Set `data-board-item-id` to a stable, board-unique key and `data-board-stage`
+  to its current stage. The board animates existing cards moving or reordering,
+  honoring reduced motion and resetting on layout changes. `layoutKey` should
+  include grouping, visible columns and other changes that rearrange the layout.
+- `useBoardDrag` takes a board-specific MIME type, item-key/allowed-target
+  accessors and an `onDrop` callback. Spread `cardProps(item)` onto the card and
+  `columnProps(stage)` onto its column. It rejects external or mismatched drags,
+  preserves links/buttons, and disables drops while a mutation is pending.
+  Keep server authorization, CSRF and revision/job checks in the feature adapter.
+- `useBoardPagination` accepts the current polled snapshot, a page loader and a
+  page merge function. Its columns, loading lane, error lane and `more` action
+  feed `BoardLoadMore`. A new snapshot discards old pages and cancels outstanding
+  requests; late successes and errors cannot modify the refreshed board.
+  Feature-specific fields, such as article source groups, belong in `merge`.
+- `boardItems` resolves newer copies of moving items; `compareBoardItems`
+  orders running work first with precise timestamps and stable key ties. The
+  adapter decides which terminal columns retain server ordering.
+- `board-status.ts` owns common colors/icons. Feature modules select semantic
+  labels such as Published, Active and Paused. `useBoardRefreshInterval` keeps
+  processing views live when ordinary table refresh is disabled; `useRequest`
+  supplies visibility-aware polling.
+
+For a new review board, stage names can be unrelated to either lifecycle:
+
+```tsx
+const stages = ["queued", "verified"] as const;
+const labels = { queued: "Queued", verified: "Verified" };
+const columns = useBoardColumns("devfeed:admin-review-columns", stages);
+
+<KanbanBoard
+  label="Review queue"
+  stageLabel="Review stage"
+  stages={columns.visible}
+  labels={labels}
+  counts={counts}
+  selected={selected}
+  onSelect={setSelected}
+  layoutKey={`${columns.visible}|${columns.collapsed}`}
+>
+  {columns.visible.map((stage) => (
+    <KanbanColumn
+      key={stage}
+      id={`review-${stage}`}
+      contentId={`review-${stage}-items`}
+      label={labels[stage]}
+      total={counts[stage]}
+      countLabel={`${counts[stage]} reviews`}
+      selected={selected === stage}
+      collapsed={columns.collapsed.includes(stage)}
+      onCollapse={() => columns.toggleCollapsed(stage)}
+    >
+      {renderReviews(stage)}
+    </KanbanColumn>
+  ))}
+</KanbanBoard>;
+```
+
+Shared component/hook tests use a third review domain. The article and source
+tests retain their API, retry, grouping and polling coverage. Validate changes
+with `npm run admin:test`, `npm run admin:lint`, `npm run admin:build`, then both
+`node apps/admin/tests/browser/article-pipeline.mjs` and
+`node apps/admin/tests/browser/source-pipeline.mjs`.
+
 ## Article eligibility
 
 The Articles page has **Pipeline** and **List** views. Open

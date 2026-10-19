@@ -3,10 +3,9 @@
 import { useCallback, useLayoutEffect, useRef } from "react";
 
 type Position = { stage: string; left: number; top: number };
-const boardAttributes = { id: "data-board-item-id", stage: "data-board-stage" };
 
 /** Animate existing cards moving in the board without changing layout, scrolling or focus. */
-export function useBoardMotion(layoutKey = "", attributes = boardAttributes) {
+export function useBoardMotion(layoutKey = "") {
   const region = useRef<HTMLDivElement>(null);
   const previous = useRef(new Map<string, Position>());
   const animations = useRef(new Set<Animation>());
@@ -57,10 +56,10 @@ export function useBoardMotion(layoutKey = "", attributes = boardAttributes) {
       bounds.height > 0;
 
     for (const element of root.querySelectorAll<HTMLElement>(
-      `[${attributes.id}][${attributes.stage}]`,
+      "[data-board-item-id][data-board-stage]",
     )) {
-      const id = element.getAttribute(attributes.id);
-      const stage = element.getAttribute(attributes.stage);
+      const id = element.dataset.boardItemId;
+      const stage = element.dataset.boardStage;
       const rect = element.getBoundingClientRect();
       if (!id || !stage || rect.width <= 0 || rect.height <= 0) continue;
       // Content coordinates remain stable when the board or document scrolls.

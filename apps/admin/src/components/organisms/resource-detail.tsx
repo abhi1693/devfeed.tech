@@ -32,8 +32,7 @@ import {
   type RecordIdentity,
   type SimpleResource,
 } from "@/lib/record-identities";
-import { useRefreshInterval } from "@/lib/use-refresh-interval";
-import { useSourcePipelineInterval } from "@/lib/use-source-pipeline-interval";
+import { useRefreshInterval, useBoardRefreshInterval } from "@/lib/use-refresh-interval";
 import { useRequest } from "@/lib/use-request";
 import { adminArticleContent } from "@/lib/api/generated/admin";
 import { imagePreviewUrl } from "@/lib/image-preview";
@@ -61,7 +60,7 @@ export function ResourceDetail({
   section?: DetailSection;
 }) {
   const refreshSeconds = useRefreshInterval();
-  const sourceSeconds = useSourcePipelineInterval();
+  const sourceSeconds = useBoardRefreshInterval();
   const [revision, setRevision] = useState(0);
   const load = useCallback((signal: AbortSignal) => getRecord(identity, signal), [identity]);
   const result = useRequest(

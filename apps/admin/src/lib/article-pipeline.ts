@@ -17,6 +17,7 @@ export type {
   PipelineSourceGroup,
 } from "./api/generated/models";
 export type PipelineArticle = PipelineCard;
+export const pipelineColumnsStorageKey = "devfeed:admin-article-pipeline-columns";
 export const pipelineStages = [
   "ingested",
   "enrichment",

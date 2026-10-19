@@ -21,9 +21,8 @@ import { notify, notifyFailure } from "@/lib/notifications";
 import { StatusBadge } from "@/components/molecules/status-badge";
 import { SourceReadiness } from "./source-readiness";
 import type { SourcePipelineDetail } from "@/lib/source-pipeline";
-import { useSourcePipelineInterval } from "@/lib/use-source-pipeline-interval";
+import { useBoardRefreshInterval } from "@/lib/use-refresh-interval";
 import { getArticlePipelineDetail } from "@/lib/article-pipeline";
-import { useArticlePipelineInterval } from "@/lib/use-refresh-interval";
 import { DateTime } from "@/components/molecules/date-time";
 type WorkflowIdentity = Extract<RecordIdentity, { resource: "articles" | "sources" }>;
 export type Workflow = "review" | "classify" | "fetch";
@@ -35,15 +34,14 @@ export function ResourceWorkflow({
   action: Workflow;
 }) {
   const resource = identity.resource;
-  const seconds = useSourcePipelineInterval();
-  const refreshSeconds = useArticlePipelineInterval();
+  const seconds = useBoardRefreshInterval();
   const [revision, setRevision] = useState(0);
   const [sourceReadiness, setSourceReadiness] = useState<SourcePipelineDetail>();
   const load = useCallback((signal: AbortSignal) => getRecord(identity, signal), [identity]);
   const result = useRequest(
     recordIdentityKey(identity),
     load,
-    resource === "sources" ? seconds * 1000 : action === "review" ? refreshSeconds * 1000 : 0,
+    resource === "sources" || action === "review" ? seconds * 1000 : 0,
     revision,
   );
   return (
@@ -118,7 +116,7 @@ function Decision({
       ? !sourceReadiness?.item.can_ingest
       : decision === "approved" && !sourceReadiness?.item.can_approve);
   const [readinessRevision, setReadinessRevision] = useState(0);
-  const refreshSeconds = useArticlePipelineInterval();
+  const refreshSeconds = useBoardRefreshInterval();
   const readinessLoad = useCallback(
     async (signal: AbortSignal) =>
       resource === "articles"

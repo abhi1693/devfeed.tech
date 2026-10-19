@@ -9,7 +9,7 @@ import { RequestState } from "@/components/molecules/request-state";
 import { DateTime } from "@/components/molecules/date-time";
 import { AnalysisStepList } from "@/components/molecules/analysis-step-list";
 import { useRequest } from "@/lib/use-request";
-import { useArticlePipelineInterval } from "@/lib/use-refresh-interval";
+import { useBoardRefreshInterval } from "@/lib/use-refresh-interval";
 import { humanize } from "@/lib/resources";
 import {
   advanceArticlePipeline,
@@ -26,7 +26,7 @@ export function ArticleReadiness({ id }: { id: string }) {
   const [busy, setBusy] = useState(false);
   const [actionError, setActionError] = useState<Error>();
   const admin = useAdmin();
-  const seconds = useArticlePipelineInterval();
+  const seconds = useBoardRefreshInterval();
   const load = useCallback(
     async (signal: AbortSignal) => ({
       ...(await getArticlePipelineDetail(id, signal)),
