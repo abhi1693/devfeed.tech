@@ -525,6 +525,33 @@ it("fences an old source page while its refreshed first page is still pending", 
   ).toBeDefined();
 });
 
+it("keeps the named board out of the tab order while supporting keyboard retries", async () => {
+  const user = userEvent.setup();
+  vi.mocked(getArticlePipeline).mockResolvedValue(
+    board({ ...card, stage: "ready", state: "ready", retry_targets: ["analysis"] }),
+  );
+  renderAdmin(<ArticlePipeline query="view=pipeline&stage=ready" />);
+  const region = await screen.findByRole("region", { name: "Article publication pipeline" });
+  expect(region.tabIndex).toBe(-1);
+  const articleLink = within(region).getByRole("link", { name: card.title });
+  articleLink.focus();
+  await user.tab();
+  expect(document.activeElement).toBe(
+    within(region).getByRole("button", { name: `Move back ${card.title}` }),
+  );
+  await user.keyboard("{Enter}");
+  const retry = await screen.findByRole("menuitem", { name: "Retry AI analysis" });
+  await waitFor(() => expect(document.activeElement).toBe(retry));
+  await user.keyboard("{Enter}");
+  expect(retryArticlePipeline).toHaveBeenCalledExactlyOnceWith(
+    card.id,
+    "analysis",
+    7,
+    "test-csrf",
+    "ai-job",
+  );
+});
+
 it("requests a retry with the target job baseline and keeps the old card until the new snapshot", async () => {
   const user = userEvent.setup();
   const ready = {

@@ -330,8 +330,7 @@ function PipelineColumns({
         ref={motionRef}
         role="region"
         aria-label="Article publication pipeline"
-        tabIndex={0}
-        className="max-w-full overflow-x-auto rounded-lg focus-visible:outline-2 focus-visible:outline-ring"
+        className="max-w-full overflow-x-auto rounded-lg"
       >
         <div className="grid gap-4 lg:flex lg:w-max lg:items-stretch">
           {visible.map((value) => {
