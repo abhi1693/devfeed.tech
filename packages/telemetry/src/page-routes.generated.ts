@@ -293,6 +293,7 @@ export const pageRouteCatalogs = {
     { path: "/users/:id", label: "/users/:username" },
     { path: "/", label: "/" },
     { path: "/articles", label: "/articles" },
+    { path: "/auth.md", label: "/auth.md" },
     { path: "/comparisons", label: "/comparisons" },
     { path: "/dev-card", label: "/dev-card" },
     { path: "/latest", label: "/latest" },

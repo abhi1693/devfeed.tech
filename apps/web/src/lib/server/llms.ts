@@ -15,6 +15,11 @@ export function llmsIndex(request: Request) {
         title: "Start here",
         links: [
           {
+            title: "Agent authentication and registration",
+            href: `${origin}/auth.md`,
+            description: "Existing OAuth client registration, user consent, scopes, and token use.",
+          },
+          {
             title: "Full agent guide and current public content",
             href: `${origin}/llms-full.txt`,
             description:
