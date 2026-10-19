@@ -27,6 +27,7 @@ from devfeed_user_api import (
     mcp,
     must_reads,
     notifications,
+    oidc_discovery,
     partner_placements,
     preferences,
     profile,
@@ -91,6 +92,7 @@ def create_app() -> FastAPI:
             app, router, default_policy=ReaderGatewayPolicy(extension=ExtensionTransportPolicy())
         )
     app.include_router(protected_resource.router)
+    app.include_router(oidc_discovery.router)
     install_runtime_policies(app)
     return app
 

@@ -775,6 +775,27 @@ the public root URL and follow its canonical metadata and issuer discovery links
 Run the agent-readiness scan and check `checks.discovery.oauthProtectedResource.status`.
 A local check is not proof of the deployed/CDN response.
 
+## OAuth / OIDC discovery
+
+`/.well-known/openid-configuration` exposes the public metadata of the reader's
+configured OIDC provider. The user API loads it through the same issuer and endpoint
+validation used for sign-in; the reader forwards no incoming credentials. No new
+frontend issuer setting is needed. The endpoint returns 404 if reader authentication
+is disabled and a generic 503 when provider discovery or capability validation fails.
+Responses are not cached, and only allowlisted public provider fields are published.
+
+This is a discovery mirror, not a new authorization server. The JSON retains the real
+provider issuer, authorization/token/JWKS URLs, grants, and response types. The
+Content-Location and canonical Link headers point to that issuer's discovery document.
+Clients must use the advertised issuer for canonical OIDC discovery and issuer validation;
+do not configure the reader origin itself as an OIDC issuer. Discovering the reader's
+provider does not grant an agent access to the reader API or automatically register a
+client at the provider. MCP continues to use its independent OAuth discovery flow.
+
+Deploy the user API and reader changes together. After rollout, GET the public
+well-known URL, verify the advertised issuer's canonical metadata and JWKS, and run
+the agent-readiness scan. Browser login and MCP token behavior are unchanged.
+
 ## Automated API discovery
 
 `/.well-known/api-catalog` publishes the reader gateway as an RFC 9727 Linkset.
