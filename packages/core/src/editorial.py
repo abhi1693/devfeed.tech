@@ -10,9 +10,11 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from devfeed_core.article_jobs import approved_sources
+from devfeed_core.article_lifecycle import processing_readiness
 from devfeed_core.models import Article, ArticleReview, utcnow
 from devfeed_core.schemas import ContentFormat, ContentType, InputModel, Name, ReviewNote
 from devfeed_core.services import OperationConflict, RecordNotFound
+from devfeed_core.topics import lock_topics
 from devfeed_core.urls import validate_public_url
 
 logger = logging.getLogger(__name__)
@@ -83,6 +85,10 @@ def decide_article(
     dry_run=False,
     automation=None,
 ):
+    # Match workers and ingestion: keep source authority stable before locking the
+    # article. Job rows are only read by readiness, avoiding an inverted job lock.
+    if body.action == "publish":
+        approved_sources(session, identifier, lock=True)
     article = session.scalar(
         select(Article).where(Article.id == identifier).with_for_update(of=Article)
     )
@@ -92,13 +98,19 @@ def decide_article(
         raise OperationConflict("Article changed; inspect it before repeating the decision")
     if body.action == "reject" and not body.note:
         raise OperationConflict("Rejecting an article requires a reason")
+    if body.action == "publish":
+        lock_topics(session, read=True)
+        session.expire(article, ["topic_links"])
     blockers = publication_blockers(article)
     if not approved_sources(session, article.id):
         blockers.append("no_approved_source")
     if body.action == "approve" and "not_substantive_article" in blockers:
         raise OperationConflict("Approval blocked: not_substantive_article")
-    if body.action == "publish" and blockers:
-        raise OperationConflict("Publication blocked: " + ", ".join(blockers))
+    if body.action == "publish":
+        if not blockers:
+            blockers.extend(processing_readiness(session, article).blockers)
+        if blockers:
+            raise OperationConflict("Publication blocked: " + ", ".join(blockers))
     if dry_run:
         return article
     decision_at = utcnow()

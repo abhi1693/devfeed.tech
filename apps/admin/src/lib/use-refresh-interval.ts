@@ -6,3 +6,8 @@ import { useSettings } from "./use-settings";
 export function useRefreshInterval() {
   return useSettings().settings.defaults.refresh_seconds;
 }
+
+/** Processing views stay current even when general table refresh is disabled. */
+export function useBoardRefreshInterval() {
+  return Math.max(5, useRefreshInterval() || 5);
+}

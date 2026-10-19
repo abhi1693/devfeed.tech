@@ -2266,6 +2266,131 @@ export const adminGatewayOperations = [
     },
   },
   {
+    operationId: "admin_source_pipeline",
+    method: "GET",
+    path: "/v1/admin/source-pipeline",
+    parameters: [],
+    policy: {
+      bodyLimit: 1000000,
+      bodyTimeoutMs: 2000,
+      upstreamTimeoutMs: 45000,
+    },
+  },
+  {
+    operationId: "admin_source_pipeline_column",
+    method: "GET",
+    path: "/v1/admin/source-pipeline/columns/{stage}",
+    parameters: [
+      {
+        name: "stage",
+        schema: {
+          type: "string",
+          enum: [
+            "discovery",
+            "profile",
+            "assessment",
+            "branding",
+            "review",
+            "ingestion",
+            "active",
+            "paused",
+            "rejected",
+          ],
+        },
+        converter: "str",
+      },
+    ],
+    policy: {
+      bodyLimit: 1000000,
+      bodyTimeoutMs: 2000,
+      upstreamTimeoutMs: 45000,
+    },
+  },
+  {
+    operationId: "admin_source_pipeline_detail",
+    method: "GET",
+    path: "/v1/admin/source-pipeline/items/{kind}/{identifier}",
+    parameters: [
+      {
+        name: "kind",
+        schema: {
+          type: "string",
+          enum: ["source", "candidate"],
+        },
+        converter: "str",
+      },
+      {
+        name: "identifier",
+        schema: {
+          type: "string",
+          format: "uuid",
+        },
+        converter: "str",
+      },
+    ],
+    policy: {
+      bodyLimit: 1000000,
+      bodyTimeoutMs: 2000,
+      upstreamTimeoutMs: 45000,
+    },
+  },
+  {
+    operationId: "admin_source_pipeline_advance",
+    method: "POST",
+    path: "/v1/admin/source-pipeline/items/{kind}/{identifier}/advance",
+    parameters: [
+      {
+        name: "kind",
+        schema: {
+          type: "string",
+          enum: ["source", "candidate"],
+        },
+        converter: "str",
+      },
+      {
+        name: "identifier",
+        schema: {
+          type: "string",
+          format: "uuid",
+        },
+        converter: "str",
+      },
+    ],
+    policy: {
+      bodyLimit: 1000000,
+      bodyTimeoutMs: 2000,
+      upstreamTimeoutMs: 45000,
+    },
+  },
+  {
+    operationId: "admin_source_pipeline_retry",
+    method: "POST",
+    path: "/v1/admin/source-pipeline/items/{kind}/{identifier}/retry",
+    parameters: [
+      {
+        name: "kind",
+        schema: {
+          type: "string",
+          enum: ["source", "candidate"],
+        },
+        converter: "str",
+      },
+      {
+        name: "identifier",
+        schema: {
+          type: "string",
+          format: "uuid",
+        },
+        converter: "str",
+      },
+    ],
+    policy: {
+      bodyLimit: 1000000,
+      bodyTimeoutMs: 2000,
+      upstreamTimeoutMs: 45000,
+    },
+  },
+  {
     operationId: "list_suggestions_v1_admin_search_suggestions_get",
     method: "GET",
     path: "/v1/admin/search-suggestions",
@@ -2452,6 +2577,106 @@ export const adminGatewayOperations = [
     operationId: "admin_article_delete",
     method: "DELETE",
     path: "/v1/admin/articles/{article_id}",
+    parameters: [
+      {
+        name: "article_id",
+        schema: {
+          type: "string",
+          format: "uuid",
+        },
+        converter: "str",
+      },
+    ],
+    policy: {
+      bodyLimit: 1000000,
+      bodyTimeoutMs: 2000,
+      upstreamTimeoutMs: 45000,
+    },
+  },
+  {
+    operationId: "admin_article_pipeline",
+    method: "GET",
+    path: "/v1/admin/article-pipeline",
+    parameters: [],
+    policy: {
+      bodyLimit: 1000000,
+      bodyTimeoutMs: 2000,
+      upstreamTimeoutMs: 45000,
+    },
+  },
+  {
+    operationId: "admin_article_pipeline_column",
+    method: "GET",
+    path: "/v1/admin/article-pipeline/{stage}",
+    parameters: [
+      {
+        name: "stage",
+        schema: {
+          type: "string",
+          enum: [
+            "ingested",
+            "enrichment",
+            "analysis",
+            "images",
+            "review",
+            "ready",
+            "published",
+            "rejected",
+          ],
+        },
+        converter: "str",
+      },
+    ],
+    policy: {
+      bodyLimit: 1000000,
+      bodyTimeoutMs: 2000,
+      upstreamTimeoutMs: 45000,
+    },
+  },
+  {
+    operationId: "admin_article_pipeline_detail",
+    method: "GET",
+    path: "/v1/admin/articles/{article_id}/pipeline",
+    parameters: [
+      {
+        name: "article_id",
+        schema: {
+          type: "string",
+          format: "uuid",
+        },
+        converter: "str",
+      },
+    ],
+    policy: {
+      bodyLimit: 1000000,
+      bodyTimeoutMs: 2000,
+      upstreamTimeoutMs: 45000,
+    },
+  },
+  {
+    operationId: "admin_article_pipeline_advance",
+    method: "POST",
+    path: "/v1/admin/articles/{article_id}/pipeline/advance",
+    parameters: [
+      {
+        name: "article_id",
+        schema: {
+          type: "string",
+          format: "uuid",
+        },
+        converter: "str",
+      },
+    ],
+    policy: {
+      bodyLimit: 1000000,
+      bodyTimeoutMs: 2000,
+      upstreamTimeoutMs: 45000,
+    },
+  },
+  {
+    operationId: "admin_article_pipeline_retry",
+    method: "POST",
+    path: "/v1/admin/articles/{article_id}/pipeline/retry",
     parameters: [
       {
         name: "article_id",

@@ -41,7 +41,7 @@ def serve(app):
 def test_sdk_calls_all_tools_and_cannot_retrieve_hidden_records(
     database, search_engine, publish_for_read_test
 ):
-    article = record(slug="angular-routing")
+    article = record(slug="angular-routing", publication_status="unpublished")
     article.origins[0].source.slug = "publisher"
     article_id, source_id = article.id, article.origins[0].source.id
     with database.begin() as session:

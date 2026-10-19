@@ -1,7 +1,7 @@
 import { afterEach, expect, it, vi } from "vitest";
 vi.mock("server-only", () => ({}));
 import { sitemapIndex, sitemapPages, sitemapPart } from "@/lib/server/sitemaps";
-import robots from "@/app/robots";
+import { GET as robots } from "@/app/robots.txt/route";
 import { feedHref, parseFilters } from "@/lib/feed-query";
 import {
   matchReaderDestinationPath,
@@ -317,10 +317,16 @@ it("rejects invalid shard paths before contacting the backend", async () => {
   expect(fetcher).not.toHaveBeenCalled();
 });
 
-it("advertises the index in robots and gives tags indexable canonical routes", () => {
+it("declares content signals and preserves crawl rules and the sitemap", async () => {
   vi.stubEnv("DEVFEED_USER_BASE_URL", "https://devfeed.tech");
-  expect(robots().sitemap).toBe("https://devfeed.tech/sitemap.xml");
-  expect(robots().rules).toEqual({ userAgent: "*", allow: "/", disallow: ["/api/"] });
+  const response = robots();
+  expect(response.status).toBe(200);
+  expect(response.headers.get("content-type")).toBe("text/plain; charset=utf-8");
+  expect(await response.text()).toBe(
+    "User-Agent: *\n" +
+      "Content-Signal: ai-train=no, search=yes, ai-input=no\n" +
+      "Allow: /\nDisallow: /api/\n\nSitemap: https://devfeed.tech/sitemap.xml\n",
+  );
   expect(feedHref(parseFilters({ tag: "c++" }))).toBe("/tags/c%2B%2B");
   expect(feedHref(parseFilters({ tag: "python", content_type: "tutorial" }))).toBe(
     "/tags/python/tutorials",

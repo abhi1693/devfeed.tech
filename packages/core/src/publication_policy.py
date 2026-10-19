@@ -3,6 +3,7 @@
 from sqlalchemy import select
 
 from devfeed_core.analysis import analysis_catalog_current, catalog, snapshot_hash, source_snapshot
+from devfeed_core.article_lifecycle import processing_readiness
 from devfeed_core.config import get_settings
 from devfeed_core.editorial import (
     EditorialDecision,
@@ -36,6 +37,7 @@ def evaluate_publication(session, article, job, *, taxonomy=None) -> dict:
     )
     source = sources[0] if sources else None
     reasons = [value for value in publication_blockers(article) if value != "not_approved"]
+    reasons.extend(processing_readiness(session, article, taxonomy=taxonomy).blockers)
     if source is None:
         reasons.append("source_policy_manual")
     if article.review_status != "pending" or article.publication_status != "unpublished":
@@ -143,6 +145,7 @@ def apply_publication_policy(session, article, job, *, taxonomy=None, evaluation
         and not {
             "current_catalog_required",
             "source_policy_manual",
+            "enrichment_pending",
         }.intersection(decision["reasons"])
         # Publication needs a complete ready result, but rejection only needs a
         # current explicit negative on an independent classification dimension.

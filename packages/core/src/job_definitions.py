@@ -120,6 +120,7 @@ JOB_DEFINITIONS = MappingProxyType(
                 "devfeed_aggregator.analysis_tasks.analyze_article",
                 "article-analysis",
                 "article_analysis",
+                timeout=1500,
             ),
             JobDefinition(
                 "topic-analysis",

@@ -1,5 +1,47 @@
 # Shared backend core
 
+## Source admission and recovery
+
+`source_lifecycle` derives Discovery, Profile, Assessment, Branding, Review, Ingestion,
+Active, Paused and Rejected from source decisions and existing durable jobs. Reading
+the board does not schedule work or change already-approved polling. Batch fact
+loading selects active work before terminal history; the same checks protect board
+actions, manual approval and enabling a source.
+
+First approval requires a successful profile captured for the current feed, source
+type and website, plus settled branding. A completed profile without a logo, or
+disabled image storage after active logo work settles, permits the normal fallback.
+Manual review may override uncertain or failed relevance assessment. Automatic
+decisions retain the existing grounded source-relevance policy and require current
+assessment evidence; supported rejection need not wait for branding. Approval queues
+ingestion once rather than starting a second profile request.
+
+Profile fetching and AI relevance use separate `SourceEnrichmentJob` operations. A
+relevance job uses the bounded feed sample saved by its successful profile and can
+retry without downloading metadata again. An obsolete source identity cannot apply
+results. Existing queued/running jobs retain their leases and coalesce requests.
+
+An explicit upstream retry on an approved source pauses new ingestion and records a
+private `processing_request` with required phases and operator attribution. That
+intent survives job replacement and additional retries. It clears only after an
+explicit successful Resume/enable or a new approval decision. Background completion
+never resumes the source. An ingestion-only retry keeps the source enabled. Pausing
+also fences an already-running fetch before article writes, without counting an
+intentional pause as a feed failure. Existing articles and approval history remain.
+
+Rejected sources may explicitly Reopen for review through the snapshot-guarded board
+action. This records operator intent, returns the source to pending and disabled, and
+requests fresh profile/discovery work without inventing an approval or ingestion.
+Older in-flight work retains its lease but cannot replace that fresh inspection.
+Reopened sources require manual approval even when full automation is enabled; prior
+reviews and existing articles remain available.
+
+Migration `0032_source_processing` defaults historical job operations to `legacy`
+and preserves source approval/enablement. Unbound historical profile evidence may
+support existing approved polling, but cannot prove first admission for a pending
+source. The private intent is not an independently persisted workflow stage. It follows schema `0031`; deploy migration `0032` before starting the new API
+and workers because older schemas lack the required processing fields.
+
 ## Original article attribution
 
 `ArticleOut` keeps DevFeed's display title separate from `original_title`. A publisher
@@ -151,6 +193,121 @@ invalidation and semantic analytics; `userRequest()` handles HTTP without interp
 endpoint paths. Effects run after body parsing and acknowledgement validation, and
 cancelled account-scoped writes emit no success effects. Analytics include explicit
 identifiers, counts and enums rather than request bodies or profile information.
+
+## Article publication lifecycle
+
+`article_lifecycle.py` derives readiness from the article, retained source evidence,
+current analysis and durable enrichment/image jobs. It does not persist another
+stage flag or introduce a new queue. The scheduler and explicit admin recovery
+use `reconcile_processing`; final publication uses the same readiness checks in
+the locked editorial transaction. Approving an article does not bypass processing.
+
+| Stage                | Requirement to advance                                                                                                |
+| -------------------- | --------------------------------------------------------------------------------------------------------------------- |
+| Ingested             | An approved source origin and an original-page enrichment request                                                     |
+| Enrichment           | A completed attempt for the current canonical URL                                                                     |
+| AI analysis          | Current source and catalog evidence, resolved classification, an identifying title, readable overview and description |
+| Images               | No active or failed current image work; managed variants complete when storage is enabled                             |
+| Review               | Valid metadata, an active primary topic, relevant article classification, approved source, and editorial approval     |
+| Ready                | Every publication prerequisite passes; manual or configured source policy may publish                                 |
+| Published / Rejected | Terminal editorial outcome; normal reconciliation does not reprocess it                                               |
+
+A successful lookup that finds no article image permits the reader's existing
+fallback. Failed or unfinished discovery does not. Missing authors remain unknown;
+the lifecycle does not invent a byline, source facts, a title prefix or filler prose.
+There is no word-count minimum. Bare version/release titles require an identifying
+rewrite supported by the retained article evidence.
+
+Queued, running, delayed retries and exhausted failures remain visible within their
+stage. Terminal failed jobs require an explicit retry; polling does not create an
+unlimited stream of fresh attempts. Insufficient evidence stays blocked until its
+inputs or review change. AI configuration and the existing content date window
+remain prerequisites. Automatic source publication authority and the independent
+article-derived topic proposal pause are preserved.
+
+The admin Articles page offers a pipeline board alongside the existing table view.
+Each card exposes blockers, current job links and retry timing. The article detail
+has a readiness checklist and revision-checked recovery. Publication is enforced
+by the server even for bulk review, CLI or stale clients. Active lanes include all
+waiting ages; terminal lanes explicitly cover the last seven days.
+
+Cards expose only the server's eligible processing retry targets: source enrichment,
+AI analysis and images. Moving a card backward or selecting a retry queues that
+task through its existing durable outbox; it never writes a stage flag. Requests
+compare both the article revision and the selected current job ID. A delayed or
+duplicate request conflicts after a new job exists, even if that job already finished.
+The selected task cannot be retried while active or waiting for a provider cooldown;
+an independent later task keeps its lease. Source changes still invalidate old AI
+results before they can apply. A failed analysis retry carries verified successful
+specialist results forward, while an explicit rerun of a completed analysis starts
+a fresh run. Processing audits carry an explicit marker and do not create a new
+human-review requirement.
+
+Published-card retries validate source approval, the AI content date window and
+the selected task's earlier prerequisites before atomically unpublishing and queuing
+work. An image-only retry requires current enrichment and AI presentation evidence,
+preserves that AI output and the original feed-publication timestamp, and returns
+to Ready after image completion. Publishing again remains an explicit editorial
+action and does not send another first-publication notification. Rejected cards
+require an editorial decision before processing recovery. Existing image assets
+remain intact during a forced refresh; an exhausted refresh blocks publication
+until resolved, and stale discovery cannot replace a newer image URL.
+
+Board counts use the same pure policy as admission. Current facts are loaded in
+keyset batches, with current jobs selected through history indexes. Exact active
+counts scan the waiting population; process-local readiness caching avoids loading
+large extraction and inference snapshots again when their input identities, catalog,
+article fields, settings and job state are unchanged. The publication transaction
+never trusts this display cache. Historical terminal counts and paging stay in SQL;
+only the displayed Published page loads current processing facts for retry actions.
+
+Migration `0033` follows `0032`, adds the image-job history index and includes approved
+unpublished articles in the automation due index. Analysis and enrichment reuse the
+`*_latest` indexes from `0027`. The new index builds concurrently, with repair of an
+interrupted build and a bounded metadata lock wait. This code supports schemas `0032`
+and `0033`; source processing requires the columns introduced by `0032`.
+Roll out compatible processes before applying `0033`. Its downgrade preserves parent
+indexes and restores the pending-only automation predicate; older binaries still need
+their own supported schema restored before they start.
+The v9 specialist workflow applies to eligible unpublished work. It does not launch a
+published-article backfill. Published content, URLs, feed order and notification
+history remain intact. Explicit board reprocessing unpublishes an eligible Published
+article in the retry transaction; other processing entrypoints require unpublishing
+first. Editing old live titles/descriptions is a separate editorial operation and is
+not performed by this migration or by viewing the board.
+
+### Focused AI tasks
+
+`article_analysis_steps.py` defines ten separate prompts and typed output contracts:
+developer relevance, page eligibility, language, content type, content format, topic
+matching, tag matching, identifying title, overview and search description. Each
+task receives only its required context. Only topic/tag matching receives taxonomy;
+description generation receives the accepted overview and source title. An already
+identifying original title skips a model call. Explicit negative eligibility stops
+unnecessary work, while an unresolved audience decision still permits the independent
+page-kind check to identify a utility page.
+
+The existing `ArticleAnalysisJob` remains the only queue/lease owner. Its `steps`
+property persists copy-on-write progress in the existing `usage.article_steps`
+JSONB field. Each task records its prompt version, input hash, model routing identity,
+status, attempt count, result and safe failure code. Provider calls hold no database
+transaction. The worker renews its lease between tasks, and its bounded RQ timeout
+allows the sequence to finish. There is no separate per-task worker service.
+
+Retries validate and reuse successful task results and repeat only the failed task.
+An explicit retry carries successful work forward only when the source identity
+matches; prompt, task context and routing changes invalidate affected work. Every
+task has a finite retry budget. An exhausted or insufficient task leaves the article
+unpublished. Only the fully validated aggregate applies article prose/classifications
+in one transaction; individual task completion never writes a partial public article.
+Manual corrections retain separately bound AI-generation evidence and cannot silently
+trigger paid analysis that overwrites editorial authority.
+
+The admin readiness view exposes task status, versions, attempts and retry times,
+without inference inputs or draft outputs. Retention removes historical task outputs
+along with private inference inputs while retaining operational metadata. Token
+accounting includes all task calls. Focused prompts usually require more calls per
+eligible article; early exits, deterministic title skips and result reuse bound waste.
 
 ## Object storage
 
