@@ -96,11 +96,28 @@ it("gives each HTML response a distinct script nonce without permitting arbitrar
   expect(nonce).toMatch(/^[A-Za-z0-9+/]{22}==$/);
   expect(second.headers.get("content-security-policy")).not.toBe(csp);
   expect(csp).not.toMatch(/script-src [^;]*'unsafe-inline'/);
+  const elements = csp.split("; ").find((directive) => directive.startsWith("script-src-elem "))!;
+  expect(elements).toContain(`'nonce-${nonce}'`);
+  expect(elements).toContain("https://devfeed.tech/.webmcp/bridge.js");
+  expect(elements).toContain("https://devfeed.tech/_next/static/");
+  expect(elements).not.toMatch(/'self'|'strict-dynamic'|'unsafe-inline'/);
   expect(csp).toContain("default-src 'self'");
   expect(csp).toContain("form-action 'self'");
   expect(csp.split("; ")).toContain("frame-ancestors 'self' https://nicklaunches.com");
   expect(first.headers.get("x-middleware-request-content-security-policy")).toBe(csp);
   expect(first.headers.get("link")).toContain("https://devfeed.tech/latest.md");
+});
+
+it("keeps path-scoped script exceptions usable on served reader aliases", async () => {
+  const response = await proxy(new NextRequest("http://192.0.2.10:3000/latest"));
+  const policy = response.headers.get("content-security-policy")!;
+  const elements = policy
+    .split("; ")
+    .find((directive) => directive.startsWith("script-src-elem "))!;
+  expect(elements).toContain("http://192.0.2.10:3000/_next/static/");
+  expect(elements).toContain("http://192.0.2.10:3000/.webmcp/bridge.js");
+  expect(elements).toContain("https://devfeed.tech/.webmcp/bridge.js");
+  expect(elements).not.toContain("'self'");
 });
 
 it("leaves private routes, assets, XML, discovery files, React navigation and actions alone", async () => {

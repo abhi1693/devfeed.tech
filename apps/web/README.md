@@ -752,3 +752,26 @@ delivery from earlier article delivery. Deployment/network latency needs a separ
 Reader browser regressions verify the shell with feed responses held pending on web and both
 built extensions, as well as distinct reader preferences, per-response nonces, and subsequent
 unpublication/republication. These checks avoid relying on machine-dependent timing limits.
+
+## Cloudflare WebMCP and script CSP
+
+Cloudflare can inject `/.webmcp/bridge.js` after origin rendering, without the
+reader's per-response nonce. The `script-src` strict-dynamic policy ignores URL
+allowlists for parser-inserted scripts, including same-origin scripts.
+
+The reader therefore uses a separate `script-src-elem` policy: the current nonce,
+the exact bridge URL and built Next.js static-asset directory on the canonical and
+served reader origins,
+and the existing Google Tag Manager and Clarity script hosts. This directive
+intentionally omits strict-dynamic so its URL exceptions work. It also omits
+blanket same-origin and unsafe-inline permission. Unrelated same-origin scripts,
+bridge path lookalikes, and unnonced inline scripts remain blocked. Script attributes
+remain disabled, and the general script-src directive retains strict-dynamic as
+a fallback; modern script elements follow script-src-elem instead.
+
+This is a deliberate move from inherited dynamic-script trust to an explicit
+script-element allowlist. New script providers need a reviewed policy update.
+The browser regression simulates Cloudflare's unnonced injected tag, reproduces
+the original block, and verifies bridge execution plus unrelated-script rejection.
+After deployment, verify the actual Cloudflare-injected bridge in the browser;
+local tests simulate the edge insertion and do not change Cloudflare settings.
