@@ -34,6 +34,7 @@ from devfeed_core.partner_credentials import (
     encrypt_credential,
     validate_credential,
 )
+from devfeed_core.partner_tiers import PartnerTier, sync_intervals
 from devfeed_core.partner_tools import ShortText
 from devfeed_core.rate_limits import RateLimitBudget, consume_rate_limits
 from devfeed_core.schemas import InputModel, ORMModel
@@ -84,7 +85,7 @@ class PartnerConnectionCreate(ConnectionLogoInput):
     name: ShortText
     connector: PartnerConnectorConfig
     credential: SecretStr | None = Field(default=None, json_schema_extra={"writeOnly": True})
-    sync_interval_minutes: int = Field(default=360, ge=15, le=10080, strict=True)
+    sync_interval_minutes: int = Field(default=1440, ge=60, le=1440, strict=True)
     enabled: bool = True
 
     _connector = field_validator("connector")(validate_partner_connector)
@@ -94,7 +95,7 @@ class PartnerConnectionUpdate(ConnectionLogoInput):
     name: ShortText | None = None
     connector: PartnerConnectorConfig | None = None
     credential: SecretStr | None = Field(default=None, json_schema_extra={"writeOnly": True})
-    sync_interval_minutes: int | None = Field(default=None, ge=15, le=10080, strict=True)
+    sync_interval_minutes: int | None = Field(default=None, ge=60, le=1440, strict=True)
     enabled: bool
     expected_revision: int = Field(ge=1, strict=True)
 
@@ -125,6 +126,7 @@ class PartnerConnectionPreview(PartnerConnectorPreview):
 
 
 class PartnerConnectionOut(ConnectionOut):
+    account_tier: PartnerTier = "bronze"
     auth_mode: Literal["none", "bearer", "api_key"]
     credential_header: str
 
@@ -153,6 +155,7 @@ def partner_connection_views(session, connections):
     for connection, view in zip(connections, connection_views(session, connections), strict=True):
         config = ConnectorConfig.model_validate(view.connector) if view.connector else None
         values = view.model_dump()
+        values["account_tier"] = view.account_tier or "bronze"
         if config:
             values["api_url"] = config.base_url + urlsplit(config.list_path).path
         values["error"] = (
@@ -182,6 +185,14 @@ def connection_access(session, account_id, provider, *, lock=False):
     if connection is None:
         raise HTTPException(404, "Import connection not found")
     return connection
+
+
+def validate_sync_interval(account, minutes):
+    if minutes not in sync_intervals(account.tier):
+        hours = ", ".join(str(value // 60) for value in sync_intervals(account.tier))
+        raise HTTPException(
+            422, f"Your {account.tier} tier allows sync intervals of {hours} hours."
+        )
 
 
 def authorize_connection_write(session, partner, account_id, *, creating=False):
@@ -394,7 +405,8 @@ def create_connection(
     prepared.prepare()
     with prepared.stage(session, lambda: access.require(account_id)):
         lock_catalog(session)
-        access.lock(account_id)
+        account = access.lock(account_id)
+        validate_sync_interval(account, body.sync_interval_minutes)
         if (
             session.scalar(
                 select(func.count())
@@ -457,7 +469,9 @@ def update_connection(
     prepared.prepare()
     with prepared.stage(session, authorize):
         lock_catalog(session)
-        access.lock(account_id)
+        account = access.lock(account_id)
+        if body.sync_interval_minutes is not None:
+            validate_sync_interval(account, body.sync_interval_minutes)
         connection = connection_access(session, account_id, provider, lock=True)
         check_revision(connection, body.expected_revision)
         current = ConnectorConfig.model_validate(connector_snapshot(connection))

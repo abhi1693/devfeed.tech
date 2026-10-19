@@ -4644,6 +4644,24 @@
             ],
             "title": "Account Id"
           },
+          "account_tier": {
+            "anyOf": [
+              {
+                "enum": [
+                  "bronze",
+                  "silver",
+                  "gold",
+                  "platinum",
+                  "diamond"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Account Tier"
+          },
           "ai_enabled": {
             "title": "Ai Enabled",
             "type": "boolean"
