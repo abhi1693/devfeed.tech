@@ -49,6 +49,27 @@ def render(values: dict[str, str], *, build: bool = False) -> dict:
     return json.loads(result.stdout)
 
 
+def check_private_mcp_routing(
+    registry_fixtures: dict[str, str], mcp_options: dict[str, str], *, build: bool
+) -> None:
+    """Keep the private MCP fetch address confined to the reader service."""
+    private_mcp = render(
+        {
+            **registry_fixtures,
+            **mcp_options,
+            "DEVFEED_MCP_INTERNAL_URL": "http://mcp:8003/mcp",
+        },
+        build=build,
+    )["services"]
+    assert private_mcp["web"]["environment"]["DEVFEED_MCP_INTERNAL_URL"] == ("http://mcp:8003/mcp")
+    assert (
+        private_mcp["web"]["environment"]["DEVFEED_MCP_PUBLIC_URL"]
+        == (mcp_options["DEVFEED_MCP_PUBLIC_URL"])
+    )
+    for name, service in private_mcp.items():
+        assert ("DEVFEED_MCP_INTERNAL_URL" in service.get("environment", {})) == (name == "web")
+
+
 def check() -> None:
     base = {"POSTGRES_PASSWORD": "a" * 64}
     registry_fixtures = {**base, "COMPOSE_PROFILES": "ai,workers,notifications,search,mcp"}
@@ -86,23 +107,7 @@ def check() -> None:
             == (mcp_options["DEVFEED_MCP_PUBLIC_URL"])
         )
         assert account["web"]["environment"]["DEVFEED_MCP_INTERNAL_URL"] == ""
-        private_mcp = render(
-            {
-                **registry_fixtures,
-                **mcp_options,
-                "DEVFEED_MCP_INTERNAL_URL": "http://mcp:8003/mcp",
-            },
-            build=build,
-        )["services"]
-        assert private_mcp["web"]["environment"]["DEVFEED_MCP_INTERNAL_URL"] == (
-            "http://mcp:8003/mcp"
-        )
-        assert (
-            private_mcp["web"]["environment"]["DEVFEED_MCP_PUBLIC_URL"]
-            == (mcp_options["DEVFEED_MCP_PUBLIC_URL"])
-        )
-        for name, service in private_mcp.items():
-            assert ("DEVFEED_MCP_INTERNAL_URL" in service.get("environment", {})) == (name == "web")
+        check_private_mcp_routing(registry_fixtures, mcp_options, build=build)
         assert (
             account["user-api"]["environment"]["DEVFEED_USER_MCP_RESOURCE_URL"]
             == (mcp_options["DEVFEED_MCP_PUBLIC_URL"])
