@@ -56,8 +56,8 @@ export async function checkNonceCsp(context, url) {
   }
 }
 
-// Reproduce a CDN adding an unnonced parser-inserted bridge after origin rendering.
-export async function checkWebMcpBridgeCsp(context, url) {
+// Reproduce a CDN adding unnonced parser-inserted scripts after origin rendering.
+export async function checkCloudflareScriptsCsp(context, url) {
   const page = await context.newPage();
   const origin = new URL(url).origin;
   await page.addInitScript(() => {
@@ -68,6 +68,20 @@ export async function checkWebMcpBridgeCsp(context, url) {
   });
   await page.route(`${origin}/.webmcp/bridge.js`, (route) =>
     route.fulfill({ contentType: "text/javascript", body: "window.__bridgeLoaded = true" }),
+  );
+  const rocketPath = "/cdn-cgi/scripts/7d0fa10a/cloudflare-static/rocket-loader.min.js";
+  await page.route(`${origin}${rocketPath}`, (route) =>
+    route.fulfill({ contentType: "text/javascript", body: "window.__rocketLoaded = true" }),
+  );
+  await page.route(`${origin}/cdn-cgi/scripts-extra/rocket-loader.min.js`, (route) =>
+    route.fulfill({
+      contentType: "text/javascript",
+      body: "window.__rocketLookalikeLoaded = true",
+    }),
+  );
+  const rotatedRocketPath = "/cdn-cgi/scripts/abcdef12/cloudflare-static/rocket-loader.min.js";
+  await page.route(`${origin}${rotatedRocketPath}`, (route) =>
+    route.fulfill({ contentType: "text/javascript", body: "window.__rotatedRocketLoaded = true" }),
   );
   await page.route(`${origin}/untrusted.js`, (route) =>
     route.fulfill({ contentType: "text/javascript", body: "window.__untrustedLoaded = true" }),
@@ -98,7 +112,7 @@ export async function checkWebMcpBridgeCsp(context, url) {
             .join("; ");
         const body = (await response.text()).replace(
           "<head>",
-          `<head><script type="module" src="${origin}/.webmcp/bridge.js" data-packs="mcp-server-client"></script><script src="${origin}/untrusted.js"></script><script src="${origin}/.webmcp/bridge.js.extra"></script><script>window.__untrustedInline = true</script>`,
+          `<head><script type="module" src="${origin}/.webmcp/bridge.js" data-packs="mcp-server-client"></script><script src="${origin}${rocketPath}"></script><script src="${origin}${rotatedRocketPath}"></script><script src="${origin}/cdn-cgi/scripts-extra/rocket-loader.min.js"></script><script src="${origin}/untrusted.js"></script><script src="${origin}/.webmcp/bridge.js.extra"></script><script>window.__untrustedInline = true</script>`,
         );
         await route.fulfill({ response, headers, body });
       });
@@ -107,21 +121,40 @@ export async function checkWebMcpBridgeCsp(context, url) {
         await page.waitForFunction(() =>
           window.__bridgeCspViolations.some((uri) => uri.endsWith("/.webmcp/bridge.js")),
         );
-      else await page.waitForFunction(() => window.__bridgeLoaded === true);
+      else
+        await page.waitForFunction(
+          () =>
+            window.__bridgeLoaded === true &&
+            window.__rocketLoaded === true &&
+            window.__rotatedRocketLoaded === true,
+        );
+      if (originalPolicy)
+        await page.waitForFunction(
+          (path) => window.__bridgeCspViolations.some((uri) => uri.endsWith(path)),
+          rocketPath,
+        );
       await page.waitForFunction(() => window.__bridgeCspViolations.includes("inline"));
       const state = await page.evaluate(() => ({
         bridge: !!window.__bridgeLoaded,
+        rocket: !!window.__rocketLoaded,
+        rotatedRocket: !!window.__rotatedRocketLoaded,
+        rocketLookalike: !!window.__rocketLookalikeLoaded,
         untrusted: !!window.__untrustedLoaded,
         lookalike: !!window.__lookalikeLoaded,
         inline: !!window.__untrustedInline,
         violations: window.__bridgeCspViolations,
       }));
       assert.equal(state.bridge, !originalPolicy);
+      assert.equal(state.rocket, !originalPolicy);
+      assert.equal(state.rotatedRocket, !originalPolicy);
+      assert.equal(state.rocketLookalike, false);
       assert.equal(state.untrusted, false);
       assert.equal(state.lookalike, false);
       assert.equal(state.inline, false);
-      if (!originalPolicy)
+      if (!originalPolicy) {
         assert.ok(!state.violations.some((uri) => uri.endsWith("/.webmcp/bridge.js")));
+        assert.ok(!state.violations.some((uri) => uri.endsWith(rocketPath)));
+      }
       if (!originalPolicy) {
         await page.evaluate(async (origin) => {
           await Promise.all(

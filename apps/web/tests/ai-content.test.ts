@@ -99,6 +99,8 @@ it("gives each HTML response a distinct script nonce without permitting arbitrar
   const elements = csp.split("; ").find((directive) => directive.startsWith("script-src-elem "))!;
   expect(elements).toContain(`'nonce-${nonce}'`);
   expect(elements).toContain("https://devfeed.tech/.webmcp/bridge.js");
+  expect(elements).toContain("https://devfeed.tech/cdn-cgi/scripts/");
+  expect(elements.split(" ")).not.toContain("https://devfeed.tech/cdn-cgi/");
   expect(elements).toContain("https://devfeed.tech/_next/static/");
   expect(elements).not.toMatch(/'self'|'strict-dynamic'|'unsafe-inline'/);
   expect(csp).toContain("default-src 'self'");
@@ -117,6 +119,8 @@ it("keeps path-scoped script exceptions usable on served reader aliases", async 
   expect(elements).toContain("http://192.0.2.10:3000/_next/static/");
   expect(elements).toContain("http://192.0.2.10:3000/.webmcp/bridge.js");
   expect(elements).toContain("https://devfeed.tech/.webmcp/bridge.js");
+  expect(elements).toContain("https://devfeed.tech/cdn-cgi/scripts/");
+  expect(elements.split(" ")).not.toContain("https://devfeed.tech/cdn-cgi/");
   expect(elements).not.toContain("'self'");
 });
 

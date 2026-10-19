@@ -27,7 +27,10 @@ import {
 } from "../../../../scripts/testing/article-topic-context.mjs";
 
 import { checkPreviewCover } from "../../../../scripts/testing/preview-cover.mjs";
-import { checkNonceCsp, checkWebMcpBridgeCsp } from "../../../../scripts/testing/nonce-csp.mjs";
+import {
+  checkNonceCsp,
+  checkCloudflareScriptsCsp,
+} from "../../../../scripts/testing/nonce-csp.mjs";
 import { checkArticleGrid } from "../../../../scripts/testing/article-grid.mjs";
 import { checkDefaultAll, defaultAllFeed } from "../../../../scripts/testing/default-all.mjs";
 import { checkArticleViews, compactListArticle, compactLoadingGate } from "./article-views.mjs";
@@ -1691,12 +1694,16 @@ test("reader favicon and touch icon load the shared brand assets", async (t) => 
   });
 });
 
-test("Cloudflare WebMCP bridge respects the script-element CSP", { timeout: 60000 }, async (t) => {
-  const { browser, origin } = await createReaderFixture(t);
-  const context = await browser.newContext();
-  try {
-    await checkWebMcpBridgeCsp(context, `${origin}/latest`);
-  } finally {
-    await context.close();
-  }
-});
+test(
+  "Cloudflare injected scripts respect the script-element CSP",
+  { timeout: 60000 },
+  async (t) => {
+    const { browser, origin } = await createReaderFixture(t);
+    const context = await browser.newContext();
+    try {
+      await checkCloudflareScriptsCsp(context, `${origin}/latest`);
+    } finally {
+      await context.close();
+    }
+  },
+);
