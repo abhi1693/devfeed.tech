@@ -20,9 +20,10 @@ def source_identity(source):
 
 
 def profile_current(source, job):
+    if job is None:
+        return False
     current = bool(
-        job is not None
-        and job.status == "succeeded"
+        job.status == "succeeded"
         and (
             getattr(job, "operation", "legacy") == "legacy"
             and source.approval_status == "approved"
