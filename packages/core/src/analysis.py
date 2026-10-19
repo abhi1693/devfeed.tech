@@ -48,7 +48,7 @@ from devfeed_core.schemas import (
 from devfeed_core.services import OperationConflict, RecordNotFound
 from devfeed_core.topics import lock_topics
 
-PROMPT_VERSION = "article-analysis-v6-topic-context"
+PROMPT_VERSION = "article-analysis-v7-grounded-overview"
 TOPIC_CONTEXT_BYTES = 640
 VALIDATION_VERSION = "article-validation-v2-discard-unpublishable-prose"
 TERMINAL_ANALYSIS_ERRORS = frozenset(
@@ -94,8 +94,17 @@ class AnalysisResult(Classifications):
     ai_title: str | None = Field(min_length=1, max_length=200)
     title_evidence: str | None = Field(min_length=4, max_length=500)
     outcome: Literal["ready", "insufficient_evidence"]
-    ai_summary: str | None = Field(max_length=1200)
-    ai_description: str | None = Field(max_length=500)
+    ai_summary: str | None = Field(
+        max_length=1200,
+        description=(
+            "A source-grounded English overview of the useful findings, mechanisms, and "
+            "limitations actually supported by the article; null for insufficient evidence."
+        ),
+    )
+    ai_description: str | None = Field(
+        max_length=500,
+        description="A concise English description of the article's scope, without new claims.",
+    )
     reasons: list[str] = Field(max_length=12)
 
     @model_validator(mode="after")
@@ -538,6 +547,22 @@ code identifiers unchanged. Use clear English sentences, not lists of keywords.
 The language classification describes the source article, not the English summary.
 Keep classification evidence verbatim in its original language; do not translate it.
 Do not infer an author, image, date, or facts missing from the document.
+Write ai_summary as a useful, source-grounded overview, not just a rewritten feed
+teaser or a generic statement that the article discusses a topic. Lead with the
+most useful supported takeaway for software/product readers. Explain the source's
+concrete finding, mechanism or practical steps and why they matter when the source
+supports that connection. Prefer substantive extracted text over a partial feed teaser.
+Preserve useful details such as tool/provider behavior, differences, requirements,
+tradeoffs and limitations when the document actually supplies them. Compare only
+the tools and dimensions discussed; never invent comparisons, examples, advice or
+facts from prior knowledge. Keep reported claims, uncertainty and scope qualified.
+Do not imply full-article coverage when only an excerpt or description is supplied.
+Let the evidence determine length: a short substantive source can have a short overview.
+There is no minimum word count; do not add filler, repeated points or promotional text.
+If the source cannot support a useful faithful overview, return insufficient_evidence
+with null prose instead of expanding sparse input. Keep ai_summary within 1200 characters.
+Use ai_description for a shorter description of the article's scope, not an extra
+takeaway or claims absent from ai_summary and the supplied evidence.
 Classify subjects, not mere keywords: Vault Agent is not automatically an AI agent;
 JavaScript+Angular does not imply React; OpenTofu is not automatically Terraform.
 Compare each topic's description and ai_description with the subject actually

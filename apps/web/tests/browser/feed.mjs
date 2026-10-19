@@ -197,6 +197,7 @@ async function createReaderFixture(t, { thumbnailFeed = false } = {}) {
     languages: ["en"],
   };
   let failArticle = true;
+  let failCollection = true;
   let bookmarked = false;
   const bookmarkedArticleIds = new Set();
   let personalFeedRequests = 0;
@@ -211,6 +212,15 @@ async function createReaderFixture(t, { thumbnailFeed = false } = {}) {
   fixture = createServer(async (req, res) => {
     const requestUrl = new URL(req.url, "http://localhost");
     const path = requestUrl.pathname;
+    if (
+      ["/v1/topics/retry-topic", "/v1/sources/retry-source", "/v1/tags/retry-tag"].includes(path)
+    ) {
+      res.writeHead(failCollection ? 503 : 200, { "Content-Type": "application/json" });
+      const item = path.includes("/sources/") ? source : topic;
+      res.end(JSON.stringify(failCollection ? {} : { ...item, slug: path.split("/").at(-1) }));
+      return;
+    }
+
     if (
       path === "/v1/user/profiles/keyboard-reader" ||
       path === "/v1/user/profiles/keyboard-reader/reading-heatmap"
@@ -304,6 +314,11 @@ async function createReaderFixture(t, { thumbnailFeed = false } = {}) {
       );
       res.writeHead(status, { "Content-Type": "application/json" });
       res.end(JSON.stringify(json));
+      return;
+    }
+    if (path === "/v1/tags" && requestUrl.searchParams.get("q") === "retry-catalog") {
+      res.writeHead(failCollection ? 503 : 200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify(failCollection ? {} : []));
       return;
     }
     const tagResponse = tagsFixture(requestUrl);
@@ -1175,6 +1190,54 @@ async function createReaderFixture(t, { thumbnailFeed = false } = {}) {
     await earlyPage.keyboard.press("Escape");
     await earlyPage.waitForURL(`${origin}/`);
     await earlyContext.close();
+    for (const [kind, slug] of [
+      ["topics", "retry-topic"],
+      ["sources", "retry-source"],
+      ["tags", "retry-tag"],
+    ]) {
+      for (const suffix of ["", "/tutorials"]) {
+        failCollection = true;
+        const recoveryPage = await browser.newPage();
+        const response = await recoveryPage.goto(`${origin}/${kind}/${slug}${suffix}`);
+        assert.equal(response.status(), 200);
+        await recoveryPage
+          .getByRole("heading", { name: "This page couldn’t load", exact: true })
+          .waitFor();
+        assert.match(
+          await recoveryPage.locator('meta[name="robots"]').getAttribute("content"),
+          /noindex/,
+        );
+        failCollection = false;
+        await recoveryPage.getByRole("button", { name: "Try again", exact: true }).click();
+        await recoveryPage
+          .getByRole("heading", {
+            name: kind === "sources" ? source.name : topic.name,
+            exact: true,
+          })
+          .first()
+          .waitFor();
+        await recoveryPage.close();
+      }
+    }
+    failCollection = true;
+    const directoryRecovery = await browser.newPage();
+    const directoryResponse = await directoryRecovery.goto(`${origin}/tags?q=retry-catalog`);
+    assert.equal(directoryResponse.status(), 200);
+    await directoryRecovery
+      .getByRole("heading", { name: "This page couldn’t load", exact: true })
+      .waitFor();
+    assert.match(
+      await directoryRecovery.locator('meta[name="robots"]').getAttribute("content"),
+      /noindex/,
+    );
+    await directoryRecovery.screenshot({
+      path: `${root}/reports/tag-directory-recovery.png`,
+      fullPage: true,
+    });
+    failCollection = false;
+    await directoryRecovery.getByRole("button", { name: "Try again", exact: true }).click();
+    await directoryRecovery.getByRole("heading", { name: "Explore tags", exact: true }).waitFor();
+    await directoryRecovery.close();
     const retryContext = await browser.newContext({ viewport: { width: 390, height: 844 } });
     const retryPage = await retryContext.newPage();
     await checkArticleBeforeHydration(

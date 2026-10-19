@@ -295,7 +295,7 @@ it("keeps refined query variants out of the index", async () => {
     }),
   ).toMatchObject({ robots: { index: false, follow: true } });
 });
-it("returns not-found for unknown topics and sources without hiding upstream outages", async () => {
+it("keeps unknown collections not-found and renders recovery for upstream outages", async () => {
   vi.mocked(api.getTopic).mockRejectedValue(new api.UserApiError(404));
   await expect(
     TopicPage({
@@ -317,13 +317,23 @@ it("returns not-found for unknown topics and sources without hiding upstream out
       searchParams: Promise.resolve({}),
     }),
   ).rejects.toThrow("NOT_FOUND");
-  vi.mocked(api.getTopic).mockRejectedValue(new api.UserApiError(503));
-  await expect(
-    TopicPage({
+  for (const status of [502, 503, 504]) {
+    vi.mocked(api.getTopic).mockRejectedValue(new api.UserApiError(status));
+    vi.mocked(api.getSource).mockRejectedValue(new api.UserApiError(status));
+    const topicProps = {
       params: Promise.resolve({ slug: topic.slug }),
       searchParams: Promise.resolve({}),
-    }),
-  ).rejects.toMatchObject({ status: 503 });
+    };
+    const sourceProps = {
+      params: Promise.resolve({ id: source.slug }),
+      searchParams: Promise.resolve({}),
+    };
+    await expect(TopicPage(topicProps)).resolves.toMatchObject({ props: { kind: "topics" } });
+    await expect(SourcePage(sourceProps)).resolves.toMatchObject({ props: { kind: "sources" } });
+    await expect(topicMetadata(topicProps)).resolves.toMatchObject({ robots: { index: false } });
+    await expect(sourceMetadata(sourceProps)).resolves.toMatchObject({ robots: { index: false } });
+  }
+  expect(FeedView).not.toHaveBeenCalled();
 });
 
 it("renders the first-party sign-in page and routes registration through it", async () => {
