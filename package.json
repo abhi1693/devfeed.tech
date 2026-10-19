@@ -25,7 +25,7 @@
     "admin:test": "npm run test --workspace @devfeed/admin",
     "admin:test:browser": "node apps/admin/tests/browser/overview.mjs",
     "admin:generate": "uv run python scripts/export_admin_openapi.py && npm run generate --workspace @devfeed/admin",
-    "web:generate": "uv run python scripts/export_user_openapi.py && npm run generate --workspace @devfeed/web",
+    "web:generate": "uv run python scripts/export_user_openapi.py && uv run python -m scripts.export_reader_catalog_openapi && npm run generate --workspace @devfeed/web",
     "telemetry:generate": "node scripts/generate_page_routes.mjs",
     "test:reader-destinations": "node --test tests/reader-destinations.test.mjs",
     "web:dev": "npm run dev --workspace @devfeed/web",

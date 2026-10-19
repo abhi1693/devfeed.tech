@@ -752,3 +752,20 @@ delivery from earlier article delivery. Deployment/network latency needs a separ
 Reader browser regressions verify the shell with feed responses held pending on web and both
 built extensions, as well as distinct reader preferences, per-response nonces, and subsequent
 unpublication/republication. These checks avoid relying on machine-dependent timing limits.
+
+## Automated API discovery
+
+`/.well-known/api-catalog` publishes the reader gateway as an RFC 9727 Linkset.
+GET returns `application/linkset+json`; HEAD includes an `api-catalog` Link header.
+The catalog links to `/api/openapi.json` and plain-text `/api/docs`. URLs use the
+configured public site origin rather than internal backend addresses. Administrative
+APIs and backend health endpoints are excluded.
+
+The OpenAPI document describes public discovery GETs and documented account gateway
+operations. Account authentication and CSRF checks remain required. Tracking and
+placement ingestion, and hidden gateway transport operations, are not advertised.
+Run `npm run web:generate` after changing the API contracts or reader bindings to
+regenerate `reader-openapi.json` along with the existing gateway contracts. Regression
+tests check freshness, concrete route existence, response wrappers, and account security.
+After deployment, verify the catalog and both linked resources over public HTTPS and
+run the agent-readiness scan; local validation does not confirm CDN behavior.
