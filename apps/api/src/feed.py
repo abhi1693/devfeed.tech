@@ -35,8 +35,13 @@ def feed_conditions(
     content_types=None,
     languages=None,
     topic=None,
+    _approved_origin=False,
 ):
-    conditions = [visible_article()]
+    conditions = (
+        [Article.publication_status == "published", Article.review_status == "approved"]
+        if _approved_origin
+        else [visible_article()]
+    )
     if topic:
         try:
             topic_identity = Topic.id == uuid.UUID(topic)
@@ -119,7 +124,10 @@ def feed_options(
             )
         )
     ).all()
-    conditions = feed_conditions(**common, content_type=content_type)
+    # This facet already joins each origin to its approved outer Source below.
+    # Rechecking an approved origin inside visible_article repeats the same proof
+    # for every source candidate. Other callers retain the full visibility guard.
+    conditions = feed_conditions(**common, content_type=content_type, _approved_origin=True)
     matching_source = (
         select(literal(1))
         .select_from(ArticleOrigin)

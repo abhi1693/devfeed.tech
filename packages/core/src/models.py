@@ -1,5 +1,6 @@
 import uuid
 from datetime import UTC, date, datetime
+from decimal import Decimal
 from typing import cast
 
 from sqlalchemy import (
@@ -14,6 +15,7 @@ from sqlalchemy import (
     ForeignKeyConstraint,
     Index,
     Integer,
+    Numeric,
     Sequence,
     String,
     Table,
@@ -1442,6 +1444,28 @@ class InferenceCall(Base):
     duration_ms: Mapped[int] = mapped_column(Integer)
 
 
+class InferenceDailyUsage(Base):
+    """Derived invocation totals, maintained by transactional ledger triggers."""
+
+    __tablename__ = "inference_daily_usage"
+    day: Mapped[date] = mapped_column(Date, primary_key=True)
+    operation: Mapped[str] = mapped_column(String(50), primary_key=True)
+    model: Mapped[str] = mapped_column(String(100), primary_key=True)
+    model_is_null: Mapped[bool] = mapped_column(Boolean, primary_key=True)
+    effort: Mapped[str] = mapped_column(String(30), primary_key=True)
+    calls: Mapped[Decimal] = mapped_column(Numeric, server_default="0")
+    returned: Mapped[Decimal] = mapped_column(Numeric, server_default="0")
+    failed: Mapped[Decimal] = mapped_column(Numeric, server_default="0")
+    running: Mapped[Decimal] = mapped_column(Numeric, server_default="0")
+    unreported: Mapped[Decimal] = mapped_column(Numeric, server_default="0")
+    input_tokens: Mapped[Decimal] = mapped_column(Numeric, server_default="0")
+    cached_input_tokens: Mapped[Decimal] = mapped_column(Numeric, server_default="0")
+    output_tokens: Mapped[Decimal] = mapped_column(Numeric, server_default="0")
+    reasoning_tokens: Mapped[Decimal] = mapped_column(Numeric, server_default="0")
+    web_searches: Mapped[Decimal] = mapped_column(Numeric, server_default="0")
+    duration_ms: Mapped[Decimal] = mapped_column(Numeric, server_default="0")
+
+
 class TopicDecisionRun(Base):
     """One lifetime processing budget per proposal; metadata edits never reset it."""
 
@@ -2328,3 +2352,21 @@ class UserMustRead(Base):
     timezone: Mapped[str] = mapped_column(String(100))
     picks: Mapped[list] = mapped_column(JSONB, default=list)
     presented_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+# The overview selects one latest run per article before inspecting result JSON.
+for _job_model, _index_name in (
+    (ArticleAnalysisJob, "ix_article_analysis_latest"),
+    (ArticleEnrichmentJob, "ix_article_enrichment_latest"),
+):
+    Index(_index_name, _job_model.article_id, _job_model.created_at.desc(), _job_model.id.desc())
+
+
+for _target in (TopicAnalysisJob.topic_id, TopicAnalysisJob.proposal_id):
+    Index(
+        f"ix_topic_analysis_{_target.key}_newer",
+        _target,
+        TopicAnalysisJob.created_at,
+        TopicAnalysisJob.id,
+        postgresql_where=_target.is_not(None),
+    )
