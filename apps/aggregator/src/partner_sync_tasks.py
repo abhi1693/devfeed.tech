@@ -28,6 +28,7 @@ from devfeed_core.partner_catalog import (
 )
 from devfeed_core.partner_connections import (
     Qualification,
+    QualificationError,
     connection_sync_interval,
     qualification_prompt,
     queue_evaluation,
@@ -302,7 +303,8 @@ def _process_pipeline(job_id: str, *, factory=None, reader=None, page_fetcher=No
     logger.info("partner_pipeline_started", extra=fields)
     error, retryable, retry_after = None, True, 0
     products, cursor, result = [], None, None
-    error_fields = {}
+    error_fields: dict[str, str | int | None] = {}
+    assessment_stage = "preparation"
     try:
         if operation == "sync":
             if connector is None:
@@ -331,8 +333,10 @@ def _process_pipeline(job_id: str, *, factory=None, reader=None, page_fetcher=No
         else:
             if snapshot is None:
                 raise ValueError("Missing product snapshot")
+            assessment_stage = "website_fetch"
             page = (page_fetcher or fetched_page)(snapshot["product_url"], 15)
             page = {"final_url": page["final_url"], "text": page["text"][:20000]}
+            assessment_stage = "redirect_verification"
             # Resolve observed redirects before paying for a second assessment of the same tool.
             with factory.begin() as session:
                 lock_catalog(session)
@@ -367,7 +371,17 @@ def _process_pipeline(job_id: str, *, factory=None, reader=None, page_fetcher=No
                 resolved = record_verified_redirect(session, current_product, page["final_url"])
                 if resolved.id != current_product.id:
                     return
-            result = validate_qualification((assessor or qualify)(snapshot, page), page)
+            assessment_stage = "model_inference"
+            raw = (assessor or qualify)(snapshot, page)
+            assessment_stage = "qualification_validation"
+            result = validate_qualification(raw, page)
+    except QualificationError as exc:
+        error = str(exc)
+        error_fields = {
+            "error_type": type(exc).__name__,
+            "diagnostic_code": exc.code,
+            "assessment_stage": assessment_stage,
+        }
     except FeedError as exc:
         error = (
             f"{'Platform API' if operation == 'sync' else 'Product website'} could not be read"
@@ -382,6 +396,9 @@ def _process_pipeline(job_id: str, *, factory=None, reader=None, page_fetcher=No
             if operation == "sync"
             else "Product capabilities could not be verified"
         )
+    if error and operation == "assess":
+        error_fields.setdefault("diagnostic_code", "assessment_failed")
+        error_fields.setdefault("assessment_stage", assessment_stage)
     with factory.begin() as session:
         lock_catalog(session)
         connection = session.scalar(
@@ -441,6 +458,14 @@ def _process_pipeline(job_id: str, *, factory=None, reader=None, page_fetcher=No
                 request_assessment(session, product)
             return
         if error:
+            if operation == "assess":
+                job.payload = {
+                    **job.payload,
+                    "diagnostic": {
+                        "code": error_fields["diagnostic_code"],
+                        "stage": error_fields["assessment_stage"],
+                    },
+                }
             fail_or_retry(job, error, utcnow(), retryable=retryable, retry_after=retry_after)
             logger.warning(
                 "partner_pipeline_retry_scheduled"
@@ -501,6 +526,7 @@ def _process_pipeline(job_id: str, *, factory=None, reader=None, page_fetcher=No
             return
         else:
             assert product is not None and result is not None
+            job.payload = {key: value for key, value in job.payload.items() if key != "diagnostic"}
             if result.decision == "qualified":
                 resolved_product = record_verified_redirect(session, product, page["final_url"])
                 if resolved_product.id != product.id:
