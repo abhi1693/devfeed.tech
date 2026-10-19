@@ -1,5 +1,7 @@
 """Background source profile lookup, separate from RSS article ingestion."""
 
+import hashlib
+import json
 import logging
 import time
 import uuid
@@ -7,7 +9,6 @@ from dataclasses import asdict
 from urllib.parse import urlsplit, urlunsplit
 
 from devfeed_core.ai_capacity import CAPACITY_ERRORS, safe_pause
-from devfeed_core.config import get_settings
 from devfeed_core.db import session_factory
 from devfeed_core.feeds.fetcher import FeedError, fetch_feed, fetch_source_page
 from devfeed_core.feeds.parser import parse_feed
@@ -18,12 +19,10 @@ from devfeed_core.job_logs import job_log_context
 from devfeed_core.jobs import owned_job
 from devfeed_core.logging import elapsed_ms, log_context
 from devfeed_core.models import Source, SourceEnrichmentJob, utcnow
-from devfeed_core.schemas import SourceDecision
-from devfeed_core.services import review_source
-from devfeed_core.source_enrichment import claim_enrichment, fill_profile
+from devfeed_core.source_enrichment import claim_enrichment, fill_profile, source_identity
 from devfeed_core.source_inspection import complete_website_profile
 from devfeed_core.source_profiles import PROFILE_FIELDS
-from devfeed_core.source_relevance import requires_relevance
+from devfeed_core.source_relevance import feed_sample
 from rq import get_current_job
 from sqlalchemy import select
 
@@ -44,6 +43,7 @@ def lookup_profile(url, source_type, existing):
         raise FeedError("Source metadata needs a complete feed", reason="missing_body")
     parsed = parse_feed(result.body, result.final_url, utcnow(), source_type=source_type)
     values = asdict(parsed.profile)
+    sample = feed_sample(parsed)
     website = existing["website_url"] or values["website_url"]
     if not website:
         parts = urlsplit(result.final_url)
@@ -57,7 +57,7 @@ def lookup_profile(url, source_type, existing):
         except FeedError as exc:
             exc.resource = "Source website"
             error = exc
-    return values, error
+    return {**values, "_sample": sample}, error
 
 
 def enrich_source(job_id: str) -> None:
@@ -80,7 +80,7 @@ def _enrich_source(identifier):
         job, source = claimed
         delivery = get_current_job()
         if (
-            requires_relevance(source)
+            job.operation == "relevance"
             and delivery is not None
             and delivery.origin not in {"analysis", "source-analysis", "solver"}
         ):
@@ -95,7 +95,7 @@ def _enrich_source(identifier):
             return
         source_id, token, attempt = source.id, job.lease_token, job.attempts
         url, source_type = source.feed_url, source.source_type
-        assess = source.approval_status == "pending"
+        operation, captured = job.operation, dict(job.result or {})
         original = {field: getattr(source, field) for field in PROFILE_FIELDS}
         previous_code = (job.error or "").removeprefix("Source relevance validation failed: ")
     with (
@@ -104,20 +104,26 @@ def _enrich_source(identifier):
             operation="source_relevance", job_id=identifier, attempt=attempt, reason="source_review"
         ),
     ):
-        logger.info("source_enrichment_started")
+        logger.info(
+            "source_relevance_started" if operation == "relevance" else "source_enrichment_started",
+            extra={"operation": operation},
+        )
         candidates, error, assessment = {}, None, None
-        stage = "profile"
+        stage = operation
         try:
-            candidates, error = lookup_profile(url, source_type, original)
-            if assess and get_settings().full_automation and get_settings().ai_enabled:
-                stage = "relevance"
+            if operation == "profile":
+                candidates, error = lookup_profile(url, source_type, original)
+            else:
                 assessment = (
-                    assess_source(url, source_type, feedback={"code": previous_code, "fields": []})
+                    assess_source(
+                        url,
+                        source_type,
+                        sample=captured.get("sample", []),
+                        feedback={"code": previous_code, "fields": []},
+                    )
                     if previous_code in CODES
-                    else assess_source(url, source_type)
+                    else assess_source(url, source_type, sample=captured.get("sample", []))
                 )
-                if error is not None:
-                    stage = "profile"
         except Exception as exc:
             error = exc
         feedback = (
@@ -137,36 +143,39 @@ def _enrich_source(identifier):
                     job, "Source was rejected during enrichment", utcnow(), retryable=False
                 )
                 return
-            if (
-                assessment is not None
-                and source.feed_url == url
-                and source.source_type == source_type
-            ):
-                source.relevance_assessment = assessment
-                if (
-                    source.approval_status == "pending"
-                    and get_settings().full_automation
-                    and get_settings().ai_enabled
+            if captured.get("input") != source_identity(source):
+                fail_or_retry(job, "Source input changed", utcnow(), retryable=False)
+                session.flush()
+                if source.approval_status == "pending" or (
+                    source.approval_status == "approved"
+                    and not source.enabled
+                    and source.processing_request
                 ):
-                    decision = None
-                    if assessment.get("approval_supported") is True:
-                        decision = "approved"
-                        note = "Editorial relevance verified from recent feed entries: "
-                    elif assessment.get("rejection_supported") is True:
-                        decision = "rejected"
-                        note = "Source is outside DevFeed scope based on recent feed entries: "
-                    if decision is not None:
-                        review_source(
-                            session,
-                            source.id,
-                            SourceDecision(
-                                decision=decision,
-                                actor="devfeed:source-relevance",
-                                note=note + assessment["reason"][:850],
-                            ),
-                        )
-            changed = fill_profile(source, candidates, original)
+                    from devfeed_core.source_lifecycle import reconcile_source_processing
+
+                    reconcile_source_processing(session, source, automatic=True)
+                return
+            changed = fill_profile(source, candidates, original) if operation == "profile" else []
             job.changed_fields = sorted(set(job.changed_fields or []) | set(changed))
+            if operation == "profile":
+                sample = candidates.get("_sample", [])
+                job.result = {
+                    **captured,
+                    "input": source_identity(source),
+                    "profile": {field: candidates.get(field) for field in PROFILE_FIELDS},
+                    "sample": sample,
+                    "sample_hash": hashlib.sha256(
+                        json.dumps(sample, sort_keys=True, ensure_ascii=False).encode()
+                    ).hexdigest(),
+                }
+            elif assessment is not None:
+                assessment = {
+                    **assessment,
+                    "profile_job_id": captured.get("profile_job_id"),
+                    "sample_hash": captured.get("sample_hash"),
+                }
+                source.relevance_assessment = assessment
+                job.result = {**captured, "output": assessment}
             if error is not None:
                 transport = error if isinstance(error, FeedError) else None
                 analysis = error if isinstance(error, AnalysisError) else None
@@ -216,16 +225,23 @@ def _enrich_source(identifier):
                             else getattr(error, "retry_after", 0)
                         ),
                     )
-                source.metadata_error = message
+                if operation == "profile":
+                    source.metadata_error = message
             else:
                 job.status = "succeeded"
                 job.finished_at = utcnow()
                 job.lease_token = None
                 job.lease_until = None
                 job.error = None
-                source.metadata_error = None
-                source.metadata_enriched_at = job.finished_at
+                if operation == "profile":
+                    source.metadata_error = None
+                    source.metadata_enriched_at = job.finished_at
+                session.flush()
+                from devfeed_core.source_lifecycle import reconcile_source_processing
+
+                reconcile_source_processing(session, source, automatic=True)
             fields = {
+                "operation": operation,
                 "changed_fields": changed,
                 "job_status": job.status,
                 "available_at": job.available_at,
@@ -257,4 +273,9 @@ def _enrich_source(identifier):
                 else None,
             )
         else:
-            logger.info("source_enrichment_completed", extra=fields)
+            logger.info(
+                "source_relevance_completed"
+                if operation == "relevance"
+                else "source_enrichment_completed",
+                extra=fields,
+            )

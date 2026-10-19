@@ -47,6 +47,23 @@ def due(database, identifier):
         session.get(Article, identifier).automation_next_check_at = utcnow() - timedelta(seconds=1)
 
 
+def complete_source_review(database, profile_id):
+    source_tasks.enrich_source(str(profile_id))
+    with database() as session:
+        profile = session.get(SourceEnrichmentJob, profile_id)
+        assert profile.status == "succeeded" and profile.operation == "profile"
+        assert session.get(Source, profile.source_id).approval_status == "pending"
+        assessment_id = session.scalar(
+            select(SourceEnrichmentJob.id).where(
+                SourceEnrichmentJob.source_id == profile.source_id,
+                SourceEnrichmentJob.operation == "relevance",
+                SourceEnrichmentJob.status == "queued",
+            )
+        )
+        assert assessment_id is not None
+    source_tasks.enrich_source(str(assessment_id))
+
+
 def test_corrected_extractor_recovers_old_description_once(database, monkeypatch):
     from devfeed_core.article_jobs import EXTRACTION_VERSION
 
@@ -297,7 +314,7 @@ def test_validated_source_to_public_article_and_exact_tag_association(
         "assess_source",
         lambda *a, **k: {"approval_supported": True, "reason": "Verified technical feed"},
     )
-    source_tasks.enrich_source(str(review_id))
+    complete_source_review(database, review_id)
     with database() as session:
         ingestion_id = session.scalar(select(IngestionJob.id))
         assert session.get(Source, source_id).approval_status == "approved"
@@ -711,7 +728,7 @@ def test_backlog_admission_and_article_scans_are_bounded(database, monkeypatch):
         lambda *a, **k: {"approval_supported": True, "reason": "Verified technical feed"},
     )
     for identifier in review_ids:
-        source_tasks.enrich_source(str(identifier))
+        complete_source_review(database, identifier)
     assert schedule_article_automation(database)["articles_checked"] == 1
     assert schedule_article_automation(database)["articles_checked"] == 1
     assert schedule_article_automation(database)["articles_checked"] == 0

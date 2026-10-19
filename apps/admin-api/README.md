@@ -5,6 +5,35 @@ package. Source files live directly under `src`, mapped to `devfeed_admin_api`.
 
 See [configuration, authentication, service boundaries and commands](../../docs/admin.md).
 
+The source lifecycle board is available at `GET /v1/admin/source-pipeline`;
+`GET /columns/{stage}` pages one lane with an integer `cursor`. Both accept `q`,
+`source_type`, `needs_attention`, `limit` (20 by default, at most 50), and
+`terminal_since` (seven days by default, at most 90 days). Pending work and active
+jobs remain visible regardless of age. Running cards come first, followed by
+oldest waiting work; terminal lanes show the latest durable activity first.
+Counts cover the entire filtered population, with evidence loaded in bounded batches.
+
+Cards use `source:{id}` or `candidate:{id}` keys. Linked discovery candidates appear
+under their Source once; unlinked candidates remain visible. Read-only details at
+`GET /items/{kind}/{id}` expose current checks, task diagnostics, profile, assessment,
+and recent reviews. A linked candidate detail resolves to its Source identity.
+Reading any lifecycle endpoint creates no jobs or editorial decisions.
+
+Explicit `POST /items/{kind}/{id}/advance` requires the returned
+`expected_snapshot`. `POST /items/{kind}/{id}/retry` additionally requires an exact
+`target` and its returned `job_id` (or null for a task with no prior run). Changed
+facts return 409; callers reload and use the returned canonical identity. Advance
+queues only the current next task or explicitly resumes an eligible paused Source.
+An upstream retry pauses an active Source without changing approval or articles;
+ingestion retries preserve enablement. Approval remains the attributed Source
+review endpoint. The server returns `can_approve`, `can_ingest`, and
+`can_advance`/`advance_label` so clients do not infer permissions from a lane name.
+
+Rejected Sources missing current prerequisites offer an explicit "Reopen for review"
+advance. It retains review history, requests fresh discovery/profile work, and keeps
+the Source disabled until an operator makes a new approval decision. A standalone
+rejected discovery candidate does not gain this Source-specific shortcut.
+
 ## Inference reporting totals
 
 Migration `0031` backfills daily invocation totals and maintains them in the same transaction

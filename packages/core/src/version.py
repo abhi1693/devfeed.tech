@@ -6,11 +6,8 @@ __version__ = version("devfeed-core")
 
 # Schema revisions are not application versions. Advance this when adding a
 # migration required by this application; never change an existing migration.
-SCHEMA_REVISION = "0032"
+SCHEMA_REVISION = "0033"
 
 # Scheduled like-based recommendations require migration 0015.
-# The lifecycle migration adds indexes only. New processes also support the
-# compatible parent schemas; roll them out before applying the new indexes.
-BACKWARD_COMPATIBLE_SCHEMA_REVISIONS: frozenset[str] = frozenset(
-    {"0026", "0027", "0028", "0029", "0030", "0031"}
-)
+# Source lifecycle queries require the processing fields introduced in 0032.
+BACKWARD_COMPATIBLE_SCHEMA_REVISIONS: frozenset[str] = frozenset({"0032"})

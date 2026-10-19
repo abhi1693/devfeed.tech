@@ -9,7 +9,7 @@ from devfeed_core.config import get_settings
 from devfeed_core.feeds.parser import ParsedFeed
 from devfeed_core.models import IngestionJob, Source, SourceEnrichmentJob, SourceReview
 from devfeed_core.schemas import SourceDecision
-from devfeed_core.source_enrichment import request_enrichment
+from devfeed_core.source_enrichment import request_enrichment, request_relevance
 from devfeed_core.source_relevance import SourceRelevance, rejection_supported
 from sqlalchemy import func, select
 
@@ -79,6 +79,7 @@ def wire_result(result):
 @pytest.fixture
 def review_job(database, monkeypatch):
     monkeypatch.setenv("DEVFEED_FULL_AUTOMATION", "true")
+    monkeypatch.setenv("DEVFEED_AI_ENABLED", "true")
     get_settings.cache_clear()
     with database.begin() as session:
         source = Source(
@@ -90,7 +91,11 @@ def review_job(database, monkeypatch):
         )
         session.add(source)
         session.flush()
-        job = request_enrichment(session, source.id)
+        profile = request_enrichment(session, source.id)
+        profile.status = "succeeded"
+        profile.result = {**profile.result, "sample": assessment()[1]}
+        session.flush()
+        job = request_relevance(session, source.id, profile=profile)
         identifiers = source.id, job.id
     parsed = ParsedFeed([SimpleNamespace(title=TITLE, summary="")] * 10, 10, 0)
     monkeypatch.setattr(source_relevance, "validate_feed", lambda *a, **kw: parsed)
@@ -112,9 +117,9 @@ def test_worker_applies_only_supported_rejection(database, monkeypatch, review_j
     if case == "invalid":
         result.entries[0].evidence = "Made-up evidence not present in the supplied feed"
     if case == "sparse":
-        monkeypatch.setattr(
-            source_relevance, "validate_feed", lambda *a, **kw: ParsedFeed([], 0, 0)
-        )
+        with database.begin() as session:
+            job = session.get(SourceEnrichmentJob, job_id)
+            job.result = {**job.result, "sample": []}
     monkeypatch.setattr(
         source_relevance,
         "CodexClient",
@@ -134,7 +139,7 @@ def test_worker_applies_only_supported_rejection(database, monkeypatch, review_j
             assert source.relevance_assessment["rejection_supported"] is True
             assert source.relevance_assessment["version"] == "source-relevance-v5"
             assert reviews[0].actor == "devfeed:source-relevance"
-            assert reviews[0].decision == "rejected" and "outside DevFeed scope" in reviews[0].note
+            assert reviews[0].decision == "rejected" and result.reason in reviews[0].note
             assert job.status == "succeeded"
         elif case == "invalid":
             assert job.status == "queued" and "source_evidence_not_in_sample" in job.error
@@ -194,6 +199,12 @@ def test_worker_approves_high_confidence_mixed_source(
     title = "Engineering leadership and software product strategy"
     parsed = ParsedFeed([SimpleNamespace(title=title, summary="")] * 10, 10, 0)
     monkeypatch.setattr(source_relevance, "validate_feed", lambda *a, **kw: parsed)
+    with database.begin() as session:
+        job = session.get(SourceEnrichmentJob, job_id)
+        job.result = {
+            **job.result,
+            "sample": [{"index": i, "title": title, "summary": ""} for i in range(10)],
+        }
     output = {
         "relevance": "relevant",
         "confidence": 0.93,

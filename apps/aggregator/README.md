@@ -1,5 +1,34 @@
 # Aggregator
 
+## Source processing and rollout
+
+Source profile lookup and source relevance assessment are independent operations in
+the existing source-enrichment outbox. Profile work uses guarded feed/website fetches;
+assessment uses its saved bounded sample on the source-analysis queue. Retrying a
+failed assessment keeps the completed profile. Already-queued assessments obey the
+AI kill switch before claiming an attempt. Profile, relevance and logo completion,
+plus the pending-review scheduler, reconcile the same admission checks, so completion
+order cannot admit a source with unfinished required work.
+
+For migration `0032_source_processing`, quiesce source dispatch and drain old coupled
+source workers before migrating and deploying the new workers/API. Resume dispatch
+only after all source and image workers understand split operations and admission
+reconciliation. Legacy queued jobs are converted to profile-only when the new worker
+claims them; existing source decisions and normal approved-source polling remain.
+Do not run old coupled workers alongside split-operation deliveries: they can repeat
+AI calls and bypass the new completion boundary. Before rollback, drain all queued or
+running profile/relevance jobs and resolve explicit paused processing requests; the
+migration refuses downgrade while either remains. Deploy old workers only after that
+downgrade. The migration follows schema `0031` and must complete before the upgraded API
+and workers start.
+
+Explicit Profile, Assessment or Branding retries pause new ingestion on an approved
+source until an operator selects Resume after processing settles. Existing articles,
+approval and fetch history are retained. A fetch that was already running discards
+its results if the source was paused before commit. An ingestion retry only recovers
+the feed request and does not pause the source. Ordinary metadata refreshes do not
+pause approved polling, and reads never backfill or revoke existing sources.
+
 ## Article decisions and recovery
 
 Full automation rejects a pending article when its latest successful, current analysis

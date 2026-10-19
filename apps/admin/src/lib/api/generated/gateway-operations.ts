@@ -2266,6 +2266,131 @@ export const adminGatewayOperations = [
     },
   },
   {
+    operationId: "admin_source_pipeline",
+    method: "GET",
+    path: "/v1/admin/source-pipeline",
+    parameters: [],
+    policy: {
+      bodyLimit: 1000000,
+      bodyTimeoutMs: 2000,
+      upstreamTimeoutMs: 45000,
+    },
+  },
+  {
+    operationId: "admin_source_pipeline_column",
+    method: "GET",
+    path: "/v1/admin/source-pipeline/columns/{stage}",
+    parameters: [
+      {
+        name: "stage",
+        schema: {
+          type: "string",
+          enum: [
+            "discovery",
+            "profile",
+            "assessment",
+            "branding",
+            "review",
+            "ingestion",
+            "active",
+            "paused",
+            "rejected",
+          ],
+        },
+        converter: "str",
+      },
+    ],
+    policy: {
+      bodyLimit: 1000000,
+      bodyTimeoutMs: 2000,
+      upstreamTimeoutMs: 45000,
+    },
+  },
+  {
+    operationId: "admin_source_pipeline_detail",
+    method: "GET",
+    path: "/v1/admin/source-pipeline/items/{kind}/{identifier}",
+    parameters: [
+      {
+        name: "kind",
+        schema: {
+          type: "string",
+          enum: ["source", "candidate"],
+        },
+        converter: "str",
+      },
+      {
+        name: "identifier",
+        schema: {
+          type: "string",
+          format: "uuid",
+        },
+        converter: "str",
+      },
+    ],
+    policy: {
+      bodyLimit: 1000000,
+      bodyTimeoutMs: 2000,
+      upstreamTimeoutMs: 45000,
+    },
+  },
+  {
+    operationId: "admin_source_pipeline_advance",
+    method: "POST",
+    path: "/v1/admin/source-pipeline/items/{kind}/{identifier}/advance",
+    parameters: [
+      {
+        name: "kind",
+        schema: {
+          type: "string",
+          enum: ["source", "candidate"],
+        },
+        converter: "str",
+      },
+      {
+        name: "identifier",
+        schema: {
+          type: "string",
+          format: "uuid",
+        },
+        converter: "str",
+      },
+    ],
+    policy: {
+      bodyLimit: 1000000,
+      bodyTimeoutMs: 2000,
+      upstreamTimeoutMs: 45000,
+    },
+  },
+  {
+    operationId: "admin_source_pipeline_retry",
+    method: "POST",
+    path: "/v1/admin/source-pipeline/items/{kind}/{identifier}/retry",
+    parameters: [
+      {
+        name: "kind",
+        schema: {
+          type: "string",
+          enum: ["source", "candidate"],
+        },
+        converter: "str",
+      },
+      {
+        name: "identifier",
+        schema: {
+          type: "string",
+          format: "uuid",
+        },
+        converter: "str",
+      },
+    ],
+    policy: {
+      bodyLimit: 1000000,
+      bodyTimeoutMs: 2000,
+      upstreamTimeoutMs: 45000,
+    },
+  },
+  {
     operationId: "list_suggestions_v1_admin_search_suggestions_get",
     method: "GET",
     path: "/v1/admin/search-suggestions",

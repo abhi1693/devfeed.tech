@@ -28,8 +28,10 @@ import {
   adminOverviewPanel,
   adminSourceFetch,
   adminSourceReview,
+  adminSourcePipelineDetail,
 } from "@/lib/api/generated/admin";
 import { getRecord, listRecords } from "@/lib/resource-api";
+import { detail as sourceDetail, item as sourceCard } from "./fixtures/source-pipeline";
 
 const router = vi.hoisted(() => ({ replace: vi.fn(), refresh: vi.fn() }));
 vi.mock("next/navigation", () => ({ useRouter: () => router }));
@@ -49,6 +51,7 @@ vi.mock("@/lib/api/generated/admin", () => ({
   adminArticleClassify: vi.fn(),
   adminAuthLogout: vi.fn(),
   adminOverviewPanel: vi.fn(),
+  adminSourcePipelineDetail: vi.fn(),
 }));
 const article = {
   id: "article-1",
@@ -106,6 +109,18 @@ beforeEach(() => {
     allowed_actions: [],
     advance_label: null,
   });
+  vi.mocked(adminSourcePipelineDetail).mockResolvedValue(
+    sourceDetail({
+      ...sourceCard,
+      id: "source-1",
+      source_id: "source-1",
+      key: "source:source-1",
+      stage: "review",
+      state: "ready",
+      can_approve: true,
+      can_ingest: true,
+    }),
+  );
 });
 afterEach(cleanup);
 

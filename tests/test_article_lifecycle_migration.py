@@ -39,7 +39,7 @@ def test_lifecycle_indexes_upgrade_downgrade_and_preserve_articles(database):
         retained = parent_indexes(session)
         assert len(retained) == 2
     try:
-        command.downgrade(config, "0031")
+        command.downgrade(config, "0032")
         with database() as session:
             assert session.get(Article, identifier).publication_status == "published"
             assert parent_indexes(session) == retained

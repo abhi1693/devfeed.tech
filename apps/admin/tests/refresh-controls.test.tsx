@@ -8,10 +8,10 @@ import { useRequest } from "@/lib/use-request";
 import { RefreshSettings, saveRefresh } from "./refresh-settings";
 vi.mock("@/lib/notifications", () => ({ notifyFailure: vi.fn() }));
 const load = vi.fn<(signal: AbortSignal) => Promise<string>>();
-function Reader({ id = "articles" }: { id?: string }) {
+function Reader({ id = "articles", revision = 0 }: { id?: string; revision?: number }) {
   const seconds = useRefreshInterval();
   const request = useCallback((signal: AbortSignal) => load(signal), []);
-  const result = useRequest(id, request, seconds * 1000);
+  const result = useRequest(id, request, seconds * 1000, revision);
   return (
     <>
       <p>{result.data}</p>
@@ -155,4 +155,26 @@ it("skips hidden tabs and cancels timers on unmount", async () => {
   expect(load.mock.lastCall![0].aborted).toBe(true);
   await advance(30000);
   expect(load).toHaveBeenCalledTimes(2);
+});
+
+it("preserves the loaded view during explicit refresh and ignores an older polling response", async () => {
+  let view!: ReturnType<typeof render>;
+  await act(async () => {
+    view = render(<Reader revision={0} />);
+  });
+  let finishPoll!: (value: string) => void;
+  let finishRefresh!: (value: string) => void;
+  load
+    .mockImplementationOnce(() => new Promise((resolve) => (finishPoll = resolve)))
+    .mockImplementationOnce(() => new Promise((resolve) => (finishRefresh = resolve)));
+  await advance(10000);
+  await act(async () => {
+    view.rerender(<Reader revision={1} />);
+  });
+  expect(load).toHaveBeenCalledTimes(3);
+  expect(screen.getByText("Loaded data")).toBeDefined();
+  await act(async () => finishRefresh("Current retry snapshot"));
+  await act(async () => finishPoll("Old polling snapshot"));
+  expect(screen.getByText("Current retry snapshot")).toBeDefined();
+  expect(screen.queryByText("Old polling snapshot")).toBeNull();
 });

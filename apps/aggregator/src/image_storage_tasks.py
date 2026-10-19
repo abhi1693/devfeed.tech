@@ -32,8 +32,10 @@ def checkpoint(factory, identifier, token, asset) -> bool:
         job = owned_job(session, ArticleImageJob, identifier, token)
         if job is None:
             return False
+        marker = (job.storage or {}).get("source_pipeline_request")
         job.storage = {
             **asset,
+            **({"source_pipeline_request": marker} if marker else {}),
             **({"article_refresh": True} if (job.storage or {}).get("article_refresh") else {}),
         }
     return True
@@ -253,7 +255,9 @@ def _store_asset(
             if job is None or job.status != "running" or job.lease_token != token:
                 return
             asset = {
-                key: value for key, value in (job.storage or {}).items() if key != "article_refresh"
+                key: value
+                for key, value in (job.storage or {}).items()
+                if key not in {"article_refresh", "source_pipeline_request"}
             }
         with storage_client() as client:
             original = original_store(client)
@@ -304,10 +308,16 @@ def _store_asset(
                     else asset,
                 )
             job.method = method
-            job.storage = dict(asset)
+            marker = (job.storage or {}).get("source_pipeline_request")
+            job.storage = {**asset, **({"source_pipeline_request": marker} if marker else {})}
             finish_job(job, "found" if current else "already_present", utcnow())
             if not current:
                 _replacement(session, model, subject, asset_field=asset_field)
+            elif model is Source:
+                session.flush()
+                from devfeed_core.source_lifecycle import reconcile_source_processing
+
+                reconcile_source_processing(session, subject, automatic=True)
         logger.info("image_storage_completed", extra={"variant_count": len(asset["variants"])})
     except Exception as exc:
         transport = exc if isinstance(exc, FeedError) else None

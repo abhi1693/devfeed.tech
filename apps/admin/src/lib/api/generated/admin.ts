@@ -48,6 +48,8 @@ import type {
   AdminRelationshipsListParams,
   AdminSourceCreate,
   AdminSourceImportCandidatesParams,
+  AdminSourcePipelineColumnParams,
+  AdminSourcePipelineParams,
   AdminSourceReviewsParams,
   AdminSourcesListParams,
   AdminTagsListParams,
@@ -175,6 +177,11 @@ import type {
   SourceImportResult,
   SourceOut,
   SourcePatch,
+  SourcePipelineAdvance,
+  SourcePipelineBoard,
+  SourcePipelineColumn,
+  SourcePipelineDetail,
+  SourcePipelineRetry,
   SourcePreviewOut,
   SourcePreviewRequest,
   SponsorArticlesOut,
@@ -3316,6 +3323,178 @@ return adminFetch<ImportCandidateDetail>(getAdminSourceImportReviewUrl(candidate
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
     body: JSON.stringify(importAction)
+  }
+);}
+
+
+
+export const getAdminSourcePipelineUrl = (params?: AdminSourcePipelineParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/v1/admin/source-pipeline?${stringifiedParams}` : `/v1/admin/source-pipeline`
+}
+
+/**
+ * @summary Board
+ */
+export const adminSourcePipeline = async (params?: AdminSourcePipelineParams, options?: Parameters<typeof adminFetch>[1]): Promise<SourcePipelineBoard> => {
+
+  return adminFetch<SourcePipelineBoard>(getAdminSourcePipelineUrl(params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+export const getAdminSourcePipelineColumnUrl = (stage: 'discovery' | 'profile' | 'assessment' | 'branding' | 'review' | 'ingestion' | 'active' | 'paused' | 'rejected',
+    params?: AdminSourcePipelineColumnParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/v1/admin/source-pipeline/columns/${stage}?${stringifiedParams}` : `/v1/admin/source-pipeline/columns/${stage}`
+}
+
+/**
+ * @summary Column
+ */
+export const adminSourcePipelineColumn = async (stage: 'discovery' | 'profile' | 'assessment' | 'branding' | 'review' | 'ingestion' | 'active' | 'paused' | 'rejected',
+    params?: AdminSourcePipelineColumnParams, options?: Parameters<typeof adminFetch>[1]): Promise<SourcePipelineColumn> => {
+
+  return adminFetch<SourcePipelineColumn>(getAdminSourcePipelineColumnUrl(stage,params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+export const getAdminSourcePipelineDetailUrl = (kind: 'source' | 'candidate',
+    identifier: string,) => {
+
+
+
+
+  return `/v1/admin/source-pipeline/items/${kind}/${identifier}`
+}
+
+/**
+ * @summary Detail
+ */
+export const adminSourcePipelineDetail = async (kind: 'source' | 'candidate',
+    identifier: string, options?: Parameters<typeof adminFetch>[1]): Promise<SourcePipelineDetail> => {
+
+  return adminFetch<SourcePipelineDetail>(getAdminSourcePipelineDetailUrl(kind,identifier),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+export const getAdminSourcePipelineAdvanceUrl = (kind: 'source' | 'candidate',
+    identifier: string,) => {
+
+
+
+
+  return `/v1/admin/source-pipeline/items/${kind}/${identifier}/advance`
+}
+
+/**
+ * @summary Advance
+ */
+export const adminSourcePipelineAdvance = async (kind: 'source' | 'candidate',
+    identifier: string,
+    sourcePipelineAdvance: SourcePipelineAdvance, options?: Parameters<typeof adminFetch>[1]): Promise<SourcePipelineDetail> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
+  };
+return adminFetch<SourcePipelineDetail>(getAdminSourcePipelineAdvanceUrl(kind,identifier),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(sourcePipelineAdvance)
+  }
+);}
+
+
+
+export const getAdminSourcePipelineRetryUrl = (kind: 'source' | 'candidate',
+    identifier: string,) => {
+
+
+
+
+  return `/v1/admin/source-pipeline/items/${kind}/${identifier}/retry`
+}
+
+/**
+ * @summary Retry
+ */
+export const adminSourcePipelineRetry = async (kind: 'source' | 'candidate',
+    identifier: string,
+    sourcePipelineRetry: SourcePipelineRetry, options?: Parameters<typeof adminFetch>[1]): Promise<SourcePipelineDetail> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
+  };
+return adminFetch<SourcePipelineDetail>(getAdminSourcePipelineRetryUrl(kind,identifier),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(sourcePipelineRetry)
   }
 );}
 

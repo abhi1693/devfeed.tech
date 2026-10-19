@@ -31,7 +31,7 @@ JOB_FIELDS = {
         "method",
         "storage",
     ),
-    "source-enrichment": COMMON_FIELDS + ("source_id", "changed_fields"),
+    "source-enrichment": COMMON_FIELDS + ("source_id", "operation", "result", "changed_fields"),
     "analysis": COMMON_FIELDS
     + (
         "article_id",

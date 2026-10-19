@@ -31,12 +31,12 @@ export function useRequest<T>(
         );
       try {
         const data = await load(signal);
-        if (!signal.aborted) {
+        if (!signal.aborted && pending.current === signal) {
           failed.current = false;
           setState({ key, data });
         }
       } catch (error) {
-        if (signal.aborted) return;
+        if (signal.aborted || pending.current !== signal) return;
         if (error instanceof ApiError && error.status === 401) {
           unauthorized.current = true;
           returnToLogin();
