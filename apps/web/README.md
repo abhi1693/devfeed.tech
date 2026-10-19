@@ -752,3 +752,7 @@ delivery from earlier article delivery. Deployment/network latency needs a separ
 Reader browser regressions verify the shell with feed responses held pending on web and both
 built extensions, as well as distinct reader preferences, per-response nonces, and subsequent
 unpublication/republication. These checks avoid relying on machine-dependent timing limits.
+
+Cloudflare Web Analytics is injected at the public edge. See
+[the telemetry assessment and trace comparison](CLOUDFLARE_TELEMETRY.md) before
+changing its loading policy or adding an application beacon.
