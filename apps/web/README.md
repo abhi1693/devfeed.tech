@@ -763,6 +763,17 @@ endpoints, and forwards no request credentials. Public cards allow CORS and can 
 cached for five minutes. Missing public MCP configuration returns 404; invalid
 configuration or unavailable/malformed cards return a generic non-cacheable 503.
 
+If the reader cannot reach that public address from its own network, set the
+server-only `DEVFEED_MCP_INTERNAL_URL` to the full internal MCP transport URL, including
+its path. For Compose, set `DEVFEED_MCP_INTERNAL_URL=http://mcp:8003/mcp` on the web
+service and start the optional `mcp` profile. Loopback inside the web container is
+the web container itself, not the MCP container. This setting changes only the
+reader's discovery fetch; the card's endpoint and canonical headers must still
+match `DEVFEED_MCP_PUBLIC_URL`. It is never exposed by the public configuration API.
+When unset, the reader fetches the public address as before, including external MCP
+installations. Setting either URL does not start MCP; an unavailable service still
+returns 503 rather than a fabricated card.
+
 Deploy the MCP service update before enabling the reader mirror, and route the
 canonical card URL through the MCP ingress. Verify GET and HEAD on the public reader
 URL and confirm identity/capabilities against live MCP initialization. Run the

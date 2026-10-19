@@ -1,4 +1,4 @@
-import { mcpPublicUrl } from "@/lib/server/config";
+import { mcpInternalUrl, mcpPublicUrl } from "@/lib/server/config";
 
 export const dynamic = "force-dynamic";
 const MAX_CARD_BYTES = 65_536;
@@ -22,7 +22,9 @@ export async function GET(request: Request) {
     )
       throw new Error("Invalid public MCP endpoint");
     canonical.pathname = canonical.pathname.replace(/\/$/, "") + "/server-card";
-    const response = await fetch(canonical, {
+    const upstream = new URL(mcpInternalUrl() ?? endpoint);
+    upstream.pathname = upstream.pathname.replace(/\/$/, "") + "/server-card";
+    const response = await fetch(upstream, {
       headers: { Accept: "application/mcp-server-card+json, application/json" },
       redirect: "error",
       cache: "no-store",

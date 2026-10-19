@@ -48,6 +48,14 @@ For local Compose setup, explicitly set `DEVFEED_MCP_PUBLIC_URL` to
 `http://127.0.0.1:8003/mcp` in `.env`, then recreate the web service. This address
 works only for agents running on the same machine as the server.
 
+For server-card discovery from the Compose web container, also set
+`DEVFEED_MCP_INTERNAL_URL=http://mcp:8003/mcp` on the web service. This private
+transport URL is only used for the reader's server-side card fetch, while agents
+still receive `DEVFEED_MCP_PUBLIC_URL`. The optional MCP service must be running
+with the server-card routes; setting a URL does not start it. Start the `mcp`
+profile using the source-build command below, then recreate the web service to
+load the setting. External MCP installations can leave the internal URL unset.
+
 ## Run locally
 
 Start the public API with its database and Redis settings configured:

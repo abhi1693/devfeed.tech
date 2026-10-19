@@ -85,6 +85,24 @@ def check() -> None:
             account["web"]["environment"]["DEVFEED_MCP_PUBLIC_URL"]
             == (mcp_options["DEVFEED_MCP_PUBLIC_URL"])
         )
+        assert account["web"]["environment"]["DEVFEED_MCP_INTERNAL_URL"] == ""
+        private_mcp = render(
+            {
+                **registry_fixtures,
+                **mcp_options,
+                "DEVFEED_MCP_INTERNAL_URL": "http://mcp:8003/mcp",
+            },
+            build=build,
+        )["services"]
+        assert private_mcp["web"]["environment"]["DEVFEED_MCP_INTERNAL_URL"] == (
+            "http://mcp:8003/mcp"
+        )
+        assert (
+            private_mcp["web"]["environment"]["DEVFEED_MCP_PUBLIC_URL"]
+            == (mcp_options["DEVFEED_MCP_PUBLIC_URL"])
+        )
+        for name, service in private_mcp.items():
+            assert ("DEVFEED_MCP_INTERNAL_URL" in service.get("environment", {})) == (name == "web")
         assert (
             account["user-api"]["environment"]["DEVFEED_USER_MCP_RESOURCE_URL"]
             == (mcp_options["DEVFEED_MCP_PUBLIC_URL"])
@@ -515,6 +533,7 @@ def check() -> None:
             "DEVFEED_EXTENSION_ANALYTICS_ENABLED": "false",
             "DEVFEED_EXTENSION_GA_API_SECRET": "",
             "DEVFEED_MCP_PUBLIC_URL": "",
+            "DEVFEED_MCP_INTERNAL_URL": "",
         }
         extension_ids = '["hliakjocndflpkmfajndigbpngfcekdm"]'
         reader_origins = '["http://192.0.2.10:3000"]'
