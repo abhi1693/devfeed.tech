@@ -5,6 +5,7 @@
  * Private administration API. OIDC sessions and CSRF protection required.
  * OpenAPI spec version: 0.1.0
  */
+import type { ArticleAuthorOut } from './articleAuthorOut';
 import type { ArticleOriginOut } from './articleOriginOut';
 import type { ArticleOutMetadataSourceType } from './articleOutMetadataSourceType';
 import type { ArticleOutSponsorLinkRelItem } from './articleOutSponsorLinkRelItem';
@@ -16,6 +17,8 @@ export interface ArticleOut {
   ai_description?: string | null;
   ai_summary?: string | null;
   author: string | null;
+  /** Authors with explicitly known entity types; untyped bylines remain in author. */
+  authors?: ArticleAuthorOut[];
   canonical_url: string;
   content_format?: string | null;
   content_type: string;
@@ -27,9 +30,13 @@ export interface ArticleOut {
   /** Language of article text, from inference or operator classification; null for unresolved candidates. Source-declared language remains separate. */
   language: string | null;
   metadata_source_type?: ArticleOutMetadataSourceType;
+  /** Publisher headline, when original metadata provenance is known. */
+  original_title?: string | null;
   origins: ArticleOriginOut[];
   published_at: string | null;
   published_to_feed_at?: string | null;
+  /** Unambiguous approved publisher of the original article, when known. */
+  publisher?: SourceRef | null;
   slug: string;
   sources: SourceRef[];
   sponsor_link_rel?: ArticleOutSponsorLinkRelItem[];

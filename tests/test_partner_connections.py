@@ -117,5 +117,5 @@ def test_product_endpoint_identity_must_match_discovery():
     candidates, _ = ConnectorClient(
         "nick-launches", fetch=lambda _: {"items": [entry()], "nextCursor": None}
     ).discover_page()
-    with pytest.raises(ValueError, match="different product identity"):
+    with pytest.raises(ValueError, match="different product ID"):
         ConnectorClient("nick-launches", fetch=lambda _: entry(slug="other")).product(candidates[0])

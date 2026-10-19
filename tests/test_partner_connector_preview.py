@@ -77,7 +77,8 @@ def test_response_preview_can_diagnose_incorrect_response_paths(connection_api, 
     raw = client.post(path + "/connector-response", json=draft)
     assert raw.status_code == 200 and raw.json()["data"] == upstream.data
     mapped = client.post(path + "/connector-preview", json=draft)
-    assert mapped.status_code == 422 and "response paths" in mapped.json()["detail"]
+    assert mapped.status_code == 422
+    assert mapped.json()["detail"] == "Product list paths did not match the API response."
 
 
 def test_mapping_preview_fetches_only_three_details_and_keeps_partial_errors(

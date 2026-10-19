@@ -2,7 +2,10 @@ import assert from "node:assert/strict";
 
 /** Opening and navigating a preview must retain the loaded reader underneath it. */
 export async function checkPreviewBackground(page, screenshot, search = false) {
-  const cards = page.locator(search ? ".search-section-articles .search-result" : ".article-card");
+  // Streamed Next.js trees can briefly retain hidden copies of the reader.
+  const cards = page.locator(
+    search ? ".search-section-articles .search-result:visible" : ".article-card:visible",
+  );
   await cards.first().waitFor();
   const count = await cards.count();
   const card = await cards.first().elementHandle();
@@ -17,7 +20,7 @@ export async function checkPreviewBackground(page, screenshot, search = false) {
   page.on("request", record);
   try {
     await page
-      .locator(search ? ".search-result-heading a" : ".card-open-link")
+      .locator(search ? ".search-result-heading a:visible" : ".card-open-link:visible")
       .first()
       .click();
     await page.locator("#article-preview-title").waitFor();
