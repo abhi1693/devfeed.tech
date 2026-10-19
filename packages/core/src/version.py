@@ -6,7 +6,9 @@ __version__ = version("devfeed-core")
 
 # Schema revisions are not application versions. Advance this when adding a
 # migration required by this application; never change an existing migration.
-SCHEMA_REVISION = "0030"
+SCHEMA_REVISION = "0031"
 
 # Scheduled like-based recommendations require migration 0015.
-BACKWARD_COMPATIBLE_SCHEMA_REVISIONS: frozenset[str] = frozenset({"0026", "0027", "0028", "0029"})
+BACKWARD_COMPATIBLE_SCHEMA_REVISIONS: frozenset[str] = frozenset(
+    {"0026", "0027", "0028", "0029", "0030"}
+)
