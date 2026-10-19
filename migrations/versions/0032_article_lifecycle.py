@@ -3,14 +3,14 @@
 import sqlalchemy as sa
 from alembic import op
 
-revision = "0027"
-down_revision = "0026"
+revision = "0032"
+down_revision = "0031"
 branch_labels = None
 depends_on = None
 
 HISTORY = (
-    ("article_enrichment_jobs", "ix_article_enrichment_history"),
-    ("article_analysis_jobs", "ix_article_analysis_history"),
+    # Revision0027 already owns the equivalent analysis/enrichment latest indexes.
+    # Reuse them, including on downgrade, instead of adding duplicate B-trees.
     ("article_image_jobs", "ix_article_image_history"),
 )
 

@@ -219,12 +219,14 @@ article fields, settings and job state are unchanged. The publication transactio
 never trusts this display cache. Historical terminal counts and paging stay in SQL;
 only the displayed Published page loads current processing facts for retry actions.
 
-Migration `0027` adds current-job history indexes and includes approved unpublished
-articles in the automation due index. Indexes build concurrently, with resumable
-repair of an interrupted build and a bounded metadata lock wait. This code accepts schema 0026 as well as
-0027: roll out the new processes on 0026 before applying the index migration.
-Old processes require 0026 and must be drained before upgrading the database;
-if rolling back to those binaries, downgrade this index-only migration first.
+Migration `0032` follows `0031`, adds the image-job history index and includes approved
+unpublished articles in the automation due index. Analysis and enrichment reuse the
+`*_latest` indexes from `0027`. The new index builds concurrently, with repair of an
+interrupted build and a bounded metadata lock wait. This code supports schemas `0026`
+through `0032`; inference reporting uses its exact ledger fallback before `0031`.
+Roll out compatible processes before applying `0032`. Its downgrade preserves parent
+indexes and restores the pending-only automation predicate; older binaries still need
+their own supported schema restored before they start.
 The v9 specialist workflow applies to eligible unpublished work. It does not launch a
 published-article backfill. Published content, URLs, feed order and notification
 history remain intact. Explicit board reprocessing unpublishes an eligible Published
