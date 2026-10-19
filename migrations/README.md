@@ -63,8 +63,10 @@ uv run alembic revision --autogenerate -m "describe the schema change"
 
 Review the generated operations and update `SCHEMA_REVISION` when the application
 requires the new revision. Include any functions, triggers or standalone sequences
-that Alembic does not generate. Keep applied revisions frozen; each revision contains
-its own schema definition and never imports mutable runtime models.
+that Alembic does not generate. Keep applied revisions and migration-only helpers
+frozen; they never import mutable runtime models. `search_visibility.py` shares the
+unchanged statement-trigger definitions for revisions `0028` and `0029`. Future
+visibility behavior changes belong in a new revision instead of editing that helper.
 
 `uv run alembic history` shows the chain. `uv run alembic upgrade head --sql` renders
 SQL without executing it. Integration tests provision disposable databases through
