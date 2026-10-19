@@ -171,6 +171,7 @@ async function readerFixture(t, imageProfile) {
     compactArticles: false,
     failNextPage: true,
     failArticle: true,
+    failCollection: true,
     feedOptionsStatus: 200,
     articleFeedGate: undefined,
     listingGate: undefined,
@@ -216,6 +217,20 @@ async function readerFixture(t, imageProfile) {
   );
   await context.route("https://devfeed.tech/api/**", async (route) => {
     const url = new URL(route.request().url());
+    if (
+      [
+        "/api/v1/topics/retry-topic",
+        "/api/v1/sources/retry-source",
+        "/api/v1/tags/retry-tag",
+      ].includes(url.pathname)
+    ) {
+      const item = url.pathname.includes("/sources/") ? article.sources[0] : article.topics[0];
+      return route.fulfill({
+        status: state.failCollection ? 503 : 200,
+        json: state.failCollection ? {} : { ...item, slug: url.pathname.split("/").at(-1) },
+      });
+    }
+
     serverReads.record(url.href, route.request().headers(), url.origin);
     if (topicContext.handles(url)) return route.fulfill(topicContext.respond(url));
     if (loginDestinations.handles(url)) return route.fulfill(loginDestinations.respond(url));
@@ -331,6 +346,12 @@ async function readerFixture(t, imageProfile) {
       return route.fulfill({ json: { enabled: true, providers: [] } });
     if (url.pathname === "/api/v1/user/auth/login")
       return route.fulfill(await signInResponse(url.pathname.slice(4) + url.search));
+    if (url.pathname === "/api/v1/tags" && url.searchParams.get("q") === "retry-catalog") {
+      return route.fulfill({
+        status: state.failCollection ? 503 : 200,
+        json: state.failCollection ? {} : { items: [], next_cursor: null },
+      });
+    }
     const tagResponse = tagsFixture(url);
     if (tagResponse) return route.fulfill(tagResponse);
     let json;
@@ -773,6 +794,40 @@ test(
       ),
     );
     await tagged.close();
+    for (const [kind, slug] of [
+      ["topics", "retry-topic"],
+      ["sources", "retry-source"],
+      ["tags", "retry-tag"],
+    ]) {
+      for (const suffix of ["", "/tutorials"]) {
+        state.failCollection = true;
+        const recoveryPage = await context.newPage();
+        await recoveryPage.goto(page.url().split("#")[0] + `#/${kind}/${slug}${suffix}`);
+        await recoveryPage
+          .getByRole("heading", { name: "Couldn’t load the feed", exact: true })
+          .waitFor();
+        state.failCollection = false;
+        await recoveryPage.getByRole("button", { name: "Try again", exact: true }).click();
+        await recoveryPage
+          .getByRole("heading", {
+            name: kind === "sources" ? article.sources[0].name : article.topics[0].name,
+            exact: true,
+          })
+          .first()
+          .waitFor();
+        await recoveryPage.close();
+      }
+    }
+    state.failCollection = true;
+    const directoryRecovery = await context.newPage();
+    await directoryRecovery.goto(page.url().split("#")[0] + "#/tags?q=retry-catalog");
+    await directoryRecovery
+      .getByRole("heading", { name: "Couldn’t load tags", exact: true })
+      .waitFor();
+    state.failCollection = false;
+    await directoryRecovery.getByRole("button", { name: "Try again", exact: true }).click();
+    await directoryRecovery.getByRole("heading", { name: "Explore tags", exact: true }).waitFor();
+    await directoryRecovery.close();
     const retryPage = await context.newPage();
     await retryPage.goto(page.url().split("#")[0] + "#/articles/retry-article");
     await retryPage.getByRole("heading", { name: "Couldn’t load the article" }).waitFor();

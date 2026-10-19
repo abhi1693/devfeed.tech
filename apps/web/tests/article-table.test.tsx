@@ -75,6 +75,16 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
+it("shows the verified publisher in compact view ahead of a discovery aggregator", () => {
+  const publisher = article.sources[0];
+  const aggregator = { ...publisher, id: "aggregator", name: "A digest", slug: "digest" };
+  render(<Table articles={[{ ...article, sources: [aggregator, publisher], publisher }]} />);
+  expect(screen.getByRole("link", { name: publisher.name }).getAttribute("href")).toBe(
+    `/sources/${publisher.slug}`,
+  );
+  expect(screen.queryByText(aggregator.name)).toBeNull();
+});
+
 it("discloses permanent sponsorship in compact article rows", () => {
   render(<Table articles={[{ ...article, sponsor_names: ["Example partner"] }]} />);
   expect(screen.getByText("Sponsored").getAttribute("title")).toBe("Sponsored by Example partner");

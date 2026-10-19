@@ -1,5 +1,26 @@
 # Shared backend core
 
+## Original article attribution
+
+`ArticleOut` keeps DevFeed's display title separate from `original_title`. A publisher
+headline is exposed only when its provenance is known. `publisher` resolves a single
+approved publisher origin on the original article's website, independently of the
+alphabetical discovery-source order. Ambiguous identities remain unknown. `authors`
+contains only explicitly typed people or organizations; current retained bylines lack
+that evidence, so they remain in the existing `author` display field without a guessed
+JSON-LD author type. The additive fields require no database migration.
+
+Reader pages retain their DevFeed canonical URLs. Their `WebPage` identifies DevFeed
+as the page publisher while describing the external original `Article` separately.
+A visible AI overview is a local English `CreativeWork` linked with `hasPart` and
+`isBasedOn`. Its text preserves the overview's Markdown source, declared as
+`text/markdown`, including technical identifiers and code. Source excerpts are not
+claimed as DevFeed-created work. Original dates
+and bylines are not reused as the overview's own metadata. Source breadcrumbs and
+reader source links prefer the verified publisher, with discovery sources retained
+as a navigation fallback for older responses and unknown publishers. This changes
+neither indexing eligibility nor sitemap membership based on overview length.
+
 ## Backend service boundaries
 
 - `devfeed_core.partner_connectors.ConnectorClient` binds one provider, validated connector

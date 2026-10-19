@@ -4,7 +4,9 @@ import { expect, it } from "vitest";
 import { JsonLd } from "@/components/json-ld";
 import { articleStructuredData, siteStructuredData } from "@/lib/structured-data";
 import { articleMetadata } from "@/lib/metadata";
-import { article } from "./fixtures";
+import { article as fixtureArticle } from "./fixtures";
+
+const article = { ...fixtureArticle, publisher: fixtureArticle.sources[0] };
 
 it.each(["script", "SCRIPT"])("keeps distinct stable graph identifiers with %s tags", (tag) => {
   const logo = { src: "/mark.png", width: 512, height: 512 };
@@ -27,6 +29,7 @@ it.each(["script", "SCRIPT"])("keeps distinct stable graph identifiers with %s t
     graphs[1],
     graphs[1].mainEntity,
     graphs[1].breadcrumb,
+    graphs[1].hasPart,
     graphs[0]["@graph"][0].logo,
   ];
   const ids = entities.map((entity) => entity["@id"]);
