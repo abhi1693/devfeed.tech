@@ -122,3 +122,19 @@ An archived connection disappears from current lists and cannot be read, edited,
 resumed, or synchronized through partner or admin connection routes. It no longer grants
 product ownership or serving eligibility and does not count toward the account's
 connection limit. Connecting the API again creates a new connection identifier.
+
+## Scheduled import intervals
+
+Partner connections use tier-based sync intervals, selected in hours in the portal:
+
+| Tier            | Available intervals     |
+| --------------- | ----------------------- |
+| Bronze / Silver | 24 hours                |
+| Gold            | 12 or 24 hours          |
+| Platinum        | 6, 12 or 24 hours       |
+| Diamond         | 1, 3, 6, 12 or 24 hours |
+
+New connections default to 24 hours. Create and update requests reject intervals outside
+the owning account's current tier. The scheduler uses a 24-hour interval for existing
+unsupported values and tier downgrades; it retains valid selections. Connections without
+an owning account retain their administrator-configured schedule.
