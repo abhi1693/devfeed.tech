@@ -2126,9 +2126,24 @@ async function assertSearchResultContext(context, base, platform) {
         await waitForSelection();
         // The account boundary clears prior-owner state. Reload the later public
         // result through the new reader, including focus-aware extension paging.
-        if (!(await page.getByRole("link", { name: promotedArticle.title, exact: true }).count())) {
-          await page.bringToFront();
-          await page.locator(".search-section-articles .pagination").scrollIntoViewIfNeeded();
+        const laterResult = page.getByRole("link", { name: promotedArticle.title, exact: true });
+        const nextPage = page.locator(
+          '.search-section-articles .pagination[data-has-more="true"]:visible',
+        );
+        await page.bringToFront();
+        // Identity reset reloads the first page. Wait for either the later result
+        // or its live pagination control; the streamed fallback can still be hidden.
+        await laterResult.or(nextPage).first().waitFor();
+        if (!(await laterResult.isVisible())) {
+          await page.evaluate(() => {
+            // Automatic paging may finish between the wait and this scroll.
+            const pagination = [
+              ...document.querySelectorAll(
+                '.search-section-articles .pagination[data-has-more="true"]',
+              ),
+            ].find((node) => node.getClientRects().length);
+            pagination?.scrollIntoView({ block: "end" });
+          });
         }
         await page
           .locator(".search-section-articles .search-result-link")

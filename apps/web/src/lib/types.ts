@@ -32,6 +32,10 @@ export type Article = {
   slug: string;
   canonical_url: string;
   title: string;
+  // Optional while older API responses and extension caches remain readable.
+  original_title?: string | null;
+  publisher?: Source | null;
+  authors?: { type: "Person" | "Organization"; name: string; url?: string | null }[];
   summary: string;
   ai_summary: string | null;
   ai_description: string | null;

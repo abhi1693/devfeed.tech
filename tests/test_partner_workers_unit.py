@@ -243,8 +243,18 @@ def test_scheduling_keeps_future_connections_and_qualifies_products(monkeypatch,
 
     session = Mock()
     job = leased_job(operation="sync")
-    due = NS(next_sync_at=utcnow() - timedelta(seconds=1))
-    future = NS(next_sync_at=utcnow() + timedelta(hours=1))
+    due = NS(
+        account_id=None,
+        sync_interval_minutes=360,
+        last_sync_at=None,
+        next_sync_at=utcnow() - timedelta(seconds=1),
+    )
+    future = NS(
+        account_id=None,
+        sync_interval_minutes=360,
+        last_sync_at=None,
+        next_sync_at=utcnow() + timedelta(hours=1),
+    )
     product = NS(id=uuid.uuid4(), revision=1, assessment_revision=0)
     session.scalars.side_effect = [NS(all=lambda: [due, future]), NS(all=lambda: [product])]
     session.new = [job] if created else []
@@ -257,3 +267,37 @@ def test_scheduling_keeps_future_connections_and_qualifies_products(monkeypatch,
     request.assert_called_once_with(session, due)
     assess.assert_called_once_with(session, product, renewal=False)
     session.flush.assert_called_once()
+    session.get.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    ("tier", "minutes", "expected"),
+    [
+        ("bronze", 1440, 1440),
+        ("bronze", 60, 1440),
+        ("silver", 1440, 1440),
+        ("silver", 720, 1440),
+        ("gold", 720, 720),
+        ("gold", 360, 1440),
+        ("platinum", 360, 360),
+        ("platinum", 60, 1440),
+        ("diamond", 60, 60),
+        ("diamond", 120, 1440),
+    ],
+)
+def test_connection_sync_interval_uses_current_account_tier(tier, minutes, expected):
+    from devfeed_core.models import PartnerAccount
+
+    account_id = uuid.uuid4()
+    session = Mock()
+    session.get.return_value = NS(tier=tier)
+    connection = NS(account_id=account_id, sync_interval_minutes=minutes)
+    assert pipeline.connection_sync_interval(session, connection) == expected
+    session.get.assert_called_once_with(PartnerAccount, account_id)
+
+
+def test_connection_sync_interval_preserves_unowned_administrator_schedule():
+    session = Mock()
+    connection = NS(account_id=None, sync_interval_minutes=15)
+    assert pipeline.connection_sync_interval(session, connection) == 15
+    session.get.assert_not_called()

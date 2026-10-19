@@ -2632,6 +2632,39 @@
         "title": "AppearanceSettings",
         "type": "object"
       },
+      "ArticleAuthorOut": {
+        "properties": {
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "type": {
+            "enum": [
+              "Person",
+              "Organization"
+            ],
+            "title": "Type",
+            "type": "string"
+          },
+          "url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Url"
+          }
+        },
+        "required": [
+          "type",
+          "name"
+        ],
+        "title": "ArticleAuthorOut",
+        "type": "object"
+      },
       "ArticleContentOut": {
         "properties": {
           "article_id": {
@@ -2849,6 +2882,14 @@
             ],
             "title": "Author"
           },
+          "authors": {
+            "description": "Authors with explicitly known entity types; untyped bylines remain in author.",
+            "items": {
+              "$ref": "#/components/schemas/ArticleAuthorOut"
+            },
+            "title": "Authors",
+            "type": "array"
+          },
           "canonical_url": {
             "title": "Canonical Url",
             "type": "string"
@@ -2929,6 +2970,18 @@
             ],
             "title": "Metadata Source Type"
           },
+          "original_title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Publisher headline, when original metadata provenance is known.",
+            "title": "Original Title"
+          },
           "origins": {
             "items": {
               "$ref": "#/components/schemas/ArticleOriginOut"
@@ -2959,6 +3012,17 @@
               }
             ],
             "title": "Published To Feed At"
+          },
+          "publisher": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SourceRef"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Unambiguous approved publisher of the original article, when known."
           },
           "slug": {
             "title": "Slug",

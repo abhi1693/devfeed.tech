@@ -144,6 +144,8 @@ export * from './appearanceSettingsDateFormat';
 export * from './appearanceSettingsDensity';
 export * from './appearanceSettingsTheme';
 export * from './appearanceSettingsTimeFormat';
+export * from './articleAuthorOut';
+export * from './articleAuthorOutType';
 export * from './articleContentOut';
 export * from './articleOriginOut';
 export * from './articleOriginOutSourceMetadata';

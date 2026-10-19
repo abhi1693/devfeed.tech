@@ -1,4 +1,5 @@
 import { cache } from "react";
+import { CollectionUnavailable } from "@/components/collection-unavailable";
 import { headers } from "next/headers";
 import { matchReaderDestinationPath } from "@devfeed/http/reader-destinations";
 import { notFound, permanentRedirect } from "next/navigation";
@@ -27,12 +28,16 @@ const load = cache(async (slug: string, contentType?: string) => {
     return { route, tag: await getTag(route.slug) };
   } catch (error) {
     if (error instanceof UserApiError && error.status === 404) notFound();
+    if (error instanceof UserApiError && error.status >= 500) return null;
     throw error;
   }
 });
 export async function generateMetadata({ params, searchParams }: Props) {
   const { slug, contentType } = await params;
-  const { route, tag } = await load(slug, contentType);
+  const result = await load(slug, contentType);
+  if (!result)
+    return { title: "Page temporarily unavailable", robots: { index: false, follow: false } };
+  const { route, tag } = result;
   return collectionFeedMetadata(
     tag.name,
     `Published developer articles tagged ${tag.name}.`,
@@ -42,7 +47,9 @@ export async function generateMetadata({ params, searchParams }: Props) {
 }
 export default async function Page({ params, searchParams }: Props) {
   const { slug, contentType } = await params;
-  const { route, tag } = await load(slug, contentType);
+  const result = await load(slug, contentType);
+  if (!result) return <CollectionUnavailable kind="tags" />;
+  const { route, tag } = result;
   const query = await searchParams;
   const filters = parseFilters({
     ...query,

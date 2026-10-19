@@ -49,6 +49,7 @@ PUBLIC_ARTICLE_OPTIONS = (
         Source.source_type,
         Source.description,
         Source.website_url,
+        Source.feed_url,
         Source.logo_url,
         Source.managed_logo,
         Source.image_url,

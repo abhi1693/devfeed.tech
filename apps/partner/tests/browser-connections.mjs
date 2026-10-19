@@ -448,6 +448,21 @@ async function assertConnectorPreview(page, fixture, { exerciseMappings = true }
     await test.click();
     await result.waitFor();
   }
+  const previewRoute = "**/api/v1/partner/**/connector-preview";
+  await page.route(previewRoute, (route) =>
+    route.fulfill({
+      status: 422,
+      contentType: "application/json",
+      body: JSON.stringify({ detail: "Detail endpoint requires only the {id} placeholder" }),
+    }),
+  );
+  await test.click();
+  await page
+    .getByText("Detail endpoint requires only the {id} placeholder", { exact: true })
+    .waitFor();
+  await page.unroute(previewRoute);
+  await test.click();
+  await result.waitFor();
   assert.equal(fixture.writes.length, writes);
   return { json, result };
 }
