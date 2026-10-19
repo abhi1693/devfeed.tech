@@ -2131,6 +2131,33 @@ try {
     .getByRole("table", { name: "Products" })
     .getByText(account.name, { exact: true })
     .waitFor();
+  const rejectedInventory = "**/api/v1/partner/inventory?*";
+  await page.route(rejectedInventory, async (route) => {
+    const response = await route.fetch();
+    const body = await response.json();
+    body.items = body.items.map((item) => ({
+      ...item,
+      status: "rejected",
+      commercial_approved: false,
+    }));
+    await route.fulfill({ response, json: body });
+  });
+  await page.getByRole("button", { name: "Refresh", exact: true }).click();
+  await page
+    .getByRole("table", { name: "Products" })
+    .getByText("Rejected", { exact: true })
+    .first()
+    .waitFor();
+  assert.equal(
+    await page
+      .getByRole("table", { name: "Products" })
+      .getByText("In review", { exact: true })
+      .count(),
+    0,
+  );
+  await page.screenshot({ path: root + "reports/partner/rejected-products.png", fullPage: true });
+  await page.unroute(rejectedInventory);
+  await page.getByRole("button", { name: "Refresh", exact: true }).click();
   const productAccountFilter = page
     .getByRole("table", { name: "Products" })
     .getByRole("columnheader", { name: /Partner account/ })

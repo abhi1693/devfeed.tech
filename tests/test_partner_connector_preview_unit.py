@@ -127,3 +127,87 @@ def test_preview_errors_hide_upstream_secrets_from_responses_and_logs(monkeypatc
     assert "internal-address" not in failure.value.detail
     assert "private-token" not in caplog.text and "internal-address" not in caplog.text
     assert caplog.records[-1].error_type == "ValueError"
+
+
+def test_preview_reports_reversed_website_mapping(monkeypatch):
+    config = partner_connectors.ConnectorConfig.model_validate(
+        partner_connectors.SHIPYARD_CONNECTOR
+    )
+    record = {
+        "id": "test",
+        "name": "Test",
+        "description": "Test product",
+        "productUrl": "https://shipyardhq.dev/products/test",
+        "url": "https://shipyardhq.dev/products/test",
+    }
+    monkeypatch.setattr(
+        partner_connectors.ConnectorClient,
+        "request",
+        lambda *_: {
+            "items": [record],
+            "nextCursor": None,
+        },
+    )
+    result = ConnectorPreviewService("shipyardhq", config).products()
+    assert result.products == []
+    assert result.errors == [
+        "Product 1: Website URL points to a platform host. Select the product’s own website field."
+    ]
+
+
+def test_preview_reports_missing_product_list_paths(monkeypatch):
+    monkeypatch.setattr(partner_connectors.ConnectorClient, "request", lambda *_: {})
+    config = partner_connectors.ConnectorConfig(base_url="https://catalog.example")
+    with pytest.raises(HTTPException) as failure:
+        ConnectorPreviewService("test", config).products()
+    assert failure.value.detail == "Product list paths did not match the API response."
+
+
+@pytest.mark.parametrize("status", [401, 403, 404, 429, 500])
+def test_preview_reports_upstream_http_status_without_private_message(monkeypatch, status):
+    def request(*_):
+        raise fetcher.FeedError("private-token internal-address", status=status)
+
+    monkeypatch.setattr(partner_connectors.ConnectorClient, "request", request)
+    config = partner_connectors.ConnectorConfig(base_url="https://catalog.example")
+    with pytest.raises(HTTPException) as failure:
+        ConnectorPreviewService("test", config).response()
+    assert f"HTTP {status}" in failure.value.detail
+    assert "private-token" not in failure.value.detail
+    assert "internal-address" not in failure.value.detail
+
+
+@pytest.mark.parametrize(
+    ("field", "value", "message"),
+    [
+        ("name", None, "Product name paths"),
+        ("productUrl", None, "Website URL paths"),
+        ("productUrl", "http://127.0.0.1/private-token", "valid public HTTP"),
+        ("url", "https://tool.example/", "Listing URL must belong"),
+        ("description", None, "Tagline paths"),
+        ("description", {"secret": "private-token"}, "Tagline paths must select text"),
+    ],
+)
+def test_preview_identifies_failing_field(monkeypatch, field, value, message):
+    record = {
+        "id": "test",
+        "name": "Test",
+        "description": "Test product",
+        "productUrl": "https://tool.example/",
+        "url": "https://shipyardhq.dev/products/test",
+    }
+    record[field] = value
+    monkeypatch.setattr(
+        partner_connectors.ConnectorClient,
+        "request",
+        lambda *_: {
+            "items": [record],
+            "nextCursor": None,
+        },
+    )
+    config = partner_connectors.ConnectorConfig.model_validate(
+        partner_connectors.SHIPYARD_CONNECTOR
+    )
+    result = ConnectorPreviewService("test", config).products()
+    assert len(result.errors) == 1 and message in result.errors[0]
+    assert "private-token" not in result.model_dump_json()

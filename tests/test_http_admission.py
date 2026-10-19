@@ -478,3 +478,37 @@ def test_middleware_wrapped_mounted_app_keeps_its_leaf_stream_lane():
                 assert (await active).status_code == 200
 
     asyncio.run(run())
+
+
+def test_admission_records_template_slot_ownership_until_cancelled(monkeypatch):
+    from types import SimpleNamespace
+    from unittest.mock import Mock
+
+    from devfeed_http import admission
+
+    instruments = {
+        name: Mock()
+        for name in (
+            "admitted",
+            "limit",
+            "rejections",
+            "admission_route_active",
+            "admission_duration",
+        )
+    }
+    monkeypatch.setattr(admission, "current", lambda: SimpleNamespace(instruments=instruments))
+    controller = AdmissionController(requests=1, streams=1)
+    lease = controller.acquire("request", route="/sources/{id}")
+    assert controller.acquire("request", route="/feed") is None
+    assert lease is not None
+    lease.close()
+    lease.close()
+    attributes = {"kind": "request", "http.route": "/sources/{id}"}
+    assert instruments["admission_route_active"].add.call_args_list == [
+        ((1, attributes),),
+        ((-1, attributes),),
+    ]
+    instruments["admission_duration"].record.assert_called_once()
+    duration, labels = instruments["admission_duration"].record.call_args.args
+    assert duration >= 0 and labels == attributes
+    assert controller.active["request"] == 0
