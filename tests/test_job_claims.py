@@ -16,7 +16,7 @@ from devfeed_core.models import (
     SourceEnrichmentJob,
     utcnow,
 )
-from devfeed_core.source_enrichment import claim_enrichment
+from devfeed_core.source_enrichment import claim_enrichment, source_identity
 from sqlalchemy.dialects import postgresql
 
 CASES = [
@@ -45,7 +45,14 @@ def test_targeted_claim_waits_for_dispatch_lock(model, claim):
 
 @pytest.mark.parametrize("model,claim", CASES)
 def test_claim_rechecks_state_and_duplicate_delivery_does_not_replace_lease(model, claim):
-    source = Source(id=uuid.uuid4(), approval_status="approved", enabled=True)
+    source = Source(
+        id=uuid.uuid4(),
+        approval_status="approved",
+        enabled=True,
+        feed_url="https://example.com/feed",
+        website_url="https://example.com/",
+        source_type="publisher",
+    )
     article = Article(
         id=uuid.uuid4(),
         canonical_url="https://example.com/article",
@@ -57,6 +64,8 @@ def test_claim_rechecks_state_and_duplicate_delivery_does_not_replace_lease(mode
         if model in {IngestionJob, SourceEnrichmentJob}
         else {"article_id": article.id}
     )
+    if model is SourceEnrichmentJob:
+        kwargs.update(operation="profile", result={"input": source_identity(source)})
     job = model(id=uuid.uuid4(), status="queued", attempts=0, available_at=utcnow(), **kwargs)
     session = SimpleNamespace(
         scalar=lambda stmt: source if stmt.column_descriptions[0]["entity"] is Source else job,

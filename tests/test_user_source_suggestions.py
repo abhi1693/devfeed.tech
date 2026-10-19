@@ -1,3 +1,4 @@
+import uuid
 from types import SimpleNamespace
 
 import pytest
@@ -17,6 +18,31 @@ from test_user_auth import oidc_app as oidc_app
 
 PATH = "/v1/user/sources/suggestions"
 BODY = {"feed_url": "https://example.com/rss", "source_type": "publisher"}
+
+
+def complete_profile_for_assessment(database):
+    from devfeed_aggregator.source_tasks import enrich_source
+
+    with database() as session:
+        profile_id = session.scalar(
+            select(SourceEnrichmentJob.id).where(
+                SourceEnrichmentJob.operation == "profile", SourceEnrichmentJob.status == "queued"
+            )
+        )
+    assert profile_id is not None
+    enrich_source(str(profile_id))
+    with database() as session:
+        profile = session.get(SourceEnrichmentJob, profile_id)
+        assert profile.status == "succeeded"
+        assessment_id = session.scalar(
+            select(SourceEnrichmentJob.id).where(
+                SourceEnrichmentJob.operation == "relevance", SourceEnrichmentJob.status == "queued"
+            )
+        )
+        assert assessment_id is not None and assessment_id != profile_id
+        assert session.scalar(select(Source.approval_status)) == "pending"
+        assert session.scalar(select(IngestionJob.id)) is None
+    return str(assessment_id)
 
 
 def test_suggestions_require_real_session_and_csrf_before_work(oidc_app, monkeypatch):
@@ -203,12 +229,13 @@ def test_full_automation_requires_relevance_not_just_valid_feed(
     monkeypatch.setattr(
         source_tasks,
         "assess_source",
-        lambda *_: {
+        lambda *args, **kwargs: {
             "approval_supported": supported,
             "relevance": "relevant" if supported else "uncertain",
             "reason": "Feed evidence checked",
         },
     )
+    job_id = complete_profile_for_assessment(database)
     source_tasks.enrich_source(job_id)
     with database() as session:
         source = session.scalar(select(Source))
@@ -284,7 +311,11 @@ def test_source_relevance_retry_uses_safe_feedback_and_never_approves_invalid_ev
     title = "Engineering distributed software systems"
     parsed = ParsedFeed([SimpleNamespace(title=title, summary="")] * 3, 3, 0, title="Example")
     monkeypatch.setattr(source_relevance, "validate_feed", lambda *a, **kw: parsed)
-    monkeypatch.setattr(source_tasks, "lookup_profile", lambda *a: ({}, None))
+    from devfeed_core.source_relevance import feed_sample
+
+    monkeypatch.setattr(
+        source_tasks, "lookup_profile", lambda *a: ({"_sample": feed_sample(parsed)}, None)
+    )
     prompts = []
 
     def complete(prompt, schema):
@@ -306,6 +337,7 @@ def test_source_relevance_retry_uses_safe_feedback_and_never_approves_invalid_ev
     monkeypatch.setattr(
         source_relevance, "CodexClient", lambda *_: SimpleNamespace(complete=complete)
     )
+    job_id = uuid.UUID(complete_profile_for_assessment(database))
     source_tasks.enrich_source(str(job_id))
     with database.begin() as session:
         job = session.get(SourceEnrichmentJob, job_id)
@@ -339,7 +371,7 @@ def test_relevance_cannot_override_review_failure_or_disabled_automation(
         job_id = str(session.scalar(select(SourceEnrichmentJob.id)))
         source_id = session.scalar(select(Source.id))
 
-    def assess(*_):
+    def assess(*args, **kwargs):
         if during == "reject":
             with database.begin() as session:
                 services.review_source(
@@ -355,6 +387,7 @@ def test_relevance_cannot_override_review_failure_or_disabled_automation(
         return {"approval_supported": True, "reason": "Relevant"}
 
     monkeypatch.setattr(source_tasks, "assess_source", assess)
+    job_id = complete_profile_for_assessment(database)
     source_tasks.enrich_source(job_id)
     with database() as session:
         source = session.get(Source, source_id)
@@ -394,6 +427,7 @@ def test_concurrent_duplicate_suggestions_create_one_pending_source(
 def test_suggested_source_dispatch_uses_ai_lane_only_when_required(
     suggested_client, database, monkeypatch, full_automation, ai_enabled
 ):
+    from devfeed_aggregator import source_tasks
     from devfeed_core.job_dispatch import dispatch_jobs
     from devfeed_core.models import utcnow
 
@@ -406,13 +440,22 @@ def test_suggested_source_dispatch_uses_ai_lane_only_when_required(
         enqueue=lambda *args, **kwargs: calls.append(args) or SimpleNamespace(id="rq-test")
     )
     analysis_required = full_automation  # Full automation enables AI in Settings.
-    assert dispatch_jobs(database, queue, 10, utcnow(), kind="source-enrichment") == int(
-        not analysis_required
+    # Profile fetching always uses the ordinary worker; only its independently
+    # queued relevance phase belongs to the AI lane.
+    assert dispatch_jobs(database, queue, 10, utcnow(), kind="source-enrichment") == 1
+    assert (
+        dispatch_jobs(database, queue, 10, utcnow(), kind="source-enrichment", source_analysis=True)
+        == 0
     )
+    assert len(calls) == 1
+    with database() as session:
+        profile_id = session.scalar(select(SourceEnrichmentJob.id))
+    source_tasks.enrich_source(str(profile_id))
+    assert dispatch_jobs(database, queue, 10, utcnow(), kind="source-enrichment") == 0
     assert dispatch_jobs(
         database, queue, 10, utcnow(), kind="source-enrichment", source_analysis=True
     ) == int(analysis_required)
-    assert len(calls) == 1
+    assert len(calls) == 1 + int(analysis_required)
 
 
 @pytest.mark.integration
@@ -430,10 +473,11 @@ def test_relevance_outage_stays_pending_and_reports_actual_failure(
         job_id = session.scalar(select(SourceEnrichmentJob.id))
     monkeypatch.setattr(source_tasks, "lookup_profile", lambda *args: ({}, None))
 
-    def unavailable(*args):
+    def unavailable(*args, **kwargs):
         raise AnalysisError("codex_unavailable", retry_after=600)
 
     monkeypatch.setattr(source_tasks, "assess_source", unavailable)
+    job_id = uuid.UUID(complete_profile_for_assessment(database))
     source_tasks.enrich_source(str(job_id))
     with database() as session:
         job = session.get(SourceEnrichmentJob, job_id)
@@ -467,6 +511,7 @@ def test_stale_ingestion_delivery_returns_to_ai_outbox_without_attempt(
         job_id = session.scalar(select(SourceEnrichmentJob.id))
     monkeypatch.setenv("DEVFEED_FULL_AUTOMATION", "true")
     get_settings.cache_clear()
+    job_id = uuid.UUID(complete_profile_for_assessment(database))
     monkeypatch.setattr(
         source_tasks, "get_current_job", lambda: SimpleNamespace(origin="ingestion")
     )

@@ -9,7 +9,7 @@ import { RecordActions } from "@/components/molecules/record-actions";
 import { RecordLink } from "@/components/molecules/record-link";
 import { ImageJobSubject, imageJobOperation } from "@/components/molecules/image-job-subject";
 import { relationshipLabel } from "@/components/molecules/relationship-proposal-actions";
-import { type Resource, resources } from "@/lib/resources";
+import { type Resource, resources, humanize } from "@/lib/resources";
 import { recordHref } from "@/lib/routes";
 import type { RecordData, RecordPage } from "@/lib/resource-api";
 import { useAdmin } from "@/components/molecules/admin-session";
@@ -175,6 +175,11 @@ export function RecordTable({
                 return <ImageJobSubject record={row.original} />;
               if (resource === "image-jobs" && column.key === "operation")
                 return imageJobOperation(row.original);
+              if (resource === "source-jobs" && column.key === "operation") {
+                const operation = (row.original.details as Record<string, unknown> | undefined)
+                  ?.operation;
+                return typeof operation === "string" ? humanize(operation) : "Not recorded";
+              }
               if (resource === "analysis-jobs" && column.key === "target_name") {
                 const record = row.original;
                 if (record.proposal_id)

@@ -109,6 +109,10 @@ def retry_failed_job(session, job, kind, actor):
             raise OperationConflict("The article already has an image; no retry is needed")
         return result
     if kind == "source-enrichment":
+        if getattr(job, "operation", "legacy") == "relevance":
+            from devfeed_core.source_enrichment import request_relevance
+
+            return request_relevance(session, job.source_id)
         return request_enrichment(session, job.source_id)
     if kind == "analysis":
         return request_analysis(session, job.article_id)

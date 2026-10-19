@@ -6,6 +6,7 @@ import pytest
 from devfeed_core import discovery
 from devfeed_core.config import get_settings
 from devfeed_core.models import Source, SourceCandidate, SourceDiscoveryJob, SourceEnrichmentJob
+from devfeed_core.source_enrichment import source_identity
 from devfeed_core.source_relevance import schedule_pending_reviews
 from sqlalchemy import select
 
@@ -139,6 +140,15 @@ def test_import_list_uses_linked_source_decision(admin_client, database, decisio
         candidate = session.scalar(select(SourceCandidate))
         source = session.get(Source, candidate.source_id)
         source.feed_url = "https://publisher.example/rss"
+        if decision == "approved":
+            session.add(
+                SourceEnrichmentJob(
+                    source_id=source.id,
+                    operation="profile",
+                    status="succeeded",
+                    result={"input": source_identity(source), "sample": []},
+                )
+            )
         review_source(
             session, source.id, SourceDecision(decision=decision, actor=actor, note="Reviewed")
         )
