@@ -16,6 +16,10 @@ uv run devfeed db upgrade
 uv run devfeed db check
 ```
 
+Alembic resolves its migration directory and helper imports relative to `alembic.ini`.
+Tools using `alembic -c /path/to/alembic.ini` can run from another working directory
+without adding the checkout to `PYTHONPATH`.
+
 This baseline requires an empty application database. Existing development databases
 on the removed revision chain must be reset/recreated explicitly before upgrading.
 Back up any wanted data and stop application processes before doing so. Neither the
