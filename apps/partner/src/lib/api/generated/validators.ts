@@ -76,6 +76,7 @@ export const PartnerAudienceTopicsResponse = zod.object({
 /**
  * @summary List Connections
  */
+export const partnerConnectionsListResponseItemsItemAccountTierDefault = `bronze`;
 export const partnerConnectionsListResponseItemsItemCommercialApprovedDefault = 0;
 export const partnerConnectionsListResponseItemsItemConnectorOneAttributionDefault = ``;
 export const partnerConnectionsListResponseItemsItemConnectorOneAttributionMax = 300;
@@ -203,6 +204,7 @@ export const PartnerConnectionsListResponse = zod.object({
   "credentials_available": zod.boolean(),
   "items": zod.array(zod.object({
   "account_id": zod.union([zod.uuid(),zod.null()]).optional(),
+  "account_tier": zod.enum(['bronze', 'silver', 'gold', 'platinum', 'diamond']).default(partnerConnectionsListResponseItemsItemAccountTierDefault),
   "ai_enabled": zod.boolean(),
   "api_url": zod.string(),
   "approval_mode": zod.union([zod.enum(['qualified', 'trusted']),zod.null()]).optional(),
@@ -286,6 +288,7 @@ export const PartnerConnectionsListResponse = zod.object({
 /**
  * @summary Create Connection
  */
+export const partnerConnectionCreateResponseAccountTierDefault = `bronze`;
 export const partnerConnectionCreateResponseCommercialApprovedDefault = 0;
 export const partnerConnectionCreateResponseConnectorOneAttributionDefault = ``;
 export const partnerConnectionCreateResponseConnectorOneAttributionMax = 300;
@@ -411,6 +414,7 @@ export const partnerConnectionCreateResponsePartnershipTypeDefault = `launch_pla
 
 export const PartnerConnectionCreateResponse = zod.object({
   "account_id": zod.union([zod.uuid(),zod.null()]).optional(),
+  "account_tier": zod.enum(['bronze', 'silver', 'gold', 'platinum', 'diamond']).default(partnerConnectionCreateResponseAccountTierDefault),
   "ai_enabled": zod.boolean(),
   "api_url": zod.string(),
   "approval_mode": zod.union([zod.enum(['qualified', 'trusted']),zod.null()]).optional(),
@@ -553,6 +557,7 @@ export const PartnerConnectorResponseResponse = zod.object({
  * Archive the connection and erase its token, retaining catalog and reporting history.
  * @summary Disconnect Connection
  */
+export const partnerConnectionDeleteResponseAccountTierDefault = `bronze`;
 export const partnerConnectionDeleteResponseCommercialApprovedDefault = 0;
 export const partnerConnectionDeleteResponseConnectorOneAttributionDefault = ``;
 export const partnerConnectionDeleteResponseConnectorOneAttributionMax = 300;
@@ -678,6 +683,7 @@ export const partnerConnectionDeleteResponsePartnershipTypeDefault = `launch_pla
 
 export const PartnerConnectionDeleteResponse = zod.object({
   "account_id": zod.union([zod.uuid(),zod.null()]).optional(),
+  "account_tier": zod.enum(['bronze', 'silver', 'gold', 'platinum', 'diamond']).default(partnerConnectionDeleteResponseAccountTierDefault),
   "ai_enabled": zod.boolean(),
   "api_url": zod.string(),
   "approval_mode": zod.union([zod.enum(['qualified', 'trusted']),zod.null()]).optional(),
@@ -757,6 +763,7 @@ export const PartnerConnectionDeleteResponse = zod.object({
 /**
  * @summary Get Connection
  */
+export const partnerConnectionGetResponseAccountTierDefault = `bronze`;
 export const partnerConnectionGetResponseCommercialApprovedDefault = 0;
 export const partnerConnectionGetResponseConnectorOneAttributionDefault = ``;
 export const partnerConnectionGetResponseConnectorOneAttributionMax = 300;
@@ -882,6 +889,7 @@ export const partnerConnectionGetResponsePartnershipTypeDefault = `launch_platfo
 
 export const PartnerConnectionGetResponse = zod.object({
   "account_id": zod.union([zod.uuid(),zod.null()]).optional(),
+  "account_tier": zod.enum(['bronze', 'silver', 'gold', 'platinum', 'diamond']).default(partnerConnectionGetResponseAccountTierDefault),
   "ai_enabled": zod.boolean(),
   "api_url": zod.string(),
   "approval_mode": zod.union([zod.enum(['qualified', 'trusted']),zod.null()]).optional(),
@@ -961,6 +969,7 @@ export const PartnerConnectionGetResponse = zod.object({
 /**
  * @summary Update Connection
  */
+export const partnerConnectionUpdateResponseAccountTierDefault = `bronze`;
 export const partnerConnectionUpdateResponseCommercialApprovedDefault = 0;
 export const partnerConnectionUpdateResponseConnectorOneAttributionDefault = ``;
 export const partnerConnectionUpdateResponseConnectorOneAttributionMax = 300;
@@ -1086,6 +1095,7 @@ export const partnerConnectionUpdateResponsePartnershipTypeDefault = `launch_pla
 
 export const PartnerConnectionUpdateResponse = zod.object({
   "account_id": zod.union([zod.uuid(),zod.null()]).optional(),
+  "account_tier": zod.enum(['bronze', 'silver', 'gold', 'platinum', 'diamond']).default(partnerConnectionUpdateResponseAccountTierDefault),
   "ai_enabled": zod.boolean(),
   "api_url": zod.string(),
   "approval_mode": zod.union([zod.enum(['qualified', 'trusted']),zod.null()]).optional(),
@@ -1165,6 +1175,7 @@ export const PartnerConnectionUpdateResponse = zod.object({
 /**
  * @summary Connection Action
  */
+export const partnerConnectionActionResponseAccountTierDefault = `bronze`;
 export const partnerConnectionActionResponseCommercialApprovedDefault = 0;
 export const partnerConnectionActionResponseConnectorOneAttributionDefault = ``;
 export const partnerConnectionActionResponseConnectorOneAttributionMax = 300;
@@ -1290,6 +1301,7 @@ export const partnerConnectionActionResponsePartnershipTypeDefault = `launch_pla
 
 export const PartnerConnectionActionResponse = zod.object({
   "account_id": zod.union([zod.uuid(),zod.null()]).optional(),
+  "account_tier": zod.enum(['bronze', 'silver', 'gold', 'platinum', 'diamond']).default(partnerConnectionActionResponseAccountTierDefault),
   "ai_enabled": zod.boolean(),
   "api_url": zod.string(),
   "approval_mode": zod.union([zod.enum(['qualified', 'trusted']),zod.null()]).optional(),
@@ -1450,6 +1462,7 @@ export const PartnerConnectionJobsResponse = zod.object({
 /**
  * @summary Upload Connection Logo
  */
+export const partnerConnectionLogoUploadResponseAccountTierDefault = `bronze`;
 export const partnerConnectionLogoUploadResponseCommercialApprovedDefault = 0;
 export const partnerConnectionLogoUploadResponseConnectorOneAttributionDefault = ``;
 export const partnerConnectionLogoUploadResponseConnectorOneAttributionMax = 300;
@@ -1575,6 +1588,7 @@ export const partnerConnectionLogoUploadResponsePartnershipTypeDefault = `launch
 
 export const PartnerConnectionLogoUploadResponse = zod.object({
   "account_id": zod.union([zod.uuid(),zod.null()]).optional(),
+  "account_tier": zod.enum(['bronze', 'silver', 'gold', 'platinum', 'diamond']).default(partnerConnectionLogoUploadResponseAccountTierDefault),
   "ai_enabled": zod.boolean(),
   "api_url": zod.string(),
   "approval_mode": zod.union([zod.enum(['qualified', 'trusted']),zod.null()]).optional(),
@@ -1654,6 +1668,7 @@ export const PartnerConnectionLogoUploadResponse = zod.object({
 /**
  * @summary Update Connection Logo
  */
+export const partnerConnectionLogoUpdateResponseAccountTierDefault = `bronze`;
 export const partnerConnectionLogoUpdateResponseCommercialApprovedDefault = 0;
 export const partnerConnectionLogoUpdateResponseConnectorOneAttributionDefault = ``;
 export const partnerConnectionLogoUpdateResponseConnectorOneAttributionMax = 300;
@@ -1779,6 +1794,7 @@ export const partnerConnectionLogoUpdateResponsePartnershipTypeDefault = `launch
 
 export const PartnerConnectionLogoUpdateResponse = zod.object({
   "account_id": zod.union([zod.uuid(),zod.null()]).optional(),
+  "account_tier": zod.enum(['bronze', 'silver', 'gold', 'platinum', 'diamond']).default(partnerConnectionLogoUpdateResponseAccountTierDefault),
   "ai_enabled": zod.boolean(),
   "api_url": zod.string(),
   "approval_mode": zod.union([zod.enum(['qualified', 'trusted']),zod.null()]).optional(),
@@ -2235,6 +2251,7 @@ export const PartnerProductUpdateResponse = zod.object({
 /**
  * @summary Connections
  */
+export const partnerWorkspaceConnectionsResponseItemsItemAccountTierDefault = `bronze`;
 export const partnerWorkspaceConnectionsResponseItemsItemCommercialApprovedDefault = 0;
 export const partnerWorkspaceConnectionsResponseItemsItemConnectorOneAttributionDefault = ``;
 export const partnerWorkspaceConnectionsResponseItemsItemConnectorOneAttributionMax = 300;
@@ -2363,6 +2380,7 @@ export const PartnerWorkspaceConnectionsResponse = zod.object({
   "items": zod.array(zod.object({
   "account_id": zod.uuid(),
   "account_name": zod.string(),
+  "account_tier": zod.enum(['bronze', 'silver', 'gold', 'platinum', 'diamond']).default(partnerWorkspaceConnectionsResponseItemsItemAccountTierDefault),
   "ai_enabled": zod.boolean(),
   "api_url": zod.string(),
   "approval_mode": zod.union([zod.enum(['qualified', 'trusted']),zod.null()]).optional(),
@@ -2446,6 +2464,7 @@ export const PartnerWorkspaceConnectionsResponse = zod.object({
 /**
  * @summary Add Connection
  */
+export const partnerWorkspaceConnectionCreateResponseAccountTierDefault = `bronze`;
 export const partnerWorkspaceConnectionCreateResponseCommercialApprovedDefault = 0;
 export const partnerWorkspaceConnectionCreateResponseConnectorOneAttributionDefault = ``;
 export const partnerWorkspaceConnectionCreateResponseConnectorOneAttributionMax = 300;
@@ -2572,6 +2591,7 @@ export const partnerWorkspaceConnectionCreateResponsePartnershipTypeDefault = `l
 export const PartnerWorkspaceConnectionCreateResponse = zod.object({
   "account_id": zod.uuid(),
   "account_name": zod.string(),
+  "account_tier": zod.enum(['bronze', 'silver', 'gold', 'platinum', 'diamond']).default(partnerWorkspaceConnectionCreateResponseAccountTierDefault),
   "ai_enabled": zod.boolean(),
   "api_url": zod.string(),
   "approval_mode": zod.union([zod.enum(['qualified', 'trusted']),zod.null()]).optional(),
@@ -2651,6 +2671,7 @@ export const PartnerWorkspaceConnectionCreateResponse = zod.object({
 /**
  * @summary Get Connection
  */
+export const partnerWorkspaceConnectionGetResponseAccountTierDefault = `bronze`;
 export const partnerWorkspaceConnectionGetResponseCommercialApprovedDefault = 0;
 export const partnerWorkspaceConnectionGetResponseConnectorOneAttributionDefault = ``;
 export const partnerWorkspaceConnectionGetResponseConnectorOneAttributionMax = 300;
@@ -2777,6 +2798,7 @@ export const partnerWorkspaceConnectionGetResponsePartnershipTypeDefault = `laun
 export const PartnerWorkspaceConnectionGetResponse = zod.object({
   "account_id": zod.uuid(),
   "account_name": zod.string(),
+  "account_tier": zod.enum(['bronze', 'silver', 'gold', 'platinum', 'diamond']).default(partnerWorkspaceConnectionGetResponseAccountTierDefault),
   "ai_enabled": zod.boolean(),
   "api_url": zod.string(),
   "approval_mode": zod.union([zod.enum(['qualified', 'trusted']),zod.null()]).optional(),

@@ -7,6 +7,7 @@
  */
 import type { ConnectionLogoVariant } from './connectionLogoVariant';
 import type { ConnectorConfig } from './connectorConfig';
+import type { WorkspaceConnectionOutAccountTier } from './workspaceConnectionOutAccountTier';
 import type { WorkspaceConnectionOutApprovalMode } from './workspaceConnectionOutApprovalMode';
 import type { WorkspaceConnectionOutAuthMode } from './workspaceConnectionOutAuthMode';
 import type { WorkspaceConnectionOutState } from './workspaceConnectionOutState';
@@ -14,6 +15,7 @@ import type { WorkspaceConnectionOutState } from './workspaceConnectionOutState'
 export interface WorkspaceConnectionOut {
   account_id: string;
   account_name: string;
+  account_tier?: WorkspaceConnectionOutAccountTier;
   ai_enabled: boolean;
   api_url: string;
   approval_mode?: WorkspaceConnectionOutApprovalMode;
