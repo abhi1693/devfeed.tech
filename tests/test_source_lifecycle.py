@@ -17,6 +17,8 @@ from devfeed_core.job_retries import retry_failed_job
 from devfeed_core.models import (
     Article,
     ArticleImageJob,
+    ArticleOrigin,
+    CandidateFeed,
     IngestionJob,
     Source,
     SourceCandidate,
@@ -718,3 +720,86 @@ def test_reopening_rejected_website_queues_the_selected_linked_candidate_once(da
         assert session.scalar(select(func.count()).select_from(SourceEnrichmentJob)) == 0
         assert session.scalar(select(func.count()).select_from(IngestionJob)) == 0
         assert session.scalar(select(func.count()).select_from(SourceReview)) == 1
+
+
+@pytest.mark.parametrize("canonical_approved", [False, True])
+def test_reopened_website_duplicate_feed_retains_review_history_without_changing_canonical_source(
+    database, canonical_approved
+):
+    from devfeed_core.discovery import handoff
+
+    with database.begin() as session:
+        canonical = seed_source(session, approved=canonical_approved)
+        if not canonical_approved:
+            review_source(
+                session,
+                canonical.id,
+                SourceDecision(
+                    decision="rejected", actor="canonical-editor", note="Existing policy"
+                ),
+            )
+        article = Article(
+            canonical_url="https://publisher.example/existing",
+            url_hash="existing-publisher-article",
+            title="Previously published Python article",
+            publication_status="published",
+            review_status="approved",
+        )
+        session.add(article)
+        session.flush()
+        origin = ArticleOrigin(
+            article_id=article.id,
+            source_id=canonical.id,
+            entry_key="existing-entry",
+            original_url=article.canonical_url,
+        )
+        old = Source(
+            name="Historical publisher alias",
+            website_url="https://publisher.example/about",
+            source_type="publisher",
+            approval_status="pending",
+            enabled=False,
+        )
+        session.add_all([origin, old])
+        session.flush()
+        candidate = SourceCandidate(
+            name=old.name,
+            identity_url=old.website_url,
+            source_id=old.id,
+            status="rejected",
+            approval_status="rejected",
+        )
+        session.add(candidate)
+        review_source(
+            session,
+            old.id,
+            SourceDecision(decision="rejected", actor="historic-editor", note="No verified feed"),
+        )
+        previous = session.scalar(select(SourceReview).where(SourceReview.source_id == old.id))
+        history = previous.id, previous.actor, previous.note, previous.created_at
+        old_id, canonical_id, article_id, origin_id = old.id, canonical.id, article.id, origin.id
+        facts = source_readiness(session, old)
+        advance_source_processing(
+            session, "source", old.id, facts.snapshot, actor={"subject": "reopening-editor"}
+        )
+        feed = CandidateFeed(candidate_id=candidate.id, url=canonical.feed_url)
+        session.add(feed)
+        session.flush()
+        candidate.selected_feed_id = feed.id
+        handoff(session, candidate)
+        session.flush()
+        assert candidate.source_id == canonical.id and candidate.status == "linked"
+    with database() as session:
+        canonical = session.get(Source, canonical_id)
+        assert session.get(Source, old_id) is None
+        assert canonical.approval_status == ("approved" if canonical_approved else "rejected")
+        assert canonical.enabled is canonical_approved and canonical.processing_request == {}
+        retained = session.get(SourceReview, history[0])
+        assert retained.source_id == canonical_id
+        assert (retained.id, retained.actor, retained.note, retained.created_at) == history
+        assert session.scalar(select(func.count()).select_from(SourceReview)) == (
+            1 if canonical_approved else 2
+        )
+        assert session.scalar(select(func.count()).select_from(IngestionJob)) == 0
+        assert session.get(Article, article_id).publication_status == "published"
+        assert session.get(ArticleOrigin, origin_id).source_id == canonical_id
