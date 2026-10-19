@@ -434,17 +434,105 @@ try {
     statusColors.push({ stage: cardStage, state, hue, label });
   }
   assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
-  await page.screenshot({ path: `${destination}/board-desktop.png`, fullPage: true });
+  await page.screenshot({
+    path: `${destination}/board-desktop.png`,
+    fullPage: true,
+    animations: "disabled",
+  });
+  const imagesColumn = page.locator('section[aria-labelledby="pipeline-images"]');
+  const fullWidth = (await imagesColumn.boundingBox()).width;
+  await page.getByRole("heading", { name: "Images", exact: true }).dblclick();
+  await page.getByRole("button", { name: "Expand Images column", exact: true }).waitFor();
+  assert.equal(await imagesColumn.getAttribute("data-pipeline-collapsed"), "true");
+  const railWidth = (await imagesColumn.boundingBox()).width;
+  assert.ok(railWidth <= 64 && railWidth < fullWidth / 2);
+  await page.getByRole("heading", { name: "Images", exact: true }).dblclick();
+  await page.getByRole("button", { name: "Collapse Images column", exact: true }).waitFor();
+  assert.ok((await imagesColumn.boundingBox()).width > 200);
+  await page.getByRole("button", { name: "Collapse Images column", exact: true }).focus();
+  await page.getByRole("button", { name: "Collapse Images column", exact: true }).press("Enter");
+  await page.getByRole("button", { name: "Expand Images column", exact: true }).press("Space");
+  assert.equal(await imagesColumn.getAttribute("data-pipeline-collapsed"), "false");
+  await page.getByRole("heading", { name: "Ingested", exact: true }).dblclick();
+  await page.getByRole("button", { name: /^Columns/ }).click();
+  await page.getByRole("checkbox", { name: "Rejected", exact: true }).uncheck();
+  await page.getByRole("button", { name: /^Columns/ }).click();
+  await page.reload();
+  await page.getByRole("button", { name: "Expand Ingested column", exact: true }).waitFor();
+  assert.equal(await page.getByRole("heading", { name: "Rejected", exact: true }).count(), 0);
+  const preferencesPoll = await page.waitForResponse(
+    (response) =>
+      new URL(response.url()).pathname === "/api/v1/admin/article-pipeline" && response.ok(),
+  );
+  await preferencesPoll.finished();
+  assert.equal(
+    await page.getByRole("button", { name: "Expand Ingested column", exact: true }).count(),
+    1,
+  );
+  assert.equal(await page.getByRole("heading", { name: "Rejected", exact: true }).count(), 0);
+  await page
+    .getByRole("textbox", { name: "Search article pipeline", exact: true })
+    .fill("structured");
+  await page.waitForURL(/q=structured/);
+  await focusCard.waitFor();
+  assert.equal(
+    await page.getByRole("button", { name: "Expand Ingested column", exact: true }).count(),
+    1,
+  );
+  await page.getByRole("textbox", { name: "Search article pipeline", exact: true }).fill("");
+  await page.waitForURL((url) => !url.searchParams.has("q"));
+  await focusCard.waitFor();
+  await page.getByRole("button", { name: "Collapse Images column", exact: true }).click();
+  await page.getByRole("button", { name: /^Columns/ }).click();
+  await page.getByRole("dialog", { name: "Pipeline columns" }).waitFor();
+  assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
+  await page.screenshot({
+    path: `${destination}/board-columns-desktop.png`,
+    fullPage: true,
+    animations: "disabled",
+  });
+  await page.getByRole("button", { name: /^Columns/ }).click();
   await page.setViewportSize({ width: 390, height: 844 });
   await page.getByRole("combobox", { name: "Pipeline stage", exact: true }).waitFor();
   assert.equal(await focusCard.isVisible(), true);
+  assert.ok((await imagesColumn.boundingBox()).width > 250);
   assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
-  await page.screenshot({ path: `${destination}/board-mobile.png`, fullPage: true });
+  await page.screenshot({
+    path: `${destination}/board-mobile.png`,
+    fullPage: true,
+    animations: "disabled",
+  });
+  await page.getByRole("button", { name: /^Columns/ }).click();
+  assert.equal(
+    await page.getByRole("checkbox", { name: "Rejected", exact: true }).isChecked(),
+    false,
+  );
+  await page.screenshot({
+    path: `${destination}/board-columns-mobile.png`,
+    fullPage: true,
+    animations: "disabled",
+  });
+  await page.getByRole("button", { name: /^Columns/ }).click();
+  await page.getByRole("combobox", { name: "Pipeline stage", exact: true }).click();
+  assert.equal(await page.getByRole("option", { name: /^Rejected/ }).count(), 0);
+  await page.keyboard.press("Escape");
+  await page.getByRole("button", { name: /^Columns/ }).click();
+  await page.getByRole("button", { name: "Show all columns", exact: true }).click();
+  assert.equal(await page.getByRole("checkbox", { checked: true }).count(), stages.length);
+  await page.getByRole("button", { name: /^Columns/ }).click();
+  assert.equal(await imagesColumn.getAttribute("data-pipeline-collapsed"), "true");
+  assert.equal(
+    await page
+      .locator('section[aria-labelledby="pipeline-ingested"]')
+      .getAttribute("data-pipeline-collapsed"),
+    "true",
+  );
   await page.getByRole("combobox", { name: "Pipeline stage", exact: true }).click();
   await page.getByRole("option", { name: /^Review/ }).click();
   await page.waitForURL(/stage=review/);
   assert.equal(await focusCard.isVisible(), false);
   await page.setViewportSize({ width: 1440, height: 1100 });
+  await page.getByRole("button", { name: "Expand Images column", exact: true }).click();
   await page.emulateMedia({ reducedMotion: "reduce" });
   const settled = await page.waitForResponse(
     (response) =>
@@ -479,19 +567,35 @@ try {
       .getAttribute("datetime"),
     "2026-10-19T09:15:00.000Z",
   );
-  await page.screenshot({ path: `${destination}/analysis-steps-desktop.png`, fullPage: true });
+  await page.screenshot({
+    path: `${destination}/analysis-steps-desktop.png`,
+    fullPage: true,
+    animations: "disabled",
+  });
   await page.setViewportSize({ width: 390, height: 844 });
   assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
-  await page.screenshot({ path: `${destination}/analysis-steps-mobile.png`, fullPage: true });
+  await page.screenshot({
+    path: `${destination}/analysis-steps-mobile.png`,
+    fullPage: true,
+    animations: "disabled",
+  });
   analysisRetry = false;
   stage = "images";
   await page.setViewportSize({ width: 1440, height: 1100 });
   await page.goto(`${origin}/content/articles/${id}`);
   await page.getByText("An image lookup is still running.", { exact: true }).waitFor();
-  await page.screenshot({ path: `${destination}/readiness-desktop.png`, fullPage: true });
+  await page.screenshot({
+    path: `${destination}/readiness-desktop.png`,
+    fullPage: true,
+    animations: "disabled",
+  });
   await page.setViewportSize({ width: 390, height: 844 });
   assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth));
-  await page.screenshot({ path: `${destination}/readiness-mobile.png`, fullPage: true });
+  await page.screenshot({
+    path: `${destination}/readiness-mobile.png`,
+    fullPage: true,
+    animations: "disabled",
+  });
   await page.setViewportSize({ width: 1440, height: 1100 });
   await page.goto(`${origin}/content/articles/${id}/review`);
   await page.getByRole("combobox", { name: /Decision/ }).click();
@@ -533,6 +637,15 @@ try {
         reducedMotionRespected: true,
         statusColors,
         runningCardsFirst: true,
+        columnPreferences: {
+          fullWidth,
+          railWidth,
+          reloadAndPollPersisted: true,
+          keyboardToggles: true,
+          hiddenMobileOptions: true,
+          mobileCollapseIgnored: true,
+          showAllPreservesCollapse: true,
+        },
         automaticStageUpdates: true,
         automaticReviewRevisionUpdates: true,
         minimalCards: true,
@@ -543,6 +656,8 @@ try {
         screenshots: [
           "board-desktop.png",
           "board-mobile.png",
+          "board-columns-desktop.png",
+          "board-columns-mobile.png",
           "readiness-desktop.png",
           "readiness-mobile.png",
           "analysis-steps-desktop.png",

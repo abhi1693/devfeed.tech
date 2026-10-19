@@ -5,12 +5,13 @@ import { useCallback, useLayoutEffect, useRef } from "react";
 type Position = { stage: string; left: number; top: number };
 
 /** Animate existing articles moving in the board without changing layout, scrolling or focus. */
-export function usePipelineMotion() {
+export function usePipelineMotion(layoutKey = "") {
   const region = useRef<HTMLDivElement>(null);
   const previous = useRef(new Map<string, Position>());
   const animations = useRef(new Set<Animation>());
   const preference = useRef<MediaQueryList | null>(null);
   const previousWidth = useRef<number | null>(null);
+  const previousLayout = useRef(layoutKey);
 
   const cancel = useCallback(() => {
     for (const animation of animations.current) animation.cancel();
@@ -49,6 +50,7 @@ export function usePipelineMotion() {
     const canAnimate =
       !preference.current?.matches &&
       document.documentElement.dataset.reduceMotion !== "true" &&
+      previousLayout.current === layoutKey &&
       previousWidth.current === bounds.width &&
       bounds.width > 0 &&
       bounds.height > 0;
@@ -76,6 +78,7 @@ export function usePipelineMotion() {
     }
     previous.current = next;
     previousWidth.current = bounds.width;
+    previousLayout.current = layoutKey;
     for (const { element, x, y } of moves) {
       if (typeof element.animate !== "function") continue;
       const animation = element.animate(

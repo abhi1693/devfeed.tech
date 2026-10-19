@@ -14,6 +14,7 @@ import {
   getArticlePipelineColumn,
   getArticlePipelineDetail,
   pipelineQuery,
+  pipelineLabels,
   pipelineStages,
   type PipelineArticle,
   type PipelineBoard,
@@ -134,6 +135,7 @@ const detail: PipelineDetail = {
 };
 beforeEach(() => {
   vi.clearAllMocks();
+  localStorage.clear();
   navigation.query = "view=pipeline";
   vi.mocked(getArticlePipeline).mockResolvedValue(board());
   vi.mocked(getArticlePipelineDetail).mockResolvedValue(detail);
@@ -159,6 +161,74 @@ it("forwards only bounded pipeline filters to the API", () => {
       "q=Python&source_id=source-one&needs_attention=true&offset=500&limit=100&sort=title&view=pipeline",
     ).toString(),
   ).toBe("limit=20&q=Python&source_id=source-one&needs_attention=true");
+});
+
+it("collapses a column by double-click and expands it through its accessible control", async () => {
+  renderAdmin(<ArticlePipeline query="view=pipeline&stage=images" />);
+  await screen.findByRole("link", { name: card.title });
+  fireEvent.doubleClick(screen.getByRole("heading", { name: "Images", level: 2 }));
+  const expand = screen.getByRole("button", { name: "Expand Images column" });
+  expect(expand.getAttribute("aria-expanded")).toBe("false");
+  fireEvent.click(expand);
+  expect(
+    screen.getByRole("button", { name: "Collapse Images column" }).getAttribute("aria-expanded"),
+  ).toBe("true");
+});
+
+it("hides columns and mobile choices while keeping at least one column visible", async () => {
+  renderAdmin(<ArticlePipeline query="view=pipeline&stage=images" />);
+  await screen.findByRole("link", { name: card.title });
+  fireEvent.click(screen.getByRole("button", { name: /^Columns/ }));
+  const filter = screen.getByRole("dialog", { name: "Pipeline columns" });
+  fireEvent.click(within(filter).getByRole("checkbox", { name: "Images" }));
+  expect(screen.queryByRole("heading", { name: "Images", level: 2 })).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: /^Columns/ }));
+  fireEvent.click(screen.getByRole("combobox", { name: "Pipeline stage" }));
+  expect(screen.queryByRole("option", { name: /^Images/ })).toBeNull();
+  fireEvent.click(screen.getByRole("option", { name: /^Ingested/ }));
+  fireEvent.click(screen.getByRole("button", { name: /^Columns/ }));
+  fireEvent.click(screen.getByRole("button", { name: "Show all columns" }));
+  for (const stage of pipelineStages.filter((stage) => stage !== "images"))
+    fireEvent.click(screen.getByRole("checkbox", { name: pipelineLabels[stage] }));
+  const last = screen.getByRole("checkbox", { name: "Images", checked: true });
+  expect((last as HTMLInputElement).disabled).toBe(true);
+  fireEvent.click(last);
+  expect(screen.getByRole("checkbox", { name: "Images", checked: true })).toBeDefined();
+  fireEvent.click(screen.getByRole("button", { name: "Show all columns" }));
+  expect(screen.getAllByRole("checkbox", { checked: true })).toHaveLength(pipelineStages.length);
+});
+
+it("retains hidden and collapsed columns through polling, query changes, and remounting", async () => {
+  vi.useFakeTimers();
+  const content = (query: string) => (
+    <RefreshSettings>
+      <ArticlePipeline query={query} />
+    </RefreshSettings>
+  );
+  let view!: ReturnType<typeof renderAdmin>;
+  await act(async () => {
+    view = renderAdmin(content("view=pipeline&stage=images"));
+  });
+  await saveRefresh(0);
+  fireEvent.doubleClick(screen.getByRole("heading", { name: "Images", level: 2 }));
+  fireEvent.click(screen.getByRole("button", { name: /^Columns/ }));
+  fireEvent.click(screen.getByRole("checkbox", { name: "Rejected" }));
+  fireEvent.click(screen.getByRole("button", { name: /^Columns/ }));
+  await act(() => vi.advanceTimersByTimeAsync(5000));
+  expect(getArticlePipeline).toHaveBeenCalledTimes(2);
+  expect(screen.getByRole("button", { name: "Expand Images column" })).toBeDefined();
+  expect(screen.queryByRole("heading", { name: "Rejected", level: 2 })).toBeNull();
+  await act(async () => {
+    view.rerender(content("view=pipeline&stage=images&q=python"));
+  });
+  expect(screen.getByRole("button", { name: "Expand Images column" })).toBeDefined();
+  expect(screen.queryByRole("heading", { name: "Rejected", level: 2 })).toBeNull();
+  view.unmount();
+  await act(async () => {
+    renderAdmin(content("view=pipeline&stage=images&q=python"));
+  });
+  expect(screen.getByRole("button", { name: "Expand Images column" })).toBeDefined();
+  expect(screen.queryByRole("heading", { name: "Rejected", level: 2 })).toBeNull();
 });
 
 it("uses Pipeline/List views without loading the ordinary article table for the board", async () => {
@@ -190,7 +260,7 @@ it("keeps cards to a linked title and source with an accessible status icon", as
   expect(
     screen.queryByText(/Published and rejected columns show articles since|Updated/),
   ).toBeNull();
-  expect(screen.queryByRole("button", { name: /publish/i })).toBeNull();
+  expect(screen.queryByRole("button", { name: /^Publish(?: article)?$/i })).toBeNull();
 });
 
 it.each([

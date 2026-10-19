@@ -14,10 +14,18 @@ const animate = vi.fn(function (this: HTMLElement) {
 let reduced = false;
 let mediaChange: (() => void) | undefined;
 
-function Board({ cards }: { cards: Card[] }) {
-  const ref = usePipelineMotion();
+function Board({
+  cards,
+  layoutKey = "",
+  offset = 0,
+}: {
+  cards: Card[];
+  layoutKey?: string;
+  offset?: number;
+}) {
+  const ref = usePipelineMotion(layoutKey);
   return (
-    <div ref={ref} data-testid="region" tabIndex={0}>
+    <div ref={ref} data-testid="region" data-offset={offset} tabIndex={0}>
       {stages.map((stage) => (
         <section key={stage}>
           {cards
@@ -57,7 +65,10 @@ beforeEach(() => {
     const root = this.closest<HTMLElement>("[data-testid='region']");
     if (!root || this.hidden) return new DOMRect();
     return new DOMRect(
-      100 + stages.indexOf(this.dataset.pipelineStage!) * 300 - root.scrollLeft,
+      100 +
+        stages.indexOf(this.dataset.pipelineStage!) * 300 +
+        Number(root.dataset.offset) -
+        root.scrollLeft,
       80 + Number(this.dataset.row) * 120 - root.scrollTop,
       260,
       100,
@@ -205,4 +216,43 @@ it("drops stale geometry after a responsive layout resize", () => {
   act(() => window.dispatchEvent(new Event("resize")));
   rerender(<Board cards={[{ id: "one", stage: "published" }]} />);
   expect(animate).not.toHaveBeenCalled();
+});
+
+it("rebaselines collapsed or hidden columns and resumes animation on the next data refresh", () => {
+  const { rerender } = render(
+    <Board cards={[{ id: "one", stage: "analysis", row: 1 }]} layoutKey="all|expanded" />,
+  );
+  rerender(
+    <Board
+      cards={[{ id: "one", stage: "analysis" }]}
+      layoutKey="all|ingested-collapsed"
+      offset={-240}
+    />,
+  );
+  expect(animate).not.toHaveBeenCalled();
+  rerender(
+    <Board
+      cards={[{ id: "one", stage: "analysis", row: 2 }]}
+      layoutKey="analysis,published|"
+      offset={-300}
+    />,
+  );
+  expect(animate).not.toHaveBeenCalled();
+  rerender(
+    <Board
+      cards={[{ id: "one", stage: "published" }]}
+      layoutKey="analysis,published|"
+      offset={-300}
+    />,
+  );
+  expect(animate).toHaveBeenLastCalledWith(
+    [
+      { transform: "translate(-300px, 240px)", zIndex: 20 },
+      { transform: "translate(0, 0)", zIndex: 20 },
+    ],
+    expect.anything(),
+  );
+  rerender(<Board cards={[{ id: "one", stage: "published" }]} layoutKey="all|expanded" />);
+  expect(animations[0].cancel).toHaveBeenCalledOnce();
+  expect(animate).toHaveBeenCalledOnce();
 });

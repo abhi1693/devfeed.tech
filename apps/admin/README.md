@@ -131,6 +131,13 @@ link to their existing guarded retry workflow. The board never changes a stage d
 Publication remains disabled while any required processing or editorial check is incomplete, and the API
 rechecks readiness before accepting a publication decision.
 
+Double-click a desktop column header, or use its collapse button, to reduce it to a
+narrow rail with its name and count. Use **Columns** to show or hide stages; at least
+one column stays visible. **Show all columns** restores hidden stages. Visibility and
+collapse choices are remembered in this browser through refreshes and navigation.
+On mobile, the stage selector includes only visible columns and always opens the full
+column. Changing the column layout does not animate cards as processing transitions.
+
 The AI analysis run shows its ordered steps for eligibility, classification, topics,
 tags, title, overview, and description. Each row reports its status, prompt version,
 attempt count, and scheduled retry or error when applicable. These are steps of one

@@ -5,14 +5,19 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   CheckCheck,
+  ChevronsLeft,
+  ChevronsRight,
   CircleAlert,
   CircleCheck,
   CircleX,
   Clock3,
+  Columns3,
   LoaderCircle,
   TimerReset,
 } from "lucide-react";
 import { Button } from "@devfeed/ui/button";
+import { Input } from "@devfeed/ui/input";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/atoms/popover";
 import { SearchField, searchScope } from "@/components/molecules/search-field";
 import { Select } from "@/components/molecules/select";
 import { EntityPicker } from "@/components/molecules/entity-picker";
@@ -20,6 +25,7 @@ import { RequestState } from "@/components/molecules/request-state";
 import { useRequest } from "@/lib/use-request";
 import { useArticlePipelineInterval } from "@/lib/use-refresh-interval";
 import { usePipelineMotion } from "@/lib/use-pipeline-motion";
+import { usePipelineColumns } from "@/lib/use-pipeline-columns";
 import { recordHref } from "@/lib/routes";
 import { notifyFailure } from "@/lib/notifications";
 import {
@@ -37,13 +43,16 @@ export function ArticlePipeline({ query }: { query: string }) {
   const router = useRouter();
   const search = new URLSearchParams(query);
   const [revision, setRevision] = useState(0);
+  const columns = usePipelineColumns();
   const refreshSeconds = useArticlePipelineInterval();
   const load = useCallback((signal: AbortSignal) => getArticlePipeline(query, signal), [query]);
   const result = useRequest(`article-pipeline/${query}/${revision}`, load, refreshSeconds * 1000);
   const stage =
-    pipelineStages.find((value) => value === search.get("stage")) ??
-    result.data?.columns.find((column) => column.total > 0)?.stage ??
-    "ingested";
+    columns.visible.find((value) => value === search.get("stage")) ??
+    result.data?.columns.find(
+      (column) => column.total > 0 && columns.visible.includes(column.stage),
+    )?.stage ??
+    columns.visible[0];
   function change(values: Record<string, string>, replace = false) {
     const next = new URLSearchParams(query);
     next.set("view", "pipeline");
@@ -80,6 +89,44 @@ export function ArticlePipeline({ query }: { query: string }) {
           clearLabel="All articles"
           options={[{ value: "true", label: "Needs attention" }]}
         />
+        <Popover>
+          <PopoverTrigger asChild>
+            <Button variant="outline" className="sm:ml-auto">
+              <Columns3 aria-hidden="true" />
+              Columns
+            </Button>
+          </PopoverTrigger>
+          <PopoverContent align="end" aria-label="Pipeline columns" className="w-56 p-2">
+            <p className="px-2 py-1.5 text-sm font-medium">Show columns</p>
+            {pipelineStages.map((value) => {
+              const checked = columns.visible.includes(value);
+              return (
+                <label
+                  key={value}
+                  className="flex cursor-pointer items-center gap-3 rounded px-2 py-2 text-sm hover:bg-muted has-disabled:cursor-default has-disabled:text-muted-foreground"
+                >
+                  <Input
+                    type="checkbox"
+                    checked={checked}
+                    disabled={checked && columns.visible.length === 1}
+                    onChange={(event) => columns.setVisible(value, event.target.checked)}
+                  />
+                  {pipelineLabels[value]}
+                </label>
+              );
+            })}
+            <div className="mt-1 border-t pt-1">
+              <Button
+                variant="ghost"
+                size="sm"
+                className="w-full justify-start"
+                onClick={columns.showAll}
+              >
+                Show all columns
+              </Button>
+            </div>
+          </PopoverContent>
+        </Popover>
       </div>
       <RequestState
         loading={result.loading}
@@ -93,6 +140,9 @@ export function ArticlePipeline({ query }: { query: string }) {
           query={query}
           stage={stage}
           onStage={(stage) => change({ stage })}
+          visible={columns.visible}
+          collapsed={columns.collapsed}
+          onCollapse={columns.toggleCollapsed}
         />
       )}
     </div>
@@ -104,13 +154,19 @@ function PipelineColumns({
   query,
   stage,
   onStage,
+  visible,
+  collapsed,
+  onCollapse,
 }: {
   data: PipelineBoard;
   query: string;
   stage: PipelineStage;
   onStage: (stage: PipelineStage) => void;
+  visible: PipelineStage[];
+  collapsed: PipelineStage[];
+  onCollapse: (stage: PipelineStage) => void;
 }) {
-  const motionRef = usePipelineMotion();
+  const motionRef = usePipelineMotion(`${visible.join(",")}|${collapsed.join(",")}`);
   const [additional, setAdditional] = useState<{
     snapshot: PipelineBoard;
     columns: Partial<Record<PipelineStage, PipelineColumn>>;
@@ -170,7 +226,7 @@ function PipelineColumns({
           value={stage}
           onChange={(value) => onStage(value as PipelineStage)}
           required
-          options={pipelineStages.map((value) => ({
+          options={visible.map((value) => ({
             value,
             label: `${pipelineLabels[value]} (${data.counts[value] ?? 0})`,
           }))}
@@ -183,8 +239,9 @@ function PipelineColumns({
         tabIndex={0}
         className="max-w-full overflow-x-auto rounded-lg focus-visible:outline-2 focus-visible:outline-ring"
       >
-        <div className="grid gap-4 lg:w-max lg:grid-flow-col lg:auto-cols-[18rem]">
-          {pipelineStages.map((value) => {
+        <div className="grid gap-4 lg:flex lg:w-max lg:items-stretch">
+          {visible.map((value) => {
+            const isCollapsed = collapsed.includes(value);
             const original = data.columns.find((column) => column.stage === value);
             const column = extra[value] ??
               original ?? {
@@ -212,20 +269,53 @@ function PipelineColumns({
               <section
                 key={value}
                 aria-labelledby={`pipeline-${value}`}
-                className={`min-w-0 rounded-lg border bg-muted/30 ${stage === value ? "" : "hidden lg:block"}`}
+                data-pipeline-collapsed={isCollapsed}
+                className={`min-w-0 rounded-lg border bg-muted/30 lg:shrink-0 ${isCollapsed ? "lg:w-12" : "lg:w-72"} ${stage === value ? "" : "hidden lg:block"}`}
               >
-                <div className="flex items-center justify-between border-b px-4 py-3">
-                  <h2 id={`pipeline-${value}`} className="text-sm font-semibold">
+                <div
+                  className={`flex select-none items-center gap-2 border-b px-4 py-3 ${isCollapsed ? "lg:h-full lg:min-h-40 lg:flex-col lg:border-b-0 lg:px-2" : ""}`}
+                  onDoubleClick={(event) => {
+                    if (
+                      window.innerWidth >= 1024 &&
+                      !(event.target as HTMLElement).closest("button")
+                    )
+                      onCollapse(value);
+                  }}
+                >
+                  <h2
+                    id={`pipeline-${value}`}
+                    className={`min-w-0 flex-1 text-sm font-semibold ${isCollapsed ? "lg:order-2 lg:flex-none lg:[writing-mode:vertical-rl]" : ""}`}
+                  >
                     {pipelineLabels[value]}
                   </h2>
                   <span
-                    className="rounded-full bg-background px-2 py-0.5 text-xs tabular-nums"
+                    className={`rounded-full bg-background px-2 py-0.5 text-xs tabular-nums ${isCollapsed ? "lg:order-3" : ""}`}
                     aria-label={`${column.total} articles`}
                   >
                     {column.total.toLocaleString()}
                   </span>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className={`hidden size-6 shrink-0 lg:inline-flex ${isCollapsed ? "lg:order-1" : ""}`}
+                    aria-label={`${isCollapsed ? "Expand" : "Collapse"} ${pipelineLabels[value]} column`}
+                    aria-expanded={!isCollapsed}
+                    aria-controls={`pipeline-${value}-articles`}
+                    title={`${isCollapsed ? "Expand" : "Collapse"} column`}
+                    onClick={() => onCollapse(value)}
+                  >
+                    {isCollapsed ? (
+                      <ChevronsRight aria-hidden="true" className="size-3.5" />
+                    ) : (
+                      <ChevronsLeft aria-hidden="true" className="size-3.5" />
+                    )}
+                  </Button>
                 </div>
-                <div className="space-y-3 p-3">
+                <div
+                  id={`pipeline-${value}-articles`}
+                  className={`space-y-3 p-3 ${isCollapsed ? "lg:hidden" : ""}`}
+                >
                   {items.map((item) => (
                     <PipelineCard key={item.id} article={item} />
                   ))}
