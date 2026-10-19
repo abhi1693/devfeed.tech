@@ -752,3 +752,18 @@ delivery from earlier article delivery. Deployment/network latency needs a separ
 Reader browser regressions verify the shell with feed responses held pending on web and both
 built extensions, as well as distinct reader preferences, per-response nonces, and subsequent
 unpublication/republication. These checks avoid relying on machine-dependent timing limits.
+
+## MCP server-card discovery
+
+`/.well-known/mcp/server-card.json` mirrors the configured MCP endpoint's authoritative
+`<endpoint>/server-card` document. Version and capabilities come from the MCP service,
+not the reader image. The route preserves custom endpoint paths, bounds upstream
+responses to 64 KiB with an eight-second deadline, rejects redirects and mismatched
+endpoints, and forwards no request credentials. Public cards allow CORS and can be
+cached for five minutes. Missing public MCP configuration returns 404; invalid
+configuration or unavailable/malformed cards return a generic non-cacheable 503.
+
+Deploy the MCP service update before enabling the reader mirror, and route the
+canonical card URL through the MCP ingress. Verify GET and HEAD on the public reader
+URL and confirm identity/capabilities against live MCP initialization. Run the
+agent-readiness scan and check `checks.discovery.mcpServerCard.status` after rollout.

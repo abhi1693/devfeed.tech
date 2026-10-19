@@ -285,3 +285,24 @@ must appear in both the access token and its live grant. Browser-only endpoints
 authenticate with their session cookies and retain origin and CSRF checks.
 Refresh cannot add write access to a read-only connection. Reconnect and approve
 read-write access to enable changes; existing connections keep their approved scopes.
+
+## Server-card discovery
+
+With `DEVFEED_MCP_PUBLIC_URL` configured, MCP serves a public card at
+`GET /mcp/server-card` and `GET /.well-known/mcp/server-card.json`. The card derives
+its version, serverInfo, and capability flags from the live server's initialization
+options after tools are registered. It contains no tool definitions or user data.
+No upstream API, Redis, or account access is needed to read it. Without a configured
+public URL, discovery returns 404 rather than inventing an endpoint.
+
+The linked server-card proposal evolved from SEP-1649 into SEP-2127. The card includes
+current identity/remotes fields and compatibility serverInfo/endpoint/capabilities
+fields for earlier consumers. Resources and prompts capability flags describe the
+SDK's listing support; these lists are currently empty. Clients must use runtime
+listing and authorization to determine which tools they can use; a static card
+is advisory, not a permission grant.
+
+For a custom public MCP path, route `<public MCP URL>/server-card` to the service's
+`/mcp/server-card` route alongside the existing transport rewrite. Cards include
+public CORS and five-minute cache headers. This changes no MCP transport, OAuth,
+consent, subscription, or tool behavior.

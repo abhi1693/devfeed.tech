@@ -13,6 +13,7 @@ from devfeed_mcp.config import Settings
 from devfeed_mcp.oauth import OAuthProvider
 from devfeed_mcp.personal import UserAPI, register_personal_tools
 from devfeed_mcp.server import create_server
+from devfeed_mcp.server_card import server_card
 from devfeed_mcp.transport import MCPRoutes
 
 
@@ -56,6 +57,7 @@ def create_app(
         register_personal_tools(server, UserAPI(user_client, settings))
 
     mcp_routes = MCPRoutes(server, settings, provider)
+    card = server_card(server._lowlevel_server.create_initialization_options(), settings)
 
     @asynccontextmanager
     async def lifespan(app):
@@ -94,6 +96,8 @@ def create_app(
             Route("/health/live", live),
             Route("/health/ready", ready),
             Route("/version", app_version),
+            Route("/.well-known/mcp/server-card.json", card),
+            Route(mcp_routes.transport.path.rstrip("/") + "/server-card", card),
             Mount("/", app=mcp_routes.app),
         ],
         lifespan=lifespan,
