@@ -673,7 +673,6 @@
           },
           "max_pages": {
             "default": 1000,
-            "maximum": 1000.0,
             "minimum": 1.0,
             "title": "Max Pages",
             "type": "integer"
@@ -2417,7 +2416,6 @@
           },
           "max_pages": {
             "default": 100,
-            "maximum": 100.0,
             "minimum": 1.0,
             "title": "Max Pages",
             "type": "integer"
