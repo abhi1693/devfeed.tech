@@ -3,6 +3,7 @@
 import uuid
 
 import pytest
+from article_processing_helpers import complete_processing
 from devfeed_core import services
 from devfeed_core.models import Article, ArticleEnrichmentJob, IngestionJob, SourceEnrichmentJob
 from devfeed_core.services import ValidatedSource
@@ -77,7 +78,7 @@ def test_admin_taxonomy_crud_and_references(admin_client):
         assert client.get(f"/v1/admin/{resource}/{obj['id']}").status_code == 404
 
 
-def test_admin_article_crud_classification_and_publication(admin_client, monkeypatch):
+def test_admin_article_crud_classification_and_publication(admin_client, database, monkeypatch):
     client = admin_client
     monkeypatch.setattr(
         services,
@@ -149,6 +150,12 @@ def test_admin_article_crud_classification_and_publication(admin_client, monkeyp
     assert client.get("/v1/admin/articles", params={"topic_id": topic["id"]}).json()["total"] == 1
     approved = client.post(path + "/review", json={"action": "approve", "expected_revision": 1})
     assert approved.status_code == 200
+    blocked = client.post(path + "/review", json={"action": "publish", "expected_revision": 2})
+    assert blocked.status_code == 409
+    assert "enrichment_required" in blocked.json()["detail"]
+    assert "current_analysis_required" in blocked.json()["detail"]
+    with database.begin() as session:
+        complete_processing(session, session.get(Article, uuid.UUID(article["id"])))
     published = client.post(path + "/review", json={"action": "publish", "expected_revision": 2})
     assert published.status_code == 200, published.text
     assert published.json()["publication_status"] == "published"
