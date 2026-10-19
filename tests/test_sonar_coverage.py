@@ -42,6 +42,7 @@ def sonar_matches(properties, key, source):
 @pytest.mark.parametrize(
     ("source", "expected_test"),
     [
+        ("scripts/testing/app-icons.mjs", True),
         ("scripts/testing/dev-card-promo.mjs", True),
         ("scripts/testing/preview-cover.mjs", True),
         ("scripts/testing/nonce-csp.mjs", True),

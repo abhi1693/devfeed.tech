@@ -1,3 +1,4 @@
+import { checkAppIcons } from "../../../../scripts/testing/app-icons.mjs";
 import { checkNonceCsp } from "../../../../scripts/testing/nonce-csp.mjs";
 import assert from "node:assert/strict";
 import { createServer } from "node:http";
@@ -304,6 +305,7 @@ try {
     );
   console.log("Opening", origin);
   await page.goto(origin);
+  await checkAppIcons(page);
   const initialSidebarBounds = [];
   for (const height of [1080, 600]) {
     await page.setViewportSize({ width: 1920, height });
