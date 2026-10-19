@@ -29,7 +29,8 @@ function connection(overrides: Partial<WorkspaceConnectionOut> = {}): WorkspaceC
       auth: { mode: "none" },
     },
     enabled: true,
-    sync_interval_minutes: 360,
+    sync_interval_minutes: 1440,
+    account_tier: "gold",
     revision: 1,
     state: "idle",
     last_sync_at: null,
@@ -743,18 +744,44 @@ it("uses shared checkboxes without submitting and disables all controls during s
   expect(saving).not.toHaveBeenCalled();
 });
 
-it("preserves an administrator's existing interval until it is explicitly changed", async () => {
+it("replaces unsupported existing schedules with an allowed daily interval", async () => {
   const save = form(connection({ sync_interval_minutes: 1 }));
+  expect(screen.queryByRole("spinbutton", { name: /Sync interval/ })).toBeNull();
+  expect(screen.getByRole("combobox", { name: "Sync interval" }).textContent).toContain("24 hours");
   fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
   await waitFor(() =>
-    expect(save).toHaveBeenCalledExactlyOnceWith({ name: "Product catalog", enabled: true }),
+    expect(save).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sync_interval_minutes: 1440,
+      }),
+    ),
   );
-  fireEvent.change(screen.getByRole("spinbutton", { name: /Sync interval/ }), {
-    target: { value: "2" },
-  });
-  fireEvent.submit(screen.getByRole("button", { name: "Save changes" }).closest("form")!);
-  expect(screen.getByRole("alert").textContent).toContain("between 15 and 10,080");
-  expect(save).toHaveBeenCalledTimes(1);
+});
+
+it.each([
+  ["bronze", [24]],
+  ["silver", [24]],
+  ["gold", [12, 24]],
+  ["platinum", [6, 12, 24]],
+  ["diamond", [1, 3, 6, 12, 24]],
+] as const)("offers tier-specific sync intervals for %s", async (tier, hours) => {
+  const user = userEvent.setup();
+  const save = form(connection({ account_tier: tier }));
+  await user.click(screen.getByRole("combobox", { name: "Sync interval" }));
+  expect(screen.getAllByRole("option").map((option) => option.textContent?.trim())).toEqual(
+    hours.map((hour) => `${hour} ${hour === 1 ? "hour" : "hours"}`),
+  );
+  await user.click(
+    screen.getByRole("option", {
+      name: `${hours[0]} ${hours[0] === 1 ? "hour" : "hours"}`,
+    }),
+  );
+  await user.click(screen.getByRole("button", { name: "Save changes" }));
+  await waitFor(() => expect(save).toHaveBeenCalled());
+  if (hours[0] !== 24)
+    expect(save).toHaveBeenCalledWith(
+      expect.objectContaining({ sync_interval_minutes: hours[0] * 60 }),
+    );
 });
 
 it("tests the edited import without saving and clears the result when configuration changes", async () => {
@@ -862,4 +889,19 @@ it("keeps preview rate failures actionable and does not publish a successful imp
   expect((await screen.findByRole("alert")).textContent).toContain("Wait a minute");
   expect(screen.queryByRole("status", { name: "Import test result" })).toBeNull();
   expect(save).not.toHaveBeenCalled();
+});
+
+it("saves maximum pages above previous caps without clamping", async () => {
+  const save = form(connection());
+  const input = screen.getByRole("spinbutton", { name: "Maximum pages" });
+  expect(input.getAttribute("max")).toBeNull();
+  fireEvent.change(input, { target: { value: "1000000" } });
+  fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+  await waitFor(() =>
+    expect(save).toHaveBeenCalledWith(
+      expect.objectContaining({
+        connector: expect.objectContaining({ max_pages: 1000000 }),
+      }),
+    ),
+  );
 });

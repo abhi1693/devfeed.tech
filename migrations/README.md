@@ -16,6 +16,10 @@ uv run devfeed db upgrade
 uv run devfeed db check
 ```
 
+Alembic resolves its migration directory and helper imports relative to `alembic.ini`.
+Tools using `alembic -c /path/to/alembic.ini` can run from another working directory
+without adding the checkout to `PYTHONPATH`.
+
 This baseline requires an empty application database. Existing development databases
 on the removed revision chain must be reset/recreated explicitly before upgrading.
 Back up any wanted data and stop application processes before doing so. Neither the
@@ -63,8 +67,10 @@ uv run alembic revision --autogenerate -m "describe the schema change"
 
 Review the generated operations and update `SCHEMA_REVISION` when the application
 requires the new revision. Include any functions, triggers or standalone sequences
-that Alembic does not generate. Keep applied revisions frozen; each revision contains
-its own schema definition and never imports mutable runtime models.
+that Alembic does not generate. Keep applied revisions and migration-only helpers
+frozen; they never import mutable runtime models. `search_visibility.py` shares the
+unchanged statement-trigger definitions for revisions `0028` and `0029`. Future
+visibility behavior changes belong in a new revision instead of editing that helper.
 
 `uv run alembic history` shows the chain. `uv run alembic upgrade head --sql` renders
 SQL without executing it. Integration tests provision disposable databases through

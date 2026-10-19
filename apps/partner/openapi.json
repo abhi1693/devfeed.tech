@@ -673,7 +673,6 @@
           },
           "max_pages": {
             "default": 1000,
-            "maximum": 1000.0,
             "minimum": 1.0,
             "title": "Max Pages",
             "type": "integer"
@@ -1843,9 +1842,9 @@
             "type": "string"
           },
           "sync_interval_minutes": {
-            "default": 360,
-            "maximum": 10080.0,
-            "minimum": 15.0,
+            "default": 1440,
+            "maximum": 1440.0,
+            "minimum": 60.0,
             "title": "Sync Interval Minutes",
             "type": "integer"
           }
@@ -1981,6 +1980,18 @@
               }
             ],
             "title": "Account Id"
+          },
+          "account_tier": {
+            "default": "bronze",
+            "enum": [
+              "bronze",
+              "silver",
+              "gold",
+              "platinum",
+              "diamond"
+            ],
+            "title": "Account Tier",
+            "type": "string"
           },
           "ai_enabled": {
             "title": "Ai Enabled",
@@ -2273,8 +2284,8 @@
           "sync_interval_minutes": {
             "anyOf": [
               {
-                "maximum": 10080.0,
-                "minimum": 15.0,
+                "maximum": 1440.0,
+                "minimum": 60.0,
                 "type": "integer"
               },
               {
@@ -2405,7 +2416,6 @@
           },
           "max_pages": {
             "default": 100,
-            "maximum": 100.0,
             "minimum": 1.0,
             "title": "Max Pages",
             "type": "integer"
@@ -3599,9 +3609,9 @@
             "type": "string"
           },
           "sync_interval_minutes": {
-            "default": 360,
-            "maximum": 10080.0,
-            "minimum": 15.0,
+            "default": 1440,
+            "maximum": 1440.0,
+            "minimum": 60.0,
             "title": "Sync Interval Minutes",
             "type": "integer"
           }
@@ -3623,6 +3633,18 @@
           },
           "account_name": {
             "title": "Account Name",
+            "type": "string"
+          },
+          "account_tier": {
+            "default": "bronze",
+            "enum": [
+              "bronze",
+              "silver",
+              "gold",
+              "platinum",
+              "diamond"
+            ],
+            "title": "Account Tier",
             "type": "string"
           },
           "ai_enabled": {

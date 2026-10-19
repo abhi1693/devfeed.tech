@@ -164,6 +164,11 @@ PROBE_RESULTS = {
     "response-type": 1,
     "nested-response-type": 1,
     "required-response-removed": 1,
+    "response-max-unset": 0,
+    "response-array-item-max-unset": 0,
+    "response-root-max-unset": 1,
+    "response-max-increased": 1,
+    "request-max-decreased": 1,
 }
 
 
@@ -181,6 +186,7 @@ def verify_diff_rules(output: Path, binary: str = "oasdiff") -> None:
                     "properties": {
                         "id": {"type": "string", "minLength": 1},
                         "mode": copy.deepcopy(enum),
+                        "limit": {"type": "integer", "maximum": 1000},
                     },
                     "required": ["id"],
                 },
@@ -189,6 +195,7 @@ def verify_diff_rules(output: Path, binary: str = "oasdiff") -> None:
                     "properties": {
                         "article": {"$ref": "#/$defs/Article"},
                         "states": {"type": "array", "items": copy.deepcopy(enum)},
+                        "limits": {"type": "array", "items": {"type": "integer", "maximum": 1000}},
                         "by_name": {"type": "object", "additionalProperties": copy.deepcopy(enum)},
                     },
                     "required": ["article"],
@@ -198,6 +205,7 @@ def verify_diff_rules(output: Path, binary: str = "oasdiff") -> None:
                             "properties": {
                                 "id": {"type": "string"},
                                 "state": copy.deepcopy(enum),
+                                "limit": {"type": "integer", "maximum": 1000},
                             },
                             "required": ["id"],
                         }
@@ -213,6 +221,10 @@ def verify_diff_rules(output: Path, binary: str = "oasdiff") -> None:
             original["paths"]["/tools/get_article"]["post"]["responses"]["200"]["content"][
                 "application/json"
             ]["schema"] = copy.deepcopy(enum)
+        if change == "response-root-max-unset":
+            original["paths"]["/tools/get_article"]["post"]["responses"]["200"]["content"][
+                "application/json"
+            ]["schema"] = {"type": "integer", "maximum": 1000}
         head = copy.deepcopy(original)
         operation = head["paths"]["/tools/get_article"]["post"]
         request = operation["requestBody"]["content"]["application/json"]["schema"]
@@ -247,6 +259,16 @@ def verify_diff_rules(output: Path, binary: str = "oasdiff") -> None:
             }
         elif change == "nested-response-type":
             article["properties"]["id"]["type"] = "integer"
+        elif change == "response-max-unset":
+            del article["properties"]["limit"]["maximum"]
+        elif change == "response-array-item-max-unset":
+            del response["properties"]["limits"]["items"]["maximum"]
+        elif change == "response-root-max-unset":
+            del response["maximum"]
+        elif change == "response-max-increased":
+            article["properties"]["limit"]["maximum"] = 2000
+        elif change == "request-max-decreased":
+            request["properties"]["limit"]["maximum"] = 999
         elif change == "required-response-removed":
             del article["properties"]["id"]
             article["required"].remove("id")

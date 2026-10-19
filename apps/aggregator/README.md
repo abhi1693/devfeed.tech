@@ -10,7 +10,7 @@ AI kill switch before claiming an attempt. Profile, relevance and logo completio
 plus the pending-review scheduler, reconcile the same admission checks, so completion
 order cannot admit a source with unfinished required work.
 
-For migration `0027_source_processing`, quiesce source dispatch and drain old coupled
+For migration `0032_source_processing`, quiesce source dispatch and drain old coupled
 source workers before migrating and deploying the new workers/API. Resume dispatch
 only after all source and image workers understand split operations and admission
 reconciliation. Legacy queued jobs are converted to profile-only when the new worker
@@ -19,8 +19,8 @@ Do not run old coupled workers alongside split-operation deliveries: they can re
 AI calls and bypass the new completion boundary. Before rollback, drain all queued or
 running profile/relevance jobs and resolve explicit paused processing requests; the
 migration refuses downgrade while either remains. Deploy old workers only after that
-downgrade. Other open lifecycle migrations must be rebased/renumbered if they also
-claim revision 0027 before the PRs are merged together.
+downgrade. The migration follows schema `0031` and must complete before the upgraded API
+and workers start.
 
 Explicit Profile, Assessment or Branding retries pause new ingestion on an approved
 source until an operator selects Resume after processing settles. Existing articles,
@@ -241,3 +241,18 @@ A completely cold cache, incompatible snapshot format, or sitemap-cache outage
 returns a retryable 503 until background generation succeeds. During rollout,
 verify `/sitemap.xml` and a listed part return 200 before declaring the sitemap
 ready. No schema migration is required.
+
+## Partner assessment diagnostics
+
+Qualification validation failures retain fixed messages for malformed responses, missing
+capability evidence, evidence URL or quotation mismatches, generic technology categories,
+and technologies absent from the evidence. The durable job error and terminal product
+assessment reason carry the safe message. Job payloads retain `diagnostic.code` and
+`diagnostic.stage`; retry/failure logs include `diagnostic_code` and `assessment_stage`
+alongside the existing job, product and attempt identifiers. Successful retries clear
+the stored diagnostic.
+
+Unknown failures retain a generic message and stage. Raw model responses, page text,
+credentials and arbitrary exception messages are excluded from these diagnostics. Evidence
+rules, qualification gates and retry timing/limits are unchanged. Existing failed jobs
+are not rewritten or retried automatically.

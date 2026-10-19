@@ -38,10 +38,7 @@ export interface PartnerConnectorConfig {
      */
   list_path?: string;
   listing_url_template?: string | null;
-  /**
-     * @minimum 1
-     * @maximum 100
-     */
+  /** @minimum 1 */
   max_pages?: number;
   /**
      * @minimum 1024

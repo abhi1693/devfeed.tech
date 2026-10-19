@@ -73,3 +73,16 @@ def effective_promotion_kind(account) -> PromotionKind:
     if override in policy["allowed_promotion_kinds"]:
         return override
     return policy["default_promotion_kind"]
+
+
+SYNC_INTERVALS: dict[str, tuple[int, ...]] = {
+    "bronze": (1440,),
+    "silver": (1440,),
+    "gold": (720, 1440),
+    "platinum": (360, 720, 1440),
+    "diamond": (60, 180, 360, 720, 1440),
+}
+
+
+def sync_intervals(tier: str) -> tuple[int, ...]:
+    return SYNC_INTERVALS[tier]

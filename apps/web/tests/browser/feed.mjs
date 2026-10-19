@@ -1,3 +1,4 @@
+import { checkAppIcons } from "../../../../scripts/testing/app-icons.mjs";
 import { checkFeaturedOn } from "../../../../scripts/testing/featured-on.mjs";
 import { tagsFixture, checkTags, checkTagFollow } from "../../../../scripts/testing/tags.mjs";
 import { checkCatalogSharing } from "../../../../scripts/testing/catalog-sharing.mjs";
@@ -1679,5 +1680,13 @@ test("tag follow controls persist and recover from errors", { timeout: 180000 },
       "/tmp/devfeed-tags/web",
       `/topics/${mutationFixture.topic.slug}`,
     );
+  });
+});
+
+test("reader favicon and touch icon load the shared brand assets", async (t) => {
+  const { browser, origin } = await createReaderFixture(t);
+  await withReaderPage(browser, async (page) => {
+    await page.goto(origin + "/login");
+    await checkAppIcons(page);
   });
 });

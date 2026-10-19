@@ -6,7 +6,14 @@ import uuid
 from datetime import datetime, timedelta
 from typing import Annotated, Literal
 
-from pydantic import AliasChoices, Field, SecretStr, StringConstraints, field_validator
+from pydantic import (
+    AliasChoices,
+    Field,
+    SecretStr,
+    StringConstraints,
+    ValidationError,
+    field_validator,
+)
 from sqlalchemy import and_, exists, func, or_, select
 from sqlalchemy.orm import aliased
 
@@ -36,6 +43,7 @@ from devfeed_core.partner_connectors import (
     connector_snapshot,
 )
 from devfeed_core.partner_credentials import credential_storage_available
+from devfeed_core.partner_tiers import PartnerTier, sync_intervals
 from devfeed_core.partner_tools import (
     QUALIFICATION_TTL,
     Evidence,
@@ -114,6 +122,7 @@ class ConnectionOut(ORMModel):
     commercial_approved: int = 0
     approval_mode: Literal["qualified", "trusted"] | None = None
     account_id: uuid.UUID | None = None
+    account_tier: PartnerTier | None = None
     sync_interval_minutes: int
     revision: int
     partnership_type: Literal["launch_platform"] = "launch_platform"
@@ -160,6 +169,13 @@ class Qualification(InputModel):
     evidence: list[Evidence] = Field(max_length=10)
 
 
+def connection_sync_interval(session, connection):
+    """Apply current account entitlements to existing and downgraded schedules."""
+    account = session.get(PartnerAccount, connection.account_id) if connection.account_id else None
+    minutes = connection.sync_interval_minutes
+    return minutes if account is None or minutes in sync_intervals(account.tier) else 1440
+
+
 def request_sync(session, connection):
     active = session.scalar(
         select(PartnerPipelineJob).where(
@@ -202,7 +218,9 @@ def request_sync(session, connection):
         previous.status, previous.attempts, previous.error = "queued", 0, None
         previous.available_at, previous.dispatched_at, previous.finished_at = utcnow(), None, None
         connection.last_error = None
-        connection.next_sync_at = utcnow() + timedelta(minutes=connection.sync_interval_minutes)
+        connection.next_sync_at = utcnow() + timedelta(
+            minutes=connection_sync_interval(session, connection)
+        )
         return previous
     # Saved malformed candidates cannot be repaired by replaying them forever.
     # Fence any remaining child deliveries before starting a fresh API scan.
@@ -230,7 +248,9 @@ def request_sync(session, connection):
         },
     )
     session.add(job)
-    connection.next_sync_at = utcnow() + timedelta(minutes=connection.sync_interval_minutes)
+    connection.next_sync_at = utcnow() + timedelta(
+        minutes=connection_sync_interval(session, connection)
+    )
     return job
 
 
@@ -290,22 +310,49 @@ def qualification_prompt(product, page):
     )
 
 
+QUALIFICATION_FAILURES = {
+    "invalid_output": "The assessment response did not match the required qualification format.",
+    "missing_capability_evidence": "The assessment omitted capability evidence or technologies.",
+    "evidence_url_mismatch": "Assessment evidence did not cite the fetched official page URL.",
+    "evidence_quote_mismatch": (
+        "An assessment quotation did not occur in the fetched official page."
+    ),
+    "generic_technology": "The assessment included a generic category as a technology.",
+    "technology_not_in_evidence": "An assessed technology was unsupported by the cited quotations.",
+}
+
+
+class QualificationError(ValueError):
+    """Only fixed diagnostic codes/messages may cross assessment boundaries."""
+
+    def __init__(self, code: str):
+        self.code = code
+        super().__init__(QUALIFICATION_FAILURES[code])
+
+
 def validate_qualification(raw, page):
-    result = Qualification.model_validate(raw)
+    try:
+        result = Qualification.model_validate(raw)
+    except ValidationError:
+        raise QualificationError("invalid_output") from None
     if result.decision != "qualified":
         result.technologies, result.evidence = [], []
         return result
     if not result.evidence or not result.technologies:
-        raise ValueError("Qualification lacks capability evidence")
+        raise QualificationError("missing_capability_evidence")
     for evidence in result.evidence:
-        if evidence.url != page["final_url"] or normalized(evidence.quote) not in page["text"]:
-            raise ValueError("Qualification cites unsupported evidence")
+        if evidence.url != page["final_url"]:
+            raise QualificationError("evidence_url_mismatch")
+        if normalized(evidence.quote) not in page["text"]:
+            raise QualificationError("evidence_quote_mismatch")
     for technology in result.technologies:
-        if technology.casefold() in {"ai", "developer tools", "productivity"} or not any(
+        if technology.casefold() in {"ai", "developer tools", "productivity"}:
+            raise QualificationError("generic_technology")
+        if not any(
             re.search(r"(?<!\w)" + re.escape(technology) + r"(?!\w)", evidence.quote, re.I)
             for evidence in result.evidence
         ):
-            raise ValueError("Qualification lacks technology evidence")
+            raise QualificationError("technology_not_in_evidence")
     return result
 
 
@@ -428,6 +475,7 @@ def connection_views(session, connections):
             select(
                 PartnerConnection.provider,
                 PartnerAccount.approval_mode,
+                PartnerAccount.tier.label("account_tier"),
                 syncing.label("syncing"),
                 count.label("products"),
                 count.filter(
@@ -487,6 +535,7 @@ def _connection_view(connection, statistics, *, ai_enabled):
         approval_mode=statistics.approval_mode,
         provider=provider,
         account_id=connection.account_id,
+        account_tier=statistics.account_tier,
         revision=connection.revision,
         sync_interval_minutes=connection.sync_interval_minutes,
         name=connection.name or provider.replace("-", " ").title(),

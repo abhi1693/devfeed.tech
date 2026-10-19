@@ -19,9 +19,9 @@ After changing theme tokens, run both apps' lint, tests and production builds, t
 check light/dark desktop and mobile screens, including menus, previews and settings.
 Both frontend Dockerfiles include this package, and Compose watch tracks its files.
 
-`assets/` owns the original public-app logo files. Both apps statically import the
-mark for their headers. Browser icons use dedicated 32-pixel PNGs and Apple touch
-icons use 180-pixel PNGs. Chrome and Edge use the same 32-pixel favicon and a
+`assets/` owns the original public-app logo files, shared by app headers. Reader,
+admin, and partner portal browser icons use dedicated 32-pixel PNGs, and Apple
+touch icons use 180-pixel PNGs. Chrome and Edge use the same 32-pixel favicon and a
 128-pixel packaged icon/reader mark. Regenerate these compact variants from the
 original with `node scripts/assets/browser-icons.mjs`; the original remains available
 for artwork. `brand.css` shares the logo sizing,

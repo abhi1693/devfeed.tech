@@ -525,3 +525,71 @@ def test_archived_sources_cannot_be_reenabled_or_establish_ownership(
         assert not session.scalars(
             select(PartnerPipelineJob).where(PartnerPipelineJob.status.in_(["queued", "running"]))
         ).all()
+
+
+@pytest.mark.parametrize(
+    ("tier", "allowed"),
+    [
+        ("bronze", [1440]),
+        ("silver", [1440]),
+        ("gold", [720, 1440]),
+        ("platinum", [360, 720, 1440]),
+        ("diamond", [60, 180, 360, 720, 1440]),
+    ],
+)
+def test_tier_sync_intervals_are_enforced_on_create_and_update(
+    connection_api, database, tier, allowed
+):
+    from devfeed_core.models import PartnerAccount
+
+    client, _, account_id, _, path = connection_api
+    with database.begin() as session:
+        session.get(PartnerAccount, account_id).tier = tier
+    for minutes in [60, 180, 360, 720, 1440, 120]:
+        response = client.post(path, json=payload(sync_interval_minutes=minutes))
+        assert response.status_code == (201 if minutes in allowed else 422), response.text
+    saved = create(connection_api)
+    assert saved["sync_interval_minutes"] == 1440
+    assert saved["account_tier"] == tier
+    for minutes in [60, 180, 360, 720, 1440, 120]:
+        response = client.put(
+            path + "/" + saved["provider"],
+            json={
+                "expected_revision": saved["revision"],
+                "enabled": False,
+                "sync_interval_minutes": minutes,
+            },
+        )
+        assert response.status_code == (200 if minutes in allowed else 422), response.text
+        if response.status_code == 200:
+            saved = response.json()
+
+
+def test_scheduler_honors_downgraded_account_interval(connection_api, database):
+    from datetime import timedelta
+
+    from devfeed_aggregator.partner_sync_tasks import schedule_partner_syncs
+    from devfeed_core.models import PartnerAccount, utcnow
+
+    saved = create(connection_api)
+    now = utcnow()
+    with database.begin() as session:
+        session.get(PartnerAccount, saved["account_id"]).tier = "bronze"
+        row = session.get(PartnerConnection, saved["provider"])
+        row.enabled = True
+        row.sync_interval_minutes = 60
+        row.last_sync_at = now - timedelta(hours=2)
+        row.next_sync_at = now - timedelta(hours=1)
+    schedule_partner_syncs(database)
+    with database() as session:
+        row = session.get(PartnerConnection, saved["provider"])
+        assert row.next_sync_at >= now + timedelta(hours=22)
+        assert (
+            session.scalar(
+                select(PartnerPipelineJob.id).where(
+                    PartnerPipelineJob.provider == saved["provider"],
+                    PartnerPipelineJob.operation == "sync",
+                )
+            )
+            is None
+        )

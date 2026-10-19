@@ -36,12 +36,11 @@ Older in-flight work retains its lease but cannot replace that fresh inspection.
 Reopened sources require manual approval even when full automation is enabled; prior
 reviews and existing articles remain available.
 
-Migration `0027_source_processing` defaults historical job operations to `legacy`
+Migration `0032_source_processing` defaults historical job operations to `legacy`
 and preserves source approval/enablement. Unbound historical profile evidence may
 support existing approved polling, but cannot prove first admission for a pending
-source. The private intent is not an independently persisted workflow stage. This
-master-based PR and the separate article lifecycle PR both initially use revision
-0027; rebase and renumber the later migration before merging them together.
+source. The private intent is not an independently persisted workflow stage. It follows schema `0031`; deploy migration `0032` before starting the new API
+and workers because older schemas lack the required processing fields.
 
 ## Original article attribution
 
