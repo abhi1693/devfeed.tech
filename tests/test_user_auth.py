@@ -1145,6 +1145,10 @@ def test_public_oidc_discovery_preserves_provider_and_excludes_credentials(oidc_
     assert document["jwks_uri"] == ISSUER + "/keys"
     assert document["response_types_supported"] == ["code"]
     assert document["grant_types_supported"] == ["authorization_code", "refresh_token"]
+    assert "scopes_supported" not in document
+    assert "subject_types_supported" not in document
+    assert "id_token_signing_alg_values_supported" not in document
+    assert "end_session_endpoint" not in document
     assert "must-not-be-published" not in response.text
     assert "set-cookie" not in response.headers
     assert response.headers["cache-control"] == "no-store"
@@ -1158,6 +1162,10 @@ def test_public_oidc_discovery_preserves_provider_and_excludes_credentials(oidc_
         {"jwks_uri": "http://insecure.example/keys"},
         {"grant_types_supported": []},
         {"response_types_supported": "code"},
+        {"scopes_supported": "openid"},
+        {"subject_types_supported": [1]},
+        {"id_token_signing_alg_values_supported": [False]},
+        {"end_session_endpoint": 4},
     ],
 )
 def test_public_oidc_discovery_fails_closed(oidc_app, metadata):
