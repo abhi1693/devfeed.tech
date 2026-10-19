@@ -568,7 +568,7 @@ def test_logo_worker_reconciles_admission_and_keeps_retry_intent_through_checkpo
 
 
 def test_split_processing_migration_preserves_legacy_defaults_and_guards_rollback(database):
-    migration = importlib.import_module("migrations.versions.0033_source_processing")
+    migration = importlib.import_module("migrations.versions.0032_source_processing")
     with database.begin() as session:
         source = seed_source(session, approved=True, profile=False)
         # Omit only the new fields so PostgreSQL, rather than ORM defaults,
@@ -576,8 +576,14 @@ def test_split_processing_migration_preserves_legacy_defaults_and_guards_rollbac
         session.execute(
             SourceEnrichmentJob.__table__.insert().values(source_id=source.id, status="succeeded")
         )
-        session.execute(text("UPDATE source_enrichment_jobs SET operation=DEFAULT,result=DEFAULT"))
+        # Round-trip populated pre-lifecycle tables through the new 0032 boundary.
+        # This exercises the upgrade from current master's 0031 schema, not just
+        # the ORM defaults on a database that already has the processing columns.
+        with Operations.context(MigrationContext.configure(session.connection())):
+            migration.downgrade()
+            migration.upgrade()
         row = session.execute(text("SELECT operation,result FROM source_enrichment_jobs")).one()
+        assert session.scalar(text("SELECT processing_request FROM sources")) == {}
         assert row.operation == "legacy" and row.result == {}
         assert source.approval_status == "approved" and source.enabled
         job = request_enrichment(session, source.id)

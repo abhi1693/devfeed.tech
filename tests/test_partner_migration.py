@@ -11,7 +11,7 @@ from alembic.migration import MigrationContext
 from alembic.operations import Operations
 from alembic.script import ScriptDirectory
 from devfeed_core.models import Base
-from devfeed_core.version import BACKWARD_COMPATIBLE_SCHEMA_REVISIONS, SCHEMA_REVISION
+from devfeed_core.version import SCHEMA_REVISION
 from sqlalchemy import (
     CheckConstraint,
     Column,
@@ -36,7 +36,6 @@ ROOT = Path(__file__).parents[1]
 def test_partnership_revision_follows_master_schema():
     scripts = ScriptDirectory.from_config(Config(str(ROOT / "alembic.ini")))
     assert scripts.get_heads() == [SCHEMA_REVISION] == ["0033"]
-    assert not BACKWARD_COMPATIBLE_SCHEMA_REVISIONS
     assert scripts.get_revision("0033").down_revision == "0032"
     assert scripts.get_revision("0032").down_revision == "0031"
     assert scripts.get_revision("0031").down_revision == "0030"

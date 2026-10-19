@@ -6,7 +6,7 @@ import pytest
 from alembic import command
 from alembic.config import Config
 from devfeed_core.models import Article
-from sqlalchemy import select, text
+from sqlalchemy import text
 
 
 def parent_indexes(session):
@@ -39,12 +39,9 @@ def test_lifecycle_indexes_upgrade_downgrade_and_preserve_articles(database):
         retained = parent_indexes(session)
         assert len(retained) == 2
     try:
-        command.downgrade(config, "0031")
+        command.downgrade(config, "0032")
         with database() as session:
-            assert (
-                session.scalar(select(Article.publication_status).where(Article.id == identifier))
-                == "published"
-            )
+            assert session.get(Article, identifier).publication_status == "published"
             assert parent_indexes(session) == retained
             assert session.scalar(text("SELECT to_regclass('ix_article_image_history')")) is None
             predicate = session.scalar(

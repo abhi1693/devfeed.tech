@@ -172,28 +172,7 @@ this revision does not create duplicate history indexes for those tables.
 The builds run concurrently with a five-second metadata lock timeout and repair invalid
 interrupted builds on retry. Downgrade restores the pending-only automation predicate and
 removes only the image-history index, preserving the parent indexes and all article data.
-The combined source/article runtime also requires `0033`; apply that revision before
-starting it. When returning to older binaries, first restore the schema they support.
-No migration or publication repair is performed by viewing the pipeline.
-
-## Source processing lifecycle (0033)
-
-Revision `0033` follows article lifecycle revision `0032`. It adds the private source
-processing request, profile/relevance operation and bounded result fields, plus their
-history index. Existing enrichment jobs default to `legacy`; source approval,
-enablement, articles and review history are preserved. There is no persisted board stage.
-
-Quiesce source dispatch and drain old coupled source workers before applying `0033`.
-Deploy the new API, source workers and image workers before resuming dispatch. The
-combined runtime requires these columns and rejects older schemas. Old coupled workers
-must not consume split operations alongside the new workers.
-
-Unreleased source-branch databases stamped with the former `0027_source_processing`
-marker require a schema-aware development repair before following this linear chain;
-do not blindly restamp them or treat that marker as the article-index revision.
-
-Before rollback, drain queued/running profile and relevance work and resolve explicit
-source processing requests. Downgrade refuses to discard either active work or pause
-intent; otherwise it removes only the source processing additions and leaves article
-lifecycle indexes and stored source/article history intact. Restore the supported
-schema before starting old binaries.
+The new runtime accepts schemas `0026` through `0032`, with exact ledger reporting on
+compatible schemas before `0031`. Deploy compatible processes before applying `0032`;
+when returning to older binaries, first restore the schema they support. No production
+migration or publication repair is performed by viewing the pipeline.

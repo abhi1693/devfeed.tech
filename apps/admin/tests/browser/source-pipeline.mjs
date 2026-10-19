@@ -385,6 +385,19 @@ try {
   const item = page.locator(`article[data-source-pipeline-id="${id}"]`);
   const lane = (value) => page.locator(`section[aria-labelledby="source-pipeline-${value}"]`);
   await item.waitFor();
+  // Native lane controls keep an overflowing board usable without a container tab stop.
+  const pipeline = page.getByRole("region", { name: "Source lifecycle pipeline" });
+  assert.equal(await pipeline.getAttribute("tabindex"), null);
+  const lastCollapse = page.getByRole("button", { name: "Collapse Rejected column" });
+  await lastCollapse.focus();
+  assert.ok(await pipeline.evaluate((element) => element.scrollLeft > 0));
+  await lastCollapse.press("Enter");
+  const lastExpand = page.getByRole("button", { name: "Expand Rejected column" });
+  assert.equal(await lastExpand.getAttribute("aria-expanded"), "false");
+  await lastExpand.press("Enter");
+  await pipeline.evaluate((element) => {
+    element.scrollLeft = 0;
+  });
   const transitions = [];
   const movements = [];
   async function waitForStage(next, direction) {

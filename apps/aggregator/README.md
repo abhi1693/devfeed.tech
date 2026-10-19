@@ -10,8 +10,7 @@ AI kill switch before claiming an attempt. Profile, relevance and logo completio
 plus the pending-review scheduler, reconcile the same admission checks, so completion
 order cannot admit a source with unfinished required work.
 
-For migration `0033_source_processing`, following article revision `0032`, quiesce
-source dispatch and drain old coupled
+For migration `0032_source_processing`, quiesce source dispatch and drain old coupled
 source workers before migrating and deploying the new workers/API. Resume dispatch
 only after all source and image workers understand split operations and admission
 reconciliation. Legacy queued jobs are converted to profile-only when the new worker
@@ -20,8 +19,8 @@ Do not run old coupled workers alongside split-operation deliveries: they can re
 AI calls and bypass the new completion boundary. Before rollback, drain all queued or
 running profile/relevance jobs and resolve explicit paused processing requests; the
 migration refuses downgrade while either remains. Deploy old workers only after that
-downgrade. The combined runtime requires schema `0033`; it cannot run against the
-index-only article schema or earlier schemas missing the source processing columns.
+downgrade. The migration follows schema `0031` and must complete before the upgraded API
+and workers start.
 
 Explicit Profile, Assessment or Branding retries pause new ingestion on an approved
 source until an operator selects Resume after processing settles. Existing articles,

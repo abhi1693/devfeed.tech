@@ -32,7 +32,7 @@ import {
   type RecordIdentity,
   type SimpleResource,
 } from "@/lib/record-identities";
-import { useRefreshInterval, useBoardRefreshInterval } from "@/lib/use-refresh-interval";
+import { useBoardRefreshInterval, useRefreshInterval } from "@/lib/use-refresh-interval";
 import { useRequest } from "@/lib/use-request";
 import { adminArticleContent } from "@/lib/api/generated/admin";
 import { imagePreviewUrl } from "@/lib/image-preview";
@@ -49,8 +49,8 @@ import {
 } from "./user-details";
 import type { AdminUserDetail } from "@/lib/api/generated/models";
 import { AutomationHistory } from "./automation-history";
-import { SourceReadiness } from "./source-readiness";
 import { ArticleReadiness } from "./article-readiness";
+import { SourceReadiness } from "./source-readiness";
 
 export function ResourceDetail({
   identity,
@@ -252,10 +252,10 @@ function Details({
       {tab === "details" && resource !== "users" && (
         <div className="grid items-start gap-6 xl:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)]">
           <div className="space-y-6">
+            {resource === "articles" && <ArticleReadiness id={record.id} />}
             {resource === "sources" && (
               <SourceReadiness id={identity.id} onUpdated={onAnalysisQueued} />
             )}
-            {resource === "articles" && <ArticleReadiness id={record.id} />}
             {!!fields.length && <ResourcePanel title={spec.singular} fields={fields} />}
             {resource === "tags" && (
               <ResourcePanel

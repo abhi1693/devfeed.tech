@@ -20,15 +20,12 @@ def source_identity(source):
 
 
 def profile_current(source, job):
-    if job is None:
+    if job is None or job.status != "succeeded":
         return False
     current = bool(
-        job.status == "succeeded"
-        and (
-            getattr(job, "operation", "legacy") == "legacy"
-            and source.approval_status == "approved"
-            or (job.result or {}).get("input") == source_identity(source)
-        )
+        getattr(job, "operation", "legacy") == "legacy"
+        and source.approval_status == "approved"
+        or (job.result or {}).get("input") == source_identity(source)
     )
     request = getattr(source, "processing_request", None) or {}
     if current and request.get("kind") == "reopen_review":

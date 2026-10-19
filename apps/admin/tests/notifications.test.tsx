@@ -97,18 +97,6 @@ beforeEach(() => {
   vi.clearAllMocks();
   vi.mocked(getRecord).mockResolvedValue(article);
   vi.mocked(listRecords).mockResolvedValue({ items: [], total: 0, limit: 25, offset: 0 });
-  vi.mocked(adminSourcePipelineDetail).mockResolvedValue(
-    sourceDetail({
-      ...sourceCard,
-      id: "source-1",
-      source_id: "source-1",
-      key: "source:source-1",
-      stage: "review",
-      state: "ready",
-      can_approve: true,
-      can_ingest: true,
-    }),
-  );
   vi.mocked(adminArticlePipelineDetail).mockResolvedValue({
     article_id: article.id,
     editorial_revision: article.editorial_revision,
@@ -121,6 +109,18 @@ beforeEach(() => {
     allowed_actions: [],
     advance_label: null,
   });
+  vi.mocked(adminSourcePipelineDetail).mockResolvedValue(
+    sourceDetail({
+      ...sourceCard,
+      id: "source-1",
+      source_id: "source-1",
+      key: "source:source-1",
+      stage: "review",
+      state: "ready",
+      can_approve: true,
+      can_ingest: true,
+    }),
+  );
 });
 afterEach(cleanup);
 

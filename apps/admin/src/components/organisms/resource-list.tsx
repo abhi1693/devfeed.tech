@@ -37,10 +37,10 @@ export function ResourceList({
   }
   return resource === "articles" ? (
     <ArticlesScreen query={search.toString()} />
-  ) : resource === "topics" ? (
-    <TopicsScreen query={search.toString()} />
   ) : resource === "sources" ? (
     <SourcesScreen query={search.toString()} />
+  ) : resource === "topics" ? (
+    <TopicsScreen query={search.toString()} />
   ) : (
     <ResourceListTable resource={resource} analysisType={analysisType} query={search.toString()} />
   );

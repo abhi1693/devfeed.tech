@@ -36,14 +36,11 @@ Older in-flight work retains its lease but cannot replace that fresh inspection.
 Reopened sources require manual approval even when full automation is enabled; prior
 reviews and existing articles remain available.
 
-Migration `0033_source_processing` follows article lifecycle revision `0032` and
-defaults historical job operations to `legacy`
+Migration `0032_source_processing` defaults historical job operations to `legacy`
 and preserves source approval/enablement. Unbound historical profile evidence may
 support existing approved polling, but cannot prove first admission for a pending
-source. The private intent is not an independently persisted workflow stage. The
-combined runtime requires schema `0033`; older schemas lack source processing fields.
-Quiesce source dispatch and drain coupled workers before applying the migration,
-then deploy the new API/workers before resuming dispatch.
+source. The private intent is not an independently persisted workflow stage. It follows schema `0031`; deploy migration `0032` before starting the new API
+and workers because older schemas lack the required processing fields.
 
 ## Original article attribution
 
@@ -264,14 +261,14 @@ article fields, settings and job state are unchanged. The publication transactio
 never trusts this display cache. Historical terminal counts and paging stay in SQL;
 only the displayed Published page loads current processing facts for retry actions.
 
-Migration `0032` follows `0031`, adds the image-job history index and includes approved
+Migration `0033` follows `0032`, adds the image-job history index and includes approved
 unpublished articles in the automation due index. Analysis and enrichment reuse the
 `*_latest` indexes from `0027`. The new index builds concurrently, with repair of an
-interrupted build and a bounded metadata lock wait. The combined source/article
-runtime additionally requires source processing revision `0033`. Apply both before
-starting it. Downgrading `0032` preserves parent indexes and restores the pending-only
-automation predicate; older binaries still need their own supported schema restored
-before they start.
+interrupted build and a bounded metadata lock wait. This code supports schemas `0032`
+and `0033`; source processing requires the columns introduced by `0032`.
+Roll out compatible processes before applying `0033`. Its downgrade preserves parent
+indexes and restores the pending-only automation predicate; older binaries still need
+their own supported schema restored before they start.
 The v9 specialist workflow applies to eligible unpublished work. It does not launch a
 published-article backfill. Published content, URLs, feed order and notification
 history remain intact. Explicit board reprocessing unpublishes an eligible Published

@@ -110,11 +110,6 @@ function Decision({
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<Error>();
-  const sourceBlocked =
-    resource === "sources" &&
-    (action === "fetch"
-      ? !sourceReadiness?.item.can_ingest
-      : decision === "approved" && !sourceReadiness?.item.can_approve);
   const [readinessRevision, setReadinessRevision] = useState(0);
   const refreshSeconds = useBoardRefreshInterval();
   const readinessLoad = useCallback(
@@ -137,6 +132,11 @@ function Decision({
     decision === "publish" &&
     (!readiness.data?.can_publish ||
       readiness.data.editorial_revision !== Number(record.editorial_revision));
+  const sourceBlocked =
+    resource === "sources" &&
+    (action === "fetch"
+      ? !sourceReadiness?.item.can_ingest
+      : decision === "approved" && !sourceReadiness?.item.can_approve);
   async function submit(event: React.FormEvent) {
     event.preventDefault();
     if (busy || sourceBlocked || publicationBlocked) return;
