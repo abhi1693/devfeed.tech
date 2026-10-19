@@ -3,6 +3,7 @@ import uuid
 from datetime import timedelta
 
 import pytest
+from article_step_helpers import article_step_client
 from devfeed_aggregator import topic_analysis_tasks
 from devfeed_core import analysis
 from devfeed_core.ai_capacity import cooldown_remaining, pause_capacity
@@ -12,6 +13,7 @@ from devfeed_core.job_lifecycle import finish_job
 from devfeed_core.models import (
     Article,
     ArticleAnalysisJob,
+    ArticleEnrichmentJob,
     ArticleOrigin,
     ArticlePublicationDecision,
     ArticleReview,
@@ -81,7 +83,22 @@ def seed(session, *, mode="manual", name="Angular", topic=True):
     return source, article, target
 
 
-def ready(session, article, topic):
+def extracted(session, article):
+    extraction = ArticleEnrichmentJob(
+        article_id=article.id,
+        result={
+            "input_url": article.canonical_url,
+            "image_url": article.image_url,
+            "text_source": "body",
+        },
+    )
+    session.add(extraction)
+    finish_job(extraction, "enriched", utcnow())
+    session.flush()
+    return extraction
+
+
+def ready(session, article, topic, *, processed=True):
     job = analysis.request_analysis(session, article.id)
     result = analysis.AnalysisResult(
         outcome="ready",
@@ -93,7 +110,7 @@ def ready(session, article, topic):
         ai_title=None,
         title_evidence=None,
         page_kind="article",
-        ai_description=None,
+        ai_description="A guide to routing in applications.",
         topics=[
             {"topic_id": topic.id, "role": "primary", "relevance": 0.9, "evidence": topic.name}
         ],
@@ -102,6 +119,15 @@ def ready(session, article, topic):
     )
     job.result = result.model_dump(mode="json")
     analysis.apply_analysis(session, article, job, result)
+    if processed and (
+        session.scalar(
+            select(ArticleEnrichmentJob.id)
+            .where(ArticleEnrichmentJob.article_id == article.id)
+            .limit(1)
+        )
+        is None
+    ):
+        extracted(session, article)
     return job
 
 
@@ -194,7 +220,6 @@ def test_removed_topic_alias_still_triggers_reanalysis(database, monkeypatch):
 
 
 def test_topic_removed_during_inference_supersedes_and_requeues(database, monkeypatch):
-    from types import SimpleNamespace
 
     from devfeed_aggregator import analysis_tasks
 
@@ -213,11 +238,11 @@ def test_topic_removed_during_inference_supersedes_and_requeues(database, monkey
             language="en",
             content_type="tutorial",
             content_format="article",
-            ai_summary=None,
+            ai_summary="Angular routing helps developers organize application navigation.",
             ai_title=None,
             title_evidence=None,
             page_kind="article",
-            ai_description=None,
+            ai_description="A guide to routing in Angular applications.",
             tags=[],
             reasons=[],
             topics=[
@@ -225,7 +250,9 @@ def test_topic_removed_during_inference_supersedes_and_requeues(database, monkey
             ],
         )
 
-    monkeypatch.setattr(analysis_tasks, "CodexClient", lambda _: SimpleNamespace(complete=complete))
+    monkeypatch.setattr(
+        analysis_tasks, "CodexClient", lambda _: article_step_client(complete=complete)
+    )
     analysis_tasks._analyze(job_id)
     with database() as session:
         original = session.get(ArticleAnalysisJob, job_id)

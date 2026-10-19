@@ -16,6 +16,10 @@ uv run devfeed db upgrade
 uv run devfeed db check
 ```
 
+Alembic resolves its migration directory and helper imports relative to `alembic.ini`.
+Tools using `alembic -c /path/to/alembic.ini` can run from another working directory
+without adding the checkout to `PYTHONPATH`.
+
 This baseline requires an empty application database. Existing development databases
 on the removed revision chain must be reset/recreated explicitly before upgrading.
 Back up any wanted data and stop application processes before doing so. Neither the
@@ -63,8 +67,10 @@ uv run alembic revision --autogenerate -m "describe the schema change"
 
 Review the generated operations and update `SCHEMA_REVISION` when the application
 requires the new revision. Include any functions, triggers or standalone sequences
-that Alembic does not generate. Keep applied revisions frozen; each revision contains
-its own schema definition and never imports mutable runtime models.
+that Alembic does not generate. Keep applied revisions and migration-only helpers
+frozen; they never import mutable runtime models. `search_visibility.py` shares the
+unchanged statement-trigger definitions for revisions `0028` and `0029`. Future
+visibility behavior changes belong in a new revision instead of editing that helper.
 
 `uv run alembic history` shows the chain. `uv run alembic upgrade head --sql` renders
 SQL without executing it. Integration tests provision disposable databases through
@@ -155,3 +161,39 @@ is implied by committing the migration.
 
 Revision `0025` adds adaptive source polling after partnership revision `0024`.
 Apply it before starting this feature. Existing source-logo and partnership migrations remain unchanged.
+
+## Article processing lifecycle (0032)
+
+Revision `0032` follows inference-summary revision `0031`. It builds the article-image
+history index and expands the due-automation predicate to include approved unpublished
+articles. Analysis and enrichment lookups reuse the `*_latest` indexes owned by `0027`;
+this revision does not create duplicate history indexes for those tables.
+
+The builds run concurrently with a five-second metadata lock timeout and repair invalid
+interrupted builds on retry. Downgrade restores the pending-only automation predicate and
+removes only the image-history index, preserving the parent indexes and all article data.
+The combined source/article runtime also requires `0033`; apply that revision before
+starting it. When returning to older binaries, first restore the schema they support.
+No migration or publication repair is performed by viewing the pipeline.
+
+## Source processing lifecycle (0033)
+
+Revision `0033` follows article lifecycle revision `0032`. It adds the private source
+processing request, profile/relevance operation and bounded result fields, plus their
+history index. Existing enrichment jobs default to `legacy`; source approval,
+enablement, articles and review history are preserved. There is no persisted board stage.
+
+Quiesce source dispatch and drain old coupled source workers before applying `0033`.
+Deploy the new API, source workers and image workers before resuming dispatch. The
+combined runtime requires these columns and rejects older schemas. Old coupled workers
+must not consume split operations alongside the new workers.
+
+Unreleased source-branch databases stamped with the former `0027_source_processing`
+marker require a schema-aware development repair before following this linear chain;
+do not blindly restamp them or treat that marker as the article-index revision.
+
+Before rollback, drain queued/running profile and relevance work and resolve explicit
+source processing requests. Downgrade refuses to discard either active work or pause
+intent; otherwise it removes only the source processing additions and leaves article
+lifecycle indexes and stored source/article history intact. Restore the supported
+schema before starting old binaries.

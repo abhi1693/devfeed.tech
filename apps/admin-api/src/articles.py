@@ -119,6 +119,7 @@ class AdminArticleOut(ORMModel):
     canonical_url: str
     title: str
     summary: str
+    ai_title: str | None = None
     ai_summary: str | None
     ai_description: str | None
     author: str | None

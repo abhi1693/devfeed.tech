@@ -13,6 +13,7 @@ import type { TagOut } from './tagOut';
 export interface AdminArticleOut {
   ai_description: string | null;
   ai_summary: string | null;
+  ai_title?: string | null;
   author: string | null;
   canonical_url: string;
   classification_provenance: AdminArticleOutClassificationProvenance;

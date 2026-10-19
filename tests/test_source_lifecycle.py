@@ -568,7 +568,7 @@ def test_logo_worker_reconciles_admission_and_keeps_retry_intent_through_checkpo
 
 
 def test_split_processing_migration_preserves_legacy_defaults_and_guards_rollback(database):
-    migration = importlib.import_module("migrations.versions.0027_source_processing")
+    migration = importlib.import_module("migrations.versions.0033_source_processing")
     with database.begin() as session:
         source = seed_source(session, approved=True, profile=False)
         # Omit only the new fields so PostgreSQL, rather than ORM defaults,

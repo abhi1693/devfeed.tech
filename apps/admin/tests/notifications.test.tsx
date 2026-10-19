@@ -23,6 +23,7 @@ import { Overview } from "@/components/organisms/overview";
 import {
   adminArticleClassify,
   adminArticleReview,
+  adminArticlePipelineDetail,
   adminAuthLogout,
   adminOverviewPanel,
   adminSourceFetch,
@@ -44,6 +45,7 @@ vi.mock("@/lib/api/client", async (original) => ({
 vi.mock("@/lib/resource-api", () => ({ getRecord: vi.fn(), listRecords: vi.fn() }));
 vi.mock("@/lib/api/generated/admin", () => ({
   adminArticleReview: vi.fn(),
+  adminArticlePipelineDetail: vi.fn(),
   adminSourceReview: vi.fn(),
   adminSourceFetch: vi.fn(),
   adminArticleClassify: vi.fn(),
@@ -107,6 +109,18 @@ beforeEach(() => {
       can_ingest: true,
     }),
   );
+  vi.mocked(adminArticlePipelineDetail).mockResolvedValue({
+    article_id: article.id,
+    editorial_revision: article.editorial_revision,
+    stage: "ready",
+    state: "ready",
+    checks: [],
+    blockers: [],
+    can_publish: true,
+    jobs: {},
+    allowed_actions: [],
+    advance_label: null,
+  });
 });
 afterEach(cleanup);
 

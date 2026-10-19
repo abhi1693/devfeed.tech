@@ -198,7 +198,7 @@ def _enrich_claimed(factory, identifier, token, article_id, url, started):
             if job is None:
                 logger.warning("article_enrichment_lease_lost")
                 return
-            job.http_status, job.result = result.status, page.evidence
+            job.http_status, job.result = result.status, {**page.evidence, "input_url": url}
             # Lock source review before Article, matching ingestion's lock order.
             if not approved_sources(session, article_id, lock=True):
                 finish_job(job, "unapproved", utcnow())
@@ -211,7 +211,11 @@ def _enrich_claimed(factory, identifier, token, article_id, url, started):
                     .where(Article.id == article_id)
                     .with_for_update(of=Article)
                 )
-                if article is None or article.canonical_url != url:
+                if (
+                    article is None
+                    or article.canonical_url != url
+                    or article.publication_status == "published"
+                ):
                     finish_job(job, "superseded", utcnow())
                 else:
                     job.changed_fields = apply_page(

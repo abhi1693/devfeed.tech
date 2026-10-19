@@ -78,11 +78,17 @@ def test_page_metadata_and_job_outcomes_reach_cached_api_without_changing_identi
     path = f"/v1/articles/{article_id}"
     try:
         assert client.get(path).status_code == 404
-        publish_for_read_test([article_id])
-        before = client.get(path).json()
-        assert before["summary"] == "" and client.get(path).headers["x-cache"] == "HIT"
+        from devfeed_core.schemas import ArticleOut
+
+        with database() as session:
+            before = ArticleOut.from_article(session.get(Article, article_id)).model_dump(
+                mode="json"
+            )
+        assert before["summary"] == ""
         article_tasks.enrich_article(str(job_id))
-        assert client.get(path).status_code == 404  # Changed content requires approval again.
+        assert (
+            client.get(path).status_code == 404
+        )  # Processing must finish before first publication.
         publish_for_read_test([article_id])
         response = client.get(path)
         after = response.json()

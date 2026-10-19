@@ -51,6 +51,7 @@ import {
 import type { AdminUserDetail } from "@/lib/api/generated/models";
 import { AutomationHistory } from "./automation-history";
 import { SourceReadiness } from "./source-readiness";
+import { ArticleReadiness } from "./article-readiness";
 
 export function ResourceDetail({
   identity,
@@ -255,6 +256,7 @@ function Details({
             {resource === "sources" && (
               <SourceReadiness id={identity.id} onUpdated={onAnalysisQueued} />
             )}
+            {resource === "articles" && <ArticleReadiness id={record.id} />}
             {!!fields.length && <ResourcePanel title={spec.singular} fields={fields} />}
             {resource === "tags" && (
               <ResourcePanel
@@ -302,17 +304,6 @@ function Details({
                     { label: "Tags", value: <LinkedItems resource="tags" items={record.tags} /> },
                   ]}
                 />
-                <ResourcePanel title="Publication requirements">
-                  <ul className="list-inside list-disc space-y-1 text-sm">
-                    {(record.publication_blockers as string[]).length ? (
-                      (record.publication_blockers as string[]).map((reason) => (
-                        <li key={reason}>{humanize(reason)}</li>
-                      ))
-                    ) : (
-                      <li>All publication requirements are met.</li>
-                    )}
-                  </ul>
-                </ResourcePanel>
               </>
             )}
             {kind && (
@@ -382,7 +373,13 @@ function Details({
                 <DataValue
                   value={
                     resource === "articles"
-                      ? { ai_summary: record.ai_summary, ai_description: record.ai_description }
+                      ? {
+                          ...(typeof record.ai_title === "string" && record.ai_title.trim()
+                            ? { ai_title: record.ai_title }
+                            : {}),
+                          ai_summary: record.ai_summary,
+                          ai_description: record.ai_description,
+                        }
                       : { ai_description: record.ai_description }
                   }
                 />

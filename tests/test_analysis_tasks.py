@@ -4,6 +4,7 @@ from contextlib import contextmanager
 from types import SimpleNamespace
 
 import pytest
+from article_step_helpers import article_step_client
 from devfeed_aggregator import analysis_tasks
 from devfeed_aggregator.codex_client import AnalysisError
 from devfeed_core import analysis
@@ -80,6 +81,7 @@ def runtime(monkeypatch):
     }
     monkeypatch.setattr(analysis_tasks, "catalog", lambda _: taxonomy)
     monkeypatch.setattr(analysis_tasks, "snapshot_current", lambda *args: True)
+    monkeypatch.setattr(analysis_tasks, "apply_publication_policy", lambda *args, **kwargs: {})
     output = dict(
         outcome="ready",
         developer_relevance="relevant",
@@ -90,13 +92,13 @@ def runtime(monkeypatch):
         ai_title=None,
         title_evidence=None,
         page_kind="article",
-        ai_description=None,
+        ai_description="Consistent application deployments through infrastructure automation.",
         topics=[SUPPORTED_TOPIC],
         tags=[],
         reasons=[],
     )
     monkeypatch.setattr(
-        analysis_tasks, "CodexClient", lambda _: SimpleNamespace(complete=lambda *a: output)
+        analysis_tasks, "CodexClient", lambda _: article_step_client(complete=lambda *a: output)
     )
     return article, job, settings, statements
 
@@ -107,7 +109,8 @@ def test_worker_claims_waiting_lock_and_persists_analysis_without_publication(ru
     analysis_tasks._analyze(job.id)
     assert job.status == "succeeded" and job.outcome == "applied"
     assert job.attempts == 1 and job.model == "configured-model"
-    assert job.prompt_version == analysis.PROMPT_VERSION == "article-analysis-v7-grounded-overview"
+    assert job.prompt_version == analysis.PROMPT_VERSION
+    assert job.prompt_version == "article-analysis-v9-specialist-steps"
     assert "proposed_topics" not in job.result
     assert job.result["ai_summary"] == article.ai_summary
     assert len(job.catalog_snapshot["topics"]) == 1
@@ -157,7 +160,7 @@ def test_application_deadlock_retry_never_repeats_inference_or_holds_a_transacti
     monkeypatch.setattr(client, "complete", complete)
     monkeypatch.setattr(analysis_tasks, "apply_analysis", apply)
     analysis_tasks._analyze(job.id)
-    assert state == {"transactions": 0, "inferences": 1, "applies": 2}
+    assert state == {"transactions": 0, "inferences": 9, "applies": 2}
     assert job.outcome == "applied" and article.ai_summary == "Generated preview"
     assert list(job.usage["attempts"]) == ["1"]
 
@@ -176,7 +179,9 @@ def test_lost_lease_prevents_both_result_application_and_failure_updates(
             raise ValueError("invalid")
         return original_complete(*args)
 
-    monkeypatch.setattr(analysis_tasks, "CodexClient", lambda _: SimpleNamespace(complete=complete))
+    monkeypatch.setattr(
+        analysis_tasks, "CodexClient", lambda _: article_step_client(complete=complete)
+    )
     monkeypatch.setattr(analysis_tasks, "record_attempt", lambda *args, **kw: telemetry.append(kw))
     analysis_tasks._analyze(job.id)
     assert job.status == "running" and job.result is None and job.error is None
@@ -189,7 +194,7 @@ def test_worker_keeps_relevant_analysis_incomplete_without_a_primary_topic(runti
     monkeypatch.setattr(
         analysis_tasks,
         "CodexClient",
-        lambda _: SimpleNamespace(
+        lambda _: article_step_client(
             complete=lambda *a: {
                 "outcome": "ready",
                 "developer_relevance": "relevant",
@@ -200,7 +205,7 @@ def test_worker_keeps_relevant_analysis_incomplete_without_a_primary_topic(runti
                 "ai_title": None,
                 "title_evidence": None,
                 "page_kind": "article",
-                "ai_description": None,
+                "ai_description": "A guide to reliable infrastructure automation.",
                 "topics": [],
                 "tags": [],
                 "reasons": [],
@@ -223,11 +228,11 @@ def test_insufficient_source_overview_never_overwrites_existing_prose(
     settings.ai_compact_article_prompts = compact
     article.ai_summary = "Existing reviewed overview."
     article.ai_description = "Existing description."
-    article.publication_status = "published"
+    article.publication_status = "unpublished"
     article.review_status = "approved"
 
     def complete(prompt, schema):
-        assert "never invent comparisons, examples, advice" in prompt
+        assert "Do exactly the assigned task" in prompt
         return dict(
             outcome="insufficient_evidence",
             developer_relevance="uncertain",
@@ -244,13 +249,38 @@ def test_insufficient_source_overview_never_overwrites_existing_prose(
             reasons=["The source only provides a teaser without supporting detail."],
         )
 
-    monkeypatch.setattr(analysis_tasks, "CodexClient", lambda _: SimpleNamespace(complete=complete))
+    monkeypatch.setattr(
+        analysis_tasks, "CodexClient", lambda _: article_step_client(complete=complete)
+    )
     analysis_tasks._analyze(job.id)
 
     assert job.status == "succeeded" and job.outcome == "insufficient_evidence"
     assert job.result["ai_summary"] is job.result["ai_description"] is None
     assert article.ai_summary == "Existing reviewed overview."
     assert article.ai_description == "Existing description."
+    assert article.publication_status == "unpublished" and article.review_status == "approved"
+
+
+@pytest.mark.parametrize("compact", [False, True], ids=["original", "passages"])
+def test_worker_preserves_published_content_before_creating_an_inference_client(
+    runtime, monkeypatch, compact
+):
+    article, job, settings, _ = runtime
+    settings.ai_compact_article_prompts = compact
+    article.ai_summary = "The existing published overview."
+    article.ai_description = "The existing published description."
+    article.publication_status = "published"
+    article.review_status = "approved"
+    monkeypatch.setattr(
+        analysis_tasks, "CodexClient", lambda _: pytest.fail("Started published article inference")
+    )
+
+    analysis_tasks._analyze(job.id)
+
+    assert job.status == "succeeded" and job.outcome == "published_preserved"
+    assert job.attempts == 0
+    assert article.ai_summary == "The existing published overview."
+    assert article.ai_description == "The existing published description."
     assert article.publication_status == "published" and article.review_status == "approved"
 
 
@@ -270,7 +300,7 @@ def test_worker_retries_non_english_prose_without_overwriting_article(
     article, job, settings, _ = runtime
     settings.ai_compact_article_prompts = compact
     article.ai_summary = "The original English summary is still available."
-    article.publication_status = "published"
+    article.publication_status = "unpublished"
     article.review_status = "approved"
     prompts = []
     output = dict(
@@ -283,7 +313,7 @@ def test_worker_retries_non_english_prose_without_overwriting_article(
         ai_title=None,
         title_evidence=None,
         page_kind="article",
-        ai_description=None,
+        ai_description="A guide to deploying reliable applications.",
         topics=[SUPPORTED_TOPIC],
         tags=[],
         reasons=[],
@@ -296,24 +326,23 @@ def test_worker_retries_non_english_prose_without_overwriting_article(
     def complete(prompt, schema):
         prompts.append(prompt)
         response = output.copy()
-        if compact:
-            initial_prompt = prompt.split("\nThe previous attempt failed validation.", 1)[0]
-            article_input = json.loads(initial_prompt.rsplit("\n", 1)[1])["article"]
-            response["topics"] = [{**SUPPORTED_TOPIC, "evidence": article_input["title"][0]["id"]}]
         return response
 
-    monkeypatch.setattr(analysis_tasks, "CodexClient", lambda _: SimpleNamespace(complete=complete))
+    monkeypatch.setattr(
+        analysis_tasks, "CodexClient", lambda _: article_step_client(complete=complete)
+    )
     analysis_tasks._analyze(job.id)
     assert job.status == "queued"
-    assert job.result["validation_feedback"]["code"] == "non_english_ai_prose"
+    failed = "overview" if field == "ai_summary" else "description"
+    assert job.steps[failed]["validation_feedback"]["code"] == "non_english_ai_prose"
     assert article.ai_summary == "The original English summary is still available."
-    assert article.publication_status == "published"
+    assert article.publication_status == "unpublished"
     output[field] = "The article explains how developers deploy reliable applications."
     job.available_at = utcnow()
     analysis_tasks._analyze(job.id)
     assert job.status == "succeeded" and job.outcome == "applied"
-    assert "Rewrite both ai_summary and ai_description in clear English" in prompts[-1]
-    assert "always in English regardless" in prompts[-1]
+    assert any("previous attempt at this task failed validation" in prompt for prompt in prompts)
+    assert job.usage["prompt_format"] == "specialist-steps-v1"
     assert article.language == "en"
 
 
@@ -335,7 +364,7 @@ def test_worker_preserves_foreign_source_language_with_english_prose(runtime, mo
         reasons=[],
     )
     monkeypatch.setattr(
-        analysis_tasks, "CodexClient", lambda _: SimpleNamespace(complete=lambda *a: output)
+        analysis_tasks, "CodexClient", lambda _: article_step_client(complete=lambda *a: output)
     )
     analysis_tasks._analyze(job.id)
     assert job.outcome == "applied"
@@ -352,7 +381,9 @@ def test_provider_overload_during_corrective_retry_keeps_job_queued(runtime, mon
     def complete(*args):
         raise AnalysisError("codex_server_overloaded")
 
-    monkeypatch.setattr(analysis_tasks, "CodexClient", lambda _: SimpleNamespace(complete=complete))
+    monkeypatch.setattr(
+        analysis_tasks, "CodexClient", lambda _: article_step_client(complete=complete)
+    )
     monkeypatch.setattr(analysis_tasks, "safe_pause", lambda _, **kwargs: 600)
     analysis_tasks._analyze(job.id)
     assert job.status == "queued" and job.error == "codex_server_overloaded"
@@ -382,7 +413,9 @@ def test_worker_lease_loss_discards_result(runtime, monkeypatch):
             reasons=[],
         )
 
-    monkeypatch.setattr(analysis_tasks, "CodexClient", lambda _: SimpleNamespace(complete=complete))
+    monkeypatch.setattr(
+        analysis_tasks, "CodexClient", lambda _: article_step_client(complete=complete)
+    )
     analysis_tasks._analyze(job.id)
     assert job.status == "running" and article.ai_summary is None
 
@@ -402,7 +435,9 @@ def test_worker_retries_transient_errors_only(runtime, monkeypatch, reason, stat
     def complete(*args):
         raise AnalysisError(reason)
 
-    monkeypatch.setattr(analysis_tasks, "CodexClient", lambda _: SimpleNamespace(complete=complete))
+    monkeypatch.setattr(
+        analysis_tasks, "CodexClient", lambda _: article_step_client(complete=complete)
+    )
     analysis_tasks._analyze(job.id)
     assert job.status == status and job.error == reason
     assert job.lease_token is None and job.dispatched_at is None
@@ -418,14 +453,15 @@ def test_failure_after_lease_loss_cannot_requeue_new_owner(runtime, monkeypatch)
         job.attempts += 1
         raise AnalysisError("codex_timeout")
 
-    monkeypatch.setattr(analysis_tasks, "CodexClient", lambda _: SimpleNamespace(complete=complete))
+    monkeypatch.setattr(
+        analysis_tasks, "CodexClient", lambda _: article_step_client(complete=complete)
+    )
     analysis_tasks._analyze(job.id)
     assert job.status == "running" and job.lease_token == new_token
     assert job.attempts == 2 and job.error is None
 
 
-def test_worker_restores_passage_evidence_before_applying_analysis(runtime, monkeypatch):
-    import json
+def test_specialists_keep_verbatim_evidence_with_legacy_compact_setting(runtime, monkeypatch):
 
     article, job, settings, _ = runtime
     settings.ai_compact_article_prompts = True
@@ -433,8 +469,6 @@ def test_worker_restores_passage_evidence_before_applying_analysis(runtime, monk
     monkeypatch.setattr(analysis_tasks, "catalog", lambda _: {"topics": [topic], "tags": []})
 
     def complete(prompt, schema):
-        data = json.loads(prompt.rsplit("\n", 1)[1])
-        passage = data["article"]["title"][0]
         return dict(
             outcome="ready",
             developer_relevance="relevant",
@@ -445,19 +479,21 @@ def test_worker_restores_passage_evidence_before_applying_analysis(runtime, monk
             ai_title=None,
             title_evidence=None,
             page_kind="article",
-            ai_description=None,
+            ai_description="The article explains how developers deploy reliable applications.",
             tags=[],
             reasons=[],
             topics=[
-                dict(topic_id=topic["id"], role="primary", relevance=1, evidence=passage["id"])
+                dict(topic_id=topic["id"], role="primary", relevance=1, evidence=article.title)
             ],
         )
 
-    monkeypatch.setattr(analysis_tasks, "CodexClient", lambda _: SimpleNamespace(complete=complete))
+    monkeypatch.setattr(
+        analysis_tasks, "CodexClient", lambda _: article_step_client(complete=complete)
+    )
     analysis_tasks._analyze(job.id)
     assert job.status == "succeeded"
     assert job.result["topics"][0]["evidence"] == article.title
-    assert job.usage["prompt_format"] == "compact-evidence-v3"
+    assert job.usage["prompt_format"] == "specialist-steps-v1"
 
 
 def test_deadlock_retries_apply_without_repeating_inference(runtime, monkeypatch):
@@ -481,12 +517,14 @@ def test_deadlock_retries_apply_without_repeating_inference(runtime, monkeypatch
             raise OperationalError("redacted", {}, Deadlock())
         return original(*args)
 
-    monkeypatch.setattr(analysis_tasks, "CodexClient", lambda _: SimpleNamespace(complete=complete))
+    monkeypatch.setattr(
+        analysis_tasks, "CodexClient", lambda _: article_step_client(complete=complete)
+    )
     monkeypatch.setattr(analysis_tasks, "apply_analysis", apply)
     monkeypatch.setattr("devfeed_core.transaction_retry.time.sleep", lambda _: None)
     analysis_tasks._analyze(job.id)
     assert job.status == "succeeded" and job.attempts == 1
-    assert len(inference) == 1 and len(applications) == 2
+    assert len(inference) == 9 and len(applications) == 2
     assert article.ai_summary
 
 
@@ -497,11 +535,137 @@ def test_identical_invalid_output_stops_after_corrective_attempt(runtime, monkey
     def complete(*args):
         return {"not": "the required schema"}
 
-    monkeypatch.setattr(analysis_tasks, "CodexClient", lambda _: SimpleNamespace(complete=complete))
+    monkeypatch.setattr(
+        analysis_tasks, "CodexClient", lambda _: article_step_client(complete=complete)
+    )
     analysis_tasks._analyze(job.id)
     assert job.status == "queued"
-    assert len(job.usage["invalid_output_hash"]) == 64
+    assert len(job.steps["developer_relevance"]["invalid_output_hash"]) == 64
     job.available_at = utcnow()
     analysis_tasks._analyze(job.id)
     assert job.status == "failed" and job.attempts == 2
     assert job.error == "invalid_analysis_result"
+
+
+def test_specialists_receive_one_task_and_apply_the_complete_bundle_atomically(
+    runtime, monkeypatch
+):
+    article, job, _, _ = runtime
+    complete = analysis_tasks.CodexClient(None).complete
+    fields, descriptions = [], []
+
+    def infer(prompt, schema):
+        assert article.ai_summary is None and article.ai_description is None
+        own = set(schema["properties"]) - {"outcome", "reason"}
+        fields.append(own)
+        if "ai_description" in own:
+            descriptions.append(json.loads(prompt.rsplit("\n", 1)[1]))
+        assert job.lease_until > utcnow()
+        assert job.active_step is not None
+        return complete(prompt, schema)
+
+    monkeypatch.setattr(analysis_tasks, "CodexClient", lambda _: SimpleNamespace(complete=infer))
+    analysis_tasks._analyze(job.id)
+    assert fields == [
+        {"developer_relevance"},
+        {"page_kind"},
+        {"language"},
+        {"content_type"},
+        {"content_format"},
+        {"topics"},
+        {"tags"},
+        {"ai_summary"},
+        {"ai_description"},
+    ]
+    assert set(descriptions[0]) == {"source_title", "overview"}
+    assert descriptions[0]["overview"] == article.ai_summary
+    assert job.active_step is None and job.outcome == "applied"
+    assert all(step["status"] in {"succeeded", "skipped"} for step in job.steps.values())
+    assert job.steps["identifying_title"]["status"] == "skipped"
+
+
+def test_failed_description_reuses_successful_steps_and_counts_every_call(runtime, monkeypatch):
+    article, job, _, _ = runtime
+    complete = analysis_tasks.CodexClient(None).complete
+    calls, failed = [], False
+    client = SimpleNamespace(usage={}, model="resolved-escalation-model")
+
+    def infer(prompt, schema):
+        nonlocal failed
+        own = sorted(set(schema["properties"]) - {"outcome", "reason"})
+        calls.append(own)
+        client.usage = {"input_tokens": 2, "output_tokens": 1}
+        if "ai_description" in own and not failed:
+            failed = True
+            raise AnalysisError("codex_timeout")
+        return complete(prompt, schema)
+
+    client.complete = infer
+    monkeypatch.setattr(analysis_tasks, "CodexClient", lambda _: client)
+    analysis_tasks._analyze(job.id)
+    assert job.status == "queued" and job.active_step == "description"
+    assert article.ai_summary is None
+    assert len([step for step in job.steps.values() if step["status"] == "succeeded"]) == 8
+    assert job.steps["description"]["attempts"] == 1
+    assert job.steps["overview"]["resolved_model"] == "resolved-escalation-model"
+    job.available_at = utcnow()
+    analysis_tasks._analyze(job.id)
+    assert job.outcome == "applied" and len(calls) == 10
+    assert calls[-2:] == [["ai_description"], ["ai_description"]]
+    assert job.usage["input_tokens"] == 20 and job.usage["output_tokens"] == 10
+    assert job.steps["description"]["attempts"] == 2
+
+
+@pytest.mark.parametrize("change", ["model", "routing", "prompt", "topic_prompt"])
+def test_changed_specialist_identity_invalidates_its_result_and_downstream(
+    runtime, monkeypatch, change
+):
+    from dataclasses import replace
+
+    _, job, settings, _ = runtime
+    complete = analysis_tasks.CodexClient(None).complete
+    calls, failed = [], False
+
+    def infer(prompt, schema):
+        nonlocal failed
+        own = set(schema["properties"]) - {"outcome", "reason"}
+        calls.append(own)
+        if "ai_description" in own and not failed:
+            failed = True
+            raise AnalysisError("codex_timeout")
+        return complete(prompt, schema)
+
+    monkeypatch.setattr(analysis_tasks, "CodexClient", lambda _: SimpleNamespace(complete=infer))
+    analysis_tasks._analyze(job.id)
+    assert job.status == "queued"
+    if change == "model":
+        settings.codex_model = "another-model"
+    elif change == "routing":
+        settings.ai_fast_model = "different-fast-model"
+    else:
+        step = "topics" if change == "topic_prompt" else "overview"
+        spec = analysis_tasks.STEP_SPECS[step]
+        monkeypatch.setitem(
+            analysis_tasks.STEP_SPECS, step, replace(spec, prompt_version=f"{step}-v2-test")
+        )
+    job.available_at = utcnow()
+    analysis_tasks._analyze(job.id)
+    assert job.outcome == "applied"
+    assert len(calls) == (11 if change in {"prompt", "topic_prompt"} else 18)
+    if change == "topic_prompt":
+        assert sum("ai_summary" in call for call in calls) == 1
+
+
+def test_each_specialist_has_its_own_retry_budget(runtime, monkeypatch):
+    _, job, _, _ = runtime
+    job.attempts = 20  # Earlier specialists may each have consumed retries.
+    monkeypatch.setattr(
+        analysis_tasks,
+        "CodexClient",
+        lambda _: SimpleNamespace(
+            complete=lambda *_: (_ for _ in ()).throw(AnalysisError("codex_timeout"))
+        ),
+    )
+    analysis_tasks._analyze(job.id)
+    assert job.status == "queued" and job.attempts == 21
+    assert job.steps["developer_relevance"]["attempts"] == 1

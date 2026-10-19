@@ -20,6 +20,7 @@ import { useRefreshInterval } from "@/lib/use-refresh-interval";
 import { useRequest } from "@/lib/use-request";
 import { loadMatchingRows } from "@/lib/table-selection";
 import { SourcePipeline } from "./source-pipeline";
+import { ArticlePipeline } from "./article-pipeline";
 export function ResourceList({
   resource,
   analysisType,
@@ -34,7 +35,9 @@ export function ResourceList({
     const sort = search.get("sort");
     if (sort === "name" || sort === "-name") search.set("sort", sort.replace("name", "slug"));
   }
-  return resource === "topics" ? (
+  return resource === "articles" ? (
+    <ArticlesScreen query={search.toString()} />
+  ) : resource === "topics" ? (
     <TopicsScreen query={search.toString()} />
   ) : resource === "sources" ? (
     <SourcesScreen query={search.toString()} />
@@ -87,6 +90,56 @@ function SourcesScreen({ query }: { query: string }) {
         <SourcePipeline query={query} />
       ) : (
         <ResourceListTable resource="sources" query={query} embedded />
+      )}
+    </section>
+  );
+}
+
+function ArticlesScreen({ query }: { query: string }) {
+  const search = new URLSearchParams(query);
+  const pipeline = search.get("view") === "pipeline";
+  function href(view: "pipeline" | "list") {
+    const params = new URLSearchParams(search);
+    params.set("view", view);
+    params.delete("offset");
+    // View-specific filters must not silently narrow the other view.
+    for (const key of view === "pipeline"
+      ? ["review_status", "publication_status", "sort", "topic_id", "tag_id"]
+      : ["needs_attention", "stage", "group_by"])
+      params.delete(key);
+    return `/content/articles?${params}`;
+  }
+  return (
+    <section className="min-w-0 space-y-6">
+      <ResourceHeading
+        title="Articles"
+        browserTitle={adminRouteTitle({ view: "list", resource: "articles" })}
+        trail={resourceTrail("articles")}
+      >
+        <Button size="sm" asChild>
+          <Link href="/content/articles/new">
+            <Plus aria-hidden /> Add article
+          </Link>
+        </Button>
+      </ResourceHeading>
+      <nav aria-label="Article views" className="flex gap-6 border-b">
+        {(["pipeline", "list"] as const).map((view) => (
+          <Link
+            key={view}
+            href={href(view)}
+            prefetch={false}
+            scroll={false}
+            aria-current={pipeline === (view === "pipeline") ? "page" : undefined}
+            className={`border-b-2 px-1 pb-3 text-sm ${pipeline === (view === "pipeline") ? "border-primary font-medium" : "border-transparent text-muted-foreground hover:text-foreground"}`}
+          >
+            {view === "pipeline" ? "Pipeline" : "List"}
+          </Link>
+        ))}
+      </nav>
+      {pipeline ? (
+        <ArticlePipeline query={query} />
+      ) : (
+        <ResourceListTable resource="articles" query={query} embedded />
       )}
     </section>
   );
@@ -192,6 +245,7 @@ function ResourceListTable({
   const load = useCallback(
     (signal: AbortSignal) => {
       const params = Object.fromEntries(new URLSearchParams(query)) as ListParams;
+      delete params.view;
       if (resource === "analysis-jobs") {
         delete params.analysis_type;
         if (analysisType) params.analysis_type = analysisType;
@@ -293,7 +347,9 @@ function ResourceListTable({
                 ]}
               />
             )}
-            {([...search.keys()].some((key) => !["limit", "offset", "sort"].includes(key)) ||
+            {([...search.keys()].some(
+              (key) => !["limit", "offset", "sort", "view"].includes(key),
+            ) ||
               analysisType) && (
               <Button
                 variant="ghost"
@@ -321,6 +377,7 @@ function ResourceListTable({
           loadMatchingRows(
             (offset, limit, signal) => {
               const params = Object.fromEntries(new URLSearchParams(query)) as ListParams;
+              delete params.view;
               if (resource === "analysis-jobs") {
                 delete params.analysis_type;
                 if (analysisType) params.analysis_type = analysisType;
@@ -339,6 +396,7 @@ function ResourceListTable({
           loadMatchingRows(
             (offset, limit, signal) => {
               const params = Object.fromEntries(new URLSearchParams(query)) as ListParams;
+              delete params.view;
               if (resource === "analysis-jobs") {
                 delete params.analysis_type;
                 if (analysisType) params.analysis_type = analysisType;

@@ -24,16 +24,31 @@ def prune_job_payloads(factory) -> int:
     pruned = 0
     for model in (ArticleAnalysisJob, TopicAnalysisJob):
         newer = model.__table__.alias("newer")
-        subject = (
-            newer.c.article_id == ArticleAnalysisJob.article_id
+        subjects = (
+            (newer.c.article_id == ArticleAnalysisJob.article_id,)
             if model is ArticleAnalysisJob
-            else or_(
+            else (
                 newer.c.proposal_id == TopicAnalysisJob.proposal_id,
                 newer.c.topic_id == TopicAnalysisJob.topic_id,
             )
         )
-        newer_exists = exists().where(
-            subject, tuple_(newer.c.created_at, newer.c.id) > tuple_(model.created_at, model.id)
+        # Separate nullable subject probes so each composite index can apply the
+        # created-at/UUID range; an OR inside one probe scans the whole history.
+        newer_exists = or_(
+            *(
+                select(1)
+                .select_from(newer)
+                .where(
+                    subject,
+                    tuple_(newer.c.created_at, newer.c.id) > tuple_(model.created_at, model.id),
+                )
+                .order_by(newer.c.created_at.desc(), newer.c.id.desc())
+                .limit(1)
+                .correlate(model)
+                .scalar_subquery()
+                .is_not(None)
+                for subject in subjects
+            )
         )
         conditions = [
             model.status == "succeeded",
@@ -49,6 +64,9 @@ def prune_job_payloads(factory) -> int:
                     Article.classification_provenance["analysis_id"].astext.is_distinct_from(
                         model.id.cast(String)
                     ),
+                    Article.classification_provenance["ai_generation"][
+                        "analysis_id"
+                    ].astext.is_distinct_from(model.id.cast(String)),
                 )
             )
         else:
@@ -81,6 +99,11 @@ def prune_job_payloads(factory) -> int:
                 job.input_snapshot = {}
                 if isinstance(job, ArticleAnalysisJob):
                     job.catalog_snapshot = {}
+                    job.steps = {
+                        name: {field: value for field, value in step.items() if field != "output"}
+                        for name, step in job.steps.items()
+                        if isinstance(step, dict)
+                    }
                 job.inputs_pruned_at = now
                 job.usage = {**job.usage, "input_payload_pruned_at": now.isoformat()}
             pruned += len(jobs)
