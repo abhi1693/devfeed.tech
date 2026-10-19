@@ -109,7 +109,142 @@ article review is unchanged. Automatic rejection retains its 80% evidence requir
 The scheduler requeues pending assessments from v1–v4 once, excluding active or failed
 jobs; current-version assessments are not repeatedly queued.
 
+## Reusable Kanban views
+
+`components/organisms/kanban-board.tsx` supplies the shared board, column, card,
+column picker, action menu and pagination footer. Compose them with a feature's
+own filters, title links, detail panels and menu items. The components accept
+labels, counts and React children; they do not import article/source models,
+call APIs or decide which transitions are allowed.
+
+- Use `useBoardColumns(storageKey, stages)` with a unique, stable browser key.
+  Pass its visible stages and collapsed choices to `KanbanBoard`,
+  `KanbanColumn` and `BoardColumnsMenu`. Keep existing keys when migrating a view.
+- `KanbanCard` receives a status presentation, title and optional actions.
+  Set `data-board-item-id` to a stable, board-unique key and `data-board-stage`
+  to its current stage. The board animates existing cards moving or reordering,
+  honoring reduced motion and resetting on layout changes. `layoutKey` should
+  include grouping, visible columns and other changes that rearrange the layout.
+- `useBoardDrag` takes a board-specific MIME type, item-key/allowed-target
+  accessors and an `onDrop` callback. Spread `cardProps(item)` onto the card and
+  `columnProps(stage)` onto its column. It rejects external or mismatched drags,
+  preserves links/buttons, and disables drops while a mutation is pending.
+  Keep server authorization, CSRF and revision/job checks in the feature adapter.
+- `useBoardPagination` accepts the current polled snapshot, a page loader and a
+  page merge function. Its columns, loading lane, error lane and `more` action
+  feed `BoardLoadMore`. A new snapshot discards old pages and cancels outstanding
+  requests; late successes and errors cannot modify the refreshed board.
+  Feature-specific fields, such as article source groups, belong in `merge`.
+- `boardItems` resolves newer copies of moving items; `compareBoardItems`
+  orders running work first with precise timestamps and stable key ties. The
+  adapter decides which terminal columns retain server ordering.
+- `board-status.ts` owns common colors/icons. Feature modules select semantic
+  labels such as Published, Active and Paused. `useBoardRefreshInterval` keeps
+  processing views live when ordinary table refresh is disabled; `useRequest`
+  supplies visibility-aware polling.
+
+For a new review board, stage names can be unrelated to either lifecycle:
+
+```tsx
+const stages = ["queued", "verified"] as const;
+const labels = { queued: "Queued", verified: "Verified" };
+const columns = useBoardColumns("devfeed:admin-review-columns", stages);
+
+<KanbanBoard
+  label="Review queue"
+  stageLabel="Review stage"
+  stages={columns.visible}
+  labels={labels}
+  counts={counts}
+  selected={selected}
+  onSelect={setSelected}
+  layoutKey={`${columns.visible}|${columns.collapsed}`}
+>
+  {columns.visible.map((stage) => (
+    <KanbanColumn
+      key={stage}
+      id={`review-${stage}`}
+      contentId={`review-${stage}-items`}
+      label={labels[stage]}
+      total={counts[stage]}
+      countLabel={`${counts[stage]} reviews`}
+      selected={selected === stage}
+      collapsed={columns.collapsed.includes(stage)}
+      onCollapse={() => columns.toggleCollapsed(stage)}
+    >
+      {renderReviews(stage)}
+    </KanbanColumn>
+  ))}
+</KanbanBoard>;
+```
+
+Shared component/hook tests use a third review domain. The article and source
+tests retain their API, retry, grouping and polling coverage. Validate changes
+with `npm run admin:test`, `npm run admin:lint`, `npm run admin:build`, then both
+`node apps/admin/tests/browser/article-pipeline.mjs` and
+`node apps/admin/tests/browser/source-pipeline.mjs`.
+
 ## Article eligibility
+
+The Articles page has **Pipeline** and **List** views. Open
+`/content/articles?view=pipeline` to follow ingestion, enrichment, AI analysis, images,
+review, readiness, and publication. The desktop board has independently paginated
+columns; mobile uses a stage selector. Search, source, and needs-attention filters
+remain in the URL. Published and rejected columns show the last seven days; processing
+columns include all waiting articles. The board, readiness panel, and article review
+update automatically every five seconds when general refresh is disabled, or use a
+saved slower interval. Updates pause while the page is inactive. The article revision
+also updates during review so completed processing can enable publication automatically.
+
+Cards show the article title and source, with a status color and accessible icon.
+Running work appears first within each column, with stable discovery order inside each
+priority group. Automatic updates animate forward, backward, and priority changes;
+reduced-motion preferences disable movement. Open an article for job details, retry
+timing, the **Publication readiness** checklist, and links to current runs and logs.
+Missing or outdated work can expose a server-authorized next-step action. Failed runs
+link to their existing guarded retry workflow. The board never changes a stage directly.
+Publication remains disabled while any required processing or editorial check is incomplete, and the API
+rechecks readiness before accepting a publication decision.
+
+Double-click a desktop column header, or use its collapse button, to reduce it to a
+narrow rail with its name and count. Use **Columns** to show or hide stages; at least
+one column stays visible. **Show all columns** restores hidden stages. Visibility and
+collapse choices are remembered in this browser through refreshes and navigation.
+On mobile, the stage selector includes only visible columns and always opens the full
+column. Changing the column layout does not animate cards as processing transitions.
+
+Use **Group cards → Source** to replace individual cards with a compact source
+summary in each column. Each summary shows the full matching article count and
+colored status counts; sources with running articles appear first. Expand a source
+to load its articles and use the same per-article retry and drag controls. Source
+summaries do not retry articles in bulk. Grouping respects search, source, and
+attention filters, and remains selected in the page URL. Open groups refresh
+automatically with the board, resetting extra article pages to the current first
+page. Source groups and the articles inside each group paginate independently.
+
+Drag a card onto an earlier **Enrichment**, **AI analysis**, or **Images** column to
+retry that task, including onto a collapsed rail. The card menu provides the same
+actions for keyboard and mobile use, including tasks whose columns are hidden.
+Only eligible destinations are offered; active work and scheduled retries retain
+their leases and timing. Independent tasks can continue while the selected task runs.
+
+Moving a **Published** card back unpublishes it and queues the selected task together.
+The menu labels state this explicitly. An image-only retry preserves the existing
+approval, current AI content, original feed timestamp, and notification history; when
+it completes, the article returns to **Ready** for the normal Publish action. Source
+or AI retries go through the usual content and review requirements. The board waits
+for server results before moving a card and refreshes stale cards after conflicts.
+
+The AI analysis run shows its ordered steps for eligibility, classification, topics,
+tags, title, overview, and description. Each row reports its status, prompt version,
+attempt count, and scheduled retry or error when applicable. These are steps of one
+durable analysis job; run logs and retries use the existing analysis-job workflow.
+
+Validate with
+`npm run admin:test -- tests/article-pipeline.test.tsx tests/analysis-step-list.test.tsx`, then
+`npm run admin:build` and `node apps/admin/tests/browser/article-pipeline.mjs`.
+The browser test uses a disposable local API fixture and writes desktop/mobile
+screenshots and a result summary under ignored `reports/article-pipeline/`.
 
 Classifying an article requires a page-kind decision before approval or publication.
 The form preserves an existing decision and defaults missing/legacy decisions to
@@ -394,3 +529,54 @@ and verification of runtime settings, authentication, and personalized feeds.
 Validate with `npm run admin:lint`, `npm run admin:test`, and `npm run admin:build`.
 The overview browser suite checks nonce rotation after its overview scenarios so
 the extra page loads do not affect panel concurrency or lazy-loading measurements.
+
+## Source lifecycle pipeline
+
+Open **Sources → Pipeline** to follow source preparation, review and ingestion. The
+existing **List** remains the default view with its approval filters and page-size
+preferences. The board shows Discovery, Profile, AI assessment, Branding, Review,
+Ingestion, Active, Paused and Rejected. Each compact card contains the source name,
+host and an accessible status icon. Color distinguishes waiting, running, retrying,
+blocked, ready and completed work; running sources appear first in processing lanes.
+
+The board and readiness panels refresh automatically while visible, at least every
+five seconds when ordinary refresh is off or faster. A saved slower interval is
+respected. Loaded cards remain visible while refreshing, and a newer snapshot replaces
+old extra pages. The initial board and each **Load more** request are bounded to
+20 cards per lane. Active, Paused and Rejected show activity from the last seven days
+by default; the existing list and history remain available for older sources.
+
+Double-click a desktop column heading, or use its **Collapse/Expand** button, to switch
+between a full lane and a narrow rail. **Columns** hides or restores lanes, keeping at
+least one visible. These choices are saved separately for this browser’s source board.
+On mobile, the stage selector includes visible columns and shows one normal lane;
+desktop collapse choices do not compress the mobile lane. Card movement respects both
+the operating system and admin **Reduce motion** setting.
+
+A source card opens its existing record. An unlinked candidate opens a readiness
+dialog; once discovery links it to a source, the dialog offers **Open source** and
+uses the source’s current identity for actions. The board shows that source only once.
+**Source readiness** explains blockers, current runs, attempts and retry availability.
+Source enrichment run lists and details distinguish operations and show saved results.
+
+Use a card’s action menu or drag it to a server-listed processing lane to retry that
+step. Retrying upstream processing for an enabled, approved source pauses new feed
+ingestion and preserves its approval, articles and history. The menu says **Pause and
+retry**; use **Resume** after required processing settles. An ingestion retry only
+recovers fetching and does not pause the source. Dragging into Active or Review cannot
+approve or enable a source.
+
+Manual approval remains an explicit review decision. It requires a current profile
+and settled branding; an unsuccessful or uncertain AI assessment does not prevent an
+operator from reviewing the evidence and approving manually. Approval and feed-fetch
+controls use the server’s current readiness flags. Existing approved sources retain
+the core lifecycle’s compatibility rules; an Active card describes scheduled ingestion
+without claiming that every historical preparation step was rerun.
+
+A rejected source with incomplete preparation offers **Reopen for review**. This
+explicit action prepares the source again while ingestion stays disabled and keeps
+its earlier review history. Processing cannot automatically overturn the rejection;
+an operator must review and approve it after its prerequisites settle.
+
+Validate with `npm run admin:test`, `npm run admin:lint` and, after
+`npm run admin:build`, `node apps/admin/tests/browser/source-pipeline.mjs`.

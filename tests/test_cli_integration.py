@@ -13,11 +13,20 @@ from devfeed_cli import status
 from devfeed_cli.main import run
 from devfeed_core import services
 from devfeed_core.config import get_settings
+from devfeed_core.db import session_factory
 from devfeed_core.feeds import validation
 from devfeed_core.feeds.fetcher import FetchResult
 from devfeed_core.jobs import claim_job
-from devfeed_core.models import Article, ArticleImageJob, IngestionJob, SourceEnrichmentJob, utcnow
+from devfeed_core.models import (
+    Article,
+    ArticleImageJob,
+    IngestionJob,
+    Source,
+    SourceEnrichmentJob,
+    utcnow,
+)
 from devfeed_core.schemas import SourceCreate
+from devfeed_core.source_enrichment import source_identity
 from redis.exceptions import ConnectionError as RedisConnectionError
 from rq import Worker
 from rq.serializers import JSONSerializer
@@ -38,9 +47,22 @@ def invoke(capsys, *args, code=0):
 
 def approve_submission(capsys, result):
     assert result["source"]["approval_status"] == "pending" and result["job"] is None
+    complete_profile(result["source"]["id"])
     result["source"] = invoke(capsys, "sources", "approve", result["source"]["id"])
     result["job"] = invoke(capsys, "sources", "fetch", result["source"]["id"])
     return result
+
+
+def complete_profile(identifier):
+    """The CLI approval scenarios start after the separate profile worker settles."""
+    with session_factory().begin() as session:
+        source = session.get(Source, uuid.UUID(identifier))
+        job = session.scalar(
+            select(SourceEnrichmentJob).where(SourceEnrichmentJob.source_id == source.id)
+        )
+        job.status, job.finished_at = "succeeded", utcnow()
+        job.result = {"input": source_identity(source), "sample": []}
+        source.metadata_enriched_at = job.finished_at
 
 
 def test_submit_reuses_source_and_active_job_without_overwriting_settings(database, capsys):
@@ -228,6 +250,7 @@ def test_disabled_submission_and_source_updates(database, capsys):
     )
     assert changed["enabled"] is True and changed["name"] == "Renamed"
     assert changed["poll_interval_seconds"] == 600
+    complete_profile(source_id)
     invoke(capsys, "sources", "approve", source_id)
     assert invoke(capsys, "sources", "fetch", source_id)["status"] == "queued"
     assert invoke(capsys, "sources", "update", source_id, "--disable")["enabled"] is False

@@ -90,6 +90,7 @@ def store_entries(
                     update(Article)
                     .where(
                         Article.id == article_id,
+                        Article.publication_status != "published",
                         Article.metadata_source_type.in_([SourceType.AGGREGATOR, "page"]),
                     )
                     .values(
@@ -108,6 +109,7 @@ def store_entries(
                         editorial_revision=Article.editorial_revision + 1,
                         ai_summary=None,
                         ai_description=None,
+                        ai_title=None,
                         classification_provenance={},
                     )
                 )
@@ -230,7 +232,9 @@ def _ingest_claimed(factory, identifier, lease_token, url, etag, modified, start
                 logger.info("ingestion_source_unapproved")
                 return
             if not source.enabled:
-                fail_job(session, job, "Source was disabled during ingestion", retryable=False)
+                from devfeed_core.jobs import cancel_disabled_job
+
+                cancel_disabled_job(job)
                 logger.info("ingestion_source_disabled")
                 return
             # A response for a replaced feed must never repopulate its learning state.

@@ -18,9 +18,10 @@ from devfeed_core.source_relevance import (
 from devfeed_aggregator.codex_client import CodexClient
 
 
-def assess_source(feed_url, source_type, *, feedback=None):
-    parsed = validate_feed(feed_url, source_type=source_type)
-    sample = feed_sample(parsed)
+def assess_source(feed_url, source_type, *, feedback=None, sample=None):
+    if sample is None:
+        parsed = validate_feed(feed_url, source_type=source_type)
+        sample = feed_sample(parsed)
     settings = get_settings()
     base = {
         "version": VERSION,

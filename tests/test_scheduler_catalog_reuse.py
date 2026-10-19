@@ -119,4 +119,19 @@ def test_change_between_preparation_and_locking_never_applies_stale_result(
         assert article.review_status == "pending" and article.publication_status == "unpublished"
         if changed in {"catalog", "content"}:
             assert article.automation_next_check_at <= utcnow()
-            assert len(session.scalars(select(ArticleAnalysisJob)).all()) == 1
+            jobs = session.scalars(
+                select(ArticleAnalysisJob).order_by(
+                    ArticleAnalysisJob.created_at, ArticleAnalysisJob.id
+                )
+            ).all()
+            assert jobs[0].status == "succeeded" and jobs[0].outcome == "applied"
+            if changed == "content":
+                assert len(jobs) == 2
+                assert jobs[1].status == "queued"
+                assert jobs[1].input_hash == analysis.snapshot_hash(
+                    analysis.source_snapshot(article, None)
+                )
+                assert jobs[1].input_hash != jobs[0].input_hash
+                assert not jobs[1].result
+            else:
+                assert len(jobs) == 1

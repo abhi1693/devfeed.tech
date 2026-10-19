@@ -77,7 +77,7 @@ def dispatch_now(job_id: uuid.UUID, *, kind: ImmediateKind = "ingestion") -> dic
         job = prepare(session, job_id)
         fields = definition.log_fields(job)
         source_analysis = isinstance(job, SourceEnrichmentJob) and requires_relevance(
-            session.get(Source, job.source_id)
+            session.get(Source, job.source_id), job
         )
         solver = (
             isinstance(job, (SourceEnrichmentJob, ArticleEnrichmentJob, ArticleImageJob))

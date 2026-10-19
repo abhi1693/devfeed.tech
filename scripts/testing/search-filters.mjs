@@ -172,7 +172,8 @@ export async function checkSearchFilters(page, target) {
       .evaluateAll((nodes) => [...new Set(nodes.map((node) => node.dataset.contentType))]),
     ["article", "news", "tutorial", "release", "comparison", "opinion"],
   );
-  assert.equal(await page.locator(".search-related-results .search-section").count(), 3);
+  // Ignore hidden copies retained while Next.js finishes streaming the route.
+  assert.equal(await page.locator(".search-related-results .search-section:visible").count(), 3);
   assert.equal(await page.getByRole("button", { name: "Apply", exact: true }).count(), 0);
   await checkSelectMenus(page, ["Results", "Article order"]);
   await page.getByRole("combobox", { name: "Article order" }).click();

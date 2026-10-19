@@ -13,6 +13,8 @@ import type {
   AdminAiAnalysisJobsListParams,
   AdminArticleCreate,
   AdminArticleOut,
+  AdminArticlePipelineColumnParams,
+  AdminArticlePipelineParams,
   AdminArticleReviewsParams,
   AdminArticleUpdate,
   AdminArticlesListParams,
@@ -46,6 +48,8 @@ import type {
   AdminRelationshipsListParams,
   AdminSourceCreate,
   AdminSourceImportCandidatesParams,
+  AdminSourcePipelineColumnParams,
+  AdminSourcePipelineParams,
   AdminSourceReviewsParams,
   AdminSourcesListParams,
   AdminTagsListParams,
@@ -68,6 +72,7 @@ import type {
   AdminUserSourcesParams,
   AdminUserTopicsParams,
   AdminUsersListParams,
+  AdvancePipeline,
   AppearanceSettings,
   ArticleContentOut,
   AssetInput,
@@ -146,6 +151,9 @@ import type {
   PartnerPipelineOut,
   PartnerProviderOut,
   PartnershipTierOut,
+  PipelineBoard,
+  PipelineColumn,
+  PipelineDetail,
   ProductAction,
   ProductDetailOut,
   ProductOut,
@@ -160,6 +168,7 @@ import type {
   RelationshipAnalysisRequest,
   RelationshipProposalOut,
   RelationshipReview,
+  RetryPipeline,
   ReviewArticle,
   ReviewSource,
   SearchAnalytics,
@@ -168,6 +177,11 @@ import type {
   SourceImportResult,
   SourceOut,
   SourcePatch,
+  SourcePipelineAdvance,
+  SourcePipelineBoard,
+  SourcePipelineColumn,
+  SourcePipelineDetail,
+  SourcePipelineRetry,
   SourcePreviewOut,
   SourcePreviewRequest,
   SponsorArticlesOut,
@@ -273,6 +287,70 @@ return adminFetch<void>(getAdminAiLoginCancelUrl(),
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
     body: JSON.stringify(cancelLogin)
+  }
+);}
+
+
+
+export const getAdminArticlePipelineUrl = (params?: AdminArticlePipelineParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/v1/admin/article-pipeline?${stringifiedParams}` : `/v1/admin/article-pipeline`
+}
+
+/**
+ * @summary Board
+ */
+export const adminArticlePipeline = async (params?: AdminArticlePipelineParams, options?: Parameters<typeof adminFetch>[1]): Promise<PipelineBoard> => {
+
+  return adminFetch<PipelineBoard>(getAdminArticlePipelineUrl(params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+export const getAdminArticlePipelineColumnUrl = (stage: 'ingested' | 'enrichment' | 'analysis' | 'images' | 'review' | 'ready' | 'published' | 'rejected',
+    params?: AdminArticlePipelineColumnParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/v1/admin/article-pipeline/${stage}?${stringifiedParams}` : `/v1/admin/article-pipeline/${stage}`
+}
+
+/**
+ * @summary Column
+ */
+export const adminArticlePipelineColumn = async (stage: 'ingested' | 'enrichment' | 'analysis' | 'images' | 'review' | 'ready' | 'published' | 'rejected',
+    params?: AdminArticlePipelineColumnParams, options?: Parameters<typeof adminFetch>[1]): Promise<PipelineColumn> => {
+
+  return adminFetch<PipelineColumn>(getAdminArticlePipelineColumnUrl(stage,params),
+  {
+    ...options,
+    method: 'GET'
+
+
   }
 );}
 
@@ -492,6 +570,108 @@ export const adminArticleContent = async (articleId: string, options?: Parameter
     method: 'GET'
 
 
+  }
+);}
+
+
+
+export const getAdminArticlePipelineDetailUrl = (articleId: string,) => {
+
+
+
+
+  return `/v1/admin/articles/${articleId}/pipeline`
+}
+
+/**
+ * @summary Detail
+ */
+export const adminArticlePipelineDetail = async (articleId: string, options?: Parameters<typeof adminFetch>[1]): Promise<PipelineDetail> => {
+
+  return adminFetch<PipelineDetail>(getAdminArticlePipelineDetailUrl(articleId),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+export const getAdminArticlePipelineAdvanceUrl = (articleId: string,) => {
+
+
+
+
+  return `/v1/admin/articles/${articleId}/pipeline/advance`
+}
+
+/**
+ * @summary Advance
+ */
+export const adminArticlePipelineAdvance = async (articleId: string,
+    advancePipeline: AdvancePipeline, options?: Parameters<typeof adminFetch>[1]): Promise<PipelineDetail> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
+  };
+return adminFetch<PipelineDetail>(getAdminArticlePipelineAdvanceUrl(articleId),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(advancePipeline)
+  }
+);}
+
+
+
+export const getAdminArticlePipelineRetryUrl = (articleId: string,) => {
+
+
+
+
+  return `/v1/admin/articles/${articleId}/pipeline/retry`
+}
+
+/**
+ * @summary Retry
+ */
+export const adminArticlePipelineRetry = async (articleId: string,
+    retryPipeline: RetryPipeline, options?: Parameters<typeof adminFetch>[1]): Promise<PipelineDetail> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
+  };
+return adminFetch<PipelineDetail>(getAdminArticlePipelineRetryUrl(articleId),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(retryPipeline)
   }
 );}
 
@@ -3143,6 +3323,178 @@ return adminFetch<ImportCandidateDetail>(getAdminSourceImportReviewUrl(candidate
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
     body: JSON.stringify(importAction)
+  }
+);}
+
+
+
+export const getAdminSourcePipelineUrl = (params?: AdminSourcePipelineParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/v1/admin/source-pipeline?${stringifiedParams}` : `/v1/admin/source-pipeline`
+}
+
+/**
+ * @summary Board
+ */
+export const adminSourcePipeline = async (params?: AdminSourcePipelineParams, options?: Parameters<typeof adminFetch>[1]): Promise<SourcePipelineBoard> => {
+
+  return adminFetch<SourcePipelineBoard>(getAdminSourcePipelineUrl(params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+export const getAdminSourcePipelineColumnUrl = (stage: 'discovery' | 'profile' | 'assessment' | 'branding' | 'review' | 'ingestion' | 'active' | 'paused' | 'rejected',
+    params?: AdminSourcePipelineColumnParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/v1/admin/source-pipeline/columns/${stage}?${stringifiedParams}` : `/v1/admin/source-pipeline/columns/${stage}`
+}
+
+/**
+ * @summary Column
+ */
+export const adminSourcePipelineColumn = async (stage: 'discovery' | 'profile' | 'assessment' | 'branding' | 'review' | 'ingestion' | 'active' | 'paused' | 'rejected',
+    params?: AdminSourcePipelineColumnParams, options?: Parameters<typeof adminFetch>[1]): Promise<SourcePipelineColumn> => {
+
+  return adminFetch<SourcePipelineColumn>(getAdminSourcePipelineColumnUrl(stage,params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+export const getAdminSourcePipelineDetailUrl = (kind: 'source' | 'candidate',
+    identifier: string,) => {
+
+
+
+
+  return `/v1/admin/source-pipeline/items/${kind}/${identifier}`
+}
+
+/**
+ * @summary Detail
+ */
+export const adminSourcePipelineDetail = async (kind: 'source' | 'candidate',
+    identifier: string, options?: Parameters<typeof adminFetch>[1]): Promise<SourcePipelineDetail> => {
+
+  return adminFetch<SourcePipelineDetail>(getAdminSourcePipelineDetailUrl(kind,identifier),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+export const getAdminSourcePipelineAdvanceUrl = (kind: 'source' | 'candidate',
+    identifier: string,) => {
+
+
+
+
+  return `/v1/admin/source-pipeline/items/${kind}/${identifier}/advance`
+}
+
+/**
+ * @summary Advance
+ */
+export const adminSourcePipelineAdvance = async (kind: 'source' | 'candidate',
+    identifier: string,
+    sourcePipelineAdvance: SourcePipelineAdvance, options?: Parameters<typeof adminFetch>[1]): Promise<SourcePipelineDetail> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
+  };
+return adminFetch<SourcePipelineDetail>(getAdminSourcePipelineAdvanceUrl(kind,identifier),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(sourcePipelineAdvance)
+  }
+);}
+
+
+
+export const getAdminSourcePipelineRetryUrl = (kind: 'source' | 'candidate',
+    identifier: string,) => {
+
+
+
+
+  return `/v1/admin/source-pipeline/items/${kind}/${identifier}/retry`
+}
+
+/**
+ * @summary Retry
+ */
+export const adminSourcePipelineRetry = async (kind: 'source' | 'candidate',
+    identifier: string,
+    sourcePipelineRetry: SourcePipelineRetry, options?: Parameters<typeof adminFetch>[1]): Promise<SourcePipelineDetail> => {
+
+    const getHeaders = (h?: NonNullable<RequestInit['headers']>): Record<string, string | readonly string[]> => {
+    if (!h) return {};
+    if (h instanceof Headers) return Object.fromEntries(h.entries());
+    if (Symbol.iterator in h) {
+      return Object.fromEntries(
+        Array.from(h as Iterable<Iterable<string>>, (entry) => Array.from(entry) as [string, string]),
+      );
+    }
+    const headers: Record<string, string | readonly string[]> = {};
+    for (const [name, value] of Object.entries<string | readonly string[] | undefined>(h)) {
+      if (value !== undefined) headers[name] = value;
+    }
+    return headers;
+  };
+return adminFetch<SourcePipelineDetail>(getAdminSourcePipelineRetryUrl(kind,identifier),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...getHeaders(options?.headers) },
+    body: JSON.stringify(sourcePipelineRetry)
   }
 );}
 

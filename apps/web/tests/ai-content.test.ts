@@ -85,6 +85,50 @@ it("uses Dualmark for explicit Markdown, AI bot negotiation and HTML discovery",
   expect(unsupported.status).toBe(406);
 });
 
+it("negotiates the homepage without changing browser defaults or forwarding account data", async () => {
+  for (const accept of [undefined, "*/*", "text/html", "text/markdown;q=0, text/html;q=1"]) {
+    const response = await proxy(
+      new NextRequest("https://devfeed.tech/", {
+        headers: accept ? { Accept: accept } : undefined,
+      }),
+    );
+    expect(response.headers.has("x-middleware-rewrite")).toBe(false);
+    expect(response.headers.get("link")).toContain("https://devfeed.tech/index.md");
+    expect(response.headers.get("cache-control")).toBe("private, no-store");
+  }
+
+  const request = new NextRequest("https://devfeed.tech/?tag=c%2B%2B", {
+    headers: {
+      Accept: "text/markdown",
+      Cookie: "devfeed_user_session=secret",
+      Authorization: "Bearer secret",
+    },
+  });
+  const negotiated = await proxy(request);
+  const target = negotiated.headers.get("x-middleware-rewrite");
+  expect(target).toBe("https://devfeed.tech/md/index?tag=c%2B%2B");
+  expect(negotiated.headers.get("vary")).toContain("Accept");
+
+  const fetcher = vi
+    .fn()
+    .mockResolvedValue(Response.json({ items: [article], next_cursor: "next" }));
+  vi.stubGlobal("fetch", fetcher);
+  const response = await publicMarkdown(new Request(target!, { headers: request.headers }), [
+    "index",
+  ]);
+  expect(response.headers.get("content-type")).toBe("text/markdown; charset=utf-8");
+  expect(response.headers.get("x-markdown-tokens")).toMatch(/^[1-9]\d*$/);
+  expect(response.headers.get("vary")).toContain("Accept");
+  const body = await response.text();
+  expect(body).toContain("Understanding C++");
+  expect(body).toContain("Next page");
+  expect(body).not.toMatch(/<!DOCTYPE|<html|secret/);
+  const [url, options] = fetcher.mock.calls[0];
+  expect(url.origin).toBe("http://public-api.internal:8000");
+  expect(url.searchParams.get("tag")).toBe("c++");
+  expect(options.headers).toEqual({ Accept: "application/json", "Cache-Control": "max-age=600" });
+});
+
 it("gives each HTML response a distinct script nonce without permitting arbitrary inline scripts", async () => {
   const request = () =>
     new NextRequest("https://devfeed.tech/latest", { headers: { Accept: "text/html" } });

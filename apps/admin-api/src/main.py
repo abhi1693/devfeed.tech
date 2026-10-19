@@ -18,6 +18,7 @@ from fastapi import FastAPI
 
 from devfeed_admin_api import (
     ai_connection,
+    article_pipeline,
     articles,
     auth,
     automation,
@@ -32,6 +33,7 @@ from devfeed_admin_api import (
     search_analytics,
     search_suggestions,
     source_imports,
+    source_pipeline,
     sources,
     taxonomy,
     topic_proposals,
@@ -119,9 +121,11 @@ def create_app() -> FastAPI:
         ingestion.router,
         sources.router,
         source_imports.router,
+        source_pipeline.router,
         search_suggestions.router,
         search_analytics.router,
         articles.router,
+        article_pipeline.router,
         topics.router,
         jobs.router,
         notifications.router,

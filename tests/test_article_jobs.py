@@ -215,7 +215,10 @@ def test_worker_download_and_extraction_are_outside_transaction(runtime):
     article_tasks.enrich_article(str(current.id))
     assert events == ["begin", "commit", "fetch", "begin", "commit"]
     assert changes == [True] and current.status == "succeeded" and current.outcome == "enriched"
-    assert current.lease_token is None and current.result == {"language": "en"}
+    assert current.lease_token is None and current.result == {
+        "language": "en",
+        "input_url": "https://example.com/article",
+    }
 
 
 @pytest.mark.parametrize("case", ["lease", "url", "review"])

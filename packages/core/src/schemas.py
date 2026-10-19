@@ -206,6 +206,7 @@ class SourceReviewOut(ORMModel):
 class SourceEnrichmentJobOut(ORMModel):
     id: uuid.UUID
     source_id: uuid.UUID
+    operation: str = "legacy"
     status: str
     attempts: int
     available_at: datetime

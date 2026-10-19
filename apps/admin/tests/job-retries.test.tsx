@@ -91,7 +91,13 @@ it("loads all failed pages before mutation, preserving type, search and subject 
       : page([job("running", "topic-analysis", "running")]),
   );
   renderAdmin(<ResourceList resource="analysis-jobs" analysisType="topics" />);
-  await screen.findByText("Running");
+  // The selected Running filter appears before the table's first request settles.
+  // Query the current control because the loading and loaded toolbars can remount.
+  await waitFor(() =>
+    expect(
+      (screen.getByRole("button", { name: "Retry all failed" }) as HTMLButtonElement).disabled,
+    ).toBe(false),
+  );
   fireEvent.click(screen.getByRole("button", { name: "Retry all failed" }));
   await screen.findByRole("dialog", { name: "Retry 103 selected records?" });
   expect(adminJobRetry).not.toHaveBeenCalled();

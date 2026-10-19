@@ -6,7 +6,11 @@ import re
 from pydantic import ValidationError
 
 CODES = {
+    "analysis_input_too_large",
     "invalid_article_title",
+    "unidentifiable_title",
+    "missing_ai_summary",
+    "missing_ai_description",
     "non_english_ai_prose",
     "unknown_catalog_id",
     "evidence_not_in_input",
@@ -102,6 +106,14 @@ def feedback_prompt(feedback) -> str:
             "of the source language. Keep source language classification and verbatim evidence "
             "in the original language."
             if feedback["code"] == "non_english_ai_prose"
+            else " Provide both ai_summary and ai_description as readable English prose supported "
+            "by the source. Do not pad or invent details; return insufficient_evidence when "
+            "the source cannot support them."
+            if feedback["code"] in {"missing_ai_summary", "missing_ai_description"}
+            else " Replace a bare version or generic release title with a project-identifying "
+            "ai_title and verbatim title_evidence from source_summary or text. Never guess "
+            "the project; return insufficient_evidence if that source evidence is absent."
+            if feedback["code"] == "unidentifiable_title"
             else " Return ai_title and title_evidence as null unless a ready article supports "
             "a plain-text title with a verbatim body passage."
             if feedback["code"] == "invalid_article_title"

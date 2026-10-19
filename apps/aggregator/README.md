@@ -1,5 +1,34 @@
 # Aggregator
 
+## Source processing and rollout
+
+Source profile lookup and source relevance assessment are independent operations in
+the existing source-enrichment outbox. Profile work uses guarded feed/website fetches;
+assessment uses its saved bounded sample on the source-analysis queue. Retrying a
+failed assessment keeps the completed profile. Already-queued assessments obey the
+AI kill switch before claiming an attempt. Profile, relevance and logo completion,
+plus the pending-review scheduler, reconcile the same admission checks, so completion
+order cannot admit a source with unfinished required work.
+
+For migration `0032_source_processing`, quiesce source dispatch and drain old coupled
+source workers before migrating and deploying the new workers/API. Resume dispatch
+only after all source and image workers understand split operations and admission
+reconciliation. Legacy queued jobs are converted to profile-only when the new worker
+claims them; existing source decisions and normal approved-source polling remain.
+Do not run old coupled workers alongside split-operation deliveries: they can repeat
+AI calls and bypass the new completion boundary. Before rollback, drain all queued or
+running profile/relevance jobs and resolve explicit paused processing requests; the
+migration refuses downgrade while either remains. Deploy old workers only after that
+downgrade. The migration follows schema `0031` and must complete before the upgraded API
+and workers start.
+
+Explicit Profile, Assessment or Branding retries pause new ingestion on an approved
+source until an operator selects Resume after processing settles. Existing articles,
+approval and fetch history are retained. A fetch that was already running discards
+its results if the source was paused before commit. An ingestion retry only recovers
+the feed request and does not pause the source. Ordinary metadata refreshes do not
+pause approved polling, and reads never backfill or revoke existing sources.
+
 ## Article decisions and recovery
 
 Full automation rejects a pending article when its latest successful, current analysis
@@ -15,13 +44,24 @@ language-detection sample. Thin publisher redirect pages require a matching visi
 each target uses the guarded article fetcher, with a two-hop limit. A page description never
 replaces a longer publisher feed summary as analysis evidence.
 
-Article analysis prompt `article-analysis-v7-grounded-overview` requests concrete,
-source-supported takeaways, mechanisms, comparisons and limitations when the evidence
-permits them. Overview length stays proportionate to the source within the existing
-1,200-character limit, without filler or invented facts. Sparse evidence remains an
-insufficient-evidence outcome rather than a reason to expand a teaser. Prompt tests
-verify this contract and evidence transport; actual output quality requires reviewing
-generated samples.
+Article analysis `article-analysis-v9-specialist-steps` runs separate typed tasks for
+developer relevance, page eligibility, source language, content type, content format,
+topics, tags, title, overview and search description. Each prompt has one job, its
+own version and required context. Matching tasks receive their respective catalog;
+description generation uses the accepted overview. Identifying source titles skip
+title inference. Eligibility checks stop unnecessary work on negative content.
+
+The parent job persists each task's validated result and bounded retry state. A later
+failure reuses completed work instead of sending the whole article through every task
+again. The worker renews its lease before each call and permits a bounded 1,500-second
+RQ run; calls hold no database transaction. Article fields apply together only after
+the complete aggregate validates. Admin shows each task and its current retry/error.
+
+The overview task requests concrete source-supported findings, mechanisms, comparisons
+and limitations. Its length stays proportionate to the source within 1,200 characters,
+without filler or invented facts. Sparse evidence remains insufficient rather than a
+reason to expand a teaser. Contract/transport tests use deterministic responses;
+semantic output quality still requires reviewing generated samples.
 
 After a deployment, pending unpublished candidates with an older prompt version can
 receive a current analysis through the normal scheduler. The prompt change does not
@@ -171,6 +211,16 @@ without automatically retrying terminal failures. A changed source URL cannot be
 replaced by an old recompression job. Do not roll back to workers that lack v2
 support while v2 jobs remain queued or running. Reader rollback can still consume
 both URL versions because the metadata schema is unchanged.
+
+The article pipeline board can explicitly retry image discovery or storage even
+when an article already has a usable image. These jobs carry an `article_refresh`
+marker in their existing storage metadata. Workers preserve the current URL and
+managed variants until a current discovery result or complete replacement asset
+can apply; captured URL checks prevent late results replacing a newer image.
+Failed refreshes remain publication blockers and use the existing finite retries
+and checkpoints. Deploy the updated image workers before using the board's forced
+image retries: older workers ignore this marker and can short-circuit the request
+as `already_present`. This change adds no queue or database schema.
 
 For a repeatable encoder comparison, mount representative local inputs read-only
 into the pinned Compose imgproxy image with `IMGPROXY_LOCAL_FILESYSTEM_ROOT`,

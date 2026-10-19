@@ -48,12 +48,18 @@ def article(**overrides):
 
 def session(current):
     added = []
-    return SimpleNamespace(scalar=lambda _: current, add=added.append, added=added)
+    return SimpleNamespace(
+        scalar=lambda _: current, add=added.append, added=added, expire=lambda *_: None
+    )
 
 
 @pytest.fixture(autouse=True)
 def approved_source(monkeypatch):
-    monkeypatch.setattr(editorial, "approved_sources", lambda *_: [uuid.uuid4()])
+    monkeypatch.setattr(editorial, "approved_sources", lambda *_, **__: [uuid.uuid4()])
+    # These unit tests isolate editorial decisions; lifecycle admission is covered
+    # with real job facts and disposable services in test_article_lifecycle.py.
+    monkeypatch.setattr(editorial, "processing_readiness", lambda *_: SimpleNamespace(blockers=[]))
+    monkeypatch.setattr(editorial, "lock_topics", lambda *_, **__: None)
 
 
 def test_approval_does_not_publish_and_generated_prose_remains_distinct():
@@ -173,7 +179,7 @@ def test_public_payload_exposes_ai_prose_not_private_evidence_or_review_state():
 
 
 def test_no_approved_source_blocks_publish(monkeypatch):
-    monkeypatch.setattr(editorial, "approved_sources", lambda *_: [])
+    monkeypatch.setattr(editorial, "approved_sources", lambda *_, **__: [])
     current = article(review_status="approved")
     with pytest.raises(OperationConflict, match="no_approved_source"):
         editorial.decide_article(

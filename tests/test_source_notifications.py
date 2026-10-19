@@ -6,9 +6,15 @@ from concurrent.futures import ThreadPoolExecutor
 import pytest
 from devfeed_core import services
 from devfeed_core.config import get_settings
-from devfeed_core.models import NotificationDelivery, Source, SourceReview, UserAccount
+from devfeed_core.models import (
+    NotificationDelivery,
+    Source,
+    SourceReview,
+    UserAccount,
+)
 from devfeed_core.notifications import notification_subscriber_id
 from devfeed_core.schemas import SourceDecision
+from devfeed_core.source_enrichment import request_enrichment, request_relevance
 from sqlalchemy import func, select
 
 pytestmark = pytest.mark.integration
@@ -38,6 +44,9 @@ def suggestion(database, monkeypatch):
                 ),
             ]
         )
+        session.flush()
+        profile = request_enrichment(session, source_id)
+        profile.status = "succeeded"
     return database, source_id, user_id
 
 
@@ -157,7 +166,6 @@ def test_long_rejection_reason_does_not_break_review(suggestion):
 
 def test_automatic_relevance_approval_notifies_submitter(suggestion, monkeypatch):
     from devfeed_aggregator import source_tasks
-    from devfeed_core.source_enrichment import request_enrichment
 
     factory, source_id, _ = suggestion
     monkeypatch.setattr(get_settings(), "full_automation", True)
@@ -165,10 +173,10 @@ def test_automatic_relevance_approval_notifies_submitter(suggestion, monkeypatch
     monkeypatch.setattr(
         source_tasks,
         "assess_source",
-        lambda *_: {"approval_supported": True, "reason": "Engineering feed"},
+        lambda *_, **kw: {"approval_supported": True, "reason": "Engineering feed"},
     )
     with factory.begin() as session:
-        job_id = request_enrichment(session, source_id).id
+        job_id = request_relevance(session, source_id).id
     source_tasks.enrich_source(str(job_id))
     with factory() as session:
         assert session.get(Source, source_id).approval_status == "approved"

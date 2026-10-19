@@ -134,10 +134,15 @@ export function articlePlainText(value: string): string {
 
 export function articleDescription(article: Article): string {
   // Match the visible overview. Remove common Markdown presentation from the short preview.
-  return articlePlainText(article.ai_summary?.trim() || article.summary || article.title).slice(
-    0,
-    180,
-  );
+  const text = [article.ai_summary, article.summary, article.title]
+    .map((value) => articlePlainText(value || ""))
+    .find((value) => /\p{L}/u.test(value));
+  if (!text) return "";
+  if (text.length <= 180) return text;
+  const preview = text.slice(0, 180);
+  if (/\s/u.test(text[180])) return preview.trimEnd();
+  const boundary = preview.lastIndexOf(" ");
+  return boundary > 0 ? preview.slice(0, boundary) : preview;
 }
 
 export function articleMetadata(article: Article): Metadata {

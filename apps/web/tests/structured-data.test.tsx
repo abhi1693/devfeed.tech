@@ -258,6 +258,27 @@ it("uses the visible article overview and cover for article social cards", () =>
   expect(articleStructuredData(item).mainEntity).toHaveProperty("image", [item.image_url]);
 });
 
+it("normalizes description candidates before choosing a nonempty fallback", () => {
+  expect(
+    articleDescription({
+      ...article,
+      ai_summary: "<p></p> ###",
+      summary: "**Useful** source text.",
+    }),
+  ).toBe("Useful source text.");
+  expect(articleDescription({ ...article, ai_summary: "  ", summary: "<p></p>" })).toBe(
+    article.title,
+  );
+});
+
+it("ends long descriptions at a word boundary while preserving exact-length descriptions", () => {
+  const prefix = "An overview with useful details. ".repeat(5);
+  const item = { ...article, ai_summary: `${prefix}Extraordinaryimplementation details.` };
+  expect(articleDescription(item)).toBe(prefix.trim());
+  expect(articleDescription({ ...article, ai_summary: "a".repeat(180) })).toBe("a".repeat(180));
+  expect(articleDescription({ ...article, ai_summary: "a".repeat(181) })).toBe("a".repeat(180));
+});
+
 it.each([
   ["[outer [inner](https://example.test) tail", "outer [inner tail"],
   ["[incomplete] then [link](url)", "[incomplete] then link"],
@@ -288,20 +309,28 @@ it("preserves preview words across generated publisher markup", () => {
   fc.assert(
     fc.property(fc.array(token, { minLength: 1, maxLength: 30 }), (tokens) => {
       const ai_summary = tokens.map((item) => item.markup).join("\n");
-      const expected = tokens
-        .map((item) => item.text)
-        .join(" ")
-        .slice(0, 180);
-      expect(articleDescription({ ...article, ai_summary })).toBe(expected);
+      const text = tokens.map((item) => item.text).join(" ");
+      const description = articleDescription({ ...article, ai_summary });
+      if (!/\p{L}/u.test(text)) {
+        expect(description).toBe(article.summary);
+      } else if (text.length <= 180) {
+        expect(description).toBe(text);
+      } else {
+        expect(description.length).toBeLessThanOrEqual(180);
+        expect(description.length).toBeGreaterThan(0);
+        expect(text.startsWith(description)).toBe(true);
+        // A long single word still needs a bounded preview; otherwise retain whole words.
+        expect(text[description.length] === " " || !text.slice(0, 180).includes(" ")).toBe(true);
+      }
     }),
     { seed: 20261005, numRuns: 2000 },
   );
 });
 
 it.each([
-  ["[".repeat(100_000), "[".repeat(180)],
+  ["[".repeat(100_000), article.summary],
   ["[a](".repeat(25_000), "[a](".repeat(45)],
-  ["<".repeat(100_000), "<".repeat(180)],
+  ["<".repeat(100_000), article.summary],
 ])("bounds cleanup of malformed publisher markup", (ai_summary, expected) => {
   const started = performance.now();
   expect(articleDescription({ ...article, ai_summary })).toBe(expected);
