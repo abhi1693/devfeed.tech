@@ -266,3 +266,31 @@ it("honors caller cancellation while a response body is still decoding", async (
   expect(await settled).toBe("rejected");
   expect(unavailable).not.toHaveBeenCalled();
 });
+
+it.each([
+  ["Website URL points to a platform host.", "Website URL points to a platform host."],
+  [
+    [
+      {
+        loc: ["body", "connector"],
+        msg: "Value error, Detail endpoint requires only the {id} placeholder",
+      },
+    ],
+    "Detail endpoint requires only the {id} placeholder",
+  ],
+])("displays API validation diagnostics", async (detail, message) => {
+  vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json({ detail }, { status: 422 })));
+  const view = renderHook(() => usePartnerRequest({ onUnavailable: unavailable }));
+  await expect(view.result.current("connections/preview", options)).rejects.toThrow(message);
+});
+
+it("keeps internal server errors out of user messages", async () => {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn().mockResolvedValue(Response.json({ detail: "private-token" }, { status: 500 })),
+  );
+  const view = renderHook(() => usePartnerRequest({ onUnavailable: unavailable }));
+  await expect(view.result.current("connections/preview", options)).rejects.toThrow(
+    options.errorMessage,
+  );
+});

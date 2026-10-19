@@ -111,9 +111,39 @@ export function usePartnerRequest({
           access.current.onUnavailable();
           throw cancelled();
         }
+        let validationMessage: string | undefined;
+        if (response.status === 422) {
+          try {
+            const body: unknown = await response.json();
+            if (body && typeof body === "object" && "detail" in body) {
+              const detail = body.detail;
+              const messages =
+                typeof detail === "string"
+                  ? [detail]
+                  : Array.isArray(detail)
+                    ? detail
+                        .slice(0, 3)
+                        .map((issue: unknown) =>
+                          issue && typeof issue === "object" && "msg" in issue ? issue.msg : null,
+                        )
+                    : [];
+              if (
+                messages.length &&
+                messages.every((message) => typeof message === "string" && message.length <= 500)
+              )
+                validationMessage = messages
+                  .map((message) => String(message).replace(/^Value error, /, ""))
+                  .join(" ");
+            }
+          } catch {
+            /* Use the request-specific fallback for unreadable errors. */
+          }
+          checkCurrent();
+        }
         if (!response.ok)
           throw new Error(
             statusMessages?.[response.status] ??
+              validationMessage ??
               (write && response.status === 403
                 ? "Could not update this account. Refresh the page and try again."
                 : errorMessage),

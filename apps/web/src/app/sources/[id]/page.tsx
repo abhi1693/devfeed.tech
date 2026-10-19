@@ -1,4 +1,5 @@
 import { cache } from "react";
+import { CollectionUnavailable } from "@/components/collection-unavailable";
 import { notFound, permanentRedirect } from "next/navigation";
 import { getSource, UserApiError } from "@/lib/api";
 import { FeedView } from "@/components/feed-view";
@@ -18,6 +19,7 @@ const load = cache(async (id: string, contentType?: string) => {
     return { route, item: await getSource(route.slug) };
   } catch (error) {
     if (error instanceof UserApiError && error.status === 404) notFound();
+    if (error instanceof UserApiError && error.status >= 500) return null;
     throw error;
   }
 });
@@ -39,7 +41,10 @@ function redirectAlias(
 }
 export async function generateMetadata({ params, searchParams }: Props) {
   const { id, contentType } = await params;
-  const { route, item } = await load(id, contentType);
+  const result = await load(id, contentType);
+  if (!result)
+    return { title: "Page temporarily unavailable", robots: { index: false, follow: false } };
+  const { route, item } = result;
   const query = await searchParams;
   redirectAlias(id, item.slug, contentType, query);
   return feedMetadata(item.name, item.description || `Articles from ${item.name}.`, query, {
@@ -50,7 +55,9 @@ export async function generateMetadata({ params, searchParams }: Props) {
 }
 export default async function Page({ params, searchParams }: Props) {
   const { id, contentType } = await params;
-  const { route, item } = await load(id, contentType);
+  const result = await load(id, contentType);
+  if (!result) return <CollectionUnavailable kind="sources" />;
+  const { route, item } = result;
   const query = await searchParams;
   const filters = {
     ...parseFilters({
