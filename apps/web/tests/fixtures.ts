@@ -23,6 +23,7 @@ export const article: Article = {
   id: "22222222-2222-4222-8222-222222222222",
   canonical_url: "https://example.com/typescript",
   title: "A practical guide to TypeScript boundaries",
+  original_title: "A practical guide to TypeScript boundaries",
   summary: "Learn how to validate data at the boundaries of your application.",
   ai_summary: "A guide to safer application boundaries.",
   ai_description: null,

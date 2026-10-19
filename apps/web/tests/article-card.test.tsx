@@ -42,6 +42,17 @@ beforeEach(() => {
 });
 afterEach(cleanup);
 
+it("shows the verified publisher before an alphabetically earlier discovery source", () => {
+  const aggregator = { ...source, id: "aggregator", name: "A digest", slug: "digest" };
+  render(
+    <ArticleCard article={{ ...article, sources: [aggregator, source], publisher: source }} />,
+  );
+  expect(screen.getByRole("link", { name: source.name }).getAttribute("href")).toBe(
+    `/sources/${source.slug}`,
+  );
+  expect(screen.queryByText(aggregator.name)).toBeNull();
+});
+
 it("keeps an article's sponsorship disclosure without an active promotion and preserves real metadata", () => {
   const { container } = render(
     <ArticleCard article={{ ...article, sponsor_names: ["Example partner"] }} />,

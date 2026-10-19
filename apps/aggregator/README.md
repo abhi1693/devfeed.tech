@@ -15,6 +15,18 @@ language-detection sample. Thin publisher redirect pages require a matching visi
 each target uses the guarded article fetcher, with a two-hop limit. A page description never
 replaces a longer publisher feed summary as analysis evidence.
 
+Article analysis prompt `article-analysis-v7-grounded-overview` requests concrete,
+source-supported takeaways, mechanisms, comparisons and limitations when the evidence
+permits them. Overview length stays proportionate to the source within the existing
+1,200-character limit, without filler or invented facts. Sparse evidence remains an
+insufficient-evidence outcome rather than a reason to expand a teaser. Prompt tests
+verify this contract and evidence transport; actual output quality requires reviewing
+generated samples.
+
+After a deployment, pending unpublished candidates with an older prompt version can
+receive a current analysis through the normal scheduler. The prompt change does not
+regenerate already-published overviews or itself request a production reanalysis.
+
 The scheduler performs one recovery with the corrected extractor for old description-only,
 empty, or 2,500-character extractions whose articles remain incomplete. Enrichment jobs carry
 an extraction version from creation, so even terminal failures cannot repeat this recovery.

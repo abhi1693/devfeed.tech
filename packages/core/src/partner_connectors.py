@@ -29,6 +29,10 @@ Parameter = Annotated[
 ]
 
 
+class ConnectorDiagnostic(ValueError):
+    """A deliberately public diagnostic containing no upstream values or credentials."""
+
+
 class ConnectorAuth(InputModel):
     mode: Literal["none", "bearer", "api_key"] = "none"
     header: Parameter = "X-API-Key"
@@ -334,7 +338,7 @@ class ConnectorClient:
         secret = self._secret
         if config.auth.mode != "none":
             if not secret or len(secret) > 4096 or any(ord(c) < 32 or ord(c) > 126 for c in secret):
-                raise ValueError("Import API credential is unavailable or invalid")
+                raise ConnectorDiagnostic("Import API credential is unavailable or invalid")
             headers["Authorization" if config.auth.mode == "bearer" else config.auth.header] = (
                 f"Bearer {secret}" if config.auth.mode == "bearer" else secret
             )
@@ -373,7 +377,9 @@ class ConnectorClient:
         try:
             data = json.loads(response.body)
         except (ValueError, UnicodeError) as exc:
-            raise ValueError("Import API returned invalid JSON") from exc
+            raise ConnectorDiagnostic(
+                "The import API returned invalid JSON. Check the endpoint."
+            ) from exc
 
         # An API may echo request authentication. Strip literal and URL/form-encoded
         # copies before discovered records enter persisted product jobs or catalogs.
@@ -419,18 +425,27 @@ class ConnectorClient:
         endpoint = self.list_url(cursor)
         position = self._position(cursor) if pagination.mode in {"page", "offset"} else 0
         body = self.request(endpoint)
-        items = first_value(body, config.items_paths, required=True)
+        items = first_value(body, config.items_paths)
+        if items is None:
+            raise ConnectorDiagnostic("Product list paths did not match the API response.")
         if not isinstance(items, list) or len(items) > 1000:
-            raise ValueError("Import API returned an invalid product page")
+            raise ConnectorDiagnostic(
+                "Product list paths must select an array of at most 1,000 products."
+            )
         next_cursor = None
         if pagination.mode in {"cursor", "next_url"}:
-            next_cursor = value_at(body, pagination.next_path)
+            try:
+                next_cursor = value_at(body, pagination.next_path)
+            except ValueError:
+                raise ConnectorDiagnostic(
+                    "Pagination next-page path did not match the API response."
+                ) from None
             if (
                 next_cursor is not None
                 and next_cursor != ""
                 and (not isinstance(next_cursor, str) or len(next_cursor) > 2000)
             ):
-                raise ValueError("Import API returned an invalid pagination token")
+                raise ConnectorDiagnostic("Import API returned an invalid pagination token")
             next_cursor = next_cursor or None
             if pagination.mode == "next_url" and next_cursor:
                 next_cursor = same_origin(config, urljoin(endpoint, next_cursor))
@@ -439,18 +454,18 @@ class ConnectorClient:
             if pagination.has_more_path:
                 more = value_at(body, pagination.has_more_path)
                 if not isinstance(more, bool):
-                    raise ValueError("Pagination has-more field must be a boolean")
+                    raise ConnectorDiagnostic("Pagination has-more field must be a boolean")
             elif pagination.total_path:
                 total = value_at(body, pagination.total_path)
                 if not isinstance(total, int) or isinstance(total, bool) or total < 0:
-                    raise ValueError("Pagination total must be a nonnegative integer")
+                    raise ConnectorDiagnostic("Pagination total must be a nonnegative integer")
                 more = (
                     (position - pagination.start) * pagination.page_size + len(items) < total
                     if pagination.mode == "page"
                     else position + len(items) < total
                 )
             if more and not items:
-                raise ValueError("Pagination cannot advance without products")
+                raise ConnectorDiagnostic("Pagination cannot advance without products")
             if more:
                 next_cursor = str(position + (1 if pagination.mode == "page" else len(items)))
         candidates = []
@@ -476,42 +491,76 @@ class ConnectorClient:
         if candidate.normalized:
             return ProductInput.model_validate(candidate.data)
         provider, config = self.provider, self.config
-        identity = first_value(candidate.data, config.fields.external_id, required=True)
+        identity = first_value(candidate.data, config.fields.external_id)
+        if identity is None:
+            raise ConnectorDiagnostic("Product ID paths did not match a nonempty value.")
         if str(identity) != candidate.external_id or str(identity) in {".", ".."}:
-            raise ValueError("Imported product identity is missing or invalid")
+            raise ConnectorDiagnostic("Imported product identity is missing or invalid")
         data = candidate.data
         if config.detail_path:
             url = config.base_url + config.detail_path.replace(
                 "{id}", quote(str(identity), safe="")
             )
-            data = value_at(self.request(url), config.detail_root)
-            if (
-                str(first_value(data, config.fields.external_id, required=True))
-                != candidate.external_id
-            ):
-                raise ValueError("Import API returned a different product identity")
+            response = self.request(url)
+            try:
+                data = value_at(response, config.detail_root)
+            except ValueError:
+                raise ConnectorDiagnostic(
+                    "Detail response root did not match the detail API response."
+                ) from None
+            if str(first_value(data, config.fields.external_id)) != candidate.external_id:
+                raise ConnectorDiagnostic(
+                    "The detail endpoint returned a different product ID. Check Product ID paths."
+                )
         hosts = {host.lower() for host in config.platform_hosts}
 
         def mapped_url(paths, listing):
+            label = "Listing URL" if listing else "Website URL"
+            failure = f"{label} paths did not match a nonempty URL."
             for path in paths:
                 value = first_value(data, [path])
                 if not isinstance(value, str):
                     continue
-                value = validate_public_url(value)
+                try:
+                    value = validate_public_url(value)
+                except ValueError:
+                    failure = f"{label} paths must select a valid public HTTP or HTTPS URL."
+                    continue
+                failure = (
+                    "Listing URL must belong to a configured platform host."
+                    if listing
+                    else (
+                        "Website URL points to a platform host. "
+                        "Select the product’s own website field."
+                    )
+                )
                 if not hosts or (urlsplit(value).hostname in hosts) == listing:
                     return value
             if listing and config.listing_url_template:
                 return config.listing_url_template.replace("{id}", quote(str(identity), safe=""))
-            raise ValueError("Product website or platform listing is missing")
+            raise ConnectorDiagnostic(failure)
 
+        def required_field(paths, label):
+            value = first_value(data, paths)
+            if value is None:
+                raise ConnectorDiagnostic(f"{label} paths did not match a nonempty value.")
+            return value
+
+        tagline = required_field(config.fields.tagline, "Tagline")
+        try:
+            tagline = imported_tagline(tagline)
+        except ValueError:
+            raise ConnectorDiagnostic(
+                "Tagline paths must select text without invalid control characters."
+            ) from None
         pricing = first_value(data, config.fields.pricing)
         return ProductInput(
             provider=provider,
             external_id=candidate.external_id,
-            name=first_value(data, config.fields.name, required=True),
+            name=required_field(config.fields.name, "Product name"),
             product_url=mapped_url(config.fields.product_url, False),
             listing_url=mapped_url(config.fields.listing_url, True),
-            tagline=imported_tagline(first_value(data, config.fields.tagline, required=True)),
+            tagline=tagline,
             pricing={
                 "free": "free",
                 "freemium": "freemium",

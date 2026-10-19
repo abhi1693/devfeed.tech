@@ -107,7 +107,7 @@ def test_worker_claims_waiting_lock_and_persists_analysis_without_publication(ru
     analysis_tasks._analyze(job.id)
     assert job.status == "succeeded" and job.outcome == "applied"
     assert job.attempts == 1 and job.model == "configured-model"
-    assert job.prompt_version == analysis.PROMPT_VERSION == "article-analysis-v6-topic-context"
+    assert job.prompt_version == analysis.PROMPT_VERSION == "article-analysis-v7-grounded-overview"
     assert "proposed_topics" not in job.result
     assert job.result["ai_summary"] == article.ai_summary
     assert len(job.catalog_snapshot["topics"]) == 1
@@ -213,6 +213,45 @@ def test_worker_keeps_relevant_analysis_incomplete_without_a_primary_topic(runti
     assert job.result["ai_summary"] is None
     assert article.ai_summary is None
     assert article.publication_status == "unpublished" and article.review_status == "pending"
+
+
+@pytest.mark.parametrize("compact", [False, True], ids=["original", "passages"])
+def test_insufficient_source_overview_never_overwrites_existing_prose(
+    runtime, monkeypatch, compact
+):
+    article, job, settings, _ = runtime
+    settings.ai_compact_article_prompts = compact
+    article.ai_summary = "Existing reviewed overview."
+    article.ai_description = "Existing description."
+    article.publication_status = "published"
+    article.review_status = "approved"
+
+    def complete(prompt, schema):
+        assert "never invent comparisons, examples, advice" in prompt
+        return dict(
+            outcome="insufficient_evidence",
+            developer_relevance="uncertain",
+            language=None,
+            content_type=None,
+            content_format=None,
+            ai_summary="An unsupported expanded overview that must be discarded.",
+            ai_description="Unsupported description.",
+            ai_title=None,
+            title_evidence=None,
+            page_kind="uncertain",
+            topics=[],
+            tags=[],
+            reasons=["The source only provides a teaser without supporting detail."],
+        )
+
+    monkeypatch.setattr(analysis_tasks, "CodexClient", lambda _: SimpleNamespace(complete=complete))
+    analysis_tasks._analyze(job.id)
+
+    assert job.status == "succeeded" and job.outcome == "insufficient_evidence"
+    assert job.result["ai_summary"] is job.result["ai_description"] is None
+    assert article.ai_summary == "Existing reviewed overview."
+    assert article.ai_description == "Existing description."
+    assert article.publication_status == "published" and article.review_status == "approved"
 
 
 def test_worker_refuses_stale_editorial_revision_before_spending_inference(runtime, monkeypatch):

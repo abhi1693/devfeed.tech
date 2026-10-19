@@ -1,5 +1,12 @@
-import { canonicalUrl, articleDescription, SITE_DESCRIPTION, validDate } from "./metadata";
-import { safeExternalUrl } from "./feed-query";
+import {
+  canonicalUrl,
+  articleDescription,
+  articlePlainText,
+  SITE_DESCRIPTION,
+  validDate,
+} from "./metadata";
+import { articleSource } from "./article-attribution";
+import { safeExternalUrl, sourceHref } from "./feed-query";
 import type { Article } from "./types";
 
 export type StructuredData = { [key: string]: unknown };
@@ -100,28 +107,58 @@ export function articleStructuredData(article: Article): StructuredData {
   const url = canonicalUrl(`/articles/${encodeURIComponent(article.slug)}`);
   const original = safeExternalUrl(article.canonical_url);
   const image = safeExternalUrl(article.image_url);
-  const source = article.sources[0];
+  const source = articleSource(article);
+  const publisher = article.publisher;
   const published = validDate(article.published_at);
   const description = articleDescription(article);
-  const author = article.author?.trim();
+  const originalTitle = article.original_title?.trim();
+  const originalDescription = articlePlainText(article.summary).slice(0, 180);
+  const overview = article.ai_summary?.trim();
+  const authors = (article.authors ?? [])
+    .filter((author) => author.name.trim() && ["Person", "Organization"].includes(author.type))
+    .map((author) => ({
+      "@type": author.type,
+      name: author.name.trim(),
+      ...(safeExternalUrl(author.url) ? { url: safeExternalUrl(author.url) } : {}),
+    }));
   return {
-    ...pageStructuredData(url, article.title, { description }),
+    ...pageStructuredData(url, article.title, {
+      description,
+      ...(source ? { parent: { name: source.name.trim(), path: sourceHref(source) } } : {}),
+    }),
+    publisher: { "@id": `${canonicalUrl("/")}#organization` },
+    ...(article.tags.length ? { keywords: article.tags } : {}),
+    ...(overview
+      ? {
+          hasPart: {
+            "@type": "CreativeWork",
+            "@id": `${url}#overview`,
+            url: `${url}#article-overview`,
+            name: "AI overview",
+            text: overview,
+            encodingFormat: "text/markdown",
+            inLanguage: "en",
+            publisher: { "@id": `${canonicalUrl("/")}#organization` },
+            ...(original ? { isBasedOn: { "@id": original } } : {}),
+          },
+        }
+      : {}),
     // This is a preview of the publisher's article, not an article written by DevFeed.
     mainEntity: {
       "@type": "Article",
       ...(original ? { "@id": original, url: original } : {}),
-      headline: article.title,
-      description,
+      ...(originalTitle ? { headline: originalTitle } : {}),
+      ...(originalDescription ? { description: originalDescription } : {}),
       ...(published ? { datePublished: published } : {}),
       ...(image ? { image: [image] } : {}),
-      ...(author ? { author: { "@type": "Person", name: author } } : {}),
-      ...(source?.name.trim()
+      ...(authors.length ? { author: authors } : {}),
+      ...(publisher?.name.trim()
         ? {
             publisher: {
               "@type": "Organization",
-              name: source.name.trim(),
-              ...(safeExternalUrl(source.website_url)
-                ? { url: safeExternalUrl(source.website_url) }
+              name: publisher.name.trim(),
+              ...(safeExternalUrl(publisher.website_url)
+                ? { url: safeExternalUrl(publisher.website_url) }
                 : {}),
             },
           }

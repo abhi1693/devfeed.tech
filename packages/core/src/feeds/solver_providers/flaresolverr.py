@@ -40,7 +40,7 @@ class FlareSolverr:
                 ) as response,
             ):
                 if response.status != 200:
-                    raise SolverUnavailable()
+                    raise SolverUnavailable(stage="http", http_status=response.status)
                 body = bytearray()
                 for chunk in response.iter_stream():
                     body.extend(chunk)
@@ -53,13 +53,13 @@ class FlareSolverr:
                             limit_setting=request.limit_setting,
                         )
                     if time.monotonic() - started > request.timeout_seconds + 5:
-                        raise SolverUnavailable(work_may_continue=True)
+                        raise SolverUnavailable(stage="deadline", work_may_continue=True)
             data = json.loads(body)
             if not isinstance(data, dict) or data.get("status") != "ok":
-                raise SolverUnavailable()
+                raise SolverUnavailable(stage="invalid_response")
             solution = data.get("solution")
             if not isinstance(solution, dict):
-                raise SolverUnavailable()
+                raise SolverUnavailable(stage="invalid_response")
             url, html, status = (
                 solution.get("url"),
                 solution.get("response"),
@@ -71,7 +71,7 @@ class FlareSolverr:
                 or (not request.image and not isinstance(html, str))
                 or not isinstance(headers, dict)
             ):
-                raise SolverUnavailable()
+                raise SolverUnavailable(stage="invalid_response")
             headers = {str(k).lower(): str(v) for k, v in headers.items()}
             if type(status) is not int or status != 200 or is_browser_challenge(headers):
                 raise FeedError("Challenge remains unresolved", reason="browser_challenge")
@@ -80,7 +80,7 @@ class FlareSolverr:
                 # Replay only to the requested origin through the DNS-pinned transport.
                 remaining = request.timeout_seconds - (time.monotonic() - started)
                 if remaining <= 0:
-                    raise SolverUnavailable()
+                    raise SolverUnavailable(stage="deadline")
                 return _fetch(
                     request.url,
                     None,
@@ -103,12 +103,12 @@ class FlareSolverr:
                 + "; charset=utf-8",
             )
         except (httpcore.ConnectError, httpcore.ConnectTimeout) as exc:
-            raise SolverUnavailable() from exc
+            raise SolverUnavailable(stage="connect") from exc
         except (httpcore.NetworkError, httpcore.TimeoutException, httpcore.ProtocolError) as exc:
             # A disconnected client does not guarantee that the remote browser stopped.
-            raise SolverUnavailable(work_may_continue=True) from exc
+            raise SolverUnavailable(stage="transport", work_may_continue=True) from exc
         except (ValueError, TypeError, UnicodeError) as exc:
-            raise SolverUnavailable() from exc
+            raise SolverUnavailable(stage="invalid_response") from exc
 
 
 def image_headers(solution: dict, url: str) -> dict[str, str]:
@@ -119,12 +119,12 @@ def image_headers(solution: dict, url: str) -> dict[str, str]:
         or not 1 <= len(agent) <= 1024
         or any(ord(char) < 32 or ord(char) > 126 for char in agent)
     ):
-        raise SolverUnavailable()
+        raise SolverUnavailable(stage="invalid_response")
     parts = urlsplit(url)
     host, path = (parts.hostname or "").lower(), parts.path or "/"
     cookies = solution.get("cookies", [])
     if not isinstance(cookies, list) or len(cookies) > 100:
-        raise SolverUnavailable()
+        raise SolverUnavailable(stage="invalid_response")
     values = []
     for cookie in cookies:
         if not isinstance(cookie, dict):
@@ -156,9 +156,9 @@ def image_headers(solution: dict, url: str) -> dict[str, str]:
             or len(value) > 4096
             or any(ord(char) < 33 or ord(char) > 126 or char in ';,"\\' for char in value)
         ):
-            raise SolverUnavailable()
+            raise SolverUnavailable(stage="invalid_response")
         values.append(f"{name}={value}")
     header = "; ".join(values)
     if len(header) > 8192:
-        raise SolverUnavailable()
+        raise SolverUnavailable(stage="invalid_response")
     return {"User-Agent": agent, **({"Cookie": header} if header else {})}

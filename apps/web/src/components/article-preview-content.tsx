@@ -19,6 +19,7 @@ import { ArticleSourceBrief } from "./article-source-brief";
 import { PartnerPlacements } from "./partner-placements";
 import { ArticleSponsorship } from "./article-sponsorship";
 import { adLinkRel } from "@devfeed/ui/ad-link-rel";
+import { articleSource } from "@/lib/article-attribution";
 
 export function ArticlePreviewContent({
   article,
@@ -31,10 +32,10 @@ export function ArticlePreviewContent({
 }) {
   const original = outboundArticleUrl(article.canonical_url);
   const cover = safeExternalUrl(article.image_url);
-  const source = article.sources[0];
-  const overview = article.ai_summary || article.summary;
-  const showExcerpt =
-    article.ai_summary && article.summary && article.summary.trim() !== article.ai_summary.trim();
+  const source = articleSource(article);
+  const aiSummary = article.ai_summary?.trim();
+  const overview = aiSummary || article.summary;
+  const showExcerpt = aiSummary && article.summary && article.summary.trim() !== aiSummary;
   return (
     <EngagementProvider articleIds={[article.id]}>
       {children}
@@ -81,10 +82,10 @@ export function ArticlePreviewContent({
               <ArticleSponsorship names={article.sponsor_names} />
               {article.author && <p className="preview-author">By {article.author}</p>}
               {overview && (
-                <section className="preview-summary">
+                <section id="article-overview" className="preview-summary">
                   <h2>
-                    {article.ai_summary && <Sparkles size={15} aria-hidden="true" />}
-                    {article.ai_summary ? "AI overview" : "Overview"}
+                    {aiSummary && <Sparkles size={15} aria-hidden="true" />}
+                    {aiSummary ? "AI overview" : "Overview"}
                   </h2>
                   <Markdown>{overview}</Markdown>
                 </section>

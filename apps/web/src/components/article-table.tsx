@@ -7,6 +7,7 @@ import type { ReactNode } from "react";
 import { ArticleSponsorship } from "./article-sponsorship";
 import { articleDestination } from "@/lib/reader-destination";
 import { adLinkRel } from "@devfeed/ui/ad-link-rel";
+import { articleSource } from "@/lib/article-attribution";
 
 export function ArticleTableFrame({
   children,
@@ -62,7 +63,7 @@ export function ArticleTable({
 }
 
 export function ArticleTableRow({ article }: { article: Article }) {
-  const source = article.sources[0];
+  const source = articleSource(article);
   const sourceName = source?.name ?? displayHost(article.canonical_url);
   const date = article.published_at ?? article.feed_at;
   return (
