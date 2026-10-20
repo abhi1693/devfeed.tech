@@ -4,6 +4,7 @@ import json
 import os
 import time
 import uuid
+from base64 import urlsafe_b64decode, urlsafe_b64encode
 from types import SimpleNamespace
 from urllib.parse import parse_qs, urlencode, urlsplit
 
@@ -566,3 +567,38 @@ def test_sso_logout_still_works_after_provider_revocation(application):
     )
     assert response.status_code == 200
     assert urlsplit(response.json()["url"]).netloc == "identity.example"
+
+
+def test_logout_event_uses_the_standard_identifier(signed):
+    # This is an event namespace, not an endpoint; switching it to HTTPS changes
+    # the protocol and would reject logout tokens from conforming providers.
+    standard_event = "http://schemas.openid.net/event/backchannel-logout"
+    value = claims(events={standard_event: {}})
+    assert oidc_logout.validate(signed.settings, signed.metadata, sign(signed, value)) == value
+    with pytest.raises(oidc.OIDCError):
+        oidc_logout.validate(
+            signed.settings,
+            signed.metadata,
+            sign(
+                signed, claims(events={"https://schemas.openid.net/event/backchannel-logout": {}})
+            ),
+        )
+
+
+@pytest.mark.parametrize("part_index", [0, 1])
+def test_changed_header_or_payload_requires_a_new_signature(signed, part_index):
+    parts = sign(signed, claims()).split(".")
+    value = json.loads(urlsafe_b64decode(parts[part_index] + "=" * (-len(parts[part_index]) % 4)))
+    value.update({"trace": "altered"} if part_index == 0 else {"sid": "different-session"})
+    parts[part_index] = urlsafe_b64encode(json.dumps(value).encode()).rstrip(b"=").decode()
+    with pytest.raises(oidc.OIDCError):
+        oidc_logout.validate(signed.settings, signed.metadata, ".".join(parts))
+
+
+@pytest.mark.parametrize("part_index", [0, 1])
+@pytest.mark.parametrize("value", [None, [], "not-an-object", 1])
+def test_non_object_jwt_json_is_a_controlled_rejection(signed, part_index, value):
+    parts = sign(signed, claims()).split(".")
+    parts[part_index] = urlsafe_b64encode(json.dumps(value).encode()).rstrip(b"=").decode()
+    with pytest.raises(oidc.OIDCError):
+        oidc_logout.validate(signed.settings, signed.metadata, ".".join(parts))

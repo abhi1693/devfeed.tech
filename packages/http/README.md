@@ -94,6 +94,12 @@ and usable SID and/or subject. Expiration is enforced when supplied. Duplicate
 parameters, JSON claim members, mismatched signatures and token-supplied key URLs
 are rejected. Redis/provider outages return retryable 503 responses.
 
+The `http://schemas.openid.net/event/backchannel-logout` event key is the exact
+namespace mandated by OpenID Back-Channel Logout section 2.4, not an HTTP endpoint.
+Its constant has a line-specific Sonar false-positive annotation for that reason.
+Header parsing only selects an allowed key from the configured JWKS; signature
+verification remains explicitly enabled before any logout claims are used.
+
 References: [Zitadel back-channel logout](https://zitadel.com/docs/guides/integrate/back-channel-logout),
 [Zitadel end-session endpoint](https://zitadel.com/docs/apis/openidoauth/endpoints#end_session_endpoint),
 and [OpenID back-channel logout](https://openid.net/specs/openid-connect-backchannel-1_0.html).

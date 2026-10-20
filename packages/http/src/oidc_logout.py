@@ -22,7 +22,9 @@ class SSOLogoutResponse(BaseModel):
     url: str
 
 
-EVENT = "http://schemas.openid.net/event/backchannel-logout"
+# OIDC Back-Channel Logout 1.0 section 2.4 mandates this namespace verbatim.
+# It identifies a signed event; it is never fetched over HTTP.
+EVENT = "http://schemas.openid.net/event/backchannel-logout"  # NOSONAR: OIDC event ID.
 MAX_BODY = 16_384
 MAX_AGE = 900
 SKEW = 60
@@ -147,9 +149,16 @@ def validate(settings: oidc.ProviderSettings, metadata: dict, token: str) -> dic
         parts = token.split(".")
         if len(parts) != 3 or len(token) > MAX_BODY:
             raise ValueError
-        for part in parts[:2]:
+        # Decode once to reject ambiguous JSON and select a configured signing key.
+        # Neither the header nor the payload is trusted until jwt.decode verifies
+        # the signature, issuer and audience below.
+        decoded = [
             json.loads(urlsafe_b64decode(part + "=" * (-len(part) % 4)), object_pairs_hook=unique)
-        header = jwt.get_unverified_header(token)
+            for part in parts[:2]
+        ]
+        header = decoded[0]
+        if not isinstance(header, dict) or not isinstance(decoded[1], dict):
+            raise ValueError
         algorithm = header.get("alg")
         if (
             algorithm not in oidc.ALGORITHMS
@@ -175,7 +184,10 @@ def validate(settings: oidc.ProviderSettings, metadata: dict, token: str) -> dic
             issuer=settings.oidc_issuer_url,
             audience=settings.oidc_client_id,
             leeway=SKEW,
-            options={"require": ["iss", "aud", "iat", "jti", "events"]},
+            options={
+                "verify_signature": True,
+                "require": ["iss", "aud", "iat", "jti", "events"],
+            },
         )
         now = int(time.time())
         audience = claims["aud"]
