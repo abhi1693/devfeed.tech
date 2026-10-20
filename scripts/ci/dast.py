@@ -5,6 +5,7 @@ import json
 import os
 import re
 import secrets
+import socket
 import subprocess
 import sys
 import tempfile
@@ -408,9 +409,17 @@ def stack_apps(stack, directory, skip_build):
                 for key in dotenv_values(path):
                     if key not in env:
                         env[key] = ""
-    origins = {
-        name: f"http://127.0.0.1:{port()}"
+    # Keep future service ports occupied through provider startup and frontend builds.
+    # A bind-and-close probe leaves a long window for another process to claim them.
+    reservations = {
+        name: stack.enter_context(socket.socket())
         for name in ("web", "admin", "public", "user", "admin_api")
+    }
+    for reservation in reservations.values():
+        reservation.bind(("127.0.0.1", 0))
+    origins = {
+        name: f"http://127.0.0.1:{reservation.getsockname()[1]}"
+        for name, reservation in reservations.items()
     }
     reader_issuer, reader_exchanges = stack.enter_context(
         oidc_provider(origins["web"], client_id="dast-reader", token_ttl=3600)
@@ -454,6 +463,7 @@ def stack_apps(stack, directory, skip_build):
         ("user", "devfeed_user_api"),
         ("admin_api", "devfeed_admin_api"),
     ):
+        reservations[name].close()
         child = stack.enter_context(
             process(
                 [
@@ -479,6 +489,7 @@ def stack_apps(stack, directory, skip_build):
             subprocess.run(
                 ["npm", "run", f"{name}:build"], check=True, env=env, cwd=ROOT, timeout=300
             )
+        reservations[name].close()
         child = stack.enter_context(
             process(
                 [

@@ -1,9 +1,12 @@
 """Security regression checks for scan scope, sanitized reports and release enforcement."""
 
+import errno
 import importlib
 import json
 import os
+import socket
 import subprocess
+from contextlib import ExitStack, contextmanager
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -12,6 +15,75 @@ import pytest
 import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
+
+
+@pytest.mark.parametrize("skip_build,fail_build", [(False, False), (True, False), (False, True)])
+def test_application_ports_stay_reserved_until_start_and_release_on_cleanup(
+    dast, monkeypatch, tmp_path, skip_build, fail_build
+):
+    from urllib.parse import urlsplit
+
+    observed = set()
+
+    def assert_reserved(origin):
+        address = ("127.0.0.1", urlsplit(origin).port)
+        observed.add(address)
+        with socket.socket() as competitor:
+            with pytest.raises(OSError) as error:
+                competitor.bind(address)
+            assert error.value.errno == errno.EADDRINUSE
+
+    @contextmanager
+    def services():
+        yield {}
+
+    @contextmanager
+    def provider(origin, **kwargs):
+        assert_reserved(origin)
+        yield "http://127.0.0.1:1", []
+
+    @contextmanager
+    def child(command, env, directory, name, **kwargs):
+        address = ("127.0.0.1", int(command[command.index("--port") + 1]))
+        observed.add(address)
+        with socket.socket() as listener:
+            # The reservation must hand off immediately before the child starts.
+            listener.bind(address)
+            yield SimpleNamespace(poll=lambda: None)
+
+    def build(command, **kwargs):
+        if command[0] != "npm":
+            return
+        for key in (
+            "DEVFEED_USER_BASE_URL",
+            "DEVFEED_ADMIN_BASE_URL",
+            "DEVFEED_PUBLIC_API_URL",
+            "DEVFEED_USER_API_URL",
+            "DEVFEED_ADMIN_API_URL",
+        ):
+            assert_reserved(kwargs["env"][key])
+        if fail_build:
+            raise RuntimeError("Build failed")
+
+    monkeypatch.setattr(dast, "ROOT", tmp_path)
+    monkeypatch.setattr(dast, "disposable_services", services)
+    monkeypatch.setattr(dast, "oidc_provider", provider)
+    monkeypatch.setattr(dast, "process", child)
+    monkeypatch.setattr(dast, "wait_ready", lambda url, child: assert_reserved(url))
+    monkeypatch.setattr(dast, "seed", lambda env: {"slug": "ci-article"})
+    monkeypatch.setattr(dast.subprocess, "run", build)
+    if fail_build:
+        with pytest.raises(RuntimeError, match="Build failed"), ExitStack() as stack:
+            dast.stack_apps(stack, tmp_path, skip_build)
+    else:
+        with ExitStack() as stack:
+            _, origins, *_ = dast.stack_apps(stack, tmp_path, skip_build)
+            assert len(set(origins.values())) == 5
+            for origin in origins.values():
+                assert_reserved(origin)
+    for address in observed:
+        with socket.socket() as available:
+            available.bind(address)
 
 
 @pytest.fixture

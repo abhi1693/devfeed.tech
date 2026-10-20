@@ -269,6 +269,10 @@ export const pageRouteCatalogs = {
     { path: "/v1/users/:id", label: "/v1/users/:id" },
     { path: "/_next/image", label: "/_next/image" },
     { path: "/.well-known/api-catalog", label: "/.well-known/api-catalog" },
+    {
+      path: "/.well-known/oauth-protected-resource",
+      label: "/.well-known/oauth-protected-resource",
+    },
     { path: "/.well-known/openid-configuration", label: "/.well-known/openid-configuration" },
     { path: "/api/docs", label: "/api/docs" },
     { path: "/api/openapi.json", label: "/api/openapi.json" },

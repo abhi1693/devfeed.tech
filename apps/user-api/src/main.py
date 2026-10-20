@@ -31,6 +31,7 @@ from devfeed_user_api import (
     partner_placements,
     preferences,
     profile,
+    protected_resource,
     recommendations,
     sources,
 )
@@ -90,6 +91,7 @@ def create_app() -> FastAPI:
         include_gateway_router(
             app, router, default_policy=ReaderGatewayPolicy(extension=ExtensionTransportPolicy())
         )
+    app.include_router(protected_resource.router)
     app.include_router(oidc_discovery.router)
     install_runtime_policies(app)
     return app

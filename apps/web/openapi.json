@@ -1693,6 +1693,36 @@
         "title": "ProfileVisibility",
         "type": "object"
       },
+      "ProtectedResourceMetadataResponse": {
+        "properties": {
+          "authorization_servers": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Authorization Servers",
+            "type": "array"
+          },
+          "bearer_methods_supported": {
+            "items": {
+              "const": "header",
+              "type": "string"
+            },
+            "title": "Bearer Methods Supported",
+            "type": "array"
+          },
+          "resource": {
+            "title": "Resource",
+            "type": "string"
+          }
+        },
+        "required": [
+          "resource",
+          "authorization_servers",
+          "bearer_methods_supported"
+        ],
+        "title": "ProtectedResourceMetadataResponse",
+        "type": "object"
+      },
       "PublicUserProfile": {
         "additionalProperties": false,
         "properties": {
@@ -2982,6 +3012,57 @@
   },
   "openapi": "3.1.0",
   "paths": {
+    "/.well-known/oauth-protected-resource": {
+      "get": {
+        "operationId": "reader_protected_resource",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProtectedResourceMetadataResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Request validation failed"
+          },
+          "4XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Invalid or unauthorized request"
+          },
+          "5XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service or dependency unavailable"
+          }
+        },
+        "summary": "Metadata",
+        "tags": [
+          "discovery"
+        ]
+      }
+    },
     "/.well-known/openid-configuration": {
       "get": {
         "operationId": "reader_oidc_discovery",
