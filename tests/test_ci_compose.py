@@ -43,3 +43,12 @@ def test_compose_render_isolates_inherited_private_configuration(monkeypatch, co
     assert len(environments) == 1
     for key in configuration:
         assert key not in environments[0]
+
+
+@pytest.mark.parametrize("build", [False, True], ids=["registry", "local-build"])
+def test_private_mcp_routing_is_confined_to_reader(build):
+    check_compose.check_private_mcp_routing(
+        {"POSTGRES_PASSWORD": "fixture-only-password", "COMPOSE_PROFILES": "mcp"},
+        {"DEVFEED_MCP_PUBLIC_URL": "https://agents.example.test/mcp"},
+        build=build,
+    )

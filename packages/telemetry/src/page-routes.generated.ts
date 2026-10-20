@@ -224,6 +224,7 @@ export const pageRouteCatalogs = {
     { path: "/api/v1/users/:id", label: "/v1/users/:id" },
     { path: "/v1/user/profiles/:id", label: "/v1/user/profiles/:id" },
     { path: "/v1/users/:id/card.svg", label: "/v1/users/:id/card.svg" },
+    { path: "/.well-known/mcp/server-card.json", label: "/.well-known/mcp/server-card.json" },
     { path: "/api/v1/feed", label: "/v1/feed" },
     { path: "/api/v1/leaderboard", label: "/v1/leaderboard" },
     { path: "/api/v1/search", label: "/v1/search" },
