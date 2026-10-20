@@ -174,14 +174,22 @@ export async function checkLoginRecovery(t, browserName = null) {
   }
   let page = await context.newPage();
   const destination = browserName ? "/extension/login-complete" : "/read-later";
+  await context.route("https://devfeed.tech/api/**", async (route) => {
+    const url = new URL(route.request().url());
+    if (url.pathname.startsWith("/api/v1/user/auth/")) return route.continue();
+    const fixtures = {
+      "/api/v1/feed/options": {
+        sources: [],
+        content_types: ["article", "news"],
+        languages: ["en"],
+      },
+      "/api/v1/leaderboard": { longest_streak: [], reading_days: [] },
+      "/api/v1/extension/analytics": { enabled: false },
+      "/api/v1/user/engagement": [],
+    };
+    return route.fulfill({ json: fixtures[url.pathname] ?? { items: [], next_cursor: null } });
+  });
   if (browserName) {
-    await context.route("https://devfeed.tech/api/**", async (route) => {
-      const url = new URL(route.request().url());
-      if (url.pathname.startsWith("/api/v1/user/auth/")) return route.continue();
-      return route.fulfill({
-        json: url.pathname.endsWith("/feed") ? { items: [], next_cursor: null } : [],
-      });
-    });
     await page.goto(browserName === "edge" ? "edge://newtab" : "chrome://newtab");
     await page.waitForURL((url) => url.protocol === "chrome-extension:");
     const signIn = page.getByRole("link", { name: "Sign in", exact: true }).first();
