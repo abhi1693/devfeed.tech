@@ -48,6 +48,8 @@ def sonar_matches(properties, key, source):
         ("scripts/testing/nonce-csp.mjs", True),
         ("scripts/testing/default-all.mjs", True),
         ("scripts/testing/sign-in.py", True),
+        ("scripts/testing/login-recovery.mjs", True),
+        ("scripts/testing/login-recovery.py", True),
         ("scripts/testing/tags.mjs", True),
         ("scripts/testing/featured-on.mjs", True),
         ("scripts/testing/server-reads.mjs", True),

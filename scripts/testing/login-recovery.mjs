@@ -173,6 +173,12 @@ export async function checkLoginRecovery(t, browserName = null) {
     context = await browser.newContext({ ignoreHTTPSErrors: true });
   }
   let page = await context.newPage();
+  const requests = [];
+  context.on("response", (response) => {
+    const url = new URL(response.url());
+    if (url.origin === "https://devfeed.tech")
+      requests.push({ path: url.pathname, status: response.status() });
+  });
   const destination = browserName ? "/extension/login-complete" : "/read-later";
   await context.route("https://devfeed.tech/api/**", async (route) => {
     const url = new URL(route.request().url());
@@ -189,29 +195,59 @@ export async function checkLoginRecovery(t, browserName = null) {
     };
     return route.fulfill({ json: fixtures[url.pathname] ?? { items: [], next_cursor: null } });
   });
-  if (browserName) {
-    await page.goto(browserName === "edge" ? "edge://newtab" : "chrome://newtab");
-    await page.waitForURL((url) => url.protocol === "chrome-extension:");
-    const signIn = page.getByRole("link", { name: "Sign in", exact: true }).first();
-    await signIn.waitFor();
-    assert.equal(new URL(await signIn.getAttribute("href")).origin, "https://devfeed.tech");
-    const opened = context.waitForEvent("page");
-    await signIn.click();
-    page = await opened;
-  } else await page.goto(`https://devfeed.tech/login?return_to=${encodeURIComponent(destination)}`);
-  await page.getByRole("link", { name: "Continue to sign in" }).click();
+  let stage = "open login";
   try {
+    if (browserName) {
+      await page.goto(browserName === "edge" ? "edge://newtab" : "chrome://newtab");
+      await page.waitForURL((url) => url.protocol === "chrome-extension:");
+      const signIn = page.getByRole("link", { name: "Sign in", exact: true }).first();
+      await signIn.waitFor();
+      const login = new URL(await signIn.getAttribute("href"));
+      assert.equal(login.origin, "https://devfeed.tech");
+      assert.equal(login.searchParams.get("return_to"), destination);
+      const opened = context.waitForEvent("page", {
+        predicate: async (candidate) => {
+          try {
+            await candidate.waitForURL(
+              (url) => url.origin === login.origin && url.pathname === login.pathname,
+            );
+            return true;
+          } catch {
+            return false;
+          }
+        },
+      });
+      // Browser startup can open another tab while the sign-in tab is created.
+      // Keep that race covered instead of relying on the first page event.
+      const unrelated = await context.newPage();
+      await signIn.click();
+      page = await opened;
+      await unrelated.close();
+    } else
+      await page.goto(`https://devfeed.tech/login?return_to=${encodeURIComponent(destination)}`);
+    stage = "begin sign-in";
+    await page.getByRole("link", { name: "Continue to sign in" }).click();
+    stage = "recover cancelled sign-in";
     await page
       .getByRole("alert")
       .filter({ hasText: "Sign-in was cancelled" })
       .waitFor({ timeout: 10000 });
   } catch (error) {
+    console.error("Login recovery stage:", stage);
     console.error(
       "Recovery page:",
       new URL(page.url()).origin + new URL(page.url()).pathname,
       await page.locator("body").innerText(),
     );
     console.error(logs);
+    console.error("Fixture responses:", requests);
+    console.error(
+      "Open pages:",
+      context.pages().map((open) => {
+        const url = new URL(open.url());
+        return { protocol: url.protocol, host: url.host, path: url.pathname };
+      }),
+    );
     throw error;
   }
   const retry = page.getByRole("link", { name: "Try sign-in again" });
