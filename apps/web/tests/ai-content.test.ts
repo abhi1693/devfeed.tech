@@ -168,6 +168,24 @@ it("keeps path-scoped script exceptions usable on served reader aliases", async 
   expect(elements).not.toContain("'self'");
 });
 
+it("allows configured LAN chunk paths when the container reports its bind address", async () => {
+  vi.stubEnv("DEVFEED_USER_BASE_URL", "http://localhost:3000");
+  vi.stubEnv("DEVFEED_USER_ALLOWED_ORIGINS", '["http://192.0.2.10:3000"]');
+  const response = await proxy(
+    new NextRequest("http://0.0.0.0:3000/", {
+      headers: { host: "192.0.2.10:3000", "x-forwarded-host": "untrusted.example" },
+    }),
+  );
+  const elements = response.headers
+    .get("content-security-policy")!
+    .split("; ")
+    .find((directive) => directive.startsWith("script-src-elem "))!;
+  expect(elements).toContain("http://192.0.2.10:3000/_next/static/");
+  expect(elements).toContain("http://localhost:3000/_next/static/");
+  expect(elements).not.toContain("untrusted.example");
+  expect(elements).not.toMatch(/'self'|'unsafe-inline'|http:\/\/192\.0\.2\.10:3000(?: |$)/);
+});
+
 it("leaves private routes, assets, XML, discovery files, React navigation and actions alone", async () => {
   for (const path of [
     "/api/v1/user/me",

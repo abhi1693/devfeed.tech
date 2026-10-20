@@ -4,7 +4,7 @@ import { toMarkdownPath } from "@dualmark/core";
 import { cardMotionCss } from "@devfeed/theme/dev-card-motion";
 import { NextRequest, NextResponse } from "next/server";
 import { aiRoute } from "@/lib/ai-routes";
-import { publicSiteOrigin } from "@/lib/server/config";
+import { additionalUserOrigins, publicSiteOrigin } from "@/lib/server/config";
 import { captureXClick } from "@/lib/server/x-attribution";
 
 // The same stylesheet is embedded in animated Dev Cards so downloaded SVGs animate on their own.
@@ -21,7 +21,11 @@ export async function proxy(request: NextRequest) {
     : "";
   // Include the served origin for supported LAN aliases as well as the canonical site.
   // Cloudflare rotates the Rocket Loader hash; CSP paths cannot wildcard that segment.
-  const scriptPaths = [...new Set([publicSiteOrigin(), request.nextUrl.origin])]
+  // Standalone containers can report their bind address instead of the browser's
+  // origin. Include explicitly trusted reader aliases so lazy chunks still load.
+  const scriptPaths = [
+    ...new Set([publicSiteOrigin(), request.nextUrl.origin, ...additionalUserOrigins()]),
+  ]
     .flatMap((origin) => [
       `${origin}/_next/static/`,
       `${origin}/.webmcp/bridge.js`,
