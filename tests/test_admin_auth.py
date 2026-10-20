@@ -351,7 +351,7 @@ def test_logout_blocks_an_outstanding_login_in_this_browser(oidc_app):
     headers = logout_headers(state)
     pending = begin(state)
     assert state.client.post("/v1/admin/auth/logout", headers=headers).status_code == 204
-    assert complete(state, pending).headers["location"].endswith("error=login_failed")
+    assert complete(state, pending).headers["location"].endswith("error=login_expired")
     assert not any(":session:" in key for key in state.store.values)
 
 
@@ -456,7 +456,7 @@ def test_unbound_or_replayed_callback_cannot_log_out_an_existing_admin(oidc_app)
     previous = oidc_app.client.cookies.get("__Host-devfeed_admin_session")
     for invalid_state in (secrets.token_urlsafe(32), flow):
         response = complete(oidc_app, invalid_state)
-        assert response.headers["location"].endswith("error=login_failed")
+        assert response.headers["location"].endswith("error=login_expired")
         assert not any(
             "admin_session=" in value for value in response.headers.get_list("set-cookie")
         )
@@ -581,7 +581,7 @@ def test_callback_is_browser_bound_and_single_use(oidc_app):
     flow = begin(oidc_app)
     browser = oidc_app.client.cookies.get("__Host-devfeed_admin_state")
     oidc_app.client.cookies.clear()
-    assert complete(oidc_app, flow).headers["location"].endswith("error=login_failed")
+    assert complete(oidc_app, flow).headers["location"].endswith("error=login_expired")
     assert oidc_app.store.get(auth.key("flow", flow)) is not None
     oidc_app.client.cookies.set("__Host-devfeed_admin_state", browser)
     assert complete(oidc_app, flow).headers["location"] == ORIGIN + "/start"
@@ -677,7 +677,7 @@ def test_random_cookie_and_state_are_rejected(oidc_app):
     assert (
         complete(oidc_app, secrets.token_urlsafe(32))
         .headers["location"]
-        .endswith("error=login_failed")
+        .endswith("error=login_expired")
     )
 
 

@@ -62,8 +62,10 @@ def consume_callback_flow(
     """Validate and atomically consume a browser-bound OIDC callback flow."""
     if any(len(query_params.getlist(name)) > 1 for name in ("state", "code", "error", "iss")):
         raise OIDCError("Ambiguous callback")
-    if not TOKEN.fullmatch(state) or not TOKEN.fullmatch(browser):
+    if not TOKEN.fullmatch(state):
         raise OIDCError("Missing login state")
+    if not TOKEN.fullmatch(browser):
+        raise OIDCFlowUnavailable("Expired browser binding")
     raw = redis.get(flow_key)
     if not raw:
         raise OIDCFlowUnavailable("Expired login state")

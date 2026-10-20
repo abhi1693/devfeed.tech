@@ -213,3 +213,12 @@ def test_bound_failure_keeps_retry_if_local_account_storage_is_unavailable(reque
     monkeypatch.setattr(auth, "save_user_with_status", original_save)
     started = retry(state, query(failed)["retry"][0])
     assert complete(state, query(started)["state"][0]).headers["location"].endswith("/read-later")
+
+
+def test_expired_browser_cookie_has_actionable_feedback_without_trusted_context(request):
+    state = request.getfixturevalue("reader_app")
+    flow = begin(state, return_to="/read-later")
+    state.client.cookies.clear()
+    failed = complete(state, flow)
+    assert query(failed)["error"] == ["login_expired"]
+    assert "retry" not in query(failed)
