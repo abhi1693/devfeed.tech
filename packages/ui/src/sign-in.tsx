@@ -53,6 +53,7 @@ export function SignIn({
   loginHref,
   unavailableMessage,
   hostedLabel = "Continue to sign in",
+  retry = false,
 }: {
   config: SignInConfig | null;
   unavailable?: boolean;
@@ -64,6 +65,7 @@ export function SignIn({
   loginHref: (provider: SignInProvider | null) => string;
   unavailableMessage: string;
   hostedLabel?: string;
+  retry?: boolean;
 }) {
   const [pending, setPending] = useState<SignInProvider | "hosted" | null>(null);
   const [pageHidden, setPageHidden] = useState(false);
@@ -182,6 +184,18 @@ export function SignIn({
           </p>
         )}
 
+        {retry && config?.enabled && !unavailable && (
+          <a
+            className={styles.provider}
+            href={loginHref(null)}
+            onClick={(event) => handleSignIn(event, "hosted")}
+            aria-disabled={pending !== null || undefined}
+            aria-busy={pending === "hosted" || undefined}
+          >
+            Try sign-in again
+          </a>
+        )}
+
         {providers.length > 0 ? (
           <div className={styles.providers}>
             {providers.map((provider) => (
@@ -206,7 +220,7 @@ export function SignIn({
           <p className={styles.unavailable} role="status">
             {unavailableMessage}
           </p>
-        ) : config ? (
+        ) : config && !retry ? (
           <a
             className={styles.provider}
             href={loginHref(null)}
@@ -217,11 +231,11 @@ export function SignIn({
             {pending === "hosted" && <span className={styles.spinner} aria-hidden="true" />}
             {hostedLabel}
           </a>
-        ) : (
+        ) : !config ? (
           <p className={styles.loading} role="status">
             Checking sign-in options…
           </p>
-        )}
+        ) : null}
         <span role="status" className="sr-only">
           {pending &&
             (pending === "hosted"

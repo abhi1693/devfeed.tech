@@ -220,7 +220,7 @@ describe("authentication feedback", () => {
     await waitFor(() => expect(toast.error).toHaveBeenCalledTimes(1));
     expect(toast.info).not.toHaveBeenCalled();
     expect(screen.getByRole("alert").textContent).toContain("Required role missing.");
-    expect(screen.getByRole("link", { name: "Sign in again" }).getAttribute("href")).toContain(
+    expect(screen.getByRole("link", { name: "Try sign-in again" }).getAttribute("href")).toContain(
       "reauthenticate=true",
     );
   });

@@ -1,3 +1,4 @@
+import { signInFailure } from "@devfeed/ui/sign-in-feedback";
 import { partnerApiOrigin } from "../../lib/server/config";
 import { LoginPanel } from "./login-panel";
 import type { SignInConfig } from "@devfeed/ui/sign-in";
@@ -8,9 +9,9 @@ export const metadata = { title: "Sign in", robots: { index: false, follow: fals
 export default async function Login({
   searchParams,
 }: {
-  searchParams: Promise<{ error?: string; signed_out?: string }>;
+  searchParams: Promise<{ error?: string; signed_out?: string; retry?: string }>;
 }) {
-  const { error, signed_out } = await searchParams;
+  const { error, signed_out, retry } = await searchParams;
   let config: SignInConfig | null = null;
   let unavailable = false;
   try {
@@ -31,10 +32,9 @@ export default async function Login({
       error={
         error === "access_denied"
           ? "Your account needs the partner role to access this portal."
-          : error
-            ? "Sign-in could not be completed. Please try again."
-            : undefined
+          : signInFailure(error)
       }
+      retry={retry}
       signedOut={signed_out === "1"}
     />
   );

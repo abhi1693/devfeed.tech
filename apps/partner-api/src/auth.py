@@ -9,7 +9,7 @@ import time
 from typing import Annotated, Literal, cast
 
 from devfeed_core.identity_accounts import register_verified_user
-from devfeed_http import oidc_logout
+from devfeed_http import oidc_logout, oidc_retry
 from devfeed_http.schemas import OIDCCallbackQuery
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, Security
 from fastapi.responses import RedirectResponse
@@ -140,10 +140,23 @@ def login(
     request: Request,
     reauthenticate: bool = False,
     provider: Literal["github", "google"] | None = None,
+    retry: str | None = None,
 ):
     require_config()
     settings = get_settings()
+    recovery = oidc_retry.Recovery(
+        base_url=str(settings.partner_base_url),
+        browser=request.cookies.get(oidc.cookie_name(settings, "state"), ""),
+        policy=oidc.policy_key(settings),
+        key=key,
+        cookie=cookie,
+        redis=get_redis,
+    )
+    recovered = False
     try:
+        if recovery.consume(request, retry) is not None:
+            recovered = True
+            reauthenticate = True
         metadata = oidc.discovery(settings)
         provider_id = getattr(settings, f"oidc_{provider}_idp_id") if provider is not None else None
         if provider is not None and not provider_id:
@@ -152,8 +165,12 @@ def login(
             settings, metadata, reauthenticate=reauthenticate, identity_provider_id=provider_id
         )
         get_redis().set(key("flow", flow["state"]), json.dumps(flow), ex=oidc.FLOW_TTL)
+    except oidc_retry.ExpiredRetry:
+        return recovery.response("login_expired")
     except (oidc.OIDCError, RedisError) as exc:
         logger.warning("partner_login_unavailable", extra={"error_type": type(exc).__name__})
+        if recovered:
+            return recovery.unavailable()
         raise HTTPException(503, "Partner sign-in temporarily unavailable") from exc
     response = RedirectResponse(location, status_code=302)
     # Each browser can have one outstanding flow. A subsequent login supersedes it.
@@ -172,14 +189,22 @@ def callback(request: Request, params: Annotated[OIDCCallbackQuery, Query()]) ->
     settings = get_settings()
     failure = "login_failed"
     bound_flow = False
+    recovery = oidc_retry.Recovery(
+        base_url=str(settings.partner_base_url),
+        browser=request.cookies.get(oidc.cookie_name(settings, "state"), ""),
+        policy=oidc.policy_key(settings),
+        key=key,
+        cookie=cookie,
+        redis=get_redis,
+    )
+    redis = None
     try:
         state = params.state or ""
-        browser = request.cookies.get(oidc.cookie_name(settings, "state"), "")
         redis = get_redis()
         flow = oidc.consume_callback_flow(
             query_params=request.query_params,
             state=state,
-            browser=browser,
+            browser=recovery.browser,
             redis=redis,
             flow_key=key("flow", state),
             policy=oidc.policy_key(settings),
@@ -211,13 +236,16 @@ def callback(request: Request, params: Annotated[OIDCCallbackQuery, Query()]) ->
         cookie(response, "session", token, ttl)
         logger.info("partner_signed_in")
     except (oidc.OIDCError, RedisError, SQLAlchemyError, ValueError, KeyError, TypeError) as exc:
-        logger.warning("partner_login_failed", extra={"error_type": type(exc).__name__})
-        response = RedirectResponse(
-            str(settings.partner_base_url).rstrip("/") + f"/login?error={failure}", 302
+        return recovery.failed_callback(
+            exc,
+            redis=redis,
+            logger=logger,
+            event="partner_login_failed",
+            bound_flow=bound_flow,
+            reason=failure,
         )
-        if bound_flow:
-            cookie(response, "session", "", 0)
-    cookie(response, "state", "", 0)
+    if bound_flow:
+        cookie(response, "state", "", 0)
     return response
 
 

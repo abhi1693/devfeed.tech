@@ -149,3 +149,25 @@ delivery, and verify each old browser session is rejected. Also verify that a
 session for another SID/client remains valid and record notification retry
 behavior during a dependency outage. Local tests or a successful provider URL
 redirect alone are not evidence that Zitadel delivered a notification.
+
+## Failed sign-in recovery
+
+A browser-bound failed callback can issue a five-minute, single-use retry context. Only the
+validated reader destination is retained; authorization codes, nonce, PKCE verifier, registration
+intent and provider responses are never retained in that context. The opaque retry handle in the
+login URL requires the originating service's HttpOnly state cookie and unchanged issuer/client
+policy. The reader revalidates its destination contract when the context is consumed. Admin and
+partner retries keep their fixed destinations and request fresh provider authentication.
+
+The shared sign-in page distinguishes cancellation, expired/superseded requests, temporary service
+failures and unsuccessful sign-in using application-owned reason codes. Every retry starts a new
+OIDC request. Unbound, ambiguous and replayed callbacks cannot mint recovery contexts or clear a
+newer sign-in's state cookie. Expired or invalid contexts fall back to a new sign-in without a
+recovered destination. Existing browser-bound session replacement and role checks still apply.
+
+Failure URLs include an opaque diagnostic reference correlated with safe application logs. Request
+logs redact codes, state, retry handles and provider error parameters. Browser recovery tests run
+with `node --test apps/web/tests/browser/login-recovery.mjs` and
+`node --test apps/extensions/tests/login-recovery.browser.mjs` after building the web app and both
+extensions; set `DEVFEED_EXTENSION_BROWSER=edge` for the Edge package. They use the real auth routes
+with an isolated in-memory store and signing provider, without contacting a deployed issuer.

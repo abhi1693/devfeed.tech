@@ -27,7 +27,15 @@ class OIDCError(Exception):
 
 
 class OIDCDependencyError(OIDCError):
-    """Configured provider could not be reached; retry rather than acknowledging logout."""
+    """Configured provider could not be reached; a fresh attempt may succeed."""
+
+
+class OIDCCancelled(OIDCError):
+    """The browser-bound authorization request was cancelled."""
+
+
+class OIDCFlowUnavailable(OIDCError):
+    """The login expired or was superseded; never carries recovery context."""
 
 
 def configured(settings: ProviderSettings, *, base_url: str | None) -> bool:
@@ -54,11 +62,13 @@ def consume_callback_flow(
     """Validate and atomically consume a browser-bound OIDC callback flow."""
     if any(len(query_params.getlist(name)) > 1 for name in ("state", "code", "error", "iss")):
         raise OIDCError("Ambiguous callback")
-    if not TOKEN.fullmatch(state) or not TOKEN.fullmatch(browser):
+    if not TOKEN.fullmatch(state):
         raise OIDCError("Missing login state")
+    if not TOKEN.fullmatch(browser):
+        raise OIDCFlowUnavailable("Expired browser binding")
     raw = redis.get(flow_key)
     if not raw:
-        raise OIDCError("Expired login state")
+        raise OIDCFlowUnavailable("Expired login state")
     try:
         flow = json.loads(raw)
         flow_browser = flow["browser"]
@@ -66,7 +76,7 @@ def consume_callback_flow(
     except (ValueError, TypeError, KeyError) as exc:
         raise OIDCError("Invalid login state") from exc
     if not isinstance(flow_browser, str) or not hmac.compare_digest(flow_browser, browser):
-        raise OIDCError("Invalid login state")
+        raise OIDCFlowUnavailable("Invalid login state")
     if flow_policy != policy:
         raise OIDCError("Invalid login state")
     if redis.getdel(flow_key) != raw:
@@ -81,10 +91,14 @@ def validate_callback_response(
     issuer: str | None,
     expected_issuer: str | None,
 ) -> str:
-    if provider_error or not code or len(code) > 4096:
-        raise OIDCError("Authorization was not completed")
     if issuer is not None and issuer != expected_issuer:
         raise OIDCError("Authorization issuer mismatch")
+    if provider_error == "access_denied":
+        raise OIDCCancelled("Authorization cancelled")
+    if provider_error in {"temporarily_unavailable", "server_error"}:
+        raise OIDCDependencyError("Authorization unavailable")
+    if provider_error or not code or len(code) > 4096:
+        raise OIDCError("Authorization was not completed")
     return code
 
 

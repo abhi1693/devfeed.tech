@@ -20,7 +20,7 @@ describe("partner sign-in", () => {
   it("requests fresh authentication after denied access", () => {
     render(<LoginPanel config={{ enabled: true, providers: [] }} error="Access denied" />);
     expect(screen.getByRole("alert").textContent).toBe("Access denied");
-    expect(screen.getByRole("link", { name: "Sign in again" }).getAttribute("href")).toBe(
+    expect(screen.getByRole("link", { name: "Try sign-in again" }).getAttribute("href")).toBe(
       "/api/v1/partner/auth/login?reauthenticate=true",
     );
   });
@@ -30,4 +30,19 @@ describe("partner sign-in", () => {
     expect(screen.queryByRole("link", { name: "Continue to sign in" })).toBeNull();
     expect(screen.getByText(/Partner sign-in is not available/)).toBeTruthy();
   });
+});
+
+it("carries only the opaque retry context into fresh partner authentication", () => {
+  render(
+    <LoginPanel
+      config={{ enabled: true, providers: ["google"] }}
+      error="Sign-in was cancelled."
+      retry={"r".repeat(43)}
+    />,
+  );
+  const href = screen.getByRole("link", { name: "Try sign-in again" }).getAttribute("href")!;
+  const url = new URL(href, "https://partners.test");
+  expect(url.pathname).toBe("/api/v1/partner/auth/login");
+  expect(url.searchParams.get("retry")).toBe("r".repeat(43));
+  expect(url.searchParams.get("reauthenticate")).toBe("true");
 });

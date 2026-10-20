@@ -24,7 +24,7 @@ class SSOLogoutResponse(BaseModel):
 
 # OIDC Back-Channel Logout 1.0 section 2.4 mandates this namespace verbatim.
 # It identifies a signed event; it is never fetched over HTTP.
-EVENT = "http://schemas.openid.net/event/backchannel-logout"  # NOSONAR: OIDC event ID.
+EVENT = "http://schemas.openid.net/event/backchannel-logout"  # NOSONAR(S5332)
 MAX_BODY = 16_384
 MAX_AGE = 900
 SKEW = 60

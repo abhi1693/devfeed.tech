@@ -36,6 +36,7 @@
     "./retry-button": "./src/retry-button.tsx",
     "./date-picker": "./src/date-picker.tsx",
     "./sign-in": "./src/sign-in.tsx",
+    "./sign-in-feedback": "./src/sign-in-feedback.ts",
     "./use-debounced-image-preview": "./src/use-debounced-image-preview.ts",
     "./notification-events": "./src/notification-events.ts",
     "./dropdown-menu": "./src/dropdown-menu.tsx",
