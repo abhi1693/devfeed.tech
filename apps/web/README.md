@@ -775,6 +775,42 @@ the public root URL and follow its canonical metadata and issuer discovery links
 Run the agent-readiness scan and check `checks.discovery.oauthProtectedResource.status`.
 A local check is not proof of the deployed/CDN response.
 
+## Cloudflare scripts and CSP
+
+Cloudflare can inject `/.webmcp/bridge.js` and Rocket Loader after origin rendering, without the
+reader's per-response nonce. The `script-src` strict-dynamic policy ignores URL
+allowlists for parser-inserted scripts, including same-origin scripts.
+
+The reader therefore uses a separate `script-src-elem` policy: the current nonce,
+the exact bridge URL, Cloudflare-managed `/cdn-cgi/scripts/` directory, and built Next.js static-asset directory on the canonical and
+served reader origins,
+and the existing Google Tag Manager and Clarity script hosts. This directive
+intentionally omits strict-dynamic so its URL exceptions work. It also omits
+blanket same-origin and unsafe-inline permission. Unrelated same-origin scripts,
+bridge path lookalikes, and unnonced inline scripts remain blocked. Script attributes
+remain disabled, and the general script-src directive retains strict-dynamic as
+a fallback; modern script elements follow script-src-elem instead.
+
+This is a deliberate move from inherited dynamic-script trust to an explicit
+script-element allowlist. New script providers need a reviewed policy update.
+The browser regression simulates Cloudflare's unnonced injected tags, reproduces
+the original block, and verifies both scripts execute while unrelated scripts remain blocked.
+After deployment, verify the actual Cloudflare-injected scripts in the browser;
+local tests simulate the edge insertion and do not change Cloudflare settings.
+
+Rocket Loader uses a versioned URL under `/cdn-cgi/scripts/`. Allow this
+Cloudflare-managed directory so hash changes do not break loading. CSP cannot
+wildcard just the hash segment: this intentionally trusts other scripts within
+that directory too, while sibling paths such as `/cdn-cgi/scripts-extra/` remain
+blocked. The browser regression checks both the reported and a rotated hash.
+
+A blocked Rocket Loader can prevent deferred scripts from running. An unused
+Next.js preload warning alone does not establish this cause: route prefetching
+can also fetch chunks before they are needed. Keep framework preloads intact and
+check hydration, navigation, and the Network panel after deployment. The local
+regression mocks the injected scripts; it does not reproduce Cloudflare's HTML
+rewriting or prove that the reported production preload warning is resolved.
+
 ## OAuth / OIDC discovery
 
 `/.well-known/openid-configuration` exposes the public metadata of the reader's

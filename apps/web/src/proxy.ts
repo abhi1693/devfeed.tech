@@ -19,9 +19,22 @@ export async function proxy(request: NextRequest) {
   const localImages = ["localhost", "127.0.0.1"].includes(request.nextUrl.hostname)
     ? " http://127.0.0.1:* http://localhost:*"
     : "";
+  // Include the served origin for supported LAN aliases as well as the canonical site.
+  // Cloudflare rotates the Rocket Loader hash; CSP paths cannot wildcard that segment.
+  const scriptPaths = [...new Set([publicSiteOrigin(), request.nextUrl.origin])]
+    .flatMap((origin) => [
+      `${origin}/_next/static/`,
+      `${origin}/.webmcp/bridge.js`,
+      `${origin}/cdn-cgi/scripts/`,
+    ])
+    .join(" ");
   const csp = [
     "default-src 'self'",
     `script-src 'self' 'nonce-${nonce}' 'strict-dynamic' https://www.googletagmanager.com https://*.clarity.ms${process.env.NODE_ENV === "development" ? " 'unsafe-eval'" : ""}`,
+    // Cloudflare adds parser-inserted WebMCP and Rocket Loader scripts without our nonce.
+    // strict-dynamic ignores URL exceptions, so script elements need a separate
+    // path-scoped policy. Keep arbitrary same-origin scripts and inline code blocked.
+    `script-src-elem 'nonce-${nonce}' ${scriptPaths} https://www.googletagmanager.com https://*.clarity.ms`,
     "script-src-attr 'none'",
     "style-src 'self' 'unsafe-inline'",
     `style-src-elem 'self' 'nonce-${nonce}' 'sha256-${cardMotionHash}'`,
