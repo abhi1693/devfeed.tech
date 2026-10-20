@@ -2,6 +2,45 @@
 
 Application releases and Alembic schema revisions are separate identifiers.
 
+## 0.1.1 — 2026-10-20
+
+### Enhancements
+
+- [#250](https://github.com/abhi1693/devfeed.tech/pull/250) - Track source onboarding in a live pipeline with profile, assessment, branding, review, and ingestion stages, plus targeted retries and readiness checks before activation.
+- [#251](https://github.com/abhi1693/devfeed.tech/pull/251) - Manage article readiness through a live lifecycle board, reuse successful analysis steps after later failures, and publish only after enrichment, presentation, and image processing are ready.
+- [#241](https://github.com/abhi1693/devfeed.tech/pull/241) - Choose partner import intervals supported by the account tier, from daily imports to hourly synchronization.
+- [#240](https://github.com/abhi1693/devfeed.tech/pull/240) - Import larger partner catalogs with configurable page limits beyond the previous fixed caps.
+- [#258](https://github.com/abhi1693/devfeed.tech/pull/258), [#260](https://github.com/abhi1693/devfeed.tech/pull/260), [#261](https://github.com/abhi1693/devfeed.tech/pull/261), [#262](https://github.com/abhi1693/devfeed.tech/pull/262) - Let automated clients discover reader API documentation, the configured sign-in provider, OAuth resource metadata, and MCP server capabilities through public discovery URLs.
+- [#235](https://github.com/abhi1693/devfeed.tech/pull/235) - Audit failing publisher feeds for verified replacement candidates without changing source approval or ingestion state.
+- [#277](https://github.com/abhi1693/devfeed.tech/pull/277) - End the provider SSO session when signing out and honor provider logout across the reader, admin, partner portal, Chrome, and Edge.
+
+### Performance Improvements
+
+- [#230](https://github.com/abhi1693/devfeed.tech/pull/230), [#236](https://github.com/abhi1693/devfeed.tech/pull/236), [#246](https://github.com/abhi1693/devfeed.tech/pull/246) - Reduce database work for processing history, directory counts, topic retention, and inference reports while preserving exact totals.
+- [#231](https://github.com/abhi1693/devfeed.tech/pull/231) - Limit workload aggregation to active jobs and completed jobs within the selected reporting window.
+- [#234](https://github.com/abhi1693/devfeed.tech/pull/234), [#239](https://github.com/abhi1693/devfeed.tech/pull/239) - Reduce repeated visibility and filtering work in source filters and broad personalized recommendation queries.
+- [#233](https://github.com/abhi1693/devfeed.tech/pull/233) - Reuse source-tag identity lookups until the tag catalog changes.
+- [#227](https://github.com/abhi1693/devfeed.tech/pull/227) - Release completed analysis catalog indexes instead of retaining full generations in worker memory.
+
+### Bug Fixes
+
+- [#229](https://github.com/abhi1693/devfeed.tech/pull/229), [#245](https://github.com/abhi1693/devfeed.tech/pull/245) - Keep source, topic, and tag pages recoverable during temporary API failures, with navigation and retry available on web, Chrome, and Edge.
+- [#278](https://github.com/abhi1693/devfeed.tech/pull/278) - Explain failed or cancelled sign-in attempts and preserve the intended destination when retrying, including browser extension sign-in.
+- [#249](https://github.com/abhi1693/devfeed.tech/pull/249) - Attribute articles to their original publisher, distinguish original headlines from DevFeed previews, and publish article tags as search keywords.
+- [#226](https://github.com/abhi1693/devfeed.tech/pull/226), [#247](https://github.com/abhi1693/devfeed.tech/pull/247) - Show actionable partner import and assessment errors, and display rejected, paused, and withdrawn product statuses accurately.
+- [#263](https://github.com/abhi1693/devfeed.tech/pull/263), [#276](https://github.com/abhi1693/devfeed.tech/pull/276) - Keep Cloudflare's WebMCP bridge and authenticated reader navigation on configured LAN origins compatible with the script security policy.
+- [#257](https://github.com/abhi1693/devfeed.tech/pull/257) - Serve the public homepage as Markdown when requested through content negotiation or `/index.md`.
+- [#256](https://github.com/abhi1693/devfeed.tech/pull/256) - Publish crawler content-use preferences that permit search while declining AI training and AI input.
+- [#248](https://github.com/abhi1693/devfeed.tech/pull/248) - Use consistent DevFeed favicon and touch icons in the partner portal.
+
+### Upgrade Notes
+
+- Quiesce source dispatch and drain older coupled source workers before upgrading the database through migration `0033`. Start the updated APIs and source/image workers before resuming dispatch; older workers cannot consume the split source operations introduced in `0032`.
+- Schedule migrations `0027`–`0031` with allowance for index creation and the inference-summary backfill, which blocks ledger writes while completing.
+- Register each OIDC client's back-channel logout URL and exact post-logout redirect URI, including configured reader aliases, as documented in [browser OIDC logout](https://github.com/abhi1693/devfeed.tech/blob/master/packages/http/README.md#browser-oidc-logout). Existing reader, admin, and partner browser sessions must sign in again.
+- Deploy the updated APIs and reader before distributing browser extensions `0.1.22`, which use coordinated provider sign-out and login recovery.
+- For MCP server-card discovery, deploy the updated MCP service first and configure the same `DEVFEED_MCP_PUBLIC_URL` on MCP and the reader. When the reader needs a private transport address, set its optional server-only `DEVFEED_MCP_INTERNAL_URL`.
+
 ## 0.1.0 — 2026-10-18
 
 ### Enhancements
