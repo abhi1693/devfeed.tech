@@ -4248,7 +4248,7 @@
   "info": {
     "description": "Partner analytics API with role-gated sessions and live memberships.",
     "title": "DevFeed Partner API",
-    "version": "0.1.0"
+    "version": "0.1.1"
   },
   "openapi": "3.1.0",
   "paths": {

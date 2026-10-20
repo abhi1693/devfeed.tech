@@ -162,9 +162,18 @@ is implied by committing the migration.
 Revision `0025` adds adaptive source polling after partnership revision `0024`.
 Apply it before starting this feature. Existing source-logo and partnership migrations remain unchanged.
 
-## Article processing lifecycle (0032)
+## Source processing lifecycle (0032)
 
-Revision `0032` follows inference-summary revision `0031`. It builds the article-image
+Revision `0032` follows inference-summary revision `0031`. It adds separate source
+profile and relevance operations, their results and current-work index, and private
+processing requests. Quiesce source dispatch and drain older coupled source workers
+before upgrading. Start the updated APIs and source/image workers before resuming
+dispatch; older workers must not consume split-operation deliveries. Downgrade
+requires draining split work and resolving explicit processing requests first.
+
+## Article processing lifecycle (0033)
+
+Revision `0033` follows source-processing revision `0032`. It builds the article-image
 history index and expands the due-automation predicate to include approved unpublished
 articles. Analysis and enrichment lookups reuse the `*_latest` indexes owned by `0027`;
 this revision does not create duplicate history indexes for those tables.
@@ -172,7 +181,7 @@ this revision does not create duplicate history indexes for those tables.
 The builds run concurrently with a five-second metadata lock timeout and repair invalid
 interrupted builds on retry. Downgrade restores the pending-only automation predicate and
 removes only the image-history index, preserving the parent indexes and all article data.
-The new runtime accepts schemas `0026` through `0032`, with exact ledger reporting on
-compatible schemas before `0031`. Deploy compatible processes before applying `0032`;
-when returning to older binaries, first restore the schema they support. No production
+The new runtime requires schema `0033` and also accepts `0032` during a forward rollout.
+Earlier schemas lack required source-processing fields. Drain older processes before
+applying `0033`; when returning to older binaries, first restore the schema they support. No production
 migration or publication repair is performed by viewing the pipeline.

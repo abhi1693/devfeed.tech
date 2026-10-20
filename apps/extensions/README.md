@@ -244,9 +244,9 @@ skip link focuses the main content without replacing the current hash route.
 Set `PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH` to use an existing Chromium installation.
 Screenshots are saved under `apps/extensions/dist/reader-*.png`.
 
-Packaging requires Python 3 and creates
-`apps/extensions/dist/devfeed-chrome-extension-0.1.13.zip` with the manifest at the ZIP root.
-Release ZIPs use `devfeed-<browser>-extension-<version>.zip`, where `<browser>` is
+Packaging requires Python 3 and creates release ZIPs under `apps/extensions/dist/`
+with the manifest at the ZIP root. ZIPs use `devfeed-<browser>-extension-<version>.zip`,
+where `<browser>` is
 `chrome` or `edge` and `<version>` comes from the extension manifest.
 Packaging removes the development `key` field from the ZIP manifest; the source
 and unpacked manifests retain it. The published GitHub release workflow submits
