@@ -31,7 +31,7 @@ export function extensionOriginAllowed(origin: string | null) {
   return ids.some((id) => origin === `chrome-extension://${id}`);
 }
 
-function additionalUserOrigins(): string[] {
+export function additionalUserOrigins(): string[] {
   const values: unknown = JSON.parse(process.env.DEVFEED_USER_ALLOWED_ORIGINS || "[]");
   if (!Array.isArray(values))
     throw new Error("DEVFEED_USER_ALLOWED_ORIGINS must be an origin list");
