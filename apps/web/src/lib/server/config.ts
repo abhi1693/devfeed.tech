@@ -81,6 +81,18 @@ export function mcpPublicUrl() {
   return url;
 }
 
+/** Optional server-only transport address; never advertised to MCP clients. */
+export function mcpInternalUrl() {
+  const value = process.env.DEVFEED_MCP_INTERNAL_URL?.trim();
+  if (!value) return null;
+  const url = mcpEndpoint(value);
+  if (!url || new URL(url).search)
+    throw new Error(
+      "DEVFEED_MCP_INTERNAL_URL must be an HTTP or HTTPS URL without credentials, query or fragment",
+    );
+  return url;
+}
+
 export function analyticsMeasurementId() {
   if (process.env.NODE_ENV !== "production") return "";
   // Preserve deployed production defaults; Compose explicitly opts out at runtime.

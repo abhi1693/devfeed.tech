@@ -1,8 +1,22 @@
 import { afterEach, expect, it, vi } from "vitest";
 import { GET } from "@/app/api/v1/mcp/config/route";
-import { mcpPublicUrl } from "@/lib/server/config";
+import { mcpInternalUrl, mcpPublicUrl } from "@/lib/server/config";
 
 afterEach(() => vi.unstubAllEnvs());
+
+it("reads optional private transport configuration without changing public discovery", async () => {
+  vi.stubEnv("DEVFEED_MCP_PUBLIC_URL", "https://agents.example/mcp");
+  for (const url of ["http://mcp:8003/mcp", "https://mcp.internal/custom/mcp"]) {
+    vi.stubEnv("DEVFEED_MCP_INTERNAL_URL", url);
+    expect(mcpInternalUrl()).toBe(url);
+    expect(await GET().json()).toEqual({ url: "https://agents.example/mcp" });
+  }
+});
+
+it.each([undefined, "", "   "])("keeps the private transport optional: %s", (value) => {
+  vi.stubEnv("DEVFEED_MCP_INTERNAL_URL", value);
+  expect(mcpInternalUrl()).toBeNull();
+});
 
 it("reads the complete ingress URL at runtime without caching or rebuilding", async () => {
   for (const url of [

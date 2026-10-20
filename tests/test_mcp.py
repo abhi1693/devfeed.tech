@@ -484,3 +484,43 @@ def test_tools_use_real_public_routes_and_serialization():
         assert result["structuredContent"]["canonical_url"] == article.canonical_url
         session.scalar = lambda _: None
         assert call(client, "get_article", article_id=str(article.id))["isError"]
+
+
+def test_server_card_matches_live_initialization_without_calling_upstream():
+    def reject_upstream(request):
+        pytest.fail("Server-card discovery must not call APIs")
+
+    app = create_app(
+        Settings(api_url="https://public.example", public_url="https://mcp.example/custom/mcp"),
+        transport=httpx.MockTransport(reject_upstream),
+    )
+    with TestClient(app, base_url="http://localhost") as client:
+        live = rpc(
+            client,
+            "initialize",
+            {
+                "protocolVersion": "2025-11-25",
+                "capabilities": {},
+                "clientInfo": {"name": "card-test", "version": "1"},
+            },
+        )["result"]
+        for path in ("/.well-known/mcp/server-card.json", "/mcp/server-card"):
+            response = client.get(path)
+            assert response.status_code == 200
+            assert response.headers["access-control-allow-origin"] == "*"
+            assert response.headers["content-type"] == "application/mcp-server-card+json"
+            card = response.json()
+            assert card["serverInfo"] == live["serverInfo"]
+            assert card["capabilities"] == live["capabilities"]
+            assert card["version"] == live["serverInfo"]["version"]
+            assert card["endpoint"] == "https://mcp.example/custom/mcp"
+            assert card["remotes"] == [{"type": "streamable-http", "url": card["endpoint"]}]
+            assert "tools" not in card and "resources" not in card and "prompts" not in card
+            assert client.head(path).status_code == 200
+
+
+def test_server_card_does_not_invent_a_public_endpoint(mcp_client):
+    client, state = mcp_client
+    response = client.get("/.well-known/mcp/server-card.json")
+    assert response.status_code == 404
+    assert not state.requests
