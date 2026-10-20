@@ -1,8 +1,8 @@
 "use client";
 
+import { ssoLogoutUrl } from "@devfeed/http/sso";
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
 import { Select } from "@devfeed/ui/select";
 import { ResourceHeading, ResourcePanel } from "@devfeed/ui/resource-layout";
 import { adFormatLabel } from "@devfeed/ui/advertising-formats";
@@ -111,7 +111,6 @@ export function Portal({
   productRoute?: ProductRoute;
   connectionsRoute?: ConnectionsRoute;
 }) {
-  const router = useRouter();
   const [account, setAccount] = useState(initialAccount);
   const [days, setDays] = useState(initialDays);
   const [assetOffset, setAssetOffset] = useState(initialAssetOffset);
@@ -177,12 +176,12 @@ export function Portal({
     return () => controller.abort();
   }, [request, reporting, initialAccounts.total, account, days, assetOffset, sort, order, refresh]);
   async function signOut() {
-    const response = await fetch("/api/v1/partner/auth/logout", {
+    const response = await fetch("/api/v1/partner/auth/sso/logout", {
       method: "POST",
       headers: { "x-csrf-token": identity.csrf_token },
     });
-    if (response.ok) router.replace("/login");
-    else throw new Error("Could not sign out. Please retry.");
+    if (!response.ok) throw new Error("Could not sign out. Please retry.");
+    window.location.assign(ssoLogoutUrl(await response.json()));
   }
   function reload() {
     setData(null);

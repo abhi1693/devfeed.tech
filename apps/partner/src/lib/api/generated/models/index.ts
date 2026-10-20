@@ -109,6 +109,7 @@ export * from './productPromotionOutAccountLinkRelItem';
 export * from './productPromotionOutAdImageStatus';
 export * from './productPromotionOutEffectiveLinkRelItem';
 export * from './productPromotionOutLinkRelOptionsItem';
+export * from './sSOLogoutResponse';
 export * from './totals';
 export * from './trend';
 export * from './unhealthyResponse';

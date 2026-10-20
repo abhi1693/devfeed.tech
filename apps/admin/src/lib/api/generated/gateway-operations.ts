@@ -62,6 +62,40 @@ export const adminGatewayOperations = [
     },
   },
   {
+    operationId: "admin_auth_backchannel_logout",
+    method: "POST",
+    path: "/v1/admin/auth/backchannel-logout",
+    parameters: [],
+    policy: {
+      authentication: "logout-token",
+      bodyLimit: 16384,
+      bodyTimeoutMs: 2000,
+      upstreamTimeoutMs: 45000,
+    },
+  },
+  {
+    operationId: "admin_auth_sso_logout",
+    method: "POST",
+    path: "/v1/admin/auth/sso/logout",
+    parameters: [],
+    policy: {
+      bodyLimit: 1000000,
+      bodyTimeoutMs: 2000,
+      upstreamTimeoutMs: 45000,
+    },
+  },
+  {
+    operationId: "admin_auth_sso_callback",
+    method: "GET",
+    path: "/v1/admin/auth/sso/callback",
+    parameters: [],
+    policy: {
+      bodyLimit: 1000000,
+      bodyTimeoutMs: 2000,
+      upstreamTimeoutMs: 45000,
+    },
+  },
+  {
     operationId: "admin_settings_get",
     method: "GET",
     path: "/v1/admin/settings",

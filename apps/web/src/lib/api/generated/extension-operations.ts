@@ -9,6 +9,7 @@ export const extensionGatewayOperations = [
   { ...userGatewayOperations["user_auth_config"], path: "/api/v1/user/auth/config" },
   { ...userGatewayOperations["user_auth_me"], path: "/api/v1/user/auth/me" },
   { ...userGatewayOperations["user_auth_logout"], path: "/api/v1/user/auth/logout" },
+  { ...userGatewayOperations["user_auth_sso_logout"], path: "/api/v1/user/auth/sso/logout" },
   {
     ...userGatewayOperations["pending_v1_user_mcp_requests__request_id__get"],
     path: "/api/v1/user/mcp/requests/{request_id}",

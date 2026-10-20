@@ -31,7 +31,7 @@ def policy_key(settings: Settings) -> str:
     }
     if settings.oidc_client_secret:
         values["oidc_client_secret"] = settings.oidc_client_secret.get_secret_value()
-    values["authorization_policy_version"] = "organization-role-v1"
+    values["authorization_policy_version"] = "organization-role-provider-session-v2"
     return hashlib.sha256(json.dumps(values, sort_keys=True).encode()).hexdigest()
 
 

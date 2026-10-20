@@ -20,6 +20,7 @@ from devfeed_core.models import (
     UserAccount,
 )
 from fastapi.testclient import TestClient
+from oidc_session_support import provider_session
 from redis import Redis
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -53,6 +54,7 @@ def store_identity(store, module, settings, identity):
     token = secrets.token_urlsafe(32)
     record = {
         **identity,
+        "provider_session": provider_session(settings, identity["subject"]),
         "expires_at": int(time.time()) + 3600,
         "absolute_expires_at": int(time.time()) + 7200,
         "policy": module.oidc.policy_key(settings),

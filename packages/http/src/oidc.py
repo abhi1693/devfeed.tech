@@ -26,6 +26,10 @@ class OIDCError(Exception):
     """Deliberately contains no provider response, URL, credentials, or token."""
 
 
+class OIDCDependencyError(OIDCError):
+    """Configured provider could not be reached; retry rather than acknowledging logout."""
+
+
 def configured(settings: ProviderSettings, *, base_url: str | None) -> bool:
     return bool(
         base_url
@@ -131,18 +135,18 @@ def request_json(method: str, url: str, **kwargs) -> dict:
             client.stream(method, url, headers={"Accept": "application/json"}, **kwargs) as res,
         ):
             if res.status_code != 200:
-                raise OIDCError("OIDC provider request failed")
+                raise OIDCDependencyError("OIDC provider request failed")
             body = bytearray()
             for chunk in res.iter_bytes():
                 body.extend(chunk)
                 if len(body) > 1_000_000:
-                    raise OIDCError("OIDC provider response too large")
+                    raise OIDCDependencyError("OIDC provider response too large")
         result = json.loads(body)
         if not isinstance(result, dict):
             raise OIDCError("Invalid OIDC provider response")
         return result
     except (httpx.HTTPError, ValueError) as exc:
-        raise OIDCError("OIDC provider request failed") from exc
+        raise OIDCDependencyError("OIDC provider request failed") from exc
 
 
 def discovery(settings: ProviderSettings) -> dict:
@@ -323,7 +327,10 @@ def identity(
                     profile[field] = info[field]
         if profile.get(settings.oidc_organization_claim) != settings.oidc_organization_id:
             raise OIDCError("Organization membership mismatch")
+        from devfeed_http.oidc_logout import correlated
+
         return {
+            "provider_session": correlated(claims, str(settings.oidc_client_id)),
             "subject": claims["sub"],
             "issuer": claims["iss"],
             "organization_id": settings.oidc_organization_id,

@@ -49,10 +49,19 @@ export function gatewayPolicy(value, label, namespace) {
   const reader = namespace === "user";
   keys(
     value,
-    new Set([...policyFields, ...(reader ? ["cookiePolicy", "handler", "extension"] : [])]),
+    new Set([
+      "authentication",
+      ...policyFields,
+      ...(reader ? ["cookiePolicy", "handler", "extension"] : []),
+    ]),
     label,
   );
   const result = {};
+  if ("authentication" in value) {
+    if (!["browser", "logout-token"].includes(value.authentication))
+      throw new Error(`${label}.authentication must declare a supported authentication policy`);
+    result.authentication = value.authentication;
+  }
   for (const field of policyFields) {
     if (!Number.isSafeInteger(value[field]) || value[field] <= 0) {
       throw new Error(`${label}.${field} must be a positive safe integer`);

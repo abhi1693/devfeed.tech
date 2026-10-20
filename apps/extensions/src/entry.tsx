@@ -30,7 +30,7 @@ import { LocalPage, PublicProfilePage } from "./pages";
 import { catalogItem } from "./catalog";
 import { Preview } from "./articles";
 import { rememberArticles } from "./public-cache";
-import { AccountSession, signedOut } from "./session";
+import { AccountSession, prepareSignOut, signedOut } from "./session";
 import { PersonalFeed } from "../../web/src/components/personal-feed";
 import { ReadLater } from "../../web/src/components/read-later";
 import { TrendingContent } from "../../web/src/components/trending-content";
@@ -46,6 +46,7 @@ import { pageDestination, type ReaderPageDestination } from "../../web/src/lib/r
 configureReaderRuntime({
   request: new ExtensionReaderTransport(fetch).request,
   signedOut,
+  prepareSignOut,
   reload: (href) => {
     window.history.replaceState(null, "", linkDestination(href));
     window.location.reload();

@@ -93,6 +93,13 @@ def flow(monkeypatch):
         json.dumps(
             {
                 **identity,
+                "provider_session": {
+                    "issuer": settings.oidc_issuer_url,
+                    "client_id": settings.oidc_client_id,
+                    "subject": identity["subject"],
+                    "sid": "consent-browser-session",
+                    "issued_at": int(time.time()),
+                },
                 "absolute_expires_at": int(time.time()) + 7200,
                 "policy": oidc.policy_key(settings),
             }
@@ -915,3 +922,26 @@ def test_must_reads_require_authentication_and_validate_arguments(flow):
     assert not flow.requests
     result = call(flow, token["access_token"], "get_my_must_reads").json()["result"]
     assert result["structuredContent"]["timezone"] == "UTC"
+
+
+def test_provider_browser_logout_does_not_revoke_independent_mcp_tokens(flow):
+    from devfeed_http import oidc_logout
+
+    token, _ = tokens(flow)
+    oidc_logout.revoke(
+        flow.store,
+        "user",
+        flow.settings,
+        {
+            "iss": flow.settings.oidc_issuer_url,
+            "aud": flow.settings.oidc_client_id,
+            "iat": int(time.time()),
+            "jti": "mcp-boundary-test",
+            "events": {oidc_logout.EVENT: {}},
+            "sid": "consent-browser-session",
+        },
+    )
+    assert flow.user.get("/v1/user/auth/me").json() is None
+    response = call(flow, token["access_token"], "get_my_feed")
+    assert response.status_code == 200
+    assert not response.json()["result"].get("isError"), response.text

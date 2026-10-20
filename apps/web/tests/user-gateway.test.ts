@@ -705,3 +705,41 @@ describe("dedicated personalized placement handler", () => {
     expect(fetcher).not.toHaveBeenCalled();
   });
 });
+
+it("forwards signed provider logout without browser authentication or leaked cookies", async () => {
+  const provider = await import("@/app/api/v1/user/auth/backchannel-logout/route");
+  const fetcher = vi.fn().mockResolvedValue(new Response(null, { status: 200 }));
+  vi.stubGlobal("fetch", fetcher);
+  const response = await provider.POST(
+    new Request(`${origin}/api/v1/user/auth/backchannel-logout`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/x-www-form-urlencoded",
+        Cookie: allCookies,
+        "X-CSRF-Token": "private",
+      },
+      body: "logout_token=signed-provider-token",
+    }),
+    {},
+  );
+  expect(response.status).toBe(200);
+  const [url, options] = fetcher.mock.calls[0];
+  expect(url).toBe(api + "/v1/user/auth/backchannel-logout");
+  expect(options.headers.get("cookie")).toBeNull();
+  expect(options.headers.get("origin")).toBeNull();
+  expect(options.headers.get("x-csrf-token")).toBeNull();
+  expect(new TextDecoder().decode(options.body)).toBe("logout_token=signed-provider-token");
+});
+
+it("caps provider logout bodies and still requires browser origin for SSO initiation", async () => {
+  const provider = await import("@/app/api/v1/user/auth/backchannel-logout/route");
+  const sso = await import("@/app/api/v1/user/auth/sso/logout/route");
+  const fetcher = vi.fn();
+  vi.stubGlobal("fetch", fetcher);
+  expect(
+    (await provider.POST(new Request(origin, { method: "POST", body: "x".repeat(16385) }), {}))
+      .status,
+  ).toBe(413);
+  expect((await sso.POST(new Request(origin, { method: "POST" }), {})).status).toBe(403);
+  expect(fetcher).not.toHaveBeenCalled();
+});

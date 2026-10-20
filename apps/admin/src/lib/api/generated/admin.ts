@@ -171,6 +171,7 @@ import type {
   RetryPipeline,
   ReviewArticle,
   ReviewSource,
+  SSOLogoutResponse,
   SearchAnalytics,
   SearchAnalyticsV1AdminSearchAnalyticsGetParams,
   SourceImportRequest,
@@ -749,6 +750,30 @@ export const adminArticleReviews = async (articleId: string,
 
 
 
+export const getAdminAuthBackchannelLogoutUrl = () => {
+
+
+
+
+  return `/v1/admin/auth/backchannel-logout`
+}
+
+/**
+ * @summary Backchannel Logout
+ */
+export const adminAuthBackchannelLogout = async ( options?: Parameters<typeof adminFetch>[1]): Promise<void> => {
+
+  return adminFetch<void>(getAdminAuthBackchannelLogoutUrl(),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
 export const getAdminAuthCallbackUrl = (params?: AdminAuthCallbackParams,) => {
   const normalizedParams = new URLSearchParams();
 
@@ -876,6 +901,54 @@ export const adminAuthMe = async ( options?: Parameters<typeof adminFetch>[1]): 
   {
     ...options,
     method: 'GET'
+
+
+  }
+);}
+
+
+
+export const getAdminAuthSsoCallbackUrl = () => {
+
+
+
+
+  return `/v1/admin/auth/sso/callback`
+}
+
+/**
+ * @summary Sso Callback
+ */
+export const adminAuthSsoCallback = async ( options?: Parameters<typeof adminFetch>[1]): Promise<unknown> => {
+
+  return adminFetch<unknown>(getAdminAuthSsoCallbackUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+export const getAdminAuthSsoLogoutUrl = () => {
+
+
+
+
+  return `/v1/admin/auth/sso/logout`
+}
+
+/**
+ * @summary Sso Logout
+ */
+export const adminAuthSsoLogout = async ( options?: Parameters<typeof adminFetch>[1]): Promise<SSOLogoutResponse> => {
+
+  return adminFetch<SSOLogoutResponse>(getAdminAuthSsoLogoutUrl(),
+  {
+    ...options,
+    method: 'POST'
 
 
   }

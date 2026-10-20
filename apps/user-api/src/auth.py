@@ -9,6 +9,7 @@ import time
 from datetime import UTC, datetime
 from typing import Annotated, Literal, cast
 
+from devfeed_http import oidc_logout
 from devfeed_http.operation_policies import ExtensionTransportPolicy, ReaderGatewayPolicy
 from devfeed_http.reader_destinations import (
     parse_reader_destination,
@@ -126,6 +127,8 @@ def require_browser_user(
         raise HTTPException(401, "User session expired")
     try:
         record = json.loads(raw)
+        if not oidc_logout.active(get_redis(), "user", settings, record):
+            raise ValueError("Provider session has ended")
         user = UserIdentity.model_validate(record)
         if (
             user.expires_at <= time.time()
@@ -133,6 +136,8 @@ def require_browser_user(
             or record.get("policy") != oidc.policy_key(settings)
         ):
             raise ValueError("Expired or invalidated session")
+    except RedisError as exc:
+        raise HTTPException(503, "User sessions temporarily unavailable") from exc
     except (ValueError, TypeError, AttributeError, KeyError) as exc:
         raise HTTPException(401, "User session expired") from exc
     if request.method not in {"GET", "HEAD", "OPTIONS"}:
@@ -269,7 +274,7 @@ def callback(
             raise oidc.OIDCError("Expired identity")
         user["user_id"], created = save_user_with_status(user)
         token = secrets.token_urlsafe(32)
-        redis.set(key("session", token), json.dumps(user), ex=ttl)
+        oidc_logout.save(redis, "user", settings, key("session", token), user, ttl)
         response = RedirectResponse(str(settings.base_url).rstrip("/") + destination, 302)
         # The browser retains the server-issued token only until the fixed absolute
         # deadline. Redis independently enforces and renews the shorter idle window.
@@ -335,6 +340,8 @@ def me(request: Request):
             if not raw:
                 return None
             record = json.loads(raw)
+        if not oidc_logout.active(redis, "user", settings, record):
+            return None
         user = UserIdentity.model_validate(record)
         if user.expires_at <= now or record.get("policy") != oidc.policy_key(settings):
             return None
@@ -395,3 +402,13 @@ def logout(
     cookie(response, "state", "", 0)
     logger.info("user_signed_out")
     return response
+
+
+oidc_logout.add_routes(
+    router,
+    service="user",
+    get_settings=lambda: get_settings(),
+    get_redis=lambda: get_redis(),
+    local_logout=logout,
+    cookie=cookie,
+)

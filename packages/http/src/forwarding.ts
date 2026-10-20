@@ -41,7 +41,7 @@ export class GatewayTransport<Operation extends GatewayOperation = GatewayOperat
       const origin = this.options.webOrigin();
       const incoming = new URL(request.url);
       // Host/proxy headers do not determine callback redirects or CSRF trust.
-      if (!safe.has(operation.method)) {
+      if (!safe.has(operation.method) && policy.authentication !== "logout-token") {
         const requestOrigin = request.headers.get("origin");
         const originAllowed = this.options.originAllowed
           ? this.options.originAllowed(requestOrigin)
@@ -58,6 +58,11 @@ export class GatewayTransport<Operation extends GatewayOperation = GatewayOperat
         "if-none-match",
         "last-event-id",
       ]) {
+        if (
+          policy.authentication === "logout-token" &&
+          ["cookie", "origin", "x-csrf-token"].includes(name)
+        )
+          continue;
         let value = request.headers.get(name);
         if (name === "cookie" && value && this.options.filterCookies)
           value = this.options.filterCookies(value, operation);

@@ -79,6 +79,10 @@ const fixture = createServer(async (req, res) => {
       res.statusCode = 404;
       body = { detail: "Unknown fixture inbox operation" };
     }
+  } else if (url.pathname.endsWith("/auth/sso/logout")) {
+    assert.equal(req.method, "POST");
+    assert.equal(req.headers["x-csrf-token"], "fixture");
+    body = { url: "https://identity.example/end-session?state=admin" };
   } else if (url.pathname.endsWith("/auth/me"))
     body = {
       subject: "fixture",
@@ -723,6 +727,18 @@ try {
       2,
     ),
   );
+  const logoutPage = await context.newPage();
+  logoutPage.on("pageerror", (error) => errors.push(error.message));
+  await logoutPage.setViewportSize({ width: 1440, height: 1000 });
+  await logoutPage.goto(`http://127.0.0.1:${port}/start`);
+  await logoutPage.route("https://identity.example/**", (route) =>
+    route.fulfill({ contentType: "text/html", body: "<p>Provider logout</p>" }),
+  );
+  await logoutPage.getByRole("button", { name: /^User menu:/ }).click();
+  await logoutPage.getByText(/Also ends your SSO session/).waitFor();
+  await logoutPage.getByRole("menuitem", { name: "Sign out", exact: true }).click();
+  await logoutPage.waitForURL("https://identity.example/end-session?state=admin");
+  assert.deepEqual(errors, []);
   console.log(`Playwright overview scenarios passed. Screenshots: ${output}`);
 } catch (error) {
   console.error(logs.slice(-4000));

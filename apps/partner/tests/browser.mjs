@@ -227,6 +227,16 @@ const mock = createServer(async (request, response) => {
     response.end();
     return;
   }
+  if (path.endsWith("/auth/sso/logout")) {
+    logoutRequests.push({ method: request.method, mode });
+    assert.equal(request.headers["x-csrf-token"], "test-csrf");
+    response.writeHead(200, {
+      "Content-Type": "application/json",
+      "Set-Cookie": "devfeed_partner_session=; Max-Age=0; Path=/",
+    });
+    response.end(JSON.stringify({ url: "https://identity.example/end-session?state=partner" }));
+    return;
+  }
   if (path.endsWith("/auth/logout")) {
     logoutRequests.push({ method: request.method, mode });
     response.writeHead(204, { "Set-Cookie": "devfeed_partner_session=; Max-Age=0; Path=/" });
@@ -2417,9 +2427,12 @@ try {
   await page.goto(origin);
   await page.getByRole("heading", { name: "No partner accounts yet" }).waitFor();
   const completedLogouts = logoutRequests.length;
+  await page.route("https://identity.example/**", (route) =>
+    route.fulfill({ contentType: "text/html", body: "<p>Provider logout</p>" }),
+  );
   await page.getByRole("button", { name: "User menu: Alex Partner" }).click();
   await page.getByRole("menuitem", { name: "Sign out" }).click();
-  await page.waitForURL("**/login");
+  await page.waitForURL("https://identity.example/end-session?state=partner");
   assert.equal(
     logoutRequests.length,
     completedLogouts + 1,

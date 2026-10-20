@@ -15,8 +15,8 @@ import {
   DropdownMenuTrigger,
 } from "@devfeed/ui/dropdown-menu";
 import type { AdminIdentity } from "@/lib/api/generated/models";
-import { adminAuthLogout } from "@/lib/api/generated/admin";
-import { returnToLogin } from "@/lib/api/client";
+import { adminAuthSsoLogout } from "@/lib/api/generated/admin";
+import { ssoLogoutUrl } from "@devfeed/http/sso";
 import { notifyFailure } from "@/lib/notifications";
 
 export function UserMenu({ admin }: { admin: AdminIdentity }) {
@@ -37,8 +37,8 @@ export function UserMenu({ admin }: { admin: AdminIdentity }) {
     if (busy) return;
     setBusy(true);
     try {
-      await adminAuthLogout({ headers: { "X-CSRF-Token": admin.csrf_token } });
-      returnToLogin(true);
+      const response = await adminAuthSsoLogout({ headers: { "X-CSRF-Token": admin.csrf_token } });
+      window.location.assign(ssoLogoutUrl(response));
     } catch (error) {
       notifyFailure(error, "Could not sign out");
       setBusy(false);
@@ -101,6 +101,9 @@ export function UserMenu({ admin }: { admin: AdminIdentity }) {
           )}
           {busy ? "Signing out…" : "Sign out"}
         </DropdownMenuItem>
+        <p className="px-2 py-1 text-xs text-muted-foreground">
+          Also ends your SSO session; other apps may sign you out.
+        </p>
       </DropdownMenuContent>
     </DropdownMenu>
   );

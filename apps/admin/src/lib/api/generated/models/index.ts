@@ -501,6 +501,7 @@ export * from './sourceSubmitter';
 export * from './sourceSubmitterOut';
 export * from './sourceType';
 export * from './sponsorArticlesOut';
+export * from './sSOLogoutResponse';
 export * from './tableSettings';
 export * from './tableSettingsColumns';
 export * from './tableSettingsPatch';

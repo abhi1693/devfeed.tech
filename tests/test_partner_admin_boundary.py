@@ -12,6 +12,7 @@ from devfeed_admin_api.dependencies import get_session
 from devfeed_partner_api import portal
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
+from oidc_session_support import provider_session
 
 
 @pytest.fixture
@@ -27,6 +28,7 @@ def admin_boundary(monkeypatch):
     token = "a" * 43
     csrf = "b" * 43
     record = {
+        "provider_session": provider_session(settings, "admin"),
         "subject": "admin",
         "issuer": "https://identity.example",
         "organization_id": "org",

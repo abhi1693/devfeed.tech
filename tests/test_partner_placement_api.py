@@ -19,6 +19,7 @@ from devfeed_user_api import partner_placements as private_api
 from devfeed_user_api.config import Settings as UserSettings
 from devfeed_user_api.dependencies import get_session as private_session
 from fastapi.testclient import TestClient
+from oidc_session_support import provider_session
 from pydantic import SecretStr, ValidationError
 from redis.exceptions import RedisError
 from sqlalchemy.exc import SQLAlchemyError
@@ -54,6 +55,7 @@ def make_client(monkeypatch, private=False):
         monkeypatch.setattr(auth, "_record_activity", Mock())
         store.get.return_value = json.dumps(
             {
+                "provider_session": provider_session(settings, "reader"),
                 "subject": "reader",
                 "issuer": settings.oidc_issuer_url,
                 "organization_id": settings.oidc_organization_id,
@@ -64,6 +66,10 @@ def make_client(monkeypatch, private=False):
                 "policy": auth.oidc.policy_key(settings),
             }
         ).encode()
+        session_record = store.get.return_value
+        store.get.side_effect = lambda key: (
+            session_record if key == auth.key("session", COOKIE) else None
+        )
         headers = {
             "Cookie": f"__Host-devfeed_user_session={COOKIE}",
             "Origin": ORIGIN,

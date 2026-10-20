@@ -1,7 +1,7 @@
 "use client";
 import { flushSync } from "react-dom";
 import { LoadingSkeleton } from "./loading-skeleton";
-import { readerLoginLink, readerSignedOut } from "@/lib/reader-runtime";
+import { readerLoginLink, prepareReaderSignOut } from "@/lib/reader-runtime";
 import Link from "@/components/reader-link";
 import { Bookmark, Hash, UserRound } from "lucide-react";
 import {
@@ -197,10 +197,15 @@ export function UserProvider({
     };
   }, [refreshKey, activityRevision]);
   async function signOut() {
-    await logOut({ csrfToken: user?.csrf_token ?? "" });
-    setUser(null);
-    // Clear all rendered personal data and the client router cache on sign-out.
-    readerSignedOut();
+    const browser = prepareReaderSignOut();
+    try {
+      const url = await logOut({ csrfToken: user?.csrf_token ?? "" });
+      setUser(null);
+      browser.complete(url);
+    } catch (error) {
+      browser.cancel();
+      throw error;
+    }
   }
   return (
     <Context.Provider

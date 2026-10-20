@@ -2041,6 +2041,19 @@
         "title": "RequestDetails",
         "type": "object"
       },
+      "SSOLogoutResponse": {
+        "properties": {
+          "url": {
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": [
+          "url"
+        ],
+        "title": "SSOLogoutResponse",
+        "type": "object"
+      },
       "SearchPlacementContext": {
         "additionalProperties": false,
         "properties": {
@@ -3512,6 +3525,64 @@
         }
       }
     },
+    "/v1/user/auth/backchannel-logout": {
+      "post": {
+        "operationId": "user_auth_backchannel_logout",
+        "responses": {
+          "200": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Request validation failed"
+          },
+          "4XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Invalid or unauthorized request"
+          },
+          "5XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service or dependency unavailable"
+          }
+        },
+        "summary": "Backchannel Logout",
+        "tags": [
+          "user-auth"
+        ],
+        "x-devfeed-gateway": {
+          "authentication": "logout-token",
+          "bodyLimit": 16384,
+          "bodyTimeoutMs": 2000,
+          "cookiePolicy": "omit",
+          "extension": null,
+          "handler": "forward",
+          "upstreamTimeoutMs": 45000
+        },
+        "x-devfeed-request-body": {
+          "bodyLimit": 16384,
+          "bodyTimeoutMs": 2000,
+          "rejection": "json"
+        }
+      }
+    },
     "/v1/user/auth/callback": {
       "get": {
         "operationId": "user_auth_callback",
@@ -3912,6 +3983,126 @@
           }
         },
         "summary": "Me",
+        "tags": [
+          "user-auth"
+        ],
+        "x-devfeed-gateway": {
+          "bodyLimit": 1000000,
+          "bodyTimeoutMs": 2000,
+          "cookiePolicy": "reader",
+          "extension": {
+            "cacheControl": null,
+            "credentials": "include",
+            "requestHeaders": [
+              "Content-Type",
+              "X-CSRF-Token",
+              "If-None-Match"
+            ],
+            "timeoutMs": 15000
+          },
+          "handler": "forward",
+          "upstreamTimeoutMs": 45000
+        }
+      }
+    },
+    "/v1/user/auth/sso/callback": {
+      "get": {
+        "operationId": "user_auth_sso_callback",
+        "responses": {
+          "302": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Request validation failed"
+          },
+          "4XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Invalid or unauthorized request"
+          },
+          "5XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service or dependency unavailable"
+          }
+        },
+        "summary": "Sso Callback",
+        "tags": [
+          "user-auth"
+        ],
+        "x-devfeed-gateway": {
+          "bodyLimit": 1000000,
+          "bodyTimeoutMs": 2000,
+          "cookiePolicy": "reader",
+          "extension": null,
+          "handler": "forward",
+          "upstreamTimeoutMs": 45000
+        }
+      }
+    },
+    "/v1/user/auth/sso/logout": {
+      "post": {
+        "operationId": "user_auth_sso_logout",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SSOLogoutResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Request validation failed"
+          },
+          "4XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Invalid or unauthorized request"
+          },
+          "5XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service or dependency unavailable"
+          }
+        },
+        "summary": "Sso Logout",
         "tags": [
           "user-auth"
         ],
@@ -7323,6 +7514,58 @@
           ],
           "timeoutMs": 15000
         },
+        "handler": "forward",
+        "upstreamTimeoutMs": 45000
+      }
+    },
+    {
+      "method": "POST",
+      "operationId": "user_auth_backchannel_logout",
+      "parameters": [],
+      "path": "/v1/user/auth/backchannel-logout",
+      "policy": {
+        "authentication": "logout-token",
+        "bodyLimit": 16384,
+        "bodyTimeoutMs": 2000,
+        "cookiePolicy": "omit",
+        "extension": null,
+        "handler": "forward",
+        "upstreamTimeoutMs": 45000
+      }
+    },
+    {
+      "method": "POST",
+      "operationId": "user_auth_sso_logout",
+      "parameters": [],
+      "path": "/v1/user/auth/sso/logout",
+      "policy": {
+        "bodyLimit": 1000000,
+        "bodyTimeoutMs": 2000,
+        "cookiePolicy": "reader",
+        "extension": {
+          "cacheControl": null,
+          "credentials": "include",
+          "requestHeaders": [
+            "Content-Type",
+            "X-CSRF-Token",
+            "If-None-Match"
+          ],
+          "timeoutMs": 15000
+        },
+        "handler": "forward",
+        "upstreamTimeoutMs": 45000
+      }
+    },
+    {
+      "method": "GET",
+      "operationId": "user_auth_sso_callback",
+      "parameters": [],
+      "path": "/v1/user/auth/sso/callback",
+      "policy": {
+        "bodyLimit": 1000000,
+        "bodyTimeoutMs": 2000,
+        "cookiePolicy": "reader",
+        "extension": null,
         "handler": "forward",
         "upstreamTimeoutMs": 45000
       }

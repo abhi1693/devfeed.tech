@@ -13,6 +13,7 @@ from devfeed_user_api.config import Settings
 from fastapi import APIRouter, FastAPI, HTTPException, Request
 from fastapi.routing import APIRoute
 from fastapi.testclient import TestClient
+from oidc_session_support import provider_session
 from pydantic import ValidationError
 from redis.exceptions import RedisError
 from sqlalchemy.dialects import postgresql
@@ -60,6 +61,7 @@ def identity(monkeypatch):
     }
     browser = {
         **user,
+        "provider_session": provider_session(settings, user["subject"]),
         "name": "Reader",
         "email": None,
         "csrf_token": CSRF,
@@ -390,7 +392,7 @@ def test_browser_only_dependencies_keep_cookie_identity_and_csrf_when_a_bearer_i
         result = client.request(method, "/alias/renamed/browser", headers={**headers, **bearer()})
     assert result.status_code == 200
     assert result.json() == ordinary.json() == {"user_id": browser_id, "csrf_token": CSRF}
-    assert identity.reads == [auth.key("session", BROWSER_TOKEN)] * 2
+    assert identity.reads == browser_session_reads(identity) * 2
     assert not identity.queries
 
 
@@ -422,7 +424,7 @@ def test_browser_only_writes_keep_csrf_and_origin_checks_even_with_a_valid_agent
         result = client.put("/alias/renamed/browser", headers=headers)
     assert result.status_code == 403
     assert result.json() == {"detail": "Invalid request origin or CSRF token"}
-    assert identity.reads == [auth.key("session", BROWSER_TOKEN)]
+    assert identity.reads == browser_session_reads(identity)
     assert not identity.queries
 
 
@@ -444,3 +446,15 @@ def test_marking_an_agent_write_does_not_disable_browser_csrf_or_origin_checks(i
             headers={**headers, "Origin": WEB, "X-CSRF-Token": CSRF},
         )
     assert valid.status_code == 200 and not identity.queries
+
+
+def browser_session_reads(identity):
+    from devfeed_http import oidc_logout
+
+    prefix = oidc_logout.scope(
+        "user", identity.settings.oidc_issuer_url, identity.settings.oidc_client_id
+    )
+    return [
+        auth.key("session", BROWSER_TOKEN),
+        oidc_logout.marker(prefix, None, identity.user["subject"]),
+    ]
