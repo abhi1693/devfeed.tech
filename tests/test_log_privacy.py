@@ -42,3 +42,21 @@ def test_structured_credentials_are_removed_without_losing_status_and_correlatio
         {"key": "http.response.status_code", "value": {"intValue": 302}},
     ]
     assert payload["nested"][0]["access_token"] == "private-token"
+
+
+def test_login_recovery_and_provider_details_are_redacted():
+    value = redact_auth_text(
+        "https://auth.test/callback?code=private-code&state=private-state"
+        "&retry=private-retry&error=provider-error&error_description=private-detail"
+        "&error_uri=https%3A%2F%2Fprovider.test%2Fprivate&ref=safe-reference"
+    )
+    for sensitive in (
+        "private-code",
+        "private-state",
+        "private-retry",
+        "provider-error",
+        "private-detail",
+        "provider.test",
+    ):
+        assert sensitive not in value
+    assert "ref=safe-reference" in value

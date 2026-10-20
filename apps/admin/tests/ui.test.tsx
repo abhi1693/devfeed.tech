@@ -21,8 +21,7 @@ describe("simple admin UI", () => {
     expect(html).toContain('role="alert"');
     expect(html).not.toContain("<script>");
     expect(html).toContain('href="/api/v1/admin/auth/login?reauthenticate=true"');
-    expect(html).toContain("Sign in again");
-    expect(html).toContain("A fresh sign-in will be requested.");
+    expect(html).toContain("Try sign-in again");
   });
   it("does not replace genuine zero counts with mock data", () => {
     const html = renderToStaticMarkup(<Metric label="Topics" value={0} />);
@@ -57,4 +56,13 @@ describe("simple admin UI", () => {
     const html = renderToStaticMarkup(<LoginPanel enabled signedOut error="Service unavailable" />);
     expect(html).not.toContain("You have signed out");
   });
+});
+
+it("preserves an opaque retry context in the administrator sign-in action", () => {
+  const html = renderToStaticMarkup(
+    <LoginPanel enabled error="Sign-in was cancelled." retry={"r".repeat(43)} />,
+  );
+  expect(html).toContain(`retry=${"r".repeat(43)}`);
+  expect(html).toContain("reauthenticate=true");
+  expect(html).toContain("Try sign-in again");
 });

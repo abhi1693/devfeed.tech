@@ -10,4 +10,5 @@ import type { AdminAuthLoginProvider } from './adminAuthLoginProvider';
 export type AdminAuthLoginParams = {
 reauthenticate?: boolean;
 provider?: AdminAuthLoginProvider;
+retry?: string | null;
 };

@@ -1,5 +1,7 @@
 "use client";
 
+import { signInFailure } from "@devfeed/ui/sign-in-feedback";
+
 import Image from "next/image";
 import Link from "@/components/reader-link";
 import { useEffect, useState } from "react";
@@ -21,9 +23,11 @@ function loginHref(
 export function UserLogin({
   returnTo = "/",
   error = false,
+  retry,
 }: {
   returnTo?: string | ReaderDestination | ReaderDestinationRecord;
-  error?: boolean;
+  error?: boolean | string;
+  retry?: string;
 }) {
   const [config, setConfig] = useState<SignInConfig | null>(null);
   const [unavailable, setUnavailable] = useState(false);
@@ -45,8 +49,14 @@ export function UserLogin({
     <SignIn
       config={config}
       unavailable={unavailable}
-      error={error ? "Sign-in didn’t finish. Choose a provider to try again." : undefined}
-      loginHref={(provider) => loginHref(provider, returnTo)}
+      error={signInFailure(error)}
+      retry={Boolean(error)}
+      loginHref={(provider) => {
+        if (!retry) return loginHref(provider, returnTo);
+        const params = new URLSearchParams({ retry });
+        if (provider) params.set("provider", provider);
+        return `/api/v1/user/auth/login?${params}`;
+      }}
       unavailableMessage="Sign-in is temporarily unavailable. You can keep reading without an account."
       brand={
         <Link href="/latest" aria-label="DevFeed home">

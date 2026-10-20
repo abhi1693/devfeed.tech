@@ -9,6 +9,7 @@ import time
 from datetime import UTC, datetime
 from typing import Annotated, Literal, cast
 
+from devfeed_http import oidc_retry
 from devfeed_http.operation_policies import ExtensionTransportPolicy, ReaderGatewayPolicy
 from devfeed_http.reader_destinations import (
     parse_reader_destination,
@@ -33,7 +34,7 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from devfeed_user_api import oidc
 from devfeed_user_api.accounts import save_user_with_status, touch_user_activity
-from devfeed_user_api.config import get_settings
+from devfeed_user_api.config import Settings, get_settings
 from devfeed_user_api.dependencies import get_redis
 from devfeed_user_api.x_attribution import click_id, valid_click_id
 from devfeed_user_api.x_conversions import send_signup_conversion
@@ -94,6 +95,17 @@ def cookie(response: Response, kind: str, value: str, ttl: int) -> None:
         secure=settings.cookie_secure,
         samesite="lax",
         path="/",
+    )
+
+
+def _recovery(request: Request, settings: Settings) -> oidc_retry.Recovery:
+    return oidc_retry.Recovery(
+        base_url=str(settings.base_url),
+        browser=request.cookies.get(oidc.cookie_name(settings, "state"), ""),
+        policy=oidc.policy_key(settings),
+        key=key,
+        cookie=cookie,
+        redis=get_redis,
     )
 
 
@@ -194,13 +206,27 @@ def login(
     register: bool = False,
     return_to: str = "/",
     provider: Literal["github", "google"] | None = None,
+    retry: str | None = None,
 ):
     destination = parse_reader_destination(return_to)
     if destination is None:
         raise HTTPException(422, "Invalid sign-in destination")
+    destination_record = destination.as_record()
     require_config()
     settings = get_settings()
+    recovery = _recovery(request, settings)
+    recovered = False
     try:
+        context = recovery.consume(request, retry)
+        if context is not None:
+            recovered = True
+            destination = parse_reader_destination(
+                serialize_reader_destination(context.get("destination")) or ""
+            )
+            if destination is None:
+                raise oidc_retry.ExpiredRetry()
+            destination_record = destination.as_record()
+            register = False
         metadata = oidc.discovery(settings)
         provider_id = getattr(settings, f"oidc_{provider}_idp_id") if provider is not None else None
         if provider is not None and not provider_id:
@@ -208,14 +234,18 @@ def login(
         location, flow = oidc.start(
             settings, metadata, register=register, identity_provider_id=provider_id
         )
-        flow["destination"] = destination.as_record()
+        flow["destination"] = destination_record
         if settings.x_pixel_enabled:
             captured = click_id(request.cookies, secure=settings.cookie_secure)
             if captured:
                 flow["x_click_id"] = captured
         get_redis().set(key("flow", flow["state"]), json.dumps(flow), ex=oidc.FLOW_TTL)
+    except oidc_retry.ExpiredRetry:
+        return recovery.response("login_expired")
     except (oidc.OIDCError, RedisError) as exc:
         logger.warning("user_login_unavailable", extra={"error_type": type(exc).__name__})
+        if recovered:
+            return recovery.unavailable(destination=destination_record)
         raise HTTPException(503, "User sign-in temporarily unavailable") from exc
     response = RedirectResponse(location, status_code=302)
     # Each browser can have one outstanding flow. A subsequent login supersedes it.
@@ -235,14 +265,16 @@ def callback(
     settings = get_settings()
     failure = "login_failed"
     bound_flow = False
+    recovery = _recovery(request, settings)
+    redis = None
+    retry_destination = None
     try:
         state = params.state or ""
-        browser = request.cookies.get(oidc.cookie_name(settings, "state"), "")
         redis = get_redis()
         flow = oidc.consume_callback_flow(
             query_params=request.query_params,
             state=state,
-            browser=browser,
+            browser=recovery.browser,
             redis=redis,
             flow_key=key("flow", state),
             policy=oidc.policy_key(settings),
@@ -251,6 +283,7 @@ def callback(
         destination = serialize_reader_destination(flow.get("destination"))
         if destination is None:
             raise oidc.OIDCError("Invalid sign-in destination")
+        retry_destination = flow["destination"]
         # A browser-validated sign-in replaces its previous local identity,
         # even if the new identity fails validation. Never do this for an
         # unbound/replayed callback: that would allow forced logout by URL.
@@ -285,13 +318,19 @@ def callback(
                 conversion_time=datetime.now(UTC),
             )
     except (oidc.OIDCError, RedisError, SQLAlchemyError, ValueError, KeyError, TypeError) as exc:
-        logger.warning("user_login_failed", extra={"error_type": type(exc).__name__})
-        response = RedirectResponse(
-            str(settings.base_url).rstrip("/") + f"/login?error={failure}", 302
+        return recovery.failed_callback(
+            exc,
+            redis=redis,
+            logger=logger,
+            event="user_login_failed",
+            bound_flow=bound_flow,
+            reason=failure,
+            destination=retry_destination,
+            retry_allowed=retry_destination is not None,
+            dependency_errors=(SQLAlchemyError,),
         )
-        if bound_flow:
-            cookie(response, "session", "", 0)
-    cookie(response, "state", "", 0)
+    if bound_flow:
+        cookie(response, "state", "", 0)
     return response
 
 

@@ -25,6 +25,7 @@ const web = [
   command("node", "apps/web/tests/browser/home-entry.mjs"),
   command("node", "apps/web/tests/browser/structured-data.mjs"),
   command("node", "--test", "apps/web/tests/browser/feed.mjs"),
+  command("node", "--test", "apps/web/tests/browser/login-recovery.mjs"),
   command("node", "apps/web/tests/browser/telemetry.mjs"),
   command("node", "apps/web/tests/browser/x-attribution.mjs"),
   command("node", "apps/web/tests/browser/profile.mjs"),
@@ -141,10 +142,10 @@ test("isolated suites execute only their complete commands and required browser 
   }
 });
 
-test("the original 17 commands belong to exactly one suite, with explicit partner prerequisites", () => {
+test("all 18 browser commands belong to exactly one suite, with explicit partner prerequisites", () => {
   const originals = [...web, ...chrome, ...edge, ...partnerPrograms];
-  assert.equal(originals.length, 17);
-  assert.equal(new Set(originals.map((value) => JSON.stringify(value))).size, 17);
+  assert.equal(originals.length, 18);
+  assert.equal(new Set(originals.map((value) => JSON.stringify(value))).size, 18);
   assert.deepEqual(partnerBuilds, [
     web[1],
     command("npm", "run", "extension:build"),
@@ -158,7 +159,7 @@ test("the default local entry runs every suite sequentially without losing origi
     const result = await execute(t, args);
     assert.equal(result.status, 0, result.stderr);
     assert.deepEqual(result.commands, expected);
-    assert.equal(result.commands.length, 21, "17 original commands, three prerequisites, install");
+    assert.equal(result.commands.length, 22, "18 browser commands, three prerequisites, install");
   }
 });
 
