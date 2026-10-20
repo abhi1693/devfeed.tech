@@ -34,7 +34,7 @@ from sqlalchemy.exc import SQLAlchemyError
 
 from devfeed_user_api import oidc
 from devfeed_user_api.accounts import save_user_with_status, touch_user_activity
-from devfeed_user_api.config import get_settings
+from devfeed_user_api.config import Settings, get_settings
 from devfeed_user_api.dependencies import get_redis
 from devfeed_user_api.x_attribution import click_id, valid_click_id
 from devfeed_user_api.x_conversions import send_signup_conversion
@@ -95,6 +95,17 @@ def cookie(response: Response, kind: str, value: str, ttl: int) -> None:
         secure=settings.cookie_secure,
         samesite="lax",
         path="/",
+    )
+
+
+def _recovery(request: Request, settings: Settings) -> oidc_retry.Recovery:
+    return oidc_retry.Recovery(
+        base_url=str(settings.base_url),
+        browser=request.cookies.get(oidc.cookie_name(settings, "state"), ""),
+        policy=oidc.policy_key(settings),
+        key=key,
+        cookie=cookie,
+        redis=get_redis,
     )
 
 
@@ -207,14 +218,7 @@ def login(
     destination_record = destination.as_record()
     require_config()
     settings = get_settings()
-    recovery = oidc_retry.Recovery(
-        base_url=str(settings.base_url),
-        browser=request.cookies.get(oidc.cookie_name(settings, "state"), ""),
-        policy=oidc.policy_key(settings),
-        key=key,
-        cookie=cookie,
-        redis=get_redis,
-    )
+    recovery = _recovery(request, settings)
     recovered = False
     try:
         context = recovery.consume(request, retry)
@@ -265,14 +269,7 @@ def callback(
     settings = get_settings()
     failure = "login_failed"
     bound_flow = False
-    recovery = oidc_retry.Recovery(
-        base_url=str(settings.base_url),
-        browser=request.cookies.get(oidc.cookie_name(settings, "state"), ""),
-        policy=oidc.policy_key(settings),
-        key=key,
-        cookie=cookie,
-        redis=get_redis,
-    )
+    recovery = _recovery(request, settings)
     redis = None
     retry_destination = None
     try:

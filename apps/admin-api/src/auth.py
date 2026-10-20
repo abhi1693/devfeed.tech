@@ -17,7 +17,7 @@ from pydantic import BaseModel
 from redis.exceptions import RedisError
 
 from devfeed_admin_api import oidc
-from devfeed_admin_api.config import get_settings
+from devfeed_admin_api.config import Settings, get_settings
 from devfeed_admin_api.dependencies import get_redis
 
 router = APIRouter(prefix="/v1/admin/auth", tags=["admin-auth"])
@@ -65,6 +65,17 @@ def cookie(response: Response, kind: str, value: str, ttl: int) -> None:
         secure=settings.admin_cookie_secure,
         samesite="lax",
         path="/",
+    )
+
+
+def _recovery(request: Request, settings: Settings) -> oidc_retry.Recovery:
+    return oidc_retry.Recovery(
+        base_url=str(settings.admin_base_url),
+        browser=request.cookies.get(oidc.cookie_name(settings, "state"), ""),
+        policy=oidc.policy_key(settings),
+        key=key,
+        cookie=cookie,
+        redis=get_redis,
     )
 
 
@@ -142,14 +153,7 @@ def login(
 ):
     require_config()
     settings = get_settings()
-    recovery = oidc_retry.Recovery(
-        base_url=str(settings.admin_base_url),
-        browser=request.cookies.get(oidc.cookie_name(settings, "state"), ""),
-        policy=oidc.policy_key(settings),
-        key=key,
-        cookie=cookie,
-        redis=get_redis,
-    )
+    recovery = _recovery(request, settings)
     recovered = False
     try:
         if recovery.consume(request, retry) is not None:
@@ -187,14 +191,7 @@ def callback(request: Request, params: Annotated[OIDCCallbackQuery, Query()]) ->
     settings = get_settings()
     failure = "login_failed"
     bound_flow = False
-    recovery = oidc_retry.Recovery(
-        base_url=str(settings.admin_base_url),
-        browser=request.cookies.get(oidc.cookie_name(settings, "state"), ""),
-        policy=oidc.policy_key(settings),
-        key=key,
-        cookie=cookie,
-        redis=get_redis,
-    )
+    recovery = _recovery(request, settings)
     redis = None
     try:
         state = params.state or ""
