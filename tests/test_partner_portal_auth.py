@@ -254,7 +254,7 @@ def test_partner_login_requests_partner_role_and_isolates_sessions(oidc_app, rol
 def test_untrusted_or_conflicting_grants_cannot_enter(oidc_app, claims, info):
     oidc_app.claims.update(claims)
     oidc_app.info.update(info)
-    assert "/login?error=" in complete(oidc_app).headers["location"]
+    assert urlsplit(complete(oidc_app).headers["location"]).path == "/login"
     assert oidc_app.client.get("/v1/partner/auth/me").status_code == 401
 
 
@@ -281,7 +281,7 @@ def test_callback_replay_and_admin_cookie_do_not_authenticate(oidc_app):
     state = oidc_app
     flow = begin(state)
     assert complete(state, flow).headers["location"] == ORIGIN + "/"
-    assert "/login?error=" in complete(state, flow).headers["location"]
+    assert urlsplit(complete(state, flow).headers["location"]).path == "/login"
     token = state.client.cookies.get("__Host-devfeed_partner_session")
     state.client.cookies.clear()
     state.client.cookies.set("__Host-devfeed_admin_session", token)
@@ -293,7 +293,8 @@ def test_only_partner_role_can_complete_login(oidc_app, roles):
     state = oidc_app
     state.claims[ROLE_CLAIM] = {role: {"org-1": "org.example"} for role in roles}
     result = complete(state)
-    assert result.headers["location"] == ORIGIN + "/login?error=access_denied"
+    assert urlsplit(result.headers["location"]).path == "/login"
+    assert parse_qs(urlsplit(result.headers["location"]).query)["error"] == ["access_denied"]
     assert not state.client.cookies.get("__Host-devfeed_partner_session")
     state.register_user.assert_not_called()
     assert state.client.get("/v1/partner/auth/me").status_code == 401

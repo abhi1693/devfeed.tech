@@ -30,7 +30,16 @@ _CREDENTIAL_FIELDS = frozenset(
         "usercode",
     }
 )
-_QUERY_FIELDS = _CREDENTIAL_FIELDS | {"code", "state", "sessionstate", "relaystate"}
+_QUERY_FIELDS = _CREDENTIAL_FIELDS | {
+    "code",
+    "state",
+    "sessionstate",
+    "relaystate",
+    "retry",
+    "error",
+    "errordescription",
+    "erroruri",
+}
 _PARAMETER = re.compile(r"(^|[?&#;\s])([\w%+.-]+)=([^&#;\s\"'<>]*)")
 _USERINFO = re.compile(r"(\b[a-z][a-z0-9+.-]*://)[^/?#\s@]+@", re.IGNORECASE)
 _AUTHORIZATION = re.compile(r"(\b(?:bearer|basic)\s+)[a-z0-9._~+/-]+=*", re.IGNORECASE)

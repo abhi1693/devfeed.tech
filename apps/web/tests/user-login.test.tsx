@@ -154,3 +154,24 @@ it("accepts a typed navigation destination without reclassifying its URL in the 
     new URL(link.getAttribute("href")!, "https://devfeed.tech").searchParams.get("return_to"),
   ).toBe("/settings/notifications");
 });
+
+it.each([
+  ["login_cancelled", "Sign-in was cancelled"],
+  ["login_expired", "This sign-in expired"],
+  ["login_unavailable", "Sign-in is temporarily unavailable"],
+  ["private-provider-message", "Sign-in didn’t finish"],
+])("shows safe feedback and an explicit fresh retry for %s", async (error, message) => {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn().mockResolvedValue(Response.json({ enabled: true, providers: ["google"] })),
+  );
+  render(<UserLogin error={error} retry={"r".repeat(43)} returnTo="/latest" />);
+  const retry = await screen.findByRole("link", { name: "Try sign-in again" });
+  expect(screen.getByRole("alert").textContent).toContain(message);
+  expect(screen.getByRole("alert").textContent).not.toContain("private-provider-message");
+  const params = new URL(retry.getAttribute("href")!, "https://reader.test").searchParams;
+  expect(params.get("retry")).toBe("r".repeat(43));
+  expect(params.has("return_to")).toBe(false);
+  expect(params.has("register")).toBe(false);
+  expect(screen.getByRole("link", { name: "Google" }).getAttribute("href")).toContain("retry=");
+});

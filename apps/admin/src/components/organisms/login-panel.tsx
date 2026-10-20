@@ -11,16 +11,19 @@ export function LoginPanel({
   providers = [],
   error,
   signedOut = false,
+  retry,
 }: {
   enabled: boolean;
   providers?: SignInProvider[];
   error?: string;
   signedOut?: boolean;
+  retry?: string;
 }) {
   const freshSignIn = Boolean(error) || signedOut;
   function loginHref(provider: SignInProvider | null) {
     const params = new URLSearchParams();
     if (provider) params.set("provider", provider);
+    if (retry) params.set("retry", retry);
     if (freshSignIn) params.set("reauthenticate", "true");
     return `/api/v1/admin/auth/login${params.size ? `?${params}` : ""}`;
   }
@@ -31,6 +34,7 @@ export function LoginPanel({
         config={{ enabled, providers }}
         title="Sign in to DevFeed Admin"
         error={error}
+        retry={Boolean(error)}
         loginHref={loginHref}
         hostedLabel={error ? "Sign in again" : "Continue to sign in"}
         unavailableMessage="Sign-in is not available. Please contact your administrator."
@@ -44,12 +48,6 @@ export function LoginPanel({
         }
         notice={
           <>
-            {enabled && error && (
-              <p>
-                Try again after your access is updated, or use another account. A fresh sign-in will
-                be requested.
-              </p>
-            )}
             <p>
               Access requires the administrator role in your organization. No public registration.
             </p>

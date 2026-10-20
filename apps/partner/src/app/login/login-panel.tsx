@@ -10,15 +10,18 @@ export function LoginPanel({
   unavailable,
   error,
   signedOut = false,
+  retry,
 }: {
   config: SignInConfig | null;
   unavailable?: boolean;
   error?: string;
   signedOut?: boolean;
+  retry?: string;
 }) {
   function loginHref(provider: SignInProvider | null) {
     const params = new URLSearchParams();
     if (provider) params.set("provider", provider);
+    if (retry) params.set("retry", retry);
     if (error || signedOut) params.set("reauthenticate", "true");
     return `/api/v1/partner/auth/login${params.size ? `?${params}` : ""}`;
   }
@@ -29,6 +32,7 @@ export function LoginPanel({
         unavailable={unavailable}
         title="Sign in to DevFeed Partners"
         error={error}
+        retry={Boolean(error)}
         loginHref={loginHref}
         hostedLabel={error ? "Sign in again" : "Continue to sign in"}
         unavailableMessage="Partner sign-in is not available. Please try again shortly."

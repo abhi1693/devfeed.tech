@@ -6,9 +6,12 @@ import json
 import logging
 import secrets
 import time
+from contextlib import suppress
 from typing import Annotated, Literal, cast
 
 from devfeed_core.identity_accounts import register_verified_user
+from devfeed_http import oidc as protocol
+from devfeed_http import oidc_retry
 from devfeed_http.schemas import OIDCCallbackQuery
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, Security
 from fastapi.responses import RedirectResponse
@@ -135,10 +138,21 @@ def login(
     request: Request,
     reauthenticate: bool = False,
     provider: Literal["github", "google"] | None = None,
+    retry: str | None = None,
 ):
     require_config()
     settings = get_settings()
+    browser = request.cookies.get(oidc.cookie_name(settings, "state"), "")
+    recovered = False
     try:
+        if retry is not None:
+            if len(request.query_params.getlist("retry")) != 1:
+                raise oidc_retry.ExpiredRetry()
+            oidc_retry.consume(
+                get_redis(), key=key, token=retry, browser=browser, policy=oidc.policy_key(settings)
+            )
+            recovered = True
+            reauthenticate = True
         metadata = oidc.discovery(settings)
         provider_id = getattr(settings, f"oidc_{provider}_idp_id") if provider is not None else None
         if provider is not None and not provider_id:
@@ -147,8 +161,42 @@ def login(
             settings, metadata, reauthenticate=reauthenticate, identity_provider_id=provider_id
         )
         get_redis().set(key("flow", flow["state"]), json.dumps(flow), ex=oidc.FLOW_TTL)
+    except oidc_retry.ExpiredRetry:
+        return RedirectResponse(
+            oidc_retry.failure_url(
+                str(settings.partner_base_url),
+                reason="login_expired",
+                reference=secrets.token_urlsafe(12),
+            ),
+            302,
+            headers={"Cache-Control": "no-store", "Referrer-Policy": "no-referrer"},
+        )
     except (oidc.OIDCError, RedisError) as exc:
         logger.warning("partner_login_unavailable", extra={"error_type": type(exc).__name__})
+        if recovered:
+            try:
+                next_retry = oidc_retry.save(
+                    get_redis(),
+                    key=key,
+                    browser=browser,
+                    policy=oidc.policy_key(settings),
+                    destination=None,
+                )
+            except RedisError:
+                next_retry = None
+            response = RedirectResponse(
+                oidc_retry.failure_url(
+                    str(settings.partner_base_url),
+                    reason="login_unavailable",
+                    reference=secrets.token_urlsafe(12),
+                    retry=next_retry,
+                ),
+                302,
+                headers={"Cache-Control": "no-store", "Referrer-Policy": "no-referrer"},
+            )
+            if next_retry:
+                cookie(response, "state", browser, oidc_retry.TTL)
+            return response
         raise HTTPException(503, "Partner sign-in temporarily unavailable") from exc
     response = RedirectResponse(location, status_code=302)
     # Each browser can have one outstanding flow. A subsequent login supersedes it.
@@ -167,6 +215,8 @@ def callback(request: Request, params: Annotated[OIDCCallbackQuery, Query()]) ->
     settings = get_settings()
     failure = "login_failed"
     bound_flow = False
+    retry_token = None
+    retry_destination = None
     try:
         state = params.state or ""
         browser = request.cookies.get(oidc.cookie_name(settings, "state"), "")
@@ -206,13 +256,42 @@ def callback(request: Request, params: Annotated[OIDCCallbackQuery, Query()]) ->
         cookie(response, "session", token, ttl)
         logger.info("partner_signed_in")
     except (oidc.OIDCError, RedisError, SQLAlchemyError, ValueError, KeyError, TypeError) as exc:
-        logger.warning("partner_login_failed", extra={"error_type": type(exc).__name__})
+        if isinstance(exc, protocol.OIDCCancelled):
+            failure = "login_cancelled"
+        elif isinstance(exc, (protocol.OIDCDependencyError, RedisError)):
+            failure = "login_unavailable"
+        elif isinstance(exc, protocol.OIDCFlowUnavailable):
+            failure = "login_expired"
+        reference = secrets.token_urlsafe(12)
+        logger.warning(
+            "partner_login_failed",
+            extra={"error_type": type(exc).__name__, "reason": failure, "reference": reference},
+        )
+        if bound_flow:
+            with suppress(RedisError):
+                retry_token = oidc_retry.save(
+                    redis,
+                    key=key,
+                    browser=browser,
+                    policy=oidc.policy_key(settings),
+                    destination=retry_destination,
+                )
         response = RedirectResponse(
-            str(settings.partner_base_url).rstrip("/") + f"/login?error={failure}", 302
+            oidc_retry.failure_url(
+                str(settings.partner_base_url),
+                reason=failure,
+                reference=reference,
+                retry=retry_token,
+            ),
+            302,
+            headers={"Cache-Control": "no-store", "Referrer-Policy": "no-referrer"},
         )
         if bound_flow:
             cookie(response, "session", "", 0)
-    cookie(response, "state", "", 0)
+    if retry_token:
+        cookie(response, "state", browser, oidc_retry.TTL)
+    elif bound_flow:
+        cookie(response, "state", "", 0)
     return response
 
 

@@ -5290,6 +5290,22 @@
               ],
               "title": "Provider"
             }
+          },
+          {
+            "in": "query",
+            "name": "retry",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Retry"
+            }
           }
         ],
         "responses": {

@@ -373,7 +373,7 @@ def test_logout_blocks_an_outstanding_login_in_this_browser(oidc_app):
 def test_invalid_identities_cannot_open_a_session(oidc_app, claims):
     oidc_app.claims = claims
     response = complete(oidc_app)
-    assert response.headers["location"].endswith("/login?error=login_failed")
+    assert response.headers["location"].endswith("error=login_failed")
     assert oidc_app.client.get("/v1/user/auth/me").json() is None
     assert oidc_app.client.get("/v1/user/preferences").status_code == 401
 
@@ -396,7 +396,7 @@ def test_validated_provider_cancellation_clears_previous_local_identity(oidc_app
     complete(oidc_app)
     previous = oidc_app.client.cookies.get("__Host-devfeed_user_session")
     response = complete(oidc_app, extra={"error": "access_denied"})
-    assert response.headers["location"].endswith("error=login_failed")
+    assert response.headers["location"].endswith("error=login_cancelled")
     assert oidc_app.store.get(auth.key("session", previous)) is None
     assert oidc_app.client.get("/v1/user/auth/me").json() is None
     assert oidc_app.client.get("/v1/user/preferences").status_code == 401
@@ -416,7 +416,7 @@ def test_callback_revocation_failure_cannot_mint_a_replacement_session(oidc_app,
 
     monkeypatch.setattr(state.store, "delete", unavailable)
     response = complete(state)
-    assert response.headers["location"].endswith("error=login_failed")
+    assert response.headers["location"].endswith("error=login_unavailable")
     assert state.client.cookies.get("__Host-devfeed_user_session") is None
     assert [key for key in state.store.values if ":session:" in key] == [previous_key]
     assert sum(request.url.path == "/token" for request in state.requests) == 1
@@ -435,7 +435,7 @@ def test_callback_is_browser_bound_and_single_use(oidc_app):
     assert oidc_app.store.get(auth.key("flow", flow)) is not None
     oidc_app.client.cookies.set("__Host-devfeed_user_state", browser)
     assert complete(oidc_app, flow).headers["location"] == ORIGIN + "/"
-    assert complete(oidc_app, flow).headers["location"].endswith("error=login_failed")
+    assert complete(oidc_app, flow).headers["location"].endswith("error=login_expired")
     assert sum(request.url.path == "/token" for request in oidc_app.requests) == 1
 
 
@@ -518,7 +518,7 @@ def test_expired_login_and_session_are_rejected(oidc_app):
     key = auth.key("flow", flow)
     raw, _ = oidc_app.store.values[key]
     oidc_app.store.values[key] = (raw, 1)
-    assert complete(oidc_app, flow).headers["location"].endswith("error=login_failed")
+    assert complete(oidc_app, flow).headers["location"].endswith("error=login_expired")
     complete(oidc_app)
     token = oidc_app.client.cookies.get("__Host-devfeed_user_session")
     key = auth.key("session", token)
@@ -602,7 +602,7 @@ def test_account_storage_failure_does_not_create_session(oidc_app, monkeypatch):
 
     monkeypatch.setattr(auth, "save_user_with_status", fail)
     result = complete(oidc_app)
-    assert result.headers["location"].endswith("/login?error=login_failed")
+    assert result.headers["location"].endswith("error=login_unavailable")
     assert oidc_app.client.get("/v1/user/auth/me").json() is None
     assert oidc_app.client.get("/v1/user/preferences").status_code == 401
     assert "private database" not in result.text
@@ -801,7 +801,8 @@ def test_callback_revalidates_destination_before_identity_exchange(
         lambda identity: pytest.fail("Invalid destination persisted a user"),
     )
     result = complete(oidc_app, flow)
-    assert result.headers["location"] == ORIGIN + "/login?error=login_failed"
+    assert urlsplit(result.headers["location"]).path == "/login"
+    assert parse_qs(urlsplit(result.headers["location"]).query)["error"] == ["login_failed"]
     assert all(request.url.path != "/token" for request in oidc_app.requests)
     assert not any(":session:" in key for key in oidc_app.store.values)
 
@@ -813,7 +814,8 @@ def test_callback_does_not_accept_obsolete_unstructured_destination(oidc_app):
     record["return_to"] = "/latest"
     oidc_app.store.set(auth.key("flow", flow), json.dumps(record), ex=60)
     result = complete(oidc_app, flow)
-    assert result.headers["location"] == ORIGIN + "/login?error=login_failed"
+    assert urlsplit(result.headers["location"]).path == "/login"
+    assert parse_qs(urlsplit(result.headers["location"]).query)["error"] == ["login_failed"]
     assert all(request.url.path != "/token" for request in oidc_app.requests)
     assert not any(":session:" in key for key in oidc_app.store.values)
 
@@ -1053,7 +1055,7 @@ def test_x_signup_conversion_not_sent_if_session_creation_fails(oidc_app, monkey
         oidc_app.store, "set", lambda *args, **kwargs: (_ for _ in ()).throw(ConnectionError())
     )
     result = complete(oidc_app, flow)
-    assert result.headers["location"].endswith("/login?error=login_failed")
+    assert result.headers["location"].endswith("error=login_unavailable")
     assert sent == []
 
 

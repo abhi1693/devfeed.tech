@@ -26,6 +26,18 @@ class OIDCError(Exception):
     """Deliberately contains no provider response, URL, credentials, or token."""
 
 
+class OIDCDependencyError(OIDCError):
+    """Configured provider could not be reached; a fresh attempt may succeed."""
+
+
+class OIDCCancelled(OIDCError):
+    """The browser-bound authorization request was cancelled."""
+
+
+class OIDCFlowUnavailable(OIDCError):
+    """The login expired or was superseded; never carries recovery context."""
+
+
 def configured(settings: ProviderSettings, *, base_url: str | None) -> bool:
     return bool(
         base_url
@@ -54,7 +66,7 @@ def consume_callback_flow(
         raise OIDCError("Missing login state")
     raw = redis.get(flow_key)
     if not raw:
-        raise OIDCError("Expired login state")
+        raise OIDCFlowUnavailable("Expired login state")
     try:
         flow = json.loads(raw)
         flow_browser = flow["browser"]
@@ -62,7 +74,7 @@ def consume_callback_flow(
     except (ValueError, TypeError, KeyError) as exc:
         raise OIDCError("Invalid login state") from exc
     if not isinstance(flow_browser, str) or not hmac.compare_digest(flow_browser, browser):
-        raise OIDCError("Invalid login state")
+        raise OIDCFlowUnavailable("Invalid login state")
     if flow_policy != policy:
         raise OIDCError("Invalid login state")
     if redis.getdel(flow_key) != raw:
@@ -77,10 +89,14 @@ def validate_callback_response(
     issuer: str | None,
     expected_issuer: str | None,
 ) -> str:
-    if provider_error or not code or len(code) > 4096:
-        raise OIDCError("Authorization was not completed")
     if issuer is not None and issuer != expected_issuer:
         raise OIDCError("Authorization issuer mismatch")
+    if provider_error == "access_denied":
+        raise OIDCCancelled("Authorization cancelled")
+    if provider_error in {"temporarily_unavailable", "server_error"}:
+        raise OIDCDependencyError("Authorization unavailable")
+    if provider_error or not code or len(code) > 4096:
+        raise OIDCError("Authorization was not completed")
     return code
 
 
@@ -131,18 +147,18 @@ def request_json(method: str, url: str, **kwargs) -> dict:
             client.stream(method, url, headers={"Accept": "application/json"}, **kwargs) as res,
         ):
             if res.status_code != 200:
-                raise OIDCError("OIDC provider request failed")
+                raise OIDCDependencyError("OIDC provider request failed")
             body = bytearray()
             for chunk in res.iter_bytes():
                 body.extend(chunk)
                 if len(body) > 1_000_000:
-                    raise OIDCError("OIDC provider response too large")
+                    raise OIDCDependencyError("OIDC provider response too large")
         result = json.loads(body)
         if not isinstance(result, dict):
             raise OIDCError("Invalid OIDC provider response")
         return result
     except (httpx.HTTPError, ValueError) as exc:
-        raise OIDCError("OIDC provider request failed") from exc
+        raise OIDCDependencyError("OIDC provider request failed") from exc
 
 
 def discovery(settings: ProviderSettings) -> dict:
