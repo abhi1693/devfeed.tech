@@ -147,6 +147,12 @@ function board(url) {
   });
   return {
     as_of: now,
+    snapshot: {
+      status: "fresh",
+      generated_at: new Date().toISOString(),
+      generation: String(generation),
+      lag_seconds: 0,
+    },
     terminal_since: "2026-10-12T09:00:00Z",
     counts: Object.fromEntries(columns.map((column) => [column.stage, column.total])),
     columns,
@@ -385,6 +391,10 @@ try {
   const item = page.locator(`article[data-source-pipeline-id="${id}"]`);
   const lane = (value) => page.locator(`section[aria-labelledby="source-pipeline-${value}"]`);
   await item.waitFor();
+  await page
+    .getByRole("status")
+    .filter({ hasText: /^Updated/ })
+    .waitFor();
   // Native lane controls keep an overflowing board usable without a container tab stop.
   const pipeline = page.getByRole("region", { name: "Source lifecycle pipeline" });
   assert.equal(await pipeline.getAttribute("tabindex"), null);
@@ -645,6 +655,19 @@ try {
   assert.equal(posts.at(-1).csrf, "fixture-csrf");
   assert.equal(enabled, false);
   assert.equal(approved, false);
+  const unfocused = await context.newPage();
+  await unfocused.addInitScript(() => {
+    Object.defineProperty(Document.prototype, "hasFocus", {
+      configurable: true,
+      value: () => false,
+    });
+  });
+  await unfocused.goto(`${origin}/content/sources?view=pipeline`);
+  assert.equal(await unfocused.evaluate(() => document.hasFocus()), false);
+  await unfocused
+    .getByRole("region", { name: "Source lifecycle pipeline" })
+    .waitFor({ timeout: 5000 });
+  await unfocused.close();
   assert.deepEqual(errors, []);
   await writeFile(
     `${destination}/report.json`,

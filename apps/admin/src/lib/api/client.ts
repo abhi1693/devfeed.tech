@@ -34,6 +34,19 @@ export async function adminFetch<T>(url: string, options: RequestInit = {}): Pro
   if (!response.ok) {
     if (response.status === 503) {
       const body = await response.json().catch(() => null);
+      if (
+        ["report_refreshing", "report_rebuilding", "projection_initializing"].includes(
+          body?.detail?.code,
+        )
+      )
+        throw new ApiError(
+          response.status,
+          body.detail.code === "projection_initializing"
+            ? "Pipeline views are being prepared. Please retry shortly."
+            : "The saved report is being prepared. Please retry shortly.",
+          {},
+          body.detail.code,
+        );
       // Only this application-owned error has a public diagnostic message.
       // Other server failures retain the generic message.
       if (

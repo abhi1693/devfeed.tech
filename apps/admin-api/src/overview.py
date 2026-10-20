@@ -1,14 +1,7 @@
-import asyncio
-import time as clock
-from contextlib import suppress
 from datetime import date, datetime, time, timedelta
-from threading import BoundedSemaphore
 from typing import Annotated
 from uuid import UUID
 
-import anyio
-from devfeed_core.cache import CacheUnavailable, get_cache, record_cache_read
-from devfeed_core.config import get_settings
 from devfeed_core.models import (
     Article,
     ArticleAnalysisJob,
@@ -20,9 +13,10 @@ from devfeed_core.models import (
     TopicRelationProposal,
     utcnow,
 )
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
+from devfeed_core.read_models import ReadModelSnapshot
+from fastapi import APIRouter, Depends, Query, Response
 from pydantic import BaseModel, Field
-from sqlalchemy import func, select, text, union_all
+from sqlalchemy import func, select, union_all
 from sqlalchemy.orm import Session, sessionmaker
 from starlette.concurrency import run_in_threadpool
 
@@ -32,12 +26,6 @@ from devfeed_admin_api.overview_insights import OverviewInsights, overview_insig
 from devfeed_admin_api.reporting import reporting_sessions as session_factory
 
 router = APIRouter(prefix="/v1/admin", tags=["admin-overview"])
-REFRESH_WAIT_SECONDS = 5.0
-REFRESH_POLL_SECONDS = 0.05
-REPORT_SLOT = BoundedSemaphore(1)
-SNAPSHOT_FRESH_SECONDS = 60
-SNAPSHOT_MAX_AGE_SECONDS = 300
-SNAPSHOT_RETRY_SECONDS = 10
 
 
 class OverviewActivity(BaseModel):
@@ -68,6 +56,7 @@ class OverviewAnalysisActivity(BaseModel):
 class AdminOverview(BaseModel):
     generated_at: datetime
     days: int
+    snapshot: ReadModelSnapshot | None = None
     articles: int
     articles_pending_review: int
     articles_published: int
@@ -87,7 +76,7 @@ class AdminOverview(BaseModel):
     insights: OverviewInsights = Field(default_factory=OverviewInsights)
 
 
-def overview_metrics(session: Session, days: int) -> AdminOverview:
+def overview_metrics(session: Session, days: int, *, projected=False) -> AdminOverview:
     """Current inventory plus daily activity, bounded to a small UTC date range.
 
     Publication activity counts each article's first publication, including articles
@@ -144,36 +133,69 @@ def overview_metrics(session: Session, days: int) -> AdminOverview:
         .limit(5)
     ).mappings()
 
-    jobs = union_all(
-        select(ArticleAnalysisJob.status, ArticleAnalysisJob.finished_at),
-        select(TopicAnalysisJob.status, TopicAnalysisJob.finished_at),
-    ).subquery()
-    analysis = session.execute(
-        select(
-            func.count().filter(jobs.c.status == "queued"),
-            func.count().filter(jobs.c.status == "running"),
-            func.count().filter(
-                jobs.c.status == "succeeded", jobs.c.finished_at >= start, jobs.c.finished_at <= now
-            ),
-            func.count().filter(
-                jobs.c.status == "failed", jobs.c.finished_at >= start, jobs.c.finished_at <= now
-            ),
-        ).select_from(jobs)
-    ).one()
-    analysis_day = func.date(func.timezone("UTC", jobs.c.finished_at))
-    analysis_series = {
-        day: (succeeded, failed)
-        for day, succeeded, failed in session.execute(
-            select(
-                analysis_day,
-                func.count().filter(jobs.c.status == "succeeded"),
-                func.count().filter(jobs.c.status == "failed"),
-            )
-            .where(jobs.c.finished_at >= start, jobs.c.finished_at <= now)
-            .group_by(analysis_day)
+    if projected:
+        from devfeed_core.models import ReadModelState
+
+        from devfeed_admin_api.overview_processing import STATE_NAME
+
+        measured = [
+            job for job in insights.processing if job.kind in {"analysis", "topic-analysis"}
+        ]
+        analysis = tuple(
+            sum(getattr(job, field) for job in measured)
+            for field in ("queued", "running", "completed", "failed")
         )
-    }
-    automation = automation_metrics(session, start, now)
+        stored = session.get(ReadModelState, STATE_NAME)
+        if stored is None:
+            raise RuntimeError("Processing rollups are still rebuilding")
+        analysis_series = {
+            date.fromisoformat(day): (
+                sum(
+                    kinds.get(kind, {}).get("completed", 0)
+                    for kind in ("analysis", "topic-analysis")
+                ),
+                sum(
+                    kinds.get(kind, {}).get("failed", 0) for kind in ("analysis", "topic-analysis")
+                ),
+            )
+            for day, kinds in stored.payload["daily"].items()
+            if start.date().isoformat() <= day <= now.date().isoformat()
+        }
+    else:
+        jobs = union_all(
+            select(ArticleAnalysisJob.status, ArticleAnalysisJob.finished_at),
+            select(TopicAnalysisJob.status, TopicAnalysisJob.finished_at),
+        ).subquery()
+        analysis = session.execute(
+            select(
+                func.count().filter(jobs.c.status == "queued"),
+                func.count().filter(jobs.c.status == "running"),
+                func.count().filter(
+                    jobs.c.status == "succeeded",
+                    jobs.c.finished_at >= start,
+                    jobs.c.finished_at <= now,
+                ),
+                func.count().filter(
+                    jobs.c.status == "failed",
+                    jobs.c.finished_at >= start,
+                    jobs.c.finished_at <= now,
+                ),
+            ).select_from(jobs)
+        ).one()
+        analysis_day = func.date(func.timezone("UTC", jobs.c.finished_at))
+        analysis_series = {
+            day: (succeeded, failed)
+            for day, succeeded, failed in session.execute(
+                select(
+                    analysis_day,
+                    func.count().filter(jobs.c.status == "succeeded"),
+                    func.count().filter(jobs.c.status == "failed"),
+                )
+                .where(jobs.c.finished_at >= start, jobs.c.finished_at <= now)
+                .group_by(analysis_day)
+            )
+        }
+    automation = automation_metrics(session, start, now, projected=projected)
     return AdminOverview(
         automation=automation,
         insights=insights,
@@ -211,112 +233,20 @@ def overview_metrics(session: Session, days: int) -> AdminOverview:
 
 @router.get("/overview", response_model=AdminOverview, operation_id="admin_overview")
 async def overview(
-    request: Request,
     response: Response,
     admin: Admin,
     sessions: Annotated[sessionmaker[Session], Depends(session_factory)],
     days: int = Query(default=30, ge=1, le=90),
 ):
-    # Authentication is evaluated before cache lookup. No browser/shared HTTP caching.
-    if not get_settings().cache_enabled:
-        record_cache_read("admin_overview", "bypass", "disabled")
-        return await run_in_threadpool(load_overview, sessions, days)
-    state = request.app.state
-    now = clock.monotonic()
-    cached = state.overview_snapshots.get(days)
-    age = now - cached[0] if cached else float("inf")
-    if age < SNAPSHOT_FRESH_SECONDS:
-        record_cache_read("admin_snapshot", "hit")
-        return cached[1]
-    if age >= SNAPSHOT_MAX_AGE_SECONDS:
-        record_cache_read("admin_snapshot", "miss")
-    task = state.overview_tasks.get(days)
-    if task is None and now >= state.overview_retry_at.get(days, 0):
-        task = asyncio.create_task(refresh_snapshot(request, sessions, days))
-        state.overview_tasks[days] = task
-        # Observe exceptions even when the browser has gone away or received stale data.
-        task.add_done_callback(lambda done: None if done.cancelled() else done.exception())
-    if age < SNAPSHOT_MAX_AGE_SECONDS:
-        record_cache_read("admin_snapshot", "hit", "stale")
+    from devfeed_admin_api.overview_projection import read_report
+
+    result = await run_in_threadpool(read_report, sessions, "overview", days, AdminOverview)
+    if result.snapshot is not None and result.snapshot.status != "fresh":
         response.headers["X-Overview-Stale"] = "true"
-        response.headers["X-Overview-Age-Seconds"] = str(int(age))
-        return cached[1]
-    if task is None:
-        raise refreshing()
-    try:
-        # A cold request waits briefly; the shielded refresh continues independently.
-        return await asyncio.wait_for(asyncio.shield(task), timeout=REFRESH_WAIT_SECONDS)
-    except TimeoutError:
-        raise refreshing() from None
-
-
-async def refresh_snapshot(request, sessions, days):
-    state = request.app.state
-    try:
-        result = await cached_overview(sessions, days, clock.monotonic() + REFRESH_WAIT_SECONDS)
-        age = max(0, (utcnow() - result.generated_at).total_seconds())
-        state.overview_snapshots[days] = (clock.monotonic() - age, result)
-        state.overview_retry_at.pop(days, None)
-        return result
-    except Exception:
-        state.overview_retry_at[days] = clock.monotonic() + SNAPSHOT_RETRY_SECONDS
-        raise
-    finally:
-        state.overview_tasks.pop(days, None)
+        response.headers["X-Overview-Age-Seconds"] = str(int(result.snapshot.lag_seconds))
+    return result
 
 
 async def close_snapshot_tasks(app):
-    # Let in-flight bounded SQL finish before disposing its connections.
-    await asyncio.gather(*list(app.state.overview_tasks.values()), return_exceptions=True)
-
-
-def refreshing() -> HTTPException:
-    return HTTPException(
-        503, "Overview is refreshing. Try again shortly.", headers={"Retry-After": "2"}
-    )
-
-
-async def cached_overview(sessions: sessionmaker[Session], days: int, deadline: float):
-    cache = await run_in_threadpool(get_cache)
-    try:
-        while True:
-            lookup = await run_in_threadpool(
-                cache.lookup, f"admin-overview-v1:{days}", "admin-overview"
-            )
-            if lookup.body is not None:
-                try:
-                    return AdminOverview.model_validate_json(lookup.body)
-                except ValueError:
-                    return await run_in_threadpool(load_overview, sessions, days)
-            if lookup.token is not None:
-                break
-            remaining = deadline - clock.monotonic()
-            if remaining <= 0:
-                raise refreshing()
-            # Wait without occupying a request thread or database connection.
-            await anyio.sleep(min(REFRESH_POLL_SECONDS, remaining))
-    except CacheUnavailable:
-        return await run_in_threadpool(load_overview, sessions, days)
-    try:
-        result = await run_in_threadpool(load_overview, sessions, days)
-        with suppress(CacheUnavailable):
-            await run_in_threadpool(cache.publish, lookup, result.model_dump_json().encode(), 60)
-        return result
-    finally:
-        with suppress(CacheUnavailable):
-            await run_in_threadpool(cache.release, lookup)
-
-
-def load_overview(sessions: sessionmaker[Session], days: int) -> AdminOverview:
-    # All ranges and cache-failure paths share one report slot per process.
-    # Reject excess work without occupying request threads waiting for a pool.
-    if not REPORT_SLOT.acquire(blocking=False):
-        raise refreshing()
-    try:
-        with sessions() as session:
-            session.execute(text("SET TRANSACTION READ ONLY"))
-            session.execute(text("SET LOCAL statement_timeout = '10s'"))
-            session.execute(text("SET LOCAL idle_in_transaction_session_timeout = '10s'"))
-            return overview_metrics(session, days)
-    finally:
-        REPORT_SLOT.release()
+    # Report publication belongs to the dedicated background worker.
+    pass

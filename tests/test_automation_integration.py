@@ -35,6 +35,7 @@ from devfeed_core.topic_proposals import (
 from devfeed_core.urls import fingerprint
 from redis import Redis
 from sqlalchemy import func, select
+from test_overview_projections import save_overview
 from test_topic_analysis import pending as pending
 from test_topic_analysis import run_metadata_research
 from test_topic_relationships import catalog as catalog
@@ -382,6 +383,7 @@ def test_unverified_topic_remains_pending_and_visible_on_dashboard(
         job = session.get(TopicAnalysisJob, job_id)
         assert proposal.status == "pending" and job.status == "succeeded"
         assert "auto_approval" not in job.result  # Full identity review has not run yet.
+    save_overview(database)
     response = admin_client.get("/v1/admin/overview")
     assert response.status_code == 200, response.text
     blockers = {group["code"]: group for group in response.json()["automation"]["blockers"]}
@@ -397,7 +399,7 @@ def test_capacity_pause_is_shared_and_cannot_be_shortened(database):
 
 
 def test_relationship_blockers_match_each_proposals_own_citation(
-    admin_client, catalog, monkeypatch
+    admin_client, database, catalog, monkeypatch
 ):
     job = queue(admin_client, catalog[0])
     monkeypatch.setattr(
@@ -423,6 +425,7 @@ def test_relationship_blockers_match_each_proposals_own_citation(
             suggestion(catalog, related_topic_id=str(catalog[2]), evidence_quote="Another quote"),
         ],
     )
+    save_overview(database)
     response = admin_client.get("/v1/admin/overview")
     assert response.status_code == 200, response.text
     blockers = {item["code"]: item for item in response.json()["automation"]["blockers"]}
@@ -435,6 +438,7 @@ def test_overview_counts_actual_autonomous_publications(admin_client, database):
         _, article, topic = seed(session, mode="auto")
         job = ready(session, article, topic)
         apply_publication_policy(session, article, job)
+    save_overview(database)
     response = admin_client.get("/v1/admin/overview")
     assert response.status_code == 200, response.text
     metrics = response.json()["automation"]

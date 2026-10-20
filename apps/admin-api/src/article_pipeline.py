@@ -47,6 +47,7 @@ from devfeed_core.models import (
     Topic,
     utcnow,
 )
+from devfeed_core.read_models import ReadModelSnapshot
 from devfeed_core.schemas import DatabaseText, InputModel, ORMModel
 from devfeed_core.services import OperationConflict
 from devfeed_core.text_search import text_search
@@ -132,6 +133,7 @@ class PipelineBoard(ORMModel):
     terminal_since: datetime
     counts: dict[str, int]
     columns: list[PipelineColumn]
+    snapshot: ReadModelSnapshot | None = None
 
 
 class PipelineCheck(ORMModel):
@@ -742,6 +744,7 @@ def _board(
     group_by=None,
     source_group=None,
 ):
+    """Offline lifecycle reference; HTTP readers use indexed pipeline_reads."""
     now = utcnow()
     since = now - timedelta(days=7)
     statement = _statement(q, source_id, source_group)
@@ -834,7 +837,9 @@ def board(
     limit: Annotated[int, Query(ge=1, le=50)] = 20,
     group_by: Literal["source"] | None = None,
 ):
-    result = _board(
+    from devfeed_admin_api.pipeline_reads import article_board
+
+    result = article_board(
         session,
         q=q,
         source_id=source_id,
@@ -862,7 +867,9 @@ def column(
     group_by: Literal["source"] | None = None,
     source_group: uuid.UUID | Literal["unknown"] | None = None,
 ):
-    result = _board(
+    from devfeed_admin_api.pipeline_reads import article_board
+
+    result = article_board(
         session,
         q=q,
         source_id=source_id,

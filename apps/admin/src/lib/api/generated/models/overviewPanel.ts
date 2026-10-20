@@ -7,6 +7,7 @@
  */
 import type { OverviewInsights } from './overviewInsights';
 import type { OverviewPanelAutomation } from './overviewPanelAutomation';
+import type { ReadModelSnapshot } from './readModelSnapshot';
 
 export interface OverviewPanel {
   articles_pending_review?: number;
@@ -15,6 +16,7 @@ export interface OverviewPanel {
   generated_at: string;
   insights?: OverviewInsights;
   relationship_proposals_pending?: number;
+  snapshot?: ReadModelSnapshot | null;
   sources_failing?: number;
   sources_pending_review?: number;
   topic_proposals_pending?: number;

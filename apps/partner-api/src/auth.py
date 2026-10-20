@@ -25,6 +25,17 @@ from devfeed_partner_api.dependencies import get_redis
 router = APIRouter(prefix="/v1/partner/auth", tags=["partner-auth"])
 logger = logging.getLogger(__name__)
 TOKEN = oidc.TOKEN
+IDENTITY_REGISTRATION_VERSION = 1
+# Update an existing session without extending its lifetime or restoring a session
+# removed by logout while the legacy identity backfill was using the database.
+REGISTERED_SESSION = """
+local current = redis.call('GET', KEYS[1])
+if not current then return 0 end
+if cjson.decode(current).identity_registration_version == tonumber(ARGV[3]) then return 1 end
+if current ~= ARGV[1] then return 0 end
+redis.call('SET', KEYS[1], ARGV[2], 'KEEPTTL')
+return 1
+"""
 session_cookie = APIKeyCookie(
     name="__Host-devfeed_partner_session",
     auto_error=False,
@@ -117,6 +128,7 @@ def require_partner(
             or not hmac.compare_digest(supplied, partner.csrf_token)
         ):
             raise HTTPException(403, "Invalid request origin or CSRF token")
+    request.state.partner_session = (key("session", token), raw, record)
     return partner
 
 
@@ -227,6 +239,7 @@ def callback(request: Request, params: Annotated[OIDCCallbackQuery, Query()]) ->
         if ttl <= 0:
             raise oidc.OIDCError("Expired identity")
         register_verified_user(partner)
+        partner["identity_registration_version"] = IDENTITY_REGISTRATION_VERSION
         token = secrets.token_urlsafe(32)
         oidc_logout.save(redis, "partner", settings, key("session", token), partner, ttl)
         response = RedirectResponse(str(settings.partner_base_url).rstrip("/") + "/", 302)
@@ -247,12 +260,25 @@ def callback(request: Request, params: Annotated[OIDCCallbackQuery, Query()]) ->
 
 
 @router.get("/me", response_model=PartnerIdentity, operation_id="partner_auth_me")
-def me(partner: Partner):
-    # Existing sessions predate account registration. The portal's authenticated
-    # identity request makes those users discoverable without requiring reader login.
+def me(request: Request, partner: Partner):
+    session_key, raw, record = request.state.partner_session
+    if record.get("identity_registration_version") == IDENTITY_REGISTRATION_VERSION:
+        return partner
+    # Backfill pre-existing sessions once. Registration materializes a verified
+    # identity; current account membership is still checked on every account read.
     try:
         register_verified_user(partner.model_dump())
-    except SQLAlchemyError as exc:
+        registered = {**record, "identity_registration_version": IDENTITY_REGISTRATION_VERSION}
+        if not get_redis().eval(
+            REGISTERED_SESSION,
+            1,
+            session_key,
+            raw,
+            json.dumps(registered),
+            IDENTITY_REGISTRATION_VERSION,
+        ):
+            raise HTTPException(503, "Partner session changed; retry")
+    except (SQLAlchemyError, RedisError) as exc:
         raise HTTPException(503, "Could not register partner user; retry") from exc
     return partner
 

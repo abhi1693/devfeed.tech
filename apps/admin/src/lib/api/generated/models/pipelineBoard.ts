@@ -7,10 +7,12 @@
  */
 import type { PipelineBoardCounts } from './pipelineBoardCounts';
 import type { PipelineColumn } from './pipelineColumn';
+import type { ReadModelSnapshot } from './readModelSnapshot';
 
 export interface PipelineBoard {
   as_of: string;
   columns: PipelineColumn[];
   counts: PipelineBoardCounts;
+  snapshot?: ReadModelSnapshot | null;
   terminal_since: string;
 }

@@ -4,6 +4,7 @@ import { notifyFailure } from "./notifications";
 import { ApiError, returnToLogin } from "./api/client";
 import { usePolling } from "@devfeed/ui/use-polling";
 import { runWhenPageActive } from "@devfeed/ui/page-activity";
+import { readRequest } from "./read-request";
 
 export function useRequest<T>(
   key: string,
@@ -30,7 +31,7 @@ export function useRequest<T>(
           previous?.key === key ? { ...previous, refreshing: true } : previous,
         );
       try {
-        const data = await load(signal);
+        const data = await readRequest(signal, load);
         if (!signal.aborted && pending.current === signal) {
           failed.current = false;
           setState({ key, data });
@@ -66,12 +67,15 @@ export function useRequest<T>(
   useEffect(() => {
     unauthorized.current = false;
     let complete = false;
-    return runWhenPageActive((signal) => {
-      if (complete) return;
-      void refresh(signal).then(() => {
-        if (!signal.aborted) complete = true;
-      });
-    });
+    return runWhenPageActive(
+      (signal) => {
+        if (complete) return;
+        void refresh(signal).then(() => {
+          if (!signal.aborted) complete = true;
+        });
+      },
+      { requireFocus: false },
+    );
   }, [refresh, refreshKey]);
   usePolling((signal) => refresh(signal, true), pollInterval, key);
   return state?.key === key

@@ -205,56 +205,29 @@ def test_personalization_issues_are_bounded_and_do_not_include_empty_accounts(da
         assert result.personalization.issues[0].issue == "Refresh overdue"
 
 
-def test_overview_cache_is_private_scoped_by_range_and_expires(database, admin_client, monkeypatch):
-    from devfeed_admin_api import overview
-    from devfeed_core.cache import ResponseCache
-    from devfeed_core.config import get_settings
-    from test_api_query_budgets import profile_request
-    from test_cache import MemoryRedis
-
-    monkeypatch.setattr(get_settings(), "cache_enabled", True)
-    store = ResponseCache(MemoryRedis(), "overview-test")
-    monkeypatch.setattr(overview, "get_cache", lambda: store)
-    first = admin_client.get("/v1/admin/overview?days=7")
-    assert first.status_code == 200 and first.headers["cache-control"] == "no-store"
-    report, cached = profile_request(admin_client, "/v1/admin/overview?days=7", 0, 1)
-    assert report["queries"] == 0 and cached == first.json()
-    from devfeed_admin_api import auth
-    from devfeed_admin_api.config import Settings
-    from devfeed_admin_api.main import create_app
-    from fastapi.testclient import TestClient
-
-    auth_settings = Settings(
-        _env_file=None,
-        admin_base_url="https://admin.example",
-        oidc_issuer_url="https://identity.example",
-        oidc_client_id="admin-client",
-        oidc_organization_id="integration-org",
-    )
-    monkeypatch.setattr(auth, "get_settings", lambda: auth_settings)
-    with TestClient(create_app()) as anonymous:
-        assert anonymous.get("/v1/admin/overview?days=7").status_code == 401
-    assert admin_client.get("/v1/admin/overview?days=30").json()["days"] == 30
-    store.redis.now += 61
-    admin_client.app.state.overview_snapshots.clear()
-    report, _ = profile_request(admin_client, "/v1/admin/overview?days=7", 45, 1)
-    assert report["queries"] > 0
-
-
-def test_overview_cache_does_not_start_duplicate_aggregate_work(
+def test_overview_saved_reports_are_private_and_scoped_by_range(
     database, admin_client, monkeypatch
 ):
-    from devfeed_admin_api import overview
-    from devfeed_core.cache import ResponseCache
-    from devfeed_core.config import get_settings
-    from test_cache import MemoryRedis
+    from devfeed_admin_api import auth, overview
+    from test_overview_projections import save_overview
 
-    monkeypatch.setattr(get_settings(), "cache_enabled", True)
-    store = ResponseCache(MemoryRedis(), "overview-test")
-    monkeypatch.setattr(overview, "get_cache", lambda: store)
-    store.lookup("admin-overview-v1:7", "admin-overview")
-    response = admin_client.get("/v1/admin/overview?days=7")
-    assert response.status_code == 503 and response.headers["retry-after"] == "2"
+    save_overview(database, 7)
+    save_overview(database, 30)
+    monkeypatch.setattr(
+        overview, "overview_metrics", lambda *_: pytest.fail("GET calculated report")
+    )
+    for days in (7, 30):
+        response = admin_client.get(f"/v1/admin/overview?days={days}")
+        assert response.status_code == 200 and response.json()["days"] == days
+        assert response.headers["cache-control"] == "no-store"
+    from devfeed_admin_api.auth import require_admin
+
+    monkeypatch.setattr(auth, "require_config", lambda: None)
+    override = admin_client.app.dependency_overrides.pop(require_admin)
+    try:
+        assert admin_client.get("/v1/admin/overview?days=7").status_code == 401
+    finally:
+        admin_client.app.dependency_overrides[require_admin] = override
 
 
 def test_daily_readers_deduplicate_articles_hours_and_upgrade_old_rollups(database):

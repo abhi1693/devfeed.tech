@@ -128,10 +128,10 @@ it("cancels old date-range requests and ignores their late results", async () =>
   );
 });
 
-it("automatically retries an in-progress chart response", async () => {
+it("shows report preparation immediately and waits for the saved refresh interval", async () => {
   vi.useFakeTimers();
   vi.mocked(adminOverviewPanel)
-    .mockRejectedValueOnce(new ApiError(503))
+    .mockRejectedValueOnce(new ApiError(503, undefined, {}, "report_refreshing"))
     .mockResolvedValue(populatedOverview);
   render(
     <RefreshSettings>
@@ -141,9 +141,12 @@ it("automatically retries an in-progress chart response", async () => {
     </RefreshSettings>,
   );
   await act(async () => {});
+  expect(screen.getByText("The saved publications report is being prepared.")).toBeTruthy();
   await act(async () => {
     await vi.advanceTimersByTimeAsync(2000);
   });
+  expect(adminOverviewPanel).toHaveBeenCalledTimes(1);
+  await act(() => vi.advanceTimersByTimeAsync(8000));
   expect(screen.getByText("Loaded")).toBeTruthy();
   expect(adminOverviewPanel).toHaveBeenCalledTimes(2);
 });
@@ -168,6 +171,45 @@ it("retains the last successful result when that chart refresh fails", async () 
   );
   await screen.findByRole("alert");
   expect(screen.getByText("Saved chart")).toBeTruthy();
+});
+
+it("does not silently retry an unavailable reporting service", async () => {
+  vi.useFakeTimers();
+  vi.mocked(adminOverviewPanel).mockRejectedValue(new ApiError(503));
+  render(
+    <RefreshSettings>
+      <OverviewPanel panel="publications" title="Publications" days={30} refresh={0}>
+        {() => <div>Loaded</div>}
+      </OverviewPanel>
+    </RefreshSettings>,
+  );
+  await act(async () => {});
+  expect(screen.getByRole("alert").textContent).toContain("Could not update publications");
+  await act(() => vi.advanceTimersByTimeAsync(9999));
+  expect(adminOverviewPanel).toHaveBeenCalledTimes(1);
+});
+
+it("shows a bounded deadline for a stalled report", async () => {
+  vi.useFakeTimers();
+  vi.mocked(adminOverviewPanel).mockImplementation(
+    (_panel, _params, options) =>
+      new Promise((_resolve, reject) => {
+        options!.signal!.addEventListener("abort", () => reject(options!.signal!.reason), {
+          once: true,
+        });
+      }),
+  );
+  render(
+    <RefreshSettings>
+      <OverviewPanel panel="publications" title="Publications" days={30} refresh={0}>
+        {() => <div>Loaded</div>}
+      </OverviewPanel>
+    </RefreshSettings>,
+  );
+  await act(async () => {});
+  await act(() => vi.advanceTimersByTimeAsync(15_000));
+  expect(screen.getByRole("alert").textContent).toContain("Loading publications took too long");
+  expect(screen.getByRole("button", { name: "Try again" })).toBeTruthy();
 });
 
 it("groups charts into named sections without header refresh controls", async () => {

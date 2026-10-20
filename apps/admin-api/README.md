@@ -5,13 +5,18 @@ package. Source files live directly under `src`, mapped to `devfeed_admin_api`.
 
 See [configuration, authentication, service boundaries and commands](../../docs/admin.md).
 
+Pipeline and Overview pages use [durable read models](READ_MODELS.md). That guide
+covers change capture, dedicated workers, freshness, rollout requirements, and
+reproducible performance checks above production data counts.
+
 The source lifecycle board is available at `GET /v1/admin/source-pipeline`;
 `GET /columns/{stage}` pages one lane with an integer `cursor`. Both accept `q`,
 `source_type`, `needs_attention`, `limit` (20 by default, at most 50), and
 `terminal_since` (seven days by default, at most 90 days). Pending work and active
 jobs remain visible regardless of age. Running cards come first, followed by
 oldest waiting work; terminal lanes show the latest durable activity first.
-Counts cover the entire filtered population, with evidence loaded in bounded batches.
+Counts cover the entire filtered projection. Workers load evidence in bounded
+batches; board reads do not load article bodies or job history.
 
 Cards use `source:{id}` or `candidate:{id}` keys. Linked discovery candidates appear
 under their Source once; unlinked candidates remain visible. Read-only details at

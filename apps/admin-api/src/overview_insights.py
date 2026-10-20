@@ -393,6 +393,11 @@ def sources_performance(session, start, now):
 
 
 def processing(session, start, now):
+    from devfeed_admin_api.overview_processing import processing_facts
+
+    facts = processing_facts(session, start, now)
+    if facts is not None:
+        return [OverviewProcessing(**row) for row in facts]
     statements = []
     for kind, definition in JOB_DEFINITIONS.items():
         model = definition.model

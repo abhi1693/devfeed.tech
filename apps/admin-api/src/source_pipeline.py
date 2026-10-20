@@ -11,6 +11,7 @@ from typing import Annotated, Literal
 
 from devfeed_core.json_types import JsonValue
 from devfeed_core.models import Source, SourceCandidate, SourceReview, utcnow
+from devfeed_core.read_models import ReadModelSnapshot
 from devfeed_core.schemas import DatabaseText, InputModel, ORMModel
 from devfeed_core.source_lifecycle import (
     SourceLifecycleFacts,
@@ -106,6 +107,7 @@ class SourcePipelineBoard(ORMModel):
     terminal_since: datetime
     counts: dict[SourcePipelineStage, int]
     columns: list[SourcePipelineColumn]
+    snapshot: ReadModelSnapshot | None = None
 
 
 class SourcePipelineCheck(ORMModel):
@@ -320,6 +322,7 @@ def _columns(
     stage: SourcePipelineStage | None = None,
     cursor: int = 0,
 ) -> list[SourcePipelineColumn]:
+    """Offline lifecycle reference; HTTP readers use indexed pipeline_reads."""
     stages = (stage,) if stage is not None else STAGES
     totals = {key: 0 for key in stages}
     buffers: dict[SourcePipelineStage, list[SourcePipelineCard]] = {key: [] for key in stages}
@@ -400,13 +403,17 @@ def _detail(session, facts: SourceLifecycleFacts) -> SourcePipelineDetail:
 
 @router.get("", response_model=SourcePipelineBoard, operation_id="admin_source_pipeline")
 def board(session: DB, query: PipelineQuery):
+    from devfeed_admin_api.pipeline_reads import serving_projection, source_columns
+
     now = utcnow()
-    columns = _columns(session, query, now)
+    policy, snapshot = serving_projection(session)
+    columns = source_columns(session, query, now, policy=policy)
     result = SourcePipelineBoard(
         as_of=now,
         terminal_since=query.terminal_since,
         counts={column.stage: column.total for column in columns},
         columns=columns,
+        snapshot=snapshot,
     )
     session.close()
     return result
@@ -423,7 +430,9 @@ def column(
     query: PipelineQuery,
     cursor: int = Query(0, ge=0, le=MAX_CURSOR),
 ):
-    result = _columns(session, query, utcnow(), stage=stage, cursor=cursor)[0]
+    from devfeed_admin_api.pipeline_reads import source_columns
+
+    result = source_columns(session, query, utcnow(), stage=stage, cursor=cursor)[0]
     session.close()
     return result
 

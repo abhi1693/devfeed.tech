@@ -432,6 +432,8 @@ export * from './publicationPolicyUpdate';
 export * from './publicationPolicyUpdateMode';
 export * from './quality';
 export * from './queueOut';
+export * from './readModelSnapshot';
+export * from './readModelSnapshotStatus';
 export * from './recoveryRequest';
 export * from './recoveryResult';
 export * from './recoveryResultDecision';

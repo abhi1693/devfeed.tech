@@ -851,6 +851,20 @@ class ArticleTopic(Base):
 
 class ArticleReview(Base):
     __tablename__ = "article_reviews"
+    __table_args__ = (
+        Index(
+            "ix_article_reviews_manual_publication",
+            "article_id",
+            "created_at",
+            postgresql_where=text("automation = '{}'::jsonb"),
+        ),
+        Index(
+            "ix_article_reviews_automatic_publication",
+            "article_id",
+            "created_at",
+            postgresql_where=text("action = 'publish' AND automation <> '{}'::jsonb"),
+        ),
+    )
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
     article_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("articles.id", ondelete="CASCADE"), index=True
@@ -2417,3 +2431,140 @@ for _target in (TopicAnalysisJob.topic_id, TopicAnalysisJob.proposal_id):
         TopicAnalysisJob.id,
         postgresql_where=_target.is_not(None),
     )
+
+
+class PipelineProjection(Base):
+    """Disposable operator read model; durable entities retain mutation authority."""
+
+    __tablename__ = "pipeline_projections"
+    __table_args__ = (
+        CheckConstraint(
+            "kind IN ('article','source','candidate')", name="ck_pipeline_projection_kind"
+        ),
+    )
+
+    policy_version: Mapped[str] = mapped_column(String(100), primary_key=True)
+    kind: Mapped[str] = mapped_column(String(20), primary_key=True)
+    entity_id: Mapped[uuid.UUID] = mapped_column(primary_key=True)
+    payload: Mapped[dict] = mapped_column(JSONB, default=dict, server_default="{}")
+    stage: Mapped[str] = mapped_column(String(30))
+    state: Mapped[str] = mapped_column(String(20))
+    source_id: Mapped[uuid.UUID | None] = mapped_column()
+    source_name: Mapped[str | None] = mapped_column(String(200))
+    search_text: Mapped[str] = mapped_column(Text, default="", server_default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    activity_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    terminal_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    has_active_work: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
+    next_transition_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    evaluated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+Index(
+    "ix_pipeline_projection_lane",
+    PipelineProjection.policy_version,
+    PipelineProjection.kind,
+    PipelineProjection.stage,
+    # Preserve PostgreSQL's reflected CASE layout for Alembic expression comparison.
+    text("(\nCASE\n    WHEN state::text = 'running'::text THEN 0\n    ELSE 1\nEND)"),
+    PipelineProjection.created_at,
+    PipelineProjection.entity_id,
+)
+Index(
+    "ix_pipeline_projection_source",
+    PipelineProjection.policy_version,
+    PipelineProjection.kind,
+    PipelineProjection.source_id,
+    PipelineProjection.stage,
+    PipelineProjection.state,
+)
+Index(
+    "ix_pipeline_projection_terminal",
+    PipelineProjection.policy_version,
+    PipelineProjection.kind,
+    PipelineProjection.stage,
+    PipelineProjection.terminal_at.desc(),
+    PipelineProjection.entity_id,
+)
+Index(
+    "ix_pipeline_projection_transition",
+    PipelineProjection.policy_version,
+    PipelineProjection.next_transition_at,
+    PipelineProjection.kind,
+    PipelineProjection.entity_id,
+    postgresql_where=PipelineProjection.next_transition_at.is_not(None),
+)
+
+
+class ReadModelEvent(Base):
+    """Transactional changes survive crashes, deletes, and out-of-order commits."""
+
+    __tablename__ = "read_model_events"
+    __table_args__ = (
+        CheckConstraint(
+            "kind IN ('article','source','candidate','catalog','policy',"
+            "'backfill_article','backfill_source','backfill_candidate','source_fanout')",
+            name="ck_read_model_event_kind",
+        ),
+        CheckConstraint(
+            "entity_id IS NOT NULL OR kind IN ('catalog','policy',"
+            "'backfill_article','backfill_source','backfill_candidate')",
+            name="ck_read_model_event_entity",
+        ),
+        Index("ix_read_model_event_created", "created_at", "id"),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    kind: Mapped[str] = mapped_column(String(20))
+    entity_id: Mapped[uuid.UUID | None] = mapped_column()
+    after_id: Mapped[uuid.UUID | None] = mapped_column()
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, server_default=text("now()")
+    )
+
+
+class ReadModelState(Base):
+    __tablename__ = "read_model_states"
+
+    name: Mapped[str] = mapped_column(String(100), primary_key=True)
+    payload: Mapped[dict] = mapped_column(JSONB, default=dict, server_default="{}")
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, server_default=text("now()")
+    )
+
+
+class ReportSnapshot(Base):
+    """Last complete report, independent of refresh availability or failure."""
+
+    __tablename__ = "report_snapshots"
+    __table_args__ = (CheckConstraint("days BETWEEN 1 AND 90", name="ck_report_snapshot_days"),)
+
+    group: Mapped[str] = mapped_column(String(50), primary_key=True)
+    days: Mapped[int] = mapped_column(Integer, primary_key=True)
+    payload: Mapped[dict] = mapped_column(JSONB)
+    generated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    policy_version: Mapped[str] = mapped_column(String(100))
+
+
+class ReportRefresh(Base):
+    """Durable demand and token-guarded refresh leases for report snapshots."""
+
+    __tablename__ = "report_refreshes"
+    __table_args__ = (
+        CheckConstraint("days BETWEEN 1 AND 90", name="ck_report_refresh_days"),
+        CheckConstraint("attempts >= 0", name="ck_report_refresh_attempts"),
+        Index("ix_report_refresh_due", "available_at", "group", "days"),
+    )
+
+    group: Mapped[str] = mapped_column(String(50), primary_key=True)
+    days: Mapped[int] = mapped_column(Integer, primary_key=True)
+    requested_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, server_default=text("now()")
+    )
+    available_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, server_default=text("now()")
+    )
+    lease_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    lease_token: Mapped[uuid.UUID | None] = mapped_column()
+    attempts: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    last_error: Mapped[str | None] = mapped_column(String(100))

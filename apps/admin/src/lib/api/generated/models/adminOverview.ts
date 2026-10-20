@@ -11,6 +11,7 @@ import type { OverviewAnalysis } from './overviewAnalysis';
 import type { OverviewAnalysisActivity } from './overviewAnalysisActivity';
 import type { OverviewInsights } from './overviewInsights';
 import type { OverviewTopic } from './overviewTopic';
+import type { ReadModelSnapshot } from './readModelSnapshot';
 
 export interface AdminOverview {
   activity: OverviewActivity[];
@@ -24,6 +25,7 @@ export interface AdminOverview {
   generated_at: string;
   insights?: OverviewInsights;
   relationship_proposals_pending: number;
+  snapshot?: ReadModelSnapshot | null;
   sources: number;
   sources_active: number;
   sources_failing: number;

@@ -12,6 +12,8 @@ import { usePolling } from "@devfeed/ui/use-polling";
 import { useRefreshInterval } from "@/lib/use-refresh-interval";
 import { notifyFailure } from "@/lib/notifications";
 import { DateTime } from "@/components/molecules/date-time";
+import { SnapshotStatus } from "@/components/molecules/snapshot-status";
+import { readRequest, ReadRequestTimeout } from "@/lib/read-request";
 
 export type PanelName = Parameters<typeof adminOverviewPanel>[0];
 
@@ -41,6 +43,8 @@ export function OverviewPanel({
   }, [visible]);
   const stale = data && now - Date.parse(data.generated_at) > 5 * 60_000;
   const [failed, setFailed] = useState(false);
+  const [awaitingReport, setAwaitingReport] = useState(false);
+  const [timedOut, setTimedOut] = useState(false);
   const [loading, setLoading] = useState(false);
   const request = useRef<AbortController | null>(null);
   const refreshSeconds = useRefreshInterval();
@@ -55,35 +59,24 @@ export function OverviewPanel({
       automaticSignal?.addEventListener("abort", cancel, { once: true });
       setLoading(true);
       setFailed(false);
+      setAwaitingReport(false);
+      setTimedOut(false);
       try {
-        for (let attempt = 0; ; attempt++) {
-          try {
-            const next = await overviewRequest(controller.signal, () =>
-              adminOverviewPanel(panel, { days }, { signal: controller.signal }),
-            );
-            if (!controller.signal.aborted) {
-              setCheckedAt(Date.now());
-              setData(next);
-            }
-            break;
-          } catch (error) {
-            if (controller.signal.aborted) return;
-            if (!(error instanceof ApiError) || error.status !== 503 || attempt >= 4) throw error;
-            await new Promise<void>((resolve) => {
-              const done = () => {
-                clearTimeout(timer);
-                controller.signal.removeEventListener("abort", done);
-                resolve();
-              };
-              const timer = setTimeout(done, 2000);
-              controller.signal.addEventListener("abort", done, { once: true });
-            });
-            controller.signal.throwIfAborted();
-          }
+        const next = await readRequest(controller.signal, (signal) =>
+          overviewRequest(signal, () => adminOverviewPanel(panel, { days }, { signal })),
+        );
+        if (!controller.signal.aborted) {
+          setCheckedAt(Date.now());
+          setData(next);
         }
       } catch (error) {
         if (controller.signal.aborted) return;
         setFailed(true);
+        setTimedOut(error instanceof ReadRequestTimeout);
+        setAwaitingReport(
+          error instanceof ApiError &&
+            ["report_refreshing", "report_rebuilding"].includes(error.code ?? ""),
+        );
         if (error instanceof ApiError && (error.status === 401 || error.status === 403))
           notifyFailure(error, `Could not load ${title}`);
       } finally {
@@ -148,11 +141,17 @@ export function OverviewPanel({
       ) : (
         <div
           role="status"
-          aria-label={failed ? `Unavailable ${title}` : `Loading ${title}`}
+          aria-label={
+            awaitingReport
+              ? `Preparing ${title}`
+              : failed
+                ? `Unavailable ${title}`
+                : `Loading ${title}`
+          }
           className={`${!failed && near ? "overview-shimmer" : ""} relative overflow-hidden rounded-lg border bg-card p-5 ${compact ? "h-40" : "h-80"}`}
         >
           <span className="sr-only">
-            {failed ? "Unavailable" : "Loading"} {title}
+            {awaitingReport ? "Preparing" : failed ? "Unavailable" : "Loading"} {title}
           </span>
           <div aria-hidden="true" className="space-y-6">
             <div className="h-4 w-2/3 rounded bg-muted" />
@@ -168,13 +167,20 @@ export function OverviewPanel({
           className="flex items-center justify-between gap-3 rounded-lg border p-3 text-sm"
         >
           <span>
-            Could not update {title.toLowerCase()}.
+            {awaitingReport
+              ? `The saved ${title.toLowerCase()} report is being prepared.`
+              : timedOut
+                ? `Loading ${title.toLowerCase()} took too long. Please retry.`
+                : `Could not update ${title.toLowerCase()}.`}
             {data ? " Showing the last successful result." : ""}
           </span>
           <RetryButton onRetry={() => void load()} pending={loading} />
         </div>
       )}
-      {data && (failed || stale) && (
+      {data?.snapshot && (
+        <SnapshotStatus snapshot={data.snapshot} maxAgeSeconds={300} active={visible} />
+      )}
+      {data && !data.snapshot && (failed || stale) && (
         <p className="text-xs text-amber-700 dark:text-amber-300">
           Stale data · Last successful result <DateTime value={data.generated_at} />
         </p>
