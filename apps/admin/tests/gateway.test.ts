@@ -540,3 +540,36 @@ it("allows worker registration names without allowing arbitrary proxy paths", as
   }
   expect(fetcher).toHaveBeenCalledOnce();
 });
+
+it("relays provider logout without browser origin while isolating browser credentials", async () => {
+  const fetcher = vi.fn().mockResolvedValue(new Response(null, { status: 200 }));
+  vi.stubGlobal("fetch", fetcher);
+  const response = await gateway(
+    new Request("https://admin.example/api", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/x-www-form-urlencoded",
+        Cookie: "private=session",
+        "X-CSRF-Token": "private",
+      },
+      body: "logout_token=signed-token",
+    }),
+    ["v1", "admin", "auth", "backchannel-logout"],
+  );
+  expect(response.status).toBe(200);
+  const headers = fetcher.mock.calls[0][1].headers;
+  expect(headers.get("cookie")).toBeNull();
+  expect(headers.get("origin")).toBeNull();
+  expect(headers.get("x-csrf-token")).toBeNull();
+  expect(
+    (
+      await gateway(new Request("https://admin.example/api", { method: "POST" }), [
+        "v1",
+        "admin",
+        "auth",
+        "sso",
+        "logout",
+      ])
+    ).status,
+  ).toBe(403);
+});

@@ -8,7 +8,7 @@ import secrets
 import time
 from typing import Annotated, Literal, cast
 
-from devfeed_http import oidc_retry
+from devfeed_http import oidc_logout, oidc_retry
 from devfeed_http.schemas import OIDCCallbackQuery
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, Security
 from fastapi.responses import RedirectResponse
@@ -96,9 +96,13 @@ def require_admin(
         raise HTTPException(401, "Admin session expired")
     try:
         record = json.loads(raw)
+        if not oidc_logout.active(get_redis(), "admin", settings, record):
+            raise ValueError("Provider session has ended")
         admin = AdminIdentity.model_validate(record)
         if admin.expires_at <= time.time() or record.get("policy") != oidc.policy_key(settings):
             raise ValueError("Expired or invalidated session")
+    except RedisError as exc:
+        raise HTTPException(503, "Admin sessions temporarily unavailable") from exc
     except (ValueError, TypeError, AttributeError) as exc:
         raise HTTPException(401, "Admin session expired") from exc
     if settings.admin_required_role not in admin.roles:
@@ -221,7 +225,7 @@ def callback(request: Request, params: Annotated[OIDCCallbackQuery, Query()]) ->
         if ttl <= 0:
             raise oidc.OIDCError("Expired identity")
         token = secrets.token_urlsafe(32)
-        redis.set(key("session", token), json.dumps(admin), ex=ttl)
+        oidc_logout.save(redis, "admin", settings, key("session", token), admin, ttl)
         response = RedirectResponse(str(settings.admin_base_url).rstrip("/") + "/start", 302)
         cookie(response, "session", token, ttl)
         logger.info("admin_signed_in")
@@ -293,3 +297,13 @@ def logout(
     cookie(response, "state", "", 0)
     logger.info("admin_signed_out")
     return response
+
+
+oidc_logout.add_routes(
+    router,
+    service="admin",
+    get_settings=lambda: get_settings(),
+    get_redis=lambda: get_redis(),
+    local_logout=logout,
+    cookie=cookie,
+)

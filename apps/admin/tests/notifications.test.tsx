@@ -24,7 +24,7 @@ import {
   adminArticleClassify,
   adminArticleReview,
   adminArticlePipelineDetail,
-  adminAuthLogout,
+  adminAuthSsoLogout,
   adminOverviewPanel,
   adminSourceFetch,
   adminSourceReview,
@@ -33,6 +33,14 @@ import {
 import { getRecord, listRecords } from "@/lib/resource-api";
 import { detail as sourceDetail, item as sourceCard } from "./fixtures/source-pipeline";
 
+const navigation = vi.hoisted(() => ({ assign: vi.fn() }));
+vi.mock("@devfeed/http/sso", async (load) => {
+  const actual = await load<typeof import("@devfeed/http/sso")>();
+  return {
+    ...actual,
+    navigateToSSOLogout: (value: unknown) => actual.navigateToSSOLogout(value, navigation.assign),
+  };
+});
 const router = vi.hoisted(() => ({ replace: vi.fn(), refresh: vi.fn() }));
 vi.mock("next/navigation", () => ({ useRouter: () => router }));
 vi.mock("sonner", () => ({
@@ -49,7 +57,7 @@ vi.mock("@/lib/api/generated/admin", () => ({
   adminSourceReview: vi.fn(),
   adminSourceFetch: vi.fn(),
   adminArticleClassify: vi.fn(),
-  adminAuthLogout: vi.fn(),
+  adminAuthSsoLogout: vi.fn(),
   adminOverviewPanel: vi.fn(),
   adminSourcePipelineDetail: vi.fn(),
 }));
@@ -95,6 +103,9 @@ function withAdmin(children: ReactNode) {
 }
 beforeEach(() => {
   vi.clearAllMocks();
+  vi.mocked(adminAuthSsoLogout).mockResolvedValue({
+    url: "https://identity.example/end-session?state=admin",
+  });
   vi.mocked(getRecord).mockResolvedValue(article);
   vi.mocked(listRecords).mockResolvedValue({ items: [], total: 0, limit: 25, offset: 0 });
   vi.mocked(adminArticlePipelineDetail).mockResolvedValue({
@@ -215,7 +226,7 @@ describe("authentication feedback", () => {
   });
   it("toasts failed logout and allows retry", async () => {
     const user = userEvent.setup();
-    vi.mocked(adminAuthLogout).mockRejectedValueOnce(new ApiError(503));
+    vi.mocked(adminAuthSsoLogout).mockRejectedValueOnce(new ApiError(503));
     render(<UserMenu admin={admin} />);
     await user.click(screen.getByRole("button", { name: "User menu: Alex Morgan" }));
     await user.click(screen.getByRole("menuitem", { name: "Sign out" }));
@@ -226,8 +237,13 @@ describe("authentication feedback", () => {
       screen.getByRole("menuitem", { name: "Sign out" }).getAttribute("aria-disabled"),
     ).not.toBe("true");
     expect(returnToLogin).not.toHaveBeenCalled();
+    expect(navigation.assign).not.toHaveBeenCalled();
     await user.click(screen.getByRole("menuitem", { name: "Sign out" }));
-    await waitFor(() => expect(returnToLogin).toHaveBeenCalledWith(true));
+    await waitFor(() =>
+      expect(navigation.assign).toHaveBeenCalledWith(
+        "https://identity.example/end-session?state=admin",
+      ),
+    );
   });
   it("opens the account menu with the keyboard and restores focus when dismissed", async () => {
     const user = userEvent.setup();
@@ -245,14 +261,14 @@ describe("authentication feedback", () => {
     expect(document.activeElement).toBe(
       screen.getByRole("button", { name: "User menu: Alex Morgan" }),
     );
-    expect(adminAuthLogout).not.toHaveBeenCalled();
+    expect(adminAuthSsoLogout).not.toHaveBeenCalled();
   });
   it("keeps pending logout disabled across menu closes and sends the CSRF token", async () => {
     const user = userEvent.setup();
-    let resolve!: () => void;
-    vi.mocked(adminAuthLogout).mockImplementationOnce(
+    let resolve!: (value: Awaited<ReturnType<typeof adminAuthSsoLogout>>) => void;
+    vi.mocked(adminAuthSsoLogout).mockImplementationOnce(
       () =>
-        new Promise<void>((done) => {
+        new Promise<Awaited<ReturnType<typeof adminAuthSsoLogout>>>((done) => {
           resolve = done;
         }),
     );
@@ -260,7 +276,7 @@ describe("authentication feedback", () => {
     const trigger = screen.getByRole("button", { name: "User menu: Alex Morgan" });
     await user.click(trigger);
     await user.click(screen.getByRole("menuitem", { name: "Sign out" }));
-    expect(adminAuthLogout).toHaveBeenCalledExactlyOnceWith({
+    expect(adminAuthSsoLogout).toHaveBeenCalledExactlyOnceWith({
       headers: { "X-CSRF-Token": "test-csrf" },
     });
     expect(returnToLogin).not.toHaveBeenCalled();
@@ -270,9 +286,11 @@ describe("authentication feedback", () => {
       screen.getByRole("menuitem", { name: "Signing out…" }).getAttribute("aria-disabled"),
     ).toBe("true");
     await act(async () => {
-      resolve();
+      resolve({ url: "https://identity.example/end-session?state=admin" });
     });
-    expect(returnToLogin).toHaveBeenCalledExactlyOnceWith(true);
+    expect(navigation.assign).toHaveBeenCalledExactlyOnceWith(
+      "https://identity.example/end-session?state=admin",
+    );
   });
 });
 

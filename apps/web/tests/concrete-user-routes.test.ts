@@ -121,9 +121,11 @@ describe("generated concrete reader operations", () => {
       expect(url).toBe(`http://user-api:8002${expectedPath}?offset=25`);
       expect(init.method).toBe(operation.method);
       expect(init.headers.get("cookie")).toBe(
-        operation.policy.cookiePolicy === "reader-attribution"
-          ? `${readerCookies}; _twclid=click`
-          : readerCookies,
+        operation.policy.cookiePolicy === "omit"
+          ? null
+          : operation.policy.cookiePolicy === "reader-attribution"
+            ? `${readerCookies}; _twclid=click`
+            : readerCookies,
       );
     },
   );

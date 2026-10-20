@@ -72,6 +72,9 @@ def test_partner_gateway_exposes_registered_operations_with_endpoint_owned_limit
         assert GATEWAY_POLICY_EXTENSION not in document["paths"][path]["get"]
 
     overrides = {
+        "partner_auth_backchannel_logout": GatewayPolicy(
+            authentication="logout-token", body_limit=16384
+        ),
         "partnerProductCreate": GatewayPolicy(body_limit=65536),
         "partnerProductUpdate": GatewayPolicy(body_limit=65536),
         "partnerProductArchive": GatewayPolicy(body_limit=65536),

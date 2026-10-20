@@ -109,11 +109,20 @@ function resource(operation) {
 }
 
 test("generated extension operations declare policies and omit direct OAuth exchange operations", () => {
-  assert.equal(operations.length, 78);
-  assert.equal(new Set(operations.map((operation) => operation.operationId)).size, 78);
+  assert.equal(operations.length, 79);
+  assert.equal(
+    new Set(operations.map((operation) => operation.operationId)).size,
+    operations.length,
+  );
   assert.equal(
     new Set(operations.map((operation) => `${operation.method} ${operation.path}`)).size,
-    78,
+    operations.length,
+  );
+  assert.ok(
+    operations.some(
+      (operation) =>
+        operation.operationId === "user_auth_sso_logout" && operation.method === "POST",
+    ),
   );
   for (const operation of operations) {
     assert.ok(operation.policy.extension);
@@ -127,7 +136,12 @@ test("generated extension operations declare policies and omit direct OAuth exch
   }
   assert.ok(
     !operations.some((operation) =>
-      ["user_auth_login", "user_auth_callback"].includes(operation.operationId),
+      [
+        "user_auth_login",
+        "user_auth_callback",
+        "user_auth_backchannel_logout",
+        "user_auth_sso_callback",
+      ].includes(operation.operationId),
     ),
   );
 });

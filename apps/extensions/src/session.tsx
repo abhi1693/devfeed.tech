@@ -52,3 +52,18 @@ export function AccountSession({ children }: { children: ReactNode }) {
     </UserProvider>
   );
 }
+
+export function prepareSignOut() {
+  const tab = window.open("about:blank", "_blank");
+  if (!tab) throw new Error("Could not open provider sign-out");
+  tab.opener = null;
+  return {
+    complete(url: string) {
+      tab.location.replace(url);
+      signedOut();
+    },
+    cancel() {
+      tab.close();
+    },
+  };
+}

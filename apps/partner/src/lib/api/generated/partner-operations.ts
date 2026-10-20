@@ -40,6 +40,32 @@ export const partnerGatewayOperations = {
     parameters: [],
     policy: { bodyLimit: 1000000, bodyTimeoutMs: 2000, upstreamTimeoutMs: 45000 },
   },
+  ["partner_auth_backchannel_logout"]: {
+    operationId: "partner_auth_backchannel_logout",
+    method: "POST",
+    path: "/v1/partner/auth/backchannel-logout",
+    parameters: [],
+    policy: {
+      authentication: "logout-token",
+      bodyLimit: 16384,
+      bodyTimeoutMs: 2000,
+      upstreamTimeoutMs: 45000,
+    },
+  },
+  ["partner_auth_sso_logout"]: {
+    operationId: "partner_auth_sso_logout",
+    method: "POST",
+    path: "/v1/partner/auth/sso/logout",
+    parameters: [],
+    policy: { bodyLimit: 1000000, bodyTimeoutMs: 2000, upstreamTimeoutMs: 45000 },
+  },
+  ["partner_auth_sso_callback"]: {
+    operationId: "partner_auth_sso_callback",
+    method: "GET",
+    path: "/v1/partner/auth/sso/callback",
+    parameters: [],
+    policy: { bodyLimit: 1000000, bodyTimeoutMs: 2000, upstreamTimeoutMs: 45000 },
+  },
   ["partnerProductCreate"]: {
     operationId: "partnerProductCreate",
     method: "POST",

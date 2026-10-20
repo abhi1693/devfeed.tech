@@ -18,6 +18,9 @@ GATEWAY_ROUTES_EXTENSION = "x-devfeed-gateway-routes"
 class GatewayPolicy(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid", strict=True, populate_by_name=True)
 
+    authentication: Literal["browser", "logout-token"] = Field(
+        default="browser", exclude_if=lambda value: value == "browser"
+    )
     body_limit: int = Field(default=1_000_000, gt=0, alias="bodyLimit")
     body_timeout_ms: int = Field(default=2000, gt=0, alias="bodyTimeoutMs")
     upstream_timeout_ms: int = Field(default=45_000, gt=0, alias="upstreamTimeoutMs")

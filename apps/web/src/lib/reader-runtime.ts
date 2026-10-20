@@ -13,6 +13,7 @@ type ReaderRuntime = {
   publicOrigin: string;
   location?: () => URL;
   signedOut?: () => void;
+  prepareSignOut?: () => { complete: (url: string) => void; cancel: () => void };
   reload?: (href: string) => void;
   rememberArticles?: (articles: Article[]) => void;
   navigate?: (destination: ReaderDestination, mode: ReaderNavigationMode) => void;
@@ -98,4 +99,14 @@ export function readerPaginationRequiresFocus() {
 /** Images use the website origin inside packaged readers and relative paths during SSR. */
 export function readerImageUrl(path: string) {
   return runtime ? new URL(path, runtime.publicOrigin).href : path;
+}
+
+/** Reserve an extension browser tab during the click, before awaiting logout. */
+export function prepareReaderSignOut() {
+  return (
+    runtime?.prepareSignOut?.() ?? {
+      complete: (url: string) => window.location.assign(url),
+      cancel: () => {},
+    }
+  );
 }

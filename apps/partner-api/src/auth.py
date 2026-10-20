@@ -9,7 +9,7 @@ import time
 from typing import Annotated, Literal, cast
 
 from devfeed_core.identity_accounts import register_verified_user
-from devfeed_http import oidc_retry
+from devfeed_http import oidc_logout, oidc_retry
 from devfeed_http.schemas import OIDCCallbackQuery
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, Security
 from fastapi.responses import RedirectResponse
@@ -98,9 +98,13 @@ def require_partner(
         raise HTTPException(401, "Partner session expired")
     try:
         record = json.loads(raw)
+        if not oidc_logout.active(get_redis(), "partner", settings, record):
+            raise ValueError("Provider session has ended")
         partner = PartnerIdentity.model_validate(record)
         if partner.expires_at <= time.time() or record.get("policy") != oidc.policy_key(settings):
             raise ValueError("Expired or invalidated session")
+    except RedisError as exc:
+        raise HTTPException(503, "Partner sessions temporarily unavailable") from exc
     except (ValueError, TypeError, AttributeError) as exc:
         raise HTTPException(401, "Partner session expired") from exc
     if "partner" not in partner.roles:
@@ -224,7 +228,7 @@ def callback(request: Request, params: Annotated[OIDCCallbackQuery, Query()]) ->
             raise oidc.OIDCError("Expired identity")
         register_verified_user(partner)
         token = secrets.token_urlsafe(32)
-        redis.set(key("session", token), json.dumps(partner), ex=ttl)
+        oidc_logout.save(redis, "partner", settings, key("session", token), partner, ttl)
         response = RedirectResponse(str(settings.partner_base_url).rstrip("/") + "/", 302)
         cookie(response, "session", token, ttl)
         logger.info("partner_signed_in")
@@ -302,3 +306,13 @@ def logout(
     cookie(response, "state", "", 0)
     logger.info("partner_signed_out")
     return response
+
+
+oidc_logout.add_routes(
+    router,
+    service="partner",
+    get_settings=lambda: get_settings(),
+    get_redis=lambda: get_redis(),
+    local_logout=logout,
+    cookie=cookie,
+)

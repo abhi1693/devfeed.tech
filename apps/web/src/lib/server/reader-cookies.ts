@@ -2,6 +2,8 @@ import "server-only";
 import type { GatewayCookiePolicy } from "@devfeed/http/gateway";
 
 const readerCookies = new Set([
+  "devfeed_user_logout_state",
+  "__Host-devfeed_user_logout_state",
   "devfeed_user_session",
   "__Host-devfeed_user_session",
   "devfeed_user_state",

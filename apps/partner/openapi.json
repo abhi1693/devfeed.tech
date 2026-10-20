@@ -3302,6 +3302,19 @@
         "title": "ProductPromotionOut",
         "type": "object"
       },
+      "SSOLogoutResponse": {
+        "properties": {
+          "url": {
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": [
+          "url"
+        ],
+        "title": "SSOLogoutResponse",
+        "type": "object"
+      },
       "Totals": {
         "properties": {
           "clicks": {
@@ -7090,6 +7103,61 @@
         }
       }
     },
+    "/v1/partner/auth/backchannel-logout": {
+      "post": {
+        "operationId": "partner_auth_backchannel_logout",
+        "responses": {
+          "200": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Request validation failed"
+          },
+          "4XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Invalid or unauthorized request"
+          },
+          "5XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service or dependency unavailable"
+          }
+        },
+        "summary": "Backchannel Logout",
+        "tags": [
+          "partner-auth"
+        ],
+        "x-devfeed-gateway": {
+          "authentication": "logout-token",
+          "bodyLimit": 16384,
+          "bodyTimeoutMs": 2000,
+          "upstreamTimeoutMs": 45000
+        },
+        "x-devfeed-request-body": {
+          "bodyLimit": 16384,
+          "bodyTimeoutMs": 2000,
+          "rejection": "json"
+        }
+      }
+    },
     "/v1/partner/auth/callback": {
       "get": {
         "operationId": "partner_auth_callback",
@@ -7463,6 +7531,111 @@
           }
         ],
         "summary": "Me",
+        "tags": [
+          "partner-auth"
+        ],
+        "x-devfeed-gateway": {
+          "bodyLimit": 1000000,
+          "bodyTimeoutMs": 2000,
+          "upstreamTimeoutMs": 45000
+        }
+      }
+    },
+    "/v1/partner/auth/sso/callback": {
+      "get": {
+        "operationId": "partner_auth_sso_callback",
+        "responses": {
+          "302": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Request validation failed"
+          },
+          "4XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Invalid or unauthorized request"
+          },
+          "5XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service or dependency unavailable"
+          }
+        },
+        "summary": "Sso Callback",
+        "tags": [
+          "partner-auth"
+        ],
+        "x-devfeed-gateway": {
+          "bodyLimit": 1000000,
+          "bodyTimeoutMs": 2000,
+          "upstreamTimeoutMs": 45000
+        }
+      }
+    },
+    "/v1/partner/auth/sso/logout": {
+      "post": {
+        "operationId": "partner_auth_sso_logout",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SSOLogoutResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Request validation failed"
+          },
+          "4XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Invalid or unauthorized request"
+          },
+          "5XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service or dependency unavailable"
+          }
+        },
+        "summary": "Sso Logout",
         "tags": [
           "partner-auth"
         ],
@@ -8244,6 +8417,40 @@
       "operationId": "partner_auth_logout",
       "parameters": [],
       "path": "/v1/partner/auth/logout",
+      "policy": {
+        "bodyLimit": 1000000,
+        "bodyTimeoutMs": 2000,
+        "upstreamTimeoutMs": 45000
+      }
+    },
+    {
+      "method": "POST",
+      "operationId": "partner_auth_backchannel_logout",
+      "parameters": [],
+      "path": "/v1/partner/auth/backchannel-logout",
+      "policy": {
+        "authentication": "logout-token",
+        "bodyLimit": 16384,
+        "bodyTimeoutMs": 2000,
+        "upstreamTimeoutMs": 45000
+      }
+    },
+    {
+      "method": "POST",
+      "operationId": "partner_auth_sso_logout",
+      "parameters": [],
+      "path": "/v1/partner/auth/sso/logout",
+      "policy": {
+        "bodyLimit": 1000000,
+        "bodyTimeoutMs": 2000,
+        "upstreamTimeoutMs": 45000
+      }
+    },
+    {
+      "method": "GET",
+      "operationId": "partner_auth_sso_callback",
+      "parameters": [],
+      "path": "/v1/partner/auth/sso/callback",
       "policy": {
         "bodyLimit": 1000000,
         "bodyTimeoutMs": 2000,

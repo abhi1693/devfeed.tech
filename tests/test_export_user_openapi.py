@@ -42,12 +42,12 @@ def test_reader_gateway_covers_user_operations_and_hidden_inbox_without_exposing
         for method, operation in methods.items()
         if path.startswith("/v1/user/")
     }
-    assert len(actual) == len(operations) == 64
+    assert len(actual) == len(operations) == 67
     assert len({operation["operationId"] for operation in operations}) == len(operations)
-    assert len({operation["path"] for operation in operations}) == 54
+    assert len({operation["path"] for operation in operations}) == 57
     assert Counter(operation["method"] for operation in operations) == {
-        "GET": 29,
-        "POST": 20,
+        "GET": 30,
+        "POST": 22,
         "PUT": 13,
         "DELETE": 2,
     }
@@ -98,6 +98,14 @@ def test_reader_cookie_and_body_policy_is_explicit_for_every_operation():
         },
         "user_auth_login": {**default, "cookiePolicy": "reader-attribution", "extension": None},
         "user_auth_callback": {**default, "extension": None},
+        "user_auth_sso_callback": {**default, "extension": None},
+        "user_auth_backchannel_logout": {
+            **default,
+            "authentication": "logout-token",
+            "bodyLimit": 16384,
+            "cookiePolicy": "omit",
+            "extension": None,
+        },
         "upload_avatar_v1_user_settings_profile_avatar_post": {
             **default,
             "bodyLimit": 5 * 1024 * 1024 + 65536,
@@ -126,7 +134,12 @@ def test_extension_auth_grants_keep_oidc_navigation_out_of_fetch_transport():
         for operation in operations
         if operation["policy"]["extension"] is None
     }
-    assert denied == {"user_auth_login", "user_auth_callback"}
+    assert denied == {
+        "user_auth_login",
+        "user_auth_callback",
+        "user_auth_sso_callback",
+        "user_auth_backchannel_logout",
+    }
     auth = [operation for operation in operations if operation["path"].startswith("/v1/user/auth/")]
     assert [operation["operationId"] for operation in operations[:5]] == [
         "user_auth_config",
@@ -139,8 +152,13 @@ def test_extension_auth_grants_keep_oidc_navigation_out_of_fetch_transport():
         (operation["operationId"], operation["method"])
         for operation in auth
         if operation["policy"]["extension"] is not None
-    } == {("user_auth_config", "GET"), ("user_auth_me", "GET"), ("user_auth_logout", "POST")}
-    assert sum(operation["policy"]["extension"] is not None for operation in operations) == 62
+    } == {
+        ("user_auth_config", "GET"),
+        ("user_auth_me", "GET"),
+        ("user_auth_logout", "POST"),
+        ("user_auth_sso_logout", "POST"),
+    }
+    assert sum(operation["policy"]["extension"] is not None for operation in operations) == 63
 
 
 def test_tag_preference_transport_exports_reads_bulk_saves_and_single_follows():

@@ -12982,6 +12982,19 @@
         "title": "ReviewSource",
         "type": "object"
       },
+      "SSOLogoutResponse": {
+        "properties": {
+          "url": {
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": [
+          "url"
+        ],
+        "title": "SSOLogoutResponse",
+        "type": "object"
+      },
       "SearchAnalytics": {
         "properties": {
           "enabled": {
@@ -18390,6 +18403,61 @@
         }
       }
     },
+    "/v1/admin/auth/backchannel-logout": {
+      "post": {
+        "operationId": "admin_auth_backchannel_logout",
+        "responses": {
+          "200": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Request validation failed"
+          },
+          "4XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Invalid or unauthorized request"
+          },
+          "5XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service or dependency unavailable"
+          }
+        },
+        "summary": "Backchannel Logout",
+        "tags": [
+          "admin-auth"
+        ],
+        "x-devfeed-gateway": {
+          "authentication": "logout-token",
+          "bodyLimit": 16384,
+          "bodyTimeoutMs": 2000,
+          "upstreamTimeoutMs": 45000
+        },
+        "x-devfeed-request-body": {
+          "bodyLimit": 16384,
+          "bodyTimeoutMs": 2000,
+          "rejection": "json"
+        }
+      }
+    },
     "/v1/admin/auth/callback": {
       "get": {
         "operationId": "admin_auth_callback",
@@ -18763,6 +18831,111 @@
           }
         ],
         "summary": "Me",
+        "tags": [
+          "admin-auth"
+        ],
+        "x-devfeed-gateway": {
+          "bodyLimit": 1000000,
+          "bodyTimeoutMs": 2000,
+          "upstreamTimeoutMs": 45000
+        }
+      }
+    },
+    "/v1/admin/auth/sso/callback": {
+      "get": {
+        "operationId": "admin_auth_sso_callback",
+        "responses": {
+          "302": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Request validation failed"
+          },
+          "4XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Invalid or unauthorized request"
+          },
+          "5XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service or dependency unavailable"
+          }
+        },
+        "summary": "Sso Callback",
+        "tags": [
+          "admin-auth"
+        ],
+        "x-devfeed-gateway": {
+          "bodyLimit": 1000000,
+          "bodyTimeoutMs": 2000,
+          "upstreamTimeoutMs": 45000
+        }
+      }
+    },
+    "/v1/admin/auth/sso/logout": {
+      "post": {
+        "operationId": "admin_auth_sso_logout",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SSOLogoutResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Request validation failed"
+          },
+          "4XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Invalid or unauthorized request"
+          },
+          "5XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service or dependency unavailable"
+          }
+        },
+        "summary": "Sso Logout",
         "tags": [
           "admin-auth"
         ],
@@ -33086,6 +33259,40 @@
       "operationId": "admin_auth_logout",
       "parameters": [],
       "path": "/v1/admin/auth/logout",
+      "policy": {
+        "bodyLimit": 1000000,
+        "bodyTimeoutMs": 2000,
+        "upstreamTimeoutMs": 45000
+      }
+    },
+    {
+      "method": "POST",
+      "operationId": "admin_auth_backchannel_logout",
+      "parameters": [],
+      "path": "/v1/admin/auth/backchannel-logout",
+      "policy": {
+        "authentication": "logout-token",
+        "bodyLimit": 16384,
+        "bodyTimeoutMs": 2000,
+        "upstreamTimeoutMs": 45000
+      }
+    },
+    {
+      "method": "POST",
+      "operationId": "admin_auth_sso_logout",
+      "parameters": [],
+      "path": "/v1/admin/auth/sso/logout",
+      "policy": {
+        "bodyLimit": 1000000,
+        "bodyTimeoutMs": 2000,
+        "upstreamTimeoutMs": 45000
+      }
+    },
+    {
+      "method": "GET",
+      "operationId": "admin_auth_sso_callback",
+      "parameters": [],
+      "path": "/v1/admin/auth/sso/callback",
       "policy": {
         "bodyLimit": 1000000,
         "bodyTimeoutMs": 2000,

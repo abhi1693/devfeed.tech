@@ -1914,6 +1914,19 @@
         "title": "RequestDetails",
         "type": "object"
       },
+      "SSOLogoutResponse": {
+        "properties": {
+          "url": {
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": [
+          "url"
+        ],
+        "title": "SSOLogoutResponse",
+        "type": "object"
+      },
       "SearchHit": {
         "properties": {
           "click_token": {
@@ -5086,6 +5099,50 @@
         ]
       }
     },
+    "/api/v1/user/auth/backchannel-logout": {
+      "post": {
+        "operationId": "user_auth_backchannel_logout",
+        "responses": {
+          "200": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Request validation failed"
+          },
+          "4XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Invalid or unauthorized request"
+          },
+          "5XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service or dependency unavailable"
+          }
+        },
+        "summary": "Backchannel Logout",
+        "tags": [
+          "user-auth"
+        ]
+      }
+    },
     "/api/v1/user/auth/callback": {
       "get": {
         "operationId": "user_auth_callback",
@@ -5452,6 +5509,101 @@
           }
         },
         "summary": "Me",
+        "tags": [
+          "user-auth"
+        ]
+      }
+    },
+    "/api/v1/user/auth/sso/callback": {
+      "get": {
+        "operationId": "user_auth_sso_callback",
+        "responses": {
+          "302": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Request validation failed"
+          },
+          "4XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Invalid or unauthorized request"
+          },
+          "5XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service or dependency unavailable"
+          }
+        },
+        "summary": "Sso Callback",
+        "tags": [
+          "user-auth"
+        ]
+      }
+    },
+    "/api/v1/user/auth/sso/logout": {
+      "post": {
+        "operationId": "user_auth_sso_logout",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SSOLogoutResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Request validation failed"
+          },
+          "4XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Invalid or unauthorized request"
+          },
+          "5XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service or dependency unavailable"
+          }
+        },
+        "summary": "Sso Logout",
         "tags": [
           "user-auth"
         ]

@@ -6,6 +6,14 @@ import { Portal } from "../src/app/portal";
 import type { WorkspaceDashboard } from "../src/lib/api/generated/models";
 import { partnerAccount, partnerIdentity } from "./partner-fixtures";
 
+const navigation = vi.hoisted(() => ({ assign: vi.fn() }));
+vi.mock("@devfeed/http/sso", async (load) => {
+  const actual = await load<typeof import("@devfeed/http/sso")>();
+  return {
+    ...actual,
+    navigateToSSOLogout: (value: unknown) => actual.navigateToSSOLogout(value, navigation.assign),
+  };
+});
 const { router } = vi.hoisted(() => ({ router: { replace: vi.fn() } }));
 vi.mock("next/navigation", () => ({ useRouter: () => router }));
 const alpha = partnerAccount({ name: "Alpha" });
@@ -364,7 +372,10 @@ it("keeps sign-out errors retryable and sends the session CSRF token", async () 
     .fn()
     .mockImplementation((url: string) =>
       url.endsWith("/logout")
-        ? new Response(null, { status: failed ? 503 : 204 })
+        ? Response.json(
+            { url: "https://identity.example/end-session?state=partner" },
+            { status: failed ? 503 : 200 },
+          )
         : Response.json(dashboard),
     );
   vi.stubGlobal("fetch", fetcher);
@@ -373,10 +384,15 @@ it("keeps sign-out errors retryable and sends the session CSRF token", async () 
   await userEvent.click(screen.getByRole("button", { name: "User menu: Alice" }));
   await userEvent.click(screen.getByRole("menuitem", { name: "Sign out" }));
   await screen.findByText("Could not sign out. Please try again.");
+  expect(navigation.assign).not.toHaveBeenCalled();
   failed = false;
   await userEvent.click(screen.getByRole("menuitem", { name: "Sign out" }));
-  await waitFor(() => expect(router.replace).toHaveBeenCalledWith("/login"));
-  expect(fetcher).toHaveBeenCalledWith("/api/v1/partner/auth/logout", {
+  await waitFor(() =>
+    expect(navigation.assign).toHaveBeenCalledWith(
+      "https://identity.example/end-session?state=partner",
+    ),
+  );
+  expect(fetcher).toHaveBeenCalledWith("/api/v1/partner/auth/sso/logout", {
     method: "POST",
     headers: { "x-csrf-token": "csrf" },
   });

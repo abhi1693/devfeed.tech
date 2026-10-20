@@ -8,6 +8,7 @@ import pytest
 from devfeed_user_api import auth, oidc
 from devfeed_user_api.config import Settings
 from fastapi import HTTPException
+from oidc_session_support import provider_session
 from pydantic import ValidationError
 from starlette.requests import Request
 
@@ -149,6 +150,7 @@ def test_additional_origins_still_require_matching_session_csrf(monkeypatch, csr
     session_csrf = "c" * 43
     record = json.dumps(
         {
+            "provider_session": provider_session(settings, "reader-subject"),
             "subject": "reader-subject",
             "issuer": settings.oidc_issuer_url,
             "organization_id": settings.oidc_organization_id,
@@ -160,7 +162,13 @@ def test_additional_origins_still_require_matching_session_csrf(monkeypatch, csr
         }
     ).encode()
     monkeypatch.setattr(auth, "get_settings", lambda: settings)
-    monkeypatch.setattr(auth, "get_redis", lambda: SimpleNamespace(get=lambda _: record))
+    monkeypatch.setattr(
+        auth,
+        "get_redis",
+        lambda: SimpleNamespace(
+            get=lambda key: record if key == auth.key("session", session_token) else None
+        ),
+    )
     monkeypatch.setattr(auth, "_record_activity", lambda _: None)
 
     def request(supplied):

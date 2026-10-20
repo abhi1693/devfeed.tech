@@ -68,10 +68,10 @@ def test_agent_permissions_are_exported_on_operations_without_entering_gateway_t
             assert AGENT_POLICY_EXTENSION not in operation[GATEWAY_POLICY_EXTENSION]
     assert actual == EXPECTED
     operations = document[GATEWAY_ROUTES_EXTENSION]
-    assert len(operations) == 64
+    assert len(operations) == 67
     for operation in operations:
         assert set(operation) == {"operationId", "method", "path", "parameters", "policy"}
-        assert set(operation["policy"]) == {
+        expected_fields = {
             "bodyLimit",
             "bodyTimeoutMs",
             "upstreamTimeoutMs",
@@ -79,6 +79,11 @@ def test_agent_permissions_are_exported_on_operations_without_entering_gateway_t
             "handler",
             "extension",
         }
+        if operation["operationId"] == "user_auth_backchannel_logout":
+            expected_fields.add("authentication")
+            assert operation["policy"]["authentication"] == "logout-token"
+            assert operation["policy"]["extension"] is None
+        assert set(operation["policy"]) == expected_fields
     assert set(EXPECTED) <= {operation["operationId"] for operation in operations}
 
 

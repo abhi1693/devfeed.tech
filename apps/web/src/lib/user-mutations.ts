@@ -1,3 +1,4 @@
+import { ssoLogoutUrl } from "@devfeed/http/sso";
 import { trackEvent, type AnalyticsEvent } from "./analytics";
 import {
   userRequest,
@@ -291,8 +292,9 @@ export function respondToMcpConsent(
   );
 }
 
-export function logOut(options: MutationOptions) {
-  return mutate<void>("auth/logout", undefined, options, { method: "POST" });
+export async function logOut(options: MutationOptions) {
+  const result = await mutate<unknown>("auth/sso/logout", undefined, options, { method: "POST" });
+  return ssoLogoutUrl(result);
 }
 
 export function setTagFollow(tagId: string, followed: boolean, options: MutationOptions) {

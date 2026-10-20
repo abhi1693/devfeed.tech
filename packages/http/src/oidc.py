@@ -341,7 +341,10 @@ def identity(
                     profile[field] = info[field]
         if profile.get(settings.oidc_organization_claim) != settings.oidc_organization_id:
             raise OIDCError("Organization membership mismatch")
+        from devfeed_http.oidc_logout import correlated
+
         return {
+            "provider_session": correlated(claims, str(settings.oidc_client_id)),
             "subject": claims["sub"],
             "issuer": claims["iss"],
             "organization_id": settings.oidc_organization_id,

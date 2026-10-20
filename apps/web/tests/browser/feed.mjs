@@ -1707,3 +1707,30 @@ test(
     }
   },
 );
+
+test("Sign out also opens provider SSO logout", { timeout: 180000 }, async (t) => {
+  const { browser, origin } = await createReaderFixture(t);
+  await withReaderPage(browser, async (page, context) => {
+    await context.addCookies([{ name: "devfeed_user_session", value: "valid", url: origin }]);
+    const starts = [];
+    await page.route("**/api/v1/user/auth/sso/logout", async (route) => {
+      starts.push(route.request());
+      assert.equal((await route.request().allHeaders())["x-csrf-token"], "test");
+      await route.fulfill({
+        json: { url: "https://identity.example/end-session?state=correlated" },
+      });
+    });
+    await page.route("https://identity.example/**", (route) =>
+      route.fulfill({ contentType: "text/html", body: "<p>Provider sign-out confirmation</p>" }),
+    );
+    await page.goto(origin + "/latest");
+    await page.getByRole("button", { name: /^User menu:/ }).click();
+    await page.getByText(/Also ends your SSO session/).waitFor();
+    assert.equal(await page.getByRole("menuitem", { name: "Sign out of SSO…" }).count(), 0);
+    assert.equal(starts.length, 0);
+    await page.screenshot({ path: "/tmp/devfeed-274-signout-web.png", fullPage: true });
+    await page.getByRole("menuitem", { name: "Sign out", exact: true }).click();
+    await page.waitForURL("https://identity.example/end-session?state=correlated");
+    assert.equal(starts.length, 1);
+  });
+});

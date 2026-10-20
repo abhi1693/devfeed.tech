@@ -464,9 +464,17 @@ test("repository registry exposes exactly the declared private and public adapte
     ),
   );
   const plan = await extensionOperationPlan(input, declaration);
-  assert.equal(plan.privateOperations.length, 62);
+  assert.equal(plan.privateOperations.length, 63);
   assert.equal(plan.publicOperations.length, 16);
-  assert.equal(plan.privateOperations.length + plan.publicOperations.length, 78);
+  assert.equal(plan.privateOperations.length + plan.publicOperations.length, 79);
+  assert.ok(
+    plan.privateOperations.some((operation) => operation.operationId === "user_auth_sso_logout"),
+  );
+  assert.ok(
+    !plan.privateOperations.some((operation) =>
+      ["user_auth_backchannel_logout", "user_auth_sso_callback"].includes(operation.operationId),
+    ),
+  );
   const inboxPrefix = "/api/v1/user/notifications/chimely/v1/inbox/";
   const inbox = plan.privateOperations.filter(({ path }) => path.startsWith(inboxPrefix));
   const inboxOperations = [

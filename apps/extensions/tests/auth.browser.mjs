@@ -177,6 +177,8 @@ async function withAuthenticatedReader(t, check) {
         },
         body: "<p>Ad landing page</p>",
       });
+    if (url.pathname === "/sso-provider-logout")
+      return route.fulfill({ contentType: "text/html", body: "<p>Provider SSO session ended</p>" });
     if (url.pathname === "/login")
       return route.fulfill({
         contentType: "text/html",
@@ -261,14 +263,14 @@ async function withAuthenticatedReader(t, check) {
         state.onboardingSaved = true;
         return send({ topic_ids: state.savedTopicIds });
       }
-      if (url.pathname.endsWith("/auth/logout")) {
+      if (url.pathname.endsWith("/auth/sso/logout")) {
         if (state.rejectLogout) {
           state.rejectLogout = false;
           return send({}, 503);
         }
         state.active = false;
         return route.fulfill({
-          status: 204,
+          json: { url: "https://devfeed.tech/sso-provider-logout" },
           headers: {
             "Set-Cookie": `${cookieName}=; Max-Age=0; Secure; HttpOnly; SameSite=Lax; Path=/`,
           },
@@ -1090,4 +1092,31 @@ test(
         assert.deepEqual(errors, []);
       },
     ),
+);
+
+test(
+  "Sign out ends local and provider SSO sessions in the built extension",
+  { timeout: 180000 },
+  (t) =>
+    withAuthenticatedReader(t, async ({ page, signIn, state }) => {
+      await signIn();
+      const second = await page.context().newPage();
+      await second.goto(newTab);
+      await second.getByRole("button", { name: /^User menu:/ }).waitFor();
+      await page.bringToFront();
+      state.rejectLogout = false;
+      await page.getByRole("button", { name: /^User menu:/ }).click();
+      assert.equal(await page.getByRole("menuitem", { name: "Sign out of SSO…" }).count(), 0);
+      await page.getByText(/Also ends your SSO session/).waitFor();
+      const opened = page.context().waitForEvent("page");
+      await page.getByRole("menuitem", { name: "Sign out", exact: true }).click();
+      const provider = await opened;
+      await provider.waitForURL("https://devfeed.tech/sso-provider-logout");
+      assert.equal(await provider.evaluate(() => window.opener === null), true);
+      await page.getByRole("link", { name: "Sign in", exact: true }).waitFor();
+      await second.getByRole("link", { name: "Sign in", exact: true }).waitFor();
+      assert.equal(state.active, false);
+      await second.close();
+      await provider.close();
+    }),
 );

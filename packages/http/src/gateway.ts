@@ -1,5 +1,6 @@
 /** Match exported API operations once; transport policy belongs to the operation. */
 export type GatewayPolicy = {
+  authentication?: "browser" | "logout-token";
   bodyLimit: number;
   bodyTimeoutMs: number;
   upstreamTimeoutMs: number;
