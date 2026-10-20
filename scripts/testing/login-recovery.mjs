@@ -147,9 +147,9 @@ export async function checkLoginRecovery(t, browserName = null) {
         headers["set-cookie"] = response.headers.getSetCookie();
         res.writeHead(response.status, headers);
         res.end(Buffer.from(await response.arrayBuffer()));
-      } catch (error) {
+      } catch {
         res.writeHead(502);
-        res.end(String(error));
+        res.end("Login recovery fixture unavailable");
       }
     },
   );
