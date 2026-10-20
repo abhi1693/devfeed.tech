@@ -10,6 +10,7 @@ from unittest.mock import Mock
 import pytest
 from devfeed_core.version import SCHEMA_REVISION
 from devfeed_http.inbox import INBOX_OPERATIONS, INBOX_POLICY_EXTENSION
+from devfeed_http.operation_policies import GATEWAY_POLICY_EXTENSION
 from devfeed_http.schemas import ErrorResponse, UnhealthyResponse
 from fastapi import Response
 from fastapi.responses import RedirectResponse
@@ -46,7 +47,16 @@ def test_all_routes_declare_typed_bodies_and_responses(package):
             assert route.response_class is Response
             assert route.response_model is None
             continue
-        if route.status_code == 204:
+        if route.operation_id in {
+            "user_auth_backchannel_logout",
+            "admin_auth_backchannel_logout",
+            "partner_auth_backchannel_logout",
+        }:
+            # OIDC requires an empty HTTP 200 acknowledgement, not a JSON response.
+            assert route.status_code == 200
+            assert route.response_model is None and route.response_class is Response
+            assert route.openapi_extra[GATEWAY_POLICY_EXTENSION]["authentication"] == "logout-token"
+        elif route.status_code == 204:
             assert route.response_model is None and route.response_class is Response
         elif route.response_class is RedirectResponse:
             assert route.status_code == 302 and route.response_model is None

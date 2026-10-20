@@ -30,10 +30,12 @@ EXPECTED = {
         "placements_v1_partner_placements_query_post": (16384, 2000, "json"),
     },
     "user": {
+        "user_auth_backchannel_logout": (16384, 2000, "json"),
         "upload_avatar_v1_user_settings_profile_avatar_post": (5_308_416, 10_000, "image"),
         "placements_v1_user_partner_placements_query_post": (16384, 2000, "json"),
     },
     "admin": {
+        "admin_auth_backchannel_logout": (16384, 2000, "json"),
         "adminPartnerProductCreate": (65_536, 2000, "json"),
         "adminPartnerProductUpdate": (65_536, 2000, "json"),
         "adminPartnerProductAdImageUpload": (5_308_416, 10_000, "image"),
@@ -41,6 +43,7 @@ EXPECTED = {
         "adminPartnerConnectionLogoUpdate": (65_536, 2000, "json"),
     },
     "partner": {
+        "partner_auth_backchannel_logout": (16384, 2000, "json"),
         "partnerProductCreate": (65_536, 2000, "json"),
         "partnerProductUpdate": (65_536, 2000, "json"),
         "partnerProductAdImageUpload": (5_308_416, 10_000, "image"),

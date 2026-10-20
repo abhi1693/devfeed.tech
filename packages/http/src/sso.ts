@@ -12,3 +12,11 @@ export function ssoLogoutUrl(value: unknown): string {
     throw new Error("Invalid provider sign-out URL");
   return url.href;
 }
+
+/** Keep provider URL validation in front of the browser's navigation side effect. */
+export function navigateToSSOLogout(
+  value: unknown,
+  navigate: (url: string) => void = (url) => window.location.assign(url),
+): void {
+  navigate(ssoLogoutUrl(value));
+}

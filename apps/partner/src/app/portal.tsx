@@ -1,6 +1,6 @@
 "use client";
 
-import { ssoLogoutUrl } from "@devfeed/http/sso";
+import { navigateToSSOLogout } from "@devfeed/http/sso";
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { Select } from "@devfeed/ui/select";
@@ -181,7 +181,7 @@ export function Portal({
       headers: { "x-csrf-token": identity.csrf_token },
     });
     if (!response.ok) throw new Error("Could not sign out. Please retry.");
-    window.location.assign(ssoLogoutUrl(await response.json()));
+    navigateToSSOLogout(await response.json());
   }
   function reload() {
     setData(null);

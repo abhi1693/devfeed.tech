@@ -15,6 +15,7 @@ from fastapi import HTTPException, Request
 from pydantic import BaseModel
 
 from devfeed_http import oidc
+from devfeed_http.body_limits import BodyLimitedRoute
 
 
 class SSOLogoutResponse(BaseModel):
@@ -282,17 +283,22 @@ def add_routes(router, *, service, get_settings, get_redis, local_logout, cookie
         else GatewayPolicy(authentication="logout-token", body_limit=MAX_BODY)
     )
 
-    @router.post(
-        "/backchannel-logout",
-        operation_id=f"{service}_auth_backchannel_logout",
-        status_code=200,
-        response_class=Response,
-        openapi_extra=provider_policy.bounded_openapi_extra(),
-    )
     async def backchannel_logout(request: Request):
         token = await read_token(request)
         await run_in_threadpool(process, token)
         return Response(status_code=200, headers={"Cache-Control": "no-store"})
+
+    router.add_api_route(
+        "/backchannel-logout",
+        backchannel_logout,
+        methods=["POST"],
+        operation_id=f"{service}_auth_backchannel_logout",
+        status_code=200,
+        response_class=Response,
+        response_model=None,
+        route_class_override=BodyLimitedRoute,
+        openapi_extra=provider_policy.bounded_openapi_extra(),
+    )
 
     @router.post(
         "/sso/logout",

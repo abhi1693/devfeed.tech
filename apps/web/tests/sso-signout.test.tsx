@@ -2,7 +2,7 @@
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, expect, it, vi } from "vitest";
 import { UserProvider, useUser } from "@/components/user-account";
-import { ssoLogoutUrl } from "@devfeed/http/sso";
+import { navigateToSSOLogout, ssoLogoutUrl } from "@devfeed/http/sso";
 
 const browser = vi.hoisted(() => ({ complete: vi.fn(), cancel: vi.fn() }));
 vi.mock("@/lib/reader-runtime", async (load) => ({
@@ -75,5 +75,16 @@ it.each([
   { url: "http://issuer.test/logout" },
   { url: "https://user:password@issuer.test/logout" },
 ])("rejects unsafe sign-out destinations %j", (value) => {
+  const navigate = vi.fn();
   expect(() => ssoLogoutUrl(value)).toThrow();
+  expect(() => navigateToSSOLogout(value, navigate)).toThrow();
+  expect(navigate).not.toHaveBeenCalled();
+});
+
+it("opens the validated provider URL after successful sign-out", () => {
+  const navigate = vi.fn();
+  navigateToSSOLogout({ url: "https://identity.example/end-session?state=bound" }, navigate);
+  expect(navigate).toHaveBeenCalledExactlyOnceWith(
+    "https://identity.example/end-session?state=bound",
+  );
 });

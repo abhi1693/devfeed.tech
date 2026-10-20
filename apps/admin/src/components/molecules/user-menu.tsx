@@ -16,7 +16,7 @@ import {
 } from "@devfeed/ui/dropdown-menu";
 import type { AdminIdentity } from "@/lib/api/generated/models";
 import { adminAuthSsoLogout } from "@/lib/api/generated/admin";
-import { ssoLogoutUrl } from "@devfeed/http/sso";
+import { navigateToSSOLogout } from "@devfeed/http/sso";
 import { notifyFailure } from "@/lib/notifications";
 
 export function UserMenu({ admin }: { admin: AdminIdentity }) {
@@ -38,7 +38,7 @@ export function UserMenu({ admin }: { admin: AdminIdentity }) {
     setBusy(true);
     try {
       const response = await adminAuthSsoLogout({ headers: { "X-CSRF-Token": admin.csrf_token } });
-      window.location.assign(ssoLogoutUrl(response));
+      navigateToSSOLogout(response);
     } catch (error) {
       notifyFailure(error, "Could not sign out");
       setBusy(false);
