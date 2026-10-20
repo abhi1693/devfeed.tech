@@ -219,6 +219,7 @@ def authenticated(state):
     return response.status_code == 200 and response.json() is not None
 
 
+@pytest.mark.integration
 def test_server_to_server_revokes_session_and_duplicates_succeed(application):
     state = application
     login(state)
@@ -234,6 +235,7 @@ def test_server_to_server_revokes_session_and_duplicates_succeed(application):
     assert state.settings.oidc_client_id.encode() not in deliver(state, token).content
 
 
+@pytest.mark.integration
 @pytest.mark.parametrize(
     "change",
     [
@@ -253,6 +255,7 @@ def test_other_clients_sessions_and_mismatched_subjects_are_untouched(applicatio
     assert authenticated(state)
 
 
+@pytest.mark.integration
 def test_unknown_logout_blocks_late_callback_for_same_provider_session(application):
     state = application
     assert deliver(state, event(state)).status_code == 200
@@ -261,6 +264,7 @@ def test_unknown_logout_blocks_late_callback_for_same_provider_session(applicati
     assert not authenticated(state)
 
 
+@pytest.mark.integration
 @pytest.mark.parametrize(
     "body",
     ["logout_token=x&logout_token=y", "other=x", "logout_token=", "logout_token=" + "x" * 17000],
@@ -275,6 +279,7 @@ def test_malformed_ambiguous_and_oversized_requests(application, body):
     assert "x" * 100 not in response.text
 
 
+@pytest.mark.integration
 def test_dependency_outage_is_retryable(application, monkeypatch):
     state = application
     login(state)
@@ -291,6 +296,7 @@ def test_dependency_outage_is_retryable(application, monkeypatch):
     assert not authenticated(state)
 
 
+@pytest.mark.integration
 def test_sso_flow_requires_csrf_preserves_local_logout_and_correlates_completion(application):
     state = application
     user = login(state)
@@ -325,6 +331,7 @@ def test_sso_flow_requires_csrf_preserves_local_logout_and_correlates_completion
     assert state.client.get(callback, follow_redirects=False).status_code == 400
 
 
+@pytest.mark.integration
 def test_legacy_sessions_without_correlation_require_login(application):
     state = application
     login(state)
@@ -336,6 +343,7 @@ def test_legacy_sessions_without_correlation_require_login(application):
     assert not authenticated(state)
 
 
+@pytest.mark.integration
 def test_subject_cutoffs_monotonic_and_isolated_from_other_client_and_service(logout_redis, signed):
     settings = signed.settings
     record = {
@@ -362,6 +370,7 @@ def test_subject_cutoffs_monotonic_and_isolated_from_other_client_and_service(lo
     assert oidc_logout.active(logout_redis, "user", other, record)
 
 
+@pytest.mark.integration
 def test_logout_between_session_write_and_registration_check_prevents_creation(
     logout_redis, signed, monkeypatch
 ):
@@ -390,6 +399,7 @@ def test_logout_between_session_write_and_registration_check_prevents_creation(
     assert logout_redis.get("session-key") is None
 
 
+@pytest.mark.integration
 def test_reused_jti_with_different_target_does_not_revoke_another_session(logout_redis, signed):
     value = claims()
     oidc_logout.revoke(logout_redis, "user", signed.settings, value)
@@ -403,6 +413,7 @@ def test_reused_jti_with_different_target_does_not_revoke_another_session(logout
     )
 
 
+@pytest.mark.integration
 def test_sid_only_event_does_not_revoke_uncorrelated_subject_session(logout_redis, signed):
     value = claims()
     oidc_logout.revoke(logout_redis, "user", signed.settings, value)
@@ -423,6 +434,7 @@ def test_sid_only_event_does_not_revoke_uncorrelated_subject_session(logout_redi
     assert not oidc_logout.active(logout_redis, "user", signed.settings, record)
 
 
+@pytest.mark.integration
 def test_logout_during_idle_renewal_cannot_restore_reader_access(
     request, logout_redis, monkeypatch
 ):
@@ -460,6 +472,7 @@ def test_duplicate_jwt_json_members_are_rejected(signed):
         oidc_logout.validate(signed.settings, signed.metadata, token)
 
 
+@pytest.mark.integration
 def test_provider_unavailable_returns_retryable_failure(application, monkeypatch):
     def unavailable(*args, **kwargs):
         raise oidc.OIDCDependencyError("Unavailable")
@@ -468,6 +481,7 @@ def test_provider_unavailable_returns_retryable_failure(application, monkeypatch
     assert deliver(application, event(application)).status_code == 503
 
 
+@pytest.mark.integration
 def test_browser_logout_leaves_independent_mcp_credentials_unchanged(application):
     state = application
     login(state)
@@ -535,6 +549,7 @@ def test_reader_sso_completion_uses_registered_trusted_alias(request):
         assert done.headers["location"] == alias + "/login?logout=sso"
 
 
+@pytest.mark.integration
 def test_sso_logout_still_works_after_provider_revocation(application):
     state = application
     user = login(state)
