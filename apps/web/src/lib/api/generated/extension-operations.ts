@@ -185,6 +185,26 @@ export const extensionGatewayOperations = [
     path: "/api/v1/user/settings/feed",
   },
   {
+    ...userGatewayOperations["feed_view_settings_v1_user_settings_feed_view_get"],
+    path: "/api/v1/user/settings/feed-view",
+  },
+  {
+    ...userGatewayOperations["save_feed_view_settings_v1_user_settings_feed_view_put"],
+    path: "/api/v1/user/settings/feed-view",
+  },
+  {
+    ...userGatewayOperations["columns_settings_v1_user_settings_columns_get"],
+    path: "/api/v1/user/settings/columns",
+  },
+  {
+    ...userGatewayOperations["save_columns_settings_v1_user_settings_columns_put"],
+    path: "/api/v1/user/settings/columns",
+  },
+  {
+    ...userGatewayOperations["columns_starters_v1_user_settings_columns_starters_get"],
+    path: "/api/v1/user/settings/columns/starters",
+  },
+  {
     ...userGatewayOperations["appearance_settings_v1_user_settings_appearance_get"],
     path: "/api/v1/user/settings/appearance",
   },

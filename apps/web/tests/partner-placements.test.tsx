@@ -193,6 +193,46 @@ it.each(["absent", "broken"])(
   },
 );
 
+it("preserves full long Columns product text and accessible labels on its disclosed tracked destination", async () => {
+  const name = ("Observability 日本語 " + "engineering ".repeat(12)).trim();
+  const tagline = "A complete explanation of what this tool does for engineering teams. "
+    .repeat(2)
+    .trim();
+  const attribution =
+    "Promoted by Example partner for teams evaluating observability and developer tools. "
+      .repeat(3)
+      .trim();
+  const item = {
+    ...sponsoredPlacement,
+    name,
+    tagline,
+    attribution,
+    link_rel: ["sponsored", "external"],
+    image_url: "https://images.example/hero.webp",
+  };
+  vi.mocked(readerRequest).mockResolvedValueOnce(Response.json({ items: [item] }));
+  render(<PartnerPlacements surface="feed" ad_formats={["feed"]} layout="columns" maxItems={1} />);
+  const link = await screen.findByRole("link", { name, description: `Sponsored ${attribution}` });
+  const heading = within(link).getByRole("heading", { name });
+  const publisher = within(link).getByText(attribution);
+  const description = within(link).getByText(tagline);
+  expect(heading.textContent).toBe(name);
+  expect(within(heading).getByText(name).getAttribute("title")).toBe(name);
+  expect(link.getAttribute("aria-label")).toBe(name);
+  expect(publisher.textContent).toBe(attribution);
+  expect(publisher.getAttribute("title")).toBe(attribution);
+  expect(description.textContent).toBe(tagline);
+  expect(link.querySelector("img")).toBeNull();
+  expect(link.querySelector("a, button")).toBeNull();
+  expect(link.getAttribute("href")).toBe(item.url);
+  expect(link.getAttribute("target")).toBe("_blank");
+  expect(link.getAttribute("rel")).toBe("sponsored external noopener noreferrer");
+  expect(within(link).getByText("Sponsored")).toBeTruthy();
+  await waitFor(() =>
+    expect(observePartnerPlacement).toHaveBeenCalledWith(link, item.receipt, expect.any(Object)),
+  );
+});
+
 it.each(["feed", "engagement", "header_sponsorship"] as const)(
   "shows defined listing attribution as text in %s ads without changing links or disclosure",
   async (ad_format) => {

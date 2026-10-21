@@ -102,7 +102,12 @@ def test_reader_columns_round_trip_in_order_and_remain_account_scoped(user_data,
     assert client.get(PATH).json() == saved
     # Feed selections can outlive the selected source/topic/tag; no foreign key lookup is needed.
     with database() as session:
-        assert session.get(UserAccount, first).feed_settings == saved
+        assert session.get(UserAccount, first).feed_settings == {
+            **saved,
+            "columns_initialized": True,
+            "my_feed_columns": [],
+            "my_feed_columns_initialized": False,
+        }
         assert session.get(UserAccount, second).feed_settings == {}
     current.user_id, current.subject = str(second), "user-b"
     assert client.get(PATH).json() == DEFAULTS

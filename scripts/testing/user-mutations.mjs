@@ -1,6 +1,7 @@
 import { tagFixtures } from "./tags.mjs";
 import assert from "node:assert/strict";
 import { chooseArticleView, openArticleViewSettings } from "./article-view.mjs";
+import { createFixtureFeedViews } from "./feed-view-fixture.mjs";
 
 /** One backend fixture drives the real website and both unpacked extension readers. */
 export function userMutationFixture({ articles, topic }) {
@@ -13,6 +14,7 @@ export function userMutationFixture({ articles, topic }) {
     content_types: ["article", "news", "tutorial", "release", "comparison", "opinion"],
     languages: ["en"],
   };
+  const scopedViews = createFixtureFeedViews(() => feed.view);
   const failures = new Set(["like", "follow", "layout", "feed", "tag-follow"]);
   const writes = [];
   const response = (json, status = 200) => ({ status, json });
@@ -47,11 +49,15 @@ export function userMutationFixture({ articles, topic }) {
       "GET /v1/user/settings/profile",
       () => response({ display_name: "Private reader name", avatar_url: null }),
     ],
+    ["GET /v1/user/settings/feed-view", (_, scope) => response(scopedViews.read(scope))],
+    [
+      "PUT /v1/user/settings/feed-view",
+      (payload, scope) => attempt("layout", payload, () => scopedViews.write(scope, payload)),
+    ],
     ["GET /v1/user/settings/feed", () => response(feed)],
     [
       "PUT /v1/user/settings/feed",
-      (payload) =>
-        attempt(payload.view === feed.view ? "feed" : "layout", payload, () => (feed = payload)),
+      (payload) => attempt("feed", payload, () => (feed = { ...feed, ...payload })),
     ],
     [
       "GET /v1/user/settings/appearance",
@@ -118,11 +124,12 @@ export function userMutationFixture({ articles, topic }) {
     articles,
     topic,
     writes,
+    scopedViews,
     handles(path, method) {
       return this.active && operations.has(`${method} ${path}`);
     },
-    respond(path, method, payload) {
-      return operations.get(`${method} ${path}`)(payload);
+    respond(path, method, payload, scope) {
+      return operations.get(`${method} ${path}`)(payload, scope);
     },
   };
 }
@@ -214,12 +221,11 @@ export async function checkUserMutations(page, destination, fixture) {
     assert.equal(await layout.getByRole("radio", { name: "Grid", exact: true }).isChecked(), true);
     assert.deepEqual(await effects(), { events: [], interests: 0 });
     await chooseArticleView(page, "compact");
-    assert.deepEqual(await effects(), {
-      events: [
-        { name: "feed_settings_saved", params: { feed_view: "compact", selected_count: 6 } },
-      ],
-      interests: 1,
-    });
+    assert.deepEqual(
+      await effects(),
+      { events: [], interests: 0 },
+      "Changing only a layout does not invalidate article recommendations",
+    );
     await page.goto(destination("/settings/feed"));
     await page.getByRole("checkbox", { name: "Tutorials", exact: true }).waitFor();
     assert.equal(await page.getByRole("radio").count(), 0);
@@ -238,15 +244,22 @@ export async function checkUserMutations(page, destination, fixture) {
     await save.click();
     await page.getByText("Feed settings saved.", { exact: true }).waitFor();
     assert.deepEqual(await effects(), {
-      events: [
-        { name: "feed_settings_saved", params: { feed_view: "compact", selected_count: 5 } },
-      ],
+      events: [{ name: "feed_settings_saved", params: { feed_view: "cards", selected_count: 5 } }],
       interests: 1,
     });
     await page.getByRole("button", { name: "Reset to defaults", exact: true }).click();
     await save.click();
     await page.getByText("Feed settings saved.", { exact: true }).waitFor();
-    assert.equal(fixture.writes.at(-1).payload.view, "compact", "Feed reset preserves the layout");
+    assert.equal(
+      fixture.writes.at(-1).payload.view,
+      "cards",
+      "Feed reset preserves legacy defaults",
+    );
+    assert.equal(
+      fixture.scopedViews.read("my_feed").view,
+      "compact",
+      "Feed reset preserves scoped layouts",
+    );
     const serialized = JSON.stringify(await effects());
     assert.ok(
       !serialized.includes("Private reader name") &&

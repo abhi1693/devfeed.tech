@@ -31,6 +31,7 @@ export function ArticleStackedRow({
   promotion,
   containerRef,
   onOpen,
+  textOnly = false,
 }: {
   article: Article;
   priority?: boolean;
@@ -38,6 +39,7 @@ export function ArticleStackedRow({
   promotion?: { productId: string; active: boolean; visible?: boolean; preserveSpace: boolean };
   containerRef?: Ref<HTMLElement>;
   onOpen?: () => void;
+  textOnly?: boolean;
 }) {
   const destination = articleDestination(article.slug);
   const source = articleSource(article);
@@ -56,10 +58,25 @@ export function ArticleStackedRow({
   const internalRel = sponsored
     ? adLinkRel(article.sponsor_link_rel, false) || undefined
     : undefined;
+  const headline = (
+    <h2 id={titleId}>
+      <TruncatedLink
+        href={destination}
+        prefetch={false}
+        className="article-stacked-title card-open-link"
+        rel={internalRel}
+        aria-describedby={sponsored ? sponsorshipId : undefined}
+        onClick={onOpen}
+      >
+        {article.title}
+      </TruncatedLink>
+    </h2>
+  );
   return (
     <article
       ref={containerRef}
       className={`article-stacked-row${promotion ? " partner-placement partner-placement--content" : ""}`}
+      data-article-id={article.id}
       aria-labelledby={titleId}
       data-product-id={promotion?.productId}
       data-ad-format={promotion ? "sponsored_content" : undefined}
@@ -70,25 +87,30 @@ export function ArticleStackedRow({
       aria-hidden={(promotion && !promotion.active) || undefined}
       inert={promotion ? !promotion.active : undefined}
     >
-      <div className="article-stacked-thumbnail">
-        <ArticleImage
-          src={image}
-          variants={article.image_variants}
-          priority={priority}
-          sizes={STACKED_IMAGE_SIZES}
-          label={topic?.name ?? "Article"}
-        />
-      </div>
+      {!textOnly && (
+        <div className="article-stacked-thumbnail">
+          <ArticleImage
+            src={image}
+            variants={article.image_variants}
+            priority={priority}
+            sizes={STACKED_IMAGE_SIZES}
+            label={topic?.name ?? "Article"}
+          />
+        </div>
+      )}
       <div className="article-stacked-copy">
+        {textOnly && headline}
         <div className="article-stacked-meta">
           <span className="article-stacked-source">
-            <CatalogIcon
-              className="source-avatar"
-              url={source?.logo_url ?? null}
-              variants={source?.logo_variants}
-              displaySize={12}
-              source
-            />
+            {!textOnly && (
+              <CatalogIcon
+                className="source-avatar"
+                url={source?.logo_url ?? null}
+                variants={source?.logo_variants}
+                displaySize={12}
+                source
+              />
+            )}
             {source ? (
               <Link href={sourceHref(source)} title={sourceName}>
                 {sourceName}
@@ -112,18 +134,7 @@ export function ArticleStackedRow({
           ) : null}
           <ArticleSponsorship names={article.sponsor_names} id={sponsorshipId} />
         </div>
-        <h2 id={titleId}>
-          <TruncatedLink
-            href={destination}
-            prefetch={false}
-            className="article-stacked-title card-open-link"
-            rel={internalRel}
-            aria-describedby={sponsored ? sponsorshipId : undefined}
-            onClick={onOpen}
-          >
-            {article.title}
-          </TruncatedLink>
-        </h2>
+        {!textOnly && headline}
         {description && <p className="article-stacked-description">{description}</p>}
       </div>
       <div className="article-stacked-footer">
@@ -151,7 +162,7 @@ export function ArticleStackedRow({
               )}
             </Link>
           )}
-          <ArticleBookmarkButton articleId={article.id} articleSlug={article.slug} />
+          {!textOnly && <ArticleBookmarkButton articleId={article.id} articleSlug={article.slug} />}
           <ArticleShare slug={article.slug} title={article.title} />
           {original && (
             <ArticleReadLink
@@ -166,6 +177,7 @@ export function ArticleStackedRow({
               <ArrowUpRight size={16} aria-hidden="true" />
             </ArticleReadLink>
           )}
+          {textOnly && <ArticleBookmarkButton articleId={article.id} articleSlug={article.slug} />}
         </div>
       </div>
     </article>

@@ -1,7 +1,9 @@
 // @vitest-environment jsdom
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
+import type { ReactNode } from "react";
 import { ColumnsWorkspace } from "@/components/columns-workspace";
+import Link from "@/components/reader-link";
 import { FeedPreferencesProvider } from "@/components/feed-preferences";
 import {
   guestReaderPreferencesKey,
@@ -14,10 +16,32 @@ const state = vi.hoisted(() => ({
   user: null as UserIdentity | null,
   loading: false,
   sessionRevision: 1,
+  profile: null,
+  refreshProfile: vi.fn(),
   notify: vi.fn(),
   push: vi.fn(),
 }));
-vi.mock("@/components/user-account", () => ({ useUser: () => state }));
+vi.mock("@/components/user-account", () => ({
+  useUser: () => state,
+  AccountGate: ({
+    children,
+    title,
+    description,
+  }: {
+    children: ReactNode;
+    title: string;
+    description: string;
+  }) =>
+    state.user ? (
+      children
+    ) : (
+      <section>
+        <h2>{title}</h2>
+        <p>{description}</p>
+        <Link href="/login">Sign in</Link>
+      </section>
+    ),
+}));
 vi.mock("@/components/settings-toast", () => ({ useSettingsToast: () => state.notify }));
 vi.mock("@/lib/reader-navigation", () => ({ useReaderRouter: () => ({ push: state.push }) }));
 
@@ -65,10 +89,30 @@ function storedColumns(): ReaderColumn[] {
 
 function transport(initial: ReaderColumn[] = []) {
   const accounts = new Map([[account.user_id, preferences(initial)]]);
+  const personal = new Map<string, ReaderColumn[]>();
   const writes: { owner: string; value: FeedDisplay; init?: RequestInit }[] = [];
   let nextWrite: ((value: FeedDisplay) => Promise<Response>) | null = null;
   const fetcher = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = new URL(String(input), window.location.href);
+    if (url.pathname === "/api/v1/feed" || url.pathname === "/api/v1/user/feed")
+      return Response.json({
+        items: [],
+        next_cursor: null,
+        status: "ready",
+        has_interests: true,
+        reasons: {},
+        generation: "generation-a",
+      });
+    if (url.pathname === "/api/v1/user/engagement")
+      return Response.json(
+        url.searchParams.getAll("article_id").map((article_id) => ({
+          article_id,
+          likes: 0,
+          opens: 0,
+          liked: false,
+          bookmarked: false,
+        })),
+      );
     if (url.pathname === "/api/v1/user/settings/feed") {
       const owner = state.user?.user_id ?? "guest";
       if (init?.method === "PUT") {
@@ -82,6 +126,25 @@ function transport(initial: ReaderColumn[] = []) {
         accounts.set(owner, value);
       }
       return Response.json(accounts.get(owner) ?? preferences([]));
+    }
+    if (url.pathname === "/api/v1/user/settings/columns") {
+      const owner = state.user?.user_id ?? "guest";
+      expect(url.searchParams.get("workspace")).toBe("my_feed");
+      if (init?.method === "PUT") {
+        const { columns } = JSON.parse(String(init.body));
+        const value = preferences(columns);
+        writes.push({ owner, value, init });
+        if (nextWrite) {
+          const reply = nextWrite;
+          nextWrite = null;
+          return reply(value);
+        }
+        personal.set(owner, columns);
+      }
+      return Response.json({
+        initialized: true,
+        columns: personal.get(owner) ?? accounts.get(owner)?.columns ?? [],
+      });
     }
     const match = url.pathname.match(/^\/api\/v1\/(sources|topics|tags)(?:\/([^/]+))?$/);
     if (match) {
@@ -116,7 +179,7 @@ function transport(initial: ReaderColumn[] = []) {
           finish = resolve;
         });
       return async (value: FeedDisplay) => {
-        await act(async () => finish(Response.json(value)));
+        await act(async () => finish(Response.json({ initialized: true, columns: value.columns })));
       };
     },
   };
@@ -125,7 +188,8 @@ function transport(initial: ReaderColumn[] = []) {
 function Workspace() {
   return (
     <FeedPreferencesProvider>
-      <ColumnsWorkspace />
+      {/* Direct mounts keep legacy guest persistence covered; route eligibility has its own suite. */}
+      <ColumnsWorkspace workspace={state.user ? "my_feed" : "latest"} />
     </FeedPreferencesProvider>
   );
 }
@@ -163,6 +227,15 @@ async function saveEditor() {
   );
 }
 
+async function chooseColumnAction(name: string, action: string) {
+  fireEvent.keyDown(screen.getByRole("button", { name: `Options for ${name} column` }), {
+    key: "Enter",
+  });
+  const menu = await screen.findByRole("menu");
+  fireEvent.click(within(menu).getByRole("menuitem", { name: action }));
+  if (action.startsWith("Edit ")) await screen.findByRole("dialog", { name: "Edit column" });
+}
+
 beforeEach(() => {
   state.user = null;
   state.loading = false;
@@ -187,51 +260,189 @@ afterEach(() => {
 it("adds independent columns with stable UUIDs and restores the saved workspace", async () => {
   const api = transport();
   const app = await mount();
-  expect(screen.getByRole("heading", { name: "Your columns" })).toBeTruthy();
-  for (let index = 0; index < 2; index++) {
+  expect(screen.getByRole("heading", { name: "Latest" })).toBeTruthy();
+  for (const kind of ["latest", "recommended"]) {
     fireEvent.click(screen.getByRole("button", { name: "Add column" }));
     expect(screen.getByRole("dialog", { name: "Add column" })).toBeTruthy();
-    await editFeed("latest");
+    await editFeed(kind);
     await saveEditor();
   }
   const saved = storedColumns();
-  expect(saved.map(({ feed }) => feed)).toEqual([{ kind: "latest" }, { kind: "latest" }]);
+  expect(saved.map(({ feed }) => feed)).toEqual([{ kind: "latest" }, { kind: "recommended" }]);
   expect(new Set(saved.map(({ id }) => id)).size).toBe(2);
   for (const column of saved)
     expect(column.id).toMatch(/^[\da-f]{8}(?:-[\da-f]{4}){3}-[\da-f]{12}$/i);
   app.unmount();
   render(<Workspace />);
-  await screen.findAllByRole("button", { name: "Edit Latest column" });
+  await screen.findByRole("button", { name: "Options for Latest column" });
   expect(
     [...document.querySelectorAll("[data-column-id]")].map((node) =>
       node.getAttribute("data-column-id"),
     ),
   ).toEqual(saved.map(({ id }) => id));
-  expect(api.fetcher).not.toHaveBeenCalled();
+  expect(api.writes).toHaveLength(0);
+  expect(
+    api.fetcher.mock.calls.every(
+      ([input]) => new URL(String(input), window.location.href).pathname === "/api/v1/feed",
+    ),
+  ).toBe(true);
 });
+
+it("opens and saves Add column when randomUUID is unavailable on the current origin", async () => {
+  const secureRandomValues = globalThis.crypto.getRandomValues.bind(globalThis.crypto);
+  const getRandomValues = vi.fn((bytes: Uint8Array) => secureRandomValues(bytes));
+  vi.stubGlobal("crypto", { randomUUID: undefined, getRandomValues });
+  transport();
+  await mount([latest]);
+  fireEvent.click(screen.getByRole("button", { name: "Add column" }));
+  expect(screen.getByRole("dialog", { name: "Add column" })).toBeTruthy();
+  await editFeed("recommended");
+  await saveEditor();
+  expect(screen.queryByRole("dialog")).toBeNull();
+  expect(storedColumns()[0]).toEqual(latest);
+  expect(storedColumns()[1].feed).toEqual({ kind: "recommended" });
+  expect(storedColumns()[1].id).toMatch(
+    /^[\da-f]{8}-[\da-f]{4}-4[\da-f]{3}-[89ab][\da-f]{3}-[\da-f]{12}$/,
+  );
+  expect(storedColumns()[1].id).not.toBe(latest.id);
+  expect(getRandomValues).toHaveBeenCalled();
+});
+
+it.each(["guest", "account"])(
+  "marks existing built-in and catalog feeds Added before creating a %s column",
+  async (owner) => {
+    state.user = owner === "account" ? account : null;
+    const source: ReaderColumn = {
+      id: uuid(3),
+      feed: { kind: "source", id: catalog.source.id.toUpperCase() },
+    };
+    const existing = [latest, recommended, source];
+    const api = transport(existing);
+    await mount(existing);
+    fireEvent.click(screen.getByRole("button", { name: "Add column" }));
+    const dialog = screen.getByRole("dialog", { name: "Add column" });
+    const kind = within(dialog).getByRole("combobox", { name: "Feed type" }) as HTMLSelectElement;
+    expect(kind.value).toBe("topic");
+    for (const label of ["Latest · Added", "Recommended · Added"])
+      expect(
+        (within(dialog).getByRole("option", { name: label }) as HTMLOptionElement).disabled,
+      ).toBe(true);
+    fireEvent.change(kind, { target: { value: "source" } });
+    const choice = await within(dialog).findByRole("button", { name: catalog.source.name });
+    expect((choice as HTMLButtonElement).disabled).toBe(true);
+    expect(choice.textContent).toContain("Added");
+    expect(
+      (within(dialog).getByRole("button", { name: "Save column" }) as HTMLButtonElement).disabled,
+    ).toBe(true);
+    fireEvent.click(choice);
+    expect(api.writes).toHaveLength(0);
+    expect(document.querySelectorAll("[data-column-id]")).toHaveLength(3);
+  },
+);
+
+it.each(["guest", "account"])(
+  "allows editing its own feed but blocks selecting another existing %s column",
+  async (owner) => {
+    state.user = owner === "account" ? account : null;
+    const api = transport([latest, recommended]);
+    await mount([latest, recommended]);
+    await chooseColumnAction("Latest", "Edit Latest column");
+    const dialog = screen.getByRole("dialog", { name: "Edit column" });
+    expect(
+      (within(dialog).getByRole("option", { name: "Latest" }) as HTMLOptionElement).disabled,
+    ).toBe(false);
+    expect(
+      (within(dialog).getByRole("option", { name: "Recommended · Added" }) as HTMLOptionElement)
+        .disabled,
+    ).toBe(true);
+    // A stale native-select event must still hit the same save guard as a duplicate catalog result.
+    fireEvent.change(within(dialog).getByRole("combobox", { name: "Feed type" }), {
+      target: { value: "recommended" },
+    });
+    expect(within(dialog).getByRole("alert").textContent).toBe(
+      "This feed is already in your workspace.",
+    );
+    const save = within(dialog).getByRole("button", { name: "Save column" }) as HTMLButtonElement;
+    expect(save.disabled).toBe(true);
+    fireEvent.click(save);
+    expect(api.writes).toHaveLength(0);
+    expect(document.querySelectorAll("[data-column-id]")).toHaveLength(2);
+    expect(screen.queryByRole("dialog")).toBe(dialog);
+  },
+);
 
 it("edits, reorders, and removes columns without changing their identities", async () => {
   transport();
-  await mount([latest, recommended]);
-  fireEvent.click(screen.getByRole("button", { name: "Edit Latest column" }));
+  const app = await mount([latest, recommended]);
+  await chooseColumnAction("Latest", "Edit Latest column");
   expect(screen.getByRole("dialog", { name: "Edit column" })).toBeTruthy();
-  await editFeed("recommended");
+  await editFeed("source", catalog.source.name);
   await saveEditor();
-  expect(storedColumns()).toEqual([{ ...latest, feed: { kind: "recommended" } }, recommended]);
+  expect(storedColumns()).toEqual([
+    { ...latest, feed: { kind: "source", id: catalog.source.id } },
+    recommended,
+  ]);
+  await screen.findByRole("button", { name: "Options for Rust Blog column" });
   const first = document.querySelector(`[data-column-id="${latest.id}"]`)!;
-  fireEvent.click(
-    within(first as HTMLElement).getByRole("button", { name: "Move Recommended right" }),
-  );
+  await chooseColumnAction("Rust Blog", "Move Rust Blog right");
   await waitFor(() =>
     expect(storedColumns().map(({ id }) => id)).toEqual([recommended.id, latest.id]),
   );
-  fireEvent.click(
-    within(first as HTMLElement).getByRole("button", { name: "Remove Recommended column" }),
-  );
+  expect(document.querySelector(`[data-column-id="${latest.id}"]`)).toBe(first);
+  const remove = screen.getByRole("button", { name: "Remove Rust Blog column" });
+  expect(remove.title).toBe("Remove Rust Blog column");
+  fireEvent.click(remove);
   await waitFor(() => expect(storedColumns()).toEqual([recommended]));
+  await waitFor(() =>
+    expect(document.activeElement).toBe(
+      document.querySelector(`[data-column-id="${recommended.id}"]`),
+    ),
+  );
   fireEvent.click(screen.getByRole("button", { name: "Remove Recommended column" }));
   await waitFor(() => expect(storedColumns()).toEqual([]));
-  expect(screen.getByRole("button", { name: "Add column" })).toBeTruthy();
+  await waitFor(() =>
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: "Add column" })),
+  );
+  app.unmount();
+  render(<Workspace />);
+  await screen.findByRole("heading", { name: "Build your reading workspace" });
+  expect(document.querySelectorAll("[data-column-id]")).toHaveLength(0);
+  expect(storedColumns()).toEqual([]);
+});
+
+it("retains a column when direct removal cannot be saved and allows retry", async () => {
+  state.user = account;
+  const api = transport([latest, recommended]);
+  await mount();
+  api.rejectNextWrite();
+  fireEvent.click(screen.getByRole("button", { name: "Remove Latest column" }));
+  await screen.findByRole("alert");
+  expect(screen.getByRole("button", { name: "Remove Latest column" })).toBeTruthy();
+  expect(screen.getByRole("button", { name: "Remove Recommended column" })).toBeTruthy();
+  expect(state.notify).not.toHaveBeenCalledWith("Column removed.");
+  fireEvent.click(screen.getByRole("button", { name: "Remove Latest column" }));
+  await waitFor(() =>
+    expect(screen.queryByRole("button", { name: "Remove Latest column" })).toBeNull(),
+  );
+  expect(api.writes.at(-1)?.value.columns).toEqual([recommended]);
+  expect(state.notify).toHaveBeenCalledWith("Column removed.");
+});
+
+it("focuses Add column after the last account removal finishes saving", async () => {
+  state.user = account;
+  const api = transport([latest]);
+  await mount();
+  const complete = api.delayNextWrite();
+  fireEvent.click(screen.getByRole("button", { name: "Remove Latest column" }));
+  await waitFor(() => expect(api.writes).toHaveLength(1));
+  expect((screen.getByRole("button", { name: "Add column" }) as HTMLButtonElement).disabled).toBe(
+    true,
+  );
+  await complete(preferences([]));
+  await waitFor(() =>
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: "Add column" })),
+  );
+  expect(document.querySelectorAll("[data-column-id]")).toHaveLength(0);
 });
 
 it.each(["source", "topic", "tag"] as const)(
@@ -247,7 +458,7 @@ it.each(["source", "topic", "tag"] as const)(
     expect(saved[0].feed).toEqual({ kind, id: catalog[kind].id });
     app.unmount();
     render(<Workspace />);
-    await screen.findByRole("button", { name: `Edit ${catalog[kind].name} column` });
+    await screen.findByRole("button", { name: `Options for ${catalog[kind].name} column` });
     const lookup = api.fetcher.mock.calls
       .map(([input]) => new URL(String(input), window.location.href))
       .find((url) => url.pathname.endsWith(`/${catalog[kind].id}`));
@@ -261,10 +472,10 @@ it("keeps unavailable selections editable without deleting or exposing their sav
   const missing: ReaderColumn = { id: uuid(8), feed: { kind: "topic", id: uuid(999) } };
   transport();
   await mount([missing]);
-  await screen.findByRole("button", { name: "Edit Unavailable topic column" });
+  await screen.findByRole("button", { name: "Options for Unavailable topic column" });
   expect(storedColumns()).toEqual([missing]);
   expect(screen.queryByText(uuid(999))).toBeNull();
-  fireEvent.click(screen.getByRole("button", { name: "Edit Unavailable topic column" }));
+  await chooseColumnAction("Unavailable topic", "Edit Unavailable topic column");
   await editFeed("latest");
   await saveEditor();
   expect(storedColumns()).toEqual([{ id: missing.id, feed: { kind: "latest" } }]);
@@ -273,14 +484,14 @@ it("keeps unavailable selections editable without deleting or exposing their sav
 it("limits the workspace to twelve columns and makes space after removal", async () => {
   const columns: ReaderColumn[] = Array.from({ length: maxReaderColumns }, (_, index) => ({
     id: uuid(index + 1),
-    feed: { kind: "latest" },
+    feed: index === 0 ? { kind: "latest" } : { kind: "topic", id: uuid(1000 + index) },
   }));
   transport();
   await mount(columns);
   expect((screen.getByRole("button", { name: "Add column" }) as HTMLButtonElement).disabled).toBe(
     true,
   );
-  fireEvent.click(screen.getAllByRole("button", { name: "Remove Latest column" })[0]);
+  await chooseColumnAction("Latest", "Remove Latest column");
   await waitFor(() =>
     expect((screen.getByRole("button", { name: "Add column" }) as HTMLButtonElement).disabled).toBe(
       false,
@@ -302,18 +513,18 @@ it("rolls back a rejected account edit, keeps the editor open, and permits retry
   const api = transport([latest]);
   await mount();
   api.rejectNextWrite();
-  fireEvent.click(screen.getByRole("button", { name: "Edit Latest column" }));
+  await chooseColumnAction("Latest", "Edit Latest column");
   await editFeed("recommended");
   await saveEditor();
   expect(screen.getByRole("dialog", { name: "Edit column" })).toBeTruthy();
-  expect(screen.getByRole("button", { name: "Edit Latest column" })).toBeTruthy();
+  expect(screen.getByRole("button", { name: "Options for Latest column" })).toBeTruthy();
   expect(within(screen.getByRole("dialog")).getByRole("alert").textContent).toContain(
     "Couldn’t save",
   );
   expect(state.notify.mock.calls.filter(([, variant]) => variant !== "error")).toHaveLength(0);
   await saveEditor();
   expect(screen.queryByRole("dialog")).toBeNull();
-  expect(screen.getByRole("button", { name: "Edit Recommended column" })).toBeTruthy();
+  expect(screen.getByRole("button", { name: "Options for Recommended column" })).toBeTruthy();
   expect(api.writes.at(-1)?.value.columns).toEqual([{ ...latest, feed: { kind: "recommended" } }]);
   expect(api.writes.at(-1)?.init?.headers).toMatchObject({ "X-CSRF-Token": "csrf-a" });
 });
@@ -321,7 +532,7 @@ it("rolls back a rejected account edit, keeps the editor open, and permits retry
 it("cancels an editor without mutating the saved workspace", async () => {
   transport();
   await mount([latest]);
-  fireEvent.click(screen.getByRole("button", { name: "Edit Latest column" }));
+  await chooseColumnAction("Latest", "Edit Latest column");
   await editFeed("recommended");
   fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Cancel" }));
   expect(screen.queryByRole("dialog")).toBeNull();
@@ -333,7 +544,7 @@ it("blocks overlapping edits while a column save is pending", async () => {
   const api = transport([latest]);
   await mount();
   const complete = api.delayNextWrite();
-  fireEvent.click(screen.getByRole("button", { name: "Edit Latest column" }));
+  await chooseColumnAction("Latest", "Edit Latest column");
   await editFeed("recommended");
   fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Save column" }));
   await waitFor(() => expect(api.writes).toHaveLength(1));
@@ -353,7 +564,7 @@ it("blocks overlapping edits while a column save is pending", async () => {
   expect(state.notify).not.toHaveBeenCalled();
   await complete(preferences([{ ...latest, feed: { kind: "recommended" } }]));
   expect(screen.queryByRole("dialog")).toBeNull();
-  expect(screen.getByRole("button", { name: "Edit Recommended column" })).toBeTruthy();
+  expect(screen.getByRole("button", { name: "Options for Recommended column" })).toBeTruthy();
   expect(api.writes).toHaveLength(1);
 });
 
@@ -362,48 +573,28 @@ it("discards an old account's open editor when the account changes", async () =>
   const api = transport([latest]);
   api.accounts.set("reader-b", preferences([recommended]));
   const app = await mount();
-  fireEvent.click(screen.getByRole("button", { name: "Edit Latest column" }));
+  await chooseColumnAction("Latest", "Edit Latest column");
   await editFeed("topic", catalog.topic.name);
   state.user = { ...account, user_id: "reader-b", csrf_token: "csrf-b" };
   state.sessionRevision++;
   app.rerender(<Workspace />);
-  await screen.findByRole("button", { name: "Edit Recommended column" });
+  await screen.findByRole("button", { name: "Options for Recommended column" });
   expect(screen.queryByRole("dialog")).toBeNull();
-  expect(screen.queryByRole("button", { name: "Edit Latest column" })).toBeNull();
+  expect(screen.queryByRole("button", { name: "Options for Latest column" })).toBeNull();
   expect(api.writes).toHaveLength(0);
 });
 
-it("opens a configured feed after saving Grid and preserves the workspace for later", async () => {
+it("browses an empty configured feed inside Columns without changing the saved layout", async () => {
   const api = transport();
   await mount([latest]);
-  fireEvent.click(screen.getByRole("button", { name: "Open Latest feed" }));
-  await waitFor(() => expect(state.push).toHaveBeenCalledWith("/latest"));
-  expect(JSON.parse(localStorage.getItem(guestReaderPreferencesKey)!)).toEqual({
-    version: 1,
-    view: "cards",
-    columns: [latest],
-  });
-  expect(api.fetcher).not.toHaveBeenCalled();
-});
-
-it("opens the canonical source feed for this tab when guest layout storage is blocked", async () => {
-  const api = transport();
-  const source: ReaderColumn = { id: uuid(7), feed: { kind: "source", id: catalog.source.id } };
-  await mount([source]);
-  const open = await screen.findByRole("button", { name: "Open Rust Blog feed" });
-  vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
-    throw new Error("Storage blocked");
-  });
-  fireEvent.click(open);
-  await waitFor(() => expect(state.push).toHaveBeenCalledWith("/sources/rust-blog"));
-  expect(state.notify).toHaveBeenCalledWith(
-    "Browser preferences could not be saved. Opened the feed for this tab.",
-    "error",
-  );
+  const feed = await screen.findByRole("region", { name: "Articles in Latest column" });
+  expect(await within(feed).findByText("No articles yet.")).toBeTruthy();
+  expect(screen.queryByRole("button", { name: "Open Latest feed" })).toBeNull();
+  expect(state.push).not.toHaveBeenCalled();
   expect(JSON.parse(localStorage.getItem(guestReaderPreferencesKey)!)).toEqual({
     version: 1,
     view: "columns",
-    columns: [source],
+    columns: [latest],
   });
   expect(api.writes).toHaveLength(0);
   expect(api.fetcher.mock.calls.some(([input]) => String(input).includes("/user/"))).toBe(false);
@@ -442,13 +633,16 @@ it("shows a failed catalog search inside the editor and recovers when retried", 
   expect(storedColumns()[0].feed).toEqual({ kind: "source", id: catalog.source.id });
 });
 
-it("moves focus to the selected column without changing its order or navigation", async () => {
+it("keeps the column board labelled and keyboard focusable without a workspace toolbar", async () => {
   transport();
   await mount([latest, recommended]);
-  fireEvent.change(screen.getByRole("combobox", { name: "Go to column" }), {
-    target: { value: recommended.id },
-  });
-  expect(document.activeElement?.getAttribute("data-column-id")).toBe(recommended.id);
+  expect(screen.queryByRole("combobox", { name: "Go to column" })).toBeNull();
+  expect(screen.queryByText("2 of 12 columns")).toBeNull();
+  const board = screen.getByRole("region", { name: "Column feeds" });
+  expect(board.tabIndex).toBe(0);
+  board.focus();
+  expect(document.activeElement).toBe(board);
+  expect(board.querySelectorAll("[data-column-id]")).toHaveLength(2);
   expect(storedColumns()).toEqual([latest, recommended]);
   expect(state.push).not.toHaveBeenCalled();
 });

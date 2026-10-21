@@ -364,6 +364,7 @@ export async function checkArticleViews(page, target, output, routes = [], { fix
     page.off("request", record);
     for (const route of routes) {
       await page.goto(route);
+      await setArticleView(page, "compact", { returnTo: route });
       await page.locator(".article-list-row").first().waitFor();
       assert.equal(await page.locator(".feed-view-toggle").count(), 0);
       assertListGeometry(await listGeometry(page));

@@ -107,9 +107,10 @@ and the toggle remains usable when local storage is blocked.
 Choose **Grid**, **List**, **Stacked**, or **Columns** in **Settings → Appearance → Article feed layout**.
 Signed-in readers open **Appearance** from their avatar menu.
 Saved changes are confirmed with a toast.
-One saved choice applies to My feed, Latest, Trending, Read later, and topic, tag,
-and source feeds. Guests retain their choice in the browser; signed-in readers
-reuse their account's existing feed preference. Feed settings manage content types
+My feed, Latest, Trending, Read later, and individual topic, tag, and source feeds
+each save their own layout. Columns is available only on My feed for signed-in readers.
+Guests retain layouts in the browser; signed-in readers reuse their account's saved choices.
+Feed settings manage content types
 and languages without changing that layout. Stacked presents the same loaded articles as one
 vertical stream with thumbnails, source and publication metadata, a short description, and
 shared article actions. It uses the same feed loading and engagement state as Grid and List,
@@ -118,14 +119,14 @@ and shows summary links only when an overview is available.
 Account preferences take priority whenever a reader signs in, including a new account's
 defaults. Guest preferences remain in that browser and return after sign-out; they are
 never copied into an account automatically. Columns provides a saved workspace with up to 12 ordered
-feed selections. Add, edit, move, or remove columns directly on feed pages.
+feed selections. Add, edit, move, or remove columns directly on My feed.
 Each column has a unique UUID and selects Latest, Recommended, or a source, topic or tag by
 UUID. Deleted or unavailable selections remain saved. Existing account JSON stores these
 preferences; updates that omit columns preserve the workspace, and an empty list clears it.
 
-The shared adapter reads guest state from `devfeed:reader-preferences:guest` as
+The legacy shared adapter reads guest state from `devfeed:reader-preferences:guest` as
 `{version: 1, view, columns}` and supports the old `devfeed:feed-view:guest` layout key.
-Guest saves update both keys, with an available layout in the old key. Unsupported versions
+Legacy saves update both keys, with an available layout in the old key. Unsupported versions
 are retained and block writes. Malformed saved columns are pruned, duplicate column IDs retain
 the first valid entry, and unknown layouts fall back to Grid. Storage denial keeps layouts
 usable for the current tab without reporting an unsuccessful save as completed.
@@ -465,19 +466,81 @@ a centered card limited to 760px, grouping the product logo, one attribution lin
 outlined Sponsored badge, and outward-link cue. Its neutral border gains an amber
 accent on hover/focus; the cue moves beneath the copy on narrow feeds.
 
+Each article feed saves its own layout. Use the layout menu on a feed, or choose a feed
+in Appearance before selecting Grid, List, Stacked, or the eligible My feed Columns layout.
+My feed, Latest, Trending, Read later, content-type feeds, and each topic, source, and tag
+retain separate choices. Catalog feeds use stable IDs, so aliases and content tabs share
+that catalog feed's layout; pagination and sorting do not create more preferences.
+The unified discovery search results retain their own presentation.
+
+Signed-in layout choices sync through the account; guest choices stay in separate browser
+storage. Existing layouts remain the initial defaults. The first customization freezes
+that default, and later changes affect only the selected feed. Reading a feed does not
+create or overwrite a saved choice.
+
+Columns is available only on My feed for signed-in readers. Other feeds keep their own
+Grid, List, or Stacked choice, and the saved My feed workspace remains unchanged. Search and
+contextual filters, including older `/?tag=…` links, still show the selected articles.
 Columns saves independent Latest, Recommended, source, topic, and tag selections. Each
 column has a stable identity while edits and reordering change its selection or position.
-Keyboard-accessible left/right controls reorder columns; narrow screens scroll the board
-horizontally and provide a named **Go to column** control. Unavailable selections remain
+Headers keep a remove button visible. An accessible options menu also provides
+edit, reorder, and remove actions. Narrow screens scroll the board horizontally; the board
+accepts keyboard focus.
+Columns use text-only article rows, full-width headlines and summaries, fixed-height
+headers, and restrained borders. Images remain in the other article layouts. Secondary
+article actions appear on hover or keyboard focus and remain visible on touch screens.
+The editor marks feeds already added; saves reject repeated feed selections. Older
+duplicate selections recover the first column's stable identity and order.
+Unavailable selections remain
 saved with edit/remove controls, and temporary catalog failures offer retry. Recommended
 retains the existing sign-in and interest eligibility rules.
 
-**Open feed** switches to Grid and opens the selected feed. This configuration stage does
-not fetch articles per column; independent in-column loading and pagination are tracked in
-[#270](https://github.com/abhi1693/devfeed.tech/issues/270). Catalog lookups are limited to
-the 12 saved columns and one open editor; search displays at most 60 results. Topic/tag
-lookups use their stable UUID with `by_id=true`, preserving canonical slug behavior and
-public visibility checks.
+My feed starters begin with Recommended and up to four feeds from followed topics, sources,
+tags, and topics from recently liked articles. Suggestions include only feeds with
+visible articles matching the reader's language/content preferences. Without eligible
+interests, My feed starts with Recommended and Latest. Starters are a starting point;
+later likes and follows do not rearrange configured columns. The selected feed IDs and column
+identities are saved once. Existing configurations, including explicitly cleared and
+legacy empty workspaces, remain unchanged. An empty workspace offers **Use starter
+columns** to opt in again. Account initialization is conditional under the account lock,
+so another tab or device's newer columns win. Layout/filter saves do not replace columns.
+Existing shared columns, including deliberate clears, are preserved as My feed's starting
+configuration. Older public/guest workspace settings remain stored for compatibility;
+they do not replace public article feeds. Columns is disabled in guest Appearance with
+a sign-in link. Grid remains the default layout.
+Column identities use cryptographic random bytes when `crypto.randomUUID` is unavailable,
+so **Add column** also works on ordinary HTTP development origins.
+
+Articles load and scroll inside each column. **Load more articles**, retry, and feed-update
+recovery affect only that column; reordering preserves loaded pages and scroll. Duplicate articles
+are removed within each column, while matching articles can appear in multiple columns.
+The existing bookmark, like, original-article, summary, sharing, and preview controls are
+shared across columns; opening a preview selects that column's article sequence.
+Text-only rows lead with the headline, followed by publisher/date metadata and a two-line
+summary. Long headlines retain their complete accessible text and expand in a tooltip.
+
+Eligible sponsored products appear after the fourth article in each column, with a
+Sponsored label and text-only creative. Long product names and attribution stay bounded,
+with complete text available on hover and to assistive technology. Topic columns use their
+topic context; other columns match their initial article page. Pagination and previews retain the same placement,
+and a product appears at most once across mounted reader contexts. Unavailable placements
+do not block article loading or leave an empty ad row.
+
+A workspace supports 12 saved columns and one editor. A shared FIFO queue allows at most
+three concurrent column feed/catalog/product requests, including retries and pagination; each
+column allows one pending page. Feed and catalog requests time out after 15 seconds of transport
+time; product delivery has a five-second deadline beginning after admission to the queue.
+Each column retains at most three pages of 24 articles (72 unique articles, at most 864
+article rows across a full workspace). Further loading stops at that limit. Reloading the page
+starts the columns from their first pages. There is no background polling or automatic pagination.
+Edits, removal, and account changes cancel pending work and discard stale results.
+
+Recommended uses the existing authenticated feed API, including preparation/starter-feed
+and no-interest states. An expired recommendation cursor offers **Show updated feed** for
+that column. Private content is masked during session checks and cleared on account changes.
+Content/language preference changes restart affected feed sessions. Catalog search displays
+at most 60 results. Topic/tag lookups use stable UUIDs with `by_id=true`; tag article requests
+use the resolved slug, preserving canonical behavior and public visibility checks.
 
 Closing an article preview keeps loaded rows, pagination, and scroll in place. The
 session is still checked, while unchanged credentials retain saved preferences and

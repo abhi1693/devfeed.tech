@@ -46,6 +46,11 @@ function canonicalUuid(value: unknown): string | null {
   return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
 }
 
+/** Compare selections independently of their column identity or accepted UUID text form. */
+export function readerColumnFeedKey(feed: ReaderColumnFeed): string {
+  return "id" in feed ? `${feed.kind}:${canonicalUuid(feed.id) ?? feed.id}` : feed.kind;
+}
+
 function column(value: unknown): ReaderColumn | null {
   if (!record(value) || !exactKeys(value, ["id", "feed"]) || !record(value.feed)) return null;
   const id = canonicalUuid(value.id);
@@ -66,10 +71,12 @@ function normalizedColumns(value: unknown): ReaderColumn[] {
   if (!Array.isArray(value)) return [];
   const result: ReaderColumn[] = [];
   const seen = new Set<string>();
+  const feeds = new Set<string>();
   for (const item of value) {
     const parsed = column(item);
-    if (!parsed || seen.has(parsed.id)) continue;
+    if (!parsed || seen.has(parsed.id) || feeds.has(readerColumnFeedKey(parsed.feed))) continue;
     seen.add(parsed.id);
+    feeds.add(readerColumnFeedKey(parsed.feed));
     result.push(parsed);
     if (result.length === maxReaderColumns) break;
   }
@@ -79,10 +86,12 @@ function normalizedColumns(value: unknown): ReaderColumn[] {
 function validColumns(value: unknown): value is ReaderColumn[] {
   if (!Array.isArray(value) || value.length > maxReaderColumns) return false;
   const seen = new Set<string>();
+  const feeds = new Set<string>();
   return value.every((item) => {
     const parsed = column(item);
-    if (!parsed || seen.has(parsed.id)) return false;
+    if (!parsed || seen.has(parsed.id) || feeds.has(readerColumnFeedKey(parsed.feed))) return false;
     seen.add(parsed.id);
+    feeds.add(readerColumnFeedKey(parsed.feed));
     return true;
   });
 }
@@ -142,6 +151,19 @@ function unsupportedVersion(value: unknown) {
   return record(value) && "version" in value && value.version !== readerPreferencesVersion;
 }
 
+/** An explicit empty workspace is a user choice, including records predating the marker. */
+export function guestColumnsInitialized(storage?: Pick<Storage, "getItem">): boolean {
+  try {
+    const stored = storedRecord(storage ?? browserStorage());
+    if (!record(stored) || stored.version !== readerPreferencesVersion) return false;
+    if (normalizedColumns(stored.columns).length) return true;
+    if (typeof stored.columns_initialized === "boolean") return stored.columns_initialized;
+    return Array.isArray(stored.columns);
+  } catch {
+    return false;
+  }
+}
+
 /** Guest data stays separate from account settings, including when a new account has defaults. */
 export function readGuestReaderPreferences(
   storage?: Pick<Storage, "getItem">,
@@ -169,6 +191,7 @@ export function readGuestReaderPreferences(
 export function writeGuestReaderPreferences(
   value: Pick<FeedDisplay, "view" | "columns">,
   storage?: GuestStorage,
+  initialized = true,
 ): boolean {
   if (!isView(value.view) || !validColumns(value.columns ?? [])) return false;
   try {
@@ -181,6 +204,8 @@ export function writeGuestReaderPreferences(
         version: readerPreferencesVersion,
         view: preferences.view,
         columns: preferences.columns,
+        columns_initialized:
+          initialized || !!preferences.columns.length || guestColumnsInitialized(target),
       }),
     );
     target.setItem(legacyGuestFeedViewKey, normalizeFeedView(preferences.view));

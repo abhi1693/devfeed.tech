@@ -7,6 +7,13 @@ import { userRequest } from "@/lib/user";
 import { bookmarkChanged } from "@/components/article-engagement";
 import { article } from "./fixtures";
 vi.mock("@/lib/user", () => ({ userRequest: vi.fn() }));
+vi.mock("@/components/scoped-feed-preferences", () => ({
+  ScopedFeedPreferences: ({ children }: { children: ReactNode }) => children,
+  useFeedViewScope: () => null,
+}));
+vi.mock("@/components/feed-preferences", () => ({
+  useFeedPreferences: () => ({ view: "cards", loading: false, unavailable: false }),
+}));
 vi.mock("@/components/user-account", () => ({
   useUser: () => ({ user: { user_id: "owner" } }),
   AccountGate: ({ children }: { children: ReactNode }) => children,

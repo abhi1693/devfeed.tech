@@ -21,6 +21,11 @@ export const readerFeeds = {
   trending: { mode: "trending", capabilities: noPlacements },
 } as const satisfies Record<string, FeedDescriptor>;
 
+/** Contextual links must show the selected articles even on a main feed route. */
+export function canUseColumnWorkspace(filters: FeedFilters): boolean {
+  return !(filters.q || filters.topic || filters.source_id || filters.tag || filters.content_type);
+}
+
 /** Resolve account-dependent mode and route/query filters without inspecting URL paths. */
 export function resolveFeed(
   descriptor: FeedDescriptor,

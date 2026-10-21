@@ -16,11 +16,19 @@ const account = vi.hoisted(() => ({
 vi.mock("@/components/user-account", () => ({ useUser: () => account }));
 vi.mock("@/lib/user", () => ({ userRequest: vi.fn() }));
 
-function Stacked({ item = article, onOpen }: { item?: Article; onOpen?: () => void }) {
+function Stacked({
+  item = article,
+  onOpen,
+  textOnly = false,
+}: {
+  item?: Article;
+  onOpen?: () => void;
+  textOnly?: boolean;
+}) {
   return (
     <EngagementProvider articleIds={[item.id]}>
       <ArticleStackedFrame>
-        <ArticleStackedRow article={item} onOpen={onOpen} />
+        <ArticleStackedRow article={item} onOpen={onOpen} textOnly={textOnly} />
       </ArticleStackedFrame>
     </EngagementProvider>
   );
@@ -73,26 +81,51 @@ it("keeps ordered full-width articles within one named container", () => {
   expect(frame.querySelector(".article-card")).toBeNull();
 });
 
-it("shows publisher, publication time, and one topic before the complete Unicode headline", () => {
-  const title = "日本語 🦀 " + "long headline ".repeat(25);
-  const aggregator = { ...source, id: "digest", slug: "digest", name: "A discovery digest" };
-  const { container } = render(
-    <Stacked item={{ ...article, title, publisher: source, sources: [aggregator, source] }} />,
-  );
-  const publisher = screen.getByRole("link", { name: source.name });
-  const topicLink = screen.getByRole("link", { name: `#${topic.name}` });
-  const titleLink = screen.getByRole("link", { name: title.trim() });
-  const heading = screen.getByRole("heading", { name: title.trim() });
-  const meta = container.querySelector(".article-stacked-meta")!;
-  expect(publisher.getAttribute("href")).toBe(`/sources/${source.slug}`);
-  expect(topicLink.getAttribute("href")).toBe(`/topics/${topic.slug}`);
-  expect(screen.queryByText(aggregator.name)).toBeNull();
-  expect(titleLink.textContent).toBe(title);
-  expect(titleLink.getAttribute("href")).toBe(`/articles/${article.slug}`);
-  expect(meta.compareDocumentPosition(heading) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-  expect(meta.querySelector("time")?.getAttribute("datetime")).toBe(article.published_at);
-  expect(meta.querySelectorAll(".article-stacked-topic")).toHaveLength(1);
-});
+it.each([false, true])(
+  "preserves complete Unicode article text and the intended reading order with textOnly=%s",
+  (textOnly) => {
+    const title = "日本語 🦀 " + "long headline ".repeat(25);
+    const description = "A readable explanation of the engineering tradeoffs. ".repeat(8).trim();
+    const publisherSource = {
+      ...source,
+      name: "An engineering publication with a complete descriptive publisher name",
+    };
+    const aggregator = { ...source, id: "digest", slug: "digest", name: "A discovery digest" };
+    const { container } = render(
+      <Stacked
+        textOnly={textOnly}
+        item={{
+          ...article,
+          title,
+          ai_description: description,
+          publisher: publisherSource,
+          sources: [aggregator, publisherSource],
+        }}
+      />,
+    );
+    const publisher = screen.getByRole("link", { name: publisherSource.name });
+    const topicLink = screen.getByRole("link", { name: `#${topic.name}` });
+    const titleLink = screen.getByRole("link", { name: title.trim() });
+    const heading = screen.getByRole("heading", { name: title.trim() });
+    const meta = container.querySelector(".article-stacked-meta")!;
+    expect(publisher.getAttribute("href")).toBe(`/sources/${source.slug}`);
+    expect(topicLink.getAttribute("href")).toBe(`/topics/${topic.slug}`);
+    expect(screen.queryByText(aggregator.name)).toBeNull();
+    expect(titleLink.textContent).toBe(title);
+    expect(publisher.textContent).toBe(publisherSource.name);
+    expect(publisher.getAttribute("title")).toBe(publisherSource.name);
+    expect(container.querySelector(".article-stacked-description")?.textContent).toBe(description);
+    expect(screen.getByRole("group", { name: `Actions for ${title.trim()}` })).toBeTruthy();
+    expect(screen.getByRole("button", { name: `Share article: ${title.trim()}` })).toBeTruthy();
+    expect(titleLink.getAttribute("href")).toBe(`/articles/${article.slug}`);
+    expect(
+      (textOnly ? heading.compareDocumentPosition(meta) : meta.compareDocumentPosition(heading)) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    expect(meta.querySelector("time")?.getAttribute("datetime")).toBe(article.published_at);
+    expect(meta.querySelectorAll(".article-stacked-topic")).toHaveLength(1);
+  },
+);
 
 it("uses a compact tag, feed date, and original host when publisher metadata is absent", () => {
   const { container } = render(
@@ -183,24 +216,55 @@ it("uses managed image variants at thumbnail sizes and recovers from image failu
   expect(container.querySelector(".image-placeholder")).toBeTruthy();
 });
 
-it("keeps preview actions distinct from source, save, share, and outbound actions", async () => {
-  const onOpen = vi.fn();
-  render(
-    <div onClick={(event) => event.preventDefault()}>
-      <Stacked onOpen={onOpen} />
-    </div>,
-  );
-  fireEvent.click(screen.getByRole("link", { name: source.name }));
-  fireEvent.click(screen.getByRole("link", { name: `#${topic.name}` }));
-  fireEvent.click(screen.getByRole("link", { name: "Sign in to save article for later" }));
-  fireEvent.click(screen.getByRole("button", { name: `Share article: ${article.title}` }));
-  fireEvent.click(screen.getByRole("link", { name: "Read original article in a new tab" }));
-  expect(onOpen).not.toHaveBeenCalled();
-  fireEvent.click(screen.getByRole("link", { name: article.title }));
-  fireEvent.click(screen.getByRole("link", { name: `Read AI summary: ${article.title}` }));
-  expect(onOpen).toHaveBeenCalledTimes(2);
-  await screen.findByRole("img", { name: "10 clicks to the original article" });
-});
+it.each([false, true])(
+  "retains attribution and article actions with textOnly=%s while controlling article and publisher images",
+  (textOnly) => {
+    const publisher = { ...source, logo_url: "https://images.example.test/publisher.webp" };
+    const cover = "https://images.example.test/article.webp";
+    const { container } = render(
+      <ArticleStackedRow
+        article={{ ...article, publisher, sources: [publisher], image_url: cover }}
+        textOnly={textOnly}
+      />,
+    );
+    if (textOnly) {
+      expect(container.querySelector("img")).toBeNull();
+    } else {
+      expect(container.querySelector(".article-stacked-thumbnail img")?.getAttribute("src")).toBe(
+        cover,
+      );
+      expect(container.querySelector(".source-avatar img")?.getAttribute("src")).toBe(
+        publisher.logo_url,
+      );
+    }
+    expect(screen.getByRole("link", { name: publisher.name })).toBeTruthy();
+    expect(screen.getByRole("link", { name: article.title })).toBeTruthy();
+    expect(screen.getByRole("link", { name: "Read original article in a new tab" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: `Share article: ${article.title}` })).toBeTruthy();
+  },
+);
+
+it.each([false, true])(
+  "keeps preview actions distinct from source, save, share, and outbound actions with textOnly=%s",
+  async (textOnly) => {
+    const onOpen = vi.fn();
+    render(
+      <div onClick={(event) => event.preventDefault()}>
+        <Stacked onOpen={onOpen} textOnly={textOnly} />
+      </div>,
+    );
+    fireEvent.click(screen.getByRole("link", { name: source.name }));
+    fireEvent.click(screen.getByRole("link", { name: `#${topic.name}` }));
+    fireEvent.click(screen.getByRole("link", { name: "Sign in to save article for later" }));
+    fireEvent.click(screen.getByRole("button", { name: `Share article: ${article.title}` }));
+    fireEvent.click(screen.getByRole("link", { name: "Read original article in a new tab" }));
+    expect(onOpen).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("link", { name: article.title }));
+    fireEvent.click(screen.getByRole("link", { name: `Read AI summary: ${article.title}` }));
+    expect(onOpen).toHaveBeenCalledTimes(2);
+    await screen.findByRole("img", { name: "10 clicks to the original article" });
+  },
+);
 
 it("copies the shared article route from the existing share popover", async () => {
   const copy = vi.fn().mockResolvedValue(undefined);

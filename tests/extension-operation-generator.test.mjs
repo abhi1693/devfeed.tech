@@ -464,9 +464,27 @@ test("repository registry exposes exactly the declared private and public adapte
     ),
   );
   const plan = await extensionOperationPlan(input, declaration);
-  assert.equal(plan.privateOperations.length, 63);
+  assert.equal(plan.privateOperations.length, 68);
   assert.equal(plan.publicOperations.length, 16);
-  assert.equal(plan.privateOperations.length + plan.publicOperations.length, 79);
+  assert.equal(plan.privateOperations.length + plan.publicOperations.length, 84);
+  const settingsPaths = new Set([
+    "/api/v1/user/settings/columns",
+    "/api/v1/user/settings/columns/starters",
+    "/api/v1/user/settings/feed-view",
+  ]);
+  assert.deepEqual(
+    plan.privateOperations
+      .filter(({ path }) => settingsPaths.has(path))
+      .map(({ method, path }) => `${method} ${path}`)
+      .sort(),
+    [
+      "GET /api/v1/user/settings/columns",
+      "GET /api/v1/user/settings/columns/starters",
+      "GET /api/v1/user/settings/feed-view",
+      "PUT /api/v1/user/settings/columns",
+      "PUT /api/v1/user/settings/feed-view",
+    ],
+  );
   assert.ok(
     plan.privateOperations.some((operation) => operation.operationId === "user_auth_sso_logout"),
   );

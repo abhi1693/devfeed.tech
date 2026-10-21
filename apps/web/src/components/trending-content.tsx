@@ -5,6 +5,7 @@ import { LoadingSkeleton } from "./loading-skeleton";
 import { RetryFeed } from "./retry-feed";
 import type { FeedPage } from "@/lib/types";
 import { ReaderFeedLayout } from "./reader-feed-layout";
+import { FeedLayoutMenu } from "./feed-layout-menu";
 
 export function TrendingContent({
   feed,
@@ -15,11 +16,12 @@ export function TrendingContent({
 }) {
   return (
     <UserShell section="trending">
-      <ReaderFeedLayout>
+      <ReaderFeedLayout scope="trending">
         <section className="feed-header">
           <div className="page-heading feed-heading">
             <h1>Trending</h1>
             <div className="feed-toolbar-actions">
+              <FeedLayoutMenu />
               <span className="sort-label">
                 <TrendingUp size={15} />
                 This week

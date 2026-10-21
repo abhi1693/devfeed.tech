@@ -8,6 +8,7 @@ import { UserProvider } from "@/components/user-account";
 import { FeedPreferencesProvider } from "@/components/feed-preferences";
 import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
+import { guestFeedViewsKey } from "@/lib/feed-view-scope";
 
 const defaultFeed = { view: "cards", content_types: ["news"], languages: ["en"] };
 const defaultAppearance = {
@@ -39,6 +40,8 @@ it("loads account theme and synchronizes the settings dropdown and navbar cycle 
     if (url.endsWith("auth/me"))
       return Promise.resolve(Response.json({ user_id: "user-a", csrf_token: "csrf" }));
     if (url.endsWith("settings/feed")) return Promise.resolve(Response.json(defaultFeed));
+    if (url.includes("settings/feed-view?"))
+      return Promise.resolve(Response.json({ view: "cards" }));
     if (init?.method === "PUT") {
       if (fail) return Promise.resolve(Response.json({}, { status: 503 }));
       theme = JSON.parse(String(init.body)).theme;
@@ -90,6 +93,7 @@ it.each([
             finish = resolve;
           });
         }
+        if (url.includes("settings/feed-view?")) return Response.json({ view: "cards" });
         return Response.json(url.endsWith("settings/feed") ? defaultFeed : defaultAppearance);
       }),
     );
@@ -138,6 +142,8 @@ it("saves date preferences without changing the theme and applies them to articl
       if (url.endsWith("auth/me"))
         return Promise.resolve(Response.json({ user_id: "user-a", csrf_token: "csrf" }));
       if (url.endsWith("settings/feed")) return Promise.resolve(Response.json(defaultFeed));
+      if (url.includes("settings/feed-view?"))
+        return Promise.resolve(Response.json({ view: "cards" }));
       if (init?.method === "PUT") preferences = JSON.parse(String(init.body));
       return Promise.resolve(Response.json(preferences));
     }),
@@ -174,7 +180,7 @@ it("saves date preferences without changing the theme and applies them to articl
   );
 });
 
-it("lets guests choose a global layout in Appearance without loading private settings", async () => {
+it("lets guests choose a feed's layout in Appearance without loading private settings", async () => {
   const fetcher = vi.fn(async (input: RequestInfo | URL) => {
     if (String(input).endsWith("auth/me")) return Response.json({}, { status: 401 });
     throw new Error(`Unexpected private request: ${String(input)}`);
@@ -192,7 +198,8 @@ it("lets guests choose a global layout in Appearance without loading private set
   await user.click(grid);
   await user.keyboard("[ArrowRight]");
   expect((layout.getByRole("radio", { name: "List" }) as HTMLInputElement).checked).toBe(true);
-  expect(localStorage.getItem("devfeed:feed-view:guest")).toBe("compact");
+  expect(JSON.parse(localStorage.getItem(guestFeedViewsKey)!).views).toEqual({ latest: "compact" });
+  expect(localStorage.getItem("devfeed:feed-view:guest")).toBeNull();
   await screen.findByText("Article layout saved.");
   expect(layout.queryByRole("button", { name: /save/i })).toBeNull();
   expect(fetcher.mock.calls.every(([url]) => String(url).endsWith("auth/me"))).toBe(true);
@@ -229,6 +236,13 @@ it("keeps layout settings usable when theme settings fail", async () => {
     vi.fn(async (url: string, init?: RequestInit) => {
       if (url.endsWith("auth/me")) return Response.json({ user_id: "reader", csrf_token: "csrf" });
       if (url.endsWith("settings/appearance")) return Response.json({}, { status: 503 });
+      if (url.includes("settings/feed-view?")) {
+        if (init?.method === "PUT") {
+          writes.push(url);
+          return Response.json(JSON.parse(String(init.body)));
+        }
+        return Response.json({ view: "compact" });
+      }
       if (url.endsWith("settings/feed")) {
         if (init?.method === "PUT") {
           writes.push(url);
@@ -249,7 +263,7 @@ it("keeps layout settings usable when theme settings fail", async () => {
   const list = await layout.findByRole("radio", { name: "List" });
   await waitFor(() => expect((list as HTMLInputElement).checked).toBe(true));
   fireEvent.click(layout.getByRole("radio", { name: "Grid" }));
-  await waitFor(() => expect(writes).toEqual(["/api/v1/user/settings/feed"]));
+  await waitFor(() => expect(writes).toEqual(["/api/v1/user/settings/feed-view?feed=my_feed"]));
   await waitFor(() =>
     expect((layout.getByRole("radio", { name: "Grid" }) as HTMLInputElement).checked).toBe(true),
   );
@@ -266,6 +280,7 @@ it("retries layout settings independently while keeping theme settings available
         if (++feedReads === 1) return Response.json({}, { status: 503 });
         return Response.json({ ...defaultFeed, view: "compact" });
       }
+      if (url.includes("settings/feed-view?")) return Response.json({ view: "compact" });
       if (url.endsWith("settings/appearance")) {
         if (init?.method === "PUT") theme = JSON.parse(String(init.body)).theme;
         return Response.json({ theme });
@@ -279,7 +294,8 @@ it("retries layout settings independently while keeping theme settings available
     </Providers>,
   );
   const themeControl = await screen.findByRole("combobox", { name: "Theme" });
-  const unavailable = within(await screen.findByRole("status", { name: "Article feed layout" }));
+  const unavailable = within(await screen.findByRole("region", { name: "Article feed layout" }));
+  await unavailable.findByRole("heading", { name: "Couldn’t load article layout" });
   fireEvent.click(unavailable.getByRole("button", { name: "Retry" }));
   const layout = within(await screen.findByRole("region", { name: "Article feed layout" }));
   await waitFor(() =>

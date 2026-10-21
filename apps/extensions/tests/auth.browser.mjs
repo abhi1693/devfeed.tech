@@ -5,7 +5,17 @@ import {
   readerRouteUrl,
 } from "../../../scripts/testing/article-view.mjs";
 import { checkReaderPreferences } from "../../../scripts/testing/reader-preferences.mjs";
-import { checkColumnsWorkspace } from "../../../scripts/testing/columns-workspace.mjs";
+import { createFixtureFeedViews } from "../../../scripts/testing/feed-view-fixture.mjs";
+import {
+  checkColumnsWorkspace,
+  checkGuestColumnsUnavailable,
+} from "../../../scripts/testing/columns-workspace.mjs";
+import { checkColumnsFeeds } from "../../../scripts/testing/columns-feeds.mjs";
+import { checkColumnsSponsoredProducts } from "../../../scripts/testing/columns-sponsored.mjs";
+import { checkColumnsScanning } from "../../../scripts/testing/columns-scanning.mjs";
+import { checkIndependentFeedViews } from "../../../scripts/testing/feed-views.mjs";
+import { checkColumnsStarters } from "../../../scripts/testing/columns-starters.mjs";
+import { checkPersonalColumns } from "../../../scripts/testing/columns-personal.mjs";
 import {
   checkPreviewFeedRetention,
   previewRetentionArticle,
@@ -157,6 +167,7 @@ async function withAuthenticatedReader(t, check) {
     rejectSourceFollow: true,
   };
   const readingFixture = readingStreakFixture();
+  const scopedViews = createFixtureFeedViews(() => state.feedSettings.view);
   const errors = [];
   const analytics = [];
   const handle = async (route) => {
@@ -312,10 +323,19 @@ async function withAuthenticatedReader(t, check) {
           },
         });
       }
+      if (url.pathname.endsWith("/settings/feed-view")) {
+        const value = scopedViews.write(
+          url.searchParams.get("feed"),
+          route.request().postDataJSON(),
+        );
+        return send(value ?? { detail: "Invalid feed layout" }, value ? 200 : 422);
+      }
       if (url.pathname.endsWith("/settings/feed")) {
-        state.feedSettings = route.request().postDataJSON();
+        state.feedSettings = { ...state.feedSettings, ...route.request().postDataJSON() };
         return send(state.feedSettings);
       }
+      if (url.pathname.endsWith("/settings/columns"))
+        return send({ initialized: true, columns: state.feedSettings.columns ?? [] });
       if (url.pathname.endsWith("/settings/profile")) {
         assert.equal(route.request().postDataJSON().reading_streak, undefined);
         state.profileName = route.request().postDataJSON().display_name;
@@ -454,7 +474,13 @@ async function withAuthenticatedReader(t, check) {
       });
     if (endpoint === "settings/reading-week") return send(readingFixture.response());
     if (endpoint === "settings/appearance") return send({ theme: "dark" });
+    if (endpoint === "settings/feed-view") {
+      const value = scopedViews.read(url.searchParams.get("feed"));
+      return send(value ?? { detail: "Invalid feed scope" }, value ? 200 : 422);
+    }
     if (endpoint === "settings/feed") return send(state.feedSettings);
+    if (endpoint === "settings/columns")
+      return send({ initialized: true, columns: state.feedSettings.columns ?? [] });
     if (endpoint === "settings/notifications") return send({ show_badge: true, sound: false });
     if (endpoint === "notifications/config")
       return send({ enabled: true, environment: "users", subscriber_id: "user_a" });
@@ -626,18 +652,113 @@ async function withAuthenticatedReader(t, check) {
 }
 
 test(
+  "columns feeds load independently with bounded resources and shared actions",
+  { timeout: 180000 },
+  (t) =>
+    withAuthenticatedReader(t, async ({ page, signIn }) => {
+      const target = readerRouteUrl(page.url(), "/");
+      for (const signedIn of [true]) {
+        if (signedIn) await signIn();
+        await checkColumnsFeeds(
+          page,
+          target,
+          `/tmp/devfeed-columns-feeds/${browser}-${signedIn ? "member" : "guest"}`,
+          { signedIn },
+        );
+      }
+    }),
+);
+
+test(
+  "columns editorial scanning stays readable across themes and viewport sizes",
+  { timeout: 90000 },
+  (t) =>
+    withAuthenticatedReader(t, async ({ page, signIn }) => {
+      await signIn();
+      await checkColumnsScanning(
+        page,
+        readerRouteUrl(page.url(), "/"),
+        process.env.DEVFEED_COLUMNS_SCANNING_OUTPUT ??
+          `/tmp/devfeed-columns-scanning/${browser}-final`,
+        { baseline: process.env.DEVFEED_COLUMNS_SCANNING_BASELINE === "1" },
+      );
+    }),
+);
+
+test(
+  "columns show contextual sponsored products with signed tracking across layouts",
+  { timeout: 90000 },
+  (t) =>
+    withAuthenticatedReader(t, async ({ page, signIn }) => {
+      await signIn();
+      await checkColumnsSponsoredProducts(
+        page,
+        readerRouteUrl(page.url(), "/"),
+        `/tmp/devfeed-columns-sponsored/${browser}`,
+      );
+    }),
+);
+
+test(
   "columns workspace saves independent selections and accessible arrangements",
   { timeout: 180000 },
   (t) =>
     withAuthenticatedReader(t, async ({ page, signIn }) => {
-      const target = readerRouteUrl(page.url(), "/latest?sort=most_liked");
-      for (const signedIn of [false, true]) {
+      const target = readerRouteUrl(page.url(), "/?sort=most_liked");
+      await checkGuestColumnsUnavailable(
+        page,
+        target,
+        `/tmp/devfeed-columns-workspace/${browser}-guest`,
+      );
+      for (const signedIn of [true]) {
         if (signedIn) await signIn();
         await checkColumnsWorkspace(
           page,
           target,
           `/tmp/devfeed-columns-workspace/${browser}-${signedIn ? "member" : "guest"}`,
           { signedIn },
+        );
+      }
+    }),
+);
+
+test(
+  "columns workspace saves first-use starters without replacing user choices",
+  { timeout: 180000 },
+  (t) =>
+    withAuthenticatedReader(t, async ({ page, signIn }) => {
+      const target = readerRouteUrl(page.url(), "/");
+      for (const signedIn of [true]) {
+        if (signedIn) await signIn();
+        await checkColumnsStarters(
+          page,
+          target,
+          `/tmp/devfeed-columns-starters/${browser}-${signedIn ? "member" : "guest"}`,
+          { signedIn },
+        );
+      }
+    }),
+);
+
+test(
+  "columns workspace saves personalized My feed independently from Latest",
+  { timeout: 180000 },
+  (t) =>
+    withAuthenticatedReader(t, async ({ page, signIn, context, state }) => {
+      const target = readerRouteUrl(page.url(), "/");
+      for (const signedIn of [true]) {
+        if (signedIn) await signIn();
+        await checkPersonalColumns(
+          page,
+          target,
+          `/tmp/devfeed-columns-personal/${browser}-${signedIn ? "member" : "guest"}`,
+          {
+            signedIn,
+            expireSession: async () => {
+              state.active = false;
+              await context.clearCookies();
+            },
+          },
         );
       }
     }),
@@ -708,6 +829,24 @@ test(
           }
         },
       });
+    }),
+);
+
+test(
+  "feed layouts persist independently by semantic feed for guests and members",
+  { timeout: 180000 },
+  (t) =>
+    withAuthenticatedReader(t, async ({ page, signIn }) => {
+      const target = readerRouteUrl(page.url(), "/");
+      for (const signedIn of [false, true]) {
+        if (signedIn) await signIn();
+        await checkIndependentFeedViews(
+          page,
+          target,
+          `/tmp/devfeed-feed-views/${browser}-${signedIn ? "member" : "guest"}`,
+          { signedIn },
+        );
+      }
     }),
 );
 

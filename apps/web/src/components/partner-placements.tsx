@@ -32,6 +32,7 @@ import { ArticleStackedRow } from "./article-stacked";
 import { CatalogIcon } from "./catalog-icon";
 import { EngagementProvider } from "./article-engagement";
 import { adLinkRel } from "@devfeed/ui/ad-link-rel";
+import type { ColumnRequestQueue } from "@/lib/column-feed";
 
 // Simultaneously mounted feed/article contexts must never show the same catalog product twice.
 const displayed = new Set<string>();
@@ -39,7 +40,8 @@ const displayed = new Set<string>();
 export type PartnerPlacementContext = PlacementQuery;
 type Props = PartnerPlacementContext & {
   maxItems?: number;
-  layout?: "table" | "stacked";
+  layout?: "table" | "stacked" | "columns";
+  requestQueue?: ColumnRequestQueue;
   children?: (cards: ReactNode[], items: PartnerPlacement[], expired: boolean) => ReactNode;
   beforeDisplay?: () => void;
   afterDisplay?: () => void;
@@ -97,7 +99,7 @@ function Placement({
   active: boolean;
   visible: boolean;
   preserveSpace: boolean;
-  layout?: "table" | "stacked";
+  layout?: "table" | "stacked" | "columns";
   tracking?: PartnerPlacementTrackingState;
 }) {
   const link = useRef<HTMLAnchorElement>(null);
@@ -202,6 +204,41 @@ function Placement({
           promotion={{ productId: item.product_id, active, visible, preserveSpace }}
         />
       </EngagementProvider>
+    );
+  if (layout === "columns")
+    return (
+      <article
+        className="article-stacked-row partner-placement partner-placement--column"
+        {...stateProps}
+      >
+        <a
+          {...linkProps}
+          className="partner-placement-link"
+          aria-describedby={`${sponsorshipId} ${sponsorshipId}-attribution`}
+        >
+          <div className="column-placement-meta">
+            <span
+              id={sponsorshipId}
+              className="partner-placement-label"
+              data-promotion-kind="sponsored"
+            >
+              Sponsored
+            </span>
+            <span
+              id={`${sponsorshipId}-attribution`}
+              className="column-placement-attribution"
+              title={attribution || platformName}
+            >
+              {attribution || platformName}
+            </span>
+          </div>
+          <h2 className="column-placement-title">
+            <span title={item.name}>{item.name}</span>
+            <ArrowUpRight size={16} aria-hidden="true" />
+          </h2>
+          {item.tagline && <p className="partner-placement-description">{item.tagline}</p>}
+        </a>
+      </article>
     );
   if (layout === "stacked")
     return (
@@ -357,6 +394,7 @@ function PlacementDelivery({
   topic_id,
   maxItems = 2,
   layout,
+  requestQueue,
   active,
   children,
   beforeDisplay,
@@ -461,17 +499,24 @@ function PlacementDelivery({
       body: JSON.stringify(query),
       cache: "no-store" as const,
       referrerPolicy: "no-referrer" as const,
-      signal: AbortSignal.any([controller.signal, AbortSignal.timeout(5000)]),
     };
     const personalized = identity !== "anonymous";
-    const load = personalized
-      ? userRequest<unknown>("partner-placements/query", init)
-      : readerRequest("/api/v1/partner-placements/query", { ...init, credentials: "omit" }).then(
-          async (response) => {
+    const request = (signal: AbortSignal) => {
+      // A queued placement gets its full delivery deadline after admission.
+      const options = { ...init, signal: AbortSignal.any([signal, AbortSignal.timeout(5000)]) };
+      return personalized
+        ? userRequest<unknown>("partner-placements/query", options)
+        : readerRequest("/api/v1/partner-placements/query", {
+            ...options,
+            credentials: "omit",
+          }).then(async (response) => {
             if (!response.ok) throw new Error("Placements unavailable");
             return response.json() as Promise<unknown>;
-          },
-        );
+          });
+    };
+    const load = requestQueue
+      ? requestQueue.run(request, controller.signal)
+      : request(controller.signal);
     void load
       .then((value) => {
         if (controller.signal.aborted) return;
@@ -516,7 +561,18 @@ function PlacementDelivery({
       controller.abort();
       release();
     };
-  }, [context, requestedContext, identity, loading, csrf, maxItems, publish, release, onDelivery]);
+  }, [
+    context,
+    requestedContext,
+    identity,
+    loading,
+    csrf,
+    maxItems,
+    publish,
+    release,
+    onDelivery,
+    requestQueue,
+  ]);
   useEffect(() => {
     if (active && !loading && result?.context === context && !result.expired) {
       for (const item of result.items.slice(0, maxItems)) {

@@ -25,7 +25,7 @@ export const readerLayouts = [
     id: "columns",
     label: "Columns",
     value: "columns",
-    description: "Arrange your own workspace of saved feeds.",
+    description: "A personal workspace of saved feeds on My feed.",
     available: true,
   },
 ] as const;

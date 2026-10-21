@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { mkdir, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import { openArticleViewSettings, readerRouteUrl } from "./article-view.mjs";
+import { createFixtureFeedViews, installFixtureFeedViews } from "./feed-view-fixture.mjs";
 
 const guestKey = "devfeed:reader-preferences:guest";
 const legacyKey = "devfeed:feed-view:guest";
@@ -47,29 +48,167 @@ const catalog = {
     },
   ],
 };
+export { catalog as columnsCatalog };
+
+export async function openColumnMenu(page, column, { keyboard = false } = {}) {
+  const trigger = column.getByRole("button", { name: /^Options for .+ column$/ });
+  if (keyboard) {
+    await trigger.focus();
+    await page.keyboard.press("Enter");
+  } else await trigger.click();
+  const menu = page.getByRole("menu");
+  await menu.waitFor();
+  return menu;
+}
+
+export async function columnAction(page, column, name, { keyboard = false } = {}) {
+  const menu = await openColumnMenu(page, column, { keyboard });
+  const item = menu.getByRole("menuitem", { name, exact: typeof name === "string" });
+  if (keyboard) {
+    await item.focus();
+    await page.keyboard.press("Enter");
+  } else await item.click();
+  await menu.waitFor({ state: "hidden" });
+}
+
+/** Saved guest Columns preferences stay intact while all guest routes use the normal feed. */
+export async function checkGuestColumnsUnavailable(page, target, output) {
+  const privateReads = [];
+  const record = (request) => {
+    if (
+      /\/api\/v1\/user\/(?:settings\/(?:feed(?:-view)?|columns)|feed)(?:\/|\?|$)/.test(
+        request.url(),
+      )
+    )
+      privateReads.push({ url: request.url(), method: request.method() });
+  };
+  page.on("request", record);
+  await mkdir(dirname(output), { recursive: true });
+  try {
+    await page.goto(readerRouteUrl(target, "/settings/appearance"));
+    const legacy = {
+      version: 1,
+      view: "columns",
+      columns_initialized: true,
+      columns: [
+        { id: "f0000000-0000-4000-8000-000000000001", feed: { kind: "latest" } },
+        {
+          id: "f0000000-0000-4000-8000-000000000002",
+          feed: { kind: "topic", id: catalog.topics[0].id },
+        },
+      ],
+    };
+    await page.evaluate(({ key, value }) => localStorage.setItem(key, JSON.stringify(value)), {
+      key: guestKey,
+      value: legacy,
+    });
+    await page.reload();
+    const layout = await openArticleViewSettings(page);
+    assert.equal(
+      await layout.getByRole("radio", { name: "Columns", exact: true }).isDisabled(),
+      true,
+    );
+    await layout.getByRole("link", { name: "Sign in to use Columns", exact: true }).waitFor();
+    assert.equal(await layout.getByRole("radio", { name: "Grid", exact: true }).isChecked(), true);
+    for (const route of [
+      "/",
+      "/latest",
+      "/trending",
+      "/articles",
+      `/?tag=${catalog.tags[0].slug}`,
+    ]) {
+      await page.goto(readerRouteUrl(target, route));
+      await page.locator(".theme-toggle:not([disabled])").waitFor();
+      await page.locator(".article-card:visible").first().waitFor();
+      assert.equal(
+        await page.getByRole("region", { name: "Columns workspace", exact: true }).count(),
+        0,
+      );
+    }
+    await page.screenshot({ path: `${output}-desktop.png`, animations: "disabled" });
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.screenshot({ path: `${output}-mobile.png`, animations: "disabled" });
+    assert.deepEqual(
+      await page.evaluate((key) => JSON.parse(localStorage.getItem(key)), guestKey),
+      legacy,
+    );
+    assert.deepEqual(privateReads, [], "Guests never load account settings or personalized feeds");
+    await writeFile(
+      `${output}.json`,
+      JSON.stringify({ passed: true, legacy, privateReads }, null, 2),
+    );
+  } finally {
+    page.off("request", record);
+  }
+}
 
 /** Configure the real reader workspace against a finite public catalog and persisted settings. */
-export async function checkColumnsWorkspace(page, target, output, { signedIn = false } = {}) {
+export async function checkColumnsWorkspace(
+  page,
+  target,
+  output,
+  { signedIn = false, nativeInsecureContext = false } = {},
+) {
+  assert.equal(signedIn, true, "Only authenticated My feed exposes the workspace editor");
   const context = page.context();
   const writes = [];
   const unavailable = new Set();
   const feedReads = [];
+  const nativeScrolls = [];
+  const routeScopes = [];
+  const directRemoval = {
+    desktopTargets: [],
+    touchTarget: null,
+    focusTransferred: false,
+    emptyAfterReload: false,
+  };
+  let touchSession = null;
   let account = {
     view: "cards",
-    columns: [],
+    columns: [{ id: "ffffffff-ffff-4fff-8fff-ffffffffffff", feed: { kind: "latest" } }],
     content_types: ["news", "article"],
     languages: ["en"],
   };
-  const accountPattern = /\/api\/v1\/user\/settings\/feed(?:\?|$)/;
+  let personalColumns = [];
+  const scopedViews = await installFixtureFeedViews(page, {
+    store: createFixtureFeedViews(() => account.view),
+    isSignedIn: () => signedIn,
+    onSave: () =>
+      writes.push({ ...structuredClone(account), columns: structuredClone(personalColumns) }),
+  });
+  const preservedLatest = structuredClone(account.columns);
+  const receiptColumns = (columns) => {
+    const seen = new Set();
+    return columns.filter(({ feed }) => {
+      const key = `${feed.kind}:${feed.id ?? ""}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+  };
+  const accountPattern = /\/api\/v1\/user\/settings\/(?:feed|columns)(?:\?|$)/;
   const accountHandler = async (route) => {
     const request = route.request();
     if (!signedIn) {
       assert.equal(request.method(), "GET", "Guests never save account preferences");
       return route.fallback();
     }
+    const url = new URL(request.url());
+    if (url.pathname.endsWith("/columns")) {
+      if (url.searchParams.get("workspace") !== "my_feed")
+        return route.fulfill({ json: { initialized: true, columns: account.columns } });
+      if (request.method() === "PUT") {
+        assert.ok((await request.allHeaders())["x-csrf-token"], "Account writes retain CSRF proof");
+        personalColumns = structuredClone(request.postDataJSON().columns);
+        writes.push({ ...structuredClone(account), columns: structuredClone(personalColumns) });
+      }
+      return route.fulfill({
+        json: { initialized: true, columns: receiptColumns(personalColumns) },
+      });
+    }
     if (request.method() === "PUT") {
       assert.ok((await request.allHeaders())["x-csrf-token"], "Account writes retain CSRF proof");
-      account = structuredClone(request.postDataJSON());
+      account = { ...account, ...structuredClone(request.postDataJSON()) };
       writes.push(structuredClone(account));
     }
     return route.fulfill({ json: account });
@@ -96,7 +235,11 @@ export async function checkColumnsWorkspace(page, target, output, { signedIn = f
   };
   const saved = async () =>
     signedIn
-      ? structuredClone(account)
+      ? {
+          ...structuredClone(account),
+          view: scopedViews.store.read("my_feed").view,
+          columns: structuredClone(personalColumns),
+        }
       : page.evaluate((key) => JSON.parse(localStorage.getItem(key)), guestKey);
   const selectLayout = async (name) => {
     const layout = await openArticleViewSettings(page);
@@ -141,6 +284,12 @@ export async function checkColumnsWorkspace(page, target, output, { signedIn = f
   };
   await context.route(accountPattern, accountHandler);
   await context.route(catalogPattern, catalogHandler);
+  if (!nativeInsecureContext) {
+    const disableRandomUuid = () =>
+      Object.defineProperty(crypto, "randomUUID", { value: undefined, configurable: true });
+    await page.addInitScript(disableRandomUuid);
+    await page.evaluate(disableRandomUuid);
+  }
   page.on("request", recordFeedRead);
   await mkdir(dirname(output), { recursive: true });
   try {
@@ -150,7 +299,10 @@ export async function checkColumnsWorkspace(page, target, output, { signedIn = f
     if (!signedIn) {
       await page.evaluate(
         ({ guestKey, legacyKey }) => {
-          localStorage.removeItem(guestKey);
+          localStorage.setItem(
+            guestKey,
+            JSON.stringify({ version: 1, view: "cards", columns: [], columns_initialized: true }),
+          );
           localStorage.removeItem(legacyKey);
         },
         { guestKey, legacyKey },
@@ -158,10 +310,43 @@ export async function checkColumnsWorkspace(page, target, output, { signedIn = f
       await page.reload();
     }
     const guestBefore = await page.evaluate((key) => localStorage.getItem(key), guestKey);
+    const cryptoCapabilities = await page.evaluate(() => ({
+      secureContext: isSecureContext,
+      randomUUID: typeof crypto.randomUUID,
+      getRandomValues: typeof crypto.getRandomValues,
+      origin: location.origin,
+    }));
+    assert.equal(cryptoCapabilities.randomUUID, "undefined");
+    assert.equal(cryptoCapabilities.getRandomValues, "function");
+    if (nativeInsecureContext)
+      assert.equal(
+        cryptoCapabilities.secureContext,
+        false,
+        "The HTTP hostname exercises the browser's native insecure-context capability boundary",
+      );
     await selectLayout("Columns");
-    await workspace().getByRole("heading", { name: "Your columns", exact: true }).waitFor();
+    await workspace().getByRole("heading", { name: "My feed", level: 1, exact: true }).waitFor();
+    for (const text of [
+      "Browse your feeds side by side. Each column loads independently.",
+      "Your reading workspace",
+    ])
+      assert.equal(
+        await workspace().getByText(text, { exact: true }).count(),
+        0,
+        "The workspace header omits helper subtitles",
+      );
     assert.equal(await columns().count(), 0, "An empty workspace never invents columns");
     const initialFeedReads = feedReads.length;
+    assert.equal(
+      await workspace().getByRole("combobox", { name: "Go to column", exact: true }).count(),
+      0,
+    );
+    assert.equal(
+      await workspace()
+        .getByText(/^\d+ of 12 columns$/)
+        .count(),
+      0,
+    );
     await add("latest");
     await add("recommended");
     await add("source", catalog.sources[0]);
@@ -170,6 +355,19 @@ export async function checkColumnsWorkspace(page, target, output, { signedIn = f
     const originalIds = await identities();
     assert.equal(new Set(originalIds).size, 5, "Each independent column has a unique identity");
     for (const id of originalIds) assert.match(id, uuid, "Column identities use persisted UUIDs");
+    assert.equal(
+      await workspace()
+        .getByRole("button", { name: /^Refresh .+ column$/ })
+        .count(),
+      0,
+      "Column headers have no refresh button",
+    );
+    for (const column of await columns().all())
+      assert.equal(
+        await column.evaluate((node) => node.firstElementChild.querySelectorAll("button").length),
+        2,
+        "A column header exposes only Options and Remove",
+      );
     assert.deepEqual((await saved()).columns, [
       { id: originalIds[0], feed: { kind: "latest" } },
       { id: originalIds[1], feed: { kind: "recommended" } },
@@ -180,15 +378,96 @@ export async function checkColumnsWorkspace(page, target, output, { signedIn = f
     if (!signedIn)
       await columns()
         .nth(1)
-        .getByText("Sign in to view recommendations", { exact: false })
+        .getByText("Sign in to view recommendations.", { exact: true })
         .waitFor();
 
-    await workspace().getByRole("button", { name: "Edit Latest column", exact: true }).click();
-    await chooseFeed(
-      page.getByRole("dialog", { name: "Edit column", exact: true }),
-      "topic",
-      catalog.topics[1],
+    for (const column of await columns().all()) {
+      const remove = column.getByRole("button", { name: /^Remove .+ column$/ });
+      assert.equal(await remove.count(), 1, "Every column exposes a direct remove button");
+      assert.equal(await remove.isVisible(), true);
+      assert.equal(await remove.getAttribute("title"), await remove.getAttribute("aria-label"));
+      assert.ok(
+        await remove.evaluate((node) => Number(getComputedStyle(node).opacity) > 0),
+        "Remove is visible without hovering or opening Options",
+      );
+      const bounds = await remove.boundingBox();
+      assert.ok(bounds.width >= 34 && bounds.height >= 34);
+      directRemoval.desktopTargets.push({ width: bounds.width, height: bounds.height });
+    }
+
+    const latestColumn = columns().first();
+    const options = latestColumn.getByRole("button", {
+      name: "Options for Latest column",
+      exact: true,
+    });
+    const optionsBounds = await options.boundingBox();
+    assert.ok(optionsBounds.width >= 34 && optionsBounds.height >= 34);
+    const keyboardMenu = await openColumnMenu(page, latestColumn, { keyboard: true });
+    assert.equal(await keyboardMenu.getByRole("menuitem").count(), 4);
+    assert.equal(
+      await keyboardMenu
+        .getByRole("menuitem", { name: "Move Latest left", exact: true })
+        .isDisabled(),
+      true,
     );
+    for (const item of await keyboardMenu.getByRole("menuitem").all())
+      assert.ok((await item.boundingBox()).height >= 38, "Desktop menu actions remain readable");
+    await page.keyboard.press("Escape");
+    await keyboardMenu.waitFor({ state: "hidden" });
+    assert.equal(await options.evaluate((node) => document.activeElement === node), true);
+
+    const duplicateWrites = writes.length;
+    await workspace().getByRole("button", { name: "Add column", exact: true }).click();
+    const duplicateDialog = page.getByRole("dialog", { name: "Add column", exact: true });
+    const duplicateTypes = duplicateDialog.getByRole("combobox", {
+      name: "Feed type",
+      exact: true,
+    });
+    for (const kind of ["latest", "recommended"])
+      assert.equal(
+        await duplicateTypes
+          .locator(`option[value="${kind}"]`)
+          .evaluate((option) => option.disabled),
+        true,
+        `Existing ${kind} cannot be added again`,
+      );
+    await duplicateTypes.selectOption("topic");
+    await duplicateDialog.getByLabel("Find a topic", { exact: true }).fill(catalog.topics[0].name);
+    const addedTopic = duplicateDialog.getByRole("button", {
+      name: catalog.topics[0].name,
+      exact: true,
+    });
+    await addedTopic.waitFor();
+    assert.equal(await addedTopic.isDisabled(), true, "Existing catalog feeds are marked Added");
+    assert.match(await addedTopic.innerText(), /Added/);
+    assert.equal(
+      await duplicateDialog.getByRole("button", { name: "Save column", exact: true }).isDisabled(),
+      true,
+    );
+    await duplicateDialog.getByRole("button", { name: "Cancel", exact: true }).click();
+    assert.deepEqual(await identities(), originalIds);
+    assert.equal(writes.length, duplicateWrites, "Rejected duplicate choices never save settings");
+
+    await columnAction(page, latestColumn, "Edit Latest column");
+    const editDialog = page.getByRole("dialog", { name: "Edit column", exact: true });
+    const editTypes = editDialog.getByRole("combobox", { name: "Feed type", exact: true });
+    assert.equal(
+      await editTypes.locator('option[value="latest"]').evaluate((option) => option.disabled),
+      false,
+    );
+    assert.equal(
+      await editTypes.locator('option[value="recommended"]').evaluate((option) => option.disabled),
+      true,
+    );
+    await editTypes.selectOption("topic");
+    await editDialog.getByLabel("Find a topic", { exact: true }).fill(catalog.topics[0].name);
+    const existingTopic = editDialog.getByRole("button", {
+      name: catalog.topics[0].name,
+      exact: true,
+    });
+    await existingTopic.waitFor();
+    assert.equal(await existingTopic.isDisabled(), true, "Editing cannot duplicate another feed");
+    await chooseFeed(editDialog, "topic", catalog.topics[1]);
     await workspace().getByRole("heading", { name: catalog.topics[1].name, exact: true }).waitFor();
     assert.deepEqual(
       await identities(),
@@ -200,12 +479,9 @@ export async function checkColumnsWorkspace(page, target, output, { signedIn = f
       feed: { kind: "topic", id: catalog.topics[1].id },
     });
 
-    const moveTag = workspace().getByRole("button", {
-      name: `Move ${catalog.tags[0].name} left`,
-      exact: true,
+    await columnAction(page, columns().last(), `Move ${catalog.tags[0].name} left`, {
+      keyboard: true,
     });
-    await moveTag.focus();
-    await page.keyboard.press("Enter");
     const reordered = [
       originalIds[0],
       originalIds[1],
@@ -214,15 +490,22 @@ export async function checkColumnsWorkspace(page, target, output, { signedIn = f
       originalIds[3],
     ];
     await waitOrder(reordered);
-    await workspace()
+    await columns()
+      .filter({
+        has: page.getByRole("heading", { name: catalog.sources[0].name, exact: true }),
+      })
       .getByRole("button", { name: `Remove ${catalog.sources[0].name} column`, exact: true })
       .click();
     const remaining = [originalIds[0], originalIds[1], originalIds[4], originalIds[3]];
     await waitOrder(remaining);
-    assert.equal(
-      feedReads.length,
-      initialFeedReads,
-      "Configuring independent selections never starts per-column article fetching",
+    await page.waitForFunction(
+      (id) => document.activeElement?.getAttribute("data-column-id") === id,
+      originalIds[4],
+    );
+    directRemoval.focusTransferred = true;
+    assert.ok(
+      feedReads.length > initialFeedReads,
+      "Configured selections start their independently loaded feeds",
     );
     await page.screenshot({ path: `${output}-desktop.png`, animations: "disabled" });
     const configured = (await saved()).columns;
@@ -257,10 +540,108 @@ export async function checkColumnsWorkspace(page, target, output, { signedIn = f
       );
     } else assert.equal(writes.length, 0, "The guest workspace never saves to an account");
 
+    if (!nativeInsecureContext) {
+      for (const [route, heading] of [
+        ["/latest", "Latest feed"],
+        [`/topics/${catalog.topics[0].slug}`, catalog.topics[0].name],
+        [`/sources/${catalog.sources[0].slug}`, catalog.sources[0].name],
+        [`/tags/${catalog.tags[0].slug}`, catalog.tags[0].name],
+        [`/topics/${catalog.topics[0].slug}/articles`, catalog.topics[0].name],
+        [`/latest?source_id=${catalog.sources[0].id}`, catalog.sources[0].name],
+        [`/?tag=${encodeURIComponent(catalog.tags[0].slug)}`, null],
+        ["/trending", "Trending"],
+        ["/articles", null],
+        ...(signedIn ? [["/read-later", "Read later"]] : []),
+      ]) {
+        await page.goto(readerRouteUrl(target, route));
+        await page.locator(".theme-toggle:not([disabled])").waitFor();
+        await page.evaluate(
+          () =>
+            new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))),
+        );
+        if (heading) await page.getByRole("heading", { name: heading, exact: true }).waitFor();
+        if (route !== "/read-later") await page.locator(".article-card:visible").first().waitFor();
+        assert.equal(await workspace().count(), 0, `${route} renders its own feed`);
+        assert.equal((await saved()).view, "columns", "A route fallback preserves the saved view");
+        assert.deepEqual(
+          (await saved()).columns,
+          configured,
+          "A route fallback preserves the workspace",
+        );
+        routeScopes.push(route);
+      }
+      await page.screenshot({ path: `${output}-scoped-feed.png`, animations: "disabled" });
+      await page.goto(readerRouteUrl(target, "/"));
+      await workspace().waitFor();
+      assert.deepEqual(
+        (await saved()).columns,
+        configured,
+        "Returning to My feed retains the saved personal workspace",
+      );
+      await page.goto(target);
+      await workspace().waitFor();
+      await waitOrder(remaining);
+    }
+
     await page.setViewportSize({ width: 390, height: 844 });
-    const navigation = workspace().getByRole("combobox", { name: "Go to column", exact: true });
-    await navigation.selectOption(remaining.at(-1));
+    touchSession = await context.newCDPSession(page);
+    await touchSession.send("Emulation.setTouchEmulationEnabled", {
+      enabled: true,
+      maxTouchPoints: 1,
+    });
+    assert.equal(await page.evaluate(() => matchMedia("(pointer: coarse)").matches), true);
+    const board = workspace().getByRole("region", { name: "Column feeds", exact: true });
+    await board.evaluate((node) => (node.scrollLeft = 0));
+    await board.focus();
+    for (let index = 0; index < 8; index++) await page.keyboard.press("ArrowRight");
+    await page.waitForFunction(
+      () => document.querySelector('[aria-label="Column feeds"]').scrollLeft > 0,
+    );
+    await board.evaluate(
+      (node) =>
+        new Promise((resolve) => {
+          let previous = node.scrollLeft;
+          let stable = performance.now();
+          const settled = () => {
+            if (node.scrollLeft !== previous) {
+              previous = node.scrollLeft;
+              stable = performance.now();
+            }
+            if (performance.now() - stable >= 150) resolve();
+            else requestAnimationFrame(settled);
+          };
+          requestAnimationFrame(settled);
+        }),
+    );
     const selectedColumn = workspace().locator(`[data-column-id="${remaining.at(-1)}"]`);
+    const recordScroll = async (action) => {
+      nativeScrolls.push(
+        await board.evaluate((node, action) => {
+          const last = node.lastElementChild.getBoundingClientRect();
+          return {
+            action,
+            scrollLeft: node.scrollLeft,
+            clientWidth: node.clientWidth,
+            scrollWidth: node.scrollWidth,
+            last: { left: last.left, right: last.right },
+          };
+        }, action),
+      );
+    };
+    await recordScroll("ArrowRight");
+    await board.hover({ position: { x: 120, y: 20 } });
+    for (let attempt = 0; attempt < 6; attempt++) {
+      await page.mouse.wheel(500, 0);
+      await page.waitForTimeout(150);
+      await recordScroll("horizontal wheel");
+      if (
+        await selectedColumn.evaluate((node) => {
+          const bounds = node.getBoundingClientRect();
+          return bounds.left >= -1 && bounds.right <= innerWidth + 1;
+        })
+      )
+        break;
+    }
     await page.waitForFunction(
       (id) => {
         const bounds = document.querySelector(`[data-column-id="${id}"]`)?.getBoundingClientRect();
@@ -278,12 +659,49 @@ export async function checkColumnsWorkspace(page, target, output, { signedIn = f
       false,
       "Mobile columns scroll inside the workspace without widening the page",
     );
-    const keyboardMove = selectedColumn.getByRole("button", {
-      name: `Move ${catalog.topics[0].name} left`,
-      exact: true,
+    const mobileOptions = selectedColumn.getByRole("button", { name: /^Options for .+ column$/ });
+    assert.equal(
+      await workspace()
+        .getByRole("button", { name: /^Refresh .+ column$/ })
+        .count(),
+      0,
+      "Touch column headers have no refresh button",
+    );
+    const mobileBounds = await mobileOptions.boundingBox();
+    assert.ok(
+      mobileBounds.width >= 44 && mobileBounds.height >= 44,
+      "Touch column controls retain44px targets",
+    );
+    const touchRemove = selectedColumn.getByRole("button", { name: /^Remove .+ column$/ });
+    const touchBounds = await touchRemove.boundingBox();
+    assert.ok(
+      touchBounds.width >= 44 && touchBounds.height >= 44,
+      "Direct remove retains a44px touch target",
+    );
+    directRemoval.touchTarget = { width: touchBounds.width, height: touchBounds.height };
+    const mobileMenu = await openColumnMenu(page, selectedColumn);
+    for (const item of await mobileMenu.getByRole("menuitem").all())
+      assert.ok((await item.boundingBox()).height >= 44, "Touch menu actions retain44px targets");
+    await page.keyboard.press("Escape");
+    await mobileMenu.waitFor({ state: "hidden" });
+    const mobileActions = await selectedColumn
+      .locator(".article-stacked-row")
+      .first()
+      .evaluate((row) =>
+        [...row.querySelectorAll(".article-quick-actions button,.article-quick-actions a")]
+          .filter((node) => node.getClientRects().length)
+          .map((node) => ({
+            width: node.getBoundingClientRect().width,
+            height: node.getBoundingClientRect().height,
+          })),
+      );
+    assert.ok(
+      mobileActions.every(({ width, height }) => width >= 44 && height >= 44),
+      "Touch article actions retain44px targets",
+    );
+    await columnAction(page, selectedColumn, `Move ${catalog.topics[0].name} left`, {
+      keyboard: true,
     });
-    await keyboardMove.focus();
-    await page.keyboard.press("Enter");
     const mobileOrder = [remaining[0], remaining[1], remaining[3], remaining[2]];
     await waitOrder(mobileOrder);
     await page.waitForFunction(
@@ -311,14 +729,15 @@ export async function checkColumnsWorkspace(page, target, output, { signedIn = f
       { kind: "topic", id: catalog.topics[1].id },
       "An unavailable selection is retained instead of being silently replaced",
     );
+    const unavailableMenu = await openColumnMenu(page, missing, { keyboard: true });
     assert.equal(
-      await missing
-        .getByRole("button", { name: "Remove Unavailable topic column", exact: true })
+      await unavailableMenu
+        .getByRole("menuitem", { name: "Remove Unavailable topic column", exact: true })
         .isEnabled(),
       true,
       "An unavailable column can be removed",
     );
-    const editMissing = missing.getByRole("button", {
+    const editMissing = unavailableMenu.getByRole("menuitem", {
       name: "Edit Unavailable topic column",
       exact: true,
     });
@@ -331,16 +750,88 @@ export async function checkColumnsWorkspace(page, target, output, { signedIn = f
       originalIds[0],
       "Repairing an unavailable column retains its identity",
     );
-    const repaired = (await saved()).columns;
-    await missing.getByRole("button", { name: "Open Latest feed", exact: true }).click();
-    await page.waitForURL(readerRouteUrl(target, "/latest"));
-    await page.locator(".article-card:visible").first().waitFor();
-    assert.equal((await saved()).view, "cards", "Opening a selected feed displays its articles");
-    assert.deepEqual((await saved()).columns, repaired, "Opening a feed retains the workspace");
+    await missing.locator(".article-stacked-row").first().waitFor();
+    assert.equal((await saved()).view, "columns", "A repaired feed loads within its column");
+
+    const uniqueColumns = structuredClone((await saved()).columns);
+    const legacyDuplicates = [
+      uniqueColumns[0],
+      { ...uniqueColumns[0], id: "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeee1" },
+      ...uniqueColumns.slice(1),
+      { ...uniqueColumns.at(-1), id: "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeee2" },
+    ];
+    if (signedIn) personalColumns = legacyDuplicates;
+    else
+      await page.evaluate(
+        ({ key, columns }) => {
+          const current = JSON.parse(localStorage.getItem(key));
+          localStorage.setItem(key, JSON.stringify({ ...current, columns }));
+        },
+        { key: guestKey, columns: legacyDuplicates },
+      );
+    await page.reload();
+    await page.waitForFunction(
+      (expected) =>
+        JSON.stringify(
+          [...document.querySelectorAll("[data-column-id]")].map((node) => node.dataset.columnId),
+        ) === JSON.stringify(expected),
+      uniqueColumns.map(({ id }) => id),
+    );
+    await columnAction(page, columns().first(), "Edit Latest column");
+    await chooseFeed(
+      page.getByRole("dialog", { name: "Edit column", exact: true }),
+      "source",
+      catalog.sources[0],
+    );
+    assert.deepEqual(
+      (await saved()).columns,
+      [
+        { ...uniqueColumns[0], feed: { kind: "source", id: catalog.sources[0].id } },
+        ...uniqueColumns.slice(1),
+      ],
+      "Legacy duplicate selections keep the first stable identity and save normalized settings",
+    );
+    assert.deepEqual(
+      account.columns,
+      preservedLatest,
+      "My feed changes leave legacy Latest data intact",
+    );
+    while (await columns().count()) {
+      const before = await identities();
+      await columns()
+        .first()
+        .getByRole("button", { name: /^Remove .+ column$/ })
+        .click();
+      await waitOrder(before.slice(1));
+      if (before.length > 1)
+        await page.waitForFunction(
+          (id) => document.activeElement?.getAttribute("data-column-id") === id,
+          before[1],
+        );
+    }
+    const addButton = workspace().getByRole("button", { name: "Add column", exact: true });
+    await page.waitForFunction(() => document.activeElement?.textContent?.trim() === "Add column");
+    assert.equal(await addButton.isEnabled(), true);
+    await workspace().getByRole("button", { name: "Use starter columns", exact: true }).waitFor();
+    await page.reload();
+    await workspace().getByRole("button", { name: "Use starter columns", exact: true }).waitFor();
+    await waitOrder([]);
+    directRemoval.emptyAfterReload = true;
     await writeFile(
       `${output}.json`,
       JSON.stringify(
-        { signedIn, originalIds, configured, saved: await saved(), accountWrites: writes.length },
+        {
+          signedIn,
+          cryptoCapabilities,
+          nativeScrolls,
+          routeScopes,
+          originalIds,
+          configured,
+          saved: await saved(),
+          accountWrites: writes.length,
+          duplicateProtection: { create: true, edit: true, legacyKeepFirst: true },
+          directRemoval,
+        },
         null,
         2,
       ),
@@ -352,8 +843,15 @@ export async function checkColumnsWorkspace(page, target, output, { signedIn = f
     console.error("Columns workspace failure", page.url(), await page.locator("body").innerText());
     throw error;
   } finally {
+    if (touchSession) {
+      await touchSession
+        .send("Emulation.setTouchEmulationEnabled", { enabled: false })
+        .catch(() => {});
+      await touchSession.detach().catch(() => {});
+    }
     page.off("request", recordFeedRead);
     await context.unroute(accountPattern, accountHandler);
     await context.unroute(catalogPattern, catalogHandler);
+    await scopedViews.cleanup();
   }
 }

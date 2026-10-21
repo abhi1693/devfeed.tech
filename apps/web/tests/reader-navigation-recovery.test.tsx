@@ -62,6 +62,47 @@ it("cancels recovery when the route or query commits", () => {
   expect(reload).not.toHaveBeenCalled();
 });
 
+it("retains My feed while a slow preview loads, then clears progress when it commits", () => {
+  route.pathname = "/";
+  location = new URL("https://reader.test/");
+  const view = render(<ReaderNavigationRecovery />);
+  act(() => beginReaderNavigation("/articles/slow-preview"));
+  location = new URL("https://reader.test/articles/slow-preview");
+  act(() => vi.advanceTimersByTime(15_000));
+  expect(reload).not.toHaveBeenCalled();
+  expect(screen.getByRole("status").textContent).toBe("Loading page…");
+  route.pathname = "/articles/slow-preview";
+  view.rerender(<ReaderNavigationRecovery />);
+  expect(screen.queryByRole("status")).toBeNull();
+  act(() => vi.advanceTimersByTime(15_000));
+  expect(reload).not.toHaveBeenCalled();
+});
+
+it("cancels an older page recovery when a preview starts and recovers later page choices", () => {
+  render(<ReaderNavigationRecovery />);
+  act(() => {
+    beginReaderNavigation("/sources");
+    vi.advanceTimersByTime(5000);
+    beginReaderNavigation("/articles/slow-preview");
+    vi.advanceTimersByTime(15_000);
+  });
+  expect(reload).not.toHaveBeenCalled();
+  act(() => {
+    beginReaderNavigation("/topics");
+    vi.advanceTimersByTime(10_000);
+  });
+  expect(reload).toHaveBeenCalledExactlyOnceWith("/topics");
+});
+
+it("cancels pending preview progress when browser Back abandons the transition", () => {
+  render(<ReaderNavigationRecovery />);
+  act(() => beginReaderNavigation("/articles/slow-preview"));
+  fireEvent(window, new PopStateEvent("popstate"));
+  expect(screen.queryByRole("status")).toBeNull();
+  act(() => vi.advanceTimersByTime(15_000));
+  expect(reload).not.toHaveBeenCalled();
+});
+
 it("keeps only the latest destination and ignores external URLs and same-page links", () => {
   render(<ReaderNavigationRecovery />);
   act(() => {

@@ -2,10 +2,12 @@
 import { afterEach, expect, it, vi } from "vitest";
 import {
   guestReaderPreferencesKey,
+  guestColumnsInitialized,
   legacyGuestFeedViewKey,
   maxReaderColumns,
   normalizeReaderPreferences,
   readGuestReaderPreferences,
+  readerColumnFeedKey,
   readerPreferencesVersion,
   validateReaderPreferences,
   writeGuestReaderPreferences,
@@ -16,6 +18,10 @@ import { saveFeedSettings } from "@/lib/user-mutations";
 
 const uuid = (index: number) => `abcdef00-0000-0000-0000-${index.toString(16).padStart(12, "0")}`;
 const latest = (index: number): ReaderColumn => ({ id: uuid(index), feed: { kind: "latest" } });
+const topic = (index: number): ReaderColumn => ({
+  id: uuid(index),
+  feed: { kind: "topic", id: uuid(100 + index) },
+});
 const settings = { view: "cards", content_types: ["news"], languages: ["en"] } as const;
 
 function storage(initial: Record<string, string> = {}) {
@@ -61,8 +67,6 @@ it("preserves all supported feed kinds and unresolved target UUIDs in saved orde
     { id: uuid(3), feed: { kind: "recommended" } },
     { id: uuid(4), feed: { kind: "topic", id: uuid(103) } },
     { id: uuid(5), feed: { kind: "latest" } },
-    // Several independent columns can deliberately select the same feed.
-    { id: uuid(6), feed: { kind: "source", id: uuid(102) } },
   ];
   const result = normalizeReaderPreferences({ ...settings, columns });
   expect(result.columns).toEqual(columns);
@@ -115,15 +119,77 @@ it("retains the first valid duplicate and bounds normalized workspaces to 12 col
     { id: uuid(1), feed: { kind: "removed" } },
     latest(1),
     { id: uuid(1).toUpperCase(), feed: { kind: "recommended" } },
-    ...Array.from({ length: maxReaderColumns + 3 }, (_, index) => latest(index + 2)),
+    ...Array.from({ length: maxReaderColumns + 3 }, (_, index) => topic(index + 2)),
   ];
-  expect(normalizeReaderPreferences({ columns }).columns).toEqual(
-    Array.from({ length: maxReaderColumns }, (_, index) => latest(index + 1)),
-  );
+  expect(normalizeReaderPreferences({ columns }).columns).toEqual([
+    latest(1),
+    ...Array.from({ length: maxReaderColumns - 1 }, (_, index) => topic(index + 2)),
+  ]);
   expect(validateReaderPreferences({ ...settings, columns })).toBe(false);
   expect(
     validateReaderPreferences({ ...settings, columns: columns.slice(3, 3 + maxReaderColumns + 1) }),
   ).toBe(false);
+});
+
+it.each(["source", "topic", "tag"] as const)(
+  "compares %s selections using canonical catalog UUIDs",
+  (kind) => {
+    const key = `${kind}:${uuid(101)}`;
+    for (const id of [
+      uuid(101),
+      uuid(101).toUpperCase(),
+      uuid(101).replaceAll("-", ""),
+      `{${uuid(101)}}`,
+      `urn:uuid:${uuid(101)}`,
+    ]) {
+      expect(readerColumnFeedKey({ kind, id })).toBe(key);
+    }
+  },
+);
+
+it("distinguishes built-in feeds and catalog kinds even when catalog UUIDs match", () => {
+  const columns: ReaderColumn[] = [
+    latest(1),
+    { id: uuid(2), feed: { kind: "recommended" } },
+    ...(["source", "topic", "tag"] as const).map((kind, index) => ({
+      id: uuid(index + 3),
+      feed: { kind, id: uuid(101) },
+    })),
+  ];
+  expect(columns.map(({ feed }) => readerColumnFeedKey(feed))).toEqual([
+    "latest",
+    "recommended",
+    `source:${uuid(101)}`,
+    `topic:${uuid(101)}`,
+    `tag:${uuid(101)}`,
+  ]);
+  expect(validateReaderPreferences({ ...settings, columns })).toBe(true);
+  expect(normalizeReaderPreferences({ columns }).columns).toEqual(columns);
+});
+
+it.each(["latest", "recommended", "source", "topic", "tag"] as const)(
+  "keeps the first %s selection and rejects duplicate-feed writes with different column IDs",
+  (kind) => {
+    const feed = kind === "latest" || kind === "recommended" ? { kind } : { kind, id: uuid(101) };
+    const first: ReaderColumn = { id: uuid(1), feed };
+    const duplicate = {
+      id: uuid(2),
+      feed: "id" in feed ? { ...feed, id: uuid(101).replaceAll("-", "").toUpperCase() } : feed,
+    };
+    const columns = [first, duplicate, topic(3)];
+    const original = structuredClone(columns);
+    expect(normalizeReaderPreferences({ columns }).columns).toEqual([first, topic(3)]);
+    expect(columns).toEqual(original);
+    expect(validateReaderPreferences({ ...settings, columns })).toBe(false);
+    const target = storage();
+    expect(writeGuestReaderPreferences({ view: "columns", columns }, target)).toBe(false);
+    expect(target.setItem).not.toHaveBeenCalled();
+  },
+);
+
+it("does not let a discarded duplicate consume a different selection's stable column ID", () => {
+  const columns = [latest(1), latest(2), topic(2)];
+  expect(normalizeReaderPreferences({ columns }).columns).toEqual([latest(1), topic(2)]);
 });
 
 it("rejects duplicate identities after UUID canonicalization", () => {
@@ -180,6 +246,19 @@ it.each(["cards", "compact", "stacked", "columns"])(
     expect(target.setItem).not.toHaveBeenCalled();
   },
 );
+
+it("reads legacy duplicate feeds once without rewriting the guest's stored record", () => {
+  const raw = JSON.stringify({
+    version: 1,
+    view: "columns",
+    columns: [latest(1), latest(2), topic(3)],
+  });
+  const target = storage({ [guestReaderPreferencesKey]: raw });
+  expect(readGuestReaderPreferences(target).value.columns).toEqual([latest(1), topic(3)]);
+  expect(target.values.get(guestReaderPreferencesKey)).toBe(raw);
+  expect(target.setItem).not.toHaveBeenCalled();
+  expect(guestColumnsInitialized(target)).toBe(true);
+});
 
 it.each(["cards", "compact", "stacked", "unknown", null])(
   "reads the legacy guest layout %s",
@@ -243,6 +322,7 @@ it.each(["cards", "compact", "stacked", "columns"])(
       version: 1,
       view,
       columns: [latest(1)],
+      columns_initialized: true,
     });
     expect(target.values.get(legacyGuestFeedViewKey)).toBe(view);
     expect(readGuestReaderPreferences(target).value).toMatchObject({ view, columns: [latest(1)] });
@@ -260,6 +340,62 @@ it("canonicalizes guest workspace identities before storing and supports explici
   expect(readGuestReaderPreferences(target).value.columns).toEqual([latest(1)]);
   expect(writeGuestReaderPreferences({ view: "cards", columns: [] }, target)).toBe(true);
   expect(readGuestReaderPreferences(target).value.columns).toEqual([]);
+});
+
+it.each([
+  [{ version: 1, view: "cards" }, false],
+  [{ version: 1, view: "columns", columns: [] }, true],
+  [{ version: 1, columns: [], columns_initialized: false }, false],
+  [{ version: 1, columns: [], columns_initialized: true }, true],
+  [{ version: 1, columns: [latest(1)], columns_initialized: false }, true],
+  [{ version: 1, columns: [], columns_initialized: "false" }, true],
+  [{ version: 2, columns: [latest(1)], columns_initialized: true }, false],
+])(
+  "recognizes guest first use without mistaking a legacy empty workspace for an unused one: %j",
+  (stored, initialized) => {
+    const target = storage({ [guestReaderPreferencesKey]: JSON.stringify(stored) });
+    expect(guestColumnsInitialized(target)).toBe(initialized);
+    expect(target.setItem).not.toHaveBeenCalled();
+  },
+);
+
+it("leaves first-use eligibility intact when only a guest layout is saved", () => {
+  const target = storage();
+  expect(guestColumnsInitialized(target)).toBe(false);
+  expect(writeGuestReaderPreferences({ view: "stacked", columns: [] }, target, false)).toBe(true);
+  expect(JSON.parse(target.values.get(guestReaderPreferencesKey)!)).toEqual({
+    version: 1,
+    view: "stacked",
+    columns: [],
+    columns_initialized: false,
+  });
+  expect(guestColumnsInitialized(target)).toBe(false);
+  expect(writeGuestReaderPreferences({ view: "columns", columns: [] }, target)).toBe(true);
+  expect(guestColumnsInitialized(target)).toBe(true);
+  expect(readGuestReaderPreferences(target).value.columns).toEqual([]);
+});
+
+it.each([
+  { version: 1, columns: [] },
+  { version: 1, columns: [], columns_initialized: true },
+])(
+  "does not unset a previously initialized guest workspace while changing layouts: %j",
+  (stored) => {
+    const target = storage({ [guestReaderPreferencesKey]: JSON.stringify(stored) });
+    expect(writeGuestReaderPreferences({ view: "compact", columns: [] }, target, false)).toBe(true);
+    expect(guestColumnsInitialized(target)).toBe(true);
+    expect(JSON.parse(target.values.get(guestReaderPreferencesKey)!).columns_initialized).toBe(
+      true,
+    );
+  },
+);
+
+it("marks nonempty guest columns initialized even if a layout caller passes false", () => {
+  const target = storage();
+  expect(
+    writeGuestReaderPreferences({ view: "columns", columns: [latest(1)] }, target, false),
+  ).toBe(true);
+  expect(guestColumnsInitialized(target)).toBe(true);
 });
 
 it("keeps denied-storage and server-rendered reads usable without claiming a successful save", () => {
@@ -306,13 +442,13 @@ it("accepts a Columns receipt with ordered columns before emitting success effec
   ]);
 });
 
-it("rejects an invalid column receipt without emitting success effects", async () => {
+it.each([
+  [latest(1), latest(1)],
+  [latest(1), latest(2)],
+])("rejects duplicate column receipts without emitting success effects: %j", async (...columns) => {
   const value = normalizeReaderPreferences(settings);
   const dispatch = vi.spyOn(window, "dispatchEvent");
-  vi.stubGlobal(
-    "fetch",
-    vi.fn().mockResolvedValue(Response.json({ ...value, columns: [latest(1), latest(1)] })),
-  );
+  vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json({ ...value, columns })));
   await expect(saveFeedSettings(value, { csrfToken: "csrf" })).rejects.toThrow(
     "Invalid mutation acknowledgement",
   );

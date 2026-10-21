@@ -1,13 +1,41 @@
 // @vitest-environment jsdom
 import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
-import { afterEach, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import type { ReactNode } from "react";
 import { FeedContent, type FeedContentProps } from "@/components/feed-content";
-import { parseFilters, type SearchParams } from "@/lib/feed-query";
+import { parseFilters, type FeedFilters, type SearchParams } from "@/lib/feed-query";
 import { readerFeeds, type FeedDescriptor } from "@/lib/reader-feed";
 import type { PlacementQuery } from "@/lib/partner-placements";
 import type { FeedPage, FeedOptions } from "@/lib/types";
 import { article } from "./fixtures";
+import { readerRequest } from "@/lib/reader-runtime";
+
+const preferences = vi.hoisted(() => ({ view: "cards" }));
+const session = vi.hoisted(() => ({ user: null as { user_id: string } | null }));
+vi.mock("@/components/feed-preferences", () => ({ useFeedPreferences: () => preferences }));
+vi.mock("@/components/scoped-feed-preferences", () => ({
+  ScopedFeedPreferences: ({ scope, children }: { scope: string; children: ReactNode }) => (
+    <div data-testid="feed-view-scope" data-scope={scope}>
+      {children}
+    </div>
+  ),
+  useFeedViewScope: () => null,
+}));
+vi.mock("@/components/user-account", () => ({ useUser: () => session }));
+vi.mock("@/lib/reader-runtime", async (importOriginal) => {
+  const original = await importOriginal<typeof import("@/lib/reader-runtime")>();
+  return {
+    ...original,
+    readerRequest: vi.fn((input: RequestInfo | URL, init?: RequestInit) =>
+      /^\/api\/v1\/(topics|tags)\//.test(String(input))
+        ? Promise.resolve(Response.json({ id: "11111111-1111-4111-8111-111111111111" }))
+        : original.readerRequest(input, init),
+    ),
+  };
+});
+vi.mock("@/components/columns-workspace", () => ({
+  ColumnsWorkspace: () => <section aria-label="Columns workspace" />,
+}));
 
 vi.mock("@/components/user-shell", () => ({
   UserShell: ({ children }: { children: ReactNode }) => children,
@@ -25,11 +53,26 @@ vi.mock("@/components/tag-follow", () => ({
   ),
 }));
 vi.mock("@/components/infinite-feed", () => ({
-  InfiniteFeed: ({ placements }: { placements?: PlacementQuery }) => (
-    <div data-testid="infinite-feed" data-placements={JSON.stringify(placements)} />
+  InfiniteFeed: ({
+    filters,
+    placements,
+  }: {
+    filters: FeedFilters;
+    placements?: PlacementQuery;
+  }) => (
+    <div
+      data-testid="infinite-feed"
+      data-filters={JSON.stringify(filters)}
+      data-placements={JSON.stringify(placements)}
+    />
   ),
 }));
 afterEach(cleanup);
+beforeEach(() => {
+  preferences.view = "cards";
+  session.user = null;
+  vi.mocked(readerRequest).mockClear();
+});
 
 const firstPage: PromiseSettledResult<FeedPage> = {
   status: "fulfilled",
@@ -40,13 +83,135 @@ const options: PromiseSettledResult<FeedOptions> = {
   value: { sources: [], content_types: [] },
 };
 
+// Server-resolved entity metadata is supplied for these rendering/placement fixtures.
+function ResolvedFeedContent(props: FeedContentProps) {
+  return (
+    <FeedContent
+      topicId={props.filters.topic ? "11111111-1111-4111-8111-111111111111" : undefined}
+      tagId={props.filters.tag ? "22222222-2222-4222-8222-222222222222" : undefined}
+      {...props}
+    />
+  );
+}
+
+it.each([
+  [readerFeeds.home, {}, "latest"],
+  [readerFeeds.latest, { sort: "most_liked", cursor: "page-2" }, "latest"],
+  [readerFeeds.latest, { content_type: "news" }, "content:news"],
+  [
+    readerFeeds.contextual,
+    { topic: "python", content_type: "news" },
+    "topic:11111111-1111-4111-8111-111111111111",
+  ],
+  [readerFeeds.contextual, { tag: "python" }, "tag:22222222-2222-4222-8222-222222222222"],
+  [
+    readerFeeds.contextual,
+    { source_id: "33333333-3333-4333-8333-333333333333" },
+    "source:33333333-3333-4333-8333-333333333333",
+  ],
+  [readerFeeds.home, { q: "python" }, "search"],
+] as const)("passes canonical scope %s with filters %j", (descriptor, query, expected) => {
+  render(
+    <ResolvedFeedContent
+      filters={parseFilters(query)}
+      feedDescriptor={descriptor}
+      feed={firstPage}
+      options={options}
+    />,
+  );
+  expect(screen.getByTestId("feed-view-scope").getAttribute("data-scope")).toBe(expected);
+});
+
+it.each(["topic", "tag"] as const)(
+  "resolves a legacy %s query alias before mounting its scoped controls",
+  async (kind) => {
+    render(
+      <FeedContent
+        filters={parseFilters({ [kind]: "python alias" })}
+        feedDescriptor={readerFeeds.home}
+        feed={firstPage}
+        options={options}
+      />,
+    );
+    expect(screen.queryByTestId("feed-view-scope")).toBeNull();
+    expect((await screen.findByTestId("feed-view-scope")).getAttribute("data-scope")).toBe(
+      `${kind}:11111111-1111-4111-8111-111111111111`,
+    );
+    expect(readerRequest).toHaveBeenCalledWith(
+      `/api/v1/${kind}s/python%20alias`,
+      expect.objectContaining({ signal: expect.any(AbortSignal) }),
+    );
+  },
+);
+
+it.each([undefined, false, true])(
+  "keeps Latest articles visible even with a stale Columns permission (%s)",
+  (allowColumns) => {
+    preferences.view = "columns";
+    session.user = { user_id: "reader-a" };
+    render(
+      <ResolvedFeedContent
+        filters={parseFilters({})}
+        feedDescriptor={readerFeeds.latest}
+        feed={firstPage}
+        options={options}
+        allowColumns={allowColumns}
+      />,
+    );
+    expect(screen.getByTestId("infinite-feed")).toBeTruthy();
+    expect(screen.queryByRole("region", { name: "Columns workspace" })).toBeNull();
+  },
+);
+
+it.each([
+  { q: "rust" },
+  { topic: "rust" },
+  { tag: "C++" },
+  { source_id: "11111111-1111-4111-8111-111111111111" },
+  { content_type: "news" },
+])("keeps the guest root feed filtered by %j when Columns is selected", (query) => {
+  preferences.view = "columns";
+  const filters = parseFilters(query);
+  render(
+    <ResolvedFeedContent
+      filters={filters}
+      feedDescriptor={readerFeeds.home}
+      feed={firstPage}
+      options={options}
+      allowColumns
+    />,
+  );
+  expect(screen.queryByRole("region", { name: "Columns workspace" })).toBeNull();
+  expect(JSON.parse(screen.getByTestId("infinite-feed").getAttribute("data-filters")!)).toEqual(
+    filters,
+  );
+});
+
+it.each([{}, { sort: "most_liked" }, { cursor: "next", sort: "oldest" }])(
+  "keeps public articles on an unrestricted guest root feed with saved Columns %j",
+  (query) => {
+    preferences.view = "columns";
+    render(
+      <ResolvedFeedContent
+        filters={parseFilters(query)}
+        feedDescriptor={readerFeeds.home}
+        feed={firstPage}
+        options={options}
+        allowColumns
+      />,
+    );
+    expect(screen.getByTestId("infinite-feed")).toBeTruthy();
+    expect(screen.queryByRole("region", { name: "Columns workspace" })).toBeNull();
+  },
+);
+
 function placementContext(
   descriptor: FeedDescriptor,
   query: SearchParams = {},
   context: Pick<FeedContentProps, "section" | "topicId"> = {},
 ) {
   render(
-    <FeedContent
+    <ResolvedFeedContent
       filters={parseFilters(query)}
       feedDescriptor={descriptor}
       feed={firstPage}
@@ -178,7 +343,7 @@ it("honors disabled placement capability even for an unfiltered feed", () => {
 
 it("preserves the source tab, sort and pagination in the sign-in destination", () => {
   render(
-    <FeedContent
+    <ResolvedFeedContent
       filters={{
         ...parseFilters({
           source_id: "11111111-1111-4111-8111-111111111111",
@@ -204,7 +369,7 @@ it.each(["source", "topic", "tag"] as const)(
   (kind) => {
     const sourceId = "11111111-1111-4111-8111-111111111111";
     render(
-      <FeedContent
+      <ResolvedFeedContent
         filters={{
           ...parseFilters({
             source_id: kind === "source" ? sourceId : "",

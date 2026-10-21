@@ -46,6 +46,7 @@ function requestCounts(requests) {
     [
       "auth/me",
       "settings/feed",
+      "settings/feed-view",
       "settings/profile",
       "settings/appearance",
       "engagement",

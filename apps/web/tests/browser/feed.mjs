@@ -37,7 +37,19 @@ import { checkArticleViews, compactListArticle, compactLoadingGate } from "./art
 import { checkCompactLoading } from "../../../../scripts/testing/compact-loading.mjs";
 import { checkArticleViewSettings } from "../../../../scripts/testing/article-view.mjs";
 import { checkReaderPreferences } from "../../../../scripts/testing/reader-preferences.mjs";
-import { checkColumnsWorkspace } from "../../../../scripts/testing/columns-workspace.mjs";
+import { createFixtureFeedViews } from "../../../../scripts/testing/feed-view-fixture.mjs";
+import {
+  checkColumnsWorkspace,
+  checkGuestColumnsUnavailable,
+  columnsCatalog,
+} from "../../../../scripts/testing/columns-workspace.mjs";
+import { columnsFixtureArticle } from "../../../../scripts/testing/columns-feed-fixture.mjs";
+import { checkColumnsFeeds } from "../../../../scripts/testing/columns-feeds.mjs";
+import { checkColumnsSponsoredProducts } from "../../../../scripts/testing/columns-sponsored.mjs";
+import { checkColumnsScanning } from "../../../../scripts/testing/columns-scanning.mjs";
+import { checkIndependentFeedViews } from "../../../../scripts/testing/feed-views.mjs";
+import { checkColumnsStarters } from "../../../../scripts/testing/columns-starters.mjs";
+import { checkPersonalColumns } from "../../../../scripts/testing/columns-personal.mjs";
 import {
   checkPreviewFeedRetention,
   previewRetentionArticle,
@@ -159,7 +171,12 @@ import {
 const root = fileURLToPath(new URL("../../../../", import.meta.url));
 async function createReaderFixture(
   t,
-  { thumbnailFeed = false, stackedFeed = false, previewRetention = false } = {},
+  {
+    thumbnailFeed = false,
+    stackedFeed = false,
+    previewRetention = false,
+    insecureHttp = false,
+  } = {},
 ) {
   let app, browser, fixture, userFixture;
   let logs = "";
@@ -218,6 +235,7 @@ async function createReaderFixture(
     content_types: ["news", "article", "tutorial", "release", "comparison", "opinion"],
     languages: ["en"],
   };
+  const scopedViews = createFixtureFeedViews(() => feedSettings.view);
   let failArticle = true;
   let failCollection = true;
   let bookmarked = false;
@@ -236,6 +254,24 @@ async function createReaderFixture(
   fixture = createServer(async (req, res) => {
     const requestUrl = new URL(req.url, "http://localhost");
     const path = requestUrl.pathname;
+    const columnsSelection = /^\/v1\/(topics|sources|tags)\/([^/]+)$/.exec(path);
+    const columnsEntity =
+      columnsSelection &&
+      columnsCatalog[columnsSelection[1]].find(
+        ({ id, slug }) => id === columnsSelection[2] || slug === columnsSelection[2],
+      );
+    if (columnsEntity) {
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify(columnsEntity));
+      return;
+    }
+    const columnsArticle =
+      path.startsWith("/v1/articles/") && columnsFixtureArticle(path.slice("/v1/articles/".length));
+    if (columnsArticle) {
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify(columnsArticle));
+      return;
+    }
     if (previewRetention) {
       previewRequests.push({ url: req.url, method: req.method });
       let body;
@@ -350,6 +386,7 @@ async function createReaderFixture(
         path,
         req.method,
         chunks.length ? JSON.parse(Buffer.concat(chunks).toString()) : undefined,
+        requestUrl.searchParams.get("feed"),
       );
       res.writeHead(status, { "Content-Type": "application/json" });
       res.end(JSON.stringify(json));
@@ -537,14 +574,36 @@ async function createReaderFixture(
       res.writeHead(200, { "Content-Type": "text/event-stream" });
       res.end(": connected\n\n");
       return;
+    } else if (["/v1/partner-placements/query", "/v1/user/partner-placements/query"].includes(path))
+      body = { items: [] };
+    else if (path === "/v1/user/settings/feed-view") {
+      if (!authenticated) {
+        res.statusCode = 401;
+        body = {};
+      } else {
+        const scope = requestUrl.searchParams.get("feed");
+        if (req.method === "PUT") {
+          assert.equal(req.headers["x-csrf-token"], "test");
+          const chunks = [];
+          for await (const chunk of req) chunks.push(chunk);
+          body = scopedViews.write(scope, JSON.parse(Buffer.concat(chunks).toString()));
+        } else body = scopedViews.read(scope);
+        if (!body) {
+          res.statusCode = 422;
+          body = { detail: "Invalid feed layout" };
+        }
+        res.setHeader("Cache-Control", "private, no-store");
+      }
     } else if (path === "/v1/user/settings/feed") {
       if (req.method === "PUT") {
         const chunks = [];
         for await (const chunk of req) chunks.push(chunk);
-        feedSettings = JSON.parse(Buffer.concat(chunks).toString());
+        feedSettings = { ...feedSettings, ...JSON.parse(Buffer.concat(chunks).toString()) };
       }
       body = feedSettings;
-    } else if (path === "/v1/feed/options")
+    } else if (path === "/v1/user/settings/columns")
+      body = { initialized: true, columns: feedSettings.columns ?? [] };
+    else if (path === "/v1/feed/options")
       body = {
         sources: [source, longFilterSource],
         content_types:
@@ -748,6 +807,7 @@ async function createReaderFixture(
   const port = probe.address().port;
   await new Promise((resolve) => probe.close(resolve));
   const origin = `http://127.0.0.1:${port}`;
+  const insecureOrigin = `http://reader.devfeed.test:${port}`;
   const upstream = `http://127.0.0.1:${fixture.address().port}`;
   const userUpstream = `http://127.0.0.1:${userFixture.address().port}`;
   const env = Object.fromEntries(
@@ -772,6 +832,7 @@ async function createReaderFixture(
         DEVFEED_MCP_PUBLIC_URL: testMcpEndpoint,
         DEVFEED_USER_API_URL: userUpstream,
         DEVFEED_USER_BASE_URL: origin,
+        ...(insecureHttp ? { DEVFEED_USER_ALLOWED_ORIGINS: JSON.stringify([insecureOrigin]) } : {}),
       },
       stdio: "pipe",
     },
@@ -790,7 +851,14 @@ async function createReaderFixture(
     }
   }
   assert.ok(ready, `Production reader did not become ready.\n${logs}`);
-  browser = await chromium.launch({ headless: true });
+  browser = await chromium.launch({
+    headless: true,
+    ...(insecureHttp
+      ? {
+          args: ["--host-resolver-rules=MAP reader.devfeed.test 127.0.0.1", "--no-proxy-server"],
+        }
+      : {}),
+  });
   async function runJourney() {
     const seoPage = await browser.newPage();
     for (const kind of ["tags", "topics"]) {
@@ -1304,6 +1372,7 @@ async function createReaderFixture(
   return {
     browser,
     origin,
+    insecureOrigin,
     upstream,
     userUpstream,
     serverReads,
@@ -1344,21 +1413,144 @@ async function withReaderPage(browser, check, options = {}) {
 }
 
 test(
+  "columns feeds load independently with bounded resources and shared actions",
+  { timeout: 180000 },
+  async (t) => {
+    const { browser, origin } = await createReaderFixture(t);
+    for (const signedIn of [true])
+      await withReaderPage(browser, async (page, context) => {
+        if (signedIn)
+          await context.addCookies([{ name: "devfeed_user_session", value: "valid", url: origin }]);
+        await checkColumnsFeeds(
+          page,
+          `${origin}/`,
+          `/tmp/devfeed-columns-feeds/web-${signedIn ? "member" : "guest"}`,
+          { signedIn },
+        );
+      });
+  },
+);
+
+test(
+  "columns editorial scanning stays readable across themes and viewport sizes",
+  { timeout: 90000 },
+  async (t) => {
+    const { browser, origin } = await createReaderFixture(t);
+    await withReaderPage(browser, async (page, context) => {
+      await context.addCookies([{ name: "devfeed_user_session", value: "valid", url: origin }]);
+      await checkColumnsScanning(
+        page,
+        `${origin}/`,
+        process.env.DEVFEED_COLUMNS_SCANNING_OUTPUT ?? "/tmp/devfeed-columns-scanning/web-final",
+        { baseline: process.env.DEVFEED_COLUMNS_SCANNING_BASELINE === "1" },
+      );
+    });
+  },
+);
+
+test(
+  "columns show contextual sponsored products with signed tracking across layouts",
+  { timeout: 90000 },
+  async (t) => {
+    const { browser, origin } = await createReaderFixture(t);
+    await withReaderPage(browser, async (page, context) => {
+      await context.addCookies([{ name: "devfeed_user_session", value: "valid", url: origin }]);
+      await checkColumnsSponsoredProducts(page, `${origin}/`, "/tmp/devfeed-columns-sponsored/web");
+    });
+  },
+);
+
+test(
+  "columns workspace saves its reading session through slow article previews",
+  { timeout: 90000 },
+  async (t) => {
+    const { browser, origin } = await createReaderFixture(t);
+    await withReaderPage(browser, async (page, context) => {
+      await context.addCookies([{ name: "devfeed_user_session", value: "valid", url: origin }]);
+      await checkColumnsFeeds(page, `${origin}/`, "/tmp/devfeed-columns-feeds/web-slow-preview", {
+        signedIn: true,
+        slowPreview: true,
+      });
+    });
+  },
+);
+
+test(
   "columns workspace saves independent selections and accessible arrangements",
   { timeout: 180000 },
   async (t) => {
     const { browser, origin } = await createReaderFixture(t);
-    for (const signedIn of [false, true])
+    await withReaderPage(browser, (page) =>
+      checkGuestColumnsUnavailable(page, `${origin}/`, "/tmp/devfeed-columns-workspace/web-guest"),
+    );
+    for (const signedIn of [true])
       await withReaderPage(browser, async (page, context) => {
         if (signedIn)
           await context.addCookies([{ name: "devfeed_user_session", value: "valid", url: origin }]);
         await checkColumnsWorkspace(
           page,
-          `${origin}/latest?sort=most_liked`,
+          `${origin}/?sort=most_liked`,
           `/tmp/devfeed-columns-workspace/web-${signedIn ? "member" : "guest"}`,
           { signedIn },
         );
       });
+  },
+);
+
+test(
+  "columns workspace saves first-use starters without replacing user choices",
+  { timeout: 180000 },
+  async (t) => {
+    const { browser, origin } = await createReaderFixture(t);
+    for (const signedIn of [true])
+      await withReaderPage(browser, async (page, context) => {
+        if (signedIn)
+          await context.addCookies([{ name: "devfeed_user_session", value: "valid", url: origin }]);
+        await checkColumnsStarters(
+          page,
+          `${origin}/`,
+          `/tmp/devfeed-columns-starters/web-${signedIn ? "member" : "guest"}`,
+          { signedIn },
+        );
+      });
+  },
+);
+
+test(
+  "columns workspace saves personalized My feed independently from Latest",
+  { timeout: 180000 },
+  async (t) => {
+    const { browser, origin } = await createReaderFixture(t);
+    for (const signedIn of [true])
+      await withReaderPage(browser, async (page, context) => {
+        if (signedIn)
+          await context.addCookies([{ name: "devfeed_user_session", value: "valid", url: origin }]);
+        await checkPersonalColumns(
+          page,
+          `${origin}/`,
+          `/tmp/devfeed-columns-personal/web-${signedIn ? "member" : "guest"}`,
+          { signedIn, expireSession: () => context.clearCookies() },
+        );
+      });
+  },
+);
+
+test(
+  "columns workspace saves on insecure HTTP origins without randomUUID",
+  { timeout: 90000 },
+  async (t) => {
+    const { browser, insecureOrigin } = await createReaderFixture(t, { insecureHttp: true });
+    await withReaderPage(browser, async (page, context) => {
+      await context.addCookies([
+        { name: "devfeed_user_session", value: "valid", url: insecureOrigin },
+      ]);
+      await checkColumnsWorkspace(
+        page,
+        `${insecureOrigin}/?sort=most_liked`,
+        "/tmp/devfeed-columns-workspace/web-insecure-http",
+        { signedIn: true, nativeInsecureContext: true },
+      );
+    });
   },
 );
 
@@ -1428,6 +1620,25 @@ test(
         },
       });
     });
+  },
+);
+
+test(
+  "feed layouts persist independently by semantic feed for guests and members",
+  { timeout: 180000 },
+  async (t) => {
+    const { browser, origin } = await createReaderFixture(t);
+    for (const signedIn of [false, true])
+      await withReaderPage(browser, async (page, context) => {
+        if (signedIn)
+          await context.addCookies([{ name: "devfeed_user_session", value: "valid", url: origin }]);
+        await checkIndependentFeedViews(
+          page,
+          `${origin}/`,
+          `/tmp/devfeed-feed-views/web-${signedIn ? "member" : "guest"}`,
+          { signedIn },
+        );
+      });
   },
 );
 

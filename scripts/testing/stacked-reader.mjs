@@ -566,12 +566,12 @@ export async function checkStackedReader(page, target, output, { signedIn = fals
   if (!signedIn)
     assert.equal(
       await page.evaluate(
-        () => JSON.parse(localStorage.getItem("devfeed:reader-preferences:guest")).view,
+        () => JSON.parse(localStorage.getItem("devfeed:feed-views:guest")).views.latest,
       ),
       "stacked",
       "Guest Stacked selection survives a reload",
     );
-  await openArticleViewSettings(page);
+  await openArticleViewSettings(page, { feed: "latest" });
   assert.equal(await page.getByRole("radio", { name: "Stacked", exact: true }).isChecked(), true);
   await page.goto(target);
   await firstRow.waitFor();

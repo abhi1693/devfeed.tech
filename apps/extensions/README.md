@@ -9,8 +9,11 @@ and all six settings sections use local hash routes. Publisher links and website
 sign-in open a separate tab. Chrome's own new-tab footer is browser UI and is not
 part of the extension's layout.
 
-**Settings → Appearance → Article feed layout** selects Grid, List, Stacked, or Columns for every
-article feed. Signed-in readers open **Appearance** from their avatar menu.
+**Settings → Appearance → Article feed layout** selects Grid, List, Stacked, or Columns.
+Columns applies only to signed-in My feed; Latest and other article pages use Grid while it is selected.
+Guest Appearance disables Columns and explains that signing in is required.
+Search and contextual filters continue to show their selected articles.
+Signed-in readers open **Appearance** from their avatar menu.
 Saved changes are confirmed with a toast.
 Both browsers share the web reader's layout controls and saved
 preference handling. Feed pages do not have separate view selectors.
@@ -171,8 +174,9 @@ backend services.
 Choose Grid, List, Stacked, or Columns in **Settings → Appearance → Article feed layout**.
 Grid is the default. List uses compact rows, while Stacked places thumbnails,
 metadata, headlines, descriptions, and article actions in one vertical stream.
-The choice applies to My feed, Latest, topic/source/tag feeds, Trending, and Read
-later. Guest choices stay in the extension's browser storage; signed-in choices
+Each feed saves its own choice across My feed, Latest, topic/source/tag feeds, Trending,
+and Read later. Columns is available only on My feed for signed-in readers.
+Guest choices stay in the extension's browser storage; signed-in choices
 use account feed settings without changing content or language selections. Grid,
 List, and Stacked reuse the existing feed loading, bookmarks, engagement, and preview
 navigation. `/trending` is a local reader route in both extensions.
@@ -182,13 +186,49 @@ articles retain the article row layout and disclosure badge. Product placements
 use bounded, centered cards with a product logo, one attribution line, an outlined
 Sponsored badge, and an outward-link cue that stays beside the content.
 
-Columns uses the shared saved workspace editor: add Latest, Recommended, source, topic,
+Every article feed remembers its own Grid, List, or Stacked layout. Use its layout menu,
+or the Feed selector in Appearance. My feed also supports Columns for signed-in readers;
+Latest, Trending, Read later, content-type feeds, and individual topic/source/tag feeds
+keep their choices independently. Stable catalog IDs make canonical links, older aliases,
+and a catalog feed's content tabs share one preference. Account layouts sync across the
+readers; guest layouts stay in their own browser storage. Old layouts provide the initial
+default, frozen on the first scoped save. Opening a feed never creates a saved override.
+Unified discovery search retains its own result presentation.
+
+Columns uses the shared saved workspace editor:
+add Latest, Recommended, source, topic,
 or tag selections; edit, reorder, and remove them; and restore the same stable identities
-on return. Left/right buttons support keyboard reordering, and narrow screens provide
-horizontal scrolling plus **Go to column** navigation. Missing selections remain editable;
-failed metadata reads offer retry. Guest Recommended columns prompt for sign-in.
-**Open feed** switches to Grid and opens the selected local reader route. Independent
-article loading inside columns is tracked separately in #270.
+on return. Headers include a visible remove button; options menus provide keyboard-accessible
+edit, reorder, and remove actions, and narrow screens provide
+horizontal scrolling with a focusable board for keyboard navigation. Missing selections
+remain editable;
+failed metadata reads offer retry. Text-only rows lead with readable headlines, followed by
+publisher/date metadata and two-line summaries;
+column headers align, and secondary actions appear on hover/focus or remain visible on
+touch devices. Duplicate feed selections are disabled in the editor and rejected on save;
+older duplicates retain their first column identity. **Use starter columns** explicitly
+restores an empty board.
+My feed saves its own workspace, starting with Recommended and up to four feeds from
+followed topics, sources, tags, and topics from recent likes. Without eligible interests,
+it starts with Recommended and Latest. Later interest changes do not rearrange columns.
+Existing shared workspaces and deliberate clears are preserved as the My feed workspace.
+Account initialization preserves changes from other devices, and guest state remains
+separate. Add column supports browsers where `crypto.randomUUID` is unavailable.
+Articles load and scroll inside each column. Pagination, feed-update recovery, retry, and selection
+changes leave neighboring columns intact. Shared article actions synchronize matching
+articles, and previews follow the column they were opened from. A workspace supports
+12 columns, with three concurrent feed/catalog/product reads and one pending page per column.
+Each column retains at most three 24-article pages (72 articles). Reloading the page starts
+the columns from their first pages. Edits/removal cancel queued and active work, and stale responses
+cannot populate a new selection. Recommended retains account masking, preparation,
+and generation-expiry behavior. The shared runtime transport and article cache also
+serve column previews in both browser packages.
+
+Columns show eligible sponsored products after the fourth article, using a disclosed text-only
+placement with bounded copy and complete attribution available on hover. Products match the
+column's topic or initial article page, remain stable through
+pagination and previews, and are deduplicated across mounted reader contexts. Product delivery
+shares the workspace request budget; a failed delivery leaves articles fully usable.
 
 Closing article previews retains loaded rows, pagination, scroll, and article metrics
 while checking the session. Ordinary history navigation and restored documents still

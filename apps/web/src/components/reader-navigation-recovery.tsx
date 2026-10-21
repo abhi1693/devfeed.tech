@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { usePathname, useSearchParams } from "next/navigation";
 import { startHistoryScroll } from "@/lib/history-scroll";
+import { resolveReaderDestination } from "@/lib/reader-destination";
 import { navigationStarted } from "@/lib/reader-navigation";
 import { readerLocation, readerPublicOrigin, readerReload } from "@/lib/reader-runtime";
 
@@ -52,6 +53,9 @@ export function ReaderNavigationRecovery() {
       if (superseded.size > 10) superseded.delete(superseded.values().next().value!);
       target = next;
       setPending(true);
+      // A preview must stay in this document while its route loads. A hard
+      // navigation would replace the retained feed with the direct article page.
+      if (resolveReaderDestination(url.href, { base: current }).kind === "article") return;
       timer = setTimeout(() => {
         setPending(false);
         // Committed route changes cancel this timer. An optimistic URL alone

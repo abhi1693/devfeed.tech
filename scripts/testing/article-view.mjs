@@ -11,13 +11,70 @@ export function readerRouteUrl(currentUrl, route) {
   return new URL(route, current).href;
 }
 
-export async function openArticleViewSettings(page) {
+export function fixedReaderFeed(currentUrl) {
+  const current = new URL(currentUrl);
+  const route = current.hash.startsWith("#/")
+    ? new URL(current.hash.slice(1), "https://reader.test")
+    : current;
+  if (["q", "topic", "source_id", "tag", "content_type"].some((key) => route.searchParams.has(key)))
+    return null;
+  return (
+    { "/": "my_feed", "/latest": "latest", "/trending": "trending", "/read-later": "read_later" }[
+      route.pathname
+    ] ?? null
+  );
+}
+
+export async function openArticleViewSettings(page, { feed } = {}) {
   const destination = readerRouteUrl(page.url(), "/settings/appearance");
   if (page.url() !== destination) await page.goto(destination);
+  const feeds = page.getByRole("combobox", { name: "Feed", exact: true });
+  await feeds.waitFor();
   const region = page.getByRole("region", { name: "Article feed layout", exact: true });
   await region.waitFor();
+  // Account hydration can replace the guest Latest default with the member's My feed.
+  await page.locator('[aria-label="Article feed layout"][aria-busy="false"]').waitFor();
+  if (feed && (await feeds.inputValue()) !== feed) await feeds.selectOption(feed);
   await page.locator('[aria-label="Article feed layout"][aria-busy="false"]').waitFor();
   return region;
+}
+
+export async function chooseInlineArticleView(page, view, { keyboard = false } = {}) {
+  const label = {
+    cards: "Grid",
+    compact: "List",
+    stacked: "Stacked",
+    columns: "Columns",
+    Grid: "Grid",
+    List: "List",
+    Stacked: "Stacked",
+    Columns: "Columns",
+  }[view];
+  assert.ok(label);
+  const trigger = page.getByRole("button", { name: "Change feed layout", exact: true });
+  await page.waitForFunction(() =>
+    [...document.querySelectorAll('button[aria-label="Change feed layout"]')].some(
+      (button) => !button.disabled,
+    ),
+  );
+  if (keyboard) {
+    await trigger.focus();
+    await page.keyboard.press("Enter");
+  } else await trigger.click();
+  const menu = page.getByRole("menu");
+  const option = menu.getByRole("menuitemradio", { name: label, exact: true });
+  if (keyboard) {
+    await option.focus();
+    await page.keyboard.press("Enter");
+  } else await option.click();
+  await menu.waitFor({ state: "hidden" });
+  await page.waitForFunction(
+    (label) =>
+      [...document.querySelectorAll('button[aria-label="Change feed layout"]')].some(
+        (button) => !button.disabled && button.title === `Layout: ${label}`,
+      ),
+    label,
+  );
 }
 
 export async function chooseArticleView(page, view, { keyboard = false } = {}) {
@@ -47,8 +104,19 @@ export async function chooseArticleView(page, view, { keyboard = false } = {}) {
 
 /** Save through the same Appearance controls in the website and both extensions. */
 export async function setArticleView(page, view, { returnTo = page.url(), keyboard = false } = {}) {
-  await openArticleViewSettings(page);
-  await chooseArticleView(page, view, { keyboard });
+  let feed = fixedReaderFeed(returnTo);
+  if (
+    feed === "my_feed" &&
+    (await page.getByRole("banner").getByRole("link", { name: "Sign in", exact: true }).count())
+  )
+    feed = "latest";
+  if (feed) {
+    await openArticleViewSettings(page, { feed });
+    await chooseArticleView(page, view, { keyboard });
+  } else {
+    if (page.url() !== returnTo) await page.goto(returnTo);
+    await chooseInlineArticleView(page, view, { keyboard });
+  }
   if (page.url() !== returnTo) await page.goto(returnTo);
   assert.equal(page.url(), returnTo, "Appearance returns to the exact reader route and filters");
 }
@@ -60,6 +128,8 @@ export async function checkArticleViewSettings(
   { signedIn = false, routes = [] } = {},
 ) {
   const viewport = page.viewportSize();
+  const feedScope = fixedReaderFeed(target);
+  assert.ok(feedScope, "Appearance journeys use a fixed feed scope");
   await page.goto(target);
   await setArticleView(page, "cards", { returnTo: target });
   await page.locator(".article-card:visible").first().waitFor();
@@ -152,7 +222,7 @@ export async function checkArticleViewSettings(
     await page.goto(readerRouteUrl(target, "/settings/appearance"));
   }
   await page.waitForURL(readerRouteUrl(target, "/settings/appearance"));
-  const region = await openArticleViewSettings(page);
+  const region = await openArticleViewSettings(page, { feed: feedScope });
   const grid = region.getByRole("radio", { name: "Grid", exact: true });
   const list = region.getByRole("radio", { name: "List", exact: true });
   const savedNotice = page.getByText("Article layout saved.", { exact: true });
@@ -171,7 +241,7 @@ export async function checkArticleViewSettings(
     const pending = new Promise((resolve) => {
       requested = resolve;
     });
-    const pattern = /\/api\/v1\/user\/settings\/feed(?:\?|$)/;
+    const pattern = /\/api\/v1\/user\/settings\/feed-view(?:\?|$)/;
     const holdSave = async (route) => {
       if (route.request().method() !== "PUT") return route.fallback();
       payload = route.request().postDataJSON();
@@ -210,7 +280,9 @@ export async function checkArticleViewSettings(
   } else {
     await chooseArticleView(page, "compact", { keyboard: true });
     assert.equal(
-      await page.evaluate(() => localStorage.getItem("devfeed:feed-view:guest")),
+      await page.evaluate(
+        () => JSON.parse(localStorage.getItem("devfeed:feed-views:guest")).views.latest,
+      ),
       "compact",
       "Guest Appearance preferences persist without signing in",
     );
@@ -265,14 +337,17 @@ export async function checkArticleViewSettings(
   await page.locator(".article-list-row:visible").first().waitFor();
   assert.equal(page.url(), target, "Browser Back restores the exact filtered feed route");
   await page.goForward();
-  await openArticleViewSettings(page);
+  await openArticleViewSettings(page, { feed: feedScope });
   await page.reload();
-  await openArticleViewSettings(page);
+  await openArticleViewSettings(page, { feed: feedScope });
   assert.equal(await list.isChecked(), true, "Appearance reload restores the saved layout");
   for (const route of [target, ...routes]) {
     await page.goto(route);
     try {
-      await page.locator(".article-list-row:visible").first().waitFor();
+      await page
+        .locator(route === target ? ".article-list-row:visible" : ".article-card:visible")
+        .first()
+        .waitFor();
     } catch (error) {
       if (output) await page.screenshot({ path: `${output}-failure.png`, animations: "disabled" });
       error.message = `${route}: ${error.message}`;
@@ -313,7 +388,7 @@ export async function checkArticleViewSettings(
     await feed
       .getByRole("link", { name: "Change article layout in Appearance.", exact: true })
       .click();
-    await openArticleViewSettings(page);
+    await openArticleViewSettings(page, { feed: feedScope });
     assert.equal(await list.isChecked(), true);
   }
   await setArticleView(page, "cards", { returnTo: target });

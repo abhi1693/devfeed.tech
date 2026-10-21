@@ -15,8 +15,14 @@ import { ReaderReloadLink } from "./reader-reload-link";
 import type { RecommendationReason } from "./article-grid";
 import { FeedOnboarding } from "./feed-onboarding";
 import { DevCardPromo } from "./dev-card-promo";
-import { feedPlacements, readerFeeds, type FeedDescriptor } from "@/lib/reader-feed";
+import {
+  canUseColumnWorkspace,
+  feedPlacements,
+  readerFeeds,
+  type FeedDescriptor,
+} from "@/lib/reader-feed";
 import { ReaderFeedLayout } from "./reader-feed-layout";
+import { deriveFeedViewScope, pendingFeedScopeSelection } from "@/lib/feed-view-scope";
 
 type RecommendationPage = FeedPage & {
   status: "ready" | "refreshing";
@@ -298,7 +304,12 @@ export function PersonalFeed({
   }, []);
   return (
     <AccountGate loadingFallback={<LoadingSkeleton label="Loading your feed…" />}>
-      <ReaderFeedLayout>
+      <ReaderFeedLayout
+        scope={deriveFeedViewScope({ descriptor: feedDescriptor, filters, authenticated: true })}
+        selection={pendingFeedScopeSelection({ filters })}
+        allowColumns={canUseColumnWorkspace(filters)}
+        workspace="my_feed"
+      >
         <Feed
           key={JSON.stringify({ ...filters, cursor })}
           cursor={cursor}

@@ -2,7 +2,8 @@
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, expect, it, vi } from "vitest";
 import type { ReactNode } from "react";
-import { ArticleViewSettings } from "@/components/article-view-settings";
+import { ArticleViewOptions, ArticleViewSettings } from "@/components/article-view-settings";
+import { ScopedFeedPreferences } from "@/components/scoped-feed-preferences";
 import { FeedPreferencesProvider } from "@/components/feed-preferences";
 import { ArticleGrid } from "@/components/article-grid";
 import { InfiniteFeed } from "@/components/infinite-feed";
@@ -41,12 +42,60 @@ afterEach(() => {
   localStorage.clear();
 });
 
+it("edits the selected feed in Appearance and restores another feed's independent layout", async () => {
+  const saved = new Map([
+    ["my_feed", "columns"],
+    ["latest", "stacked"],
+  ]);
+  const legacy = { view: "columns", columns: [], content_types: ["news"], languages: ["en"] };
+  const fetcher = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = new URL(String(input), "http://localhost");
+    if (url.pathname.endsWith("settings/feed")) return Response.json(legacy);
+    if (url.pathname.endsWith("settings/feed-view")) {
+      const scope = url.searchParams.get("feed")!;
+      if (init?.method === "PUT") saved.set(scope, JSON.parse(String(init.body)).view);
+      return Response.json({ view: saved.get(scope) ?? "cards" });
+    }
+    throw new Error(`Unexpected request: ${url.href}`);
+  });
+  vi.stubGlobal("fetch", fetcher);
+  render(
+    <FeedPreferencesProvider>
+      <ArticleViewSettings />
+    </FeedPreferencesProvider>,
+  );
+  await waitFor(() =>
+    expect((screen.getByRole("radio", { name: "Columns" }) as HTMLInputElement).checked).toBe(true),
+  );
+  fireEvent.change(screen.getByRole("combobox", { name: "Feed" }), { target: { value: "latest" } });
+  await waitFor(() =>
+    expect((screen.getByRole("radio", { name: "Stacked" }) as HTMLInputElement).checked).toBe(true),
+  );
+  expect((screen.getByRole("radio", { name: "Columns" }) as HTMLInputElement).disabled).toBe(true);
+  fireEvent.click(screen.getByRole("radio", { name: "List" }));
+  await waitFor(() => expect(saved.get("latest")).toBe("compact"));
+  fireEvent.change(screen.getByRole("combobox", { name: "Feed" }), {
+    target: { value: "my_feed" },
+  });
+  await waitFor(() =>
+    expect((screen.getByRole("radio", { name: "Columns" }) as HTMLInputElement).checked).toBe(true),
+  );
+  expect(saved.get("my_feed")).toBe("columns");
+  expect(
+    fetcher.mock.calls.filter(
+      ([input, init]) =>
+        new URL(String(input), "http://localhost").pathname.endsWith("settings/feed") &&
+        init?.method === "PUT",
+    ),
+  ).toHaveLength(0);
+});
+
 function Sequence() {
   const { sequence } = useArticleNavigation();
   return <output aria-label="Reading sequence">{sequence?.slugs.join(",")}</output>;
 }
 
-it("applies Appearance layout globally while retaining pages, reading sequence, and engagement", async () => {
+it("applies Grid, List, and Stacked while retaining pages, reading sequence, and engagement", async () => {
   const second = { ...article, id: "second", slug: "second", title: "Second page article" };
   const other = { ...article, id: "other", slug: "other", title: "Another feed article" };
   const firstEngagement = {
@@ -62,10 +111,14 @@ it("applies Appearance layout globally while retaining pages, reading sequence, 
   ];
   const fetcher = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = new URL(String(input), "http://localhost");
+    if (url.pathname.endsWith("settings/feed-view"))
+      return Response.json(
+        init?.method === "PUT" ? JSON.parse(String(init.body)) : { view: "cards" },
+      );
     if (url.pathname.endsWith("settings/feed"))
       return Response.json(
         init?.method === "PUT"
-          ? JSON.parse(String(init.body))
+          ? { ...JSON.parse(String(init.body)), columns }
           : { view: "cards", columns, content_types: ["news"], languages: ["en"] },
       );
     if (url.pathname === "/api/v1/feed")
@@ -84,15 +137,19 @@ it("applies Appearance layout globally while retaining pages, reading sequence, 
   vi.stubGlobal("fetch", fetcher);
   render(
     <FeedPreferencesProvider>
-      <ArticleViewSettings />
-      <ArticleNavigationProvider>
-        <InfiniteFeed
-          initialPage={{ items: [article], next_cursor: "next-page" }}
-          filters={parseFilters({ q: "python", content_type: "news", sort: "most_liked" })}
-        />
-        <Sequence />
-      </ArticleNavigationProvider>
-      <ArticleGrid articles={[other]} />
+      <ScopedFeedPreferences scope="my_feed">
+        <ArticleViewOptions />
+        <ArticleNavigationProvider>
+          <InfiniteFeed
+            initialPage={{ items: [article], next_cursor: "next-page" }}
+            filters={parseFilters({ q: "python", content_type: "news", sort: "most_liked" })}
+          />
+          <Sequence />
+        </ArticleNavigationProvider>
+      </ScopedFeedPreferences>
+      <ScopedFeedPreferences scope="latest">
+        <ArticleGrid articles={[other]} />
+      </ScopedFeedPreferences>
     </FeedPreferencesProvider>,
   );
   const list = await screen.findByRole("radio", { name: "List" });
@@ -123,7 +180,8 @@ it("applies Appearance layout globally while retaining pages, reading sequence, 
       .map((link) => link.textContent)
       .filter((title) => expectedOrder.includes(title!));
   await act(async () => fireEvent.click(list));
-  expect(screen.getAllByRole("table")).toHaveLength(2);
+  expect(screen.getAllByRole("table")).toHaveLength(1);
+  expect(screen.getByRole("link", { name: other.title }).closest(".article-card")).toBeTruthy();
   expect(screen.getByRole("link", { name: second.title })).toBeTruthy();
   expect(screen.getByRole("link", { name: other.title })).toBeTruthy();
   expect(screen.getByRole("button", { name: "Remove bookmark" }).getAttribute("aria-pressed")).toBe(
@@ -132,7 +190,7 @@ it("applies Appearance layout globally while retaining pages, reading sequence, 
   expect(screen.getByLabelText("Reading sequence").textContent).toBe(sequence);
   expect(articleOrder()).toEqual(expectedOrder);
   await act(async () => fireEvent.click(screen.getByRole("radio", { name: "Stacked" })));
-  expect(screen.getAllByRole("region", { name: "Articles in stacked view" })).toHaveLength(2);
+  expect(screen.getAllByRole("region", { name: "Articles in stacked view" })).toHaveLength(1);
   expect(screen.queryByRole("table")).toBeNull();
   expect(articleOrder()).toEqual(expectedOrder);
   expect(
@@ -158,16 +216,17 @@ it("applies Appearance layout globally while retaining pages, reading sequence, 
   ).toHaveLength(engagementReads);
   expect(
     fetcher.mock.calls
-      .filter(([input, init]) => String(input).endsWith("settings/feed") && init?.method === "PUT")
+      .filter(
+        ([input, init]) =>
+          String(input).endsWith("settings/feed-view?feed=my_feed") && init?.method === "PUT",
+      )
       .map(([, init]) => JSON.parse(String(init?.body))),
-  ).toEqual(
-    ["compact", "stacked", "cards"].map((view) => ({
-      view,
-      columns,
-      content_types: ["news"],
-      languages: ["en"],
-    })),
-  );
+  ).toEqual(["compact", "stacked", "cards"].map((view) => ({ view })));
+  expect(
+    fetcher.mock.calls.filter(
+      ([input, init]) => String(input).endsWith("settings/feed") && init?.method === "PUT",
+    ),
+  ).toHaveLength(0);
   const feedRequests = fetcher.mock.calls.filter(([input]) =>
     String(input).startsWith("/api/v1/feed?"),
   );

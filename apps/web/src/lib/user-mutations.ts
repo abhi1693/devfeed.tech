@@ -1,6 +1,8 @@
 import { ssoLogoutUrl } from "@devfeed/http/sso";
 import { trackEvent, type AnalyticsEvent } from "./analytics";
-import { validateReaderPreferences } from "./reader-preferences";
+import { validateReaderPreferences, type ReaderColumn } from "./reader-preferences";
+import { parseFeedViewScope, type FeedViewScope } from "./feed-view-scope";
+import type { FeedViewPreference } from "./reader-layouts";
 import {
   userRequest,
   type Appearance,
@@ -203,6 +205,79 @@ export function saveFeedSettings(value: FeedDisplay, options: MutationOptions) {
       name: "feed_settings_saved",
       params: { feed_view: result.view, selected_count: result.content_types.length },
     }),
+  });
+}
+
+export type FeedViewReceipt = { view: FeedViewPreference };
+
+export function validFeedViewReceipt(value: unknown): value is FeedViewReceipt {
+  return (
+    record(value) &&
+    Object.keys(value).length === 1 &&
+    typeof value.view === "string" &&
+    ["cards", "compact", "stacked", "columns"].includes(value.view)
+  );
+}
+
+export function saveFeedView(
+  scope: FeedViewScope,
+  view: FeedViewPreference,
+  options: MutationOptions,
+) {
+  const key = parseFeedViewScope(scope);
+  if (!key || !validFeedViewReceipt({ view }) || (view === "columns" && key !== "my_feed"))
+    throw new TypeError("Unsupported feed layout");
+  return mutate<FeedViewReceipt>(
+    `settings/feed-view?feed=${encodeURIComponent(key)}`,
+    { view },
+    options,
+    {
+      validate: (value) =>
+        validFeedViewReceipt(value) && (value.view !== "columns" || key === "my_feed"),
+    },
+  );
+}
+
+export type ReaderColumnsState = { initialized: boolean; columns: ReaderColumn[] };
+export type StarterColumnsMode = "initialize" | "restore_empty";
+export type ColumnWorkspaceScope = "latest" | "my_feed";
+
+export function columnSettingsPath(workspace: ColumnWorkspaceScope = "latest") {
+  return `settings/columns${workspace === "my_feed" ? "?workspace=my_feed" : ""}`;
+}
+
+export function validReaderColumnsState(value: unknown): value is ReaderColumnsState {
+  return (
+    record(value) &&
+    typeof value.initialized === "boolean" &&
+    Array.isArray(value.columns) &&
+    validateReaderPreferences({
+      view: "columns",
+      columns: value.columns,
+      content_types: ["news"],
+      languages: ["en"],
+    })
+  );
+}
+
+/** Conditional installation cannot replace a workspace changed by another tab or device. */
+export function initializeReaderColumns(
+  columns: ReaderColumn[],
+  mode: StarterColumnsMode,
+  options: MutationOptions,
+  workspace: ColumnWorkspaceScope = "latest",
+) {
+  return saveReaderColumns(columns, mode, options, workspace);
+}
+
+export function saveReaderColumns(
+  columns: ReaderColumn[],
+  mode: StarterColumnsMode | "replace",
+  options: MutationOptions,
+  workspace: ColumnWorkspaceScope = "latest",
+) {
+  return mutate<ReaderColumnsState>(columnSettingsPath(workspace), { columns, mode }, options, {
+    validate: (value) => validReaderColumnsState(value) && value.initialized,
   });
 }
 

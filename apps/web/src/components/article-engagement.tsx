@@ -274,7 +274,11 @@ export function ArticleEngagement({
       <span ref={heartRef} className="reader-motion-icon">
         <Heart size={16} fill={user && value?.liked ? "currentColor" : "none"} aria-hidden="true" />
       </span>
-      {value && count(value.likes)}
+      {value && (
+        <span className="engagement-count" data-zero={value.likes === 0}>
+          {count(value.likes)}
+        </span>
+      )}
     </>
   );
   return (
@@ -303,6 +307,7 @@ export function ArticleEngagement({
       {value && (
         <span
           className="open-count"
+          data-zero={value.opens === 0}
           role="img"
           title={`${value.opens} clicks to the original article`}
           aria-label={`${value.opens} clicks to the original article`}
