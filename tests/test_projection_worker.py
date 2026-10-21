@@ -5,13 +5,13 @@ import signal
 import sys
 from contextlib import contextmanager, nullcontext
 from datetime import UTC, datetime, timedelta
-from pathlib import Path
 from types import SimpleNamespace as NS
 from unittest.mock import Mock
 
 import pytest
 from devfeed_admin_api import overview_projection
 from devfeed_admin_api import projection_worker as worker
+from devfeed_core import runtime_files
 from devfeed_core.config import get_settings
 
 NOW = datetime(2026, 10, 21, 12, tzinfo=UTC)
@@ -20,8 +20,8 @@ NOW = datetime(2026, 10, 21, 12, tzinfo=UTC)
 @pytest.fixture
 def heartbeat_directory(monkeypatch, tmp_path):
     """Use real marker files while keeping the CLI's paths isolated from other workers."""
-    monkeypatch.setattr(worker, "Path", lambda name: tmp_path / Path(name).name)
-    return tmp_path
+    monkeypatch.setattr(runtime_files, "gettempdir", lambda: str(tmp_path))
+    return worker.heartbeat_marker("pipeline").parent
 
 
 @pytest.mark.parametrize("kind", ["pipeline", "reports"])
@@ -31,8 +31,8 @@ def test_healthcheck_requires_a_recent_heartbeat_for_the_selected_kind(
 ):
     now = NOW.timestamp()
     other = "reports" if kind == "pipeline" else "pipeline"
-    (heartbeat_directory / f"devfeed-read-models-{other}.heartbeat").touch()
-    marker = heartbeat_directory / f"devfeed-read-models-{kind}.heartbeat"
+    (heartbeat_directory / f"{other}-heartbeat").touch()
+    marker = heartbeat_directory / f"{kind}-heartbeat"
     if age is not None:
         marker.touch()
         os.utime(marker, (now - age, now - age))
@@ -74,6 +74,17 @@ def test_cli_rejects_an_unknown_publisher_before_starting_services(monkeypatch):
         worker.main()
     assert failure.value.code == 2
     publish.assert_not_called()
+
+
+@pytest.mark.parametrize("kind", ["../outside", "reports/../../outside", "unknown"])
+def test_run_rejects_unknown_publishers_before_starting_services(monkeypatch, kind):
+    configure = Mock()
+    monkeypatch.setattr(worker, "get_settings", configure)
+
+    with pytest.raises(ValueError, match="Unknown read-model publisher"):
+        worker.run(once=True, kind=kind)
+
+    configure.assert_not_called()
 
 
 @pytest.fixture
@@ -173,8 +184,8 @@ def test_pipeline_once_uses_its_own_unpooled_connection_settings_and_cleans_up(r
     runtime.drain.assert_not_called()
     runtime.reports.assert_not_called()
     runtime.backlog.assert_called_once_with(runtime.factory, "pipeline")
-    assert (runtime.directory / "devfeed-read-models-pipeline.heartbeat").exists()
-    assert not (runtime.directory / "devfeed-read-models-reports.heartbeat").exists()
+    assert (runtime.directory / "pipeline-heartbeat").exists()
+    assert not (runtime.directory / "reports-heartbeat").exists()
     assert runtime.waits == []
     assert runtime.cycles == [
         ("started", "read-models.pipeline"),
@@ -191,11 +202,54 @@ def test_report_once_does_not_run_the_pipeline_publisher(runtime):
     runtime.pipeline.assert_not_called()
     runtime.drain.assert_not_called()
     runtime.backlog.assert_called_once_with(runtime.factory, "reports")
-    assert (runtime.directory / "devfeed-read-models-reports.heartbeat").exists()
-    assert not (runtime.directory / "devfeed-read-models-pipeline.heartbeat").exists()
+    assert (runtime.directory / "reports-heartbeat").exists()
+    assert not (runtime.directory / "pipeline-heartbeat").exists()
     assert runtime.waits == []
     runtime.engine.dispose.assert_called_once_with()
     runtime.finish.assert_called_once_with(runtime.telemetry)
+
+
+@pytest.mark.parametrize("kind", ["pipeline", "reports"])
+@pytest.mark.parametrize("link", ["symbolic", "hard"])
+def test_successful_cycle_replaces_heartbeat_links_without_touching_their_target(
+    runtime, tmp_path, kind, link
+):
+    target = tmp_path / "protected"
+    target.write_text("keep this content")
+    os.utime(target, (1, 1))
+    marker = runtime.directory / f"{kind}-heartbeat"
+    if link == "symbolic":
+        marker.symlink_to(target)
+    else:
+        marker.hardlink_to(target)
+
+    worker.run(once=True, kind=kind)
+
+    assert target.read_text() == "keep this content"
+    assert target.stat().st_mtime == 1
+    assert not marker.is_symlink()
+    assert marker.stat().st_ino != target.stat().st_ino
+    assert marker.stat().st_mode & 0o777 == 0o600
+    assert float(marker.read_text()) > 1
+    assert list(runtime.directory.iterdir()) == [marker]
+
+
+@pytest.mark.parametrize("kind", ["pipeline", "reports"])
+@pytest.mark.parametrize("healthcheck", [False, True])
+def test_worker_rejects_a_public_runtime_directory_before_use(
+    monkeypatch, heartbeat_directory, kind, healthcheck
+):
+    heartbeat_directory.chmod(0o777)
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["projection-worker", "--kind", kind, *(["--healthcheck"] if healthcheck else ["--once"])],
+    )
+
+    with pytest.raises(PermissionError, match="owned private directory"):
+        worker.main()
+
+    assert not list(heartbeat_directory.iterdir())
 
 
 def test_drain_finishes_backfill_instead_of_one_batch(runtime):
@@ -204,7 +258,7 @@ def test_drain_finishes_backfill_instead_of_one_batch(runtime):
     runtime.drain.assert_called_once_with(runtime.factory, batch=37)
     runtime.pipeline.assert_not_called()
     runtime.reports.assert_not_called()
-    assert (runtime.directory / "devfeed-read-models-pipeline.heartbeat").exists()
+    assert (runtime.directory / "pipeline-heartbeat").exists()
     assert runtime.waits == []
     runtime.engine.dispose.assert_called_once_with()
     runtime.finish.assert_called_once_with(runtime.telemetry)
@@ -212,7 +266,7 @@ def test_drain_finishes_backfill_instead_of_one_batch(runtime):
 
 @pytest.mark.parametrize("mode", ["once", "drain"])
 def test_operator_run_propagates_failure_without_refreshing_health_and_cleans_up(runtime, mode):
-    marker = runtime.directory / "devfeed-read-models-pipeline.heartbeat"
+    marker = runtime.directory / "pipeline-heartbeat"
     marker.touch()
     os.utime(marker, (1, 1))
     publisher = runtime.pipeline if mode == "once" else runtime.drain
@@ -237,7 +291,7 @@ def test_service_retries_failed_cycles_and_stops_on_a_shutdown_signal(
 ):
     publisher = runtime.pipeline if kind == "pipeline" else runtime.reports
     publisher.side_effect = [RuntimeError("Temporary database failure"), 1]
-    marker = runtime.directory / f"devfeed-read-models-{kind}.heartbeat"
+    marker = runtime.directory / f"{kind}-heartbeat"
     observations = []
 
     def on_wait():

@@ -157,11 +157,15 @@ def fixture_counts(scale):
 
 
 def fixture_id(kind, number):
-    return uuid.UUID(hashlib.md5(f"read-model-profile:{kind}:{number}".encode()).hexdigest())
+    digest = hashlib.sha256(f"read-model-profile:{kind}:{number}".encode()).hexdigest()
+    return uuid.UUID(digest[:32])
 
 
 def identifier(kind, number="n"):
-    return f"md5('read-model-profile:{kind}:' || ({number})::text)::uuid"
+    return (
+        "substring(encode(sha256(convert_to("
+        f"'read-model-profile:{kind}:' || ({number})::text,'UTF8')),'hex'),1,32)::uuid"
+    )
 
 
 def seed_rows(connection, model, count, overrides=None, *, namespace=None, where=None, bytes_=8192):

@@ -89,6 +89,10 @@ short-lived connections.
 
 Batch size defaults to 200 and polling to one second. Keep batches below the
 120-second publisher lease. Worker health requires a recent successful heartbeat.
+Each publisher atomically writes its own marker in the shared runtime helper's
+owned, private directory (`devfeed-runtime-<uid>` under the system temporary
+directory). Existing links are replaced without touching their targets; public
+or unowned runtime directories are rejected by both the publisher and its probe.
 OTel exposes `devfeed.read_model.pending`, `devfeed.read_model.oldest_event_age`,
 and background duration/failure/last-success metrics. Alert on lag even with Ready
 HTTP pods.
@@ -121,7 +125,8 @@ PR does not change production images, pooler roles, or Fleet workloads.
 `scripts/profile_read_models.py` refuses non-local databases, database names without
 the `_test` suffix, and Redis databases other than local database 15. `--seed`
 replaces only the explicitly configured disposable database. Fixtures contain no
-production records, sessions, or credentials.
+production records, sessions, or credentials. Fixture UUIDs use the same SHA-256
+prefix in Python and PostgreSQL; reseed older MD5-based fixtures before profiling.
 
 ```sh
 DEVFEED_TEST_DATABASE_URL=postgresql+psycopg://devfeed:password@127.0.0.1:55439/devfeed_profile_test \

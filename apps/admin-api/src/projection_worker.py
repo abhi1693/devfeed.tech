@@ -5,7 +5,6 @@ import logging
 import signal
 import threading
 import time
-from pathlib import Path
 
 from devfeed_core.analysis import reuse_candidates
 from devfeed_core.catalog_cache import reuse_snapshots
@@ -13,6 +12,7 @@ from devfeed_core.config import get_settings
 from devfeed_core.db import create_database_engine
 from devfeed_core.logging import configure_logging
 from devfeed_core.models import ReadModelEvent, ReportRefresh, utcnow
+from devfeed_core.runtime_files import runtime_marker, write_runtime_marker
 from devfeed_core.telemetry import background_cycle, current, start_runtime, stop_runtime
 from sqlalchemy import func, select
 from sqlalchemy.orm import sessionmaker
@@ -20,6 +20,14 @@ from sqlalchemy.orm import sessionmaker
 from devfeed_admin_api.pipeline_projection import drain_pipeline, project_batch
 
 logger = logging.getLogger(__name__)
+
+
+def heartbeat_marker(kind):
+    if kind == "pipeline":
+        return runtime_marker("pipeline-heartbeat")
+    if kind == "reports":
+        return runtime_marker("reports-heartbeat")
+    raise ValueError("Unknown read-model publisher")
 
 
 def record_backlog(factory, kind):
@@ -51,6 +59,7 @@ def record_backlog(factory, kind):
 def run(*, once=False, drain=False, kind="pipeline"):
     from devfeed_admin_api.overview_projection import refresh_overview_projections
 
+    marker = heartbeat_marker(kind)
     settings = get_settings()
     configure_logging("read-model-worker", settings.log_level, settings.log_format)
     telemetry = start_runtime("read-model-worker")
@@ -84,7 +93,7 @@ def run(*, once=False, drain=False, kind="pipeline"):
                     else:
                         reports = refresh_overview_projections(factory, limit=1, now=utcnow())
                 record_backlog(factory, kind)
-                Path(f"/tmp/devfeed-read-models-{kind}.heartbeat").touch()
+                write_runtime_marker(marker, str(time.time()))
                 logger.info(
                     "read_model_cycle_completed",
                     extra={
@@ -115,8 +124,12 @@ def main():
     )
     args = parser.parse_args()
     if args.healthcheck:
-        marker = Path(f"/tmp/devfeed-read-models-{args.kind}.heartbeat")
-        if not marker.exists() or time.time() - marker.stat().st_mtime > 180:
+        marker = heartbeat_marker(args.kind)
+        try:
+            age = time.time() - marker.stat().st_mtime
+        except FileNotFoundError:
+            raise SystemExit(1) from None
+        if age > 180:
             raise SystemExit(1)
         return
     run(once=args.once, drain=args.drain, kind=args.kind)

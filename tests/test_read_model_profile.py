@@ -95,6 +95,18 @@ def test_full_scale_exceeds_recorded_production_population():
     assert profile.percentile([4, 1, 3, 2], 0.95) == 4
 
 
+@pytest.mark.parametrize(
+    ("kind", "number", "expected"),
+    [
+        ("articles", 1, "0c73a9e2-4fbf-27b4-03ef-bea18823f98b"),
+        ("sources", 2, "eb76581b-b67b-4691-0b09-504f71494064"),
+        ("unicode-☕", 5001, "48c9ee49-fc05-3405-9fb5-ca201dfb6d5b"),
+    ],
+)
+def test_fixture_ids_use_stable_sha256_prefix(kind, number, expected):
+    assert str(profile.fixture_id(kind, number)) == expected
+
+
 def test_profile_gates_reject_slow_unbounded_or_failed_reads():
     success = {"status_counts": {200: 50}, "p95_ms": 999, "queries_max": 13}
     assert profile.profile_gates({"normal": {"article-cards": success}}, p95_budget_ms=1000)[
