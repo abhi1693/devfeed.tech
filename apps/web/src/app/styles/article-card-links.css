@@ -150,7 +150,6 @@
     padding: 0;
   }
   .topbar .header-actions > button,
-  .topbar .header-actions .navbar-icon,
   .topbar .header-actions .theme-toggle,
   .topbar .header-actions .devfeed-notification-bell {
     min-width: 44px;

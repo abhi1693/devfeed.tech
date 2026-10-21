@@ -70,14 +70,35 @@ export async function checkArticleViewSettings(
   }
   assert.equal(page.url(), target, "The filtered feed is settled before opening Appearance");
   await page.setViewportSize({ width: 320, height: 1000 });
-  const appearance = page.getByRole("link", { name: "Appearance settings", exact: true });
-  await appearance.waitFor();
-  const entryBounds = await appearance.boundingBox();
-  assert.ok(
-    entryBounds.width >= 44 && entryBounds.height >= 44,
-    "Appearance remains discoverable through a usable mobile header target",
+  const header = page.getByRole("banner");
+  assert.equal(
+    await header.locator('a[href$="/settings/appearance"]').count(),
+    0,
+    "Appearance has no standalone header link",
   );
-  await appearance.click();
+  const avatar = header.getByRole("button", { name: /^User menu:/ });
+  if (signedIn) {
+    await avatar.waitFor();
+    await avatar.focus();
+    await page.keyboard.press("ArrowDown");
+    const appearance = page.getByRole("menuitem", { name: "Appearance", exact: true });
+    await appearance.waitFor();
+    await page.waitForFunction(() => document.activeElement?.getAttribute("role") === "menuitem");
+    const items = await page.getByRole("menuitem").count();
+    for (let index = 0; index < items; index++) {
+      if (await appearance.evaluate((node) => node === document.activeElement)) break;
+      await page.keyboard.press("ArrowDown");
+    }
+    assert.equal(
+      await appearance.evaluate((node) => node === document.activeElement),
+      true,
+      "Appearance is reachable with the keyboard in the mobile avatar menu",
+    );
+    await page.keyboard.press("Enter");
+  } else {
+    assert.equal(await avatar.count(), 0, "Guests have no avatar menu");
+    await page.goto(readerRouteUrl(target, "/settings/appearance"));
+  }
   await page.waitForURL(readerRouteUrl(target, "/settings/appearance"));
   const region = await openArticleViewSettings(page);
   const grid = region.getByRole("radio", { name: "Grid", exact: true });

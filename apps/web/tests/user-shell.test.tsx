@@ -67,26 +67,20 @@ afterEach(() => {
   delete document.documentElement.dataset.sidebarState;
 });
 
-it.each(["guest", "member"])(
-  "makes Appearance settings discoverable in the header for a %s",
-  async (owner) => {
-    identity = owner === "member" ? reader : null;
-    render(<App />);
-    const header = within(screen.getByRole("banner"));
-    const appearance = header.getByRole("link", { name: "Appearance settings" });
-    expect(appearance.getAttribute("href")).toBe("/settings/appearance");
-    expect(appearance.getAttribute("title")).toBe("Appearance settings");
-    expect(appearance.tabIndex).toBe(0);
-    await act(async () => {});
-    expect(header.getByRole("link", { name: "Appearance settings" })).toBe(appearance);
-    if (owner === "guest") expect(header.getByRole("link", { name: "Sign in" })).toBeTruthy();
-    else {
-      await signedIn();
-      act(() => window.dispatchEvent(new Event("devfeed:user-session-expired")));
-      expect(header.getByRole("link", { name: "Appearance settings" })).toBe(appearance);
-    }
-  },
-);
+it.each(["guest", "member"])("keeps Appearance out of the top bar for a %s", async (owner) => {
+  identity = owner === "member" ? reader : null;
+  render(<App />);
+  const header = within(screen.getByRole("banner"));
+  expect(header.queryByRole("link", { name: /Appearance/ })).toBeNull();
+  await act(async () => {});
+  expect(header.queryByRole("link", { name: /Appearance/ })).toBeNull();
+  if (owner === "guest") expect(header.getByRole("link", { name: "Sign in" })).toBeTruthy();
+  else {
+    await signedIn();
+    act(() => window.dispatchEvent(new Event("devfeed:user-session-expired")));
+    expect(header.queryByRole("link", { name: /Appearance/ })).toBeNull();
+  }
+});
 
 it("keeps six direct mobile destinations and retains secondary destinations on desktop", async () => {
   render(<App />);

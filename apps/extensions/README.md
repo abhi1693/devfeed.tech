@@ -10,7 +10,8 @@ sign-in open a separate tab. Chrome's own new-tab footer is browser UI and is no
 part of the extension's layout.
 
 **Settings → Appearance → Article feed layout** selects Grid or List for every
-article feed. Both browsers share the web reader's layout controls and saved
+article feed. Signed-in readers open **Appearance** from their avatar menu.
+Both browsers share the web reader's layout controls and saved
 preference handling. Feed pages do not have separate view selectors.
 
 Transport eligibility and request policies come from generated operation definitions.

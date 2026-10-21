@@ -9,6 +9,7 @@ import {
   Hash,
   LayoutGrid,
   LogOut,
+  Palette,
   Settings,
   Trophy,
   UserRound,
@@ -79,6 +80,12 @@ export function UserMenu() {
               <Link href="/settings/profile">
                 <Settings size={17} aria-hidden="true" />
                 Your Dev Card
+              </Link>
+            </DropdownMenu.Item>
+            <DropdownMenu.Item asChild>
+              <Link href="/settings/appearance">
+                <Palette size={17} aria-hidden="true" />
+                Appearance
               </Link>
             </DropdownMenu.Item>
             <DropdownMenu.Item asChild>
