@@ -3,17 +3,7 @@
 import Link from "@/components/reader-link";
 import { useState } from "react";
 import { DropdownMenu } from "radix-ui";
-import {
-  Bell,
-  ChevronDown,
-  Hash,
-  LayoutGrid,
-  LogOut,
-  Palette,
-  Settings,
-  Trophy,
-  UserRound,
-} from "lucide-react";
+import { ChevronDown, Hash, LayoutGrid, LogOut, Palette, Settings, UserRound } from "lucide-react";
 import { useUser } from "./user-account";
 import { ProfileAvatar } from "./profile-avatar";
 import { ReadingStreakProgress } from "./reading-streak";
@@ -86,18 +76,6 @@ export function UserMenu() {
               <Link href="/settings/appearance">
                 <Palette size={17} aria-hidden="true" />
                 Appearance
-              </Link>
-            </DropdownMenu.Item>
-            <DropdownMenu.Item asChild>
-              <Link href="/leaderboard" className="user-menu-desktop-only">
-                <Trophy size={17} aria-hidden="true" />
-                Leaderboard
-              </Link>
-            </DropdownMenu.Item>
-            <DropdownMenu.Item asChild>
-              <Link href="/settings/notifications">
-                <Bell size={17} aria-hidden="true" />
-                Notifications
               </Link>
             </DropdownMenu.Item>
             <DropdownMenu.Item asChild>

@@ -78,23 +78,56 @@ export async function checkArticleViewSettings(
   );
   const avatar = header.getByRole("button", { name: /^User menu:/ });
   if (signedIn) {
-    await avatar.waitFor();
-    await avatar.focus();
-    await page.keyboard.press("ArrowDown");
-    const appearance = page.getByRole("menuitem", { name: "Appearance", exact: true });
-    await appearance.waitFor();
-    await page.waitForFunction(() => document.activeElement?.getAttribute("role") === "menuitem");
-    const items = await page.getByRole("menuitem").count();
-    for (let index = 0; index < items; index++) {
-      if (await appearance.evaluate((node) => node === document.activeElement)) break;
+    for (const width of [1440, 320]) {
+      await page.setViewportSize({ width, height: 1000 });
+      await avatar.waitFor();
+      await avatar.focus();
       await page.keyboard.press("ArrowDown");
+      const menu = page.getByRole("menu");
+      await menu.waitFor();
+      for (const name of ["Leaderboard", "Notifications"])
+        assert.equal(
+          await menu.getByRole("menuitem", { name, exact: true, includeHidden: true }).count(),
+          0,
+          `${name} is omitted from the ${width}px avatar menu`,
+        );
+      if (output) {
+        await mkdir(dirname(output), { recursive: true });
+        await page.screenshot({
+          path: `${output}-account-menu-${width}.png`,
+          animations: "disabled",
+        });
+      }
+      if (width === 1440) {
+        await page.keyboard.press("Escape");
+        await menu.waitFor({ state: "hidden" });
+        continue;
+      }
+      const appearance = menu.getByRole("menuitem", { name: "Appearance", exact: true });
+      await appearance.waitFor();
+      await page.waitForFunction(() => document.activeElement?.getAttribute("role") === "menuitem");
+      const items = await menu.getByRole("menuitem").count();
+      for (let index = 0; index < items; index++) {
+        if (await appearance.evaluate((node) => node === document.activeElement)) break;
+        const focusedItem = await menu
+          .getByRole("menuitem")
+          .evaluateAll((nodes) => nodes.indexOf(document.activeElement));
+        await page.keyboard.press("ArrowDown");
+        await page.waitForFunction(
+          (previous) =>
+            Array.from(document.querySelectorAll('[role="menuitem"]')).indexOf(
+              document.activeElement,
+            ) !== previous,
+          focusedItem,
+        );
+      }
+      assert.equal(
+        await appearance.evaluate((node) => node === document.activeElement),
+        true,
+        "Appearance is reachable with the keyboard in the mobile avatar menu",
+      );
+      await page.keyboard.press("Enter");
     }
-    assert.equal(
-      await appearance.evaluate((node) => node === document.activeElement),
-      true,
-      "Appearance is reachable with the keyboard in the mobile avatar menu",
-    );
-    await page.keyboard.press("Enter");
   } else {
     assert.equal(await avatar.count(), 0, "Guests have no avatar menu");
     await page.goto(readerRouteUrl(target, "/settings/appearance"));

@@ -76,6 +76,19 @@ it("makes Appearance reachable from the avatar menu with keyboard navigation", a
   expect(screen.queryByRole("menuitem", { name: "Appearance" })).toBeNull();
 });
 
+it("omits Leaderboard and Notifications from the avatar menu", async () => {
+  render(<UserMenu />);
+  fireEvent.keyDown(screen.getByRole("button", { name: "User menu: R Reader" }), {
+    key: "ArrowDown",
+  });
+  await screen.findByRole("menu");
+  expect(screen.queryByRole("menuitem", { name: "Leaderboard" })).toBeNull();
+  expect(screen.queryByRole("menuitem", { name: "Notifications" })).toBeNull();
+  expect(screen.getByRole("menuitem", { name: "Appearance" }).getAttribute("href")).toBe(
+    "/settings/appearance",
+  );
+});
+
 it.each([
   { profile: null, profileUnavailable: false },
   { profile: { ...publicProfile, username: null }, profileUnavailable: false },
