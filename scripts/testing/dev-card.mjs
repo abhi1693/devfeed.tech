@@ -185,7 +185,18 @@ export async function checkDevCard(page, prefix, expectedMotion = "animated") {
   const menu = page.getByRole("button", { name: /^User menu:/ });
   await menu.click();
   assert.equal(await page.getByRole("menuitem", { name: "Dev card", exact: true }).count(), 0);
-  await page.getByRole("menuitem", { name: "Your Dev Card", exact: true }).click();
+  const editorAction = page.getByRole("menuitem", {
+    name: /^(Claim your username|Your Dev Card)$/,
+  });
+  assert.equal(
+    await editorAction.count(),
+    1,
+    "The avatar menu has exactly one profile editor action",
+  );
+  const publicProfileAction = page.getByRole("menuitem", { name: "Your Profile", exact: true });
+  const editorName = (await publicProfileAction.count()) ? "Your Dev Card" : "Claim your username";
+  assert.equal((await editorAction.textContent()).trim(), editorName);
+  await editorAction.click();
   await preview.waitFor();
   assert.match(page.url(), /(?:\/|#\/)settings\/profile$/);
   assert.equal(await page.getByRole("dialog").count(), 0);

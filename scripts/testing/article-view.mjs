@@ -85,6 +85,16 @@ export async function checkArticleViewSettings(
       await page.keyboard.press("ArrowDown");
       const menu = page.getByRole("menu");
       await menu.waitFor();
+      assert.equal(
+        await menu.getByRole("menuitem", { name: /^(Claim your username|Your Dev Card)$/ }).count(),
+        1,
+        `The ${width}px avatar menu has exactly one profile editor action`,
+      );
+      assert.equal(
+        await menu.getByRole("menuitem", { name: "Claim your username", exact: true }).count(),
+        1,
+        "An unclaimed reader uses the username action",
+      );
       for (const name of ["Leaderboard", "Notifications"])
         assert.equal(
           await menu.getByRole("menuitem", { name, exact: true, includeHidden: true }).count(),
@@ -312,4 +322,57 @@ export async function checkArticleViewSettings(
   await page.reload();
   await page.locator(".article-card:visible").first().waitFor();
   assert.equal(await page.locator(".article-list-row:visible").count(), 0);
+  if (signedIn) {
+    const profilePattern = /\/api\/v1\/user\/settings\/profile(?:\?|$)/;
+    const claimedProfile = (route) => {
+      if (route.request().method() !== "GET") return route.fallback();
+      return route.fulfill({
+        json: {
+          display_name: "Claimed Reader",
+          avatar_url: null,
+          username: "claimed-reader",
+          visibility: { public: true },
+        },
+      });
+    };
+    await page.route(profilePattern, claimedProfile);
+    try {
+      await page.reload();
+      for (const width of [1440, 320]) {
+        await page.setViewportSize({ width, height: 1000 });
+        const claimedAvatar = page.getByRole("button", { name: /^User menu:.*Claimed Reader$/ });
+        await claimedAvatar.waitFor();
+        await claimedAvatar.click();
+        const menu = page.getByRole("menu");
+        await menu.waitFor();
+        assert.equal(
+          await menu
+            .getByRole("menuitem", { name: /^(Claim your username|Your Dev Card)$/ })
+            .count(),
+          1,
+          `The claimed reader has exactly one profile editor action at ${width}px`,
+        );
+        assert.equal(
+          await menu.getByRole("menuitem", { name: "Your Dev Card", exact: true }).count(),
+          1,
+        );
+        assert.equal(
+          await menu.getByRole("menuitem", { name: "Your Profile", exact: true }).count(),
+          1,
+        );
+        if (output)
+          await page.screenshot({
+            path: `${output}-claimed-account-menu-${width}.png`,
+            animations: "disabled",
+          });
+        await page.keyboard.press("Escape");
+        await menu.waitFor({ state: "hidden" });
+      }
+    } finally {
+      await page.unroute(profilePattern, claimedProfile);
+      if (viewport) await page.setViewportSize(viewport);
+      await page.reload();
+      await avatar.waitFor();
+    }
+  }
 }

@@ -398,20 +398,27 @@ it("prevents exporting unsaved profile drafts", async () => {
 });
 
 it("links the avatar menu to settings and reports inline export failures", async () => {
+  const publicProfile: UserProfile = {
+    ...profile,
+    visibility: { ...profile.visibility!, public: true },
+  };
   vi.stubGlobal(
     "fetch",
-    vi.fn((url: string) => Promise.resolve(Response.json(url.endsWith("/me") ? user : profile))),
+    vi.fn((url: string) =>
+      Promise.resolve(Response.json(url.endsWith("/me") ? user : publicProfile)),
+    ),
   );
   vi.spyOn(cardExport, "devCardPng").mockRejectedValue(new Error("Canvas unavailable"));
   render(
     <UserProvider>
       <UserAccount />
-      <DevCardPreview profile={profile} user={user} unsaved={false} />
+      <DevCardPreview profile={publicProfile} user={user} unsaved={false} />
     </UserProvider>,
   );
   const menu = await screen.findByRole("button", { name: "User menu: MC Maya Chen" });
   fireEvent.keyDown(menu, { key: "ArrowDown" });
   const cardLink = await screen.findByRole("menuitem", { name: "Your Dev Card" });
+  expect(screen.queryByRole("menuitem", { name: "Claim your username" })).toBeNull();
   expect(screen.queryByRole("menuitem", { name: "Dev card" })).toBeNull();
   expect(cardLink.getAttribute("href")).toBe("/settings/profile");
   fireEvent.keyDown(cardLink, { key: "Escape" });

@@ -183,10 +183,11 @@ it("saves profile overrides with CSRF, updates the navbar and preserves managed 
   fireEvent.keyDown(screen.getByRole("button", { name: "User menu: PF Python Fan" }), {
     key: "ArrowDown",
   });
-  expect(await screen.findByRole("menuitem", { name: "Your Dev Card" })).toHaveProperty(
+  expect(await screen.findByRole("menuitem", { name: "Claim your username" })).toHaveProperty(
     "href",
     "http://localhost:3000/settings/profile",
   );
+  expect(screen.queryByRole("menuitem", { name: "Your Dev Card" })).toBeNull();
   expect(screen.getByRole("menuitem", { name: "Your topics" })).toHaveProperty(
     "href",
     "http://localhost:3000/settings/topics",

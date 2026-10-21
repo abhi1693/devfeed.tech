@@ -66,12 +66,14 @@ export function UserMenu() {
                 {profileHref ? "Your Profile" : "Claim your username"}
               </Link>
             </DropdownMenu.Item>
-            <DropdownMenu.Item asChild>
-              <Link href="/settings/profile">
-                <Settings size={17} aria-hidden="true" />
-                Your Dev Card
-              </Link>
-            </DropdownMenu.Item>
+            {profileHref && (
+              <DropdownMenu.Item asChild>
+                <Link href="/settings/profile">
+                  <Settings size={17} aria-hidden="true" />
+                  Your Dev Card
+                </Link>
+              </DropdownMenu.Item>
+            )}
             <DropdownMenu.Item asChild>
               <Link href="/settings/appearance">
                 <Palette size={17} aria-hidden="true" />

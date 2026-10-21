@@ -59,6 +59,7 @@ it("links Your Profile to the public profile above Your Dev Card", async () => {
   expect(items[0]).toBe(profile);
   expect(items[1]).toBe(screen.getByRole("menuitem", { name: "Your Dev Card" }));
   expect(items[1].getAttribute("href")).toBe("/settings/profile");
+  expect(screen.queryByRole("menuitem", { name: "Claim your username" })).toBeNull();
 });
 
 it("makes Appearance reachable from the avatar menu with keyboard navigation", async () => {
@@ -108,9 +109,24 @@ it.each([
   expect(claim.getAttribute("href")).toBe("/settings/profile");
   expect(screen.queryByRole("menuitem", { name: "Your Profile" })).toBeNull();
   expect(screen.getAllByRole("menuitem")[0]).toBe(claim);
-  expect(screen.getByRole("menuitem", { name: "Your Dev Card" }).getAttribute("href")).toBe(
-    "/settings/profile",
-  );
+  expect(screen.queryByRole("menuitem", { name: "Your Dev Card" })).toBeNull();
+});
+
+it("replaces the username claim with Your Dev Card when the public profile becomes available", async () => {
+  const app = render(<UserMenu />);
+  fireEvent.keyDown(screen.getByRole("button", { name: "User menu: R Reader" }), {
+    key: "ArrowDown",
+  });
+  await screen.findByRole("menuitem", { name: "Claim your username" });
+  expect(screen.queryByRole("menuitem", { name: "Your Dev Card" })).toBeNull();
+  state.profile = publicProfile;
+  app.rerender(<UserMenu />);
+  await screen.findByRole("menuitem", { name: "Your Dev Card" });
+  expect(screen.queryByRole("menuitem", { name: "Claim your username" })).toBeNull();
+  state.profileUnavailable = true;
+  app.rerender(<UserMenu />);
+  await screen.findByRole("menuitem", { name: "Claim your username" });
+  expect(screen.queryByRole("menuitem", { name: "Your Dev Card" })).toBeNull();
 });
 
 it("includes noninteractive streak progress without changing the account menu's first action", async () => {
