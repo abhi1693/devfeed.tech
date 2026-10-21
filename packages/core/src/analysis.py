@@ -440,8 +440,11 @@ _ranking: ContextVar[list[_PreparedCatalog] | None] = ContextVar("catalog_rankin
 
 
 @contextmanager
-def reuse_candidates():
+def reuse_candidates(*, reuse_existing=False):
     """Reuse ranking only within an explicit scope, never a cached publication decision."""
+    if reuse_existing and _ranking.get() is not None:
+        yield
+        return
     token = _ranking.set([])
     try:
         yield

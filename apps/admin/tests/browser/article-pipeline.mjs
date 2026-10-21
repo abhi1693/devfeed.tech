@@ -206,6 +206,12 @@ function board(url) {
   });
   return {
     as_of: now,
+    snapshot: {
+      status: "fresh",
+      generated_at: new Date().toISOString(),
+      generation: String(editorialRevision),
+      lag_seconds: 0,
+    },
     terminal_since: "2026-10-12T09:00:00Z",
     columns,
     counts: Object.fromEntries(columns.map((column) => [column.stage, column.total])),

@@ -361,6 +361,8 @@ def create_instruments(meter):
             explicit_bucket_boundaries_advisory=DURATION_BUCKETS,
         ),
         "last_success": meter.create_gauge("devfeed.background.last_success", unit="s"),
+        "read_model_pending": meter.create_gauge("devfeed.read_model.pending", unit="{event}"),
+        "read_model_oldest": meter.create_gauge("devfeed.read_model.oldest_event_age", unit="s"),
         "search_documents": meter.create_counter("devfeed.search.documents", unit="{document}"),
         "search_outbox": meter.create_gauge("devfeed.search.outbox", unit="{event}"),
         "search_oldest": meter.create_gauge("devfeed.search.oldest_event_age", unit="s"),

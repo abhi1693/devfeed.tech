@@ -2,6 +2,7 @@
 
 import hashlib
 import json
+import os
 import time
 from base64 import urlsafe_b64encode
 from types import SimpleNamespace
@@ -18,6 +19,8 @@ from devfeed_partner_api.config import Settings
 from devfeed_partner_api.dependencies import get_session
 from devfeed_partner_api.main import create_app
 from fastapi.testclient import TestClient
+from redis.exceptions import RedisError
+from sqlalchemy.exc import SQLAlchemyError
 
 ISSUER = "https://identity.example"
 ORIGIN = "https://partner.example"
@@ -44,6 +47,18 @@ class SessionStore:
 
     def delete(self, key):
         self.values.pop(key, None)
+
+    def eval(self, script, count, key, expected, replacement, version):
+        assert script == auth.REGISTERED_SESSION and count == 1
+        current = self.get(key)
+        if current is None:
+            return 0
+        if json.loads(current).get("identity_registration_version") == version:
+            return 1
+        if current != expected:
+            return 0
+        self.values[key] = (replacement.encode(), self.values[key][1])
+        return 1
 
 
 @pytest.fixture
@@ -328,4 +343,82 @@ def test_verified_partner_login_registers_user_for_member_selection(oidc_app):
     assert identity["issuer"] == ISSUER
     assert "partner" in identity["roles"]
     assert oidc_app.client.get("/v1/partner/auth/me").status_code == 200
-    assert oidc_app.register_user.call_count == 2
+    assert oidc_app.client.get("/v1/partner/auth/me").status_code == 200
+    assert oidc_app.register_user.call_count == 1
+    assert "identity_registration_version" not in oidc_app.client.get("/v1/partner/auth/me").json()
+
+
+def legacy_session(state):
+    assert complete(state).status_code == 302
+    token = state.client.cookies.get("__Host-devfeed_partner_session")
+    session_key = auth.key("session", token)
+    record = json.loads(state.store.get(session_key))
+    record.pop("identity_registration_version")
+    state.store.set(session_key, json.dumps(record), ex=3600)
+    state.register_user.reset_mock()
+    return session_key
+
+
+def test_legacy_partner_identity_is_registered_once_without_extending_session(oidc_app):
+    session_key = legacy_session(oidc_app)
+    expiry = oidc_app.store.values[session_key][1]
+    for _ in range(3):
+        assert oidc_app.client.get("/v1/partner/auth/me").status_code == 200
+    oidc_app.register_user.assert_called_once()
+    assert oidc_app.store.values[session_key][1] == expiry
+    record = json.loads(oidc_app.store.get(session_key))
+    assert record["identity_registration_version"] == auth.IDENTITY_REGISTRATION_VERSION
+
+
+@pytest.mark.parametrize("failure", [SQLAlchemyError("unavailable"), RedisError("unavailable")])
+def test_legacy_registration_failures_remain_retryable(oidc_app, monkeypatch, failure):
+    session_key = legacy_session(oidc_app)
+    if isinstance(failure, SQLAlchemyError):
+        oidc_app.register_user.side_effect = failure
+    else:
+        monkeypatch.setattr(oidc_app.store, "eval", Mock(side_effect=failure))
+    assert oidc_app.client.get("/v1/partner/auth/me").status_code == 503
+    assert "identity_registration_version" not in json.loads(oidc_app.store.get(session_key))
+
+
+def test_legacy_registration_cannot_restore_a_logged_out_session(oidc_app):
+    session_key = legacy_session(oidc_app)
+    oidc_app.register_user.side_effect = lambda _identity: oidc_app.store.delete(session_key)
+    assert oidc_app.client.get("/v1/partner/auth/me").status_code == 503
+    assert oidc_app.store.get(session_key) is None
+    assert oidc_app.client.get("/v1/partner/auth/me").status_code == 401
+
+
+@pytest.mark.integration
+def test_registration_receipt_preserves_real_redis_expiry_and_logout(oidc_app, monkeypatch):
+    from redis import Redis
+    from test_oidc_logout import IsolatedRedis
+
+    redis_url = os.environ.get("DEVFEED_TEST_REDIS_URL")
+    if not redis_url:
+        pytest.skip("Set disposable DEVFEED_TEST_REDIS_URL (database 15)")
+    assert urlsplit(redis_url).path == "/15"
+    logout_redis = IsolatedRedis(Redis.from_url(redis_url))
+    try:
+        verify_registration_receipt(oidc_app, logout_redis, monkeypatch)
+    finally:
+        logout_redis.close()
+
+
+def verify_registration_receipt(oidc_app, logout_redis, monkeypatch):
+    oidc_app.store = logout_redis
+    monkeypatch.setattr(auth, "get_redis", lambda: logout_redis)
+    session_key = legacy_session(oidc_app)
+    ttl = logout_redis.redis.pttl(logout_redis.prefix + session_key)
+    for _ in range(3):
+        assert oidc_app.client.get("/v1/partner/auth/me").status_code == 200
+    oidc_app.register_user.assert_called_once()
+    assert 0 < logout_redis.redis.pttl(logout_redis.prefix + session_key) <= ttl
+    assert json.loads(logout_redis.get(session_key))["identity_registration_version"] == 1
+
+    oidc_app.register_user.side_effect = None
+    session_key = legacy_session(oidc_app)
+    oidc_app.register_user.side_effect = lambda _identity: logout_redis.delete(session_key)
+    assert oidc_app.client.get("/v1/partner/auth/me").status_code == 503
+    assert logout_redis.get(session_key) is None
+    assert oidc_app.client.get("/v1/partner/auth/me").status_code == 401

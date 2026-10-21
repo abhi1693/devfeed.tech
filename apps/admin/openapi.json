@@ -1109,6 +1109,16 @@
             "title": "Relationship Proposals Pending",
             "type": "integer"
           },
+          "snapshot": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ReadModelSnapshot"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "sources": {
             "title": "Sources",
             "type": "integer"
@@ -8524,6 +8534,16 @@
             "title": "Relationship Proposals Pending",
             "type": "integer"
           },
+          "snapshot": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ReadModelSnapshot"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "sources_failing": {
             "default": 0,
             "title": "Sources Failing",
@@ -10525,6 +10545,16 @@
             "title": "Counts",
             "type": "object"
           },
+          "snapshot": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ReadModelSnapshot"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "terminal_since": {
             "format": "date-time",
             "title": "Terminal Since",
@@ -12399,6 +12429,60 @@
         "title": "QueueOut",
         "type": "object"
       },
+      "ReadModelSnapshot": {
+        "properties": {
+          "generated_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Generated At"
+          },
+          "generation": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Generation"
+          },
+          "lag_seconds": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Lag Seconds"
+          },
+          "status": {
+            "enum": [
+              "fresh",
+              "stale",
+              "refreshing",
+              "rebuilding"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "title": "ReadModelSnapshot",
+        "type": "object"
+      },
       "RecoveryRequest": {
         "additionalProperties": false,
         "properties": {
@@ -13722,6 +13806,16 @@
             },
             "title": "Counts",
             "type": "object"
+          },
+          "snapshot": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ReadModelSnapshot"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "terminal_since": {
             "format": "date-time",

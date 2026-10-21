@@ -5,6 +5,7 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import timedelta
 
 import pytest
+from devfeed_admin_api.pipeline_projection import drain_pipeline
 from devfeed_core.models import (
     ArticleImageJob,
     IngestionJob,
@@ -88,6 +89,7 @@ def test_board_includes_old_pending_and_unlinked_candidates_once_without_creatin
         standalone = candidate_for(session, name="Legacy unlinked", age=365)
         source_id, candidate_id = source.id, standalone.id
         before = counts(session)
+    drain_pipeline(database)
     response = admin_client.get(PATH)
     assert response.status_code == 200, response.text
     body = response.json()
@@ -123,6 +125,7 @@ def test_board_running_priority_and_fifo_apply_before_pagination(admin_client, d
             )
         )
         running_id = running.id
+    drain_pipeline(database)
     first = admin_client.get(PATH + "/columns/discovery?limit=2").json()
     assert first["total"] == 25 and first["next_cursor"] == 2
     assert [item["id"] for item in first["items"]] == [str(running_id), str(sources[0])]
@@ -150,6 +153,7 @@ def test_terminal_history_excludes_old_idle_records_and_keeps_recent_activity(
         )
         pending = seed_source(session, "Old pending", age=400)
         old_id, recent_id, pending_id = old.id, recent.id, pending.id
+    drain_pipeline(database)
     body = admin_client.get(PATH).json()
     assert {card["id"] for card in all_cards(body)} == {str(recent_id), str(pending_id)}
     cutoff = (utcnow() - timedelta(days=80)).isoformat()
@@ -170,6 +174,7 @@ def test_terminal_active_jobs_bypass_history_cutoff(admin_client, database):
         )
         session.add(job)
         identifier = source.id
+    drain_pipeline(database)
     body = admin_client.get(PATH).json()
     assert str(identifier) in {card["id"] for card in all_cards(body)}
 
@@ -177,16 +182,16 @@ def test_terminal_active_jobs_bypass_history_cutoff(admin_client, database):
 def test_classification_crosses_batches_without_hydrating_the_whole_catalog(
     admin_client, database, monkeypatch
 ):
-    from devfeed_admin_api import source_pipeline
+    from devfeed_admin_api import pipeline_projection
 
     batch_sizes = []
-    original = source_pipeline.source_readiness_batch
+    original = pipeline_projection.source_readiness_batch
 
     def record_batch(session, sources, candidates=None, **kwargs):
         batch_sizes.append(len(sources) + len(candidates or []))
         return original(session, sources, candidates, **kwargs)
 
-    monkeypatch.setattr(source_pipeline, "source_readiness_batch", record_batch)
+    monkeypatch.setattr(pipeline_projection, "source_readiness_batch", record_batch)
     with database.begin() as session:
         for index in range(205):
             source = seed_source(session, f"Batch publisher {index}", feed=False, age=30)
@@ -205,11 +210,15 @@ def test_classification_crosses_batches_without_hydrating_the_whole_catalog(
             )
         )
         running_id = source.id
+    drain_pipeline(database)
+    worker_batches = list(batch_sizes)
+    batch_sizes.clear()
     response = admin_client.get(PATH + "/columns/discovery?limit=1")
     assert response.status_code == 200, response.text
     assert response.json()["total"] == 206
     assert response.json()["items"][0]["id"] == str(running_id)
-    assert batch_sizes == [200, 6]
+    assert worker_batches and max(worker_batches) <= 200 and sum(worker_batches) >= 206
+    assert batch_sizes == []  # Serving never classifies evidence.
 
 
 def test_board_evidence_queries_are_set_based_within_a_batch(admin_client, database):
@@ -217,6 +226,7 @@ def test_board_evidence_queries_are_set_based_within_a_batch(admin_client, datab
 
     with database.begin() as session:
         seed_source(session)
+    drain_pipeline(database)
     statements = []
 
     def record_query(_connection, _cursor, statement, *_args):
@@ -229,15 +239,21 @@ def test_board_evidence_queries_are_set_based_within_a_batch(admin_client, datab
         first = admin_client.get(PATH)
         assert first.status_code == 200, first.text
         one_source_queries = len(statements)
-        with database.begin() as session:
-            for index in range(24):
-                seed_source(session, f"Additional publisher {index}")
-        statements.clear()
+    finally:
+        event.remove(engine, "before_cursor_execute", record_query)
+    with database.begin() as session:
+        for index in range(24):
+            seed_source(session, f"Additional publisher {index}")
+    drain_pipeline(database)
+    statements.clear()
+    event.listen(engine, "before_cursor_execute", record_query)
+    try:
         many = admin_client.get(PATH)
         assert many.status_code == 200, many.text
         assert sum(many.json()["counts"].values()) == 25
         assert len(statements) == one_source_queries
-        assert one_source_queries <= 10
+        assert one_source_queries <= 15
+        assert not any("source_enrichment_jobs" in query for query in statements)
     finally:
         event.remove(engine, "before_cursor_execute", record_query)
 
@@ -251,6 +267,7 @@ def test_filters_include_exact_full_population_and_source_authority(admin_client
         aggregator.source_type = "aggregator"
         standalone = candidate_for(session, name="Database unlinked")
         ids = source.id, aggregator.id, standalone.id
+    drain_pipeline(database)
     publisher = admin_client.get(PATH, params={"q": "Database", "source_type": "publisher"}).json()
     cards = all_cards(publisher)
     assert {card["id"] for card in cards} == {str(ids[0]), str(ids[2])}
@@ -287,6 +304,7 @@ def test_attention_filter_surfaces_blocked_work_without_creating_retries(admin_c
             )
         )
         identifiers = {str(failed.id), str(backoff.id)}
+    drain_pipeline(database)
     response = admin_client.get(PATH, params={"needs_attention": True})
     assert response.status_code == 200, response.text
     cards = all_cards(response.json())

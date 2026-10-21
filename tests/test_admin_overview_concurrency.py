@@ -1,7 +1,7 @@
 """Dashboard refreshes must leave request threads and the one-slot pool available."""
 
 import asyncio
-import threading
+import time
 from types import SimpleNamespace
 
 import httpx
@@ -44,192 +44,69 @@ def single_connection(database, admin_client, monkeypatch):
     engine.dispose()
 
 
-def test_dashboard_waiters_share_refresh_without_blocking_other_pages(
+def test_cold_dashboard_burst_records_one_demand_without_loading(
     single_connection, admin_client, monkeypatch
 ):
-    engine, _ = single_connection
-    response_cache = cache.get_cache()
-    entered = threading.Event()
-    release = threading.Event()
-    original_publish = response_cache.publish
-    original_metrics = overview.overview_metrics
-    loads = []
-    loop_threads = []
+    from devfeed_core.models import ReportRefresh
+    from sqlalchemy import func, select
 
-    def metrics(session, days):
-        assert threading.get_ident() not in loop_threads
-        loads.append(days)
-        return original_metrics(session, days)
-
-    def publish(*args):
-        assert threading.get_ident() not in loop_threads
-        assert engine.pool.checkedout() == 0
-        entered.set()
-        assert release.wait(8), "test did not release cache publication"
-        return original_publish(*args)
-
-    monkeypatch.setattr(overview, "overview_metrics", metrics)
-    monkeypatch.setattr(response_cache, "publish", publish)
+    engine, sessions = single_connection
+    monkeypatch.setattr(overview, "overview_metrics", lambda *_: pytest.fail("GET computed report"))
 
     async def burst():
-        loop_threads.append(threading.get_ident())
         async with httpx.AsyncClient(
             transport=httpx.ASGITransport(app=admin_client.app), base_url="http://testserver"
         ) as client:
-            leader = asyncio.create_task(client.get("/v1/admin/overview"))
-            waiters = []
-            try:
-                async with asyncio.timeout(3):
-                    while not entered.is_set():
-                        await asyncio.sleep(0.01)
-                # More waiters than the default request thread pool has slots.
-                waiters = [asyncio.create_task(client.get("/v1/admin/overview")) for _ in range(50)]
-                await asyncio.sleep(0.15)
-                assert not any(task.done() for task in waiters)
-                async with asyncio.timeout(2):
-                    others = await asyncio.gather(
-                        client.get("/v1/admin/settings"),
-                        client.get("/health/ready"),
-                        client.get("/health/live"),
-                    )
-                assert all(response.status_code == 200 for response in others)
-            finally:
-                release.set()
-                responses = await asyncio.wait_for(asyncio.gather(leader, *waiters), timeout=5)
-            assert len(responses) == 51
-            assert all(response.status_code == 200 for response in responses)
-            assert all(response.json() == responses[0].json() for response in responses)
-            assert all(response.headers["cache-control"] == "no-store" for response in responses)
+            responses = await asyncio.wait_for(
+                asyncio.gather(*[client.get("/v1/admin/overview") for _ in range(50)]), 5
+            )
+            assert all(response.status_code == 503 for response in responses)
+            others = await asyncio.gather(
+                client.get("/v1/admin/settings"), client.get("/health/live")
+            )
+            assert all(response.status_code == 200 for response in others)
 
     asyncio.run(burst())
-    assert loads == [30]
+    with sessions() as session:
+        assert session.scalar(select(func.count()).select_from(ReportRefresh)) == 1
     assert engine.pool.checkedout() == 0
 
 
-def test_abandoned_refresh_has_bounded_wait_without_database_load(
+def test_stale_dashboard_returns_connection_and_survives_cache_failure(
     single_connection, admin_client, monkeypatch
 ):
-    engine, _ = single_connection
-    response_cache = cache.get_cache()
-    lookup = response_cache.lookup("admin-overview-v1:30", "admin-overview")
-    monkeypatch.setattr(overview, "REFRESH_WAIT_SECONDS", 0.05)
-    monkeypatch.setattr(overview, "overview_metrics", lambda *_: pytest.fail("duplicate DB load"))
-    try:
-        response = admin_client.get("/v1/admin/overview")
-        assert response.status_code == 503
-        assert response.headers["retry-after"] == "2"
-        assert engine.pool.checkedout() == 0
-    finally:
-        response_cache.release(lookup)
+    from datetime import timedelta
+
+    from devfeed_core.models import utcnow
+    from test_overview_projections import save_overview
+
+    engine, sessions = single_connection
+    save_overview(sessions, generated_at=utcnow() - timedelta(days=2))
+    monkeypatch.setattr(cache, "get_cache", lambda: pytest.fail("Redis contacted while serving"))
+    monkeypatch.setattr(overview, "overview_metrics", lambda *_: pytest.fail("stale GET rebuilt"))
+    response = admin_client.get("/v1/admin/overview")
+    assert response.status_code == 200
+    assert response.headers["x-overview-stale"] == "true"
+    assert response.json()["snapshot"]["status"] == "refreshing"
+    assert engine.pool.checkedout() == 0
 
 
-def test_cold_timeout_preserves_refresh_and_stale_snapshot_returns_immediately(
-    single_connection, admin_client, monkeypatch
-):
-    _, sessions = single_connection
-    result = overview.load_overview(sessions, 30)
-    monkeypatch.setattr(overview, "REFRESH_WAIT_SECONDS", 0.02)
-
-    async def scenario():
-        entered, release = asyncio.Event(), asyncio.Event()
-        loads = []
-
-        async def slow(*args):
-            loads.append(1)
-            entered.set()
-            await release.wait()
-            return result
-
-        monkeypatch.setattr(overview, "cached_overview", slow)
-        state = admin_client.app.state
-        async with httpx.AsyncClient(
-            transport=httpx.ASGITransport(app=admin_client.app), base_url="http://testserver"
-        ) as client:
-            response = await client.get("/v1/admin/overview")
-            assert response.status_code == 503
-            task = state.overview_tasks[30]
-            assert not task.done()
-            state.overview_snapshots[30] = (overview.clock.monotonic() - 90, result)
-            response = await client.get("/v1/admin/overview")
-            assert response.status_code == 200
-            assert response.headers["x-overview-stale"] == "true"
-            assert state.overview_tasks[30] is task
-            state.overview_snapshots[30] = (overview.clock.monotonic() - 301, result)
-            assert (await client.get("/v1/admin/overview")).status_code == 503
-            release.set()
-            await task
-            assert (await client.get("/v1/admin/overview")).status_code == 200
-            assert loads == [1]
-
-    asyncio.run(scenario())
-
-
-def test_warm_dashboard_cache_still_requires_admin_authentication(
+def test_saved_dashboard_still_requires_admin_authentication(
     single_connection, admin_client, monkeypatch
 ):
     from devfeed_admin_api import auth
     from devfeed_admin_api.auth import require_admin
-    from devfeed_admin_api.config import Settings
+    from test_overview_projections import save_overview
 
-    # This test exercises missing authentication, not missing OIDC configuration.
-    # Do not depend on another test having populated the settings cache.
-    settings = Settings(
-        _env_file=None,
-        admin_base_url="https://admin.example",
-        oidc_issuer_url="https://identity.example",
-        oidc_client_id="test-client",
-        oidc_organization_id="test-organization",
-        oidc_token_endpoint_auth_method="none",
-    )
-    monkeypatch.setattr(auth, "get_settings", lambda: settings)
-
+    _, sessions = single_connection
+    save_overview(sessions)
+    monkeypatch.setattr(auth, "require_config", lambda: None)
     assert admin_client.get("/v1/admin/overview").status_code == 200
     override = admin_client.app.dependency_overrides.pop(require_admin)
     try:
         assert admin_client.get("/v1/admin/overview").status_code == 401
     finally:
         admin_client.app.dependency_overrides[require_admin] = override
-
-
-@pytest.mark.parametrize("cache_mode", ["disabled", "unavailable", "invalid", "miss"])
-def test_dashboard_returns_connection_on_each_load_path(
-    single_connection, admin_client, monkeypatch, cache_mode
-):
-    engine, _ = single_connection
-    response_cache = cache.get_cache()
-    if cache_mode == "disabled":
-        monkeypatch.setattr(get_settings(), "cache_enabled", False)
-    elif cache_mode == "unavailable":
-
-        def unavailable(*_):
-            raise cache.CacheUnavailable
-
-        monkeypatch.setattr(response_cache, "lookup", unavailable)
-    elif cache_mode == "invalid":
-        lookup = response_cache.lookup("admin-overview-v1:30", "admin-overview")
-        response_cache.publish(lookup, b'{"unexpected":true}', 60)
-        response_cache.release(lookup)
-    assert admin_client.get("/v1/admin/overview").status_code == 200
-    assert engine.pool.checkedout() == 0
-
-
-def test_failed_dashboard_load_releases_connection_and_refresh_lock(
-    single_connection, admin_client, monkeypatch
-):
-    engine, _ = single_connection
-    original = overview.overview_metrics
-
-    def fail(session, days):
-        session.execute(text("SELECT 1"))
-        raise ValueError("diagnostic failure")
-
-    monkeypatch.setattr(overview, "overview_metrics", fail)
-    with pytest.raises(ValueError, match="diagnostic failure"):
-        admin_client.get("/v1/admin/overview")
-    assert engine.pool.checkedout() == 0
-    monkeypatch.setattr(overview, "overview_metrics", original)
-    admin_client.app.state.overview_retry_at.clear()
-    assert admin_client.get("/v1/admin/overview").status_code == 200
 
 
 def test_readiness_does_not_hold_database_connection_during_redis_ping(
@@ -258,62 +135,13 @@ def test_settings_materialize_before_returning_database_connection(single_connec
         assert result.model_dump()["defaults"]["overview_days"] == 30
 
 
-@pytest.mark.parametrize("cache_available", [True, False])
-def test_slow_reporting_sql_cannot_starve_interactive_requests(
-    single_connection, admin_client, monkeypatch, cache_available
-):
-    from devfeed_admin_api.reporting import reporting_sessions
-
-    engine, _ = single_connection
-    admin_client.app.dependency_overrides[overview.session_factory] = reporting_sessions
-    monkeypatch.setattr(get_settings(), "cache_enabled", cache_available)
-    entered, release = threading.Event(), threading.Event()
-    original = overview.overview_metrics
-
-    def slow(session, days):
-        session.execute(text("SELECT 1"))
-        assert session.scalar(text("SHOW transaction_read_only")) == "on"
-        assert session.scalar(text("SHOW statement_timeout")) == "10s"
-        entered.set()
-        assert release.wait(8)
-        return original(session, days)
-
-    monkeypatch.setattr(overview, "overview_metrics", slow)
-
-    async def burst():
-        async with httpx.AsyncClient(
-            transport=httpx.ASGITransport(app=admin_client.app), base_url="http://testserver"
-        ) as client:
-            report = asyncio.create_task(client.get("/v1/admin/overview?days=30"))
-            try:
-                async with asyncio.timeout(3):
-                    while not entered.is_set():
-                        await asyncio.sleep(0.01)
-                assert engine.pool.checkedout() == 0
-                async with asyncio.timeout(2):
-                    responses = await asyncio.gather(
-                        client.get("/v1/admin/settings"), client.get("/health/ready")
-                    )
-                    excess = await client.get("/v1/admin/overview?days=7")
-                assert all(response.status_code == 200 for response in responses)
-                assert excess.status_code == 503
-                assert excess.headers["retry-after"] == "2"
-            finally:
-                release.set()
-                response = await asyncio.wait_for(report, 5)
-            assert response.status_code == 200
-            assert engine.pool.checkedout() == 0
-
-    asyncio.run(burst())
-
-
 def test_reporting_deadline_cancels_statement_and_closes_connection(database):
     from devfeed_admin_api.reporting import reporting_engine
     from sqlalchemy.exc import DBAPIError
 
     engine = reporting_engine()
     with pytest.raises(DBAPIError, match="statement timeout"), engine.connect() as connection:
-        connection.info["report_deadline"] = overview.clock.monotonic() + 0.05
+        connection.info["report_deadline"] = time.monotonic() + 0.05
         connection.execute(text("SELECT pg_sleep(1)"))
     with engine.connect() as connection:
         assert connection.scalar(text("SELECT 1")) == 1

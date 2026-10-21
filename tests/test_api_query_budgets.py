@@ -37,6 +37,7 @@ from devfeed_core.models import (
     TopicRelation,
 )
 from sqlalchemy import event, insert, text
+from test_overview_projections import save_overview
 
 pytestmark = pytest.mark.integration
 
@@ -320,9 +321,8 @@ def cases():
     yield "/v1/admin/articles?limit=100&offset=100", 5
     yield "/v1/admin/topic-proposals?limit=100&offset=100", 3
     yield "/v1/sources?limit=500", 1
-    # Includes bounded reader, source and personalization aggregates on a cold cache.
-    # Fixed aggregate queries for bounded decisions and per-call charts (no per-row SQL).
-    yield "/v1/admin/overview?days=30", 45  # Includes three transaction safety statements.
+    # Published JSON and bounded refresh-demand metadata; reports are built off-request.
+    yield "/v1/admin/overview?days=30", 4
 
 
 def percentile(values, fraction):
@@ -351,6 +351,11 @@ def profile_request(http, path, budget, repeats=1, *, plans=False):
             counts.append(len(statements))
             db_elapsed.append(1000 * sum(row[2] for row in statements))
             assert len(statements) <= budget, (path, len(statements), budget)
+            if path.startswith("/v1/admin/overview"):
+                assert all(
+                    "article_contents" not in sql and "article_analysis_jobs" not in sql
+                    for sql, _, _ in statements
+                ), path
             if path.startswith(("/v1/feed", "/v1/articles/", "/v1/user/feed", "/v1/user/trending")):
                 assert all("classification_provenance" not in sql for sql, _, _ in statements), path
             if "/jobs/" in path or "/topic-proposals" in path:
@@ -384,7 +389,8 @@ def profile_request(http, path, budget, repeats=1, *, plans=False):
     return row, response.json()
 
 
-def test_populated_api_query_budgets(profile_data, client, admin_client, monkeypatch):
+def test_populated_api_query_budgets(profile_data, database, client, admin_client, monkeypatch):
+    save_overview(database)
     report_path = os.environ.get("DEVFEED_PROFILE_REPORT")
     repeats = int(os.environ.get("DEVFEED_PROFILE_REPEATS", "1"))
     assert 1 <= repeats <= 100
@@ -596,6 +602,7 @@ def test_blocker_text_threshold_and_overlapping_latest_results(database, admin_c
             ),
             key=lambda row: row.id,
         )
+    save_overview(database)
     response = admin_client.get("/v1/admin/overview")
     assert response.status_code == 200, response.text
     blockers = {b["code"]: b for b in response.json()["automation"]["blockers"]}

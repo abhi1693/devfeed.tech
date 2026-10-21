@@ -126,7 +126,8 @@ it("prevents overlapping reads and aborts automatic requests when the saved pref
         resolve = done;
       }),
   );
-  await advance(40000);
+  // Keep the pending poll inside its 15-second read deadline.
+  await advance(20000);
   expect(load).toHaveBeenCalledTimes(2);
   const signal = load.mock.lastCall![0];
   await saveRefresh(0);

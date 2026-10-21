@@ -47,12 +47,13 @@ from sqlalchemy import (
     false,
     func,
     literal,
+    literal_column,
     or_,
     select,
     true,
     union_all,
 )
-from sqlalchemy.dialects.postgresql import JSONPATH
+from sqlalchemy.dialects.postgresql import JSONB, JSONPATH
 
 from devfeed_admin_api.auth import Admin, require_admin
 from devfeed_admin_api.dependencies import DB
@@ -146,7 +147,7 @@ def analysis_token_activity(session, start: datetime, now: datetime):
     return list(days.values()), duration
 
 
-def automation_blockers(session):
+def automation_blockers(session, article_ids=None, *, include_proposals=True, target_limit=5):
     full = get_settings().full_automation
     pending = (Article.review_status == "pending", Article.publication_status == "unpublished")
     primary_topic = (
@@ -173,7 +174,7 @@ def automation_blockers(session):
     # This excludes whitespace, punctuation, and digits while retaining letters
     # from those scripts. Repeating the broad expression forty times was also
     # costly on long bodies.
-    readable_text = content.op("~")("[^[:space:][:punct:][:digit:]]")
+    readable_text = content.bool_op("~")("[^[:space:][:punct:][:digit:]]")
     # Keep JSON extraction outside the ordered LIMIT. Extracting the policy here
     # detoasts every historical result before sorting, even though only the
     # newest run contributes to the dashboard.
@@ -248,7 +249,7 @@ def automation_blockers(session):
         .outerjoin(ArticleContent, ArticleContent.article_id == Article.id)
         .outerjoin(latest, true())
         .outerjoin(latest_enrichment, true())
-        .where(*pending)
+        .where(*pending, *([Article.id.in_(article_ids)] if article_ids is not None else []))
         .cte("pending_article_flags")
         .prefix_with("MATERIALIZED")
     )
@@ -420,7 +421,9 @@ def automation_blockers(session):
     ).subquery()
     targets: dict[str, list] = {}
     for row in session.execute(
-        select(ranked).where(ranked.c.position <= 5).order_by(ranked.c.code, ranked.c.position)
+        select(ranked)
+        .where(ranked.c.position <= target_limit)
+        .order_by(ranked.c.code, ranked.c.position)
     ):
         targets.setdefault(row.code, []).append(row)
     blockers = []
@@ -440,6 +443,8 @@ def automation_blockers(session):
                 ],
             )
         )
+    if not include_proposals:
+        return blockers
     # Select one latest result per pending proposal before evaluating large JSON.
     # A correlated EXISTS against the entire job table repeats the latest-job
     # lookup for each candidate and can time out as history grows.
@@ -564,55 +569,57 @@ def automation_blockers(session):
     return blockers
 
 
-def _publication_automation_query(start, now):
-    publications = (
-        select(Article.id, Article.published_to_feed_at, Article.discovered_at)
-        .where(
-            Article.published_to_feed_at >= start,
-            Article.published_to_feed_at <= now,
-        )
-        .cte("publications")
-    )
-    # OFFSET 0 keeps this boolean projection below the grouping operation without
-    # materializing it. Otherwise PostgreSQL can sort full automation evidence for
-    # every review, producing large temporary writes.
-    review_flags = (
-        select(
-            ArticleReview.article_id,
-            ((ArticleReview.action == "publish") & (ArticleReview.automation != {})).label(
-                "automatic"
-            ),
-            (ArticleReview.automation == {}).label("manual"),
-        )
-        .join(publications, publications.c.id == ArticleReview.article_id)
-        .where(ArticleReview.created_at <= publications.c.published_to_feed_at)
-        .offset(0)
-        .subquery("publication_review_flags")
-    )
-    reviews = (
-        select(
-            review_flags.c.article_id,
-            func.bool_or(review_flags.c.automatic).label("automatic"),
-            func.bool_or(review_flags.c.manual).label("manual"),
-        )
-        .group_by(review_flags.c.article_id)
-        .subquery()
-    )
-    return (
-        select(
-            func.count(),
-            func.count().filter(reviews.c.automatic, ~reviews.c.manual),
-            func.percentile_cont(0.5)
-            .within_group(
-                func.extract(
-                    "epoch", publications.c.published_to_feed_at - publications.c.discovered_at
-                )
+def automation_blocker_rows(session, article_ids):
+    """Compact exact blocker classifications for one bounded projector batch.
+
+    The projector persists these beside article facts. Report publication can then
+    aggregate classifications without loading historical article bodies or AI JSON.
+    """
+    identifiers = list(article_ids)
+    if len(identifiers) > 200:
+        raise ValueError("Blocker projection batches must contain at most 200 articles")
+    output: dict[uuid.UUID, list[dict[str, str | None]]] = {
+        identifier: [] for identifier in identifiers
+    }
+    if not identifiers:
+        return output
+    for blocker in automation_blockers(
+        session, identifiers, include_proposals=False, target_limit=len(identifiers)
+    ):
+        for target in blocker.targets:
+            output[target.id].append(
+                {"code": blocker.code, "label": blocker.label, "action": blocker.action}
             )
-            .filter(publications.c.published_to_feed_at >= publications.c.discovered_at),
-        )
-        .select_from(publications)
-        .outerjoin(reviews, reviews.c.article_id == publications.c.id)
+    return output
+
+
+def _publication_automation_query(start, now):
+    cutoff = (
+        ArticleReview.article_id == Article.id,
+        ArticleReview.created_at <= Article.published_to_feed_at,
     )
+    # Fixed predicates match the narrow partial indexes even for prepared generic
+    # plans. Neither evidence JSON nor complete review histories are transferred.
+    empty = literal_column("'{}'::jsonb", type_=JSONB)
+    automatic = (
+        select(ArticleReview.article_id)
+        .where(
+            *cutoff,
+            ArticleReview.action == literal_column("'publish'"),
+            ArticleReview.automation != empty,
+        )
+        .exists()
+    )
+    manual = (
+        select(ArticleReview.article_id).where(*cutoff, ArticleReview.automation == empty).exists()
+    )
+    return select(
+        func.count(),
+        func.count().filter(automatic, ~manual),
+        func.percentile_cont(0.5)
+        .within_group(func.extract("epoch", Article.published_to_feed_at - Article.discovered_at))
+        .filter(Article.published_to_feed_at >= Article.discovered_at),
+    ).where(Article.published_to_feed_at >= start, Article.published_to_feed_at <= now)
 
 
 def publication_automation(session, start, now):
@@ -625,8 +632,15 @@ def publication_automation(session, start, now):
     )
 
 
-def automation_metrics(session, start: datetime, now: datetime) -> AutomationOverview:
-    blockers = automation_blockers(session)
+def automation_metrics(
+    session, start: datetime, now: datetime, *, projected=False
+) -> AutomationOverview:
+    if projected:
+        from devfeed_admin_api.overview_projection import projected_blockers
+
+        blockers = projected_blockers(session)
+    else:
+        blockers = automation_blockers(session)
     publication = publication_automation(session, start, now)
     token_activity, duration = analysis_token_activity(session, start, now)
     return AutomationOverview(

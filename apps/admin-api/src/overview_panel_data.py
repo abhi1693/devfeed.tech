@@ -14,6 +14,7 @@ from devfeed_core.models import (
 )
 from devfeed_core.overview_daily import read_daily_metrics
 from devfeed_core.pipeline_metrics import pipeline_throughput
+from devfeed_core.read_models import ReadModelSnapshot
 from devfeed_core.topic_decision_metrics import decision_metrics
 from pydantic import BaseModel, Field
 from sqlalchemy import func, literal, select, union_all
@@ -22,7 +23,6 @@ from devfeed_admin_api.automation import (
     AutomationBlocker,
     AutomationOverview,
     analysis_token_activity,
-    automation_blockers,
     publication_automation,
 )
 from devfeed_admin_api.overview_insights import (
@@ -120,6 +120,7 @@ class OverviewPanelAutomation(AutomationOverview):
 class OverviewPanel(BaseModel):
     generated_at: datetime
     days: int
+    snapshot: ReadModelSnapshot | None = None
     insights: OverviewInsights = Field(default_factory=OverviewInsights)
     automation: OverviewPanelAutomation | None = None
     articles_pending_review: int = 0
@@ -281,7 +282,9 @@ def panel_data(session, group: str, days: int, now: datetime) -> OverviewPanel:
         automation = OverviewPanelAutomation()
         result.automation = automation
         if group == "blockers":
-            automation.blockers = automation_blockers(session)
+            from devfeed_admin_api.overview_projection import projected_blockers
+
+            automation.blockers = projected_blockers(session)
         elif group == "publication-automation":
             for key, value in publication_automation(session, start, now).items():
                 setattr(automation, key, value)

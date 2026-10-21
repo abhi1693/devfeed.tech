@@ -26,6 +26,7 @@ from devfeed_core.topic_verification import (
     verification_input,
 )
 from sqlalchemy import select
+from test_overview_projections import save_overview
 from test_topic_analysis import pending as pending
 from test_topic_analysis import run_metadata_research
 
@@ -286,6 +287,7 @@ def test_bad_imported_alias_stays_pending_despite_verified_research(
         assert proposal.proposed["facts"]
         assert session.get(ResearchVerificationJob, identifier).outcome == "review_required"
         assert session.scalar(select(Topic)) is None
+    save_overview(database)
     overview = admin_client.get("/v1/admin/overview").json()
     blockers = overview["automation"]["blockers"]
     assert next(group for group in blockers if group["code"] == "evidence_unverified")["count"] == 1

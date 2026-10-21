@@ -402,6 +402,37 @@ def test_tick_ranking_releases_old_article_results(monkeypatch):
         assert len(calls) == 11  # Older results are discarded without changing selection.
 
 
+def test_worker_batches_reuse_one_prepared_generation_and_release_replaced_indexes(monkeypatch):
+    import gc
+    import weakref
+
+    references = []
+    original = analysis._PreparedCatalog
+
+    class TrackedCatalog(original):
+        def __init__(self, taxonomy):
+            super().__init__(taxonomy)
+            references.append(weakref.ref(self))
+
+    monkeypatch.setattr(analysis, "_PreparedCatalog", TrackedCatalog)
+    taxonomy = {"topics": [entry("Angular"), entry("React")], "tags": []}
+    with analysis.reuse_candidates():
+        for number in range(3):
+            with analysis.reuse_candidates(reuse_existing=True):
+                result = analysis.analysis_candidates(taxonomy, {"title": f"React {number}"})
+                assert result["topics"][0]["name"] == "React"
+        assert len(references) == 1
+        taxonomy = {"topics": [entry("Vue")], "tags": []}
+        with analysis.reuse_candidates(reuse_existing=True):
+            result = analysis.analysis_candidates(taxonomy, {"title": "Vue"})
+            assert result["topics"][0]["name"] == "Vue"
+        gc.collect()
+        assert len(references) == 2
+        assert references[0]() is None and references[1]() is not None
+    gc.collect()
+    assert all(reference() is None for reference in references)
+
+
 def test_prepared_catalog_indexes_are_released_after_scope_and_cancellation(monkeypatch):
     import gc
     import weakref

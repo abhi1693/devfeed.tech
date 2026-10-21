@@ -39,7 +39,7 @@ it("pauses on blur and coalesces focus plus visibility into one immediate refres
   expect(load).toHaveBeenCalledTimes(3);
 });
 
-it("waits for both visibility and focus before fetching an initially inactive page", async () => {
+it("loads an initially hidden page when visible even without window focus", async () => {
   vi.useFakeTimers();
   const visible = vi.spyOn(document, "visibilityState", "get").mockReturnValue("hidden");
   const focus = vi.spyOn(document, "hasFocus").mockReturnValue(false);
@@ -51,11 +51,43 @@ it("waits for both visibility and focus before fetching an initially inactive pa
   expect(load).not.toHaveBeenCalled();
   visible.mockReturnValue("visible");
   await event(document, "visibilitychange");
-  expect(load).not.toHaveBeenCalled();
-  focus.mockReturnValue(true);
-  await event(window, "focus");
   expect(load).toHaveBeenCalledTimes(1);
   expect(view.result.current.data).toBe("loaded");
+  focus.mockReturnValue(true);
+  await event(window, "focus");
+  expect(load).toHaveBeenCalledTimes(2);
+  expect(view.result.current.data).toBe("loaded");
+});
+
+it("lets an initial visible request finish across window blur", async () => {
+  let finish!: (data: string) => void;
+  const load = vi.fn<(signal: AbortSignal) => Promise<string>>(
+    () => new Promise<string>((resolve) => (finish = resolve)),
+  );
+  const view = renderHook(() => useRequest("example", load, 1000));
+  await event(window, "blur");
+  expect(load.mock.calls[0][0].aborted).toBe(false);
+  await act(async () => finish("loaded"));
+  expect(view.result.current.data).toBe("loaded");
+  expect(load).toHaveBeenCalledTimes(1);
+});
+
+it("shows a timeout and accepts a retry even if a stalled loader ignores cancellation", async () => {
+  vi.useFakeTimers();
+  const load = vi
+    .fn<(signal: AbortSignal) => Promise<string>>()
+    .mockImplementationOnce(() => new Promise(() => {}))
+    .mockResolvedValue("recovered");
+  const view = renderHook(({ revision }) => useRequest("example", load, 0, revision), {
+    initialProps: { revision: 0 },
+  });
+  await act(() => vi.advanceTimersByTimeAsync(15_000));
+  expect(load.mock.calls[0][0].aborted).toBe(true);
+  expect(view.result.current.loading).toBe(false);
+  expect(view.result.current.error?.message).toContain("Loading took too long");
+  await act(async () => view.rerender({ revision: 1 }));
+  expect(view.result.current.data).toBe("recovered");
+  expect(view.result.current.error).toBeUndefined();
 });
 
 it("aborts a slow poll and prevents its stale completion from scheduling another timer", async () => {
