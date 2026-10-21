@@ -8,6 +8,11 @@ Other article feeds save Grid, List, or Stacked independently. Guests keep their
 preferences; signing in does not import them into an account. Unified discovery search retains
 its existing presentation.
 
+Signed-in layouts and ordered column definitions are stored in PostgreSQL
+`user_accounts.feed_settings`, scoped to the account. A new device loads these settings
+after sign-in, including a deliberately empty workspace. Guest browser storage is kept
+separate. An already-open device picks up changes from another device after reloading.
+
 ## Acceptance matrix
 
 | Requirement                                                                                                              | Shared browser coverage                           |
@@ -28,7 +33,9 @@ These helpers run through the production web app and both installed, built brows
 They mock local API fixtures, so they do not prove production deployment, identity provider
 configuration, or extension store publication. Account API authorization and persistence also
 have backend regressions in `tests/test_user_columns_settings.py`, `tests/test_user_feed_views.py`,
-and `tests/test_user_column_starters.py`.
+and `tests/test_user_column_starters.py`. `tests/test_user_reader_view_persistence.py` uses
+independent authenticated sessions and fresh app clients to verify restoration from committed
+PostgreSQL records, without browser storage or overridden authentication.
 
 Columns retains at most 12 selections and 72 organic articles per column (three pages of 24),
 or 864 organic rows in a full workspace. Feed, catalog, and product-delivery requests share a
