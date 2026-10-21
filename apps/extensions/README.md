@@ -9,6 +9,10 @@ and all six settings sections use local hash routes. Publisher links and website
 sign-in open a separate tab. Chrome's own new-tab footer is browser UI and is not
 part of the extension's layout.
 
+**Settings → Appearance → Article feed layout** selects Grid or List for every
+article feed. Both browsers share the web reader's layout controls and saved
+preference handling. Feed pages do not have separate view selectors.
+
 Transport eligibility and request policies come from generated operation definitions.
 Run `npm run web:generate` after user API or public reader binding changes. Private
 operations reuse the reader gateway identities; public adapters have explicit bindings

@@ -79,7 +79,7 @@ function defects(snapshot, signedIn) {
     }
     if (width <= 800 && overlap(item, search)) issues.push(`${item.name}: overlaps search`);
   }
-  const actionCount = width <= 800 ? 4 : 5;
+  const actionCount = width <= 800 ? 5 : 6;
   if (signedIn && actions.length !== actionCount)
     issues.push(`expected ${actionCount} header actions, got ${actions.length}`);
   if (width <= 520 && wordmark) issues.push("phone header still shows the wordmark");

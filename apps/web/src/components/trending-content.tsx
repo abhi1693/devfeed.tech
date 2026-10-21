@@ -1,7 +1,6 @@
 import { TrendingUp } from "lucide-react";
 import { UserShell } from "./user-shell";
 import { InfiniteFeed } from "./infinite-feed";
-import { FeedViewToggle } from "./feed-view-toggle";
 import { LoadingSkeleton } from "./loading-skeleton";
 import { RetryFeed } from "./retry-feed";
 import type { FeedPage } from "@/lib/types";
@@ -23,7 +22,6 @@ export function TrendingContent({
               <TrendingUp size={15} />
               This week
             </span>
-            <FeedViewToggle />
           </div>
         </div>
         <p className="trending-description">Articles users are opening and liking.</p>

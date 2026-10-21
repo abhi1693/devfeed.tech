@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { setArticleView } from "../../../../scripts/testing/article-view.mjs";
 
 export function engagementFeed(article, params) {
   const offset = Number(params.get("cursor") ?? 0);
@@ -36,17 +37,31 @@ export async function checkEngagementPagination(page, target) {
     if (url.pathname === "/api/v1/user/engagement")
       batches.push(url.searchParams.getAll("article_id"));
   };
-  page.on("request", capture);
-  try {
-    await page.goto(target);
+  async function loadAll(selector) {
     for (let count = 24; count <= 120; count += 24) {
       await page.waitForFunction(
-        (expected) => document.querySelectorAll(".article-card .open-count").length >= expected,
-        count,
+        ({ selector, expected }) =>
+          [...document.querySelectorAll(selector)].filter((node) =>
+            node.closest(".article-card, .article-list-row")?.checkVisibility(),
+          ).length >= expected,
+        { selector, expected: count },
       );
-      if (count < 120) await page.locator(".pagination").last().scrollIntoViewIfNeeded();
+      const rendered = selector
+        .replace(".article-card", ".article-card:visible")
+        .replace(".article-list-row", ".article-list-row:visible");
+      if (count < 120 && (await page.locator(rendered).count()) < 120)
+        await page.locator(".pagination").last().scrollIntoViewIfNeeded();
     }
-    assert.equal(await page.locator(".article-card .open-count").count(), 120);
+  }
+  try {
+    await page.goto(target);
+    await setArticleView(page, "cards");
+    await page.locator(".article-card:visible").first().waitFor();
+    await page.locator(".article-card:visible .open-count").first().waitFor({ state: "attached" });
+    page.on("request", capture);
+    await page.reload();
+    await loadAll(".article-card .open-count");
+    assert.equal(await page.locator(".article-card:visible .open-count").count(), 120);
     assert.ok(batches.every((batch) => batch.length > 0 && batch.length <= 100));
     assert.equal(batches.flat().length, 120, "Each loaded article should be requested only once");
     assert.equal(
@@ -54,18 +69,26 @@ export async function checkEngagementPagination(page, target) {
       120,
       "Previously loaded IDs must not be fetched again",
     );
-    await page.getByRole("button", { name: "List view", exact: true }).click();
-    await page.locator(".article-table tbody tr").first().waitFor();
-    assert.equal(await page.locator(".article-list-row").count(), 120);
+    const listBatchStart = batches.length;
+    await setArticleView(page, "compact");
+    await page.locator(".article-table:visible tbody tr").first().waitFor();
+    await loadAll(".article-list-row");
+    assert.equal(await page.locator(".article-list-row:visible").count(), 120);
     assert.equal(
       await page.locator(".article-table .open-count, .article-table .heart-button").count(),
       0,
     );
-    assert.equal(await page.locator(".article-table .bookmark-button").count(), 120);
-    assert.equal(batches.flat().length, 120, "Changing layout preserves cached engagement");
-    await page.getByRole("button", { name: "Grid view", exact: true }).click();
-    await page.locator(".article-card").first().waitFor();
-    assert.equal(await page.locator(".article-card").count(), 120);
+    assert.equal(await page.locator(".article-table:visible .bookmark-button").count(), 120);
+    const listIds = batches.slice(listBatchStart).flat();
+    assert.equal(
+      new Set(listIds).size,
+      listIds.length,
+      "Returning from Appearance does not repeatedly fetch list engagement",
+    );
+    await setArticleView(page, "cards");
+    await page.locator(".article-card:visible").first().waitFor();
+    await loadAll(".article-card .open-count");
+    assert.equal(await page.locator(".article-card:visible").count(), 120);
     console.log(
       `Engagement pagination: 120 unique articles, batch sizes ${batches.map((batch) => batch.length).join(", ")}.`,
     );

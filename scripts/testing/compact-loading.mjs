@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { mkdir, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
+import { setArticleView } from "./article-view.mjs";
 
 async function tableGeometry(table, loading) {
   return table.evaluate((node, pending) => {
@@ -174,8 +175,6 @@ export async function checkCompactLoading(
   const viewport = page.viewportSize();
   const reduced = await page.evaluate(() => matchMedia("(prefers-reduced-motion: reduce)").matches);
   const coarse = await page.evaluate(() => matchMedia("(pointer: coarse)").matches);
-  const list = page.getByRole("button", { name: "List view", exact: true });
-  const grid = page.getByRole("button", { name: "Grid view", exact: true });
   const pending = page.locator(".loading-skeleton.feed.compact .article-table");
   const loaded = page.locator(".article-table:has(.article-list-row)").first();
   const measurements = [];
@@ -331,10 +330,8 @@ export async function checkCompactLoading(
   }
   try {
     await page.goto(target);
-    await page.locator('button[aria-label="List view"]:not(:disabled)').waitFor();
-    await list.click();
+    await setArticleView(page, "compact", { returnTo: target });
     await loaded.waitFor();
-    await page.locator('button[aria-label="List view"]:not(:disabled)').waitFor();
     await page.addInitScript((key) => {
       if (sessionStorage.getItem(key) !== "true") return;
       const observation = { wrong: [], maximum: 0, observer: null };
@@ -401,9 +398,7 @@ export async function checkCompactLoading(
     await cdp?.detach();
     await page.emulateMedia({ reducedMotion: reduced ? "reduce" : "no-preference" });
     if (viewport) await page.setViewportSize(viewport);
-    await page.locator('button[aria-label="Grid view"]:not(:disabled)').waitFor();
-    await grid.click();
+    await setArticleView(page, "cards");
     await page.locator(".article-card").first().waitFor();
-    await page.locator('button[aria-label="Grid view"]:not(:disabled)').waitFor();
   }
 }

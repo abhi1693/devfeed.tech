@@ -35,6 +35,7 @@ import { checkArticleGrid } from "../../../../scripts/testing/article-grid.mjs";
 import { checkDefaultAll, defaultAllFeed } from "../../../../scripts/testing/default-all.mjs";
 import { checkArticleViews, compactListArticle, compactLoadingGate } from "./article-views.mjs";
 import { checkCompactLoading } from "../../../../scripts/testing/compact-loading.mjs";
+import { checkArticleViewSettings } from "../../../../scripts/testing/article-view.mjs";
 import { checkSourceFilter, longFilterSource } from "../../../../scripts/testing/select-menus.mjs";
 import { checkAccessibility } from "./accessibility.mjs";
 import { dailyFixture, checkMustReads } from "../../../../scripts/testing/must-reads.mjs";
@@ -1303,6 +1304,33 @@ async function withReaderPage(browser, check, options = {}) {
     await context.close();
   }
 }
+
+test(
+  "article layouts save in Appearance for guests and members",
+  { timeout: 180000 },
+  async (t) => {
+    const { browser, origin } = await createReaderFixture(t);
+    for (const signedIn of [false, true]) {
+      await withReaderPage(browser, async (page, context) => {
+        if (signedIn)
+          await context.addCookies([{ name: "devfeed_user_session", value: "valid", url: origin }]);
+        await checkArticleViewSettings(
+          page,
+          `${origin}/latest?sort=most_liked`,
+          `/tmp/devfeed-article-layout/web-${signedIn ? "member" : "guest"}`,
+          {
+            signedIn,
+            routes: [
+              `${origin}/topics/typescript`,
+              `${origin}/sources/example-source`,
+              `${origin}/trending`,
+            ],
+          },
+        );
+      });
+    }
+  },
+);
 
 test("source and topic sharing uses public collection links", { timeout: 180000 }, async (t) => {
   const { browser, origin } = await createReaderFixture(t);

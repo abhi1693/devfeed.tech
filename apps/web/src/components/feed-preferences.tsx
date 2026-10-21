@@ -4,6 +4,7 @@ import { createContext, useContext, useEffect, useRef, useState } from "react";
 import { contentTypes } from "@/lib/feed-query";
 import { userRequest, type FeedDisplay } from "@/lib/user";
 import { saveFeedSettings } from "@/lib/user-mutations";
+import { normalizeFeedView } from "@/lib/reader-layouts";
 import { useUser } from "./user-account";
 
 type State = { owner: string; value: FeedDisplay | null; unavailable: boolean };
@@ -58,12 +59,17 @@ export function FeedPreferencesProvider({ children }: { children: React.ReactNod
         });
       } else {
         try {
-          if (localStorage.getItem(guestViewKey) === "compact") value.view = "compact";
+          value.view = normalizeFeedView(localStorage.getItem(guestViewKey));
         } catch {
           // Storage restrictions must not prevent reading or switching layouts.
         }
       }
-      if (!controller.signal.aborted) setState({ owner, value, unavailable: false });
+      if (!controller.signal.aborted)
+        setState({
+          owner,
+          value: { ...value, view: normalizeFeedView(value.view) },
+          unavailable: false,
+        });
     }
     void load().catch(() => {
       if (!controller.signal.aborted) setState({ owner, value: null, unavailable: true });
@@ -79,10 +85,11 @@ export function FeedPreferencesProvider({ children }: { children: React.ReactNod
     setSaving(owner);
     setFailure(null);
     try {
-      const value = await saveFeedSettings(settings, {
+      const result = await saveFeedSettings(settings, {
         csrfToken: user.csrf_token,
         signal: controller.signal,
       });
+      const value = { ...result, view: normalizeFeedView(result.view) };
       if (controller.signal.aborted) return false;
       setState((previous) =>
         previous?.owner === owner ? { owner, value, unavailable: false } : previous,

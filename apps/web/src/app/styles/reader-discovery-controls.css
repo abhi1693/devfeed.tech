@@ -2,7 +2,9 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  flex-shrink: 0;
+  flex-wrap: wrap;
+  flex-shrink: 1;
+  max-width: 100%;
 }
 .extension-install-button {
   white-space: nowrap;

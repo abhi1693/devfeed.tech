@@ -3,6 +3,10 @@ import { mkdir, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import AxeBuilder from "@axe-core/playwright";
 import { observeAnimations } from "./animation-recorder.mjs";
+import {
+  openArticleViewSettings,
+  setArticleView,
+} from "../../../../scripts/testing/article-view.mjs";
 
 const tags = ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa"];
 const reports = path.resolve(import.meta.dirname, "../../../../reports/accessibility");
@@ -42,6 +46,7 @@ async function fitsViewport(page) {
     "Reader content must reflow without page-level horizontal scrolling",
   );
   const bookmark = page.locator(".bookmark-button:visible").first();
+  await bookmark.waitFor();
   const bounds = await bookmark.boundingBox();
   assert.ok(bounds.width >= 24 && bounds.height >= 24, "Bookmark target remains usable");
 }
@@ -101,13 +106,11 @@ export async function checkAccessibility(page, surface, { signedIn = false } = {
     });
     await save();
   };
-  const grid = page.getByRole("button", { name: "Grid view", exact: true });
-  const list = page.getByRole("button", { name: "List view", exact: true });
+  const feedUrl = page.url();
   try {
     await page.emulateMedia({ reducedMotion: "reduce" });
     await page.setViewportSize({ width: 1440, height: 1000 });
-    await page.locator('button[aria-label="Grid view"]:not(:disabled)').waitFor();
-    await grid.click();
+    await setArticleView(page, "cards");
     await page.locator(".article-card").first().waitFor();
     await step("skip link reaches main content", async () => {
       await tabTo(page, page.locator(".skip-link"));
@@ -124,11 +127,19 @@ export async function checkAccessibility(page, surface, { signedIn = false } = {
       );
       await scan(`${dark ? "dark" : "light"}-grid-desktop`);
     }
-    await step("keyboard switches grid to list", async () => {
-      await tabTo(page, list);
-      await page.keyboard.press("Enter");
+    await step("keyboard saves list layout in Appearance", async () => {
+      const settings = await openArticleViewSettings(page);
+      const grid = settings.getByRole("radio", { name: "Grid", exact: true });
+      const list = settings.getByRole("radio", { name: "List", exact: true });
+      await tabTo(page, grid);
+      await page.keyboard.press("ArrowRight");
+      await page.locator('[aria-label="Article feed layout"][aria-busy="false"]').waitFor();
+      assert.equal(await list.isChecked(), true);
+      assert.equal(await list.evaluate((node) => node === document.activeElement), true);
+      await scan("appearance-layout-keyboard");
+      await page.goto(feedUrl);
       await page.locator(".article-list-row").first().waitFor();
-      assert.equal(await list.getAttribute("aria-pressed"), "true");
+      assert.equal(await page.locator(".feed-view-toggle").count(), 0);
     });
     for (const [width, dark, name] of [
       [640, false, "light-list-200-percent-reflow"],
@@ -245,7 +256,7 @@ export async function checkAccessibility(page, surface, { signedIn = false } = {
       assert.deepEqual(animations, []);
     });
     await page.setViewportSize({ width: 320, height: 1000 });
-    await grid.click();
+    await setArticleView(page, "cards");
     await page.locator(".article-card").first().waitFor();
     await step("grid mobile reflow", () => fitsViewport(page));
     await scan("dark-grid-mobile");

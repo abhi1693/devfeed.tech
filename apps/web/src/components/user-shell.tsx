@@ -7,7 +7,7 @@ import { NotificationInbox } from "./notification-inbox";
 import { ReadingTools } from "./reading-tools";
 import { ThemeToggle } from "./theme-toggle";
 import { UserAccount, PersonalFeedNav, ReadLaterNav } from "./user-account";
-import { Bot, Compass, House, Hash, Rss, Sparkles, Trophy } from "lucide-react";
+import { Bot, Compass, House, Hash, Palette, Rss, Sparkles, Trophy } from "lucide-react";
 import { legalPages } from "@/lib/legal";
 import { UserSearch } from "./user-search";
 import { SkipToContent } from "./skip-to-content";
@@ -78,6 +78,14 @@ export function UserShell({
         <div className="header-actions">
           <ReadingTools />
           <ThemeToggle />
+          <Link
+            href="/settings/appearance"
+            className="navbar-icon"
+            aria-label="Appearance settings"
+            title="Appearance settings"
+          >
+            <Palette size={18} aria-hidden="true" />
+          </Link>
           <NotificationInbox />
           <UserAccount />
         </div>

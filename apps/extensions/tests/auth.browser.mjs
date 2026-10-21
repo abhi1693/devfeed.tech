@@ -1,5 +1,9 @@
 import { checkArticleViews, compactLoadingGate } from "../../web/tests/browser/article-views.mjs";
 import { checkCompactLoading } from "../../../scripts/testing/compact-loading.mjs";
+import {
+  checkArticleViewSettings,
+  readerRouteUrl,
+} from "../../../scripts/testing/article-view.mjs";
 import { checkSelectMenus } from "../../../scripts/testing/select-menus.mjs";
 import { checkAccessibility } from "../../web/tests/browser/accessibility.mjs";
 import { dailyFixture, checkMustReads } from "../../../scripts/testing/must-reads.mjs";
@@ -393,6 +397,8 @@ async function withAuthenticatedReader(t, check) {
           bookmarked: !!authenticated && state.bookmarked,
         },
       ]);
+    if (url.pathname === "/api/v1/user/trending")
+      return send({ items: [article], next_cursor: null });
     if (!authenticated) return send({}, 401);
     if (url.pathname.startsWith("/api/v1/user/must-reads"))
       return send(await mustReadsFixture.response(url.pathname.endsWith("/presentation")));
@@ -585,6 +591,27 @@ async function withAuthenticatedReader(t, check) {
   });
   assert.deepEqual(errors, [], "browser and fixture errors");
 }
+
+test("article layouts save in Appearance for guests and members", { timeout: 180000 }, (t) =>
+  withAuthenticatedReader(t, async ({ page, signIn }) => {
+    const target = readerRouteUrl(page.url(), "/latest?sort=most_liked");
+    for (const signedIn of [false, true]) {
+      if (signedIn) await signIn();
+      await checkArticleViewSettings(
+        page,
+        target,
+        `/tmp/devfeed-article-layout/${browser}-${signedIn ? "member" : "guest"}`,
+        {
+          signedIn,
+          routes: [
+            readerRouteUrl(target, "/trending"),
+            ...(signedIn ? [readerRouteUrl(target, "/read-later")] : []),
+          ],
+        },
+      );
+    }
+  }),
+);
 
 test(
   "website recognition badges are absent from the built reader extension",

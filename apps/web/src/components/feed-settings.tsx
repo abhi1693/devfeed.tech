@@ -6,9 +6,8 @@ import { LoadingSkeleton } from "./loading-skeleton";
 import { useReaderRouter } from "@/lib/reader-navigation";
 import { languageOptions } from "@/lib/languages";
 import { contentTypes } from "@/lib/feed-query";
-import type { FeedDisplay } from "@/lib/user";
 import { useState } from "react";
-import { LayoutGrid, List } from "lucide-react";
+import Link from "./reader-link";
 import { AccountGate } from "./user-account";
 import { UserSettingsLayout } from "./user-settings-layout";
 import { useFeedPreferences } from "./feed-preferences";
@@ -36,8 +35,6 @@ function FeedSettingsForm() {
   const router = useReaderRouter();
   const { view, content_types, languages, loading, busy, unavailable, error, save, refresh } =
     useFeedPreferences();
-  const [selected, setSelected] = useState(view);
-  const [baseline, setBaseline] = useState(view);
   const typeKey = content_types.join(",");
   const [types, setTypes] = useState(content_types);
   const [typeBaseline, setTypeBaseline] = useState(typeKey);
@@ -54,10 +51,6 @@ function FeedSettingsForm() {
   }
   const [message, setMessage] = useState("");
   const [languageSearch, setLanguageSearch] = useState("");
-  if (baseline !== view) {
-    if (selected === baseline) setSelected(view);
-    setBaseline(view);
-  }
   if (unavailable)
     return (
       <section className="profile-load-error" role="status">
@@ -74,80 +67,29 @@ function FeedSettingsForm() {
         fallback={<LoadingSkeleton kind="form" label="Loading feed settings…" />}
       />
     );
-  const dirty =
-    selected !== view || types.join(",") !== typeKey || selectedLanguages.join(",") !== languageKey;
-  function choose(value: FeedDisplay["view"]) {
-    setSelected(value);
-    setMessage("");
-  }
+  const dirty = types.join(",") !== typeKey || selectedLanguages.join(",") !== languageKey;
   return (
     <LoadingReveal
       loading={false}
       fallback={<LoadingSkeleton kind="form" label="Loading feed settings…" />}
     >
       <section className="profile-panel" aria-label="Feed preferences">
-        <p className="profile-description">Choose how articles appear in your feeds.</p>
+        <p className="profile-description">
+          Choose the content types and languages in your feeds.{" "}
+          <Link href="/settings/appearance">Change article layout in Appearance.</Link>
+        </p>
         <form
           className="profile-form"
           onSubmit={async (event) => {
             event.preventDefault();
             if (!dirty || busy || !types.length || !selectedLanguages.length) return;
             setMessage("");
-            if (
-              await save({ view: selected, content_types: types, languages: selectedLanguages })
-            ) {
+            if (await save({ view, content_types: types, languages: selectedLanguages })) {
               setMessage("Feed settings saved.");
               router.refresh();
             }
           }}
         >
-          <fieldset disabled={busy}>
-            <legend className="sr-only">Feed layout</legend>
-            <div className="feed-layout-options">
-              {(
-                [
-                  ["cards", "Cards", "Image previews with room to browse.", LayoutGrid],
-                  [
-                    "compact",
-                    "Compact list",
-                    "More headlines, sources, and activity at a glance.",
-                    List,
-                  ],
-                ] as const
-              ).map(([value, title, description, Icon]) => (
-                <label
-                  className={`feed-layout-option${selected === value ? " selected" : ""}`}
-                  key={value}
-                >
-                  <div className={`feed-layout-preview ${value}`} aria-hidden="true">
-                    {[0, 1, 2].map((index) => (
-                      <div className="feed-layout-preview-item" key={index}>
-                        <span className="preview-image" />
-                        <span className="preview-lines">
-                          <i />
-                          <i />
-                        </span>
-                        <span className="preview-metric" />
-                      </div>
-                    ))}
-                  </div>
-                  <div className="feed-layout-option-label">
-                    <Icon size={17} aria-hidden="true" />
-                    <span>{title}</span>
-                    <input
-                      type="radio"
-                      name="feed-view"
-                      value={value}
-                      checked={selected === value}
-                      onChange={() => choose(value)}
-                      aria-label={title}
-                    />
-                  </div>
-                  <p>{description}</p>
-                </label>
-              ))}
-            </div>
-          </fieldset>
           <section className="feed-content-section">
             <fieldset className="feed-content-preferences" disabled={busy}>
               <legend>Content types</legend>
@@ -259,7 +201,7 @@ function FeedSettingsForm() {
               type="button"
               disabled={busy}
               onClick={() => {
-                choose("cards");
+                setMessage("");
                 setTypes([...contentTypes]);
                 setSelectedLanguages(["en"]);
               }}

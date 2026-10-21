@@ -104,6 +104,13 @@ small script applies the saved `devfeed:theme` local preference before rendering
 otherwise the site follows the operating system. Changes synchronize across tabs,
 and the toggle remains usable when local storage is blocked.
 
+Choose **Grid** or **List** in **Settings → Appearance → Article feed layout**.
+Open Appearance using the palette icon in the reader header.
+One saved choice applies to My feed, Latest, Trending, Read later, and topic, tag,
+and source feeds. Guests retain their choice in the browser; signed-in readers
+reuse their account's existing feed preference. Feed settings manage content types
+and languages without changing that layout.
+
 Temporary article API 502/503/504 responses retain the article dialog with retry
 and close controls instead of raising an unhandled page error. Temporary pages
 are marked noindex; missing articles still return 404 and unexpected exceptions

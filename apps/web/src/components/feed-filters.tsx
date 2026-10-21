@@ -2,7 +2,6 @@
 import { ExtensionInstallButton } from "./extension-install-button";
 import { ReaderDisclosure } from "./reader-disclosure";
 import { ReaderTabs } from "./reader-tabs";
-import { FeedViewToggle } from "./feed-view-toggle";
 
 import Link from "@/components/reader-link";
 import { useState } from "react";
@@ -178,7 +177,6 @@ export function FeedFiltersBar({
                 </form>
               </ReaderDisclosure>
             )}
-            <FeedViewToggle />
           </div>
         </div>
       </div>

@@ -5,7 +5,7 @@ import { FeedPreferencesProvider } from "@/components/feed-preferences";
 import { contentTypes } from "@/lib/feed-query";
 import { FeedSettings } from "@/components/feed-settings";
 import { ArticleGrid } from "@/components/article-grid";
-import { FeedViewToggle } from "@/components/feed-view-toggle";
+import { ArticleViewSettings } from "@/components/article-view-settings";
 import { TrendingContent } from "@/components/trending-content";
 import type { FeedPage } from "@/lib/types";
 import type { UserIdentity } from "@/lib/user";
@@ -51,10 +51,10 @@ function App() {
     </FeedPreferencesProvider>
   );
 }
-function InlineApp() {
+function LayoutApp() {
   return (
     <FeedPreferencesProvider>
-      <FeedViewToggle />
+      <ArticleViewSettings />
       <ArticleGrid articles={[article]} />
       <ArticleGrid
         articles={[{ ...article, id: "second", title: "Second batch" }]}
@@ -71,8 +71,38 @@ beforeEach(() => {
   navigation.refresh.mockClear();
 });
 
+it.each([
+  ["guest", "cards", "Grid"],
+  ["guest", "compact", "List"],
+  ["guest", "stacked", "Grid"],
+  ["guest", "columns", "Grid"],
+  ["account", "cards", "Grid"],
+  ["account", "compact", "List"],
+  ["account", "stacked", "Grid"],
+  ["account", "columns", "Grid"],
+])("restores %s preference %s using only available layouts", async (owner, view, selected) => {
+  session.user = owner === "account" ? account : null;
+  localStorage.setItem("devfeed:feed-view:guest", view);
+  const fetcher = vi
+    .fn()
+    .mockResolvedValue(
+      Response.json({ view, content_types: [...contentTypes], languages: ["en"] }),
+    );
+  vi.stubGlobal("fetch", fetcher);
+  render(<LayoutApp />);
+  const selectedRadio = await screen.findByRole("radio", { name: selected });
+  expect((selectedRadio as HTMLInputElement).checked).toBe(true);
+  expect(screen.getAllByRole("radio").map((radio) => radio.getAttribute("aria-label"))).toEqual([
+    "Grid",
+    "List",
+  ]);
+  expect(screen.queryByRole("radio", { name: "Stacked" })).toBeNull();
+  expect(screen.queryByRole("radio", { name: "Columns" })).toBeNull();
+  expect(fetcher).toHaveBeenCalledTimes(owner === "account" ? 1 : 0);
+});
+
 it.each(["loading", "failed", "empty"])(
-  "keeps the trending layout control available while its feed is %s",
+  "keeps Appearance layout settings independent while the trending feed is %s",
   async (state) => {
     const feed: PromiseSettledResult<FeedPage> | undefined =
       state === "loading"
@@ -82,13 +112,15 @@ it.each(["loading", "failed", "empty"])(
           : { status: "fulfilled", value: { items: [], next_cursor: null } };
     render(
       <FeedPreferencesProvider>
+        <ArticleViewSettings />
         <TrendingContent feed={feed} />
       </FeedPreferencesProvider>,
     );
-    const list = screen.getByRole("button", { name: "List view" });
+    const list = await screen.findByRole("radio", { name: "List" });
+    expect(screen.queryByRole("group", { name: "Article view" })).toBeNull();
     await waitFor(() => expect(list.hasAttribute("disabled")).toBe(false));
     fireEvent.click(list);
-    expect(list.getAttribute("aria-pressed")).toBe("true");
+    expect((list as HTMLInputElement).checked).toBe(true);
     if (state === "loading") {
       expect(screen.getByRole("status", { name: "Loading trending articles…" })).toBeTruthy();
       expect(document.querySelector(".loading-skeleton.compact")).toBeTruthy();
@@ -108,16 +140,17 @@ it("switches a loaded trending feed without replacing its articles or fetching a
   vi.stubGlobal("fetch", fetcher);
   render(
     <FeedPreferencesProvider>
+      <ArticleViewSettings />
       <TrendingContent
         feed={{ status: "fulfilled", value: { items: [article], next_cursor: null } }}
       />
     </FeedPreferencesProvider>,
   );
-  const grid = screen.getByRole("button", { name: "Grid view" });
+  const grid = await screen.findByRole("radio", { name: "Grid" });
   await waitFor(() => expect(grid.hasAttribute("disabled")).toBe(false));
-  expect(grid.getAttribute("aria-pressed")).toBe("true");
+  expect((grid as HTMLInputElement).checked).toBe(true);
   expect(screen.getByRole("link", { name: article.title })).toBeTruthy();
-  fireEvent.click(screen.getByRole("button", { name: "List view" }));
+  fireEvent.click(screen.getByRole("radio", { name: "List" }));
   expect(screen.getByRole("table", { name: "Articles in compact view" })).toBeTruthy();
   expect(screen.getByRole("link", { name: article.title }).getAttribute("href")).toBe(
     `/articles/${article.slug}`,
@@ -136,18 +169,18 @@ afterEach(() => {
 it("switches every loaded batch for guests and restores the choice after remounting", async () => {
   const fetcher = vi.fn();
   vi.stubGlobal("fetch", fetcher);
-  const app = render(<InlineApp />);
-  const grid = screen.getByRole("button", { name: "Grid view" });
+  const app = render(<LayoutApp />);
+  const grid = await screen.findByRole("radio", { name: "Grid" });
   await waitFor(() => expect(grid.hasAttribute("disabled")).toBe(false));
-  expect(grid.getAttribute("aria-pressed")).toBe("true");
-  fireEvent.click(screen.getByRole("button", { name: "List view" }));
+  expect((grid as HTMLInputElement).checked).toBe(true);
+  fireEvent.click(screen.getByRole("radio", { name: "List" }));
   expect(screen.getAllByRole("table")).toHaveLength(2);
   expect(screen.getByText(article.title)).toBeTruthy();
   expect(screen.getByText("Second batch")).toBeTruthy();
   app.unmount();
-  render(<InlineApp />);
+  render(<LayoutApp />);
   await screen.findAllByRole("table");
-  fireEvent.click(screen.getByRole("button", { name: "Grid view" }));
+  fireEvent.click(screen.getByRole("radio", { name: "Grid" }));
   expect(screen.queryByRole("table")).toBeNull();
   expect(fetcher).not.toHaveBeenCalled();
 });
@@ -159,12 +192,12 @@ it("keeps layouts usable when browser storage is restricted", async () => {
   vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
     throw new Error("blocked");
   });
-  render(<InlineApp />);
-  const list = screen.getByRole("button", { name: "List view" });
+  render(<LayoutApp />);
+  const list = await screen.findByRole("radio", { name: "List" });
   await waitFor(() => expect(list.hasAttribute("disabled")).toBe(false));
   fireEvent.click(list);
   expect(screen.getAllByRole("table")).toHaveLength(2);
-  fireEvent.click(screen.getByRole("button", { name: "Grid view" }));
+  fireEvent.click(screen.getByRole("radio", { name: "Grid" }));
   expect(screen.queryByRole("table")).toBeNull();
 });
 
@@ -172,18 +205,18 @@ it("keeps guest layout choices separate from account settings and ignores invali
   localStorage.setItem("devfeed:feed-view:guest", "unknown");
   const fetcher = vi.fn().mockResolvedValue(Response.json({ view: "cards" }));
   vi.stubGlobal("fetch", fetcher);
-  const app = render(<InlineApp />);
-  const list = screen.getByRole("button", { name: "List view" });
+  const app = render(<LayoutApp />);
+  const list = await screen.findByRole("radio", { name: "List" });
   await waitFor(() => expect(list.hasAttribute("disabled")).toBe(false));
   expect(screen.queryByRole("table")).toBeNull();
   fireEvent.click(list);
   session.user = account;
-  app.rerender(<InlineApp />);
+  app.rerender(<LayoutApp />);
   await waitFor(() => expect(screen.queryByRole("table")).toBeNull());
   await waitFor(() => expect(list.hasAttribute("disabled")).toBe(false));
   expect(fetcher).toHaveBeenCalledTimes(1);
   session.user = null;
-  app.rerender(<InlineApp />);
+  app.rerender(<LayoutApp />);
   await screen.findAllByRole("table");
   expect(fetcher).toHaveBeenCalledTimes(1);
 });
@@ -202,13 +235,17 @@ it("switches layout immediately, saves existing filters and coalesces repeated c
         }),
     );
   vi.stubGlobal("fetch", fetcher);
-  render(<InlineApp />);
-  const list = screen.getByRole("button", { name: "List view" });
+  render(<LayoutApp />);
+  const list = await screen.findByRole("radio", { name: "List" });
   await waitFor(() => expect(list.hasAttribute("disabled")).toBe(false));
   fireEvent.click(list);
   fireEvent.click(list);
   expect(screen.getAllByRole("table")).toHaveLength(2);
-  expect(list.hasAttribute("disabled")).toBe(true);
+  expect(list.hasAttribute("disabled")).toBe(false);
+  expect(screen.getByRole("radio", { name: "Grid" }).hasAttribute("disabled")).toBe(true);
+  expect(
+    screen.getByRole("region", { name: "Article feed layout" }).getAttribute("aria-busy"),
+  ).toBe("true");
   expect(fetcher).toHaveBeenCalledTimes(2);
   expect(fetcher.mock.calls[1][1]).toMatchObject({
     method: "PUT",
@@ -219,7 +256,7 @@ it("switches layout immediately, saves existing filters and coalesces repeated c
   await waitFor(() => expect(list.hasAttribute("disabled")).toBe(false));
 });
 
-it("rolls back a rejected inline save, announces it and lets the reader retry", async () => {
+it("rolls back a rejected Appearance layout save, announces it and allows retry", async () => {
   session.user = account;
   vi.stubGlobal(
     "fetch",
@@ -231,22 +268,20 @@ it("rolls back a rejected inline save, announces it and lets the reader retry", 
         Response.json({ view: "compact", content_types: [...contentTypes], languages: ["en"] }),
       ),
   );
-  render(<InlineApp />);
-  const list = screen.getByRole("button", { name: "List view" });
+  render(<LayoutApp />);
+  const list = await screen.findByRole("radio", { name: "List" });
   await waitFor(() => expect(list.hasAttribute("disabled")).toBe(false));
   fireEvent.click(list);
   await screen.findByRole("alert");
   expect(screen.queryByRole("table")).toBeNull();
-  expect(screen.getByRole("button", { name: "Grid view" }).getAttribute("aria-pressed")).toBe(
-    "true",
-  );
+  expect((screen.getByRole("radio", { name: "Grid" }) as HTMLInputElement).checked).toBe(true);
   fireEvent.click(list);
   await screen.findAllByRole("table");
   await waitFor(() => expect(screen.queryByRole("alert")).toBeNull());
 });
 
 it.each(["account change", "credential refresh"])(
-  "aborts an earlier inline save on %s and ignores its late success",
+  "aborts an earlier layout save on %s and ignores its late success",
   async (change) => {
     session.user = account;
     let finish!: (response: Response) => void;
@@ -265,8 +300,8 @@ it.each(["account change", "credential refresh"])(
         })
         .mockResolvedValueOnce(Response.json({ view: "cards" })),
     );
-    const app = render(<InlineApp />);
-    const list = screen.getByRole("button", { name: "List view" });
+    const app = render(<LayoutApp />);
+    const list = await screen.findByRole("radio", { name: "List" });
     await waitFor(() => expect(list.hasAttribute("disabled")).toBe(false));
     fireEvent.click(list);
     session.user =
@@ -274,29 +309,27 @@ it.each(["account change", "credential refresh"])(
         ? { ...account, user_id: "second" }
         : { ...account, csrf_token: "fresh-csrf" };
     session.sessionRevision++;
-    app.rerender(<InlineApp />);
+    app.rerender(<LayoutApp />);
     expect(writeSignal?.aborted).toBe(true);
     await act(async () => {});
     await act(async () => finish(Response.json({ view: "compact" })));
     expect(screen.queryByRole("table")).toBeNull();
-    expect(screen.getByRole("button", { name: "Grid view" }).getAttribute("aria-pressed")).toBe(
-      "true",
-    );
+    expect((screen.getByRole("radio", { name: "Grid" }) as HTMLInputElement).checked).toBe(true);
     expect(events.mock.calls.filter(([event]) => event.type === "devfeed:analytics")).toHaveLength(
       0,
     );
   },
 );
 
-it("retries unavailable preferences before allowing an inline write", async () => {
+it("retries unavailable preferences before allowing a layout write", async () => {
   session.user = account;
   const fetcher = vi
     .fn()
     .mockRejectedValueOnce(new Error("offline"))
     .mockResolvedValueOnce(Response.json({ view: "compact" }));
   vi.stubGlobal("fetch", fetcher);
-  render(<InlineApp />);
-  fireEvent.click(await screen.findByRole("button", { name: "Retry feed settings" }));
+  render(<LayoutApp />);
+  fireEvent.click(await screen.findByRole("button", { name: "Retry" }));
   await screen.findAllByRole("table");
   expect(fetcher).toHaveBeenCalledTimes(2);
   expect(fetcher.mock.calls.every(([, init]) => !init.method)).toBe(true);
@@ -314,50 +347,92 @@ it("uses cards for anonymous users without fetching private settings", async () 
   expect(screen.getByText(article.title)).toBeTruthy();
   expect(fetcher).not.toHaveBeenCalled();
 });
-it("loads account preferences and saves a layout only after Save changes", async () => {
+it("keeps layout selection in Appearance while Feed settings saves content preferences", async () => {
   session.user = account;
+  const settings = { view: "compact", content_types: ["news"], languages: ["en"] };
   const fetcher = vi
     .fn()
-    .mockResolvedValueOnce(Response.json({ view: "cards" }))
-    .mockResolvedValueOnce(
-      Response.json({ view: "compact", content_types: [...contentTypes], languages: ["en"] }),
-    );
+    .mockResolvedValueOnce(Response.json(settings))
+    .mockImplementation((_url, init) => Promise.resolve(Response.json(JSON.parse(init.body))));
   vi.stubGlobal("fetch", fetcher);
   render(<App />);
-  await screen.findByRole("radio", { name: "Compact list" });
-  expect(screen.queryByRole("table")).toBeNull();
-  fireEvent.click(screen.getByRole("radio", { name: "Compact list" }));
-  expect(screen.queryByRole("table")).toBeNull();
-  expect(fetcher).toHaveBeenCalledTimes(1);
+  await screen.findByRole("checkbox", { name: "News" });
+  expect(screen.queryByRole("radio")).toBeNull();
+  expect(
+    screen
+      .getAllByRole("link")
+      .some((link) => link.getAttribute("href") === "/settings/appearance"),
+  ).toBe(true);
+  fireEvent.click(screen.getByRole("checkbox", { name: "Articles" }));
   await act(async () => fireEvent.click(screen.getByRole("button", { name: "Save changes" })));
   expect(screen.getAllByRole("table")).toHaveLength(2);
   expect(fetcher.mock.calls[1][0]).toBe("/api/v1/user/settings/feed");
   expect(fetcher.mock.calls[1][1]).toMatchObject({
     method: "PUT",
-    body: JSON.stringify({ view: "compact", content_types: [...contentTypes], languages: ["en"] }),
+    body: JSON.stringify({ ...settings, content_types: ["article", "news"] }),
     headers: { "X-CSRF-Token": "csrf" },
   });
 });
-it("preserves the selected view and allows retry after a failed save", async () => {
+
+it("preserves the global List layout when resetting content and language defaults", async () => {
   session.user = account;
   const fetcher = vi
     .fn()
-    .mockResolvedValueOnce(Response.json({ view: "compact" }))
-    .mockResolvedValueOnce(Response.json({}, { status: 503 }))
     .mockResolvedValueOnce(
-      Response.json({ view: "cards", content_types: [...contentTypes], languages: ["en"] }),
-    );
+      Response.json({ view: "compact", content_types: ["news"], languages: ["fr"] }),
+    )
+    .mockImplementation((_url, init) => Promise.resolve(Response.json(JSON.parse(init.body))));
   vi.stubGlobal("fetch", fetcher);
   render(<App />);
-  await screen.findAllByRole("table");
-  fireEvent.click(screen.getByRole("radio", { name: "Cards" }));
-  fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
-  expect(await screen.findByRole("alert")).toBeTruthy();
+  await screen.findByRole("checkbox", { name: "News" });
+  fireEvent.click(screen.getByRole("button", { name: "Reset to defaults" }));
+  await act(async () => fireEvent.click(screen.getByRole("button", { name: "Save changes" })));
+  expect(JSON.parse(fetcher.mock.calls[1][1].body)).toEqual({
+    view: "compact",
+    content_types: [...contentTypes],
+    languages: ["en"],
+  });
   expect(screen.getAllByRole("table")).toHaveLength(2);
-  fireEvent.click(screen.getByRole("radio", { name: "Cards" }));
-  fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
-  await waitFor(() => expect(screen.queryByRole("table")).toBeNull());
 });
+
+it("saves an existing content draft with the latest Appearance layout", async () => {
+  session.user = account;
+  const initial = { view: "cards", content_types: ["news"], languages: ["en"] };
+  const fetcher = vi
+    .fn()
+    .mockResolvedValueOnce(Response.json(initial))
+    .mockImplementation((_url, init) => Promise.resolve(Response.json(JSON.parse(init.body))));
+  vi.stubGlobal("fetch", fetcher);
+  render(
+    <FeedPreferencesProvider>
+      <ArticleViewSettings />
+      <FeedSettings />
+    </FeedPreferencesProvider>,
+  );
+  fireEvent.click(await screen.findByRole("checkbox", { name: "Articles" }));
+  await act(async () => fireEvent.click(screen.getByRole("radio", { name: "List" })));
+  await act(async () => fireEvent.click(screen.getByRole("button", { name: "Save changes" })));
+  expect(fetcher.mock.calls.slice(1).map(([, init]) => JSON.parse(init.body))).toEqual([
+    { ...initial, view: "compact" },
+    { ...initial, view: "compact", content_types: ["article", "news"] },
+  ]);
+});
+
+it("retains confirmed layout controls but disables writes during an account history check", async () => {
+  session.user = account;
+  vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json({ view: "compact" })));
+  const app = render(<LayoutApp />);
+  const list = await screen.findByRole("radio", { name: "List" });
+  expect((list as HTMLInputElement).checked).toBe(true);
+  session.loading = true;
+  app.rerender(<LayoutApp />);
+  expect(screen.getByRole("radio", { name: "List" })).toBe(list);
+  expect(screen.getAllByRole("radio").every((radio) => (radio as HTMLInputElement).disabled)).toBe(
+    true,
+  );
+  expect(screen.getAllByRole("table")).toHaveLength(2);
+});
+
 it("does not show the previous account's view while another account loads", async () => {
   session.user = account;
   vi.stubGlobal(

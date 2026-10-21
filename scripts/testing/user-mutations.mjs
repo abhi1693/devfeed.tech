@@ -1,5 +1,6 @@
 import { tagFixtures } from "./tags.mjs";
 import assert from "node:assert/strict";
+import { chooseArticleView, openArticleViewSettings } from "./article-view.mjs";
 
 /** One backend fixture drives the real website and both unpacked extension readers. */
 export function userMutationFixture({ articles, topic }) {
@@ -12,7 +13,7 @@ export function userMutationFixture({ articles, topic }) {
     content_types: ["article", "news", "tutorial", "release", "comparison", "opinion"],
     languages: ["en"],
   };
-  const failures = new Set(["like", "follow", "feed", "tag-follow"]);
+  const failures = new Set(["like", "follow", "layout", "feed", "tag-follow"]);
   const writes = [];
   const response = (json, status = 200) => ({ status, json });
   const attempt = (operation, payload, apply) => {
@@ -47,7 +48,11 @@ export function userMutationFixture({ articles, topic }) {
       () => response({ display_name: "Private reader name", avatar_url: null }),
     ],
     ["GET /v1/user/settings/feed", () => response(feed)],
-    ["PUT /v1/user/settings/feed", (payload) => attempt("feed", payload, () => (feed = payload))],
+    [
+      "PUT /v1/user/settings/feed",
+      (payload) =>
+        attempt(payload.view === feed.view ? "feed" : "layout", payload, () => (feed = payload)),
+    ],
     [
       "GET /v1/user/settings/appearance",
       () =>
@@ -202,10 +207,24 @@ export async function checkUserMutations(page, destination, fixture) {
       interests: 1,
     });
 
-    await page.goto(destination("/settings/feed"));
-    await page.getByRole("radio", { name: "Compact list", exact: true }).waitFor();
+    const layout = await openArticleViewSettings(page);
     await clearEffects();
-    await page.getByRole("radio", { name: "Compact list", exact: true }).check();
+    await layout.getByRole("radio", { name: "List", exact: true }).check();
+    await layout.getByRole("alert").waitFor();
+    assert.equal(await layout.getByRole("radio", { name: "Grid", exact: true }).isChecked(), true);
+    assert.deepEqual(await effects(), { events: [], interests: 0 });
+    await chooseArticleView(page, "compact");
+    assert.deepEqual(await effects(), {
+      events: [
+        { name: "feed_settings_saved", params: { feed_view: "compact", selected_count: 6 } },
+      ],
+      interests: 1,
+    });
+    await page.goto(destination("/settings/feed"));
+    await page.getByRole("checkbox", { name: "Tutorials", exact: true }).waitFor();
+    assert.equal(await page.getByRole("radio").count(), 0);
+    await clearEffects();
+    await page.getByRole("checkbox", { name: "Tutorials", exact: true }).uncheck();
     const save = page.getByRole("button", { name: "Save changes", exact: true });
     await save.click();
     await page
@@ -220,10 +239,14 @@ export async function checkUserMutations(page, destination, fixture) {
     await page.getByText("Feed settings saved.", { exact: true }).waitFor();
     assert.deepEqual(await effects(), {
       events: [
-        { name: "feed_settings_saved", params: { feed_view: "compact", selected_count: 6 } },
+        { name: "feed_settings_saved", params: { feed_view: "compact", selected_count: 5 } },
       ],
       interests: 1,
     });
+    await page.getByRole("button", { name: "Reset to defaults", exact: true }).click();
+    await save.click();
+    await page.getByText("Feed settings saved.", { exact: true }).waitFor();
+    assert.equal(fixture.writes.at(-1).payload.view, "compact", "Feed reset preserves the layout");
     const serialized = JSON.stringify(await effects());
     assert.ok(
       !serialized.includes("Private reader name") &&
@@ -231,7 +254,20 @@ export async function checkUserMutations(page, destination, fixture) {
     );
     assert.deepEqual(
       fixture.writes.map(({ operation }) => operation),
-      ["like", "like", "like", "bookmark", "bookmark", "follow", "follow", "feed", "feed"],
+      [
+        "like",
+        "like",
+        "like",
+        "bookmark",
+        "bookmark",
+        "follow",
+        "follow",
+        "layout",
+        "layout",
+        "feed",
+        "feed",
+        "feed",
+      ],
     );
   } finally {
     fixture.active = false;

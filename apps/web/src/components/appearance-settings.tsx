@@ -11,6 +11,7 @@ import { AccountGate } from "./user-account";
 import { UserSettingsLayout } from "./user-settings-layout";
 import { LoadingSkeleton } from "./loading-skeleton";
 import { useThemePreferences } from "./theme-preferences";
+import { ArticleViewSettings } from "./article-view-settings";
 
 export function AppearanceSettings() {
   return (
@@ -18,6 +19,7 @@ export function AppearanceSettings() {
       <AccountGate returnTo="/settings/appearance">
         <AppearanceForm />
       </AccountGate>
+      <ArticleViewSettings />
     </UserSettingsLayout>
   );
 }

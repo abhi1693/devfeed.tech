@@ -1680,7 +1680,9 @@ async function assertHeaderExpiry(context, base, platform) {
         await page.goto(`${base}/settings/feed`);
         const header = page.locator(".topbar .partner-placement--header_sponsorship");
         await header.waitFor();
-        const reading = page.getByRole("radio", { name: "Cards", exact: true });
+        const reading = page
+          .getByRole("region", { name: "Feed preferences", exact: true })
+          .getByRole("checkbox", { name: "Tutorials", exact: true });
         await reading.waitFor();
         await reading.focus();
         await header.evaluate((node) => {

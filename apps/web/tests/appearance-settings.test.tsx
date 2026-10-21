@@ -1,10 +1,24 @@
 // @vitest-environment jsdom
 import { afterEach, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { AppearanceSettings } from "@/components/appearance-settings";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { ThemePreferencesProvider } from "@/components/theme-preferences";
 import { UserProvider } from "@/components/user-account";
+import { FeedPreferencesProvider } from "@/components/feed-preferences";
+import userEvent from "@testing-library/user-event";
+import type { ReactNode } from "react";
+
+const defaultFeed = { view: "cards", content_types: ["news"], languages: ["en"] };
+function Providers({ children }: { children: ReactNode }) {
+  return (
+    <UserProvider>
+      <ThemePreferencesProvider>
+        <FeedPreferencesProvider>{children}</FeedPreferencesProvider>
+      </ThemePreferencesProvider>
+    </UserProvider>
+  );
+}
 
 afterEach(() => {
   cleanup();
@@ -18,6 +32,7 @@ it("loads account theme and synchronizes the settings dropdown and navbar cycle 
   const fetcher = vi.fn((url: string, init?: RequestInit) => {
     if (url.endsWith("auth/me"))
       return Promise.resolve(Response.json({ user_id: "user-a", csrf_token: "csrf" }));
+    if (url.endsWith("settings/feed")) return Promise.resolve(Response.json(defaultFeed));
     if (init?.method === "PUT") {
       if (fail) return Promise.resolve(Response.json({}, { status: 503 }));
       theme = JSON.parse(String(init.body)).theme;
@@ -26,12 +41,10 @@ it("loads account theme and synchronizes the settings dropdown and navbar cycle 
   });
   vi.stubGlobal("fetch", fetcher);
   render(
-    <UserProvider>
-      <ThemePreferencesProvider>
-        <ThemeToggle />
-        <AppearanceSettings />
-      </ThemePreferencesProvider>
-    </UserProvider>,
+    <Providers>
+      <ThemeToggle />
+      <AppearanceSettings />
+    </Providers>,
   );
   const dropdown = await screen.findByRole("combobox", { name: "Theme" });
   await waitFor(() => expect(document.documentElement.classList.contains("dark")).toBe(true));
@@ -60,18 +73,17 @@ it("saves date preferences without changing the theme and applies them to articl
     vi.fn((url: string, init?: RequestInit) => {
       if (url.endsWith("auth/me"))
         return Promise.resolve(Response.json({ user_id: "user-a", csrf_token: "csrf" }));
+      if (url.endsWith("settings/feed")) return Promise.resolve(Response.json(defaultFeed));
       if (init?.method === "PUT") preferences = JSON.parse(String(init.body));
       return Promise.resolve(Response.json(preferences));
     }),
   );
   render(
-    <UserProvider>
-      <ThemePreferencesProvider>
-        <ThemeToggle />
-        <AppearanceSettings />
-        <UserDate value="2026-09-10T23:30:00Z" />
-      </ThemePreferencesProvider>
-    </UserProvider>,
+    <Providers>
+      <ThemeToggle />
+      <AppearanceSettings />
+      <UserDate value="2026-09-10T23:30:00Z" />
+    </Providers>,
   );
   const zone = await screen.findByRole("combobox", { name: "Timezone" });
   expect(screen.getByText("2026-09-10").getAttribute("title")).toBe("2026-09-10, 23:30");
@@ -96,4 +108,96 @@ it("saves date preferences without changing the theme and applies them to articl
       time_format: "12",
     }),
   );
+});
+
+it("lets guests choose a global layout in Appearance without loading private settings", async () => {
+  const fetcher = vi.fn(async (input: RequestInfo | URL) => {
+    if (String(input).endsWith("auth/me")) return Response.json({}, { status: 401 });
+    throw new Error(`Unexpected private request: ${String(input)}`);
+  });
+  vi.stubGlobal("fetch", fetcher);
+  render(
+    <Providers>
+      <AppearanceSettings />
+    </Providers>,
+  );
+  const layout = within(await screen.findByRole("region", { name: "Article feed layout" }));
+  const grid = await layout.findByRole("radio", { name: "Grid" });
+  await waitFor(() => expect((grid as HTMLInputElement).disabled).toBe(false));
+  const user = userEvent.setup();
+  await user.click(grid);
+  await user.keyboard("[ArrowRight]");
+  expect((layout.getByRole("radio", { name: "List" }) as HTMLInputElement).checked).toBe(true);
+  expect(localStorage.getItem("devfeed:feed-view:guest")).toBe("compact");
+  expect(layout.queryByRole("button", { name: /save/i })).toBeNull();
+  expect(fetcher.mock.calls.every(([url]) => String(url).endsWith("auth/me"))).toBe(true);
+});
+
+it("keeps layout settings usable when theme settings fail", async () => {
+  const writes: string[] = [];
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (url: string, init?: RequestInit) => {
+      if (url.endsWith("auth/me")) return Response.json({ user_id: "reader", csrf_token: "csrf" });
+      if (url.endsWith("settings/appearance")) return Response.json({}, { status: 503 });
+      if (url.endsWith("settings/feed")) {
+        if (init?.method === "PUT") {
+          writes.push(url);
+          return Response.json(JSON.parse(String(init.body)));
+        }
+        return Response.json({ ...defaultFeed, view: "compact" });
+      }
+      return Response.json({});
+    }),
+  );
+  render(
+    <Providers>
+      <AppearanceSettings />
+    </Providers>,
+  );
+  await screen.findByRole("heading", { name: "Couldn’t load appearance settings" });
+  const layout = within(screen.getByRole("region", { name: "Article feed layout" }));
+  const list = await layout.findByRole("radio", { name: "List" });
+  await waitFor(() => expect((list as HTMLInputElement).checked).toBe(true));
+  fireEvent.click(layout.getByRole("radio", { name: "Grid" }));
+  await waitFor(() => expect(writes).toEqual(["/api/v1/user/settings/feed"]));
+  await waitFor(() =>
+    expect((layout.getByRole("radio", { name: "Grid" }) as HTMLInputElement).checked).toBe(true),
+  );
+});
+
+it("retries layout settings independently while keeping theme settings available", async () => {
+  let feedReads = 0;
+  let theme = "dark";
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (url: string, init?: RequestInit) => {
+      if (url.endsWith("auth/me")) return Response.json({ user_id: "reader", csrf_token: "csrf" });
+      if (url.endsWith("settings/feed")) {
+        if (++feedReads === 1) return Response.json({}, { status: 503 });
+        return Response.json({ ...defaultFeed, view: "compact" });
+      }
+      if (url.endsWith("settings/appearance")) {
+        if (init?.method === "PUT") theme = JSON.parse(String(init.body)).theme;
+        return Response.json({ theme });
+      }
+      return Response.json({});
+    }),
+  );
+  render(
+    <Providers>
+      <AppearanceSettings />
+    </Providers>,
+  );
+  const themeControl = await screen.findByRole("combobox", { name: "Theme" });
+  const unavailable = within(await screen.findByRole("status", { name: "Article feed layout" }));
+  fireEvent.click(unavailable.getByRole("button", { name: "Retry" }));
+  const layout = within(await screen.findByRole("region", { name: "Article feed layout" }));
+  await waitFor(() =>
+    expect((layout.getByRole("radio", { name: "List" }) as HTMLInputElement).checked).toBe(true),
+  );
+  fireEvent.click(themeControl);
+  fireEvent.click(screen.getByRole("option", { name: "Light" }));
+  await waitFor(() => expect(theme).toBe("light"));
+  expect(feedReads).toBe(2);
 });
