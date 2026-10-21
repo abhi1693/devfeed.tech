@@ -14,6 +14,10 @@ writes, owner changes, cascades, and truncation. Source jobs invalidate their ow
 source; actual source name/approval/enablement changes separately request bounded
 article fanout.
 
+Source-owned logo jobs capture every update, including queue dispatch and lease
+renewals, because source action tokens include the full job. Article image jobs
+retain selective capture so dispatch and lease bookkeeping do not rebuild cards.
+
 The pipeline worker coalesces IDs within bounded batches and uses the existing
 lifecycle functions. Article evidence connections close before Python evaluation.
 Projection writes, fanout continuations, and acknowledgement of the exact captured

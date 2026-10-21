@@ -10,7 +10,7 @@ branch_labels = None
 depends_on = None
 
 # UPDATE OF avoids reading or serializing private evidence for lease heartbeats.
-# Candidate/source snapshot tokens include all their columns, so every update matters.
+# Source snapshot tokens include every source/job column, including logo-job leases.
 TRIGGERS = {
     "articles": (
         "article_entity",
@@ -241,11 +241,24 @@ def upgrade():
     """)
     for table, (mode, columns) in TRIGGERS.items():
         update = f"UPDATE OF {columns}" if columns else "UPDATE"
+        events = (
+            "INSERT OR DELETE" if table == "article_image_jobs" else f"INSERT OR {update} OR DELETE"
+        )
         op.execute(f"""CREATE TRIGGER read_model_changed
-          AFTER INSERT OR {update} OR DELETE ON {table}
+          AFTER {events} ON {table}
           FOR EACH ROW EXECUTE FUNCTION devfeed_read_model_changed('{mode}')""")
         op.execute(f"""CREATE TRIGGER read_model_truncated AFTER TRUNCATE ON {table}
           FOR EACH STATEMENT EXECUTE FUNCTION devfeed_read_model_rebuild('policy')""")
+    # Article cards ignore dispatch/lease bookkeeping. Source action tokens hash
+    # the entire logo job, so every source-owned update must refresh its card.
+    op.execute(f"""CREATE TRIGGER read_model_article_image_changed
+      AFTER UPDATE OF {TRIGGERS["article_image_jobs"][1]} ON article_image_jobs
+      FOR EACH ROW WHEN (OLD.article_id IS NOT NULL OR NEW.article_id IS NOT NULL)
+      EXECUTE FUNCTION devfeed_read_model_changed('article_owner')""")
+    op.execute("""CREATE TRIGGER read_model_source_image_changed
+      AFTER UPDATE ON article_image_jobs
+      FOR EACH ROW WHEN (OLD.source_id IS NOT NULL OR NEW.source_id IS NOT NULL)
+      EXECUTE FUNCTION devfeed_read_model_changed('source_owner')""")
     # Catalog revision triggers already cover bulk SQL, deletes, and ranking fields.
     op.execute("""CREATE TRIGGER read_model_catalog_changed
       AFTER INSERT OR UPDATE ON catalog_revisions
@@ -260,6 +273,8 @@ def upgrade():
 def downgrade():
     op.drop_index("ix_article_reviews_automatic_publication", table_name="article_reviews")
     op.drop_index("ix_article_reviews_manual_publication", table_name="article_reviews")
+    op.execute("DROP TRIGGER read_model_source_image_changed ON article_image_jobs")
+    op.execute("DROP TRIGGER read_model_article_image_changed ON article_image_jobs")
     for table in TRIGGERS:
         op.execute(f"DROP TRIGGER read_model_truncated ON {table}")
         op.execute(f"DROP TRIGGER read_model_changed ON {table}")

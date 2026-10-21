@@ -263,6 +263,84 @@ def test_source_jobs_and_reviews_capture_source_and_discovery_candidate(database
 
 
 @pytest.mark.integration
+@pytest.mark.parametrize("owner_kind", ["article", "source"])
+@pytest.mark.parametrize(
+    "field",
+    [
+        "dispatched_at",
+        "lease_until",
+        "lease_token",
+        "requires_solver",
+        "http_status",
+        "method",
+        "status",
+    ],
+)
+def test_image_job_updates_capture_full_source_tokens_without_article_heartbeat_events(
+    database, owner_kind, field
+):
+    with database.begin() as session:
+        owner = article(session) if owner_kind == "article" else source(session)
+        job = ArticleImageJob(
+            **{f"{owner_kind}_id": owner.id},
+            operation="discover" if owner_kind == "article" else "source-logo",
+        )
+        session.add(job)
+        clear_events(session)
+        values = {
+            "dispatched_at": utcnow(),
+            "lease_until": utcnow() + timedelta(minutes=5),
+            "lease_token": uuid.uuid4(),
+            "requires_solver": True,
+            "http_status": 200,
+            "method": "page",
+            "status": "running",
+        }
+        session.execute(
+            update(ArticleImageJob)
+            .where(ArticleImageJob.id == job.id)
+            .values({field: values[field]})
+        )
+        expected = (
+            {(owner_kind, owner.id)} if owner_kind == "source" or field == "status" else set()
+        )
+        events = list(session.execute(select(ReadModelEvent.kind, ReadModelEvent.entity_id)))
+        assert set(events) == expected and len(events) == len(expected)
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize(
+    "transition", ["article-to-source", "source-to-article", "source-to-source"]
+)
+def test_image_job_owner_changes_capture_each_affected_owner_once(database, transition):
+    with database.begin() as session:
+        row, first, second = article(session), source(session), source(session)
+        job = ArticleImageJob(
+            article_id=row.id if transition == "article-to-source" else None,
+            source_id=None if transition == "article-to-source" else first.id,
+            operation="discover" if transition == "article-to-source" else "source-logo",
+        )
+        session.add(job)
+        clear_events(session)
+        to_article = transition == "source-to-article"
+        session.execute(
+            update(ArticleImageJob)
+            .where(ArticleImageJob.id == job.id)
+            .values(
+                article_id=row.id if to_article else None,
+                source_id=None if to_article else second.id,
+                operation="discover" if to_article else "source-logo",
+            )
+        )
+        expected = {
+            ("article", row.id) if transition == "article-to-source" else ("source", first.id),
+            ("article", row.id) if to_article else ("source", second.id),
+        }
+        events = list(session.execute(select(ReadModelEvent.kind, ReadModelEvent.entity_id)))
+        assert set(events) == expected and len(events) == len(expected)
+
+
+@pytest.mark.integration
 def test_only_article_relevant_source_changes_request_article_fanout(database):
     with database.begin() as session:
         owner = source(session)
