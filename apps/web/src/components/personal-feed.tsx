@@ -16,6 +16,7 @@ import type { RecommendationReason } from "./article-grid";
 import { FeedOnboarding } from "./feed-onboarding";
 import { DevCardPromo } from "./dev-card-promo";
 import { feedPlacements, readerFeeds, type FeedDescriptor } from "@/lib/reader-feed";
+import { ReaderFeedLayout } from "./reader-feed-layout";
 
 type RecommendationPage = FeedPage & {
   status: "ready" | "refreshing";
@@ -297,14 +298,16 @@ export function PersonalFeed({
   }, []);
   return (
     <AccountGate loadingFallback={<LoadingSkeleton label="Loading your feed…" />}>
-      <Feed
-        key={JSON.stringify({ ...filters, cursor })}
-        cursor={cursor}
-        revision={revision}
-        refreshKey={refreshKey}
-        filters={stableFilters}
-        feedDescriptor={feedDescriptor}
-      />
+      <ReaderFeedLayout>
+        <Feed
+          key={JSON.stringify({ ...filters, cursor })}
+          cursor={cursor}
+          revision={revision}
+          refreshKey={refreshKey}
+          filters={stableFilters}
+          feedDescriptor={feedDescriptor}
+        />
+      </ReaderFeedLayout>
     </AccountGate>
   );
 }

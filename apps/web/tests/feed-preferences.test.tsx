@@ -103,11 +103,11 @@ it.each([
   ["guest", "cards", "Grid"],
   ["guest", "compact", "List"],
   ["guest", "stacked", "Stacked"],
-  ["guest", "columns", "Grid"],
+  ["guest", "columns", "Columns"],
   ["account", "cards", "Grid"],
   ["account", "compact", "List"],
   ["account", "stacked", "Stacked"],
-  ["account", "columns", "Grid"],
+  ["account", "columns", "Columns"],
 ])("restores %s preference %s using only available layouts", async (owner, view, selected) => {
   session.user = owner === "account" ? account : null;
   localStorage.setItem("devfeed:feed-view:guest", view);
@@ -124,8 +124,8 @@ it.each([
     "Grid",
     "List",
     "Stacked",
+    "Columns",
   ]);
-  expect(screen.queryByRole("radio", { name: "Columns" })).toBeNull();
   if (selected === "Stacked")
     expect(screen.getAllByRole("region", { name: "Articles in stacked view" })).toHaveLength(2);
   expect(fetcher).toHaveBeenCalledTimes(owner === "account" ? 1 : 0);
@@ -654,7 +654,7 @@ it.each(["stacked", "columns"])(
   },
 );
 
-it.each(["compact", "stacked"])(
+it.each(["compact", "stacked", "columns"])(
   "persists guest %s layout and column ordering across provider remounts",
   async (view) => {
     localStorage.setItem("devfeed:feed-view:guest", view);
@@ -820,7 +820,7 @@ it("ignores an old account's delayed preference load after another account has l
   await act(async () =>
     finish(Response.json({ view: "compact", columns: workspaceColumns, languages: ["en"] })),
   );
-  expect(preferences().view).toBe("cards");
+  expect(preferences().view).toBe("columns");
   expect(preferences().storedView).toBe("columns");
   expect(preferences().columns).toEqual(reloadedColumns);
   expect(preferences().languages).toEqual(["fr"]);

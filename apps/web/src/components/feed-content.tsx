@@ -13,6 +13,7 @@ import { InfiniteFeed } from "@/components/infinite-feed";
 import { FeedFiltersBar } from "@/components/feed-filters";
 import { RetryFeed } from "@/components/retry-feed";
 import { feedPlacements, type FeedDescriptor } from "@/lib/reader-feed";
+import { ReaderFeedLayout } from "./reader-feed-layout";
 
 import type { ReactNode } from "react";
 import type { FeedPage, FeedOptions } from "@/lib/types";
@@ -53,7 +54,7 @@ export function FeedContent({
     ([key, value]) => key !== "cursor" && key !== "source_slug" && value,
   );
   const content = (
-    <>
+    <ReaderFeedLayout>
       {children}
       <section className="feed-header" aria-label="Feed controls">
         <div
@@ -197,7 +198,7 @@ export function FeedContent({
           </Link>
         </section>
       )}
-    </>
+    </ReaderFeedLayout>
   );
   return withShell ? (
     <UserShell filters={filters} section={section}>

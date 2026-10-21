@@ -21,7 +21,13 @@ export const readerLayouts = [
     description: "Headline, thumbnail, and a short description in each row.",
     available: true,
   },
-  { id: "columns", label: "Columns", available: false },
+  {
+    id: "columns",
+    label: "Columns",
+    value: "columns",
+    description: "Arrange your own workspace of saved feeds.",
+    available: true,
+  },
 ] as const;
 
 export type ReaderLayout = (typeof readerLayouts)[number]["id"];

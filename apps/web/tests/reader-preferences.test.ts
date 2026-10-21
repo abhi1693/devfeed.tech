@@ -38,7 +38,7 @@ it.each(["cards", "compact", "stacked", "columns"])(
     const result = normalizeReaderPreferences({ ...settings, view, columns: [latest(1)] });
     expect(result.view).toBe(view);
     expect(result.columns).toEqual([latest(1)]);
-    expect(normalizeFeedView(result.view)).toBe(view === "columns" ? "cards" : view);
+    expect(normalizeFeedView(result.view)).toBe(view);
     expect(validateReaderPreferences(result)).toBe(true);
   },
 );
@@ -244,7 +244,7 @@ it.each(["cards", "compact", "stacked", "columns"])(
       view,
       columns: [latest(1)],
     });
-    expect(target.values.get(legacyGuestFeedViewKey)).toBe(view === "columns" ? "cards" : view);
+    expect(target.values.get(legacyGuestFeedViewKey)).toBe(view);
     expect(readGuestReaderPreferences(target).value).toMatchObject({ view, columns: [latest(1)] });
   },
 );
@@ -289,7 +289,7 @@ it("reports a failed write when the versioned or legacy storage write is blocked
   }
 });
 
-it("accepts a future-layout receipt with ordered columns before emitting success effects", async () => {
+it("accepts a Columns receipt with ordered columns before emitting success effects", async () => {
   const value = normalizeReaderPreferences({ ...settings, view: "columns", columns: [latest(1)] });
   const fetcher = vi.fn().mockResolvedValue(Response.json(value));
   const dispatch = vi.spyOn(window, "dispatchEvent");

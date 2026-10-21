@@ -37,6 +37,7 @@ import { checkArticleViews, compactListArticle, compactLoadingGate } from "./art
 import { checkCompactLoading } from "../../../../scripts/testing/compact-loading.mjs";
 import { checkArticleViewSettings } from "../../../../scripts/testing/article-view.mjs";
 import { checkReaderPreferences } from "../../../../scripts/testing/reader-preferences.mjs";
+import { checkColumnsWorkspace } from "../../../../scripts/testing/columns-workspace.mjs";
 import {
   checkPreviewFeedRetention,
   previewRetentionArticle,
@@ -1341,6 +1342,25 @@ async function withReaderPage(browser, check, options = {}) {
     await context.close();
   }
 }
+
+test(
+  "columns workspace saves independent selections and accessible arrangements",
+  { timeout: 180000 },
+  async (t) => {
+    const { browser, origin } = await createReaderFixture(t);
+    for (const signedIn of [false, true])
+      await withReaderPage(browser, async (page, context) => {
+        if (signedIn)
+          await context.addCookies([{ name: "devfeed_user_session", value: "valid", url: origin }]);
+        await checkColumnsWorkspace(
+          page,
+          `${origin}/latest?sort=most_liked`,
+          `/tmp/devfeed-columns-workspace/web-${signedIn ? "member" : "guest"}`,
+          { signedIn },
+        );
+      });
+  },
+);
 
 test(
   "article previews retain loaded feeds without refreshing session or preferences",

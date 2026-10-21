@@ -9,14 +9,14 @@ and all six settings sections use local hash routes. Publisher links and website
 sign-in open a separate tab. Chrome's own new-tab footer is browser UI and is not
 part of the extension's layout.
 
-**Settings → Appearance → Article feed layout** selects Grid, List, or Stacked for every
+**Settings → Appearance → Article feed layout** selects Grid, List, Stacked, or Columns for every
 article feed. Signed-in readers open **Appearance** from their avatar menu.
 Saved changes are confirmed with a toast.
 Both browsers share the web reader's layout controls and saved
 preference handling. Feed pages do not have separate view selectors.
 Signing in always loads account preferences, including new-account defaults, while preserving
 the browser's guest choice for sign-out. The saved workspace supports up to 12 ordered columns;
-Grid, List, and Stacked are available through the same saved preference. Stacked reuses
+all four layouts are available through the same saved preference. Stacked reuses
 article previews, sharing, bookmarks, filtering, and pagination in both browsers.
 
 Transport eligibility and request policies come from generated operation definitions.
@@ -168,14 +168,22 @@ backend services.
 
 ## Reader parity
 
-Choose Grid, List, or Stacked in **Settings → Appearance → Article feed layout**.
+Choose Grid, List, Stacked, or Columns in **Settings → Appearance → Article feed layout**.
 Grid is the default. List uses compact rows, while Stacked places thumbnails,
 metadata, headlines, descriptions, and article actions in one vertical stream.
 The choice applies to My feed, Latest, topic/source/tag feeds, Trending, and Read
 later. Guest choices stay in the extension's browser storage; signed-in choices
-use account feed settings without changing content or language selections. All
-three views reuse the existing feed loading, bookmarks, engagement, and preview
+use account feed settings without changing content or language selections. Grid,
+List, and Stacked reuse the existing feed loading, bookmarks, engagement, and preview
 navigation. `/trending` is a local reader route in both extensions.
+
+Columns uses the shared saved workspace editor: add Latest, Recommended, source, topic,
+or tag selections; edit, reorder, and remove them; and restore the same stable identities
+on return. Left/right buttons support keyboard reordering, and narrow screens provide
+horizontal scrolling plus **Go to column** navigation. Missing selections remain editable;
+failed metadata reads offer retry. Guest Recommended columns prompt for sign-in.
+**Open feed** switches to Grid and opens the selected local reader route. Independent
+article loading inside columns is tracked separately in #270.
 
 Closing article previews retains loaded rows, pagination, scroll, and article metrics
 while checking the session. Ordinary history navigation and restored documents still

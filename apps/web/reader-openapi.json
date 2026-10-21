@@ -4705,8 +4705,19 @@
     },
     "/api/v1/tags/{slug}": {
       "get": {
+        "description": "Read a visible tag by canonical slug, or by stable UUID when by_id is true.",
         "operationId": "readerTag",
         "parameters": [
+          {
+            "in": "query",
+            "name": "by_id",
+            "required": false,
+            "schema": {
+              "default": false,
+              "title": "By Id",
+              "type": "boolean"
+            }
+          },
           {
             "in": "path",
             "name": "slug",
@@ -4900,8 +4911,19 @@
     },
     "/api/v1/topics/{slug}": {
       "get": {
+        "description": "Read a public topic by canonical slug, or by stable UUID when by_id is true.",
         "operationId": "readerTopic",
         "parameters": [
+          {
+            "in": "query",
+            "name": "by_id",
+            "required": false,
+            "schema": {
+              "default": false,
+              "title": "By Id",
+              "type": "boolean"
+            }
+          },
           {
             "in": "path",
             "name": "slug",

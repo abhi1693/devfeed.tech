@@ -8,6 +8,7 @@ import { bookmarkChanged, type BookmarkChange } from "./article-engagement";
 import { InfiniteFeed } from "./infinite-feed";
 import { LoadingReveal } from "./loading-reveal";
 import { LoadingSkeleton } from "./loading-skeleton";
+import { ReaderFeedLayout } from "./reader-feed-layout";
 
 function SavedArticles({ cursor }: { cursor?: string }) {
   const { user } = useUser();
@@ -91,7 +92,9 @@ export function ReadLater({ cursor }: { cursor?: string }) {
       title="Keep articles for later"
       description="Sign in to save articles and read them on any of your devices."
     >
-      <SavedArticles key={`${user?.user_id}/${cursor ?? "latest"}`} cursor={cursor} />
+      <ReaderFeedLayout>
+        <SavedArticles key={`${user?.user_id}/${cursor ?? "latest"}`} cursor={cursor} />
+      </ReaderFeedLayout>
     </AccountGate>
   );
 }

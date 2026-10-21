@@ -212,7 +212,7 @@ export async function checkReaderPreferences(page, target, { session, csrfToken 
     assert.deepEqual(await storedGuest(), guestWorkspace);
 
     for (const savedView of ["stacked", "columns"]) {
-      const renderedView = savedView === "stacked" ? "Stacked" : "Grid";
+      const renderedView = savedView === "stacked" ? "Stacked" : "Columns";
       accounts.set(existingAccount, {
         view: savedView,
         columns: structuredClone(accountColumns),
@@ -226,10 +226,9 @@ export async function checkReaderPreferences(page, target, { session, csrfToken 
         `The saved ${savedView} layout uses its available renderer`,
       );
       await page.goto(target);
-      await page
-        .locator(savedView === "stacked" ? ".article-stacked-row:visible" : ".article-card:visible")
-        .first()
-        .waitFor();
+      if (savedView === "columns")
+        await page.getByRole("region", { name: "Columns workspace", exact: true }).waitFor();
+      else await page.locator(".article-stacked-row:visible").first().waitFor();
       await page.goto(readerRouteUrl(target, "/settings/feed"));
       const feed = page.getByRole("region", { name: "Feed preferences", exact: true });
       await feed.waitFor();
@@ -258,11 +257,7 @@ export async function checkReaderPreferences(page, target, { session, csrfToken 
       assert.deepEqual(writes.at(-1).payload.columns, accountColumns);
       assert.deepEqual(await storedGuest(), guestWorkspace);
       await changeAccount(null);
-      await assertView(
-        page,
-        "List",
-        "Unavailable account layouts never replace the guest's layout",
-      );
+      await assertView(page, "List", "Account layouts never replace the guest's layout");
     }
   } finally {
     await context.unroute(pattern, handle);

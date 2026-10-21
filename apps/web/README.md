@@ -104,7 +104,7 @@ small script applies the saved `devfeed:theme` local preference before rendering
 otherwise the site follows the operating system. Changes synchronize across tabs,
 and the toggle remains usable when local storage is blocked.
 
-Choose **Grid**, **List**, or **Stacked** in **Settings → Appearance → Article feed layout**.
+Choose **Grid**, **List**, **Stacked**, or **Columns** in **Settings → Appearance → Article feed layout**.
 Signed-in readers open **Appearance** from their avatar menu.
 Saved changes are confirmed with a toast.
 One saved choice applies to My feed, Latest, Trending, Read later, and topic, tag,
@@ -117,8 +117,8 @@ and shows summary links only when an overview is available.
 
 Account preferences take priority whenever a reader signs in, including a new account's
 defaults. Guest preferences remain in that browser and return after sign-out; they are
-never copied into an account automatically. Saved preferences can retain up to 12 ordered
-feed columns for future layouts, while the current selector offers Grid, List, and Stacked.
+never copied into an account automatically. Columns provides a saved workspace with up to 12 ordered
+feed selections. Add, edit, move, or remove columns directly on feed pages.
 Each column has a unique UUID and selects Latest, Recommended, or a source, topic or tag by
 UUID. Deleted or unavailable selections remain saved. Existing account JSON stores these
 preferences; updates that omit columns preserve the workspace, and an empty list clears it.
@@ -443,7 +443,7 @@ OAuth ingress routes and user-service/Redis configuration.
 
 ### Article views
 
-Choose Grid, List, or Stacked in **Settings → Appearance → Article feed layout**.
+Choose Grid, List, Stacked, or Columns in **Settings → Appearance → Article feed layout**.
 The same choice applies to My feed, Latest, topic/source/tag feeds, Trending, and
 Read later. Grid is the default. Guests keep their choice in this browser, and
 signed-in readers save it to the existing feed preference for their account.
@@ -457,6 +457,20 @@ left thumbnails, source/date/topic metadata, clamped headlines and descriptions,
 shared summary, sharing, and bookmark controls. Its narrow-screen action toolbar
 spans the row and uses 44px targets on touch devices. Both reuse the existing
 article preview and feed interaction state.
+
+Columns saves independent Latest, Recommended, source, topic, and tag selections. Each
+column has a stable identity while edits and reordering change its selection or position.
+Keyboard-accessible left/right controls reorder columns; narrow screens scroll the board
+horizontally and provide a named **Go to column** control. Unavailable selections remain
+saved with edit/remove controls, and temporary catalog failures offer retry. Recommended
+retains the existing sign-in and interest eligibility rules.
+
+**Open feed** switches to Grid and opens the selected feed. This configuration stage does
+not fetch articles per column; independent in-column loading and pagination are tracked in
+[#270](https://github.com/abhi1693/devfeed.tech/issues/270). Catalog lookups are limited to
+the 12 saved columns and one open editor; search displays at most 60 results. Topic/tag
+lookups use their stable UUID with `by_id=true`, preserving canonical slug behavior and
+public visibility checks.
 
 Closing an article preview keeps loaded rows, pagination, and scroll in place. The
 session is still checked, while unchanged credentials retain saved preferences and

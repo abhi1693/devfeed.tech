@@ -1,3 +1,5 @@
+import uuid
+
 from devfeed_core.models import Article, ArticleTag, Tag
 from devfeed_core.publication import visible_article
 from devfeed_core.schemas import (
@@ -54,12 +56,20 @@ def tags(
     response_model=TagPublicOut,
     openapi_extra=CachePolicy(namespace="tag", revision=1, ttl="metadata").openapi_extra(),
 )
-def tag(slug: TextInput, session: DB):
+def tag(slug: TextInput, session: DB, by_id: bool = False):
+    """Read a visible tag by canonical slug, or by stable UUID when by_id is true."""
     from fastapi import HTTPException
 
+    identity = Tag.slug == slug
+    if by_id:
+        try:
+            identifier = uuid.UUID(slug)
+        except ValueError:
+            raise HTTPException(404, "Tag not found") from None
+        identity = Tag.id == identifier
     result = session.scalar(
         select(Tag).where(
-            Tag.slug == slug,
+            identity,
             select(1)
             .select_from(ArticleTag)
             .join(Article, Article.id == ArticleTag.article_id)

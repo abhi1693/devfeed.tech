@@ -1,6 +1,6 @@
 "use client";
 
-import { LayoutGrid, List, Rows3 } from "lucide-react";
+import { Columns3, LayoutGrid, List, Rows3 } from "lucide-react";
 import { availableReaderLayouts } from "@/lib/reader-layouts";
 import { useFeedPreferences } from "./feed-preferences";
 import { LoadingReveal } from "./loading-reveal";
@@ -40,7 +40,14 @@ export function ArticleViewSettings() {
         <p className="profile-description">Use the same article layout across all your feeds.</p>
         <div className="feed-layout-options">
           {availableReaderLayouts.map(({ id, value, label, description }) => {
-            const Icon = id === "grid" ? LayoutGrid : id === "stacked" ? Rows3 : List;
+            const Icon =
+              id === "grid"
+                ? LayoutGrid
+                : id === "stacked"
+                  ? Rows3
+                  : id === "columns"
+                    ? Columns3
+                    : List;
             return (
               <label className={`feed-layout-option${view === value ? " selected" : ""}`} key={id}>
                 <div className={`feed-layout-preview ${value}`} aria-hidden="true">

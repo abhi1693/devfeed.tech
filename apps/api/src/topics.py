@@ -1,3 +1,4 @@
+import uuid
 from typing import Annotated, Literal
 
 from devfeed_core.models import Article, ArticleTopic, Topic, TopicRelation
@@ -80,8 +81,16 @@ def topics(
     response_model=TopicOut,
     openapi_extra=CachePolicy(namespace="topic", revision=1, ttl="metadata").openapi_extra(),
 )
-def topic(slug: TextInput, session: DB):
-    result = session.scalar(select(Topic).where(Topic.slug == slug, Topic.status == "active"))
+def topic(slug: TextInput, session: DB, by_id: bool = False):
+    """Read a public topic by canonical slug, or by stable UUID when by_id is true."""
+    identity = Topic.slug == slug
+    if by_id:
+        try:
+            identifier = uuid.UUID(slug)
+        except ValueError:
+            raise HTTPException(404, "Topic not found") from None
+        identity = Topic.id == identifier
+    result = session.scalar(select(Topic).where(identity, Topic.status == "active"))
     if result is None:
         raise HTTPException(404, "Topic not found")
     return result

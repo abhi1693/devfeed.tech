@@ -6,7 +6,14 @@ export async function GET(request: Request, { params }: { params: Promise<{ slug
   if (!/^[a-z0-9][a-z0-9-]{0,199}$/i.test(slug))
     return Response.json({ detail: "Not found" }, { status: 404, headers });
   try {
-    return Response.json(await getTopic(slug, request.signal), { headers });
+    return Response.json(
+      await getTopic(
+        slug,
+        request.signal,
+        new URL(request.url).searchParams.get("by_id") === "true",
+      ),
+      { headers },
+    );
   } catch (error) {
     return Response.json(
       { detail: "Couldn’t load topic" },

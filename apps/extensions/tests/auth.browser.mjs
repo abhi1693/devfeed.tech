@@ -5,6 +5,7 @@ import {
   readerRouteUrl,
 } from "../../../scripts/testing/article-view.mjs";
 import { checkReaderPreferences } from "../../../scripts/testing/reader-preferences.mjs";
+import { checkColumnsWorkspace } from "../../../scripts/testing/columns-workspace.mjs";
 import {
   checkPreviewFeedRetention,
   previewRetentionArticle,
@@ -623,6 +624,24 @@ async function withAuthenticatedReader(t, check) {
   });
   assert.deepEqual(errors, [], "browser and fixture errors");
 }
+
+test(
+  "columns workspace saves independent selections and accessible arrangements",
+  { timeout: 180000 },
+  (t) =>
+    withAuthenticatedReader(t, async ({ page, signIn }) => {
+      const target = readerRouteUrl(page.url(), "/latest?sort=most_liked");
+      for (const signedIn of [false, true]) {
+        if (signedIn) await signIn();
+        await checkColumnsWorkspace(
+          page,
+          target,
+          `/tmp/devfeed-columns-workspace/${browser}-${signedIn ? "member" : "guest"}`,
+          { signedIn },
+        );
+      }
+    }),
+);
 
 test(
   "article previews retain loaded feeds without refreshing session or preferences",
