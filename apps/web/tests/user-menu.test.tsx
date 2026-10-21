@@ -83,6 +83,7 @@ it("omits Leaderboard and Notifications from the avatar menu", async () => {
     key: "ArrowDown",
   });
   await screen.findByRole("menu");
+  expect(screen.queryByText(/Also ends your SSO session/)).toBeNull();
   expect(screen.queryByRole("menuitem", { name: "Leaderboard" })).toBeNull();
   expect(screen.queryByRole("menuitem", { name: "Notifications" })).toBeNull();
   expect(screen.getByRole("menuitem", { name: "Appearance" }).getAttribute("href")).toBe(

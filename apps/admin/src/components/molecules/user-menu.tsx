@@ -101,9 +101,6 @@ export function UserMenu({ admin }: { admin: AdminIdentity }) {
           )}
           {busy ? "Signing out…" : "Sign out"}
         </DropdownMenuItem>
-        <p className="px-2 py-1 text-xs text-muted-foreground">
-          Also ends your SSO session; other apps may sign you out.
-        </p>
       </DropdownMenuContent>
     </DropdownMenu>
   );

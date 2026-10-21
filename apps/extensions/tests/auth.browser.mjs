@@ -1133,8 +1133,9 @@ test(
       await page.bringToFront();
       state.rejectLogout = false;
       await page.getByRole("button", { name: /^User menu:/ }).click();
+      await page.getByRole("menu").waitFor();
       assert.equal(await page.getByRole("menuitem", { name: "Sign out of SSO…" }).count(), 0);
-      await page.getByText(/Also ends your SSO session/).waitFor();
+      assert.equal(await page.getByText(/Also ends your SSO session/).count(), 0);
       const opened = page.context().waitForEvent("page");
       await page.getByRole("menuitem", { name: "Sign out", exact: true }).click();
       const provider = await opened;

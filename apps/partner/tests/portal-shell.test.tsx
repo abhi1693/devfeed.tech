@@ -57,6 +57,9 @@ it("opens the account dropdown with identity, scoped navigation and sign out", a
   expect(screen.getByRole("menuitem", { name: "Performance" }).getAttribute("href")).toBe(
     "/performance?days=7",
   );
+  expect(
+    screen.queryByText("Also ends your SSO session; other apps may sign you out.", { exact: true }),
+  ).toBeNull();
   await userEvent.click(screen.getByRole("menuitem", { name: "Sign out" }));
   expect(signOut).toHaveBeenCalledTimes(1);
 });

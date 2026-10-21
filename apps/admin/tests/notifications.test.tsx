@@ -252,6 +252,9 @@ describe("authentication feedback", () => {
     await user.keyboard("{ArrowDown}");
     expect(screen.getByRole("menu", { name: "User menu: Alex Morgan" })).toBeTruthy();
     expect(screen.getByText("alex@example.com")).toBeTruthy();
+    expect(
+      screen.queryByText("Also ends your SSO session; other apps may sign you out."),
+    ).toBeNull();
     expect(document.activeElement).toBe(screen.getByRole("menuitem", { name: "Settings" }));
     expect(screen.getByRole("menuitem", { name: "Settings" }).getAttribute("href")).toBe(
       "/settings",

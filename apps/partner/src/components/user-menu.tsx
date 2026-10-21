@@ -116,9 +116,6 @@ export function UserMenu({
           )}
           {busy ? "Signing out…" : "Sign out"}
         </DropdownMenuItem>
-        <p className="px-2 py-1 text-xs text-muted-foreground">
-          Also ends your SSO session; other apps may sign you out.
-        </p>
         {error && (
           <p role="alert" className="px-3 py-2 text-sm text-destructive">
             {error}

@@ -767,8 +767,15 @@ try {
     route.fulfill({ contentType: "text/html", body: "<p>Provider logout</p>" }),
   );
   await logoutPage.getByRole("button", { name: /^User menu:/ }).click();
-  await logoutPage.getByText(/Also ends your SSO session/).waitFor();
-  await logoutPage.getByRole("menuitem", { name: "Sign out", exact: true }).click();
+  const signOut = logoutPage.getByRole("menuitem", { name: "Sign out", exact: true });
+  await signOut.waitFor();
+  assert.equal(
+    await logoutPage
+      .getByText("Also ends your SSO session; other apps may sign you out.", { exact: true })
+      .count(),
+    0,
+  );
+  await signOut.click();
   await logoutPage.waitForURL("https://identity.example/end-session?state=admin");
   assert.deepEqual(errors, []);
   console.log(`Playwright overview scenarios passed. Screenshots: ${output}`);

@@ -1280,6 +1280,12 @@ try {
   await page.getByRole("button", { name: "User menu: Alex Partner" }).focus();
   await page.keyboard.press("Enter");
   await page.getByRole("menuitem", { name: "Sign out" }).waitFor();
+  assert.equal(
+    await page
+      .getByText("Also ends your SSO session; other apps may sign you out.", { exact: true })
+      .count(),
+    0,
+  );
   await page.getByRole("menu").evaluate(async (element) => {
     await Promise.all(element.getAnimations().map((animation) => animation.finished));
   });
@@ -1423,6 +1429,12 @@ try {
   await page.screenshot({ path: root + "reports/partner/settings-mobile.png", fullPage: true });
   await page.getByRole("button", { name: "User menu: Alex Partner" }).click();
   await page.getByRole("menuitem", { name: "Sign out" }).waitFor();
+  assert.equal(
+    await page
+      .getByText("Also ends your SSO session; other apps may sign you out.", { exact: true })
+      .count(),
+    0,
+  );
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false);
   await page.getByRole("menu").evaluate(async (element) => {
     await Promise.all(element.getAnimations().map((animation) => animation.finished));

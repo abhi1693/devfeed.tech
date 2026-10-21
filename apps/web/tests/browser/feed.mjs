@@ -1753,7 +1753,8 @@ test("Sign out also opens provider SSO logout", { timeout: 180000 }, async (t) =
     );
     await page.goto(origin + "/latest");
     await page.getByRole("button", { name: /^User menu:/ }).click();
-    await page.getByText(/Also ends your SSO session/).waitFor();
+    await page.getByRole("menu").waitFor();
+    assert.equal(await page.getByText(/Also ends your SSO session/).count(), 0);
     assert.equal(await page.getByRole("menuitem", { name: "Sign out of SSO…" }).count(), 0);
     assert.equal(starts.length, 0);
     await page.screenshot({ path: "/tmp/devfeed-274-signout-web.png", fullPage: true });

@@ -104,9 +104,6 @@ export function UserMenu() {
               <LogOut size={17} aria-hidden="true" />
               {busy ? "Signing out…" : "Sign out"}
             </DropdownMenu.Item>
-            <p className="user-menu-identity">
-              Also ends your SSO session; other apps may sign you out.
-            </p>
             {error && (
               <p className="user-menu-error" role="alert">
                 {error}
