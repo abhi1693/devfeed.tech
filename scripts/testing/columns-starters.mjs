@@ -105,16 +105,16 @@ export async function checkColumnsStarters(page, target, output, { signedIn = fa
     assert.equal(reads().length, 1, "Returning to a saved workspace never reseeds it");
 
     const first = workspace.locator(`[data-column-id="${starters[0].id}"]`);
-    await columnAction(page, first, "Edit Recommended column");
+    await columnAction(page, first, "Change feed for Recommended column");
     const dialog = page.getByRole("dialog", { name: "Edit column", exact: true });
     await dialog.getByRole("combobox", { name: "Feed type", exact: true }).selectOption("latest");
     await dialog.getByRole("button", { name: "Save column", exact: true }).click();
     await dialog.waitFor({ state: "hidden" });
-    await columnAction(page, first, "Move Latest right");
+    await columnAction(page, first, "Move right: Latest column");
     await columnAction(
       page,
       workspace.locator(`[data-column-id="${starters.at(-1).id}"]`),
-      /^Remove .+ column$/,
+      /^Remove column: /,
     );
     await waitColumns(starters.length - 1);
     const edited = state.personal.columns;
@@ -126,7 +126,7 @@ export async function checkColumnsStarters(page, target, output, { signedIn = fa
 
     while (await columns.count()) {
       const before = await columns.count();
-      await columnAction(page, columns.first(), /^Remove .+ column$/);
+      await columnAction(page, columns.first(), /^Remove column: /);
       await waitColumns(before - 1);
     }
     await workspace.getByRole("button", { name: "Use starter columns", exact: true }).waitFor();

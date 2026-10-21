@@ -95,7 +95,7 @@ export async function checkColumnsFeeds(
     );
   };
   const edit = async (locator, name, kind, entity) => {
-    await columnAction(page, locator, `Edit ${name} column`);
+    await columnAction(page, locator, `Change feed for ${name} column`);
     const dialog = page.getByRole("dialog", { name: "Edit column", exact: true });
     await dialog.getByRole("combobox", { name: "Feed type", exact: true }).selectOption(kind);
     await dialog.getByLabel(`Find a ${kind}`, { exact: true }).fill(entity.name);
@@ -339,6 +339,9 @@ export async function checkColumnsFeeds(
         node.scrollIntoView({ inline: "nearest", block: "nearest", behavior: "instant" });
         node.querySelector('[role="region"][aria-label^="Articles in "]').scrollTop = 20;
       });
+      const previewTitle = recommended.locator(sharedSelector).locator(".article-stacked-title");
+      // Reveal the whole target before measuring; clicking a clipped title scrolls its feed.
+      await previewTitle.scrollIntoViewIfNeeded();
       await page.waitForTimeout(100);
       const before = fixture.requests.length;
       const documentsBefore = navigationRequests.filter(({ type }) => type === "document").length;
@@ -347,7 +350,7 @@ export async function checkColumnsFeeds(
         states[0].columnScrolls.some(({ top }) => top > 0),
         "An independent feed has a meaningful reading position",
       );
-      await recommended.locator(sharedSelector).locator(".article-stacked-title").click();
+      await previewTitle.click();
       await page.waitForTimeout(11000);
       await state("11s");
       const modal = page.getByRole("dialog", { name: "Article preview", exact: true });
@@ -600,7 +603,7 @@ export async function checkColumnsFeeds(
       () => fixture.requests.some(({ kind, cursor }) => kind === "rust" && cursor === "rust:1"),
       "The removed column has a pending page",
     );
-    await columnAction(page, topic, `Remove ${columnsCatalog.topics[1].name} column`);
+    await columnAction(page, topic, `Remove column: ${columnsCatalog.topics[1].name}`);
     removed.release();
     await wait(
       () =>

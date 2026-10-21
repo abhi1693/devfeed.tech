@@ -31,7 +31,7 @@ export async function checkIndependentFeedViews(page, target, output, { signedIn
     route.fulfill({ json: { items: [columnsSharedArticle], next_cursor: null } });
   await page.context().route(savedPattern, savedHandler);
   const route = (path) => readerRouteUrl(target, path);
-  const layout = page.getByRole("button", { name: "Change feed layout", exact: true });
+  const layout = page.getByRole("button", { name: /^Change feed layout(?::|$)/ });
   const selectors = {
     cards: ".article-card:visible",
     compact: ".article-list-row:visible",
@@ -40,7 +40,7 @@ export async function checkIndependentFeedViews(page, target, output, { signedIn
   const assertLayout = async (view) => {
     await page.waitForFunction(
       (name) =>
-        [...document.querySelectorAll('button[aria-label="Change feed layout"]')].some(
+        [...document.querySelectorAll('button[aria-label^="Change feed layout"]')].some(
           (button) => !button.disabled && button.title === `Layout: ${name}`,
         ),
       labels[view],

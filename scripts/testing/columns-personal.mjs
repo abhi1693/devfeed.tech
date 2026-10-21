@@ -60,7 +60,7 @@ export async function checkPersonalColumns(
   const removeAll = async () => {
     while (await columns.count()) {
       const before = await columns.count();
-      await columnAction(page, columns.first(), /^Remove .+ column$/);
+      await columnAction(page, columns.first(), /^Remove column: /);
       await waitCount(before - 1);
     }
     await workspace.getByRole("button", { name: "Use starter columns", exact: true }).waitFor();
@@ -137,16 +137,16 @@ export async function checkPersonalColumns(
     await page.setViewportSize({ width: 1440, height: 1000 });
 
     const first = workspace.locator(`[data-column-id="${personal[0].id}"]`);
-    await columnAction(page, first, "Edit Recommended column");
+    await columnAction(page, first, "Change feed for Recommended column");
     const edit = page.getByRole("dialog", { name: "Edit column", exact: true });
     await edit.getByRole("combobox", { name: "Feed type", exact: true }).selectOption("latest");
     await edit.getByRole("button", { name: "Save column", exact: true }).click();
     await edit.waitFor({ state: "hidden" });
-    await columnAction(page, first, "Move Latest right");
+    await columnAction(page, first, "Move right: Latest column");
     await columnAction(
       page,
       workspace.locator(`[data-column-id="${personal[3].id}"]`),
-      /^Remove .+ column$/,
+      /^Remove column: /,
     );
     await waitCount(4);
     const custom = state.personal.columns;

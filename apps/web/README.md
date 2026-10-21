@@ -60,6 +60,9 @@ This setting is read at runtime and is also exposed to Chrome and Edge through
 localhost fallback when it is unset. See the [MCP guide](../mcp/README.md).
 
 Run `npm run web:lint`, `npm run web:test`, and `npm run web:build` to validate.
+The [saved reader views matrix](../../scripts/ci/saved-reader-views.md) documents
+account switching, failed-save recovery, accessibility, motion, and request-budget
+checks shared with both extensions, including their retained CI evidence.
 After user API route or transport-policy changes, run `npm run web:generate` and
 include the OpenAPI, operation definitions and concrete Next handlers together.
 The same command generates extension transport policies from user API metadata and

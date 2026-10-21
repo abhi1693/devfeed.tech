@@ -48,6 +48,13 @@ import { checkColumnsFeeds } from "../../../../scripts/testing/columns-feeds.mjs
 import { checkColumnsSponsoredProducts } from "../../../../scripts/testing/columns-sponsored.mjs";
 import { checkColumnsScanning } from "../../../../scripts/testing/columns-scanning.mjs";
 import { checkIndependentFeedViews } from "../../../../scripts/testing/feed-views.mjs";
+import { checkSavedReaderLifecycle } from "../../../../scripts/testing/reader-views-lifecycle.mjs";
+import { checkColumnSaveRecovery } from "../../../../scripts/testing/reader-views-recovery.mjs";
+import { checkSavedReaderAccessibility } from "../../../../scripts/testing/reader-views-accessibility.mjs";
+import {
+  readerViewsReportDirectory,
+  runReaderViewCheck,
+} from "../../../../scripts/testing/reader-views-evidence.mjs";
 import { checkColumnsStarters } from "../../../../scripts/testing/columns-starters.mjs";
 import { checkPersonalColumns } from "../../../../scripts/testing/columns-personal.mjs";
 import {
@@ -208,6 +215,7 @@ async function createReaderFixture(
     `data:text/javascript;base64,${Buffer.from(fixtureBundle.outputFiles[0].text).toString("base64")}`
   );
   const { article, topic, source } = structuredClone({ ...fixtures });
+  let sessionOwner = "user";
   topic.id = "55555555-5555-4555-8555-555555555555";
   withManagedImage(article);
   withManagedSourceLogo(article.sources[0]);
@@ -545,7 +553,7 @@ async function createReaderFixture(
     if (path === "/v1/user/auth/me")
       body = authenticated
         ? {
-            user_id: "user",
+            user_id: sessionOwner,
             name: "Reader",
             email: "reader@example.test",
             csrf_token: "test",
@@ -1387,6 +1395,9 @@ async function createReaderFixture(
     renderReads,
     topicContext,
     previewRequests,
+    setSessionOwner: (owner) => {
+      sessionOwner = owner ?? "user";
+    },
     setArticleFeedGate: (gate) => {
       articleFeedGate = gate;
     },
@@ -1413,6 +1424,68 @@ async function withReaderPage(browser, check, options = {}) {
 }
 
 test(
+  "saved reader views isolate loaded workspaces across account changes",
+  { timeout: 240000 },
+  async (t) => {
+    const { browser, origin, setSessionOwner } = await createReaderFixture(t);
+    await withReaderPage(browser, async (page, context) => {
+      await checkSavedReaderLifecycle(
+        page,
+        `${origin}/`,
+        readerViewsReportDirectory("web", "account-lifecycle"),
+        {
+          csrfToken: "test",
+          session: async (owner) => {
+            setSessionOwner(owner);
+            await context.clearCookies();
+            if (owner)
+              await context.addCookies([
+                { name: "devfeed_user_session", value: "valid", url: origin },
+              ]);
+          },
+        },
+      );
+    });
+  },
+);
+
+test(
+  "saved reader views recover failed column saves without resetting feeds",
+  { timeout: 240000 },
+  async (t) => {
+    const { browser, origin } = await createReaderFixture(t);
+    await withReaderPage(browser, async (page, context) => {
+      await context.addCookies([{ name: "devfeed_user_session", value: "valid", url: origin }]);
+      await checkColumnSaveRecovery(
+        page,
+        `${origin}/`,
+        readerViewsReportDirectory("web", "save-recovery"),
+        { csrfToken: "test" },
+      );
+    });
+  },
+);
+
+for (const signedIn of [false, true])
+  test(
+    `saved reader views meet accessibility and motion checks for ${signedIn ? "members" : "guests"}`,
+    { timeout: 360000 },
+    async (t) => {
+      const { browser, origin } = await createReaderFixture(t);
+      await withReaderPage(browser, async (page, context) => {
+        if (signedIn)
+          await context.addCookies([{ name: "devfeed_user_session", value: "valid", url: origin }]);
+        await checkSavedReaderAccessibility(
+          page,
+          `${origin}/`,
+          readerViewsReportDirectory("web", `accessibility-${signedIn ? "member" : "guest"}`),
+          { signedIn },
+        );
+      });
+    },
+  );
+
+test(
   "columns feeds load independently with bounded resources and shared actions",
   { timeout: 180000 },
   async (t) => {
@@ -1421,12 +1494,10 @@ test(
       await withReaderPage(browser, async (page, context) => {
         if (signedIn)
           await context.addCookies([{ name: "devfeed_user_session", value: "valid", url: origin }]);
-        await checkColumnsFeeds(
-          page,
-          `${origin}/`,
-          `/tmp/devfeed-columns-feeds/web-${signedIn ? "member" : "guest"}`,
-          { signedIn },
-        );
+        await runReaderViewCheck("web", "column-budgets", async (output) => {
+          await checkColumnsFeeds(page, `${origin}/`, `${output}/observations`, { signedIn });
+          return { evidence: ["observations.json"] };
+        });
       });
   },
 );

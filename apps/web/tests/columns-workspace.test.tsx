@@ -178,8 +178,10 @@ function transport(initial: ReaderColumn[] = []) {
         new Promise<Response>((resolve) => {
           finish = resolve;
         });
-      return async (value: FeedDisplay) => {
-        await act(async () => finish(Response.json({ initialized: true, columns: value.columns })));
+      return async (value: FeedDisplay, status = 200) => {
+        await act(async () =>
+          finish(Response.json({ initialized: true, columns: value.columns }, { status })),
+        );
       };
     },
   };
@@ -232,8 +234,10 @@ async function chooseColumnAction(name: string, action: string) {
     key: "Enter",
   });
   const menu = await screen.findByRole("menu");
-  fireEvent.click(within(menu).getByRole("menuitem", { name: action }));
-  if (action.startsWith("Edit ")) await screen.findByRole("dialog", { name: "Edit column" });
+  const item = within(menu).getByRole("menuitem", { name: action });
+  expect(item.getAttribute("aria-label")).toContain(item.textContent?.trim());
+  fireEvent.click(item);
+  if (action.startsWith("Change feed ")) await screen.findByRole("dialog", { name: "Edit column" });
 }
 
 beforeEach(() => {
@@ -328,9 +332,13 @@ it.each(["guest", "account"])(
         (within(dialog).getByRole("option", { name: label }) as HTMLOptionElement).disabled,
       ).toBe(true);
     fireEvent.change(kind, { target: { value: "source" } });
-    const choice = await within(dialog).findByRole("button", { name: catalog.source.name });
+    const choices = within(dialog).getByRole("group", { name: "Choose a source" });
+    const choice = await within(choices).findByRole("button", {
+      name: `${catalog.source.name} Added`,
+    });
     expect((choice as HTMLButtonElement).disabled).toBe(true);
-    expect(choice.textContent).toContain("Added");
+    expect(choice.textContent).toBe(`${catalog.source.name} Added`);
+    expect(choice.getAttribute("aria-label")).toBe(`${catalog.source.name} Added`);
     expect(
       (within(dialog).getByRole("button", { name: "Save column" }) as HTMLButtonElement).disabled,
     ).toBe(true);
@@ -346,7 +354,7 @@ it.each(["guest", "account"])(
     state.user = owner === "account" ? account : null;
     const api = transport([latest, recommended]);
     await mount([latest, recommended]);
-    await chooseColumnAction("Latest", "Edit Latest column");
+    await chooseColumnAction("Latest", "Change feed for Latest column");
     const dialog = screen.getByRole("dialog", { name: "Edit column" });
     expect(
       (within(dialog).getByRole("option", { name: "Latest" }) as HTMLOptionElement).disabled,
@@ -374,7 +382,7 @@ it.each(["guest", "account"])(
 it("edits, reorders, and removes columns without changing their identities", async () => {
   transport();
   const app = await mount([latest, recommended]);
-  await chooseColumnAction("Latest", "Edit Latest column");
+  await chooseColumnAction("Latest", "Change feed for Latest column");
   expect(screen.getByRole("dialog", { name: "Edit column" })).toBeTruthy();
   await editFeed("source", catalog.source.name);
   await saveEditor();
@@ -384,7 +392,7 @@ it("edits, reorders, and removes columns without changing their identities", asy
   ]);
   await screen.findByRole("button", { name: "Options for Rust Blog column" });
   const first = document.querySelector(`[data-column-id="${latest.id}"]`)!;
-  await chooseColumnAction("Rust Blog", "Move Rust Blog right");
+  await chooseColumnAction("Rust Blog", "Move right: Rust Blog column");
   await waitFor(() =>
     expect(storedColumns().map(({ id }) => id)).toEqual([recommended.id, latest.id]),
   );
@@ -475,7 +483,7 @@ it("keeps unavailable selections editable without deleting or exposing their sav
   await screen.findByRole("button", { name: "Options for Unavailable topic column" });
   expect(storedColumns()).toEqual([missing]);
   expect(screen.queryByText(uuid(999))).toBeNull();
-  await chooseColumnAction("Unavailable topic", "Edit Unavailable topic column");
+  await chooseColumnAction("Unavailable topic", "Change feed for Unavailable topic column");
   await editFeed("latest");
   await saveEditor();
   expect(storedColumns()).toEqual([{ id: missing.id, feed: { kind: "latest" } }]);
@@ -491,7 +499,7 @@ it("limits the workspace to twelve columns and makes space after removal", async
   expect((screen.getByRole("button", { name: "Add column" }) as HTMLButtonElement).disabled).toBe(
     true,
   );
-  await chooseColumnAction("Latest", "Remove Latest column");
+  await chooseColumnAction("Latest", "Remove column: Latest");
   await waitFor(() =>
     expect((screen.getByRole("button", { name: "Add column" }) as HTMLButtonElement).disabled).toBe(
       false,
@@ -513,7 +521,7 @@ it("rolls back a rejected account edit, keeps the editor open, and permits retry
   const api = transport([latest]);
   await mount();
   api.rejectNextWrite();
-  await chooseColumnAction("Latest", "Edit Latest column");
+  await chooseColumnAction("Latest", "Change feed for Latest column");
   await editFeed("recommended");
   await saveEditor();
   expect(screen.getByRole("dialog", { name: "Edit column" })).toBeTruthy();
@@ -532,7 +540,7 @@ it("rolls back a rejected account edit, keeps the editor open, and permits retry
 it("cancels an editor without mutating the saved workspace", async () => {
   transport();
   await mount([latest]);
-  await chooseColumnAction("Latest", "Edit Latest column");
+  await chooseColumnAction("Latest", "Change feed for Latest column");
   await editFeed("recommended");
   fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Cancel" }));
   expect(screen.queryByRole("dialog")).toBeNull();
@@ -544,7 +552,7 @@ it("blocks overlapping edits while a column save is pending", async () => {
   const api = transport([latest]);
   await mount();
   const complete = api.delayNextWrite();
-  await chooseColumnAction("Latest", "Edit Latest column");
+  await chooseColumnAction("Latest", "Change feed for Latest column");
   await editFeed("recommended");
   fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Save column" }));
   await waitFor(() => expect(api.writes).toHaveLength(1));
@@ -559,8 +567,12 @@ it("blocks overlapping edits while a column save is pending", async () => {
     ).disabled,
   ).toBe(true);
   expect((screen.getByRole("button", { name: "Saving…" }) as HTMLButtonElement).disabled).toBe(
-    true,
+    false,
   );
+  expect(screen.getByRole("button", { name: "Saving…" }).getAttribute("aria-disabled")).toBe(
+    "true",
+  );
+  expect(screen.getByRole("button", { name: "Saving…" }).getAttribute("aria-busy")).toBe("true");
   expect(state.notify).not.toHaveBeenCalled();
   await complete(preferences([{ ...latest, feed: { kind: "recommended" } }]));
   expect(screen.queryByRole("dialog")).toBeNull();
@@ -568,12 +580,53 @@ it("blocks overlapping edits while a column save is pending", async () => {
   expect(api.writes).toHaveLength(1);
 });
 
+it("retains keyboard focus through a rejected save and permits one focused retry without overlapping submits", async () => {
+  state.user = account;
+  const api = transport([latest]);
+  await mount();
+  const complete = api.delayNextWrite();
+  await chooseColumnAction("Latest", "Change feed for Latest column");
+  await editFeed("recommended");
+  const dialog = screen.getByRole("dialog", { name: "Edit column" });
+  const form = dialog.querySelector("form")!;
+  const selection = within(dialog).getByRole("combobox", { name: "Feed type" });
+  selection.focus();
+  expect(document.activeElement).toBe(selection);
+  fireEvent.submit(form);
+  await waitFor(() => expect(api.writes).toHaveLength(1));
+  const save = within(dialog).getByRole("button", { name: "Saving…" });
+  expect(save).toHaveProperty("disabled", false);
+  expect(save.getAttribute("aria-disabled")).toBe("true");
+  expect(save.getAttribute("aria-busy")).toBe("true");
+  expect(document.activeElement).toBe(save);
+  expect(dialog.contains(document.activeElement)).toBe(true);
+  fireEvent.click(save);
+  fireEvent.submit(form);
+  fireEvent.submit(form);
+  expect(api.writes).toHaveLength(1);
+  await complete(preferences([latest]), 503);
+  expect(screen.getByRole("dialog", { name: "Edit column" })).toBe(dialog);
+  expect(within(dialog).getByRole("alert").textContent).toContain("Couldn’t save");
+  expect(within(dialog).getByRole("button", { name: "Save column" })).toBe(save);
+  expect(save).toHaveProperty("disabled", false);
+  expect(save.getAttribute("aria-disabled")).not.toBe("true");
+  expect(save.getAttribute("aria-busy")).not.toBe("true");
+  expect(document.activeElement).toBe(save);
+  expect(selection).toHaveProperty("disabled", false);
+  fireEvent.click(save);
+  await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+  expect(screen.getByRole("button", { name: "Options for Recommended column" })).toBeTruthy();
+  expect(api.writes).toHaveLength(2);
+  expect(api.writes[0].value.columns).toEqual([{ ...latest, feed: { kind: "recommended" } }]);
+  expect(api.writes[1].value.columns).toEqual(api.writes[0].value.columns);
+});
+
 it("discards an old account's open editor when the account changes", async () => {
   state.user = account;
   const api = transport([latest]);
   api.accounts.set("reader-b", preferences([recommended]));
   const app = await mount();
-  await chooseColumnAction("Latest", "Edit Latest column");
+  await chooseColumnAction("Latest", "Change feed for Latest column");
   await editFeed("topic", catalog.topic.name);
   state.user = { ...account, user_id: "reader-b", csrf_token: "csrf-b" };
   state.sessionRevision++;

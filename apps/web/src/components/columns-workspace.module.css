@@ -314,7 +314,7 @@
   background: var(--border);
 }
 .columnMenu .removeItem {
-  color: var(--error, #d85050);
+  color: var(--destructive);
 }
 .empty {
   display: flex;
@@ -405,8 +405,12 @@
   justify-content: flex-end;
   gap: 10px;
 }
+.editorActions button[aria-disabled="true"] {
+  opacity: 0.55;
+  cursor: wait;
+}
 .error {
-  color: var(--error, #d85050);
+  color: var(--destructive);
   margin-top: 18px;
 }
 @media (max-width: 600px) {

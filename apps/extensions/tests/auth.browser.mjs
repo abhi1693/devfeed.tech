@@ -14,6 +14,13 @@ import { checkColumnsFeeds } from "../../../scripts/testing/columns-feeds.mjs";
 import { checkColumnsSponsoredProducts } from "../../../scripts/testing/columns-sponsored.mjs";
 import { checkColumnsScanning } from "../../../scripts/testing/columns-scanning.mjs";
 import { checkIndependentFeedViews } from "../../../scripts/testing/feed-views.mjs";
+import { checkSavedReaderLifecycle } from "../../../scripts/testing/reader-views-lifecycle.mjs";
+import { checkColumnSaveRecovery } from "../../../scripts/testing/reader-views-recovery.mjs";
+import { checkSavedReaderAccessibility } from "../../../scripts/testing/reader-views-accessibility.mjs";
+import {
+  readerViewsReportDirectory,
+  runReaderViewCheck,
+} from "../../../scripts/testing/reader-views-evidence.mjs";
 import { checkColumnsStarters } from "../../../scripts/testing/columns-starters.mjs";
 import { checkPersonalColumns } from "../../../scripts/testing/columns-personal.mjs";
 import {
@@ -652,6 +659,70 @@ async function withAuthenticatedReader(t, check) {
 }
 
 test(
+  "saved reader views isolate loaded workspaces across account changes",
+  { timeout: 240000 },
+  (t) =>
+    withAuthenticatedReader(t, async ({ page, context, state, user }) => {
+      await checkSavedReaderLifecycle(
+        page,
+        readerRouteUrl(page.url(), "/"),
+        readerViewsReportDirectory(browser, "account-lifecycle"),
+        {
+          csrfToken: user.csrf_token,
+          session: async (owner) => {
+            state.active = owner !== null;
+            if (owner) user.user_id = owner;
+            await context.clearCookies();
+            if (owner)
+              await context.addCookies([
+                {
+                  name: cookieName,
+                  value: "test-session",
+                  domain: "devfeed.tech",
+                  path: "/",
+                  secure: true,
+                  httpOnly: true,
+                  sameSite: "Lax",
+                },
+              ]);
+          },
+        },
+      );
+    }),
+);
+
+test(
+  "saved reader views recover failed column saves without resetting feeds",
+  { timeout: 240000 },
+  (t) =>
+    withAuthenticatedReader(t, async ({ page, user, signIn }) => {
+      await signIn();
+      await checkColumnSaveRecovery(
+        page,
+        readerRouteUrl(page.url(), "/"),
+        readerViewsReportDirectory(browser, "save-recovery"),
+        { csrfToken: user.csrf_token },
+      );
+    }),
+);
+
+for (const signedIn of [false, true])
+  test(
+    `saved reader views meet accessibility and motion checks for ${signedIn ? "members" : "guests"}`,
+    { timeout: 360000 },
+    (t) =>
+      withAuthenticatedReader(t, async ({ page, signIn }) => {
+        if (signedIn) await signIn();
+        await checkSavedReaderAccessibility(
+          page,
+          readerRouteUrl(page.url(), "/"),
+          readerViewsReportDirectory(browser, `accessibility-${signedIn ? "member" : "guest"}`),
+          { signedIn },
+        );
+      }),
+  );
+
+test(
   "columns feeds load independently with bounded resources and shared actions",
   { timeout: 180000 },
   (t) =>
@@ -659,12 +730,10 @@ test(
       const target = readerRouteUrl(page.url(), "/");
       for (const signedIn of [true]) {
         if (signedIn) await signIn();
-        await checkColumnsFeeds(
-          page,
-          target,
-          `/tmp/devfeed-columns-feeds/${browser}-${signedIn ? "member" : "guest"}`,
-          { signedIn },
-        );
+        await runReaderViewCheck(browser, "column-budgets", async (output) => {
+          await checkColumnsFeeds(page, target, `${output}/observations`, { signedIn });
+          return { evidence: ["observations.json"] };
+        });
       }
     }),
 );

@@ -425,7 +425,9 @@ async function checkStackedSponsorLink(page, sponsorship) {
 }
 
 async function checkStackedGeometry(page, width) {
-  await page.setViewportSize({ width, height: 1000 });
+  const viewport = page.viewportSize();
+  if (viewport?.width !== width || viewport?.height !== 1000)
+    await page.setViewportSize({ width, height: 1000 });
   await page.evaluate(() => window.scrollTo(0, 0));
   const snapshot = await page
     .locator(".article-stacked")
@@ -488,27 +490,53 @@ async function checkStackedGeometry(page, width) {
 async function checkStackedTouchTargets(page, output) {
   const cdp = await page.context().newCDPSession(page);
   try {
+    // Set device metrics before pointer emulation; a viewport update also updates CDP metrics.
+    await page.setViewportSize({ width: 320, height: 1000 });
     await cdp.send("Emulation.setTouchEmulationEnabled", { enabled: true, maxTouchPoints: 1 });
     await cdp.send("Emulation.setEmitTouchEventsForMouse", {
       enabled: true,
       configuration: "mobile",
     });
-    await page.waitForFunction(() => matchMedia("(pointer: coarse)").matches);
+    await page.waitForFunction(() => {
+      if (!matchMedia("(pointer: coarse)").matches) return false;
+      const actions = [
+        ...document.querySelectorAll(
+          ".article-stacked-row:first-child .article-stacked-actions a, .article-stacked-row:first-child .article-stacked-actions button",
+        ),
+      ];
+      return (
+        actions.length >= 4 &&
+        actions.every((action) => {
+          const bounds = action.getBoundingClientRect();
+          return bounds.width >= 44 && bounds.height >= 44;
+        })
+      );
+    });
     const geometry = await checkStackedGeometry(page, 320);
-    const targets = await page
+    const measurement = await page
       .locator(".article-stacked-row")
       .first()
       .locator(".article-stacked-actions a, .article-stacked-actions button")
-      .evaluateAll((elements) =>
-        elements.map((element) => {
+      .evaluateAll((elements) => ({
+        coarse: matchMedia("(pointer: coarse)").matches,
+        targets: elements.map((element) => {
           const bounds = element.getBoundingClientRect();
+          const style = getComputedStyle(element);
           return {
             name: element.getAttribute("aria-label") ?? element.textContent,
             width: bounds.width,
             height: bounds.height,
+            minWidth: style.minWidth,
+            minHeight: style.minHeight,
           };
         }),
-      );
+      }));
+    assert.equal(
+      measurement.coarse,
+      true,
+      "Touch targets are measured with a coarse pointer after viewport layout",
+    );
+    const { targets } = measurement;
     assert.ok(targets.length >= 4, "The touch measurement includes all available row actions");
     for (const target of targets)
       assert.ok(

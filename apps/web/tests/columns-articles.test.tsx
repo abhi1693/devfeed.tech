@@ -294,7 +294,7 @@ it("shares duplicate article actions across columns and activates the clicked co
   fireEvent.keyDown(screen.getByRole("button", { name: "Options for Latest column" }), {
     key: "Enter",
   });
-  fireEvent.click(await screen.findByRole("menuitem", { name: "Move Latest right" }));
+  fireEvent.click(await screen.findByRole("menuitem", { name: "Move right: Latest column" }));
   await waitFor(() =>
     expect(
       [...document.querySelectorAll("[data-column-id]")].map((column) =>
@@ -423,7 +423,9 @@ it("omits header refresh controls and retains articles and the active sequence t
       key: "Enter",
     });
     const menu = await screen.findByRole("menu");
-    expect(within(menu).getByRole("menuitem", { name: `Edit ${name} column` })).toBeTruthy();
+    expect(
+      within(menu).getByRole("menuitem", { name: `Change feed for ${name} column` }),
+    ).toBeTruthy();
     fireEvent.keyDown(menu, { key: "Escape" });
     await waitFor(() => expect(screen.queryByRole("menu")).toBeNull());
     expect(screen.getByLabelText("Reading sequence").textContent).toBe(publicOnly.slug);

@@ -406,7 +406,7 @@ export async function checkColumnsWorkspace(
     assert.equal(await keyboardMenu.getByRole("menuitem").count(), 4);
     assert.equal(
       await keyboardMenu
-        .getByRole("menuitem", { name: "Move Latest left", exact: true })
+        .getByRole("menuitem", { name: "Move left: Latest column", exact: true })
         .isDisabled(),
       true,
     );
@@ -434,7 +434,7 @@ export async function checkColumnsWorkspace(
     await duplicateTypes.selectOption("topic");
     await duplicateDialog.getByLabel("Find a topic", { exact: true }).fill(catalog.topics[0].name);
     const addedTopic = duplicateDialog.getByRole("button", {
-      name: catalog.topics[0].name,
+      name: `${catalog.topics[0].name} Added`,
       exact: true,
     });
     await addedTopic.waitFor();
@@ -448,7 +448,7 @@ export async function checkColumnsWorkspace(
     assert.deepEqual(await identities(), originalIds);
     assert.equal(writes.length, duplicateWrites, "Rejected duplicate choices never save settings");
 
-    await columnAction(page, latestColumn, "Edit Latest column");
+    await columnAction(page, latestColumn, "Change feed for Latest column");
     const editDialog = page.getByRole("dialog", { name: "Edit column", exact: true });
     const editTypes = editDialog.getByRole("combobox", { name: "Feed type", exact: true });
     assert.equal(
@@ -462,7 +462,7 @@ export async function checkColumnsWorkspace(
     await editTypes.selectOption("topic");
     await editDialog.getByLabel("Find a topic", { exact: true }).fill(catalog.topics[0].name);
     const existingTopic = editDialog.getByRole("button", {
-      name: catalog.topics[0].name,
+      name: `${catalog.topics[0].name} Added`,
       exact: true,
     });
     await existingTopic.waitFor();
@@ -479,7 +479,7 @@ export async function checkColumnsWorkspace(
       feed: { kind: "topic", id: catalog.topics[1].id },
     });
 
-    await columnAction(page, columns().last(), `Move ${catalog.tags[0].name} left`, {
+    await columnAction(page, columns().last(), `Move left: ${catalog.tags[0].name} column`, {
       keyboard: true,
     });
     const reordered = [
@@ -699,7 +699,7 @@ export async function checkColumnsWorkspace(
       mobileActions.every(({ width, height }) => width >= 44 && height >= 44),
       "Touch article actions retain44px targets",
     );
-    await columnAction(page, selectedColumn, `Move ${catalog.topics[0].name} left`, {
+    await columnAction(page, selectedColumn, `Move left: ${catalog.topics[0].name} column`, {
       keyboard: true,
     });
     const mobileOrder = [remaining[0], remaining[1], remaining[3], remaining[2]];
@@ -732,13 +732,13 @@ export async function checkColumnsWorkspace(
     const unavailableMenu = await openColumnMenu(page, missing, { keyboard: true });
     assert.equal(
       await unavailableMenu
-        .getByRole("menuitem", { name: "Remove Unavailable topic column", exact: true })
+        .getByRole("menuitem", { name: "Remove column: Unavailable topic", exact: true })
         .isEnabled(),
       true,
       "An unavailable column can be removed",
     );
     const editMissing = unavailableMenu.getByRole("menuitem", {
-      name: "Edit Unavailable topic column",
+      name: "Change feed for Unavailable topic column",
       exact: true,
     });
     await editMissing.focus();
@@ -777,7 +777,7 @@ export async function checkColumnsWorkspace(
         ) === JSON.stringify(expected),
       uniqueColumns.map(({ id }) => id),
     );
-    await columnAction(page, columns().first(), "Edit Latest column");
+    await columnAction(page, columns().first(), "Change feed for Latest column");
     await chooseFeed(
       page.getByRole("dialog", { name: "Edit column", exact: true }),
       "source",

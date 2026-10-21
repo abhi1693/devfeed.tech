@@ -234,6 +234,11 @@
   }
 }
 @media (pointer: coarse) {
+  .article-stacked-source > a,
+  .article-stacked-meta > .article-stacked-topic {
+    min-height: 24px;
+    line-height: 24px;
+  }
   .article-stacked-actions :is(.bookmark-button, .heart-button, .article-share-trigger),
   .article-stacked-summary,
   .article-stacked-row .article-stacked-read {

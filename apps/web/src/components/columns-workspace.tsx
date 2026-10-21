@@ -201,7 +201,7 @@ function ColumnCard({
               >
                 <DropdownMenu.Item
                   disabled={disabled}
-                  aria-label={`Edit ${name} column`}
+                  aria-label={`Change feed for ${name} column`}
                   onSelect={() => {
                     editRequested.current = true;
                   }}
@@ -209,14 +209,14 @@ function ColumnCard({
                   <Pencil size={16} aria-hidden="true" /> Change feed
                 </DropdownMenu.Item>
                 <DropdownMenu.Item
-                  aria-label={`Move ${name} left`}
+                  aria-label={`Move left: ${name} column`}
                   disabled={disabled || index === 0}
                   onSelect={() => onMove(-1)}
                 >
                   <ArrowLeft size={16} aria-hidden="true" /> Move left
                 </DropdownMenu.Item>
                 <DropdownMenu.Item
-                  aria-label={`Move ${name} right`}
+                  aria-label={`Move right: ${name} column`}
                   disabled={disabled || index === count - 1}
                   onSelect={() => onMove(1)}
                 >
@@ -226,7 +226,7 @@ function ColumnCard({
                 <DropdownMenu.Item
                   disabled={disabled}
                   className={styles.removeItem}
-                  aria-label={`Remove ${name} column`}
+                  aria-label={`Remove column: ${name}`}
                   onSelect={onRemove}
                 >
                   <Trash2 size={16} aria-hidden="true" /> Remove column
@@ -324,6 +324,7 @@ function ColumnEditor({
   queue: ColumnRequestQueue;
 }) {
   const dialog = useRef<HTMLDialogElement>(null);
+  const submit = useRef<HTMLButtonElement>(null);
   const used = new Set(
     columns.filter((item) => item.id !== column?.id).map((item) => readerColumnFeedKey(item.feed)),
   );
@@ -406,6 +407,8 @@ function ColumnEditor({
         onSubmit={(event) => {
           event.preventDefault();
           if (busy || unchanged || duplicate) return;
+          // Keep focus in the modal while the remaining form controls are disabled.
+          submit.current?.focus({ preventScroll: true });
           if (isCatalog(kind)) {
             if (choice) void onSave({ kind, id: choice.id });
           } else void onSave({ kind });
@@ -451,7 +454,12 @@ function ColumnEditor({
             {column?.feed.kind === kind && initial.status === "ready" && !choice && (
               <p>Current selection: {initial.selection.name}</p>
             )}
-            <div className={styles.choices} aria-label={`Choose a ${kind}`} aria-busy={!choices}>
+            <div
+              className={styles.choices}
+              role="group"
+              aria-label={`Choose a ${kind}`}
+              aria-busy={!choices}
+            >
               {!choices ? (
                 <p role="status">Loading {kind}s…</p>
               ) : choices.error ? (
@@ -471,13 +479,16 @@ function ColumnEditor({
                     type="button"
                     key={item.id}
                     aria-pressed={selected === item.id}
-                    aria-label={item.name}
+                    aria-label={`${item.name}${used.has(readerColumnFeedKey({ kind, id: item.id })) ? " Added" : ""}`}
                     disabled={busy || used.has(readerColumnFeedKey({ kind, id: item.id }))}
                     onClick={() => setChoice(item)}
                   >
                     {item.name}
                     {used.has(readerColumnFeedKey({ kind, id: item.id })) && (
-                      <span className={styles.added}>Added</span>
+                      <>
+                        {" "}
+                        <span className={styles.added}>Added</span>
+                      </>
                     )}
                   </button>
                 ))
@@ -511,9 +522,12 @@ function ColumnEditor({
             Cancel
           </button>
           <button
+            ref={submit}
             type="submit"
             className="button primary"
-            disabled={busy || !!unchanged || duplicate || (isCatalog(kind) && !choice)}
+            disabled={!!unchanged || duplicate || (isCatalog(kind) && !choice)}
+            aria-disabled={busy || undefined}
+            aria-busy={busy || undefined}
           >
             {busy ? "Saving…" : "Save column"}
           </button>

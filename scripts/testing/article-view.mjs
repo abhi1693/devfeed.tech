@@ -51,9 +51,9 @@ export async function chooseInlineArticleView(page, view, { keyboard = false } =
     Columns: "Columns",
   }[view];
   assert.ok(label);
-  const trigger = page.getByRole("button", { name: "Change feed layout", exact: true });
+  const trigger = page.getByRole("button", { name: /^Change feed layout(?::|$)/ });
   await page.waitForFunction(() =>
-    [...document.querySelectorAll('button[aria-label="Change feed layout"]')].some(
+    [...document.querySelectorAll('button[aria-label^="Change feed layout"]')].some(
       (button) => !button.disabled,
     ),
   );
@@ -70,7 +70,7 @@ export async function chooseInlineArticleView(page, view, { keyboard = false } =
   await menu.waitFor({ state: "hidden" });
   await page.waitForFunction(
     (label) =>
-      [...document.querySelectorAll('button[aria-label="Change feed layout"]')].some(
+      [...document.querySelectorAll('button[aria-label^="Change feed layout"]')].some(
         (button) => !button.disabled && button.title === `Layout: ${label}`,
       ),
     label,
@@ -105,12 +105,14 @@ export async function chooseArticleView(page, view, { keyboard = false } = {}) {
 /** Save through the same Appearance controls in the website and both extensions. */
 export async function setArticleView(page, view, { returnTo = page.url(), keyboard = false } = {}) {
   let feed = fixedReaderFeed(returnTo);
-  if (
-    feed === "my_feed" &&
-    (await page.getByRole("banner").getByRole("link", { name: "Sign in", exact: true }).count())
-  )
-    feed = "latest";
   if (feed) {
+    // Resolve guest My feed only after Appearance has finished checking the account.
+    await openArticleViewSettings(page);
+    if (
+      feed === "my_feed" &&
+      (await page.getByRole("banner").getByRole("link", { name: "Sign in", exact: true }).count())
+    )
+      feed = "latest";
     await openArticleViewSettings(page, { feed });
     await chooseArticleView(page, view, { keyboard });
   } else {

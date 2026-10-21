@@ -243,6 +243,9 @@ address bar or the tab is in the background. Pending recommendation refreshes
 continue without a focus event; leaving the feed cancels its requests and timers.
 Analytics engagement still requires a visible, focused page.
 
+The [saved reader views matrix](../../scripts/ci/saved-reader-views.md) includes
+account isolation, keyboard save recovery, accessibility, motion, and workspace limits.
+
 Every reader change must pass the web, Chrome and Edge browser journeys:
 
 ```sh

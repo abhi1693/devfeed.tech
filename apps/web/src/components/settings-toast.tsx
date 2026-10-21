@@ -3,6 +3,7 @@
 import { createContext, useCallback, useContext, useState, type ReactNode } from "react";
 import { CircleAlert, CircleCheck, X } from "lucide-react";
 import { Toast } from "radix-ui";
+import "./settings-toast.css";
 
 type Variant = "success" | "error";
 type Notify = (message: string, variant?: Variant) => void;

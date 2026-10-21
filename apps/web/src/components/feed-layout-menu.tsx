@@ -35,7 +35,7 @@ export function FeedLayoutMenu({
         <button
           type="button"
           className={styles.trigger}
-          aria-label="Change feed layout"
+          aria-label={`Change feed layout: ${selected.label}`}
           title={`Layout: ${selected.label}`}
           disabled={loading || busy || unavailable || checking}
         >
