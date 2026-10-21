@@ -106,6 +106,7 @@ and the toggle remains usable when local storage is blocked.
 
 Choose **Grid** or **List** in **Settings → Appearance → Article feed layout**.
 Signed-in readers open **Appearance** from their avatar menu.
+Saved changes are confirmed with a toast.
 One saved choice applies to My feed, Latest, Trending, Read later, and topic, tag,
 and source feeds. Guests retain their choice in the browser; signed-in readers
 reuse their account's existing feed preference. Feed settings manage content types

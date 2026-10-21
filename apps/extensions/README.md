@@ -11,6 +11,7 @@ part of the extension's layout.
 
 **Settings → Appearance → Article feed layout** selects Grid or List for every
 article feed. Signed-in readers open **Appearance** from their avatar menu.
+Saved changes are confirmed with a toast.
 Both browsers share the web reader's layout controls and saved
 preference handling. Feed pages do not have separate view selectors.
 

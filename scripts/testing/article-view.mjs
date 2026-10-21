@@ -103,9 +103,12 @@ export async function checkArticleViewSettings(
   const region = await openArticleViewSettings(page);
   const grid = region.getByRole("radio", { name: "Grid", exact: true });
   const list = region.getByRole("radio", { name: "List", exact: true });
+  const savedNotice = page.getByText("Article layout saved.", { exact: true });
   assert.equal(await grid.isChecked(), true);
   assert.equal(await region.getByRole("radio").count(), 2);
   assert.equal(await page.getByRole("radio", { name: /^(Cards|Compact list)$/ }).count(), 0);
+  assert.equal(await page.getByText("Changes save automatically.", { exact: true }).count(), 0);
+  assert.equal(await savedNotice.isVisible(), false, "Loading a saved layout has no success toast");
   if (signedIn) {
     let release;
     let requested;
@@ -136,7 +139,12 @@ export async function checkArticleViewSettings(
         }),
       ]);
       assert.equal(await region.getAttribute("aria-busy"), "true");
-      await region.getByRole("status").filter({ hasText: "Saving…" }).waitFor();
+      assert.equal(
+        await savedNotice.isVisible(),
+        false,
+        "A pending layout save has no success toast",
+      );
+      assert.equal(await region.getByText("Saving…", { exact: true }).count(), 0);
       assert.equal(await grid.isDisabled(), true, "Another layout cannot race the pending save");
       assert.equal(await list.isDisabled(), false, "The selected layout retains keyboard focus");
       assert.equal(await list.evaluate((node) => node === document.activeElement), true);
@@ -156,6 +164,24 @@ export async function checkArticleViewSettings(
     );
   }
   assert.equal(await list.isChecked(), true);
+  await savedNotice.waitFor();
+  const noticeBounds = await page.locator('.settings-toast[data-variant="success"]').boundingBox();
+  assert.ok(
+    noticeBounds &&
+      noticeBounds.x >= -1 &&
+      noticeBounds.x + noticeBounds.width <= 321 &&
+      noticeBounds.y >= -1 &&
+      noticeBounds.y + noticeBounds.height <= 1001,
+    "The layout success toast fits the 320px mobile viewport",
+  );
+  if (output) {
+    await mkdir(dirname(output), { recursive: true });
+    await page.screenshot({ path: `${output}-saved-toast.png` });
+  }
+  const dismissNotice = page.getByRole("button", { name: "Dismiss notification", exact: true });
+  await dismissNotice.waitFor();
+  await dismissNotice.click();
+  await savedNotice.waitFor({ state: "hidden" });
   if (output) {
     await mkdir(dirname(output), { recursive: true });
   }

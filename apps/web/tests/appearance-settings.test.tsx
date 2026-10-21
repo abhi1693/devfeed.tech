@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { AppearanceSettings } from "@/components/appearance-settings";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { ThemePreferencesProvider } from "@/components/theme-preferences";
@@ -10,6 +10,12 @@ import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
 
 const defaultFeed = { view: "cards", content_types: ["news"], languages: ["en"] };
+const defaultAppearance = {
+  theme: "system",
+  timezone: "local",
+  date_format: "locale",
+  time_format: "system",
+};
 function Providers({ children }: { children: ReactNode }) {
   return (
     <UserProvider>
@@ -64,6 +70,64 @@ it("loads account theme and synchronizes the settings dropdown and navbar cycle 
   expect(theme).toBe("light");
   expect(document.documentElement.classList.contains("dark")).toBe(false);
 });
+
+it.each([
+  ["appearance", "Appearance saved.", "Appearance"],
+  ["layout", "Article layout saved.", "Article feed layout"],
+])(
+  "confirms %s saves with a toast only after persistence succeeds",
+  async (kind, message, region) => {
+    let finish: ((response: Response) => void) | undefined;
+    let payload: unknown;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string, init?: RequestInit) => {
+        if (url.endsWith("auth/me"))
+          return Response.json({ user_id: "reader", csrf_token: "csrf" });
+        if (init?.method === "PUT") {
+          payload = JSON.parse(String(init.body));
+          return new Promise<Response>((resolve) => {
+            finish = resolve;
+          });
+        }
+        return Response.json(url.endsWith("settings/feed") ? defaultFeed : defaultAppearance);
+      }),
+    );
+    render(
+      <Providers>
+        <AppearanceSettings />
+      </Providers>,
+    );
+    const theme = await screen.findByRole("combobox", { name: "Theme" });
+    await screen.findByRole("radio", { name: "List" });
+    expect(screen.queryByText("Changes save automatically.")).toBeNull();
+    expect(screen.queryByText(message)).toBeNull();
+    function choose(failing = false) {
+      if (kind === "layout") {
+        fireEvent.click(screen.getByRole("radio", { name: failing ? "Grid" : "List" }));
+      } else {
+        fireEvent.click(theme);
+        fireEvent.click(screen.getByRole("option", { name: failing ? "Dark" : "Light" }));
+      }
+    }
+    choose();
+    await waitFor(() => expect(finish).toBeTypeOf("function"));
+    expect(screen.getByRole("region", { name: region }).getAttribute("aria-busy")).toBe("true");
+    expect(screen.queryByText(message)).toBeNull();
+    expect(screen.queryByText("Saving…")).toBeNull();
+    await act(async () => finish!(Response.json(payload)));
+    await screen.findByText(message);
+    fireEvent.click(screen.getByRole("button", { name: "Dismiss notification" }));
+    await waitFor(() => expect(screen.queryByText(message)).toBeNull());
+    finish = undefined;
+    choose(true);
+    await waitFor(() => expect(finish).toBeTypeOf("function"));
+    await act(async () => finish!(Response.json({}, { status: 503 })));
+    await screen.findByRole("alert");
+    expect(screen.queryByText(message)).toBeNull();
+    expect(screen.queryByText("Changes save automatically.")).toBeNull();
+  },
+);
 
 it("saves date preferences without changing the theme and applies them to article dates", async () => {
   const { UserDate } = await import("@/components/user-date");
@@ -129,8 +193,33 @@ it("lets guests choose a global layout in Appearance without loading private set
   await user.keyboard("[ArrowRight]");
   expect((layout.getByRole("radio", { name: "List" }) as HTMLInputElement).checked).toBe(true);
   expect(localStorage.getItem("devfeed:feed-view:guest")).toBe("compact");
+  await screen.findByText("Article layout saved.");
   expect(layout.queryByRole("button", { name: /save/i })).toBeNull();
   expect(fetcher.mock.calls.every(([url]) => String(url).endsWith("auth/me"))).toBe(true);
+});
+
+it("keeps a guest layout usable without claiming it was saved when storage is blocked", async () => {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async () => Response.json({}, { status: 401 })),
+  );
+  render(
+    <Providers>
+      <AppearanceSettings />
+    </Providers>,
+  );
+  const list = await screen.findByRole("radio", { name: "List" });
+  await waitFor(() => expect((list as HTMLInputElement).disabled).toBe(false));
+  const storage = vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
+    throw new Error("Storage blocked");
+  });
+  try {
+    await act(async () => fireEvent.click(list));
+    expect((list as HTMLInputElement).checked).toBe(true);
+    expect(screen.queryByText("Article layout saved.")).toBeNull();
+  } finally {
+    storage.mockRestore();
+  }
 });
 
 it("keeps layout settings usable when theme settings fail", async () => {

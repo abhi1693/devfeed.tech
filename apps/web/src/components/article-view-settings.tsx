@@ -5,13 +5,14 @@ import { availableReaderLayouts } from "@/lib/reader-layouts";
 import { useFeedPreferences } from "./feed-preferences";
 import { LoadingReveal } from "./loading-reveal";
 import { LoadingSkeleton } from "./loading-skeleton";
-import { SaveFeedback } from "./motion-icon";
 import { useUser } from "./user-account";
+import { useSettingsToast } from "./settings-toast";
 
 /** One selection applies to every feed through the shared preference provider. */
 export function ArticleViewSettings() {
   const { view, loading, busy, unavailable, error, setView, refresh } = useFeedPreferences();
   const { loading: checkingAccount } = useUser();
+  const notify = useSettingsToast();
   if (loading)
     return (
       <LoadingReveal
@@ -63,7 +64,11 @@ export function ArticleViewSettings() {
                     value={value}
                     checked={view === value}
                     disabled={checkingAccount || (busy && view !== value)}
-                    onChange={() => void setView(value)}
+                    onChange={() => {
+                      void setView(value).then((saved) => {
+                        if (saved) notify("Article layout saved.");
+                      });
+                    }}
                     aria-label={label}
                   />
                 </div>
@@ -73,10 +78,6 @@ export function ArticleViewSettings() {
           })}
         </div>
       </fieldset>
-      <p className="appearance-save-status" role="status">
-        <SaveFeedback busy={busy} saved={false} />
-        {busy ? "Saving…" : "Changes save automatically."}
-      </p>
       {error && (
         <p className="profile-feedback error" role="alert">
           {error}

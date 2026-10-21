@@ -309,7 +309,6 @@
 .appearance-date-settings { margin-top: 24px; padding-top: 20px; border-top: 1px solid var(--border); display: grid; gap: 20px; }
 .appearance-date-preview { margin: 0; border-radius: var(--radius-control); padding: 12px; background: var(--muted); color: var(--muted-foreground); font-size: 14px; line-height: 20px; }
 .appearance-date-preview span { color: var(--foreground); font-weight: 500; }
-.appearance-save-status { margin: 20px 0 0; color: var(--muted-foreground); font-size: 12px; line-height: 20px; }
 /* Source selections use the same theme and shimmer as topic preferences. */
 .source-preferences { width: 100%; }
 .source-selection-toolbar { display: flex; align-items: center; flex-wrap: wrap; gap: 12px 24px; margin: 24px 0 20px; }
@@ -387,3 +386,50 @@
 .suggestion-confirmation-source div > span { display: block; margin-top: 4px; font-size: 12px; color: var(--muted-foreground); }
 .suggestion-review-status { padding: 4px 10px; border-radius: 999px; background: var(--accent); font-size: 12px; white-space: nowrap; }
 .suggestion-confirmation-actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 24px; }
+
+.settings-toast-viewport {
+  position: fixed;
+  right: max(16px, env(safe-area-inset-right));
+  bottom: calc(20px + env(safe-area-inset-bottom));
+  z-index: 110;
+  width: min(380px, calc(100vw - 32px));
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.settings-toast {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr) 44px;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  padding: 8px 6px 8px 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-overlay);
+  background: var(--popover);
+  color: var(--popover-foreground);
+  box-shadow: var(--shadow-dialog);
+}
+.settings-toast-message { font-size: 14px; line-height: 20px; overflow-wrap: anywhere; }
+.settings-toast-icon { color: var(--foreground); }
+.settings-toast[data-variant="error"] { border-color: var(--destructive); }
+.settings-toast[data-variant="error"] .settings-toast-icon { color: var(--destructive); }
+.settings-toast-dismiss {
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-control);
+  background: transparent;
+  color: var(--muted-foreground);
+  cursor: pointer;
+}
+.settings-toast-dismiss:hover { background: var(--accent); color: var(--foreground); }
+.settings-toast:focus-visible,
+.settings-toast-viewport:focus-visible,
+.settings-toast-dismiss:focus-visible { outline: 2px solid var(--ring); outline-offset: 3px; }
+@media (max-width: 800px) {
+  .settings-toast-viewport { bottom: calc(88px + env(safe-area-inset-bottom)); }
+}

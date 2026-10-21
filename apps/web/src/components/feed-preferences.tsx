@@ -18,7 +18,7 @@ const Context = createContext<{
   unavailable: boolean;
   error: string;
   save: (settings: FeedDisplay) => Promise<boolean>;
-  setView: (view: FeedDisplay["view"]) => Promise<void>;
+  setView: (view: FeedDisplay["view"]) => Promise<boolean>;
   refresh: () => void;
 }>({
   view: "cards" as FeedDisplay["view"],
@@ -29,7 +29,7 @@ const Context = createContext<{
   unavailable: false,
   error: "",
   save: async () => false,
-  setView: async () => {},
+  setView: async () => false,
   refresh: () => {},
 });
 export const useFeedPreferences = () => useContext(Context);
@@ -105,8 +105,8 @@ export function FeedPreferencesProvider({ children }: { children: React.ReactNod
     }
   }
   async function setView(view: FeedDisplay["view"]) {
-    if (loading || !current?.value || current.unavailable || savingRef.current) return;
-    if (view === current.value.view) return;
+    if (loading || !current?.value || current.unavailable || savingRef.current) return false;
+    if (view === current.value.view) return false;
     const previous = current;
     const value: FeedDisplay = {
       view,
@@ -119,10 +119,13 @@ export function FeedPreferencesProvider({ children }: { children: React.ReactNod
         localStorage.setItem(guestViewKey, view);
       } catch {
         // The selected layout still works for this tab when storage is blocked.
+        return false;
       }
     } else if (!(await save(value))) {
       setState((latest) => (latest?.owner === owner && latest.value === value ? previous : latest));
+      return false;
     }
+    return true;
   }
   return (
     <Context.Provider
