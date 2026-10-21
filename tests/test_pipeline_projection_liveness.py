@@ -33,6 +33,63 @@ def publish_blockers(database):
     assert overview_projection.refresh_overview_projections(database, limit=1, seed=False) == 1
 
 
+def test_truncate_after_article_backfill_replays_before_marking_coverage_complete(database):
+    with database.begin() as session:
+        articles = {add_article(session).id for _ in range(3)}
+        sources = {seed_source(session).id for _ in range(6)}
+    policy = pipeline_policy_version()
+    for _ in range(50):
+        project_batch(database, batch=2)
+        with database() as session:
+            state = session.get(ReadModelState, "pipeline").payload
+            if "article" not in state["pending_backfills"] and state["pending_backfills"]:
+                projected = set(
+                    session.scalars(
+                        select(PipelineProjection.entity_id).where(
+                            PipelineProjection.policy_version == policy,
+                            PipelineProjection.kind == "article",
+                        )
+                    )
+                )
+                assert projected == articles
+                break
+    else:
+        pytest.fail("Article coverage did not finish before the remaining source batches")
+    with database.begin() as session:
+        session.execute(text("TRUNCATE articles CASCADE"))
+    drain_pipeline(database, batch=2)
+    with database() as session:
+        projected = set(
+            session.execute(
+                select(PipelineProjection.kind, PipelineProjection.entity_id).where(
+                    PipelineProjection.policy_version == policy
+                )
+            )
+        )
+        assert projected == {("source", identifier) for identifier in sources}
+        assert session.get(ReadModelState, "pipeline").payload["backfill_complete"]
+        assert session.scalar(select(ReadModelEvent.id).limit(1)) is None
+
+
+def test_initial_policy_event_does_not_repeat_article_coverage(database, monkeypatch):
+    with database.begin() as session:
+        identifier = add_article(session).id
+        # The migration requests policy coverage before the worker initializes.
+        session.add(ReadModelEvent(kind="policy"))
+        # Remove row events so only the policy-triggered coverage evaluates it.
+        session.execute(text("DELETE FROM read_model_events WHERE kind = 'article'"))
+    original = pipeline_projection.article_rows
+    evaluated = []
+
+    def record(factory, identifiers, policy, now):
+        evaluated.extend(identifiers)
+        return original(factory, identifiers, policy, now)
+
+    monkeypatch.setattr(pipeline_projection, "article_rows", record)
+    drain_pipeline(database, batch=2)
+    assert evaluated == [identifier]
+
+
 @pytest.mark.parametrize("previous_policy", [False, True])
 def test_catalog_churn_publishes_full_coverage_after_bounded_orphan_cleanup(
     database, admin_client, monkeypatch, previous_policy

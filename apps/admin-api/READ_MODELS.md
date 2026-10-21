@@ -32,8 +32,10 @@ keyset fanout and replay when the catalog changes during a pass. Code, prompt,
 image/logo, source-policy, and settings fingerprints cause policy rebuilds beside
 the previous complete policy. Cutover follows complete entity coverage and bounded
 orphan cleanup. Catalog edits during that pass schedule another pass while the
-covered board remains available with rebuilding status. Obsolete policy rows and
-expired article terminal rows are pruned in bounded batches.
+covered board remains available with rebuilding status. A global invalidation after
+coverage has begun also schedules a follow-up pass, so concurrent truncation cannot
+leave deleted cards behind. The initial policy event is covered by the first pass.
+Obsolete policy rows and expired article terminal rows are pruned in bounded batches.
 
 Increment `PIPELINE_POLICY_VERSION` when changing lifecycle or card derivation
 without a corresponding prompt/settings version change. Increment the report

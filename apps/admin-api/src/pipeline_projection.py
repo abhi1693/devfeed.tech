@@ -286,6 +286,8 @@ def _initialize(session, policy, now):
             backfill_revision=_catalog_revision(session),
             backfill_started_at=now.isoformat(),
             backfill_complete=False,
+            backfill_progress=False,
+            policy_replay_required=False,
             obsolete_policies=sorted(obsolete - {policy}),
         )
         set_state(session, "pipeline", payload)
@@ -311,7 +313,13 @@ def _expand(session, events, batch, now):
                 state["backfill_revision"] = _catalog_revision(session)
                 state["backfill_started_at"] = now.isoformat()
                 state["backfill_complete"] = False
+                state["backfill_progress"] = False
+                state["policy_replay_required"] = False
                 continuations.extend(dict(kind=f"backfill_{target}") for target in work)
+            elif kind == "policy" and state.get("backfill_progress", True):
+                # A truncate has no row tombstones. Already covered entities need
+                # another pass and a new purge cutoff after this coverage finishes.
+                state["policy_replay_required"] = True
         elif kind.startswith("backfill_"):
             target = kind.removeprefix("backfill_")
             model_id = {
@@ -422,6 +430,8 @@ def project_batch(factory, *, batch=200, token=None, now=None):
                 enqueue_event(session, **continuation)
             acknowledge_events(session, event_ids)
             payload = planned_state
+            if payload.get("pending_backfills") and any(work.values()):
+                payload["backfill_progress"] = True
             pending = set(payload.get("pending_backfills", [])) - finished
             payload["pending_backfills"] = sorted(pending)
             # Event queues are coalesced at processing, not by global ID watermarks.
@@ -466,13 +476,15 @@ def project_batch(factory, *, batch=200, token=None, now=None):
                     payload["serving_policy"] = policy
                     payload["serving_generated_at"] = now.isoformat()
                     current_revision = _catalog_revision(session)
-                    payload["backfill_complete"] = (
-                        payload.get("backfill_revision") == current_revision
-                    )
+                    payload["backfill_complete"] = payload.get(
+                        "backfill_revision"
+                    ) == current_revision and not payload.get("policy_replay_required")
                     if not payload["backfill_complete"]:
                         payload["pending_backfills"] = ["article", "source", "candidate"]
                         payload["backfill_revision"] = current_revision
                         payload["backfill_started_at"] = utcnow().isoformat()
+                        payload["backfill_progress"] = False
+                        payload["policy_replay_required"] = False
                         for kind in ("article", "source", "candidate"):
                             enqueue_event(session, cast(EventKind, f"backfill_{kind}"))
             if payload.get("serving_policy") == policy:
