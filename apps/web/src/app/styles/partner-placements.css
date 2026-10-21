@@ -419,3 +419,37 @@
 .topbar-sponsorship-content {
   display: contents;
 }
+
+/* Feed inventory keeps its attribution and tracking inside the shared Stacked stream. */
+.partner-placement--stacked {
+  display: block;
+  padding: 0;
+}
+.partner-placement--stacked .partner-placement-link {
+  display: grid;
+  grid-template-columns: 88px minmax(0, 1fr);
+  align-items: center;
+  gap: 18px;
+  padding: 20px;
+  min-height: 150px;
+}
+.stacked-placement-thumbnail {
+  display: grid;
+  place-items: center;
+  width: 88px;
+  height: 72px;
+  overflow: hidden;
+  border-radius: 6px;
+  background: var(--muted);
+}
+.stacked-placement-thumbnail > img { width: 100%; height: 100%; object-fit: cover; }
+.stacked-placement-copy { min-width: 0; }
+.stacked-placement-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; color: var(--muted-foreground); font-size: 12px; }
+.stacked-placement-meta > span:first-child { min-width: 0; overflow-wrap: anywhere; }
+.stacked-placement-copy h2 { margin: 6px 0; font-size: 17px; line-height: 1.4; }
+.stacked-placement-copy .partner-placement-description { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; white-space: normal; }
+.stacked-placement-attribution { display: block; margin-top: 6px; font-size: 11px; color: var(--muted-foreground); overflow-wrap: anywhere; }
+@media (max-width: 640px) {
+  .partner-placement--stacked .partner-placement-link { grid-template-columns: 64px minmax(0, 1fr); gap: 12px; padding: 16px; }
+  .stacked-placement-thumbnail { width: 64px; height: 56px; }
+}

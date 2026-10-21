@@ -14,7 +14,13 @@ export const readerLayouts = [
     description: "Compact rows for scanning headlines.",
     available: true,
   },
-  { id: "stacked", label: "Stacked", available: false },
+  {
+    id: "stacked",
+    label: "Stacked",
+    value: "stacked",
+    description: "Headline, thumbnail, and a short description in each row.",
+    available: true,
+  },
   { id: "columns", label: "Columns", available: false },
 ] as const;
 

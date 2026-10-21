@@ -27,6 +27,7 @@ import { useReaderPromptCoordinator } from "./reader-prompts";
 import { displayHost } from "@/lib/feed-query";
 import { ArticleImage } from "./article-image";
 import { ArticleCard } from "./article-card";
+import { ArticleStackedRow } from "./article-stacked";
 import { CatalogIcon } from "./catalog-icon";
 import { EngagementProvider } from "./article-engagement";
 import { adLinkRel } from "@devfeed/ui/ad-link-rel";
@@ -37,7 +38,7 @@ const displayed = new Set<string>();
 export type PartnerPlacementContext = PlacementQuery;
 type Props = PartnerPlacementContext & {
   maxItems?: number;
-  layout?: "table";
+  layout?: "table" | "stacked";
   children?: (cards: ReactNode[], items: PartnerPlacement[], expired: boolean) => ReactNode;
   beforeDisplay?: () => void;
   afterDisplay?: () => void;
@@ -95,13 +96,14 @@ function Placement({
   active: boolean;
   visible: boolean;
   preserveSpace: boolean;
-  layout?: "table";
+  layout?: "table" | "stacked";
   tracking?: PartnerPlacementTrackingState;
 }) {
   const link = useRef<HTMLAnchorElement>(null);
   const article = useRef<HTMLElement>(null);
   const content = item.ad_format === "sponsored_content" ? item.article : null;
   const table = layout === "table" && item.ad_format === "feed";
+  const Content = layout === "stacked" ? ArticleStackedRow : ArticleCard;
   const card = preserveSpace && !["header_sponsorship", "engagement"].includes(item.ad_format);
   const image = item.image_url ?? item.image_variants[0]?.url;
   const platformName = item.platform?.name ?? item.partner_name;
@@ -114,7 +116,7 @@ function Placement({
     return content
       ? observePartnerPlacement(...args, "a.card-open-link, a.article-read-link")
       : observePartnerPlacement(...args);
-  }, [item, active, content, table, tracking]);
+  }, [item, active, content, layout, tracking]);
   useEffect(() => {
     if (content) rememberReaderArticles([content]);
   }, [content]);
@@ -188,7 +190,7 @@ function Placement({
   if (content)
     return (
       <EngagementProvider articleIds={[content.id]}>
-        <ArticleCard
+        <Content
           article={{
             ...content,
             sponsor_names: content.sponsor_names?.length
@@ -199,6 +201,40 @@ function Placement({
           promotion={{ productId: item.product_id, active, visible, preserveSpace }}
         />
       </EngagementProvider>
+    );
+  if (layout === "stacked")
+    return (
+      <article
+        className="article-stacked-row partner-placement partner-placement--stacked"
+        {...stateProps}
+      >
+        <a {...linkProps} className="partner-placement-link">
+          <div className="stacked-placement-thumbnail" aria-hidden="true">
+            <ArticleImage
+              src={image}
+              variants={item.image_variants}
+              sizes="88px"
+              label={item.name}
+              fallback={<ProductLogo key={item.logo_url} name={item.name} url={item.logo_url} />}
+            />
+          </div>
+          <div className="stacked-placement-copy">
+            <div className="stacked-placement-meta">
+              <span title={platformName}>{platformName}</span>
+              <span
+                id={sponsorshipId}
+                className="partner-placement-label"
+                data-promotion-kind="sponsored"
+              >
+                Sponsored
+              </span>
+            </div>
+            <h2>{item.name}</h2>
+            {item.tagline && <p className="partner-placement-description">{item.tagline}</p>}
+            {attribution && <span className="stacked-placement-attribution">{attribution}</span>}
+          </div>
+        </a>
+      </article>
     );
   return (
     <article

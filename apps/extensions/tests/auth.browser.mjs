@@ -5,6 +5,12 @@ import {
   readerRouteUrl,
 } from "../../../scripts/testing/article-view.mjs";
 import { checkReaderPreferences } from "../../../scripts/testing/reader-preferences.mjs";
+import {
+  checkStackedReader,
+  stackedReaderArticle,
+  stackedReaderFeed,
+} from "../../../scripts/testing/stacked-reader.mjs";
+import { withManagedImage, mockManagedImages } from "../../../scripts/testing/managed-images.mjs";
 import { checkSelectMenus } from "../../../scripts/testing/select-menus.mjs";
 import { checkAccessibility } from "../../web/tests/browser/accessibility.mjs";
 import { dailyFixture, checkMustReads } from "../../../scripts/testing/must-reads.mjs";
@@ -132,6 +138,7 @@ async function withAuthenticatedReader(t, check) {
     feedSettings: { view: "cards", columns: [], content_types: ["news"], languages: ["en"] },
     onboarding: false,
     catalogScroll: false,
+    stackedReader: false,
     onboardingSaved: false,
     rejectOnboardingPage: true,
     rejectTopics: true,
@@ -313,10 +320,11 @@ async function withAuthenticatedReader(t, check) {
       });
     }
     if (url.pathname === "/api/v1/feed")
-      return send({
-        items: [article],
-        next_cursor: null,
-      });
+      return send(
+        state.stackedReader
+          ? stackedReaderFeed(article, url.searchParams)
+          : { items: [article], next_cursor: null },
+      );
     if (url.pathname === "/api/v1/feed/options")
       return send({ content_types: ["news"], sources: [], languages: ["en"] });
     if (state.catalogScroll && ["/api/v1/topics", "/api/v1/sources"].includes(url.pathname)) {
@@ -592,6 +600,28 @@ async function withAuthenticatedReader(t, check) {
   });
   assert.deepEqual(errors, [], "browser and fixture errors");
 }
+
+test(
+  "stacked reader preserves presentation, preferences, and article actions",
+  { timeout: 180000 },
+  (t) =>
+    withAuthenticatedReader(t, async ({ page, context, state, article, signIn }) => {
+      withManagedImage(article);
+      await mockManagedImages(context);
+      Object.assign(article, stackedReaderArticle(article));
+      state.stackedReader = true;
+      const target = readerRouteUrl(page.url(), "/latest?sort=most_liked");
+      for (const signedIn of [false, true]) {
+        if (signedIn) await signIn();
+        await checkStackedReader(
+          page,
+          target,
+          `/tmp/devfeed-stacked-reader/${browser}-${signedIn ? "member" : "guest"}`,
+          { signedIn },
+        );
+      }
+    }),
+);
 
 test(
   "reader preferences persist and reconcile guest and account workspaces",

@@ -21,7 +21,14 @@ export async function openArticleViewSettings(page) {
 }
 
 export async function chooseArticleView(page, view, { keyboard = false } = {}) {
-  const name = { cards: "Grid", compact: "List", Grid: "Grid", List: "List" }[view];
+  const name = {
+    cards: "Grid",
+    compact: "List",
+    stacked: "Stacked",
+    Grid: "Grid",
+    List: "List",
+    Stacked: "Stacked",
+  }[view];
   assert.ok(name, `Unknown article layout: ${view}`);
   const region = page.getByRole("region", { name: "Article feed layout", exact: true });
   const radio = region.getByRole("radio", { name, exact: true });
@@ -148,7 +155,7 @@ export async function checkArticleViewSettings(
   const list = region.getByRole("radio", { name: "List", exact: true });
   const savedNotice = page.getByText("Article layout saved.", { exact: true });
   assert.equal(await grid.isChecked(), true);
-  assert.equal(await region.getByRole("radio").count(), 2);
+  assert.equal(await region.getByRole("radio").count(), 3);
   assert.equal(await page.getByRole("radio", { name: /^(Cards|Compact list)$/ }).count(), 0);
   assert.equal(await page.getByText("Changes save automatically.", { exact: true }).count(), 0);
   assert.equal(await savedNotice.isVisible(), false, "Loading a saved layout has no success toast");

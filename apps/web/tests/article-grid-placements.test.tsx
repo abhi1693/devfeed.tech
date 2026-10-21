@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import type { ReactNode } from "react";
-import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { ArticleGrid } from "@/components/article-grid";
 import { readerRequest } from "@/lib/reader-runtime";
@@ -8,7 +8,10 @@ import type { Article } from "@/lib/types";
 import { article } from "./fixtures";
 import { placement, sponsoredPlacement } from "./partner-placement-fixtures";
 
-const preferences = vi.hoisted(() => ({ view: "cards" as "cards" | "compact", loading: false }));
+const preferences = vi.hoisted(() => ({
+  view: "cards" as "cards" | "compact" | "stacked",
+  loading: false,
+}));
 vi.mock("@/components/feed-preferences", () => ({ useFeedPreferences: () => preferences }));
 vi.mock("@/components/user-account", () => ({
   useUser: () => ({ user: null, loading: false, sessionRevision: 0 }),
@@ -21,6 +24,28 @@ vi.mock("@/components/article-card", () => ({
   ArticleCard: ({ article: item }: { article: Article }) => (
     <article className="article-card">
       <a href={`/articles/${item.slug}`}>{item.title}</a>
+    </article>
+  ),
+}));
+vi.mock("@/components/article-stacked", () => ({
+  ArticleStackedFrame: ({ children }: { children: ReactNode }) => (
+    <section className="article-stacked">{children}</section>
+  ),
+  ArticleStackedRow: ({
+    article: item,
+    promotion,
+  }: {
+    article: Article;
+    promotion?: { productId: string };
+  }) => (
+    <article
+      className={`article-stacked-row${promotion ? " partner-placement" : ""}`}
+      data-product-id={promotion?.productId}
+      data-ad-format={promotion ? "sponsored_content" : undefined}
+    >
+      <a className="card-open-link" href={`/articles/${item.slug}`}>
+        {item.title}
+      </a>
     </article>
   ),
 }));
@@ -303,4 +328,67 @@ it("keeps article DOM and keyboard focus while optional products finish loading"
   await act(async () => resolve(Response.json({ items: [placement, sponsoredPlacement] })));
   expect(screen.getByRole("link", { name: articles[0].title })).toBe(first);
   expect(document.activeElement).toBe(first);
+});
+
+it("keeps Feed promotions inside the Stacked stream with truthful attribution and no article actions", async () => {
+  preferences.view = "stacked";
+  const view = render(<ArticleGrid articles={articles} placements={context} />);
+  await screen.findByRole("link", { name: placement.name });
+  const stream = view.container.querySelector(".article-stacked")!;
+  expect(stream.children).toHaveLength(26);
+  expect(stream.children[4].getAttribute("data-product-id")).toBe(placement.product_id);
+  expect(stream.children[13].getAttribute("data-product-id")).toBe(sponsoredPlacement.product_id);
+  const product = stream.querySelector(".partner-placement--stacked")!;
+  expect(product.querySelector("h2")?.textContent).toBe(placement.name);
+  expect(product.querySelector(".partner-placement-description")?.textContent).toBe(
+    placement.tagline,
+  );
+  expect(product.querySelector('[data-promotion-kind="sponsored"]')?.textContent).toBe("Sponsored");
+  expect(product.querySelector("time, button")).toBeNull();
+  expect(product.querySelector("a")?.getAttribute("rel")).toContain("nofollow");
+  expect(
+    [...stream.querySelectorAll(".article-stacked-row:not(.partner-placement)")].map(
+      (row) => row.textContent,
+    ),
+  ).toEqual(articles.map((item) => item.title));
+});
+
+it("retains sponsored-content eligibility in Stacked and removes the repeated organic article", async () => {
+  preferences.view = "stacked";
+  const promoted = { ...articles[8], topics: [] };
+  // A first-page delivery can overlap an organic article appended by a later page.
+  vi.mocked(readerRequest).mockResolvedValueOnce(
+    Response.json({
+      items: [
+        {
+          ...sponsoredPlacement,
+          ad_format: "sponsored_content",
+          url: `/articles/${promoted.slug}`,
+          article: promoted,
+        },
+      ],
+    }),
+  );
+  const view = render(
+    <ArticleGrid
+      articles={articles}
+      placements={{
+        ...context,
+        article_ids: articles.slice(0, 4).map((item) => item.id),
+        ad_formats: ["feed", "sponsored_content"],
+      }}
+      placementArticleCount={4}
+    />,
+  );
+  await waitFor(() =>
+    expect(view.container.querySelectorAll('[data-ad-format="sponsored_content"]')).toHaveLength(1),
+  );
+  const stream = view.container.querySelector(".article-stacked")!;
+  expect(JSON.parse(String(vi.mocked(readerRequest).mock.calls[0][1]?.body)).ad_formats).toEqual([
+    "feed",
+    "sponsored_content",
+  ]);
+  expect(stream.querySelectorAll('[data-ad-format="sponsored_content"]')).toHaveLength(1);
+  expect(screen.getAllByRole("link", { name: promoted.title })).toHaveLength(1);
+  expect(stream.querySelectorAll(".article-stacked-row:not(.partner-placement)")).toHaveLength(23);
 });

@@ -9,14 +9,15 @@ and all six settings sections use local hash routes. Publisher links and website
 sign-in open a separate tab. Chrome's own new-tab footer is browser UI and is not
 part of the extension's layout.
 
-**Settings → Appearance → Article feed layout** selects Grid or List for every
+**Settings → Appearance → Article feed layout** selects Grid, List, or Stacked for every
 article feed. Signed-in readers open **Appearance** from their avatar menu.
 Saved changes are confirmed with a toast.
 Both browsers share the web reader's layout controls and saved
 preference handling. Feed pages do not have separate view selectors.
 Signing in always loads account preferences, including new-account defaults, while preserving
 the browser's guest choice for sign-out. The saved workspace supports up to 12 ordered columns;
-Grid and List remain the available layouts.
+Grid, List, and Stacked are available through the same saved preference. Stacked reuses
+article previews, sharing, bookmarks, filtering, and pagination in both browsers.
 
 Transport eligibility and request policies come from generated operation definitions.
 Run `npm run web:generate` after user API or public reader binding changes. Private
@@ -167,13 +168,14 @@ backend services.
 
 ## Reader parity
 
-Grid/List icons beside Filters share the website's article layout control. Grid is
-the default; List uses compact rows across My feed, Latest, topic/source feeds,
-Trending and Read later. The last two expose the control in their headings. Guest
-choices stay in the extension's browser storage; signed-in choices use account feed
-settings without changing content or language selections. Loaded pages, bookmarks,
-engagement data and preview navigation survive layout changes. `/trending` is a
-local reader route in both extensions.
+Choose Grid, List, or Stacked in **Settings → Appearance → Article feed layout**.
+Grid is the default. List uses compact rows, while Stacked places thumbnails,
+metadata, headlines, descriptions, and article actions in one vertical stream.
+The choice applies to My feed, Latest, topic/source/tag feeds, Trending, and Read
+later. Guest choices stay in the extension's browser storage; signed-in choices
+use account feed settings without changing content or language selections. All
+three views reuse the existing feed loading, bookmarks, engagement, and preview
+navigation. `/trending` is a local reader route in both extensions.
 
 My feed uses `/`, the public latest feed uses `/latest`, and signed-out new tabs
 redirect to `/latest` without Read later navigation. Both extensions use the web

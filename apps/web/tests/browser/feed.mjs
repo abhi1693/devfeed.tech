@@ -37,6 +37,11 @@ import { checkArticleViews, compactListArticle, compactLoadingGate } from "./art
 import { checkCompactLoading } from "../../../../scripts/testing/compact-loading.mjs";
 import { checkArticleViewSettings } from "../../../../scripts/testing/article-view.mjs";
 import { checkReaderPreferences } from "../../../../scripts/testing/reader-preferences.mjs";
+import {
+  checkStackedReader,
+  stackedReaderArticle,
+  stackedReaderFeed,
+} from "../../../../scripts/testing/stacked-reader.mjs";
 import { checkSourceFilter, longFilterSource } from "../../../../scripts/testing/select-menus.mjs";
 import { checkAccessibility } from "./accessibility.mjs";
 import { dailyFixture, checkMustReads } from "../../../../scripts/testing/must-reads.mjs";
@@ -145,7 +150,7 @@ import {
 } from "../../../../scripts/testing/reader-dom.mjs";
 
 const root = fileURLToPath(new URL("../../../../", import.meta.url));
-async function createReaderFixture(t, { thumbnailFeed = false } = {}) {
+async function createReaderFixture(t, { thumbnailFeed = false, stackedFeed = false } = {}) {
   let app, browser, fixture, userFixture;
   let logs = "";
   t.after(async () => {
@@ -179,6 +184,7 @@ async function createReaderFixture(t, { thumbnailFeed = false } = {}) {
   topic.id = "55555555-5555-4555-8555-555555555555";
   withManagedImage(article);
   withManagedSourceLogo(article.sources[0]);
+  if (stackedFeed) Object.assign(article, stackedReaderArticle(article));
   const mustReadsFixture = dailyFixture(article);
   const readingFixture = readingStreakFixture();
   const mutationFixture = userMutationFixture({ articles: [article], topic });
@@ -702,6 +708,8 @@ async function createReaderFixture(t, { thumbnailFeed = false } = {}) {
       ["/v1/feed", "/v1/user/feed", "/v1/user/trending"].includes(path)
     )
       body = { ...body, items: body.items.map(compactListArticle) };
+    if (stackedFeed && path === "/v1/feed")
+      body = stackedReaderFeed(article, requestUrl.searchParams);
     res.setHeader("Content-Type", "application/json");
     res.end(JSON.stringify(body));
   });
@@ -1306,6 +1314,25 @@ async function withReaderPage(browser, check, options = {}) {
     await context.close();
   }
 }
+
+test(
+  "stacked reader preserves presentation, preferences, and article actions",
+  { timeout: 180000 },
+  async (t) => {
+    const { browser, origin } = await createReaderFixture(t, { stackedFeed: true });
+    for (const signedIn of [false, true])
+      await withReaderPage(browser, async (page, context) => {
+        if (signedIn)
+          await context.addCookies([{ name: "devfeed_user_session", value: "valid", url: origin }]);
+        await checkStackedReader(
+          page,
+          `${origin}/latest?sort=most_liked`,
+          `/tmp/devfeed-stacked-reader/web-${signedIn ? "member" : "guest"}`,
+          { signedIn },
+        );
+      });
+  },
+);
 
 test(
   "reader preferences persist and reconcile guest and account workspaces",

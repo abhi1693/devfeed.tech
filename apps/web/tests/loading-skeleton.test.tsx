@@ -4,7 +4,7 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { LoadingSkeleton } from "@/components/loading-skeleton";
 
 const preferences = vi.hoisted(() => ({
-  view: "compact" as "compact" | "cards",
+  view: "compact" as "compact" | "cards" | "stacked",
   loading: false,
 }));
 vi.mock("@/components/feed-preferences", () => ({ useFeedPreferences: () => preferences }));
@@ -65,3 +65,16 @@ it.each(["form", "topics", "sources"] as const)(
     if (kind !== "form") expect(container.querySelectorAll(".skeleton-topic-icon")).toHaveLength(6);
   },
 );
+
+it("uses shared horizontal placeholders for Stacked without exposing interactive controls", () => {
+  preferences.view = "stacked";
+  const { container } = render(<LoadingSkeleton label="Loading more articles…" />);
+  expect(screen.getByRole("status", { name: "Loading more articles…" })).toBeTruthy();
+  expect(screen.queryByRole("button")).toBeNull();
+  expect(screen.queryByRole("link")).toBeNull();
+  expect(container.querySelector('.loading-skeleton.stacked[aria-hidden="true"]')).toBeTruthy();
+  expect(container.querySelectorAll(".skeleton-stacked-row")).toHaveLength(6);
+  expect(container.querySelectorAll(".skeleton-stacked-row .skeleton-image")).toHaveLength(6);
+  expect(container.querySelectorAll(".skeleton-stacked-copy .skeleton-line")).toHaveLength(18);
+  expect(container.querySelector(".article-table")).toBeNull();
+});

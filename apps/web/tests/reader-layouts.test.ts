@@ -6,18 +6,18 @@ it("defines the four reader layouts while exposing only implemented choices", ()
   expect(availableReaderLayouts.map(({ id, label, value }) => ({ id, label, value }))).toEqual([
     { id: "grid", label: "Grid", value: "cards" },
     { id: "list", label: "List", value: "compact" },
+    { id: "stacked", label: "Stacked", value: "stacked" },
   ]);
   expect(readerLayouts.filter(({ available }) => !available).map(({ id }) => id)).toEqual([
-    "stacked",
     "columns",
   ]);
 });
 
-it.each(["cards", "compact"])("preserves existing saved %s preferences", (view) => {
+it.each(["cards", "compact", "stacked"])("preserves existing saved %s preferences", (view) => {
   expect(normalizeFeedView(view)).toBe(view);
 });
 
-it.each([undefined, null, "", "grid", "list", "stacked", "columns", "unknown", 1, {}, []])(
+it.each([undefined, null, "", "grid", "list", "columns", "unknown", 1, {}, []])(
   "defaults unsupported saved values to the available Grid layout (%j)",
   (view) => {
     expect(normalizeFeedView(view)).toBe("cards");

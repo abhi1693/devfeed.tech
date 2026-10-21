@@ -12,13 +12,14 @@ export function LoadingSkeleton({
 }) {
   const { view, loading } = useFeedPreferences();
   const compact = kind === "feed" && view === "compact";
+  const stacked = kind === "feed" && view === "stacked";
   return (
     <div role="status" aria-label={label}>
       <span className="sr-only">{label}</span>
       {kind === "feed" && loading ? null : (
         <div
           aria-hidden="true"
-          className={`loading-skeleton ${kind}${kind === "topics" ? " topic-choice-grid" : ""}${kind === "sources" ? " source-choice-grid" : ""}${compact ? " compact" : ""}`}
+          className={`loading-skeleton ${kind}${kind === "topics" ? " topic-choice-grid" : ""}${kind === "sources" ? " source-choice-grid" : ""}${compact ? " compact" : ""}${stacked ? " stacked" : ""}`}
         >
           {compact ? (
             <ArticleTableFrame showHeader>
@@ -41,6 +42,18 @@ export function LoadingSkeleton({
                 </tr>
               ))}
             </ArticleTableFrame>
+          ) : stacked ? (
+            Array.from({ length: 6 }, (_, index) => (
+              <div key={index} className="skeleton-stacked-row">
+                <div className="shimmer skeleton-image" />
+                <div className="skeleton-stacked-copy">
+                  <div className="shimmer skeleton-line short" />
+                  <div className="shimmer skeleton-line" />
+                  <div className="shimmer skeleton-line" />
+                </div>
+                <span className="shimmer skeleton-bookmark" />
+              </div>
+            ))
           ) : (
             Array.from({ length: kind === "form" ? 3 : 6 }, (_, index) => (
               <div key={index} className="skeleton-item">

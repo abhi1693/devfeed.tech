@@ -9,6 +9,7 @@
 @import "@devfeed/theme/notifications.css";
 @import "./styles/reader-layout.css";
 @import "./styles/feed.css";
+@import "./styles/article-stacked.css";
 @import "./styles/reader-responsive.css";
 @import "./styles/onboarding.css";
 @import "./styles/article-card-links.css";

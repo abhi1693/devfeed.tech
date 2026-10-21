@@ -56,13 +56,17 @@ it("applies Appearance layout globally while retaining pages, reading sequence, 
     opens: 7,
     bookmarked: false,
   };
+  const columns = [
+    { id: "11111111-1111-4111-8111-111111111111", feed: { kind: "latest" } },
+    { id: "33333333-3333-4333-8333-333333333333", feed: { kind: "recommended" } },
+  ];
   const fetcher = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = new URL(String(input), "http://localhost");
     if (url.pathname.endsWith("settings/feed"))
       return Response.json(
         init?.method === "PUT"
           ? JSON.parse(String(init.body))
-          : { view: "cards", content_types: ["news"], languages: ["en"] },
+          : { view: "cards", columns, content_types: ["news"], languages: ["en"] },
       );
     if (url.pathname === "/api/v1/feed")
       return Response.json({ items: [second], next_cursor: null });
@@ -73,6 +77,8 @@ it("applies Appearance layout globally while retaining pages, reading sequence, 
     if (url.pathname.endsWith("/bookmark"))
       return Response.json({ article_id: article.id, bookmarked: true });
     if (url.pathname.endsWith("/open")) return Response.json({ ...firstEngagement, opens: 8 });
+    if (url.pathname.endsWith("/like"))
+      return Response.json({ ...firstEngagement, liked: true, likes: 3, opens: 8 });
     throw new Error(`Unexpected request: ${url.pathname}`);
   });
   vi.stubGlobal("fetch", fetcher);
@@ -105,6 +111,17 @@ it("applies Appearance layout globally while retaining pages, reading sequence, 
   original.addEventListener("click", (event) => event.preventDefault(), { once: true });
   fireEvent.click(original);
   await screen.findAllByRole("img", { name: "8 clicks to the original article" });
+  fireEvent.click(screen.getAllByRole("button", { name: "Like article, 2 likes" })[0]);
+  await screen.findByRole("button", { name: "Unlike article, 3 likes" });
+  const engagementReads = fetcher.mock.calls.filter(([input]) =>
+    new URL(String(input), "http://localhost").pathname.endsWith("engagement"),
+  ).length;
+  const expectedOrder = [article.title, second.title, other.title];
+  const articleOrder = () =>
+    screen
+      .getAllByRole("link")
+      .map((link) => link.textContent)
+      .filter((title) => expectedOrder.includes(title!));
   await act(async () => fireEvent.click(list));
   expect(screen.getAllByRole("table")).toHaveLength(2);
   expect(screen.getByRole("link", { name: second.title })).toBeTruthy();
@@ -113,12 +130,44 @@ it("applies Appearance layout globally while retaining pages, reading sequence, 
     "true",
   );
   expect(screen.getByLabelText("Reading sequence").textContent).toBe(sequence);
+  expect(articleOrder()).toEqual(expectedOrder);
+  await act(async () => fireEvent.click(screen.getByRole("radio", { name: "Stacked" })));
+  expect(screen.getAllByRole("region", { name: "Articles in stacked view" })).toHaveLength(2);
+  expect(screen.queryByRole("table")).toBeNull();
+  expect(articleOrder()).toEqual(expectedOrder);
+  expect(
+    screen.getByRole("button", { name: "Unlike article, 3 likes" }).getAttribute("aria-pressed"),
+  ).toBe("true");
+  expect(screen.getByRole("button", { name: "Remove bookmark" }).getAttribute("aria-pressed")).toBe(
+    "true",
+  );
+  expect(screen.getByRole("img", { name: "8 clicks to the original article" })).toBeTruthy();
+  expect(screen.getByLabelText("Reading sequence").textContent).toBe(sequence);
   await act(async () => fireEvent.click(screen.getByRole("radio", { name: "Grid" })));
   expect(
     screen.getAllByRole("img", { name: "8 clicks to the original article" }).length,
   ).toBeGreaterThan(0);
   expect(screen.getByRole("button", { name: "Remove bookmark" })).toBeTruthy();
   expect(screen.getByRole("heading", { name: second.title })).toBeTruthy();
+  expect(screen.getByRole("button", { name: "Unlike article, 3 likes" })).toBeTruthy();
+  expect(articleOrder()).toEqual(expectedOrder);
+  expect(
+    fetcher.mock.calls.filter(([input]) =>
+      new URL(String(input), "http://localhost").pathname.endsWith("engagement"),
+    ),
+  ).toHaveLength(engagementReads);
+  expect(
+    fetcher.mock.calls
+      .filter(([input, init]) => String(input).endsWith("settings/feed") && init?.method === "PUT")
+      .map(([, init]) => JSON.parse(String(init?.body))),
+  ).toEqual(
+    ["compact", "stacked", "cards"].map((view) => ({
+      view,
+      columns,
+      content_types: ["news"],
+      languages: ["en"],
+    })),
+  );
   const feedRequests = fetcher.mock.calls.filter(([input]) =>
     String(input).startsWith("/api/v1/feed?"),
   );

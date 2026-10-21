@@ -104,24 +104,27 @@ small script applies the saved `devfeed:theme` local preference before rendering
 otherwise the site follows the operating system. Changes synchronize across tabs,
 and the toggle remains usable when local storage is blocked.
 
-Choose **Grid** or **List** in **Settings → Appearance → Article feed layout**.
+Choose **Grid**, **List**, or **Stacked** in **Settings → Appearance → Article feed layout**.
 Signed-in readers open **Appearance** from their avatar menu.
 Saved changes are confirmed with a toast.
 One saved choice applies to My feed, Latest, Trending, Read later, and topic, tag,
 and source feeds. Guests retain their choice in the browser; signed-in readers
 reuse their account's existing feed preference. Feed settings manage content types
-and languages without changing that layout.
+and languages without changing that layout. Stacked presents the same loaded articles as one
+vertical stream with thumbnails, source and publication metadata, a short description, and
+shared article actions. It uses the same feed loading and engagement state as Grid and List,
+and shows summary links only when an overview is available.
 
 Account preferences take priority whenever a reader signs in, including a new account's
 defaults. Guest preferences remain in that browser and return after sign-out; they are
 never copied into an account automatically. Saved preferences can retain up to 12 ordered
-feed columns for future layouts, while the current selector continues to offer Grid and List.
+feed columns for future layouts, while the current selector offers Grid, List, and Stacked.
 Each column has a unique UUID and selects Latest, Recommended, or a source, topic or tag by
 UUID. Deleted or unavailable selections remain saved. Existing account JSON stores these
 preferences; updates that omit columns preserve the workspace, and an empty list clears it.
 
 The shared adapter reads guest state from `devfeed:reader-preferences:guest` as
-`{version: 1, view, columns}` and supports the old `devfeed:feed-view:guest` Grid/List key.
+`{version: 1, view, columns}` and supports the old `devfeed:feed-view:guest` layout key.
 Guest saves update both keys, with an available layout in the old key. Unsupported versions
 are retained and block writes. Malformed saved columns are pruned, duplicate column IDs retain
 the first valid entry, and unknown layouts fall back to Grid. Storage denial keeps layouts
@@ -440,18 +443,20 @@ OAuth ingress routes and user-service/Redis configuration.
 
 ### Article views
 
-Use the Grid and List icons beside Filters to switch layouts without resetting the
-loaded articles, order or pagination. The same choice applies to My feed, Latest,
-topic/source feeds, Trending and Read later; feeds without filters show the control
-in their heading. Grid is the default. Guests keep their choice in this browser,
-and signed-in readers save it to the existing feed preference for their account.
+Choose Grid, List, or Stacked in **Settings → Appearance → Article feed layout**.
+The same choice applies to My feed, Latest, topic/source/tag feeds, Trending, and
+Read later. Grid is the default. Guests keep their choice in this browser, and
+signed-in readers save it to the existing feed preference for their account.
 Content and language selections stay unchanged. Failed saves restore the previous
 layout with a retryable message.
 
 List displays compact rows with article titles, source, publication date and article
 actions. Narrow lists keep source/date details beneath the title and a 44px bookmark
-target, while omitting secondary engagement controls and topic links. Layout changes
-retain loaded engagement data and the article preview's background list.
+target, while omitting secondary engagement controls and topic links. Stacked adds small
+left thumbnails, source/date/topic metadata, clamped headlines and descriptions, and
+shared summary, sharing, and bookmark controls. Its narrow-screen action toolbar
+spans the row and uses 44px targets on touch devices. Both reuse the existing
+article preview and feed interaction state.
 
 ### Responsive article cards
 

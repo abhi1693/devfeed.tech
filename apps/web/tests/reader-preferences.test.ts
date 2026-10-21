@@ -38,7 +38,7 @@ it.each(["cards", "compact", "stacked", "columns"])(
     const result = normalizeReaderPreferences({ ...settings, view, columns: [latest(1)] });
     expect(result.view).toBe(view);
     expect(result.columns).toEqual([latest(1)]);
-    expect(normalizeFeedView(result.view)).toBe(view === "compact" ? "compact" : "cards");
+    expect(normalizeFeedView(result.view)).toBe(view === "columns" ? "cards" : view);
     expect(validateReaderPreferences(result)).toBe(true);
   },
 );
@@ -181,14 +181,17 @@ it.each(["cards", "compact", "stacked", "columns"])(
   },
 );
 
-it.each(["cards", "compact", "unknown", null])("reads the legacy guest layout %s", (view) => {
-  const target = storage(view === null ? {} : { [legacyGuestFeedViewKey]: view });
-  expect(readGuestReaderPreferences(target).value).toMatchObject({
-    view: view === "compact" ? "compact" : "cards",
-    columns: [],
-  });
-  expect(target.setItem).not.toHaveBeenCalled();
-});
+it.each(["cards", "compact", "stacked", "unknown", null])(
+  "reads the legacy guest layout %s",
+  (view) => {
+    const target = storage(view === null ? {} : { [legacyGuestFeedViewKey]: view });
+    expect(readGuestReaderPreferences(target).value).toMatchObject({
+      view: view === "compact" || view === "stacked" ? view : "cards",
+      columns: [],
+    });
+    expect(target.setItem).not.toHaveBeenCalled();
+  },
+);
 
 it.each(["{invalid", "[]", "null", '{"view":"columns"}'])(
   "recovers malformed versioned storage using the legacy layout: %s",
@@ -241,9 +244,7 @@ it.each(["cards", "compact", "stacked", "columns"])(
       view,
       columns: [latest(1)],
     });
-    expect(target.values.get(legacyGuestFeedViewKey)).toBe(
-      view === "compact" ? "compact" : "cards",
-    );
+    expect(target.values.get(legacyGuestFeedViewKey)).toBe(view === "columns" ? "cards" : view);
     expect(readGuestReaderPreferences(target).value).toMatchObject({ view, columns: [latest(1)] });
   },
 );

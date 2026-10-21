@@ -212,6 +212,7 @@ export async function checkReaderPreferences(page, target, { session, csrfToken 
     assert.deepEqual(await storedGuest(), guestWorkspace);
 
     for (const savedView of ["stacked", "columns"]) {
+      const renderedView = savedView === "stacked" ? "Stacked" : "Grid";
       accounts.set(existingAccount, {
         view: savedView,
         columns: structuredClone(accountColumns),
@@ -221,11 +222,14 @@ export async function checkReaderPreferences(page, target, { session, csrfToken 
       await changeAccount(existingAccount);
       await assertView(
         page,
-        "Grid",
-        `The saved ${savedView} layout uses the available Grid renderer`,
+        renderedView,
+        `The saved ${savedView} layout uses its available renderer`,
       );
       await page.goto(target);
-      await page.locator(".article-card:visible").first().waitFor();
+      await page
+        .locator(savedView === "stacked" ? ".article-stacked-row:visible" : ".article-card:visible")
+        .first()
+        .waitFor();
       await page.goto(readerRouteUrl(target, "/settings/feed"));
       const feed = page.getByRole("region", { name: "Feed preferences", exact: true });
       await feed.waitFor();
@@ -243,7 +247,11 @@ export async function checkReaderPreferences(page, target, { session, csrfToken 
       const french = page.getByRole("checkbox", { name: "French", exact: true });
       await french.waitFor();
       assert.equal(await french.isChecked(), true);
-      await assertView(page, "Grid", "Saving languages retains the stored layout and its fallback");
+      await assertView(
+        page,
+        renderedView,
+        "Saving languages retains the stored layout and its available renderer",
+      );
       await chooseArticleView(page, "compact");
       await chooseArticleView(page, "cards");
       assert.equal(writes.at(-1).payload.view, "cards", "Selecting Grid saves the explicit layout");

@@ -6,6 +6,7 @@ import { safeExternalUrl } from "@/lib/feed-query";
 import { EngagementProvider } from "./article-engagement";
 import { ArticleCard } from "./article-card";
 import { ArticleTableFrame, ArticleTableRow } from "./article-table";
+import { ArticleStackedFrame, ArticleStackedRow } from "./article-stacked";
 import { useFeedPreferences } from "./feed-preferences";
 import { DevCardPromo } from "./dev-card-promo";
 import { LoadingSkeleton } from "./loading-skeleton";
@@ -37,6 +38,7 @@ export function ArticleGrid({
 }) {
   const { view, loading } = useFeedPreferences();
   const compact = view === "compact";
+  const stacked = view === "stacked";
   const requestedFormats: PartnerPlacement["ad_format"][] = placements?.ad_formats ?? ["feed"];
   const placementFormats = requestedFormats.filter(
     (format) => format === "feed" || (!compact && format === "sponsored_content"),
@@ -46,7 +48,9 @@ export function ArticleGrid({
     ref: gridRef,
     beforeDisplay,
     afterDisplay,
-  } = useReadingAnchor(".article-card, .article-list-row:not(.partner-placement)");
+  } = useReadingAnchor(
+    ".article-card, .article-list-row:not(.partner-placement), .article-stacked-row:not(.partner-placement)",
+  );
   useEffect(() => rememberReaderArticles(articles), [articles]);
   const recommendations = Object.fromEntries(
     Object.entries(reasons ?? {}).map(([id, reason]) => [
@@ -78,6 +82,13 @@ export function ArticleGrid({
       return [
         compact ? (
           <ArticleTableRow key={article.id} article={article} />
+        ) : stacked ? (
+          <ArticleStackedRow
+            key={article.id}
+            article={article}
+            recommendation={recommendations[article.id]}
+            priority={priority && index === firstImage}
+          />
         ) : (
           <ArticleCard
             key={article.id}
@@ -93,6 +104,8 @@ export function ArticleGrid({
       <div ref={gridRef} className="article-placement-feed">
         {compact ? (
           <ArticleTableFrame showHeader={priority}>{rows}</ArticleTableFrame>
+        ) : stacked ? (
+          <ArticleStackedFrame>{rows}</ArticleStackedFrame>
         ) : (
           <div className="article-grid">{rows}</div>
         )}
@@ -106,7 +119,7 @@ export function ArticleGrid({
         <PartnerPlacements
           {...placements}
           ad_formats={placementFormats}
-          layout={compact ? "table" : undefined}
+          layout={compact ? "table" : stacked ? "stacked" : undefined}
           maxItems={placementsReady ? slots.length : 0}
           beforeDisplay={beforeDisplay}
           afterDisplay={afterDisplay}

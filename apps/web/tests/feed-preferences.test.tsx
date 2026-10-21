@@ -102,11 +102,11 @@ beforeEach(() => {
 it.each([
   ["guest", "cards", "Grid"],
   ["guest", "compact", "List"],
-  ["guest", "stacked", "Grid"],
+  ["guest", "stacked", "Stacked"],
   ["guest", "columns", "Grid"],
   ["account", "cards", "Grid"],
   ["account", "compact", "List"],
-  ["account", "stacked", "Grid"],
+  ["account", "stacked", "Stacked"],
   ["account", "columns", "Grid"],
 ])("restores %s preference %s using only available layouts", async (owner, view, selected) => {
   session.user = owner === "account" ? account : null;
@@ -123,9 +123,11 @@ it.each([
   expect(screen.getAllByRole("radio").map((radio) => radio.getAttribute("aria-label"))).toEqual([
     "Grid",
     "List",
+    "Stacked",
   ]);
-  expect(screen.queryByRole("radio", { name: "Stacked" })).toBeNull();
   expect(screen.queryByRole("radio", { name: "Columns" })).toBeNull();
+  if (selected === "Stacked")
+    expect(screen.getAllByRole("region", { name: "Articles in stacked view" })).toHaveLength(2);
   expect(fetcher).toHaveBeenCalledTimes(owner === "account" ? 1 : 0);
 });
 
@@ -635,6 +637,9 @@ it.each(["stacked", "columns"])(
     render(<App />);
     await screen.findByRole("checkbox", { name: "News" });
     expect(screen.queryByRole("table")).toBeNull();
+    expect(screen.queryAllByRole("region", { name: "Articles in stacked view" })).toHaveLength(
+      view === "stacked" ? 2 : 0,
+    );
     expect(screen.getByText(article.title)).toBeTruthy();
     fireEvent.change(screen.getByRole("searchbox", { name: "Find a language" }), {
       target: { value: "French" },
@@ -649,32 +654,35 @@ it.each(["stacked", "columns"])(
   },
 );
 
-it("persists guest column additions and ordering across provider remounts", async () => {
-  localStorage.setItem("devfeed:feed-view:guest", "compact");
-  const fetcher = vi.fn();
-  vi.stubGlobal("fetch", fetcher);
-  const { WorkspaceApp, preferences } = workspaceHarness();
-  let app = render(<WorkspaceApp />);
-  await waitFor(() => expect(preferences().loading).toBe(false));
-  await act(async () => expect(await preferences().setColumns(workspaceColumns)).toBe(true));
-  app.unmount();
-  app = render(<WorkspaceApp />);
-  await waitFor(() => expect(preferences().loading).toBe(false));
-  expect(preferences().view).toBe("compact");
-  expect(preferences().columns).toEqual(workspaceColumns);
-  const reordered = [workspaceColumns[2], workspaceColumns[0]];
-  await act(async () => expect(await preferences().setColumns(reordered)).toBe(true));
-  app.unmount();
-  render(<WorkspaceApp />);
-  await waitFor(() => expect(preferences().loading).toBe(false));
-  expect(preferences().columns).toEqual(reordered);
-  expect(JSON.parse(localStorage.getItem(guestReaderPreferencesKey)!)).toEqual({
-    version: 1,
-    view: "compact",
-    columns: reordered,
-  });
-  expect(fetcher).not.toHaveBeenCalled();
-});
+it.each(["compact", "stacked"])(
+  "persists guest %s layout and column ordering across provider remounts",
+  async (view) => {
+    localStorage.setItem("devfeed:feed-view:guest", view);
+    const fetcher = vi.fn();
+    vi.stubGlobal("fetch", fetcher);
+    const { WorkspaceApp, preferences } = workspaceHarness();
+    let app = render(<WorkspaceApp />);
+    await waitFor(() => expect(preferences().loading).toBe(false));
+    await act(async () => expect(await preferences().setColumns(workspaceColumns)).toBe(true));
+    app.unmount();
+    app = render(<WorkspaceApp />);
+    await waitFor(() => expect(preferences().loading).toBe(false));
+    expect(preferences().view).toBe(view);
+    expect(preferences().columns).toEqual(workspaceColumns);
+    const reordered = [workspaceColumns[2], workspaceColumns[0]];
+    await act(async () => expect(await preferences().setColumns(reordered)).toBe(true));
+    app.unmount();
+    render(<WorkspaceApp />);
+    await waitFor(() => expect(preferences().loading).toBe(false));
+    expect(preferences().columns).toEqual(reordered);
+    expect(JSON.parse(localStorage.getItem(guestReaderPreferencesKey)!)).toEqual({
+      version: 1,
+      view,
+      columns: reordered,
+    });
+    expect(fetcher).not.toHaveBeenCalled();
+  },
+);
 
 it("rolls back rejected column saves without losing the stored layout or existing workspace", async () => {
   session.user = account;
