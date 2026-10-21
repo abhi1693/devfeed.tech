@@ -4,6 +4,7 @@ import {
   checkArticleViewSettings,
   readerRouteUrl,
 } from "../../../scripts/testing/article-view.mjs";
+import { checkReaderPreferences } from "../../../scripts/testing/reader-preferences.mjs";
 import { checkSelectMenus } from "../../../scripts/testing/select-menus.mjs";
 import { checkAccessibility } from "../../web/tests/browser/accessibility.mjs";
 import { dailyFixture, checkMustReads } from "../../../scripts/testing/must-reads.mjs";
@@ -128,7 +129,7 @@ async function withAuthenticatedReader(t, check) {
     navigationStreakDays: null,
     notificationCount: null,
     avatarCheck: undefined,
-    feedSettings: { view: "cards", content_types: ["news"], languages: ["en"] },
+    feedSettings: { view: "cards", columns: [], content_types: ["news"], languages: ["en"] },
     onboarding: false,
     catalogScroll: false,
     onboardingSaved: false,
@@ -591,6 +592,25 @@ async function withAuthenticatedReader(t, check) {
   });
   assert.deepEqual(errors, [], "browser and fixture errors");
 }
+
+test(
+  "reader preferences persist and reconcile guest and account workspaces",
+  { timeout: 180000 },
+  (t) =>
+    withAuthenticatedReader(t, async ({ page, context, state, user, signIn }) => {
+      await checkReaderPreferences(page, readerRouteUrl(page.url(), "/latest"), {
+        csrfToken: user.csrf_token,
+        session: async (account) => {
+          if (account) await signIn();
+          else {
+            state.active = false;
+            await context.clearCookies();
+            await page.reload();
+          }
+        },
+      });
+    }),
+);
 
 test("article layouts save in Appearance for guests and members", { timeout: 180000 }, (t) =>
   withAuthenticatedReader(t, async ({ page, signIn }) => {

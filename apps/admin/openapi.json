@@ -5599,6 +5599,24 @@
         "title": "Dashboard",
         "type": "object"
       },
+      "DefaultColumnFeed": {
+        "additionalProperties": false,
+        "properties": {
+          "kind": {
+            "enum": [
+              "latest",
+              "recommended"
+            ],
+            "title": "Kind",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind"
+        ],
+        "title": "DefaultColumnFeed",
+        "type": "object"
+      },
       "DefaultSettings": {
         "additionalProperties": false,
         "properties": {
@@ -6140,6 +6158,14 @@
       "FeedSettings": {
         "additionalProperties": false,
         "properties": {
+          "columns": {
+            "items": {
+              "$ref": "#/components/schemas/ReaderColumn"
+            },
+            "maxItems": 12,
+            "title": "Columns",
+            "type": "array"
+          },
           "content_types": {
             "items": {
               "enum": [
@@ -6247,7 +6273,9 @@
             "default": "cards",
             "enum": [
               "cards",
-              "compact"
+              "compact",
+              "stacked",
+              "columns"
             ],
             "title": "View",
             "type": "string"
@@ -12483,6 +12511,43 @@
         "title": "ReadModelSnapshot",
         "type": "object"
       },
+      "ReaderColumn": {
+        "additionalProperties": false,
+        "properties": {
+          "feed": {
+            "discriminator": {
+              "mapping": {
+                "latest": "#/components/schemas/DefaultColumnFeed",
+                "recommended": "#/components/schemas/DefaultColumnFeed",
+                "source": "#/components/schemas/SelectionColumnFeed",
+                "tag": "#/components/schemas/SelectionColumnFeed",
+                "topic": "#/components/schemas/SelectionColumnFeed"
+              },
+              "propertyName": "kind"
+            },
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/DefaultColumnFeed"
+              },
+              {
+                "$ref": "#/components/schemas/SelectionColumnFeed"
+              }
+            ],
+            "title": "Feed"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "feed"
+        ],
+        "title": "ReaderColumn",
+        "type": "object"
+      },
       "RecoveryRequest": {
         "additionalProperties": false,
         "properties": {
@@ -13238,6 +13303,31 @@
           "status"
         ],
         "title": "SearchSuggestionReview",
+        "type": "object"
+      },
+      "SelectionColumnFeed": {
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "source",
+              "topic",
+              "tag"
+            ],
+            "title": "Kind",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "id"
+        ],
+        "title": "SelectionColumnFeed",
         "type": "object"
       },
       "SourceImportRequest": {

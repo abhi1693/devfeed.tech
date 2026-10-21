@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
-import { FeedPreferencesProvider } from "@/components/feed-preferences";
+import { FeedPreferencesProvider, useFeedPreferences } from "@/components/feed-preferences";
 import { contentTypes } from "@/lib/feed-query";
 import { FeedSettings } from "@/components/feed-settings";
 import { ArticleGrid } from "@/components/article-grid";
@@ -9,7 +9,8 @@ import { ArticleViewSettings } from "@/components/article-view-settings";
 import { TrendingContent } from "@/components/trending-content";
 import type { FeedPage } from "@/lib/types";
 import type { UserIdentity } from "@/lib/user";
-import type { ReactNode } from "react";
+import { guestReaderPreferencesKey, type ReaderColumn } from "@/lib/reader-preferences";
+import { useEffect, type ReactNode } from "react";
 import { article } from "./fixtures";
 const navigation = vi.hoisted(() => ({ refresh: vi.fn() }));
 vi.mock("next/navigation", () => ({ useRouter: () => navigation }));
@@ -39,6 +40,33 @@ const account = {
   email: null,
   expires_at: 9999999999,
 };
+const workspaceColumns: ReaderColumn[] = [
+  { id: "11111111-1111-4111-8111-111111111111", feed: { kind: "latest" } },
+  {
+    id: "22222222-2222-4222-8222-222222222222",
+    feed: { kind: "topic", id: "55555555-5555-4555-8555-555555555555" },
+  },
+  { id: "33333333-3333-4333-8333-333333333333", feed: { kind: "recommended" } },
+];
+function workspaceHarness() {
+  let preferences!: ReturnType<typeof useFeedPreferences>;
+  function Workspace() {
+    const current = useFeedPreferences();
+    useEffect(() => {
+      preferences = current;
+    }, [current]);
+    return null;
+  }
+  function WorkspaceApp({ children }: { children?: ReactNode }) {
+    return (
+      <FeedPreferencesProvider>
+        <Workspace />
+        {children}
+      </FeedPreferencesProvider>
+    );
+  }
+  return { WorkspaceApp, preferences: () => preferences };
+}
 function App() {
   return (
     <FeedPreferencesProvider>
@@ -250,7 +278,11 @@ it("switches layout immediately, saves existing filters and coalesces repeated c
   expect(fetcher.mock.calls[1][1]).toMatchObject({
     method: "PUT",
     headers: { "X-CSRF-Token": "csrf" },
-    body: JSON.stringify({ ...settings, view: "compact" }),
+  });
+  expect(JSON.parse(fetcher.mock.calls[1][1].body)).toEqual({
+    ...settings,
+    view: "compact",
+    columns: [],
   });
   await act(async () => finish(Response.json({ ...settings, view: "compact" })));
   await waitFor(() => expect(list.hasAttribute("disabled")).toBe(false));
@@ -284,22 +316,22 @@ it.each(["account change", "credential refresh"])(
   "aborts an earlier layout save on %s and ignores its late success",
   async (change) => {
     session.user = account;
+    const reloadedColumns = [workspaceColumns[2], workspaceColumns[0]];
     let finish!: (response: Response) => void;
     let writeSignal: AbortSignal | null | undefined;
     const events = vi.spyOn(window, "dispatchEvent");
-    vi.stubGlobal(
-      "fetch",
-      vi
-        .fn()
-        .mockResolvedValueOnce(Response.json({ view: "cards" }))
-        .mockImplementationOnce((_url: string, init?: RequestInit) => {
-          writeSignal = init?.signal;
-          return new Promise<Response>((resolve) => {
-            finish = resolve;
-          });
-        })
-        .mockResolvedValueOnce(Response.json({ view: "cards" })),
-    );
+    const fetcher = vi
+      .fn()
+      .mockResolvedValueOnce(Response.json({ view: "cards", columns: workspaceColumns }))
+      .mockImplementationOnce((_url: string, init?: RequestInit) => {
+        writeSignal = init?.signal;
+        return new Promise<Response>((resolve) => {
+          finish = resolve;
+        });
+      })
+      .mockResolvedValueOnce(Response.json({ view: "cards", columns: reloadedColumns }))
+      .mockImplementation((_url, init) => Promise.resolve(Response.json(JSON.parse(init.body))));
+    vi.stubGlobal("fetch", fetcher);
     const app = render(<LayoutApp />);
     const list = await screen.findByRole("radio", { name: "List" });
     await waitFor(() => expect(list.hasAttribute("disabled")).toBe(false));
@@ -312,11 +344,16 @@ it.each(["account change", "credential refresh"])(
     app.rerender(<LayoutApp />);
     expect(writeSignal?.aborted).toBe(true);
     await act(async () => {});
-    await act(async () => finish(Response.json({ view: "compact" })));
+    await act(async () => finish(Response.json({ view: "compact", columns: workspaceColumns })));
     expect(screen.queryByRole("table")).toBeNull();
     expect((screen.getByRole("radio", { name: "Grid" }) as HTMLInputElement).checked).toBe(true);
     expect(events.mock.calls.filter(([event]) => event.type === "devfeed:analytics")).toHaveLength(
       0,
+    );
+    await act(async () => fireEvent.click(screen.getByRole("radio", { name: "List" })));
+    expect(JSON.parse(fetcher.mock.calls[3][1].body).columns).toEqual(reloadedColumns);
+    expect(fetcher.mock.calls[3][1].headers["X-CSRF-Token"]).toBe(
+      change === "credential refresh" ? "fresh-csrf" : "csrf",
     );
   },
 );
@@ -369,8 +406,12 @@ it("keeps layout selection in Appearance while Feed settings saves content prefe
   expect(fetcher.mock.calls[1][0]).toBe("/api/v1/user/settings/feed");
   expect(fetcher.mock.calls[1][1]).toMatchObject({
     method: "PUT",
-    body: JSON.stringify({ ...settings, content_types: ["article", "news"] }),
     headers: { "X-CSRF-Token": "csrf" },
+  });
+  expect(JSON.parse(fetcher.mock.calls[1][1].body)).toEqual({
+    ...settings,
+    columns: [],
+    content_types: ["article", "news"],
   });
 });
 
@@ -389,6 +430,7 @@ it("preserves the global List layout when resetting content and language default
   await act(async () => fireEvent.click(screen.getByRole("button", { name: "Save changes" })));
   expect(JSON.parse(fetcher.mock.calls[1][1].body)).toEqual({
     view: "compact",
+    columns: [],
     content_types: [...contentTypes],
     languages: ["en"],
   });
@@ -413,8 +455,8 @@ it("saves an existing content draft with the latest Appearance layout", async ()
   await act(async () => fireEvent.click(screen.getByRole("radio", { name: "List" })));
   await act(async () => fireEvent.click(screen.getByRole("button", { name: "Save changes" })));
   expect(fetcher.mock.calls.slice(1).map(([, init]) => JSON.parse(init.body))).toEqual([
-    { ...initial, view: "compact" },
-    { ...initial, view: "compact", content_types: ["article", "news"] },
+    { ...initial, columns: [], view: "compact" },
+    { ...initial, columns: [], view: "compact", content_types: ["article", "news"] },
   ]);
 });
 
@@ -484,6 +526,7 @@ it("saves content selections with layout, prevents empty saves and resets all ty
   await act(async () => fireEvent.click(screen.getByRole("button", { name: "Save changes" })));
   expect(JSON.parse(fetcher.mock.calls[1][1].body)).toEqual({
     view: "compact",
+    columns: [],
     languages: ["en"],
     content_types: ["article", "news", "tutorial"],
   });
@@ -573,3 +616,285 @@ it("retains the confirmed owner's article DOM during history checks and clears i
   view.rerender(app());
   expect(screen.queryByRole("heading", { name: article.title })).toBeNull();
 });
+
+it.each(["stacked", "columns"])(
+  "preserves saved %s workspace preferences while saving feed filters",
+  async (view) => {
+    session.user = account;
+    const settings = {
+      view,
+      columns: workspaceColumns,
+      content_types: ["news"],
+      languages: ["en"],
+    };
+    const fetcher = vi
+      .fn()
+      .mockResolvedValueOnce(Response.json(settings))
+      .mockImplementation((_url, init) => Promise.resolve(Response.json(JSON.parse(init.body))));
+    vi.stubGlobal("fetch", fetcher);
+    render(<App />);
+    await screen.findByRole("checkbox", { name: "News" });
+    expect(screen.queryByRole("table")).toBeNull();
+    expect(screen.getByText(article.title)).toBeTruthy();
+    fireEvent.change(screen.getByRole("searchbox", { name: "Find a language" }), {
+      target: { value: "French" },
+    });
+    fireEvent.click(screen.getByRole("checkbox", { name: "French" }));
+    await act(async () => fireEvent.click(screen.getByRole("button", { name: "Save changes" })));
+    expect(JSON.parse(fetcher.mock.calls[1][1].body)).toEqual({
+      ...settings,
+      languages: ["en", "fr"],
+    });
+    expect(screen.getByText("Feed settings saved.")).toBeTruthy();
+  },
+);
+
+it("persists guest column additions and ordering across provider remounts", async () => {
+  localStorage.setItem("devfeed:feed-view:guest", "compact");
+  const fetcher = vi.fn();
+  vi.stubGlobal("fetch", fetcher);
+  const { WorkspaceApp, preferences } = workspaceHarness();
+  let app = render(<WorkspaceApp />);
+  await waitFor(() => expect(preferences().loading).toBe(false));
+  await act(async () => expect(await preferences().setColumns(workspaceColumns)).toBe(true));
+  app.unmount();
+  app = render(<WorkspaceApp />);
+  await waitFor(() => expect(preferences().loading).toBe(false));
+  expect(preferences().view).toBe("compact");
+  expect(preferences().columns).toEqual(workspaceColumns);
+  const reordered = [workspaceColumns[2], workspaceColumns[0]];
+  await act(async () => expect(await preferences().setColumns(reordered)).toBe(true));
+  app.unmount();
+  render(<WorkspaceApp />);
+  await waitFor(() => expect(preferences().loading).toBe(false));
+  expect(preferences().columns).toEqual(reordered);
+  expect(JSON.parse(localStorage.getItem(guestReaderPreferencesKey)!)).toEqual({
+    version: 1,
+    view: "compact",
+    columns: reordered,
+  });
+  expect(fetcher).not.toHaveBeenCalled();
+});
+
+it("rolls back rejected column saves without losing the stored layout or existing workspace", async () => {
+  session.user = account;
+  const settings = {
+    view: "columns",
+    columns: workspaceColumns,
+    content_types: ["news"],
+    languages: ["en"],
+  };
+  let finish!: (response: Response) => void;
+  const fetcher = vi
+    .fn()
+    .mockResolvedValueOnce(Response.json(settings))
+    .mockImplementationOnce(
+      () =>
+        new Promise<Response>((resolve) => {
+          finish = resolve;
+        }),
+    )
+    .mockImplementation((_url, init) => Promise.resolve(Response.json(JSON.parse(init.body))));
+  vi.stubGlobal("fetch", fetcher);
+  const { WorkspaceApp, preferences } = workspaceHarness();
+  render(<WorkspaceApp />);
+  await waitFor(() => expect(preferences().loading).toBe(false));
+  const reordered = [workspaceColumns[2], workspaceColumns[0]];
+  let pending!: Promise<boolean>;
+  act(() => {
+    pending = preferences().setColumns(reordered);
+  });
+  expect(preferences().columns).toEqual(reordered);
+  expect(preferences().storedView).toBe("columns");
+  expect(preferences().busy).toBe(true);
+  await act(async () => {
+    finish(Response.json({}, { status: 503 }));
+    expect(await pending).toBe(false);
+  });
+  expect(preferences().columns).toEqual(workspaceColumns);
+  expect(preferences().storedView).toBe("columns");
+  expect(preferences().busy).toBe(false);
+  expect(preferences().error).toBe("Couldn’t save your feed settings. Please try again.");
+  await act(async () => expect(await preferences().setColumns(reordered)).toBe(true));
+  expect(preferences().columns).toEqual(reordered);
+  expect(preferences().error).toBe("");
+  expect(JSON.parse(fetcher.mock.calls[2][1].body)).toEqual({ ...settings, columns: reordered });
+});
+
+it("blocks guest writes for an unknown storage version without overwriting its data", async () => {
+  const newerWorkspace = JSON.stringify({ version: 2, view: "columns", columns: workspaceColumns });
+  localStorage.setItem(guestReaderPreferencesKey, newerWorkspace);
+  const fetcher = vi.fn();
+  vi.stubGlobal("fetch", fetcher);
+  const { WorkspaceApp, preferences } = workspaceHarness();
+  render(
+    <WorkspaceApp>
+      <ArticleViewSettings />
+    </WorkspaceApp>,
+  );
+  await screen.findByRole("heading", { name: "Couldn’t load article layout" });
+  expect(preferences().unavailable).toBe(true);
+  expect(screen.queryByRole("radio")).toBeNull();
+  await act(async () => {
+    expect(await preferences().setView("compact")).toBe(false);
+    expect(await preferences().setColumns([])).toBe(false);
+    expect(await preferences().save({ languages: ["fr"] })).toBe(false);
+  });
+  fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+  await waitFor(() => expect(preferences().unavailable).toBe(true));
+  expect(localStorage.getItem(guestReaderPreferencesKey)).toBe(newerWorkspace);
+  expect(fetcher).not.toHaveBeenCalled();
+});
+
+it("uses a new account's defaults and restores the complete guest workspace after sign-out", async () => {
+  const guestWorkspace = { version: 1, view: "compact", columns: workspaceColumns };
+  localStorage.setItem(guestReaderPreferencesKey, JSON.stringify(guestWorkspace));
+  const fetcher = vi.fn().mockResolvedValue(
+    Response.json({
+      view: "cards",
+      columns: [],
+      content_types: [...contentTypes],
+      languages: ["en"],
+    }),
+  );
+  vi.stubGlobal("fetch", fetcher);
+  const { WorkspaceApp, preferences } = workspaceHarness();
+  const app = render(<WorkspaceApp />);
+  await waitFor(() => expect(preferences().loading).toBe(false));
+  expect(preferences().columns).toEqual(workspaceColumns);
+  session.user = account;
+  app.rerender(<WorkspaceApp />);
+  await waitFor(() => expect(preferences().loading).toBe(false));
+  expect(preferences().view).toBe("cards");
+  expect(preferences().columns).toEqual([]);
+  expect(fetcher).toHaveBeenCalledOnce();
+  expect(fetcher.mock.calls[0][1].method).toBeUndefined();
+  expect(JSON.parse(localStorage.getItem(guestReaderPreferencesKey)!)).toEqual(guestWorkspace);
+  session.user = null;
+  app.rerender(<WorkspaceApp />);
+  await waitFor(() => expect(preferences().loading).toBe(false));
+  expect(preferences().view).toBe("compact");
+  expect(preferences().columns).toEqual(workspaceColumns);
+  expect(fetcher).toHaveBeenCalledOnce();
+});
+
+it("ignores an old account's delayed preference load after another account has loaded", async () => {
+  session.user = account;
+  let finish!: (response: Response) => void;
+  let loadSignal: AbortSignal | null | undefined;
+  const reloadedColumns = [workspaceColumns[2], workspaceColumns[0]];
+  const secondSettings = {
+    view: "columns",
+    columns: reloadedColumns,
+    content_types: ["news"],
+    languages: ["fr"],
+  };
+  const fetcher = vi
+    .fn()
+    .mockImplementationOnce((_url: string, init?: RequestInit) => {
+      loadSignal = init?.signal;
+      return new Promise<Response>((resolve) => {
+        finish = resolve;
+      });
+    })
+    .mockResolvedValueOnce(Response.json(secondSettings))
+    .mockImplementation((_url, init) => Promise.resolve(Response.json(JSON.parse(init.body))));
+  vi.stubGlobal("fetch", fetcher);
+  const { WorkspaceApp, preferences } = workspaceHarness();
+  const app = render(<WorkspaceApp />);
+  expect(preferences().loading).toBe(true);
+  session.user = { ...account, user_id: "second", csrf_token: "second-csrf" };
+  session.sessionRevision++;
+  app.rerender(<WorkspaceApp />);
+  expect(loadSignal?.aborted).toBe(true);
+  await waitFor(() => expect(preferences().loading).toBe(false));
+  expect(preferences().columns).toEqual(reloadedColumns);
+  await act(async () =>
+    finish(Response.json({ view: "compact", columns: workspaceColumns, languages: ["en"] })),
+  );
+  expect(preferences().view).toBe("cards");
+  expect(preferences().storedView).toBe("columns");
+  expect(preferences().columns).toEqual(reloadedColumns);
+  expect(preferences().languages).toEqual(["fr"]);
+  await act(async () => expect(await preferences().save({ languages: ["en"] })).toBe(true));
+  expect(JSON.parse(fetcher.mock.calls[2][1].body)).toEqual({
+    ...secondSettings,
+    languages: ["en"],
+  });
+  expect(fetcher.mock.calls[2][1].headers["X-CSRF-Token"]).toBe("second-csrf");
+});
+
+it.each(["explicit refresh", "credential refresh"])(
+  "blocks writes during a same-account %s and saves against the reloaded workspace",
+  async (refresh) => {
+    session.user = account;
+    const initial = {
+      view: "cards",
+      columns: workspaceColumns,
+      content_types: ["news"],
+      languages: ["en"],
+    };
+    const reloaded = {
+      view: "cards",
+      columns: [workspaceColumns[2], workspaceColumns[0]],
+      content_types: ["tutorial"],
+      languages: ["fr"],
+    };
+    let finish!: (response: Response) => void;
+    const fetcher = vi
+      .fn()
+      .mockResolvedValueOnce(Response.json(initial))
+      .mockImplementationOnce(
+        () =>
+          new Promise<Response>((resolve) => {
+            finish = resolve;
+          }),
+      )
+      .mockImplementation((_url, init) => Promise.resolve(Response.json(JSON.parse(init.body))));
+    vi.stubGlobal("fetch", fetcher);
+    const { WorkspaceApp, preferences } = workspaceHarness();
+    const app = () => (
+      <WorkspaceApp>
+        <ArticleViewSettings />
+        <ArticleGrid articles={[article]} waitForPreferences />
+      </WorkspaceApp>
+    );
+    const mounted = render(app());
+    const heading = await screen.findByRole("heading", { name: article.title });
+    await waitFor(() => expect(preferences().loading).toBe(false));
+    if (refresh === "explicit refresh") act(() => preferences().refresh());
+    else {
+      session.user = { ...account, csrf_token: "fresh-csrf" };
+      session.sessionRevision++;
+      mounted.rerender(app());
+    }
+    await waitFor(() => expect(preferences().busy).toBe(true));
+    expect(preferences().loading).toBe(false);
+    expect(screen.getByRole("heading", { name: article.title })).toBe(heading);
+    expect(screen.getByRole("radio", { name: "List" }).hasAttribute("disabled")).toBe(true);
+    await act(async () => {
+      expect(await preferences().setView("compact")).toBe(false);
+      expect(await preferences().setColumns([])).toBe(false);
+      expect(await preferences().save({ languages: ["de"] })).toBe(false);
+    });
+    expect(fetcher).toHaveBeenCalledTimes(2);
+    expect(fetcher.mock.calls.every(([, init]) => !init.method)).toBe(true);
+    expect(preferences().columns).toEqual(workspaceColumns);
+    await act(async () => finish(Response.json(reloaded)));
+    expect(preferences().busy).toBe(false);
+    expect(preferences().columns).toEqual(reloaded.columns);
+    expect(preferences().languages).toEqual(["fr"]);
+    await act(async () => expect(await preferences().setView("compact")).toBe(true));
+    expect(JSON.parse(fetcher.mock.calls[2][1].body)).toEqual({ ...reloaded, view: "compact" });
+    expect(fetcher.mock.calls[2][1].headers["X-CSRF-Token"]).toBe(
+      refresh === "credential refresh" ? "fresh-csrf" : "csrf",
+    );
+    const reordered = [...reloaded.columns].reverse();
+    await act(async () => expect(await preferences().setColumns(reordered)).toBe(true));
+    expect(JSON.parse(fetcher.mock.calls[3][1].body)).toEqual({
+      ...reloaded,
+      view: "compact",
+      columns: reordered,
+    });
+  },
+);

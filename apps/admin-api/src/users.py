@@ -39,6 +39,7 @@ from devfeed_core.user_settings import (
     ProfileLink,
     ProfileVisibility,
     UserAppearanceSettings,
+    normalize_feed_settings,
 )
 from devfeed_core.user_settings import (
     UserReadingStreak as ReadingStreakSettings,
@@ -425,7 +426,7 @@ def user(user_id: uuid.UUID, session: DB):
             "total_days": streak.total_days if streak else 0,
             "last_read_date": streak.last_read_date if streak else None,
         },
-        feed_preferences=FeedSettings.model_validate(account.feed_settings),
+        feed_preferences=normalize_feed_settings(account.feed_settings),
         appearance_preferences=UserAppearanceSettings.model_validate(account.appearance_settings),
         notification_preferences=NotificationSettings.model_validate(account.notification_settings),
     )
@@ -699,7 +700,7 @@ def must_reads(user_id: uuid.UUID, session: DB, timezone: str | None = Query(Non
         raise HTTPException(422, "Invalid timezone") from exc
     snapshot = session.get(UserMustRead, (user_id, day))
     articles, reasons, read_ids = read_snapshot(
-        session, snapshot, FeedSettings.model_validate(account.feed_settings), include_details=False
+        session, snapshot, normalize_feed_settings(account.feed_settings), include_details=False
     )
     positions = (
         {pick["id"]: index + 1 for index, pick in enumerate(snapshot.picks)} if snapshot else {}

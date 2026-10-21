@@ -1,5 +1,8 @@
 """Saved display preferences are isolated by the authenticated user identity."""
 
+import copy
+import uuid
+
 import pytest
 from devfeed_core.models import UserAccount
 from devfeed_core.user_settings import FeedSettings
@@ -75,11 +78,98 @@ def test_content_types_are_canonical_and_account_scoped(user_data):
     client, current, _, second, _ = user_data
     assert client.put(PATH, json={"content_types": ["tutorial", "article", "tutorial"]}).json() == {
         "view": "cards",
+        "columns": [],
         "languages": ["en"],
         "content_types": ["article", "tutorial"],
     }
     current.user_id, current.subject = str(second), "user-b"
     assert client.get(PATH).json() == DEFAULTS
+
+
+@pytest.mark.parametrize("view", ["cards", "compact", "stacked", "columns"])
+def test_reader_columns_round_trip_in_order_and_remain_account_scoped(user_data, database, view):
+    client, current, first, second, _ = user_data
+    columns = [
+        {
+            "id": str(uuid.uuid4()),
+            "feed": {"kind": kind, **({"id": str(uuid.uuid4())} if index > 1 else {})},
+        }
+        for index, kind in enumerate(["recommended", "latest", "source", "topic", "tag"])
+    ]
+    saved = {**DEFAULTS, "view": view, "columns": columns}
+    response = client.put(PATH, json=saved)
+    assert response.status_code == 200 and response.json() == saved
+    assert client.get(PATH).json() == saved
+    # Feed selections can outlive the selected source/topic/tag; no foreign key lookup is needed.
+    with database() as session:
+        assert session.get(UserAccount, first).feed_settings == saved
+        assert session.get(UserAccount, second).feed_settings == {}
+    current.user_id, current.subject = str(second), "user-b"
+    assert client.get(PATH).json() == DEFAULTS
+    current.user_id, current.subject = str(first), "user-a"
+    assert client.get(PATH).json() == saved
+
+
+def test_legacy_saves_preserve_columns_and_unknown_storage_until_explicitly_cleared(
+    user_data, database
+):
+    client, _, account, _, _ = user_data
+    column = {"id": str(uuid.uuid4()), "feed": {"kind": "topic", "id": str(uuid.uuid4())}}
+    stored = {
+        "view": "unknown-future-view",
+        "languages": ["fr"],
+        "content_types": ["news"],
+        "columns": [None, column, copy.deepcopy(column), {"id": "broken"}],
+        "future_setting": {"preserve": True},
+    }
+    with database.begin() as session:
+        session.get(UserAccount, account).feed_settings = copy.deepcopy(stored)
+    assert client.get(PATH).json() == {
+        **DEFAULTS,
+        "languages": ["fr"],
+        "content_types": ["news"],
+        "columns": [column],
+    }
+    assert client.get("/v1/user/feed").status_code == 200
+    assert client.get("/v1/user/must-reads").status_code == 200
+    with database() as session:
+        assert session.get(UserAccount, account).feed_settings == stored
+
+    response = client.put(PATH, json={"view": "compact"})
+    assert response.status_code == 200
+    assert response.json() == {**DEFAULTS, "view": "compact", "columns": [column]}
+    with database() as session:
+        value = session.get(UserAccount, account).feed_settings
+        assert value["columns"] == stored["columns"]
+        assert value["future_setting"] == stored["future_setting"]
+    assert client.put(PATH, json={}).json() == {**DEFAULTS, "columns": [column]}
+    assert client.put(PATH, json={"columns": []}).json() == DEFAULTS
+    with database() as session:
+        value = session.get(UserAccount, account).feed_settings
+        assert value["columns"] == []
+        assert value["future_setting"] == stored["future_setting"]
+
+
+@pytest.mark.parametrize(
+    "columns",
+    [
+        None,
+        [{"id": str(uuid.uuid4()), "feed": {"kind": "source"}}],
+        [{"id": str(uuid.uuid4()), "feed": {"kind": "latest", "id": str(uuid.uuid4())}}],
+        [{"id": str(uuid.uuid4()), "feed": {"kind": "latest"}}] * 2,
+        [{"id": str(uuid.uuid4()), "feed": {"kind": "latest"}} for _ in range(13)],
+    ],
+)
+def test_invalid_columns_do_not_overwrite_saved_layout(user_data, columns):
+    client = user_data[0]
+    saved = {
+        **DEFAULTS,
+        "view": "columns",
+        "columns": [{"id": str(uuid.uuid4()), "feed": {"kind": "recommended"}}],
+    }
+    assert client.put(PATH, json=saved).status_code == 200
+    assert client.put(PATH, json={"columns": columns}).status_code == 422
+    assert client.get(PATH).json() == saved
 
 
 @pytest.mark.parametrize("interest", ["topic", "source"])

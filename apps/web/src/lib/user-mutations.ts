@@ -1,5 +1,6 @@
 import { ssoLogoutUrl } from "@devfeed/http/sso";
 import { trackEvent, type AnalyticsEvent } from "./analytics";
+import { validateReaderPreferences } from "./reader-preferences";
 import {
   userRequest,
   type Appearance,
@@ -196,11 +197,7 @@ export function saveSourcePreferences(ids: string[], options: MutationOptions) {
 
 export function saveFeedSettings(value: FeedDisplay, options: MutationOptions) {
   return mutate<FeedDisplay>("settings/feed", value, options, {
-    validate: (result) =>
-      record(result) &&
-      (result.view === "cards" || result.view === "compact") &&
-      strings(result.content_types) &&
-      strings(result.languages),
+    validate: validateReaderPreferences,
     interestsChanged: true,
     analytics: (result) => ({
       name: "feed_settings_saved",

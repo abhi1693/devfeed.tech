@@ -8,7 +8,14 @@ from datetime import date
 from typing import Annotated, Literal, get_args
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from pydantic import BaseModel, ConfigDict, Field, StringConstraints, field_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    StringConstraints,
+    ValidationError,
+    field_validator,
+)
 from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
@@ -313,8 +320,34 @@ def default_languages() -> list[LanguageCode]:
     return ["en"]
 
 
+class DefaultColumnFeed(SettingsModel):
+    kind: Literal["latest", "recommended"]
+
+
+class SelectionColumnFeed(SettingsModel):
+    kind: Literal["source", "topic", "tag"]
+    id: uuid.UUID
+
+
+class ReaderColumn(SettingsModel):
+    id: uuid.UUID
+    feed: Annotated[DefaultColumnFeed | SelectionColumnFeed, Field(discriminator="kind")]
+
+
+MAX_READER_COLUMNS = 12
+
+
 class FeedSettings(SettingsModel):
-    view: Literal["cards", "compact"] = "cards"
+    view: Literal["cards", "compact", "stacked", "columns"] = "cards"
+    columns: list[ReaderColumn] = Field(default_factory=list, max_length=MAX_READER_COLUMNS)
+
+    @field_validator("columns")
+    @classmethod
+    def unique_columns(cls, value):
+        if len(value) != len({column.id for column in value}):
+            raise ValueError("Reader column IDs must be unique")
+        return value
+
     languages: list[LanguageCode] = Field(
         default_factory=default_languages, min_length=1, max_length=75
     )
@@ -332,6 +365,37 @@ class FeedSettings(SettingsModel):
     @classmethod
     def unique_types(cls, value):
         return [kind for kind in get_args(ContentType) if kind in value]
+
+
+def normalize_feed_settings(value: object) -> FeedSettings:
+    """Read saved preferences defensively without changing their stored representation."""
+    stored = value if isinstance(value, dict) else {}
+    normalized = {}
+    for field in ("view", "languages", "content_types"):
+        if field not in stored:
+            continue
+        try:
+            parsed = FeedSettings.model_validate({field: stored[field]})
+        except ValidationError:
+            continue
+        normalized[field] = getattr(parsed, field)
+    columns = []
+    seen = set()
+    stored_columns = stored.get("columns")
+    if isinstance(stored_columns, list):
+        for candidate in stored_columns:
+            try:
+                column = ReaderColumn.model_validate(candidate)
+            except ValidationError:
+                continue
+            if column.id in seen:
+                continue
+            columns.append(column)
+            seen.add(column.id)
+            if len(columns) == MAX_READER_COLUMNS:
+                break
+    normalized["columns"] = columns
+    return FeedSettings.model_validate(normalized)
 
 
 class UserAppearanceSettings(SettingsModel):

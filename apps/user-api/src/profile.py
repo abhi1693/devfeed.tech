@@ -33,6 +33,7 @@ from devfeed_core.user_settings import (
     UserProfileUpdate,
     UserReadingHeatmap,
     UserReadingWeek,
+    normalize_feed_settings,
 )
 from devfeed_core.usernames import normalize_username
 from fastapi import APIRouter, HTTPException, Response
@@ -373,24 +374,26 @@ def feed_settings(user: User, session: DB):
     )
     if value is None:
         raise HTTPException(401, "User account unavailable")
-    return FeedSettings.model_validate(value)
+    return normalize_feed_settings(value)
 
 
 @router.put("/feed", response_model=FeedSettings)
 def save_feed_settings(payload: FeedSettings, user: User, session: DB):
     account = lock_account(session, user)
-    previous = FeedSettings.model_validate(
-        session.scalar(select(UserAccount.feed_settings).where(UserAccount.id == account))
-    )
+    stored = session.scalar(select(UserAccount.feed_settings).where(UserAccount.id == account))
+    previous = normalize_feed_settings(stored)
+    changes = payload.model_dump(mode="json")
+    if "columns" not in payload.model_fields_set:
+        # Older clients replace the original preferences without knowing about columns.
+        changes.pop("columns")
+    saved = {**(stored if isinstance(stored, dict) else {}), **changes}
     session.execute(
-        update(UserAccount)
-        .where(UserAccount.id == account)
-        .values(feed_settings=payload.model_dump())
+        update(UserAccount).where(UserAccount.id == account).values(feed_settings=saved)
     )
     if previous.languages != payload.languages:
         request_recommendation_refresh(session, account)
     session.commit()
-    return payload
+    return normalize_feed_settings(saved)
 
 
 @router.get("/appearance", response_model=UserAppearanceSettings)

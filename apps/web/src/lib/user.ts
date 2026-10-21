@@ -2,7 +2,7 @@ import type { CardTheme, CardAccent } from "@devfeed/theme/dev-card";
 import type { DateTimePreferences } from "@devfeed/ui/date-format";
 import type { ThemeMode } from "@devfeed/ui/theme-toggle";
 import type { contentTypes } from "./feed-query";
-import type { FeedViewPreference } from "./reader-layouts";
+import type { PersistedReaderView, ReaderColumn } from "./reader-preferences";
 import { readerRequest } from "./reader-runtime";
 
 export type UserIdentity = {
@@ -64,7 +64,8 @@ export type ReadingStreak = {
 };
 export type Preferences = { topic_ids: string[] };
 export type FeedDisplay = {
-  view: FeedViewPreference;
+  view: PersistedReaderView;
+  columns?: ReaderColumn[];
   languages: string[];
   content_types: (typeof contentTypes)[number][];
 };

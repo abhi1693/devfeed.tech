@@ -36,6 +36,7 @@ import { checkDefaultAll, defaultAllFeed } from "../../../../scripts/testing/def
 import { checkArticleViews, compactListArticle, compactLoadingGate } from "./article-views.mjs";
 import { checkCompactLoading } from "../../../../scripts/testing/compact-loading.mjs";
 import { checkArticleViewSettings } from "../../../../scripts/testing/article-view.mjs";
+import { checkReaderPreferences } from "../../../../scripts/testing/reader-preferences.mjs";
 import { checkSourceFilter, longFilterSource } from "../../../../scripts/testing/select-menus.mjs";
 import { checkAccessibility } from "./accessibility.mjs";
 import { dailyFixture, checkMustReads } from "../../../../scripts/testing/must-reads.mjs";
@@ -197,6 +198,7 @@ async function createReaderFixture(t, { thumbnailFeed = false } = {}) {
   let articleFeedGate;
   let feedSettings = {
     view: "cards",
+    columns: [],
     content_types: ["news", "article", "tutorial", "release", "comparison", "opinion"],
     languages: ["en"],
   };
@@ -1304,6 +1306,27 @@ async function withReaderPage(browser, check, options = {}) {
     await context.close();
   }
 }
+
+test(
+  "reader preferences persist and reconcile guest and account workspaces",
+  { timeout: 180000 },
+  async (t) => {
+    const { browser, origin } = await createReaderFixture(t);
+    await withReaderPage(browser, async (page, context) => {
+      await checkReaderPreferences(page, `${origin}/latest`, {
+        csrfToken: "test",
+        session: async (account) => {
+          await context.clearCookies();
+          if (account)
+            await context.addCookies([
+              { name: "devfeed_user_session", value: "valid", url: origin },
+            ]);
+          await page.reload();
+        },
+      });
+    });
+  },
+);
 
 test(
   "article layouts save in Appearance for guests and members",

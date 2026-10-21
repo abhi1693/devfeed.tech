@@ -33,7 +33,7 @@ export function FeedSettings() {
 
 function FeedSettingsForm() {
   const router = useReaderRouter();
-  const { view, content_types, languages, loading, busy, unavailable, error, save, refresh } =
+  const { content_types, languages, loading, busy, unavailable, error, save, refresh } =
     useFeedPreferences();
   const typeKey = content_types.join(",");
   const [types, setTypes] = useState(content_types);
@@ -84,7 +84,7 @@ function FeedSettingsForm() {
             event.preventDefault();
             if (!dirty || busy || !types.length || !selectedLanguages.length) return;
             setMessage("");
-            if (await save({ view, content_types: types, languages: selectedLanguages })) {
+            if (await save({ content_types: types, languages: selectedLanguages })) {
               setMessage("Feed settings saved.");
               router.refresh();
             }

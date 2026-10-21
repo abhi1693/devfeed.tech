@@ -14,6 +14,9 @@ article feed. Signed-in readers open **Appearance** from their avatar menu.
 Saved changes are confirmed with a toast.
 Both browsers share the web reader's layout controls and saved
 preference handling. Feed pages do not have separate view selectors.
+Signing in always loads account preferences, including new-account defaults, while preserving
+the browser's guest choice for sign-out. The saved workspace supports up to 12 ordered columns;
+Grid and List remain the available layouts.
 
 Transport eligibility and request policies come from generated operation definitions.
 Run `npm run web:generate` after user API or public reader binding changes. Private

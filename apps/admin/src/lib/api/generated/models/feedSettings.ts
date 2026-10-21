@@ -8,8 +8,11 @@
 import type { FeedSettingsContentTypesItem } from './feedSettingsContentTypesItem';
 import type { FeedSettingsLanguagesItem } from './feedSettingsLanguagesItem';
 import type { FeedSettingsView } from './feedSettingsView';
+import type { ReaderColumn } from './readerColumn';
 
 export interface FeedSettings {
+  /** @maxItems 12 */
+  columns?: ReaderColumn[];
   /**
      * @minItems 1
      * @maxItems 6

@@ -32,7 +32,7 @@ from devfeed_core.models import (
     utcnow,
 )
 from devfeed_core.publication import visible_article
-from devfeed_core.user_settings import FeedSettings
+from devfeed_core.user_settings import normalize_feed_settings
 
 logger = logging.getLogger(__name__)
 MAX_INTERESTS = 200
@@ -565,7 +565,7 @@ def refresh_recommendations(factory, user_id):
                     select(func.count()).select_from(UserTag).where(UserTag.user_id == user_id)
                 )
                 interest_count = len(selected) + source_count + tag_count
-                settings = FeedSettings.model_validate(
+                settings = normalize_feed_settings(
                     session.scalar(
                         select(UserAccount.feed_settings).where(UserAccount.id == user_id)
                     )

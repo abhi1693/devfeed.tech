@@ -112,6 +112,21 @@ and source feeds. Guests retain their choice in the browser; signed-in readers
 reuse their account's existing feed preference. Feed settings manage content types
 and languages without changing that layout.
 
+Account preferences take priority whenever a reader signs in, including a new account's
+defaults. Guest preferences remain in that browser and return after sign-out; they are
+never copied into an account automatically. Saved preferences can retain up to 12 ordered
+feed columns for future layouts, while the current selector continues to offer Grid and List.
+Each column has a unique UUID and selects Latest, Recommended, or a source, topic or tag by
+UUID. Deleted or unavailable selections remain saved. Existing account JSON stores these
+preferences; updates that omit columns preserve the workspace, and an empty list clears it.
+
+The shared adapter reads guest state from `devfeed:reader-preferences:guest` as
+`{version: 1, view, columns}` and supports the old `devfeed:feed-view:guest` Grid/List key.
+Guest saves update both keys, with an available layout in the old key. Unsupported versions
+are retained and block writes. Malformed saved columns are pruned, duplicate column IDs retain
+the first valid entry, and unknown layouts fall back to Grid. Storage denial keeps layouts
+usable for the current tab without reporting an unsuccessful save as completed.
+
 Temporary article API 502/503/504 responses retain the article dialog with retry
 and close controls instead of raising an unhandled page error. Temporary pages
 are marked noindex; missing articles still return 404 and unexpected exceptions
