@@ -315,6 +315,37 @@ services:
       <<: *healthcheck
       test: [CMD, python, -c, "import os; from redis import Redis; r = Redis.from_url(os.environ['DEVFEED_REDIS_URL']); assert r.exists('devfeed:scheduler:heartbeat')"]
 
+  pipeline-projector:
+    <<: [*runtime, *host-access]
+    image: ${DEVFEED_ADMIN_API_IMAGE:-${DEVFEED_IMAGE_REGISTRY:+${DEVFEED_IMAGE_REGISTRY}/}ghcr.io/abhi1693/devfeed.tech/admin-api:master}
+    command: [python, -m, devfeed_admin_api.projection_worker, --kind, pipeline]
+    depends_on: *ready
+    networks: [default, data]
+    environment:
+      <<: *core-environment
+      DEVFEED_READ_MODEL_DATABASE_URL:
+      DEVFEED_READ_MODEL_BATCH_SIZE: ${DEVFEED_READ_MODEL_BATCH_SIZE:-200}
+      DEVFEED_READ_MODEL_POLL_SECONDS: ${DEVFEED_READ_MODEL_POLL_SECONDS:-1}
+    healthcheck:
+      <<: *healthcheck
+      test: [CMD, python, -m, devfeed_admin_api.projection_worker, --healthcheck, --kind, pipeline]
+      start_period: 180s
+
+  report-projector:
+    <<: [*runtime, *host-access]
+    image: ${DEVFEED_ADMIN_API_IMAGE:-${DEVFEED_IMAGE_REGISTRY:+${DEVFEED_IMAGE_REGISTRY}/}ghcr.io/abhi1693/devfeed.tech/admin-api:master}
+    command: [python, -m, devfeed_admin_api.projection_worker, --kind, reports]
+    depends_on: *ready
+    networks: [default, data]
+    environment:
+      <<: *core-environment
+      DEVFEED_READ_MODEL_DATABASE_URL:
+      DEVFEED_READ_MODEL_POLL_SECONDS: ${DEVFEED_READ_MODEL_POLL_SECONDS:-1}
+    healthcheck:
+      <<: *healthcheck
+      test: [CMD, python, -m, devfeed_admin_api.projection_worker, --healthcheck, --kind, reports]
+      start_period: 180s
+
   admin-api:
     <<: [*runtime, *host-access]
     image: ${DEVFEED_ADMIN_API_IMAGE:-${DEVFEED_IMAGE_REGISTRY:+${DEVFEED_IMAGE_REGISTRY}/}ghcr.io/abhi1693/devfeed.tech/admin-api:master}

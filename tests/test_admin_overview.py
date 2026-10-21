@@ -68,7 +68,10 @@ def topic_job(**values):
 
 def test_empty_overview_has_zero_filled_bounded_daily_series(database, admin_client, monkeypatch):
     monkeypatch.setattr(overview, "utcnow", lambda: NOW)
+    from test_overview_projections import save_overview
+
     for days in (1, 7, 30, 90):
+        save_overview(database, days)
         response = admin_client.get(f"/v1/admin/overview?days={days}")
         assert response.status_code == 200, response.text
         data = response.json()

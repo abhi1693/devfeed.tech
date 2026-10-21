@@ -10,6 +10,7 @@ import { DropdownMenuItem } from "@devfeed/ui/dropdown-menu";
 import { SearchField, searchScope } from "@/components/molecules/search-field";
 import { Select } from "@/components/molecules/select";
 import { RequestState } from "@/components/molecules/request-state";
+import { SnapshotStatus } from "@/components/molecules/snapshot-status";
 import { useAdmin } from "@/components/molecules/admin-session";
 import { useRequest } from "@/lib/use-request";
 import { useBoardRefreshInterval } from "@/lib/use-refresh-interval";
@@ -141,6 +142,7 @@ export function SourcePipeline({ query }: { query: string }) {
         error={result.error}
         retry={() => setRevision((value) => value + 1)}
       />
+      <SnapshotStatus snapshot={result.data?.snapshot} />
       {result.data && (
         <SourceColumns
           key={query}

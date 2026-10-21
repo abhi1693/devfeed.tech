@@ -8,6 +8,7 @@ import { SearchField, searchScope } from "@/components/molecules/search-field";
 import { Select } from "@/components/molecules/select";
 import { EntityPicker } from "@/components/molecules/entity-picker";
 import { RequestState } from "@/components/molecules/request-state";
+import { SnapshotStatus } from "@/components/molecules/snapshot-status";
 import { useRequest } from "@/lib/use-request";
 import { useBoardRefreshInterval } from "@/lib/use-refresh-interval";
 import { pipelineCardStatuses as cardStatuses } from "@/lib/pipeline-status";
@@ -142,6 +143,7 @@ export function ArticlePipeline({ query }: { query: string }) {
         error={result.error}
         retry={() => setRevision((value) => value + 1)}
       />
+      <SnapshotStatus snapshot={result.data?.snapshot} />
       {result.data && (
         <PipelineColumns
           key={query}

@@ -1,15 +1,12 @@
 """Chart reads must not build the aggregate dashboard or block unrelated panels."""
 
-import asyncio
 import threading
 from typing import get_args
 
-import httpx
 import pytest
-from devfeed_admin_api import overview, overview_panels
+from devfeed_admin_api import overview
 from devfeed_admin_api.auth import require_admin
 from devfeed_admin_api.overview_panel_data import GROUPS, PanelName, panel_data
-from devfeed_core.config import get_settings
 from devfeed_core.models import (
     Article,
     ArticleContent,
@@ -22,12 +19,19 @@ from devfeed_core.models import (
 pytestmark = pytest.mark.integration
 
 
-def test_every_panel_loads_without_building_the_whole_overview(database, admin_client, monkeypatch):
+def test_every_panel_loads_only_a_published_group(database, admin_client, monkeypatch):
+    from devfeed_admin_api.overview_projection import report_key
+    from test_overview_projections import save_panel
+
     monkeypatch.setattr(
         overview, "overview_metrics", lambda *_: pytest.fail("aggregate loader called")
     )
-    monkeypatch.setattr(get_settings(), "cache_enabled", True)
+    seen = set()
     for panel in get_args(PanelName):
+        key = report_key(GROUPS.get(panel, panel), 7)
+        if key not in seen:
+            save_panel(database, *key)
+            seen.add(key)
         response = admin_client.get(f"/v1/admin/overview/panels/{panel}?days=7")
         assert response.status_code == 200, (panel, response.text)
         assert response.json()["days"] == 7
@@ -36,67 +40,59 @@ def test_every_panel_loads_without_building_the_whole_overview(database, admin_c
     assert admin_client.get("/v1/admin/overview/panels/readers?days=0").status_code == 422
 
 
-def test_slow_chart_does_not_block_another_chart_or_health(database, admin_client, monkeypatch):
+def test_slow_publisher_does_not_block_another_chart_or_health(database, admin_client, monkeypatch):
+    from concurrent.futures import ThreadPoolExecutor
+
+    from devfeed_admin_api import overview_processing
+    from devfeed_admin_api import overview_projection as projections
+    from devfeed_admin_api.overview_panel_data import OverviewPanel
+    from test_overview_projections import save_panel
+
     entered, release = threading.Event(), threading.Event()
-    original = overview_panels.load_panel
+    save_panel(database, "sources", 30)
+    with database.begin() as session:
+        projections.request_refresh(session, "blockers", 1, utcnow())
 
-    def slow(sessions, group, days):
-        if group == "blockers":
-            entered.set()
-            assert release.wait(8)
-        return original(sessions, group, days)
+    def slow(factory, group, days, now):
+        entered.set()
+        assert release.wait(8)
+        return OverviewPanel(generated_at=now, days=days)
 
-    monkeypatch.setattr(overview_panels, "load_panel", slow)
-    monkeypatch.setattr(overview_panels, "WAIT_SECONDS", 0.5)
-
-    async def requests():
-        async with httpx.AsyncClient(
-            transport=httpx.ASGITransport(app=admin_client.app), base_url="http://testserver"
-        ) as client:
-            blocked = asyncio.create_task(client.get("/v1/admin/overview/panels/blockers"))
-            try:
-                async with asyncio.timeout(2):
-                    while not entered.is_set():
-                        await asyncio.sleep(0.01)
-                quick, health = await asyncio.wait_for(
-                    asyncio.gather(
-                        client.get("/v1/admin/overview/panels/sources"), client.get("/health/live")
-                    ),
-                    2,
-                )
-                assert quick.status_code == health.status_code == 200
-                response = await blocked
-                assert response.status_code == 503
-                assert response.headers["retry-after"] == "2"
-            finally:
-                release.set()
-                await asyncio.gather(*list(admin_client.app.state.overview_panel_tasks.values()))
-            assert (await client.get("/v1/admin/overview/panels/blockers")).status_code == 200
-
-    asyncio.run(requests())
+    monkeypatch.setattr(projections, "calculate_report", slow)
+    monkeypatch.setattr(overview_processing, "refresh_processing_facts", lambda *_: False)
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        worker = pool.submit(
+            projections.refresh_overview_projections, database, limit=1, seed=False
+        )
+        try:
+            assert entered.wait(3)
+            assert admin_client.get("/v1/admin/overview/panels/blockers").status_code == 503
+            assert admin_client.get("/v1/admin/overview/panels/sources").status_code == 200
+            assert admin_client.get("/health/live").status_code == 200
+        finally:
+            release.set()
+            assert worker.result(timeout=5) == 1
+    assert admin_client.get("/v1/admin/overview/panels/blockers").status_code == 200
 
 
-def test_charts_sharing_daily_data_coalesce_but_have_independent_requests(
-    database, admin_client, monkeypatch
-):
-    loads = []
-    original = overview_panels.load_panel
+def test_charts_share_daily_documents_and_keep_ranges_independent(database, admin_client):
+    from devfeed_core.models import ReportRefresh
+    from test_overview_projections import save_panel
 
-    def record(sessions, group, days):
-        loads.append((group, days))
-        return original(sessions, group, days)
-
-    monkeypatch.setattr(overview_panels, "load_panel", record)
+    save_panel(database, "daily", 7)
     for chart in ("publications", "readers", "click-depth"):
         assert admin_client.get(f"/v1/admin/overview/panels/{chart}?days=7").status_code == 200
-    assert loads == [("daily", 7)]
-    assert admin_client.get("/v1/admin/overview/panels/readers?days=30").status_code == 200
-    assert loads == [("daily", 7), ("daily", 30)]
+    assert admin_client.get("/v1/admin/overview/panels/readers?days=30").status_code == 503
+    with database() as session:
+        assert session.get(ReportRefresh, ("daily", 30)) is not None
+        assert session.get(ReportRefresh, ("daily", 7)) is None
 
 
-def test_panel_authentication_precedes_cached_response(database, admin_client, monkeypatch):
+def test_panel_authentication_precedes_saved_response(database, admin_client, monkeypatch):
     from devfeed_admin_api import auth
+    from test_overview_projections import save_panel
 
+    save_panel(database, "daily", 30)
     monkeypatch.setattr(auth, "require_config", lambda: None)
     assert admin_client.get("/v1/admin/overview/panels/readers").status_code == 200
     override = admin_client.app.dependency_overrides.pop(require_admin)
@@ -181,8 +177,10 @@ def test_pending_extraction_is_distinguished_from_unavailable_text(database):
             )
         )
     with database() as session:
-        result = panel_data(session, "blockers", 7, utcnow())
-    counts = {x.code: x.count for x in result.automation.blockers}
+        from devfeed_admin_api.automation import automation_blockers
+
+        result = automation_blockers(session)
+    counts = {x.code: x.count for x in result}
     assert counts["source_ineligible"] == 0
     assert counts["awaiting_enrichment"] == 1
     assert counts["insufficient_text"] == 2
@@ -190,11 +188,11 @@ def test_pending_extraction_is_distinguished_from_unavailable_text(database):
 
 
 def test_panels_use_only_their_small_data_source(database, monkeypatch):
-    from devfeed_admin_api import overview_panel_data
+    from devfeed_admin_api import overview_panel_data, overview_projection
 
     monkeypatch.setattr(
-        overview_panel_data,
-        "automation_blockers",
+        overview_projection,
+        "projected_blockers",
         lambda *_: pytest.fail("unrelated blockers query"),
     )
     monkeypatch.setattr(

@@ -117,6 +117,12 @@ const fixture = createServer(async (req, res) => {
     active--;
     body = structuredClone(mode === "empty" ? emptyOverview : populatedOverview);
     body.generated_at = new Date(Date.now() - (mode === "stale" ? 600000 : 0)).toISOString();
+    body.snapshot = {
+      status: mode === "stale" ? "stale" : "fresh",
+      generated_at: body.generated_at,
+      generation: "fixture",
+      lag_seconds: mode === "stale" ? 600 : 0,
+    };
     body.days = Number(url.searchParams.get("days"));
     if (mode !== "empty") {
       body.activity = Array.from({ length: 30 }, (_, i) => ({
@@ -209,6 +215,10 @@ const fixture = createServer(async (req, res) => {
     ) {
       res.statusCode = 500;
       body = { detail: "Fixture panel failure" };
+    }
+    if (mode === "preparing" && panel === "publications") {
+      res.statusCode = 503;
+      body = { detail: { code: "report_refreshing", message: "Report is being prepared" } };
     }
   }
   res.setHeader("Content-Type", "application/json");
@@ -619,6 +629,28 @@ try {
   await page.locator("#overview-panel-publications").scrollIntoViewIfNeeded();
   await page.locator("#overview-panel-publications").getByRole("alert").waitFor();
   await page.screenshot({ path: `${output}/partial-failure.png`, fullPage: true });
+  mode = "preparing";
+  await page.getByRole("button", { name: "7 days", exact: true }).click();
+  const publicationPanel = page.locator("#overview-panel-publications");
+  await publicationPanel.scrollIntoViewIfNeeded();
+  await publicationPanel
+    .getByText("The saved first publications report is being prepared.")
+    .waitFor();
+  const preparingReads = requests.filter(({ panel }) => panel === "publications").length;
+  await page.waitForTimeout(2500);
+  assert.equal(
+    requests.filter(({ panel }) => panel === "publications").length,
+    preparingReads,
+    "Preparing reports must not start an inline retry loop",
+  );
+  await publicationPanel.screenshot({ path: `${output}/preparing.png` });
+  mode = "populated";
+  await publicationPanel.getByRole("button", { name: "Try again", exact: true }).click();
+  await publicationPanel
+    .getByText("The saved first publications report is being prepared.")
+    .waitFor({ state: "hidden" });
+  await page.getByRole("button", { name: "30 days", exact: true }).click();
+  await settled();
   mode = "loading";
   await page.getByRole("button", { name: "7 days", exact: true }).click();
   await page.locator('[data-overview-panel][aria-busy="true"]').first().waitFor();

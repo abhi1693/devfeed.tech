@@ -1,0 +1,151 @@
+"""Saved report availability and freshness decisions at the storage boundary."""
+
+from contextlib import contextmanager
+from datetime import UTC, datetime, timedelta
+from types import SimpleNamespace
+
+import pytest
+from devfeed_admin_api import overview_projection
+from devfeed_admin_api.overview_panel_data import OverviewPanel
+from devfeed_core.models import ReportRefresh, ReportSnapshot
+from fastapi import HTTPException
+
+NOW = datetime(2026, 10, 21, tzinfo=UTC)
+
+
+class SavedReports:
+    def __init__(self, stored=None, refresh=None):
+        self.stored = stored
+        self.refresh = refresh
+        self.events = []
+        self.keys = []
+        self.connection_info = {}
+
+    @contextmanager
+    def begin(self):
+        self.events.append("begin")
+        try:
+            yield self
+        except Exception:
+            self.events.append("rollback")
+            raise
+        else:
+            self.events.append("commit")
+
+    def connection(self):
+        return SimpleNamespace(info=self.connection_info)
+
+    def execute(self, statement):
+        if getattr(statement, "is_select", False):
+            pytest.fail("Saved report GET queried history")
+
+    def get(self, model, key):
+        self.keys.append(key)
+        if model is ReportSnapshot:
+            return self.stored
+        if model is ReportRefresh:
+            return self.refresh
+        pytest.fail("Saved report GET queried a calculation dependency")
+
+
+@pytest.fixture
+def saved_reports(monkeypatch):
+    monkeypatch.setattr(overview_projection, "report_policy_version", lambda: "report-current")
+    monkeypatch.setattr(
+        overview_projection,
+        "calculate_report",
+        lambda *_: pytest.fail("Saved report GET started calculation"),
+    )
+
+    def request_refresh(store, group, days, now):
+        store.events.append("demand")
+        store.keys.append((group, days))
+        if store.refresh is None:
+            store.refresh = SimpleNamespace(last_error=None)
+
+    monkeypatch.setattr(overview_projection, "request_refresh", request_refresh)
+    return SavedReports
+
+
+def stored_report(*, age=5, policy="report-current", dependency=None):
+    generated = NOW - timedelta(seconds=age)
+    payload = OverviewPanel(generated_at=generated, days=1, articles_pending_review=23).model_dump(
+        mode="json"
+    )
+    if dependency is not None:
+        payload["_projection_snapshot"] = dependency
+    return SimpleNamespace(payload=payload, generated_at=generated, policy_version=policy)
+
+
+@pytest.mark.parametrize(
+    ("age", "policy", "dependency", "failed", "status", "demand"),
+    [
+        (5, "report-current", None, False, "fresh", False),
+        (60, "report-current", None, False, "refreshing", True),
+        (61, "report-current", None, True, "stale", True),
+        (5, "report-old", None, False, "rebuilding", True),
+        (5, "report-current", "rebuilding", False, "rebuilding", False),
+        (5, "report-current", "refreshing", False, "refreshing", False),
+        (5, "report-current", "stale", False, "stale", False),
+        (5, "report-current", "fresh", False, "fresh", False),
+    ],
+)
+def test_saved_report_preserves_payload_and_exposes_honest_freshness(
+    saved_reports, age, policy, dependency, failed, status, demand
+):
+    metadata = {"status": dependency, "lag_seconds": 7} if dependency else None
+    stored = stored_report(age=age, policy=policy, dependency=metadata)
+    failure = SimpleNamespace(last_error="OperationalError") if failed else None
+    store = saved_reports(stored, failure)
+    result = overview_projection.read_report(store, "blockers", 30, OverviewPanel, now=NOW)
+    assert result.days == 30
+    assert result.articles_pending_review == 23
+    assert result.generated_at == stored.generated_at
+    assert result.snapshot.status == status
+    assert result.snapshot.generation == policy
+    assert result.snapshot.generated_at == stored.generated_at
+    assert result.snapshot.lag_seconds == age + (7 if metadata else 0)
+    assert store.events == (["begin", "demand", "commit"] if demand else ["begin", "commit"])
+    assert set(store.keys) == {("blockers", 1)}
+    if failed:
+        assert store.refresh is failure
+
+
+def test_cold_report_commits_refresh_demand_before_raising_retryable_response(saved_reports):
+    store = saved_reports()
+    with pytest.raises(HTTPException) as error:
+        overview_projection.read_report(store, "daily", 17, OverviewPanel, now=NOW)
+    assert error.value.status_code == 503
+    assert error.value.detail["code"] == "report_refreshing"
+    assert error.value.headers["Retry-After"] == "5"
+    assert store.events == ["begin", "demand", "commit"]
+    assert set(store.keys) == {("daily", 17)}
+
+
+def test_corrupt_document_commits_rebuild_demand_without_losing_the_original(saved_reports):
+    stored = stored_report()
+    stored.payload = {"invalid": True}
+    store = saved_reports(stored)
+    with pytest.raises(HTTPException) as error:
+        overview_projection.read_report(store, "daily", 7, OverviewPanel, now=NOW)
+    assert error.value.status_code == 503
+    assert error.value.detail["code"] == "report_rebuilding"
+    assert store.events == ["begin", "demand", "commit"]
+    assert store.stored is stored
+
+
+def test_invalid_dependency_keeps_complete_payload_visible_while_requesting_rebuild(saved_reports):
+    store = saved_reports(stored_report(dependency={"status": "unknown"}))
+    result = overview_projection.read_report(store, "daily", 7, OverviewPanel, now=NOW)
+    assert result.articles_pending_review == 23
+    assert result.snapshot.status == "rebuilding"
+    assert store.events == ["begin", "demand", "commit"]
+
+
+def test_future_saved_clock_does_not_create_negative_lag_or_refresh_storm(saved_reports):
+    store = saved_reports(stored_report(age=-30))
+    result = overview_projection.read_report(store, "daily", 90, OverviewPanel, now=NOW)
+    assert result.days == 90
+    assert result.snapshot.status == "fresh"
+    assert result.snapshot.lag_seconds == 0
+    assert store.events == ["begin", "commit"]

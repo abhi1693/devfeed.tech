@@ -25,7 +25,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-images = ["pillow>=11.3,<13"]
+images = ["pillow>=13,<14"]
 storage = ["boto3>=1.40,<2"]
 
 [build-system]
