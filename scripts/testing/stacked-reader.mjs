@@ -46,6 +46,384 @@ export function stackedReaderFeed(article, params) {
   };
 }
 
+async function mockStackedPlacements(page) {
+  const context = page.context();
+  const events = [];
+  const image = "https://stacked-sponsor.example.test/launchpad.svg";
+  const logo = "https://stacked-sponsor.example.test/launchpad-logo.svg";
+  const receipt = (asset, delivery) =>
+    `v1.${asset.replaceAll("-", "")}.${delivery.replaceAll("-", "")}.${Math.floor(Date.now() / 1000)}.${"a".repeat(64)}`;
+  const product = {
+    product_id: "11111111-aaaa-4111-8111-111111111111",
+    asset_id: "22222222-aaaa-4222-8222-222222222222",
+    campaign_id: "33333333-aaaa-4333-8333-333333333333",
+    name: "LaunchPad for developers",
+    tagline: "Launch useful tools, share releases, and find your next developer product.",
+    url: "https://stacked-sponsor.example.test/product",
+    logo_url: logo,
+    image_url: image,
+    image_variants: [],
+    link_rel: ["nofollow"],
+    partner_name: "Stack Sponsor",
+    platform: { name: "Developer LaunchPad", logo_url: null, logo_variants: [] },
+    attribution: "Brought to you by Stack Sponsor",
+    sponsored: true,
+    reason: "A developer product relevant to the engineering feed.",
+    receipt: receipt(
+      "22222222-aaaa-4222-8222-222222222222",
+      "44444444-aaaa-4444-8444-444444444444",
+    ),
+    ad_format: "feed",
+    article: null,
+  };
+  const promoted = {
+    ...product,
+    product_id: "55555555-aaaa-4555-8555-555555555555",
+    asset_id: "66666666-aaaa-4666-8666-666666666666",
+    name: "An engineering guide from Stack Sponsor",
+    url: "/articles/stacked-sponsored-engineering",
+    receipt: receipt(
+      "66666666-aaaa-4666-8666-666666666666",
+      "77777777-aaaa-4777-8777-777777777777",
+    ),
+    ad_format: "sponsored_content",
+    article: {
+      id: "88888888-aaaa-4888-8888-888888888888",
+      slug: "stacked-sponsored-engineering",
+      canonical_url: "https://stacked-sponsor.example.test/engineering-guide",
+      title: "An engineering guide from Stack Sponsor",
+      summary: "Practical advice for building dependable developer tools and useful releases.",
+      ai_summary: null,
+      ai_description: null,
+      image_url: image,
+      image_variants: [],
+      author: null,
+      content_type: "tutorial",
+      content_format: "article",
+      language: "en",
+      published_at: "2026-10-21T00:00:00Z",
+      feed_at: "2026-10-21T00:00:00Z",
+      tags: [],
+      sources: [],
+      topics: [],
+      sponsor_names: ["Stack Sponsor"],
+    },
+  };
+  const queryPattern = /\/api\/v1\/(?:user\/)?partner-placements\/query$/;
+  const queryHandler = (route) => {
+    const query = route.request().postDataJSON();
+    return route.fulfill({
+      json: {
+        items:
+          query.surface === "feed"
+            ? [product, promoted].filter((item) => query.ad_formats?.includes(item.ad_format))
+            : [],
+      },
+    });
+  };
+  const trackingPattern = /\/api\/v1\/partner-tracking\/events$/;
+  const trackingHandler = (route) => {
+    events.push(route.request().postDataJSON());
+    return route.fulfill({ status: 204 });
+  };
+  const imagePattern = "https://stacked-sponsor.example.test/*.svg";
+  const imageHandler = (route) =>
+    route.fulfill({
+      contentType: "image/svg+xml",
+      body:
+        route.request().url() === logo
+          ? `<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128"><rect width="128" height="128" rx="24" fill="#00786f"/><path d="M35 30V94H65V82H49V30ZM72 30V94H86V70H94C118 70 118 30 94 30ZM86 43H93C101 43 101 57 93 57H86Z" fill="white"/></svg>`
+          : `<svg xmlns="http://www.w3.org/2000/svg" width="800" height="450" viewBox="0 0 800 450"><rect width="800" height="450" fill="#f8fbfc"/><path d="M0 0H800V450H0Z" fill="none" stroke="#009d8f" stroke-width="16"/><text x="400" y="190" text-anchor="middle" fill="#00786f" font-family="sans-serif" font-size="72" font-weight="bold">LaunchPad</text><text x="400" y="270" text-anchor="middle" fill="#173c3a" font-family="sans-serif" font-size="40">Developer tools, all in one place</text></svg>`,
+    });
+  await context.route(queryPattern, queryHandler);
+  await context.route(trackingPattern, trackingHandler);
+  await context.route(imagePattern, imageHandler);
+  return {
+    events,
+    product,
+    promoted,
+    cleanup: async () => {
+      await context.unroute(queryPattern, queryHandler);
+      await context.unroute(trackingPattern, trackingHandler);
+      await context.unroute(imagePattern, imageHandler);
+    },
+  };
+}
+
+async function checkStackedSponsorship(page, output) {
+  const placements = page.locator(".article-stacked > .partner-placement:visible");
+  await placements.first().waitFor();
+  await page.waitForFunction(
+    () => document.querySelectorAll(".article-stacked > .partner-placement").length === 2,
+  );
+  const measurements = [];
+  for (const width of [1800, 1440, 390, 320]) {
+    await page.setViewportSize({ width, height: 1000 });
+    for (const format of ["feed", "sponsored_content"]) {
+      const placement = placements.and(page.locator(`[data-ad-format="${format}"]`));
+      await placement.evaluate((node) =>
+        node.scrollIntoView({ block: "center", behavior: "instant" }),
+      );
+      await placement.locator("img").first().waitFor();
+      await placement
+        .locator("img")
+        .first()
+        .evaluate(async (node) => {
+          if (!node.complete)
+            await new Promise((resolve) => node.addEventListener("load", resolve, { once: true }));
+        });
+      const snapshot = await placement.evaluate((node) => {
+        const box = (element) => element?.getBoundingClientRect().toJSON();
+        const thumbnail = node.querySelector(".article-stacked-thumbnail");
+        const brand = node.querySelector(".stacked-placement-brand .partner-placement-logo");
+        const displayedImage = thumbnail ?? brand;
+        const image = displayedImage?.querySelector("img");
+        const previous = node.previousElementSibling;
+        const badge = node.querySelector('[data-promotion-kind="sponsored"]');
+        return {
+          format: node.dataset.adFormat,
+          viewport: innerWidth,
+          documentWidth: document.documentElement.scrollWidth,
+          placement: box(node),
+          card: box(node.querySelector(":scope > .partner-placement-link")),
+          cardBackground: node.querySelector(":scope > .partner-placement-link")
+            ? getComputedStyle(node.querySelector(":scope > .partner-placement-link"))
+                .backgroundColor
+            : null,
+          thumbnail: box(thumbnail),
+          brand: box(brand),
+          visit: box(node.querySelector(".stacked-placement-visit")),
+          image: box(image),
+          imageFit: image ? getComputedStyle(image).objectFit : null,
+          copy: box(node.querySelector(".stacked-placement-copy, .article-stacked-copy")),
+          previousThumbnail: box(previous?.querySelector(".article-stacked-thumbnail")),
+          previousCopy: box(previous?.querySelector(".article-stacked-copy")),
+          titleFont: getComputedStyle(node.querySelector("h2")).fontSize,
+          previousTitleFont: getComputedStyle(previous.querySelector("h2")).fontSize,
+          metadataFont: getComputedStyle(
+            node.querySelector(".stacked-placement-meta, .article-stacked-meta"),
+          ).fontSize,
+          previousMetadataFont: getComputedStyle(previous.querySelector(".article-stacked-meta"))
+            .fontSize,
+          background: getComputedStyle(node).backgroundColor,
+          previousBackground: getComputedStyle(previous).backgroundColor,
+          rail: getComputedStyle(node).boxShadow,
+          badgeBackground: getComputedStyle(badge).backgroundColor,
+          text: node.textContent,
+        };
+      });
+      assert.ok(snapshot.documentWidth <= width + 1, `${width}px sponsorship has no page overflow`);
+      assert.ok(
+        snapshot.placement.x >= -1 && snapshot.placement.x + snapshot.placement.width <= width + 1,
+        `${width}px ${format} stays inside the Stacked stream`,
+      );
+      assert.equal(snapshot.metadataFont, snapshot.previousMetadataFont);
+      const disclosure = placement.locator('[data-promotion-kind="sponsored"]');
+      assert.equal(await disclosure.isVisible(), true, "Sponsorship remains clearly disclosed");
+      assert.match(await disclosure.textContent(), /^Sponsored/);
+      assert.equal(snapshot.rail, "none", "Sponsorship uses its disclosure without an extra rail");
+      assert.notEqual(snapshot.badgeBackground, "rgba(0, 0, 0, 0)");
+      if (format === "feed") {
+        assert.equal(
+          snapshot.thumbnail,
+          undefined,
+          "Product promotions use a logo instead of a large creative thumbnail",
+        );
+        assert.ok(Math.abs(snapshot.brand.width - (width > 520 ? 56 : 48)) <= 1);
+        assert.ok(Math.abs(snapshot.brand.height - snapshot.brand.width) <= 1);
+        assert.equal(
+          snapshot.background,
+          "rgba(0, 0, 0, 0)",
+          "The full-width slot has a neutral background",
+        );
+        assert.ok(snapshot.card.width <= 761, "The product and action stay in a bounded card");
+        assert.ok(
+          Math.abs(
+            snapshot.card.x +
+              snapshot.card.width / 2 -
+              (snapshot.placement.x + snapshot.placement.width / 2),
+          ) <= 1,
+          "The promotion is centered within the Stacked stream",
+        );
+        assert.ok(
+          snapshot.visit.x >= snapshot.card.x &&
+            snapshot.visit.x + snapshot.visit.width <= snapshot.card.x + snapshot.card.width,
+          "The call to action belongs to the bounded card",
+        );
+        assert.ok(parseFloat(snapshot.titleFont) > parseFloat(snapshot.metadataFont));
+        assert.equal(
+          await placement.locator(".card-image, .stacked-placement-thumbnail").count(),
+          0,
+        );
+        assert.equal(
+          snapshot.text.split("Brought to you by Stack Sponsor").length - 1,
+          1,
+          "Attribution appears once alongside the Sponsored disclosure",
+        );
+        assert.equal(await placement.locator(".stacked-placement-footer").count(), 0);
+        assert.equal(await placement.getByText("Visit site", { exact: true }).count(), 1);
+        assert.ok(
+          snapshot.visit.height >= 44,
+          "The destination has a clear touch-sized call to action",
+        );
+        if (width > 520) {
+          assert.ok(snapshot.visit.x >= snapshot.copy.x + snapshot.copy.width - 1);
+          assert.ok(
+            snapshot.card.height <= 140,
+            "Desktop sponsorship keeps its content compact within the card",
+          );
+          assert.ok(
+            snapshot.visit.x + snapshot.visit.width < width - 64,
+            "The destination never drifts to the screen edge",
+          );
+        } else {
+          assert.ok(Math.abs(snapshot.visit.x - snapshot.copy.x) <= 1);
+          assert.ok(snapshot.visit.y >= snapshot.copy.y + snapshot.copy.height - 1);
+        }
+        assert.ok(
+          snapshot.card.height <=
+            Math.max(snapshot.brand.height, snapshot.copy.height) + (width > 520 ? 48 : 98),
+          "The bounded product card follows its content",
+        );
+        await placement
+          .getByRole("link", { name: "LaunchPad for developers", exact: true })
+          .hover();
+        assert.equal(
+          await placement
+            .locator(".partner-placement-link")
+            .evaluate((node) => getComputedStyle(node).backgroundColor),
+          snapshot.cardBackground,
+          "Hover keeps the card surface neutral",
+        );
+        const contrast = await checkStackedBadgeContrast(disclosure);
+        snapshot.contrast = contrast;
+      } else {
+        assert.equal(snapshot.titleFont, snapshot.previousTitleFont);
+        assert.ok(
+          Math.abs(snapshot.thumbnail.width - snapshot.previousThumbnail.width) <= 1 &&
+            Math.abs(snapshot.thumbnail.height - snapshot.previousThumbnail.height) <= 1,
+          `${width}px sponsored articles use the same thumbnail as their organic neighbor`,
+        );
+        assert.ok(Math.abs(snapshot.thumbnail.width / snapshot.thumbnail.height - 16 / 9) <= 0.02);
+        assert.equal(
+          snapshot.imageFit,
+          "contain",
+          "Sponsored article artwork remains fully visible",
+        );
+        assert.ok(
+          Math.abs(snapshot.thumbnail.x - snapshot.previousThumbnail.x) <= 1 &&
+            Math.abs(snapshot.copy.x - snapshot.previousCopy.x) <= 1,
+          `${width}px sponsored articles align with adjacent articles`,
+        );
+      }
+      measurements.push(snapshot);
+      if (output)
+        await page.screenshot({
+          path: `${output}-sponsor-${format}-${width}.png`,
+          animations: "disabled",
+        });
+    }
+  }
+  return measurements;
+}
+
+async function checkStackedBadgeContrast(badge) {
+  const result = await badge.evaluate((badge) => {
+    const originalDark = document.documentElement.classList.contains("dark");
+    const canvas = document.createElement("canvas");
+    canvas.width = canvas.height = 1;
+    const context = canvas.getContext("2d", { willReadFrequently: true });
+    const rgb = (css) => {
+      context.clearRect(0, 0, 1, 1);
+      context.fillStyle = css;
+      context.fillRect(0, 0, 1, 1);
+      return [...context.getImageData(0, 0, 1, 1).data].map((value) => value / 255);
+    };
+    const over = (foreground, background) => [
+      ...foreground
+        .slice(0, 3)
+        .map((value, index) => value * foreground[3] + background[index] * (1 - foreground[3])),
+      1,
+    ];
+    const luminance = (color) =>
+      color
+        .slice(0, 3)
+        .map((value) => (value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4))
+        .reduce((total, value, index) => total + value * [0.2126, 0.7152, 0.0722][index], 0);
+    const values = {};
+    const transition = badge.style.transition;
+    badge.style.transition = "none";
+    for (const [theme, dark] of [
+      ["light", false],
+      ["dark", true],
+    ]) {
+      document.documentElement.classList.toggle("dark", dark);
+      const style = getComputedStyle(badge);
+      const surface =
+        badge.closest(".partner-placement-link") ?? badge.closest(".partner-placement");
+      const base = over(
+        rgb(getComputedStyle(surface).backgroundColor),
+        over(rgb(getComputedStyle(document.body).backgroundColor), [1, 1, 1, 1]),
+      );
+      const background = over(rgb(style.backgroundColor), base);
+      const foreground = over(rgb(style.color), background);
+      const levels = [luminance(foreground), luminance(background)].sort((a, b) => a - b);
+      values[theme] = {
+        foreground: style.color,
+        background: style.backgroundColor,
+        ratio: (levels[1] + 0.05) / (levels[0] + 0.05),
+      };
+    }
+    document.documentElement.classList.toggle("dark", originalDark);
+    badge.style.transition = transition;
+    return values;
+  });
+  for (const [theme, { ratio }] of Object.entries(result))
+    assert.ok(
+      ratio >= 4.5,
+      `The ${theme} Sponsored label has readable text contrast (${ratio.toFixed(2)}:1)`,
+    );
+  return result;
+}
+
+async function checkStackedSponsorLink(page, sponsorship) {
+  await page.bringToFront();
+  const link = page.getByRole("link", { name: sponsorship.product.name, exact: true });
+  await link.scrollIntoViewIfNeeded();
+  assert.equal(await link.getAttribute("href"), sponsorship.product.url);
+  assert.equal(await link.getAttribute("target"), "_blank");
+  assert.ok((await link.getAttribute("rel")).split(/\s+/).includes("nofollow"));
+  await link.evaluate((node) =>
+    node.addEventListener("click", (event) => event.preventDefault(), { once: true }),
+  );
+  const reported = page.waitForRequest((request) => {
+    if (!request.url().endsWith("/api/v1/partner-tracking/events") || request.method() !== "POST")
+      return false;
+    const body = request.postDataJSON();
+    return body.kind === "click" && body.receipt === sponsorship.product.receipt;
+  });
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await page.keyboard.press("Tab");
+  await link.focus();
+  const focus = await link.evaluate((node) => {
+    const style = getComputedStyle(node);
+    return {
+      visible: node.matches(":focus-visible"),
+      outline: parseFloat(style.outlineWidth),
+      outlineStyle: style.outlineStyle,
+      transition: style.transitionDuration,
+    };
+  });
+  assert.equal(focus.visible, true, "Keyboard navigation makes the card focus visible");
+  assert.ok(focus.outline >= 2 && focus.outlineStyle !== "none");
+  assert.ok(
+    focus.transition.split(",").every((value) => parseFloat(value) === 0),
+    "Reduced motion removes the border transition",
+  );
+  await page.keyboard.press("Enter");
+  await (await reported).response();
+}
+
 async function checkStackedGeometry(page, width) {
   await page.setViewportSize({ width, height: 1000 });
   await page.evaluate(() => window.scrollTo(0, 0));
@@ -135,7 +513,7 @@ async function checkStackedTouchTargets(page, output) {
     for (const target of targets)
       assert.ok(
         target.width >= 44 && target.height >= 44,
-        `${target.name} has a 44px touch target`,
+        `${target.name} has a 44px touch target (${target.width}×${target.height}px)`,
       );
     if (output) await page.screenshot({ path: `${output}-320-touch.png`, animations: "disabled" });
     return { pointer: "coarse", geometry, targets };
@@ -149,6 +527,7 @@ async function checkStackedTouchTargets(page, output) {
 /** Run against the actual website and both built extension readers. */
 export async function checkStackedReader(page, target, output, { signedIn = false } = {}) {
   const originalViewport = page.viewportSize();
+  const sponsorship = await mockStackedPlacements(page);
   const firstRow = page.locator(".article-stacked-row:visible").first();
   await page.goto(target);
   await setArticleView(page, "stacked", { returnTo: target, keyboard: true });
@@ -207,6 +586,7 @@ export async function checkStackedReader(page, target, output, { signedIn = fals
       .locator(`.bookmark-button[aria-pressed="${initial === "true" ? "false" : "true"}"]`)
       .waitFor();
   }
+  await page.mouse.move(0, 0);
   await page.keyboard.press("Tab");
   await title.focus();
   assert.equal(await title.evaluate((element) => element.matches(":focus-visible")), true);
@@ -244,10 +624,12 @@ export async function checkStackedReader(page, target, output, { signedIn = fals
   await page.keyboard.press("Escape");
   await popover.waitFor({ state: "hidden" });
   assert.equal(await share.evaluate((element) => element === document.activeElement), true);
-  const beforePagination = await page.locator(".article-stacked-row").count();
+  const beforePagination = await page
+    .locator(".article-stacked-row:not(.partner-placement)")
+    .count();
   await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
   await page.locator('.article-stacked-title[href$="/articles/stacked-reader-12"]').waitFor();
-  assert.equal(await page.locator(".article-stacked-row").count(), 13);
+  assert.equal(await page.locator(".article-stacked-row:not(.partner-placement)").count(), 13);
   assert.ok(beforePagination <= 13);
   assert.equal(page.url(), target, "Appending another page keeps the filtered feed route");
   await page.getByRole("combobox", { name: "Sort by", exact: true }).click();
@@ -275,10 +657,23 @@ export async function checkStackedReader(page, target, output, { signedIn = fals
   await setArticleView(page, "stacked", { returnTo: target });
   await firstRow.waitFor();
   if (signedIn) await firstRow.locator('.bookmark-button[aria-pressed="true"]').waitFor();
+  const sponsoredMeasurements = await checkStackedSponsorship(page, output);
+  await checkStackedSponsorLink(page, sponsorship);
   if (output)
     await writeFile(
       `${output}.json`,
-      JSON.stringify({ passed: true, signedIn, measurements }, null, 2),
+      JSON.stringify(
+        {
+          passed: true,
+          signedIn,
+          measurements,
+          sponsoredMeasurements,
+          trackingEvents: sponsorship.events,
+        },
+        null,
+        2,
+      ),
     );
+  await sponsorship.cleanup();
   if (originalViewport) await page.setViewportSize(originalViewport);
 }

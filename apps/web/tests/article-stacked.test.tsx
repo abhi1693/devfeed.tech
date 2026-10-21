@@ -175,7 +175,7 @@ it("uses managed image variants at thumbnail sizes and recovers from image failu
   );
   const thumbnail = container.querySelector(".article-stacked-thumbnail img")!;
   expect(thumbnail.getAttribute("srcset")).toBe(`${image} 320w`);
-  expect(thumbnail.getAttribute("sizes")).toBe("(max-width: 520px) 72px, 112px");
+  expect(thumbnail.getAttribute("sizes")).toBe("(max-width: 556px) 96px, 160px");
   expect(thumbnail.getAttribute("fetchpriority")).toBe("high");
   expect(thumbnail.getAttribute("loading")).toBe("eager");
   fireEvent.error(thumbnail);

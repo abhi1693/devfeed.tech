@@ -177,6 +177,11 @@ use account feed settings without changing content or language selections. Grid,
 List, and Stacked reuse the existing feed loading, bookmarks, engagement, and preview
 navigation. `/trending` is a local reader route in both extensions.
 
+Stacked uses wider 16:9 thumbnails and displays the complete artwork. Sponsored
+articles retain the article row layout and disclosure badge. Product placements
+use bounded, centered cards with a product logo, one attribution line, an outlined
+Sponsored badge, and an outward-link cue that stays beside the content.
+
 Columns uses the shared saved workspace editor: add Latest, Recommended, source, topic,
 or tag selections; edit, reorder, and remove them; and restore the same stable identities
 on return. Left/right buttons support keyboard reordering, and narrow screens provide

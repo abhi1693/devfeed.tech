@@ -11,6 +11,7 @@ import {
   type ReactNode,
 } from "react";
 import { readerRequest, rememberReaderArticles } from "@/lib/reader-runtime";
+import { ArrowUpRight } from "lucide-react";
 import { userRequest } from "@/lib/user";
 import {
   parsePartnerPlacements,
@@ -209,30 +210,32 @@ function Placement({
         {...stateProps}
       >
         <a {...linkProps} className="partner-placement-link">
-          <div className="stacked-placement-thumbnail" aria-hidden="true">
-            <ArticleImage
-              src={image}
-              variants={item.image_variants}
-              sizes="88px"
-              label={item.name}
-              fallback={<ProductLogo key={item.logo_url} name={item.name} url={item.logo_url} />}
-            />
+          <div className="stacked-placement-brand">
+            <ProductLogo key={item.logo_url} name={item.name} url={item.logo_url} />
           </div>
           <div className="stacked-placement-copy">
-            <div className="stacked-placement-meta">
-              <span title={platformName}>{platformName}</span>
+            <div className="article-stacked-meta stacked-placement-meta">
               <span
                 id={sponsorshipId}
-                className="partner-placement-label"
+                className="content-type card-meta-type partner-placement-label"
                 data-promotion-kind="sponsored"
               >
                 Sponsored
               </span>
+              <span className="stacked-placement-attribution">{attribution || platformName}</span>
             </div>
-            <h2>{item.name}</h2>
-            {item.tagline && <p className="partner-placement-description">{item.tagline}</p>}
-            {attribution && <span className="stacked-placement-attribution">{attribution}</span>}
+            <h2 className="stacked-placement-heading">
+              <span>{item.name}</span>
+            </h2>
+            {item.tagline && (
+              <p className="article-stacked-description partner-placement-description">
+                {item.tagline}
+              </p>
+            )}
           </div>
+          <span className="stacked-placement-visit" aria-hidden="true">
+            Visit site <ArrowUpRight size={16} />
+          </span>
         </a>
       </article>
     );

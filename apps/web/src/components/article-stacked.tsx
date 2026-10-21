@@ -4,6 +4,7 @@ import Link from "@/components/reader-link";
 import type { Article } from "@/lib/types";
 import { articleSource } from "@/lib/article-attribution";
 import { articlePlainText } from "@/lib/article-text";
+import { STACKED_IMAGE_SIZES } from "@/lib/article-images";
 import { displayHost, outboundArticleUrl, safeExternalUrl, sourceHref } from "@/lib/feed-query";
 import { articleDestination } from "@/lib/reader-destination";
 import { adLinkRel } from "@devfeed/ui/ad-link-rel";
@@ -74,7 +75,7 @@ export function ArticleStackedRow({
           src={image}
           variants={article.image_variants}
           priority={priority}
-          sizes="(max-width: 520px) 72px, 112px"
+          sizes={STACKED_IMAGE_SIZES}
           label={topic?.name ?? "Article"}
         />
       </div>

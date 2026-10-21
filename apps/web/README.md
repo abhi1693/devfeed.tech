@@ -458,6 +458,13 @@ shared summary, sharing, and bookmark controls. Its narrow-screen action toolbar
 spans the row and uses 44px targets on touch devices. Both reuse the existing
 article preview and feed interaction state.
 
+Stacked thumbnails use wider 16:9 frames (160px on desktop, 96px on narrow feeds)
+and contain the full image so publisher artwork and text remain visible. Sponsored
+articles retain the same row layout and disclosure badge. Product placements use
+a centered card limited to 760px, grouping the product logo, one attribution line,
+outlined Sponsored badge, and outward-link cue. Its neutral border gains an amber
+accent on hover/focus; the cue moves beneath the copy on narrow feeds.
+
 Columns saves independent Latest, Recommended, source, topic, and tag selections. Each
 column has a stable identity while edits and reordering change its selection or position.
 Keyboard-accessible left/right controls reorder columns; narrow screens scroll the board
