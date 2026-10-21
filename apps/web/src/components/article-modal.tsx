@@ -11,6 +11,7 @@ import { cycleDialogFocus, restoreDialogFocus } from "@/lib/dialog-focus";
 import { useArticleNavigation } from "./article-navigation";
 import { useReaderSurface } from "./reader-context";
 import { readerPromptPolicies, type ArticleIdentity } from "@/lib/reader-context";
+import { articlePreviewOpened } from "@/lib/reader-preview-history";
 
 export function ArticleModal({
   children,
@@ -55,6 +56,10 @@ export function ArticleModal({
   const waiting = loadRequest?.slug === current && loadRequest !== null;
   if (loadRequest && loadRequest.slug !== current) setLoadRequest(null);
   const busy = pending || waiting || !!sequence?.loading;
+  useLayoutEffect(() => {
+    if (active && entry === "intercepted" && dismissTo === "history")
+      window.dispatchEvent(new Event(articlePreviewOpened));
+  }, [active, current, entry, dismissTo]);
   useLayoutEffect(() => {
     clearTimeout(exitTimer.current);
     exitAnimation.current?.cancel();

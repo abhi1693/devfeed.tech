@@ -6,6 +6,12 @@ import {
 } from "../../../scripts/testing/article-view.mjs";
 import { checkReaderPreferences } from "../../../scripts/testing/reader-preferences.mjs";
 import {
+  checkPreviewFeedRetention,
+  previewRetentionArticle,
+  previewRetentionFeed,
+  previewRetentionEngagement,
+} from "../../../scripts/testing/preview-feed-retention.mjs";
+import {
   checkStackedReader,
   stackedReaderArticle,
   stackedReaderFeed,
@@ -139,6 +145,8 @@ async function withAuthenticatedReader(t, check) {
     onboarding: false,
     catalogScroll: false,
     stackedReader: false,
+    previewRetention: false,
+    previewRequests: [],
     onboardingSaved: false,
     rejectOnboardingPage: true,
     rejectTopics: true,
@@ -165,6 +173,21 @@ async function withAuthenticatedReader(t, check) {
     const authenticated = state.active && headers.cookie?.includes(`${cookieName}=test-session`);
     const method = route.request().method();
     const send = (json, status = 200) => route.fulfill({ status, json });
+    if (state.previewRetention) {
+      state.previewRequests.push({ url: url.href, method });
+      if (
+        url.pathname === "/api/v1/feed" ||
+        (authenticated && ["/api/v1/user/feed", "/api/v1/user/bookmarks"].includes(url.pathname))
+      )
+        return send(previewRetentionFeed(article, url.searchParams));
+      if (url.pathname === "/api/v1/user/engagement")
+        return send(previewRetentionEngagement(url.searchParams));
+      if (/^\/api\/v1\/articles\/preview-retention-\d+$/.test(url.pathname))
+        return send({
+          article: previewRetentionArticle(article, Number(url.pathname.split("-").at(-1))),
+          topic: null,
+        });
+    }
     if (
       state.avatarCheck &&
       ["/api/v1/user/settings/profile", "/api/v1/user/settings/profile/avatar"].includes(
@@ -600,6 +623,33 @@ async function withAuthenticatedReader(t, check) {
   });
   assert.deepEqual(errors, [], "browser and fixture errors");
 }
+
+test(
+  "article previews retain loaded feeds without refreshing session or preferences",
+  { timeout: 180000 },
+  (t) =>
+    withAuthenticatedReader(t, async ({ page, state, signIn }) => {
+      state.previewRetention = true;
+      const current = page.url();
+      for (const signedIn of [false, true]) {
+        if (signedIn) await signIn();
+        const routes = [
+          "/latest?sort=most_liked",
+          ...(signedIn ? ["/?sort=newest", "/read-later"] : []),
+        ];
+        for (const route of routes)
+          await checkPreviewFeedRetention(
+            page,
+            readerRouteUrl(current, route),
+            `/tmp/devfeed-preview-retention/${browser}-${signedIn ? "member" : "guest"}-${route.startsWith("/latest") ? "latest" : route.startsWith("/read-later") ? "saved" : "personal"}.json`,
+            {
+              requests: () => state.previewRequests,
+              baseline: process.env.DEVFEED_PREVIEW_RETENTION_BASELINE === "1",
+            },
+          );
+      }
+    }),
+);
 
 test(
   "stacked reader preserves presentation, preferences, and article actions",

@@ -38,6 +38,12 @@ import { checkCompactLoading } from "../../../../scripts/testing/compact-loading
 import { checkArticleViewSettings } from "../../../../scripts/testing/article-view.mjs";
 import { checkReaderPreferences } from "../../../../scripts/testing/reader-preferences.mjs";
 import {
+  checkPreviewFeedRetention,
+  previewRetentionArticle,
+  previewRetentionFeed,
+  previewRetentionEngagement,
+} from "../../../../scripts/testing/preview-feed-retention.mjs";
+import {
   checkStackedReader,
   stackedReaderArticle,
   stackedReaderFeed,
@@ -150,7 +156,10 @@ import {
 } from "../../../../scripts/testing/reader-dom.mjs";
 
 const root = fileURLToPath(new URL("../../../../", import.meta.url));
-async function createReaderFixture(t, { thumbnailFeed = false, stackedFeed = false } = {}) {
+async function createReaderFixture(
+  t,
+  { thumbnailFeed = false, stackedFeed = false, previewRetention = false } = {},
+) {
   let app, browser, fixture, userFixture;
   let logs = "";
   t.after(async () => {
@@ -219,11 +228,28 @@ async function createReaderFixture(t, { thumbnailFeed = false, stackedFeed = fal
   let rejectTopicFollow = true;
   let savedTopicIds = [topic.id];
   let savedSourceIds = [];
+  const previewRequests = [];
+  const sessionExpiresAt = Date.now() / 1000 + 3600;
   const searchClicks = [];
   let rejectSourceFollow = true;
   fixture = createServer(async (req, res) => {
     const requestUrl = new URL(req.url, "http://localhost");
     const path = requestUrl.pathname;
+    if (previewRetention) {
+      previewRequests.push({ url: req.url, method: req.method });
+      let body;
+      if (["/v1/feed", "/v1/user/feed", "/v1/user/bookmarks"].includes(path))
+        body = previewRetentionFeed(article, requestUrl.searchParams);
+      else if (path === "/v1/user/engagement")
+        body = previewRetentionEngagement(requestUrl.searchParams);
+      else if (/^\/v1\/articles\/preview-retention-\d+$/.test(path))
+        body = previewRetentionArticle(article, Number(path.split("-").at(-1)));
+      if (body) {
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(JSON.stringify(body));
+        return;
+      }
+    }
     if (
       ["/v1/topics/retry-topic", "/v1/sources/retry-source", "/v1/tags/retry-tag"].includes(path)
     ) {
@@ -485,7 +511,7 @@ async function createReaderFixture(t, { thumbnailFeed = false, stackedFeed = fal
             name: "Reader",
             email: "reader@example.test",
             csrf_token: "test",
-            expires_at: Date.now() / 1000 + 3600,
+            expires_at: sessionExpiresAt,
           }
         : null;
     else if (path === "/v1/user/profiles/leader-reader") body = leaderboardProfile;
@@ -1290,6 +1316,7 @@ async function createReaderFixture(t, { thumbnailFeed = false, stackedFeed = fal
     domCatalog,
     renderReads,
     topicContext,
+    previewRequests,
     setArticleFeedGate: (gate) => {
       articleFeedGate = gate;
     },
@@ -1314,6 +1341,35 @@ async function withReaderPage(browser, check, options = {}) {
     await context.close();
   }
 }
+
+test(
+  "article previews retain loaded feeds without refreshing session or preferences",
+  { timeout: 180000 },
+  async (t) => {
+    const { browser, origin, previewRequests } = await createReaderFixture(t, {
+      previewRetention: true,
+    });
+    for (const signedIn of [false, true])
+      await withReaderPage(browser, async (page, context) => {
+        if (signedIn)
+          await context.addCookies([{ name: "devfeed_user_session", value: "valid", url: origin }]);
+        const routes = [
+          "/latest?sort=most_liked",
+          ...(signedIn ? ["/?sort=newest", "/read-later"] : []),
+        ];
+        for (const route of routes)
+          await checkPreviewFeedRetention(
+            page,
+            `${origin}${route}`,
+            `/tmp/devfeed-preview-retention/web-${signedIn ? "member" : "guest"}-${route.startsWith("/latest") ? "latest" : route.startsWith("/read-later") ? "saved" : "personal"}.json`,
+            {
+              requests: () => previewRequests,
+              baseline: process.env.DEVFEED_PREVIEW_RETENTION_BASELINE === "1",
+            },
+          );
+      });
+  },
+);
 
 test(
   "stacked reader preserves presentation, preferences, and article actions",

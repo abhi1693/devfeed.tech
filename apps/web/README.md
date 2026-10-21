@@ -458,6 +458,11 @@ shared summary, sharing, and bookmark controls. Its narrow-screen action toolbar
 spans the row and uses 44px targets on touch devices. Both reuse the existing
 article preview and feed interaction state.
 
+Closing an article preview keeps loaded rows, pagination, and scroll in place. The
+session is still checked, while unchanged credentials retain saved preferences and
+article metrics. Other history returns and restored documents reauthorize private
+content before showing it.
+
 ### Responsive article cards
 
 The shared web and extension card grid chooses columns from the available feed width,

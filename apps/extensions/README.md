@@ -177,6 +177,10 @@ use account feed settings without changing content or language selections. All
 three views reuse the existing feed loading, bookmarks, engagement, and preview
 navigation. `/trending` is a local reader route in both extensions.
 
+Closing article previews retains loaded rows, pagination, scroll, and article metrics
+while checking the session. Ordinary history navigation and restored documents still
+reauthorize private content before showing it.
+
 My feed uses `/`, the public latest feed uses `/latest`, and signed-out new tabs
 redirect to `/latest` without Read later navigation. Both extensions use the web
 reader's recommendation component and retain its current generation during likes,
