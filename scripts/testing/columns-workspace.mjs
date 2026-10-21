@@ -3,6 +3,7 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import { openArticleViewSettings, readerRouteUrl } from "./article-view.mjs";
 import { createFixtureFeedViews, installFixtureFeedViews } from "./feed-view-fixture.mjs";
+import { reorderColumn } from "./column-reorder.mjs";
 
 const guestKey = "devfeed:reader-preferences:guest";
 const legacyKey = "devfeed:feed-view:guest";
@@ -365,8 +366,8 @@ export async function checkColumnsWorkspace(
     for (const column of await columns().all())
       assert.equal(
         await column.evaluate((node) => node.firstElementChild.querySelectorAll("button").length),
-        2,
-        "A column header exposes only Options and Remove",
+        3,
+        "A column header exposes Reorder, Options and Remove",
       );
     assert.deepEqual((await saved()).columns, [
       { id: originalIds[0], feed: { kind: "latest" } },
@@ -403,12 +404,11 @@ export async function checkColumnsWorkspace(
     const optionsBounds = await options.boundingBox();
     assert.ok(optionsBounds.width >= 34 && optionsBounds.height >= 34);
     const keyboardMenu = await openColumnMenu(page, latestColumn, { keyboard: true });
-    assert.equal(await keyboardMenu.getByRole("menuitem").count(), 4);
+    assert.equal(await keyboardMenu.getByRole("menuitem").count(), 3);
     assert.equal(
-      await keyboardMenu
-        .getByRole("menuitem", { name: "Move left: Latest column", exact: true })
-        .isDisabled(),
-      true,
+      await keyboardMenu.getByRole("menuitem", { name: /^Move (left|right)/ }).count(),
+      0,
+      "Column menus omit the replaced movement actions",
     );
     for (const item of await keyboardMenu.getByRole("menuitem").all())
       assert.ok((await item.boundingBox()).height >= 38, "Desktop menu actions remain readable");
@@ -479,9 +479,7 @@ export async function checkColumnsWorkspace(
       feed: { kind: "topic", id: catalog.topics[1].id },
     });
 
-    await columnAction(page, columns().last(), `Move left: ${catalog.tags[0].name} column`, {
-      keyboard: true,
-    });
+    await reorderColumn(page, columns().last(), -1);
     const reordered = [
       originalIds[0],
       originalIds[1],
@@ -699,9 +697,7 @@ export async function checkColumnsWorkspace(
       mobileActions.every(({ width, height }) => width >= 44 && height >= 44),
       "Touch article actions retain44px targets",
     );
-    await columnAction(page, selectedColumn, `Move left: ${catalog.topics[0].name} column`, {
-      keyboard: true,
-    });
+    await reorderColumn(page, selectedColumn, -1);
     const mobileOrder = [remaining[0], remaining[1], remaining[3], remaining[2]];
     await waitOrder(mobileOrder);
     await page.waitForFunction(
@@ -712,7 +708,7 @@ export async function checkColumnsWorkspace(
           bounds &&
           bounds.left >= -1 &&
           bounds.right <= innerWidth + 1 &&
-          document.activeElement === column
+          document.activeElement === column.querySelector("[data-column-drag-handle]")
         );
       },
       remaining.at(-1),

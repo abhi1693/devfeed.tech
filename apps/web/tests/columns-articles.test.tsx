@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
+import userEvent from "@testing-library/user-event";
 import { ColumnsWorkspace } from "@/components/columns-workspace";
 import { FeedPreferencesProvider } from "@/components/feed-preferences";
 import { UserProvider } from "@/components/user-account";
@@ -253,6 +254,15 @@ beforeEach(() => {
   localStorage.clear();
   window.history.replaceState(null, "", "/");
   vi.mocked(observePartnerPlacement).mockClear();
+  const bounds = HTMLElement.prototype.getBoundingClientRect;
+  vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (
+    this: HTMLElement,
+  ) {
+    const column = this.closest<HTMLElement>("[data-column-id]");
+    if (!column) return bounds.call(this);
+    const index = [...document.querySelectorAll("[data-column-id]")].indexOf(column);
+    return new DOMRect(24 + index * 336, 120, 320, 640);
+  });
 });
 afterEach(() => {
   cleanup();
@@ -291,10 +301,13 @@ it("shares duplicate article actions across columns and activates the clicked co
   expect(screen.getByLabelText("Reading sequence").textContent).toBe(
     `${shared.slug},${publicOnly.slug}`,
   );
-  fireEvent.keyDown(screen.getByRole("button", { name: "Options for Latest column" }), {
-    key: "Enter",
-  });
-  fireEvent.click(await screen.findByRole("menuitem", { name: "Move right: Latest column" }));
+  const keyboard = userEvent.setup();
+  const dragHandle = screen.getByRole("button", { name: "Reorder Latest column" });
+  dragHandle.focus();
+  await keyboard.keyboard("[Space]");
+  await waitFor(() => expect(dragHandle.getAttribute("aria-pressed")).toBe("true"));
+  await keyboard.keyboard("[ArrowRight]");
+  await keyboard.keyboard("[Space]");
   await waitFor(() =>
     expect(
       [...document.querySelectorAll("[data-column-id]")].map((column) =>
@@ -306,6 +319,10 @@ it("shares duplicate article actions across columns and activates the clicked co
   expect(within(original).getByRole("button", { name: "Remove bookmark" })).toBeTruthy();
   expect(api.reads.filter(({ kind }) => kind === "latest")).toHaveLength(1);
   expect(api.reads.filter(({ kind }) => kind === "source")).toHaveLength(1);
+  expect(screen.getByLabelText("Reading sequence").textContent).toBe(
+    `${shared.slug},${publicOnly.slug}`,
+  );
+  expect(document.activeElement).toBe(dragHandle);
   expect(api.fetcher.mock.calls.some(([input]) => String(input).endsWith("/open"))).toBe(false);
 });
 

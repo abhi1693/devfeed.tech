@@ -2,13 +2,13 @@ import assert from "node:assert/strict";
 import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import { chooseInlineArticleView, readerRouteUrl } from "./article-view.mjs";
-import { columnAction, columnsCatalog } from "./columns-workspace.mjs";
 import {
   columnsFeedSelections,
   columnsSharedArticle,
   installColumnsFeedFixture,
 } from "./columns-feed-fixture.mjs";
 import { createFixtureFeedViews } from "./feed-view-fixture.mjs";
+import { reorderColumn } from "./column-reorder.mjs";
 import { writeReaderViewReport } from "./reader-views-evidence.mjs";
 
 const accountA = "11111111-1111-4111-8111-111111111111";
@@ -245,9 +245,7 @@ export async function checkSavedReaderLifecycle(page, target, output, { session,
     await chooseInlineArticleView(page, "columns", { keyboard: true });
     await definitions(accounts.get(accountA).columns);
     const source = workspace.locator(`[data-column-id="${columnsFeedSelections[1].id}"]`);
-    await columnAction(page, source, `Move left: ${columnsCatalog.sources[0].name} column`, {
-      keyboard: true,
-    });
+    await reorderColumn(page, source, -1);
     const savedA = structuredClone(accounts.get(accountA).columns);
     await definitions(savedA);
     await page.goto(latest);

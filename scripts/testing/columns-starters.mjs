@@ -3,6 +3,7 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import { chooseArticleView, openArticleViewSettings, readerRouteUrl } from "./article-view.mjs";
 import { columnAction } from "./columns-workspace.mjs";
+import { reorderColumn } from "./column-reorder.mjs";
 import {
   installPersonalColumnsFixture,
   personalStarterFeeds,
@@ -110,7 +111,7 @@ export async function checkColumnsStarters(page, target, output, { signedIn = fa
     await dialog.getByRole("combobox", { name: "Feed type", exact: true }).selectOption("latest");
     await dialog.getByRole("button", { name: "Save column", exact: true }).click();
     await dialog.waitFor({ state: "hidden" });
-    await columnAction(page, first, "Move right: Latest column");
+    await reorderColumn(page, first, 1);
     await columnAction(
       page,
       workspace.locator(`[data-column-id="${starters.at(-1).id}"]`),

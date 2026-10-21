@@ -13,6 +13,7 @@ import {
 import { checkColumnsFeeds } from "../../../scripts/testing/columns-feeds.mjs";
 import { checkColumnsSponsoredProducts } from "../../../scripts/testing/columns-sponsored.mjs";
 import { checkColumnsScanning } from "../../../scripts/testing/columns-scanning.mjs";
+import { checkColumnsReordering } from "../../../scripts/testing/columns-reordering.mjs";
 import { checkIndependentFeedViews } from "../../../scripts/testing/feed-views.mjs";
 import { checkSavedReaderLifecycle } from "../../../scripts/testing/reader-views-lifecycle.mjs";
 import { checkColumnSaveRecovery } from "../../../scripts/testing/reader-views-recovery.mjs";
@@ -657,6 +658,18 @@ async function withAuthenticatedReader(t, check) {
   });
   assert.deepEqual(errors, [], "browser and fixture errors");
 }
+
+test("columns reorder by dragging and keyboard without reloading feeds", { timeout: 180000 }, (t) =>
+  withAuthenticatedReader(t, async ({ page, user, signIn }) => {
+    await signIn();
+    await checkColumnsReordering(
+      page,
+      readerRouteUrl(page.url(), "/"),
+      `reports/columns-reordering/${browser}`,
+      { csrfToken: user.csrf_token },
+    );
+  }),
+);
 
 test(
   "saved reader views isolate loaded workspaces across account changes",

@@ -47,6 +47,7 @@ import { columnsFixtureArticle } from "../../../../scripts/testing/columns-feed-
 import { checkColumnsFeeds } from "../../../../scripts/testing/columns-feeds.mjs";
 import { checkColumnsSponsoredProducts } from "../../../../scripts/testing/columns-sponsored.mjs";
 import { checkColumnsScanning } from "../../../../scripts/testing/columns-scanning.mjs";
+import { checkColumnsReordering } from "../../../../scripts/testing/columns-reordering.mjs";
 import { checkIndependentFeedViews } from "../../../../scripts/testing/feed-views.mjs";
 import { checkSavedReaderLifecycle } from "../../../../scripts/testing/reader-views-lifecycle.mjs";
 import { checkColumnSaveRecovery } from "../../../../scripts/testing/reader-views-recovery.mjs";
@@ -1422,6 +1423,20 @@ async function withReaderPage(browser, check, options = {}) {
     await context.close();
   }
 }
+
+test(
+  "columns reorder by dragging and keyboard without reloading feeds",
+  { timeout: 180000 },
+  async (t) => {
+    const { browser, origin } = await createReaderFixture(t);
+    await withReaderPage(browser, async (page, context) => {
+      await context.addCookies([{ name: "devfeed_user_session", value: "valid", url: origin }]);
+      await checkColumnsReordering(page, `${origin}/`, "reports/columns-reordering/web", {
+        csrfToken: "test",
+      });
+    });
+  },
+);
 
 test(
   "saved reader views isolate loaded workspaces across account changes",

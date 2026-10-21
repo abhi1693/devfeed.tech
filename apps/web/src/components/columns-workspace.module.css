@@ -58,6 +58,9 @@
   scrollbar-width: thin;
   scrollbar-color: var(--border) transparent;
 }
+.board[data-dragging="true"] {
+  scroll-snap-type: none;
+}
 .column {
   flex: 0 0 360px;
   min-width: 0;
@@ -69,6 +72,13 @@
   background: var(--card);
   scroll-snap-align: start;
   scroll-margin-inline: 3px;
+  transition: var(--column-reorder-transition, none);
+}
+.column[data-dragging="true"] {
+  position: relative;
+  z-index: 2;
+  border-color: var(--primary);
+  box-shadow: 0 8px 28px #0003;
 }
 .board:focus-visible,
 .column:focus-visible,
@@ -277,12 +287,29 @@
   opacity: 0.35;
   cursor: default;
 }
+.dragHandle {
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+}
+.dragHandle[aria-pressed="true"] {
+  cursor: grabbing;
+  color: var(--foreground);
+}
+.dragHandle[aria-disabled="true"] {
+  opacity: 0.35;
+  cursor: default;
+}
 .removeButton:hover:not(:disabled) {
   color: var(--error, #d85050);
 }
 .columnMenu {
   z-index: 1200;
   min-width: 190px;
+  max-height: min(480px, var(--radix-dropdown-menu-content-available-height, 480px));
+  overflow-y: auto;
+  overscroll-behavior: contain;
   padding: 5px;
   color: var(--foreground);
   background: var(--card);
@@ -442,5 +469,10 @@
   .addColumn,
   .columnMenu [role="menuitem"] {
     min-height: 44px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .column {
+    transition: none;
   }
 }

@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
+import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
 import { ColumnsWorkspace } from "@/components/columns-workspace";
 import Link from "@/components/reader-link";
@@ -240,12 +241,44 @@ async function chooseColumnAction(name: string, action: string) {
   if (action.startsWith("Change feed ")) await screen.findByRole("dialog", { name: "Edit column" });
 }
 
+function columnOrder() {
+  return [...document.querySelectorAll("[data-column-id]")].map((column) =>
+    column.getAttribute("data-column-id"),
+  );
+}
+
+async function beginColumnDrag(name: string) {
+  const keyboard = userEvent.setup();
+  const handle = screen.getByRole("button", { name: `Reorder ${name} column` });
+  handle.focus();
+  await keyboard.keyboard("[Space]");
+  await waitFor(() => expect(handle.getAttribute("aria-pressed")).toBe("true"));
+  return { keyboard, handle };
+}
+
+async function dragColumn(name: string, direction: "left" | "right") {
+  const { keyboard, handle } = await beginColumnDrag(name);
+  await keyboard.keyboard(direction === "left" ? "[ArrowLeft]" : "[ArrowRight]");
+  await keyboard.keyboard("[Space]");
+  await waitFor(() => expect(handle.getAttribute("aria-pressed")).not.toBe("true"));
+  return handle;
+}
+
 beforeEach(() => {
   state.user = null;
   state.loading = false;
   state.sessionRevision = 1;
   state.notify.mockClear();
   state.push.mockClear();
+  const bounds = HTMLElement.prototype.getBoundingClientRect;
+  vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (
+    this: HTMLElement,
+  ) {
+    const column = this.closest<HTMLElement>("[data-column-id]");
+    if (!column) return bounds.call(this);
+    const index = [...document.querySelectorAll("[data-column-id]")].indexOf(column);
+    return new DOMRect(24 + index * 336, 120, 320, 640);
+  });
   localStorage.clear();
   window.history.replaceState(null, "", "/latest?tag=rust");
   HTMLDialogElement.prototype.showModal = function () {
@@ -392,7 +425,7 @@ it("edits, reorders, and removes columns without changing their identities", asy
   ]);
   await screen.findByRole("button", { name: "Options for Rust Blog column" });
   const first = document.querySelector(`[data-column-id="${latest.id}"]`)!;
-  await chooseColumnAction("Rust Blog", "Move right: Rust Blog column");
+  await dragColumn("Rust Blog", "right");
   await waitFor(() =>
     expect(storedColumns().map(({ id }) => id)).toEqual([recommended.id, latest.id]),
   );
@@ -416,6 +449,120 @@ it("edits, reorders, and removes columns without changing their identities", asy
   await screen.findByRole("heading", { name: "Build your reading workspace" });
   expect(document.querySelectorAll("[data-column-id]")).toHaveLength(0);
   expect(storedColumns()).toEqual([]);
+});
+
+it("saves one keyboard drop and keeps its focused stable handle while the account write is pending", async () => {
+  state.user = account;
+  const api = transport([latest, recommended]);
+  await mount();
+  const original = document.querySelector(`[data-column-id="${latest.id}"]`);
+  fireEvent.keyDown(screen.getByRole("button", { name: "Options for Latest column" }), {
+    key: "Enter",
+  });
+  const menu = await screen.findByRole("menu");
+  expect(within(menu).queryByRole("menuitem", { name: /^Move (left|right)/ })).toBeNull();
+  fireEvent.keyDown(menu, { key: "Escape" });
+  await waitFor(() => expect(screen.queryByRole("menu")).toBeNull());
+  const complete = api.delayNextWrite();
+  const { keyboard, handle } = await beginColumnDrag("Latest");
+  expect(screen.getByRole("button", { name: "Options for Recommended column" })).toHaveProperty(
+    "disabled",
+    true,
+  );
+  expect(screen.getByRole("button", { name: "Remove Recommended column" })).toHaveProperty(
+    "disabled",
+    true,
+  );
+  expect(api.writes).toHaveLength(0);
+  await keyboard.keyboard("[ArrowRight]");
+  expect(api.writes).toHaveLength(0);
+  await keyboard.keyboard("[Space]");
+  await waitFor(() => expect(api.writes).toHaveLength(1));
+  expect(api.writes[0].value.columns).toEqual([recommended, latest]);
+  expect(columnOrder()).toEqual([recommended.id, latest.id]);
+  expect(handle).toHaveProperty("disabled", false);
+  expect(handle.getAttribute("aria-disabled")).toBe("true");
+  expect(document.activeElement).toBe(handle);
+  const other = screen.getByRole("button", { name: "Reorder Recommended column" });
+  expect(other.getAttribute("aria-disabled")).toBe("true");
+  fireEvent.keyDown(other, { key: " ", code: "Space" });
+  fireEvent.keyDown(handle, { key: " ", code: "Space" });
+  expect(other.getAttribute("aria-pressed")).not.toBe("true");
+  expect(handle.getAttribute("aria-pressed")).not.toBe("true");
+  expect(api.writes).toHaveLength(1);
+  await complete(preferences([recommended, latest]));
+  await waitFor(() => expect(handle.getAttribute("aria-disabled")).not.toBe("true"));
+  expect(columnOrder()).toEqual([recommended.id, latest.id]);
+  expect(document.querySelector(`[data-column-id="${latest.id}"]`)).toBe(original);
+  expect(document.activeElement).toBe(handle);
+  expect(api.writes).toHaveLength(1);
+});
+
+it("moves a column to a selected position using clicks and saves once with stable handle focus", async () => {
+  state.user = account;
+  const api = transport([latest, recommended]);
+  await mount();
+  // jsdom has no submenu hit geometry; exercise pointer activation without synthetic hover travel.
+  const pointer = userEvent.setup({ skipHover: true });
+  const handle = screen.getByRole("button", { name: "Reorder Latest column" });
+  const original = document.querySelector(`[data-column-id="${latest.id}"]`);
+  await pointer.click(screen.getByRole("button", { name: "Options for Latest column" }));
+  const menu = await screen.findByRole("menu");
+  expect(within(menu).queryByRole("menuitem", { name: /^Move (left|right)/ })).toBeNull();
+  await pointer.click(within(menu).getByRole("menuitem", { name: "Move to position" }));
+  const current = await screen.findByRole("menuitem", { name: "Position 1 (current)" });
+  expect(current.getAttribute("aria-disabled")).toBe("true");
+  expect(api.writes).toHaveLength(0);
+  const complete = api.delayNextWrite();
+  await pointer.click(screen.getByRole("menuitem", { name: "Position 2" }));
+  await waitFor(() => expect(api.writes).toHaveLength(1));
+  expect(api.writes[0].value.columns).toEqual([recommended, latest]);
+  expect(columnOrder()).toEqual([recommended.id, latest.id]);
+  await complete(preferences([recommended, latest]));
+  await waitFor(() => expect(handle.getAttribute("aria-disabled")).not.toBe("true"));
+  await waitFor(() => expect(document.activeElement).toBe(handle));
+  expect(document.querySelector(`[data-column-id="${latest.id}"]`)).toBe(original);
+  expect(api.writes).toHaveLength(1);
+});
+
+it.each(["unchanged", "cancelled"] as const)(
+  "does not save an %s keyboard drag and restores handle focus",
+  async (outcome) => {
+    state.user = account;
+    const api = transport([latest, recommended]);
+    await mount();
+    const { keyboard, handle } = await beginColumnDrag("Latest");
+    if (outcome === "cancelled") await keyboard.keyboard("[ArrowRight]");
+    await keyboard.keyboard(outcome === "cancelled" ? "[Escape]" : "[Space]");
+    await waitFor(() => expect(handle.getAttribute("aria-pressed")).not.toBe("true"));
+    expect(columnOrder()).toEqual([latest.id, recommended.id]);
+    await waitFor(() => expect(document.activeElement).toBe(handle));
+    expect(api.writes).toHaveLength(0);
+    expect(state.notify).not.toHaveBeenCalled();
+  },
+);
+
+it("rolls a rejected keyboard drop back to the saved order and allows a focused retry", async () => {
+  state.user = account;
+  const api = transport([latest, recommended]);
+  await mount();
+  const original = document.querySelector(`[data-column-id="${latest.id}"]`);
+  const complete = api.delayNextWrite();
+  const handle = await dragColumn("Latest", "right");
+  await waitFor(() => expect(api.writes).toHaveLength(1));
+  expect(columnOrder()).toEqual([recommended.id, latest.id]);
+  await complete(preferences([latest, recommended]), 503);
+  await screen.findByRole("alert");
+  await waitFor(() => expect(columnOrder()).toEqual([latest.id, recommended.id]));
+  expect(document.querySelector(`[data-column-id="${latest.id}"]`)).toBe(original);
+  expect(document.activeElement).toBe(handle);
+  expect(handle.getAttribute("aria-disabled")).not.toBe("true");
+  await dragColumn("Latest", "right");
+  await waitFor(() => expect(columnOrder()).toEqual([recommended.id, latest.id]));
+  await waitFor(() => expect(screen.queryByRole("alert")).toBeNull());
+  expect(api.writes).toHaveLength(2);
+  expect(api.writes[1].value.columns).toEqual([recommended, latest]);
+  expect(document.activeElement).toBe(handle);
 });
 
 it("retains a column when direct removal cannot be saved and allows retry", async () => {
@@ -512,6 +659,11 @@ it("retains a guest Recommended column with a sign-in prompt and no account requ
   const api = transport();
   await mount([recommended]);
   expect(screen.getByText("Sign in to view recommendations.")).toBeTruthy();
+  expect(
+    screen
+      .getByRole("button", { name: "Reorder Recommended column" })
+      .getAttribute("aria-disabled"),
+  ).toBe("true");
   expect(storedColumns()).toEqual([recommended]);
   expect(api.fetcher).not.toHaveBeenCalled();
 });

@@ -13,6 +13,13 @@ Signed-in layouts and ordered column definitions are stored in PostgreSQL
 after sign-in, including a deliberately empty workspace. Guest browser storage is kept
 separate. An already-open device picks up changes from another device after reloading.
 
+Use the grip in a column header to drag it into a new position. With the grip focused,
+Space or Enter picks up the column, Left/Right moves it, Space or Enter drops it, and
+Escape cancels. Dropping saves the order once; a failed save restores the previous order.
+Reordering preserves the loaded articles, individual reading positions, and active reading
+sequence. On narrow screens, dragging toward the board edge scrolls to more columns.
+The column menu also offers **Move to position** for click/tap-only reordering.
+
 ## Acceptance matrix
 
 | Requirement                                                                                                              | Shared browser coverage                           |
@@ -21,6 +28,7 @@ separate. An already-open device picks up changes from another device after relo
 | Independent semantic feed layouts, canonical aliases, filters, failed layout saves, and preview retention                | `feed-views.mjs`                                  |
 | Stacked thumbnails, missing metadata, long text, pagination, and shared article actions                                  | `stacked-reader.mjs`                              |
 | Add, edit, reorder, remove, deliberate clearing, unavailable selections, and keyboard/mobile navigation                  | `columns-workspace.mjs`                           |
+| Pointer, touch, and keyboard reordering, cancellation, failed saves, reading retention, and persisted order              | `columns-reordering.mjs`                          |
 | Personalized first-use columns without overwriting configured workspaces                                                 | `columns-personal.mjs` and `columns-starters.mjs` |
 | Guest → account A → account B → A → guest with rendered workspaces and a late A feed response                            | `reader-views-lifecycle.mjs`                      |
 | Failed column save retains pages, DOM, scroll, and draft; keyboard retry persists without changing another feed's layout | `reader-views-recovery.mjs`                       |
