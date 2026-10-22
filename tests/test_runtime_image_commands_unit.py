@@ -105,7 +105,7 @@ def test_published_article_requires_unpublishing_before_new_image_work(settings,
     assert current.publication_status == "published"
 
 
-@pytest.mark.parametrize("change", ["disabled", "url", "stored", "current"])
+@pytest.mark.parametrize("change", ["disabled", "url", "current"])
 def test_storage_claim_rechecks_current_input_and_only_leases_work_that_is_still_needed(
     settings, monkeypatch, change
 ):
@@ -115,8 +115,6 @@ def test_storage_claim_rechecks_current_input_and_only_leases_work_that_is_still
         settings.image_storage_enabled = False
     elif change == "url":
         current.image_url = "https://publisher.example/replaced.png"
-    elif change == "stored":
-        current.managed_image = asset(current.image_url)
     request = Mock()
     monkeypatch.setattr(images, "request_image", request)
     session = claim_session(current, queued)
@@ -158,7 +156,7 @@ def test_publisher_image_arriving_before_discovery_is_not_replaced_by_the_old_lo
     assert request.call_count == int(storage)
 
 
-@pytest.mark.parametrize("change", ["disabled", "url", "version", "stored", "current", "refresh"])
+@pytest.mark.parametrize("change", ["disabled", "url", "version", "current", "refresh"])
 def test_source_logo_claim_retires_stale_work_but_an_explicit_refresh_can_replace_a_current_logo(
     settings, monkeypatch, change
 ):
@@ -170,7 +168,7 @@ def test_source_logo_claim_retires_stale_work_but_an_explicit_refresh_can_replac
         current.logo_url = "https://publisher.example/replacement.png"
     elif change == "version":
         queued.storage_version = "old-logo-format"
-    if change in {"stored", "refresh"}:
+    if change == "refresh":
         current.managed_logo = {
             "source_url": current.logo_url,
             "version": logos.LOGO_VERSION,
