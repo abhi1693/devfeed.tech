@@ -9,9 +9,40 @@ from sqlalchemy.orm import Session, lazyload
 from devfeed_core.config import get_settings
 from devfeed_core.job_lifecycle import finish_job, start_job
 from devfeed_core.jobs import LEASE_SECONDS
-from devfeed_core.managed_images import ARTICLE_THUMBNAIL_LAYOUT, THUMBNAIL_VERSION, image_variants
+from devfeed_core.managed_images import (
+    ARTICLE_THUMBNAIL_LAYOUT,
+    IMAGE_VERSION,
+    THUMBNAIL_VERSION,
+    image_variants,
+)
 from devfeed_core.models import Article, ArticleImageJob, utcnow
 from devfeed_core.services import OperationConflict, RecordNotFound
+
+
+def thumbnail_maintenance_current(article: Article, job: ArticleImageJob) -> bool:
+    """A derivative upgrade may reuse the published article's unchanged saved original."""
+    checkpoint = job.storage or {}
+    asset = article.managed_image or {}
+    width = asset.get("source_width")
+    return bool(
+        job.operation == "store"
+        and job.storage_version == THUMBNAIL_VERSION
+        and not checkpoint.get("article_refresh")
+        and asset.get("version") == IMAGE_VERSION
+        and asset.get("variants")
+        and asset.get("source_url") == article.image_url
+        and checkpoint.get("version") == IMAGE_VERSION
+        and checkpoint.get("thumbnail_version") == THUMBNAIL_VERSION
+        and job.image_url == article.image_url == checkpoint.get("source_url")
+        and asset.get("hash")
+        and asset.get("original_key")
+        and type(width) is int
+        and width > 0
+        and all(
+            checkpoint.get(field) == asset.get(field)
+            for field in ("hash", "original_key", "source_width")
+        )
+    )
 
 
 def request_image(
@@ -306,12 +337,14 @@ def claim_image(session: Session, job_id: uuid.UUID) -> tuple[ArticleImageJob, s
     article = session.get(Article, job.article_id, options=[lazyload("*")])
     if article is None:
         return None  # FK cascade removes jobs for deleted articles.
-    if article.publication_status == "published":
+    if job.operation == "store" and not get_settings().image_storage_enabled:
+        return None
+    if article.publication_status == "published" and not thumbnail_maintenance_current(
+        article, job
+    ):
         finish_job(job, "already_present", now)
         return None
     if job.operation == "store":
-        if not get_settings().image_storage_enabled:
-            return None
         resizing = (job.storage or {}).get("thumbnail_layout") == ARTICLE_THUMBNAIL_LAYOUT
         current_asset = article.managed_image or {}
         already_stored = bool(image_variants(article)) and (
