@@ -2,6 +2,16 @@
 
 Application releases and Alembic schema revisions are separate identifiers.
 
+## 0.1.2 — 2026-10-23
+
+### Bug Fixes
+
+- Keep server trace exports working with the consolidated OpenTelemetry trace package.
+
+### Upgrade Notes
+
+- Keep the JavaScript telemetry SDK on 2.12/API 1.9.1 while using Faro 2.13. Upgrading SDK 3/API 1.10 independently breaks the current browser tracing peer contract.
+
 ## 0.1.1 — 2026-10-20
 
 ### Enhancements

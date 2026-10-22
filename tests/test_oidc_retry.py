@@ -81,7 +81,13 @@ def test_retry_is_bound_and_expires_without_consuming_another_browsers_context(r
     retry_key = auth.key("retry", token)
     original = state.store.get(retry_key)
     if change == "browser":
-        state.client.cookies.set("__Host-devfeed_user_state", secrets.token_urlsafe(32))
+        # Replace the browser's host-scoped cookie rather than append an unscoped duplicate.
+        state.client.cookies.set(
+            "__Host-devfeed_user_state",
+            secrets.token_urlsafe(32),
+            domain=state.client.base_url.host,
+            path="/",
+        )
     elif change == "policy":
         state.settings.oidc_client_id = "different-client"
     else:
