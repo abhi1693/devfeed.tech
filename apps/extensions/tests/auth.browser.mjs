@@ -276,7 +276,14 @@ async function withAuthenticatedReader(t, check) {
       return send({ items: [] });
     }
     if (method !== "GET") {
-      assert.equal(authenticated, true, "Chrome must send the real HttpOnly session cookie");
+      // A request already queued by the old account can arrive after revocation.
+      // Match the API's 401 response; active sessions still prove cookie and CSRF delivery.
+      if (!state.active) return send({}, 401);
+      assert.equal(
+        authenticated,
+        true,
+        `Chrome must send the real HttpOnly session cookie (${method} ${url.pathname}; active=${state.active}; cookie=${headers.cookie?.includes(`${cookieName}=test-session`) ?? false})`,
+      );
       assert.equal(headers.origin, state.extensionOrigin);
       assert.equal(headers["x-csrf-token"], user.csrf_token);
       if (url.pathname === "/api/v1/user/partner-placements/query") {
@@ -702,8 +709,29 @@ test(
                   sameSite: "Lax",
                 },
               ]);
+            else
+              assert.equal(
+                await page.evaluate(async (csrfToken) => {
+                  const response = await fetch(
+                    "https://devfeed.tech/api/v1/user/partner-placements/query",
+                    {
+                      method: "POST",
+                      credentials: "include",
+                      headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken },
+                      body: JSON.stringify({ surface: "header" }),
+                    },
+                  );
+                  return response.status;
+                }, user.csrf_token),
+                401,
+                "A private placement request is rejected after session revocation",
+              );
           },
         },
+      );
+      assert.ok(
+        state.authenticatedPlacementQueries > 0,
+        "Member placements prove cookie and CSRF delivery",
       );
     }),
 );

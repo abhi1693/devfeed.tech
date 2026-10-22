@@ -18,6 +18,22 @@ export async function reorderColumn(
   await handle.scrollIntoViewIfNeeded();
   await onPhase("revealed");
   if (input === "keyboard") {
+    const arrangement = await column.evaluate((node) => {
+      const siblings = [...node.parentElement.querySelectorAll(":scope > [data-column-id]")];
+      return {
+        name: node.querySelector("h2").textContent.trim(),
+        index: siblings.indexOf(node),
+        count: siblings.length,
+      };
+    });
+    const waitPosition = (index) =>
+      page.waitForFunction(
+        ({ name, index, count }) =>
+          [...document.querySelectorAll('[id^="DndLiveRegion"]')].some(
+            (node) => node.textContent === `${name} column, position ${index + 1} of ${count}.`,
+          ),
+        { ...arrangement, index },
+      );
     await handle.focus();
     await page.keyboard.press("Space");
     await column.locator("[data-column-drag-handle]").waitFor();
@@ -25,9 +41,13 @@ export async function reorderColumn(
       (node) => node.dataset.dragging === "true",
       await column.elementHandle(),
     );
+    // The drag flag precedes collision measurement. Its initial position and each
+    // destination are announced only after the sensor has committed that state.
+    await waitPosition(arrangement.index);
     for (let index = 0; index < Math.abs(offset); index++) {
       await page.keyboard.press(offset < 0 ? "ArrowLeft" : "ArrowRight");
-      await frames(page);
+      const destination = arrangement.index + (index + 1) * Math.sign(offset);
+      await waitPosition(Math.max(0, Math.min(arrangement.count - 1, destination)));
     }
     await page.keyboard.press(cancel ? "Escape" : "Space");
   } else {

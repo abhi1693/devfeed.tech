@@ -731,7 +731,57 @@ export async function checkColumnsWorkspace(
       mobileActions.every(({ width, height }) => width >= 44 && height >= 44),
       "Touch article actions retain44px targets",
     );
-    await reorderColumn(page, selectedColumn, -1);
+    // Keep one move pending beyond a frame-based guess. The real sensor must
+    // announce its destination before the helper sends the drop key.
+    const delayedMove = await page.evaluateHandle(() => {
+      const proof = { deferred: false, delivered: false, dropBeforeMove: false };
+      let timer;
+      const keydown = (event) => {
+        if (event.code === "Space" && proof.deferred && !proof.delivered)
+          proof.dropBeforeMove = true;
+        if (
+          event.code !== "ArrowLeft" ||
+          proof.deferred ||
+          !document.querySelector('[data-column-id][data-dragging="true"]')
+        )
+          return;
+        proof.deferred = true;
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        const target = event.target;
+        timer = setTimeout(() => {
+          proof.delivered = true;
+          target.dispatchEvent(
+            new KeyboardEvent("keydown", {
+              key: event.key,
+              code: event.code,
+              bubbles: true,
+              cancelable: true,
+            }),
+          );
+        }, 250);
+      };
+      window.addEventListener("keydown", keydown, true);
+      return {
+        proof,
+        cleanup: () => {
+          clearTimeout(timer);
+          window.removeEventListener("keydown", keydown, true);
+        },
+      };
+    });
+    try {
+      await reorderColumn(page, selectedColumn, -1);
+      menuRemoval.keyboardMove = await delayedMove.evaluate(({ proof }) => proof);
+      assert.deepEqual(menuRemoval.keyboardMove, {
+        deferred: true,
+        delivered: true,
+        dropBeforeMove: false,
+      });
+    } finally {
+      await delayedMove.evaluate(({ cleanup }) => cleanup());
+      await delayedMove.dispose();
+    }
     const mobileOrder = [remaining[0], remaining[1], remaining[3], remaining[2]];
     await waitOrder(mobileOrder);
     await page.waitForFunction(
