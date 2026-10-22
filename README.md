@@ -86,6 +86,10 @@ line at patch 3.12.15 on Alpine 3.24. Base images are pinned by verified multi-p
 minimal Node runtimes install libatomic and libstdc++ and execute a native-module loading check
 during the build. Native ARM64 image smoke checks remain required in CI.
 
+The [API performance comparison](loadtests/README.md) requires material latency changes to repeat
+within two validated runner pairs. It preserves every sample and reports inconsistent evidence as
+inconclusive; this does not establish that a dependency update has unchanged performance.
+
 Tag and topic pages use the reader's language and content preferences. Existing pages
 with empty filtered feeds are marked `noindex, follow`; missing collections return 404.
 Tags without any publicly visible articles also retain their 404 response. Collection sitemap entries

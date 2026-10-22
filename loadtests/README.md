@@ -159,12 +159,13 @@ without a write-token comment. Benchmark execution has read-only permissions;
 the separate comment job only reads artifacts and never executes candidate code.
 
 - **REGRESSED:** a route's median p95 rises by more than 20% **and** 20 ms,
-  with that increase present in at least two head samples versus the base median; new errors, missing
+  with that increase present in at least two same-runner base/head pairs; new errors, missing
   route coverage or failed connection-release checks also fail the candidate.
 - **IMPROVED:** the inverse p95 threshold is met, with no regressed or noisy route.
 - **NO MATERIAL CHANGE:** complete, successful traffic without a material change.
 - **INCONCLUSIVE:** successful runs have a p95 range exceeding both 35% of the
-  median and 20 ms. The check is green, with the uncertainty retained in the
+  median and 20 ms, or a material median change lacks two confirming pairs.
+  The check is green, with the uncertainty retained in the
   report; it does not claim an improvement.
 - **ERROR:** baseline execution failed or reports are missing, invalid or
   mismatched. This is a failed test/report pipeline, not uncertain latency.
@@ -181,7 +182,11 @@ A separate read-only comparison job collects all six artifacts and verifies thei
 commit SHAs and workload metadata before comparing. Missing, malformed or mismatched
 artifacts are errors, never silently omitted. Matrix fail-fast is disabled
 so one failed sample does not discard the other evidence. Runner identity,
-architecture and logical CPU count are recorded in each sample. Pairing revisions
+architecture, logical CPU count, and timezone-aware start time must validate each
+pair and its alternating execution order; the three pairs must use distinct runners.
+Missing or mismatched provenance fails the comparison. The report retains all
+paired p95 values and their absolute/relative deltas, with counts in both directions.
+Pairing revisions
 on the same host reduces differences in hardware and host load between base and
 head. Alternating order, repeated pairs and the noise gate reduce, but cannot
 eliminate, changes in host load over time or order effects.
