@@ -12,4 +12,6 @@ export type FeedSettingsView = typeof FeedSettingsView[keyof typeof FeedSettings
 export const FeedSettingsView = {
   cards: 'cards',
   compact: 'compact',
+  stacked: 'stacked',
+  columns: 'columns',
 } as const;

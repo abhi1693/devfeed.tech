@@ -57,6 +57,17 @@ function browser(route = "/latest") {
 }
 const plain = (value) => JSON.parse(JSON.stringify(value));
 
+test("session location checks reject malformed and nonlocal reader hashes", () => {
+  for (const route of ["https://[", "//outside.test/latest", "/topics/rust\\news"]) {
+    const { readerRouteLocation, dom } = browser(route);
+    assert.equal(readerRouteLocation().href, "https://devfeed.tech/__missing__");
+    dom.window.close();
+  }
+  const { readerRouteLocation, dom } = browser("/latest?sort=oldest");
+  assert.equal(readerRouteLocation().href, "https://devfeed.tech/latest?sort=oldest");
+  dom.window.close();
+});
+
 test("article destinations retain each page kind and its reading position", () => {
   for (const route of [
     "/latest?cursor=next",

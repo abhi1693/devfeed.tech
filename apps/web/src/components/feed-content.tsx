@@ -12,7 +12,9 @@ import { UserShell } from "@/components/user-shell";
 import { InfiniteFeed } from "@/components/infinite-feed";
 import { FeedFiltersBar } from "@/components/feed-filters";
 import { RetryFeed } from "@/components/retry-feed";
-import { feedPlacements, type FeedDescriptor } from "@/lib/reader-feed";
+import { canUseColumnWorkspace, feedPlacements, type FeedDescriptor } from "@/lib/reader-feed";
+import { ReaderFeedLayout } from "./reader-feed-layout";
+import { deriveFeedViewScope, pendingFeedScopeSelection } from "@/lib/feed-view-scope";
 
 import type { ReactNode } from "react";
 import type { FeedPage, FeedOptions } from "@/lib/types";
@@ -31,6 +33,8 @@ export type FeedContentProps = {
   children?: ReactNode;
   /** PublicPage owns the persistent shell for streamed listings. */
   withShell?: boolean;
+  /** My feed and Latest opt in; contextual feeds always show their own articles. */
+  allowColumns?: boolean;
   feedDescriptor: FeedDescriptor;
 };
 
@@ -47,13 +51,18 @@ export function FeedContent({
   options,
   children,
   withShell = true,
+  allowColumns = false,
   feedDescriptor,
 }: FeedContentProps) {
   const filtered = Object.entries(filters).some(
     ([key, value]) => key !== "cursor" && key !== "source_slug" && value,
   );
   const content = (
-    <>
+    <ReaderFeedLayout
+      scope={deriveFeedViewScope({ descriptor: feedDescriptor, filters, topicId, tagId })}
+      selection={pendingFeedScopeSelection({ filters, topicId, tagId })}
+      allowColumns={allowColumns && canUseColumnWorkspace(filters)}
+    >
       {children}
       <section className="feed-header" aria-label="Feed controls">
         <div
@@ -197,7 +206,7 @@ export function FeedContent({
           </Link>
         </section>
       )}
-    </>
+    </ReaderFeedLayout>
   );
   return withShell ? (
     <UserShell filters={filters} section={section}>

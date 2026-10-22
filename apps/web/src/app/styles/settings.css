@@ -298,6 +298,16 @@
 .feed-layout-preview.compact .preview-image { display: none; }
 .feed-layout-preview.compact .preview-lines { flex: 1; }
 .feed-layout-preview.compact .preview-metric { width: 22px; height: 5px; background: var(--muted-foreground); opacity: .2; }
+.feed-layout-preview.stacked { flex-direction: column; gap: 0; padding: 10px; }
+.feed-layout-preview.stacked .feed-layout-preview-item { display: flex; align-items: center; gap: 8px; padding: 8px; border-radius: 0; border-bottom: 0; }
+.feed-layout-preview.stacked .feed-layout-preview-item:first-child { border-radius: 4px 4px 0 0; }
+.feed-layout-preview.stacked .feed-layout-preview-item:last-child { border-bottom: 1px solid var(--border); border-radius: 0 0 4px 4px; }
+.feed-layout-preview.stacked .preview-image { width: 24px; height: 20px; margin: 0; flex-shrink: 0; }
+.feed-layout-preview.stacked .preview-lines { flex: 1; }
+.feed-layout-preview.columns .feed-layout-preview-item { flex: 1; padding: 10px 6px; }
+.feed-layout-preview.columns .preview-image { height: 5px; margin-bottom: 14px; background: var(--muted-foreground); opacity: .4; }
+.feed-layout-preview.columns .preview-lines { gap: 12px; }
+.feed-layout-preview.columns .preview-lines i { height: 18px; width: 100%; opacity: .15; }
 .feed-layout-option-label { display: flex; align-items: center; gap: 8px; margin-top: 16px; font-size: 14px; font-weight: 500; }
 .feed-layout-option-label input { margin-left: auto; accent-color: var(--foreground); width: 16px; height: 16px; }
 .feed-layout-option > p { margin: 8px 0 0; font-size: 12px; line-height: 1.6; color: var(--muted-foreground); }
@@ -309,7 +319,6 @@
 .appearance-date-settings { margin-top: 24px; padding-top: 20px; border-top: 1px solid var(--border); display: grid; gap: 20px; }
 .appearance-date-preview { margin: 0; border-radius: var(--radius-control); padding: 12px; background: var(--muted); color: var(--muted-foreground); font-size: 14px; line-height: 20px; }
 .appearance-date-preview span { color: var(--foreground); font-weight: 500; }
-.appearance-save-status { margin: 20px 0 0; color: var(--muted-foreground); font-size: 12px; line-height: 20px; }
 /* Source selections use the same theme and shimmer as topic preferences. */
 .source-preferences { width: 100%; }
 .source-selection-toolbar { display: flex; align-items: center; flex-wrap: wrap; gap: 12px 24px; margin: 24px 0 20px; }

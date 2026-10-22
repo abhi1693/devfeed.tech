@@ -9,6 +9,19 @@ and all six settings sections use local hash routes. Publisher links and website
 sign-in open a separate tab. Chrome's own new-tab footer is browser UI and is not
 part of the extension's layout.
 
+**Settings → Appearance → Article feed layout** selects Grid, List, Stacked, or Columns.
+Columns applies only to signed-in My feed; Latest and other article pages use Grid while it is selected.
+Guest Appearance disables Columns and explains that signing in is required.
+Search and contextual filters continue to show their selected articles.
+Signed-in readers open **Appearance** from their avatar menu.
+Saved changes are confirmed with a toast.
+Both browsers share the web reader's layout controls and saved
+preference handling. Feed pages do not have separate view selectors.
+Signing in always loads account preferences, including new-account defaults, while preserving
+the browser's guest choice for sign-out. The saved workspace supports up to 12 ordered columns;
+all four layouts are available through the same saved preference. Stacked reuses
+article previews, sharing, bookmarks, filtering, and pagination in both browsers.
+
 Transport eligibility and request policies come from generated operation definitions.
 Run `npm run web:generate` after user API or public reader binding changes. Private
 operations reuse the reader gateway identities; public adapters have explicit bindings
@@ -158,13 +171,73 @@ backend services.
 
 ## Reader parity
 
-Grid/List icons beside Filters share the website's article layout control. Grid is
-the default; List uses compact rows across My feed, Latest, topic/source feeds,
-Trending and Read later. The last two expose the control in their headings. Guest
-choices stay in the extension's browser storage; signed-in choices use account feed
-settings without changing content or language selections. Loaded pages, bookmarks,
-engagement data and preview navigation survive layout changes. `/trending` is a
-local reader route in both extensions.
+Choose Grid, List, Stacked, or Columns in **Settings → Appearance → Article feed layout**.
+Grid is the default. List uses compact rows, while Stacked places thumbnails,
+metadata, headlines, descriptions, and article actions in one vertical stream.
+Each feed saves its own choice across My feed, Latest, topic/source/tag feeds, Trending,
+and Read later. Columns is available only on My feed for signed-in readers.
+Guest choices stay in the extension's browser storage; signed-in choices
+use account feed settings without changing content or language selections. Grid,
+List, and Stacked reuse the existing feed loading, bookmarks, engagement, and preview
+navigation. `/trending` is a local reader route in both extensions.
+
+Stacked uses wider 16:9 thumbnails and displays the complete artwork. Sponsored
+articles retain the article row layout and disclosure badge. Product placements
+use bounded, centered cards with a product logo, one attribution line, an outlined
+Sponsored badge, and an outward-link cue that stays beside the content.
+
+Every article feed remembers its own Grid, List, or Stacked layout. Use its layout menu,
+or the Feed selector in Appearance. My feed also supports Columns for signed-in readers;
+Latest, Trending, Read later, content-type feeds, and individual topic/source/tag feeds
+keep their choices independently. Stable catalog IDs make canonical links, older aliases,
+and a catalog feed's content tabs share one preference. Account layouts sync across the
+readers; guest layouts stay in their own browser storage. Old layouts provide the initial
+default, frozen on the first scoped save. Opening a feed never creates a saved override.
+Unified discovery search retains its own result presentation.
+
+Ordinary focus checks after the 60-second throttle, history restoration, and explicit session
+refreshes reload follows and feed/appearance preferences even when session credentials are
+unchanged. Returning from a retained article preview reauthorizes the session while preserving
+loaded preferences and articles, unless credentials changed or an ordinary refresh is pending.
+
+Columns uses the shared saved workspace editor:
+add Latest, Recommended, source, topic,
+or tag selections; edit, reorder, and remove them; and restore the same stable identities
+on return. Headers include a visible remove button; options menus provide keyboard-accessible
+edit, reorder, and remove actions, and narrow screens provide
+horizontal scrolling with a focusable board for keyboard navigation. Missing selections
+remain editable;
+failed metadata reads offer retry. Text-only rows lead with readable headlines, followed by
+publisher/date metadata and two-line summaries;
+column headers align, and secondary actions appear on hover/focus or remain visible on
+touch devices. Duplicate feed selections are disabled in the editor and rejected on save;
+older duplicates retain their first column identity. **Use starter columns** explicitly
+restores an empty board.
+My feed saves its own workspace, starting with Recommended and up to four feeds from
+followed topics, sources, tags, and topics from recent likes. Without eligible interests,
+it starts with Recommended and Latest. Later interest changes do not rearrange columns.
+Existing shared workspaces and deliberate clears are preserved as the My feed workspace.
+Account initialization preserves changes from other devices, and guest state remains
+separate. Add column supports browsers where `crypto.randomUUID` is unavailable.
+Articles load and scroll inside each column. Pagination, feed-update recovery, retry, and selection
+changes leave neighboring columns intact. Shared article actions synchronize matching
+articles, and previews follow the column they were opened from. A workspace supports
+12 columns, with three concurrent feed/catalog/product reads and one pending page per column.
+Each column retains at most three 24-article pages (72 articles). Reloading the page starts
+the columns from their first pages. Edits/removal cancel queued and active work, and stale responses
+cannot populate a new selection. Recommended retains account masking, preparation,
+and generation-expiry behavior. The shared runtime transport and article cache also
+serve column previews in both browser packages.
+
+Columns show eligible sponsored products after the fourth article, using a disclosed text-only
+placement with bounded copy and complete attribution available on hover. Products match the
+column's topic or initial article page, remain stable through
+pagination and previews, and are deduplicated across mounted reader contexts. Product delivery
+shares the workspace request budget; a failed delivery leaves articles fully usable.
+
+Closing article previews retains loaded rows, pagination, scroll, and article metrics
+while checking the session. Ordinary history navigation and restored documents still
+reauthorize private content before showing it.
 
 My feed uses `/`, the public latest feed uses `/latest`, and signed-out new tabs
 redirect to `/latest` without Read later navigation. Both extensions use the web
@@ -174,6 +247,9 @@ The personal feed starts loading on mount, including when focus stays in the
 address bar or the tab is in the background. Pending recommendation refreshes
 continue without a focus event; leaving the feed cancels its requests and timers.
 Analytics engagement still requires a visible, focused page.
+
+The [saved reader views matrix](../../scripts/ci/saved-reader-views.md) includes
+account isolation, keyboard save recovery, accessibility, motion, and workspace limits.
 
 Every reader change must pass the web, Chrome and Edge browser journeys:
 

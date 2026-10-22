@@ -2,7 +2,8 @@
 import { ExtensionInstallButton } from "./extension-install-button";
 import { ReaderDisclosure } from "./reader-disclosure";
 import { ReaderTabs } from "./reader-tabs";
-import { FeedViewToggle } from "./feed-view-toggle";
+import { FeedLayoutMenu } from "./feed-layout-menu";
+import { canUseColumnWorkspace } from "@/lib/reader-feed";
 
 import Link from "@/components/reader-link";
 import { useState } from "react";
@@ -95,6 +96,7 @@ export function FeedFiltersBar({
           ))}
         </ReaderTabs>
         <div className="feed-toolbar-actions">
+          <FeedLayoutMenu allowColumns={personal && canUseColumnWorkspace(filters)} />
           <ExtensionInstallButton />
           <label className="sr-only" htmlFor="feed-sort">
             Sort by
@@ -178,7 +180,6 @@ export function FeedFiltersBar({
                 </form>
               </ReaderDisclosure>
             )}
-            <FeedViewToggle />
           </div>
         </div>
       </div>

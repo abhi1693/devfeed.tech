@@ -1,7 +1,8 @@
 // @vitest-environment jsdom
-import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { PartnerPlacements } from "@/components/partner-placements";
+import { ArticleStackedFrame } from "@/components/article-stacked";
 import { readerRequest } from "@/lib/reader-runtime";
 import { userRequest } from "@/lib/user";
 import { observePartnerPlacement } from "@/lib/partner-tracking";
@@ -97,6 +98,139 @@ it("keeps a manual product's account attribution and a neutral source icon witho
   expect(source.textContent).toBe(placement.partner_name);
   expect(source.querySelector("img")).toBeNull();
   expect(source.querySelector("svg")).toBeTruthy();
+});
+
+it("keeps a compact Stacked brand, one attribution, and an inline CTA on its disclosed tracked link", async () => {
+  const image = "https://images.example/product/320.webp";
+  const attribution = "Via Launch platform <b>listing</b>";
+  const item = {
+    ...placement,
+    image_url: image,
+    image_variants: [{ url: image, width: 320 }],
+    platform: { name: "Launch platform", logo_url: null, logo_variants: [] },
+    attribution,
+    link_rel: ["sponsored", "external"],
+  };
+  vi.mocked(readerRequest).mockResolvedValueOnce(Response.json({ items: [item] }));
+  render(
+    <PartnerPlacements surface="feed" layout="stacked">
+      {(cards) => <ArticleStackedFrame>{cards}</ArticleStackedFrame>}
+    </PartnerPlacements>,
+  );
+  const link = await screen.findByRole("link", { name: item.name });
+  const frame = screen.getByRole("region", { name: "Articles in stacked view" });
+  const row = link.closest("article")!;
+  expect(frame.contains(row)).toBe(true);
+  expect(within(row).getByRole("heading", { name: item.name })).toBeTruthy();
+  expect(within(row).queryByText("Launch platform")).toBeNull();
+  expect(within(row).getByText(item.tagline)).toBeTruthy();
+  const visit = within(link).getByText("Visit site");
+  expect(visit.tagName).toBe("SPAN");
+  expect(visit.querySelector("svg")).toBeTruthy();
+  expect(within(link).queryByRole("button")).toBeNull();
+  expect(within(link).getAllByText(attribution)).toHaveLength(1);
+  expect(link.querySelector(".stacked-placement-attribution")?.textContent).toBe(attribution);
+  expect(within(link).getByText(attribution).querySelector("b")).toBeNull();
+  expect(row.querySelectorAll("a")).toHaveLength(1);
+  expect(link.getAttribute("href")).toBe(item.url);
+  expect(link.getAttribute("target")).toBe("_blank");
+  expect(link.getAttribute("rel")).toBe("sponsored external noopener noreferrer");
+  expect(link.getAttribute("referrerpolicy")).toBe("no-referrer");
+  const disclosure = within(row).getByText("Sponsored");
+  expect(disclosure.getAttribute("data-promotion-kind")).toBe("sponsored");
+  expect(disclosure.classList.contains("content-type")).toBe(true);
+  expect(disclosure.classList.contains("card-meta-type")).toBe(true);
+  expect(disclosure.classList.contains("partner-placement-label")).toBe(true);
+  expect(row.querySelector(".article-stacked-meta")?.contains(disclosure)).toBe(true);
+  expect(link.getAttribute("aria-describedby")).toBe(disclosure.id);
+  const logo = row.querySelector(".stacked-placement-brand img")!;
+  expect(logo.getAttribute("src")).toBe(item.logo_url);
+  expect(logo.getAttribute("alt")).toBe("");
+  expect(logo.getAttribute("referrerpolicy")).toBe("no-referrer");
+  expect(row.querySelectorAll("img")).toHaveLength(1);
+  expect(row.querySelector(".article-stacked-thumbnail")).toBeNull();
+  expect(
+    [...row.querySelectorAll("img")].some(
+      (element) => element.src === image || element.srcset.includes(image),
+    ),
+  ).toBe(false);
+  await waitFor(() =>
+    expect(observePartnerPlacement).toHaveBeenCalledWith(link, item.receipt, expect.any(Object)),
+  );
+});
+
+it.each(["absent", "broken"])(
+  "retains a Stacked partner's initials, CTA, and tracked destination when its logo is %s",
+  async (state) => {
+    const item = {
+      ...placement,
+      image_url: "https://images.example/product/320.webp",
+      logo_url: state === "broken" ? placement.logo_url : null,
+    };
+    vi.mocked(readerRequest).mockResolvedValueOnce(Response.json({ items: [item] }));
+    render(
+      <PartnerPlacements surface="feed" layout="stacked">
+        {(cards) => <ArticleStackedFrame>{cards}</ArticleStackedFrame>}
+      </PartnerPlacements>,
+    );
+    const link = await screen.findByRole("link", { name: item.name });
+    const brand = link.querySelector(".stacked-placement-brand")!;
+    if (state === "broken") fireEvent.error(brand.querySelector("img")!);
+    expect(brand.querySelector("img")).toBeNull();
+    expect(brand.textContent?.trim()).toBe("TV");
+    expect(link.querySelectorAll("img")).toHaveLength(0);
+    expect(within(link).getByRole("heading", { name: item.name })).toBeTruthy();
+    expect(within(link).getByText("Visit site").tagName).toBe("SPAN");
+    expect(link.querySelectorAll("a,button")).toHaveLength(0);
+    expect(link.querySelector(".stacked-placement-attribution")?.textContent).toBe(
+      item.partner_name,
+    );
+    expect(link.getAttribute("href")).toBe(item.url);
+    expect(screen.getByText("Sponsored").id).toBe(link.getAttribute("aria-describedby"));
+    await waitFor(() =>
+      expect(observePartnerPlacement).toHaveBeenCalledWith(link, item.receipt, expect.any(Object)),
+    );
+  },
+);
+
+it("preserves full long Columns product text and accessible labels on its disclosed tracked destination", async () => {
+  const name = ("Observability 日本語 " + "engineering ".repeat(12)).trim();
+  const tagline = "A complete explanation of what this tool does for engineering teams. "
+    .repeat(2)
+    .trim();
+  const attribution =
+    "Promoted by Example partner for teams evaluating observability and developer tools. "
+      .repeat(3)
+      .trim();
+  const item = {
+    ...sponsoredPlacement,
+    name,
+    tagline,
+    attribution,
+    link_rel: ["sponsored", "external"],
+    image_url: "https://images.example/hero.webp",
+  };
+  vi.mocked(readerRequest).mockResolvedValueOnce(Response.json({ items: [item] }));
+  render(<PartnerPlacements surface="feed" ad_formats={["feed"]} layout="columns" maxItems={1} />);
+  const link = await screen.findByRole("link", { name, description: `Sponsored ${attribution}` });
+  const heading = within(link).getByRole("heading", { name });
+  const publisher = within(link).getByText(attribution);
+  const description = within(link).getByText(tagline);
+  expect(heading.textContent).toBe(name);
+  expect(within(heading).getByText(name).getAttribute("title")).toBe(name);
+  expect(link.getAttribute("aria-label")).toBe(name);
+  expect(publisher.textContent).toBe(attribution);
+  expect(publisher.getAttribute("title")).toBe(attribution);
+  expect(description.textContent).toBe(tagline);
+  expect(link.querySelector("img")).toBeNull();
+  expect(link.querySelector("a, button")).toBeNull();
+  expect(link.getAttribute("href")).toBe(item.url);
+  expect(link.getAttribute("target")).toBe("_blank");
+  expect(link.getAttribute("rel")).toBe("sponsored external noopener noreferrer");
+  expect(within(link).getByText("Sponsored")).toBeTruthy();
+  await waitFor(() =>
+    expect(observePartnerPlacement).toHaveBeenCalledWith(link, item.receipt, expect.any(Object)),
+  );
 });
 
 it.each(["feed", "engagement", "header_sponsorship"] as const)(

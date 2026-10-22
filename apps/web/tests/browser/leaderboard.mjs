@@ -158,9 +158,17 @@ export async function checkLeaderboard(page, prefix, { signedIn = false } = {}) 
         .getByRole("link", { name: rankingName("Your Reader", 1420, 24, true), exact: true })
         .waitFor();
       await page.getByRole("button", { name: /^User menu:/ }).click();
-      const menuLink = page.getByRole("menuitem", { name: "Leaderboard", exact: true });
-      assert.equal(await menuLink.getAttribute("href"), `${extension ? "#" : ""}/leaderboard`);
+      const menu = page.getByRole("menu");
+      await menu.waitFor();
+      assert.equal(
+        await menu
+          .getByRole("menuitem", { name: "Leaderboard", exact: true, includeHidden: true })
+          .count(),
+        0,
+        "Leaderboard remains in the sidebar without an avatar-menu duplicate",
+      );
       await page.keyboard.press("Escape");
+      await menu.waitFor({ state: "hidden" });
     } else {
       await streaks.getByRole("link", { name: "Sign in to join" }).waitFor();
       assert.equal(ownReads, 0);

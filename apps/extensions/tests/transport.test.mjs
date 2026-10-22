@@ -109,7 +109,7 @@ function resource(operation) {
 }
 
 test("generated extension operations declare policies and omit direct OAuth exchange operations", () => {
-  assert.equal(operations.length, 79);
+  assert.equal(operations.length, 84);
   assert.equal(
     new Set(operations.map((operation) => operation.operationId)).size,
     operations.length,

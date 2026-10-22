@@ -31,7 +31,7 @@ from devfeed_core.models import (
 from devfeed_core.publication import visible_article
 from devfeed_core.recommendations import has_recommendation_work
 from devfeed_core.schemas import ArticleOut, ContentType, FeedPage
-from devfeed_core.user_settings import FeedSettings
+from devfeed_core.user_settings import normalize_feed_settings
 from devfeed_http.agent_permissions import AgentAccessPolicy
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, Field
@@ -174,7 +174,7 @@ def feed(
     state, last_seen, stored_settings = row if row else (None, None, {})
     if state is None:
         raise HTTPException(401, "User account unavailable")
-    settings = FeedSettings.model_validate(stored_settings)
+    settings = normalize_feed_settings(stored_settings)
     scope = hashlib.sha256(
         json.dumps(
             [sort, content_type, str(source_id), settings.languages],

@@ -108,9 +108,6 @@
   .user-menu-name {
     display: none;
   }
-  .user-menu-content .user-menu-desktop-only {
-    display: none;
-  }
   .user-menu-reading-streak {
     display: block;
     padding: 4px 12px 12px;
@@ -408,4 +405,28 @@
   justify-content: center;
   color: var(--muted-foreground);
   pointer-events: none;
+}
+
+.loading-skeleton.feed.stacked {
+  display: block;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  background: var(--card);
+}
+.skeleton-stacked-row {
+  display: grid;
+  grid-template-columns: 88px minmax(0, 1fr) 32px;
+  align-items: center;
+  gap: 18px;
+  min-height: 150px;
+  padding: 20px;
+}
+.skeleton-stacked-row + .skeleton-stacked-row { border-top: 1px solid var(--border); }
+.skeleton-stacked-row .skeleton-image { height: 72px; margin: 0; }
+.skeleton-stacked-copy { min-width: 0; }
+.skeleton-stacked-copy .skeleton-line { height: 12px; }
+@media (max-width: 640px) {
+  .skeleton-stacked-row { grid-template-columns: 64px minmax(0, 1fr); gap: 12px; padding: 16px; }
+  .skeleton-stacked-row .skeleton-image { height: 56px; }
+  .skeleton-stacked-row .skeleton-bookmark { grid-column: 2; justify-self: end; }
 }

@@ -101,8 +101,10 @@ export const getTopics = async (
   if (query) params.set("q", query);
   return publicApi.read<Topic[]>(`/v1/topics?${params}`, { signal });
 };
-export const getTopic = (slug: string, signal?: AbortSignal) =>
-  publicApi.read<Topic>(`/v1/topics/${encodeURIComponent(slug)}`, { signal });
+export const getTopic = (slug: string, signal?: AbortSignal, byId = false) =>
+  publicApi.read<Topic>(`/v1/topics/${encodeURIComponent(slug)}${byId ? "?by_id=true" : ""}`, {
+    signal,
+  });
 export const getSources = async (
   offset = 0,
   limit = 60,
@@ -149,7 +151,10 @@ export async function getSearch(
   });
 }
 
-export const getTag = (slug: string) => publicApi.read<Tag>(`/v1/tags/${encodeURIComponent(slug)}`);
+export const getTag = (slug: string, signal?: AbortSignal, byId = false) =>
+  publicApi.read<Tag>(`/v1/tags/${encodeURIComponent(slug)}${byId ? "?by_id=true" : ""}`, {
+    signal,
+  });
 export const getTags = (offset = 0, limit = 60, query = "", letter = "") =>
   publicApi.read<Tag[]>(
     `/v1/tags?${new URLSearchParams({ limit: String(limit), offset: String(offset), q: query, letter })}`,

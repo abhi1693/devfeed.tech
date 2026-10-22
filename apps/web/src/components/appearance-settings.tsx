@@ -1,6 +1,4 @@
 "use client";
-import { useState } from "react";
-import { SaveFeedback } from "./motion-icon";
 import { LoadingReveal } from "./loading-reveal";
 
 import { Monitor, Moon, Sun } from "lucide-react";
@@ -11,19 +9,24 @@ import { AccountGate } from "./user-account";
 import { UserSettingsLayout } from "./user-settings-layout";
 import { LoadingSkeleton } from "./loading-skeleton";
 import { useThemePreferences } from "./theme-preferences";
+import { ArticleViewSettings } from "./article-view-settings";
+import { SettingsToastProvider, useSettingsToast } from "./settings-toast";
 
 export function AppearanceSettings() {
   return (
-    <UserSettingsLayout section="appearance">
-      <AccountGate returnTo="/settings/appearance">
-        <AppearanceForm />
-      </AccountGate>
-    </UserSettingsLayout>
+    <SettingsToastProvider>
+      <UserSettingsLayout section="appearance">
+        <AccountGate returnTo="/settings/appearance">
+          <AppearanceForm />
+        </AccountGate>
+        <ArticleViewSettings />
+      </UserSettingsLayout>
+    </SettingsToastProvider>
   );
 }
 function AppearanceForm() {
   const { appearance, update, loading, busy, unavailable, error, refresh } = useThemePreferences();
-  const [saved, setSaved] = useState(false);
+  const notify = useSettingsToast();
   if (loading)
     return (
       <LoadingReveal
@@ -59,8 +62,9 @@ function AppearanceForm() {
         options={options}
         search={search ? {} : undefined}
         onChange={(value) => {
-          setSaved(false);
-          void update({ [key]: value }).then(setSaved);
+          void update({ [key]: value }).then((saved) => {
+            if (saved) notify("Appearance saved.");
+          });
         }}
       />
     </div>
@@ -70,7 +74,11 @@ function AppearanceForm() {
       loading={false}
       fallback={<LoadingSkeleton kind="form" label="Loading appearance settings…" />}
     >
-      <section className="profile-panel appearance-settings" aria-label="Appearance">
+      <section
+        className="profile-panel appearance-settings"
+        aria-label="Appearance"
+        aria-busy={busy}
+      >
         <p className="profile-description">Choose how DevFeed looks on your devices.</p>
         {choice("theme", "Theme", [
           { value: "system", label: "System" },
@@ -95,10 +103,6 @@ function AppearanceForm() {
             <span suppressHydrationWarning>{formatDate("2026-09-10T14:30:00Z", appearance)}</span>
           </p>
         </div>
-        <p className="appearance-save-status" role="status">
-          <SaveFeedback busy={busy} saved={saved && !error} />
-          {busy ? "Saving…" : saved && !error ? "Changes saved." : "Changes save automatically."}
-        </p>
         {error && (
           <p className="profile-feedback error" role="alert">
             {error}

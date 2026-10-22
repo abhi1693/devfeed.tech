@@ -1,5 +1,9 @@
 # Reader browser suites
 
+The [saved reader views matrix](saved-reader-views.md) maps the four layouts to their
+composed account, keyboard, accessibility, motion, and resource-budget checks. Its evidence
+is retained by these existing reader workers and artifact uploads.
+
 Run `bash scripts/ci/reader-parity.sh` for the original full local sequence. Pass
 `web`, `chrome`, `edge`, or the legacy `partner` selector to run that group alone.
 The six isolated CI suites are `web`, `chrome`, `edge`, `partner-web`,

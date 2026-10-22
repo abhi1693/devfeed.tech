@@ -103,7 +103,7 @@ export async function checkSourceFilter(page, target, source, output) {
   const viewport = page.viewportSize();
   try {
     await page.goto(target);
-    await page.locator('button[aria-label="Grid view"]:not(:disabled)').waitFor();
+    await page.locator(".article-card:visible, .article-list-row:visible").first().waitFor();
     await page.locator(".filter-menu > summary").click();
     await checkSelectMenus(page, ["Source"]);
     for (const width of [320, 375, 768, 1440]) {

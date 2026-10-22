@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { afterEach, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { setArticleLike } from "@/lib/user-mutations";
 import { PersonalFeed } from "@/components/personal-feed";
@@ -7,14 +7,34 @@ import { parseFilters } from "@/lib/feed-query";
 import { readerFeeds } from "@/lib/reader-feed";
 import type { PlacementQuery } from "@/lib/partner-placements";
 import type { ReactNode } from "react";
+import { readerRequest } from "@/lib/reader-runtime";
 
+const preferences = vi.hoisted(() => ({
+  view: "cards",
+  content_types: ["article", "news", "tutorial", "release", "comparison", "opinion"],
+  loading: false,
+  unavailable: false,
+}));
+const account = vi.hoisted(() => ({ user: null as { user_id: string } | null }));
+vi.mock("@/components/feed-preferences", () => ({ useFeedPreferences: () => preferences }));
+vi.mock("@/components/scoped-feed-preferences", () => ({
+  ScopedFeedPreferences: ({ scope, children }: { scope: string; children: ReactNode }) => (
+    <div data-testid="feed-view-scope" data-scope={scope}>
+      {children}
+    </div>
+  ),
+  useFeedViewScope: () => null,
+}));
+vi.mock("@/components/columns-workspace", () => ({
+  ColumnsWorkspace: () => <section aria-label="Columns workspace" />,
+}));
 vi.mock("@/components/feed-onboarding", () => ({ FeedOnboarding: () => null }));
 vi.mock("@/components/dev-card-promo", () => ({
   DevCardPromo: () => <div data-testid="dev-card-promo" />,
 }));
 vi.mock("@/components/user-account", () => ({
   AccountGate: ({ children }: { children: ReactNode }) => children,
-  useUser: () => ({ user: null, loading: true, sessionRevision: 0 }),
+  useUser: () => ({ user: account.user, loading: account.user === null, sessionRevision: 0 }),
 }));
 vi.mock("@/components/article-grid", () => ({
   ArticleGrid: ({
@@ -31,6 +51,11 @@ vi.mock("@/components/article-grid", () => ({
     </div>
   ),
 }));
+beforeEach(() => {
+  preferences.view = "cards";
+  account.user = null;
+  vi.mocked(readerRequest).mockClear();
+});
 afterEach(() => {
   cleanup();
   vi.useRealTimers();
@@ -44,6 +69,52 @@ const ready = {
   next_cursor: null,
   reasons: {},
 };
+
+it.each([
+  { q: "rust" },
+  { topic: "rust" },
+  { tag: "C++" },
+  { source_id: "11111111-1111-4111-8111-111111111111" },
+  { content_type: "news" },
+])("keeps the account root feed filtered by %j when Columns is selected", async (query) => {
+  preferences.view = "columns";
+  account.user = { user_id: "reader" };
+  const fetcher = vi.fn<typeof fetch>().mockResolvedValue(Response.json(ready));
+  vi.stubGlobal("fetch", fetcher);
+  render(<PersonalFeed filters={parseFilters(query)} />);
+  expect(await screen.findByText("Recommended article")).toBeTruthy();
+  expect(screen.queryByRole("region", { name: "Columns workspace" })).toBeNull();
+  expect(screen.getByTestId("feed-view-scope").getAttribute("data-scope")).toBe(
+    "q" in query
+      ? "search"
+      : "topic" in query
+        ? "topic:11111111-1111-4111-8111-111111111111"
+        : "tag" in query
+          ? "tag:11111111-1111-4111-8111-111111111111"
+          : "source_id" in query
+            ? `source:${query.source_id}`
+            : "my_feed",
+  );
+  const request = new URL(String(fetcher.mock.calls[0][0]), window.location.origin);
+  for (const [field, value] of Object.entries(query)) {
+    expect(request.searchParams.get(field)).toBe(value);
+  }
+});
+
+it.each([{}, { sort: "most_liked" }, { cursor: "next", sort: "oldest" }])(
+  "keeps Columns available on an unrestricted account root feed %j",
+  (query) => {
+    preferences.view = "columns";
+    account.user = { user_id: "reader" };
+    const fetcher = vi.fn<typeof fetch>();
+    vi.stubGlobal("fetch", fetcher);
+    render(<PersonalFeed filters={parseFilters(query)} />);
+    expect(screen.getByRole("region", { name: "Columns workspace" })).toBeTruthy();
+    expect(screen.getByTestId("feed-view-scope").getAttribute("data-scope")).toBe("my_feed");
+    expect(screen.queryByTestId("article-grid")).toBeNull();
+    expect(fetcher).not.toHaveBeenCalled();
+  },
+);
 
 it.each([
   [{}, undefined, true, true],
@@ -302,10 +373,13 @@ vi.mock("@/lib/reader-runtime", async (original) => {
   const actual = await original<typeof import("@/lib/reader-runtime")>();
   return {
     ...actual,
-    readerRequest: (input: RequestInfo | URL, init?: RequestInit) =>
+    readerRequest: vi.fn((input: RequestInfo | URL, init?: RequestInit) =>
       String(input).startsWith("/api/v1/feed/options")
         ? Promise.resolve(Response.json({ content_types: ["article"], sources: [] }))
-        : actual.readerRequest(input, init),
+        : /^\/api\/v1\/(topics|tags)\//.test(String(input))
+          ? Promise.resolve(Response.json({ id: "11111111-1111-4111-8111-111111111111" }))
+          : actual.readerRequest(input, init),
+    ),
   };
 });
 

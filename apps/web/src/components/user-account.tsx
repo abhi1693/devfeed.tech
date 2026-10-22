@@ -1,12 +1,15 @@
 "use client";
 import { flushSync } from "react-dom";
 import { LoadingSkeleton } from "./loading-skeleton";
-import { readerLoginLink, prepareReaderSignOut } from "@/lib/reader-runtime";
+import { readerLoginLink, prepareReaderSignOut, readerLocation } from "@/lib/reader-runtime";
+import { navigationStarted } from "@/lib/reader-navigation";
+import { articlePreviewOpened, createPreviewHistory } from "@/lib/reader-preview-history";
 import Link from "@/components/reader-link";
 import { Bookmark, Hash, UserRound } from "lucide-react";
 import {
   Fragment,
   createContext,
+  useCallback,
   useContext,
   useEffect,
   useLayoutEffect,
@@ -57,6 +60,13 @@ export function UserProvider({
   const [sessionRevision, setSessionRevision] = useState(0);
   const [activityRevision, setActivityRevision] = useState(0);
   const [user, setUser] = useState<UserIdentity | null>(null);
+  const confirmedUser = useRef<UserIdentity | null | undefined>(undefined);
+  const confirmedRefreshKey = useRef(refreshKey);
+  const preferenceCheckRevision = useRef(0);
+  const confirmedPreferenceCheckRevision = useRef(0);
+  const blockingCheck = useRef(true);
+  const authCheck = useRef<AbortController | null>(null);
+  const [previewHistory] = useState(createPreviewHistory);
   const [loading, setLoading] = useState(true);
   const [unavailable, setUnavailable] = useState(false);
   const [profileState, setProfileState] = useState<{
@@ -67,6 +77,25 @@ export function UserProvider({
   const [profileVersion, setProfileVersion] = useState(0);
   const userId = user?.user_id;
   const profileWrites = useRef(new Set<AbortController>());
+  const confirmUser = useCallback(
+    (value: UserIdentity | null, refreshPreferences = false) => {
+      const previous = confirmedUser.current;
+      const sameSession =
+        previous !== undefined &&
+        previous?.user_id === value?.user_id &&
+        previous?.csrf_token === value?.csrf_token &&
+        previous?.expires_at === value?.expires_at;
+      const unchanged =
+        sameSession && previous?.name === value?.name && previous?.email === value?.email;
+      confirmedUser.current = value;
+      if (!sameSession) previewHistory.reset();
+      if (!sameSession || refreshPreferences) {
+        setSessionRevision((revision) => revision + 1);
+      }
+      if (!unchanged) setUser(value);
+    },
+    [previewHistory],
+  );
   useEffect(() => {
     const pending = profileWrites.current;
     return () => {
@@ -86,18 +115,42 @@ export function UserProvider({
     const resume = () => {
       if (document.visibilityState !== "visible" || Date.now() - checkedAt < 60_000) return;
       checkedAt = Date.now();
+      preferenceCheckRevision.current++;
       setActivityRevision((revision) => revision + 1);
     };
     const restore = (event: Event) => {
       if (event.type === "pageshow" && !(event as PageTransitionEvent).persisted) return;
       checkedAt = Date.now();
-      const focused = document.activeElement;
-      if (focused instanceof HTMLElement && focused !== document.body)
-        restoreFocus.current = focused;
-      flushSync(() => setLoading(true));
+      const identity = confirmedUser.current;
+      const previewReturn = event.type === "popstate" && previewHistory.restore(readerLocation());
+      // This background was already visible beneath a committed preview. Check
+      // silently there; ordinary history entries still mask private content.
+      const retain =
+        previewReturn &&
+        !blockingCheck.current &&
+        identity !== undefined &&
+        (!identity || identity.expires_at > Date.now() / 1000);
+      if (!retain) {
+        preferenceCheckRevision.current++;
+        const focused = document.activeElement;
+        if (focused instanceof HTMLElement && focused !== document.body)
+          restoreFocus.current = focused;
+        blockingCheck.current = true;
+        flushSync(() => setLoading(true));
+      }
       setActivityRevision((revision) => revision + 1);
     };
-    const suspend = () => flushSync(() => setLoading(true));
+    const suspend = () => {
+      previewHistory.reset();
+      blockingCheck.current = true;
+      flushSync(() => setLoading(true));
+    };
+    const navigate = (event: Event) => {
+      if (blockingCheck.current || confirmedUser.current === undefined) return;
+      const href: unknown = (event as CustomEvent).detail;
+      if (typeof href === "string") previewHistory.navigate(readerLocation(), href);
+    };
+    const commitPreview = () => previewHistory.commit(readerLocation());
     window.addEventListener("pagehide", suspend);
     // A frozen document may outlive its session; the focus throttle must not
     // suppress history restoration checks, even on an immediate Back.
@@ -105,14 +158,18 @@ export function UserProvider({
     window.addEventListener("pageshow", restore);
     window.addEventListener("focus", resume);
     document.addEventListener("visibilitychange", resume);
+    window.addEventListener(navigationStarted, navigate);
+    window.addEventListener(articlePreviewOpened, commitPreview);
     return () => {
       window.removeEventListener("pagehide", suspend);
       window.removeEventListener("popstate", restore);
       window.removeEventListener("pageshow", restore);
       window.removeEventListener("focus", resume);
       document.removeEventListener("visibilitychange", resume);
+      window.removeEventListener(navigationStarted, navigate);
+      window.removeEventListener(articlePreviewOpened, commitPreview);
     };
-  }, []);
+  }, [previewHistory]);
   useEffect(() => {
     if (!userId) return;
     const controller = new AbortController();
@@ -171,36 +228,58 @@ export function UserProvider({
   }
   useEffect(() => {
     const controller = new AbortController();
-    const expire = () => setUser(null);
+    const checkedPreferences = preferenceCheckRevision.current;
+    authCheck.current = controller;
+    const expire = () => {
+      controller.abort();
+      previewHistory.reset();
+      confirmUser(null);
+      blockingCheck.current = false;
+      setLoading(false);
+    };
     window.addEventListener("devfeed:user-session-expired", expire);
     userRequest<UserIdentity | null>("auth/me", {
       signal: AbortSignal.any([controller.signal, AbortSignal.timeout(15000)]),
     })
       .then((value) => {
         if (controller.signal.aborted) return;
-        setUser(value);
+        confirmUser(
+          value,
+          checkedPreferences !== confirmedPreferenceCheckRevision.current ||
+            confirmedRefreshKey.current !== refreshKey,
+        );
+        confirmedPreferenceCheckRevision.current = checkedPreferences;
+        confirmedRefreshKey.current = refreshKey;
         setUnavailable(false);
-        setSessionRevision((revision) => revision + 1);
       })
       .catch((error) => {
         if (!controller.signal.aborted) {
-          setUser(null);
+          previewHistory.reset();
+          confirmUser(null);
           setUnavailable(!(error instanceof AccountError && error.status === 401));
         }
       })
       .finally(() => {
-        if (!controller.signal.aborted) setLoading(false);
+        if (!controller.signal.aborted) {
+          blockingCheck.current = false;
+          setLoading(false);
+        }
       });
     return () => {
       controller.abort();
+      if (authCheck.current === controller) authCheck.current = null;
       window.removeEventListener("devfeed:user-session-expired", expire);
     };
-  }, [refreshKey, activityRevision]);
+  }, [refreshKey, activityRevision, confirmUser, previewHistory]);
   async function signOut() {
     const browser = prepareReaderSignOut();
     try {
       const url = await logOut({ csrfToken: user?.csrf_token ?? "" });
-      setUser(null);
+      authCheck.current?.abort();
+      blockingCheck.current = false;
+      previewHistory.reset();
+      confirmUser(null);
+      setLoading(false);
       browser.complete(url);
     } catch (error) {
       browser.cancel();

@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { afterEach, expect, it, vi } from "vitest";
 import { UserMenu } from "@/components/user-menu";
 import type { UserProfile } from "@/lib/user";
@@ -58,6 +59,36 @@ it("links Your Profile to the public profile above Your Dev Card", async () => {
   expect(items[0]).toBe(profile);
   expect(items[1]).toBe(screen.getByRole("menuitem", { name: "Your Dev Card" }));
   expect(items[1].getAttribute("href")).toBe("/settings/profile");
+  expect(screen.queryByRole("menuitem", { name: "Claim your username" })).toBeNull();
+});
+
+it("makes Appearance reachable from the avatar menu with keyboard navigation", async () => {
+  const user = userEvent.setup();
+  render(<UserMenu />);
+  const trigger = screen.getByRole("button", { name: "User menu: R Reader" });
+  trigger.focus();
+  await user.keyboard("{ArrowDown}");
+  const appearance = await screen.findByRole("menuitem", { name: "Appearance" });
+  expect(appearance.getAttribute("href")).toBe("/settings/appearance");
+  await user.keyboard("a");
+  await waitFor(() => expect(document.activeElement).toBe(appearance));
+  await user.keyboard("{Escape}");
+  await waitFor(() => expect(document.activeElement).toBe(trigger));
+  expect(screen.queryByRole("menuitem", { name: "Appearance" })).toBeNull();
+});
+
+it("omits Leaderboard and Notifications from the avatar menu", async () => {
+  render(<UserMenu />);
+  fireEvent.keyDown(screen.getByRole("button", { name: "User menu: R Reader" }), {
+    key: "ArrowDown",
+  });
+  await screen.findByRole("menu");
+  expect(screen.queryByText(/Also ends your SSO session/)).toBeNull();
+  expect(screen.queryByRole("menuitem", { name: "Leaderboard" })).toBeNull();
+  expect(screen.queryByRole("menuitem", { name: "Notifications" })).toBeNull();
+  expect(screen.getByRole("menuitem", { name: "Appearance" }).getAttribute("href")).toBe(
+    "/settings/appearance",
+  );
 });
 
 it.each([
@@ -79,9 +110,24 @@ it.each([
   expect(claim.getAttribute("href")).toBe("/settings/profile");
   expect(screen.queryByRole("menuitem", { name: "Your Profile" })).toBeNull();
   expect(screen.getAllByRole("menuitem")[0]).toBe(claim);
-  expect(screen.getByRole("menuitem", { name: "Your Dev Card" }).getAttribute("href")).toBe(
-    "/settings/profile",
-  );
+  expect(screen.queryByRole("menuitem", { name: "Your Dev Card" })).toBeNull();
+});
+
+it("replaces the username claim with Your Dev Card when the public profile becomes available", async () => {
+  const app = render(<UserMenu />);
+  fireEvent.keyDown(screen.getByRole("button", { name: "User menu: R Reader" }), {
+    key: "ArrowDown",
+  });
+  await screen.findByRole("menuitem", { name: "Claim your username" });
+  expect(screen.queryByRole("menuitem", { name: "Your Dev Card" })).toBeNull();
+  state.profile = publicProfile;
+  app.rerender(<UserMenu />);
+  await screen.findByRole("menuitem", { name: "Your Dev Card" });
+  expect(screen.queryByRole("menuitem", { name: "Claim your username" })).toBeNull();
+  state.profileUnavailable = true;
+  app.rerender(<UserMenu />);
+  await screen.findByRole("menuitem", { name: "Claim your username" });
+  expect(screen.queryByRole("menuitem", { name: "Your Dev Card" })).toBeNull();
 });
 
 it("includes noninteractive streak progress without changing the account menu's first action", async () => {

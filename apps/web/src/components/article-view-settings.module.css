@@ -1,0 +1,24 @@
+.scope {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  margin-bottom: 24px;
+}
+.scope label {
+  font-size: 14px;
+  font-weight: 500;
+}
+.scope select {
+  width: min(100%, 320px);
+  min-height: 44px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  color: var(--foreground);
+  background: var(--card);
+  font: inherit;
+}
+.scope select:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 3px;
+}

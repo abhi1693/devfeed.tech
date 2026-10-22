@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { mkdir } from "node:fs/promises";
 import { checkPreviewBackground } from "./preview-background.mjs";
 import { readerRoutesFixture } from "./reader-routes.mjs";
+import { createFixtureFeedViews } from "./feed-view-fixture.mjs";
 
 const apiPath = (url) => url.pathname.replace(/^\/api(?=\/v1\/)/, "");
 const placementPaths = ["/v1/partner-placements/query", "/v1/user/partner-placements/query"];
@@ -26,6 +27,7 @@ export function feedModeFixture(article) {
     ),
     next_cursor: null,
   });
+  const scopedViews = createFixtureFeedViews();
   const operations = new Map([
     ["/v1/feed", feed],
     [`/v1/sources/${catalog.source.id}`, () => catalog.source],
@@ -57,6 +59,7 @@ export function feedModeFixture(article) {
         languages: ["en"],
       }),
     ],
+    ["/v1/user/settings/feed-view", (url) => scopedViews.read(url.searchParams.get("feed"))],
     ["/v1/user/settings/appearance", () => ({ theme: "light" })],
     ["/v1/user/preferences", () => ({ topic_ids: [catalog.topic.id] })],
     ["/v1/user/preferences/sources", () => ({ source_ids: [] })],
@@ -126,6 +129,13 @@ export function feedModeFixture(article) {
       if (feedPaths.includes(path)) this.requests.push(url);
       if (placementPaths.includes(path)) this.queries.push({ path, body: payload });
       if (path === "/v1/user/auth/me" && !this.signedIn) return { status: 200, json: null };
+      if (path === "/v1/user/settings/feed-view") {
+        if (!this.signedIn) return { status: 401, json: {} };
+        const value = payload
+          ? scopedViews.write(url.searchParams.get("feed"), payload)
+          : scopedViews.read(url.searchParams.get("feed"));
+        return { status: value ? 200 : 422, json: value ?? {} };
+      }
       return operations.has(path)
         ? { status: 200, json: operations.get(path)(url) }
         : catalog.respond(url);

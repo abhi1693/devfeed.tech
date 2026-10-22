@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { parseFilters } from "@/lib/feed-query";
-import { feedPlacements, readerFeeds, resolveFeed } from "@/lib/reader-feed";
+import { canUseColumnWorkspace, feedPlacements, readerFeeds, resolveFeed } from "@/lib/reader-feed";
 import { resolveReaderRoute } from "@/lib/reader-routes";
 
 describe("reader feed descriptors", () => {
@@ -53,6 +53,43 @@ describe("reader feed descriptors", () => {
       q: "compiler",
       cursor: "page-2",
     });
+  });
+});
+
+describe("Columns workspace filter eligibility", () => {
+  it.each([
+    { q: "compiler" },
+    { topic: "rust" },
+    { tag: "C++" },
+    { source_id: "11111111-1111-4111-8111-111111111111" },
+    { content_type: "news" },
+  ])("preserves a contextual article selection %j", (query) => {
+    expect(canUseColumnWorkspace(parseFilters(query))).toBe(false);
+  });
+
+  it.each([
+    {},
+    { sort: "newest" },
+    { sort: "oldest" },
+    { sort: "most_liked" },
+    { sort: "recommended" },
+    { cursor: "page-2", sort: "oldest" },
+  ])("allows an unrestricted main feed %j", (query) => {
+    expect(canUseColumnWorkspace(parseFilters(query))).toBe(true);
+  });
+
+  it("uses effective filters after invalid and blank query values are normalized", () => {
+    expect(
+      canUseColumnWorkspace(
+        parseFilters({
+          q: " ",
+          topic: " ",
+          tag: " ",
+          source_id: "invalid",
+          content_type: "invalid",
+        }),
+      ),
+    ).toBe(true);
   });
 });
 

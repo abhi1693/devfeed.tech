@@ -8,7 +8,15 @@ from datetime import date
 from typing import Annotated, Literal, get_args
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from pydantic import BaseModel, ConfigDict, Field, StringConstraints, field_validator
+from pydantic import (
+    AfterValidator,
+    BaseModel,
+    ConfigDict,
+    Field,
+    StringConstraints,
+    ValidationError,
+    field_validator,
+)
 from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
@@ -313,8 +321,42 @@ def default_languages() -> list[LanguageCode]:
     return ["en"]
 
 
+class DefaultColumnFeed(SettingsModel):
+    kind: Literal["latest", "recommended"]
+
+
+class SelectionColumnFeed(SettingsModel):
+    kind: Literal["source", "topic", "tag"]
+    id: uuid.UUID
+
+
+class ReaderColumn(SettingsModel):
+    id: uuid.UUID
+    feed: Annotated[DefaultColumnFeed | SelectionColumnFeed, Field(discriminator="kind")]
+
+
+MAX_READER_COLUMNS = 12
+
+
+def reader_column_feed_identity(column: ReaderColumn) -> tuple[str, uuid.UUID | None]:
+    feed = column.feed
+    return feed.kind, feed.id if isinstance(feed, SelectionColumnFeed) else None
+
+
+def unique_reader_columns(value: list[ReaderColumn]) -> list[ReaderColumn]:
+    if len(value) != len({column.id for column in value}):
+        raise ValueError("Reader column IDs must be unique")
+    if len(value) != len({reader_column_feed_identity(column) for column in value}):
+        raise ValueError("Each feed can appear only once in a workspace")
+    return value
+
+
 class FeedSettings(SettingsModel):
-    view: Literal["cards", "compact"] = "cards"
+    view: Literal["cards", "compact", "stacked", "columns"] = "cards"
+    columns: list[ReaderColumn] = Field(default_factory=list, max_length=MAX_READER_COLUMNS)
+
+    _unique_columns = field_validator("columns")(unique_reader_columns)
+
     languages: list[LanguageCode] = Field(
         default_factory=default_languages, min_length=1, max_length=75
     )
@@ -332,6 +374,170 @@ class FeedSettings(SettingsModel):
     @classmethod
     def unique_types(cls, value):
         return [kind for kind in get_args(ContentType) if kind in value]
+
+
+MAX_READER_FEED_VIEWS = 256
+_MAIN_FEED_VIEW_SCOPES = frozenset({"my_feed", "latest", "trending", "read_later", "search"})
+
+
+def normalize_feed_view_scope(value: str) -> str:
+    """Identify feeds by their meaning and stable IDs, independent of browser URLs."""
+    if not isinstance(value, str) or not 1 <= len(value) <= 64:
+        raise ValueError("Choose a supported feed")
+    if value in _MAIN_FEED_VIEW_SCOPES:
+        return value
+    kind, separator, identifier = value.partition(":")
+    if separator and kind == "content" and identifier in get_args(ContentType):
+        return value
+    if separator and kind in {"topic", "source", "tag"} and identifier.isascii():
+        try:
+            return f"{kind}:{uuid.UUID(identifier)}"
+        except ValueError:
+            pass
+    raise ValueError("Choose a supported feed")
+
+
+FeedViewScope = Annotated[
+    str,
+    StringConstraints(min_length=1, max_length=64),
+    AfterValidator(normalize_feed_view_scope),
+]
+
+
+class FeedViewSettings(SettingsModel):
+    view: Literal["cards", "compact", "stacked", "columns"]
+
+
+def _feed_view(value: object) -> FeedViewSettings | None:
+    try:
+        return FeedViewSettings.model_validate({"view": value})
+    except ValidationError:
+        return None
+
+
+def reader_feed_view(value: object, feed: str) -> FeedViewSettings:
+    """Recover one scope without rewriting unknown or malformed saved preferences."""
+    scope = normalize_feed_view_scope(feed)
+    stored = value if isinstance(value, dict) else {}
+    views = stored.get("feed_views")
+    selected = (
+        (_feed_view(views.get(scope)) if isinstance(views, dict) else None)
+        or _feed_view(stored.get("feed_view_default"))
+        or _feed_view(stored.get("view"))
+        or FeedViewSettings(view="cards")
+    )
+    if selected.view == "columns" and scope != "my_feed":
+        return FeedViewSettings(view="cards")
+    return selected
+
+
+def update_reader_feed_view(value: object, feed: str, payload: FeedViewSettings) -> dict:
+    """Update just one layout and freeze the legacy default for untouched feeds."""
+    scope = normalize_feed_view_scope(feed)
+    if payload.view == "columns" and scope != "my_feed":
+        raise ValueError("Columns is available only on My feed")
+    stored = dict(value) if isinstance(value, dict) else {}
+    previous = stored.get("feed_views")
+    views = dict(previous) if isinstance(previous, dict) else {}
+    if scope not in views and len(views) >= MAX_READER_FEED_VIEWS:
+        raise ValueError("You can customize up to 256 feeds")
+    if _feed_view(stored.get("feed_view_default")) is None:
+        default = _feed_view(stored.get("view")) or FeedViewSettings(view="cards")
+        stored["feed_view_default"] = default.view
+    views[scope] = payload.view
+    stored["feed_views"] = views
+    return stored
+
+
+def _normalize_reader_columns(value: object) -> list[ReaderColumn]:
+    """Recover valid unique columns without parsing unrelated feed preferences."""
+    columns = []
+    seen = set()
+    seen_feeds = set()
+    if isinstance(value, list):
+        for candidate in value:
+            try:
+                column = ReaderColumn.model_validate(candidate)
+            except ValidationError:
+                continue
+            identity = reader_column_feed_identity(column)
+            if column.id in seen or identity in seen_feeds:
+                continue
+            columns.append(column)
+            seen.add(column.id)
+            seen_feeds.add(identity)
+            if len(columns) == MAX_READER_COLUMNS:
+                break
+    return columns
+
+
+def normalize_feed_settings(value: object) -> FeedSettings:
+    """Read saved preferences defensively without changing their stored representation."""
+    stored = value if isinstance(value, dict) else {}
+    normalized = {}
+    for field in ("view", "languages", "content_types"):
+        if field not in stored:
+            continue
+        try:
+            parsed = FeedSettings.model_validate({field: stored[field]})
+        except ValidationError:
+            continue
+        normalized[field] = getattr(parsed, field)
+    normalized["columns"] = _normalize_reader_columns(stored.get("columns"))
+    return FeedSettings.model_validate(normalized)
+
+
+class ReaderColumnsState(SettingsModel):
+    initialized: bool
+    columns: list[ReaderColumn] = Field(max_length=MAX_READER_COLUMNS)
+
+    _unique_columns = field_validator("columns")(unique_reader_columns)
+
+
+class ReaderColumnsUpdate(SettingsModel):
+    columns: list[ReaderColumn] = Field(max_length=MAX_READER_COLUMNS)
+    mode: Literal["replace", "initialize", "restore_empty"] = "replace"
+
+    _unique_columns = field_validator("columns")(unique_reader_columns)
+
+
+ReaderWorkspace = Literal["latest", "my_feed"]
+
+
+class ReaderColumnStarters(SettingsModel):
+    feeds: list[SelectionColumnFeed] = Field(default_factory=list, max_length=4)
+
+
+def reader_columns_state(
+    value: object, workspace: ReaderWorkspace = "latest"
+) -> ReaderColumnsState:
+    """Keep intentional empty workspaces distinct without extending FeedSettings receipts."""
+    stored = value if isinstance(value, dict) else {}
+    if workspace == "my_feed" and (
+        "my_feed_columns" in stored or "my_feed_columns_initialized" in stored
+    ):
+        stored = {
+            field: stored[f"my_feed_{field}"]
+            for field in ("columns", "columns_initialized")
+            if f"my_feed_{field}" in stored
+        }
+    columns = _normalize_reader_columns(stored.get("columns"))
+    initialized = (
+        bool(columns)
+        or stored.get("columns_initialized") is True
+        or ("columns_initialized" not in stored and isinstance(stored.get("columns"), list))
+    )
+    return ReaderColumnsState(initialized=initialized, columns=columns)
+
+
+def preserve_my_feed_columns(value: object) -> dict:
+    """Freeze the prior shared workspace before a Latest-only change can replace it."""
+    stored = dict(value) if isinstance(value, dict) else {}
+    if "my_feed_columns" not in stored and "my_feed_columns_initialized" not in stored:
+        previous = reader_columns_state(stored)
+        stored["my_feed_columns"] = [column.model_dump(mode="json") for column in previous.columns]
+        stored["my_feed_columns_initialized"] = previous.initialized
+    return stored
 
 
 class UserAppearanceSettings(SettingsModel):

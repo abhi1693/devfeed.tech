@@ -5,6 +5,7 @@ import json
 from collections import Counter
 from pathlib import Path
 
+from devfeed_http.agent_permissions import AGENT_POLICY_EXTENSION
 from devfeed_http.inbox import INBOX_OPERATIONS, MAX_BODY
 from devfeed_http.operation_policies import GATEWAY_POLICY_EXTENSION, GATEWAY_ROUTES_EXTENSION
 
@@ -42,13 +43,13 @@ def test_reader_gateway_covers_user_operations_and_hidden_inbox_without_exposing
         for method, operation in methods.items()
         if path.startswith("/v1/user/")
     }
-    assert len(actual) == len(operations) == 67
+    assert len(actual) == len(operations) == 72
     assert len({operation["operationId"] for operation in operations}) == len(operations)
-    assert len({operation["path"] for operation in operations}) == 57
+    assert len({operation["path"] for operation in operations}) == 60
     assert Counter(operation["method"] for operation in operations) == {
-        "GET": 30,
+        "GET": 33,
         "POST": 22,
-        "PUT": 13,
+        "PUT": 15,
         "DELETE": 2,
     }
     for key, operation in documented.items():
@@ -158,7 +159,52 @@ def test_extension_auth_grants_keep_oidc_navigation_out_of_fetch_transport():
         ("user_auth_logout", "POST"),
         ("user_auth_sso_logout", "POST"),
     }
-    assert sum(operation["policy"]["extension"] is not None for operation in operations) == 63
+    assert sum(operation["policy"]["extension"] is not None for operation in operations) == 68
+
+
+def test_reader_workspace_and_layout_operations_keep_private_extension_transport():
+    document = exporter.build_contract()
+    expected = {
+        ("/v1/user/settings/columns", "GET"): "columns_settings_v1_user_settings_columns_get",
+        ("/v1/user/settings/columns", "PUT"): "save_columns_settings_v1_user_settings_columns_put",
+        (
+            "/v1/user/settings/columns/starters",
+            "GET",
+        ): "columns_starters_v1_user_settings_columns_starters_get",
+        ("/v1/user/settings/feed-view", "GET"): "feed_view_settings_v1_user_settings_feed_view_get",
+        (
+            "/v1/user/settings/feed-view",
+            "PUT",
+        ): "save_feed_view_settings_v1_user_settings_feed_view_put",
+    }
+    operations = {
+        (operation["path"], operation["method"]): operation
+        for operation in document[GATEWAY_ROUTES_EXTENSION]
+        if operation["path"] in {path for path, _ in expected}
+    }
+    assert {
+        identity: operation["operationId"] for identity, operation in operations.items()
+    } == expected
+    for (path, method), operation in operations.items():
+        assert operation["parameters"] == []
+        assert operation["policy"] == {
+            "bodyLimit": 1_000_000,
+            "bodyTimeoutMs": 2000,
+            "upstreamTimeoutMs": 45_000,
+            "cookiePolicy": "reader",
+            "handler": "forward",
+            "extension": {
+                "credentials": "include",
+                "cacheControl": None,
+                "requestHeaders": ["Content-Type", "X-CSRF-Token", "If-None-Match"],
+                "timeoutMs": 15_000,
+            },
+        }
+        assert AGENT_POLICY_EXTENSION not in document["paths"][path][method.lower()]
+        if method == "PUT":
+            schema = document["paths"][path]["put"]["requestBody"]
+            assert schema["required"] is True
+            assert set(schema["content"]) == {"application/json"}
 
 
 def test_tag_preference_transport_exports_reads_bulk_saves_and_single_follows():

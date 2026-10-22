@@ -39,6 +39,9 @@ function cardImageSizes() {
 
 export const CARD_IMAGE_SIZES = cardImageSizes();
 
+// Both article and sponsored Stacked rows share the same thumbnail frame.
+export const STACKED_IMAGE_SIZES = "(max-width: 556px) 96px, 160px";
+
 // Use the publisher's image CDN directly; never proxy arbitrary URLs through Next.
 export function articleImageSources(src?: string) {
   if (!src) return { src };

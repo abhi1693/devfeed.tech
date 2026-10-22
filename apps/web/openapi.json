@@ -618,6 +618,24 @@
         "title": "DailySelection",
         "type": "object"
       },
+      "DefaultColumnFeed": {
+        "additionalProperties": false,
+        "properties": {
+          "kind": {
+            "enum": [
+              "latest",
+              "recommended"
+            ],
+            "title": "Kind",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind"
+        ],
+        "title": "DefaultColumnFeed",
+        "type": "object"
+      },
       "DevCardSettings": {
         "additionalProperties": false,
         "description": "Content a user chooses to show on their public Dev Card.",
@@ -796,6 +814,14 @@
       "FeedSettings": {
         "additionalProperties": false,
         "properties": {
+          "columns": {
+            "items": {
+              "$ref": "#/components/schemas/ReaderColumn"
+            },
+            "maxItems": 12,
+            "title": "Columns",
+            "type": "array"
+          },
           "content_types": {
             "items": {
               "enum": [
@@ -903,13 +929,35 @@
             "default": "cards",
             "enum": [
               "cards",
-              "compact"
+              "compact",
+              "stacked",
+              "columns"
             ],
             "title": "View",
             "type": "string"
           }
         },
         "title": "FeedSettings",
+        "type": "object"
+      },
+      "FeedViewSettings": {
+        "additionalProperties": false,
+        "properties": {
+          "view": {
+            "enum": [
+              "cards",
+              "compact",
+              "stacked",
+              "columns"
+            ],
+            "title": "View",
+            "type": "string"
+          }
+        },
+        "required": [
+          "view"
+        ],
+        "title": "FeedViewSettings",
         "type": "object"
       },
       "HealthResponse": {
@@ -1837,6 +1885,109 @@
         "title": "PublicUserProfile",
         "type": "object"
       },
+      "ReaderColumn": {
+        "additionalProperties": false,
+        "properties": {
+          "feed": {
+            "discriminator": {
+              "mapping": {
+                "latest": "#/components/schemas/DefaultColumnFeed",
+                "recommended": "#/components/schemas/DefaultColumnFeed",
+                "source": "#/components/schemas/SelectionColumnFeed",
+                "tag": "#/components/schemas/SelectionColumnFeed",
+                "topic": "#/components/schemas/SelectionColumnFeed"
+              },
+              "propertyName": "kind"
+            },
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/DefaultColumnFeed"
+              },
+              {
+                "$ref": "#/components/schemas/SelectionColumnFeed"
+              }
+            ],
+            "title": "Feed"
+          },
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "feed"
+        ],
+        "title": "ReaderColumn",
+        "type": "object"
+      },
+      "ReaderColumnStarters": {
+        "additionalProperties": false,
+        "properties": {
+          "feeds": {
+            "items": {
+              "$ref": "#/components/schemas/SelectionColumnFeed"
+            },
+            "maxItems": 4,
+            "title": "Feeds",
+            "type": "array"
+          }
+        },
+        "title": "ReaderColumnStarters",
+        "type": "object"
+      },
+      "ReaderColumnsState": {
+        "additionalProperties": false,
+        "properties": {
+          "columns": {
+            "items": {
+              "$ref": "#/components/schemas/ReaderColumn"
+            },
+            "maxItems": 12,
+            "title": "Columns",
+            "type": "array"
+          },
+          "initialized": {
+            "title": "Initialized",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "initialized",
+          "columns"
+        ],
+        "title": "ReaderColumnsState",
+        "type": "object"
+      },
+      "ReaderColumnsUpdate": {
+        "additionalProperties": false,
+        "properties": {
+          "columns": {
+            "items": {
+              "$ref": "#/components/schemas/ReaderColumn"
+            },
+            "maxItems": 12,
+            "title": "Columns",
+            "type": "array"
+          },
+          "mode": {
+            "default": "replace",
+            "enum": [
+              "replace",
+              "initialize",
+              "restore_empty"
+            ],
+            "title": "Mode",
+            "type": "string"
+          }
+        },
+        "required": [
+          "columns"
+        ],
+        "title": "ReaderColumnsUpdate",
+        "type": "object"
+      },
       "ReadingLeaderboard": {
         "properties": {
           "longest_streak": {
@@ -2088,6 +2239,31 @@
           "results"
         ],
         "title": "SearchPlacementContext",
+        "type": "object"
+      },
+      "SelectionColumnFeed": {
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "format": "uuid",
+            "title": "Id",
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "source",
+              "topic",
+              "tag"
+            ],
+            "title": "Kind",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "id"
+        ],
+        "title": "SelectionColumnFeed",
         "type": "object"
       },
       "SourcePreferences": {
@@ -6390,6 +6566,265 @@
         }
       }
     },
+    "/v1/user/settings/columns": {
+      "get": {
+        "operationId": "columns_settings_v1_user_settings_columns_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "workspace",
+            "required": false,
+            "schema": {
+              "default": "latest",
+              "enum": [
+                "latest",
+                "my_feed"
+              ],
+              "title": "Workspace",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReaderColumnsState"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Request validation failed"
+          },
+          "4XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Invalid or unauthorized request"
+          },
+          "5XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service or dependency unavailable"
+          }
+        },
+        "security": [
+          {
+            "APIKeyCookie": []
+          }
+        ],
+        "summary": "Columns Settings",
+        "tags": [
+          "user-settings"
+        ],
+        "x-devfeed-gateway": {
+          "bodyLimit": 1000000,
+          "bodyTimeoutMs": 2000,
+          "cookiePolicy": "reader",
+          "extension": {
+            "cacheControl": null,
+            "credentials": "include",
+            "requestHeaders": [
+              "Content-Type",
+              "X-CSRF-Token",
+              "If-None-Match"
+            ],
+            "timeoutMs": 15000
+          },
+          "handler": "forward",
+          "upstreamTimeoutMs": 45000
+        }
+      },
+      "put": {
+        "operationId": "save_columns_settings_v1_user_settings_columns_put",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "workspace",
+            "required": false,
+            "schema": {
+              "default": "latest",
+              "enum": [
+                "latest",
+                "my_feed"
+              ],
+              "title": "Workspace",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReaderColumnsUpdate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReaderColumnsState"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Request validation failed"
+          },
+          "4XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Invalid or unauthorized request"
+          },
+          "5XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service or dependency unavailable"
+          }
+        },
+        "security": [
+          {
+            "APIKeyCookie": []
+          }
+        ],
+        "summary": "Save Columns Settings",
+        "tags": [
+          "user-settings"
+        ],
+        "x-devfeed-gateway": {
+          "bodyLimit": 1000000,
+          "bodyTimeoutMs": 2000,
+          "cookiePolicy": "reader",
+          "extension": {
+            "cacheControl": null,
+            "credentials": "include",
+            "requestHeaders": [
+              "Content-Type",
+              "X-CSRF-Token",
+              "If-None-Match"
+            ],
+            "timeoutMs": 15000
+          },
+          "handler": "forward",
+          "upstreamTimeoutMs": 45000
+        }
+      }
+    },
+    "/v1/user/settings/columns/starters": {
+      "get": {
+        "operationId": "columns_starters_v1_user_settings_columns_starters_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReaderColumnStarters"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Request validation failed"
+          },
+          "4XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Invalid or unauthorized request"
+          },
+          "5XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service or dependency unavailable"
+          }
+        },
+        "security": [
+          {
+            "APIKeyCookie": []
+          }
+        ],
+        "summary": "Columns Starters",
+        "tags": [
+          "user-settings"
+        ],
+        "x-devfeed-gateway": {
+          "bodyLimit": 1000000,
+          "bodyTimeoutMs": 2000,
+          "cookiePolicy": "reader",
+          "extension": {
+            "cacheControl": null,
+            "credentials": "include",
+            "requestHeaders": [
+              "Content-Type",
+              "X-CSRF-Token",
+              "If-None-Match"
+            ],
+            "timeoutMs": 15000
+          },
+          "handler": "forward",
+          "upstreamTimeoutMs": 45000
+        }
+      }
+    },
     "/v1/user/settings/feed": {
       "get": {
         "operationId": "feed_settings_v1_user_settings_feed_get",
@@ -6522,6 +6957,186 @@
           }
         ],
         "summary": "Save Feed Settings",
+        "tags": [
+          "user-settings"
+        ],
+        "x-devfeed-gateway": {
+          "bodyLimit": 1000000,
+          "bodyTimeoutMs": 2000,
+          "cookiePolicy": "reader",
+          "extension": {
+            "cacheControl": null,
+            "credentials": "include",
+            "requestHeaders": [
+              "Content-Type",
+              "X-CSRF-Token",
+              "If-None-Match"
+            ],
+            "timeoutMs": 15000
+          },
+          "handler": "forward",
+          "upstreamTimeoutMs": 45000
+        }
+      }
+    },
+    "/v1/user/settings/feed-view": {
+      "get": {
+        "operationId": "feed_view_settings_v1_user_settings_feed_view_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "feed",
+            "required": true,
+            "schema": {
+              "maxLength": 64,
+              "minLength": 1,
+              "title": "Feed",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FeedViewSettings"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Request validation failed"
+          },
+          "4XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Invalid or unauthorized request"
+          },
+          "5XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service or dependency unavailable"
+          }
+        },
+        "security": [
+          {
+            "APIKeyCookie": []
+          }
+        ],
+        "summary": "Feed View Settings",
+        "tags": [
+          "user-settings"
+        ],
+        "x-devfeed-gateway": {
+          "bodyLimit": 1000000,
+          "bodyTimeoutMs": 2000,
+          "cookiePolicy": "reader",
+          "extension": {
+            "cacheControl": null,
+            "credentials": "include",
+            "requestHeaders": [
+              "Content-Type",
+              "X-CSRF-Token",
+              "If-None-Match"
+            ],
+            "timeoutMs": 15000
+          },
+          "handler": "forward",
+          "upstreamTimeoutMs": 45000
+        }
+      },
+      "put": {
+        "operationId": "save_feed_view_settings_v1_user_settings_feed_view_put",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "feed",
+            "required": true,
+            "schema": {
+              "maxLength": 64,
+              "minLength": 1,
+              "title": "Feed",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FeedViewSettings"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FeedViewSettings"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Request validation failed"
+          },
+          "4XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Invalid or unauthorized request"
+          },
+          "5XX": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service or dependency unavailable"
+          }
+        },
+        "security": [
+          {
+            "APIKeyCookie": []
+          }
+        ],
+        "summary": "Save Feed View Settings",
         "tags": [
           "user-settings"
         ],
@@ -8778,6 +9393,121 @@
       "operationId": "save_feed_settings_v1_user_settings_feed_put",
       "parameters": [],
       "path": "/v1/user/settings/feed",
+      "policy": {
+        "bodyLimit": 1000000,
+        "bodyTimeoutMs": 2000,
+        "cookiePolicy": "reader",
+        "extension": {
+          "cacheControl": null,
+          "credentials": "include",
+          "requestHeaders": [
+            "Content-Type",
+            "X-CSRF-Token",
+            "If-None-Match"
+          ],
+          "timeoutMs": 15000
+        },
+        "handler": "forward",
+        "upstreamTimeoutMs": 45000
+      }
+    },
+    {
+      "method": "GET",
+      "operationId": "feed_view_settings_v1_user_settings_feed_view_get",
+      "parameters": [],
+      "path": "/v1/user/settings/feed-view",
+      "policy": {
+        "bodyLimit": 1000000,
+        "bodyTimeoutMs": 2000,
+        "cookiePolicy": "reader",
+        "extension": {
+          "cacheControl": null,
+          "credentials": "include",
+          "requestHeaders": [
+            "Content-Type",
+            "X-CSRF-Token",
+            "If-None-Match"
+          ],
+          "timeoutMs": 15000
+        },
+        "handler": "forward",
+        "upstreamTimeoutMs": 45000
+      }
+    },
+    {
+      "method": "PUT",
+      "operationId": "save_feed_view_settings_v1_user_settings_feed_view_put",
+      "parameters": [],
+      "path": "/v1/user/settings/feed-view",
+      "policy": {
+        "bodyLimit": 1000000,
+        "bodyTimeoutMs": 2000,
+        "cookiePolicy": "reader",
+        "extension": {
+          "cacheControl": null,
+          "credentials": "include",
+          "requestHeaders": [
+            "Content-Type",
+            "X-CSRF-Token",
+            "If-None-Match"
+          ],
+          "timeoutMs": 15000
+        },
+        "handler": "forward",
+        "upstreamTimeoutMs": 45000
+      }
+    },
+    {
+      "method": "GET",
+      "operationId": "columns_settings_v1_user_settings_columns_get",
+      "parameters": [],
+      "path": "/v1/user/settings/columns",
+      "policy": {
+        "bodyLimit": 1000000,
+        "bodyTimeoutMs": 2000,
+        "cookiePolicy": "reader",
+        "extension": {
+          "cacheControl": null,
+          "credentials": "include",
+          "requestHeaders": [
+            "Content-Type",
+            "X-CSRF-Token",
+            "If-None-Match"
+          ],
+          "timeoutMs": 15000
+        },
+        "handler": "forward",
+        "upstreamTimeoutMs": 45000
+      }
+    },
+    {
+      "method": "PUT",
+      "operationId": "save_columns_settings_v1_user_settings_columns_put",
+      "parameters": [],
+      "path": "/v1/user/settings/columns",
+      "policy": {
+        "bodyLimit": 1000000,
+        "bodyTimeoutMs": 2000,
+        "cookiePolicy": "reader",
+        "extension": {
+          "cacheControl": null,
+          "credentials": "include",
+          "requestHeaders": [
+            "Content-Type",
+            "X-CSRF-Token",
+            "If-None-Match"
+          ],
+          "timeoutMs": 15000
+        },
+        "handler": "forward",
+        "upstreamTimeoutMs": 45000
+      }
+    },
+    {
+      "method": "GET",
+      "operationId": "columns_starters_v1_user_settings_columns_starters_get",
+      "parameters": [],
+      "path": "/v1/user/settings/columns/starters",
       "policy": {
         "bodyLimit": 1000000,
         "bodyTimeoutMs": 2000,

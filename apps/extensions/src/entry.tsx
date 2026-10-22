@@ -25,7 +25,13 @@ import { readerFeeds, resolveFeed } from "../../web/src/lib/reader-feed";
 import { parseSearchOptions, normalizeSearch, type SearchResponse } from "../../web/src/lib/search";
 import type { FeedPage, FeedOptions, Topic, Source, Tag } from "../../web/src/lib/types";
 import { ExtensionReaderTransport, publicOrigin } from "./transport";
-import { destinationHref, linkDestination, navigate, useNavigationState } from "./navigation";
+import {
+  destinationHref,
+  linkDestination,
+  navigate,
+  readerRouteLocation,
+  useNavigationState,
+} from "./navigation";
 import { LocalPage, PublicProfilePage } from "./pages";
 import { catalogItem } from "./catalog";
 import { Preview } from "./articles";
@@ -55,7 +61,7 @@ configureReaderRuntime({
   navigate,
   destinationHref,
   publicOrigin,
-  location: () => new URL(window.location.hash.slice(1) || "/", publicOrigin),
+  location: readerRouteLocation,
 });
 
 async function read<T>(path: string, signal: AbortSignal): Promise<T> {

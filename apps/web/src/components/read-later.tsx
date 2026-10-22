@@ -8,7 +8,8 @@ import { bookmarkChanged, type BookmarkChange } from "./article-engagement";
 import { InfiniteFeed } from "./infinite-feed";
 import { LoadingReveal } from "./loading-reveal";
 import { LoadingSkeleton } from "./loading-skeleton";
-import { FeedViewToggle } from "./feed-view-toggle";
+import { ReaderFeedLayout } from "./reader-feed-layout";
+import { FeedLayoutMenu } from "./feed-layout-menu";
 
 function SavedArticles({ cursor }: { cursor?: string }) {
   const { user } = useUser();
@@ -53,7 +54,7 @@ function SavedArticles({ cursor }: { cursor?: string }) {
           <h1>Read later</h1>
           <p>Your saved articles, newest first.</p>
         </div>
-        <FeedViewToggle />
+        <FeedLayoutMenu />
       </div>
       <LoadingReveal
         loading={!page && !failed}
@@ -93,7 +94,9 @@ export function ReadLater({ cursor }: { cursor?: string }) {
       title="Keep articles for later"
       description="Sign in to save articles and read them on any of your devices."
     >
-      <SavedArticles key={`${user?.user_id}/${cursor ?? "latest"}`} cursor={cursor} />
+      <ReaderFeedLayout scope="read_later">
+        <SavedArticles key={`${user?.user_id}/${cursor ?? "latest"}`} cursor={cursor} />
+      </ReaderFeedLayout>
     </AccountGate>
   );
 }

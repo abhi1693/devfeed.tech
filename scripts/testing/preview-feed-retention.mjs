@@ -1,0 +1,340 @@
+import assert from "node:assert/strict";
+import { mkdir, writeFile } from "node:fs/promises";
+import { dirname } from "node:path";
+import { setArticleView } from "./article-view.mjs";
+
+export function previewRetentionArticle(article, index) {
+  return {
+    ...article,
+    id: `44444444-4444-4444-8444-${String(index).padStart(12, "0")}`,
+    slug: `preview-retention-${index}`,
+    title: `Preview retention article ${index + 1}`,
+    summary: "An article for checking that previews retain the loaded reader.",
+    ai_summary: null,
+    ai_description: null,
+    image_url: null,
+    image_variants: [],
+  };
+}
+
+export function previewRetentionFeed(article, params) {
+  const next = params.has("cursor");
+  return {
+    items: Array.from({ length: next ? 1 : 24 }, (_, index) =>
+      previewRetentionArticle(article, next ? 24 : index),
+    ),
+    next_cursor: next ? null : "preview-retention-next",
+    generation: "preview-retention-generation",
+    has_interests: true,
+    status: "ready",
+    reasons: {},
+  };
+}
+
+export function previewRetentionEngagement(params) {
+  return params.getAll("article_id").map((article_id) => ({
+    article_id,
+    likes: 0,
+    opens: 0,
+    liked: false,
+    bookmarked: true,
+  }));
+}
+
+function requestCounts(requests) {
+  const counts = Object.fromEntries(
+    [
+      "auth/me",
+      "settings/feed",
+      "settings/feed-view",
+      "settings/profile",
+      "settings/appearance",
+      "settings/columns",
+      "preferences",
+      "preferences/sources",
+      "preferences/tags",
+      "engagement",
+      "feed",
+      "user/feed",
+      "bookmarks",
+    ].map((key) => [key, 0]),
+  );
+  for (const request of requests) {
+    const path = new URL(request.url ?? request, "https://devfeed.tech").pathname.replace(
+      /^\/api/,
+      "",
+    );
+    const key =
+      path === "/v1/feed" ? "feed" : path === "/v1/user/feed" ? "user/feed" : path.slice(9);
+    if (Object.hasOwn(counts, key)) counts[key] += 1;
+  }
+  return counts;
+}
+
+/** Observe real components throughout preview navigation, including transient loading states. */
+export async function checkPreviewFeedRetention(
+  page,
+  target,
+  output,
+  { requests = () => [], baseline = false } = {},
+) {
+  const results = [];
+  for (const view of ["stacked", "cards", "compact"]) {
+    // Extension pagination intentionally waits for the active browser window.
+    await page.bringToFront();
+    await page.goto(target);
+    await setArticleView(page, view, { returnTo: target });
+    const rowSelector = {
+      stacked: ".article-stacked-row:not(.partner-placement)",
+      cards: ".article-card:not(.partner-placement)",
+      compact: ".article-list-row:not(.partner-placement)",
+    }[view];
+    const titleSelector = {
+      stacked: ".article-stacked-title",
+      cards: ".card-open-link",
+      compact: ".article-list-title",
+    }[view];
+    const rows = page.locator(`${rowSelector}:visible`);
+    await rows.first().waitFor();
+    // Real input cancels pending route scroll restoration before positioning the pagination boundary.
+    await page.mouse.wheel(0, await page.evaluate(() => document.documentElement.scrollHeight));
+    try {
+      await page.waitForFunction(
+        (selector) => {
+          if (
+            [...document.querySelectorAll(selector)].filter((row) => row.checkVisibility())
+              .length === 25
+          )
+            return true;
+          // The extension restores route scroll after mount; keep the sentinel in view until page 2 loads.
+          scrollTo(0, document.documentElement.scrollHeight);
+          return false;
+        },
+        rowSelector,
+        { polling: 100 },
+      );
+    } catch (error) {
+      console.error("Preview retention pagination setup", {
+        view,
+        target,
+        state: await page.evaluate(
+          (selector) => ({
+            focused: document.hasFocus(),
+            rows: [...document.querySelectorAll(selector)].filter((row) => row.checkVisibility())
+              .length,
+            pagination: [...document.querySelectorAll(".pagination")].map((node) => ({
+              html: node.outerHTML,
+              bounds: node.getBoundingClientRect().toJSON(),
+            })),
+            scroll: scrollY,
+            height: document.documentElement.scrollHeight,
+            text: document.body.innerText.slice(-600),
+          }),
+          rowSelector,
+        ),
+        requests: requests().slice(-15),
+      });
+      throw error;
+    }
+    await page.locator('.pagination[data-has-more="false"]').last().waitFor();
+    const title = rows.nth(18).locator(titleSelector).first();
+    // Keep the trigger clear of the sticky header before recording scroll; Playwright otherwise
+    // legitimately scrolls an obscured Stacked title while preparing its click.
+    await title.evaluate((node) => node.scrollIntoView({ block: "center", behavior: "instant" }));
+    // Wait for engagement hydration and the initial placeholder's exit transition.
+    await page.waitForTimeout(250);
+    const requestStart = requests().length;
+    const countBefore = requestCounts(requests());
+    const triggerBounds = await title.boundingBox();
+    const before = await page.evaluate(
+      ({ rowSelector }) => {
+        const rows = [...document.querySelectorAll(rowSelector)].filter((row) =>
+          row.checkVisibility(),
+        );
+        const state = { rows, events: [], scroll: scrollY, timeline: [] };
+        const recordPointer = () => state.timeline.push({ phase: "pointerdown", scroll: scrollY });
+        const recordNavigation = () =>
+          state.timeline.push({ phase: "navigationStarted", scroll: scrollY });
+        window.addEventListener("pointerdown", recordPointer, { once: true });
+        window.addEventListener("devfeed:reader-navigation", recordNavigation, { once: true });
+        state.cleanup = () => {
+          window.removeEventListener("pointerdown", recordPointer);
+          window.removeEventListener("devfeed:reader-navigation", recordNavigation);
+        };
+        state.observer = new MutationObserver((records) => {
+          for (const record of records) {
+            if (record.type === "childList") {
+              for (const removed of record.removedNodes)
+                if (state.rows.some((row) => removed === row || removed.contains?.(row)))
+                  state.events.push("loaded-row-removed");
+              for (const added of record.addedNodes)
+                if (
+                  added.nodeType === Node.ELEMENT_NODE &&
+                  (added.matches(".reader-loading-placeholder, .loading-skeleton") ||
+                    added.querySelector(".reader-loading-placeholder, .loading-skeleton"))
+                )
+                  state.events.push("loading-placeholder-added");
+            }
+            if (
+              record.type === "attributes" &&
+              record.attributeName === "data-loading" &&
+              record.target.getAttribute("data-loading") === "true"
+            )
+              state.events.push("loading-restarted");
+            if (
+              record.type === "attributes" &&
+              ["hidden", "style"].includes(record.attributeName) &&
+              state.rows.some((row) => record.target === row || record.target.contains(row)) &&
+              (record.target.hidden || getComputedStyle(record.target).display === "none")
+            )
+              state.events.push("loaded-rows-hidden");
+          }
+        });
+        state.observer.observe(document.body, {
+          childList: true,
+          subtree: true,
+          attributes: true,
+          attributeFilter: ["data-loading", "hidden", "style"],
+        });
+        window.__previewRetention = state;
+        return {
+          count: rows.length,
+          scroll: scrollY,
+          href: location.href,
+          hasMore: [...document.querySelectorAll(".pagination")].find((node) =>
+            node.checkVisibility(),
+          )?.dataset.hasMore,
+        };
+      },
+      { rowSelector },
+    );
+    await title.click();
+    const preview = page.getByRole("dialog", { name: "Article preview", exact: true });
+    await preview.waitFor();
+    await page.waitForTimeout(100);
+    const openState = await page.evaluate(() => ({
+      scroll: scrollY,
+      historyScroll: history.state?.readerScroll,
+    }));
+    const countOpen = requestCounts(requests());
+    await preview.getByRole("button", { name: "Close preview", exact: true }).click();
+    await preview.waitFor({ state: "hidden" });
+    await page.waitForURL(target);
+    // Auth/preference effects finish after navigation commits; inspecting only the final row misses flashes.
+    await page.waitForTimeout(350);
+    const after = await page.evaluate(() => {
+      const state = window.__previewRetention;
+      state.observer.disconnect();
+      state.cleanup();
+      const result = {
+        retained: state.rows.filter((row) => row.isConnected).length,
+        visible: state.rows.filter((row) => row.checkVisibility()).length,
+        events: state.events,
+        scroll: scrollY,
+        href: location.href,
+        hasMore: [...document.querySelectorAll(".pagination")].find((node) =>
+          node.checkVisibility(),
+        )?.dataset.hasMore,
+        timeline: state.timeline,
+      };
+      delete window.__previewRetention;
+      return result;
+    });
+    const countAfter = requestCounts(requests());
+    const engagement = requests()
+      .slice(requestStart)
+      .flatMap((request) => {
+        const url = new URL(request.url ?? request, "https://devfeed.tech");
+        return url.pathname.endsWith("/user/engagement")
+          ? [url.searchParams.getAll("article_id")]
+          : [];
+      });
+    const delta = (left, right) =>
+      Object.fromEntries(Object.keys(left).map((key) => [key, right[key] - left[key]]));
+    results.push({
+      view,
+      target,
+      before,
+      triggerBounds,
+      openState,
+      after,
+      openRequests: delta(countBefore, countOpen),
+      closeRequests: delta(countOpen, countAfter),
+      engagement,
+    });
+  }
+  if (output) {
+    await mkdir(dirname(output), { recursive: true });
+    await writeFile(output, JSON.stringify(results, null, 2));
+  }
+  console.log(
+    `Preview retention ${target}: ${JSON.stringify(
+      results.map(({ view, after, openRequests, closeRequests }) => ({
+        view,
+        retained: after.retained,
+        events: after.events,
+        openRequests,
+        closeRequests,
+      })),
+    )}`,
+  );
+  if (!baseline)
+    for (const result of results) {
+      const label = `${result.view} ${target}`;
+      assert.equal(result.after.retained, result.before.count, `${label}: loaded DOM rows survive`);
+      assert.equal(
+        result.after.visible,
+        result.before.count,
+        `${label}: all loaded pages remain visible`,
+      );
+      assert.deepEqual(
+        result.after.events,
+        [],
+        `${label}: no transient list removal, hiding, or skeleton`,
+      );
+      assert.equal(result.after.href, result.before.href, `${label}: filters remain unchanged`);
+      assert.equal(
+        result.after.hasMore,
+        result.before.hasMore,
+        `${label}: the exhausted cursor stays exhausted`,
+      );
+      // CDP wheel/click preparation may finish scrolling before pointerdown, especially in Edge.
+      // Navigation must preserve the position at the user's actual click.
+      const clickedScroll = result.after.timeline.find(
+        (event) => event.phase === "pointerdown",
+      )?.scroll;
+      assert.equal(
+        typeof clickedScroll,
+        "number",
+        `${label}: the real preview trigger received pointer input`,
+      );
+      assert.ok(
+        Math.abs(result.after.scroll - clickedScroll) <= 2,
+        `${label}: scroll position remains unchanged`,
+      );
+      assert.ok(
+        Math.abs(result.openState.scroll - clickedScroll) <= 2,
+        `${label}: opening retains the clicked row's scroll position`,
+      );
+      for (const [phase, counts] of [
+        ["open", result.openRequests],
+        ["close", result.closeRequests],
+      ]) {
+        const expected = requestCounts([]);
+        if (phase === "open") expected.engagement = 1;
+        expected["auth/me"] = counts["auth/me"];
+        assert.ok(counts["auth/me"] <= 1, `${label}: ${phase} checks the session at most once`);
+        assert.deepEqual(
+          counts,
+          expected,
+          `${label}: ${phase} retains the loaded reader; only the opened preview reads its own engagement`,
+        );
+      }
+      assert.deepEqual(
+        result.engagement.map((ids) => ids.length),
+        [1],
+        `${label}: only the opened article's engagement is fetched`,
+      );
+    }
+  return results;
+}

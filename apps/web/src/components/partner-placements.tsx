@@ -11,6 +11,7 @@ import {
   type ReactNode,
 } from "react";
 import { readerRequest, rememberReaderArticles } from "@/lib/reader-runtime";
+import { ArrowUpRight } from "lucide-react";
 import { userRequest } from "@/lib/user";
 import {
   parsePartnerPlacements,
@@ -27,9 +28,11 @@ import { useReaderPromptCoordinator } from "./reader-prompts";
 import { displayHost } from "@/lib/feed-query";
 import { ArticleImage } from "./article-image";
 import { ArticleCard } from "./article-card";
+import { ArticleStackedRow } from "./article-stacked";
 import { CatalogIcon } from "./catalog-icon";
 import { EngagementProvider } from "./article-engagement";
 import { adLinkRel } from "@devfeed/ui/ad-link-rel";
+import type { ColumnRequestQueue } from "@/lib/column-feed";
 
 // Simultaneously mounted feed/article contexts must never show the same catalog product twice.
 const displayed = new Set<string>();
@@ -37,7 +40,8 @@ const displayed = new Set<string>();
 export type PartnerPlacementContext = PlacementQuery;
 type Props = PartnerPlacementContext & {
   maxItems?: number;
-  layout?: "table";
+  layout?: "table" | "stacked" | "columns";
+  requestQueue?: ColumnRequestQueue;
   children?: (cards: ReactNode[], items: PartnerPlacement[], expired: boolean) => ReactNode;
   beforeDisplay?: () => void;
   afterDisplay?: () => void;
@@ -95,13 +99,14 @@ function Placement({
   active: boolean;
   visible: boolean;
   preserveSpace: boolean;
-  layout?: "table";
+  layout?: "table" | "stacked" | "columns";
   tracking?: PartnerPlacementTrackingState;
 }) {
   const link = useRef<HTMLAnchorElement>(null);
   const article = useRef<HTMLElement>(null);
   const content = item.ad_format === "sponsored_content" ? item.article : null;
   const table = layout === "table" && item.ad_format === "feed";
+  const Content = layout === "stacked" ? ArticleStackedRow : ArticleCard;
   const card = preserveSpace && !["header_sponsorship", "engagement"].includes(item.ad_format);
   const image = item.image_url ?? item.image_variants[0]?.url;
   const platformName = item.platform?.name ?? item.partner_name;
@@ -114,7 +119,7 @@ function Placement({
     return content
       ? observePartnerPlacement(...args, "a.card-open-link, a.article-read-link")
       : observePartnerPlacement(...args);
-  }, [item, active, content, table, tracking]);
+  }, [item, active, content, layout, tracking]);
   useEffect(() => {
     if (content) rememberReaderArticles([content]);
   }, [content]);
@@ -188,7 +193,7 @@ function Placement({
   if (content)
     return (
       <EngagementProvider articleIds={[content.id]}>
-        <ArticleCard
+        <Content
           article={{
             ...content,
             sponsor_names: content.sponsor_names?.length
@@ -199,6 +204,77 @@ function Placement({
           promotion={{ productId: item.product_id, active, visible, preserveSpace }}
         />
       </EngagementProvider>
+    );
+  if (layout === "columns")
+    return (
+      <article
+        className="article-stacked-row partner-placement partner-placement--column"
+        {...stateProps}
+      >
+        <a
+          {...linkProps}
+          className="partner-placement-link"
+          aria-describedby={`${sponsorshipId} ${sponsorshipId}-attribution`}
+        >
+          <div className="column-placement-meta">
+            <span
+              id={sponsorshipId}
+              className="partner-placement-label"
+              data-promotion-kind="sponsored"
+            >
+              Sponsored
+            </span>
+            <span
+              id={`${sponsorshipId}-attribution`}
+              className="column-placement-attribution"
+              title={attribution || platformName}
+            >
+              {attribution || platformName}
+            </span>
+          </div>
+          <h2 className="column-placement-title">
+            <span title={item.name}>{item.name}</span>
+            <ArrowUpRight size={16} aria-hidden="true" />
+          </h2>
+          {item.tagline && <p className="partner-placement-description">{item.tagline}</p>}
+        </a>
+      </article>
+    );
+  if (layout === "stacked")
+    return (
+      <article
+        className="article-stacked-row partner-placement partner-placement--stacked"
+        {...stateProps}
+      >
+        <a {...linkProps} className="partner-placement-link">
+          <div className="stacked-placement-brand">
+            <ProductLogo key={item.logo_url} name={item.name} url={item.logo_url} />
+          </div>
+          <div className="stacked-placement-copy">
+            <div className="article-stacked-meta stacked-placement-meta">
+              <span
+                id={sponsorshipId}
+                className="content-type card-meta-type partner-placement-label"
+                data-promotion-kind="sponsored"
+              >
+                Sponsored
+              </span>
+              <span className="stacked-placement-attribution">{attribution || platformName}</span>
+            </div>
+            <h2 className="stacked-placement-heading">
+              <span>{item.name}</span>
+            </h2>
+            {item.tagline && (
+              <p className="article-stacked-description partner-placement-description">
+                {item.tagline}
+              </p>
+            )}
+          </div>
+          <span className="stacked-placement-visit" aria-hidden="true">
+            Visit site <ArrowUpRight size={16} />
+          </span>
+        </a>
+      </article>
     );
   return (
     <article
@@ -318,6 +394,7 @@ function PlacementDelivery({
   topic_id,
   maxItems = 2,
   layout,
+  requestQueue,
   active,
   children,
   beforeDisplay,
@@ -422,17 +499,24 @@ function PlacementDelivery({
       body: JSON.stringify(query),
       cache: "no-store" as const,
       referrerPolicy: "no-referrer" as const,
-      signal: AbortSignal.any([controller.signal, AbortSignal.timeout(5000)]),
     };
     const personalized = identity !== "anonymous";
-    const load = personalized
-      ? userRequest<unknown>("partner-placements/query", init)
-      : readerRequest("/api/v1/partner-placements/query", { ...init, credentials: "omit" }).then(
-          async (response) => {
+    const request = (signal: AbortSignal) => {
+      // A queued placement gets its full delivery deadline after admission.
+      const options = { ...init, signal: AbortSignal.any([signal, AbortSignal.timeout(5000)]) };
+      return personalized
+        ? userRequest<unknown>("partner-placements/query", options)
+        : readerRequest("/api/v1/partner-placements/query", {
+            ...options,
+            credentials: "omit",
+          }).then(async (response) => {
             if (!response.ok) throw new Error("Placements unavailable");
             return response.json() as Promise<unknown>;
-          },
-        );
+          });
+    };
+    const load = requestQueue
+      ? requestQueue.run(request, controller.signal)
+      : request(controller.signal);
     void load
       .then((value) => {
         if (controller.signal.aborted) return;
@@ -477,7 +561,18 @@ function PlacementDelivery({
       controller.abort();
       release();
     };
-  }, [context, requestedContext, identity, loading, csrf, maxItems, publish, release, onDelivery]);
+  }, [
+    context,
+    requestedContext,
+    identity,
+    loading,
+    csrf,
+    maxItems,
+    publish,
+    release,
+    onDelivery,
+    requestQueue,
+  ]);
   useEffect(() => {
     if (active && !loading && result?.context === context && !result.expired) {
       for (const item of result.items.slice(0, maxItems)) {

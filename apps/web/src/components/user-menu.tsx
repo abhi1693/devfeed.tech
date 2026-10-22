@@ -3,16 +3,7 @@
 import Link from "@/components/reader-link";
 import { useState } from "react";
 import { DropdownMenu } from "radix-ui";
-import {
-  Bell,
-  ChevronDown,
-  Hash,
-  LayoutGrid,
-  LogOut,
-  Settings,
-  Trophy,
-  UserRound,
-} from "lucide-react";
+import { ChevronDown, Hash, LayoutGrid, LogOut, Palette, Settings, UserRound } from "lucide-react";
 import { useUser } from "./user-account";
 import { ProfileAvatar } from "./profile-avatar";
 import { ReadingStreakProgress } from "./reading-streak";
@@ -75,22 +66,18 @@ export function UserMenu() {
                 {profileHref ? "Your Profile" : "Claim your username"}
               </Link>
             </DropdownMenu.Item>
+            {profileHref && (
+              <DropdownMenu.Item asChild>
+                <Link href="/settings/profile">
+                  <Settings size={17} aria-hidden="true" />
+                  Your Dev Card
+                </Link>
+              </DropdownMenu.Item>
+            )}
             <DropdownMenu.Item asChild>
-              <Link href="/settings/profile">
-                <Settings size={17} aria-hidden="true" />
-                Your Dev Card
-              </Link>
-            </DropdownMenu.Item>
-            <DropdownMenu.Item asChild>
-              <Link href="/leaderboard" className="user-menu-desktop-only">
-                <Trophy size={17} aria-hidden="true" />
-                Leaderboard
-              </Link>
-            </DropdownMenu.Item>
-            <DropdownMenu.Item asChild>
-              <Link href="/settings/notifications">
-                <Bell size={17} aria-hidden="true" />
-                Notifications
+              <Link href="/settings/appearance">
+                <Palette size={17} aria-hidden="true" />
+                Appearance
               </Link>
             </DropdownMenu.Item>
             <DropdownMenu.Item asChild>
@@ -117,9 +104,6 @@ export function UserMenu() {
               <LogOut size={17} aria-hidden="true" />
               {busy ? "Signing out…" : "Sign out"}
             </DropdownMenu.Item>
-            <p className="user-menu-identity">
-              Also ends your SSO session; other apps may sign you out.
-            </p>
             {error && (
               <p className="user-menu-error" role="alert">
                 {error}

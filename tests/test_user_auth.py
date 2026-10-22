@@ -562,6 +562,13 @@ def test_user_session_does_not_accept_admin_cookie_or_namespace(oidc_app):
         ("GET", "preferences"),
         ("PUT", "preferences"),
         ("GET", "feed"),
+        ("GET", "settings/columns"),
+        ("PUT", "settings/columns"),
+        ("GET", "settings/columns?workspace=my_feed"),
+        ("PUT", "settings/columns?workspace=my_feed"),
+        ("GET", "settings/columns/starters"),
+        ("GET", "settings/feed-view?feed=my_feed"),
+        ("PUT", "settings/feed-view?feed=my_feed"),
         ("PUT", "preferences/topics/00000000-0000-0000-0000-000000000001"),
         ("GET", "preferences/tags"),
         ("PUT", "preferences/tags"),
@@ -570,7 +577,11 @@ def test_user_session_does_not_accept_admin_cookie_or_namespace(oidc_app):
 )
 def test_personalization_requires_session_and_csrf_before_database(oidc_app, method, path):
     payload = (
-        {"followed": True}
+        {"view": "columns"}
+        if path.split("?", 1)[0] == "settings/feed-view"
+        else {"columns": []}
+        if path.split("?", 1)[0] == "settings/columns"
+        else {"followed": True}
         if "/topics/" in path or "/tags/" in path
         else {"tag_ids": []}
         if path.endswith("tags")

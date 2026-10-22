@@ -1,5 +1,43 @@
 import { checkArticleViews, compactLoadingGate } from "../../web/tests/browser/article-views.mjs";
 import { checkCompactLoading } from "../../../scripts/testing/compact-loading.mjs";
+import {
+  checkArticleViewSettings,
+  readerRouteUrl,
+} from "../../../scripts/testing/article-view.mjs";
+import { checkReaderPreferences } from "../../../scripts/testing/reader-preferences.mjs";
+import { createFixtureFeedViews } from "../../../scripts/testing/feed-view-fixture.mjs";
+import {
+  checkColumnsWorkspace,
+  checkGuestColumnsUnavailable,
+} from "../../../scripts/testing/columns-workspace.mjs";
+import { checkColumnsFeeds } from "../../../scripts/testing/columns-feeds.mjs";
+import { checkColumnsSponsoredProducts } from "../../../scripts/testing/columns-sponsored.mjs";
+import { checkColumnsScanning } from "../../../scripts/testing/columns-scanning.mjs";
+import { checkColumnsReordering } from "../../../scripts/testing/columns-reordering.mjs";
+import { createReaderArtifactDirectory } from "../../../scripts/testing/reader-artifacts.mjs";
+import { checkIndependentFeedViews } from "../../../scripts/testing/feed-views.mjs";
+import { checkSavedReaderLifecycle } from "../../../scripts/testing/reader-views-lifecycle.mjs";
+import { checkColumnSaveRecovery } from "../../../scripts/testing/reader-views-recovery.mjs";
+import { checkSavedReaderAccessibility } from "../../../scripts/testing/reader-views-accessibility.mjs";
+import {
+  readerViewsReportDirectory,
+  runReaderViewCheck,
+} from "../../../scripts/testing/reader-views-evidence.mjs";
+import { checkColumnsStarters } from "../../../scripts/testing/columns-starters.mjs";
+import { checkPersonalColumns } from "../../../scripts/testing/columns-personal.mjs";
+import {
+  checkPreviewFeedRetention,
+  previewRetentionArticle,
+  previewRetentionFeed,
+  previewRetentionEngagement,
+} from "../../../scripts/testing/preview-feed-retention.mjs";
+import { checkSessionPreferences } from "../../../scripts/testing/session-preferences.mjs";
+import {
+  checkStackedReader,
+  stackedReaderArticle,
+  stackedReaderFeed,
+} from "../../../scripts/testing/stacked-reader.mjs";
+import { withManagedImage, mockManagedImages } from "../../../scripts/testing/managed-images.mjs";
 import { checkSelectMenus } from "../../../scripts/testing/select-menus.mjs";
 import { checkAccessibility } from "../../web/tests/browser/accessibility.mjs";
 import { dailyFixture, checkMustReads } from "../../../scripts/testing/must-reads.mjs";
@@ -48,6 +86,8 @@ import {
 } from "../../../scripts/testing/onboarding-topics.mjs";
 
 const browser = process.env.DEVFEED_EXTENSION_BROWSER ?? "chrome";
+const artifactDirectory = await createReaderArtifactDirectory(browser);
+const artifactPath = (name) => path.join(artifactDirectory, name);
 const extension = path.resolve(import.meta.dirname, `../dist/${browser}`);
 const newTab = browser === "edge" ? "edge://newtab" : "chrome://newtab";
 const cookieName = "__Host-devfeed_user_session";
@@ -124,9 +164,12 @@ async function withAuthenticatedReader(t, check) {
     navigationStreakDays: null,
     notificationCount: null,
     avatarCheck: undefined,
-    feedSettings: { view: "cards", content_types: ["news"], languages: ["en"] },
+    feedSettings: { view: "cards", columns: [], content_types: ["news"], languages: ["en"] },
     onboarding: false,
     catalogScroll: false,
+    stackedReader: false,
+    previewRetention: false,
+    previewRequests: [],
     onboardingSaved: false,
     rejectOnboardingPage: true,
     rejectTopics: true,
@@ -136,6 +179,7 @@ async function withAuthenticatedReader(t, check) {
     rejectSourceFollow: true,
   };
   const readingFixture = readingStreakFixture();
+  const scopedViews = createFixtureFeedViews(() => state.feedSettings.view);
   const errors = [];
   const analytics = [];
   const handle = async (route) => {
@@ -153,6 +197,21 @@ async function withAuthenticatedReader(t, check) {
     const authenticated = state.active && headers.cookie?.includes(`${cookieName}=test-session`);
     const method = route.request().method();
     const send = (json, status = 200) => route.fulfill({ status, json });
+    if (state.previewRetention) {
+      state.previewRequests.push({ url: url.href, method });
+      if (
+        url.pathname === "/api/v1/feed" ||
+        (authenticated && ["/api/v1/user/feed", "/api/v1/user/bookmarks"].includes(url.pathname))
+      )
+        return send(previewRetentionFeed(article, url.searchParams));
+      if (url.pathname === "/api/v1/user/engagement")
+        return send(previewRetentionEngagement(url.searchParams));
+      if (/^\/api\/v1\/articles\/preview-retention-\d+$/.test(url.pathname))
+        return send({
+          article: previewRetentionArticle(article, Number(url.pathname.split("-").at(-1))),
+          topic: null,
+        });
+    }
     if (
       state.avatarCheck &&
       ["/api/v1/user/settings/profile", "/api/v1/user/settings/profile/avatar"].includes(
@@ -217,7 +276,14 @@ async function withAuthenticatedReader(t, check) {
       return send({ items: [] });
     }
     if (method !== "GET") {
-      assert.equal(authenticated, true, "Chrome must send the real HttpOnly session cookie");
+      // A request already queued by the old account can arrive after revocation.
+      // Match the API's 401 response; active sessions still prove cookie and CSRF delivery.
+      if (!state.active) return send({}, 401);
+      assert.equal(
+        authenticated,
+        true,
+        `Chrome must send the real HttpOnly session cookie (${method} ${url.pathname}; active=${state.active}; cookie=${headers.cookie?.includes(`${cookieName}=test-session`) ?? false})`,
+      );
       assert.equal(headers.origin, state.extensionOrigin);
       assert.equal(headers["x-csrf-token"], user.csrf_token);
       if (url.pathname === "/api/v1/user/partner-placements/query") {
@@ -276,10 +342,19 @@ async function withAuthenticatedReader(t, check) {
           },
         });
       }
+      if (url.pathname.endsWith("/settings/feed-view")) {
+        const value = scopedViews.write(
+          url.searchParams.get("feed"),
+          route.request().postDataJSON(),
+        );
+        return send(value ?? { detail: "Invalid feed layout" }, value ? 200 : 422);
+      }
       if (url.pathname.endsWith("/settings/feed")) {
-        state.feedSettings = route.request().postDataJSON();
+        state.feedSettings = { ...state.feedSettings, ...route.request().postDataJSON() };
         return send(state.feedSettings);
       }
+      if (url.pathname.endsWith("/settings/columns"))
+        return send({ initialized: true, columns: state.feedSettings.columns ?? [] });
       if (url.pathname.endsWith("/settings/profile")) {
         assert.equal(route.request().postDataJSON().reading_streak, undefined);
         state.profileName = route.request().postDataJSON().display_name;
@@ -308,10 +383,11 @@ async function withAuthenticatedReader(t, check) {
       });
     }
     if (url.pathname === "/api/v1/feed")
-      return send({
-        items: [article],
-        next_cursor: null,
-      });
+      return send(
+        state.stackedReader
+          ? stackedReaderFeed(article, url.searchParams)
+          : { items: [article], next_cursor: null },
+      );
     if (url.pathname === "/api/v1/feed/options")
       return send({ content_types: ["news"], sources: [], languages: ["en"] });
     if (state.catalogScroll && ["/api/v1/topics", "/api/v1/sources"].includes(url.pathname)) {
@@ -393,6 +469,8 @@ async function withAuthenticatedReader(t, check) {
           bookmarked: !!authenticated && state.bookmarked,
         },
       ]);
+    if (url.pathname === "/api/v1/user/trending")
+      return send({ items: [article], next_cursor: null });
     if (!authenticated) return send({}, 401);
     if (url.pathname.startsWith("/api/v1/user/must-reads"))
       return send(await mustReadsFixture.response(url.pathname.endsWith("/presentation")));
@@ -415,7 +493,13 @@ async function withAuthenticatedReader(t, check) {
       });
     if (endpoint === "settings/reading-week") return send(readingFixture.response());
     if (endpoint === "settings/appearance") return send({ theme: "dark" });
+    if (endpoint === "settings/feed-view") {
+      const value = scopedViews.read(url.searchParams.get("feed"));
+      return send(value ?? { detail: "Invalid feed scope" }, value ? 200 : 422);
+    }
     if (endpoint === "settings/feed") return send(state.feedSettings);
+    if (endpoint === "settings/columns")
+      return send({ initialized: true, columns: state.feedSettings.columns ?? [] });
     if (endpoint === "settings/notifications") return send({ show_badge: true, sound: false });
     if (endpoint === "notifications/config")
       return send({ enabled: true, environment: "users", subscriber_id: "user_a" });
@@ -585,6 +669,343 @@ async function withAuthenticatedReader(t, check) {
   });
   assert.deepEqual(errors, [], "browser and fixture errors");
 }
+
+test("columns reorder by dragging and keyboard without reloading feeds", { timeout: 180000 }, (t) =>
+  withAuthenticatedReader(t, async ({ page, user, signIn }) => {
+    await signIn();
+    await checkColumnsReordering(
+      page,
+      readerRouteUrl(page.url(), "/"),
+      `reports/columns-reordering/${browser}`,
+      { csrfToken: user.csrf_token },
+    );
+  }),
+);
+
+test(
+  "saved reader views isolate loaded workspaces across account changes",
+  { timeout: 240000 },
+  (t) =>
+    withAuthenticatedReader(t, async ({ page, context, state, user }) => {
+      await checkSavedReaderLifecycle(
+        page,
+        readerRouteUrl(page.url(), "/"),
+        readerViewsReportDirectory(browser, "account-lifecycle"),
+        {
+          csrfToken: user.csrf_token,
+          session: async (owner) => {
+            state.active = owner !== null;
+            if (owner) user.user_id = owner;
+            await context.clearCookies();
+            if (owner)
+              await context.addCookies([
+                {
+                  name: cookieName,
+                  value: "test-session",
+                  domain: "devfeed.tech",
+                  path: "/",
+                  secure: true,
+                  httpOnly: true,
+                  sameSite: "Lax",
+                },
+              ]);
+            else
+              assert.equal(
+                await page.evaluate(async (csrfToken) => {
+                  const response = await fetch(
+                    "https://devfeed.tech/api/v1/user/partner-placements/query",
+                    {
+                      method: "POST",
+                      credentials: "include",
+                      headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken },
+                      body: JSON.stringify({ surface: "header" }),
+                    },
+                  );
+                  return response.status;
+                }, user.csrf_token),
+                401,
+                "A private placement request is rejected after session revocation",
+              );
+          },
+        },
+      );
+      assert.ok(
+        state.authenticatedPlacementQueries > 0,
+        "Member placements prove cookie and CSRF delivery",
+      );
+    }),
+);
+
+test(
+  "saved reader views recover failed column saves without resetting feeds",
+  { timeout: 240000 },
+  (t) =>
+    withAuthenticatedReader(t, async ({ page, user, signIn }) => {
+      await signIn();
+      await checkColumnSaveRecovery(
+        page,
+        readerRouteUrl(page.url(), "/"),
+        readerViewsReportDirectory(browser, "save-recovery"),
+        { csrfToken: user.csrf_token },
+      );
+    }),
+);
+
+for (const signedIn of [false, true])
+  test(
+    `saved reader views meet accessibility and motion checks for ${signedIn ? "members" : "guests"}`,
+    { timeout: 360000 },
+    (t) =>
+      withAuthenticatedReader(t, async ({ page, signIn }) => {
+        if (signedIn) await signIn();
+        await checkSavedReaderAccessibility(
+          page,
+          readerRouteUrl(page.url(), "/"),
+          readerViewsReportDirectory(browser, `accessibility-${signedIn ? "member" : "guest"}`),
+          { signedIn },
+        );
+      }),
+  );
+
+test(
+  "columns feeds load independently with bounded resources and shared actions",
+  { timeout: 180000 },
+  (t) =>
+    withAuthenticatedReader(t, async ({ page, signIn }) => {
+      const target = readerRouteUrl(page.url(), "/");
+      for (const signedIn of [true]) {
+        if (signedIn) await signIn();
+        await runReaderViewCheck(browser, "column-budgets", async (output) => {
+          await checkColumnsFeeds(page, target, `${output}/observations`, { signedIn });
+          return { evidence: ["observations.json"] };
+        });
+      }
+    }),
+);
+
+test(
+  "columns editorial scanning stays readable across themes and viewport sizes",
+  { timeout: 90000 },
+  (t) =>
+    withAuthenticatedReader(t, async ({ page, signIn }) => {
+      await signIn();
+      await checkColumnsScanning(
+        page,
+        readerRouteUrl(page.url(), "/"),
+        path.join(
+          await createReaderArtifactDirectory(browser, {
+            parentDirectory: process.env.DEVFEED_COLUMNS_SCANNING_OUTPUT,
+          }),
+          `columns-scanning/${browser}-final`,
+        ),
+        { baseline: process.env.DEVFEED_COLUMNS_SCANNING_BASELINE === "1" },
+      );
+    }),
+);
+
+test(
+  "columns show contextual sponsored products with signed tracking across layouts",
+  { timeout: 90000 },
+  (t) =>
+    withAuthenticatedReader(t, async ({ page, signIn }) => {
+      await signIn();
+      await checkColumnsSponsoredProducts(
+        page,
+        readerRouteUrl(page.url(), "/"),
+        artifactPath(`columns-sponsored/${browser}`),
+      );
+    }),
+);
+
+test(
+  "columns workspace saves independent selections and accessible arrangements",
+  { timeout: 180000 },
+  (t) =>
+    withAuthenticatedReader(t, async ({ page, signIn }) => {
+      const target = readerRouteUrl(page.url(), "/?sort=most_liked");
+      await checkGuestColumnsUnavailable(
+        page,
+        target,
+        artifactPath(`columns-workspace/${browser}-guest`),
+      );
+      for (const signedIn of [true]) {
+        if (signedIn) await signIn();
+        await checkColumnsWorkspace(
+          page,
+          target,
+          artifactPath(`columns-workspace/${browser}-${signedIn ? "member" : "guest"}`),
+          { signedIn },
+        );
+      }
+    }),
+);
+
+test(
+  "columns workspace saves first-use starters without replacing user choices",
+  { timeout: 180000 },
+  (t) =>
+    withAuthenticatedReader(t, async ({ page, signIn }) => {
+      const target = readerRouteUrl(page.url(), "/");
+      for (const signedIn of [true]) {
+        if (signedIn) await signIn();
+        await checkColumnsStarters(
+          page,
+          target,
+          artifactPath(`columns-starters/${browser}-${signedIn ? "member" : "guest"}`),
+          { signedIn },
+        );
+      }
+    }),
+);
+
+test(
+  "columns workspace saves personalized My feed independently from Latest",
+  { timeout: 180000 },
+  (t) =>
+    withAuthenticatedReader(t, async ({ page, signIn, context, state, user }) => {
+      const target = readerRouteUrl(page.url(), "/");
+      for (const signedIn of [true]) {
+        if (signedIn) await signIn();
+        await checkPersonalColumns(
+          page,
+          target,
+          artifactPath(`columns-personal/${browser}-${signedIn ? "member" : "guest"}`),
+          {
+            signedIn,
+            identity: user,
+            expireSession: async () => {
+              state.active = false;
+              await context.clearCookies();
+            },
+          },
+        );
+      }
+    }),
+);
+
+test(
+  "ordinary account resume refreshes remote preferences before a bulk save",
+  { timeout: 90000 },
+  (t) =>
+    withAuthenticatedReader(t, async ({ page, user, signIn }) => {
+      await signIn();
+      await checkSessionPreferences(
+        page,
+        readerRouteUrl(page.url(), "/"),
+        artifactPath(`session-preferences/${browser}`),
+        { csrfToken: user.csrf_token },
+      );
+    }),
+);
+
+test(
+  "article previews retain loaded feeds without refreshing session or preferences",
+  { timeout: 180000 },
+  (t) =>
+    withAuthenticatedReader(t, async ({ page, state, signIn }) => {
+      state.previewRetention = true;
+      const current = page.url();
+      for (const signedIn of [false, true]) {
+        if (signedIn) await signIn();
+        const routes = [
+          "/latest?sort=most_liked",
+          ...(signedIn ? ["/?sort=newest", "/read-later"] : []),
+        ];
+        for (const route of routes)
+          await checkPreviewFeedRetention(
+            page,
+            readerRouteUrl(current, route),
+            artifactPath(
+              `preview-retention/${browser}-${signedIn ? "member" : "guest"}-${route.startsWith("/latest") ? "latest" : route.startsWith("/read-later") ? "saved" : "personal"}.json`,
+            ),
+            {
+              requests: () => state.previewRequests,
+              baseline: process.env.DEVFEED_PREVIEW_RETENTION_BASELINE === "1",
+            },
+          );
+      }
+    }),
+);
+
+test(
+  "stacked reader preserves presentation, preferences, and article actions",
+  { timeout: 180000 },
+  (t) =>
+    withAuthenticatedReader(t, async ({ page, context, state, article, signIn }) => {
+      withManagedImage(article);
+      await mockManagedImages(context);
+      Object.assign(article, stackedReaderArticle(article));
+      state.stackedReader = true;
+      const target = readerRouteUrl(page.url(), "/latest?sort=most_liked");
+      for (const signedIn of [false, true]) {
+        if (signedIn) await signIn();
+        await checkStackedReader(
+          page,
+          target,
+          artifactPath(`stacked-reader/${browser}-${signedIn ? "member" : "guest"}`),
+          { signedIn },
+        );
+      }
+    }),
+);
+
+test(
+  "reader preferences persist and reconcile guest and account workspaces",
+  { timeout: 180000 },
+  (t) =>
+    withAuthenticatedReader(t, async ({ page, context, state, user, signIn }) => {
+      await checkReaderPreferences(page, readerRouteUrl(page.url(), "/latest"), {
+        csrfToken: user.csrf_token,
+        session: async (account) => {
+          if (account) await signIn();
+          else {
+            state.active = false;
+            await context.clearCookies();
+            await page.reload();
+          }
+        },
+      });
+    }),
+);
+
+test(
+  "feed layouts persist independently by semantic feed for guests and members",
+  { timeout: 180000 },
+  (t) =>
+    withAuthenticatedReader(t, async ({ page, signIn }) => {
+      const target = readerRouteUrl(page.url(), "/");
+      for (const signedIn of [false, true]) {
+        if (signedIn) await signIn();
+        await checkIndependentFeedViews(
+          page,
+          target,
+          artifactPath(`feed-views/${browser}-${signedIn ? "member" : "guest"}`),
+          { signedIn },
+        );
+      }
+    }),
+);
+
+test("article layouts save in Appearance for guests and members", { timeout: 180000 }, (t) =>
+  withAuthenticatedReader(t, async ({ page, signIn }) => {
+    const target = readerRouteUrl(page.url(), "/latest?sort=most_liked");
+    for (const signedIn of [false, true]) {
+      if (signedIn) await signIn();
+      await checkArticleViewSettings(
+        page,
+        target,
+        `/tmp/devfeed-article-layout/${browser}-${signedIn ? "member" : "guest"}`,
+        {
+          signedIn,
+          routes: [
+            readerRouteUrl(target, "/trending"),
+            ...(signedIn ? [readerRouteUrl(target, "/read-later")] : []),
+          ],
+        },
+      );
+    }
+  }),
+);
 
 test(
   "website recognition badges are absent from the built reader extension",
@@ -1106,8 +1527,9 @@ test(
       await page.bringToFront();
       state.rejectLogout = false;
       await page.getByRole("button", { name: /^User menu:/ }).click();
+      await page.getByRole("menu").waitFor();
       assert.equal(await page.getByRole("menuitem", { name: "Sign out of SSO…" }).count(), 0);
-      await page.getByText(/Also ends your SSO session/).waitFor();
+      assert.equal(await page.getByText(/Also ends your SSO session/).count(), 0);
       const opened = page.context().waitForEvent("page");
       await page.getByRole("menuitem", { name: "Sign out", exact: true }).click();
       const provider = await opened;

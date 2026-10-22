@@ -2,6 +2,7 @@
 
 import heapq
 import logging
+import math
 import time
 import uuid
 from collections import defaultdict
@@ -32,7 +33,7 @@ from devfeed_core.models import (
     utcnow,
 )
 from devfeed_core.publication import visible_article
-from devfeed_core.user_settings import FeedSettings
+from devfeed_core.user_settings import normalize_feed_settings
 
 logger = logging.getLogger(__name__)
 MAX_INTERESTS = 200
@@ -346,29 +347,36 @@ CROSS JOIN LATERAL (
 WHERE f.user_id = :user_id
 """
 
+# Share eligibility across signals before partitioned limits. Separate covered
+# projections use the existing facet/feed indexes without scanning article bodies.
 _BROAD_CANDIDATES_SQL = """
-WITH topic_candidates AS (
+WITH public_article_ids AS MATERIALIZED (
+  SELECT article.id FROM articles article
+  WHERE article.publication_status='published' AND article.review_status='approved'
+    AND article.content_type=ANY(:content_types) AND article.language=ANY(:languages)
+), article_order AS MATERIALIZED (
+  SELECT article.id,article.feed_at FROM articles article
+), eligible_articles AS MATERIALIZED (
+  SELECT article.id,article.feed_at FROM article_order article
+  JOIN public_article_ids visible ON visible.id=article.id
+  WHERE EXISTS (SELECT 1 FROM article_origins origin
+                JOIN sources source ON source.id=origin.source_id
+                WHERE origin.article_id=article.id AND source.approval_status='approved')
+), topic_candidates AS (
   SELECT i.topic_id, i.seed_topic_id, i.weight, i.reason, article.id, article.feed_at,
          row_number() OVER (PARTITION BY i.topic_id
              ORDER BY article.feed_at DESC, article.id DESC) AS candidate_rank
   FROM user_interests i
   JOIN article_topics link ON link.topic_id=i.topic_id
-  JOIN articles article ON article.id=link.article_id
+  JOIN eligible_articles article ON article.id=link.article_id
   WHERE i.user_id=:user_id AND link.role IN ('primary','supporting')
-    AND article.publication_status='published' AND article.review_status='approved'
-    AND article.content_type=ANY(:content_types) AND article.language=ANY(:languages)
-    AND EXISTS (SELECT 1 FROM article_origins origin
-                JOIN sources source ON source.id=origin.source_id
-                WHERE origin.article_id=article.id AND source.approval_status='approved')
 ), source_matches AS (
   SELECT DISTINCT f.source_id, article.id, article.feed_at
   FROM user_sources f
   JOIN sources source ON source.id=f.source_id
   JOIN article_origins origin ON origin.source_id=f.source_id
-  JOIN articles article ON article.id=origin.article_id
+  JOIN eligible_articles article ON article.id=origin.article_id
   WHERE f.user_id=:user_id AND source.approval_status='approved'
-    AND article.publication_status='published' AND article.review_status='approved'
-    AND article.content_type=ANY(:content_types) AND article.language=ANY(:languages)
 ), source_candidates AS (
   SELECT source_id,id,feed_at,
          row_number() OVER (PARTITION BY source_id ORDER BY feed_at DESC,id DESC) AS candidate_rank
@@ -378,13 +386,8 @@ WITH topic_candidates AS (
          row_number() OVER (PARTITION BY f.tag_id
              ORDER BY article.feed_at DESC, article.id DESC) AS candidate_rank
   FROM user_tags f JOIN article_tags link ON link.tag_id=f.tag_id
-  JOIN articles article ON article.id=link.article_id
+  JOIN eligible_articles article ON article.id=link.article_id
   WHERE f.user_id=:user_id
-    AND article.publication_status='published' AND article.review_status='approved'
-    AND article.content_type=ANY(:content_types) AND article.language=ANY(:languages)
-    AND EXISTS (SELECT 1 FROM article_origins origin
-                JOIN sources source ON source.id=origin.source_id
-                WHERE origin.article_id=article.id AND source.approval_status='approved')
 )
 SELECT topic_id,seed_topic_id,NULL::uuid AS source_id,NULL::uuid AS tag_id,weight,reason,id,feed_at
 FROM topic_candidates WHERE candidate_rank<=:candidate_limit
@@ -397,7 +400,91 @@ FROM tag_candidates WHERE candidate_rank<=:candidate_limit
 """
 
 
-def _use_broad_candidate_query(session, interest_count, content_types, languages):
+def _association_row_estimate(row):
+    """Estimate selected association rows from ordinary PostgreSQL column statistics."""
+    try:
+        total = float(row["total_rows"])
+        distinct = float(row["n_distinct"])
+        null_fraction = float(row["null_frac"])
+        frequencies = [float(value) for value in row["frequencies"] or []]
+    except (TypeError, ValueError):
+        return None
+    if (
+        not all(math.isfinite(value) for value in (total, distinct, null_fraction))
+        or total <= 0
+        or distinct == 0
+        or not 0 <= null_fraction <= 1
+    ):
+        return None
+    if distinct < 0:
+        distinct *= -total
+    identities = row["identities"] or []
+    if (
+        len(identities) != len(frequencies)
+        or len(set(identities)) != len(identities)
+        or distinct < len(identities)
+        or any(not math.isfinite(value) or not 0 <= value <= 1 for value in frequencies)
+    ):
+        return None
+    common = dict(zip(identities, frequencies, strict=True))
+    remaining = 1 - null_fraction - sum(frequencies)
+    if remaining < -0.000001:
+        return None
+    typical = max(0, remaining) / max(1, distinct - len(identities))
+    return total * sum(common.get(identifier, typical) for identifier in set(row["selected_ids"]))
+
+
+def _reuse_candidate_visibility(session, user_id):
+    """Share eligibility when selected associations repeat at least one catalog pass.
+
+    These are advisory estimates only. Missing statistics retain indexed probes;
+    neither plan changes which articles are eligible or the per-signal budgets.
+    """
+    rows = session.execute(
+        text("""
+        WITH selected AS (
+          SELECT 'article_topics' AS relation,topic_id::text AS identity
+          FROM user_interests WHERE user_id=:user_id
+          UNION ALL
+          SELECT 'article_origins',f.source_id::text
+          FROM user_sources f JOIN sources source ON source.id=f.source_id
+          WHERE f.user_id=:user_id AND source.approval_status='approved'
+          UNION ALL
+          SELECT 'article_tags',tag_id::text FROM user_tags WHERE user_id=:user_id
+        ), inputs AS (
+          SELECT relation,array_agg(DISTINCT identity) AS selected_ids
+          FROM selected GROUP BY relation
+        )
+        SELECT inputs.selected_ids,relation.reltuples AS total_rows,
+               stats.n_distinct,stats.null_frac,
+               stats.most_common_vals::text::text[] AS identities,
+               stats.most_common_freqs AS frequencies,
+               (SELECT reltuples FROM pg_class WHERE oid='articles'::regclass) AS article_rows
+        FROM inputs
+        LEFT JOIN pg_class relation ON relation.relname=inputs.relation
+          AND relation.relnamespace=current_schema()::regnamespace
+        LEFT JOIN pg_stats stats ON stats.schemaname=current_schema()
+          AND stats.tablename=inputs.relation AND NOT stats.inherited
+          AND stats.attname=CASE inputs.relation
+            WHEN 'article_topics' THEN 'topic_id'
+            WHEN 'article_origins' THEN 'source_id' ELSE 'tag_id' END
+    """),
+        {"user_id": user_id},
+    ).mappings()
+    repeated_rows = 0.0
+    article_rows = 0.0
+    for row in rows:
+        estimate = _association_row_estimate(row)
+        if estimate is None or row["article_rows"] is None:
+            return False
+        article_rows = float(row["article_rows"])
+        if not math.isfinite(article_rows) or article_rows <= 0:
+            return False
+        repeated_rows += estimate
+    return article_rows > 0 and repeated_rows >= article_rows
+
+
+def _use_broad_candidate_query(session, interest_count, content_types, languages, user_id=None):
     # Dense/narrow profiles benefit from early-exit LATERAL probes. For broad,
     # selective profiles, rank qualifying matches in sets instead of repeating
     # sparse filtering per follow. Estimates select a strategy, never eligibility.
@@ -423,13 +510,17 @@ def _use_broad_candidate_query(session, interest_count, content_types, languages
             for identity, frequency in zip(identities, frequencies, strict=True)
             if identity in selected[row["attname"]]
         )
-    return len(fractions) == 2 and fractions["content_type"] * fractions["language"] <= 0.25
+    if len(fractions) != 2:
+        return False
+    if fractions["content_type"] * fractions["language"] <= 0.25:
+        return True
+    return user_id is not None and _reuse_candidate_visibility(session, user_id)
 
 
 def ranked_candidates(session, user_id, now, interest_count, content_types, languages):
     candidate_sql = (
         _BROAD_CANDIDATES_SQL
-        if _use_broad_candidate_query(session, interest_count, content_types, languages)
+        if _use_broad_candidate_query(session, interest_count, content_types, languages, user_id)
         else _LATERAL_CANDIDATES_SQL
     )
     # At most 10,000 candidates, up to 500 per interest. Only scoring data is loaded.
@@ -565,7 +656,7 @@ def refresh_recommendations(factory, user_id):
                     select(func.count()).select_from(UserTag).where(UserTag.user_id == user_id)
                 )
                 interest_count = len(selected) + source_count + tag_count
-                settings = FeedSettings.model_validate(
+                settings = normalize_feed_settings(
                     session.scalar(
                         select(UserAccount.feed_settings).where(UserAccount.id == user_id)
                     )

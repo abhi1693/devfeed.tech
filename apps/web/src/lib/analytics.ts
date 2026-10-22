@@ -1,3 +1,5 @@
+import type { PersistedReaderView } from "./reader-preferences";
+
 // Only these app events and explicit, non-personal parameters enter the GA queue.
 export type AnalyticsEvents = {
   dev_card_view: Record<string, never>;
@@ -18,7 +20,7 @@ export type AnalyticsEvents = {
   topics_saved: { selected_count: number };
   sources_saved: { selected_count: number };
   source_suggested: { source_type: "publisher" | "aggregator" };
-  feed_settings_saved: { feed_view: "cards" | "compact"; selected_count: number };
+  feed_settings_saved: { feed_view: PersistedReaderView; selected_count: number };
   appearance_settings_saved: { theme: "light" | "dark" | "system" };
   search_query: {
     query_length: number;

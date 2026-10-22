@@ -28,7 +28,11 @@ export default async function MyFeed({ searchParams }: { searchParams: Promise<S
     return (
       <PublicPage
         filters={filters}
-        content={FeedView({ filters, withShell: false, feedDescriptor: readerFeeds.home })}
+        content={FeedView({
+          filters,
+          withShell: false,
+          feedDescriptor: readerFeeds.home,
+        })}
       />
     );
   return (

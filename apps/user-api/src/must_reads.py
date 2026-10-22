@@ -17,7 +17,7 @@ from devfeed_core.models import (
 from devfeed_core.must_reads import read_snapshot
 from devfeed_core.publication import visible_article
 from devfeed_core.schemas import ArticleOut
-from devfeed_core.user_settings import FeedSettings
+from devfeed_core.user_settings import normalize_feed_settings
 from devfeed_http.agent_permissions import AgentAccessPolicy
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, Field
@@ -54,7 +54,7 @@ def load_selection(session, user_id, timezone):
     account = session.scalar(select(UserAccount).where(UserAccount.id == user_id).with_for_update())
     if account is None:
         raise HTTPException(401, "User account unavailable")
-    settings = FeedSettings.model_validate(account.feed_settings)
+    settings = normalize_feed_settings(account.feed_settings)
     snapshot = session.get(UserMustRead, (user_id, day))
     state = session.get(UserRecommendationState, user_id)
     preparing = not state or state.invalidated or not state.ranked_at

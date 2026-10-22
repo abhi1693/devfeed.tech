@@ -60,6 +60,11 @@ This setting is read at runtime and is also exposed to Chrome and Edge through
 localhost fallback when it is unset. See the [MCP guide](../mcp/README.md).
 
 Run `npm run web:lint`, `npm run web:test`, and `npm run web:build` to validate.
+The [saved reader views matrix](../../scripts/ci/saved-reader-views.md) documents
+account switching, failed-save recovery, accessibility, motion, and request-budget
+checks shared with both extensions, including their retained CI evidence.
+See [saved view profiling](READER_VIEWS_PERFORMANCE.md) for the disposable,
+above-production dataset and paired query/latency measurements.
 After user API route or transport-policy changes, run `npm run web:generate` and
 include the OpenAPI, operation definitions and concrete Next handlers together.
 The same command generates extension transport policies from user API metadata and
@@ -103,6 +108,41 @@ The header sun/moon control switches light and dark themes without sign-in. A
 small script applies the saved `devfeed:theme` local preference before rendering;
 otherwise the site follows the operating system. Changes synchronize across tabs,
 and the toggle remains usable when local storage is blocked.
+
+Choose **Grid**, **List**, **Stacked**, or **Columns** in **Settings → Appearance → Article feed layout**.
+Signed-in readers open **Appearance** from their avatar menu.
+Saved changes are confirmed with a toast.
+My feed, Latest, Trending, Read later, and individual topic, tag, and source feeds
+each save their own layout. Columns is available only on My feed for signed-in readers.
+Guests retain layouts in the browser; signed-in readers reuse their account's saved choices.
+Feed settings manage content types
+and languages without changing that layout. Stacked presents the same loaded articles as one
+vertical stream with thumbnails, source and publication metadata, a short description, and
+shared article actions. It uses the same feed loading and engagement state as Grid and List,
+and shows summary links only when an overview is available.
+
+Account preferences take priority whenever a reader signs in, including a new account's
+defaults. Guest preferences remain in that browser and return after sign-out; they are
+never copied into an account automatically. Columns provides a saved workspace with up to 12 ordered
+feed selections. Add, edit, move, or remove columns directly on My feed.
+Each column has a unique UUID and selects Latest, Recommended, or a source, topic or tag by
+UUID. Deleted or unavailable selections remain saved. Existing account JSON stores these
+preferences; updates that omit columns preserve the workspace, and an empty list clears it.
+
+Public feeds render their article links, pagination, and structured data in the initial HTML
+using Grid while layout preferences or catalog identities load. Loading or retrying a layout
+keeps that public feed mounted. Private My feed workspaces still wait for account preferences.
+Ordinary focus checks after the 60-second throttle, history restoration, and explicit session
+refreshes reload follows and feed/appearance preferences even when session credentials are
+unchanged. Returning from a retained article preview reauthorizes the session while preserving
+loaded preferences and articles, unless credentials changed or an ordinary refresh is pending.
+
+The legacy shared adapter reads guest state from `devfeed:reader-preferences:guest` as
+`{version: 1, view, columns}` and supports the old `devfeed:feed-view:guest` layout key.
+Legacy saves update both keys, with an available layout in the old key. Unsupported versions
+are retained and block writes. Malformed saved columns are pruned, duplicate column IDs retain
+the first valid entry, and unknown layouts fall back to Grid. Storage denial keeps layouts
+usable for the current tab without reporting an unsuccessful save as completed.
 
 Temporary article API 502/503/504 responses retain the article dialog with retry
 and close controls instead of raising an unhandled page error. Temporary pages
@@ -417,18 +457,108 @@ OAuth ingress routes and user-service/Redis configuration.
 
 ### Article views
 
-Use the Grid and List icons beside Filters to switch layouts without resetting the
-loaded articles, order or pagination. The same choice applies to My feed, Latest,
-topic/source feeds, Trending and Read later; feeds without filters show the control
-in their heading. Grid is the default. Guests keep their choice in this browser,
-and signed-in readers save it to the existing feed preference for their account.
+Choose Grid, List, Stacked, or Columns in **Settings → Appearance → Article feed layout**.
+The same choice applies to My feed, Latest, topic/source/tag feeds, Trending, and
+Read later. Grid is the default. Guests keep their choice in this browser, and
+signed-in readers save it to the existing feed preference for their account.
 Content and language selections stay unchanged. Failed saves restore the previous
 layout with a retryable message.
 
 List displays compact rows with article titles, source, publication date and article
 actions. Narrow lists keep source/date details beneath the title and a 44px bookmark
-target, while omitting secondary engagement controls and topic links. Layout changes
-retain loaded engagement data and the article preview's background list.
+target, while omitting secondary engagement controls and topic links. Stacked adds small
+left thumbnails, source/date/topic metadata, clamped headlines and descriptions, and
+shared summary, sharing, and bookmark controls. Its narrow-screen action toolbar
+spans the row and uses 44px targets on touch devices. Both reuse the existing
+article preview and feed interaction state.
+
+Stacked thumbnails use wider 16:9 frames (160px on desktop, 96px on narrow feeds)
+and contain the full image so publisher artwork and text remain visible. Sponsored
+articles retain the same row layout and disclosure badge. Product placements use
+a centered card limited to 760px, grouping the product logo, one attribution line,
+outlined Sponsored badge, and outward-link cue. Its neutral border gains an amber
+accent on hover/focus; the cue moves beneath the copy on narrow feeds.
+
+Each article feed saves its own layout. Use the layout menu on a feed, or choose a feed
+in Appearance before selecting Grid, List, Stacked, or the eligible My feed Columns layout.
+My feed, Latest, Trending, Read later, content-type feeds, and each topic, source, and tag
+retain separate choices. Catalog feeds use stable IDs, so aliases and content tabs share
+that catalog feed's layout; pagination and sorting do not create more preferences.
+The unified discovery search results retain their own presentation.
+
+Signed-in layout choices sync through the account; guest choices stay in separate browser
+storage. Existing layouts remain the initial defaults. The first customization freezes
+that default, and later changes affect only the selected feed. Reading a feed does not
+create or overwrite a saved choice.
+
+Columns is available only on My feed for signed-in readers. Other feeds keep their own
+Grid, List, or Stacked choice, and the saved My feed workspace remains unchanged. Search and
+contextual filters, including older `/?tag=…` links, still show the selected articles.
+Columns saves independent Latest, Recommended, source, topic, and tag selections. Each
+column has a stable identity while edits and reordering change its selection or position.
+Headers keep a remove button visible. An accessible options menu also provides
+edit, reorder, and remove actions. Narrow screens scroll the board horizontally; the board
+accepts keyboard focus.
+Columns use text-only article rows, full-width headlines and summaries, fixed-height
+headers, and restrained borders. Images remain in the other article layouts. Secondary
+article actions appear on hover or keyboard focus and remain visible on touch screens.
+The editor marks feeds already added; saves reject repeated feed selections. Older
+duplicate selections recover the first column's stable identity and order.
+Unavailable selections remain
+saved with edit/remove controls, and temporary catalog failures offer retry. Recommended
+retains the existing sign-in and interest eligibility rules.
+
+My feed starters begin with Recommended and up to four feeds from followed topics, sources,
+tags, and topics from recently liked articles. Suggestions include only feeds with
+visible articles matching the reader's language/content preferences. Without eligible
+interests, My feed starts with Recommended and Latest. Starters are a starting point;
+later likes and follows do not rearrange configured columns. The selected feed IDs and column
+identities are saved once. Existing configurations, including explicitly cleared and
+legacy empty workspaces, remain unchanged. An empty workspace offers **Use starter
+columns** to opt in again. Account initialization is conditional under the account lock,
+so another tab or device's newer columns win. Layout/filter saves do not replace columns.
+Existing shared columns, including deliberate clears, are preserved as My feed's starting
+configuration. Older public/guest workspace settings remain stored for compatibility;
+they do not replace public article feeds. Columns is disabled in guest Appearance with
+a sign-in link. Grid remains the default layout.
+Column identities use cryptographic random bytes when `crypto.randomUUID` is unavailable,
+so **Add column** also works on ordinary HTTP development origins.
+
+Articles load and scroll inside each column. **Load more articles**, retry, and feed-update
+recovery affect only that column; reordering preserves loaded pages and scroll. Duplicate articles
+are removed within each column, while matching articles can appear in multiple columns.
+The existing bookmark, like, original-article, summary, sharing, and preview controls are
+shared across columns; opening a preview selects that column's article sequence.
+Text-only rows lead with the headline, followed by publisher/date metadata and a two-line
+summary. Long headlines retain their complete accessible text and expand in a tooltip.
+
+Eligible sponsored products appear after the fourth article in each column, with a
+Sponsored label and text-only creative. Long product names and attribution stay bounded,
+with complete text available on hover and to assistive technology. Topic columns use their
+topic context; other columns match their initial article page. Pagination and previews retain the same placement,
+and a product appears at most once across mounted reader contexts. Unavailable placements
+do not block article loading or leave an empty ad row.
+
+A workspace supports 12 saved columns and one editor. A shared FIFO queue allows at most
+three concurrent column feed/catalog/product requests, including retries and pagination; each
+column allows one pending page. Feed and catalog requests time out after 15 seconds of transport
+time; product delivery has a five-second deadline beginning after admission to the queue.
+Each column retains at most three pages of 24 articles (72 unique articles, at most 864
+article rows across a full workspace). Further loading stops at that limit. Reloading the page
+starts the columns from their first pages. There is no background polling or automatic pagination.
+Edits, removal, and account changes cancel pending work and discard stale results.
+
+Recommended uses the existing authenticated feed API, including preparation/starter-feed
+and no-interest states. An expired recommendation cursor offers **Show updated feed** for
+that column. Private content is masked during session checks and cleared on account changes.
+Content/language preference changes restart affected feed sessions. Catalog search displays
+at most 60 results. Topic/tag lookups use stable UUIDs with `by_id=true`; tag article requests
+use the resolved slug, preserving canonical behavior and public visibility checks.
+
+Closing an article preview keeps loaded rows, pagination, and scroll in place. The
+session is still checked, while unchanged credentials retain saved preferences and
+article metrics. Other history returns and restored documents reauthorize private
+content before showing it.
 
 ### Responsive article cards
 

@@ -400,10 +400,7 @@ export async function checkUnclaimedDevCardPromo(
     );
     assert.notEqual(await claim.getAttribute("aria-disabled"), "true");
     const cardMenu = page.getByRole("menuitem", { name: "Your Dev Card", exact: true });
-    assert.equal(
-      await cardMenu.getAttribute("href"),
-      extension ? "#/settings/profile" : "/settings/profile",
-    );
+    assert.equal(await cardMenu.count(), 0, "An unclaimed account has only the username action");
     assert.equal(
       await page.getByRole("menuitem", { name: "Profile settings", exact: true }).count(),
       0,
@@ -414,8 +411,8 @@ export async function checkUnclaimedDevCardPromo(
     });
     await claim.click();
     await claim.waitFor({ state: "hidden" });
-    // Same-route links leave the textbox mounted; wait for Radix's deferred
-    // focus restoration before reopening, or it can dismiss the new menu.
+    // Same-route links leave the textbox mounted; wait for Radix to finish
+    // restoring focus before continuing the journey.
     await page.waitForFunction(() => {
       const trigger = document.querySelector('button[aria-label="User menu: PR Promo Reader"]');
       return (
@@ -423,8 +420,6 @@ export async function checkUnclaimedDevCardPromo(
       );
     });
     await page.getByRole("textbox", { name: "Username", exact: true }).waitFor();
-    await menu.click();
-    await cardMenu.click();
 
     await page.route(feedPath, emptyFeed);
     await page.goto(feedUrl);
@@ -452,6 +447,18 @@ export async function checkUnclaimedDevCardPromo(
       ["Your Profile", "Your Dev Card"],
       "The public profile appears above the card editor",
     );
+    assert.equal(await claim.count(), 0, "The public profile replaces the username claim action");
+    assert.equal(
+      await cardMenu.getAttribute("href"),
+      extension ? "#/settings/profile" : "/settings/profile",
+    );
+    await cardMenu.click();
+    const usernameField = page.getByRole("textbox", { name: "Username", exact: true });
+    await usernameField.waitFor();
+    assert.equal(await usernameField.inputValue(), promoPublicProfile.username);
+    await menu.click();
+    await cardMenu.waitFor();
+    assert.equal(await claim.count(), 0);
     const profileMenu = page.getByRole("menuitem", { name: "Your Profile", exact: true });
     assert.equal(
       await profileMenu.getAttribute("href"),

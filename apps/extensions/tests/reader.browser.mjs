@@ -112,8 +112,22 @@ const article = {
   published_at: "2026-09-14T00:00:00Z",
   feed_at: "2026-09-14T00:00:00Z",
   tags: [],
-  topics: [{ id: "topic", name: "JavaScript", slug: "javascript", kind: "technology" }],
-  sources: [{ id: "source", slug: "publisher", name: "Publisher", logo_url: null }],
+  topics: [
+    {
+      id: "55555555-5555-4555-8555-555555555555",
+      name: "JavaScript",
+      slug: "javascript",
+      kind: "technology",
+    },
+  ],
+  sources: [
+    {
+      id: "33333333-3333-4333-8333-333333333333",
+      slug: "publisher",
+      name: "Publisher",
+      logo_url: null,
+    },
+  ],
 };
 
 withManagedImage(article);
@@ -268,6 +282,7 @@ async function readerFixture(t, imageProfile) {
           mutationPath,
           route.request().method(),
           route.request().postData() ? route.request().postDataJSON() : undefined,
+          url.searchParams.get("feed"),
         ),
       );
     }
@@ -1015,7 +1030,9 @@ test(
     await page.locator(".article-card").first().waitFor();
     assert.ok(
       requests.some(
-        (url) => url.pathname === "/api/v1/feed" && url.searchParams.get("source_id") === "source",
+        (url) =>
+          url.pathname === "/api/v1/feed" &&
+          url.searchParams.get("source_id") === article.sources[0].id,
       ),
     );
     await checkPreviewBackground(page);

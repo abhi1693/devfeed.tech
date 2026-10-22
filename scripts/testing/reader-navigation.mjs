@@ -178,11 +178,12 @@ export async function checkAvatarStreak(page, directory, { current, next, scan =
     0,
     "The streak summary is information, not a navigation item",
   );
-  assert.equal(
-    await menu.getByRole("menuitem", { name: "Leaderboard", exact: true }).count(),
-    0,
-    "Rankings are omitted from the mobile avatar menu",
-  );
+  for (const name of ["Leaderboard", "Notifications"])
+    assert.equal(
+      await menu.getByRole("menuitem", { name, exact: true, includeHidden: true }).count(),
+      0,
+      `${name} is omitted from the avatar menu`,
+    );
   assert.equal(
     await page
       .locator(".header-actions")
@@ -388,7 +389,15 @@ export async function checkReaderNavigation(
             false,
             "Desktop retains the header streak entry",
           );
-          await page.getByRole("menuitem", { name: "Leaderboard", exact: true }).waitFor();
+          for (const name of ["Leaderboard", "Notifications"])
+            assert.equal(
+              await page
+                .getByRole("menu")
+                .getByRole("menuitem", { name, exact: true, includeHidden: true })
+                .count(),
+              0,
+              `${name} is omitted from the desktop avatar menu`,
+            );
           await page.keyboard.press("Escape");
         }
       }

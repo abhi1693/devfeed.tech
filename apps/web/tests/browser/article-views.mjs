@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { writeFile } from "node:fs/promises";
+import { setArticleView } from "../../../../scripts/testing/article-view.mjs";
 
 export const compactTitle =
   "Unicode boundaries — 日本語, العربية, café, 👩🏽‍💻 and TypeScript: " +
@@ -35,7 +36,7 @@ export function compactListArticle(article, index = 0) {
 
 /** Hold client requests without replacing the web or extension fixture response. */
 export function compactLoadingGate(page) {
-  const pattern = /\/api\/v1\/user\/(?:auth\/me|settings\/feed|feed)(?:\?|$)/;
+  const pattern = /\/api\/v1\/user\/(?:auth\/me|settings\/(?:feed|feed-view)|feed)(?:\?|$)/;
   let stages;
   let handler;
   async function waitForStage(name) {
@@ -58,7 +59,7 @@ export function compactLoadingGate(page) {
     async hold() {
       assert.equal(stages, undefined, "Only one compact loading gate is active");
       stages = Object.fromEntries(
-        ["account", "settings", "feed"].map((name) => {
+        ["account", "settings", "layout", "feed"].map((name) => {
           const stage = {};
           stage.requested = new Promise((resolve) => {
             stage.markRequested = resolve;
@@ -75,8 +76,11 @@ export function compactLoadingGate(page) {
           ? "account"
           : pathname.endsWith("settings/feed")
             ? "settings"
-            : "feed";
+            : pathname.endsWith("settings/feed-view")
+              ? "layout"
+              : "feed";
         const stage = stages[name];
+        stage.received = true;
         stage.markRequested();
         await stage.barrier;
         await route.fallback();
@@ -87,8 +91,11 @@ export function compactLoadingGate(page) {
     releaseAccount: () => stages.account.release(),
     waitSettings: () => waitForStage("settings"),
     releaseSettings: () => stages.settings.release(),
+    waitLayout: () => waitForStage("layout"),
+    releaseLayout: () => stages.layout.release(),
     waitFeed: () => waitForStage("feed"),
     releaseFeed: () => stages.feed.release(),
+    feedRequested: () => stages.feed.received === true,
     async release() {
       for (const stage of Object.values(stages ?? {})) stage.release();
       stages = undefined;
@@ -209,8 +216,6 @@ export async function checkArticleViews(page, target, output, routes = [], { fix
     )
       reloads.push(url.href);
   };
-  const grid = page.getByRole("button", { name: "Grid view", exact: true });
-  const list = page.getByRole("button", { name: "List view", exact: true });
   const cdp = await page.context().newCDPSession(page);
   try {
     fixture?.(true);
@@ -222,26 +227,22 @@ export async function checkArticleViews(page, target, output, routes = [], { fix
       await page.evaluate(() => sessionStorage.removeItem("devfeed:public-reader-cache"));
       await page.reload();
     }
-    await page.locator('button[aria-label="Grid view"]:not(:disabled)').waitFor();
-    await grid.click();
+    await setArticleView(page, "cards", { returnTo: target });
     await page.locator(".article-card").first().waitFor();
-    await page.locator('button[aria-label="Grid view"]:not(:disabled)').waitFor();
+    assert.equal(await page.locator(".feed-view-toggle").count(), 0);
     const originalLinks = await page
       .locator(".card-open-link")
       .evaluateAll((links) => links.map((link) => link.getAttribute("href")));
     const cardHeight = (await page.locator(".article-card").first().boundingBox()).height;
-    page.on("request", record);
-    await list.focus();
-    await page.keyboard.press("Enter");
+    await setArticleView(page, "compact", { keyboard: true });
     await page.locator(".article-list-row").first().waitFor();
-    await page.locator('button[aria-label="List view"]:not(:disabled)').waitFor();
-    assert.equal(await list.getAttribute("aria-pressed"), "true");
+    page.on("request", record);
     const links = await page
       .locator(".article-list-title")
       .evaluateAll((nodes) => nodes.map((node) => node.getAttribute("href")));
     assert.ok(
       originalLinks.every((href) => links.includes(href)),
-      "Switching retains all loaded articles",
+      "Returning from Appearance preserves the feed's article links",
     );
     assert.equal(
       await page
@@ -286,8 +287,6 @@ export async function checkArticleViews(page, target, output, routes = [], { fix
               "Long titles are visually truncated without shortening accessible text",
             );
           measurements.push({ expanded, dark, ...snapshot });
-          const toggle = await list.boundingBox();
-          assert.ok(toggle.width >= 44 && toggle.height >= 44, "View controls retain 44px targets");
           if (output && [320, 1440].includes(width))
             await page.screenshot({
               path: `${output}-list-${dark ? "dark" : "light"}-${expanded ? "expanded" : "collapsed"}-${width}.png`,
@@ -366,42 +365,37 @@ export async function checkArticleViews(page, target, output, routes = [], { fix
     assert.equal(
       reloads.length,
       0,
-      `View and preview changes retain the loaded feed: ${JSON.stringify(reloads)}`,
+      `Preview changes retain the loaded feed: ${JSON.stringify(reloads)}`,
     );
     page.off("request", record);
     for (const route of routes) {
       await page.goto(route);
+      await setArticleView(page, "compact", { returnTo: route });
       await page.locator(".article-list-row").first().waitFor();
-      assert.equal(
-        await list.getAttribute("aria-pressed"),
-        "true",
-        "List preference is shared across feeds",
-      );
+      assert.equal(await page.locator(".feed-view-toggle").count(), 0);
       assertListGeometry(await listGeometry(page));
     }
     await page.reload();
     await page.locator(".article-list-row").first().waitFor();
-    assert.equal(
-      await list.getAttribute("aria-pressed"),
-      "true",
-      "List preference survives reload",
-    );
-    await page.locator('button[aria-label="Grid view"]:not(:disabled)').waitFor();
-    await grid.click();
+    await setArticleView(page, "cards");
     await page.locator(".article-card").first().waitFor();
-    await page.locator('button[aria-label="Grid view"]:not(:disabled)').waitFor();
-    assert.equal(await grid.getAttribute("aria-pressed"), "true");
     await page.reload();
     await page.locator(".article-card").first().waitFor();
-    assert.equal(
-      await grid.getAttribute("aria-pressed"),
-      "true",
-      "Grid preference survives reload",
-    );
     if (output) {
       await page.screenshot({ path: `${output}-grid.png`, animations: "disabled" });
       await writeFile(`${output}-list.json`, JSON.stringify(measurements, null, 2));
     }
+    // Layouts now persist independently. Restore every scope this geometry
+    // journey changed before the caller continues its card-specific checks.
+    const finalRoute = page.url();
+    for (const route of new Set([target, ...routes])) {
+      if (route === finalRoute) continue;
+      await page.goto(route);
+      await setArticleView(page, "cards", { returnTo: route });
+      await page.locator(".article-card").first().waitFor();
+    }
+    if (page.url() !== finalRoute) await page.goto(finalRoute);
+    await page.locator(".article-card").first().waitFor();
   } finally {
     page.off("request", record);
     fixture?.(false);

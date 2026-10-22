@@ -6,6 +6,21 @@ import { PersonalFeed } from "@/components/personal-feed";
 import { TopicFollowsProvider } from "@/components/topic-follows";
 import { UserProvider } from "@/components/user-account";
 import { article, topic } from "./fixtures";
+import type { ReactNode } from "react";
+
+vi.mock("@/components/scoped-feed-preferences", () => ({
+  ScopedFeedPreferences: ({ children }: { children: ReactNode }) => children,
+  useFeedViewScope: () => null,
+}));
+vi.mock("@/components/feed-preferences", () => ({
+  useFeedPreferences: () => ({
+    view: "cards",
+    loading: false,
+    unavailable: false,
+    content_types: ["article", "news", "tutorial", "release", "comparison", "opinion"],
+    languages: ["en"],
+  }),
+}));
 
 vi.mock("@/components/infinite-feed", () => ({
   InfiniteFeed: () => <p>Your recommended articles</p>,

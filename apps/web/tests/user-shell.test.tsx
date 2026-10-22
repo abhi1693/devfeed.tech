@@ -67,6 +67,21 @@ afterEach(() => {
   delete document.documentElement.dataset.sidebarState;
 });
 
+it.each(["guest", "member"])("keeps Appearance out of the top bar for a %s", async (owner) => {
+  identity = owner === "member" ? reader : null;
+  render(<App />);
+  const header = within(screen.getByRole("banner"));
+  expect(header.queryByRole("link", { name: /Appearance/ })).toBeNull();
+  await act(async () => {});
+  expect(header.queryByRole("link", { name: /Appearance/ })).toBeNull();
+  if (owner === "guest") expect(header.getByRole("link", { name: "Sign in" })).toBeTruthy();
+  else {
+    await signedIn();
+    act(() => window.dispatchEvent(new Event("devfeed:user-session-expired")));
+    expect(header.queryByRole("link", { name: /Appearance/ })).toBeNull();
+  }
+});
+
 it("keeps six direct mobile destinations and retains secondary destinations on desktop", async () => {
   render(<App />);
   await signedIn();
