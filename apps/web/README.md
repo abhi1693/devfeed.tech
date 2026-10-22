@@ -127,6 +127,14 @@ Each column has a unique UUID and selects Latest, Recommended, or a source, topi
 UUID. Deleted or unavailable selections remain saved. Existing account JSON stores these
 preferences; updates that omit columns preserve the workspace, and an empty list clears it.
 
+Public feeds render their article links, pagination, and structured data in the initial HTML
+using Grid while layout preferences or catalog identities load. Loading or retrying a layout
+keeps that public feed mounted. Private My feed workspaces still wait for account preferences.
+Ordinary focus checks after the 60-second throttle, history restoration, and explicit session
+refreshes reload follows and feed/appearance preferences even when session credentials are
+unchanged. Returning from a retained article preview reauthorizes the session while preserving
+loaded preferences and articles, unless credentials changed or an ordinary refresh is pending.
+
 The legacy shared adapter reads guest state from `devfeed:reader-preferences:guest` as
 `{version: 1, view, columns}` and supports the old `devfeed:feed-view:guest` layout key.
 Legacy saves update both keys, with an available layout in the old key. Unsupported versions

@@ -50,29 +50,25 @@ export function ReaderFeedLayout({
       });
     return () => controller.abort();
   }, [kind, slug, selectionKey]);
-  if (selection) {
-    if (resolved?.key !== selectionKey) return <LoadingSkeleton label="Loading feed layout…" />;
-    if (!resolved.scope)
-      return (
-        <>
-          <div className="profile-load-error" role="status">
-            <p>Couldn’t load this feed’s layout.</p>
-            <button className="button" onClick={() => setAttempt((value) => value + 1)}>
-              Try again
-            </button>
-          </div>
-          {children}
-        </>
-      );
-    scope = resolved.scope;
-  }
+  const selectionReady = resolved?.key === selectionKey;
+  const selectedScope = selection ? (selectionReady ? resolved.scope : null) : scope;
+  const waitingForSelection = !!selection && !selectedScope;
+  const selectionUnavailable = !!selection && selectionReady && !selectedScope;
+  const scoped = !!scope || !!selection;
   const content = (
-    <FeedLayoutContent allowColumns={allowColumns} workspace={workspace} scoped={!!scope}>
+    <FeedLayoutContent
+      allowColumns={allowColumns}
+      workspace={workspace}
+      scoped={scoped}
+      selectionUnavailable={selectionUnavailable}
+      retrySelection={() => setAttempt((value) => value + 1)}
+    >
       {children}
     </FeedLayoutContent>
   );
-  return scope ? (
-    <ScopedFeedPreferences scope={scope}>
+  return scoped ? (
+    // Keep the provider tree mounted while an alias resolves without using a placeholder scope.
+    <ScopedFeedPreferences scope={selectedScope ?? "latest"} paused={waitingForSelection}>
       <SettingsToastProvider>{content}</SettingsToastProvider>
     </ScopedFeedPreferences>
   ) : (
@@ -85,30 +81,40 @@ function FeedLayoutContent({
   allowColumns,
   workspace,
   scoped,
+  selectionUnavailable,
+  retrySelection,
 }: {
   children: ReactNode;
   allowColumns: boolean;
   workspace: ColumnWorkspaceScope;
   scoped: boolean;
+  selectionUnavailable: boolean;
+  retrySelection: () => void;
 }) {
   const { view, loading, unavailable, refresh } = useFeedPreferences();
   const { user } = useUser();
-  if (scoped && loading) return <LoadingSkeleton label="Loading feed layout…" />;
-  if (scoped && unavailable)
-    return (
-      <>
+  if (scoped && loading && !selectionUnavailable && workspace === "my_feed" && user)
+    return <LoadingSkeleton label="Loading feed layout…" />;
+  return (
+    <>
+      {(selectionUnavailable || (scoped && unavailable)) && (
         <div className="profile-load-error" role="status">
           <p>Couldn’t load this feed’s layout.</p>
-          <button className="button" onClick={refresh}>
+          <button className="button" onClick={selectionUnavailable ? retrySelection : refresh}>
             Try again
           </button>
         </div>
-        {children}
-      </>
-    );
-  return allowColumns && workspace === "my_feed" && user && view === "columns" ? (
-    <ColumnsWorkspace key={`${user?.user_id ?? "guest"}:${workspace}`} workspace={workspace} />
-  ) : (
-    children
+      )}
+      {allowColumns &&
+      !selectionUnavailable &&
+      !(scoped && unavailable) &&
+      workspace === "my_feed" &&
+      user &&
+      view === "columns" ? (
+        <ColumnsWorkspace key={`${user.user_id}:${workspace}`} workspace={workspace} />
+      ) : (
+        children
+      )}
+    </>
   );
 }

@@ -376,9 +376,20 @@ it("retries and paginates one failed column without reloading its neighbor", asy
   ).toBeTruthy();
 });
 
-it("masks private recommendations during an ordinary history check and retains confirmed column data", async () => {
+it("masks private recommendations during an ordinary history check and loads updated confirmed column data", async () => {
+  const updatedPrivate = { ...privateOnly, title: "Updated private recommendation" };
+  const updatedPublic = { ...publicOnly, title: "Updated public article" };
+  let revalidated = false;
   const api = transport([latest, recommended], ({ kind }) =>
-    page([kind === "recommended" ? privateOnly : publicOnly]),
+    page([
+      kind === "recommended"
+        ? revalidated
+          ? updatedPrivate
+          : privateOnly
+        : revalidated
+          ? updatedPublic
+          : publicOnly,
+    ]),
   );
   workspace();
   const privateTitle = await screen.findByRole("link", { name: privateOnly.title });
@@ -388,16 +399,19 @@ it("masks private recommendations during an ordinary history check and retains c
   expect(screen.queryByRole("link", { name: privateOnly.title })).toBeNull();
   expect(privateTitle.isConnected).toBe(true);
   expect(screen.getByRole("link", { name: publicOnly.title })).toBe(publicTitle);
+  revalidated = true;
   await complete({ ...user });
-  expect(await screen.findByRole("link", { name: privateOnly.title })).toBe(privateTitle);
-  expect(screen.getByRole("link", { name: publicOnly.title })).toBe(publicTitle);
-  expect(api.reads.filter(({ kind }) => kind === "recommended")).toHaveLength(1);
-  expect(api.reads.filter(({ kind }) => kind === "latest")).toHaveLength(1);
+  const refreshedPrivate = await screen.findByRole("link", { name: updatedPrivate.title });
+  await screen.findByRole("link", { name: updatedPublic.title });
+  expect(screen.queryByRole("link", { name: privateOnly.title })).toBeNull();
+  expect(screen.queryByRole("link", { name: publicOnly.title })).toBeNull();
+  expect(api.reads.filter(({ kind }) => kind === "recommended")).toHaveLength(2);
+  expect(api.reads.filter(({ kind }) => kind === "latest")).toHaveLength(2);
   const signOut = api.deferAuth();
   fireEvent(window, new PopStateEvent("popstate"));
   await signOut(null);
-  expect(privateTitle.isConnected).toBe(false);
-  expect(screen.queryByRole("link", { name: privateOnly.title })).toBeNull();
+  expect(refreshedPrivate.isConnected).toBe(false);
+  expect(screen.queryByRole("link", { name: updatedPrivate.title })).toBeNull();
 });
 
 it("never loads guest recommendations while public columns remain available", async () => {

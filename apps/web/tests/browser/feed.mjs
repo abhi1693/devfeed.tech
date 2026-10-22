@@ -65,6 +65,11 @@ import {
   previewRetentionEngagement,
 } from "../../../../scripts/testing/preview-feed-retention.mjs";
 import {
+  checkPublicFeedDocument,
+  checkSessionPreferences,
+  sessionPreferencesOwner,
+} from "../../../../scripts/testing/session-preferences.mjs";
+import {
   checkStackedReader,
   stackedReaderArticle,
   stackedReaderFeed,
@@ -158,7 +163,7 @@ import {
 import test from "node:test";
 import { createServer, request as httpRequest } from "node:http";
 import { spawn } from "node:child_process";
-import { mkdir } from "node:fs/promises";
+import { mkdir, writeFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { build } from "esbuild";
 import { chromium } from "playwright";
@@ -184,6 +189,7 @@ async function createReaderFixture(
     stackedFeed = false,
     previewRetention = false,
     insecureHttp = false,
+    nativeFocus = false,
   } = {},
 ) {
   let app, browser, fixture, userFixture;
@@ -862,6 +868,7 @@ async function createReaderFixture(
   assert.ok(ready, `Production reader did not become ready.\n${logs}`);
   browser = await chromium.launch({
     headless: true,
+    ...(nativeFocus ? { channel: "chromium" } : {}),
     ...(insecureHttp
       ? {
           args: ["--host-resolver-rules=MAP reader.devfeed.test 127.0.0.1", "--no-proxy-server"],
@@ -1637,6 +1644,72 @@ test(
         { signedIn: true, nativeInsecureContext: true },
       );
     });
+  },
+);
+
+test(
+  "ordinary account resume refreshes remote preferences before a bulk save",
+  { timeout: 90000 },
+  async (t) => {
+    const { browser, origin, setSessionOwner } = await createReaderFixture(t, {
+      nativeFocus: true,
+    });
+    setSessionOwner(sessionPreferencesOwner);
+    await withReaderPage(browser, async (page, context) => {
+      await context.addCookies([{ name: "devfeed_user_session", value: "valid", url: origin }]);
+      await checkSessionPreferences(page, `${origin}/`, "/tmp/devfeed-session-preferences/web", {
+        csrfToken: "test",
+      });
+    });
+  },
+);
+
+test(
+  "public feed documents contain articles before reader preferences resolve",
+  { timeout: 90000 },
+  async (t) => {
+    const { browser, origin } = await createReaderFixture(t, { previewRetention: true });
+    const documents = [];
+    for (const signedIn of [false, true])
+      await withReaderPage(
+        browser,
+        async (page, context) => {
+          if (signedIn)
+            await context.addCookies([
+              { name: "devfeed_user_session", value: "valid", url: origin },
+            ]);
+          const clientPreferences = [];
+          page.on("request", (request) => {
+            if (/\/api\/v1\/user\/settings\/feed-view(?:\?|$)/.test(request.url()))
+              clientPreferences.push(request.url());
+          });
+          for (const route of ["/latest", signedIn ? "/topics/seo-visible" : "/?topic=seo-visible"])
+            documents.push({
+              signedIn,
+              ...(await checkPublicFeedDocument(page, `${origin}${route}`)),
+            });
+          if (signedIn) {
+            const response = await page.goto(`${origin}/`);
+            assert.equal(response.status(), 200);
+            assert.equal(
+              await page.locator(".article-card,.article-stacked-row,.article-list-row").count(),
+              0,
+              "Signed-in My feed keeps private articles out of the server document",
+            );
+          }
+          assert.deepEqual(
+            clientPreferences,
+            [],
+            "Server article HTML is independent of browser preference hydration",
+          );
+        },
+        { javaScriptEnabled: false },
+      );
+    await mkdir("/tmp/devfeed-session-preferences", { recursive: true });
+    await writeFile(
+      "/tmp/devfeed-session-preferences/web-public-documents.json",
+      `${JSON.stringify({ passed: true, documents }, null, 2)}\n`,
+    );
   },
 );
 

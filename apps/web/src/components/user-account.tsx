@@ -62,7 +62,8 @@ export function UserProvider({
   const [user, setUser] = useState<UserIdentity | null>(null);
   const confirmedUser = useRef<UserIdentity | null | undefined>(undefined);
   const confirmedRefreshKey = useRef(refreshKey);
-  const refreshProfileOnCheck = useRef(false);
+  const preferenceCheckRevision = useRef(0);
+  const confirmedPreferenceCheckRevision = useRef(0);
   const blockingCheck = useRef(true);
   const authCheck = useRef<AbortController | null>(null);
   const [previewHistory] = useState(createPreviewHistory);
@@ -77,7 +78,7 @@ export function UserProvider({
   const userId = user?.user_id;
   const profileWrites = useRef(new Set<AbortController>());
   const confirmUser = useCallback(
-    (value: UserIdentity | null) => {
+    (value: UserIdentity | null, refreshPreferences = false) => {
       const previous = confirmedUser.current;
       const sameSession =
         previous !== undefined &&
@@ -87,12 +88,11 @@ export function UserProvider({
       const unchanged =
         sameSession && previous?.name === value?.name && previous?.email === value?.email;
       confirmedUser.current = value;
-      if (!sameSession) {
-        previewHistory.reset();
+      if (!sameSession) previewHistory.reset();
+      if (!sameSession || refreshPreferences) {
         setSessionRevision((revision) => revision + 1);
       }
       if (!unchanged) setUser(value);
-      return !sameSession;
     },
     [previewHistory],
   );
@@ -115,7 +115,7 @@ export function UserProvider({
     const resume = () => {
       if (document.visibilityState !== "visible" || Date.now() - checkedAt < 60_000) return;
       checkedAt = Date.now();
-      refreshProfileOnCheck.current = true;
+      preferenceCheckRevision.current++;
       setActivityRevision((revision) => revision + 1);
     };
     const restore = (event: Event) => {
@@ -131,7 +131,7 @@ export function UserProvider({
         identity !== undefined &&
         (!identity || identity.expires_at > Date.now() / 1000);
       if (!retain) {
-        refreshProfileOnCheck.current = true;
+        preferenceCheckRevision.current++;
         const focused = document.activeElement;
         if (focused instanceof HTMLElement && focused !== document.body)
           restoreFocus.current = focused;
@@ -228,6 +228,7 @@ export function UserProvider({
   }
   useEffect(() => {
     const controller = new AbortController();
+    const checkedPreferences = preferenceCheckRevision.current;
     authCheck.current = controller;
     const expire = () => {
       controller.abort();
@@ -242,14 +243,12 @@ export function UserProvider({
     })
       .then((value) => {
         if (controller.signal.aborted) return;
-        const changed = confirmUser(value);
-        if (
-          value &&
-          !changed &&
-          (refreshProfileOnCheck.current || confirmedRefreshKey.current !== refreshKey)
-        )
-          setProfileVersion((revision) => revision + 1);
-        refreshProfileOnCheck.current = false;
+        confirmUser(
+          value,
+          checkedPreferences !== confirmedPreferenceCheckRevision.current ||
+            confirmedRefreshKey.current !== refreshKey,
+        );
+        confirmedPreferenceCheckRevision.current = checkedPreferences;
         confirmedRefreshKey.current = refreshKey;
         setUnavailable(false);
       })

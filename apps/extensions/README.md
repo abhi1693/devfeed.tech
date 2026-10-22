@@ -195,6 +195,11 @@ readers; guest layouts stay in their own browser storage. Old layouts provide th
 default, frozen on the first scoped save. Opening a feed never creates a saved override.
 Unified discovery search retains its own result presentation.
 
+Ordinary focus checks after the 60-second throttle, history restoration, and explicit session
+refreshes reload follows and feed/appearance preferences even when session credentials are
+unchanged. Returning from a retained article preview reauthorizes the session while preserving
+loaded preferences and articles, unless credentials changed or an ordinary refresh is pending.
+
 Columns uses the shared saved workspace editor:
 add Latest, Recommended, source, topic,
 or tag selections; edit, reorder, and remove them; and restore the same stable identities

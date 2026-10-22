@@ -30,21 +30,29 @@ type Request = { key: string; controller: AbortController; ready: boolean; savin
 /** The route owns this stable scope, including while an intercepted article is open. */
 export function ScopedFeedPreferences({
   scope: requestedScope,
+  paused = false,
   children,
 }: {
   scope: FeedViewScope;
+  paused?: boolean;
   children: React.ReactNode;
 }) {
   const scope = parseFeedViewScope(requestedScope);
   if (!scope) throw new TypeError("Unsupported feed scope");
-  return <ScopedPreferences scope={scope}>{children}</ScopedPreferences>;
+  return (
+    <ScopedPreferences scope={scope} paused={paused}>
+      {children}
+    </ScopedPreferences>
+  );
 }
 
 function ScopedPreferences({
   scope,
+  paused,
   children,
 }: {
   scope: FeedViewScope;
+  paused: boolean;
   children: React.ReactNode;
 }) {
   const shared = useFeedPreferences();
@@ -59,7 +67,7 @@ function ScopedPreferences({
   const current = state?.owner === owner && state.scope === scope ? state : null;
 
   useEffect(() => {
-    if (checking || shared.loading) return;
+    if (paused || checking || shared.loading) return;
     const controller = new AbortController();
     const request: Request = { key, controller, ready: false, saving: false };
     active.current = request;
@@ -108,12 +116,13 @@ function ScopedPreferences({
       });
     return () => controller.abort();
     // The user object can change its display name without changing the owner or session.
-  }, [checking, key, legacyView, owner, scope, shared.loading]);
+  }, [paused, checking, key, legacyView, owner, scope, shared.loading]);
 
   async function setView(view: FeedViewPreference) {
     const request = active.current;
     if (
       !validFeedViewReceipt({ view }) ||
+      paused ||
       (view === "columns" && (!user || scope !== "my_feed")) ||
       checking ||
       shared.loading ||
@@ -163,15 +172,15 @@ function ScopedPreferences({
   }
 
   return (
-    <Scope.Provider value={scope}>
+    <Scope.Provider value={paused ? null : scope}>
       <FeedPreferencesOverride
         value={{
-          view: current?.view ?? "cards",
-          storedView: current?.view ?? "cards",
-          loading: shared.loading || !current,
+          view: paused ? "cards" : (current?.view ?? "cards"),
+          storedView: paused ? "cards" : (current?.view ?? "cards"),
+          loading: paused || shared.loading || !current,
           busy: shared.busy || checking || saving === key || (!!current && current.key !== key),
-          unavailable: shared.unavailable || (current?.unavailable ?? false),
-          error: current?.error || shared.error,
+          unavailable: shared.unavailable || (!paused && (current?.unavailable ?? false)),
+          error: (!paused && current?.error) || shared.error,
           setView,
           refresh: () =>
             shared.unavailable ? shared.refresh() : setRevision((value) => value + 1),

@@ -30,6 +30,7 @@ import {
   previewRetentionFeed,
   previewRetentionEngagement,
 } from "../../../scripts/testing/preview-feed-retention.mjs";
+import { checkSessionPreferences } from "../../../scripts/testing/session-preferences.mjs";
 import {
   checkStackedReader,
   stackedReaderArticle,
@@ -843,6 +844,21 @@ test(
           },
         );
       }
+    }),
+);
+
+test(
+  "ordinary account resume refreshes remote preferences before a bulk save",
+  { timeout: 90000 },
+  (t) =>
+    withAuthenticatedReader(t, async ({ page, user, signIn }) => {
+      await signIn();
+      await checkSessionPreferences(
+        page,
+        readerRouteUrl(page.url(), "/"),
+        `/tmp/devfeed-session-preferences/${browser}`,
+        { csrfToken: user.csrf_token },
+      );
     }),
 );
 

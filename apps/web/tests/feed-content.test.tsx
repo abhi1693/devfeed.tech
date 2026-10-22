@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import type { ReactNode } from "react";
 import { FeedContent, type FeedContentProps } from "@/components/feed-content";
@@ -14,8 +14,16 @@ const preferences = vi.hoisted(() => ({ view: "cards" }));
 const session = vi.hoisted(() => ({ user: null as { user_id: string } | null }));
 vi.mock("@/components/feed-preferences", () => ({ useFeedPreferences: () => preferences }));
 vi.mock("@/components/scoped-feed-preferences", () => ({
-  ScopedFeedPreferences: ({ scope, children }: { scope: string; children: ReactNode }) => (
-    <div data-testid="feed-view-scope" data-scope={scope}>
+  ScopedFeedPreferences: ({
+    scope,
+    paused = false,
+    children,
+  }: {
+    scope: string;
+    paused?: boolean;
+    children: ReactNode;
+  }) => (
+    <div data-testid="feed-view-scope" data-scope={paused ? undefined : scope} data-paused={paused}>
       {children}
     </div>
   ),
@@ -123,7 +131,7 @@ it.each([
 });
 
 it.each(["topic", "tag"] as const)(
-  "resolves a legacy %s query alias before mounting its scoped controls",
+  "keeps a legacy %s query feed mounted while its scoped controls wait for identity",
   async (kind) => {
     render(
       <FeedContent
@@ -133,10 +141,16 @@ it.each(["topic", "tag"] as const)(
         options={options}
       />,
     );
-    expect(screen.queryByTestId("feed-view-scope")).toBeNull();
-    expect((await screen.findByTestId("feed-view-scope")).getAttribute("data-scope")).toBe(
-      `${kind}:11111111-1111-4111-8111-111111111111`,
+    const scope = screen.getByTestId("feed-view-scope");
+    const feed = screen.getByTestId("infinite-feed");
+    expect(scope.getAttribute("data-paused")).toBe("true");
+    expect(scope.hasAttribute("data-scope")).toBe(false);
+    await waitFor(() =>
+      expect(scope.getAttribute("data-scope")).toBe(`${kind}:11111111-1111-4111-8111-111111111111`),
     );
+    expect(screen.getByTestId("feed-view-scope")).toBe(scope);
+    expect(screen.getByTestId("infinite-feed")).toBe(feed);
+    expect(scope.getAttribute("data-paused")).toBe("false");
     expect(readerRequest).toHaveBeenCalledWith(
       `/api/v1/${kind}s/python%20alias`,
       expect.objectContaining({ signal: expect.any(AbortSignal) }),
