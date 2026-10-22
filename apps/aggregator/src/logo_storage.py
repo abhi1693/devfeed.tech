@@ -105,6 +105,12 @@ def check_svg_css(value: str):
 
 
 class LogoOriginalStore(OriginalStore):
+    def __init__(self, storage: R2Storage):
+        super().__init__(storage)
+        # Publisher favicons commonly use ICO. Decode them under the same pixel
+        # limit, then store a normalized PNG; article photo policy stays narrower.
+        self.formats = self.formats | {"ICO"}
+
     def store(self, source: str) -> dict:
         result = fetch_topic_logo(source)
         body = result.body
