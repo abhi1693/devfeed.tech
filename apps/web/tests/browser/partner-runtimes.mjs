@@ -1,7 +1,13 @@
 import assert from "node:assert/strict";
 
 const platforms = ["web", "chrome", "edge"];
-const focusedModes = new Set(["--search-context", "--link-rel", "--attribution", "--compact-feed"]);
+const focusedModes = new Set([
+  "--search-context",
+  "--link-rel",
+  "--attribution",
+  "--compact-feed",
+  "--header-expiry",
+]);
 const callerPaths = ["/v1/partner-placements/query", "/v1/partner-tracking/events"];
 
 export function partnerRuntimes(arguments_ = []) {

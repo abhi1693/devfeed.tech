@@ -14,6 +14,7 @@ import { checkColumnsFeeds } from "../../../scripts/testing/columns-feeds.mjs";
 import { checkColumnsSponsoredProducts } from "../../../scripts/testing/columns-sponsored.mjs";
 import { checkColumnsScanning } from "../../../scripts/testing/columns-scanning.mjs";
 import { checkColumnsReordering } from "../../../scripts/testing/columns-reordering.mjs";
+import { createReaderArtifactDirectory } from "../../../scripts/testing/reader-artifacts.mjs";
 import { checkIndependentFeedViews } from "../../../scripts/testing/feed-views.mjs";
 import { checkSavedReaderLifecycle } from "../../../scripts/testing/reader-views-lifecycle.mjs";
 import { checkColumnSaveRecovery } from "../../../scripts/testing/reader-views-recovery.mjs";
@@ -85,6 +86,8 @@ import {
 } from "../../../scripts/testing/onboarding-topics.mjs";
 
 const browser = process.env.DEVFEED_EXTENSION_BROWSER ?? "chrome";
+const artifactDirectory = await createReaderArtifactDirectory(browser);
+const artifactPath = (name) => path.join(artifactDirectory, name);
 const extension = path.resolve(import.meta.dirname, `../dist/${browser}`);
 const newTab = browser === "edge" ? "edge://newtab" : "chrome://newtab";
 const cookieName = "__Host-devfeed_user_session";
@@ -761,8 +764,12 @@ test(
       await checkColumnsScanning(
         page,
         readerRouteUrl(page.url(), "/"),
-        process.env.DEVFEED_COLUMNS_SCANNING_OUTPUT ??
-          `/tmp/devfeed-columns-scanning/${browser}-final`,
+        path.join(
+          await createReaderArtifactDirectory(browser, {
+            parentDirectory: process.env.DEVFEED_COLUMNS_SCANNING_OUTPUT,
+          }),
+          `columns-scanning/${browser}-final`,
+        ),
         { baseline: process.env.DEVFEED_COLUMNS_SCANNING_BASELINE === "1" },
       );
     }),
@@ -777,7 +784,7 @@ test(
       await checkColumnsSponsoredProducts(
         page,
         readerRouteUrl(page.url(), "/"),
-        `/tmp/devfeed-columns-sponsored/${browser}`,
+        artifactPath(`columns-sponsored/${browser}`),
       );
     }),
 );
@@ -791,14 +798,14 @@ test(
       await checkGuestColumnsUnavailable(
         page,
         target,
-        `/tmp/devfeed-columns-workspace/${browser}-guest`,
+        artifactPath(`columns-workspace/${browser}-guest`),
       );
       for (const signedIn of [true]) {
         if (signedIn) await signIn();
         await checkColumnsWorkspace(
           page,
           target,
-          `/tmp/devfeed-columns-workspace/${browser}-${signedIn ? "member" : "guest"}`,
+          artifactPath(`columns-workspace/${browser}-${signedIn ? "member" : "guest"}`),
           { signedIn },
         );
       }
@@ -816,7 +823,7 @@ test(
         await checkColumnsStarters(
           page,
           target,
-          `/tmp/devfeed-columns-starters/${browser}-${signedIn ? "member" : "guest"}`,
+          artifactPath(`columns-starters/${browser}-${signedIn ? "member" : "guest"}`),
           { signedIn },
         );
       }
@@ -834,7 +841,7 @@ test(
         await checkPersonalColumns(
           page,
           target,
-          `/tmp/devfeed-columns-personal/${browser}-${signedIn ? "member" : "guest"}`,
+          artifactPath(`columns-personal/${browser}-${signedIn ? "member" : "guest"}`),
           {
             signedIn,
             expireSession: async () => {
@@ -856,7 +863,7 @@ test(
       await checkSessionPreferences(
         page,
         readerRouteUrl(page.url(), "/"),
-        `/tmp/devfeed-session-preferences/${browser}`,
+        artifactPath(`session-preferences/${browser}`),
         { csrfToken: user.csrf_token },
       );
     }),
@@ -879,7 +886,9 @@ test(
           await checkPreviewFeedRetention(
             page,
             readerRouteUrl(current, route),
-            `/tmp/devfeed-preview-retention/${browser}-${signedIn ? "member" : "guest"}-${route.startsWith("/latest") ? "latest" : route.startsWith("/read-later") ? "saved" : "personal"}.json`,
+            artifactPath(
+              `preview-retention/${browser}-${signedIn ? "member" : "guest"}-${route.startsWith("/latest") ? "latest" : route.startsWith("/read-later") ? "saved" : "personal"}.json`,
+            ),
             {
               requests: () => state.previewRequests,
               baseline: process.env.DEVFEED_PREVIEW_RETENTION_BASELINE === "1",
@@ -904,7 +913,7 @@ test(
         await checkStackedReader(
           page,
           target,
-          `/tmp/devfeed-stacked-reader/${browser}-${signedIn ? "member" : "guest"}`,
+          artifactPath(`stacked-reader/${browser}-${signedIn ? "member" : "guest"}`),
           { signedIn },
         );
       }
@@ -941,7 +950,7 @@ test(
         await checkIndependentFeedViews(
           page,
           target,
-          `/tmp/devfeed-feed-views/${browser}-${signedIn ? "member" : "guest"}`,
+          artifactPath(`feed-views/${browser}-${signedIn ? "member" : "guest"}`),
           { signedIn },
         );
       }

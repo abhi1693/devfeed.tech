@@ -1,10 +1,11 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdtemp, readFile, rm, writeFile, mkdir } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile, mkdir, stat, chmod, readdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
+import { createReaderArtifactDirectory } from "../scripts/testing/reader-artifacts.mjs";
 import {
   assertPartnerCallerProofs,
   partnerRuntimePlan,
@@ -12,6 +13,91 @@ import {
 } from "../apps/web/tests/browser/partner-runtimes.mjs";
 
 const root = fileURLToPath(new URL("../", import.meta.url));
+
+test("reader artifacts allocate distinct owner-only directories for concurrent local runtimes", async (t) => {
+  const directories = [];
+  t.after(async () => {
+    await Promise.all(
+      directories.map((directory) => rm(directory, { recursive: true, force: true })),
+    );
+    for (const directory of directories) await assert.rejects(stat(directory), { code: "ENOENT" });
+  });
+  await Promise.all(
+    ["web", "chrome", "edge", "web"].map(async (runtime) => {
+      directories.push(await createReaderArtifactDirectory(runtime, { ci: false }));
+    }),
+  );
+  assert.equal(new Set(directories).size, 4);
+  for (const directory of directories) {
+    assert.equal(path.dirname(directory), tmpdir());
+    assert.equal((await stat(directory)).mode & 0o777, 0o700);
+    const evidence = path.join(directory, "observations.json");
+    await writeFile(evidence, '{"passed":true}\n', { mode: 0o600 });
+    assert.deepEqual(JSON.parse(await readFile(evidence, "utf8")), { passed: true });
+  }
+});
+
+test("CI artifact directories remain random and private under the uploaded reports tree", async (t) => {
+  const directory = await createReaderArtifactDirectory("edge", { ci: true });
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  assert.equal(path.dirname(directory), path.join(root, "reports", "reader-artifacts"));
+  assert.match(path.basename(directory), /^devfeed-reader-edge-.+$/);
+  assert.equal((await stat(directory)).mode & 0o777, 0o700);
+});
+
+test("an output override is a parent for private random children and cannot select an existing evidence file", async (t) => {
+  const parent = await mkdtemp(path.join(tmpdir(), "devfeed-reader-artifact-test-"));
+  t.after(() => rm(parent, { recursive: true, force: true }));
+  const requested = path.join(parent, "requested-output");
+  await mkdir(requested, { mode: 0o700 });
+  await chmod(requested, 0o775);
+  const existing = path.join(requested, "web.json");
+  await writeFile(existing, "previous unrelated evidence", { mode: 0o600 });
+  const directories = await Promise.all(
+    ["web", "web"].map((runtime) =>
+      createReaderArtifactDirectory(runtime, { parentDirectory: requested, ci: false }),
+    ),
+  );
+  assert.notEqual(directories[0], directories[1]);
+  for (const directory of directories) {
+    assert.equal(path.dirname(directory), requested);
+    assert.equal((await stat(directory)).mode & 0o777, 0o700);
+    await writeFile(path.join(directory, "web.json"), "new run", { mode: 0o600 });
+  }
+  assert.equal((await stat(requested)).mode & 0o777, 0o775);
+  assert.equal(await readFile(existing, "utf8"), "previous unrelated evidence");
+});
+
+test("unsupported artifact runtimes and invalid parents are rejected before allocation", async (t) => {
+  const parent = await mkdtemp(path.join(tmpdir(), "devfeed-reader-artifact-invalid-"));
+  t.after(() => rm(parent, { recursive: true, force: true }));
+  const requested = path.join(parent, "must-not-exist");
+  for (const runtime of [undefined, "../web", "firefox", "WEB"])
+    await assert.rejects(
+      createReaderArtifactDirectory(runtime, { parentDirectory: requested }),
+      /Unsupported reader artifact runtime/,
+    );
+  for (const parentDirectory of [null, "", 1])
+    await assert.rejects(
+      createReaderArtifactDirectory("web", { parentDirectory }),
+      /directory path/,
+    );
+  await assert.rejects(stat(requested), { code: "ENOENT" });
+});
+
+test("an externally writable output parent is rejected before any evidence directory is allocated", async (t) => {
+  const parent = await mkdtemp(path.join(tmpdir(), "devfeed-reader-artifact-permissions-"));
+  t.after(() => rm(parent, { recursive: true, force: true }));
+  const requested = path.join(parent, "untrusted");
+  await mkdir(requested);
+  await chmod(requested, 0o777);
+  await assert.rejects(
+    createReaderArtifactDirectory("web", { parentDirectory: requested, ci: false }),
+    /must not be owned by another user or world-writable/,
+  );
+  assert.deepEqual(await readdir(requested), []);
+});
+
 const command = (...args) => ({ command: args, platform: null });
 const history = (platform) => ({
   command: ["node", "tests/benchmarks/reader-history.mjs"],
@@ -271,7 +357,13 @@ test("six isolated suites retain every original check and all partner runtimes e
 test("partner runtime defaults and focused modes retain all three actual runtimes", () => {
   const expected = ["web", "chrome", "edge"];
   assert.deepEqual(partnerRuntimes(), expected);
-  for (const mode of ["--search-context", "--link-rel", "--attribution", "--compact-feed"]) {
+  for (const mode of [
+    "--search-context",
+    "--link-rel",
+    "--attribution",
+    "--compact-feed",
+    "--header-expiry",
+  ]) {
     assert.deepEqual(partnerRuntimes([mode]), expected);
     for (const runtime of expected) {
       assert.deepEqual(partnerRuntimes([mode, `--runtime=${runtime}`]), [runtime]);

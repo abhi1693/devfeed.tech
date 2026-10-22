@@ -434,6 +434,10 @@ export async function checkColumnsWorkspace(
     });
     await page.keyboard.press("Escape");
     await keyboardMenu.waitFor({ state: "hidden" });
+    await page.waitForFunction(
+      (button) => document.activeElement === button,
+      await options.elementHandle(),
+    );
     assert.equal(await options.evaluate((node) => document.activeElement === node), true);
 
     const duplicateWrites = writes.length;

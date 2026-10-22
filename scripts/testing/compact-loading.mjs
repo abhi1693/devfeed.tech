@@ -168,8 +168,11 @@ export async function checkCompactLoading(
     releaseAccount,
     waitSettings,
     releaseSettings,
+    waitLayout,
+    releaseLayout,
     waitFeed,
     releaseFeed,
+    feedRequested,
   },
 ) {
   const viewport = page.viewportSize();
@@ -183,10 +186,20 @@ export async function checkCompactLoading(
   let cdp;
   let clockPaused = false;
   const observationKey = "devfeed:test:compact-loading-observe";
-  const staged = Boolean(waitAccount && releaseAccount && waitSettings && releaseSettings);
+  const staged = Boolean(
+    waitAccount && releaseAccount && waitSettings && releaseSettings && waitLayout && releaseLayout,
+  );
   assert.ok(
-    staged || !(waitAccount || releaseAccount || waitSettings || releaseSettings),
-    "Bootstrap gates must provide all four staged callbacks",
+    staged ||
+      !(
+        waitAccount ||
+        releaseAccount ||
+        waitSettings ||
+        releaseSettings ||
+        waitLayout ||
+        releaseLayout
+      ),
+    "Bootstrap gates must provide every account, settings, and scoped-layout callback",
   );
   if (output) await mkdir(dirname(output), { recursive: true });
   async function waitForDOM(predicate, message) {
@@ -198,19 +211,29 @@ export async function checkCompactLoading(
     }
     assert.fail(message);
   }
-  async function checkFeedFirst() {
+  async function checkLayoutBeforeFeed() {
     await page.setViewportSize({ width: 1440, height: 1000 });
     held = true;
     await hold();
     await page.reload({ waitUntil: "domcontentloaded" });
     await waitAccount();
-    await assertBootstrapStatus(page, "Feed-first account loading");
+    await assertBootstrapStatus(page, "Scoped-layout account loading");
     await releaseAccount();
     await waitSettings();
+    await assertBootstrapStatus(page, "Scoped-layout shared preference loading");
+    await releaseSettings();
+    await waitLayout();
+    await assertBootstrapStatus(page, "Waiting for this feed's saved layout");
+    assert.equal(
+      feedRequested(),
+      false,
+      "Private article requests wait until the scoped layout is resolved",
+    );
+    await releaseLayout();
     await waitFeed();
-    await assertBootstrapStatus(page, "Feed-first preference loading");
+    await pending.waitFor();
     // All three callers install a running page clock for earlier promo checks.
-    // Retain the real 180ms exit fallback while changing the response order.
+    // Retain the real 180ms compact exit fallback while the feed becomes ready.
     await page.clock.pauseAt(new Date(await page.evaluate(() => Date.now() + 1000)));
     clockPaused = true;
     await releaseFeed();
@@ -219,9 +242,8 @@ export async function checkCompactLoading(
         document.querySelector(
           '.reader-loading-reveal[data-loading="false"] > .reader-loading-placeholder[aria-hidden="true"]',
         ) !== null,
-      "The feed must resolve while its preferences remain blocked",
+      "The feed resolves into the real compact loading exit transition",
     );
-    await releaseSettings();
     await waitForDOM(
       () => document.querySelector(".article-table .article-list-row") !== null,
       "The resolved preferences must render the loaded compact feed",
@@ -241,7 +263,7 @@ export async function checkCompactLoading(
         })),
       };
     });
-    assert.deepEqual(transition.wrong, [], "Feed-first loading never flashes grid, form, or cards");
+    assert.deepEqual(transition.wrong, [], "Scoped loading never flashes grid, form, or cards");
     assert.equal(
       transition.fallback.length,
       1,
@@ -254,9 +276,14 @@ export async function checkCompactLoading(
     clockPaused = false;
     await release();
     held = false;
-    measurements.push({ width: 1440, responseOrder: "feed-first", transition, loaded: ready });
+    measurements.push({
+      width: 1440,
+      responseOrder: "layout-before-feed",
+      transition,
+      loaded: ready,
+    });
     if (output)
-      await page.screenshot({ path: `${output}-loading-feed-first.png`, animations: "disabled" });
+      await page.screenshot({ path: `${output}-loading-layout-first.png`, animations: "disabled" });
   }
   async function check(width, pointer = "original") {
     await page.setViewportSize({ width, height: 1000 });
@@ -270,6 +297,9 @@ export async function checkCompactLoading(
       await waitSettings();
       await assertBootstrapStatus(page, "Waiting for feed preferences");
       await releaseSettings();
+      await waitLayout();
+      await assertBootstrapStatus(page, "Waiting for this feed's saved layout");
+      await releaseLayout();
     }
     await pending.waitFor();
     assert.equal(await pending.count(), 1, "Only one compact skeleton appears after preferences");
@@ -367,7 +397,7 @@ export async function checkCompactLoading(
     }, observationKey);
     await page.evaluate((key) => sessionStorage.setItem(key, "true"), observationKey);
     for (const width of [320, 375, 768, 1440]) await check(width);
-    if (staged && waitFeed && releaseFeed) await checkFeedFirst();
+    if (staged && waitFeed && releaseFeed && feedRequested) await checkLayoutBeforeFeed();
     if (!coarse) {
       cdp = await page.context().newCDPSession(page);
       await cdp.send("Emulation.setTouchEmulationEnabled", { enabled: true, maxTouchPoints: 1 });

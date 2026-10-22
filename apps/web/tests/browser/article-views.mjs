@@ -36,7 +36,7 @@ export function compactListArticle(article, index = 0) {
 
 /** Hold client requests without replacing the web or extension fixture response. */
 export function compactLoadingGate(page) {
-  const pattern = /\/api\/v1\/user\/(?:auth\/me|settings\/feed|feed)(?:\?|$)/;
+  const pattern = /\/api\/v1\/user\/(?:auth\/me|settings\/(?:feed|feed-view)|feed)(?:\?|$)/;
   let stages;
   let handler;
   async function waitForStage(name) {
@@ -59,7 +59,7 @@ export function compactLoadingGate(page) {
     async hold() {
       assert.equal(stages, undefined, "Only one compact loading gate is active");
       stages = Object.fromEntries(
-        ["account", "settings", "feed"].map((name) => {
+        ["account", "settings", "layout", "feed"].map((name) => {
           const stage = {};
           stage.requested = new Promise((resolve) => {
             stage.markRequested = resolve;
@@ -76,8 +76,11 @@ export function compactLoadingGate(page) {
           ? "account"
           : pathname.endsWith("settings/feed")
             ? "settings"
-            : "feed";
+            : pathname.endsWith("settings/feed-view")
+              ? "layout"
+              : "feed";
         const stage = stages[name];
+        stage.received = true;
         stage.markRequested();
         await stage.barrier;
         await route.fallback();
@@ -88,8 +91,11 @@ export function compactLoadingGate(page) {
     releaseAccount: () => stages.account.release(),
     waitSettings: () => waitForStage("settings"),
     releaseSettings: () => stages.settings.release(),
+    waitLayout: () => waitForStage("layout"),
+    releaseLayout: () => stages.layout.release(),
     waitFeed: () => waitForStage("feed"),
     releaseFeed: () => stages.feed.release(),
+    feedRequested: () => stages.feed.received === true,
     async release() {
       for (const stage of Object.values(stages ?? {})) stage.release();
       stages = undefined;
@@ -379,6 +385,17 @@ export async function checkArticleViews(page, target, output, routes = [], { fix
       await page.screenshot({ path: `${output}-grid.png`, animations: "disabled" });
       await writeFile(`${output}-list.json`, JSON.stringify(measurements, null, 2));
     }
+    // Layouts now persist independently. Restore every scope this geometry
+    // journey changed before the caller continues its card-specific checks.
+    const finalRoute = page.url();
+    for (const route of new Set([target, ...routes])) {
+      if (route === finalRoute) continue;
+      await page.goto(route);
+      await setArticleView(page, "cards", { returnTo: route });
+      await page.locator(".article-card").first().waitFor();
+    }
+    if (page.url() !== finalRoute) await page.goto(finalRoute);
+    await page.locator(".article-card").first().waitFor();
   } finally {
     page.off("request", record);
     fixture?.(false);

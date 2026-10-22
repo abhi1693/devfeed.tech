@@ -16,6 +16,7 @@ const searchContextOnly = process.argv.includes("--search-context");
 const linkRelOnly = process.argv.includes("--link-rel");
 const attributionOnly = process.argv.includes("--attribution");
 const compactFeedOnly = process.argv.includes("--compact-feed");
+const headerExpiryOnly = process.argv.includes("--header-expiry");
 
 // Exercise actual production reader bundles and packaged extensions, with controlled
 // delivery responses. Backend integration tests prove relevance and signed receipts.
@@ -1680,11 +1681,16 @@ async function assertHeaderExpiry(context, base, platform) {
         await page.goto(`${base}/settings/feed`);
         const header = page.locator(".topbar .partner-placement--header_sponsorship");
         await header.waitFor();
+        // A normal session recheck disables preference fieldsets while refreshing them.
+        // Observe expiry focus on an independent reading link outside those fieldsets.
         const reading = page
           .getByRole("region", { name: "Feed preferences", exact: true })
-          .getByRole("checkbox", { name: "Tutorials", exact: true });
+          .getByRole("link", { name: "Change article layout in Appearance.", exact: true });
         await reading.waitFor();
         await reading.focus();
+        await reading.evaluate((node) => {
+          node.setAttribute("data-header-expiry-reading", "true");
+        });
         await header.evaluate((node) => {
           window.__expiringHeader = node;
         });
@@ -1736,7 +1742,16 @@ async function assertHeaderExpiry(context, base, platform) {
           Math.abs(after.y - before.y) <= 2,
           `${platform}/${mode}: Header expiry keeps the settings focus position`,
         );
-        assert.equal(await reading.evaluate((node) => node === document.activeElement), true);
+        assert.equal(
+          await reading.evaluate((node) => node === document.activeElement),
+          true,
+          `${platform}/${mode}: Header expiry preserves the focused settings control`,
+        );
+        assert.equal(
+          await reading.getAttribute("data-header-expiry-reading"),
+          "true",
+          `${platform}/${mode}: receipt expiry and session refresh retain the reading link`,
+        );
         assert.equal((await page.locator(".topbar").boundingBox()).height, shell.height);
         await page.evaluate(() => {
           const link = window.__expiringHeader.querySelector("a");
@@ -3618,6 +3633,12 @@ try {
         console.log(`${platform}: compact Feed structure, visibility, tracking and expiry passed`);
         continue;
       }
+      if (headerExpiryOnly) {
+        await context.clock.install({ time: new Date(receiptIssuedAt * 1000) });
+        await assertHeaderExpiry(context, base, platform);
+        console.log(`${platform}: Header expiry, focus, layout and tracking passed`);
+        continue;
+      }
       if (!searchContextOnly) await assertPlacementLinkRelations(context, base, platform);
       if (linkRelOnly) continue;
       await assertSearchResultContext(context, base, platform);
@@ -4884,7 +4905,13 @@ try {
     "The gateway keeps all three anonymous reader callers distinct",
   );
   // Focused modes return early and can never claim the complete feature matrix.
-  if (!searchContextOnly && !linkRelOnly && !attributionOnly && !compactFeedOnly) {
+  if (
+    !searchContextOnly &&
+    !linkRelOnly &&
+    !attributionOnly &&
+    !compactFeedOnly &&
+    !headerExpiryOnly
+  ) {
     assert.equal(fullRuntimeEvidence.length, selectedRuntimes.length);
     await writeFile(
       path.join(

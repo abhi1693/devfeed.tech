@@ -92,6 +92,23 @@ reports retain the existing `observations.json` and failure captures. Separate r
 keep evidence from overwriting another browser's results. Reports contain public fixture identities
 and observations, not authentication headers or session credentials.
 
+Other reader feature journeys allocate a fresh owner-only (`0700`) artifact directory with
+`mkdtemp` and print its location in the test log. Local runs retain it under the operating
+system's temporary directory; CI runs retain it under `reports/reader-artifacts/`, which the
+existing artifact upload includes. Each run has a random directory name, so parallel runs do
+not overwrite evidence and no screenshot or JSON file uses a predictable shared `/tmp` path.
+These directories are intentionally retained for inspection; remove only the printed run
+directory when its evidence is no longer needed.
+
+`DEVFEED_COLUMNS_SCANNING_OUTPUT` now names an artifact **parent directory**, rather than an
+exact output prefix. The scanning journey creates a private random child beneath that parent
+and prints the actual location. Existing scripts that read a fixed `<prefix>.json` or PNG
+path must instead use the printed run directory. This does not change the source-bound
+`reports/reader-views/<runtime>/<scenario>/` evidence locations above.
+An explicit parent owned by another user or world-writable without sticky-directory
+protection is rejected. Existing checkout report-directory permissions are left intact;
+each allocated run directory remains owner-only.
+
 Local runs made before committing correctly record a dirty source tree; they must not be
 presented as hosted checks of the later commit. Hosted checks and CodeQL remain separate merge
 requirements. Automated accessibility results complement keyboard and visual checks and do not

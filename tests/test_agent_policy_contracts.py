@@ -68,7 +68,7 @@ def test_agent_permissions_are_exported_on_operations_without_entering_gateway_t
             assert AGENT_POLICY_EXTENSION not in operation[GATEWAY_POLICY_EXTENSION]
     assert actual == EXPECTED
     operations = document[GATEWAY_ROUTES_EXTENSION]
-    assert len(operations) == 67
+    assert len(operations) == 72
     for operation in operations:
         assert set(operation) == {"operationId", "method", "path", "parameters", "policy"}
         expected_fields = {
@@ -111,3 +111,25 @@ def test_browser_only_dependencies_do_not_accept_endpoint_agent_permissions():
             unmarked_user_operations.append(context)
     assert len(browser_only) >= 2
     assert unmarked_user_operations
+
+
+def test_reader_workspace_and_layout_settings_do_not_grant_agent_access():
+    expected = {
+        ("/v1/user/settings/columns", "GET"),
+        ("/v1/user/settings/columns", "PUT"),
+        ("/v1/user/settings/columns/starters", "GET"),
+        ("/v1/user/settings/feed-view", "GET"),
+        ("/v1/user/settings/feed-view", "PUT"),
+    }
+    actual = set()
+    for context in iter_route_contexts(create_app().routes):
+        if not isinstance(context.original_route, APIRoute):
+            continue
+        for method in context.methods:
+            identity = (context.path, method)
+            if identity not in expected:
+                continue
+            actual.add(identity)
+            assert require_user in set(dependency_calls(context.dependant))
+            assert AGENT_POLICY_EXTENSION not in (context.openapi_extra or {})
+    assert actual == expected

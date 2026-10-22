@@ -1030,7 +1030,9 @@ test(
     await page.locator(".article-card").first().waitFor();
     assert.ok(
       requests.some(
-        (url) => url.pathname === "/api/v1/feed" && url.searchParams.get("source_id") === "source",
+        (url) =>
+          url.pathname === "/api/v1/feed" &&
+          url.searchParams.get("source_id") === article.sources[0].id,
       ),
     );
     await checkPreviewBackground(page);

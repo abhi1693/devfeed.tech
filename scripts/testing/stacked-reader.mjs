@@ -657,6 +657,10 @@ export async function checkStackedReader(page, target, output, { signedIn = fals
   assert.equal(new URL(publicUrl).pathname, articlePath);
   await page.keyboard.press("Escape");
   await popover.waitFor({ state: "hidden" });
+  await page.waitForFunction(
+    (button) => document.activeElement === button,
+    await share.elementHandle(),
+  );
   assert.equal(await share.evaluate((element) => element === document.activeElement), true);
   const beforePagination = await page
     .locator(".article-stacked-row:not(.partner-placement)")

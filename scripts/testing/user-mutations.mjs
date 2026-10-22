@@ -216,7 +216,9 @@ export async function checkUserMutations(page, destination, fixture) {
 
     const layout = await openArticleViewSettings(page);
     await clearEffects();
-    await layout.getByRole("radio", { name: "List", exact: true }).check();
+    // The deliberately rejected save can roll back before Playwright's check()
+    // verifies the optimistic state. Observe the actual error and saved choice.
+    await layout.getByRole("radio", { name: "List", exact: true }).click();
     await layout.getByRole("alert").waitFor();
     assert.equal(await layout.getByRole("radio", { name: "Grid", exact: true }).isChecked(), true);
     assert.deepEqual(await effects(), { events: [], interests: 0 });

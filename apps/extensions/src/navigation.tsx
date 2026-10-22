@@ -95,6 +95,10 @@ const routeSnapshot = () => {
     return "/__missing__";
   return route;
 };
+
+/** Session and preview checks use the same validated location as the router. */
+export const readerRouteLocation = () => new URL(routeSnapshot(), publicOrigin);
+
 let cachedRoute: string | undefined;
 let cachedSaved: unknown;
 let cachedState: ReaderNavigationState;

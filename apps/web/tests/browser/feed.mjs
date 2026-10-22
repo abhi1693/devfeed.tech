@@ -48,6 +48,7 @@ import { checkColumnsFeeds } from "../../../../scripts/testing/columns-feeds.mjs
 import { checkColumnsSponsoredProducts } from "../../../../scripts/testing/columns-sponsored.mjs";
 import { checkColumnsScanning } from "../../../../scripts/testing/columns-scanning.mjs";
 import { checkColumnsReordering } from "../../../../scripts/testing/columns-reordering.mjs";
+import { createReaderArtifactDirectory } from "../../../../scripts/testing/reader-artifacts.mjs";
 import { checkIndependentFeedViews } from "../../../../scripts/testing/feed-views.mjs";
 import { checkSavedReaderLifecycle } from "../../../../scripts/testing/reader-views-lifecycle.mjs";
 import { checkColumnSaveRecovery } from "../../../../scripts/testing/reader-views-recovery.mjs";
@@ -165,6 +166,7 @@ import { createServer, request as httpRequest } from "node:http";
 import { spawn } from "node:child_process";
 import { mkdir, writeFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
+import path from "node:path";
 import { build } from "esbuild";
 import { chromium } from "playwright";
 import { checkFeedOnboarding } from "./feed-onboarding.mjs";
@@ -182,6 +184,8 @@ import {
 } from "../../../../scripts/testing/reader-dom.mjs";
 
 const root = fileURLToPath(new URL("../../../../", import.meta.url));
+const artifactDirectory = await createReaderArtifactDirectory("web");
+const artifactPath = (name) => path.join(artifactDirectory, name);
 async function createReaderFixture(
   t,
   {
@@ -1534,7 +1538,12 @@ test(
       await checkColumnsScanning(
         page,
         `${origin}/`,
-        process.env.DEVFEED_COLUMNS_SCANNING_OUTPUT ?? "/tmp/devfeed-columns-scanning/web-final",
+        path.join(
+          await createReaderArtifactDirectory("web", {
+            parentDirectory: process.env.DEVFEED_COLUMNS_SCANNING_OUTPUT,
+          }),
+          "columns-scanning/web-final",
+        ),
         { baseline: process.env.DEVFEED_COLUMNS_SCANNING_BASELINE === "1" },
       );
     });
@@ -1548,7 +1557,11 @@ test(
     const { browser, origin } = await createReaderFixture(t);
     await withReaderPage(browser, async (page, context) => {
       await context.addCookies([{ name: "devfeed_user_session", value: "valid", url: origin }]);
-      await checkColumnsSponsoredProducts(page, `${origin}/`, "/tmp/devfeed-columns-sponsored/web");
+      await checkColumnsSponsoredProducts(
+        page,
+        `${origin}/`,
+        artifactPath("columns-sponsored/web"),
+      );
     });
   },
 );
@@ -1560,7 +1573,7 @@ test(
     const { browser, origin } = await createReaderFixture(t);
     await withReaderPage(browser, async (page, context) => {
       await context.addCookies([{ name: "devfeed_user_session", value: "valid", url: origin }]);
-      await checkColumnsFeeds(page, `${origin}/`, "/tmp/devfeed-columns-feeds/web-slow-preview", {
+      await checkColumnsFeeds(page, `${origin}/`, artifactPath("columns-feeds/web-slow-preview"), {
         signedIn: true,
         slowPreview: true,
       });
@@ -1574,7 +1587,7 @@ test(
   async (t) => {
     const { browser, origin } = await createReaderFixture(t);
     await withReaderPage(browser, (page) =>
-      checkGuestColumnsUnavailable(page, `${origin}/`, "/tmp/devfeed-columns-workspace/web-guest"),
+      checkGuestColumnsUnavailable(page, `${origin}/`, artifactPath("columns-workspace/web-guest")),
     );
     for (const signedIn of [true])
       await withReaderPage(browser, async (page, context) => {
@@ -1583,7 +1596,7 @@ test(
         await checkColumnsWorkspace(
           page,
           `${origin}/?sort=most_liked`,
-          `/tmp/devfeed-columns-workspace/web-${signedIn ? "member" : "guest"}`,
+          artifactPath(`columns-workspace/web-${signedIn ? "member" : "guest"}`),
           { signedIn },
         );
       });
@@ -1602,7 +1615,7 @@ test(
         await checkColumnsStarters(
           page,
           `${origin}/`,
-          `/tmp/devfeed-columns-starters/web-${signedIn ? "member" : "guest"}`,
+          artifactPath(`columns-starters/web-${signedIn ? "member" : "guest"}`),
           { signedIn },
         );
       });
@@ -1621,7 +1634,7 @@ test(
         await checkPersonalColumns(
           page,
           `${origin}/`,
-          `/tmp/devfeed-columns-personal/web-${signedIn ? "member" : "guest"}`,
+          artifactPath(`columns-personal/web-${signedIn ? "member" : "guest"}`),
           { signedIn, expireSession: () => context.clearCookies() },
         );
       });
@@ -1640,7 +1653,7 @@ test(
       await checkColumnsWorkspace(
         page,
         `${insecureOrigin}/?sort=most_liked`,
-        "/tmp/devfeed-columns-workspace/web-insecure-http",
+        artifactPath("columns-workspace/web-insecure-http"),
         { signedIn: true, nativeInsecureContext: true },
       );
     });
@@ -1657,7 +1670,7 @@ test(
     setSessionOwner(sessionPreferencesOwner);
     await withReaderPage(browser, async (page, context) => {
       await context.addCookies([{ name: "devfeed_user_session", value: "valid", url: origin }]);
-      await checkSessionPreferences(page, `${origin}/`, "/tmp/devfeed-session-preferences/web", {
+      await checkSessionPreferences(page, `${origin}/`, artifactPath("session-preferences/web"), {
         csrfToken: "test",
       });
     });
@@ -1705,9 +1718,9 @@ test(
         },
         { javaScriptEnabled: false },
       );
-    await mkdir("/tmp/devfeed-session-preferences", { recursive: true });
+    await mkdir(artifactPath("session-preferences"), { recursive: true });
     await writeFile(
-      "/tmp/devfeed-session-preferences/web-public-documents.json",
+      artifactPath("session-preferences/web-public-documents.json"),
       `${JSON.stringify({ passed: true, documents }, null, 2)}\n`,
     );
   },
@@ -1732,7 +1745,9 @@ test(
           await checkPreviewFeedRetention(
             page,
             `${origin}${route}`,
-            `/tmp/devfeed-preview-retention/web-${signedIn ? "member" : "guest"}-${route.startsWith("/latest") ? "latest" : route.startsWith("/read-later") ? "saved" : "personal"}.json`,
+            artifactPath(
+              `preview-retention/web-${signedIn ? "member" : "guest"}-${route.startsWith("/latest") ? "latest" : route.startsWith("/read-later") ? "saved" : "personal"}.json`,
+            ),
             {
               requests: () => previewRequests,
               baseline: process.env.DEVFEED_PREVIEW_RETENTION_BASELINE === "1",
@@ -1754,7 +1769,7 @@ test(
         await checkStackedReader(
           page,
           `${origin}/latest?sort=most_liked`,
-          `/tmp/devfeed-stacked-reader/web-${signedIn ? "member" : "guest"}`,
+          artifactPath(`stacked-reader/web-${signedIn ? "member" : "guest"}`),
           { signedIn },
         );
       });
@@ -1794,7 +1809,7 @@ test(
         await checkIndependentFeedViews(
           page,
           `${origin}/`,
-          `/tmp/devfeed-feed-views/web-${signedIn ? "member" : "guest"}`,
+          artifactPath(`feed-views/web-${signedIn ? "member" : "guest"}`),
           { signedIn },
         );
       });
