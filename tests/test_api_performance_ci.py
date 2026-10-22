@@ -26,6 +26,15 @@ def measure_step(name):
     return next(step for step in performance_jobs()["measure"]["steps"] if step.get("name") == name)
 
 
+def test_locked_performance_environment_checks_real_histograms_before_measuring():
+    steps = performance_jobs()["measure"]["steps"]
+    step = measure_step("Test latency histogram precision")
+    assert step["run"] == "candidate/.venv/bin/python candidate/loadtests/test_histogram.py"
+    assert "continue-on-error" not in step and "if" not in step
+    assert steps.index(measure_step("Install the candidate harness")) < steps.index(step)
+    assert steps.index(step) < steps.index(measure_step("Run one runner pair"))
+
+
 @pytest.fixture
 def paired_harness(tmp_path):
     candidate = tmp_path / "candidate"

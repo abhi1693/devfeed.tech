@@ -60,6 +60,9 @@ def sonar_matches(properties, key, source):
         ("scripts/testing/dast-selectors.mjs", False),
         ("scripts/testing/live-browser.mjs", False),
         ("scripts/ci/api-performance-changes.mjs", False),
+        ("loadtests/test_histogram.py", True),
+        ("loadtests/latency.py", False),
+        ("loadtests/locustfile.py", False),
         ("apps/web/src/components/feed-filters.tsx", False),
         ("packages/ui/src/date-format.ts", False),
     ],
@@ -242,10 +245,29 @@ def test_prepare_rejects_missing_shards(tmp_path):
         prepare_reports(tmp_path)
 
 
+@pytest.mark.parametrize("empty", [False, True])
+def test_prepare_requires_real_loadtest_contract_coverage(tmp_path, empty):
+    for suite in PYTHON_SUITES:
+        path = tmp_path / "reports/coverage" / suite / "coverage.db"
+        path.parent.mkdir(parents=True)
+        if suite != "python-loadtest":
+            path.write_bytes(b"coverage placeholder")
+        elif empty:
+            path.touch()
+    for frontend in FRONTENDS:
+        write_lcov(tmp_path / "reports/coverage" / frontend / "lcov.info", "src/page.ts")
+    with pytest.raises(ValueError, match="Missing or empty coverage report.*python-loadtest"):
+        prepare_reports(tmp_path)
+
+
 @pytest.mark.parametrize("shard", range(6))
 @pytest.mark.parametrize("empty", [False, True])
 def test_prepare_requires_every_one_of_the_six_integration_databases(tmp_path, shard, empty):
-    assert ("python-unit", *(f"python-integration-{i}" for i in range(6))) == PYTHON_SUITES
+    assert (
+        "python-unit",
+        *(f"python-integration-{i}" for i in range(6)),
+        "python-loadtest",
+    ) == PYTHON_SUITES
     for suite in PYTHON_SUITES:
         path = tmp_path / "reports/coverage" / suite / "coverage.db"
         path.parent.mkdir(parents=True)

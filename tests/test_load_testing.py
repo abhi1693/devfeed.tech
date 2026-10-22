@@ -13,6 +13,18 @@ assert spec and spec.loader
 policy = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(policy)
 
+latency_spec = importlib.util.spec_from_file_location(
+    "load_latency", Path(__file__).resolve().parents[1] / "loadtests/latency.py"
+)
+latency = importlib.util.module_from_spec(latency_spec)
+latency_spec.loader.exec_module(latency)
+
+
+@pytest.mark.parametrize("milliseconds", [89, 100, 106, 120, 999, 1000, 2010, 10010])
+def test_latency_histogram_keeps_one_millisecond_resolution_across_budget_boundaries(milliseconds):
+    assert latency.RESPONSE_TIME_BUCKET_MS == 1
+    assert latency.bucket_response_time(milliseconds) == milliseconds
+
 
 @pytest.mark.parametrize(
     "host", ["http://127.0.0.1:8000", "http://localhost:8080", "http://[::1]:80"]

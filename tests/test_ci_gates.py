@@ -490,9 +490,47 @@ def test_integration_measures_ci_utilities_and_migrations_without_changing_backe
     script = (ROOT / "scripts/ci/python-tests.sh").read_text()
     assert script.count("backend_sources=$(") == 1
     assert script.index("backend_sources=$(") < script.index('if [[ "$suite" != integration ]]')
-    assert script.count('--source="$backend_sources,scripts,migrations" -m pytest') == 2
+    assert script.count('--source="$backend_sources,scripts,migrations,loadtests" -m pytest') == 2
     assert "backend_include='apps/*/src/**,packages/*/src/**'" in script
     assert script.count('--include="$backend_include"') == 4
+
+
+def test_real_histogram_contracts_use_an_isolated_environment_and_feed_sonar_coverage():
+    jobs = reader_jobs()
+    contracts = jobs["python-loadtest"]
+    assert "--group loadtest" in contracts["with"]["sync-command"]
+    assert "--group loadtest" not in jobs["python-unit"]["with"]["sync-command"]
+    assert "if" not in contracts and "continue-on-error" not in contracts
+    assert contracts["with"]["test-command"].replace("\\\n", "").split() == [
+        "mkdir",
+        "-p",
+        "reports/coverage/python-loadtest",
+        "COVERAGE_FILE=reports/coverage/python-loadtest/coverage.db",
+        "uv",
+        "run",
+        "--locked",
+        "--no-sync",
+        "--no-build",
+        "coverage",
+        "run",
+        "--source=loadtests",
+        "loadtests/test_histogram.py",
+    ]
+    assert contracts["with"]["test-results-path"] == "reports/"
+    assert contracts["with"]["test-results-name"] == (
+        "python-loadtest-arm64-${{ github.run_attempt }}"
+    )
+    assert all(
+        "python-loadtest" in jobs[name]["needs"]
+        for name in ("sonarqube", "required", "release-images")
+    )
+    download = next(
+        step
+        for step in jobs["sonarqube"]["steps"]
+        if step.get("name") == "Download Python coverage from this run"
+    )
+    assert download["with"]["pattern"] == "python-*-arm64-${{ github.run_attempt }}"
+    assert "needs.python-loadtest.result == 'success'" in jobs["sonarqube"]["if"]
 
 
 def test_case_count_plan_balances_all_current_files_deterministically():
@@ -589,6 +627,7 @@ def test_ci_required_accepts_only_the_expected_successes(
     release = event == "push" and ref_type == "tag"
     results = {
         "python-unit": {"result": "success"},
+        "python-loadtest": {"result": "success"},
         "coverage-report": {"result": "success" if comment_required else "skipped"},
         "admin-web": {"result": "success"},
         "partner-web": {"result": "success"},

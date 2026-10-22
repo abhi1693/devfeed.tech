@@ -34,6 +34,7 @@ def test_repeated_latency_classification(base, head, expected):
 def runs():
     return {
         f"{side}-{index}": {
+            "response_time_bucket_ms": 1,
             "exit_code": 0,
             "gate_failures": [],
             "entries": [
@@ -131,6 +132,25 @@ def test_collector_checks_commits_and_requires_all_six_artifacts(tmp_path):
     assert compare.report(data, "base", "head")[0] == "ERROR"
     data = compare.collect(tmp_path, "wrong-base-sha", "head")
     assert data["base-0"]["invalid"]
+
+
+@pytest.mark.parametrize("precision", [None, 10, True])
+def test_collector_rejects_unknown_or_mixed_histogram_precision(tmp_path, precision):
+    import json
+
+    for side in ("base", "head"):
+        for index in range(3):
+            write_sample(tmp_path, side, index, side)
+    path = tmp_path / "head-1/final.json"
+    sample = json.loads(path.read_text())
+    if precision is None:
+        sample.pop("response_time_bucket_ms")
+    else:
+        sample["response_time_bucket_ms"] = precision
+    path.write_text(json.dumps(sample))
+    collected = compare.collect(tmp_path, "base", "head")
+    assert collected["head-1"]["invalid"]
+    assert compare.report(collected, "base", "head")[0] == "ERROR"
 
 
 @pytest.mark.parametrize(

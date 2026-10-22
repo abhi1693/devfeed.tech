@@ -35,6 +35,21 @@ jobs:
         reports/coverage/
       test-results-name: python-unit-arm64-${{ github.run_attempt }}
     name: Unit / Python lint and tests (ARM64)
+  python-loadtest:
+    name: Unit / Loadtest histogram contracts (ARM64)
+    uses: abhi1693/actions/.github/workflows/python-ci.yml@bf8cd38aa8456310278ed96bfa83a3132f235df1 # v1.0.4
+    with:
+      runs-on: ubuntu-24.04-arm
+      timeout-minutes: 10
+      python-version: "3.12"
+      uv-version: 0.13.1
+      sync-command: sh scripts/ci/python-bootstrap.sh . --editable --all-packages --group loadtest
+      test-command: |
+        mkdir -p reports/coverage/python-loadtest
+        COVERAGE_FILE=reports/coverage/python-loadtest/coverage.db \
+          uv run --locked --no-sync --no-build coverage run --source=loadtests loadtests/test_histogram.py
+      test-results-path: reports/
+      test-results-name: python-loadtest-arm64-${{ github.run_attempt }}
   coverage-report:
     name: Report / Backend unit coverage PR comment
     needs: python-unit
@@ -869,6 +884,7 @@ jobs:
     needs:
       - security
       - python-unit
+      - python-loadtest
       - python-integration
       - admin-web
       - partner-web
@@ -882,7 +898,8 @@ jobs:
     if: >-
       always() && !cancelled() &&
       needs.security.result == 'success' &&
-      needs.python-unit.result == 'success' && needs.python-integration.result == 'success' &&
+      needs.python-unit.result == 'success' && needs.python-loadtest.result == 'success' &&
+      needs.python-integration.result == 'success' &&
       needs.admin-web.result == 'success' && needs.partner-web.result == 'success' && needs.user-web.result == 'success' &&
       ((github.event_name == 'push' && github.ref == 'refs/heads/master') ||
       (github.event_name == 'pull_request' &&
@@ -994,6 +1011,7 @@ jobs:
     name: ARM64 release images
     needs:
       - python-unit
+      - python-loadtest
       - admin-web
       - partner-web
       - user-web
@@ -1026,6 +1044,7 @@ jobs:
     if: ${{ always() && !cancelled() }}
     needs:
       - python-unit
+      - python-loadtest
       - coverage-report
       - admin-web
       - partner-web
@@ -1065,7 +1084,7 @@ jobs:
           RESULTS: ${{ toJSON(needs) }}
         run: |
           echo "$RESULTS" | jq -e --arg event "$EVENT_NAME" --arg ref_type "$REF_TYPE" --arg comment "$COVERAGE_COMMENT_REQUIRED" --arg browser_comment "$BROWSER_COMMENT_REQUIRED" --arg sonar "$SONAR_EXPECTED" '
-            ([.["python-unit"], .["admin-web"], .["partner-web"], .["user-web"], .extensions,
+            ([.["python-unit"], .["python-loadtest"], .["admin-web"], .["partner-web"], .["user-web"], .extensions,
               .["python-integration"], .["migration-upgrade"], .["reader-parity"],
               .["admin-browser"], .["live-browser"], .security]
              | all(.result == "success")) and

@@ -7,12 +7,17 @@ import random
 from pathlib import Path
 from urllib.parse import quote
 
+from latency import RESPONSE_TIME_BUCKET_MS, bucket_response_time
 from locust import HttpUser, between, events, task
+from locust import stats as locust_stats
 from locust.exception import StopUser
 from locust.runners import WorkerRunner
 from policy import gate_failures, valid_payload, validate_target
 
 logger = logging.getLogger(__name__)
+# Configure before any user or worker records samples. Both revisions are driven
+# by this candidate harness, so their histogram resolution stays identical.
+locust_stats.bucket_response_time = bucket_response_time
 REQUIRED = {
     "/v1/feed [latest]",
     "/v1/articles/[id]",
@@ -77,6 +82,7 @@ def quality_gate(environment, **kwargs):
         Path(options.final_json).write_text(
             json.dumps(
                 {
+                    "response_time_bucket_ms": RESPONSE_TIME_BUCKET_MS,
                     "gate_failures": failures,
                     "entries": [
                         {

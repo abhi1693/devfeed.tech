@@ -120,6 +120,7 @@ export async function setArticleView(page, view, { returnTo = page.url(), keyboa
     await chooseInlineArticleView(page, view, { keyboard });
   }
   if (page.url() !== returnTo) await page.goto(returnTo);
+  await page.waitForURL(returnTo);
   assert.equal(page.url(), returnTo, "Appearance returns to the exact reader route and filters");
 }
 
