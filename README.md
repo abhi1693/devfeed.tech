@@ -81,6 +81,11 @@ choose the kind of reading you’re in the mood for.
 DevFeed combines **Next.js and React** with **FastAPI**, **PostgreSQL**, and
 **Redis/RQ**. [Run your own instance with Docker Compose](compose.yaml).
 
+Container and CI runtimes use Node.js 26.12.1 and uv 0.13.5. Python images retain the tested 3.12
+line at patch 3.12.15 on Alpine 3.24. Base images are pinned by verified multi-platform digests; the
+minimal Node runtimes install libatomic and libstdc++ and execute a native-module loading check
+during the build. Native ARM64 image smoke checks remain required in CI.
+
 Tag and topic pages use the reader's language and content preferences. Existing pages
 with empty filtered feeds are marked `noindex, follow`; missing collections return 404.
 Tags without any publicly visible articles also retain their 404 response. Collection sitemap entries

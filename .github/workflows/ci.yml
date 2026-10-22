@@ -24,9 +24,9 @@ jobs:
       runs-on: ubuntu-24.04-arm
       timeout-minutes: 30
       python-version: "3.12"
-      node-version: "24"
+      node-version: "26.12.1"
       enable-cache: true
-      uv-version: 0.13.1
+      uv-version: 0.13.5
       sync-command: sh scripts/ci/python-bootstrap.sh . --editable --all-packages
       lint-command: bash .github/scripts/python-checks.sh
       test-command: bash scripts/ci/python-tests.sh unit
@@ -167,7 +167,7 @@ jobs:
       scripts: '{"generate": "admin:generate", "lint": "admin:lint", "test": "ci:admin-web-test", "build": "admin:build"}'
       timeout-minutes: 20
       runs-on: ubuntu-24.04-arm
-      node-version: "24"
+      node-version: "26.12.1"
       build-cache-paths: |
         apps/admin/.next/cache/turbopack
         apps/admin/.next/cache/webpack
@@ -180,7 +180,7 @@ jobs:
         reports/coverage/admin/lcov.info
       test-results-name: admin-test-results-${{ github.run_attempt }}
       python-version: "3.12"
-      uv-version: 0.13.1
+      uv-version: 0.13.5
       uv-sync-args: '["--all-packages"]'
       generated-paths: '["apps/admin/openapi.json","apps/admin/src/lib/api/generated"]'
     name: Unit / Admin UI lint, tests and build
@@ -192,7 +192,7 @@ jobs:
       scripts: '{"lint": "partner:lint", "test": "ci:partner-test", "build": "ci:partner-browser"}'
       timeout-minutes: 20
       runs-on: ubuntu-24.04-arm
-      node-version: "24"
+      node-version: "26.12.1"
       build-cache-paths: |
         apps/partner/.next/cache/turbopack
         apps/partner/.next/cache/webpack
@@ -211,7 +211,7 @@ jobs:
       scripts: '{"lint": "web:lint", "test": "ci:user-web-test", "build": "web:build"}'
       timeout-minutes: 15
       runs-on: ubuntu-24.04-arm
-      node-version: "24"
+      node-version: "26.12.1"
       build-cache-paths: |
         apps/web/.next/cache/turbopack
         apps/web/.next/cache/webpack
@@ -232,7 +232,7 @@ jobs:
       scripts: '{"lint": "extension:check", "test": "extension:test", "build": "extension:build:all"}'
       timeout-minutes: 10
       runs-on: ubuntu-24.04-arm
-      node-version: "24"
+      node-version: "26.12.1"
   api-compat:
     name: API compatibility
     if: github.event_name == 'pull_request' || github.event_name == 'merge_group'
@@ -278,7 +278,7 @@ jobs:
       - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
         if: steps.changes.outputs.changed == 'true'
         with:
-          version: "0.13.1"
+          version: "0.13.5"
           enable-cache: true
       - name: Tool
         if: steps.changes.outputs.changed == 'true'
@@ -413,7 +413,7 @@ jobs:
       runs-on: ubuntu-24.04-arm
       timeout-minutes: 15
       python-version: "3.12"
-      uv-version: 0.13.1
+      uv-version: 0.13.5
       sync-command: sh scripts/ci/python-bootstrap.sh . --editable --all-packages --group fuzz
       test-command: uv run --group fuzz --locked --no-sync --no-build python scripts/ci/api_fuzz.py --profile pr
       test-results-path: reports/api-fuzz/
@@ -431,7 +431,7 @@ jobs:
       timeout-minutes: 30
       python-version: "3.12"
       enable-cache: true
-      uv-version: 0.13.1
+      uv-version: 0.13.5
       sync-command: sh scripts/ci/python-bootstrap.sh . --editable --all-packages
       test-command: bash scripts/ci/python-tests.sh integration ${{ matrix.shard }} 6
       test-results-path: |
@@ -453,7 +453,7 @@ jobs:
           python-version: "3.12"
       - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
         with:
-          version: "0.13.1"
+          version: "0.13.5"
           enable-cache: true
       - run: sh scripts/ci/python-bootstrap.sh . --editable --all-packages
       - name: Upgrade the previous release and populated legacy schemas
@@ -498,14 +498,14 @@ jobs:
           persist-credentials: false
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
-          node-version: "24"
+          node-version: "26.12.1"
           cache: npm
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.12"
       - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
         with:
-          version: "0.13.1"
+          version: "0.13.5"
           enable-cache: true
       - name: Install
         run: |
@@ -548,7 +548,7 @@ jobs:
           persist-credentials: false
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
-          node-version: "24"
+          node-version: "26.12.1"
           package-manager-cache: false
       - name: Download web reports
         if: always() && !cancelled()
@@ -659,7 +659,7 @@ jobs:
       scripts: '{"test": "ci:admin-browser"}'
       timeout-minutes: 20
       runs-on: ubuntu-24.04
-      node-version: "24"
+      node-version: "26.12.1"
       build-cache-paths: |
         apps/admin/.next/cache/turbopack
         apps/admin/.next/cache/webpack
@@ -677,7 +677,7 @@ jobs:
       scripts: '{"test": "ci:live-browser"}'
       timeout-minutes: 20
       runs-on: ubuntu-24.04
-      node-version: "24"
+      node-version: "26.12.1"
       build-cache-paths: |
         apps/web/.next/cache/turbopack
         apps/web/.next/cache/webpack
@@ -685,7 +685,7 @@ jobs:
         apps/web/.next/cache/.tsbuildinfo
       build-cache-scope: next-live-browser-v1
       python-version: "3.12"
-      uv-version: 0.13.1
+      uv-version: 0.13.5
       uv-sync-args: '["--all-packages"]'
       project-env: '{"NEXT_TELEMETRY_DISABLED":"1"}'
       browser-results-path: reports/live-browser
@@ -720,7 +720,7 @@ jobs:
         if: steps.changes.outputs.needed == 'true'
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
-          node-version: "24"
+          node-version: "26.12.1"
           cache: npm
           package-manager-cache: false
       - name: Dependencies
@@ -952,12 +952,12 @@ jobs:
       - name: Set up uv
         uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
         with:
-          version: "0.13.1"
+          version: "0.13.5"
           enable-cache: true
       - name: Set up Node.js for JavaScript and TypeScript analysis
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
-          node-version: "24"
+          node-version: "26.12.1"
           package-manager-cache: false
       - name: Combine coverage and resolve monorepo paths
         env:
