@@ -1407,6 +1407,15 @@ async function createReaderFixture(
     renderReads,
     topicContext,
     previewRequests,
+    get sessionIdentity() {
+      return {
+        user_id: sessionOwner,
+        name: "Reader",
+        email: "reader@example.test",
+        csrf_token: "test",
+        expires_at: sessionExpiresAt,
+      };
+    },
     setSessionOwner: (owner) => {
       sessionOwner = owner ?? "user";
     },
@@ -1626,7 +1635,7 @@ test(
   "columns workspace saves personalized My feed independently from Latest",
   { timeout: 180000 },
   async (t) => {
-    const { browser, origin } = await createReaderFixture(t);
+    const { browser, origin, sessionIdentity } = await createReaderFixture(t);
     for (const signedIn of [true])
       await withReaderPage(browser, async (page, context) => {
         if (signedIn)
@@ -1635,7 +1644,7 @@ test(
           page,
           `${origin}/`,
           artifactPath(`columns-personal/web-${signedIn ? "member" : "guest"}`),
-          { signedIn, expireSession: () => context.clearCookies() },
+          { signedIn, expireSession: () => context.clearCookies(), identity: sessionIdentity },
         );
       });
   },

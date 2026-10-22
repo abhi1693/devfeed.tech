@@ -1,6 +1,10 @@
 import { ssoLogoutUrl } from "@devfeed/http/sso";
 import { trackEvent, type AnalyticsEvent } from "./analytics";
-import { validateReaderPreferences, type ReaderColumn } from "./reader-preferences";
+import {
+  validateReaderColumns,
+  validateReaderPreferences,
+  type ReaderColumn,
+} from "./reader-preferences";
 import { parseFeedViewScope, type FeedViewScope } from "./feed-view-scope";
 import type { FeedViewPreference } from "./reader-layouts";
 import {
@@ -248,15 +252,7 @@ export function columnSettingsPath(workspace: ColumnWorkspaceScope = "latest") {
 
 export function validReaderColumnsState(value: unknown): value is ReaderColumnsState {
   return (
-    record(value) &&
-    typeof value.initialized === "boolean" &&
-    Array.isArray(value.columns) &&
-    validateReaderPreferences({
-      view: "columns",
-      columns: value.columns,
-      content_types: ["news"],
-      languages: ["en"],
-    })
+    record(value) && typeof value.initialized === "boolean" && validateReaderColumns(value.columns)
   );
 }
 

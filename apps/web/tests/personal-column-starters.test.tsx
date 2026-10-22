@@ -80,6 +80,7 @@ function transport(initial: ReaderColumnsState = { initialized: false, columns: 
   });
   vi.stubGlobal("fetch", fetcher);
   return {
+    fetcher,
     reads,
     writes,
     personal,
@@ -166,6 +167,12 @@ it("starts My feed from its personal signals without replacing Latest or guest c
   expect(new Set(columns().map((column) => column.id)).size).toBe(5);
   expect(api.writes).toHaveLength(1);
   expect(api.writes[0].body.mode).toBe("initialize");
+  expect(
+    api.fetcher.mock.calls.filter(
+      ([input, init]) =>
+        String(input).includes("/settings/columns?workspace=my_feed") && !init?.method,
+    ),
+  ).toHaveLength(1);
   expect(api.reads.some((url) => new URL(url).pathname === "/api/v1/topics")).toBe(false);
   expect(localStorage.getItem(guestReaderPreferencesKey)).toBe("guest-owned");
 });
@@ -219,6 +226,89 @@ it("keeps a manual selection when personal discovery finishes late", async () =>
   await release();
   expect(columns()).toEqual(custom);
   expect(api.writes).toHaveLength(1);
+});
+
+it("keeps another device's columns when personal discovery finishes late", async () => {
+  const api = transport();
+  const release = api.hold();
+  render(<App />);
+  await waitFor(() =>
+    expect(api.reads.some((url) => url.endsWith("/columns/starters"))).toBe(true),
+  );
+  api.personal.set("a", { initialized: true, columns: custom });
+  await release();
+  await waitFor(() => expect(columns()).toEqual(custom));
+  expect(api.writes).toHaveLength(1);
+  expect(api.writes[0].body.mode).toBe("initialize");
+  expect(api.personal.get("a")).toEqual({ initialized: true, columns: custom });
+});
+
+it("keeps personal discovery alive when profile labels change", async () => {
+  const api = transport();
+  const release = api.hold();
+  const app = render(<App />);
+  await waitFor(() =>
+    expect(api.reads.some((url) => url.endsWith("/columns/starters"))).toBe(true),
+  );
+  const reads = api.reads.length;
+  session.user = { ...session.user!, name: "Renamed reader", email: "reader@example.test" };
+  await act(async () => app.rerender(<App />));
+  expect(api.reads).toHaveLength(reads);
+  await release();
+  await waitFor(() => expect(columns()).toHaveLength(5));
+  expect(api.writes).toHaveLength(1);
+});
+
+it("does not reread columns for profile labels but refreshes a changed session revision", async () => {
+  const api = transport({ initialized: true, columns: custom });
+  const app = render(<App />);
+  await waitFor(() => expect(columns()).toEqual(custom));
+  const reads = api.reads.length;
+  session.user = { ...session.user!, name: "Renamed reader", email: "reader@example.test" };
+  await act(async () => app.rerender(<App />));
+  expect(api.reads).toHaveLength(reads);
+  expect(columns()).toEqual(custom);
+
+  api.personal.set("a", { initialized: true, columns: latest });
+  session.sessionRevision++;
+  app.rerender(<App />);
+  await waitFor(() => expect(columns()).toEqual(latest));
+  expect(
+    api.fetcher.mock.calls.filter(
+      ([input, init]) =>
+        String(input).includes("/settings/columns?workspace=my_feed") && !init?.method,
+    ),
+  ).toHaveLength(2);
+});
+
+it("keeps an in-flight column save alive when profile labels change", async () => {
+  const api = transport({ initialized: true, columns: latest });
+  const app = render(<App />);
+  await waitFor(() => expect(columns()).toEqual(latest));
+  const original = fetch;
+  let saveSignal: AbortSignal | undefined;
+  let release!: () => void;
+  const held = new Promise<void>((done) => {
+    release = done;
+  });
+  vi.stubGlobal("fetch", async (input: RequestInfo | URL, init?: RequestInit) => {
+    if (String(input).includes("/settings/columns?workspace=my_feed") && init?.method === "PUT") {
+      saveSignal = init.signal ?? undefined;
+      await held;
+    }
+    return original(input, init);
+  });
+  fireEvent.click(screen.getByRole("button", { name: "Choose mine" }));
+  await waitFor(() => expect(saveSignal).toBeDefined());
+  const reads = api.reads.length;
+  session.user = { ...session.user!, name: "Renamed reader", email: "reader@example.test" };
+  await act(async () => app.rerender(<App />));
+  expect(saveSignal!.aborted).toBe(false);
+  expect(api.reads).toHaveLength(reads);
+  await act(async () => release());
+  await waitFor(() => expect(columns()).toEqual(custom));
+  expect(api.writes).toHaveLength(1);
+  expect(screen.queryByRole("alert")).toBeNull();
 });
 
 it("offers retry without installing generic topics when personal discovery fails", async () => {

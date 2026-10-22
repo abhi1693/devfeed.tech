@@ -373,25 +373,31 @@ def save_notification_settings(payload: NotificationSettings, user: User, sessio
     return payload
 
 
+def owned_feed_settings(session, user, *, lock=False):
+    """Read only reader preferences, acquiring their snapshot under the write lock."""
+    statement = select(UserAccount.id, UserAccount.feed_settings).where(
+        UserAccount.id == uuid.UUID(user.user_id),
+        UserAccount.issuer == user.issuer,
+        UserAccount.subject == user.subject,
+        UserAccount.organization_id == user.organization_id,
+    )
+    if lock:
+        statement = statement.with_for_update()
+    row = session.execute(statement).one_or_none()
+    if row is None:
+        raise HTTPException(401, "User account unavailable")
+    return row
+
+
 @router.get("/feed", response_model=FeedSettings)
 def feed_settings(user: User, session: DB):
-    value = session.scalar(
-        select(UserAccount.feed_settings).where(
-            UserAccount.id == uuid.UUID(user.user_id),
-            UserAccount.issuer == user.issuer,
-            UserAccount.subject == user.subject,
-            UserAccount.organization_id == user.organization_id,
-        )
-    )
-    if value is None:
-        raise HTTPException(401, "User account unavailable")
-    return normalize_feed_settings(value)
+    _, stored = owned_feed_settings(session, user)
+    return normalize_feed_settings(stored)
 
 
 @router.put("/feed", response_model=FeedSettings)
 def save_feed_settings(payload: FeedSettings, user: User, session: DB):
-    account = lock_account(session, user)
-    stored = session.scalar(select(UserAccount.feed_settings).where(UserAccount.id == account))
+    account, stored = owned_feed_settings(session, user, lock=True)
     previous = normalize_feed_settings(stored)
     changes = payload.model_dump(mode="json")
     if "columns" not in payload.model_fields_set:
@@ -413,7 +419,8 @@ def save_feed_settings(payload: FeedSettings, user: User, session: DB):
 @router.get("/feed-view", response_model=FeedViewSettings)
 def feed_view_settings(user: User, session: DB, response: Response, feed: FeedViewScope):
     response.headers["Cache-Control"] = "no-store"
-    return reader_feed_view(owned_account(session, user).feed_settings, feed)
+    _, stored = owned_feed_settings(session, user)
+    return reader_feed_view(stored, feed)
 
 
 @router.put("/feed-view", response_model=FeedViewSettings)
@@ -421,8 +428,7 @@ def save_feed_view_settings(
     payload: FeedViewSettings, user: User, session: DB, response: Response, feed: FeedViewScope
 ):
     response.headers["Cache-Control"] = "no-store"
-    account = lock_account(session, user)
-    stored = session.scalar(select(UserAccount.feed_settings).where(UserAccount.id == account))
+    account, stored = owned_feed_settings(session, user, lock=True)
     try:
         saved = update_reader_feed_view(stored, feed, payload)
     except ValueError as error:
@@ -436,25 +442,15 @@ def save_feed_view_settings(
 
 @router.get("/columns", response_model=ReaderColumnsState)
 def columns_settings(user: User, session: DB, workspace: ReaderWorkspace = "latest"):
-    value = session.scalar(
-        select(UserAccount.feed_settings).where(
-            UserAccount.id == uuid.UUID(user.user_id),
-            UserAccount.issuer == user.issuer,
-            UserAccount.subject == user.subject,
-            UserAccount.organization_id == user.organization_id,
-        )
-    )
-    if value is None:
-        raise HTTPException(401, "User account unavailable")
-    return reader_columns_state(value, workspace)
+    _, stored = owned_feed_settings(session, user)
+    return reader_columns_state(stored, workspace)
 
 
 @router.put("/columns", response_model=ReaderColumnsState)
 def save_columns_settings(
     payload: ReaderColumnsUpdate, user: User, session: DB, workspace: ReaderWorkspace = "latest"
 ):
-    account = lock_account(session, user)
-    stored = session.scalar(select(UserAccount.feed_settings).where(UserAccount.id == account))
+    account, stored = owned_feed_settings(session, user, lock=True)
     current = reader_columns_state(stored, workspace)
     if (payload.mode == "initialize" and current.initialized) or (
         payload.mode == "restore_empty" and current.columns
@@ -476,9 +472,9 @@ def save_columns_settings(
 @router.get("/columns/starters", response_model=ReaderColumnStarters)
 def columns_starters(user: User, session: DB, response: Response):
     response.headers["Cache-Control"] = "no-store"
-    account = owned_account(session, user)
-    settings = normalize_feed_settings(account.feed_settings)
-    return ReaderColumnStarters(feeds=personal_column_starters(session, account.id, settings))
+    account, stored = owned_feed_settings(session, user)
+    settings = normalize_feed_settings(stored)
+    return ReaderColumnStarters(feeds=personal_column_starters(session, account, settings))
 
 
 @router.get("/appearance", response_model=UserAppearanceSettings)

@@ -834,7 +834,7 @@ test(
   "columns workspace saves personalized My feed independently from Latest",
   { timeout: 180000 },
   (t) =>
-    withAuthenticatedReader(t, async ({ page, signIn, context, state }) => {
+    withAuthenticatedReader(t, async ({ page, signIn, context, state, user }) => {
       const target = readerRouteUrl(page.url(), "/");
       for (const signedIn of [true]) {
         if (signedIn) await signIn();
@@ -844,6 +844,7 @@ test(
           artifactPath(`columns-personal/${browser}-${signedIn ? "member" : "guest"}`),
           {
             signedIn,
+            identity: user,
             expireSession: async () => {
               state.active = false;
               await context.clearCookies();

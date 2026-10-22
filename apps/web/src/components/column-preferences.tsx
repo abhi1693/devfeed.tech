@@ -3,8 +3,8 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
 import { userRequest } from "@/lib/user";
 import {
-  normalizeReaderPreferences,
-  validateReaderPreferences,
+  normalizeReaderColumns,
+  validateReaderColumns,
   type ReaderColumn,
 } from "@/lib/reader-preferences";
 import {
@@ -60,8 +60,10 @@ export function ColumnPreferencesProvider({
 
 function PersonalColumns({ children }: { children: React.ReactNode }) {
   const { user, loading: checking, sessionRevision } = useUser();
+  const userId = user?.user_id;
+  const csrfToken = user?.csrf_token ?? "";
   const [revision, setRevision] = useState(0);
-  const key = `${user?.user_id}:${sessionRevision}:${revision}`;
+  const key = `${userId}:${sessionRevision}:${revision}`;
   const [state, setState] = useState<{ key: string; value: ReaderColumnsState | null } | null>(
     null,
   );
@@ -70,7 +72,7 @@ function PersonalColumns({ children }: { children: React.ReactNode }) {
   const request = useRef<{ controller: AbortController; ready: boolean } | null>(null);
   const saving = useRef(false);
   useEffect(() => {
-    if (checking || !user) return;
+    if (checking || !userId) return;
     const controller = new AbortController();
     const pending = { controller, ready: false };
     request.current = pending;
@@ -100,7 +102,8 @@ function PersonalColumns({ children }: { children: React.ReactNode }) {
         }
       });
     return () => controller.abort();
-  }, [checking, key, user]);
+    // Profile labels can change independently of the owner and confirmed session.
+  }, [checking, key, userId]);
   const current = state?.key === key ? state : null;
   const persist = useCallback(
     async (
@@ -111,7 +114,7 @@ function PersonalColumns({ children }: { children: React.ReactNode }) {
       const pending = request.current;
       const controller = pending?.controller;
       if (
-        !user ||
+        !userId ||
         checking ||
         !current?.value ||
         saving.current ||
@@ -121,15 +124,7 @@ function PersonalColumns({ children }: { children: React.ReactNode }) {
         callerSignal?.aborted
       )
         return false;
-      if (
-        !validateReaderPreferences({
-          view: "columns",
-          columns,
-          languages: ["en"],
-          content_types: ["news"],
-        })
-      )
-        return false;
+      if (!validateReaderColumns(columns)) return false;
       const signal = AbortSignal.any([
         controller.signal,
         AbortSignal.timeout(15000),
@@ -140,9 +135,9 @@ function PersonalColumns({ children }: { children: React.ReactNode }) {
       setError("");
       try {
         const result = await saveReaderColumns(
-          normalizeReaderPreferences({ columns }).columns,
+          normalizeReaderColumns(columns),
           mode,
-          { csrfToken: user.csrf_token, signal },
+          { csrfToken, signal },
           "my_feed",
         );
         if (signal.aborted) return false;
@@ -159,7 +154,7 @@ function PersonalColumns({ children }: { children: React.ReactNode }) {
         }
       }
     },
-    [checking, current, key, user],
+    [checking, current, key, userId, csrfToken],
   );
   const initializeColumns = useCallback(
     (columns: ReaderColumn[], mode: StarterColumnsMode, signal?: AbortSignal) =>

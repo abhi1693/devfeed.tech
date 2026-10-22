@@ -449,24 +449,13 @@ def update_reader_feed_view(value: object, feed: str, payload: FeedViewSettings)
     return stored
 
 
-def normalize_feed_settings(value: object) -> FeedSettings:
-    """Read saved preferences defensively without changing their stored representation."""
-    stored = value if isinstance(value, dict) else {}
-    normalized = {}
-    for field in ("view", "languages", "content_types"):
-        if field not in stored:
-            continue
-        try:
-            parsed = FeedSettings.model_validate({field: stored[field]})
-        except ValidationError:
-            continue
-        normalized[field] = getattr(parsed, field)
+def _normalize_reader_columns(value: object) -> list[ReaderColumn]:
+    """Recover valid unique columns without parsing unrelated feed preferences."""
     columns = []
     seen = set()
     seen_feeds = set()
-    stored_columns = stored.get("columns")
-    if isinstance(stored_columns, list):
-        for candidate in stored_columns:
+    if isinstance(value, list):
+        for candidate in value:
             try:
                 column = ReaderColumn.model_validate(candidate)
             except ValidationError:
@@ -479,7 +468,22 @@ def normalize_feed_settings(value: object) -> FeedSettings:
             seen_feeds.add(identity)
             if len(columns) == MAX_READER_COLUMNS:
                 break
-    normalized["columns"] = columns
+    return columns
+
+
+def normalize_feed_settings(value: object) -> FeedSettings:
+    """Read saved preferences defensively without changing their stored representation."""
+    stored = value if isinstance(value, dict) else {}
+    normalized = {}
+    for field in ("view", "languages", "content_types"):
+        if field not in stored:
+            continue
+        try:
+            parsed = FeedSettings.model_validate({field: stored[field]})
+        except ValidationError:
+            continue
+        normalized[field] = getattr(parsed, field)
+    normalized["columns"] = _normalize_reader_columns(stored.get("columns"))
     return FeedSettings.model_validate(normalized)
 
 
@@ -517,7 +521,7 @@ def reader_columns_state(
             for field in ("columns", "columns_initialized")
             if f"my_feed_{field}" in stored
         }
-    columns = normalize_feed_settings(stored).columns
+    columns = _normalize_reader_columns(stored.get("columns"))
     initialized = (
         bool(columns)
         or stored.get("columns_initialized") is True

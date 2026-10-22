@@ -22,6 +22,105 @@ const wait = async (predicate, label) => {
   }
 };
 
+async function beginResourceProfile(page) {
+  await page.evaluate(() => {
+    const supported = PerformanceObserver.supportedEntryTypes.includes("longtask");
+    const profile = {
+      started: performance.now(),
+      supported,
+      count: 0,
+      totalDuration: 0,
+      maximumDuration: 0,
+      entries: [],
+      observer: null,
+    };
+    if (supported) {
+      profile.observer = new PerformanceObserver((list) => {
+        for (const { startTime, duration } of list.getEntries()) {
+          profile.count++;
+          profile.totalDuration += duration;
+          profile.maximumDuration = Math.max(profile.maximumDuration, duration);
+          if (profile.entries.length < 1000) profile.entries.push({ startTime, duration });
+        }
+      });
+      profile.observer.observe({ type: "longtask" });
+    }
+    window.__columnResourceProfile = profile;
+  });
+  const proof = {
+    viewport: page.viewportSize(),
+    bounds: { columns: 12, pagesPerColumn: 3, articlesPerColumn: 72, totalArticles: 864 },
+    samples: [],
+    cdp: { available: false },
+  };
+  let session;
+  try {
+    session = await page.context().newCDPSession(page);
+    await session.send("Performance.enable");
+    proof.cdp = { available: true, browser: await session.send("Browser.getVersion") };
+  } catch (error) {
+    proof.cdp.reason = error.message;
+  }
+  return {
+    proof,
+    async sample(stage) {
+      const observed = await page.evaluate(() => {
+        const profile = window.__columnResourceProfile;
+        return {
+          elapsedMs: performance.now() - profile.started,
+          articleRows: document.querySelectorAll(
+            '[aria-label="Columns workspace"] .article-stacked-row:not(.partner-placement)',
+          ).length,
+          domElements: document.getElementsByTagName("*").length,
+          longTasks: {
+            supported: profile.supported,
+            count: profile.count,
+            totalDurationMs: profile.totalDuration,
+            maximumDurationMs: profile.maximumDuration,
+            entries: profile.entries,
+          },
+          memory: performance.memory
+            ? {
+                usedJSHeapSize: performance.memory.usedJSHeapSize,
+                totalJSHeapSize: performance.memory.totalJSHeapSize,
+                jsHeapSizeLimit: performance.memory.jsHeapSizeLimit,
+              }
+            : null,
+          environment: {
+            userAgent: navigator.userAgent,
+            hardwareConcurrency: navigator.hardwareConcurrency,
+            deviceMemoryGiB: navigator.deviceMemory ?? null,
+          },
+        };
+      });
+      const sample = { stage, ...observed };
+      if (proof.cdp.available) {
+        sample.domCounters = await session.send("Memory.getDOMCounters");
+        const { metrics } = await session.send("Performance.getMetrics");
+        sample.metrics = Object.fromEntries(
+          metrics
+            .filter(({ name }) =>
+              /^(?:JSHeap(?:Used|Total)Size|Layout(?:Count|Duration)|RecalcStyle(?:Count|Duration)|ScriptDuration|TaskDuration|Nodes|Documents|JSEventListeners)$/.test(
+                name,
+              ),
+            )
+            .map(({ name, value }) => [name, value]),
+        );
+      }
+      proof.samples.push(sample);
+    },
+    async cleanup() {
+      await page
+        .evaluate(() => {
+          window.__columnResourceProfile?.observer?.disconnect();
+          delete window.__columnResourceProfile;
+        })
+        .catch(() => {});
+      await session?.detach().catch(() => {});
+    },
+  };
+}
+
 /** Exercise independently loaded columns in the production website and both built readers. */
 export async function checkColumnsFeeds(
   page,
@@ -33,6 +132,7 @@ export async function checkColumnsFeeds(
   const previewDiagnostic = slowPreview ? "slow" : process.env.DEVFEED_COLUMNS_PREVIEW_DIAGNOSTIC;
   const fixture = await installColumnsFeedFixture(page, { signedIn });
   let visualTouchSession = null;
+  let resources = null;
   const navigationRequests = [];
   const recordRequest = (request) => {
     if (
@@ -691,8 +791,11 @@ export async function checkColumnsFeeds(
       3,
       "Remaining feed and selection requests stay behind three shared slots",
     );
+    resources = await beginResourceProfile(page);
+    await resources.sample("paused-before-articles");
     fixture.resume();
     await Promise.all(stressColumns.map(({ id }) => waitRows(column(id), 24)));
+    await resources.sample("first-pages");
     for (const { id } of stressColumns) {
       for (const total of [48, 72]) {
         await column(id).getByRole("button", { name: "Load more articles", exact: true }).click();
@@ -728,6 +831,8 @@ export async function checkColumnsFeeds(
         "Every distinct selection retains its own three-page cursor sequence",
       );
     assert.ok(fixture.maximum <= 3, "Resource bounds remain enforced through all pagination");
+    await resources.sample("retained-pages");
+    await resources.cleanup();
     for (const [layout, image] of [
       ["Grid", ".article-card .card-image img"],
       ["Stacked", ".article-stacked-thumbnail img"],
@@ -753,6 +858,7 @@ export async function checkColumnsFeeds(
           mutations: fixture.mutations,
           previewStates,
           engagementReads: fixture.engagementReads,
+          resources: resources.proof,
         },
         null,
         2,
@@ -769,6 +875,7 @@ export async function checkColumnsFeeds(
           requests: fixture.requests,
           metadata: fixture.metadata,
           navigationRequests,
+          resources: resources?.proof,
         },
         null,
         2,
@@ -780,6 +887,7 @@ export async function checkColumnsFeeds(
     console.error("Columns feeds failure", page.url(), await page.locator("body").innerText());
     throw error;
   } finally {
+    await resources?.cleanup();
     if (visualTouchSession) {
       await visualTouchSession
         .send("Emulation.setTouchEmulationEnabled", { enabled: false })

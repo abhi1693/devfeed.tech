@@ -63,6 +63,8 @@ Run `npm run web:lint`, `npm run web:test`, and `npm run web:build` to validate.
 The [saved reader views matrix](../../scripts/ci/saved-reader-views.md) documents
 account switching, failed-save recovery, accessibility, motion, and request-budget
 checks shared with both extensions, including their retained CI evidence.
+See [saved view profiling](READER_VIEWS_PERFORMANCE.md) for the disposable,
+above-production dataset and paired query/latency measurements.
 After user API route or transport-policy changes, run `npm run web:generate` and
 include the OpenAPI, operation definitions and concrete Next handlers together.
 The same command generates extension transport policies from user API metadata and

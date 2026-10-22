@@ -25,6 +25,7 @@ export async function installPersonalColumnsFixture(page, { signedIn = false } =
   const requests = [];
   const writes = [];
   const holds = [];
+  const saveHolds = [];
   const privateRequests = [];
   const privateRequest = (request) => {
     if (
@@ -52,6 +53,12 @@ export async function installPersonalColumnsFixture(page, { signedIn = false } =
       assert.ok((await request.allHeaders())["x-csrf-token"]);
       const candidate = request.postDataJSON();
       assert.ok(["replace", "initialize", "restore_empty"].includes(candidate.mode));
+      const hold = saveHolds.find((value) => !value.used);
+      if (hold) {
+        hold.used = true;
+        hold.started.resolve(request);
+        await hold.released.promise;
+      }
       const current = scope === "latest" ? latest : effectivePersonal();
       const previous = structuredClone(current);
       if (
@@ -141,8 +148,17 @@ export async function installPersonalColumnsFixture(page, { signedIn = false } =
         record: () => value.record,
       };
     },
+    holdSave() {
+      const value = { used: false, started: deferred(), released: deferred() };
+      saveHolds.push(value);
+      return {
+        started: value.started.promise,
+        release: () => value.released.resolve(),
+      };
+    },
     async cleanup() {
       for (const value of holds) value.released.resolve();
+      for (const value of saveHolds) value.released.resolve();
       page.off("request", privateRequest);
       for (const [pattern, handler] of [
         [statePattern, stateHandler],

@@ -67,7 +67,7 @@ function column(value: unknown): ReaderColumn | null {
   return null;
 }
 
-function normalizedColumns(value: unknown): ReaderColumn[] {
+export function normalizeReaderColumns(value: unknown): ReaderColumn[] {
   if (!Array.isArray(value)) return [];
   const result: ReaderColumn[] = [];
   const seen = new Set<string>();
@@ -83,7 +83,7 @@ function normalizedColumns(value: unknown): ReaderColumn[] {
   return result;
 }
 
-function validColumns(value: unknown): value is ReaderColumn[] {
+export function validateReaderColumns(value: unknown): value is ReaderColumn[] {
   if (!Array.isArray(value) || value.length > maxReaderColumns) return false;
   const seen = new Set<string>();
   const feeds = new Set<string>();
@@ -107,7 +107,7 @@ export function normalizeReaderPreferences(value: unknown): ReaderPreferences {
     : [];
   return {
     view: isView(stored.view) ? stored.view : "cards",
-    columns: normalizedColumns(stored.columns),
+    columns: normalizeReaderColumns(stored.columns),
     content_types: types.length ? types : [...contentTypes],
     languages: selectedLanguages.length ? selectedLanguages : ["en"],
   };
@@ -129,7 +129,7 @@ export function validateReaderPreferences(value: unknown): value is FeedDisplay 
     value.languages.length > 0 &&
     value.languages.length <= languages.size &&
     value.languages.every((item) => languages.has(item)) &&
-    (value.columns === undefined || validColumns(value.columns))
+    (value.columns === undefined || validateReaderColumns(value.columns))
   );
 }
 
@@ -156,7 +156,7 @@ export function guestColumnsInitialized(storage?: Pick<Storage, "getItem">): boo
   try {
     const stored = storedRecord(storage ?? browserStorage());
     if (!record(stored) || stored.version !== readerPreferencesVersion) return false;
-    if (normalizedColumns(stored.columns).length) return true;
+    if (normalizeReaderColumns(stored.columns).length) return true;
     if (typeof stored.columns_initialized === "boolean") return stored.columns_initialized;
     return Array.isArray(stored.columns);
   } catch {
@@ -193,7 +193,7 @@ export function writeGuestReaderPreferences(
   storage?: GuestStorage,
   initialized = true,
 ): boolean {
-  if (!isView(value.view) || !validColumns(value.columns ?? [])) return false;
+  if (!isView(value.view) || !validateReaderColumns(value.columns ?? [])) return false;
   try {
     const target = storage ?? browserStorage();
     if (unsupportedVersion(storedRecord(target))) return false;

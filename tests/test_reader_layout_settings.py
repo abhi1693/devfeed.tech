@@ -141,6 +141,10 @@ def test_saved_columns_keep_the_first_twelve_valid_unique_entries_without_mutati
     settings = normalize_feed_settings(stored)
     assert settings.view == "columns"
     assert settings.model_dump(mode="json")["columns"] == valid[:12]
+    for workspace in ("latest", "my_feed"):
+        assert (
+            reader_columns_state(stored, workspace).model_dump(mode="json")["columns"] == valid[:12]
+        )
     assert stored == original
 
 
@@ -150,13 +154,13 @@ def test_malformed_or_missing_saved_preferences_have_safe_defaults(stored):
 
 
 def test_bad_legacy_filters_do_not_discard_valid_layout_preferences():
-    settings = normalize_feed_settings(
-        {"view": "stacked", "columns": [column()], "languages": [], "content_types": ["bad"]}
-    )
+    stored = {"view": "stacked", "columns": [column()], "languages": [], "content_types": ["bad"]}
+    settings = normalize_feed_settings(stored)
     assert settings.view == "stacked"
     assert settings.columns
     assert settings.languages == FeedSettings().languages
     assert settings.content_types == FeedSettings().content_types
+    assert reader_columns_state(stored).columns == settings.columns
 
 
 @pytest.mark.parametrize(

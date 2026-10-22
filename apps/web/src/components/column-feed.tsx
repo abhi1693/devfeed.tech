@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, type ReactNode } from "react";
+import { memo, useEffect, useMemo, type ReactNode } from "react";
 import Link from "@/components/reader-link";
 import { rememberReaderArticles } from "@/lib/reader-runtime";
 import type { ReaderColumnFeed } from "@/lib/reader-preferences";
@@ -14,7 +14,8 @@ import { PartnerPlacements } from "./partner-placements";
 import { useReadingAnchor } from "./use-reading-anchor";
 import styles from "./columns-workspace.module.css";
 
-export function ColumnFeed({
+// Board bookkeeping and sorting do not change a neighboring feed's loaded content.
+export const ColumnFeed = memo(function ColumnFeed({
   columnId,
   name,
   feed,
@@ -30,7 +31,7 @@ export function ColumnFeed({
   slug?: string;
   queue: ColumnRequestQueue;
   active: boolean;
-  onActivate: () => void;
+  onActivate: (id: string) => void;
   onArticles: (id: string, articles: string[]) => void;
 }) {
   const { pages, articles, cursor, loading, error, limited, loadMore, refresh } = useColumnFeed(
@@ -94,7 +95,7 @@ export function ColumnFeed({
               article={article}
               textOnly
               onOpen={() => {
-                onActivate();
+                onActivate(columnId);
                 setSequence(sequence);
               }}
             />,
@@ -185,4 +186,4 @@ export function ColumnFeed({
       </div>
     </div>
   );
-}
+});

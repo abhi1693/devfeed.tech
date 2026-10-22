@@ -5,10 +5,12 @@ import {
   guestColumnsInitialized,
   legacyGuestFeedViewKey,
   maxReaderColumns,
+  normalizeReaderColumns,
   normalizeReaderPreferences,
   readGuestReaderPreferences,
   readerColumnFeedKey,
   readerPreferencesVersion,
+  validateReaderColumns,
   validateReaderPreferences,
   writeGuestReaderPreferences,
   type ReaderColumn,
@@ -69,6 +71,8 @@ it("preserves all supported feed kinds and unresolved target UUIDs in saved orde
     { id: uuid(5), feed: { kind: "latest" } },
   ];
   const result = normalizeReaderPreferences({ ...settings, columns });
+  expect(normalizeReaderColumns(columns)).toEqual(columns);
+  expect(validateReaderColumns(columns)).toBe(true);
   expect(result.columns).toEqual(columns);
   expect(result.columns).not.toBe(columns);
   expect(validateReaderPreferences(result)).toBe(true);
@@ -109,6 +113,8 @@ it.each(invalidColumns)(
   "prunes malformed stored columns but rejects them in receipts: %j",
   (column) => {
     const value = { ...settings, columns: [column, latest(9)] };
+    expect(normalizeReaderColumns(value.columns)).toEqual([latest(9)]);
+    expect(validateReaderColumns(value.columns)).toBe(false);
     expect(normalizeReaderPreferences(value).columns).toEqual([latest(9)]);
     expect(validateReaderPreferences(value)).toBe(false);
   },
@@ -126,6 +132,7 @@ it("retains the first valid duplicate and bounds normalized workspaces to 12 col
     ...Array.from({ length: maxReaderColumns - 1 }, (_, index) => topic(index + 2)),
   ]);
   expect(validateReaderPreferences({ ...settings, columns })).toBe(false);
+  expect(validateReaderColumns(columns)).toBe(false);
   expect(
     validateReaderPreferences({ ...settings, columns: columns.slice(3, 3 + maxReaderColumns + 1) }),
   ).toBe(false);

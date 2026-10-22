@@ -16,6 +16,7 @@ import {
   type PlacementQuery,
 } from "@/lib/partner-placements";
 import { article } from "./fixtures";
+import * as articleText from "@/lib/article-text";
 import { partnerReceipt, sponsoredPlacement } from "./partner-placement-fixtures";
 
 vi.mock("@/components/settings-toast", () => ({ useSettingsToast: () => vi.fn() }));
@@ -268,6 +269,43 @@ afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
   window.history.replaceState(null, "", "/");
+});
+
+it("does not render a loaded neighbor's article content when another column appends a page", async () => {
+  const untouched = {
+    ...publicOnly,
+    summary: "A loaded neighbor keeps its prepared article copy.",
+  };
+  const appended = batch(8000, 1)[0];
+  transport([latest, source], ({ kind, url }) =>
+    kind === "source"
+      ? url.searchParams.has("cursor")
+        ? page([appended])
+        : page([sourceOnly], "source-next")
+      : page([untouched]),
+  );
+  const descriptions = vi.spyOn(articleText, "articlePlainText");
+  workspace();
+  const original = await screen.findByRole("link", { name: untouched.title });
+  await screen.findByRole("link", { name: sourceOnly.title });
+  const neighbor = row(latest.id, untouched.id);
+  await waitFor(() =>
+    expect(within(neighbor).getByRole("button", { name: "Save article for later" })).toHaveProperty(
+      "disabled",
+      false,
+    ),
+  );
+  descriptions.mockClear();
+  const sourceRegion = screen.getByRole("region", { name: "Articles in Rust Blog column" });
+  fireEvent.click(within(sourceRegion).getByRole("button", { name: "Load more articles" }));
+  const loaded = await screen.findByRole("link", { name: appended.title });
+  expect(descriptions.mock.calls.some(([text]) => text === untouched.summary)).toBe(false);
+  expect(screen.getByRole("link", { name: untouched.title })).toBe(original);
+  expect(row(latest.id, untouched.id)).toBe(neighbor);
+  preview(loaded);
+  expect(screen.getByLabelText("Reading sequence").textContent).toBe(
+    [sourceOnly.slug, appended.slug].join(","),
+  );
 });
 
 it("shares duplicate article actions across columns and activates the clicked column's reading sequence", async () => {

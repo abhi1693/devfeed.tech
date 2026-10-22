@@ -34,9 +34,10 @@ export async function checkPersonalColumns(
   page,
   target,
   output,
-  { signedIn = false, expireSession } = {},
+  { signedIn = false, expireSession, identity } = {},
 ) {
   assert.equal(signedIn, true, "Personal Columns are available only to authenticated readers");
+  assert.ok(identity?.user_id && identity.csrf_token && identity.expires_at);
   const state = await installPersonalColumnsFixture(page, { signedIn });
   state.setLegacy({ initialized: true, columns: guestColumns });
   state.setPersonal({ initialized: false, columns: [] });
@@ -67,6 +68,9 @@ export async function checkPersonalColumns(
     await workspace.getByRole("button", { name: "Use starter columns", exact: true }).waitFor();
   };
   const personalReads = () => state.requests.filter(({ kind }) => kind === "personal-starters");
+  const columnReads = () =>
+    state.requests.filter(({ scope, method }) => scope === "my_feed" && method === "GET").length;
+  const sessionProof = {};
   const stagePersonal = async (value, feeds = personalStarterFeeds) => {
     await page.goto(appearance);
     state.setPersonal(value);
@@ -112,6 +116,8 @@ export async function checkPersonalColumns(
       "My feed owns independent column identities",
     );
     assert.equal(personalReads().length, 1);
+    assert.equal(columnReads(), 1, "First-use My feed loads its column state exactly once");
+    sessionProof.startupColumnReads = columnReads();
     assert.deepEqual(state.latest, latest);
     assert.equal(
       state.fixture.metadata.filter(
@@ -122,6 +128,62 @@ export async function checkPersonalColumns(
     );
     for (const { id } of personal)
       await workspace.locator(`[data-column-id="${id}"] .article-stacked-row`).first().waitFor();
+
+    // A retained preview return reauthorizes silently. A label-only auth change must
+    // keep the pending order save and its confirmed preference state alive.
+    const authPattern = /\/api\/v1\/user\/auth\/me(?:\?|$)/;
+    const profileEmail = "renamed-reader@example.test";
+    const authHandler = async (route) => {
+      await route.fulfill({
+        json: { ...identity, name: "Renamed reader", email: profileEmail },
+      });
+    };
+    await page.context().route(authPattern, authHandler);
+    const saveHold = state.holdSave();
+    try {
+      const firstColumn = workspace.locator(`[data-column-id="${personal[0].id}"]`);
+      const retainedRow = await firstColumn.locator(".article-stacked-row").first().elementHandle();
+      const previewLink = firstColumn.locator(".article-stacked-title").first();
+      await reorderColumn(page, firstColumn, 1, { settle: false });
+      const saving = await saveHold.started;
+      const readsBeforeProfile = columnReads();
+      await previewLink.click();
+      const preview = page.getByRole("dialog", { name: "Article preview", exact: true });
+      await preview.waitFor();
+      await preview.getByRole("button", { name: "Close preview", exact: true }).click();
+      await preview.waitFor({ state: "hidden" });
+      await page.waitForURL(home);
+      await page.getByRole("button", { name: /^User menu:/ }).click();
+      await page.getByText(profileEmail, { exact: true }).waitFor();
+      await page.keyboard.press("Escape");
+      assert.equal(saving.failure(), null, "Profile labels do not abort the pending save");
+      assert.equal(columnReads(), readsBeforeProfile, "Profile labels do not reread columns");
+      assert.equal(
+        await retainedRow.evaluate((node) => node.isConnected),
+        true,
+        "The pending save and silent profile refresh retain the original article DOM",
+      );
+      sessionProof.profileColumnReads = columnReads() - readsBeforeProfile;
+      sessionProof.saveRetained = true;
+      saveHold.release();
+      await page.locator('[aria-label="Columns workspace"][aria-busy="false"]').waitFor();
+      await waitDefinitions([personal[1], personal[0], ...personal.slice(2)]);
+      assert.deepEqual(state.personal.columns, [personal[1], personal[0], ...personal.slice(2)]);
+      await retainedRow.dispose();
+
+      // Ordinary history checks still increment the confirmed session revision and
+      // reconcile the same account's workspace from its current server state.
+      state.setPersonal({ initialized: true, columns: personal });
+      const readsBeforeSession = columnReads();
+      await page.evaluate(() => window.dispatchEvent(new PopStateEvent("popstate")));
+      await waitDefinitions(personal);
+      assert.equal(columnReads(), readsBeforeSession + 1, "A session revision rereads columns");
+      sessionProof.sessionRevisionColumnReads = columnReads() - readsBeforeSession;
+    } finally {
+      saveHold.release();
+      await page.context().unroute(authPattern, authHandler);
+    }
+
     await page.screenshot({ path: `${output}-desktop.png`, animations: "disabled" });
     await page.setViewportSize({ width: 390, height: 1000 });
     await columns
@@ -303,6 +365,7 @@ export async function checkPersonalColumns(
           custom,
           fallback,
           legacy,
+          sessionProof,
           requests: state.requests,
           writes: state.writes,
           privateRequests: state.privateRequests,

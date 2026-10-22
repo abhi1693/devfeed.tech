@@ -152,7 +152,7 @@ function ColumnCard({
   onReorder: (position: number) => void;
   queue: ColumnRequestQueue;
   active: boolean;
-  onActivate: () => void;
+  onActivate: (id: string) => void;
   onArticles: (id: string, articles: string[]) => void;
   filtersKey: string;
 }) {
@@ -884,7 +884,7 @@ function Workspace() {
                         }
                         queue={queue}
                         active={active === column.id}
-                        onActivate={() => setActive(column.id)}
+                        onActivate={setActive}
                         onArticles={onArticles}
                         filtersKey={`${content_types.join(",")}:${languages.join(",")}`}
                         onEdit={() => setEditor({ id: column.id, column })}

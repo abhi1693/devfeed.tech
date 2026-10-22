@@ -6,8 +6,8 @@ import { readerRequest } from "@/lib/reader-runtime";
 import { createReaderColumnId } from "@/lib/reader-column-id";
 import {
   guestColumnsInitialized,
-  normalizeReaderPreferences,
-  validateReaderPreferences,
+  normalizeReaderColumns,
+  validateReaderColumns,
   type ReaderColumn,
 } from "@/lib/reader-preferences";
 import type { ColumnRequestQueue } from "@/lib/column-feed";
@@ -27,6 +27,7 @@ export function StarterColumns({ queue }: { queue: ColumnRequestQueue }) {
   const { columnsInitialized, content_types, languages, initializeColumns, workspace } =
     useColumnPreferences();
   const { user, loading: checking } = useUser();
+  const userId = user?.user_id;
   const [command, setCommand] = useState<{ mode: StarterColumnsMode; attempt: number }>({
     mode: "initialize",
     attempt: 0,
@@ -44,7 +45,9 @@ export function StarterColumns({ queue }: { queue: ColumnRequestQueue }) {
           if (!signal.aborted) setResult({ key, error: false });
           return;
         }
-        if (user) {
+        // My feed's provider has already loaded this state. Its atomic initialize
+        // mutation still preserves a workspace changed elsewhere during discovery.
+        if (userId && workspace !== "my_feed") {
           const state = await queue.run(async (requestSignal) => {
             const value = await userRequest<ReaderColumnsState>(columnSettingsPath(workspace), {
               signal: requestSignal,
@@ -60,13 +63,13 @@ export function StarterColumns({ queue }: { queue: ColumnRequestQueue }) {
             if (!signal.aborted) setResult({ key, error: false });
             return;
           }
-        } else if (columnsInitialized || guestColumnsInitialized()) {
+        } else if (!userId && (columnsInitialized || guestColumnsInitialized())) {
           await initializeColumns([], "initialize", signal);
           if (!signal.aborted) setResult({ key, error: false });
           return;
         }
       }
-      if (workspace === "my_feed" && user) {
+      if (workspace === "my_feed" && userId) {
         const feeds = await queue.run(async (requestSignal) => {
           const value = await userRequest<{ feeds: ReaderColumn["feed"][] }>(
             "settings/columns/starters",
@@ -86,10 +89,9 @@ export function StarterColumns({ queue }: { queue: ColumnRequestQueue }) {
           ];
         }, signal);
         if (signal.aborted) return;
-        const candidate = { columns: feeds.map((feed) => ({ id: createReaderColumnId(), feed })) };
-        if (!validateReaderPreferences({ ...candidate, view: "columns", content_types, languages }))
-          throw new Error("Invalid personal starter columns");
-        const columns = normalizeReaderPreferences(candidate).columns;
+        const candidate = feeds.map((feed) => ({ id: createReaderColumnId(), feed }));
+        if (!validateReaderColumns(candidate)) throw new Error("Invalid personal starter columns");
+        const columns = normalizeReaderColumns(candidate);
         if (!(await initializeColumns(columns, command.mode, signal)))
           throw new Error("Could not save personal starter columns");
         if (!signal.aborted) setResult({ key, error: false });
@@ -113,12 +115,12 @@ export function StarterColumns({ queue }: { queue: ColumnRequestQueue }) {
       const feeds: ReaderColumn["feed"][] = [
         { kind: "latest" },
         ...topics.map(({ id }) => ({ kind: "topic" as const, id })),
-        ...(user ? [{ kind: "recommended" as const }] : []),
+        ...(userId ? [{ kind: "recommended" as const }] : []),
       ];
       // Catalog IDs pass the same canonical validation as reader-owned selections.
-      const columns = normalizeReaderPreferences({
-        columns: feeds.map((feed) => ({ id: createReaderColumnId(), feed })),
-      }).columns;
+      const columns = normalizeReaderColumns(
+        feeds.map((feed) => ({ id: createReaderColumnId(), feed })),
+      );
       if (!(await initializeColumns(columns, command.mode, signal)))
         throw new Error("Could not save starter columns");
       if (!signal.aborted) setResult({ key, error: false });
@@ -136,10 +138,8 @@ export function StarterColumns({ queue }: { queue: ColumnRequestQueue }) {
     initializeColumns,
     key,
     queue,
-    user,
+    userId,
     workspace,
-    content_types,
-    languages,
   ]);
   const pending = checking || result?.key !== key;
   return (
