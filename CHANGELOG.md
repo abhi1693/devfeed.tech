@@ -4,12 +4,22 @@ Application releases and Alembic schema revisions are separate identifiers.
 
 ## 0.1.2 — 2026-10-23
 
+### Enhancements
+
+- [#281](https://github.com/abhi1693/devfeed.tech/pull/281) - Save per-feed Grid, List, Stacked, and Columns layouts, with account preferences, browser-local guest choices, and a reusable My feed workspace across web, Chrome, and Edge.
+
+### Performance Improvements
+
+- [#280](https://github.com/abhi1693/devfeed.tech/pull/280) - Serve administration boards and Overview reports from indexed, durable read models maintained by dedicated workers, with visible freshness and recovery status.
+
 ### Bug Fixes
 
+- [#282](https://github.com/abhi1693/devfeed.tech/pull/282) - Recognize ICO publisher logos and keep source logo-job changes reflected in pipeline projections.
 - Keep server trace exports working with the consolidated OpenTelemetry trace package.
 
 ### Upgrade Notes
 
+- Apply migration `0034` with a planned write-blocking index window, then start the separate pipeline and report workers and complete their backfill before promoting new readers. Older `0.1.1` images reject schema `0034`; plan the compatibility boundary explicitly using the [read-model rollout guide](https://github.com/abhi1693/devfeed.tech/blob/master/apps/admin-api/READ_MODELS.md#migration-and-rollout).
 - Keep the JavaScript telemetry SDK on 2.12/API 1.9.1 while using Faro 2.13. Upgrading SDK 3/API 1.10 independently breaks the current browser tracing peer contract.
 
 ## 0.1.1 — 2026-10-20
