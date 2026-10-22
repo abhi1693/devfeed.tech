@@ -1,10 +1,11 @@
 """Operator recovery uses current evidence and never grants editorial authority."""
 
+from copy import deepcopy
 from datetime import timedelta
 
 import pytest
 from devfeed_core.config import get_settings
-from devfeed_core.job_lifecycle import fail_or_retry
+from devfeed_core.job_lifecycle import fail_or_retry, finish_job
 from devfeed_core.jobs import request_ingestion
 from devfeed_core.models import (
     ArticleImageJob,
@@ -25,6 +26,7 @@ from devfeed_core.source_lifecycle import (
     source_readiness,
     source_readiness_batch,
 )
+from devfeed_core.source_logos import request_source_logo
 from devfeed_core.source_relevance import VERSION
 from sqlalchemy import func, select
 from test_source_lifecycle import SAMPLE, seed_source
@@ -216,29 +218,38 @@ def test_failed_branding_replacement_blocks_admission_despite_previously_usable_
             "version": "v1",
             "variants": [{"key": f"logo-{width}", "width": width} for width in (16, 32, 64, 96)],
         }
-        old = session.scalar(select(ArticleImageJob).where(ArticleImageJob.source_id == source.id))
-        fail_or_retry(old, "Replacement logo processing failed", utcnow(), retryable=False)
+        original = session.scalar(
+            select(ArticleImageJob).where(ArticleImageJob.source_id == source.id)
+        )
+        finish_job(original, "found", utcnow())
+        session.flush()
+        assert source_readiness(session, source).readiness.can_approve
+        previous_asset = deepcopy(source.managed_logo)
+        failed = request_source_logo(session, source.id, refresh=True)
+        assert failed.id != original.id and failed.operation == "source-logo-refresh"
+        fail_or_retry(failed, "Replacement logo processing failed", utcnow(), retryable=False)
         session.flush()
         for _ in range(2):
             facts = reconcile_source_processing(session, source)
             assert facts.readiness.stage == "branding" and facts.readiness.state == "blocked"
             assert facts.readiness.checks["branding"].status == "failed"
             assert facts.readiness.next_action is None and not facts.readiness.can_approve
-        assert session.scalar(select(func.count()).select_from(ArticleImageJob)) == 1
+        assert session.scalar(select(func.count()).select_from(ArticleImageJob)) == 2
         retried = retry_source_processing(
             session,
             "source",
             source.id,
             facts.snapshot,
             "branding",
-            old.id,
+            failed.id,
             actor={"subject": "operator"},
         )
         replacement = retried.jobs["branding"]
-        assert replacement.id != old.id and replacement.operation == "source-logo-refresh"
+        assert replacement.id != failed.id and replacement.operation == "source-logo-refresh"
         assert replacement.storage["source_pipeline_request"]["actor"] == {"subject": "operator"}
         assert source.approval_status == "pending" and not source.enabled
-        assert source.managed_logo["variants"] and old.status == "failed"
+        assert source.managed_logo == previous_asset and original.status == "succeeded"
+        assert failed.status == "failed" and failed.error == "Replacement logo processing failed"
 
 
 def test_processing_snapshot_rejects_changed_automation_policy_before_creating_work(

@@ -27,7 +27,7 @@ def invoke(capsys, *arguments, code=0):
 
 
 @pytest.fixture
-def editorial_articles(database):
+def editorial_articles(database, publish_for_read_test):
     identifiers = [uuid.UUID(int=index) for index in range(1, 5)]
     with database.begin() as session:
         source = Source(
@@ -48,8 +48,6 @@ def editorial_articles(database):
                     title=f"Python application testing {index}",
                     summary="Python application testing uses isolated fixtures and assertions.",
                     metadata_source_type="publisher",
-                    review_status="approved" if index == 3 else "pending",
-                    publication_status="published" if index == 3 else "unpublished",
                     classification_provenance={"page_kind": "article"},
                 )
             )
@@ -62,6 +60,7 @@ def editorial_articles(database):
                     original_url=url,
                 )
             )
+    publish_for_read_test([identifiers[-1]])
     return identifiers
 
 

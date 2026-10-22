@@ -76,24 +76,26 @@ def assert_unclaimed(job):
     assert job.lease_until is None
 
 
-def test_published_article_rejects_new_image_work_and_finishes_prepublication_job(storage_enabled):
+def test_published_article_image_requests_require_unpublishing(
+    storage_enabled, publish_for_read_test
+):
     with storage_enabled.begin() as session:
         article = add_article(session, image=False)
         article_id = article.id
-        job_id = image_jobs.request_image(session, article.id).id
-        article.review_status = "approved"
-        article.publication_status = "published"
+
+    publish_for_read_test([article_id])
 
     with storage_enabled.begin() as session:
+        article = session.get(Article, article_id)
+        assert article.publication_status == "published"
+        assert article.published_to_feed_at is not None
+        assert list(session.scalars(select(ArticleImageJob.id))) == []
         assert image_jobs.request_image(session, article_id, automatic=True) is None
         with pytest.raises(OperationConflict, match="Unpublish the article"):
             image_jobs.request_image(session, article_id, refresh=True)
-        assert image_jobs.claim_image(session, job_id) is None
-        job = session.get(ArticleImageJob, job_id)
-        assert (job.status, job.outcome) == ("succeeded", "already_present")
-        assert_unclaimed(job)
-        assert session.get(Article, article_id).image_url is None
-        assert list(session.scalars(select(ArticleImageJob.id))) == [job_id]
+        assert article.image_url is None
+        assert article.publication_status == "published"
+        assert list(session.scalars(select(ArticleImageJob.id))) == []
 
 
 @pytest.mark.parametrize("kind", ["article", "product-image", "product-logo"])
