@@ -94,7 +94,7 @@ review and stage those changes before retrying the commit.
 
 Backend unit coverage includes every Python source file in all 14 backend
 workspaces, including modules the tests never import. The minimum combined line
-and branch coverage is **70%**, configured by `tool.coverage.report.fail_under` in
+and branch coverage is **75%**, configured by `tool.coverage.report.fail_under` in
 `pyproject.toml`; CI enforces it. Keep this
 minimum when adding code, and raise it as coverage improves. A missing workspace,
 missing report, empty suite, failure, or skipped unit test fails the CI report gate.
