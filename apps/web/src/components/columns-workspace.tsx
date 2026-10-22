@@ -17,7 +17,6 @@ import {
   Pencil,
   Plus,
   Trash2,
-  X,
 } from "lucide-react";
 import {
   DndContext,
@@ -310,16 +309,6 @@ function ColumnCard({
               </DropdownMenu.Content>
             </DropdownMenu.Portal>
           </DropdownMenu.Root>
-          <button
-            type="button"
-            className={`${styles.iconButton} ${styles.removeButton}`}
-            aria-label={`Remove ${name} column`}
-            title={`Remove ${name} column`}
-            disabled={disabled}
-            onClick={onRemove}
-          >
-            <X size={17} aria-hidden="true" />
-          </button>
         </div>
       </div>
       {result.status === "ready" ? (

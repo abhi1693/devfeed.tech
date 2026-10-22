@@ -301,9 +301,6 @@
   opacity: 0.35;
   cursor: default;
 }
-.removeButton:hover:not(:disabled) {
-  color: var(--error, #d85050);
-}
 .columnMenu {
   z-index: 1200;
   min-width: 190px;

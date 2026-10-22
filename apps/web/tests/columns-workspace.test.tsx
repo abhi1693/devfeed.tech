@@ -415,6 +415,15 @@ it.each(["guest", "account"])(
 it("edits, reorders, and removes columns without changing their identities", async () => {
   transport();
   const app = await mount([latest, recommended]);
+  for (const name of ["Latest", "Recommended"]) {
+    const header = screen.getByRole("heading", { name, level: 2 }).parentElement!.parentElement!;
+    expect(
+      within(header)
+        .getAllByRole("button")
+        .map((button) => button.getAttribute("aria-label")),
+    ).toEqual([`Reorder ${name} column`, `Options for ${name} column`]);
+  }
+  expect(screen.queryByRole("button", { name: /^Remove .+ column$/ })).toBeNull();
   await chooseColumnAction("Latest", "Change feed for Latest column");
   expect(screen.getByRole("dialog", { name: "Edit column" })).toBeTruthy();
   await editFeed("source", catalog.source.name);
@@ -430,16 +439,14 @@ it("edits, reorders, and removes columns without changing their identities", asy
     expect(storedColumns().map(({ id }) => id)).toEqual([recommended.id, latest.id]),
   );
   expect(document.querySelector(`[data-column-id="${latest.id}"]`)).toBe(first);
-  const remove = screen.getByRole("button", { name: "Remove Rust Blog column" });
-  expect(remove.title).toBe("Remove Rust Blog column");
-  fireEvent.click(remove);
+  await chooseColumnAction("Rust Blog", "Remove column: Rust Blog");
   await waitFor(() => expect(storedColumns()).toEqual([recommended]));
   await waitFor(() =>
     expect(document.activeElement).toBe(
       document.querySelector(`[data-column-id="${recommended.id}"]`),
     ),
   );
-  fireEvent.click(screen.getByRole("button", { name: "Remove Recommended column" }));
+  await chooseColumnAction("Recommended", "Remove column: Recommended");
   await waitFor(() => expect(storedColumns()).toEqual([]));
   await waitFor(() =>
     expect(document.activeElement).toBe(screen.getByRole("button", { name: "Add column" })),
@@ -469,10 +476,7 @@ it("saves one keyboard drop and keeps its focused stable handle while the accoun
     "disabled",
     true,
   );
-  expect(screen.getByRole("button", { name: "Remove Recommended column" })).toHaveProperty(
-    "disabled",
-    true,
-  );
+  expect(screen.getByRole("button", { name: "Add column" })).toHaveProperty("disabled", true);
   expect(api.writes).toHaveLength(0);
   await keyboard.keyboard("[ArrowRight]");
   expect(api.writes).toHaveLength(0);
@@ -565,19 +569,19 @@ it("rolls a rejected keyboard drop back to the saved order and allows a focused 
   expect(document.activeElement).toBe(handle);
 });
 
-it("retains a column when direct removal cannot be saved and allows retry", async () => {
+it("retains a column when its menu removal cannot be saved and allows retry", async () => {
   state.user = account;
   const api = transport([latest, recommended]);
   await mount();
   api.rejectNextWrite();
-  fireEvent.click(screen.getByRole("button", { name: "Remove Latest column" }));
+  await chooseColumnAction("Latest", "Remove column: Latest");
   await screen.findByRole("alert");
-  expect(screen.getByRole("button", { name: "Remove Latest column" })).toBeTruthy();
-  expect(screen.getByRole("button", { name: "Remove Recommended column" })).toBeTruthy();
+  expect(screen.getByRole("button", { name: "Options for Latest column" })).toBeTruthy();
+  expect(screen.getByRole("button", { name: "Options for Recommended column" })).toBeTruthy();
   expect(state.notify).not.toHaveBeenCalledWith("Column removed.");
-  fireEvent.click(screen.getByRole("button", { name: "Remove Latest column" }));
+  await chooseColumnAction("Latest", "Remove column: Latest");
   await waitFor(() =>
-    expect(screen.queryByRole("button", { name: "Remove Latest column" })).toBeNull(),
+    expect(screen.queryByRole("button", { name: "Options for Latest column" })).toBeNull(),
   );
   expect(api.writes.at(-1)?.value.columns).toEqual([recommended]);
   expect(state.notify).toHaveBeenCalledWith("Column removed.");
@@ -588,11 +592,19 @@ it("focuses Add column after the last account removal finishes saving", async ()
   const api = transport([latest]);
   await mount();
   const complete = api.delayNextWrite();
-  fireEvent.click(screen.getByRole("button", { name: "Remove Latest column" }));
+  await chooseColumnAction("Latest", "Remove column: Latest");
   await waitFor(() => expect(api.writes).toHaveLength(1));
   expect((screen.getByRole("button", { name: "Add column" }) as HTMLButtonElement).disabled).toBe(
     true,
   );
+  expect(screen.getByRole("button", { name: "Options for Latest column" })).toHaveProperty(
+    "disabled",
+    true,
+  );
+  expect(
+    screen.getByRole("button", { name: "Reorder Latest column" }).getAttribute("aria-disabled"),
+  ).toBe("true");
+  expect(api.writes).toHaveLength(1);
   await complete(preferences([]));
   await waitFor(() =>
     expect(document.activeElement).toBe(screen.getByRole("button", { name: "Add column" })),

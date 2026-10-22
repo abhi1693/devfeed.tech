@@ -157,7 +157,7 @@ export async function checkColumnsWorkspace(
   const feedReads = [];
   const nativeScrolls = [];
   const routeScopes = [];
-  const directRemoval = {
+  const menuRemoval = {
     desktopTargets: [],
     touchTarget: null,
     focusTransferred: false,
@@ -366,8 +366,8 @@ export async function checkColumnsWorkspace(
     for (const column of await columns().all())
       assert.equal(
         await column.evaluate((node) => node.firstElementChild.querySelectorAll("button").length),
-        3,
-        "A column header exposes Reorder, Options and Remove",
+        2,
+        "A column header exposes Reorder and Options",
       );
     assert.deepEqual((await saved()).columns, [
       { id: originalIds[0], feed: { kind: "latest" } },
@@ -382,19 +382,12 @@ export async function checkColumnsWorkspace(
         .getByText("Sign in to view recommendations.", { exact: true })
         .waitFor();
 
-    for (const column of await columns().all()) {
-      const remove = column.getByRole("button", { name: /^Remove .+ column$/ });
-      assert.equal(await remove.count(), 1, "Every column exposes a direct remove button");
-      assert.equal(await remove.isVisible(), true);
-      assert.equal(await remove.getAttribute("title"), await remove.getAttribute("aria-label"));
-      assert.ok(
-        await remove.evaluate((node) => Number(getComputedStyle(node).opacity) > 0),
-        "Remove is visible without hovering or opening Options",
+    for (const column of await columns().all())
+      assert.equal(
+        await column.getByRole("button", { name: /^Remove .+ column$/ }).count(),
+        0,
+        "Remove is available through Options instead of a separate header button",
       );
-      const bounds = await remove.boundingBox();
-      assert.ok(bounds.width >= 34 && bounds.height >= 34);
-      directRemoval.desktopTargets.push({ width: bounds.width, height: bounds.height });
-    }
 
     const latestColumn = columns().first();
     const options = latestColumn.getByRole("button", {
@@ -412,6 +405,13 @@ export async function checkColumnsWorkspace(
     );
     for (const item of await keyboardMenu.getByRole("menuitem").all())
       assert.ok((await item.boundingBox()).height >= 38, "Desktop menu actions remain readable");
+    const desktopRemoveBounds = await keyboardMenu
+      .getByRole("menuitem", { name: "Remove column: Latest", exact: true })
+      .boundingBox();
+    menuRemoval.desktopTargets.push({
+      width: desktopRemoveBounds.width,
+      height: desktopRemoveBounds.height,
+    });
     await page.keyboard.press("Escape");
     await keyboardMenu.waitFor({ state: "hidden" });
     assert.equal(await options.evaluate((node) => document.activeElement === node), true);
@@ -488,19 +488,20 @@ export async function checkColumnsWorkspace(
       originalIds[3],
     ];
     await waitOrder(reordered);
-    await columns()
-      .filter({
+    await columnAction(
+      page,
+      columns().filter({
         has: page.getByRole("heading", { name: catalog.sources[0].name, exact: true }),
-      })
-      .getByRole("button", { name: `Remove ${catalog.sources[0].name} column`, exact: true })
-      .click();
+      }),
+      `Remove column: ${catalog.sources[0].name}`,
+    );
     const remaining = [originalIds[0], originalIds[1], originalIds[4], originalIds[3]];
     await waitOrder(remaining);
     await page.waitForFunction(
       (id) => document.activeElement?.getAttribute("data-column-id") === id,
       originalIds[4],
     );
-    directRemoval.focusTransferred = true;
+    menuRemoval.focusTransferred = true;
     assert.ok(
       feedReads.length > initialFeedReads,
       "Configured selections start their independently loaded feeds",
@@ -670,14 +671,14 @@ export async function checkColumnsWorkspace(
       mobileBounds.width >= 44 && mobileBounds.height >= 44,
       "Touch column controls retain44px targets",
     );
-    const touchRemove = selectedColumn.getByRole("button", { name: /^Remove .+ column$/ });
+    const mobileMenu = await openColumnMenu(page, selectedColumn);
+    const touchRemove = mobileMenu.getByRole("menuitem", { name: /^Remove column: / });
     const touchBounds = await touchRemove.boundingBox();
     assert.ok(
       touchBounds.width >= 44 && touchBounds.height >= 44,
-      "Direct remove retains a44px touch target",
+      "The Remove menu item retains a44px touch target",
     );
-    directRemoval.touchTarget = { width: touchBounds.width, height: touchBounds.height };
-    const mobileMenu = await openColumnMenu(page, selectedColumn);
+    menuRemoval.touchTarget = { width: touchBounds.width, height: touchBounds.height };
     for (const item of await mobileMenu.getByRole("menuitem").all())
       assert.ok((await item.boundingBox()).height >= 44, "Touch menu actions retain44px targets");
     await page.keyboard.press("Escape");
@@ -794,10 +795,7 @@ export async function checkColumnsWorkspace(
     );
     while (await columns().count()) {
       const before = await identities();
-      await columns()
-        .first()
-        .getByRole("button", { name: /^Remove .+ column$/ })
-        .click();
+      await columnAction(page, columns().first(), /^Remove column: /);
       await waitOrder(before.slice(1));
       if (before.length > 1)
         await page.waitForFunction(
@@ -812,7 +810,7 @@ export async function checkColumnsWorkspace(
     await page.reload();
     await workspace().getByRole("button", { name: "Use starter columns", exact: true }).waitFor();
     await waitOrder([]);
-    directRemoval.emptyAfterReload = true;
+    menuRemoval.emptyAfterReload = true;
     await writeFile(
       `${output}.json`,
       JSON.stringify(
@@ -826,7 +824,7 @@ export async function checkColumnsWorkspace(
           saved: await saved(),
           accountWrites: writes.length,
           duplicateProtection: { create: true, edit: true, legacyKeepFirst: true },
-          directRemoval,
+          menuRemoval,
         },
         null,
         2,
