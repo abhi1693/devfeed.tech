@@ -92,9 +92,9 @@ Pre-commit runs formatting and the affected projects' lint, type and configurati
 checks. Test suites, coverage and production builds run separately and in CI. If a formatter changes files,
 review and stage those changes before retrying the commit.
 
-Backend unit coverage includes every Python source file in all 13 backend
+Backend unit coverage includes every Python source file in all 14 backend
 workspaces, including modules the tests never import. The minimum combined line
-and branch coverage is **67.60%**, configured by `tool.coverage.report.fail_under` in
+and branch coverage is **68%**, configured by `tool.coverage.report.fail_under` in
 `pyproject.toml`; CI enforces it. Keep this
 minimum when adding code, and raise it as coverage improves. A missing workspace,
 missing report, empty suite, failure, or skipped unit test fails the CI report gate.
