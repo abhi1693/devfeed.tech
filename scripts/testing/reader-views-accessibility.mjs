@@ -279,7 +279,17 @@ export async function checkSavedReaderAccessibility(
       await cssMotion("column loading states", "main");
       await scan("390-dark-columns-loading");
       fixture.resume();
-      await page.locator(selectors.columns).first().waitFor();
+      // Finish every outgoing column load before arming the next generation's failure.
+      await Promise.all(
+        columnsFeedSelections
+          .slice(0, 3)
+          .map(({ id }) =>
+            workspace
+              .locator(`[data-column-id="${id}"] .article-stacked-row[data-article-id]`)
+              .first()
+              .waitFor(),
+          ),
+      );
       fixture.setEmpty("latest", true);
       fixture.failNext("source");
       fixture.unavailable.add(columnsFeedSelections[2].feed.id);
