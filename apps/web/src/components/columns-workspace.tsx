@@ -870,7 +870,7 @@ function Workspace() {
                     role="region"
                     aria-label="Column feeds"
                     data-dragging={!!dragging || undefined}
-                    tabIndex={0}
+                    tabIndex={-1}
                   >
                     {displayedColumns.map((column, index) => (
                       <ColumnCard

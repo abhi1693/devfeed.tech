@@ -112,7 +112,7 @@ export function ColumnFeed({
       className={styles.columnScroll}
       role="region"
       aria-label={`Articles in ${name} column`}
-      tabIndex={0}
+      tabIndex={-1}
     >
       <PartnerPlacements
         {...placements}

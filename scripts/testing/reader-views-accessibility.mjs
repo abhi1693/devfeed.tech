@@ -262,6 +262,67 @@ export async function checkSavedReaderAccessibility(
       await optionsMenu.waitFor({ state: "hidden" });
       await focused(page, options);
       const board = workspace.getByRole("region", { name: "Column feeds", exact: true });
+      const scrollport = column.getByRole("region", {
+        name: "Articles in Latest column",
+        exact: true,
+      });
+      const articleLink = scrollport.locator(".article-stacked-title").first();
+      assert.equal(await board.getAttribute("tabindex"), "-1");
+      assert.equal(await scrollport.getAttribute("tabindex"), "-1");
+      await scrollport.evaluate((node) => (node.scrollTop = 0));
+      await tabTo(page, articleLink);
+      await focused(page, articleLink);
+      const verticalBefore = await scrollport.evaluate((node) => ({
+        position: node.scrollTop,
+        maximum: node.scrollHeight - node.clientHeight,
+      }));
+      const surroundingScroll = () =>
+        scrollport.evaluate((node) => ({
+          page: { x: scrollX, y: scrollY },
+          board: node.closest('[aria-label="Column feeds"]').scrollLeft,
+          siblings: [...document.querySelectorAll('[role="region"][aria-label^="Articles in "]')]
+            .filter((other) => other !== node)
+            .map((other) => ({ name: other.getAttribute("aria-label"), top: other.scrollTop })),
+        }));
+      const surroundingBefore = await surroundingScroll();
+      assert.ok(verticalBefore.maximum > verticalBefore.position, "The article feed overflows");
+      for (let index = 0; index < 8; index++) await page.keyboard.press("ArrowDown");
+      await page.waitForFunction(({ node, before }) => node.scrollTop > before, {
+        node: await scrollport.elementHandle(),
+        before: verticalBefore.position,
+      });
+      await focused(page, articleLink);
+      const verticalAfter = await scrollport.evaluate((node) => node.scrollTop);
+      assert.deepEqual(
+        await surroundingScroll(),
+        surroundingBefore,
+        "ArrowDown scrolls the active column without moving its siblings, board, or page",
+      );
+      interactions.push("Tab reaches an article link whose ArrowDown scrolls its own column");
+
+      await board.evaluate((node) => (node.scrollLeft = 0));
+      await tabTo(page, options);
+      await focused(page, options);
+      const horizontalBefore = await board.evaluate((node) => ({
+        position: node.scrollLeft,
+        maximum: node.scrollWidth - node.clientWidth,
+      }));
+      assert.ok(horizontalBefore.maximum > horizontalBefore.position, "The column board overflows");
+      for (let index = 0; index < 8; index++) await page.keyboard.press("ArrowRight");
+      await page.waitForFunction(({ node, before }) => node.scrollLeft > before, {
+        node: await board.elementHandle(),
+        before: horizontalBefore.position,
+      });
+      await focused(page, options);
+      proof.descendantKeyboardScrolling = {
+        vertical: { ...verticalBefore, after: verticalAfter, surroundings: surroundingBefore },
+        horizontal: {
+          ...horizontalBefore,
+          after: await board.evaluate((node) => node.scrollLeft),
+        },
+      };
+      interactions.push("Tab reaches column Options whose ArrowRight scrolls the narrow board");
+
       await board.evaluate((node) => (node.scrollLeft = 0));
       await board.focus();
       for (let index = 0; index < 8; index++) await page.keyboard.press("ArrowRight");

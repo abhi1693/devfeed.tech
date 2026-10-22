@@ -820,6 +820,9 @@ it("browses an empty configured feed inside Columns without changing the saved l
   await mount([latest]);
   const feed = await screen.findByRole("region", { name: "Articles in Latest column" });
   expect(await within(feed).findByText("No articles yet.")).toBeTruthy();
+  expect(feed.tabIndex).toBe(-1);
+  feed.focus();
+  expect(document.activeElement).toBe(feed);
   expect(screen.queryByRole("button", { name: "Open Latest feed" })).toBeNull();
   expect(state.push).not.toHaveBeenCalled();
   expect(JSON.parse(localStorage.getItem(guestReaderPreferencesKey)!)).toEqual({
@@ -864,13 +867,13 @@ it("shows a failed catalog search inside the editor and recovers when retried", 
   expect(storedColumns()[0].feed).toEqual({ kind: "source", id: catalog.source.id });
 });
 
-it("keeps the column board labelled and keyboard focusable without a workspace toolbar", async () => {
+it("keeps the column board labelled and programmatically focusable without an extra tab stop", async () => {
   transport();
   await mount([latest, recommended]);
   expect(screen.queryByRole("combobox", { name: "Go to column" })).toBeNull();
   expect(screen.queryByText("2 of 12 columns")).toBeNull();
   const board = screen.getByRole("region", { name: "Column feeds" });
-  expect(board.tabIndex).toBe(0);
+  expect(board.tabIndex).toBe(-1);
   board.focus();
   expect(document.activeElement).toBe(board);
   expect(board.querySelectorAll("[data-column-id]")).toHaveLength(2);
