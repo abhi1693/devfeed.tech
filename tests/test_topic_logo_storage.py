@@ -81,6 +81,26 @@ def test_normalized_master_is_bounded_and_deduplicated(monkeypatch, storage):
     assert client.put.call_count == 1
 
 
+@pytest.mark.parametrize("bitmap_format", ["png", "bmp"])
+def test_favicon_ico_is_normalized_without_expanding_article_image_policy(
+    monkeypatch, storage, bitmap_format
+):
+    client, uploaded = storage
+    output = io.BytesIO()
+    Image.new("RGBA", (64, 64), (20, 90, 160, 255)).save(
+        output, "ICO", sizes=[(16, 16), (32, 32), (64, 64)], bitmap_format=bitmap_format
+    )
+    body = output.getvalue()
+    monkeypatch.setattr(logo_storage, "fetch_topic_logo", lambda url: FetchResult(200, body, url))
+    asset = logo_storage.LogoOriginalStore(client).store("https://publisher.test/favicon.ico")
+    with Image.open(io.BytesIO(uploaded[asset["original_key"]])) as master:
+        assert master.format == "PNG"
+        assert master.size == (64, 64)
+        assert master.getpixel((32, 32)) == (20, 90, 160, 255)
+    with pytest.raises(FeedError, match="Unsupported or invalid image"):
+        image_storage_base.ImageStore(client).inspect(body)
+
+
 def test_variants_preserve_transparency_aspect_ratio_and_skip_existing(monkeypatch, storage):
     client, uploaded = storage
     variants = logo_storage.LogoVariantStore(client, sizes=SOURCE_LOGO_SIZES)
