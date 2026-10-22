@@ -118,6 +118,8 @@ def test_typer_tree_preserves_every_command():
 
 @pytest.mark.parametrize("color", [False, True])
 def test_invalid_identifier_cannot_emit_terminal_control_commands(operations, monkeypatch, color):
+    # Rich disables styling for TERM=dumb even when FORCE_COLOR is set.
+    monkeypatch.setenv("TERM", "xterm-256color")
     monkeypatch.delenv("NO_COLOR", raising=False)
     if color:
         monkeypatch.setenv("FORCE_COLOR", "1")
