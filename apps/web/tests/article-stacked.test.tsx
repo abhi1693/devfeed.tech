@@ -164,20 +164,33 @@ it("prefers the short description and falls back to safe plain source text", () 
 });
 
 it.each([
-  ["AI summary", "An AI overview.", "Source excerpt."],
-  ["summary", " ", "Source excerpt."],
-  [null, " ", " "],
-])(
-  "only exposes an available %s through the existing article preview",
-  (label, ai_summary, summary) => {
-    render(<Stacked item={{ ...article, ai_summary, summary: summary! }} />);
-    if (label) {
-      expect(
-        screen.getByRole("link", { name: `Read ${label}: ${article.title}` }).getAttribute("href"),
-      ).toBe(`/articles/${article.slug}`);
-    } else {
-      expect(screen.queryByRole("link", { name: /^Read (AI summary|summary):/ })).toBeNull();
-    }
+  [false, "AI summary", "An AI overview.", "Source excerpt."],
+  [false, "source excerpt", " ", "Source excerpt."],
+  [false, "empty summary", " ", " "],
+  [true, "AI summary", "An AI overview.", "Source excerpt."],
+  [true, "source excerpt", " ", "Source excerpt."],
+  [true, "empty summary", " ", " "],
+] as const)(
+  "keeps one title preview action with textOnly=%s and %s data",
+  (textOnly, _summaryKind, ai_summary, summary) => {
+    const onOpen = vi.fn();
+    const { container } = render(
+      <div onClick={(event) => event.preventDefault()}>
+        <Stacked item={{ ...article, ai_summary, summary }} textOnly={textOnly} onOpen={onOpen} />
+      </div>,
+    );
+    const title = screen.getByRole("link", { name: article.title });
+    expect(
+      screen
+        .getAllByRole("link")
+        .filter((link) => link.getAttribute("href") === `/articles/${article.slug}`),
+    ).toEqual([title]);
+    expect(screen.queryByRole("link", { name: /^Read (AI summary|summary):/ })).toBeNull();
+    expect(container.querySelector(".article-stacked-description")?.textContent ?? "").toBe(
+      summary.trim(),
+    );
+    fireEvent.click(title);
+    expect(onOpen).toHaveBeenCalledTimes(1);
   },
 );
 
@@ -260,8 +273,7 @@ it.each([false, true])(
     fireEvent.click(screen.getByRole("link", { name: "Read original article in a new tab" }));
     expect(onOpen).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole("link", { name: article.title }));
-    fireEvent.click(screen.getByRole("link", { name: `Read AI summary: ${article.title}` }));
-    expect(onOpen).toHaveBeenCalledTimes(2);
+    expect(onOpen).toHaveBeenCalledTimes(1);
     await screen.findByRole("img", { name: "10 clicks to the original article" });
   },
 );
@@ -312,9 +324,7 @@ it("preserves permanent sponsorship and paid link qualification", () => {
   expect(disclosure.getAttribute("title")).toBe("Sponsored by Partner");
   expect(title.getAttribute("aria-describedby")).toBe(disclosure.id);
   expect(title.getAttribute("rel")).toBe("external sponsored");
-  expect(
-    screen.getByRole("link", { name: `Read AI summary: ${article.title}` }).getAttribute("rel"),
-  ).toBe("external sponsored");
+  expect(screen.queryByRole("link", { name: /^Read (AI summary|summary):/ })).toBeNull();
   expect(
     screen.getByRole("link", { name: "Read original article in a new tab" }).getAttribute("rel"),
   ).toBe("external sponsored noopener noreferrer");

@@ -22,7 +22,8 @@ export function stackedReaderArticle(article, index = 0) {
     title: index === 0 ? stackedReaderTitle : `Stacked article ${index + 1}`,
     ai_description: index === 0 ? stackedReaderDescription : null,
     summary: index === 1 ? "" : "A concise source excerpt about dependable engineering.",
-    ai_summary: index === 1 ? null : "A useful AI overview of engineering boundaries.",
+    ai_summary:
+      index === 1 || index === 2 ? null : "A useful AI overview of engineering boundaries.",
     image_url: index === 1 ? null : article.image_url,
     image_variants: index === 1 ? [] : article.image_variants,
     sources: index === 1 ? [] : article.sources,
@@ -574,7 +575,12 @@ export async function checkStackedReader(page, target, output, { signedIn = fals
   const second = page.locator(".article-stacked-row").nth(1);
   assert.match(await second.textContent(), /fallback-publisher\.example\.test/);
   assert.equal(await second.locator(".image-placeholder").count(), 1);
-  assert.equal(await second.locator(".article-stacked-summary").count(), 0);
+  assert.equal(
+    await page.locator(".article-stacked-row .article-stacked-summary").count(),
+    0,
+    "Stacked rows omit the duplicate AI and source-excerpt summary action",
+  );
+  assert.equal(await page.getByRole("link", { name: /^Read (?:AI )?summary:/ }).count(), 0);
   assert.equal(await second.locator(".article-stacked-topic").count(), 0);
   await page.waitForFunction(() => {
     const image = document.querySelector(".article-stacked-thumbnail img");
@@ -628,7 +634,7 @@ export async function checkStackedReader(page, target, output, { signedIn = fals
   await preview.waitFor({ state: "hidden" });
   await page.waitForURL(target);
   assert.equal(await title.evaluate((element) => element === document.activeElement), true);
-  await firstRow.locator(".article-stacked-summary").click();
+  await title.click();
   await preview.waitFor();
   await preview.getByRole("heading", { name: "AI overview", exact: true }).waitFor();
   await preview.getByRole("button", { name: "Close preview", exact: true }).click();

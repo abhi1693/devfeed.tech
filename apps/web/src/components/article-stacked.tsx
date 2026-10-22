@@ -1,5 +1,5 @@
 import { useId, type ReactNode, type Ref } from "react";
-import { ArrowUpRight, FileText, Sparkles } from "lucide-react";
+import { ArrowUpRight } from "lucide-react";
 import Link from "@/components/reader-link";
 import type { Article } from "@/lib/types";
 import { articleSource } from "@/lib/article-attribution";
@@ -49,8 +49,6 @@ export function ArticleStackedRow({
   const topic = article.topics[0];
   const tag = article.tags[0];
   const description = articlePlainText(article.ai_description?.trim() || article.summary);
-  const aiSummary = article.ai_summary?.trim();
-  const overview = aiSummary || article.summary.trim();
   const titleId = useId();
   const sponsorshipId = useId();
   const sponsored = !!article.sponsor_names?.length;
@@ -145,23 +143,6 @@ export function ArticleStackedRow({
           aria-label={`Actions for ${article.title}`}
         >
           <ArticleEngagement articleId={article.id} articleSlug={article.slug} />
-          {overview && (
-            <Link
-              href={destination}
-              prefetch={false}
-              className="article-stacked-summary card-open-link"
-              rel={internalRel}
-              aria-label={`Read ${aiSummary ? "AI summary" : "summary"}: ${article.title}`}
-              title={aiSummary ? "Read AI summary" : "Read summary"}
-              onClick={onOpen}
-            >
-              {aiSummary ? (
-                <Sparkles size={16} aria-hidden="true" />
-              ) : (
-                <FileText size={16} aria-hidden="true" />
-              )}
-            </Link>
-          )}
           {!textOnly && <ArticleBookmarkButton articleId={article.id} articleSlug={article.slug} />}
           <ArticleShare slug={article.slug} title={article.title} />
           {original && (

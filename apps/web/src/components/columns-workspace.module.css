@@ -227,15 +227,12 @@
   border-radius: 5px;
 }
 @media (hover: hover) and (pointer: fine) {
-  .columnScroll :global(.article-stacked-summary),
   .columnScroll :global(.article-share-trigger),
   .columnScroll :global(.article-stacked-row .article-stacked-read) {
     opacity: 0;
   }
-  .columnScroll :global(.article-stacked-row:hover .article-stacked-summary),
   .columnScroll :global(.article-stacked-row:hover .article-share-trigger),
   .columnScroll :global(.article-stacked-row:hover .article-stacked-read),
-  .columnScroll :global(.article-stacked-row:focus-within .article-stacked-summary),
   .columnScroll :global(.article-stacked-row:focus-within .article-share-trigger),
   .columnScroll :global(.article-stacked-row:focus-within .article-stacked-read) {
     opacity: 1;

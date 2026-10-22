@@ -189,7 +189,6 @@
   padding-inline: 6px;
   border-radius: var(--radius-control);
 }
-.article-stacked-summary,
 .article-stacked-row .article-stacked-read {
   position: static;
   display: inline-flex;
@@ -209,7 +208,6 @@
   transform: none;
   transition: none;
 }
-.article-stacked-summary:hover,
 .article-stacked-row .article-stacked-read:hover {
   color: var(--foreground);
   background: var(--muted);
@@ -240,7 +238,6 @@
     line-height: 24px;
   }
   .article-stacked-actions :is(.bookmark-button, .heart-button, .article-share-trigger),
-  .article-stacked-summary,
   .article-stacked-row .article-stacked-read {
     min-width: 44px;
     min-height: 44px;

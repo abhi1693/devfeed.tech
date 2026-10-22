@@ -118,6 +118,9 @@ export async function checkColumnsScanning(page, target, output, { baseline = fa
         viewport: innerWidth,
         pageWidth: document.documentElement.scrollWidth,
         images: node.querySelectorAll("img").length,
+        summaryActions: node.querySelectorAll(
+          '.article-stacked-summary, a[aria-label^="Read AI summary:"], a[aria-label^="Read summary:"]',
+        ).length,
         media: {
           fineHover: matchMedia("(hover: hover) and (pointer: fine)").matches,
           coarse: matchMedia("(pointer: coarse)").matches,
@@ -158,9 +161,7 @@ export async function checkColumnsScanning(page, target, output, { baseline = fa
                   row.querySelector(".article-stacked-copy")?.firstElementChild?.tagName === "H2",
                 footer: box(row.querySelector(".article-stacked-footer")),
                 secondary: [
-                  ...row.querySelectorAll(
-                    ".article-stacked-summary, .article-share-trigger, .article-stacked-read",
-                  ),
+                  ...row.querySelectorAll(".article-share-trigger, .article-stacked-read"),
                 ].map((action) => ({
                   className: action.className,
                   opacity: getComputedStyle(action).opacity,
@@ -188,6 +189,7 @@ export async function checkColumnsScanning(page, target, output, { baseline = fa
       `${name}: the page stays within its viewport`,
     );
     assert.equal(geometry.images, 0);
+    assert.equal(geometry.summaryActions, 0, "Columns omit the duplicate summary action");
     if (name.endsWith("-top")) {
       assert.equal(
         geometry.media.fineHover,
@@ -250,7 +252,7 @@ export async function checkColumnsScanning(page, target, output, { baseline = fa
       const row = columns.first().locator(".article-stacked-row:not(.partner-placement)").first();
       await row.hover();
       const hovered = await row
-        .locator(".article-stacked-summary, .article-share-trigger, .article-stacked-read")
+        .locator(".article-share-trigger, .article-stacked-read")
         .evaluateAll((actions) =>
           actions.map((action) => Number(getComputedStyle(action).opacity)),
         );
@@ -267,7 +269,7 @@ export async function checkColumnsScanning(page, target, output, { baseline = fa
     if (!baseline) {
       const focused = await first
         .locator("xpath=ancestor::article")
-        .locator(".article-stacked-summary, .article-share-trigger, .article-stacked-read")
+        .locator(".article-share-trigger, .article-stacked-read")
         .evaluateAll((actions) =>
           actions.map((action) => Number(getComputedStyle(action).opacity)),
         );
