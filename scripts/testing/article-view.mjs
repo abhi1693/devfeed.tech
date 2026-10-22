@@ -192,6 +192,15 @@ export async function checkArticleViewSettings(
       if (width === 1440) {
         await page.keyboard.press("Escape");
         await menu.waitFor({ state: "hidden" });
+        await page.waitForFunction(
+          (node) => node === document.activeElement,
+          await avatar.elementHandle(),
+        );
+        assert.equal(
+          await avatar.evaluate((node) => node === document.activeElement),
+          true,
+          "Closing the desktop menu restores the avatar before opening the mobile menu",
+        );
         continue;
       }
       const appearance = menu.getByRole("menuitem", { name: "Appearance", exact: true });
@@ -453,6 +462,15 @@ export async function checkArticleViewSettings(
           });
         await page.keyboard.press("Escape");
         await menu.waitFor({ state: "hidden" });
+        await page.waitForFunction(
+          (node) => node === document.activeElement,
+          await claimedAvatar.elementHandle(),
+        );
+        assert.equal(
+          await claimedAvatar.evaluate((node) => node === document.activeElement),
+          true,
+          "Closing the claimed reader menu restores the same avatar before continuing",
+        );
       }
     } finally {
       await page.unroute(profilePattern, claimedProfile);

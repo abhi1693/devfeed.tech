@@ -707,6 +707,15 @@ export async function checkColumnsWorkspace(
       assert.ok((await item.boundingBox()).height >= 44, "Touch menu actions retain44px targets");
     await page.keyboard.press("Escape");
     await mobileMenu.waitFor({ state: "hidden" });
+    await page.waitForFunction(
+      (node) => node === document.activeElement,
+      await mobileOptions.elementHandle(),
+    );
+    assert.equal(
+      await mobileOptions.evaluate((node) => node === document.activeElement),
+      true,
+      "Closing the mobile column menu restores Options before keyboard reordering",
+    );
     const mobileActions = await selectedColumn
       .locator(".article-stacked-row")
       .first()

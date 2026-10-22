@@ -237,6 +237,16 @@ export async function checkIndependentFeedViews(page, target, output, { signedIn
         0,
       );
       await page.keyboard.press("Escape");
+      await page.getByRole("menu").waitFor({ state: "hidden" });
+      await page.waitForFunction(
+        (node) => node === document.activeElement,
+        await layout.elementHandle(),
+      );
+      assert.equal(
+        await layout.evaluate((node) => node === document.activeElement),
+        true,
+        "Closing the desktop layout menu restores its trigger before the mobile reopen",
+      );
     }
     assert.equal(
       await page.evaluate((key) => localStorage.getItem(key), legacyKey),
