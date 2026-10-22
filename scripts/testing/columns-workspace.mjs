@@ -363,12 +363,32 @@ export async function checkColumnsWorkspace(
       0,
       "Column headers have no refresh button",
     );
-    for (const column of await columns().all())
-      assert.equal(
-        await column.evaluate((node) => node.firstElementChild.querySelectorAll("button").length),
-        2,
-        "A column header exposes Reorder and Options",
+    for (const column of await columns().all()) {
+      const header = await column.evaluate((node) => {
+        const heading = node.firstElementChild.querySelector("h2");
+        return {
+          kind: node.dataset.feedKind,
+          name: heading.textContent.trim(),
+          title: heading.title,
+          nameText: heading.parentElement.textContent.trim(),
+          controls: [...node.firstElementChild.querySelectorAll("button")].map((button) =>
+            button.getAttribute("aria-label"),
+          ),
+        };
+      });
+      assert.deepEqual(
+        header.controls,
+        [`Reorder ${header.name} column`, `Options for ${header.name} column`],
+        "Column names retain their accessible Reorder and Options controls",
       );
+      assert.equal(
+        header.title,
+        header.name,
+        "The full feed name remains available on the heading",
+      );
+      if (["source", "topic", "tag"].includes(header.kind))
+        assert.equal(header.nameText, header.name, "Column names have no feed-kind subtitle");
+    }
     assert.deepEqual((await saved()).columns, [
       { id: originalIds[0], feed: { kind: "latest" } },
       { id: originalIds[1], feed: { kind: "recommended" } },

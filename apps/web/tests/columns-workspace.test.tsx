@@ -613,11 +613,16 @@ it("focuses Add column after the last account removal finishes saving", async ()
 });
 
 it.each(["source", "topic", "tag"] as const)(
-  "selects a %s by UUID and resolves its title after reload",
+  "selects a %s by UUID and restores its named header without a feed-type subtitle",
   async (kind) => {
     const api = transport();
     const app = await mount();
     fireEvent.click(screen.getByRole("button", { name: "Add column" }));
+    const picker = within(screen.getByRole("dialog", { name: "Add column" }));
+    for (const label of ["Source", "Topic", "Tag"])
+      expect(picker.getByRole("option", { name: label }).getAttribute("value")).toBe(
+        label.toLowerCase(),
+      );
     await editFeed(kind, catalog[kind].name);
     await saveEditor();
     const saved = storedColumns();
@@ -626,6 +631,15 @@ it.each(["source", "topic", "tag"] as const)(
     app.unmount();
     render(<Workspace />);
     await screen.findByRole("button", { name: `Options for ${catalog[kind].name} column` });
+    const heading = screen.getByRole("heading", { name: catalog[kind].name, level: 2 });
+    const header = within(heading.parentElement!.parentElement!);
+    expect(header.queryByText(/^(Source|Topic|Tag)$/)).toBeNull();
+    expect(
+      header.getByRole("button", { name: `Reorder ${catalog[kind].name} column` }),
+    ).toBeTruthy();
+    expect(
+      header.getByRole("button", { name: `Options for ${catalog[kind].name} column` }),
+    ).toBeTruthy();
     const lookup = api.fetcher.mock.calls
       .map(([input]) => new URL(String(input), window.location.href))
       .find((url) => url.pathname.endsWith(`/${catalog[kind].id}`));

@@ -99,16 +99,6 @@
 }
 .columnHeading > :first-child {
   min-width: 0;
-  min-height: 41px;
-  display: flex;
-  flex-direction: column;
-}
-.kind {
-  display: block;
-  color: var(--muted-foreground);
-  font-size: 12px;
-  margin-top: 3px;
-  line-height: 1.4;
 }
 .columnHeading h2 {
   margin: 0;

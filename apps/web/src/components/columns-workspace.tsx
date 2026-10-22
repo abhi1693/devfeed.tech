@@ -216,9 +216,6 @@ function ColumnCard({
           <h2 id={heading} title={name}>
             {name}
           </h2>
-          {isCatalog(column.feed.kind) && (
-            <span className={styles.kind}>{labels[column.feed.kind]}</span>
-          )}
         </div>
         <div className={styles.headingActions}>
           <button
