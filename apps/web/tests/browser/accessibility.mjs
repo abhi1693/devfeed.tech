@@ -40,14 +40,28 @@ async function tabTo(page, target) {
   assert.fail(`Control cannot be reached with Tab: ${await target.getAttribute("class")}`);
 }
 
-async function fitsViewport(page) {
+export async function fitsViewport(page) {
+  // Hydration can replace the disabled bookmark button with a guest link.
+  // Read visibility and geometry in one DOM evaluation, avoiding a stale box.
+  const measurement = await page.waitForFunction(() => {
+    for (const bookmark of document.querySelectorAll(".bookmark-button")) {
+      const { width, height } = bookmark.getBoundingClientRect();
+      if (width > 0 && height > 0 && getComputedStyle(bookmark).visibility === "visible")
+        return {
+          width,
+          height,
+          scrollWidth: document.documentElement.scrollWidth,
+          viewportWidth: innerWidth,
+        };
+    }
+    return false;
+  });
+  const bounds = await measurement.jsonValue();
+  await measurement.dispose();
   assert.ok(
-    await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1),
+    bounds.scrollWidth <= bounds.viewportWidth + 1,
     "Reader content must reflow without page-level horizontal scrolling",
   );
-  const bookmark = page.locator(".bookmark-button:visible").first();
-  await bookmark.waitFor();
-  const bounds = await bookmark.boundingBox();
   assert.ok(bounds.width >= 24 && bounds.height >= 24, "Bookmark target remains usable");
 }
 

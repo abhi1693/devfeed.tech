@@ -4,7 +4,7 @@ import { randomBytes } from "node:crypto";
 import { createServer } from "node:http";
 import { chromium } from "playwright";
 import AxeBuilder from "@axe-core/playwright";
-import { assertAccessible } from "./accessibility.mjs";
+import { assertAccessible, fitsViewport } from "./accessibility.mjs";
 import { observeAnimations } from "./animation-recorder.mjs";
 import { checkNonceCsp } from "../../../../scripts/testing/nonce-csp.mjs";
 
@@ -110,6 +110,31 @@ test("motion observations survive navigation and flush browser callbacks", async
     });
     assert.deepEqual(animations, ["motion-target", "motion-target"]);
     assert.deepEqual(await observeAnimations(page, () => page.reload()), []);
+  } finally {
+    await browser.close();
+  }
+});
+
+test("viewport checks wait for bookmark hydration and retain strict bounds", async () => {
+  const browser = await chromium.launch();
+  try {
+    const page = await browser.newPage({ viewport: { width: 320, height: 844 } });
+    await page.setContent('<main><button class="bookmark-button" hidden>Loading</button></main>');
+    await page.evaluate(() => {
+      requestAnimationFrame(() => {
+        const link = document.createElement("a");
+        link.className = "bookmark-button";
+        link.textContent = "Save";
+        link.style.cssText = "display:block;width:24px;height:24px";
+        document.querySelector(".bookmark-button").replaceWith(link);
+      });
+    });
+    await fitsViewport(page);
+    await page.locator(".bookmark-button").evaluate((node) => (node.style.width = "23px"));
+    await assert.rejects(fitsViewport(page), /Bookmark target remains usable/);
+    await page.locator(".bookmark-button").evaluate((node) => (node.style.width = "24px"));
+    await page.evaluate(() => (document.body.style.width = "500px"));
+    await assert.rejects(fitsViewport(page), /without page-level horizontal scrolling/);
   } finally {
     await browser.close();
   }
