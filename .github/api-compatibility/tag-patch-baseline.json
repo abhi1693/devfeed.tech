@@ -1,0 +1,76 @@
+{
+  "base_revision": "ff71700d275c2a8b69a77642b543b1a87955404c",
+  "schema": {
+    "additionalProperties": false,
+    "properties": {
+      "aliases": {
+        "anyOf": [
+          {
+            "items": {
+              "maxLength": 100,
+              "minLength": 1,
+              "type": "string"
+            },
+            "maxItems": 100,
+            "type": "array"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "title": "Aliases"
+      },
+      "auto_link_topic": {
+        "anyOf": [
+          {
+            "type": "boolean"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "title": "Auto Link Topic"
+      },
+      "name": {
+        "anyOf": [
+          {
+            "maxLength": 100,
+            "minLength": 1,
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "title": "Name"
+      },
+      "slug": {
+        "anyOf": [
+          {
+            "maxLength": 100,
+            "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "title": "Slug"
+      },
+      "topic_id": {
+        "anyOf": [
+          {
+            "format": "uuid",
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "title": "Topic Id"
+      }
+    },
+    "title": "TagPatch",
+    "type": "object"
+  }
+}

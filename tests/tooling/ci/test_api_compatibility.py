@@ -185,8 +185,9 @@ def test_classifier_probes_reject_incorrect_compatibility_classifications(
         contracts.verify_diff_rules(tmp_path)
 
 
-def test_ci_contracts_share_the_local_severity_policy_without_finding_exceptions():
+def test_ci_contracts_share_the_local_policy_and_keep_warn_as_the_gate():
     config = yaml.safe_load((ROOT / ".oasdiff.yaml").read_text())
+    assert set(config) == {"severity-levels", "err-ignore"}
     levels = [
         line.strip()
         for line in (ROOT / config["severity-levels"]).read_text().splitlines()
@@ -212,22 +213,62 @@ def test_ci_contracts_share_the_local_severity_policy_without_finding_exceptions
         assert "warn-ignore" not in step["with"]
 
 
+@pytest.mark.parametrize("findings", [[], [{"id": "request-property-pattern-added"}]])
+def test_raw_reports_preserve_findings_before_corrections(findings, tmp_path, monkeypatch):
+    calls = []
+
+    def run(command):
+        assert command[-4:] == ["--err-ignore", "/dev/null", "--warn-ignore", "/dev/null"]
+        assert command[command.index("--fail-on") + 1] == "WARN"
+        calls.append(Path(command[2]).stem)
+        return subprocess.CompletedProcess(command, int(bool(findings)), json.dumps(findings), "")
+
+    monkeypatch.setattr(contracts, "run_diff", run)
+    contracts.report_breaking_changes(tmp_path)
+    assert calls == list(contracts.CONTRACTS)
+    assert {path.stem for path in tmp_path.glob("*.json")} == set(contracts.CONTRACTS)
+    for name in contracts.CONTRACTS:
+        assert json.loads((tmp_path / f"{name}.json").read_text()) == findings
+
+
 @pytest.mark.parametrize(
-    "mode,revision", [("export", "head"), ("export", "base"), ("verify", None)]
+    "code,output",
+    [(2, "tool failed"), (0, "invalid JSON"), (0, "{}"), (1, "[]"), (0, '[{"id":"breaking"}]')],
+)
+def test_raw_reports_reject_tool_errors_and_inconsistent_results(
+    code, output, tmp_path, monkeypatch
+):
+    monkeypatch.setattr(
+        contracts,
+        "run_diff",
+        lambda command: subprocess.CompletedProcess(command, code, output, "failure details"),
+    )
+    with pytest.raises(ValueError):
+        contracts.report_breaking_changes(tmp_path)
+    assert (tmp_path / "public.json").read_text() == output
+
+
+@pytest.mark.parametrize(
+    "mode,revision", [("export", "head"), ("export", "base"), ("verify", None), ("report", None)]
 )
 def test_cli_returns_the_gate_result(mode, revision, tmp_path, monkeypatch):
     monkeypatch.setattr(contracts, "ROOT", tmp_path)
-    directory = tmp_path / "reports/api-compatibility" / (revision or "probes")
+    directory = (
+        tmp_path
+        / "reports/api-compatibility"
+        / (revision or ("raw" if mode == "report" else "probes"))
+    )
     arguments = ["api_contracts", mode, *([revision] if revision else [])]
     monkeypatch.setattr("sys.argv", arguments)
     calls = []
     monkeypatch.setattr(contracts, "export_contracts", lambda output: calls.append(output))
     monkeypatch.setattr(contracts, "verify_diff_rules", lambda output: calls.append(output))
+    monkeypatch.setattr(contracts, "report_breaking_changes", lambda output: calls.append(output))
     assert contracts.main() == 0
     assert calls == [directory]
 
 
-@pytest.mark.parametrize("mode", ["export", "verify"])
+@pytest.mark.parametrize("mode", ["export", "verify", "report"])
 @pytest.mark.parametrize("escape", ["absolute", "traversal", "symlink"])
 def test_cli_rejects_output_escapes_before_work(mode, escape, tmp_path, monkeypatch):
     monkeypatch.setattr(contracts, "ROOT", tmp_path)
@@ -260,7 +301,7 @@ def test_cli_rejects_executable_override(tmp_path, monkeypatch):
     assert not output.exists()
 
 
-@pytest.mark.parametrize("name", ["head", "base", "probes"])
+@pytest.mark.parametrize("name", ["head", "base", "probes", "raw"])
 def test_fixed_report_destinations_reject_symlinks(name, tmp_path, monkeypatch):
     monkeypatch.setattr(contracts, "ROOT", tmp_path)
     root = tmp_path / "reports/api-compatibility"

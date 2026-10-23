@@ -22,6 +22,7 @@ def report_directory(name: str) -> Path:
         "head": root / "head",
         "base": root / "base",
         "probes": root / "probes",
+        "raw": root / "raw",
     }[name].resolve()
     if not directory.is_relative_to(root):
         raise ValueError("Output must be within reports/api-compatibility")
@@ -169,7 +170,109 @@ PROBE_RESULTS = {
     "response-root-max-unset": 1,
     "response-max-increased": 1,
     "request-max-decreased": 1,
+    "tag-patch-schema-correction": 0,
+    "tag-patch-alias-limit": 1,
+    "tag-patch-name-max": 1,
+    "tag-patch-slug-max": 1,
+    "tag-patch-name-min": 1,
+    "tag-patch-slug-pattern": 1,
+    "tag-patch-required-name": 1,
+    "tag-patch-null-topic": 1,
+    "tag-patch-other-null": 1,
+    "tag-patch-other-type": 1,
+    "tag-patch-other-endpoint": 1,
+    "tag-patch-other-method": 1,
 }
+
+
+def tag_patch_probe(change: str) -> tuple[dict, dict]:
+    """Keep the documented correction from concealing real future restrictions."""
+    from devfeed_core.schemas import TagPatch
+
+    baseline = json.loads((ROOT / ".github/api-compatibility/tag-patch-baseline.json").read_text())[
+        "schema"
+    ]
+    current = TagPatch.model_json_schema(mode="validation")
+    base = {
+        "openapi": "3.1.0",
+        "info": {"title": "Tag PATCH compatibility probe", "version": "1"},
+        "paths": {
+            "/v1/admin/tags/{tag_id}": {
+                "patch": {
+                    "parameters": [
+                        {
+                            "name": "tag_id",
+                            "in": "path",
+                            "required": True,
+                            "schema": {"type": "string"},
+                        }
+                    ],
+                    "requestBody": {
+                        "required": True,
+                        "content": {"application/json": {"schema": baseline}},
+                    },
+                    "responses": {"200": {"description": "Updated tag"}},
+                }
+            }
+        },
+    }
+    head = copy.deepcopy(base)
+    old = base["paths"]["/v1/admin/tags/{tag_id}"]["patch"]["requestBody"]["content"][
+        "application/json"
+    ]["schema"]
+    head["paths"]["/v1/admin/tags/{tag_id}"]["patch"]["requestBody"]["content"]["application/json"][
+        "schema"
+    ] = current
+    properties = current["properties"]
+    if change == "tag-patch-alias-limit":
+        properties["aliases"]["maxItems"] = 99
+    elif change == "tag-patch-name-max":
+        properties["name"]["maxLength"] = 99
+    elif change == "tag-patch-slug-max":
+        properties["slug"]["maxLength"] = 99
+    elif change == "tag-patch-name-min":
+        properties["name"]["minLength"] = 2
+    elif change == "tag-patch-slug-pattern":
+        properties["slug"]["pattern"] = "^[a-z]+$"
+    elif change == "tag-patch-required-name":
+        current["required"] = ["name"]
+    elif change == "tag-patch-null-topic":
+        properties["topic_id"] = {"type": "string", "format": "uuid"}
+    elif change == "tag-patch-other-null":
+        old["properties"]["description"] = {"type": ["string", "null"]}
+        properties["description"] = {"type": "string"}
+    elif change == "tag-patch-other-type":
+        old["properties"]["name"]["anyOf"].append({"type": "integer"})
+    elif change in {"tag-patch-other-endpoint", "tag-patch-other-method"}:
+        for document in (base, head):
+            operation = document["paths"].pop("/v1/admin/tags/{tag_id}")
+            if change == "tag-patch-other-endpoint":
+                document["paths"]["/v1/admin/other-tags/{tag_id}"] = operation
+            else:
+                operation["put"] = operation.pop("patch")
+                document["paths"]["/v1/admin/tags/{tag_id}"] = operation
+    return base, head
+
+
+def report_breaking_changes(output: Path, binary: str = "oasdiff") -> None:
+    """Retain unfiltered evidence; the five native action checks remain the gate."""
+    output.mkdir(parents=True, exist_ok=True)
+    for contract in CONTRACTS:
+        command = breaking_command(
+            binary,
+            ROOT / ".oasdiff.yaml",
+            report_directory("base") / f"{contract}.json",
+            report_directory("head") / f"{contract}.json",
+            "json",
+        )
+        command.extend(["--err-ignore", "/dev/null", "--warn-ignore", "/dev/null"])
+        result = run_diff(command)
+        (output / f"{contract}.json").write_text(result.stdout)
+        if result.returncode not in (0, 1):
+            raise ValueError(f"oasdiff could not report {contract} findings: {result.stderr}")
+        findings = json.loads(result.stdout)
+        if not isinstance(findings, list) or bool(findings) != bool(result.returncode):
+            raise ValueError(f"oasdiff could not report {contract} findings: {result.stderr}")
 
 
 def verify_diff_rules(output: Path, binary: str = "oasdiff") -> None:
@@ -272,6 +375,8 @@ def verify_diff_rules(output: Path, binary: str = "oasdiff") -> None:
         elif change == "required-response-removed":
             del article["properties"]["id"]
             article["required"].remove("id")
+        elif change.startswith("tag-patch-"):
+            original, head = tag_patch_probe(change)
         base_path = output / f"{change}.base.json"
         head_path = output / f"{change}.json"
         write_json(base_path, original)
@@ -294,9 +399,12 @@ def main() -> int:
     export = commands.add_parser("export")
     export.add_argument("revision", choices=("head", "base"))
     commands.add_parser("verify")
+    commands.add_parser("report")
     args = parser.parse_args()
     if args.command == "verify":
         verify_diff_rules(report_directory("probes"))
+    elif args.command == "report":
+        report_breaking_changes(report_directory("raw"))
     else:
         export_contracts(report_directory(args.revision))
     return 0

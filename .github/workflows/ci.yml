@@ -414,6 +414,9 @@ jobs:
         id: probes
         if: steps.changes.outputs.changed == 'true'
         run: uv run --no-sync --no-build --locked python scripts/ci/api_contracts.py verify
+      - name: Preserve findings before documented schema corrections
+        if: steps.changes.outputs.changed == 'true'
+        run: uv run --no-sync --no-build --locked python scripts/ci/api_contracts.py report
       - name: Check public API
         id: public
         if: ${{ !cancelled() && steps.probes.outcome == 'success' }}
@@ -500,7 +503,8 @@ jobs:
             printf '| mcp-account | %s |\n' "$API_MCP_ACCOUNT_RESULT"
             echo
             echo 'Compared generated PR base and merge-candidate schemas using their own locked dependencies.'
-            echo 'WARN and ERR findings fail CI. Schemas and reports are in the api-compatibility artifact.'
+            echo 'Unapproved WARN and ERR findings fail CI; exact documented schema corrections use the shared policy.'
+            echo 'Schemas, raw findings before corrections, and gated reports are in the api-compatibility artifact.'
           } >> "$GITHUB_STEP_SUMMARY"
       - name: Upload API reports
         if: always() && steps.changes.outputs.changed == 'true'
