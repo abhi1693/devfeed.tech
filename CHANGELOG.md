@@ -2,6 +2,18 @@
 
 Application releases and Alembic schema revisions are separate identifiers.
 
+## 0.1.3 — 2026-10-24
+
+### Performance Improvements
+
+- [#288](https://github.com/abhi1693/devfeed.tech/pull/288) - Refresh catalog-dependent article cards in bounded batches without restarting full historical scans, and avoid rewriting unchanged pipeline cards.
+- [#289](https://github.com/abhi1693/devfeed.tech/pull/289) - Reduce database work for token-usage charts and blocker reports while preserving exact totals and retry targets.
+
+### Bug Fixes
+
+- [#287](https://github.com/abhi1693/devfeed.tech/pull/287) - Keep Latest and personalized feed pagination independent of temporary failures in optional response caching.
+- [#288](https://github.com/abhi1693/devfeed.tech/pull/288) - Distinguish catalog refreshes from full rebuilds, show independent article and source update times, and prevent healthy idle pipelines from appearing stale.
+
 ## 0.1.2 — 2026-10-23
 
 ### Enhancements
