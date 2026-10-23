@@ -346,18 +346,21 @@ def get_feed_sequence_cache() -> ResponseCache:
 
 
 def close_cache() -> None:
-    if _cache_for_process.cache_info().currsize:
-        cache = get_cache()
-        try:
-            cache.redis.close()
-        finally:
+    try:
+        if _cache_for_process.cache_info().currsize:
+            cache = get_cache()
             try:
-                if cache.sitemap is not None:
-                    cache.sitemap.redis.close()
+                cache.redis.close()
             finally:
-                if cache.feed_sequences is not None:
-                    cache.feed_sequences.redis.close()
-    _cache_for_process.cache_clear()
+                try:
+                    if cache.sitemap is not None:
+                        cache.sitemap.redis.close()
+                finally:
+                    if cache.feed_sequences is not None:
+                        cache.feed_sequences.redis.close()
+    finally:
+        # A close error must not leave disconnected clients available for reuse.
+        _cache_for_process.cache_clear()
 
 
 def invalidate_public_cache(*, reasons: Collection[str] = ("unspecified",)) -> None:

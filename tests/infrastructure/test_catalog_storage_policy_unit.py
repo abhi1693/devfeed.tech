@@ -187,6 +187,55 @@ def test_process_cache_isolates_database_namespace_and_closes_all_owned_pools(mo
         cache._cache_for_process.cache_clear()
 
 
+def test_shutdown_does_not_allocate_unused_feed_or_sitemap_pools(monkeypatch):
+    connect = Mock(side_effect=lambda *_args, **_kwargs: Mock())
+    monkeypatch.setattr(cache, "create_redis", connect)
+    cache._cache_for_process.cache_clear()
+    try:
+        cache.close_cache()
+        connect.assert_not_called()
+        original = cache.get_cache()
+        assert original.feed_sequences is None and original.sitemap is None
+        cache.close_cache()
+        connect.assert_called_once()
+        original.redis.close.assert_called_once()
+        assert cache._cache_for_process.cache_info().currsize == 0
+        replacement = cache.get_cache()
+        assert replacement is not original and replacement.redis is not original.redis
+        replacement.redis.close.assert_not_called()
+        assert connect.call_count == 2
+    finally:
+        cache.close_cache()
+
+
+@pytest.mark.parametrize("failing_pool", ["response", "sitemap", "feed_sequences"])
+def test_shutdown_closes_every_owned_pool_and_forgets_closed_clients_after_failure(
+    monkeypatch, failing_pool
+):
+    connect = Mock(side_effect=lambda *_args, **_kwargs: Mock())
+    monkeypatch.setattr(cache, "create_redis", connect)
+    cache._cache_for_process.cache_clear()
+    try:
+        original = cache.get_cache()
+        pools = {
+            "response": original,
+            "sitemap": cache.get_sitemap_cache(),
+            "feed_sequences": cache.get_feed_sequence_cache(),
+        }
+        pools[failing_pool].redis.close.side_effect = RuntimeError("Transport close failed")
+        with pytest.raises(RuntimeError, match="Transport close failed"):
+            cache.close_cache()
+        for pool in pools.values():
+            pool.redis.close.assert_called_once()
+        assert cache._cache_for_process.cache_info().currsize == 0
+        replacement = cache.get_cache()
+        assert replacement is not original and replacement.redis is not original.redis
+        assert replacement.sitemap is None and replacement.feed_sequences is None
+        replacement.redis.close.assert_not_called()
+    finally:
+        cache.close_cache()
+
+
 def test_retention_removes_selected_payloads_and_step_outputs_but_preserves_audit_identity(
     monkeypatch,
 ):
