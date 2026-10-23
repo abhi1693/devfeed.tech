@@ -10,6 +10,7 @@ Application releases and Alembic schema revisions are separate identifiers.
 
 ### Performance Improvements
 
+- [#284](https://github.com/abhi1693/devfeed.tech/pull/284) - Unload inactive analysis threads after requests finish instead of retaining completed work through the default 30-minute grace period.
 - [#280](https://github.com/abhi1693/devfeed.tech/pull/280) - Serve administration boards and Overview reports from indexed, durable read models maintained by dedicated workers, with visible freshness and recovery status.
 
 ### Bug Fixes

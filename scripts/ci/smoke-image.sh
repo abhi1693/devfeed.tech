@@ -45,20 +45,8 @@ PY
   exit 0
 fi
 if [[ "$ci_component" = codex ]]; then
-  expected_codex_version=$(python3 -c 'import json; print(json.load(open("infra/codex/package.json"))["dependencies"]["@openai/codex"])')
-  actual_codex_version=$(docker run --rm "$ci_image" --version)
-  [[ "$actual_codex_version" = "codex-cli $expected_codex_version" ]]
-  echo "$actual_codex_version"
-  ci_container=$(docker run -d --rm "$ci_image")
-  for attempt in $(seq 1 30); do
-    if docker exec "$ci_container" node /opt/devfeed/health.cjs; then
-      docker exec -i "$ci_container" node - "$ci_version" < scripts/ci/smoke-codex.cjs
-      echo "Codex on $ci_arch passed its runtime smoke test"
-      exit 0
-    fi
-    if [[ "$attempt" -eq 30 ]]; then docker logs "$ci_container"; exit 1; fi
-    sleep 1
-  done
+  bash scripts/ci/smoke-codex.sh "$ci_image" "$ci_arch" "$ci_version"
+  exit 0
 fi
 if [[ "$ci_component" = article-enrichment-worker ]] || [[ "$ci_component" = images-worker ]] || [[ "$ci_component" = source-discovery-worker ]]; then
   ci_command=devfeed-article-enrichment-worker
@@ -85,6 +73,7 @@ forbidden = {
 assert all(importlib.util.find_spec(module) for module in required)
 assert all(importlib.util.find_spec(module) is None for module in forbidden)
 PY
+  python3 scripts/ci/smoke_fleet_contracts.py "$ci_image" "$ci_component"
   echo "$ci_component on $ci_arch passed its runtime smoke test"
   exit 0
 fi
@@ -217,4 +206,5 @@ if [[ "$ci_component" = backend ]]; then
   docker exec "$ci_container" devfeed-scheduler --help >/dev/null
 fi
 rm -f "$ci_response"
+python3 scripts/ci/smoke_fleet_contracts.py "$ci_image" "$ci_component"
 echo "$ci_component on $ci_arch passed its runtime smoke test"

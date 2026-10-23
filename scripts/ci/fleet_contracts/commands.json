@@ -1,0 +1,265 @@
+{
+  "schema_version": 1,
+  "provenance": {
+    "repository": "https://github.com/abhi1693/home-lab",
+    "revision": "76bd4d280e00031e31b05f7c2b3e7fa15b1135c2",
+    "path": "kubernetes/projects/applications/apps/devfeed",
+    "files_sha256": {
+      "deployment-api.yaml": "2b0c7eea0820a8c60a0473f938359a5244b9793e484b016dbb4feac924c2eec2",
+      "deployment-admin-api.yaml": "f8687670a007c77c85f9051b7e917955df2297aa651169c1f29af47f47a4311f",
+      "deployment-user-api.yaml": "976f17ba426680f3d504520ca42ec83a55e86e682f426193b641724c6431d267",
+      "deployment-partner-api.yaml": "7a2b2ab7d5400cb429e11016c1734afb0c40d856414aab16c239e69b3919e1a2",
+      "deployment-read-model-pipeline.yaml": "3711a77548daacd29ef0501e396b6786fa5c3c12a1bd486bcdd1e76c06624a16",
+      "deployment-read-model-reports.yaml": "625bc236d3d5a49523fa490f4ef3c26efd4a9a27a3dbc31d159718a5c162ebbd",
+      "deployment-scheduler.yaml": "690e7920067fc8e688cd97d77f6a901d4bd824bc85117a461102a4c7fa0b662d",
+      "deployment-search-indexer.yaml": "a6b18be0dea90661a88705e0207b6f82242d7450bf650c35030d80f9b78a2748",
+      "deployment-worker-ai.yaml": "5cfc1974be5458cc5e9af5e7b39304a03aa549c7908bf1b6f500e671abbc88ed",
+      "deployment-worker-notification.yaml": "dab7f1a6c115f1a22cbdd7b1442c5bc895f4a8b0c111d4cb0ea67eff66f022ee",
+      "deployment-worker-article-enrichment.yaml": "d98d1918dfec8f072d3b63ea84c22da0621a3a05b5be650ce46893ee9c117d51",
+      "deployment-worker-images.yaml": "f3e1244624c70fde91c62dc831bd3e373dadc90812c87d4484074af6db49169e",
+      "deployment-worker-source-discovery.yaml": "bffce3ac079cca57fc9edf9e3476f36ed04ebf1a61fbc36fea560f645a6e92a6",
+      "migration-hook.yaml": "08db166e78dfc7b3409a6f1cd1f7d3bf50d657bf1c71e135291393d76d067a82",
+      "read-model-backfill-hook.yaml": "c171bcd3b16fe76cc883d02b786ef45d820434aa970761a7a1a93c743f33c074",
+      "deployment-web.yaml": "b5a0086e53c93cdbd4fe4e7350fc6c07bf6e08787d9ce87941fa3011b35cd7b9"
+    }
+  },
+  "contracts": {
+    "api": {
+      "command": [
+        "uvicorn",
+        "devfeed_api.main:app",
+        "--host",
+        "0.0.0.0",
+        "--port",
+        "8000",
+        "--no-proxy-headers",
+        "--no-access-log"
+      ],
+      "probes": {}
+    },
+    "admin-api": {
+      "command": [
+        "python",
+        "/opt/devfeed/consumer.py",
+        "admin",
+        "uvicorn",
+        "devfeed_admin_api.main:app",
+        "--host",
+        "0.0.0.0",
+        "--port",
+        "8001",
+        "--no-proxy-headers",
+        "--no-access-log"
+      ],
+      "probes": {}
+    },
+    "user-api": {
+      "command": [
+        "python",
+        "/opt/devfeed/consumer.py",
+        "user",
+        "uvicorn",
+        "devfeed_user_api.main:app",
+        "--host",
+        "0.0.0.0",
+        "--port",
+        "8002",
+        "--no-proxy-headers",
+        "--no-access-log"
+      ],
+      "probes": {}
+    },
+    "partner-api": {
+      "command": [
+        "uvicorn",
+        "devfeed_partner_api.main:app",
+        "--host",
+        "0.0.0.0",
+        "--port",
+        "8004",
+        "--no-proxy-headers",
+        "--no-access-log"
+      ],
+      "probes": {}
+    },
+    "pipeline": {
+      "command": ["python", "-m", "devfeed_admin_api.projection_worker", "--kind", "pipeline"],
+      "probes": {
+        "readinessProbe": [
+          "python",
+          "-m",
+          "devfeed_admin_api.projection_worker",
+          "--healthcheck",
+          "--kind",
+          "pipeline"
+        ],
+        "startupProbe": [
+          "python",
+          "-m",
+          "devfeed_admin_api.projection_worker",
+          "--healthcheck",
+          "--kind",
+          "pipeline"
+        ],
+        "livenessProbe": [
+          "python",
+          "-m",
+          "devfeed_admin_api.projection_worker",
+          "--healthcheck",
+          "--kind",
+          "pipeline"
+        ]
+      }
+    },
+    "reports": {
+      "command": ["python", "-m", "devfeed_admin_api.projection_worker", "--kind", "reports"],
+      "probes": {
+        "readinessProbe": [
+          "python",
+          "-m",
+          "devfeed_admin_api.projection_worker",
+          "--healthcheck",
+          "--kind",
+          "reports"
+        ],
+        "startupProbe": [
+          "python",
+          "-m",
+          "devfeed_admin_api.projection_worker",
+          "--healthcheck",
+          "--kind",
+          "reports"
+        ],
+        "livenessProbe": [
+          "python",
+          "-m",
+          "devfeed_admin_api.projection_worker",
+          "--healthcheck",
+          "--kind",
+          "reports"
+        ]
+      }
+    },
+    "scheduler": {
+      "command": ["devfeed", "scheduler"],
+      "probes": {
+        "livenessProbe": [
+          "python",
+          "-c",
+          "import os; from devfeed_core.config import get_settings; from devfeed_core.redis import create_redis; assert create_redis(get_settings()).exists('devfeed:scheduler:heartbeat')"
+        ]
+      }
+    },
+    "indexer": {
+      "command": [
+        "sh",
+        "-ec",
+        "until devfeed search setup; do sleep 5; done; exec devfeed-search-indexer"
+      ],
+      "probes": {
+        "readinessProbe": [
+          "python",
+          "-c",
+          "import time; from devfeed_core.runtime_files import runtime_marker; stamp = runtime_marker('search-heartbeat').stat().st_mtime; assert 0 <= time.time()-stamp < 120"
+        ],
+        "startupProbe": [
+          "python",
+          "-c",
+          "import time; from devfeed_core.runtime_files import runtime_marker; stamp = runtime_marker('search-heartbeat').stat().st_mtime; assert 0 <= time.time()-stamp < 120"
+        ],
+        "livenessProbe": [
+          "python",
+          "-c",
+          "import time; from devfeed_core.runtime_files import runtime_marker; stamp = runtime_marker('search-heartbeat').stat().st_mtime; assert 0 <= time.time()-stamp < 120"
+        ]
+      }
+    },
+    "worker": {
+      "command": [
+        "sh",
+        "-ec",
+        "worker_name=\"$HOSTNAME-$(python -c 'import uuid; print(uuid.uuid4().hex)')\"\nprintf %s \"$worker_name\" > /tmp/devfeed-worker-name\nexec devfeed worker --queue \"$DEVFEED_WORKER_QUEUE\" --name \"$worker_name\""
+      ],
+      "probes": {
+        "readinessProbe": ["python", "-m", "devfeed_core.worker_health"],
+        "livenessProbe": ["python", "-m", "devfeed_core.worker_health"]
+      }
+    },
+    "notification-worker": {
+      "command": [
+        "python",
+        "/opt/devfeed/consumer.py",
+        "worker",
+        "sh",
+        "-ec",
+        "worker_name=\"$HOSTNAME-$(python -c 'import uuid; print(uuid.uuid4().hex)')\"\nprintf %s \"$worker_name\" > /tmp/devfeed-worker-notification-name\nexec devfeed worker --queue \"$DEVFEED_WORKER_QUEUE\" --name \"$worker_name\""
+      ],
+      "probes": {
+        "readinessProbe": ["python", "-m", "devfeed_core.worker_health"],
+        "livenessProbe": ["python", "-m", "devfeed_core.worker_health"]
+      }
+    },
+    "article-enrichment-worker": {
+      "command": ["devfeed-article-enrichment-worker"],
+      "probes": {
+        "readinessProbe": ["python", "-m", "devfeed_core.worker_health"],
+        "livenessProbe": ["python", "-m", "devfeed_core.worker_health"]
+      }
+    },
+    "images-worker": {
+      "command": ["devfeed-images-worker"],
+      "probes": {
+        "readinessProbe": ["python", "-m", "devfeed_core.worker_health"],
+        "livenessProbe": ["python", "-m", "devfeed_core.worker_health"]
+      }
+    },
+    "source-discovery-worker": {
+      "command": ["devfeed-source-discovery-worker"],
+      "probes": {
+        "readinessProbe": ["python", "-m", "devfeed_core.worker_health"],
+        "livenessProbe": ["python", "-m", "devfeed_core.worker_health"]
+      }
+    },
+    "migrate": {
+      "command": [
+        "python",
+        "-c",
+        "from sqlalchemy import event\nfrom devfeed_core.db import get_engine\nfrom devfeed_cli.main import run\n\ndef migration_connection(connection, _record):\n    autocommit = connection.autocommit\n    connection.autocommit = True\n    try:\n        with connection.cursor() as cursor:\n            cursor.execute(\"SET statement_timeout = '600s'\")\n            cursor.execute(\"SET lock_timeout = '30s'\")\n    finally:\n        connection.autocommit = autocommit\n\n# Run after the application's normal 30-second connect listener.\n# Only this short-lived migration process gets the larger budget.\nevent.listen(get_engine(), \"connect\", migration_connection)\nraise SystemExit(run([\"db\", \"upgrade\"]))\n"
+      ],
+      "probes": {}
+    },
+    "backfill": {
+      "command": [
+        "python",
+        "-u",
+        "-c",
+        "import json\nimport time\nfrom sqlalchemy.orm import sessionmaker\nfrom devfeed_core.config import get_settings\nfrom devfeed_core.db import create_database_engine\nfrom devfeed_core.models import ReportSnapshot\nfrom devfeed_core.read_models import pipeline_policy_version\nfrom devfeed_admin_api.projection_worker import run\nfrom devfeed_admin_api.overview_projection import (\n    INDEPENDENT_GROUPS, REPORT_GROUPS, refresh_overview_projections,\n    report_key, report_policy_version,\n)\nfrom devfeed_admin_api.pipeline_reads import serving_projection\n\nstarted = time.monotonic()\nsettings = get_settings()\nif not settings.read_model_database_url:\n    raise RuntimeError(\"A reserved read-model database pool is required\")\nprint(\"Starting bounded pipeline backfill\", flush=True)\nrun(drain=True, kind=\"pipeline\")\nengine = create_database_engine(settings.model_copy(update={\n    \"database_url\": settings.read_model_database_url,\n    \"database_pool_enabled\": False,\n}))\nfactory = sessionmaker(engine, expire_on_commit=False)\ntry:\n    with factory() as session:\n        generation, snapshot = serving_projection(session)\n        if (\n            generation != pipeline_policy_version()\n            or snapshot.status == \"rebuilding\"\n            or snapshot.lag_seconds is None\n            or snapshot.lag_seconds > 60\n        ):\n            raise RuntimeError(\"Pipeline policy coverage or freshness is incomplete\")\n    required = {\n        report_key(group, days)\n        for group in REPORT_GROUPS\n        for days in ((1,) if group in INDEPENDENT_GROUPS else (7, 30))\n    }\n    # Seed defaults once. A failed calculation cannot be mistaken for a complete\n    # report just because another group refreshed successfully.\n    published = refresh_overview_projections(factory, limit=100)\n    version = report_policy_version()\n    missing = []\n    with factory() as session:\n        for key in sorted(required):\n            stored = session.get(ReportSnapshot, key)\n            if stored is None or stored.policy_version != version:\n                missing.append(key)\n    if missing:\n        raise RuntimeError(f\"Default reports are incomplete: {missing}\")\n    print(json.dumps({\n        \"pipeline_generation\": generation,\n        \"report_groups\": len(REPORT_GROUPS),\n        \"default_reports\": len(required),\n        \"published_reports\": published,\n        \"duration_seconds\": round(time.monotonic() - started, 3),\n        \"cutover_ready\": True,\n    }), flush=True)\nfinally:\n    engine.dispose()\n"
+      ],
+      "probes": {}
+    },
+    "ca": {
+      "command": [
+        "python",
+        "-c",
+        "from pathlib import Path; Path('/run/ca/ca-bundle.crt').write_bytes(Path('/etc/ssl/certs/ca-certificates.crt').read_bytes()+b'\\n'+Path('/run/codex-ca/ca.crt').read_bytes())"
+      ]
+    },
+    "wait-schema": {
+      "command": [
+        "python",
+        "-c",
+        "import time\nfrom sqlalchemy import text\nfrom devfeed_core.db import get_engine\nfrom devfeed_core.version import SCHEMA_REVISION, BACKWARD_COMPATIBLE_SCHEMA_REVISIONS\nfor attempt in range(180):\n    try:\n        with get_engine().connect() as connection:\n            if connection.execute(text(\"SELECT version_num FROM alembic_version\")).scalar() in {SCHEMA_REVISION, *BACKWARD_COMPATIBLE_SCHEMA_REVISIONS}:\n                print(\"Database schema ready\", flush=True)\n                break\n    except Exception:\n        pass\n    time.sleep(5)\nelse:\n    raise SystemExit(\"Timed out waiting for release schema\")\n"
+      ]
+    },
+    "wait-inbox": {
+      "command": [
+        "python",
+        "-c",
+        "import time; from pathlib import Path\nfor _ in range(180):\n if Path('/run/devfeed-chimely/credentials.json').is_file(): break\n time.sleep(5)\nelse: raise SystemExit('Inbox provisioning not ready')"
+      ]
+    },
+    "web-prestop": {
+      "command": ["/bin/sh", "-c", "sleep 15"]
+    }
+  }
+}
