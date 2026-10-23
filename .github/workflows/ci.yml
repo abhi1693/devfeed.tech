@@ -361,7 +361,7 @@ jobs:
           git diff --name-only "$BASE_SHA" "$CANDIDATE_SHA" -- \
             apps/api apps/user-api apps/admin-api apps/mcp packages/core packages/http \
             apps/admin/openapi.json pyproject.toml uv.lock .env.example \
-            scripts/ci/api_contracts.py tests/test_api_compatibility.py tests/test_api_contracts.py \
+            scripts/ci/api_contracts.py tests/tooling/ci/test_api_compatibility.py tests/api/test_api_contracts.py \
             .oasdiff.yaml .github/api-compatibility .github/workflows/ci.yml > "$RUNNER_TEMP/api-files.txt"
           if [[ -s "$RUNNER_TEMP/api-files.txt" ]]; then
             echo 'changed=true' >> "$GITHUB_OUTPUT"

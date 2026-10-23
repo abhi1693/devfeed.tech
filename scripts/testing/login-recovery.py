@@ -7,8 +7,8 @@ from urllib.parse import parse_qs, urlsplit
 import pytest
 import uvicorn
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "tests"))
-import test_user_auth  # noqa: E402
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+import tests.users.auth.test_auth as test_user_auth  # noqa: E402
 
 # The mock issuer signs fresh tokens and verifies the real PKCE verifier. The
 # fixture owns its in-memory store and cannot reach any deployed service.

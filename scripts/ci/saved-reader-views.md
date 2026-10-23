@@ -40,8 +40,8 @@ The column menu also offers **Move to position** for click/tap-only reordering.
 These helpers run through the production web app and both installed, built browser extensions.
 They mock local API fixtures, so they do not prove production deployment, identity provider
 configuration, or extension store publication. Account API authorization and persistence also
-have backend regressions in `tests/test_user_columns_settings.py`, `tests/test_user_feed_views.py`,
-and `tests/test_user_column_starters.py`. `tests/test_user_reader_view_persistence.py` uses
+have backend regressions in `tests/users/reader/views/test_columns_settings.py`, `tests/users/reader/views/test_feed_views.py`,
+and `tests/users/reader/views/test_column_starters.py`. `tests/users/reader/views/test_reader_view_persistence.py` uses
 independent authenticated sessions and fresh app clients to verify restoration from committed
 PostgreSQL records, without browser storage or overridden authentication.
 

@@ -167,7 +167,7 @@ reports a tool error if that index is unavailable.
 ## Verify
 
 ```sh
-uv run pytest tests/test_mcp.py -q
+uv run pytest tests/mcp/test_mcp.py -q
 bash .github/scripts/python-checks.sh
 docker build -f apps/mcp/Dockerfile -t devfeed/mcp:local .
 bash scripts/ci/smoke-image.sh devfeed/mcp:local mcp amd64 0.0.44

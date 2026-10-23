@@ -51,9 +51,9 @@ jobs:
             /usr/bin/git diff --name-only "$BASE_SHA" "$HEAD_SHA" -- \
               apps/api apps/user-api apps/admin-api apps/aggregator apps/notifications \
               packages/core packages/http migrations scripts/ci/failure_recovery.py \
-              scripts/ci/failure_services.py tests/test_failure_recovery.py \
-              tests/test_failure_recovery_runner.py tests/conftest.py \
-              scripts/ci/sonar_coverage.py tests/test_sonar_coverage.py \
+              scripts/ci/failure_services.py tests/tooling/ci/test_failure_recovery.py \
+              tests/tooling/ci/test_failure_recovery_runner.py tests/conftest.py \
+              scripts/ci/sonar_coverage.py tests/tooling/ci/test_sonar_coverage.py \
               .github/workflows/ci.yml .github/workflows/recovery.yml \
               pyproject.toml uv.lock > "$RUNNER_TEMP/recovery-files.txt"
             if [[ -s "$RUNNER_TEMP/recovery-files.txt" ]]; then

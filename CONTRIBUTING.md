@@ -111,8 +111,8 @@ For a focused test run, omit coverage or temporarily disable its whole-suite
 minimum for that command:
 
 ```sh
-uv run --locked pytest -q tests/test_mcp_oauth_unit.py
-uv run --locked pytest -q tests/test_mcp_oauth_unit.py --cov --cov-fail-under=0
+uv run --locked pytest -q tests/mcp/test_mcp_oauth_unit.py
+uv run --locked pytest -q tests/mcp/test_mcp_oauth_unit.py --cov --cov-fail-under=0
 ```
 
 Integration tests require explicit `DEVFEED_TEST_DATABASE_URL` and

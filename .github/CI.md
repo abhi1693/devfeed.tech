@@ -51,6 +51,8 @@ validation prevents image builds from competing with these tests.
 Unit shards balance selected test-case counts while keeping whole files,
 module fixtures, and parametrizations together. Every shard records its full
 collection fingerprint, assigned node IDs, exit status, and run/SHA/attempt.
+Backend tests live in nested domain packages under `tests/`; selection uses
+pytest markers, and sharding discovers their paths without a flat-file allowlist.
 The aggregate rejects missing, overlapping, incomplete, failed, skipped, stale,
 or unmeasured shards before combining JUnit and branch coverage.
 Parametrized cases that use random values or clocks need stable descriptive test

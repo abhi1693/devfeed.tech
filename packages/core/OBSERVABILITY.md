@@ -338,7 +338,7 @@ test URLs configured as described in `tests/conftest.py`:
 
 ```sh
 DEVFEED_RECURRING_PROFILE_REPORT=/tmp/devfeed-recurring-queries.json \
-  uv run --locked pytest -q tests/test_recurring_query_budgets.py
+  uv run --locked pytest -q tests/infrastructure/test_recurring_query_budgets.py
 ```
 
 Compare post-deployment deltas in `pg_stat_statements` calls, execution time and
