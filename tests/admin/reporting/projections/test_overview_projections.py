@@ -263,7 +263,8 @@ def test_processing_rollups_cover_arbitrary_ranges_and_old_active_work(database)
     assert not refresh_processing_facts(database, now)
 
 
-def test_projected_blockers_count_all_matches_and_preserve_bounded_targets(database):
+@pytest.mark.parametrize("title_padding", ["", "x" * 450])
+def test_projected_blockers_count_all_matches_and_preserve_bounded_targets(database, title_padding):
     now = utcnow()
     policy = pipeline_policy_version()
     with database.begin() as session:
@@ -275,32 +276,51 @@ def test_projected_blockers_count_all_matches_and_preserve_bounded_targets(datab
                 PipelineProjection(
                     policy_version=policy,
                     kind="article",
-                    entity_id=uuid.uuid4(),
+                    entity_id=uuid.UUID(int=8 - index),
                     payload={
                         "title": f"Generated display title {index}",
-                        "_search": {"title": f"Pending {index}"},
+                        "_search": {"title": f"Pending {index}{title_padding}"},
                         "editorial_revision": index,
                         "_automation_blockers": [
                             {
                                 "code": "analysis_failed",
                                 "label": "Failed article analysis",
                                 "action": "analyze",
-                            }
+                            },
+                            {"code": "insufficient_text"},
                         ],
                     },
                     stage="analysis",
                     state="failed",
-                    created_at=now + timedelta(seconds=index),
+                    created_at=now + timedelta(seconds=index // 2),
+                    activity_at=now,
+                    evaluated_at=now,
+                )
+            )
+        for decoy_policy, kind in (("obsolete-policy", "article"), (policy, "source")):
+            session.add(
+                PipelineProjection(
+                    policy_version=decoy_policy,
+                    kind=kind,
+                    entity_id=uuid.UUID(int=8),
+                    payload={"title": "Wrong generation or kind", "editorial_revision": 99},
+                    stage="analysis",
+                    state="complete",
+                    created_at=now,
                     activity_at=now,
                     evaluated_at=now,
                 )
             )
     with database() as session:
-        blocked = next(
-            row for row in projections.projected_blockers(session) if row.code == "analysis_failed"
-        )
-    assert blocked.count == 8 and len(blocked.targets) == 5
-    assert [row.title for row in blocked.targets] == [f"Pending {index}" for index in range(5)]
+        blockers = projections.projected_blockers(session)
+    for code in ("analysis_failed", "insufficient_text"):
+        blocked = next(row for row in blockers if row.code == code)
+        assert blocked.count == 8 and len(blocked.targets) == 5
+        expected = [1, 0, 3, 2, 5]
+        assert [row.title for row in blocked.targets] == [
+            f"Pending {index}{title_padding}" for index in expected
+        ]
+        assert [row.revision for row in blocked.targets] == expected
 
 
 def test_corrupt_saved_document_queues_rebuild_without_calculation(database, admin_client):

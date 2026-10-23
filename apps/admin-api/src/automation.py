@@ -112,8 +112,26 @@ def analysis_token_activity(session, start: datetime, now: datetime):
         ("topic_analysis", TopicAnalysisJob),
         ("research_verification", ResearchVerificationJob),
     ):
-        day = func.date(func.timezone("UTC", model.finished_at))
-        raw = model.usage["totalTokens"].astext
+        # Keep a narrow materialization boundary: otherwise PostgreSQL inlines
+        # JSON extraction into every SUM/COUNT/CASE and repeatedly detoasts the
+        # same potentially large job usage. Nineteen characters preserve the
+        # eighteen-digit validity rule even for oversized malformed telemetry.
+        usage = (
+            select(
+                model.finished_at,
+                model.duration_ms,
+                func.left(model.usage["totalTokens"].astext, 19).label("raw_tokens"),
+            )
+            .where(
+                model.finished_at >= start,
+                model.finished_at <= now,
+                model.status.in_(("succeeded", "failed")),
+            )
+            .cte(f"{kind}_usage")
+            .prefix_with("MATERIALIZED")
+        )
+        day = func.date(func.timezone("UTC", usage.c.finished_at))
+        raw = usage.c.raw_tokens
         tokens = case((raw.op("~")(r"^[0-9]{1,18}$"), cast(raw, BigInteger)), else_=None)
         statements.append(
             select(
@@ -121,15 +139,9 @@ def analysis_token_activity(session, start: datetime, now: datetime):
                 literal(kind).label("kind"),
                 func.coalesce(func.sum(tokens), 0).label("tokens"),
                 func.count(tokens).label("reported"),
-                func.count().filter(tokens.is_(None)).label("unreported"),
-                func.coalesce(func.sum(model.duration_ms), 0).label("duration"),
-            )
-            .where(
-                model.finished_at >= start,
-                model.finished_at <= now,
-                model.status.in_(("succeeded", "failed")),
-            )
-            .group_by(day)
+                (func.count() - func.count(tokens)).label("unreported"),
+                func.coalesce(func.sum(usage.c.duration_ms), 0).label("duration"),
+            ).group_by(day)
         )
     days = {
         (start.date() + timedelta(days=index)).isoformat(): AnalysisTokenDay(

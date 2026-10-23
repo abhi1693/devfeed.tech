@@ -64,11 +64,6 @@ def projected_blockers(session):
     matches = (
         select(
             PipelineProjection.entity_id.label("id"),
-            func.coalesce(
-                PipelineProjection.payload["_search"]["title"].astext,
-                PipelineProjection.payload["title"].astext,
-            ).label("title"),
-            PipelineProjection.payload["editorial_revision"].as_integer().label("revision"),
             PipelineProjection.created_at,
             code.label("code"),
         )
@@ -83,9 +78,47 @@ def projected_blockers(session):
         .over(partition_by=matches.c.code, order_by=(matches.c.created_at, matches.c.id))
         .label("position"),
     ).subquery()
-    for row in session.execute(
-        select(ranked).where(ranked.c.position <= 5).order_by(ranked.c.code, ranked.c.position)
-    ):
+    # Rank only compact keys. Carrying titles or the projection JSON through
+    # both window sorts spills wide histories to disk before LIMIT can help.
+    targets = (
+        select(ranked)
+        .where(ranked.c.position <= 5)
+        .cte("blocker_targets")
+        .prefix_with("MATERIALIZED")
+    )
+    card = (
+        select(
+            func.coalesce(
+                PipelineProjection.payload["_search"]["title"].astext,
+                PipelineProjection.payload["title"].astext,
+            ).label("title"),
+            PipelineProjection.payload["editorial_revision"].as_integer().label("revision"),
+        )
+        .where(
+            PipelineProjection.policy_version == serving,
+            PipelineProjection.kind == "article",
+            PipelineProjection.entity_id == targets.c.id,
+        )
+        # A single-row PK probe also prevents a misestimated window cardinality
+        # from hashing every wide card just to resolve a handful of targets.
+        .limit(1)
+        .correlate(targets)
+        .lateral("target_card")
+    )
+    cards = (
+        select(
+            targets.c.id,
+            card.c.title,
+            card.c.revision,
+            targets.c.code,
+            targets.c.total,
+            targets.c.position,
+        )
+        .select_from(targets)
+        .join(card, true())
+        .order_by(targets.c.code, targets.c.position)
+    )
+    for row in session.execute(cards):
         blocker = indexed.get(row.code)
         if blocker is None:
             raise ProjectionNotReady("Stored blocker policy is incompatible")
