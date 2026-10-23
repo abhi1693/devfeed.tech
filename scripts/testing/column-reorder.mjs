@@ -44,10 +44,15 @@ export async function reorderColumn(
     // The drag flag precedes collision measurement. Its initial position and each
     // destination are announced only after the sensor has committed that state.
     await waitPosition(arrangement.index);
+    // KeyboardSensor installs its document listener asynchronously, and revealing
+    // a column can schedule scroll/rectangle measurements for the next frame.
+    // Let those settle before sending the first move (and each subsequent move).
+    await frames(page);
     for (let index = 0; index < Math.abs(offset); index++) {
       await page.keyboard.press(offset < 0 ? "ArrowLeft" : "ArrowRight");
       const destination = arrangement.index + (index + 1) * Math.sign(offset);
       await waitPosition(Math.max(0, Math.min(arrangement.count - 1, destination)));
+      await frames(page);
     }
     await page.keyboard.press(cancel ? "Escape" : "Space");
   } else {

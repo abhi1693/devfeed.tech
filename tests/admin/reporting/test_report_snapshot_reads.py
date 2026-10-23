@@ -38,7 +38,17 @@ class SavedReports:
 
     def execute(self, statement):
         if getattr(statement, "is_select", False):
-            pytest.fail("Saved report GET queried history")
+            from sqlalchemy.dialects import postgresql
+
+            compiled = statement.compile(dialect=postgresql.dialect())
+            query = str(compiled)
+            assert "report_snapshots LEFT OUTER JOIN read_model_states" in query
+            assert "read_model_states.name =" in query
+            self.keys.extend([(compiled.params["group_1"], compiled.params["days_1"]), "pipeline"])
+            refresh = self.pipeline.payload.get("catalog_refresh") if self.pipeline else None
+            return SimpleNamespace(
+                one_or_none=lambda: (self.stored, refresh) if self.stored else None
+            )
 
     def get(self, model, key):
         self.keys.append(key)
@@ -114,15 +124,17 @@ def test_saved_report_preserves_payload_and_exposes_honest_freshness(
         assert store.refresh is failure
 
 
-def test_cold_report_commits_refresh_demand_before_raising_retryable_response(saved_reports):
+@pytest.mark.parametrize("group", ["daily", "blockers", "overview"])
+def test_cold_report_commits_refresh_demand_before_raising_retryable_response(saved_reports, group):
     store = saved_reports()
     with pytest.raises(HTTPException) as error:
-        overview_projection.read_report(store, "daily", 17, OverviewPanel, now=NOW)
+        overview_projection.read_report(store, group, 17, OverviewPanel, now=NOW)
     assert error.value.status_code == 503
     assert error.value.detail["code"] == "report_refreshing"
     assert error.value.headers["Retry-After"] == "5"
     assert store.events == ["begin", "demand", "commit"]
-    assert set(store.keys) == {("daily", 17)}
+    key = (group, 1 if group == "blockers" else 17)
+    assert set(store.keys) == ({key, "pipeline"} if group != "daily" else {key})
 
 
 @pytest.mark.parametrize("group", ["blockers", "overview", "daily"])

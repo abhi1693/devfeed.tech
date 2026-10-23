@@ -128,7 +128,16 @@ def read_report(factory, group, days, model, *, now=None):
         session.connection().info["report_deadline"] = clock.monotonic() + 2
         session.execute(text("SET LOCAL statement_timeout = '2s'"))
         session.execute(text("SET LOCAL lock_timeout = '500ms'"))
-        stored = session.get(ReportSnapshot, key)
+        catalog_refresh = None
+        if group in {"blockers", "overview"}:
+            saved = session.execute(
+                select(ReportSnapshot, ReadModelState.payload["catalog_refresh"])
+                .outerjoin(ReadModelState, ReadModelState.name == "pipeline")
+                .where(ReportSnapshot.group == key[0], ReportSnapshot.days == key[1])
+            ).one_or_none()
+            stored, catalog_refresh = saved if saved is not None else (None, None)
+        else:
+            stored = session.get(ReportSnapshot, key)
         age = max(0, (now - stored.generated_at).total_seconds()) if stored else float("inf")
         rebuilding = stored is not None and stored.policy_version != version
         dependency = None
@@ -143,10 +152,8 @@ def read_report(factory, group, days, model, *, now=None):
             except ValueError:
                 rebuilding = True
         catalog_started = None
-        if result is not None and group in {"blockers", "overview"}:
-            pipeline = session.get(ReadModelState, "pipeline")
-            if pipeline is not None and (pending := pipeline.payload.get("catalog_refresh")):
-                catalog_started = datetime.fromisoformat(pending["started_at"])
+        if result is not None and catalog_refresh:
+            catalog_started = datetime.fromisoformat(catalog_refresh["started_at"])
         if (
             stored is None
             or rebuilding
@@ -157,7 +164,7 @@ def read_report(factory, group, days, model, *, now=None):
         ):
             request_refresh(session, key[0], key[1], now)
         refresh = session.get(ReportRefresh, key)
-        if result is None:
+        if result is None or stored is None:
             raise_after_commit = True
         else:
             raise_after_commit = False
