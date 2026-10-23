@@ -425,9 +425,11 @@ def test_blocker_report_uses_exact_projected_counts_and_revision_checked_targets
         ],
     )
     identifiers = [uuid.uuid4() for _ in range(5 if compatible else 1)]
-    session = SimpleNamespace(
-        info={},
-        execute=lambda _: [
+    statements = []
+
+    def execute(statement):
+        statements.append(statement)
+        return [
             SimpleNamespace(
                 code="analysis_failed" if compatible else "retired-policy",
                 total=34 if compatible else 1,
@@ -436,13 +438,21 @@ def test_blocker_report_uses_exact_projected_counts_and_revision_checked_targets
                 revision=7,
             )
             for index, identifier in enumerate(identifiers)
-        ],
+        ]
+
+    session = SimpleNamespace(
+        info={},
+        execute=execute,
     )
     if not compatible:
         with pytest.raises(projections.ProjectionNotReady, match="incompatible"):
             projections.projected_blockers(session)
         return
     result = projections.projected_blockers(session)
+    assert len(statements) == 1
+    selected = statements[0].get_final_froms()[0].left
+    assert set(selected.c.keys()) == {"id", "created_at", "code", "total", "position"}
+    assert "AS MATERIALIZED" in str(statements[0])
     assert result[0].count == 34 and result[0].action == "analyze"
     assert result[0].targets == [
         automation.RecoveryTarget(

@@ -233,6 +233,29 @@ def test_completed_token_series_keeps_idle_days_and_combines_all_three_job_kinds
     assert points[2].reported_runs == 2 and duration == 275
 
 
+def test_completed_token_query_reads_each_usage_once_into_bounded_materialized_values():
+    from sqlalchemy.dialects import postgresql
+
+    statements = []
+
+    def execute(statement):
+        statements.append(statement)
+        return SimpleNamespace(mappings=lambda: [])
+
+    automation.analysis_token_activity(
+        SimpleNamespace(execute=execute), NOW - timedelta(days=7), NOW
+    )
+    assert len(statements) == 1
+    sql = str(statements[0].compile(dialect=postgresql.dialect()))
+    assert sql.count("AS MATERIALIZED") == 3
+    for table in ("article_analysis_jobs", "topic_analysis_jobs", "research_verification_jobs"):
+        assert sql.count(f"{table}.usage ->>") == 1
+        assert f"{table}.finished_at >=" in sql
+        assert f"{table}.finished_at <=" in sql
+        assert f"{table}.status IN" in sql
+    assert sql.count("left(") == 3
+
+
 @pytest.mark.parametrize(
     "published,automatic,median,percent", [(0, 0, None, None), (3, 2, 120.0, 66.7)]
 )

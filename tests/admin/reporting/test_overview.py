@@ -4,7 +4,7 @@ import uuid
 from datetime import UTC, datetime, timedelta
 
 import pytest
-from devfeed_admin_api import overview
+from devfeed_admin_api import automation, overview
 from devfeed_core.models import (
     Article,
     ArticleAnalysisJob,
@@ -153,6 +153,47 @@ def test_token_activity_counts_all_recorded_job_types_on_utc_finish_day(database
         assert data.token_activity[2].reported_runs == 0
         assert data.token_activity[-1].reported_runs == 1
         assert data.token_activity[-1].unreported_runs == 2
+
+
+@pytest.mark.parametrize("kind", ["article", "topic", "research"])
+def test_token_activity_bounds_malformed_usage_without_changing_counts_or_duration(database, kind):
+    values = [0, 12, "0007", "9" * 18, "9" * 19, "9" * 20000, -1, 1.5, True, None, {}, []]
+    with database.begin() as session:
+        content, draft = article(), proposal()
+        session.add_all([content, draft])
+        session.flush()
+        for index, value in enumerate(values):
+            shared = dict(
+                status="failed" if index % 2 else "succeeded",
+                finished_at=START,
+                duration_ms=index + 1,
+                usage={"totalTokens": value, "irrelevant": "body" * 8000},
+            )
+            if kind == "article":
+                session.add(ArticleAnalysisJob(article_id=content.id, **shared))
+            elif kind == "topic":
+                session.add(topic_job(proposal_id=draft.id, **shared))
+            else:
+                job = topic_job(proposal_id=draft.id, status="succeeded")
+                session.add(job)
+                session.flush()
+                session.add(ResearchVerificationJob(id=job.id, relationships=False, **shared))
+    with database() as session:
+        points, duration = automation.analysis_token_activity(session, START, NOW)
+    assert (
+        getattr(
+            points[0],
+            {
+                "article": "article_analysis",
+                "topic": "topic_analysis",
+                "research": "research_verification",
+            }[kind],
+        )
+        == 10**18 - 1 + 19
+    )
+    assert points[0].reported_runs == 4 and points[0].unreported_runs == len(values) - 4
+    assert duration == sum(range(1, len(values) + 1))
+    assert all(point.reported_runs == point.unreported_runs == 0 for point in points[1:])
 
 
 def test_daily_activity_uses_first_publication_and_utc_not_publisher_dates(database, monkeypatch):
