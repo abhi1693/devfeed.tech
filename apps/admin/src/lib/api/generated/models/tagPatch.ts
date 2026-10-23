@@ -7,9 +7,22 @@
  */
 
 export interface TagPatch {
-  aliases?: string[] | null;
-  auto_link_topic?: boolean | null;
-  name?: string | null;
-  slug?: string | null;
+  /**
+     * @maxItems 100
+     * @items.minLength 1
+     * @items.maxLength 100
+     */
+  aliases?: string[];
+  auto_link_topic?: boolean;
+  /**
+     * @minLength 1
+     * @maxLength 100
+     */
+  name?: string;
+  /**
+     * @maxLength 100
+     * @pattern ^[a-z0-9]+(?:-[a-z0-9]+)*$
+     */
+  slug?: string;
   topic_id?: string | null;
 }

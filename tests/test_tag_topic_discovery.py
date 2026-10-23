@@ -265,3 +265,86 @@ def test_api_exposes_discovery_and_can_restore_it_after_manual_clear(admin_clien
     assert admin_client.patch(url, json={"auto_link_topic": None}).status_code == 422
     assert admin_client.patch(url, json={"auto_link_topic": True}).status_code == 200
     assert schedule_automation(database)["tags_linked"] == 1
+
+
+def test_api_replays_tag_patches_without_overwriting_omitted_fields(admin_client, database):
+    target = topic(database, aliases=["k8s"])
+    created = admin_client.post(
+        "/v1/admin/tags",
+        json={
+            "name": "Cluster runtime",
+            "slug": "cluster-runtime",
+            "aliases": ["k8s"],
+            "topic_id": str(target),
+            "auto_link_topic": True,
+        },
+    )
+    assert created.status_code == 201, created.text
+    url = f"/v1/admin/tags/{created.json()['id']}"
+
+    unchanged = admin_client.patch(url, json=TagPatch().model_dump(mode="json"))
+    assert unchanged.status_code == 200, unchanged.text
+    assert unchanged.json()["aliases"] == ["k8s"]
+    assert unchanged.json()["topic_id"] == str(target)
+    assert unchanged.json()["auto_link_topic"] is True
+
+    changed = admin_client.patch(
+        url, json=TagPatch(aliases=[], auto_link_topic=False).model_dump(mode="json")
+    )
+    assert changed.status_code == 200, changed.text
+    assert changed.json()["aliases"] == []
+    assert changed.json()["auto_link_topic"] is False
+    assert changed.json()["name"] == "Cluster runtime"
+    assert changed.json()["slug"] == "cluster-runtime"
+    assert changed.json()["topic_id"] == str(target)
+
+    cleared = admin_client.patch(url, json=TagPatch(topic_id=None).model_dump(mode="json"))
+    assert cleared.status_code == 200, cleared.text
+    assert cleared.json()["topic_id"] is None
+    assert cleared.json()["name"] == "Cluster runtime"
+    assert cleared.json()["aliases"] == []
+    for field in ("name", "slug", "aliases", "auto_link_topic"):
+        rejected = admin_client.patch(url, json={field: None})
+        assert rejected.status_code == 422, rejected.text
+    final = admin_client.get(url)
+    assert final.status_code == 200
+    assert final.json()["name"] == "Cluster runtime"
+    assert final.json()["slug"] == "cluster-runtime"
+    assert final.json()["aliases"] == []
+    assert final.json()["topic_id"] is None
+
+
+def test_put_replaces_tag_metadata_while_patch_preserves_omitted_values(admin_client, database):
+    target = topic(database, aliases=["k8s"])
+    created = admin_client.post(
+        "/v1/admin/tags",
+        json={
+            "name": "Original tag",
+            "slug": "original-tag",
+            "aliases": ["original alias"],
+            "topic_id": str(target),
+            "auto_link_topic": True,
+        },
+    )
+    assert created.status_code == 201, created.text
+    url = f"/v1/admin/tags/{created.json()['id']}"
+
+    partial = admin_client.patch(url, json={"name": "Renamed tag"})
+    assert partial.status_code == 200, partial.text
+    assert partial.json()["aliases"] == ["original alias"]
+    assert partial.json()["topic_id"] == str(target)
+    assert partial.json()["auto_link_topic"] is True
+    assert partial.json()["slug"] == "original-tag"
+
+    replaced = admin_client.put(url, json={"name": "Replacement tag", "slug": "replacement-tag"})
+    assert replaced.status_code == 200, replaced.text
+    assert replaced.json()["aliases"] == []
+    assert replaced.json()["topic_id"] is None
+    assert replaced.json()["auto_link_topic"] is False
+    stored = admin_client.get(url)
+    assert stored.status_code == 200
+    assert stored.json()["name"] == "Replacement tag"
+    assert stored.json()["slug"] == "replacement-tag"
+    assert stored.json()["aliases"] == []
+    assert stored.json()["topic_id"] is None
+    assert stored.json()["auto_link_topic"] is False

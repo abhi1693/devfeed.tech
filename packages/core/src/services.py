@@ -346,7 +346,7 @@ def update_tag(session: Session, tag_id: uuid.UUID, body: TagWrite | TagPatch) -
     tag = session.scalar(select(Tag).where(Tag.id == tag_id).with_for_update(of=Tag))
     if tag is None:
         raise RecordNotFound("Tag not found")
-    changes = body.model_dump(exclude_unset=isinstance(body, TagPatch))
+    changes = body.model_dump()
     if "auto_link_topic" not in body.model_fields_set:
         # PUT retains its replacement semantics; PATCH only affects supplied fields.
         changes.pop("auto_link_topic", None)
