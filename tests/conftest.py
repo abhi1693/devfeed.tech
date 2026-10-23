@@ -22,7 +22,7 @@ collect_ignore = [] if os.environ.get("DEVFEED_FUZZ_PROFILE") in {"pr", "nightly
 
 @pytest.fixture
 def api_security(database, monkeypatch):
-    from api_fuzz_support import security_context
+    from tests.support.api_fuzz_support import security_context
 
     with security_context(database, monkeypatch) as context:
         yield context
@@ -152,11 +152,12 @@ def integration_environment():
 @pytest.fixture
 def database(integration_environment, monkeypatch, rss_bytes):
     # Keep publisher preflight deterministic; tests can override individual failures.
-    from admission_feeds import with_admission_entries
     from devfeed_aggregator import source_tasks
     from devfeed_api.dependencies import get_redis
     from devfeed_core.feeds import validation
     from devfeed_core.feeds.fetcher import FetchResult
+
+    from tests.support.admission_feeds import with_admission_entries
 
     admission_body = with_admission_entries(rss_bytes)
     monkeypatch.setattr(validation, "fetch_feed", lambda url: FetchResult(200, admission_body, url))

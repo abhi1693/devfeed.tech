@@ -158,6 +158,14 @@ its artifact link. Fork and Dependabot PRs receive check summaries and artifacts
 without a write-token comment. Benchmark execution has read-only permissions;
 the separate comment job only reads artifacts and never executes candidate code.
 
+Latency histograms use fixed one-millisecond bins for both revisions. Locust's
+default ten-millisecond bins above 100 ms can turn an actual 89 → 106 ms change
+into 89 → 110 ms, incorrectly crossing the 20 ms regression limit. Its default
+100 ms bins above one second can also hide a 2,010 ms smoke-budget violation as
+2,000 ms. The performance job checks both cases against real Locust statistics
+before measuring. Each final JSON records `response_time_bucket_ms: 1`; the
+comparison rejects missing or incompatible precision instead of mixing reports.
+
 - **REGRESSED:** a route's median p95 rises by more than 20% **and** 20 ms,
   with that increase present in at least two head samples versus the base median; new errors, missing
   route coverage or failed connection-release checks also fail the candidate.

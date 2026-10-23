@@ -54,12 +54,12 @@ if [[ "${DEVFEED_PROFILE_SUITE:-all}" = search ]]; then
   done
 fi
 case "${DEVFEED_PROFILE_SUITE:-all}" in
-  all) profile_tests=(tests/test_api_query_budgets.py tests/test_table_query_budgets.py) ;;
-  latest) profile_tests=(tests/test_api_query_budgets.py::test_latest_feed_profile tests/test_latest_diversity.py) ;;
-  core) profile_tests=(tests/test_api_query_budgets.py) ;;
-  tables) profile_tests=(tests/test_table_query_budgets.py) ;;
-  discovery) profile_tests=(tests/test_discovery_query_budgets.py) ;;
-  search) profile_tests=(tests/test_search_query_budgets.py) ;;
+  all) profile_tests=(tests/api/test_api_query_budgets.py tests/admin/reporting/test_table_query_budgets.py) ;;
+  latest) profile_tests=(tests/api/test_api_query_budgets.py::test_latest_feed_profile tests/api/test_latest_diversity.py) ;;
+  core) profile_tests=(tests/api/test_api_query_budgets.py) ;;
+  tables) profile_tests=(tests/admin/reporting/test_table_query_budgets.py) ;;
+  discovery) profile_tests=(tests/users/discovery/test_discovery_query_budgets.py) ;;
+  search) profile_tests=(tests/search/test_search_query_budgets.py) ;;
   *) echo 'DEVFEED_PROFILE_SUITE must be all, core, latest, tables, discovery or search' >&2; exit 1 ;;
 esac
 uv run --locked pytest -q "${profile_tests[@]}"

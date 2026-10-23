@@ -32,8 +32,13 @@ API contract changes, run `npm run admin:generate` and include generated updates
 ## Testing Guidelines
 
 Run `uv run pytest` for backend tests and `npm run web:test` / `npm run admin:test` for Vitest suites. Name tests
-`test_*.py` or `*.test.ts(x)`. Add regression coverage for changed behavior; no numeric coverage threshold is
-configured. Integration tests require disposable `DEVFEED_TEST_DATABASE_URL` and `DEVFEED_TEST_REDIS_URL`: the database
+`test_*.py` or `*.test.ts(x)`. Add meaningful regression coverage for changed behavior. Backend unit CI enforces the
+combined statement and branch minimum configured in `pyproject.toml`; integration coverage is tracked separately.
+Keep backend tests in the domain packages documented in `tests/README.md`. Add cases to the existing behavior
+suite rather than creating files named after a coverage task, percentage, or remaining lines. Keep shared builders
+and reusable fixtures in `tests/support`, and use qualified imports. Preserve explicit `integration` and
+`failure_recovery` markers when moving cases; directory names do not determine CI selection.
+Integration tests require disposable `DEVFEED_TEST_DATABASE_URL` and `DEVFEED_TEST_REDIS_URL`: the database
 name must end in `_test`, and Redis must use database 15. Fixtures truncate tables and flush Redis.
 
 ## Reader and Extension Parity

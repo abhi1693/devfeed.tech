@@ -8,6 +8,7 @@ import { articleDestination, pageDestination } from "@/lib/reader-destination";
 import { ChevronLeft, ChevronRight, X } from "lucide-react";
 import { animateReader } from "@/lib/reader-motion";
 import { cycleDialogFocus, restoreDialogFocus } from "@/lib/dialog-focus";
+import { lockDialogScroll } from "@/lib/dialog-scroll";
 import { useArticleNavigation } from "./article-navigation";
 import { useReaderSurface } from "./reader-context";
 import { readerPromptPolicies, type ArticleIdentity } from "@/lib/reader-context";
@@ -141,17 +142,17 @@ export function ArticleModal({
       else link.remove();
     };
   }, [active, canonical]);
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!active) return;
     const element = dialog.current!;
     const previousFocus = document.activeElement as HTMLElement | null;
-    const overflow = document.body.style.overflow;
+    const unlockScroll = lockDialogScroll(current);
     let released = false;
     const release = () => {
       if (released) return;
       released = true;
       element.close();
-      document.body.style.overflow = overflow;
+      unlockScroll();
       if (previousFocus) restoreDialogFocus(previousFocus);
     };
     releaseModal.current = release;
@@ -173,7 +174,6 @@ export function ArticleModal({
           ],
           { duration: 200 },
         );
-    document.body.style.overflow = "hidden";
     return () => {
       // Invalidate asynchronous page loads and dismissal callbacks, not a DOM ref.
       // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -183,6 +183,8 @@ export function ArticleModal({
       exitAnimation.current?.cancel();
       release();
     };
+    // The retained document stays locked across article-to-article navigation.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [active, direct]);
   useEffect(() => {
     if (!active) return;

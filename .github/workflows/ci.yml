@@ -17,8 +17,31 @@ concurrency:
   # Keep immutable release runs; only the newest branch/PR revision needs validation.
   cancel-in-progress: ${{ github.ref_type != 'tag' }}
 jobs:
-  # Unit tests, including each suite's static checks and builds.
-  python-unit:
+  # Backend and frontend start independently. Only unit work runs in this stage.
+  python-lint:
+    name: Unit / Python lint, types and versions (ARM64)
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        with:
+          version: "0.13.1"
+          enable-cache: true
+      - run: sh scripts/ci/python-bootstrap.sh . --editable --all-packages
+      - run: bash .github/scripts/python-checks.sh
+  python-unit-shards:
+    name: Unit / Python shard ${{ matrix.shard }} (ARM64)
+    strategy:
+      fail-fast: false
+      max-parallel: 4
+      matrix:
+        shard: [0, 1, 2, 3]
     uses: abhi1693/actions/.github/workflows/python-ci.yml@bf8cd38aa8456310278ed96bfa83a3132f235df1 # v1.0.4
     with:
       runs-on: ubuntu-24.04-arm
@@ -28,13 +51,70 @@ jobs:
       enable-cache: true
       uv-version: 0.13.1
       sync-command: sh scripts/ci/python-bootstrap.sh . --editable --all-packages
-      lint-command: bash .github/scripts/python-checks.sh
-      test-command: bash scripts/ci/python-tests.sh unit
+      test-command: bash scripts/ci/python-tests.sh unit ${{ matrix.shard }} 4
       test-results-path: |
-        reports/python-unit.xml
-        reports/coverage/
-      test-results-name: python-unit-arm64-${{ github.run_attempt }}
-    name: Unit / Python lint and tests (ARM64)
+        reports/python-unit-${{ matrix.shard }}.xml
+        reports/coverage/python-unit-${{ matrix.shard }}/
+      test-results-name: unit-shard-${{ matrix.shard }}-arm64-${{ github.run_attempt }}
+  python-unit:
+    name: Unit / Combined backend coverage (ARM64)
+    needs: python-unit-shards
+    if: always() && !cancelled()
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        with:
+          version: "0.13.1"
+          enable-cache: true
+      - run: sh scripts/ci/python-bootstrap.sh . --editable --all-packages
+      - name: Download every unit shard from this attempt
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: unit-shard-*-arm64-${{ github.run_attempt }}
+          path: reports/
+          merge-multiple: true
+      - name: Validate unit shards and enforce combined coverage
+        env:
+          UNIT_SHARDS_RESULT: ${{ needs.python-unit-shards.result }}
+        run: |
+          test "$UNIT_SHARDS_RESULT" = success
+          bash scripts/ci/python-tests.sh unit-merge 0 4
+      - name: Upload canonical unit reports
+        if: always() && !cancelled()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: python-unit-arm64-${{ github.run_attempt }}
+          path: |
+            reports/python-unit.xml
+            reports/coverage/python-unit/coverage.db
+            reports/coverage/unit.json
+            reports/coverage/unit.xml
+            reports/coverage/html/
+            reports/coverage/summary.json
+            reports/coverage/summary.md
+          if-no-files-found: error
+  python-loadtest:
+    name: Unit / Loadtest histogram contracts (ARM64)
+    uses: abhi1693/actions/.github/workflows/python-ci.yml@bf8cd38aa8456310278ed96bfa83a3132f235df1 # v1.0.4
+    with:
+      runs-on: ubuntu-24.04-arm
+      timeout-minutes: 10
+      python-version: "3.12"
+      uv-version: 0.13.1
+      sync-command: sh scripts/ci/python-bootstrap.sh . --editable --all-packages --group loadtest
+      test-command: |
+        mkdir -p reports/coverage/python-loadtest
+        COVERAGE_FILE=reports/coverage/python-loadtest/coverage.db \
+          uv run --locked --no-sync --no-build coverage run --source=loadtests loadtests/test_histogram.py
+      test-results-path: reports/
+      test-results-name: python-loadtest-arm64-${{ github.run_attempt }}
   coverage-report:
     name: Report / Backend unit coverage PR comment
     needs: python-unit
@@ -185,11 +265,11 @@ jobs:
       generated-paths: '["apps/admin/openapi.json","apps/admin/src/lib/api/generated"]'
     name: Unit / Admin UI lint, tests and build
   partner-web:
-    name: Unit / Partner portal lint, tests, build and browser checks
+    name: Unit / Partner portal lint, tests and build
     uses: abhi1693/actions/.github/workflows/node-ci.yml@bf8cd38aa8456310278ed96bfa83a3132f235df1 # v1.0.4
     with:
       checks: '["lint", "test", "build"]'
-      scripts: '{"lint": "partner:lint", "test": "ci:partner-test", "build": "ci:partner-browser"}'
+      scripts: '{"lint": "partner:lint", "test": "ci:partner-test", "build": "partner:build"}'
       timeout-minutes: 20
       runs-on: ubuntu-24.04-arm
       node-version: "24"
@@ -233,8 +313,33 @@ jobs:
       timeout-minutes: 10
       runs-on: ubuntu-24.04-arm
       node-version: "24"
+  backend-unit:
+    name: Stage / Backend unit checks
+    needs: [python-lint, python-unit, python-loadtest]
+    if: always() && !cancelled()
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Require backend unit checks
+        env:
+          RESULTS: ${{ toJSON(needs) }}
+        run: >-
+          echo "$RESULTS" | jq -e
+          '[.["python-lint"], .["python-unit"], .["python-loadtest"]] | all(.result == "success")'
+  frontend-unit:
+    name: Stage / Frontend unit checks
+    needs: [admin-web, partner-web, user-web, extensions]
+    if: always() && !cancelled()
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Require frontend unit checks
+        env:
+          RESULTS: ${{ toJSON(needs) }}
+        run: >-
+          echo "$RESULTS" | jq -e
+          '[.["admin-web"], .["partner-web"], .["user-web"], .extensions] | all(.result == "success")'
   api-compat:
     name: API compatibility
+    needs: backend-unit
     if: github.event_name == 'pull_request' || github.event_name == 'merge_group'
     runs-on: ubuntu-24.04
     timeout-minutes: 15
@@ -256,7 +361,7 @@ jobs:
           git diff --name-only "$BASE_SHA" "$CANDIDATE_SHA" -- \
             apps/api apps/user-api apps/admin-api apps/mcp packages/core packages/http \
             apps/admin/openapi.json pyproject.toml uv.lock .env.example \
-            scripts/ci/api_contracts.py tests/test_api_compatibility.py tests/test_api_contracts.py \
+            scripts/ci/api_contracts.py tests/tooling/ci/test_api_compatibility.py tests/api/test_api_contracts.py \
             .oasdiff.yaml .github/api-compatibility .github/workflows/ci.yml > "$RUNNER_TEMP/api-files.txt"
           if [[ -s "$RUNNER_TEMP/api-files.txt" ]]; then
             echo 'changed=true' >> "$GITHUB_OUTPUT"
@@ -406,6 +511,7 @@ jobs:
           if-no-files-found: error
           retention-days: 14
   api-fuzz:
+    needs: backend-unit
     name: API fuzzing
     if: github.event_name == 'pull_request' || github.event_name == 'merge_group'
     uses: abhi1693/actions/.github/workflows/python-ci.yml@bf8cd38aa8456310278ed96bfa83a3132f235df1 # v1.0.4
@@ -418,11 +524,13 @@ jobs:
       test-command: uv run --group fuzz --locked --no-sync --no-build python scripts/ci/api_fuzz.py --profile pr
       test-results-path: reports/api-fuzz/
       test-results-name: api-fuzz-pr-${{ github.run_attempt }}
-  # Integration tests run in parallel with isolated services for each shard.
+  # Backend integration starts only after the complete backend unit coverage gate.
   python-integration:
     name: Integration / Python shard ${{ matrix.shard }} (ARM64)
+    needs: backend-unit
     strategy:
       fail-fast: false
+      max-parallel: 4
       matrix:
         shard: [0, 1, 2, 3, 4, 5]
     uses: abhi1693/actions/.github/workflows/python-ci.yml@bf8cd38aa8456310278ed96bfa83a3132f235df1 # v1.0.4
@@ -441,6 +549,7 @@ jobs:
   # Check upgrades separately from tests that start with an empty current schema.
   migration-upgrade:
     name: Integration / Populated database upgrades
+    needs: backend-unit
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 15
     steps:
@@ -470,8 +579,10 @@ jobs:
   # Browser E2E jobs cover the reader, admin and real API boundary independently.
   reader-browser:
     name: Reader browser (${{ matrix.label }})
+    needs: frontend-unit
     strategy:
       fail-fast: false
+      max-parallel: 3
       matrix:
         include:
           - suite: web
@@ -653,6 +764,7 @@ jobs:
           retention-days: 14
   admin-browser:
     name: Admin browser tests
+    needs: frontend-unit
     uses: abhi1693/actions/.github/workflows/node-ci.yml@bf8cd38aa8456310278ed96bfa83a3132f235df1 # v1.0.4
     with:
       checks: '["test"]'
@@ -669,8 +781,28 @@ jobs:
       project-env: '{"NEXT_TELEMETRY_DISABLED":"1"}'
       browser-results-path: reports
       test-results-name: admin-browser-${{ github.run_attempt }}
+  partner-browser:
+    name: Integration / Partner portal browser tests
+    needs: frontend-unit
+    uses: abhi1693/actions/.github/workflows/node-ci.yml@bf8cd38aa8456310278ed96bfa83a3132f235df1 # v1.0.4
+    with:
+      checks: '["test"]'
+      scripts: '{"test": "ci:partner-browser"}'
+      timeout-minutes: 20
+      runs-on: ubuntu-24.04-arm
+      node-version: "24"
+      build-cache-paths: |
+        apps/partner/.next/cache/turbopack
+        apps/partner/.next/cache/webpack
+        apps/partner/.next/cache/swc
+        apps/partner/.next/cache/.tsbuildinfo
+      build-cache-scope: next-partner-browser-v1
+      project-env: '{"NEXT_TELEMETRY_DISABLED":"1"}'
+      browser-results-path: reports/partner
+      test-results-name: partner-browser-${{ github.run_attempt }}
   live-browser:
     name: Live API browser tests
+    needs: [backend-unit, frontend-unit]
     uses: abhi1693/actions/.github/workflows/node-ci.yml@bf8cd38aa8456310278ed96bfa83a3132f235df1 # v1.0.4
     with:
       checks: '["test"]'
@@ -692,8 +824,9 @@ jobs:
       test-results-name: live-browser-${{ github.run_attempt }}
   browser-budgets:
     name: Browser budgets
+    needs: frontend-unit
     if: >-
-      always() && !cancelled() &&
+      success() &&
       (github.event_name == 'pull_request' || github.event_name == 'merge_group' ||
        (github.event_name == 'push' && github.ref == 'refs/heads/master'))
     runs-on: ubuntu-24.04
@@ -828,6 +961,7 @@ jobs:
           only_update: ${{ needs.browser-budgets.result == 'skipped' }}
   performance:
     name: PR performance
+    needs: backend-unit
     if: github.event_name == 'pull_request'
     uses: ./.github/workflows/performance.yml
     permissions:
@@ -835,6 +969,7 @@ jobs:
       pull-requests: write
   property:
     name: Properties
+    needs: frontend-unit
     if: >-
       github.event_name == 'pull_request' || github.event_name == 'merge_group' ||
       (github.event_name == 'push' && github.ref == 'refs/heads/master')
@@ -843,12 +978,14 @@ jobs:
       mode: pr
   security:
     name: Security checks
+    needs: [backend-unit, frontend-unit]
     uses: ./.github/workflows/security.yml
     permissions:
       contents: read
       security-events: write
   recovery:
     name: Recovery
+    needs: backend-unit
     if: >-
       github.event_name == 'pull_request' || github.event_name == 'merge_group' ||
       (github.event_name == 'push' && (github.ref_type == 'tag' || github.ref == 'refs/heads/master'))
@@ -857,6 +994,7 @@ jobs:
       changes_only: ${{ github.event_name == 'pull_request' || github.event_name == 'merge_group' }}
   dast:
     name: ZAP
+    needs: [backend-unit, frontend-unit]
     if: >-
       github.event_name == 'pull_request' || github.event_name == 'merge_group' ||
       (github.event_name == 'push' && (github.ref_type == 'tag' || github.ref == 'refs/heads/master'))
@@ -869,6 +1007,7 @@ jobs:
     needs:
       - security
       - python-unit
+      - python-loadtest
       - python-integration
       - admin-web
       - partner-web
@@ -882,7 +1021,8 @@ jobs:
     if: >-
       always() && !cancelled() &&
       needs.security.result == 'success' &&
-      needs.python-unit.result == 'success' && needs.python-integration.result == 'success' &&
+      needs.python-unit.result == 'success' && needs.python-loadtest.result == 'success' &&
+      needs.python-integration.result == 'success' &&
       needs.admin-web.result == 'success' && needs.partner-web.result == 'success' && needs.user-web.result == 'success' &&
       ((github.event_name == 'push' && github.ref == 'refs/heads/master') ||
       (github.event_name == 'pull_request' &&
@@ -979,8 +1119,89 @@ jobs:
         uses: SonarSource/sonarqube-scan-action@d209202bc7d53ff1cc128f7f907dac145c9d6ae9 # v8.3.0
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+  backend-integration:
+    name: Stage / Backend integration checks
+    needs:
+      [
+        backend-unit,
+        python-integration,
+        migration-upgrade,
+        api-compat,
+        api-fuzz,
+        recovery,
+        performance,
+      ]
+    if: always() && !cancelled()
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Require backend integration checks
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          RESULTS: ${{ toJSON(needs) }}
+        run: |
+          echo "$RESULTS" | jq -e --arg event "$EVENT_NAME" '
+            ([.["backend-unit"], .["python-integration"], .["migration-upgrade"]]
+             | all(.result == "success")) and
+            (if $event == "pull_request" or $event == "merge_group"
+             then .["api-compat"].result == "success" and .["api-fuzz"].result == "success"
+             else .["api-compat"].result == "skipped" and .["api-fuzz"].result == "skipped" end) and
+            (if $event == "pull_request" then .performance.result == "success"
+             else .performance.result == "skipped" end) and
+            (if $event == "pull_request" or $event == "merge_group" or $event == "push"
+             then .recovery.result == "success" else .recovery.result == "skipped" end)'
+  frontend-integration:
+    name: Stage / Frontend integration checks
+    needs:
+      [
+        frontend-unit,
+        reader-parity,
+        admin-browser,
+        partner-browser,
+        browser-budgets,
+        property,
+        mutation,
+      ]
+    if: always() && !cancelled()
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Require frontend integration checks
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          REF_TYPE: ${{ github.ref_type }}
+          RESULTS: ${{ toJSON(needs) }}
+        run: |
+          echo "$RESULTS" | jq -e --arg event "$EVENT_NAME" --arg ref_type "$REF_TYPE" '
+            ([.["frontend-unit"], .["reader-parity"], .["admin-browser"], .["partner-browser"]]
+             | all(.result == "success")) and
+            (if $event == "pull_request" or $event == "merge_group" or ($event == "push" and $ref_type == "branch")
+             then .["browser-budgets"].result == "success" and .property.result == "success" and .mutation.result == "success"
+             else .["browser-budgets"].result == "skipped" and .property.result == "skipped" and .mutation.result == "skipped" end)'
+  validation:
+    name: Stage / Tests, security and analysis
+    needs: [backend-integration, frontend-integration, live-browser, security, dast, sonarqube]
+    if: always() && !cancelled()
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Require validation before building images
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          SONAR_EXPECTED: >-
+            ${{ (github.event_name == 'push' && github.ref == 'refs/heads/master') ||
+                (github.event_name == 'pull_request' &&
+                 github.event.pull_request.head.repo.full_name == github.repository &&
+                 github.actor != 'dependabot[bot]') }}
+          RESULTS: ${{ toJSON(needs) }}
+        run: |
+          echo "$RESULTS" | jq -e --arg event "$EVENT_NAME" --arg sonar "$SONAR_EXPECTED" '
+            ([.["backend-integration"], .["frontend-integration"], .["live-browser"], .security]
+             | all(.result == "success")) and
+            (if $event == "pull_request" or $event == "merge_group" or $event == "push"
+             then .dast.result == "success" else .dast.result == "skipped" end) and
+            (if $sonar == "true" then .sonarqube.result == "success"
+             else .sonarqube.result == "skipped" end)'
   containers:
     name: ARM64 image checks
+    needs: validation
     if: github.event_name != 'push' || github.ref_type != 'tag'
     uses: ./.github/workflows/containers.yml
     permissions:
@@ -993,7 +1214,9 @@ jobs:
   release-images:
     name: ARM64 release images
     needs:
+      - validation
       - python-unit
+      - python-loadtest
       - admin-web
       - partner-web
       - user-web
@@ -1017,6 +1240,7 @@ jobs:
       publish: ${{ github.actor != 'renovate[bot]' && github.event_name == 'push' && github.ref_type == 'tag' }}
   mutation:
     name: Mutation
+    needs: frontend-unit
     if: >-
       github.event_name == 'pull_request' || github.event_name == 'merge_group' ||
       (github.event_name == 'push' && github.ref == 'refs/heads/master')
@@ -1025,7 +1249,15 @@ jobs:
     name: CI required
     if: ${{ always() && !cancelled() }}
     needs:
+      - python-lint
+      - python-unit-shards
+      - backend-unit
+      - frontend-unit
+      - backend-integration
+      - frontend-integration
+      - validation
       - python-unit
+      - python-loadtest
       - coverage-report
       - admin-web
       - partner-web
@@ -1037,6 +1269,7 @@ jobs:
       - migration-upgrade
       - reader-parity
       - admin-browser
+      - partner-browser
       - live-browser
       - security
       - dast
@@ -1065,9 +1298,11 @@ jobs:
           RESULTS: ${{ toJSON(needs) }}
         run: |
           echo "$RESULTS" | jq -e --arg event "$EVENT_NAME" --arg ref_type "$REF_TYPE" --arg comment "$COVERAGE_COMMENT_REQUIRED" --arg browser_comment "$BROWSER_COMMENT_REQUIRED" --arg sonar "$SONAR_EXPECTED" '
-            ([.["python-unit"], .["admin-web"], .["partner-web"], .["user-web"], .extensions,
+            ([.["python-lint"], .["python-unit-shards"], .["python-unit"], .["python-loadtest"],
+              .["backend-unit"], .["frontend-unit"], .["backend-integration"], .["frontend-integration"], .validation,
+              .["admin-web"], .["partner-web"], .["user-web"], .extensions,
               .["python-integration"], .["migration-upgrade"], .["reader-parity"],
-              .["admin-browser"], .["live-browser"], .security]
+              .["admin-browser"], .["partner-browser"], .["live-browser"], .security]
              | all(.result == "success")) and
             (if $event == "push" and $ref_type == "tag"
              then .["release-images"].result == "success" and .containers.result == "skipped"

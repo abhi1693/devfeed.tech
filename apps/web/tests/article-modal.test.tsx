@@ -28,6 +28,7 @@ vi.mock("next/navigation", () => ({
 beforeEach(() => {
   slots.page = [];
   slots.modal = [];
+  vi.spyOn(window, "scrollTo").mockImplementation(() => {});
   Object.defineProperty(HTMLDialogElement.prototype, "showModal", {
     configurable: true,
     value: function (this: HTMLDialogElement) {
@@ -77,6 +78,40 @@ it("opens a native modal and restores scrolling and focus on dismissal", () => {
   expect(document.activeElement).toBe(trigger);
   view.unmount();
   trigger.remove();
+});
+
+it("keeps the retained document at modal entry when a browser scroll lands during native opening", () => {
+  let position = 1478;
+  const frames: FrameRequestCallback[] = [];
+  vi.stubGlobal("scrollY", position);
+  vi.spyOn(window, "requestAnimationFrame").mockImplementation((callback) => {
+    frames.push(callback);
+    return frames.length;
+  });
+  vi.spyOn(window, "cancelAnimationFrame").mockImplementation(() => {});
+  vi.mocked(window.scrollTo).mockImplementation((options) => {
+    position = (options as ScrollToOptions).top!;
+    vi.stubGlobal("scrollY", position);
+  });
+  vi.spyOn(HTMLDialogElement.prototype, "showModal").mockImplementation(function (
+    this: HTMLDialogElement,
+  ) {
+    this.setAttribute("open", "");
+    position = 1481;
+    vi.stubGlobal("scrollY", position);
+  });
+  try {
+    render(
+      <ArticleModal active slug="first">
+        Article
+      </ArticleModal>,
+    );
+    expect(window.scrollTo).toHaveBeenCalledWith({ left: 0, top: 1478, behavior: "instant" });
+    act(() => frames[0](0));
+    expect(window.scrollY).toBe(1478);
+  } finally {
+    vi.unstubAllGlobals();
+  }
 });
 
 it("releases an invisible modal even when the exit animation never finishes", async () => {

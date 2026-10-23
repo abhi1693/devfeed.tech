@@ -1,0 +1,948 @@
+"""Real Redis + SDK OAuth transport, consent, scopes, isolation and revocation."""
+
+import base64
+import hashlib
+import json
+import os
+import secrets
+import time
+from types import SimpleNamespace
+from unittest.mock import AsyncMock
+from urllib.parse import parse_qs, urlencode, urlsplit
+
+import httpx
+import pytest
+from devfeed_http.agent_permissions import AgentAccessPolicy
+from devfeed_mcp.config import Settings
+from devfeed_mcp.main import create_app
+from devfeed_user_api import auth, mcp, oidc
+from devfeed_user_api.config import Settings as UserSettings
+from devfeed_user_api.main import create_app as create_user_app
+from fastapi.routing import APIRoute, iter_route_contexts
+from fastapi.testclient import TestClient
+from redis import Redis
+from starlette.requests import Request
+from starlette.routing import Match, Mount, Route
+
+from tests.mcp.test_mcp import ARTICLE, ID
+from tests.mcp.test_mcp_routes import PROTOCOLS, ordinary_endpoint, relocate, rpc_request
+
+pytestmark = pytest.mark.integration
+
+RESOURCE = "https://mcp.example/mcp"
+ISSUER = "https://mcp.example"
+WEB = "https://reader.example"
+USER_ID = "00000000-0000-4000-8000-000000000001"
+HEADERS = {"Accept": "application/json, text/event-stream", "Mcp-Protocol-Version": "2025-11-25"}
+
+
+def registered_request(app, path, token, method="GET"):
+    scope = {
+        "type": "http",
+        "method": method,
+        "path": path,
+        "headers": [(b"authorization", ("Bearer " + token).encode())],
+    }
+    for context in iter_route_contexts(app.routes):
+        route = context.original_route
+        if isinstance(route, APIRoute):
+            matched, child = route.matches(scope)
+            if matched == Match.FULL:
+                return Request({**scope, **child})
+    pytest.fail(f"No registered {method} route for {path}")
+
+
+@pytest.fixture
+def flow(monkeypatch):
+    url = os.getenv("DEVFEED_TEST_REDIS_URL")
+    if not url:
+        pytest.skip("Set disposable DEVFEED_TEST_REDIS_URL (database 15)")
+    assert urlsplit(url).path == "/15"
+    monkeypatch.setenv(
+        "DEVFEED_DATABASE_URL", "postgresql+psycopg://test@database.invalid/oauth_test"
+    )
+    monkeypatch.setenv("DEVFEED_REDIS_URL", url)
+    store = Redis.from_url(url)
+    store.flushdb()
+    settings = UserSettings(
+        _env_file=None,
+        base_url=WEB,
+        oidc_issuer_url="https://identity.example",
+        oidc_client_id="reader",
+        oidc_organization_id="org",
+        mcp_resource_url=RESOURCE,
+        mcp_issuer_url=ISSUER,
+    )
+    monkeypatch.setattr(auth, "get_settings", lambda: settings)
+    monkeypatch.setattr(mcp, "get_settings", lambda: settings)
+    monkeypatch.setattr(auth, "get_redis", lambda: store)
+    monkeypatch.setattr(mcp, "get_redis", lambda: store)
+    monkeypatch.setattr(auth, "_record_activity", lambda user: None)
+    identity = dict(
+        user_id=USER_ID,
+        subject="subject-one",
+        issuer="https://identity.example",
+        organization_id="org",
+        name="Reader",
+        email=None,
+        csrf_token=secrets.token_urlsafe(32),
+        expires_at=int(time.time()) + 3600,
+    )
+    session = secrets.token_urlsafe(32)
+    store.set(
+        auth.key("session", session),
+        json.dumps(
+            {
+                **identity,
+                "provider_session": {
+                    "issuer": settings.oidc_issuer_url,
+                    "client_id": settings.oidc_client_id,
+                    "subject": identity["subject"],
+                    "sid": "consent-browser-session",
+                    "issued_at": int(time.time()),
+                },
+                "absolute_expires_at": int(time.time()) + 7200,
+                "policy": oidc.policy_key(settings),
+            }
+        ),
+        ex=3600,
+    )
+    user = TestClient(create_user_app(), base_url=WEB)
+    user.cookies.set(oidc.cookie_name(settings, "session"), session)
+    requests = []
+
+    def upstream(request):
+        requests.append(request)
+        if request.url.host == "public.example" and request.url.path == f"/v1/articles/{ID}":
+            body = ARTICLE
+        elif "/preferences/sources" in request.url.path and request.method == "GET":
+            body = {"source_ids": [USER_ID]}
+        elif request.url.path.endswith("must-reads"):
+            body = {
+                "date": "2026-10-03",
+                "timezone": request.url.params.get("timezone", "UTC"),
+                "items": [ARTICLE],
+                "reasons": {ID: "Because you follow Python"},
+                "read_ids": [ID],
+                "preparing": False,
+                "presented": False,
+            }
+        elif request.url.path.endswith("preferences"):
+            body = {"topic_ids": [USER_ID]}
+        elif request.url.path.endswith("bookmark"):
+            body = {"article_id": USER_ID, **json.loads(request.content)}
+        elif request.url.path.endswith("like"):
+            body = {"article_id": USER_ID, "likes": 1, **json.loads(request.content)}
+        elif request.method == "PUT":
+            body = json.loads(request.content)
+        else:
+            body = {"items": [], "next_cursor": None, "generation": None}
+        return httpx.Response(200, json=body)
+
+    app = create_app(
+        Settings(
+            api_url="https://public.example",
+            user_api_url="https://user.example",
+            public_url=RESOURCE,
+            oauth_issuer_url=ISSUER,
+            web_url=WEB,
+            redis_url=url,
+        ),
+        transport=httpx.MockTransport(upstream),
+    )
+    with TestClient(app, base_url="http://localhost") as client:
+        yield SimpleNamespace(
+            client=client,
+            user=user,
+            store=store,
+            identity=identity,
+            requests=requests,
+            settings=settings,
+        )
+    user.close()
+    store.flushdb()
+    store.close()
+
+
+def start(flow, scope="devfeed:read devfeed:write", redirect="http://127.0.0.1:4567/callback"):
+    response = flow.client.post(
+        "/register",
+        json={
+            "client_name": "Test agent",
+            "redirect_uris": [redirect],
+            "token_endpoint_auth_method": "none",
+            "grant_types": ["authorization_code", "refresh_token"],
+            "response_types": ["code"],
+            "scope": scope,
+        },
+    )
+    assert response.status_code == 201, response.text
+    client_id = response.json()["client_id"]
+    verifier = secrets.token_urlsafe(32)
+    challenge = (
+        base64.urlsafe_b64encode(hashlib.sha256(verifier.encode()).digest()).decode().rstrip("=")
+    )
+    response = flow.client.get(
+        "/authorize",
+        params={
+            "client_id": client_id,
+            "response_type": "code",
+            "redirect_uri": redirect,
+            "scope": scope,
+            "state": "client-state",
+            "code_challenge": challenge,
+            "code_challenge_method": "S256",
+            "resource": RESOURCE,
+        },
+        follow_redirects=False,
+    )
+    assert response.status_code == 302, response.text
+    request_id = parse_qs(urlsplit(response.headers["location"]).query)["request"][0]
+    return client_id, verifier, request_id, redirect
+
+
+def approve(flow, pending, access=None):
+    client_id, verifier, request_id, redirect = pending
+    response = flow.user.post(
+        f"/v1/user/mcp/requests/{request_id}",
+        json={"approved": True, **({"access": access} if access is not None else {})},
+        headers={"Origin": WEB, "X-CSRF-Token": flow.identity["csrf_token"]},
+    )
+    assert response.status_code == 200, response.text
+    location = parse_qs(urlsplit(response.json()["redirect_url"]).query)
+    assert location["state"] == ["client-state"]
+    assert location["iss"] == [ISSUER]
+    return dict(
+        grant_type="authorization_code",
+        client_id=client_id,
+        code=location["code"][0],
+        code_verifier=verifier,
+        redirect_uri=redirect,
+        resource=RESOURCE,
+    )
+
+
+def tokens(flow, scope="devfeed:read devfeed:write", access=None):
+    form = approve(flow, start(flow, scope), access)
+    response = flow.client.post("/token", data=form)
+    assert response.status_code == 200, response.text
+    return response.json(), form
+
+
+def call(flow, token, name, arguments=None):
+    return flow.client.post(
+        "/mcp",
+        headers={**HEADERS, "Authorization": "Bearer " + token},
+        json={
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "tools/call",
+            "params": {"name": name, "arguments": arguments or {}},
+        },
+    )
+
+
+def test_shared_endpoint_public_access_and_invalid_bearer(flow):
+    request = {"jsonrpc": "2.0", "id": 1, "method": "tools/list"}
+    response = flow.client.post("/mcp", headers=HEADERS, json=request)
+    assert response.status_code == 200
+    assert len(response.json()["result"]["tools"]) == 15
+    response = flow.client.post(
+        "/mcp", headers={**HEADERS, "Authorization": "Bearer invalid"}, json=request
+    )
+    assert response.status_code == 401
+    assert flow.client.post("/personal/mcp", headers=HEADERS, json=request).status_code == 404
+    response = flow.client.post("/mcp", headers=HEADERS, content=b"x" * 32769)
+    assert response.status_code == 413
+
+
+@pytest.mark.parametrize("version", PROTOCOLS)
+def test_account_auth_and_browser_negotiation_follow_mounted_sdk_transport(flow, version):
+    token, _ = tokens(flow, "devfeed:read")
+    routes = flow.client.app.state.mcp_routes
+    relocate(routes.transport, "/agent")
+    flow.client.app.router.routes = [
+        Route("/mcp", ordinary_endpoint, methods=["GET", "POST"]),
+        Mount("/gateway", app=routes.app),
+    ]
+    response = flow.client.post("/gateway/agent", **rpc_request(version))
+    assert response.status_code == 200, response.text
+    assert len(response.json()["result"]["tools"]) == 15
+    request = rpc_request(version)
+    request["headers"]["Authorization"] = "Bearer invalid"
+    assert flow.client.post("/gateway/agent", **request).status_code == 401
+    assert flow.client.post("/mcp", **request).status_code == 200
+
+    account = rpc_request(version, "tools/call", name="get_my_feed", arguments={})
+    assert flow.client.post("/gateway/agent", **account).status_code == 401
+    assert not flow.requests
+    account["headers"]["Authorization"] = "Bearer " + token["access_token"]
+    response = flow.client.post("/gateway/agent", **account)
+    assert response.status_code == 200, response.text
+    assert not response.json()["result"].get("isError"), response.text
+    assert flow.requests[-1].url.path == "/v1/user/feed"
+    assert flow.requests[-1].headers["authorization"] == account["headers"]["Authorization"]
+    assert "cookie" not in flow.requests[-1].headers
+    public = rpc_request(version, "tools/call", name="get_article", arguments={"article_id": ID})
+    public["headers"]["Authorization"] = account["headers"]["Authorization"]
+    public["headers"]["Cookie"] = "session=private"
+    response = flow.client.post("/gateway/agent", **public)
+    assert response.status_code == 200, response.text
+    assert not response.json()["result"].get("isError"), response.text
+    assert flow.requests[-1].url.host == "public.example"
+    assert "authorization" not in flow.requests[-1].headers
+    assert "cookie" not in flow.requests[-1].headers
+    before = len(flow.requests)
+    anonymous = rpc_request(version, "tools/call", name="get_my_feed", arguments={})
+    assert flow.client.post("/gateway/agent", **anonymous).status_code == 401
+    assert len(flow.requests) == before
+    assert flow.client.post("/gateway/agent", **rpc_request(version)).status_code == 200
+
+    response = flow.client.get(
+        "/gateway/agent?token=private", headers={"Accept": "text/html"}, follow_redirects=False
+    )
+    assert response.status_code == 302
+    assert response.headers["location"] == WEB + "/mcp"
+    assert (
+        flow.client.get(
+            "/gateway/agent", headers={"Accept": "text/html", "Mcp-Protocol-Version": version}
+        ).status_code
+        == 401
+    )
+    assert flow.client.post("/gateway/agent", content=b"x" * 32769).status_code == 413
+    assert flow.client.post("/mcp", content=b"x" * 32769).json() == {"body_bytes": 32769}
+
+
+@pytest.mark.parametrize("include_resource", [True, False])
+def test_token_policy_and_sdk_cors_follow_renamed_route_in_mount(flow, include_resource):
+    form = approve(flow, start(flow, "devfeed:read"))
+    routes = flow.client.app.state.mcp_routes
+    relocate(routes.oauth.token, "/exchange")
+    flow.client.app.router.routes = [
+        Route("/token", ordinary_endpoint, methods=["POST"]),
+        Mount("/gateway", app=routes.app),
+    ]
+    origin = {"Origin": "https://inspector.example"}
+    response = flow.client.options(
+        "/gateway/exchange",
+        headers={
+            **origin,
+            "Access-Control-Request-Method": "POST",
+            "Access-Control-Request-Headers": "content-type,mcp-protocol-version",
+        },
+    )
+    assert response.status_code == 200, response.text
+    assert response.headers["access-control-allow-origin"] == "*"
+    for resource in ["https://other.example/mcp", [RESOURCE, RESOURCE]]:
+        response = flow.client.post(
+            "/gateway/exchange", data={**form, "resource": resource}, headers=origin
+        )
+        assert response.status_code == 400
+        assert response.json()["error"] == "invalid_target"
+        assert response.headers["cache-control"] == "no-store"
+        assert response.headers["access-control-allow-origin"] == "*"
+    response = flow.client.post(
+        "/gateway/exchange",
+        content=b"x" * 32769,
+        headers={**origin, "Content-Type": "application/x-www-form-urlencoded"},
+    )
+    assert response.status_code == 413
+    assert response.json()["error"] == "invalid_request"
+    assert response.headers["access-control-allow-origin"] == "*"
+    ordinary = flow.client.post("/token", content=b"resource=wrong")
+    assert ordinary.json() == {"body_bytes": len(b"resource=wrong")}
+    if not include_resource:
+        form.pop("resource")
+    response = flow.client.post("/gateway/exchange", data=form, headers=origin)
+    assert response.status_code == 200, response.text
+    assert response.json()["scope"] == "devfeed:read"
+    assert response.headers["access-control-allow-origin"] == "*"
+
+
+@pytest.mark.parametrize("encoding", ["multipart", "json", "missing_content_type"])
+def test_sdk_token_exchange_rejects_non_form_resource_bypass_without_consuming_code(flow, encoding):
+    form = approve(flow, start(flow, "devfeed:read"))
+    foreign_resource = {**form, "resource": "https://other.example/mcp"}
+    if encoding == "multipart":
+        request = {"files": {key: (None, value) for key, value in foreign_resource.items()}}
+    elif encoding == "json":
+        request = {"json": foreign_resource}
+    else:
+        request = {"content": urlencode(foreign_resource).encode()}
+    response = flow.client.post("/token", **request)
+    assert response.status_code == 400
+    assert response.json()["error"] == "invalid_request"
+    assert response.headers["cache-control"] == "no-store"
+    assert not list(flow.store.scan_iter("devfeed:mcp:access:*"))
+    response = flow.client.post("/token", data=form)
+    assert response.status_code == 200, response.text
+    assert response.json()["scope"] == "devfeed:read"
+
+
+@pytest.mark.parametrize("slot", ["authorization", "registration", "revocation"])
+def test_other_sdk_oauth_mutations_retain_limits_after_rename_without_token_resource_policy(
+    flow, slot
+):
+    routes = flow.client.app.state.mcp_routes
+    relocate(getattr(routes.oauth, slot), "/submit")
+    flow.client.app.router.routes = [Mount("/gateway", app=routes.app)]
+    origin = {"Origin": "https://inspector.example"}
+    response = flow.client.post("/gateway/submit", content=b"x" * 32769, headers=origin)
+    assert response.status_code == 413
+    assert response.json()["error"] == "invalid_request"
+    assert response.headers["cache-control"] == "no-store"
+    if slot == "authorization":
+        assert "access-control-allow-origin" not in response.headers
+    else:
+        assert response.headers["access-control-allow-origin"] == "*"
+    request = (
+        {"json": {"resource": "wrong"}}
+        if slot == "registration"
+        else {"data": {"resource": "wrong"}}
+    )
+    response = flow.client.post("/gateway/submit", **request)
+    assert response.status_code == (401 if slot == "revocation" else 400)
+    assert response.json()["error"] != "invalid_target"
+
+
+def test_bearer_validation_is_confined_to_transport_not_relocated_oauth_discovery(
+    flow, monkeypatch
+):
+    from devfeed_mcp.oauth import OAuthProvider
+
+    routes = flow.client.app.state.mcp_routes
+    relocate(routes.oauth.metadata, "/oauth-info")
+    verifier = AsyncMock(return_value=None)
+    monkeypatch.setattr(OAuthProvider, "load_access_token", verifier)
+    response = flow.client.get("/oauth-info", headers={"Authorization": "Bearer invalid"})
+    assert response.status_code == 200
+    assert response.json()["token_endpoint_auth_methods_supported"] == ["none"]
+    assert response.json()["revocation_endpoint_auth_methods_supported"] == ["none"]
+    verifier.assert_not_awaited()
+    response = flow.client.post(
+        "/mcp",
+        headers={**HEADERS, "Authorization": "Bearer invalid"},
+        json={"jsonrpc": "2.0", "id": 1, "method": "tools/list"},
+    )
+    assert response.status_code == 401
+    verifier.assert_awaited_once_with("invalid")
+
+
+@pytest.mark.parametrize("version", PROTOCOLS)
+@pytest.mark.parametrize("defect,status", [("missing_read", 403), ("wrong_resource", 401)])
+def test_transport_rejects_insufficient_read_scope_or_wrong_token_audience(
+    flow, version, defect, status
+):
+    token, _ = tokens(flow, "devfeed:read")
+    access_key = mcp.key("access", token["access_token"])
+    record = json.loads(flow.store.get(access_key))
+    if defect == "missing_read":
+        record["scopes"] = ["devfeed:write"]
+    else:
+        record["resource"] = "https://other.example/mcp"
+    flow.store.set(access_key, json.dumps(record), ex=300)
+    request = rpc_request(version)
+    request["headers"]["Authorization"] = "Bearer " + token["access_token"]
+    response = flow.client.post("/mcp", **request)
+    assert response.status_code == status
+    assert "resource_metadata=" in response.headers["www-authenticate"]
+    assert not flow.requests
+
+
+def test_browser_visits_open_reader_with_oauth_enabled(flow):
+    response = flow.client.get("/mcp", headers={"Accept": "text/html"}, follow_redirects=False)
+    assert response.status_code == 302
+    assert response.headers["location"] == WEB + "/mcp"
+
+
+@pytest.mark.parametrize("method", ["GET", "HEAD"])
+@pytest.mark.parametrize("accept", ["application/json", "*/*", "text/event-stream"])
+def test_login_discovery_gets_json_challenge_without_opening_sse(flow, method, accept):
+    response = flow.client.request(method, "/mcp", headers={"Accept": accept})
+    assert response.status_code == 401
+    assert response.headers["content-type"] == "application/json"
+    metadata_url = (
+        response.headers["www-authenticate"].split('resource_metadata="')[1].split('"')[0]
+    )
+    metadata = flow.client.get(metadata_url)
+    assert metadata.status_code == 200
+    assert metadata.json()["resource"] == RESOURCE
+    assert metadata.json()["authorization_servers"] == [ISSUER]
+    if method == "GET":
+        assert response.json()["error"] == "invalid_token"
+
+
+def test_discovery_and_browser_consent(flow):
+    response = flow.client.post(
+        "/mcp", headers=HEADERS, json={"jsonrpc": "2.0", "id": 1, "method": "tools/list"}
+    )
+    assert response.status_code == 200
+    assert len(response.json()["result"]["tools"]) == 15
+    response = flow.client.post(
+        "/mcp",
+        headers=HEADERS,
+        json={
+            "jsonrpc": "2.0",
+            "id": 2,
+            "method": "tools/call",
+            "params": {"name": "get_my_feed", "arguments": {}},
+        },
+    )
+    assert response.status_code == 401
+    assert "resource_metadata=" in response.headers["www-authenticate"]
+    metadata = flow.client.get("/.well-known/oauth-protected-resource/mcp").json()
+    assert metadata["resource"] == RESOURCE
+    assert metadata["authorization_servers"] == [ISSUER]
+    assert metadata["scopes_supported"] == ["devfeed:read", "devfeed:write"]
+    metadata = flow.client.get("/.well-known/oauth-authorization-server").json()
+    assert metadata["code_challenge_methods_supported"] == ["S256"]
+    assert metadata["token_endpoint_auth_methods_supported"] == ["none"]
+    assert "offline_access" in metadata["scopes_supported"]
+    client_id, verifier, request_id, redirect = start(flow)
+    response = flow.user.get(f"/v1/user/mcp/requests/{request_id}")
+    assert response.json()["client_name"] == "Test agent"
+    assert response.json()["scopes"] == ["devfeed:read", "devfeed:write"]
+    assert (
+        flow.user.post(f"/v1/user/mcp/requests/{request_id}", json={"approved": True}).status_code
+        == 403
+    )
+    token, form = tokens(flow)
+    response = flow.client.post(
+        "/mcp",
+        headers={**HEADERS, "Authorization": "Bearer " + token["access_token"]},
+        json={"jsonrpc": "2.0", "id": 1, "method": "tools/list"},
+    )
+    tools = response.json()["result"]["tools"]
+    assert len(tools) == 15
+    must_reads = next(tool for tool in tools if tool["name"] == "get_my_must_reads")
+    assert must_reads["inputSchema"]["properties"]["timezone"]["default"] == "UTC"
+    assert must_reads["outputSchema"]["properties"]["items"]["maxItems"] == 5
+    assert "presented" not in must_reads["outputSchema"]["properties"]
+    assert all(
+        t["annotations"]["readOnlyHint"] == (not t["name"].startswith("set_")) for t in tools
+    )
+    assert flow.client.post("/token", data=form).status_code == 400
+
+
+def test_pkce_redirect_and_resource_validation(flow):
+    form = approve(flow, start(flow))
+    assert flow.client.post("/token", data={**form, "code_verifier": "wrong"}).status_code == 400
+    assert (
+        flow.client.post(
+            "/token", data={**form, "redirect_uri": "https://evil.example/callback"}
+        ).status_code
+        == 400
+    )
+    assert flow.client.post("/token", data=form).status_code == 200
+    response = flow.client.post(
+        "/register",
+        json={
+            "redirect_uris": ["http://evil.example/callback"],
+            "token_endpoint_auth_method": "none",
+        },
+    )
+    assert response.status_code == 400
+
+
+@pytest.mark.parametrize(
+    "name,args,path",
+    [
+        ("get_my_feed", {}, "/v1/user/feed"),
+        ("get_my_must_reads", {"timezone": "Asia/Kolkata"}, "/v1/user/must-reads"),
+        ("list_my_bookmarks", {}, "/v1/user/bookmarks"),
+        ("list_my_followed_topics", {}, "/v1/user/preferences"),
+        ("list_my_followed_sources", {}, "/v1/user/preferences/sources"),
+        (
+            "set_bookmark",
+            {"article_id": USER_ID, "bookmarked": True},
+            f"/v1/user/articles/{USER_ID}/bookmark",
+        ),
+        (
+            "set_topic_follow",
+            {"topic_id": USER_ID, "followed": False},
+            f"/v1/user/preferences/topics/{USER_ID}",
+        ),
+        (
+            "set_source_follow",
+            {"source_id": USER_ID, "followed": True},
+            f"/v1/user/preferences/sources/{USER_ID}",
+        ),
+        (
+            "set_article_like",
+            {"article_id": USER_ID, "liked": True},
+            f"/v1/user/articles/{USER_ID}/like",
+        ),
+    ],
+)
+def test_all_account_tools_use_fixed_user_api_and_scoped_token(flow, name, args, path):
+    token, _ = tokens(flow, access="read-write")
+    response = call(flow, token["access_token"], name, args)
+    assert response.status_code == 200, response.text
+    assert not response.json()["result"].get("isError"), response.text
+    request = flow.requests[-1]
+    assert request.url.host == "user.example"
+    assert request.url.path == path
+    assert request.headers["authorization"] == "Bearer " + token["access_token"]
+    assert "cookie" not in request.headers
+    assert "user_id" not in request.url.params
+
+
+def test_read_only_grant_refresh_rotation_and_immediate_disconnect(flow):
+    token, form = tokens(flow, "devfeed:read")
+    response = call(
+        flow, token["access_token"], "set_bookmark", {"article_id": USER_ID, "bookmarked": True}
+    )
+    assert response.json()["result"]["isError"]
+    assert not flow.requests
+    refresh = dict(
+        grant_type="refresh_token",
+        client_id=form["client_id"],
+        refresh_token=token["refresh_token"],
+        resource=RESOURCE,
+    )
+    response = flow.client.post("/token", data=refresh)
+    assert response.status_code == 200, response.text
+    new_token = response.json()
+    connection = flow.user.get("/v1/user/mcp/connections").json()["items"][0]
+    response = flow.user.delete(
+        f"/v1/user/mcp/connections/{connection['id']}",
+        headers={"Origin": WEB, "X-CSRF-Token": flow.identity["csrf_token"]},
+    )
+    assert response.status_code == 204, response.text
+    for access in [token["access_token"], new_token["access_token"]]:
+        assert call(flow, access, "get_my_feed").status_code == 401
+    assert (
+        flow.client.post(
+            "/token", data={**refresh, "refresh_token": new_token["refresh_token"]}
+        ).status_code
+        == 400
+    )
+
+
+def test_user_api_binds_identity_and_denies_other_endpoints(flow, monkeypatch):
+    from uuid import UUID
+
+    from devfeed_core import db
+    from fastapi import HTTPException
+
+    token, _ = tokens(flow)
+
+    class Session:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            pass
+
+        def scalar(self, statement):
+            return UUID(USER_ID)
+
+    monkeypatch.setattr(db, "session_factory", lambda: Session)
+
+    def request(path, method="GET"):
+        return registered_request(flow.user.app, path, token["access_token"], method)
+
+    assert AgentAccessPolicy.from_request(request("/v1/user/bookmarks")).scope == "devfeed:read"
+    assert auth.require_user(request("/v1/user/bookmarks")).user_id == USER_ID
+    assert auth.require_user(request("/v1/user/must-reads")).user_id == USER_ID
+    for path, method in [
+        ("/v1/user/settings/profile", "GET"),
+        ("/v1/user/must-reads/presentation", "POST"),
+        ("/v1/user/articles/" + USER_ID + "/open", "POST"),
+        ("/v1/user/mcp/connections", "GET"),
+    ]:
+        with pytest.raises(HTTPException) as error:
+            auth.require_user(request(path, method))
+        assert error.value.status_code == 403
+    monkeypatch.setattr(Session, "scalar", lambda self, statement: None)
+    with pytest.raises(HTTPException) as error:
+        auth.require_user(request("/v1/user/bookmarks"))
+    assert error.value.status_code == 401
+
+
+def test_rejects_wrong_resource_at_token_endpoint_and_scope_escalation(flow):
+    form = approve(flow, start(flow, "devfeed:read"))
+    response = flow.client.post("/token", data={**form, "resource": "https://other.example/mcp"})
+    assert response.status_code == 400
+    assert response.json()["error"] == "invalid_target"
+    token = flow.client.post("/token", data=form).json()
+    response = flow.client.post(
+        "/token",
+        data={
+            "grant_type": "refresh_token",
+            "client_id": form["client_id"],
+            "refresh_token": token["refresh_token"],
+            "scope": "devfeed:read devfeed:write",
+            "resource": RESOURCE,
+        },
+    )
+    assert response.status_code == 400
+    assert response.json()["error"] == "invalid_scope"
+
+
+def test_cancellation_expiry_and_other_account_cannot_disconnect(flow):
+    pending = start(flow)
+    request_id = pending[2]
+    response = flow.user.post(
+        f"/v1/user/mcp/requests/{request_id}",
+        json={"approved": False},
+        headers={"Origin": WEB, "X-CSRF-Token": flow.identity["csrf_token"]},
+    )
+    assert parse_qs(urlsplit(response.json()["redirect_url"]).query)["error"] == ["access_denied"]
+    assert flow.user.get("/v1/user/mcp/connections").json() == {"items": []}
+    assert flow.user.get(f"/v1/user/mcp/requests/{request_id}").status_code == 404
+    token, _ = tokens(flow)
+    connection = flow.user.get("/v1/user/mcp/connections").json()["items"][0]
+    grant_key = mcp.key("grant", connection["id"])
+    grant = json.loads(flow.store.get(grant_key))
+    grant["identity"]["user_id"] = "00000000-0000-4000-8000-000000000002"
+    flow.store.set(grant_key, json.dumps(grant), ex=300)
+    response = flow.user.delete(
+        f"/v1/user/mcp/connections/{connection['id']}",
+        headers={"Origin": WEB, "X-CSRF-Token": flow.identity["csrf_token"]},
+    )
+    assert response.status_code == 404
+    access_key = mcp.key("access", token["access_token"])
+    access = json.loads(flow.store.get(access_key))
+    access["expires_at"] = int(time.time()) - 1
+    flow.store.set(access_key, json.dumps(access), ex=300)
+    assert call(flow, token["access_token"], "get_my_feed").status_code == 401
+
+
+def test_consent_grant_limit_is_enforced_atomically(flow):
+    index = mcp.key("connections", USER_ID)
+    flow.store.zadd(index, {f"existing-{number}": int(time.time()) + 3600 for number in range(20)})
+    request_id = start(flow)[2]
+    response = flow.user.post(
+        f"/v1/user/mcp/requests/{request_id}",
+        json={"approved": True},
+        headers={"Origin": WEB, "X-CSRF-Token": flow.identity["csrf_token"]},
+    )
+    assert response.status_code == 409
+    assert flow.store.zcard(index) == 20
+    assert not list(flow.store.scan_iter("devfeed:mcp:code:*"))
+
+
+def test_refresh_replay_revokes_the_entire_connection(flow):
+    token, form = tokens(flow)
+    refresh = dict(
+        grant_type="refresh_token",
+        client_id=form["client_id"],
+        refresh_token=token["refresh_token"],
+        resource=RESOURCE,
+    )
+    renewed = flow.client.post("/token", data=refresh).json()
+    assert flow.client.post("/token", data=refresh).status_code == 400
+    assert call(flow, renewed["access_token"], "get_my_feed").status_code == 401
+    assert call(flow, token["access_token"], "get_my_feed").status_code == 401
+    assert flow.user.get("/v1/user/mcp/connections").json() == {"items": []}
+    assert (
+        flow.client.post(
+            "/token", data={**refresh, "refresh_token": renewed["refresh_token"]}
+        ).status_code
+        == 400
+    )
+
+
+def test_active_refresh_extends_idle_expiry_but_not_absolute_lifetime(flow, monkeypatch):
+    from devfeed_mcp import oauth
+
+    token, form = tokens(flow)
+    assert token["expires_in"] == 900
+    grant_id = flow.user.get("/v1/user/mcp/connections").json()["items"][0]["id"]
+    initial = json.loads(flow.store.get(mcp.key("grant", grant_id)))
+    started = initial["absolute_expires_at"] - 90 * 86400
+    for day in (20, 40, 60, 80):
+        now = started + day * 86400
+        monkeypatch.setattr(oauth, "time", SimpleNamespace(time=lambda now=now: now))
+        response = flow.client.post(
+            "/token",
+            data={
+                "grant_type": "refresh_token",
+                "client_id": form["client_id"],
+                "refresh_token": token["refresh_token"],
+                "resource": RESOURCE,
+            },
+        )
+        assert response.status_code == 200, response.text
+        token = response.json()
+        grant = json.loads(flow.store.get(mcp.key("grant", grant_id)))
+        assert grant["expires_at"] == min(now + 30 * 86400, initial["absolute_expires_at"])
+        assert grant["absolute_expires_at"] == initial["absolute_expires_at"]
+        assert flow.store.zscore(mcp.key("connections", USER_ID), grant_id) == grant["expires_at"]
+    monkeypatch.setattr(
+        oauth, "time", SimpleNamespace(time=lambda: initial["absolute_expires_at"] + 1)
+    )
+    response = flow.client.post(
+        "/token",
+        data={
+            "grant_type": "refresh_token",
+            "client_id": form["client_id"],
+            "refresh_token": token["refresh_token"],
+            "resource": RESOURCE,
+        },
+    )
+    assert response.status_code == 400
+
+
+def test_expired_idle_grant_and_revoked_grant_cannot_be_renewed(flow):
+    token, form = tokens(flow)
+    connection = flow.user.get("/v1/user/mcp/connections").json()["items"][0]
+    grant_key = mcp.key("grant", connection["id"])
+    grant = json.loads(flow.store.get(grant_key))
+    grant["expires_at"] = int(time.time()) - 1
+    flow.store.set(grant_key, json.dumps(grant), ex=300)
+    response = flow.client.post(
+        "/token",
+        data={
+            "grant_type": "refresh_token",
+            "client_id": form["client_id"],
+            "refresh_token": token["refresh_token"],
+            "resource": RESOURCE,
+        },
+    )
+    assert response.status_code == 400
+    assert json.loads(flow.store.get(grant_key))["expires_at"] == grant["expires_at"]
+    assert call(flow, token["access_token"], "get_my_feed").status_code == 401
+
+
+@pytest.mark.parametrize(
+    "name,args,path",
+    [
+        (
+            "set_bookmark",
+            {"article_id": USER_ID, "bookmarked": True},
+            f"/v1/user/articles/{USER_ID}/bookmark",
+        ),
+        (
+            "set_article_like",
+            {"article_id": USER_ID, "liked": True},
+            f"/v1/user/articles/{USER_ID}/like",
+        ),
+        (
+            "set_topic_follow",
+            {"topic_id": USER_ID, "followed": True},
+            f"/v1/user/preferences/topics/{USER_ID}",
+        ),
+        (
+            "set_source_follow",
+            {"source_id": USER_ID, "followed": True},
+            f"/v1/user/preferences/sources/{USER_ID}",
+        ),
+    ],
+)
+def test_read_only_selection_limits_code_tokens_refresh_and_all_writes(flow, name, args, path):
+    from fastapi import HTTPException
+
+    form = approve(flow, start(flow, "devfeed:read devfeed:write offline_access"), "read-only")
+    code = json.loads(flow.store.get(mcp.key("code", form["code"])))
+    assert code["scopes"] == ["devfeed:read", "offline_access"]
+    grant = json.loads(flow.store.get(mcp.key("grant", code["grant_id"])))
+    assert grant["scopes"] == code["scopes"]
+    response = flow.client.post("/token", data=form)
+    assert response.status_code == 200, response.text
+    token = response.json()
+    assert token["scope"] == "devfeed:read offline_access"
+    assert flow.user.get("/v1/user/mcp/connections").json()["items"][0]["scopes"] == code["scopes"]
+    assert not call(flow, token["access_token"], "get_my_feed").json()["result"].get("isError")
+    flow.requests.clear()
+    refresh = dict(
+        grant_type="refresh_token",
+        client_id=form["client_id"],
+        refresh_token=token["refresh_token"],
+        resource=RESOURCE,
+    )
+    escalation = flow.client.post(
+        "/token", data={**refresh, "scope": "devfeed:read devfeed:write offline_access"}
+    )
+    assert escalation.status_code == 400 and escalation.json()["error"] == "invalid_scope"
+    refreshed = flow.client.post("/token", data=refresh)
+    assert refreshed.status_code == 200, refreshed.text
+    assert refreshed.json()["scope"] == token["scope"]
+    for access in (token["access_token"], refreshed.json()["access_token"]):
+        response = call(flow, access, name, args)
+        assert response.json()["result"]["isError"]
+        assert not flow.requests
+        request = registered_request(flow.user.app, path, access, "PUT")
+        assert AgentAccessPolicy.from_request(request).scope == mcp.WRITE
+        with pytest.raises(HTTPException) as error:
+            mcp.require_agent_user(request)
+        assert error.value.status_code == 403
+
+
+@pytest.mark.parametrize("access,status", [("read-write", 400), ("admin", 422)])
+def test_consent_cannot_grant_unrequested_or_unknown_permissions(flow, access, status):
+    pending = start(flow, "devfeed:read")
+    response = flow.user.post(
+        f"/v1/user/mcp/requests/{pending[2]}",
+        json={"approved": True, "access": access},
+        headers={"Origin": WEB, "X-CSRF-Token": flow.identity["csrf_token"]},
+    )
+    assert response.status_code == status
+    assert flow.user.get("/v1/user/mcp/connections").json() == {"items": []}
+
+
+@pytest.mark.parametrize("timezone", ["UTC", "Asia/Kolkata"])
+def test_must_reads_are_scoped_read_only_previews(flow, timezone):
+    token, _ = tokens(flow, "devfeed:read")
+    response = call(flow, token["access_token"], "get_my_must_reads", {"timezone": timezone})
+    assert response.status_code == 200
+    result = response.json()["result"]
+    assert not result.get("isError"), result
+    data = result["structuredContent"]
+    assert data["date"] == "2026-10-03"
+    assert data["timezone"] == timezone
+    assert data["reasons"][ID] == "Because you follow Python"
+    assert data["read_ids"] == [ID]
+    assert data["items"][0]["content_scope"] == "metadata_and_preview"
+    assert "image_variants" not in data["items"][0]
+    assert "review_notes" not in data["items"][0]["sources"][0]
+    assert "presented" not in data
+    assert len(flow.requests) == 1
+    assert flow.requests[0].method == "GET"
+    assert flow.requests[0].url.params["timezone"] == timezone
+
+
+def test_must_reads_require_authentication_and_validate_arguments(flow):
+    response = flow.client.post(
+        "/mcp",
+        headers=HEADERS,
+        json={
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "tools/call",
+            "params": {"name": "get_my_must_reads", "arguments": {}},
+        },
+    )
+    assert response.status_code == 401
+    assert not flow.requests
+    token, _ = tokens(flow, "devfeed:read")
+    for args in [{"timezone": ""}, {"timezone": "a" * 101}]:
+        result = call(flow, token["access_token"], "get_my_must_reads", args).json()["result"]
+        assert result["isError"]
+    assert not flow.requests
+    result = call(flow, token["access_token"], "get_my_must_reads").json()["result"]
+    assert result["structuredContent"]["timezone"] == "UTC"
+
+
+def test_provider_browser_logout_does_not_revoke_independent_mcp_tokens(flow):
+    from devfeed_http import oidc_logout
+
+    token, _ = tokens(flow)
+    oidc_logout.revoke(
+        flow.store,
+        "user",
+        flow.settings,
+        {
+            "iss": flow.settings.oidc_issuer_url,
+            "aud": flow.settings.oidc_client_id,
+            "iat": int(time.time()),
+            "jti": "mcp-boundary-test",
+            "events": {oidc_logout.EVENT: {}},
+            "sid": "consent-browser-session",
+        },
+    )
+    assert flow.user.get("/v1/user/auth/me").json() is None
+    response = call(flow, token["access_token"], "get_my_feed")
+    assert response.status_code == 200
+    assert not response.json()["result"].get("isError"), response.text

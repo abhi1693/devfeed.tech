@@ -76,7 +76,7 @@ def main():
                     "--locked",
                     "--no-build",
                     "pytest",
-                    "tests/test_failure_recovery.py",
+                    "tests/tooling/ci/test_failure_recovery.py",
                     "-m",
                     "integration and failure_recovery",
                     "-q",

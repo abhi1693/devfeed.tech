@@ -9,7 +9,11 @@ from pathlib import Path
 from coverage import Coverage
 
 ROOT = Path(__file__).resolve().parents[2]
-PYTHON_SUITES = ("python-unit", *(f"python-integration-{shard}" for shard in range(6)))
+PYTHON_SUITES = (
+    "python-unit",
+    *(f"python-integration-{shard}" for shard in range(6)),
+    "python-loadtest",
+)
 FRONTENDS = ("web", "admin", "partner")
 
 
