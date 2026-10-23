@@ -205,10 +205,10 @@ function board(url) {
     };
   });
   return {
-    as_of: now,
+    as_of: new Date().toISOString(),
     snapshot: {
       status: "fresh",
-      generated_at: new Date().toISOString(),
+      generated_at: new Date(Date.now() - 120_000).toISOString(),
       generation: String(editorialRevision),
       lag_seconds: 0,
     },
@@ -435,6 +435,12 @@ try {
   await page.goto(`${origin}/content/articles?view=pipeline&stage=images`);
   const focusCard = page.getByRole("link", { name: card().title, exact: true });
   await focusCard.waitFor();
+  const savedStatus = page.getByRole("status").filter({ hasText: /^Updated/ });
+  await savedStatus.waitFor();
+  assert.ok(
+    Date.now() - Date.parse(await savedStatus.locator("time").getAttribute("datetime")) > 60_000,
+    "A recently verified board must retain its older last-change time without looking stale",
+  );
   assert.equal(await page.getByRole("button", { name: /Refresh pipeline/ }).count(), 0);
   const transitions = [];
   const movements = [];

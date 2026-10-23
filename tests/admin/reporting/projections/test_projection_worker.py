@@ -332,6 +332,34 @@ def test_backlog_failure_does_not_advertise_a_successful_heartbeat(runtime):
 
 
 @pytest.mark.parametrize("kind", ["pipeline", "reports"])
+def test_queue_metrics_are_sampled_without_delaying_publication_or_heartbeats(
+    runtime, monkeypatch, kind
+):
+    ticks = iter([0, 10, 29, 30, 60])
+    clock = {"now": next(ticks)}
+    samples, heartbeats = [], []
+    monkeypatch.setattr(worker.time, "monotonic", lambda: clock["now"])
+    monkeypatch.setattr(worker.time, "time", lambda: clock["now"])
+    runtime.backlog.side_effect = lambda *_: samples.append(clock["now"])
+    marker = runtime.directory / f"{kind}-heartbeat"
+
+    def on_wait():
+        heartbeats.append(float(marker.read_text()))
+        if len(heartbeats) == 5:
+            runtime.state.stopped = True
+        else:
+            clock["now"] = next(ticks)
+
+    runtime.state.on_wait = on_wait
+    worker.run(kind=kind)
+
+    publisher = runtime.pipeline if kind == "pipeline" else runtime.reports
+    assert publisher.call_count == 5
+    assert samples == [0, 30, 60]
+    assert heartbeats == [0, 10, 29, 30, 60]
+
+
+@pytest.mark.parametrize("kind", ["pipeline", "reports"])
 @pytest.mark.parametrize(("count", "age"), [(0, None), (12, 93), (3, -10)])
 def test_backlog_metrics_report_pending_work_and_nonnegative_oldest_age(
     monkeypatch, kind, count, age

@@ -1,6 +1,7 @@
 """Indexed, read-only pipeline serving. Calculation belongs to the projector."""
 
 from datetime import datetime, timedelta
+from typing import Literal
 
 from devfeed_core.models import PipelineProjection, ReadModelEvent, ReadModelState, utcnow
 from devfeed_core.read_models import ReadModelSnapshot, pipeline_policy_version
@@ -9,8 +10,10 @@ from fastapi import HTTPException
 from sqlalchemy import case, func, literal, or_, select, text
 from sqlalchemy.engine import RowMapping
 
+PUBLISHER_FRESH_SECONDS = 60
 
-def serving_projection(session):
+
+def serving_projection(session, kind: Literal["article", "source"] | None = None):
     if not session.in_transaction():
         session.connection(
             execution_options={
@@ -27,27 +30,56 @@ def serving_projection(session):
             {"code": "projection_initializing", "message": "Pipeline views are being prepared."},
             headers={"Retry-After": "2"},
         )
-    oldest = session.scalar(select(func.min(ReadModelEvent.created_at)))
-    now = utcnow()
-    due = session.scalar(
-        select(func.min(PipelineProjection.next_transition_at)).where(
-            PipelineProjection.policy_version == policy,
-            PipelineProjection.next_transition_at <= now,
+    pending = select(func.min(ReadModelEvent.created_at))
+    if kind == "article":
+        pending = pending.where(
+            ReadModelEvent.kind.in_(
+                ("article", "backfill_article", "catalog", "source_fanout", "policy")
+            )
         )
+    elif kind == "source":
+        pending = pending.where(
+            ReadModelEvent.kind.in_(
+                ("source", "candidate", "backfill_source", "backfill_candidate", "policy")
+            )
+        )
+    oldest = session.scalar(pending)
+    now = utcnow()
+    transitions = select(func.min(PipelineProjection.next_transition_at)).where(
+        PipelineProjection.policy_version == policy,
+        PipelineProjection.next_transition_at <= now,
     )
+    if kind is not None:
+        transitions = transitions.where(
+            PipelineProjection.kind.in_(
+                ("source", "candidate") if kind == "source" else ("article",)
+            )
+        )
+    due = session.scalar(transitions)
     if due is not None:
         oldest = min(oldest, due) if oldest else due
-    lag = max(0.0, (now - oldest).total_seconds()) if oldest else 0.0
+    if kind != "source" and (refresh := state.payload.get("catalog_refresh")):
+        started = datetime.fromisoformat(refresh["started_at"])
+        oldest = min(oldest, started) if oldest else started
+    publisher_age = max(0.0, (now - state.updated_at).total_seconds())
+    lag = max(publisher_age, max(0.0, (now - oldest).total_seconds()) if oldest else 0.0)
     rebuilding = (
         state.payload.get("target_policy") != policy
         or pipeline_policy_version() != policy
         or state.payload.get("backfill_complete") is False
     )
+    generated = (
+        state.payload.get(f"{kind}_generated_at") if kind is not None else None
+    ) or state.payload.get("serving_generated_at")
     snapshot = ReadModelSnapshot(
-        status="rebuilding" if rebuilding else "refreshing" if oldest else "fresh",
-        generated_at=datetime.fromisoformat(state.payload["serving_generated_at"])
-        if state.payload.get("serving_generated_at")
-        else state.updated_at,
+        status="rebuilding"
+        if rebuilding
+        else "refreshing"
+        if oldest
+        else "stale"
+        if publisher_age > PUBLISHER_FRESH_SECONDS
+        else "fresh",
+        generated_at=datetime.fromisoformat(generated) if generated else state.updated_at,
         generation=policy,
         lag_seconds=lag,
     )
@@ -134,7 +166,7 @@ def article_board(
         PipelineSourceGroup,
     )
 
-    policy, snapshot = serving_projection(session)
+    policy, snapshot = serving_projection(session, kind="article")
     now = utcnow()
     since = now - timedelta(days=7)
     row = PipelineProjection
@@ -221,7 +253,7 @@ def article_board(
                 )
             )
     return PipelineBoard(
-        as_of=snapshot.generated_at or now,
+        as_of=now,
         terminal_since=since,
         counts={column.stage: column.total for column in columns},
         columns=columns,
@@ -238,7 +270,7 @@ def source_columns(session, query, now, *, stage=None, cursor=0, policy=None):
     )
 
     if policy is None:
-        policy, _ = serving_projection(session)
+        policy, _ = serving_projection(session, kind="source")
     row = PipelineProjection
     statement = select(row).where(
         row.kind.in_(("source", "candidate")), row.policy_version == policy

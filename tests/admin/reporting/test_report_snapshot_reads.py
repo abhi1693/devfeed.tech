@@ -7,16 +7,17 @@ from types import SimpleNamespace
 import pytest
 from devfeed_admin_api import overview_projection
 from devfeed_admin_api.overview_panel_data import OverviewPanel
-from devfeed_core.models import ReportRefresh, ReportSnapshot
+from devfeed_core.models import ReadModelState, ReportRefresh, ReportSnapshot
 from fastapi import HTTPException
 
 NOW = datetime(2026, 10, 21, tzinfo=UTC)
 
 
 class SavedReports:
-    def __init__(self, stored=None, refresh=None):
+    def __init__(self, stored=None, refresh=None, pipeline=None):
         self.stored = stored
         self.refresh = refresh
+        self.pipeline = pipeline
         self.events = []
         self.keys = []
         self.connection_info = {}
@@ -37,7 +38,17 @@ class SavedReports:
 
     def execute(self, statement):
         if getattr(statement, "is_select", False):
-            pytest.fail("Saved report GET queried history")
+            from sqlalchemy.dialects import postgresql
+
+            compiled = statement.compile(dialect=postgresql.dialect())
+            query = str(compiled)
+            assert "report_snapshots LEFT OUTER JOIN read_model_states" in query
+            assert "read_model_states.name =" in query
+            self.keys.extend([(compiled.params["group_1"], compiled.params["days_1"]), "pipeline"])
+            refresh = self.pipeline.payload.get("catalog_refresh") if self.pipeline else None
+            return SimpleNamespace(
+                one_or_none=lambda: (self.stored, refresh) if self.stored else None
+            )
 
     def get(self, model, key):
         self.keys.append(key)
@@ -45,7 +56,9 @@ class SavedReports:
             return self.stored
         if model is ReportRefresh:
             return self.refresh
-        pytest.fail("Saved report GET queried a calculation dependency")
+        if model is ReadModelState and key == "pipeline":
+            return self.pipeline
+        pytest.fail("Saved report GET queried a calculation dependency outside pipeline metadata")
 
 
 @pytest.fixture
@@ -106,20 +119,69 @@ def test_saved_report_preserves_payload_and_exposes_honest_freshness(
     assert result.snapshot.generated_at == stored.generated_at
     assert result.snapshot.lag_seconds == age + (7 if metadata else 0)
     assert store.events == (["begin", "demand", "commit"] if demand else ["begin", "commit"])
-    assert set(store.keys) == {("blockers", 1)}
+    assert set(store.keys) == {("blockers", 1), "pipeline"}
     if failed:
         assert store.refresh is failure
 
 
-def test_cold_report_commits_refresh_demand_before_raising_retryable_response(saved_reports):
+@pytest.mark.parametrize("group", ["daily", "blockers", "overview"])
+def test_cold_report_commits_refresh_demand_before_raising_retryable_response(saved_reports, group):
     store = saved_reports()
     with pytest.raises(HTTPException) as error:
-        overview_projection.read_report(store, "daily", 17, OverviewPanel, now=NOW)
+        overview_projection.read_report(store, group, 17, OverviewPanel, now=NOW)
     assert error.value.status_code == 503
     assert error.value.detail["code"] == "report_refreshing"
     assert error.value.headers["Retry-After"] == "5"
     assert store.events == ["begin", "demand", "commit"]
-    assert set(store.keys) == {("daily", 17)}
+    key = (group, 1 if group == "blockers" else 17)
+    assert set(store.keys) == ({key, "pipeline"} if group != "daily" else {key})
+
+
+@pytest.mark.parametrize("group", ["blockers", "overview", "daily"])
+@pytest.mark.parametrize("dependency", [None, "fresh", "refreshing"])
+def test_pending_catalog_work_cannot_make_a_dependent_saved_report_look_fresh(
+    saved_reports, group, dependency
+):
+    stored = stored_report(
+        dependency={"status": dependency, "lag_seconds": 2} if dependency else None
+    )
+    pipeline = ReadModelState(
+        name="pipeline",
+        payload={
+            "backfill_complete": True,
+            "catalog_refresh": {"started_at": (NOW - timedelta(seconds=20)).isoformat()},
+        },
+        updated_at=NOW,
+    )
+    store = saved_reports(stored, pipeline=pipeline)
+    result = overview_projection.read_report(store, group, 7, OverviewPanel, now=NOW)
+    dependent = group in {"blockers", "overview"}
+    assert result.snapshot.status == (
+        "refreshing" if dependent or dependency == "refreshing" else "fresh"
+    )
+    assert result.snapshot.generated_at == stored.generated_at
+    assert result.snapshot.lag_seconds == (20 if dependent else 7 if dependency else 5)
+    assert result.articles_pending_review == 23
+    assert ("demand" in store.events) is (dependent and dependency != "refreshing")
+    assert ("pipeline" in store.keys) is dependent
+    assert store.events[-1] == "commit"
+
+
+@pytest.mark.parametrize("status", ["rebuilding", "stale"])
+def test_active_catalog_refresh_preserves_existing_report_warning_and_cooldown(
+    saved_reports, status
+):
+    stored = stored_report(dependency={"status": status, "lag_seconds": 45})
+    cooldown = SimpleNamespace(last_error="OperationalError")
+    pipeline = ReadModelState(
+        name="pipeline",
+        payload={"catalog_refresh": {"started_at": (NOW + timedelta(seconds=10)).isoformat()}},
+    )
+    store = saved_reports(stored, cooldown, pipeline)
+    result = overview_projection.read_report(store, "blockers", 7, OverviewPanel, now=NOW)
+    assert result.snapshot.status == status and result.snapshot.lag_seconds == 50
+    assert store.refresh is cooldown
+    assert store.events == ["begin", "commit"]
 
 
 def test_corrupt_document_commits_rebuild_demand_without_losing_the_original(saved_reports):
