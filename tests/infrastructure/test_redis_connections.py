@@ -1,6 +1,7 @@
 """Sentinel discovery must retain isolation and use managed data connections."""
 
 import pytest
+from devfeed_core import cache
 from devfeed_core.config import Settings
 from devfeed_core.redis import create_redis
 from pydantic import ValidationError
@@ -22,6 +23,29 @@ def test_direct_connection_retains_database_and_timeout():
         assert client.connection_pool.connection_kwargs["db"] == 10
         assert client.connection_pool.connection_kwargs["socket_timeout"] == 0.2
         assert not client.connection_pool.maint_notifications_enabled()
+
+
+def test_feed_sequence_pool_bounds_sentinel_discovery_and_data_without_nested_retries(monkeypatch):
+    config = settings(
+        redis_sentinel_nodes=[("sentinel-a", 26379), ("sentinel-b", 26379)],
+        redis_sentinel_master="valkey",
+    )
+    monkeypatch.setattr(cache, "get_settings", lambda: config)
+    cache._cache_for_process.cache_clear()
+    try:
+        optional = cache.get_cache()
+        required = cache.get_feed_sequence_cache()
+        assert required.redis.connection_pool is not optional.redis.connection_pool
+        pool = required.redis.connection_pool
+        clients = [required.redis, *pool.sentinel_manager.sentinels]
+        for client in clients:
+            options = client.connection_pool.connection_kwargs
+            assert options["socket_connect_timeout"] == options["socket_timeout"] == 1
+            assert options["retry"].get_retries() == 0
+        assert pool.connection_kwargs["db"] == 10
+        assert optional.redis.connection_pool.connection_kwargs["socket_timeout"] == 0.2
+    finally:
+        cache.close_cache()
 
 
 def test_sentinel_uses_managed_primary_and_separate_credentials(monkeypatch):

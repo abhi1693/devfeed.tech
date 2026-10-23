@@ -125,6 +125,14 @@ def test_invalid_redis_generation_never_falls_back_to_a_shareable_cache_key(bad_
     redis.eval.assert_not_called()
 
 
+def test_invalidation_rejects_the_feed_storage_domain_before_touching_redis():
+    redis = Mock()
+    store = cache.ResponseCache(redis, "unit")
+    with pytest.raises(ValueError, match="Unknown cache domain"):
+        store.invalidate("feed")
+    assert not redis.mock_calls
+
+
 @pytest.mark.parametrize("entries,ttl", [([], 30), ([b"one"] * 501, 30), ([b"one"], 0)])
 def test_invalid_feed_sequences_are_rejected_before_redis(entries, ttl):
     redis = Mock()
@@ -146,13 +154,16 @@ def test_sequence_adapter_passes_exact_ordered_entries_and_private_identity_to_r
     pipe.lrange.assert_called_once_with("unit:feed:opaque-feed", 1, 2)
 
 
-def test_process_cache_isolates_database_namespace_and_closes_both_owned_pools(monkeypatch):
+def test_process_cache_isolates_database_namespace_and_closes_all_owned_pools(monkeypatch):
     settings = configuration(cache_enabled=True)
     connections = []
 
-    def connect(*_args, **_kwargs):
+    options = []
+
+    def connect(*_args, **kwargs):
         value = Mock()
         connections.append(value)
+        options.append(kwargs)
         return value
 
     monkeypatch.setattr(cache, "get_settings", lambda: settings)
@@ -167,13 +178,70 @@ def test_process_cache_isolates_database_namespace_and_closes_both_owned_pools(m
         sitemap = cache.get_sitemap_cache()
         assert cache.get_sitemap_cache() is sitemap
         assert sitemap is not current and sitemap.namespace == current.namespace
+        sequences = cache.get_feed_sequence_cache()
+        assert cache.get_feed_sequence_cache() is sequences
+        assert sequences is not current and sequences is not sitemap
+        assert sequences.namespace == current.namespace
+        assert options[0]["socket_timeout"] == 0.2
+        assert options[2]["socket_connect_timeout"] == options[2]["socket_timeout"] == 1
+        assert options[2]["retry"].get_retries() == 0
+        assert options[2]["max_connections"] == 32
         cache.close_cache()
         assert cache._cache_for_process.cache_info().currsize == 0
-        assert len(connections) == 2
+        assert len(connections) == 3
         for connection in connections:
             connection.close.assert_called_once()
     finally:
         cache._cache_for_process.cache_clear()
+
+
+def test_shutdown_does_not_allocate_unused_feed_or_sitemap_pools(monkeypatch):
+    connect = Mock(side_effect=lambda *_args, **_kwargs: Mock())
+    monkeypatch.setattr(cache, "create_redis", connect)
+    cache._cache_for_process.cache_clear()
+    try:
+        cache.close_cache()
+        connect.assert_not_called()
+        original = cache.get_cache()
+        assert original.feed_sequences is None and original.sitemap is None
+        cache.close_cache()
+        connect.assert_called_once()
+        original.redis.close.assert_called_once()
+        assert cache._cache_for_process.cache_info().currsize == 0
+        replacement = cache.get_cache()
+        assert replacement is not original and replacement.redis is not original.redis
+        replacement.redis.close.assert_not_called()
+        assert connect.call_count == 2
+    finally:
+        cache.close_cache()
+
+
+@pytest.mark.parametrize("failing_pool", ["response", "sitemap", "feed_sequences"])
+def test_shutdown_closes_every_owned_pool_and_forgets_closed_clients_after_failure(
+    monkeypatch, failing_pool
+):
+    connect = Mock(side_effect=lambda *_args, **_kwargs: Mock())
+    monkeypatch.setattr(cache, "create_redis", connect)
+    cache._cache_for_process.cache_clear()
+    try:
+        original = cache.get_cache()
+        pools = {
+            "response": original,
+            "sitemap": cache.get_sitemap_cache(),
+            "feed_sequences": cache.get_feed_sequence_cache(),
+        }
+        pools[failing_pool].redis.close.side_effect = RuntimeError("Transport close failed")
+        with pytest.raises(RuntimeError, match="Transport close failed"):
+            cache.close_cache()
+        for pool in pools.values():
+            pool.redis.close.assert_called_once()
+        assert cache._cache_for_process.cache_info().currsize == 0
+        replacement = cache.get_cache()
+        assert replacement is not original and replacement.redis is not original.redis
+        assert replacement.sitemap is None and replacement.feed_sequences is None
+        replacement.redis.close.assert_not_called()
+    finally:
+        cache.close_cache()
 
 
 def test_retention_removes_selected_payloads_and_step_outputs_but_preserves_audit_identity(

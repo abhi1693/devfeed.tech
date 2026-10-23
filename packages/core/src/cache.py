@@ -153,6 +153,7 @@ class ResponseCache:
         self.blocked_until = 0.0
         self.guard = threading.Lock()
         self.sitemap: ResponseCache | None = None
+        self.feed_sequences: ResponseCache | None = None
 
     def _run(self, operation):
         with self.guard:
@@ -326,15 +327,40 @@ def get_sitemap_cache() -> ResponseCache:
         return cache.sitemap
 
 
+def get_feed_sequence_cache() -> ResponseCache:
+    """Keep required cursor storage independent of optional response-cache failures."""
+    cache = get_cache()
+    with cache.guard:
+        if cache.feed_sequences is None:
+            cache.feed_sequences = ResponseCache(
+                create_redis(
+                    get_settings(),
+                    socket_connect_timeout=1,
+                    socket_timeout=1,
+                    retry=Retry(NoBackoff(), 0),
+                    max_connections=32,
+                ),
+                cache.namespace,
+            )
+        return cache.feed_sequences
+
+
 def close_cache() -> None:
-    if _cache_for_process.cache_info().currsize:
-        cache = get_cache()
-        try:
-            cache.redis.close()
-        finally:
-            if cache.sitemap is not None:
-                cache.sitemap.redis.close()
-    _cache_for_process.cache_clear()
+    try:
+        if _cache_for_process.cache_info().currsize:
+            cache = get_cache()
+            try:
+                cache.redis.close()
+            finally:
+                try:
+                    if cache.sitemap is not None:
+                        cache.sitemap.redis.close()
+                finally:
+                    if cache.feed_sequences is not None:
+                        cache.feed_sequences.redis.close()
+    finally:
+        # A close error must not leave disconnected clients available for reuse.
+        _cache_for_process.cache_clear()
 
 
 def invalidate_public_cache(*, reasons: Collection[str] = ("unspecified",)) -> None:

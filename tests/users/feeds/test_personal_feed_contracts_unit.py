@@ -6,14 +6,16 @@ import uuid
 from collections import deque
 from datetime import timedelta
 from types import SimpleNamespace
-from unittest.mock import Mock
+from unittest.mock import MagicMock, Mock
 
 import pytest
+from devfeed_core import cache
 from devfeed_core.cache import CacheUnavailable
 from devfeed_core.models import Article, UserRecommendation, UserRecommendationState
 from devfeed_core.user_settings import FeedSettings
 from devfeed_user_api import recommendations as feeds
 from fastapi import HTTPException
+from redis.exceptions import TimeoutError as RedisTimeoutError
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 from sqlalchemy.sql.dml import Update
@@ -135,6 +137,42 @@ def test_missing_owned_account_is_rejected_before_cache_or_article_reads(scenari
     assert (raised.value.status_code, raised.value.detail) == (401, "User account unavailable")
     assert session.reads == ["state"]
     generation_reader.assert_not_called()
+
+
+def test_optional_cache_timeout_does_not_switch_personal_feed_generation(scenario, monkeypatch):
+    user, state = scenario
+    articles = published_articles(1, 2, 3)
+    entries = [recommendation(user, article, index + 1) for index, article in enumerate(articles)]
+    optional_redis = Mock()
+    optional_redis.get.side_effect = RedisTimeoutError()
+    optional = cache.ResponseCache(optional_redis, "test:feed")
+    monkeypatch.setattr(cache, "get_cache", lambda: optional)
+    redis = MagicMock()
+    monkeypatch.setattr(cache, "create_redis", lambda *_args, **_kwargs: redis)
+    pipe = redis.pipeline.return_value.__enter__.return_value
+    pipe.exists.return_value = pipe.lrange.return_value = pipe
+    pipe.execute.side_effect = [
+        [1, [article.id.bytes for article in articles]],
+        [1, [articles[2].id.bytes]],
+    ]
+    with pytest.raises(CacheUnavailable):
+        optional.lookup("public-feed", "public")
+    first = request(
+        user, FeedReads(state, article_pages=[list(zip(articles, entries, strict=True))])
+    )
+    assert [item.id for item in first.items] == [article.id for article in articles[:2]]
+    assert first.generation == state.generation
+    assert first.next_cursor is not None
+    assert unpack(first.next_cursor)[:3] == [user.user_id, str(state.generation), 2]
+    following = request(
+        user,
+        FeedReads(state, article_pages=[[(articles[2], entries[2])]]),
+        cursor=first.next_cursor,
+    )
+    assert [item.id for item in following.items] == [articles[2].id]
+    assert following.generation == state.generation and following.next_cursor is None
+    assert [call.args[1:] for call in pipe.lrange.call_args_list] == [(0, 2), (2, 4)]
+    assert optional.blocked_until > 0
 
 
 @pytest.mark.parametrize(

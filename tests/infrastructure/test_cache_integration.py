@@ -17,6 +17,7 @@ from devfeed_core.schemas import SourceDecision
 from devfeed_core.search_engine import SearchUnavailable
 from devfeed_core.search_index import sync_batch
 from devfeed_core.source_enrichment import request_enrichment
+from redis.exceptions import TimeoutError as RedisTimeoutError
 from sqlalchemy import event, select, update
 from sqlalchemy.dialects.postgresql import insert
 
@@ -174,6 +175,37 @@ def test_redis_lua_fences_old_generations_and_lock_owners():
     store.redis.set(owner.lock_key, "replacement", ex=10)
     store.release(owner)
     assert store.redis.get(owner.lock_key) == b"replacement"
+
+
+def test_feed_sequence_retry_after_lost_reply_preserves_original_order_and_expiry(monkeypatch):
+    store = cache.get_feed_sequence_cache()
+    identity = f"retry:{uuid.uuid4()}"
+    key = f"{store.namespace}:feed:{identity}"
+    original_eval = store.redis.eval
+    attempts = []
+
+    def lose_first_reply(*args):
+        result = original_eval(*args)
+        attempts.append(True)
+        if len(attempts) == 1:
+            raise RedisTimeoutError()
+        return result
+
+    clock = [100.0]
+    monkeypatch.setattr(cache, "time", type("Clock", (), {"monotonic": lambda: clock[0]}))
+    monkeypatch.setattr(store.redis, "eval", lose_first_reply)
+    with pytest.raises(cache.CacheUnavailable):
+        store.write_sequence(identity, [b"first", b"second"], 60)
+    assert store.redis.lrange(key, 0, -1) == [b"first", b"second"]
+    assert 0 < store.redis.ttl(key) <= 60
+    # Prove a retry neither changes existing entries nor resets their retention.
+    store.redis.pexpire(key, 3000)
+    clock[0] += cache.RETRY_SECONDS + 1
+    store.write_sequence(identity, [b"replacement", b"extra", b"third"], 10800)
+    assert len(attempts) == 2
+    assert store.read_sequence(identity, 0, 0) == [b"first"]
+    assert store.read_sequence(identity, 1, 9) == [b"second"]
+    assert 0 < store.redis.pttl(key) <= 3000
 
 
 def test_duplicate_upsert_and_zero_row_update_do_not_invalidate(database, client):
