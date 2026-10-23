@@ -58,6 +58,13 @@ export function ColumnPreferencesProvider({
   );
 }
 
+type ColumnsRequest = {
+  key: string;
+  controller: AbortController;
+  ready: boolean;
+  value: ReaderColumnsState | null;
+};
+
 function PersonalColumns({ children }: { children: React.ReactNode }) {
   const { user, loading: checking, sessionRevision } = useUser();
   const userId = user?.user_id;
@@ -69,12 +76,12 @@ function PersonalColumns({ children }: { children: React.ReactNode }) {
   );
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  const request = useRef<{ controller: AbortController; ready: boolean } | null>(null);
+  const request = useRef<ColumnsRequest | null>(null);
   const saving = useRef(false);
   useEffect(() => {
     if (checking || !userId) return;
     const controller = new AbortController();
-    const pending = { controller, ready: false };
+    const pending: ColumnsRequest = { key, controller, ready: false, value: null };
     request.current = pending;
     saving.current = false;
     void Promise.resolve()
@@ -90,6 +97,7 @@ function PersonalColumns({ children }: { children: React.ReactNode }) {
         if (!validReaderColumnsState(value)) throw new Error("Invalid workspace state");
         if (!controller.signal.aborted) {
           pending.ready = true;
+          pending.value = value;
           setState({ key, value });
           setBusy(false);
         }
@@ -119,12 +127,22 @@ function PersonalColumns({ children }: { children: React.ReactNode }) {
         !current?.value ||
         saving.current ||
         !pending?.ready ||
+        pending.key !== key ||
+        !pending.value ||
         !controller ||
         controller.signal.aborted ||
         callerSignal?.aborted
       )
         return false;
       if (!validateReaderColumns(columns)) return false;
+      // A delayed discovery callback can retain an older render until React
+      // commits a manual save. Acknowledged local choices already own the workspace.
+      // Unknown changes from another device still use the server's conditional save.
+      if (
+        (mode === "initialize" && pending.value.initialized) ||
+        (mode !== "replace" && pending.value.columns.length > 0)
+      )
+        return true;
       const signal = AbortSignal.any([
         controller.signal,
         AbortSignal.timeout(15000),
@@ -141,6 +159,7 @@ function PersonalColumns({ children }: { children: React.ReactNode }) {
           "my_feed",
         );
         if (signal.aborted) return false;
+        pending.value = result;
         setState({ key, value: result });
         return true;
       } catch {
