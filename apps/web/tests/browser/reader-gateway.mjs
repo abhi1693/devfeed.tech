@@ -97,13 +97,18 @@ function headers(extra = {}) {
 }
 
 async function call(resource, method = "GET", body, extraHeaders = {}) {
-  return fetch(origin + resource, {
-    method,
-    headers: headers(extraHeaders),
-    ...(body !== undefined ? { body } : {}),
-    redirect: "manual",
-    signal: AbortSignal.timeout(15_000),
-  });
+  try {
+    return await fetch(origin + resource, {
+      method,
+      headers: headers(extraHeaders),
+      ...(body !== undefined ? { body } : {}),
+      redirect: "manual",
+      signal: AbortSignal.timeout(15_000),
+    });
+  } catch (cause) {
+    const bytes = body === undefined ? 0 : Buffer.byteLength(body);
+    throw new Error(`${method} ${resource} failed while sending ${bytes} bytes`, { cause });
+  }
 }
 
 function allow(response) {
@@ -313,14 +318,34 @@ async function checkExactByteLimits() {
     const before = requests.length;
     const rejected = await call(resource, method, Buffer.alloc(limit + 1, 97));
     assert.equal(rejected.status, 413, `${method} ${resource} rejects a declared overflow`);
+    assert.deepEqual(await rejected.json(), { detail: "Request too large" });
+    assert.equal(rejected.headers.get("connection"), "close");
     assert.equal(requests.length, before);
     const chunked = await rawRequest(resource, method, {
       body: Buffer.alloc(limit + 1, 97),
       headers: { "Transfer-Encoding": "chunked" },
     });
     assert.equal(chunked.status, 413, `${method} ${resource} rejects an actual overflow`);
+    assert.deepEqual(JSON.parse(chunked.body.toString()), { detail: "Request too large" });
+    assert.equal(chunked.headers.connection, "close");
     assert.equal(requests.length, before);
   }
+  // Non-ASCII text still uses encoded byte limits, including streamed overflow.
+  const avatar = "/api/v1/user/settings/profile/avatar";
+  const avatarLimit = 5 * 1024 * 1024 + 65536;
+  const unicode = "é".repeat(avatarLimit / 2);
+  const accepted = await call(avatar, "POST", unicode);
+  assert.equal(accepted.status, 200);
+  assert.equal((await accepted.json()).received_bytes, avatarLimit);
+  assert.deepEqual(requests.at(-1).body, Buffer.from(unicode));
+  const unicodeBefore = requests.length;
+  const declaredUnicode = await call(avatar, "POST", unicode + "x");
+  assert.equal(declaredUnicode.status, 413);
+  assert.deepEqual(await declaredUnicode.json(), { detail: "Request too large" });
+  const chunkedUnicode = await rawRequest(avatar, "POST", { body: Buffer.from(unicode + "x") });
+  assert.equal(chunkedUnicode.status, 413);
+  assert.deepEqual(JSON.parse(chunkedUnicode.body.toString()), { detail: "Request too large" });
+  assert.equal(requests.length, unicodeBefore);
   const resource = "/api/v1/user/partner-placements/query";
   const before = requests.length;
   const invalid = await call(resource, "POST", '{"surface":"feed","user_id":"private"}');
@@ -335,9 +360,10 @@ async function checkExactByteLimits() {
   const overflowBefore = requests.length;
   const overflow = await call(resource, "POST", Buffer.concat([exact, Buffer.from(" ")]));
   assert.equal(overflow.status, 413);
+  assert.deepEqual(await overflow.json(), { detail: "Request too large" });
   assert.equal(requests.length, overflowBefore);
   console.log(
-    "Reader body limits: exact ordinary/avatar/placement byte boundaries, declared and chunked overflow, dedicated placement validation passed.",
+    "Reader body limits: exact ordinary/avatar/placement byte boundaries, ASCII/UTF-8 declared and chunked overflow, dedicated placement validation passed.",
   );
 }
 
@@ -409,6 +435,7 @@ async function checkBodyDeadlines() {
     assert.deepEqual(JSON.parse(result.body.toString()), { detail: "Incomplete request" });
     assert.equal(result.uploadEnded, false, "The response must precede upload completion");
     assert.ok(String(result.headers["cache-control"]).includes("no-store"));
+    assert.equal(result.headers.connection, "close");
     assert.ok(
       result.elapsedMs >= deadline - 200 && result.elapsedMs < deadline + 4000,
       `${method} ${resource} responded after ${Math.round(result.elapsedMs)}ms`,

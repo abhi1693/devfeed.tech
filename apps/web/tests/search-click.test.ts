@@ -5,6 +5,9 @@ import { searchClick } from "@/lib/server/search-click";
 import { getSearch } from "@/lib/api";
 import { contentTypes } from "@/lib/feed-query";
 
+// Unit requests have no Next response lifecycle; reader-gateway.mjs covers HTTP completion.
+vi.mock("next/server", () => ({ after: (callback: () => void) => callback() }));
+
 vi.mock("@/lib/api", () => ({ getSearch: vi.fn(), UserApiError: class extends Error {} }));
 vi.mock("@devfeed/telemetry/propagation", () => ({
   traceHeaders: () => ({ traceparent: "trace" }),
@@ -104,6 +107,7 @@ it("rejects declared oversized bodies without calling upstream", async () => {
   expect(response.status).toBe(413);
   expect(await response.json()).toEqual({ detail: "Request too large" });
   expect(response.headers.get("cache-control")).toBe("no-store");
+  expect(response.headers.get("connection")).toBe("close");
   expect(fetch).not.toHaveBeenCalled();
 });
 
@@ -136,6 +140,7 @@ it("returns a private 408 for a stalled body without calling upstream", async ()
   expect(response.status).toBe(408);
   expect(await response.json()).toEqual({ detail: "Incomplete request" });
   expect(response.headers.get("cache-control")).toBe("no-store");
+  expect(response.headers.get("connection")).toBe("close");
   expect(cancel).toHaveBeenCalledOnce();
   expect(incoming.body!.locked).toBe(false);
   expect(fetch).not.toHaveBeenCalled();

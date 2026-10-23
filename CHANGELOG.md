@@ -16,8 +16,9 @@ Application releases and Alembic schema revisions are separate identifiers.
 ### Bug Fixes
 
 - [#282](https://github.com/abhi1693/devfeed.tech/pull/282) - Recognize ICO publisher logos and keep source logo-job changes reflected in pipeline projections.
-- Keep server trace exports working with the consolidated OpenTelemetry trace package.
+- [#284](https://github.com/abhi1693/devfeed.tech/pull/284) - Keep server trace exports working with the consolidated OpenTelemetry trace package.
 - [#284](https://github.com/abhi1693/devfeed.tech/pull/284) - Preserve untouched tag fields when replaying partial edits, including clearing aliases, disabling automatic topic matching, or removing a topic link.
+- [#284](https://github.com/abhi1693/devfeed.tech/pull/284) - Show a clear error when an upload is too large or stalls, preserving the response before closing the upload connection.
 
 ### Upgrade Notes
 

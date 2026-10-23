@@ -1,4 +1,5 @@
 import "server-only";
+import { after } from "next/server";
 import { traceHeaders } from "@devfeed/telemetry/propagation";
 import { publicApiOrigin } from "./config";
 import { partnerCallerHeaders } from "./partner-caller";
@@ -11,7 +12,7 @@ import {
 export async function partnerTracking(request: Request) {
   const headers = new Headers({ "Cache-Control": "no-store" });
   try {
-    const body = await readRequestBody(request, 2048, 2000);
+    const body = await readRequestBody(request, 2048, 2000, request.signal, after);
     const upstream = await fetch(new URL("/v1/partner-tracking/events", publicApiOrigin()), {
       method: "POST",
       headers: {
@@ -32,6 +33,8 @@ export async function partnerTracking(request: Request) {
     }
     return new Response(null, { status: upstream.status, headers });
   } catch (error) {
+    if (error instanceof RequestBodyTooLarge || error instanceof RequestBodyTimeout)
+      headers.set("Connection", "close");
     if (error instanceof RequestBodyTooLarge)
       return Response.json({ detail: "Request too large" }, { status: 413, headers });
     if (error instanceof RequestBodyTimeout)

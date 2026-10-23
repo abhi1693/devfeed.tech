@@ -1,4 +1,5 @@
 import "server-only";
+import { after } from "next/server";
 import { GatewayTransport, methodNotAllowed } from "@devfeed/http/forwarding";
 import { GatewayRouter } from "@devfeed/http/gateway";
 import { traceHeaders } from "@devfeed/telemetry/propagation";
@@ -10,6 +11,7 @@ const transport = new GatewayTransport({
   apiOrigin: adminApiOrigin,
   webOrigin: adminWebOrigin,
   traceHeaders,
+  afterResponse: after,
   unavailableDetail: "Admin service unavailable",
 });
 
