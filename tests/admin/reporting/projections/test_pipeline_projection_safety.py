@@ -13,16 +13,20 @@ from devfeed_core.models import (
     ReadModelEvent,
     ReadModelState,
     Source,
+    Tag,
+    Topic,
     utcnow,
 )
 from devfeed_core.read_models import pipeline_policy_version
 from sqlalchemy import event, func, select, update
 
+from tests.admin.articles.test_article_pipeline import make_article
+
 pytestmark = pytest.mark.integration
 
 
-def add_article(session, *, published_at=None, published=False, source=None):
-    identity = uuid.uuid4()
+def add_article(session, *, published_at=None, published=False, source=None, identity=None):
+    identity = identity or uuid.uuid4()
     article = Article(
         id=identity,
         canonical_url=f"https://publisher.example/{identity}",
@@ -285,26 +289,183 @@ def test_source_invalidation_fanout_is_bounded_and_reaches_every_article(databas
     assert previous == 7 and pending is None
 
 
-def test_catalog_rebuild_keeps_complete_cards_visible_with_rebuilding_status(
+def test_catalog_refresh_keeps_complete_cards_visible_without_rebuilding_coverage(
     database, admin_client
 ):
-    from devfeed_core.models import Topic
-
     with database.begin() as session:
         for _ in range(3):
-            add_article(session)
+            make_article(session, state="ingested")
     drain_pipeline(database, batch=2)
     before = admin_client.get("/v1/admin/article-pipeline")
     assert before.status_code == 200 and before.json()["snapshot"]["status"] == "fresh"
     with database.begin() as session:
         session.add(
-            Topic(name="Python runtime", slug="python-runtime", kind="language", status="active")
+            Topic(name="Rust compiler", slug="rust-compiler", kind="language", status="active")
         )
     project_batch(database, batch=1)
     after = admin_client.get("/v1/admin/article-pipeline")
     assert after.status_code == 200
-    assert after.json()["snapshot"]["status"] == "rebuilding"
+    assert after.json()["snapshot"]["status"] == "refreshing"
     assert after.json()["snapshot"]["generation"] == before.json()["snapshot"]["generation"]
-    assert after.json()["snapshot"]["generated_at"] == before.json()["snapshot"]["generated_at"]
     assert after.json()["counts"] == before.json()["counts"]
     assert after.json()["columns"] == before.json()["columns"]
+
+
+def test_catalog_fanout_only_evaluates_retained_sensitive_cards_in_bounded_batches(
+    database, admin_client, monkeypatch
+):
+    with database.begin() as session:
+        sensitive = {make_article(session).id for _ in range(5)}
+        sensitive.add(make_article(session, state="published").id)
+        legacy = make_article(session).id
+        sensitive.add(legacy)
+        unrelated = {add_article(session).id for _ in range(12)}
+        unrelated.add(make_article(session, state="rejected").id)
+        historical = {make_article(session, state="published", age=30).id for _ in range(5)}
+    drain_pipeline(database, batch=2)
+    policy = pipeline_policy_version()
+    with database.begin() as session:
+        # Existing generations without metadata are conservatively included.
+        row = session.get(PipelineProjection, (policy, "article", legacy))
+        row.payload = {
+            key: value for key, value in row.payload.items() if key != "_catalog_sensitive"
+        }
+        before = {
+            row.entity_id: (row.payload, row.evaluated_at)
+            for row in session.scalars(
+                select(PipelineProjection).where(PipelineProjection.entity_id.in_(unrelated))
+            )
+        }
+        session.add(Tag(name="Unrelated catalog addition", slug="unrelated-catalog-addition"))
+    article_batches, source_batches = [], []
+    original_articles = pipeline_projection.article_rows
+    original_sources = pipeline_projection.source_rows
+
+    def articles(factory, identifiers, version, now):
+        article_batches.append(list(identifiers))
+        return original_articles(factory, identifiers, version, now)
+
+    def sources(factory, source_ids, candidate_ids, version, now):
+        source_batches.append((list(source_ids), list(candidate_ids)))
+        return original_sources(factory, source_ids, candidate_ids, version, now)
+
+    monkeypatch.setattr(pipeline_projection, "article_rows", articles)
+    monkeypatch.setattr(pipeline_projection, "source_rows", sources)
+    statements = []
+
+    def capture(connection, cursor, statement, parameters, context, many):
+        statements.append(" ".join(statement.lower().split()))
+
+    engine = database.kw["bind"]
+    event.listen(engine, "before_cursor_execute", capture)
+    try:
+        for _ in range(30):
+            project_batch(database, batch=2)
+            with database() as session:
+                state = session.get(ReadModelState, "pipeline").payload
+                assert state["backfill_complete"] and not state["pending_backfills"]
+                assert not session.scalar(
+                    select(ReadModelEvent.id).where(ReadModelEvent.kind.like("backfill_%")).limit(1)
+                )
+                if session.scalar(select(ReadModelEvent.id).limit(1)) is None:
+                    assert "catalog_refresh" not in state
+                    break
+        else:
+            pytest.fail("Bounded catalog fanout did not finish")
+    finally:
+        event.remove(engine, "before_cursor_execute", capture)
+    assert not any(
+        statement.startswith(f"select {table}.id from {table}")
+        for table in ("articles", "sources", "source_candidates")
+        for statement in statements
+    )
+    evaluated = [identifier for identifiers in article_batches for identifier in identifiers]
+    assert len(evaluated) == len(sensitive) and set(evaluated) == sensitive
+    assert max(map(len, article_batches)) <= 2
+    assert all(not sources and not candidates for sources, candidates in source_batches)
+    with database() as session:
+        assert (
+            session.get(PipelineProjection, (policy, "article", legacy)).payload[
+                "_catalog_sensitive"
+            ]
+            is True
+        )
+        after = {
+            row.entity_id: (row.payload, row.evaluated_at)
+            for row in session.scalars(
+                select(PipelineProjection).where(PipelineProjection.entity_id.in_(unrelated))
+            )
+        }
+        assert after == before
+        assert not list(
+            session.scalars(
+                select(PipelineProjection.entity_id).where(
+                    PipelineProjection.entity_id.in_(historical)
+                )
+            )
+        )
+    response = admin_client.get("/v1/admin/article-pipeline")
+    assert response.json()["snapshot"]["status"] == "fresh"
+    assert "_catalog_sensitive" not in response.text
+
+
+def test_catalog_scan_pages_cross_insensitive_prefix_without_skipping_saved_dependencies(
+    database, monkeypatch
+):
+    prefix = [uuid.UUID(int=index) for index in range(1, 7)]
+    with database.begin() as session:
+        for identifier in prefix:
+            add_article(session, identity=identifier)
+        sensitive = {make_article(session).id for _ in range(2)}
+    drain_pipeline(database, batch=2)
+    policy = pipeline_policy_version()
+    legacy = min(sensitive)
+    with database.begin() as session:
+        row = session.get(PipelineProjection, (policy, "article", legacy))
+        row.payload = {
+            key: value for key, value in row.payload.items() if key != "_catalog_sensitive"
+        }
+        session.add(
+            Tag(name="Catalog change after insensitive cards", slug="sparse-catalog-change")
+        )
+    evaluated = []
+    original = pipeline_projection.article_rows
+
+    def articles(factory, identifiers, version, now):
+        evaluated.extend(identifiers)
+        return original(factory, identifiers, version, now)
+
+    monkeypatch.setattr(pipeline_projection, "article_rows", articles)
+    pages = []
+
+    def capture(connection, cursor, statement, parameters, context, many):
+        if statement.lstrip().startswith("SELECT") and "_catalog_sensitive" in str(parameters):
+            pages.append((statement, cursor.rowcount))
+
+    engine = database.kw["bind"]
+    event.listen(engine, "after_cursor_execute", capture)
+    try:
+        cursors = []
+        for _ in range(3):
+            project_batch(database, batch=2)
+            assert evaluated == []
+            with database() as session:
+                state = session.get(ReadModelState, "pipeline").payload
+                assert state["catalog_refresh"] and state["backfill_complete"]
+                cursors.append(
+                    session.scalar(
+                        select(ReadModelEvent.after_id).where(ReadModelEvent.kind == "catalog")
+                    )
+                )
+        assert cursors == prefix[1::2]
+        drain_pipeline(database, batch=2)
+    finally:
+        event.remove(engine, "after_cursor_execute", capture)
+    assert set(evaluated) == sensitive and len(evaluated) == len(sensitive)
+    assert pages and all(0 <= count <= 2 for _, count in pages)
+    assert all("payload" not in statement.split("WHERE", 1)[1] for statement, _ in pages)
+    with database() as session:
+        assert "catalog_refresh" not in session.get(ReadModelState, "pipeline").payload
+        assert session.get(PipelineProjection, (policy, "article", legacy)).payload[
+            "_catalog_sensitive"
+        ]

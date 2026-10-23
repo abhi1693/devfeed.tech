@@ -20,6 +20,10 @@ retain selective capture so dispatch and lease bookkeeping do not rebuild cards.
 
 The pipeline worker coalesces IDs within bounded batches and uses the existing
 lifecycle functions. Article evidence connections close before Python evaluation.
+Unchanged saved cards are not deleted and reinserted: conflict updates compare
+their complete saved facts, avoiding unnecessary row, index, and TOAST rewrites.
+Missing cards are still removed. Genuine coverage passes advance evaluation
+timestamps even for unchanged cards, preserving the orphan-cleanup cutoff.
 Projection writes, fanout continuations, and acknowledgement of the exact captured
 event IDs commit together. Event IDs are not treated as commit order. A publisher
 lease prevents an expired worker from overwriting its replacement. Crashes leave
@@ -32,14 +36,40 @@ remain bounded to eight inputs; publication decisions are always derived again.
 
 Queued retry timestamps schedule future projection changes. Running lease expiry
 continues through existing scheduler recovery. Catalog invalidations use bounded
-keyset fanout and replay when the catalog changes during a pass. Code, prompt,
-image/logo, source-policy, and settings fingerprints cause policy rebuilds beside
+keyset fanout over saved article cards with catalog-dependent analysis or topic
+links. Each catalog page limits examined saved cards before testing dependency
+metadata, and advances past the last examined identity even if every card is
+independent. It uses the existing policy/kind/identity primary key, without an
+offset or a sensitivity filter that can scan an entire sparse population before
+returning a small page. It does not scan historical articles or rebuild sources
+and candidates.
+Rejected cards and cards without either dependency are skipped; legacy cards
+without dependency metadata are conservatively refreshed. Recent published cards
+remain included because their retry controls depend on current analysis validity.
+New matching terms, selected identities, and ranking changes can affect candidate
+selection beyond existing assignments, so assignment-only invalidation is unsafe.
+The authoritative candidate and lifecycle checks remain unchanged.
+
+Edits during a catalog refresh are coalesced without rewinding its cursor. A
+revision change at completion queues another bounded dependent-card refresh.
+Tokenized continuations cannot revive a refresh superseded by a policy rebuild.
+Code, prompt, image/logo, source-policy, and settings fingerprints cause policy rebuilds beside
 the previous complete policy. Cutover follows complete entity coverage and bounded
-orphan cleanup. Catalog edits during that pass schedule another pass while the
-covered board remains available with rebuilding status. A global invalidation after
-coverage has begun also schedules a follow-up pass, so concurrent truncation cannot
+orphan cleanup. Catalog edits during initial coverage queue a dependent-card
+refresh after cutover, rather than restarting population-wide coverage. A global
+invalidation after coverage has begun also schedules a follow-up pass, so concurrent truncation cannot
 leave deleted cards behind. The initial policy event is covered by the first pass.
 Obsolete policy rows and expired article terminal rows are pruned in bounded batches.
+
+Dependency metadata is additive and does not change lifecycle policy or require
+a schema migration. The first catalog refresh conservatively includes existing
+saved cards without metadata and records their dependencies as they are evaluated;
+it does not require another population-wide rebuild. Catalog refreshes retain
+completed coverage and report `refreshing`, independently of true policy rebuilds.
+Article and source views track their own last card-update times and relevant queued work; article catalog
+refreshes do not mark source views rebuilding. Publisher inactivity still marks
+saved views stale. The admin UI checks response age separately from the displayed
+last card-update time, so healthy idle boards do not acquire a stale warning.
 
 Increment `PIPELINE_POLICY_VERSION` when changing lifecycle or card derivation
 without a corresponding prompt/settings version change. Increment the report
@@ -66,7 +96,8 @@ Processing charts use maintained daily job facts and active counts. Blocker repo
 aggregate exact classifications from pipeline projections, preserving overlapping
 counts and recovery targets. Reports can publish after complete entity coverage
 while catalog catchup continues; saved dependency metadata keeps those reports
-marked rebuilding. Event lag over 60 seconds defers new blocker publication.
+marked refreshing, or rebuilding for a policy change. Event lag over 60 seconds
+defers new blocker publication.
 Responses expose calculation time, policy generation, freshness status, and lag.
 Report calculations use read-only repeatable-read transactions so a concurrent
 policy cutover cannot mix a serving pointer with another generation's rows.
@@ -95,13 +126,23 @@ short-lived connections.
 
 Batch size defaults to 200 and polling to one second. Keep batches below the
 120-second publisher lease. Worker health requires a recent successful heartbeat.
+Passing 100,000 historical articles does not change this algorithm or trigger a
+rebuild. Catalog refresh cost follows retained article cards: nonterminal work
+plus seven days of terminal cards. It examines those identities once per pass
+and recalculates only potentially dependent cards. Nonterminal backlog and the
+taxonomy can still grow; sustained catalog changes may require consecutive
+passes. Batching bounds individual work, rather than promising constant total
+refresh time or unlimited throughput. Source-change fanout retains its existing
+source-origin keyset and is separate from catalog refresh.
 Each publisher atomically writes its own marker in the shared runtime helper's
 owned, private directory (`devfeed-runtime-<uid>` under the system temporary
 directory). Existing links are replaced without touching their targets; public
 or unowned runtime directories are rejected by both the publisher and its probe.
 OTel exposes `devfeed.read_model.pending`, `devfeed.read_model.oldest_event_age`,
-and background duration/failure/last-success metrics. Alert on lag even with Ready
-HTTP pods.
+and background duration/failure/last-success metrics. Exact queue aggregates are
+sampled at startup and at most every 30 seconds, independently of per-cycle
+publication and health heartbeats. Completed coverage also skips the queue-wide
+backfill-presence query. Alert on lag even with Ready HTTP pods.
 
 ## Migration and rollout
 

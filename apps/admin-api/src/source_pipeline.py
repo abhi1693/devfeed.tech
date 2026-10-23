@@ -406,7 +406,7 @@ def board(session: DB, query: PipelineQuery):
     from devfeed_admin_api.pipeline_reads import serving_projection, source_columns
 
     now = utcnow()
-    policy, snapshot = serving_projection(session)
+    policy, snapshot = serving_projection(session, kind="source")
     columns = source_columns(session, query, now, policy=policy)
     result = SourcePipelineBoard(
         as_of=now,

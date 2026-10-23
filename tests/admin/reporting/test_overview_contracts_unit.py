@@ -380,7 +380,7 @@ def test_invalid_report_identity_is_rejected_before_recording_demand(group, days
 
 @pytest.mark.parametrize("reason", ["rebuilding", "policy", "lag"])
 def test_blocker_report_refuses_unready_or_incompatible_pipeline_evidence(monkeypatch, reason):
-    def serving(_):
+    def serving(_, **_kwargs):
         if reason == "rebuilding":
             raise HTTPException(503, "rebuilding")
         return (
@@ -396,15 +396,21 @@ def test_blocker_report_refuses_unready_or_incompatible_pipeline_evidence(monkey
 
 
 @pytest.mark.parametrize("compatible", [True, False])
+@pytest.mark.parametrize("dependency_status", ["fresh", "refreshing"])
 def test_blocker_report_uses_exact_projected_counts_and_revision_checked_targets(
-    monkeypatch, compatible
+    monkeypatch, compatible, dependency_status
 ):
-    snapshot = ReadModelSnapshot(status="fresh", generated_at=NOW, lag_seconds=0)
-    monkeypatch.setattr(
-        pipeline_reads,
-        "serving_projection",
-        lambda _: (projections.pipeline_policy_version(), snapshot),
+    snapshot = ReadModelSnapshot(
+        status=dependency_status,
+        generated_at=NOW,
+        lag_seconds=20 if dependency_status == "refreshing" else 0,
     )
+
+    def serving(_session, *, kind):
+        assert kind == "article"
+        return projections.pipeline_policy_version(), snapshot
+
+    monkeypatch.setattr(pipeline_reads, "serving_projection", serving)
     monkeypatch.setattr(
         automation,
         "automation_blockers",

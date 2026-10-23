@@ -20,6 +20,7 @@ from sqlalchemy.orm import sessionmaker
 from devfeed_admin_api.pipeline_projection import drain_pipeline, project_batch
 
 logger = logging.getLogger(__name__)
+BACKLOG_SAMPLE_SECONDS = 30
 
 
 def heartbeat_marker(kind):
@@ -77,6 +78,7 @@ def run(*, once=False, drain=False, kind="pipeline"):
     stopping = threading.Event()
     for name in (signal.SIGTERM, signal.SIGINT):
         signal.signal(name, lambda *_: stopping.set())
+    last_backlog_sample = None
     try:
         while not stopping.is_set():
             started = time.monotonic()
@@ -92,7 +94,15 @@ def run(*, once=False, drain=False, kind="pipeline"):
                         )
                     else:
                         reports = refresh_overview_projections(factory, limit=1, now=utcnow())
-                record_backlog(factory, kind)
+                # Exact queue counts grow with backlog size. Sample telemetry
+                # independently of the bounded publisher and its health heartbeat.
+                sampled_at = time.monotonic()
+                if (
+                    last_backlog_sample is None
+                    or sampled_at - last_backlog_sample >= BACKLOG_SAMPLE_SECONDS
+                ):
+                    record_backlog(factory, kind)
+                    last_backlog_sample = sampled_at
                 write_runtime_marker(marker, str(time.time()))
                 logger.info(
                     "read_model_cycle_completed",
