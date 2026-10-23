@@ -228,12 +228,29 @@ async function main() {
   assert.equal(tlsDirectory.mode & 0o777, 0o550);
   for (const name of ["cert.pem", "key.pem"]) {
     const filename = `/run/smoke-tls/${name}`;
-    const metadata = fs.statSync(filename);
-    assert.equal(metadata.uid, 0);
-    assert.equal(metadata.gid, 10001);
-    assert.equal(metadata.mode & 0o777, 0o440);
-    assert.ok(fs.readFileSync(filename).length > 0, "App UID/GID cannot read its TLS fixture");
-    assert.throws(() => fs.writeFileSync(filename, "read-only fixture probe"));
+    // Validate and read the same opened object, without following a replaced symlink.
+    const descriptor = fs.openSync(filename, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW);
+    try {
+      const metadata = fs.fstatSync(descriptor);
+      assert.ok(metadata.isFile(), "TLS fixture must be a regular file");
+      assert.equal(metadata.uid, 0);
+      assert.equal(metadata.gid, 10001);
+      assert.equal(metadata.mode & 0o777, 0o440);
+      assert.ok(fs.readFileSync(descriptor).length > 0, "App UID/GID cannot read its TLS fixture");
+    } finally {
+      fs.closeSync(descriptor);
+    }
+    assert.throws(() => {
+      const writeDescriptor = fs.openSync(
+        filename,
+        fs.constants.O_WRONLY | fs.constants.O_NOFOLLOW,
+      );
+      try {
+        fs.writeSync(writeDescriptor, "read-only fixture probe");
+      } finally {
+        fs.closeSync(writeDescriptor);
+      }
+    }, /EROFS|EACCES/);
   }
   const tlsMount = fs
     .readFileSync("/proc/self/mountinfo", "utf8")
