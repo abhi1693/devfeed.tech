@@ -4,10 +4,16 @@ import { useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { resolveReaderDestination, type ReaderDestination } from "./reader-destination";
 import { readerLocation, readerNavigate } from "./reader-runtime";
+import { cancelDialogScrollPreparation, prepareDialogScroll } from "./dialog-scroll";
 
 export const navigationStarted = "devfeed:reader-navigation";
 
 export function beginReaderNavigation(href: string) {
+  cancelDialogScrollPreparation();
+  if (!href.startsWith("#")) {
+    const destination = resolveReaderDestination(href, { base: readerLocation() });
+    if (destination.kind === "article") prepareDialogScroll(destination.slug);
+  }
   window.dispatchEvent(new CustomEvent(navigationStarted, { detail: href }));
 }
 

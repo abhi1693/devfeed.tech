@@ -1,0 +1,546 @@
+"""Exercise discovery through the actual MCP HTTP transport and public API boundary."""
+
+import asyncio
+import json
+from datetime import UTC, datetime, timedelta
+from types import SimpleNamespace
+
+import httpx
+import pytest
+from devfeed_mcp.config import Settings
+from devfeed_mcp.main import create_app
+from jsonschema import validate
+from pydantic import ValidationError
+from starlette.testclient import TestClient
+
+HEADERS = {"Accept": "application/json, text/event-stream", "Mcp-Protocol-Version": "2025-11-25"}
+ID = "00000000-0000-0000-0000-000000000001"
+SOURCE = {
+    "id": ID,
+    "slug": "publisher",
+    "name": "Publisher",
+    "source_type": "publisher",
+    "website_url": "https://publisher.example",
+    "review_notes": "private",
+}
+TOPIC = {"id": ID, "slug": "python", "name": "Python", "kind": "language"}
+ARTICLE = {
+    "id": ID,
+    "slug": "python-guide",
+    "title": "Python guide",
+    "canonical_url": "https://publisher.example/guide",
+    "summary": "Publisher preview",
+    "ai_summary": "AI preview",
+    "published_at": None,
+    "feed_at": "2026-09-01T12:00:00Z",
+    "language": "en",
+    "content_type": "tutorial",
+    "topics": [TOPIC],
+    "tags": ["python"],
+    "sources": [SOURCE],
+    "image_variants": [{"url": "https://images.example/large"}],
+    "origins": [
+        {
+            "source_id": ID,
+            "original_url": "https://publisher.example/guide",
+            "source_metadata": {"discussion_url": "https://forum.example/1", "title": "RSS"},
+        }
+    ],
+}
+
+
+def rpc(client, method, params=None):
+    response = client.post(
+        "/mcp",
+        headers=HEADERS,
+        json={"jsonrpc": "2.0", "id": 1, "method": method, "params": params or {}},
+    )
+    assert response.status_code == 200, response.text
+    assert "mcp-session-id" not in response.headers
+    return response.json()
+
+
+def call(client, name, **arguments):
+    response = rpc(client, "tools/call", {"name": name, "arguments": arguments})
+    assert "error" not in response, response
+    return response["result"]
+
+
+@pytest.fixture
+def mcp_client():
+    state = SimpleNamespace(requests=[], status=200, body=[], headers={})
+
+    def handle(request):
+        state.requests.append(request)
+        return httpx.Response(state.status, json=state.body, headers=state.headers)
+
+    app = create_app(
+        Settings(api_url="https://public.example", allowed_origins=["https://client.example"]),
+        transport=httpx.MockTransport(handle),
+    )
+    with TestClient(app, base_url="http://localhost") as client:
+        yield client, state
+
+
+def test_mcp_initialize_and_discover_six_read_only_tools(mcp_client):
+    client, state = mcp_client
+    result = rpc(
+        client,
+        "initialize",
+        {
+            "protocolVersion": "2025-11-25",
+            "capabilities": {},
+            "clientInfo": {"name": "test", "version": "1"},
+        },
+    )["result"]
+    assert result["protocolVersion"] == "2025-11-25"
+    assert result["serverInfo"]["name"] == "DevFeed"
+    resources = result["capabilities"].get("resources", {})
+    assert resources.get("subscribe", False) is False
+    assert resources.get("listChanged", False) is False
+    tools = rpc(client, "tools/list")["result"]["tools"]
+    assert {tool["name"] for tool in tools} == {
+        "search",
+        "get_article",
+        "get_feed",
+        "list_topics",
+        "list_sources",
+        "get_source",
+    }
+    for tool in tools:
+        assert tool["annotations"]["readOnlyHint"] is True
+        assert tool["annotations"]["destructiveHint"] is False
+        assert tool["outputSchema"]["type"] == "object"
+    assert not state.requests
+
+    # A stateless metadata/tool service must not open unsupported listeners.
+    unsupported = rpc(client, "subscriptions/listen")
+    assert unsupported["error"]["code"] == -32601
+
+
+def test_modern_stateless_discovery_has_no_subscription_capabilities(mcp_client):
+    client, state = mcp_client
+
+    def request(method, **params):
+        return client.post(
+            "/mcp",
+            headers={
+                **HEADERS,
+                "Mcp-Protocol-Version": "2026-07-28",
+                "Mcp-Method": method,
+            },
+            json={
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": method,
+                "params": {
+                    **params,
+                    "_meta": {
+                        "io.modelcontextprotocol/protocolVersion": "2026-07-28",
+                        "io.modelcontextprotocol/clientCapabilities": {},
+                    },
+                },
+            },
+        )
+
+    discovery = request("server/discover")
+    assert discovery.status_code == 200, discovery.text
+    capabilities = discovery.json()["result"]["capabilities"]
+    assert capabilities["resources"].get("subscribe", False) is False
+    assert capabilities["resources"].get("listChanged", False) is False
+    assert capabilities["tools"].get("listChanged", False) is False
+    tools = request("tools/list")
+    assert tools.status_code == 200 and len(tools.json()["result"]["tools"]) == 6
+    assert "mcp-session-id" not in tools.headers
+    assert not state.requests
+
+    unsupported = request("subscriptions/listen", notifications={"resourcesListChanged": True})
+    assert unsupported.status_code == 404, unsupported.text
+    assert unsupported.json()["error"]["code"] == -32601
+
+
+def test_article_projection_and_credentials_never_propagate(mcp_client):
+    client, state = mcp_client
+    state.body = ARTICLE
+    client.headers.update({"Authorization": "Bearer private-token", "Cookie": "session=secret"})
+    result = call(client, "get_article", article_id=ID)
+    assert not result["isError"]
+    article = result["structuredContent"]
+    assert article["summary"] == "Publisher preview"
+    assert article["ai_summary"] == "AI preview"
+    assert article["published_at"] is None
+    assert article["content_scope"] == "metadata_and_preview"
+    assert article["origins"][0]["discussion_url"] == "https://forum.example/1"
+    assert "source_metadata" not in article["origins"][0]
+    assert "image_variants" not in article
+    assert "review_notes" not in article["sources"][0]
+    (request,) = state.requests
+    assert request.method == "GET"
+    assert str(request.url) == f"https://public.example/v1/articles/{ID}"
+    assert "authorization" not in request.headers and "cookie" not in request.headers
+    schema = next(
+        t for t in rpc(client, "tools/list")["result"]["tools"] if t["name"] == "get_article"
+    )
+    validate(article, schema["outputSchema"])
+
+
+def test_feed_filters_and_cursor_are_preserved(mcp_client):
+    client, state = mcp_client
+    state.body = {"items": [ARTICLE], "next_cursor": "next+page=="}
+    result = call(
+        client,
+        "get_feed",
+        topic="python",
+        source_id=ID,
+        content_type="tutorial",
+        languages=["en", "fr"],
+        cursor="previous+page==",
+        limit=5,
+    )
+    assert result["structuredContent"]["next_cursor"] == "next+page=="
+    params = state.requests[0].url.params
+    assert params.get_list("languages") == ["en", "fr"]
+    assert params["cursor"] == "previous+page=="
+    assert params["topic"] == "python" and params["source_id"] == ID
+    assert params["content_type"] == "tutorial" and params["limit"] == "5"
+    assert len(state.requests) == 1  # No engagement or publisher requests.
+
+
+def test_search_filters_sections_and_pagination(mcp_client):
+    client, state = mcp_client
+    state.body = {
+        "query": "python",
+        "sections": {
+            "articles": {
+                "items": [
+                    {
+                        "id": ID,
+                        "title": "Python guide",
+                        "description": "Preview",
+                        "href": "/articles/guide",
+                        "label": "Publisher",
+                        "published_at": None,
+                        "image_url": "https://images.example/1",
+                    }
+                ],
+                "next_cursor": "3",
+            }
+        },
+    }
+    result = call(
+        client,
+        "search",
+        query="python",
+        section="articles",
+        page=2,
+        topics=[ID],
+        sources=[ID],
+        tags=[ID],
+        content_types=["news", "tutorial"],
+        date_from="2020-01-01",
+        date_to="2020-01-02",
+        sort="newest",
+    )
+    section = result["structuredContent"]["sections"]["articles"]
+    assert section["next_cursor"] == "3"
+    assert "image_url" not in section["items"][0]
+    params = state.requests[0].url.params
+    assert params["q"] == "python" and params["page"] == "2"
+    assert params.get_list("content_types") == ["news", "tutorial"]
+    assert params["date_from"] == "2020-01-01"
+    assert all(params[key] == ID for key in ("topics", "sources", "tags"))
+
+
+@pytest.mark.parametrize(
+    "name,row,path",
+    [
+        ("list_topics", TOPIC, "topics"),
+        ("list_sources", SOURCE, "sources"),
+    ],
+)
+def test_catalogue_lookahead_pagination(mcp_client, name, row, path):
+    client, state = mcp_client
+    state.body = [row, row, row]
+    result = call(client, name, query="py", offset=4, limit=2, languages=["en"], has_articles=True)
+    assert len(result["structuredContent"]["items"]) == 2
+    assert result["structuredContent"]["next_offset"] == 6
+    assert state.requests[0].url.path == f"/v1/{path}"
+    assert state.requests[0].url.params["limit"] == "3"
+    state.body = [row, row]
+    assert call(client, name, limit=2)["structuredContent"]["next_offset"] is None
+
+
+def test_source_profile_and_source_filters(mcp_client):
+    client, state = mcp_client
+    state.body = [SOURCE]
+    call(client, "list_sources", enabled=False, source_type="publisher")
+    assert state.requests[-1].url.params["enabled"] == "false"
+    assert state.requests[-1].url.params["source_type"] == "publisher"
+    state.body = SOURCE
+    result = call(client, "get_source", source_id="publisher")
+    assert result["structuredContent"]["website_url"] == "https://publisher.example"
+    assert "review_notes" not in result["structuredContent"]
+
+
+@pytest.mark.parametrize(
+    "name,arguments",
+    [
+        ("get_feed", {"limit": 0}),
+        ("get_feed", {"limit": 51}),
+        ("get_feed", {"source_id": "not-a-uuid"}),
+        ("get_feed", {"languages": ["en-US"]}),
+        ("get_article", {"article_id": "../../v1/admin/sources"}),
+        ("get_article", {"article_id": "%2e%2e%2fadmin"}),
+        ("get_source", {"source_id": "https://evil.example"}),
+        ("get_source", {"source_id": "publisher?secret=yes"}),
+        ("search", {"query": "x" * 201}),
+        ("search", {"query": "python", "page": 81}),
+        ("search", {"query": "python", "topics": [ID] * 21}),
+        ("search", {"query": "python", "date_from": "2020-02-02", "date_to": "2020-01-01"}),
+        ("list_topics", {"offset": -1}),
+        ("list_sources", {"limit": 1000}),
+    ],
+)
+def test_invalid_arguments_cannot_reach_upstream(mcp_client, name, arguments):
+    client, state = mcp_client
+    assert call(client, name, **arguments)["isError"]
+    assert not state.requests
+
+
+@pytest.mark.parametrize("field", ["date_from", "date_to"])
+@pytest.mark.parametrize("days_ahead", [-1, 0, 1], ids=["yesterday", "today", "tomorrow"])
+def test_search_date_boundaries_use_the_runtime_utc_day(mcp_client, monkeypatch, field, days_ahead):
+    # The application already exists. Freeze its runtime clock just after UTC
+    # midnight so a long-running suite cannot turn a future date into today.
+    now = datetime(2026, 9, 2, 0, 0, 1, tzinfo=UTC)
+
+    class Clock:
+        @staticmethod
+        def now(timezone):
+            assert timezone is UTC
+            return now
+
+    monkeypatch.setattr("devfeed_mcp.server.datetime", Clock)
+    client, state = mcp_client
+    state.body = {"query": "python", "sections": {}}
+    value = (now + timedelta(days=days_ahead)).date().isoformat()
+    result = call(client, "search", query="python", **{field: value})
+    assert result["isError"] is (days_ahead > 0)
+    if days_ahead > 0:
+        assert not state.requests
+    else:
+        (request,) = state.requests
+        assert request.url.params[field] == value
+
+
+@pytest.mark.parametrize("status", [302, 404, 422, 429, 500, 503])
+def test_upstream_errors_are_safe_and_redirects_are_not_followed(mcp_client, status):
+    client, state = mcp_client
+    state.status = status
+    state.body = {"detail": "private database credentials"}
+    state.headers = {"Location": "http://private.example/admin"}
+    result = call(client, "get_article", article_id=ID)
+    assert result["isError"]
+    assert "credentials" not in json.dumps(result)
+    assert len(state.requests) == 1
+
+
+@pytest.mark.parametrize("kind", ["timeout", "connection", "invalid_json", "large", "slow"])
+def test_bounded_upstream_failures(kind):
+    async def handle(request):
+        if kind == "timeout":
+            raise httpx.ReadTimeout("private host")
+        if kind == "connection":
+            raise httpx.ConnectError("private host")
+        if kind == "slow":
+            await asyncio.sleep(1)
+        return httpx.Response(200, content=b"x" * (2048 if kind == "large" else 1))
+
+    app = create_app(
+        Settings(max_response_bytes=1024, timeout_seconds=0.05),
+        transport=httpx.MockTransport(handle),
+    )
+    with TestClient(app, base_url="http://localhost") as client:
+        result = call(client, "get_source", source_id=ID)
+        assert result["isError"]
+        assert "private host" not in json.dumps(result)
+
+
+def test_health_and_transport_security(mcp_client):
+    client, state = mcp_client
+    assert client.get("/health/live").status_code == 200
+    assert not state.requests
+    assert client.get("/health/ready").status_code == 200
+    state.status = 503
+    assert client.get("/health/ready").status_code == 503
+    assert client.get("/version").json()["version"]
+    assert client.post("/mcp", headers={"Host": "attacker.example"}, json={}).status_code == 421
+    assert (
+        client.post("/mcp", headers={"Origin": "https://attacker.example"}, json={}).status_code
+        == 403
+    )
+    response = client.options(
+        "/mcp",
+        headers={
+            "Origin": "https://client.example",
+            "Access-Control-Request-Method": "POST",
+            "Access-Control-Request-Headers": (
+                "content-type,mcp-protocol-version,mcp-method,mcp-name"
+            ),
+        },
+    )
+    assert response.status_code == 200
+    assert response.headers["access-control-allow-origin"] == "https://client.example"
+
+
+def test_request_body_limit(mcp_client):
+    client, state = mcp_client
+    response = client.post("/mcp", headers=HEADERS, json={"padding": "x" * 40_000})
+    assert response.status_code == 413
+    assert not state.requests
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "file:///etc/passwd",
+        "https://user:secret@example.com",
+        "http://example.com/admin",
+        "http://example.com/api",
+        "http://example.com?url=other",
+        "http://example.com/#fragment",
+        "http://example.com:bad",
+    ],
+)
+def test_configuration_rejects_credentials_and_arbitrary_paths(url):
+    with pytest.raises(ValidationError):
+        Settings(api_url=url)
+
+
+@pytest.mark.parametrize("method", ["GET", "HEAD"])
+def test_browser_visits_open_configured_reader_instructions(method):
+    app = create_app(Settings(web_url="https://reader.example/"))
+    with TestClient(app, base_url="http://localhost") as client:
+        response = client.request(
+            method,
+            "/mcp?token=do-not-forward",
+            headers={"Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"},
+            follow_redirects=False,
+        )
+        assert response.status_code == 302
+        assert response.headers["location"] == "https://reader.example/mcp"
+        assert response.headers["cache-control"] == "no-store"
+        assert {"Accept", "Mcp-Protocol-Version"} <= {
+            value.strip() for value in response.headers["vary"].split(",")
+        }
+        assert rpc(client, "tools/list")["result"]["tools"]
+
+
+def test_browser_visits_canonicalize_transport_before_opening_reader_instructions():
+    app = create_app(Settings(web_url="https://reader.example"))
+    with TestClient(app, base_url="http://localhost") as client:
+        response = client.get(
+            "/mcp/?token=do-not-forward",
+            headers={"Accept": "text/html"},
+            follow_redirects=False,
+        )
+        assert response.status_code == 307
+        assert response.headers["location"] == "http://localhost/mcp?token=do-not-forward"
+        response = client.get(
+            response.headers["location"],
+            headers={"Accept": "text/html"},
+            follow_redirects=False,
+        )
+        assert response.status_code == 302
+        assert response.headers["location"] == "https://reader.example/mcp"
+
+
+@pytest.mark.parametrize(
+    "headers",
+    [
+        {"Accept": "application/json"},
+        {"Accept": "text/event-stream", "Origin": "https://untrusted.example"},
+        {"Accept": "text/html, text/event-stream", "Origin": "https://untrusted.example"},
+        {"Accept": "text/html;q=0, application/json"},
+        {"Accept": "text/html;q=invalid"},
+        {"Accept": "text/html", "Mcp-Protocol-Version": "2025-11-25"},
+        {"Accept": "*/*", "Origin": "https://untrusted.example"},
+    ],
+)
+def test_agent_get_requests_are_not_redirected(headers):
+    app = create_app(Settings(web_url="https://reader.example"))
+    with TestClient(app, base_url="http://localhost") as client:
+        response = client.get("/mcp", headers=headers, follow_redirects=False)
+        assert not response.is_redirect
+        if "Origin" in headers:
+            # Reach the SDK's origin validation without opening a persistent SSE stream.
+            assert response.status_code == 403
+
+
+def test_browser_redirect_requires_configured_reader_and_never_intercepts_post(mcp_client):
+    client, _ = mcp_client
+    assert not client.get("/mcp", headers={"Accept": "text/html"}).is_redirect
+    app = create_app(Settings(web_url="https://reader.example"))
+    with TestClient(app, base_url="http://localhost") as client:
+        response = client.post("/mcp", headers={"Accept": "text/html"}, json={})
+        assert not response.is_redirect
+
+
+def test_tools_use_real_public_routes_and_serialization():
+    from devfeed_api.dependencies import get_session
+    from devfeed_api.main import create_app as create_api
+
+    from tests.api.test_publication_api import record
+
+    article = record(slug="python-guide")
+    article.origins[0].source.slug = "publisher"
+    public = create_api()
+    session = SimpleNamespace(scalar=lambda _: article)
+    public.dependency_overrides[get_session] = lambda: session
+    app = create_app(Settings(), transport=httpx.ASGITransport(public))
+    with TestClient(app, base_url="http://localhost") as client:
+        result = call(client, "get_article", article_id=str(article.id))
+        assert not result["isError"]
+        assert result["structuredContent"]["canonical_url"] == article.canonical_url
+        session.scalar = lambda _: None
+        assert call(client, "get_article", article_id=str(article.id))["isError"]
+
+
+def test_server_card_matches_live_initialization_without_calling_upstream():
+    def reject_upstream(request):
+        pytest.fail("Server-card discovery must not call APIs")
+
+    app = create_app(
+        Settings(api_url="https://public.example", public_url="https://mcp.example/custom/mcp"),
+        transport=httpx.MockTransport(reject_upstream),
+    )
+    with TestClient(app, base_url="http://localhost") as client:
+        live = rpc(
+            client,
+            "initialize",
+            {
+                "protocolVersion": "2025-11-25",
+                "capabilities": {},
+                "clientInfo": {"name": "card-test", "version": "1"},
+            },
+        )["result"]
+        for path in ("/.well-known/mcp/server-card.json", "/mcp/server-card"):
+            response = client.get(path)
+            assert response.status_code == 200
+            assert response.headers["access-control-allow-origin"] == "*"
+            assert response.headers["content-type"] == "application/mcp-server-card+json"
+            card = response.json()
+            assert card["serverInfo"] == live["serverInfo"]
+            assert card["capabilities"] == live["capabilities"]
+            assert card["version"] == live["serverInfo"]["version"]
+            assert card["endpoint"] == "https://mcp.example/custom/mcp"
+            assert card["remotes"] == [{"type": "streamable-http", "url": card["endpoint"]}]
+            assert "tools" not in card and "resources" not in card and "prompts" not in card
+            assert client.head(path).status_code == 200
+
+
+def test_server_card_does_not_invent_a_public_endpoint(mcp_client):
+    client, state = mcp_client
+    response = client.get("/.well-known/mcp/server-card.json")
+    assert response.status_code == 404
+    assert not state.requests

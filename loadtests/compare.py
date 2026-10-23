@@ -125,7 +125,7 @@ def report(runs, base_sha, head_sha):
         "## Latency comparison",
         "",
         "All latency values are in **milliseconds**; lower is better. "
-        "Values are medians of three runs.",
+        "Values are medians of three runs, with one-millisecond histogram bins.",
         "",
         "| Route | Base p95 | PR p95 | Change | Result |",
         "|---|---:|---:|---:|---|",
@@ -269,6 +269,11 @@ def collect(directory, base_sha, head_sha):
                 item = json.loads((root / "final.json").read_text())
                 meta = json.loads((root / "metadata.json").read_text())
                 code = int((root / "exit-code.txt").read_text())
+                if not isinstance(item, dict):
+                    raise ValueError("Invalid statistics document")
+                precision = item.get("response_time_bucket_ms")
+                if type(precision) is not int or precision != 1:
+                    raise ValueError("Missing or incompatible latency histogram precision")
                 if meta["commit"] != sha or any(meta.get(k) != v for k, v in expected.items()):
                     raise ValueError("Mismatched revision or workload")
                 if not isinstance(item["entries"], list) or not item["entries"]:

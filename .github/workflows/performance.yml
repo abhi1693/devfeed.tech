@@ -34,6 +34,7 @@ jobs:
     timeout-minutes: 20
     strategy:
       fail-fast: false
+      max-parallel: 2
       matrix:
         repeat: [0, 1, 2]
     steps:
@@ -62,6 +63,8 @@ jobs:
         run: sh candidate/scripts/ci/python-bootstrap.sh candidate --editable --all-packages --group loadtest
       - name: Install the baseline application
         run: sh candidate/scripts/ci/python-bootstrap.sh baseline --editable --all-packages
+      - name: Test latency histogram precision
+        run: candidate/.venv/bin/python candidate/loadtests/test_histogram.py
       - name: Run one runner pair
         env:
           PAIR_REPEAT: ${{ matrix.repeat }}

@@ -3,6 +3,7 @@
 import logging
 
 from devfeed_core.feeds.fetcher import FeedError
+from devfeed_core.image_jobs import thumbnail_maintenance_current
 from devfeed_core.job_lifecycle import clear_lease, fail_or_retry, finish_job
 from devfeed_core.jobs import owned_job
 from devfeed_core.managed_images import ARTICLE_THUMBNAIL_LAYOUT, THUMBNAIL_VERSION
@@ -164,7 +165,11 @@ def _lock_subject(session, model, subject_id):
 
 def _current_source(subject, job, source_field, source):
     return (
-        (not isinstance(subject, Article) or subject.publication_status != "published")
+        (
+            not isinstance(subject, Article)
+            or subject.publication_status != "published"
+            or thumbnail_maintenance_current(subject, job)
+        )
         and getattr(subject, source_field) == source
         and (
             not isinstance(subject, PartnerProductPromotion)

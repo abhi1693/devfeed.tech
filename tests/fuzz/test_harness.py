@@ -6,7 +6,8 @@ from fastapi import FastAPI
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from schemathesis.core.failures import FailureGroup
-from test_api_fuzz import CHECKS, SELECTED_PATHS, in_fuzz_scope
+
+from tests.fuzz.test_api_fuzz import CHECKS, SELECTED_PATHS, in_fuzz_scope
 
 pytestmark = pytest.mark.integration
 

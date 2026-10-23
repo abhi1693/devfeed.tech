@@ -72,6 +72,7 @@ import {
 } from "../../../../scripts/testing/session-preferences.mjs";
 import {
   checkStackedReader,
+  checkStackedTouchReader,
   stackedReaderArticle,
   stackedReaderFeed,
 } from "../../../../scripts/testing/stacked-reader.mjs";
@@ -1782,6 +1783,30 @@ test(
           { signedIn },
         );
       });
+  },
+);
+
+test(
+  "stacked reader supports native touch targets and preview activation",
+  { timeout: 180000 },
+  async (t) => {
+    const { browser, origin } = await createReaderFixture(t, { stackedFeed: true });
+    for (const signedIn of [false, true])
+      await withReaderPage(
+        browser,
+        async (page, context) => {
+          if (signedIn)
+            await context.addCookies([
+              { name: "devfeed_user_session", value: "valid", url: origin },
+            ]);
+          await checkStackedTouchReader(
+            page,
+            `${origin}/latest?sort=most_liked`,
+            artifactPath(`stacked-touch/web-${signedIn ? "member" : "guest"}`),
+          );
+        },
+        { hasTouch: true },
+      );
   },
 );
 

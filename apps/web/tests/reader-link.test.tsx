@@ -1,11 +1,12 @@
 // @vitest-environment jsdom
-import { afterEach, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { cleanup, render } from "@testing-library/react";
 import type { ComponentProps } from "react";
 import type NextLink from "next/link";
 import ReaderLink from "@/components/reader-link";
 import { articleDestination } from "@/lib/reader-destination";
 import { readerNavigate } from "@/lib/reader-runtime";
+import { cancelDialogScrollPreparation } from "@/lib/dialog-scroll";
 const capture = vi.hoisted(() => ({ props: {} as ComponentProps<typeof NextLink> }));
 vi.mock("next/link", () => ({
   default: (props: ComponentProps<typeof NextLink>) => {
@@ -17,10 +18,16 @@ vi.mock("next/link", () => ({
     );
   },
 }));
-vi.mock("@/lib/reader-runtime", () => ({ readerNavigate: vi.fn(() => false) }));
+vi.mock("@/lib/reader-runtime", async (original) => ({
+  ...(await original<typeof import("@/lib/reader-runtime")>()),
+  readerNavigate: vi.fn(() => false),
+}));
+beforeEach(() => vi.spyOn(window, "scrollTo").mockImplementation(() => {}));
 afterEach(() => {
   cleanup();
+  cancelDialogScrollPreparation();
   vi.mocked(readerNavigate).mockReset().mockReturnValue(false);
+  vi.restoreAllMocks();
 });
 
 it("disables prefetch while preserving navigation props and refs", () => {

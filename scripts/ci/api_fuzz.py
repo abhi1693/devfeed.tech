@@ -62,7 +62,7 @@ def main() -> int:
             "pytest",
             "-q",
             str(ROOT / "tests/fuzz"),
-            str(ROOT / "tests/test_api_security_boundaries.py"),
+            str(ROOT / "tests/api/test_api_security_boundaries.py"),
             "-m",
             "integration",
             f"--hypothesis-seed={seed:d}",

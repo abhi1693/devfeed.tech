@@ -1,0 +1,387 @@
+"""Real PostgreSQL ownership, persistence, visibility and bounded feed queries."""
+
+import uuid
+from concurrent.futures import ThreadPoolExecutor
+from threading import Barrier
+
+import pytest
+from devfeed_core.db import get_engine
+from devfeed_core.models import (
+    Article,
+    Topic,
+    UserAccount,
+    UserTopic,
+)
+from devfeed_user_api.accounts import save_user, save_user_with_status
+from sqlalchemy import event, insert, select
+
+from tests.support.user_personalization import (
+    user_data as user_data,
+)
+
+pytestmark = pytest.mark.integration
+
+
+def test_identity_upsert_uses_issuer_subject_and_preserves_preferences(database):
+    identity = {
+        "issuer": "https://identity.example",
+        "subject": "user-a",
+        "organization_id": "org-1",
+        "name": "First",
+        "email": "shared@example.test",
+    }
+    account_id, created = save_user_with_status(identity)
+    assert created is True
+    assert save_user_with_status({**identity, "name": "Updated"}) == (account_id, False)
+    assert save_user({**identity, "name": "Updated"}) == account_id
+    assert save_user({**identity, "subject": "user-b"}) != account_id
+    assert save_user({**identity, "issuer": "https://another.example"}) != account_id
+    with database() as session:
+        account = session.get(UserAccount, uuid.UUID(account_id))
+        assert account.name == "Updated"
+
+
+def test_concurrent_signins_count_one_signup(database):
+    identity = {
+        "issuer": "https://identity.example",
+        "subject": "concurrent-user",
+        "organization_id": "org-1",
+        "name": "User",
+        "email": "user@example.test",
+    }
+    barrier = Barrier(2)
+
+    def signin():
+        barrier.wait(timeout=10)
+        return save_user_with_status(identity)
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        first = executor.submit(signin)
+        second = executor.submit(signin)
+        results = [first.result(timeout=15), second.result(timeout=15)]
+    assert results[0][0] == results[1][0]
+    assert sorted(created for _, created in results) == [False, True]
+
+
+def test_preferences_are_owned_atomic_and_bounded(user_data, database):
+    client, current, first, second, topics = user_data
+    assert client.get("/v1/user/preferences").json() == {"topic_ids": []}
+    response = client.put(
+        "/v1/user/preferences", json={"topic_ids": [str(topics[0]), str(topics[0])]}
+    )
+    assert response.status_code == 200
+    assert response.json() == {"topic_ids": [str(topics[0])]}
+    for payload in (
+        {"topic_ids": [str(topics[2])]},
+        {"topic_ids": [str(uuid.uuid4())]},
+        {"topic_ids": [str(topics[0])] * 101},
+        {"topic_ids": [], "user_id": str(second)},
+    ):
+        assert client.put("/v1/user/preferences", json=payload).status_code == 422
+    assert client.get("/v1/user/preferences").json() == {"topic_ids": [str(topics[0])]}
+    current.user_id = str(second)
+    current.subject = "user-b"
+    assert client.get("/v1/user/preferences").json() == {"topic_ids": []}
+    assert client.get("/v1/user/feed").json()["items"] == []
+    assert (
+        client.put("/v1/user/preferences", json={"topic_ids": [str(topics[1])]}).status_code == 200
+    )
+    current.user_id, current.subject = str(first), "user-a"
+    assert client.put("/v1/user/preferences", json={"topic_ids": []}).status_code == 200
+    with database() as session:
+        assert list(
+            session.scalars(select(UserTopic.topic_id).where(UserTopic.user_id == second))
+        ) == [topics[1]]
+        assert (
+            list(session.scalars(select(UserTopic.topic_id).where(UserTopic.user_id == first)))
+            == []
+        )
+
+
+@pytest.mark.parametrize("limit", [1, 100])
+def test_personalized_feed_visibility_pagination_and_constant_query_budget(
+    user_data, database, limit
+):
+    client, _, first, _, topics = user_data
+    assert (
+        client.put("/v1/user/preferences", json={"topic_ids": [str(topics[0])]}).status_code == 200
+    )
+    from devfeed_core.recommendations import refresh_recommendations
+
+    refresh_recommendations(database, first)
+    statements = []
+
+    def counted(conn, cursor, statement, parameters, context, many):
+        statements.append(statement)
+
+    event.listen(get_engine(), "before_cursor_execute", counted)
+    try:
+        response = client.get(f"/v1/user/feed?limit={limit}")
+    finally:
+        event.remove(get_engine(), "before_cursor_execute", counted)
+    assert response.status_code == 200
+    assert response.headers["cache-control"] == "no-store"
+    assert len(statements) == 6
+    data = response.json()
+    seen = [item["id"] for item in data["items"]]
+    titles = [item["title"] for item in data["items"]]
+    while data["next_cursor"]:
+        data = client.get(
+            "/v1/user/feed", params={"limit": 100, "cursor": data["next_cursor"]}
+        ).json()
+        seen.extend(item["id"] for item in data["items"])
+        titles.extend(item["title"] for item in data["items"])
+    assert len(seen) == len(set(seen)) == 110
+    assert all(int(title.split()[-1]) < 110 for title in titles)
+    assert client.get("/v1/user/feed?cursor=invalid").status_code == 422
+    # Following both eligible topics does not duplicate shared articles.
+    client.put("/v1/user/preferences", json={"topic_ids": [str(t) for t in topics[:2]]})
+    refresh_recommendations(database, first)
+    data = client.get("/v1/user/feed?limit=100").json()
+    assert len({item["id"] for item in data["items"]}) == 100
+
+
+def test_follow_changes_only_selected_topic_and_is_idempotent(user_data, database):
+    from concurrent.futures import ThreadPoolExecutor
+
+    client, current, first, second, topics = user_data
+    urls = [f"/v1/user/preferences/topics/{topic_id}" for topic_id in topics]
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        responses = list(
+            pool.map(lambda url: client.put(url, json={"followed": True}), urls[:2] * 2)
+        )
+    assert all(r.status_code == 200 for r in responses)
+    assert set(client.get("/v1/user/preferences").json()["topic_ids"]) == set(map(str, topics[:2]))
+    assert client.put(urls[2], json={"followed": True}).status_code == 422
+    assert client.put(urls[0], json={"followed": False}).status_code == 200
+    assert client.put(urls[0], json={"followed": False}).status_code == 200
+    assert client.get("/v1/user/preferences").json()["topic_ids"] == [str(topics[1])]
+    current.user_id, current.subject = str(second), "user-b"
+    assert client.get("/v1/user/preferences").json()["topic_ids"] == []
+    client.put(urls[1], json={"followed": False})
+    with database() as session:
+        assert list(
+            session.scalars(select(UserTopic.topic_id).where(UserTopic.user_id == first))
+        ) == [topics[1]]
+
+
+def test_follow_limit_and_account_binding(user_data, database):
+    client, current, first, _, topics = user_data
+    ids = [uuid.uuid4() for _ in range(100)]
+    with database.begin() as session:
+        session.execute(
+            insert(Topic.__table__),
+            [dict(id=t, name=str(t), slug=str(t), kind="technology", status="active") for t in ids],
+        )
+        session.execute(insert(UserTopic.__table__), [dict(user_id=first, topic_id=t) for t in ids])
+    assert (
+        client.put(f"/v1/user/preferences/topics/{ids[0]}", json={"followed": True}).status_code
+        == 200
+    )
+    assert (
+        client.put(f"/v1/user/preferences/topics/{topics[0]}", json={"followed": True}).status_code
+        == 422
+    )
+    current.subject = "wrong-account"
+    assert (
+        client.put(f"/v1/user/preferences/topics/{ids[0]}", json={"followed": False}).status_code
+        == 401
+    )
+
+
+def test_bulk_preferences_preserve_existing_follow_dates(user_data, database):
+    client, _, first, _, topics = user_data
+    client.put("/v1/user/preferences", json={"topic_ids": [str(topics[0])]})
+    with database() as session:
+        followed_at = session.get(UserTopic, (first, topics[0])).created_at
+    client.put("/v1/user/preferences", json={"topic_ids": list(map(str, topics[:2]))})
+    with database() as session:
+        assert session.get(UserTopic, (first, topics[0])).created_at == followed_at
+
+
+def test_bookmarks_are_private_idempotent_and_paginated(user_data, database):
+    from devfeed_core.models import ArticleBookmark
+
+    client, current, first, second, _ = user_data
+    with database() as connection:
+        articles = (
+            connection.execute(select(Article.id).order_by(Article.title).limit(3)).scalars().all()
+        )
+    for article_id in articles:
+        for _ in range(2):
+            response = client.put(
+                f"/v1/user/articles/{article_id}/bookmark", json={"bookmarked": True}
+            )
+            assert response.status_code == 200
+    with database() as connection:
+        assert len(connection.execute(select(ArticleBookmark)).all()) == 3
+    first_page = client.get("/v1/user/bookmarks?limit=2").json()
+    assert len(first_page["items"]) == 2
+    second_page = client.get(
+        "/v1/user/bookmarks", params={"limit": 2, "cursor": first_page["next_cursor"]}
+    ).json()
+    assert len(second_page["items"]) == 1
+    assert second_page["next_cursor"] is None
+    assert {item["id"] for item in first_page["items"] + second_page["items"]} == {
+        str(a) for a in articles
+    }
+    original = current.user_id
+    current.user_id = str(second)
+    try:
+        assert client.get("/v1/user/bookmarks").json()["items"] == []
+        assert (
+            client.put(
+                f"/v1/user/articles/{articles[0]}/bookmark", json={"bookmarked": False}
+            ).status_code
+            == 200
+        )
+    finally:
+        current.user_id = original
+    assert len(client.get("/v1/user/bookmarks").json()["items"]) == 3
+    assert client.get("/v1/user/bookmarks?cursor=invalid").status_code == 422
+    assert (
+        client.put(f"/v1/user/articles/{articles[0]}/like", json={"liked": True}).json()[
+            "bookmarked"
+        ]
+        is True
+    )
+    assert (
+        client.put(f"/v1/user/articles/{articles[0]}/like", json={"liked": False}).json()["likes"]
+        == 0
+    )
+    assert (
+        client.put(
+            f"/v1/user/articles/{articles[0]}/bookmark", json={"bookmarked": False}
+        ).status_code
+        == 200
+    )
+    assert len(client.get("/v1/user/bookmarks").json()["items"]) == 2
+
+
+def test_withdrawn_bookmarks_are_hidden_but_removable(user_data, database):
+    from sqlalchemy import update
+
+    client, _, _, _, _ = user_data
+    with database() as connection:
+        article_id = connection.execute(
+            select(Article.id).where(Article.title == "Article 000")
+        ).scalar_one()
+    path = f"/v1/user/articles/{article_id}/bookmark"
+    assert client.put(path, json={"bookmarked": True}).status_code == 200
+    with database.begin() as connection:
+        connection.execute(
+            update(Article).where(Article.id == article_id).values(publication_status="unpublished")
+        )
+    assert client.get("/v1/user/bookmarks").json()["items"] == []
+    assert client.put(path, json={"bookmarked": True}).status_code == 404
+    assert client.put(path, json={"bookmarked": False}).status_code == 200
+
+
+def test_tag_follows_are_owned_visible_and_independent(user_data, database):
+    from devfeed_core.models import ArticleTag, Tag, UserTag
+
+    client, _, user, other_user, _ = user_data
+    with database.begin() as session:
+        tags = [Tag(name=f"Follow tag {i}", slug=f"follow-tag-{i}") for i in range(3)]
+        session.add_all(tags)
+        session.flush()
+        ids = [tag.id for tag in tags]
+        public = session.scalar(select(Article.id).where(Article.title == "Article 000"))
+        hidden = session.scalar(select(Article.id).where(Article.title == "Article 110"))
+        session.add_all(
+            [
+                ArticleTag(article_id=public, tag_id=ids[0]),
+                ArticleTag(article_id=public, tag_id=ids[1]),
+                ArticleTag(article_id=hidden, tag_id=ids[2]),
+                UserTag(user_id=other_user, tag_id=ids[1]),
+            ]
+        )
+    assert client.get("/v1/user/preferences/tags").json() == {"tag_ids": []}
+    first, second, hidden = [f"/v1/user/preferences/tags/{tag_id}" for tag_id in ids]
+    assert client.put(first, json={"followed": True}).status_code == 200
+    assert client.put(first, json={"followed": True}).status_code == 200
+    assert client.put(second, json={"followed": True}).status_code == 200
+    assert set(client.get("/v1/user/preferences/tags").json()["tag_ids"]) == {
+        str(ids[0]),
+        str(ids[1]),
+    }
+    assert client.put(hidden, json={"followed": True}).status_code == 422
+    assert (
+        client.put(first, json={"followed": False, "user_id": str(other_user)}).status_code == 422
+    )
+    assert client.put(first, json={"followed": False}).status_code == 200
+    assert client.get("/v1/user/preferences/tags").json() == {"tag_ids": [str(ids[1])]}
+    with database() as session:
+        assert session.scalar(select(UserTag.tag_id).where(UserTag.user_id == other_user)) == ids[1]
+        assert session.get(UserTag, (user, ids[0])) is None
+    assert client.put("/v1/user/preferences/tags", json={"tag_ids": []}).status_code == 200
+    assert client.get("/v1/user/preferences/tags").json() == {"tag_ids": []}
+
+
+def test_bulk_tag_preferences_preserve_dates_and_reject_hidden_tags_atomically(user_data, database):
+    from devfeed_core.models import ArticleTag, Tag, UserTag
+
+    client, _, user, other_user, _ = user_data
+    with database.begin() as session:
+        tags = [Tag(name=f"Bulk tag {index}", slug=f"bulk-tag-{index}") for index in range(3)]
+        session.add_all(tags)
+        session.flush()
+        ids = [tag.id for tag in tags]
+        public = session.scalar(select(Article.id).where(Article.title == "Article 000"))
+        hidden = session.scalar(select(Article.id).where(Article.title == "Article 110"))
+        session.add_all(
+            [
+                ArticleTag(article_id=public, tag_id=ids[0]),
+                ArticleTag(article_id=public, tag_id=ids[1]),
+                ArticleTag(article_id=hidden, tag_id=ids[2]),
+                UserTag(user_id=other_user, tag_id=ids[0]),
+            ]
+        )
+    endpoint = "/v1/user/preferences/tags"
+    assert client.put(endpoint, json={"tag_ids": [str(ids[0])]}).status_code == 200
+    with database() as session:
+        followed_at = session.get(UserTag, (user, ids[0])).created_at
+    replacement = [str(ids[1]), str(ids[0]), str(ids[1])]
+    response = client.put(endpoint, json={"tag_ids": replacement})
+    expected = {"tag_ids": [str(identifier) for identifier in sorted(ids[:2])]}
+    assert response.status_code == 200
+    assert response.json() == expected
+    with database() as session:
+        assert session.get(UserTag, (user, ids[0])).created_at == followed_at
+    for unavailable in (ids[2], uuid.uuid4()):
+        response = client.put(endpoint, json={"tag_ids": [str(ids[1]), str(unavailable)]})
+        assert response.status_code == 422
+        assert response.json()["detail"] == "Choose published tags"
+        assert client.get(endpoint).json() == expected
+    assert client.put(endpoint, json={"tag_ids": [str(ids[1])]}).status_code == 200
+    assert client.get(endpoint).json() == {"tag_ids": [str(ids[1])]}
+    with database() as session:
+        assert session.get(UserTag, (user, ids[0])) is None
+        assert session.get(UserTag, (other_user, ids[0])) is not None
+
+
+def test_tag_follow_limit_allows_idempotence_and_replacement(user_data, database):
+    from devfeed_core.models import ArticleTag, Tag
+
+    client, _, _, _, _ = user_data
+    with database.begin() as session:
+        tags = [
+            Tag(name=f"Bounded tag {index}", slug=f"bounded-tag-{index}") for index in range(101)
+        ]
+        session.add_all(tags)
+        session.flush()
+        ids = [tag.id for tag in tags]
+        public = session.scalar(select(Article.id).where(Article.title == "Article 000"))
+        session.add_all(ArticleTag(article_id=public, tag_id=tag_id) for tag_id in ids)
+    endpoint = "/v1/user/preferences/tags"
+    original = list(map(str, ids[:100]))
+    assert client.put(endpoint, json={"tag_ids": original}).status_code == 200
+    assert client.put(f"{endpoint}/{ids[0]}", json={"followed": True}).status_code == 200
+    response = client.put(f"{endpoint}/{ids[100]}", json={"followed": True})
+    assert response.status_code == 422
+    assert response.json()["detail"] == "You can follow up to 100 tags"
+    assert client.put(endpoint, json={"tag_ids": list(map(str, ids))}).status_code == 422
+    assert set(client.get(endpoint).json()["tag_ids"]) == set(original)
+    assert client.put(f"{endpoint}/{ids[0]}", json={"followed": False}).status_code == 200
+    assert client.put(f"{endpoint}/{ids[100]}", json={"followed": True}).status_code == 200
+    assert set(client.get(endpoint).json()["tag_ids"]) == set(map(str, ids[1:]))

@@ -71,6 +71,50 @@ function requestCounts(requests) {
   return counts;
 }
 
+async function previewDuringNativeScroll(page, title, target) {
+  await page.bringToFront();
+  // Activate the actual link in the first moving browser frame. A driver roundtrip
+  // can miss the entire animation on a busy runner; pointer preparation would
+  // instead scroll the moving target back into place before clicking it.
+  const motion = await title.evaluate((node) => {
+    node.focus({ preventScroll: true });
+    const start = scrollY;
+    const target = Math.max(0, start - 600);
+    return new Promise((resolve, reject) => {
+      let frame;
+      const timeout = setTimeout(() => {
+        cancelAnimationFrame(frame);
+        reject(
+          new Error(
+            `Native scroll did not advance: ${JSON.stringify({ start, target, scroll: scrollY })}`,
+          ),
+        );
+      }, 5000);
+      const activate = () => {
+        if (start - scrollY >= 5) {
+          clearTimeout(timeout);
+          const activated = scrollY;
+          node.click();
+          resolve({ start, target, activated });
+        } else frame = requestAnimationFrame(activate);
+      };
+      scrollTo({ top: target, behavior: "smooth" });
+      frame = requestAnimationFrame(activate);
+    });
+  });
+  const preview = page.getByRole("dialog", { name: "Article preview", exact: true });
+  await preview.waitFor();
+  // Observe after the native animation would otherwise have moved the retained document.
+  await page.waitForTimeout(150);
+  const opened = await page.evaluate(() => scrollY);
+  await preview.getByRole("button", { name: "Close preview", exact: true }).click();
+  await preview.waitFor({ state: "hidden" });
+  await page.waitForURL(target);
+  await page.waitForTimeout(350);
+  const closed = await page.evaluate(() => scrollY);
+  return { ...motion, scroll: opened, closed };
+}
+
 /** Observe real components throughout preview navigation, including transient loading states. */
 export async function checkPreviewFeedRetention(
   page,
@@ -261,6 +305,7 @@ export async function checkPreviewFeedRetention(
       openRequests: delta(countBefore, countOpen),
       closeRequests: delta(countOpen, countAfter),
       engagement,
+      nativeScroll: view === "cards" ? await previewDuringNativeScroll(page, title, target) : null,
     });
   }
   if (output) {
@@ -316,6 +361,26 @@ export async function checkPreviewFeedRetention(
         Math.abs(result.openState.scroll - clickedScroll) <= 2,
         `${label}: opening retains the clicked row's scroll position`,
       );
+      if (result.nativeScroll) {
+        const { start, target, activated, scroll, closed } = result.nativeScroll;
+        assert.equal(
+          typeof activated,
+          "number",
+          `${label}: native motion activates the preview link`,
+        );
+        assert.ok(
+          start - activated >= 5 && activated - target > 2,
+          `${label}: the preview opens while native scrolling is still in flight`,
+        );
+        assert.ok(
+          Math.abs(scroll - activated) <= 2,
+          `${label}: opening cancels in-flight native scrolling`,
+        );
+        assert.ok(
+          Math.abs(closed - activated) <= 2,
+          `${label}: dismissal retains the position where scrolling was interrupted`,
+        );
+      }
       for (const [phase, counts] of [
         ["open", result.openRequests],
         ["close", result.closeRequests],

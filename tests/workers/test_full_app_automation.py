@@ -1,0 +1,854 @@
+"""Full-mode lifecycle against disposable PostgreSQL and Redis, with bounded external fakes."""
+
+import uuid
+from datetime import timedelta
+
+import pytest
+from devfeed_aggregator import analysis_tasks, article_tasks, source_tasks, tasks
+from devfeed_core import analysis, services
+from devfeed_core.article_automation import schedule_article_automation, schedule_source_admission
+from devfeed_core.config import get_settings
+from devfeed_core.feeds.fetcher import FetchResult
+from devfeed_core.job_lifecycle import finish_job
+from devfeed_core.models import (
+    Article,
+    ArticleAnalysisJob,
+    ArticleContent,
+    ArticleEnrichmentJob,
+    ArticlePublicationDecision,
+    ArticleReview,
+    ArticleTag,
+    IngestionJob,
+    Source,
+    SourceEnrichmentJob,
+    SourceReview,
+    Tag,
+    Topic,
+    TopicProposal,
+    utcnow,
+)
+from devfeed_core.publication_policy import apply_publication_policy, evaluate_publication
+from devfeed_core.schemas import SourceCreate
+from devfeed_core.tag_topic_discovery import schedule_tag_topic_discovery
+from sqlalchemy import func, select
+
+from tests.articles.test_article_enrichment_integration import PAGE
+from tests.support.article_step_helpers import article_step_client
+from tests.workers.test_automation_integration import enable, extracted, ready, seed
+
+pytestmark = pytest.mark.integration
+
+
+def full(monkeypatch, **flags):
+    enable(monkeypatch, FULL_AUTOMATION=True, **flags)
+
+
+def due(database, identifier):
+    with database.begin() as session:
+        session.get(Article, identifier).automation_next_check_at = utcnow() - timedelta(seconds=1)
+
+
+def complete_source_review(database, profile_id):
+    source_tasks.enrich_source(str(profile_id))
+    with database() as session:
+        profile = session.get(SourceEnrichmentJob, profile_id)
+        assert profile.status == "succeeded" and profile.operation == "profile"
+        assert session.get(Source, profile.source_id).approval_status == "pending"
+        assessment_id = session.scalar(
+            select(SourceEnrichmentJob.id).where(
+                SourceEnrichmentJob.source_id == profile.source_id,
+                SourceEnrichmentJob.operation == "relevance",
+                SourceEnrichmentJob.status == "queued",
+            )
+        )
+        assert assessment_id is not None
+    source_tasks.enrich_source(str(assessment_id))
+
+
+def test_corrected_extractor_recovers_old_description_once(database, monkeypatch):
+    from devfeed_core.article_jobs import EXTRACTION_VERSION
+
+    full(monkeypatch)
+    with database.begin() as session:
+        _, article, topic = seed(session)
+        job = ready(session, article, topic, processed=False)
+        finish_job(job, "insufficient_evidence", utcnow())
+        old = ArticleEnrichmentJob(
+            article_id=article.id,
+            result={"text_source": "description", "sample_characters": 60},
+        )
+        session.add(old)
+        finish_job(old, "enriched", utcnow())
+        identifier = article.id
+    schedule_article_automation(database)
+    with database.begin() as session:
+        jobs = session.scalars(
+            select(ArticleEnrichmentJob).order_by(ArticleEnrichmentJob.created_at)
+        ).all()
+        assert len(jobs) == 2
+        assert jobs[-1].result["extraction_version"] == EXTRACTION_VERSION
+        # A terminal failure with the corrected extractor must not repeat forever.
+        jobs[-1].status = "failed"
+        jobs[-1].error = "page_unavailable"
+    due(database, identifier)
+    schedule_article_automation(database)
+    with database() as session:
+        assert session.scalar(select(func.count()).select_from(ArticleEnrichmentJob)) == 2
+        assert session.scalar(select(func.count()).select_from(ArticleAnalysisJob)) == 1
+
+
+def test_corrected_title_validation_recovers_failure_once(database, monkeypatch):
+    full(monkeypatch)
+    feedback = {"code": "schema_validation", "fields": ["result:value_error"]}
+    with database.begin() as session:
+        _, article, topic = seed(session)
+        job = ready(session, article, topic)
+        job.status, job.error = "failed", "invalid_analysis_result"
+        job.result = {"validation_feedback": feedback}
+        job.usage = {}
+        identifier = article.id
+    schedule_article_automation(database)
+    with database.begin() as session:
+        jobs = session.scalars(
+            select(ArticleAnalysisJob).order_by(ArticleAnalysisJob.created_at)
+        ).all()
+        assert len(jobs) == 2
+        assert jobs[-1].usage["requested_reason"] == "title_validation_corrected"
+        assert jobs[-1].usage["validation_version"] == analysis.VALIDATION_VERSION
+        jobs[-1].status, jobs[-1].error = "failed", "invalid_analysis_result"
+        jobs[-1].result = {"validation_feedback": feedback}
+    due(database, identifier)
+    schedule_article_automation(database)
+    with database() as session:
+        assert session.scalar(select(func.count()).select_from(ArticleAnalysisJob)) == 2
+
+
+def test_full_mode_rejects_known_paywall_outside_ai_eligibility(database, monkeypatch):
+    full(monkeypatch, AI_CONTENT_NOT_BEFORE="2026-10-01")
+    with database.begin() as session:
+        source, article, _ = seed(session)
+        source.enabled = False
+        job = ArticleEnrichmentJob(article_id=article.id, result={"paywalled": True})
+        session.add(job)
+        finish_job(job, "enriched", utcnow())
+        identifier = article.id
+    assert schedule_article_automation(database)["articles_rejected"] == 1
+    with database() as session:
+        assert session.get(Article, identifier).review_status == "rejected"
+
+
+def test_worker_rejects_incomplete_negative_without_applied_provenance(database, monkeypatch):
+    from devfeed_core import article_automation
+
+    full(monkeypatch)
+    proposals = []
+    monkeypatch.setattr(
+        article_automation, "propose_source_topics", lambda *args: proposals.append(True) or 0
+    )
+    with database.begin() as session:
+        _, article, _ = seed(session)
+        job = analysis.request_analysis(session, article.id)
+        identifier, job_id = article.id, job.id
+    monkeypatch.setattr(analysis_tasks, "session_factory", lambda: database)
+    monkeypatch.setattr(
+        analysis_tasks,
+        "CodexClient",
+        lambda settings: article_step_client(
+            complete=lambda *args: {
+                "outcome": "insufficient_evidence",
+                "page_kind": "non_article",
+                "developer_relevance": "relevant",
+                "language": None,
+                "content_type": None,
+                "content_format": None,
+                "ai_title": "Unused presentation",
+                "title_evidence": None,
+                "ai_summary": None,
+                "ai_description": None,
+                "topics": [],
+                "tags": [],
+                "reasons": ["This is an About page."],
+            },
+        ),
+    )
+    analysis_tasks.analyze_article(str(job_id))
+    assert proposals == []
+    with database() as session:
+        article = session.get(Article, identifier)
+        assert article.review_status == "rejected"
+        assert not article.classification_provenance
+        review = session.scalar(select(ArticleReview))
+        assert review.automation["reasons"] == ["non_article_content"]
+        assert session.get(ArticleAnalysisJob, job_id).result["ai_title"] is None
+
+
+@pytest.mark.parametrize(
+    "kind,code",
+    [
+        ("negative", "negative_classification"),
+        ("insufficient", "analysis_insufficient_evidence"),
+        ("description", "incomplete_extraction"),
+        ("topic_gap", "topic_without_primary"),
+        ("disabled", "source_ineligible"),
+        ("date", "content_date_deferred"),
+        ("paywall", "paywalled_content"),
+    ],
+)
+def test_dashboard_explains_blocked_articles_with_existing_primary_topics(
+    database, monkeypatch, kind, code
+):
+    from datetime import date
+
+    from devfeed_admin_api.automation import automation_blockers
+
+    full(monkeypatch)
+    with database.begin() as session:
+        source, article, topic = seed(session)
+        job = ready(session, article, topic)
+        if kind in {"negative", "insufficient", "description", "topic_gap"}:
+            finish_job(job, "insufficient_evidence", utcnow())
+            job.result = {**job.result, "outcome": "insufficient_evidence"}
+        if kind == "negative":
+            job.result = {**job.result, "page_kind": "non_article"}
+        if kind == "topic_gap":
+            job.result = {**job.result, "topic_match_status": "no_primary_topic"}
+        if kind == "disabled":
+            source.enabled = False
+        if kind == "date":
+            monkeypatch.setattr(get_settings(), "ai_content_not_before", date(2026, 10, 1))
+        if kind in {"description", "paywall"}:
+            enrichment = ArticleEnrichmentJob(
+                article_id=article.id,
+                result={
+                    "text_source": "description",
+                    "paywalled": kind == "paywall",
+                },
+            )
+            session.add(enrichment)
+            finish_job(enrichment, "enriched", utcnow())
+        session.flush()
+        groups = {group.code: group for group in automation_blockers(session)}
+        assert groups[code].count == 1
+        assert groups["editorial_review"].count == 0
+
+
+@pytest.mark.parametrize("summary", ["", "Go 1.27 includes new goroutine leak profiles."])
+def test_short_feed_summary_with_extracted_evidence_publishes(database, monkeypatch, summary):
+    full(monkeypatch)
+    with database.begin() as session:
+        _, article, topic = seed(session)
+        article.summary = summary
+        session.add(
+            ArticleContent(
+                article_id=article.id,
+                url=article.canonical_url,
+                text="Angular routing helps developers build navigation and organize applications.",
+                content_hash="a" * 64,
+                method="html",
+            )
+        )
+        session.flush()
+        job = ready(session, article, topic)
+        article.ai_summary = "Angular routing helps developers organize navigation in applications."
+        identifier = article.id
+        assert evaluate_publication(session, article, job)["status"] == "would_publish"
+    counts = schedule_article_automation(database)
+    assert counts["articles_published"] == 1
+    assert counts["articles_rejected"] == 0
+    with database() as session:
+        article = session.get(Article, identifier)
+        assert article.publication_status == "published"
+        assert article.summary == summary
+
+
+def test_short_relevant_summary_without_extracted_text_publishes(database, monkeypatch):
+    full(monkeypatch)
+    with database.begin() as session:
+        _, article, topic = seed(session)
+        article.summary = "Angular routing."
+        job = ready(session, article, topic)
+        assert evaluate_publication(session, article, job)["status"] == "would_publish"
+        identifier = article.id
+    counts = schedule_article_automation(database)
+    assert counts["articles_published"] == 1
+    assert counts["articles_rejected"] == 0
+    with database() as session:
+        assert session.get(Article, identifier).publication_status == "published"
+
+
+def test_ai_summary_alone_does_not_replace_source_evidence(database, monkeypatch):
+    full(monkeypatch)
+    with database.begin() as session:
+        _, article, topic = seed(session)
+        job = ready(session, article, topic)
+        article.summary = ""
+        article.ai_summary = "Angular routing helps developers organize navigation in applications."
+        decision = evaluate_publication(session, article, job)
+        assert decision["status"] == "blocked"
+        assert "insufficient_source_text" in decision["reasons"]
+
+
+def test_validated_source_to_public_article_and_exact_tag_association(
+    database, monkeypatch, client
+):
+    full(monkeypatch, AUTO_LINK_TAGS=False)
+    assert get_settings().auto_link_tags
+    with database.begin() as session:
+        topic = Topic(name="Angular", slug="angular", kind="technology", status="active")
+        session.add(topic)
+        source = services.create_source(
+            session,
+            services.validate_source(
+                SourceCreate(
+                    name="Publisher",
+                    feed_url="https://example.com/rss",
+                    source_type="publisher",
+                )
+            ),
+        )
+        topic_id, source_id = topic.id, source.id
+        review_id = session.scalar(select(SourceEnrichmentJob.id))
+        assert source.approval_status == "pending"
+        assert session.scalar(select(IngestionJob.id)) is None
+    monkeypatch.setattr(
+        source_tasks,
+        "assess_source",
+        lambda *a, **k: {"approval_supported": True, "reason": "Verified technical feed"},
+    )
+    complete_source_review(database, review_id)
+    with database() as session:
+        ingestion_id = session.scalar(select(IngestionJob.id))
+        assert session.get(Source, source_id).approval_status == "approved"
+    feed = b"""<rss version="2.0"><channel><title>Publisher</title><link>https://example.com</link>
+    <description>Developer articles</description><item><guid>angular-guide</guid>
+    <link>https://example.com/angular</link><title>Angular routing</title>
+    <category>Angular</category>
+    <description>Angular routing helps developers build navigation and organize applications.
+    </description>
+    </item></channel></rss>"""
+    monkeypatch.setattr(tasks, "fetch_feed", lambda *a: FetchResult(200, feed, a[0]))
+    tasks.ingest(str(ingestion_id))
+    with database() as session:
+        identifier = session.scalar(select(Article.id))
+        enrichment_id = session.scalar(select(ArticleEnrichmentJob.id))
+    monkeypatch.setattr(
+        article_tasks,
+        "fetch_article_page",
+        lambda url: FetchResult(
+            200,
+            PAGE.replace(b"Python", b"Angular"),
+            url,
+        ),
+    )
+    article_tasks.enrich_article(str(enrichment_id))
+    with database() as session:
+        analysis_id = session.scalar(select(ArticleAnalysisJob.id))
+    result = {
+        "outcome": "ready",
+        "developer_relevance": "relevant",
+        "language": "en",
+        "content_type": "tutorial",
+        "content_format": "article",
+        "ai_summary": "Angular routing helps developers organize and navigate their applications.",
+        "ai_description": "A guide to navigation in Angular applications.",
+        "ai_title": None,
+        "title_evidence": None,
+        "page_kind": "article",
+        "topics": [
+            {"topic_id": str(topic_id), "role": "primary", "relevance": 0.9, "evidence": "Angular"}
+        ],
+        "tags": [],
+        "reasons": [],
+    }
+    monkeypatch.setattr(
+        analysis_tasks,
+        "CodexClient",
+        lambda settings: article_step_client(
+            complete=lambda *args: result,
+        ),
+    )
+    analysis_tasks.analyze_article(str(analysis_id))
+    schedule_tag_topic_discovery(database)
+    # Duplicate deliveries and scheduler passes cannot duplicate decisions or revive completed work.
+    analysis_tasks.analyze_article(str(analysis_id))
+    assert schedule_article_automation(database)["articles_checked"] == 0
+    with database() as session:
+        article = session.get(Article, identifier)
+        assert (article.review_status, article.publication_status) == ("approved", "published")
+        assert article.topic_links[0].topic_id == topic_id
+        assert session.scalar(select(Tag).where(Tag.slug == "angular")).topic_id == topic_id
+        assert [tag.slug for tag in article.tags] == ["angular"]
+        assert session.scalar(select(func.count()).select_from(ArticleReview)) == 2
+        assert session.scalar(select(func.count()).select_from(ArticlePublicationDecision)) == 1
+        assert session.get(Source, source_id).publication_policy == "manual"
+        assert session.scalar(select(SourceReview)).actor == "devfeed:source-relevance"
+    response = client.get(f"/v1/articles/{identifier}")
+    assert response.status_code == 200, response.text
+
+
+@pytest.mark.parametrize("mode", ["manual", "preview", "auto"])
+@pytest.mark.parametrize("reasons", [[], ["The source directly supports this developer tutorial."]])
+def test_full_mode_publishes_existing_valid_analysis_without_changing_source_policy(
+    database, monkeypatch, mode, reasons
+):
+    full(monkeypatch)
+    with database.begin() as session:
+        source, article, topic = seed(session, mode=mode)
+        job = ready(session, article, topic)
+        job.result = {**job.result, "reasons": reasons}
+        identifier, source_id = article.id, source.id
+    assert schedule_article_automation(database)["articles_published"] == 1
+    assert schedule_article_automation(database)["articles_checked"] == 0
+    with database() as session:
+        assert session.get(Article, identifier).publication_status == "published"
+        assert session.get(Source, source_id).publication_policy == mode
+
+
+@pytest.mark.parametrize(
+    "failure",
+    [
+        "unrelated",
+        "non_article",
+        "unrelated_insufficient",
+        "non_article_insufficient",
+        "uncertain",
+        "insufficient",
+        "failed",
+    ],
+)
+def test_only_explicit_negative_analysis_becomes_attributed_rejection(
+    database, monkeypatch, failure
+):
+    full(monkeypatch)
+    with database.begin() as session:
+        _, article, topic = seed(session)
+        job = ready(session, article, topic)
+        if failure == "failed":
+            job.status, job.error, job.attempts = "failed", "invalid_analysis_result", 3
+        elif failure in {"non_article", "non_article_insufficient"}:
+            article.classification_provenance = {
+                **article.classification_provenance,
+                "page_kind": "non_article",
+            }
+            job.result = {**job.result, "page_kind": "non_article"}
+            if failure.endswith("insufficient"):
+                job.result = {**job.result, "outcome": "insufficient_evidence"}
+                article.classification_provenance = {}
+                analysis.apply_analysis(
+                    session, article, job, analysis.AnalysisResult.model_validate(job.result)
+                )
+        elif failure == "insufficient":
+            job.outcome = "insufficient_evidence"
+        elif failure in {"unrelated", "unrelated_insufficient"}:
+            article.classification_provenance = {
+                **article.classification_provenance,
+                "developer_relevance": "unrelated",
+            }
+            job.result = {**job.result, "developer_relevance": "unrelated"}
+            if failure.endswith("insufficient"):
+                job.result = {**job.result, "outcome": "insufficient_evidence"}
+                article.classification_provenance = {}
+                analysis.apply_analysis(
+                    session, article, job, analysis.AnalysisResult.model_validate(job.result)
+                )
+        else:
+            article.classification_provenance = {
+                **article.classification_provenance,
+                "developer_relevance": "uncertain",
+            }
+            job.result = {**job.result, "developer_relevance": "uncertain", "reasons": []}
+        identifier = article.id
+    rejected = failure in {
+        "unrelated",
+        "non_article",
+        "unrelated_insufficient",
+        "non_article_insufficient",
+    }
+    assert schedule_article_automation(database)["articles_rejected"] == int(rejected)
+    with database() as session:
+        if not rejected:
+            assert session.get(Article, identifier).review_status == "pending"
+            assert session.scalar(select(ArticleReview)) is None
+            return
+        assert session.get(Article, identifier).review_status == "rejected"
+        review = session.scalar(select(ArticleReview))
+        assert review.action == "reject" and review.automation["reasons"]
+        assert review.actor == "devfeed:automatic-publication"
+    assert schedule_article_automation(database)["articles_checked"] == 0
+
+
+def test_empty_page_fallback_stays_pending_without_an_ai_loop(database, monkeypatch):
+    full(monkeypatch)
+    with database.begin() as session:
+        _, article, _ = seed(session)
+        article.summary = ""
+        identifier = article.id
+    assert schedule_article_automation(database)["articles_checked"] == 1
+    with database.begin() as session:
+        job = session.scalar(select(ArticleEnrichmentJob))
+        finish_job(job, "not_found", utcnow())
+    due(database, identifier)
+    assert schedule_article_automation(database)["articles_rejected"] == 0
+    with database() as session:
+        assert session.get(Article, identifier).review_status == "pending"
+        assert session.scalar(select(func.count()).select_from(ArticleAnalysisJob)) == 0
+        decision = session.scalar(select(ArticlePublicationDecision)).decision
+        assert decision["status"] == "blocked"
+        assert "insufficient_source_text" in decision["reasons"]
+
+
+def test_failed_article_enrichment_rejects_empty_article(database, monkeypatch):
+    full(monkeypatch)
+    with database.begin() as session:
+        _, article, _ = seed(session)
+        article.summary = ""
+        enrichment = ArticleEnrichmentJob(
+            article_id=article.id,
+            status="failed",
+            attempts=3,
+            error="Article lookup failed: transport_error",
+        )
+        session.add(enrichment)
+        identifier = article.id
+    counts = schedule_article_automation(database)
+    assert counts["articles_rejected"] == 1
+    with database() as session:
+        article = session.get(Article, identifier)
+        assert article.review_status == "rejected"
+        review = session.scalar(select(ArticleReview).where(ArticleReview.article_id == identifier))
+        assert review is not None
+        assert review.action == "reject"
+        assert "enrichment failed" in (review.note or "")
+
+
+@pytest.mark.parametrize("full_mode", [True, False])
+def test_explicit_paywall_is_rejected_during_enrichment_without_analysis(
+    database, monkeypatch, full_mode
+):
+    if full_mode:
+        full(monkeypatch)
+    else:
+        enable(monkeypatch, FULL_AUTOMATION=False)
+    with database.begin() as session:
+        _, article, _ = seed(session)
+        enrichment = ArticleEnrichmentJob(
+            article_id=article.id,
+        )
+        session.add(enrichment)
+        session.flush()
+        identifier, enrichment_id, url = article.id, enrichment.id, article.canonical_url
+    gated_page = b"""<html><head><title>Paid article</title>
+        <meta name="description" content="A useful public description for developers.">
+        <script type="application/ld+json">
+        {"@type":"Article","isAccessibleForFree":false}</script>
+        </head><body><article><h1>Paid article</h1><p>Private body.</p></article></body></html>"""
+    monkeypatch.setattr(
+        article_tasks,
+        "fetch_article_page",
+        lambda _: FetchResult(200, gated_page, url),
+    )
+    article_tasks.enrich_article(str(enrichment_id))
+
+    with database() as session:
+        article = session.get(Article, identifier)
+        enrichment = session.get(ArticleEnrichmentJob, enrichment_id)
+        review = session.scalar(select(ArticleReview).where(ArticleReview.article_id == identifier))
+        decision = session.scalar(
+            select(ArticlePublicationDecision).where(
+                ArticlePublicationDecision.article_id == identifier
+            )
+        )
+        assert article.review_status == "rejected"
+        assert enrichment.status == "succeeded" and enrichment.result["paywalled"] is True
+        assert review.action == "reject" and "paywall" in (review.note or "").lower()
+        assert review.automation["reasons"] == ["paywalled_content"]
+        assert review.automation["paywall_reason"] == "structured_data_not_free"
+        assert decision.decision["status"] == "rejected"
+        assert decision.decision["paywall_enrichment_id"] == str(enrichment.id)
+        assert session.scalar(select(func.count()).select_from(ArticleAnalysisJob)) == 0
+
+
+def test_scheduler_rejects_already_detected_paywalls_outside_full_automation(database, monkeypatch):
+    enable(monkeypatch, FULL_AUTOMATION=False)
+    with database.begin() as session:
+        _, article, _ = seed(session)
+        session.add(
+            ArticleEnrichmentJob(
+                article_id=article.id,
+                status="succeeded",
+                outcome="enriched",
+                result={"paywalled": True, "paywall_reason": "structured_data_not_free"},
+                finished_at=utcnow(),
+            )
+        )
+        identifier = article.id
+
+    counts = schedule_article_automation(database)
+    assert counts["articles_rejected"] == 1
+    with database() as session:
+        assert session.get(Article, identifier).review_status == "rejected"
+
+
+@pytest.mark.parametrize("state", ["queued", "running"])
+def test_active_jobs_and_capacity_deferrals_are_not_rejected(database, monkeypatch, state):
+    full(monkeypatch)
+    with database.begin() as session:
+        _, article, _ = seed(session)
+        job = analysis.request_analysis(session, article.id)
+        job.status, job.error = state, "codex_usage_limit"
+        article.automation_started_at = utcnow() - timedelta(days=3)
+    assert schedule_article_automation(database)["articles_rejected"] == 0
+    with database() as session:
+        assert session.scalar(select(Article)).review_status == "pending"
+        assert session.scalar(select(func.count()).select_from(ArticleAnalysisJob)) == 1
+
+
+def test_pending_topic_waits_then_new_catalog_automatically_reanalyzes(database, monkeypatch):
+    full(monkeypatch)
+    with database.begin() as session:
+        _, article, _ = seed(session, topic=False)
+        extracted(session, article)
+        job = analysis.request_analysis(session, article.id)
+        job.result = {"developer_relevance": "relevant"}
+        finish_job(job, "insufficient_evidence", utcnow())
+        session.add(
+            TopicProposal(
+                batch_id=uuid.uuid4(),
+                slug="angular",
+                action="create",
+                origin="import",
+                source_name="Test",
+                created_by={},
+                proposed={"name": "Angular", "slug": "angular"},
+            )
+        )
+        identifier = article.id
+    assert schedule_article_automation(database)["articles_rejected"] == 0
+    due(database, identifier)
+    with database.begin() as session:
+        session.add(Topic(name="Angular", slug="angular", kind="technology", status="active"))
+    assert schedule_article_automation(database)["articles_rejected"] == 0
+    with database() as session:
+        assert session.scalar(select(func.count()).select_from(ArticleAnalysisJob)) == 2
+        assert session.scalar(select(Article)).review_status == "pending"
+
+
+def test_expired_topic_wait_does_not_establish_rejection(database, monkeypatch):
+    full(monkeypatch)
+    with database.begin() as session:
+        _, article, _ = seed(session, topic=False)
+        article.automation_started_at = utcnow() - timedelta(hours=25)
+        job = analysis.request_analysis(session, article.id)
+        job.result = {"developer_relevance": "relevant"}
+        finish_job(job, "insufficient_evidence", utcnow())
+        session.add(
+            TopicProposal(
+                batch_id=uuid.uuid4(),
+                slug="angular",
+                action="create",
+                origin="import",
+                source_name="Test",
+                created_by={},
+                proposed={"name": "Angular", "slug": "angular"},
+            )
+        )
+    assert schedule_article_automation(database)["articles_rejected"] == 0
+    with database() as session:
+        assert session.scalar(select(Article)).review_status == "pending"
+
+
+@pytest.mark.parametrize("change", ["summary", "revision", "catalog"])
+def test_stale_analysis_is_replaced_before_any_decision(database, monkeypatch, change):
+    full(monkeypatch)
+    with database.begin() as session:
+        _, article, topic = seed(session)
+        job = ready(session, article, topic)
+        if change == "summary":
+            article.summary += " Updated source evidence for developers."
+        elif change == "revision":
+            article.editorial_revision += 1
+        else:
+            topic.aliases = ["Angular framework"]
+        assert apply_publication_policy(session, article, job)["status"] == "blocked"
+    assert schedule_article_automation(database)["articles_published"] == 0
+    with database() as session:
+        assert session.scalar(select(func.count()).select_from(ArticleAnalysisJob)) == 2
+        assert session.scalar(select(Article)).review_status == "pending"
+
+
+def test_full_mode_off_preserves_manual_behavior(database, monkeypatch):
+    enable(monkeypatch)
+    with database.begin() as session:
+        source, article, topic = seed(session)
+        source.approval_status = "pending"
+        identifier = article.id
+    assert schedule_source_admission(database) == 0
+    assert schedule_article_automation(database)["articles_checked"] == 0
+    with database() as session:
+        assert session.get(Article, identifier).review_status == "pending"
+
+
+@pytest.mark.parametrize(
+    "protection", ["disabled", "rejected_source", "rejected_article", "approved_article"]
+)
+def test_full_mode_respects_disabled_sources_and_completed_decisions(
+    database, monkeypatch, protection
+):
+    full(monkeypatch)
+    with database.begin() as session:
+        source, article, topic = seed(session)
+        ready(session, article, topic)
+        if protection == "disabled":
+            source.enabled = False
+        elif protection == "rejected_source":
+            source.approval_status = "rejected"
+        else:
+            article.review_status = protection.split("_")[0]
+    assert schedule_article_automation(database)["articles_checked"] == (
+        protection == "approved_article"
+    )
+
+
+def test_backlog_admission_and_article_scans_are_bounded(database, monkeypatch):
+    full(monkeypatch, AUTOMATION_BATCH_SIZE=1)
+    with database.begin() as session:
+        for name in ("Angular", "Python"):
+            source, article, _ = seed(session, name=name)
+            source.approval_status = "pending"
+    assert schedule_source_admission(database) == 1
+    assert schedule_source_admission(database) == 1
+    assert schedule_source_admission(database) == 0
+    with database() as session:
+        assert all(
+            source.approval_status == "pending" for source in session.scalars(select(Source))
+        )
+        review_ids = list(session.scalars(select(SourceEnrichmentJob.id)))
+    monkeypatch.setattr(
+        source_tasks,
+        "assess_source",
+        lambda *a, **k: {"approval_supported": True, "reason": "Verified technical feed"},
+    )
+    for identifier in review_ids:
+        complete_source_review(database, identifier)
+    assert schedule_article_automation(database)["articles_checked"] == 1
+    assert schedule_article_automation(database)["articles_checked"] == 1
+    assert schedule_article_automation(database)["articles_checked"] == 0
+
+
+def test_source_labels_propose_once_without_creating_topics_or_guessing_associations(
+    database, monkeypatch
+):
+    full(monkeypatch)
+    with database.begin() as session:
+        _, article, _ = seed(session, topic=False)
+        extracted(session, article)
+        tag = Tag(name="Angular", slug="angular")
+        session.add(tag)
+        session.flush()
+        session.add(ArticleTag(article_id=article.id, tag_id=tag.id, origin="source"))
+        job = analysis.request_analysis(session, article.id)
+        job.result = {"developer_relevance": "relevant"}
+        finish_job(job, "insufficient_evidence", utcnow())
+        identifier = article.id
+    assert schedule_article_automation(database)["source_topics_proposed"] == 1
+    due(database, identifier)
+    assert schedule_article_automation(database)["source_topics_proposed"] == 0
+    with database.begin() as session:
+        proposal = session.scalar(select(TopicProposal))
+        assert proposal.research_requested and proposal.status == "pending"
+        assert proposal.origin == "article_enrichment"
+        assert proposal.evidence[0]["article_id"] == str(identifier)
+        assert session.scalar(select(func.count()).select_from(Topic)) == 0
+        assert session.scalar(select(Tag)).topic_id is None
+        proposal.status, proposal.reviewed_at, proposal.reviewed_by = "rejected", utcnow(), {}
+        assert session.scalar(select(Article)).review_status == "pending"
+    due(database, identifier)
+    result = schedule_article_automation(database)
+    assert result["source_topics_proposed"] == 0 and result["articles_rejected"] == 0
+    with database() as session:
+        assert session.get(Article, identifier).review_status == "pending"
+
+
+def test_full_mode_can_finish_freshly_analyzed_human_draft(database, monkeypatch):
+    full(monkeypatch)
+    with database.begin() as session:
+        _, article, topic = seed(session)
+        session.add(
+            ArticleReview(article_id=article.id, action="edit", actor="operator", revision=0)
+        )
+        ready(session, article, topic)
+    assert schedule_article_automation(database)["articles_published"] == 1
+
+
+def test_source_api_reports_effective_full_mode_and_queues_review(
+    database, monkeypatch, client, admin_client
+):
+    full(monkeypatch)
+    response = admin_client.post(
+        "/v1/admin/sources",
+        json={"feed_url": "https://example.com/rss", "source_type": "publisher"},
+    )
+    assert response.status_code == 201, response.text
+    assert response.json()["approval_status"] == "pending"
+    detail = admin_client.get(f"/v1/admin/sources/{response.json()['id']}")
+    assert detail.json()["full_automation"] is True
+
+
+def test_invalid_evidence_stays_pending_without_retry_or_review_loop(database, monkeypatch):
+    full(monkeypatch)
+    with database.begin() as session:
+        _, article, _ = seed(session, topic=False)
+        extracted(session, article)
+        article.editorial_revision = 1
+        article.title = "GitHub's Elasticsearch Problem Was Seven Years in the Making"
+        article.summary = (
+            "Why the right fix wasn't available until now, and what they did in the meantime."
+        )
+        job = analysis.request_analysis(session, article.id)
+        job.status, job.error, job.attempts = "failed", "invalid_analysis_result", 2
+        job.result = {"validation_feedback": {"code": "evidence_not_in_input", "fields": []}}
+        identifier = article.id
+    for _ in range(2):
+        due(database, identifier)
+        assert schedule_article_automation(database)["articles_rejected"] == 0
+    with database() as session:
+        article = session.get(Article, identifier)
+        assert article.review_status == "pending"
+        assert article.publication_status == "unpublished"
+        assert article.editorial_revision == 1
+        assert session.scalar(select(ArticleReview)) is None
+        assert session.scalar(select(func.count()).select_from(ArticleAnalysisJob)) == 1
+        decisions = session.scalars(select(ArticlePublicationDecision)).all()
+        assert len(decisions) == 1
+        assert decisions[0].decision["status"] == "blocked"
+        assert "current_analysis_required" in decisions[0].decision["reasons"]
+
+
+@pytest.mark.parametrize("stale", ["revision", "catalog", "failed", "source", "input", "newer"])
+@pytest.mark.parametrize("incomplete", [False, True])
+def test_rejection_requires_current_successful_analysis(database, monkeypatch, stale, incomplete):
+    full(monkeypatch)
+    with database.begin() as session:
+        source, article, topic = seed(session)
+        job = ready(session, article, topic)
+        job.result = {**job.result, "developer_relevance": "unrelated"}
+        if incomplete:
+            job.result = {**job.result, "outcome": "insufficient_evidence"}
+            finish_job(job, "insufficient_evidence", utcnow())
+            article.classification_provenance = {}
+        if stale == "revision":
+            article.editorial_revision += 1
+        elif stale == "catalog":
+            topic.aliases = ["Angular framework"]
+        elif stale == "failed":
+            job.status = "failed"
+        elif stale == "input":
+            article.summary = "New publisher evidence about application development."
+        elif stale == "newer":
+            analysis.request_analysis(session, article.id)
+        else:
+            source.enabled = False
+        decision = apply_publication_policy(session, article, job)
+        assert decision["status"] == "blocked"
+        assert article.review_status == "pending"
+        assert session.scalar(select(ArticleReview)) is None

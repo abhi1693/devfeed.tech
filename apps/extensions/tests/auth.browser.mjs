@@ -34,6 +34,7 @@ import {
 import { checkSessionPreferences } from "../../../scripts/testing/session-preferences.mjs";
 import {
   checkStackedReader,
+  checkStackedTouchReader,
   stackedReaderArticle,
   stackedReaderFeed,
 } from "../../../scripts/testing/stacked-reader.mjs";
@@ -121,7 +122,7 @@ const baseArticle = {
   sources: [],
 };
 
-async function withAuthenticatedReader(t, check) {
+async function withAuthenticatedReader(t, check, { hasTouch = false } = {}) {
   const profile = await mkdtemp(path.join(tmpdir(), "devfeed-auth-test-"));
   let server;
   let context;
@@ -624,6 +625,7 @@ async function withAuthenticatedReader(t, check) {
         ? "msedge"
         : "chromium",
     headless: true,
+    hasTouch,
     viewport: { width: 1440, height: 1000 },
     args: [
       `--disable-extensions-except=${extension}`,
@@ -947,6 +949,31 @@ test(
         );
       }
     }),
+);
+
+test(
+  "stacked reader supports native touch targets and preview activation",
+  { timeout: 180000 },
+  (t) =>
+    withAuthenticatedReader(
+      t,
+      async ({ page, context, state, article, signIn }) => {
+        withManagedImage(article);
+        await mockManagedImages(context);
+        Object.assign(article, stackedReaderArticle(article));
+        state.stackedReader = true;
+        const target = readerRouteUrl(page.url(), "/latest?sort=most_liked");
+        for (const signedIn of [false, true]) {
+          if (signedIn) await signIn();
+          await checkStackedTouchReader(
+            page,
+            target,
+            artifactPath(`stacked-touch/${browser}-${signedIn ? "member" : "guest"}`),
+          );
+        }
+      },
+      { hasTouch: true },
+    ),
 );
 
 test(

@@ -488,16 +488,27 @@ async function checkStackedGeometry(page, width) {
   return snapshot;
 }
 
-async function checkStackedTouchTargets(page, output) {
-  const cdp = await page.context().newCDPSession(page);
+/** Measure and activate the real reader in a context created with hasTouch: true. */
+export async function checkStackedTouchReader(page, target, output) {
+  await page.setViewportSize({ width: 320, height: 1000 });
+  await page.goto(target);
+  await setArticleView(page, "stacked", { returnTo: target });
+  const firstRow = page.locator(".article-stacked-row:visible").first();
+  await firstRow.waitFor();
+  assert.ok(
+    await page.evaluate(() => navigator.maxTouchPoints > 0),
+    "The fixture is initialized with native touch input",
+  );
+  // Chromium extension navigation resets the primary pointer while preserving
+  // native touch capability. Initialize this renderer after the route is ready;
+  // the hasTouch context continues to own emulation across viewport/capture work.
+  const cdp =
+    new URL(page.url()).protocol === "chrome-extension:"
+      ? await page.context().newCDPSession(page)
+      : null;
   try {
-    // Set device metrics before pointer emulation; a viewport update also updates CDP metrics.
-    await page.setViewportSize({ width: 320, height: 1000 });
-    await cdp.send("Emulation.setTouchEmulationEnabled", { enabled: true, maxTouchPoints: 1 });
-    await cdp.send("Emulation.setEmitTouchEventsForMouse", {
-      enabled: true,
-      configuration: "mobile",
-    });
+    if (cdp)
+      await cdp.send("Emulation.setTouchEmulationEnabled", { enabled: true, maxTouchPoints: 1 });
     await page.waitForFunction(() => {
       if (!matchMedia("(pointer: coarse)").matches) return false;
       const actions = [
@@ -514,12 +525,11 @@ async function checkStackedTouchTargets(page, output) {
       );
     });
     const geometry = await checkStackedGeometry(page, 320);
-    const measurement = await page
-      .locator(".article-stacked-row")
-      .first()
+    const measurement = await firstRow
       .locator(".article-stacked-actions a, .article-stacked-actions button")
       .evaluateAll((elements) => ({
         coarse: matchMedia("(pointer: coarse)").matches,
+        maxTouchPoints: navigator.maxTouchPoints,
         targets: elements.map((element) => {
           const bounds = element.getBoundingClientRect();
           const style = getComputedStyle(element);
@@ -532,24 +542,45 @@ async function checkStackedTouchTargets(page, output) {
           };
         }),
       }));
-    assert.equal(
-      measurement.coarse,
-      true,
-      "Touch targets are measured with a coarse pointer after viewport layout",
-    );
-    const { targets } = measurement;
-    assert.ok(targets.length >= 4, "The touch measurement includes all available row actions");
-    for (const target of targets)
+    assert.equal(measurement.coarse, true, "Native touch context retains a coarse pointer");
+    assert.ok(measurement.maxTouchPoints > 0, "The context supports native touch input");
+    assert.ok(measurement.targets.length >= 4, "The touch measurement includes every row action");
+    for (const action of measurement.targets)
       assert.ok(
-        target.width >= 44 && target.height >= 44,
-        `${target.name} has a 44px touch target (${target.width}×${target.height}px)`,
+        action.width >= 44 && action.height >= 44,
+        `${action.name} has a 44px touch target (${action.width}×${action.height}px)`,
       );
-    if (output) await page.screenshot({ path: `${output}-320-touch.png`, animations: "disabled" });
-    return { pointer: "coarse", geometry, targets };
+    if (output) {
+      await mkdir(dirname(output), { recursive: true });
+      await page.screenshot({
+        path: `${output}-320-touch.png`,
+        animations: "disabled",
+        fullPage: true,
+      });
+    }
+    assert.equal(
+      await page.evaluate(() => matchMedia("(pointer: coarse)").matches),
+      true,
+      "The native touch context preserves its pointer through layout and capture",
+    );
+    await firstRow.locator(".article-stacked-title").tap();
+    const preview = page.getByRole("dialog", { name: "Article preview", exact: true });
+    await preview.waitFor();
+    await preview.getByRole("button", { name: "Close preview", exact: true }).tap();
+    await preview.waitFor({ state: "hidden" });
+    await page.waitForURL(target);
+    await firstRow.waitFor();
+    const result = {
+      passed: true,
+      pointer: "coarse",
+      geometry,
+      ...measurement,
+      tappedPreview: true,
+    };
+    if (output) await writeFile(`${output}.json`, JSON.stringify(result, null, 2));
+    return result;
   } finally {
-    await cdp.send("Emulation.setEmitTouchEventsForMouse", { enabled: false });
-    await cdp.send("Emulation.setTouchEmulationEnabled", { enabled: false });
-    await cdp.detach();
+    await cdp?.detach();
   }
 }
 
@@ -586,13 +617,17 @@ export async function checkStackedReader(page, target, output, { signedIn = fals
     const image = document.querySelector(".article-stacked-thumbnail img");
     return image?.complete && image.naturalWidth > 0;
   });
+  assert.equal(
+    await page.evaluate(() => matchMedia("(pointer: fine)").matches),
+    true,
+    "The fine-pointer journey retains its desktop input context",
+  );
   const measurements = [];
   if (output) await mkdir(dirname(output), { recursive: true });
   for (const width of [320, 768, 1440]) {
     measurements.push(await checkStackedGeometry(page, width));
     if (output) await page.screenshot({ path: `${output}-${width}.png`, animations: "disabled" });
   }
-  measurements.push(await checkStackedTouchTargets(page, output));
   await page.setViewportSize({ width: 1440, height: 1000 });
   await page.reload();
   await firstRow.waitFor();
