@@ -19,6 +19,7 @@ Application releases and Alembic schema revisions are separate identifiers.
 - [#282](https://github.com/abhi1693/devfeed.tech/pull/282) - Import ICO publisher favicons into managed logos so valid icons no longer block source branding.
 - [#283](https://github.com/abhi1693/devfeed.tech/pull/283) - Regenerate published article thumbnails from a saved original when derivatives need updating.
 - [#283](https://github.com/abhi1693/devfeed.tech/pull/283) - Preserve reader scroll position when opening previews and navigating across web, Chrome, and Edge.
+- [#285](https://github.com/abhi1693/devfeed.tech/pull/285) - Load Trending articles correctly in Chrome and Edge, including the first page and subsequent pages.
 
 ### Upgrade Notes
 

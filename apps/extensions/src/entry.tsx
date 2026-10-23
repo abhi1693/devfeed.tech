@@ -123,7 +123,7 @@ function Reader({
       if (trending) {
         const [feed] = await Promise.allSettled([
           read<FeedPage>(
-            `/api/v1/user/trending?limit=24&cursor=${encodeURIComponent(filters.cursor)}`,
+            `/api/v1/user/trending?limit=24${filters.cursor ? `&cursor=${encodeURIComponent(filters.cursor)}` : ""}`,
             signal,
           ),
         ]);
