@@ -1,0 +1,65 @@
+name: Release
+
+on:
+  push:
+    tags: [v*]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  verified-source:
+    name: Verify release source against master CI
+    # Forks cannot use the upstream publication path.
+    if: github.repository == 'abhi1693/devfeed.tech'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 65
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Require the exact tagged version and trusted master checks
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          python3 scripts/ci/require_release_ci.py --source \
+            --repository "$GITHUB_REPOSITORY" --sha "$GITHUB_SHA" --tag "$GITHUB_REF_NAME" \
+            --timeout 3600
+
+  release-images:
+    name: ARM64 release images
+    needs: verified-source
+    if: >-
+      ${{ !cancelled() && github.repository == 'abhi1693/devfeed.tech' &&
+          github.event_name == 'push' && github.ref_type == 'tag' &&
+          needs.verified-source.result == 'success' }}
+    uses: ./.github/workflows/containers.yml
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+      attestations: write
+    with:
+      publish: true
+
+  required:
+    name: Release required
+    needs: [verified-source, release-images]
+    if: always() && !cancelled()
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Require source validation and verified image publication
+        env:
+          RESULTS: ${{ toJSON(needs) }}
+        run: |
+          echo "$RESULTS" | jq -e '
+            .["verified-source"].result == "success" and
+            .["release-images"].result == "success"'

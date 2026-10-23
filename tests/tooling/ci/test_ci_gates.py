@@ -131,7 +131,7 @@ def test_live_boundary_integration_waits_for_both_unit_lanes(name):
     assert job_ancestors(jobs, name) >= BACKEND_UNIT_JOBS | FRONTEND_UNIT_JOBS
 
 
-@pytest.mark.parametrize("name", ["containers", "release-images"])
+@pytest.mark.parametrize("name", ["containers"])
 def test_image_work_starts_only_after_all_validation_lanes(name):
     jobs = reader_jobs()
     assert (
@@ -194,7 +194,7 @@ def image_job_scheduled(job, results, event, ref_type, *, cancelled=False):
     return completed.returncode == 0
 
 
-@pytest.mark.parametrize("name", ["containers", "release-images"])
+@pytest.mark.parametrize("name", ["containers"])
 @pytest.mark.parametrize(
     "event,ref_type,sonar_expected",
     [
@@ -231,19 +231,16 @@ def test_image_stages_run_after_successful_validation_despite_expected_ancestor_
     assert results["validation"]["result"] == "success"
     if event != "pull_request" or not sonar_expected:
         assert any(item["result"] == "skipped" for item in results.values())
-    release = event == "push" and ref_type == "tag"
-    assert image_job_scheduled(jobs[name], results, event, ref_type) is (
-        release if name == "release-images" else not release
-    )
+    assert image_job_scheduled(jobs[name], results, event, ref_type)
     assert jobs["containers"]["with"]["publish"] is False
 
 
-@pytest.mark.parametrize("name", ["containers", "release-images"])
+@pytest.mark.parametrize("name", ["containers"])
 def test_image_stages_reject_failed_cancelled_skipped_or_missing_prerequisites(name):
     jobs = reader_jobs()
     job = jobs[name]
     results = {parent: {"result": "success"} for parent in job_ancestors(jobs, name)}
-    ref_type = "tag" if name == "release-images" else "branch"
+    ref_type = "branch"
     assert image_job_scheduled(job, results, "push", ref_type)
     assert not image_job_scheduled(job, results, "push", ref_type, cancelled=True)
     for parent in job_needs(job):
@@ -258,7 +255,7 @@ def test_image_stages_reject_failed_cancelled_skipped_or_missing_prerequisites(n
 @pytest.mark.parametrize(
     "name",
     sorted(BACKEND_INTEGRATION_JOBS | FRONTEND_INTEGRATION_JOBS | SHARED_INTEGRATION_JOBS)
-    + ["containers", "release-images"],
+    + ["containers"],
 )
 def test_downstream_work_cannot_override_failed_dependencies(name):
     job = reader_jobs()[name]
@@ -432,7 +429,7 @@ def test_reader_matrix_keeps_all_suites_and_strict_aggregate_and_report_boundari
     assert reader_step("Reports")["with"]["name"] == "reader-parity-${{ github.run_attempt }}"
     assert reader_step("Reports")["with"]["if-no-files-found"] == "error"
     assert "reader-parity" in jobs["required"]["needs"]
-    assert "reader-parity" in job_ancestors(jobs, "release-images")
+    assert "reader-parity" in job_ancestors(jobs, "containers")
     assert jobs["admin-browser"]["name"] == "Admin browser tests"
     assert jobs["live-browser"]["name"] == "Live API browser tests"
     security = yaml.safe_load((ROOT / ".github/workflows/security.yml").read_text())
@@ -755,7 +752,7 @@ def test_real_histogram_contracts_use_an_isolated_environment_and_feed_sonar_cov
     )
     assert all(
         "python-loadtest" in job_ancestors(jobs, name)
-        for name in ("sonarqube", "required", "release-images")
+        for name in ("sonarqube", "required", "containers")
     )
     download = next(
         step
@@ -974,10 +971,9 @@ def test_stage_gates_reject_failed_cancelled_missing_and_unexpectedly_skipped_de
 def test_ci_required_accepts_only_the_expected_successes(
     event, ref_type, sonar_expected, comment_required, browser_comment_required
 ):
-    # Execute the actual gate, including the mutually exclusive release/check jobs.
+    # Execute the actual master/PR gate without a tag-publishing bypass.
     workflow = (ROOT / ".github/workflows/ci.yml").read_text()
     gate = textwrap.dedent(workflow.split("  required:\n", 1)[1].split("        run: |\n", 1)[1])
-    release = event == "push" and ref_type == "tag"
     results = {
         "python-lint": {"result": "success"},
         "python-unit-shards": {"result": "success"},
@@ -1009,8 +1005,7 @@ def test_ci_required_accepts_only_the_expected_successes(
         "dast": {
             "result": "success" if event in {"pull_request", "merge_group", "push"} else "skipped"
         },
-        "containers": {"result": "skipped" if release else "success"},
-        "release-images": {"result": "success" if release else "skipped"},
+        "containers": {"result": "success"},
         "performance": {"result": "success" if event == "pull_request" else "skipped"},
         "recovery": {
             "result": "success" if event in {"pull_request", "merge_group", "push"} else "skipped"
@@ -1042,7 +1037,7 @@ def test_ci_required_accepts_only_the_expected_successes(
         .split("    runs-on:", 1)[0]
     )
     assert {line.strip().removeprefix("- ") for line in declared_needs.splitlines()} == set(results)
-    assert "recovery" in job_ancestors(reader_jobs(), "release-images")
+    assert "recovery" in job_ancestors(reader_jobs(), "containers")
 
     def evaluate():
         return subprocess.run(

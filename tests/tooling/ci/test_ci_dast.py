@@ -377,10 +377,12 @@ def test_dast_active_scan_requires_real_attack_requests(dast, monkeypatch):
         zap.client.close()
 
 
-def test_dast_release_images_depend_on_scan():
+def test_master_image_validation_depends_on_dast():
     workflow = (ROOT / ".github/workflows/ci.yml").read_text()
-    release = workflow.split("  release-images:\n", 1)[1].split("  required:\n", 1)[0]
-    assert "      - dast\n" in release
+    validation = workflow.split("  validation:\n", 1)[1].split("  containers:\n", 1)[0]
+    assert "dast" in validation.split("    needs:", 1)[1].split("\n", 1)[0]
+    containers = workflow.split("  containers:\n", 1)[1].split("  mutation:\n", 1)[0]
+    assert "    needs: validation\n" in containers
 
 
 def plugin_progress(status="Complete", requests="10"):
