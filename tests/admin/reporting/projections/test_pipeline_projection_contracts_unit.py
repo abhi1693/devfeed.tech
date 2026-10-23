@@ -9,7 +9,12 @@ import pytest
 from devfeed_admin_api import article_pipeline, automation
 from devfeed_admin_api import pipeline_projection as projections
 from devfeed_core.models import IngestionJob, ReadModelState, SourceDiscoveryJob
+from sqlalchemy.dialects import postgresql
 
+from tests.admin.reporting.projections.test_projection_worker_policy_unit import publish
+from tests.admin.reporting.projections.test_projection_worker_policy_unit import (
+    publisher as publisher,
+)
 from tests.admin.sources.test_source_pipeline_contracts_unit import candidate, facts
 from tests.support.article_readiness import processing_case as processing_case
 from tests.support.source_readiness import NOW, job, source
@@ -244,3 +249,98 @@ def test_drain_is_bounded_when_work_keeps_arriving(monkeypatch):
     with pytest.raises(RuntimeError, match="bounded run"):
         projections.drain_pipeline(object(), max_batches=2)
     assert requested == [True, True]
+
+
+def test_empty_publication_does_not_issue_projection_writes():
+    session = SimpleNamespace(execute=lambda _: pytest.fail("Empty publication issued SQL"))
+    projections._publish_rows(
+        session,
+        {"article": set(), "source": set(), "candidate": set()},
+        [],
+        "policy",
+        refresh_evaluated_at=False,
+    )
+
+
+def test_publication_deletes_only_missing_documents_within_each_kind_and_policy():
+    retained, deleted = uuid.uuid4(), uuid.uuid4()
+    statements = []
+    projections._publish_rows(
+        SimpleNamespace(execute=statements.append),
+        {"article": {retained, deleted}, "source": {retained}, "candidate": set()},
+        [{"policy_version": "policy", "kind": "article", "entity_id": retained}],
+        "policy",
+        refresh_evaluated_at=False,
+    )
+    assert len(statements) == 3
+    for statement, kind, identifiers in (
+        (statements[0], "article", {deleted}),
+        (statements[1], "source", {retained}),
+    ):
+        compiled = statement.compile(dialect=postgresql.dialect())
+        assert str(compiled).startswith("DELETE FROM pipeline_projections")
+        assert compiled.params["policy_version_1"] == "policy"
+        assert compiled.params["kind_1"] == kind
+        assert set(compiled.params["entity_id_1"]) == identifiers
+    assert str(statements[2].compile(dialect=postgresql.dialect())).startswith("INSERT INTO")
+
+
+@pytest.mark.parametrize("rebuilding", [False, True])
+def test_publication_compares_every_saved_fact_but_only_rebuilds_force_evaluation(rebuilding):
+    statements = []
+    identifier = uuid.uuid4()
+    projections._publish_rows(
+        SimpleNamespace(execute=statements.append),
+        {"article": {identifier}},
+        [{"policy_version": "policy", "kind": "article", "entity_id": identifier}],
+        "policy",
+        refresh_evaluated_at=rebuilding,
+    )
+    assert len(statements) == 1  # A returned card is never deleted first.
+    conflict = statements[0]._post_values_clause
+    values = dict(conflict.update_values_to_set)
+    assert set(values) == {
+        "payload",
+        "stage",
+        "state",
+        "source_id",
+        "source_name",
+        "search_text",
+        "created_at",
+        "activity_at",
+        "terminal_at",
+        "has_active_work",
+        "next_transition_at",
+        "evaluated_at",
+    }
+    assert str(values["evaluated_at"]) == "excluded.evaluated_at"
+    if rebuilding:
+        assert conflict.update_whereclause is None
+    else:
+        comparison = str(conflict.update_whereclause.compile(dialect=postgresql.dialect()))
+        assert "IS DISTINCT FROM" in comparison
+        assert "evaluated_at" not in comparison
+        for field in set(values) - {"evaluated_at"}:
+            assert f"pipeline_projections.{field}" in comparison
+            assert f"excluded.{field}" in comparison
+
+
+def test_completed_publication_does_not_scan_the_event_backlog_for_backfill_kinds(publisher):
+    value = publisher
+    value.stored.payload.update(
+        serving_policy=value.stored.payload["target_policy"],
+        pending_backfills=[],
+        backfill_complete=True,
+    )
+    value.incoming.append(
+        SimpleNamespace(id=71, kind="article", entity_id=uuid.uuid4(), after_id=None)
+    )
+    value.reads([], [])
+
+    def scalar(statement):
+        assert "read_model_events" not in str(statement)
+        return value.lease
+
+    value.session.scalar.side_effect = scalar
+    assert publish(value) == 1
+    value.acknowledge.assert_called_once_with(value.session, [71])

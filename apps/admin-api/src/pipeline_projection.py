@@ -307,9 +307,10 @@ def _expand(session, events, batch, now):
     finished = set()
     acknowledged = []
     continuations: list[dict[str, Any]] = []
+    scanned = 0
     state = dict(session.get(ReadModelState, "pipeline").payload)
     for event in events:
-        remaining = batch - sum(len(values) for values in work.values())
+        remaining = min(batch - sum(len(values) for values in work.values()), batch - scanned)
         if remaining <= 0:
             break
         kind = event.kind
@@ -334,25 +335,30 @@ def _expand(session, events, batch, now):
                     continue
                 row = PipelineProjection
                 statement = (
-                    select(row.entity_id)
+                    select(row.entity_id, row.payload["_catalog_sensitive"].as_boolean())
                     .where(
                         row.policy_version == state["target_policy"],
                         row.kind == "article",
-                        row.payload["_catalog_sensitive"].as_boolean().is_not(False),
                     )
                     .order_by(row.entity_id)
                     .limit(remaining)
                 )
                 if event.after_id:
                     statement = statement.where(row.entity_id > event.after_id)
-                identifiers = list(session.scalars(statement))
+                # Limit scanned keys before checking JSON. A sparse sensitivity
+                # filter must not turn one small work batch into a full-table read.
+                page = list(session.execute(statement))
+                scanned += len(page)
+                identifiers = [
+                    identifier for identifier, sensitive in page if sensitive is not False
+                ]
                 work["article"].update(identifiers)
-                if len(identifiers) == remaining:
+                if len(page) == remaining:
                     continuations.append(
                         dict(
                             kind="catalog",
                             entity_id=uuid.UUID(refresh["token"]),
-                            after_id=identifiers[-1],
+                            after_id=page[-1][0],
                         )
                     )
                 else:
@@ -396,9 +402,7 @@ def _expand(session, events, batch, now):
                 continue
             statement = (
                 select(ArticleOrigin.article_id)
-                .where(
-                    ArticleOrigin.source_id == event.entity_id,
-                )
+                .where(ArticleOrigin.source_id == event.entity_id)
                 .distinct()
                 .order_by(ArticleOrigin.article_id)
                 .limit(remaining)
@@ -416,6 +420,44 @@ def _expand(session, events, batch, now):
             work[kind].add(event.entity_id)
         acknowledged.append(event.id)
     return work, finished, acknowledged, continuations, state
+
+
+def _publish_rows(session, work, rows, policy, *, refresh_evaluated_at):
+    """Publish changed cards without rewriting unchanged completed coverage."""
+    produced = {(row["kind"], row["entity_id"]) for row in rows}
+    for kind, identifiers in work.items():
+        tombstones = {
+            identifier for identifier in identifiers if (kind, identifier) not in produced
+        }
+        if tombstones:
+            session.execute(
+                delete(PipelineProjection).where(
+                    PipelineProjection.policy_version == policy,
+                    PipelineProjection.kind == kind,
+                    PipelineProjection.entity_id.in_(tombstones),
+                )
+            )
+    if not rows:
+        return
+    table = PipelineProjection.__table__
+    statement = insert(PipelineProjection).values(rows)
+    fields = [column.name for column in table.columns if not column.primary_key]
+    semantic_fields = [name for name in fields if name != "evaluated_at"]
+    changed = tuple_(*(table.c[name] for name in semantic_fields)).is_distinct_from(
+        tuple_(*(statement.excluded[name] for name in semantic_fields))
+    )
+    session.execute(
+        statement.on_conflict_do_update(
+            index_elements=[
+                PipelineProjection.policy_version,
+                PipelineProjection.kind,
+                PipelineProjection.entity_id,
+            ],
+            set_={name: statement.excluded[name] for name in fields},
+            # Full coverage must advance its purge cutoff even for identical cards.
+            where=None if refresh_evaluated_at else changed,
+        )
+    )
 
 
 def project_batch(factory, *, batch=200, token=None, now=None):
@@ -467,17 +509,13 @@ def project_batch(factory, *, batch=200, token=None, now=None):
         with factory.begin() as session:
             if not _owns_lease(session, token, utcnow()):
                 return 0
-            for kind, identifiers in work.items():
-                if identifiers:
-                    session.execute(
-                        delete(PipelineProjection).where(
-                            PipelineProjection.policy_version == policy,
-                            PipelineProjection.kind == kind,
-                            PipelineProjection.entity_id.in_(identifiers),
-                        )
-                    )
-            if rows:
-                session.execute(insert(PipelineProjection), rows)
+            _publish_rows(
+                session,
+                work,
+                rows,
+                policy,
+                refresh_evaluated_at=not planned_state.get("backfill_complete"),
+            )
             for continuation in continuations:
                 enqueue_event(session, **continuation)
             acknowledge_events(session, event_ids)
@@ -487,15 +525,17 @@ def project_batch(factory, *, batch=200, token=None, now=None):
             pending = set(payload.get("pending_backfills", [])) - finished
             payload["pending_backfills"] = sorted(pending)
             # Event queues are coalesced at processing, not by global ID watermarks.
-            remaining_backfills = session.scalar(
-                select(ReadModelEvent.id)
-                .where(
-                    ReadModelEvent.kind.in_(
-                        ("backfill_article", "backfill_source", "backfill_candidate")
-                    ),
+            remaining_backfills = None
+            if not pending and not payload.get("backfill_complete"):
+                remaining_backfills = session.scalar(
+                    select(ReadModelEvent.id)
+                    .where(
+                        ReadModelEvent.kind.in_(
+                            ("backfill_article", "backfill_source", "backfill_candidate")
+                        ),
+                    )
+                    .limit(1)
                 )
-                .limit(1)
-            )
             if not pending and remaining_backfills is None and not payload.get("backfill_complete"):
                 # Coverage and catalog freshness are separate. Only a global
                 # policy invalidation needs another population-wide coverage pass.

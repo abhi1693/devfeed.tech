@@ -140,8 +140,11 @@ def test_catalog_refresh_is_bounded_article_work_without_restarting_coverage(cou
     stored = state(pending_backfills=[], backfill_complete=True, serving_policy=POLICY)
     original = copy.deepcopy(stored.payload)
     identifiers = [uuid.UUID(int=index) for index in range(1, count + 1)]
-    session = read_session(stored, [identifiers])
-    session.execute.return_value = [("tags", 4), ("topics", 7)]
+    session = read_session(stored)
+    session.execute.side_effect = [
+        [("tags", 4), ("topics", 7)],
+        [(identifier, True) for identifier in identifiers],
+    ]
     work, finished, acknowledged, continuations, planned = projections._expand(
         session, [event(10, "catalog")], 2, NOW
     )
@@ -194,8 +197,8 @@ def test_obsolete_catalog_continuations_cannot_start_or_replace_a_refresh(active
 
 def test_policy_invalidation_cancels_a_catalog_refresh_finished_in_the_same_batch():
     stored = state(pending_backfills=[], backfill_complete=True, serving_policy=POLICY)
-    session = read_session(stored, [[]])
-    session.execute.return_value = [("tags", 4), ("topics", 7)]
+    session = read_session(stored)
+    session.execute.side_effect = [[("tags", 4), ("topics", 7)], [], [("tags", 4), ("topics", 7)]]
     _, finished, acknowledged, continuations, planned = projections._expand(
         session, [event(10, "catalog"), event(11, "policy")], 2, NOW
     )
@@ -211,14 +214,61 @@ def test_catalog_continuation_retains_its_owner_and_advances_without_restarting(
     refresh = {"token": str(token), "revision": REVISION, "started_at": NOW.isoformat()}
     stored = state(pending_backfills=[], backfill_complete=True, catalog_refresh=refresh)
     identifiers = [uuid.UUID(int=index) for index in (11, 12)]
-    session = read_session(stored, [identifiers])
+    session = read_session(stored)
+    session.execute.return_value = [(identifier, True) for identifier in identifiers]
     work, finished, acknowledged, continuations, planned = projections._expand(
         session, [event(13, "catalog", token, uuid.UUID(int=10))], 2, NOW
     )
     assert work["article"] == set(identifiers) and not finished
     assert acknowledged == [13] and planned["catalog_refresh"] == refresh
     assert continuations == [{"kind": "catalog", "entity_id": token, "after_id": identifiers[-1]}]
-    session.execute.assert_not_called()  # The pass retains its captured revision.
+    assert session.execute.call_count == 1  # Only the page; no catalog revision reload.
+
+
+def test_catalog_pages_advance_through_insensitive_rows_and_preserve_unknown_dependencies():
+    token = uuid.uuid4()
+    refresh = {"token": str(token), "revision": REVISION, "started_at": NOW.isoformat()}
+    stored = state(pending_backfills=[], backfill_complete=True, catalog_refresh=refresh)
+    identifiers = [uuid.UUID(int=index) for index in range(1, 5)]
+    cursor = None
+    for page, expected in (
+        ([(identifiers[0], False), (identifiers[1], False)], set()),
+        ([(identifiers[2], None), (identifiers[3], True)], set(identifiers[2:])),
+        ([], set()),
+    ):
+        session = read_session(stored)
+        session.execute.return_value = page
+        work, finished, acknowledged, continuations, _ = projections._expand(
+            session, [event(12, "catalog", token, cursor)], 2, NOW
+        )
+        assert work["article"] == expected and acknowledged == [12]
+        query = session.execute.call_args.args[0]
+        assert query._limit_clause.value == 2
+        assert "payload" not in str(query.whereclause)
+        if page:
+            assert not finished
+            cursor = page[-1][0]
+            assert continuations == [{"kind": "catalog", "entity_id": token, "after_id": cursor}]
+        else:
+            assert finished == {"catalog"} and not continuations
+
+
+def test_insensitive_catalog_page_consumes_scan_budget_without_acknowledging_later_work():
+    token = uuid.uuid4()
+    stored = state(
+        pending_backfills=[],
+        backfill_complete=True,
+        catalog_refresh={"token": str(token), "revision": REVISION},
+    )
+    identifier = uuid.uuid4()
+    session = read_session(stored)
+    session.execute.return_value = [(identifier, False)]
+    work, _, acknowledged, continuations, _ = projections._expand(
+        session, [event(10, "catalog", token), event(11, "article", uuid.uuid4())], 1, NOW
+    )
+    assert not any(work.values()) and acknowledged == [10]
+    assert continuations == [{"kind": "catalog", "entity_id": token, "after_id": identifier}]
+    assert session.execute.call_count == 1
 
 
 @pytest.mark.parametrize("existing", [None, "older-target", POLICY])
@@ -316,7 +366,9 @@ def publisher(monkeypatch):
     session = Mock()
     session.get.return_value = stored
     session.scalars.return_value = []
-    session.scalar.side_effect = [lease, None, lease]
+    session.scalar.side_effect = lambda statement: (
+        None if "read_model_events" in str(statement) else lease
+    )
     selected = iter([])
     writes = []
 
@@ -401,7 +453,7 @@ def test_completed_catalog_refresh_only_requeues_dependent_work_after_new_edits(
         catalog_refresh={"token": str(token), "revision": REVISION, "started_at": NOW.isoformat()},
     )
     value.incoming.append(event(12, "catalog", token, uuid.uuid4()))
-    value.reads([("tags", 4), ("topics", 8 if changed else 7)], [], [])
+    value.reads([], [("tags", 4), ("topics", 8 if changed else 7)], [], [])
     assert publish(value) == 1
     saved = value.save.call_args.args[2]
     assert saved["backfill_complete"] and saved["pending_backfills"] == []
@@ -564,8 +616,9 @@ def test_evaluated_card_document_is_forwarded_before_its_exact_event_is_acknowle
     value.incoming.append(event(88, "article", article.id))
     value.article_rows.return_value = [document]
     assert publish(value) == 1
-    inserts = [parameters for statement, parameters in value.writes if statement.is_insert]
-    assert inserts == [([document],)]
+    inserts = [statement.compile().params for statement, _ in value.writes if statement.is_insert]
+    assert len(inserts) == 1
+    assert all(inserts[0][f"{name}_m0"] == field for name, field in document.items())
     assert document["payload"]["id"] == str(article.id) and document["stage"] == "ready"
     value.acknowledge.assert_called_once_with(value.session, [88])
     saved = value.save.call_args.args[2]

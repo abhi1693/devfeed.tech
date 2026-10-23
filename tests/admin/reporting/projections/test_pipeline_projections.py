@@ -6,6 +6,7 @@ import pytest
 from devfeed_admin_api import article_pipeline, pipeline_projection, pipeline_reads, source_pipeline
 from devfeed_admin_api.pipeline_projection import drain_pipeline, project_batch
 from devfeed_core.models import (
+    Article,
     ArticleEnrichmentJob,
     PipelineProjection,
     ReadModelEvent,
@@ -17,7 +18,7 @@ from devfeed_core.models import (
     utcnow,
 )
 from devfeed_core.read_models import pipeline_policy_version
-from sqlalchemy import delete, event, func, select, text, update
+from sqlalchemy import delete, event, func, literal_column, select, text, update
 
 from tests.admin.articles.test_article_pipeline import make_article
 from tests.admin.sources.test_source_pipeline import candidate_for, seed_source
@@ -466,3 +467,69 @@ def test_catalog_refresh_updates_recent_published_retry_actions_without_unpublis
     published_after = next(column for column in after["columns"] if column["stage"] == "published")
     assert published_after["items"][0]["id"] == str(identifier)
     assert published_after["items"][0]["retry_targets"] == []
+
+
+def saved_projection_versions(database):
+    with database() as session:
+        return {
+            (row.kind, row.entity_id): (row.payload, row.evaluated_at, xmin)
+            for row, xmin in session.execute(
+                select(PipelineProjection, literal_column("xmin::text")).where(
+                    PipelineProjection.policy_version == pipeline_policy_version()
+                )
+            )
+        }
+
+
+def test_publication_preserves_unchanged_rows_updates_changes_and_removes_tombstones(database):
+    with database.begin() as session:
+        article = make_article(session, state="ingested")
+        article_id, source_id = article.id, article.origins[0].source_id
+        candidate_id = candidate_for(session).id
+    drain_pipeline(database, batch=2)
+    before = saved_projection_versions(database)
+    with database.begin() as session:
+        session.add_all(
+            ReadModelEvent(kind=kind, entity_id=identifier) for kind, identifier in before
+        )
+    drain_pipeline(database, batch=2)
+    assert saved_projection_versions(database) == before
+    with database.begin() as session:
+        session.execute(
+            update(Article).where(Article.id == article_id).values(title="Updated title")
+        )
+    drain_pipeline(database, batch=2)
+    changed = saved_projection_versions(database)
+    assert changed["article", article_id][0]["title"] == "Updated title"
+    assert changed["article", article_id][1] > before["article", article_id][1]
+    assert changed["article", article_id][2] != before["article", article_id][2]
+    assert changed["source", source_id] == before["source", source_id]
+    assert changed["candidate", candidate_id] == before["candidate", candidate_id]
+    with database.begin() as session:
+        session.execute(delete(Article).where(Article.id == article_id))
+        session.execute(delete(SourceCandidate).where(SourceCandidate.id == candidate_id))
+    drain_pipeline(database, batch=2)
+    remaining = saved_projection_versions(database)
+    assert set(remaining) == {("source", source_id)}
+    assert remaining["source", source_id] == before["source", source_id]
+
+
+def test_full_policy_backfill_refreshes_unchanged_rows_before_orphan_purge(database):
+    with database.begin() as session:
+        make_article(session, state="ingested")
+        candidate_for(session)
+    drain_pipeline(database, batch=1)
+    before = saved_projection_versions(database)
+    assert {kind for kind, _ in before} == {"article", "source", "candidate"}
+    with database.begin() as session:
+        session.add(ReadModelEvent(kind="policy"))
+    drain_pipeline(database, batch=1)
+    after = saved_projection_versions(database)
+    assert set(after) == set(before)
+    for key, (payload, evaluated_at, xmin) in before.items():
+        assert after[key][0] == payload
+        assert after[key][1] > evaluated_at and after[key][2] != xmin
+    with database() as session:
+        state = session.get(ReadModelState, "pipeline").payload
+        assert state["backfill_complete"] and not state["pending_backfills"]
+        assert session.scalar(select(ReadModelEvent.id).limit(1)) is None

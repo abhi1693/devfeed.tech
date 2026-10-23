@@ -25,8 +25,8 @@ from tests.admin.articles.test_article_pipeline import make_article
 pytestmark = pytest.mark.integration
 
 
-def add_article(session, *, published_at=None, published=False, source=None):
-    identity = uuid.uuid4()
+def add_article(session, *, published_at=None, published=False, source=None, identity=None):
+    identity = identity or uuid.uuid4()
     article = Article(
         id=identity,
         canonical_url=f"https://publisher.example/{identity}",
@@ -407,3 +407,65 @@ def test_catalog_fanout_only_evaluates_retained_sensitive_cards_in_bounded_batch
     response = admin_client.get("/v1/admin/article-pipeline")
     assert response.json()["snapshot"]["status"] == "fresh"
     assert "_catalog_sensitive" not in response.text
+
+
+def test_catalog_scan_pages_cross_insensitive_prefix_without_skipping_saved_dependencies(
+    database, monkeypatch
+):
+    prefix = [uuid.UUID(int=index) for index in range(1, 7)]
+    with database.begin() as session:
+        for identifier in prefix:
+            add_article(session, identity=identifier)
+        sensitive = {make_article(session).id for _ in range(2)}
+    drain_pipeline(database, batch=2)
+    policy = pipeline_policy_version()
+    legacy = min(sensitive)
+    with database.begin() as session:
+        row = session.get(PipelineProjection, (policy, "article", legacy))
+        row.payload = {
+            key: value for key, value in row.payload.items() if key != "_catalog_sensitive"
+        }
+        session.add(
+            Tag(name="Catalog change after insensitive cards", slug="sparse-catalog-change")
+        )
+    evaluated = []
+    original = pipeline_projection.article_rows
+
+    def articles(factory, identifiers, version, now):
+        evaluated.extend(identifiers)
+        return original(factory, identifiers, version, now)
+
+    monkeypatch.setattr(pipeline_projection, "article_rows", articles)
+    pages = []
+
+    def capture(connection, cursor, statement, parameters, context, many):
+        if statement.lstrip().startswith("SELECT") and "_catalog_sensitive" in str(parameters):
+            pages.append((statement, cursor.rowcount))
+
+    engine = database.kw["bind"]
+    event.listen(engine, "after_cursor_execute", capture)
+    try:
+        cursors = []
+        for _ in range(3):
+            project_batch(database, batch=2)
+            assert evaluated == []
+            with database() as session:
+                state = session.get(ReadModelState, "pipeline").payload
+                assert state["catalog_refresh"] and state["backfill_complete"]
+                cursors.append(
+                    session.scalar(
+                        select(ReadModelEvent.after_id).where(ReadModelEvent.kind == "catalog")
+                    )
+                )
+        assert cursors == prefix[1::2]
+        drain_pipeline(database, batch=2)
+    finally:
+        event.remove(engine, "after_cursor_execute", capture)
+    assert set(evaluated) == sensitive and len(evaluated) == len(sensitive)
+    assert pages and all(0 <= count <= 2 for _, count in pages)
+    assert all("payload" not in statement.split("WHERE", 1)[1] for statement, _ in pages)
+    with database() as session:
+        assert "catalog_refresh" not in session.get(ReadModelState, "pipeline").payload
+        assert session.get(PipelineProjection, (policy, "article", legacy)).payload[
+            "_catalog_sensitive"
+        ]

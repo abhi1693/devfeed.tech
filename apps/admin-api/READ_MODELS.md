@@ -20,6 +20,10 @@ retain selective capture so dispatch and lease bookkeeping do not rebuild cards.
 
 The pipeline worker coalesces IDs within bounded batches and uses the existing
 lifecycle functions. Article evidence connections close before Python evaluation.
+Unchanged saved cards are not deleted and reinserted: conflict updates compare
+their complete saved facts, avoiding unnecessary row, index, and TOAST rewrites.
+Missing cards are still removed. Genuine coverage passes advance evaluation
+timestamps even for unchanged cards, preserving the orphan-cleanup cutoff.
 Projection writes, fanout continuations, and acknowledgement of the exact captured
 event IDs commit together. Event IDs are not treated as commit order. A publisher
 lease prevents an expired worker from overwriting its replacement. Crashes leave
@@ -33,7 +37,12 @@ remain bounded to eight inputs; publication decisions are always derived again.
 Queued retry timestamps schedule future projection changes. Running lease expiry
 continues through existing scheduler recovery. Catalog invalidations use bounded
 keyset fanout over saved article cards with catalog-dependent analysis or topic
-links. They do not scan historical articles or rebuild sources and candidates.
+links. Each catalog page limits examined saved cards before testing dependency
+metadata, and advances past the last examined identity even if every card is
+independent. It uses the existing policy/kind/identity primary key, without an
+offset or a sensitivity filter that can scan an entire sparse population before
+returning a small page. It does not scan historical articles or rebuild sources
+and candidates.
 Rejected cards and cards without either dependency are skipped; legacy cards
 without dependency metadata are conservatively refreshed. Recent published cards
 remain included because their retry controls depend on current analysis validity.
@@ -117,13 +126,23 @@ short-lived connections.
 
 Batch size defaults to 200 and polling to one second. Keep batches below the
 120-second publisher lease. Worker health requires a recent successful heartbeat.
+Passing 100,000 historical articles does not change this algorithm or trigger a
+rebuild. Catalog refresh cost follows retained article cards: nonterminal work
+plus seven days of terminal cards. It examines those identities once per pass
+and recalculates only potentially dependent cards. Nonterminal backlog and the
+taxonomy can still grow; sustained catalog changes may require consecutive
+passes. Batching bounds individual work, rather than promising constant total
+refresh time or unlimited throughput. Source-change fanout retains its existing
+source-origin keyset and is separate from catalog refresh.
 Each publisher atomically writes its own marker in the shared runtime helper's
 owned, private directory (`devfeed-runtime-<uid>` under the system temporary
 directory). Existing links are replaced without touching their targets; public
 or unowned runtime directories are rejected by both the publisher and its probe.
 OTel exposes `devfeed.read_model.pending`, `devfeed.read_model.oldest_event_age`,
-and background duration/failure/last-success metrics. Alert on lag even with Ready
-HTTP pods.
+and background duration/failure/last-success metrics. Exact queue aggregates are
+sampled at startup and at most every 30 seconds, independently of per-cycle
+publication and health heartbeats. Completed coverage also skips the queue-wide
+backfill-presence query. Alert on lag even with Ready HTTP pods.
 
 ## Migration and rollout
 
