@@ -7,7 +7,7 @@ Neither Redis availability nor browser retries can start report calculations.
 import logging
 import time as clock
 import uuid
-from datetime import timedelta
+from datetime import datetime, timedelta
 from typing import get_args
 
 from devfeed_core.models import (
@@ -44,7 +44,7 @@ def projected_blockers(session):
     from devfeed_admin_api.pipeline_reads import serving_projection
 
     try:
-        serving, dependency = serving_projection(session)
+        serving, dependency = serving_projection(session, kind="article")
     except HTTPException as error:
         raise ProjectionNotReady("Article pipeline projection is still rebuilding") from error
     if serving != pipeline_policy_version():
@@ -142,7 +142,19 @@ def read_report(factory, group, days, model, *, now=None):
                     )
             except ValueError:
                 rebuilding = True
-        if stored is None or rebuilding or age >= FRESH_SECONDS:
+        catalog_started = None
+        if result is not None and group in {"blockers", "overview"}:
+            pipeline = session.get(ReadModelState, "pipeline")
+            if pipeline is not None and (pending := pipeline.payload.get("catalog_refresh")):
+                catalog_started = datetime.fromisoformat(pending["started_at"])
+        if (
+            stored is None
+            or rebuilding
+            or age >= FRESH_SECONDS
+            or (
+                catalog_started is not None and (dependency is None or dependency.status == "fresh")
+            )
+        ):
             request_refresh(session, key[0], key[1], now)
         refresh = session.get(ReportRefresh, key)
         if result is None:
@@ -163,6 +175,13 @@ def read_report(factory, group, days, model, *, now=None):
                 generation=stored.policy_version,
                 lag_seconds=age + (dependency.lag_seconds or 0) if dependency is not None else age,
             )
+            if catalog_started is not None:
+                if result.snapshot.status == "fresh":
+                    result.snapshot.status = "refreshing"
+                result.snapshot.lag_seconds = max(
+                    result.snapshot.lag_seconds or 0,
+                    max(0.0, (now - catalog_started).total_seconds()),
+                )
     # Commit demand before returning a cold response; HTTP exceptions roll back
     # ordinary request-scoped sessions and would otherwise lose that demand.
     if raise_after_commit:

@@ -191,6 +191,7 @@ def test_article_projection_retains_only_recent_terminal_history_and_current_adm
     assert row["payload"]["_source_ids"] == [str(article.origins[0].source_id)]
     assert row["payload"]["_search"]["canonical_url"] == article.canonical_url
     assert row["payload"]["_automation_blockers"] == []
+    assert row["payload"]["_catalog_sensitive"] is (state != "rejected-recent")
     assert row["evaluated_at"] == NOW
 
 

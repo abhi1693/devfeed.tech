@@ -146,10 +146,10 @@ function board(url) {
     return { stage: value, total: items.length, items, next_cursor: null };
   });
   return {
-    as_of: now,
+    as_of: new Date().toISOString(),
     snapshot: {
       status: "fresh",
-      generated_at: new Date().toISOString(),
+      generated_at: new Date(Date.now() - 120_000).toISOString(),
       generation: String(generation),
       lag_seconds: 0,
     },
@@ -395,6 +395,18 @@ try {
     .getByRole("status")
     .filter({ hasText: /^Updated/ })
     .waitFor();
+  assert.ok(
+    Date.now() -
+      Date.parse(
+        await page
+          .getByRole("status")
+          .filter({ hasText: /^Updated/ })
+          .locator("time")
+          .getAttribute("datetime"),
+      ) >
+      60_000,
+    "A recently verified board must retain its older last-change time without looking stale",
+  );
   // Native lane controls keep an overflowing board usable without a container tab stop.
   const pipeline = page.getByRole("region", { name: "Source lifecycle pipeline" });
   assert.equal(await pipeline.getAttribute("tabindex"), null);

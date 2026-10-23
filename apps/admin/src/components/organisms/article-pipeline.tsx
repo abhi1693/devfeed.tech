@@ -143,7 +143,7 @@ export function ArticlePipeline({ query }: { query: string }) {
         error={result.error}
         retry={() => setRevision((value) => value + 1)}
       />
-      <SnapshotStatus snapshot={result.data?.snapshot} />
+      <SnapshotStatus snapshot={result.data?.snapshot} checkedAt={result.data?.as_of} />
       {result.data && (
         <PipelineColumns
           key={query}

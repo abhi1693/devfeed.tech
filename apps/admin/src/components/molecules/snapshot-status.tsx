@@ -7,10 +7,12 @@ import { DateTime } from "./date-time";
 
 export function SnapshotStatus({
   snapshot,
+  checkedAt,
   maxAgeSeconds = 60,
   active = true,
 }: {
   snapshot?: ReadModelSnapshot | null;
+  checkedAt?: string | null;
   maxAgeSeconds?: number;
   active?: boolean;
 }) {
@@ -30,8 +32,9 @@ export function SnapshotStatus({
     [active, hasSnapshot],
   );
   if (!snapshot) return null;
-  const old =
-    snapshot.generated_at && now - Date.parse(snapshot.generated_at) > maxAgeSeconds * 1000;
+  const verified = Date.parse(checkedAt ?? "");
+  const reference = Number.isFinite(verified) ? verified : Date.parse(snapshot.generated_at ?? "");
+  const old = now - reference > maxAgeSeconds * 1000;
   const status = snapshot.status === "fresh" && old ? "stale" : snapshot.status;
   const label = {
     fresh: "Updated",

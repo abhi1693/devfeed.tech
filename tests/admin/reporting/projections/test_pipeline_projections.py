@@ -3,17 +3,21 @@
 from datetime import timedelta
 
 import pytest
-from devfeed_admin_api import article_pipeline, pipeline_projection, source_pipeline
+from devfeed_admin_api import article_pipeline, pipeline_projection, pipeline_reads, source_pipeline
 from devfeed_admin_api.pipeline_projection import drain_pipeline, project_batch
 from devfeed_core.models import (
     ArticleEnrichmentJob,
     PipelineProjection,
     ReadModelEvent,
     ReadModelState,
+    Source,
+    SourceCandidate,
+    Tag,
+    Topic,
     utcnow,
 )
 from devfeed_core.read_models import pipeline_policy_version
-from sqlalchemy import event, func, select, text
+from sqlalchemy import delete, event, func, select, text, update
 
 from tests.admin.articles.test_article_pipeline import make_article
 from tests.admin.sources.test_source_pipeline import candidate_for, seed_source
@@ -167,13 +171,16 @@ def test_retry_clock_transition_is_projected_without_an_editorial_write(database
         )
 
 
-def test_policy_rebuild_retains_previous_generation_until_complete(database, monkeypatch):
+def test_policy_rebuild_retains_previous_generation_until_complete(
+    database, admin_client, monkeypatch
+):
     with database.begin() as session:
         for _ in range(4):
             make_article(session, state="ingested")
     drain_pipeline(database)
     previous = pipeline_policy_version()
     monkeypatch.setattr(pipeline_projection, "pipeline_policy_version", lambda: "next-policy")
+    monkeypatch.setattr(pipeline_reads, "pipeline_policy_version", lambda: "next-policy")
     project_batch(database, batch=1)
     with database() as session:
         assert session.get(ReadModelState, "pipeline").payload["serving_policy"] == previous
@@ -185,9 +192,17 @@ def test_policy_rebuild_retains_previous_generation_until_complete(database, mon
             )
             > 0
         )
+    for url in ("/v1/admin/article-pipeline", "/v1/admin/source-pipeline"):
+        response = admin_client.get(url)
+        assert response.status_code == 200
+        assert response.json()["snapshot"]["status"] == "rebuilding"
+        assert response.json()["snapshot"]["generation"] == previous
     drain_pipeline(database, batch=2)
     with database() as session:
         assert session.get(ReadModelState, "pipeline").payload["serving_policy"] == "next-policy"
+    for url in ("/v1/admin/article-pipeline", "/v1/admin/source-pipeline"):
+        snapshot = admin_client.get(url).json()["snapshot"]
+        assert snapshot["status"] == "fresh" and snapshot["generation"] == "next-policy"
 
 
 def test_global_rebuild_removes_entities_lost_to_truncate(database):
@@ -323,3 +338,131 @@ def test_search_keeps_working_with_legacy_search_text_during_policy_rebuild(
     assert after.status_code == 200
     assert after.json()["snapshot"]["status"] == "fresh"
     assert comparable(before.json()) == comparable(after.json())
+
+
+@pytest.mark.parametrize(
+    "change", ["rename_topic", "delete_topic", "new_matching_topic", "new_matching_tag"]
+)
+def test_catalog_refresh_preserves_live_article_readiness_after_taxonomy_changes(
+    admin_client, database, monkeypatch, change
+):
+    from devfeed_core.config import get_settings
+
+    monkeypatch.setattr(get_settings(), "ai_enabled", True)
+    with database.begin() as session:
+        article = make_article(session)
+        identifier = article.id
+    drain_pipeline(database)
+    before = admin_client.get("/v1/admin/article-pipeline").json()
+    assert before["counts"]["ready"] == 1
+    with database.begin() as session:
+        if change == "rename_topic":
+            session.execute(
+                update(Topic).values(name="Rust compiler", aliases=["Rust"], slug="rust-compiler")
+            )
+        elif change == "delete_topic":
+            session.execute(delete(Topic))
+        elif change == "new_matching_topic":
+            session.add(
+                Topic(
+                    name="Task tracing",
+                    slug="task-tracing",
+                    aliases=["Python"],
+                    kind="tool",
+                    status="active",
+                )
+            )
+        else:
+            session.add(Tag(name="Python tracing", slug="python-tracing", aliases=["Python"]))
+    drain_pipeline(database, batch=1)
+    with database() as session:
+        expected = article_pipeline._board(
+            session, q=None, source_id=None, needs_attention=False, limit=20
+        ).model_dump(mode="json")
+        stored = session.get(PipelineProjection, (pipeline_policy_version(), "article", identifier))
+        assert stored.payload["_catalog_sensitive"]
+    response = admin_client.get("/v1/admin/article-pipeline")
+    assert response.status_code == 200
+    assert response.json()["snapshot"]["status"] == "fresh"
+    assert comparable(response.json()) == comparable(expected)
+    assert comparable(response.json()) != comparable(before)
+    assert response.json()["counts"]["ready"] == 0
+
+
+def test_source_freshness_and_updates_are_independent_of_article_catalog_catchup(
+    admin_client, database
+):
+    with database.begin() as session:
+        source = seed_source(session, approval="approved", enabled=True)
+        source_id = source.id
+        candidate = candidate_for(session)
+        candidate_id = candidate.id
+        for _ in range(8):
+            make_article(session, source=source)
+    drain_pipeline(database, batch=2)
+    before = admin_client.get("/v1/admin/source-pipeline").json()
+    assert before["snapshot"]["status"] == "fresh"
+    with database.begin() as session:
+        session.add(Tag(name="New catalog item", slug="new-catalog-item"))
+    project_batch(database, batch=1)
+    article_board = admin_client.get("/v1/admin/article-pipeline").json()
+    source_board = admin_client.get("/v1/admin/source-pipeline").json()
+    assert article_board["snapshot"]["status"] == "refreshing"
+    assert source_board["snapshot"]["status"] == "fresh"
+    assert source_board["snapshot"]["generated_at"] == before["snapshot"]["generated_at"]
+    assert source_board["snapshot"]["generation"] == before["snapshot"]["generation"]
+    assert comparable(source_board) == comparable(before)
+    with database.begin() as session:
+        session.execute(update(Source).where(Source.id == source_id).values(name="Renamed source"))
+        session.execute(
+            update(SourceCandidate)
+            .where(SourceCandidate.id == candidate_id)
+            .values(name="Renamed candidate")
+        )
+    assert (
+        admin_client.get("/v1/admin/source-pipeline").json()["snapshot"]["status"] == "refreshing"
+    )
+    # New row events must be handled without waiting for article catalog coverage.
+    for _ in range(30):
+        project_batch(database, batch=1)
+        current = admin_client.get("/v1/admin/source-pipeline").json()
+        if current["snapshot"]["status"] == "fresh":
+            assert (
+                admin_client.get("/v1/admin/article-pipeline").json()["snapshot"]["status"]
+                == "refreshing"
+            )
+            break
+    else:
+        pytest.fail("Source updates did not become fresh independently of article catchup")
+    cards = [item for column in current["columns"] for item in column["items"]]
+    assert {item["name"] for item in cards} == {"Renamed source", "Renamed candidate"}
+    assert current["snapshot"]["generated_at"] > before["snapshot"]["generated_at"]
+    drain_pipeline(database, batch=2)
+    assert admin_client.get("/v1/admin/article-pipeline").json()["snapshot"]["status"] == "fresh"
+
+
+def test_catalog_refresh_updates_recent_published_retry_actions_without_unpublishing(
+    admin_client, database
+):
+    with database.begin() as session:
+        identifier = make_article(session, state="published").id
+    drain_pipeline(database)
+    before = admin_client.get("/v1/admin/article-pipeline").json()
+    published_before = next(
+        column for column in before["columns"] if column["stage"] == "published"
+    )
+    assert published_before["items"][0]["retry_targets"] == ["enrichment", "images"]
+    with database.begin() as session:
+        session.execute(update(Topic).values(name="Rust compiler", aliases=["Rust"]))
+    drain_pipeline(database, batch=1)
+    with database() as session:
+        expected = article_pipeline._board(
+            session, q=None, source_id=None, needs_attention=False, limit=20
+        ).model_dump(mode="json")
+        assert session.get(PipelineProjection, (pipeline_policy_version(), "article", identifier))
+    after = admin_client.get("/v1/admin/article-pipeline").json()
+    assert comparable(after) == comparable(expected)
+    assert after["counts"]["published"] == 1
+    published_after = next(column for column in after["columns"] if column["stage"] == "published")
+    assert published_after["items"][0]["id"] == str(identifier)
+    assert published_after["items"][0]["retry_targets"] == []

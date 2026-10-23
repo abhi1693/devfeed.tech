@@ -84,18 +84,118 @@ def test_snapshot_status_explains_rebuild_or_the_oldest_pending_transition(
     session.add.assert_not_called()
 
 
-def test_legacy_snapshot_without_generated_timestamp_uses_persisted_state_time(monkeypatch):
+@pytest.mark.parametrize("kind", [None, "article", "source"])
+@pytest.mark.parametrize("global_timestamp", [False, True])
+def test_legacy_snapshot_uses_global_timestamp_then_persisted_state_time(
+    monkeypatch, kind, global_timestamp
+):
+    policy = reads.pipeline_policy_version()
+    session = Mock(spec=Session)
+    session.in_transaction.return_value = True
+    payload = {"serving_policy": policy, "target_policy": policy, "backfill_complete": True}
+    if global_timestamp:
+        payload["serving_generated_at"] = (NOW - timedelta(minutes=1)).isoformat()
+    session.get.return_value = ReadModelState(
+        name="pipeline", payload=payload, updated_at=NOW - timedelta(minutes=2)
+    )
+    session.scalar.side_effect = [None, None]
+    monkeypatch.setattr(reads, "utcnow", lambda: NOW)
+    assert reads.serving_projection(session, kind=kind)[1].generated_at == NOW - timedelta(
+        minutes=1 if global_timestamp else 2
+    )
+
+
+@pytest.mark.parametrize("kind", [None, "article", "source"])
+@pytest.mark.parametrize("full_backfill", [False, True])
+def test_catalog_refresh_keeps_source_freshness_independent_of_article_work(
+    monkeypatch, kind, full_backfill
+):
+    policy = reads.pipeline_policy_version()
+    payload = {
+        "serving_policy": policy,
+        "target_policy": policy,
+        "backfill_complete": not full_backfill,
+        "serving_generated_at": (NOW - timedelta(minutes=20)).isoformat(),
+        "article_generated_at": (NOW - timedelta(seconds=5)).isoformat(),
+        "source_generated_at": (NOW - timedelta(seconds=2)).isoformat(),
+        "catalog_refresh": {
+            "token": "refresh-token",
+            "revision": [["tags", "current-revision"]],
+            "started_at": (NOW - timedelta(seconds=90)).isoformat(),
+        },
+    }
+    session = Mock(spec=Session)
+    session.in_transaction.return_value = True
+    session.get.return_value = ReadModelState(name="pipeline", payload=payload, updated_at=NOW)
+    session.scalar.side_effect = [None, None]
+    monkeypatch.setattr(reads, "utcnow", lambda: NOW)
+
+    _, snapshot = reads.serving_projection(session, kind=kind)
+
+    assert snapshot.status == (
+        "rebuilding" if full_backfill else "fresh" if kind == "source" else "refreshing"
+    )
+    assert snapshot.lag_seconds == (0 if kind == "source" else 90)
+    assert snapshot.generated_at == NOW - (
+        timedelta(seconds=2)
+        if kind == "source"
+        else timedelta(seconds=5)
+        if kind == "article"
+        else timedelta(minutes=20)
+    )
+    session.add.assert_not_called()
+
+
+@pytest.mark.parametrize("kind", ["article", "source"])
+def test_board_pending_events_and_timers_are_scoped_to_the_requested_kind(monkeypatch, kind):
     policy = reads.pipeline_policy_version()
     session = Mock(spec=Session)
     session.in_transaction.return_value = True
     session.get.return_value = ReadModelState(
         name="pipeline",
         payload={"serving_policy": policy, "target_policy": policy, "backfill_complete": True},
-        updated_at=NOW - timedelta(minutes=2),
+        updated_at=NOW,
+    )
+    session.scalar.side_effect = [NOW - timedelta(seconds=30), NOW - timedelta(seconds=60)]
+    monkeypatch.setattr(reads, "utcnow", lambda: NOW)
+    _, snapshot = reads.serving_projection(session, kind=kind)
+    pending, transitions = [call.args[0].compile().params for call in session.scalar.call_args_list]
+    event_kinds = next(set(value) for value in pending.values() if isinstance(value, list))
+    timed_kinds = next(set(value) for value in transitions.values() if isinstance(value, list))
+    assert "policy" in event_kinds
+    if kind == "source":
+        assert {"source", "candidate", "backfill_source", "backfill_candidate"} <= event_kinds
+        assert not {"article", "backfill_article", "catalog", "source_fanout"} & event_kinds
+        assert timed_kinds == {"source", "candidate"}
+    else:
+        assert {"article", "backfill_article", "catalog", "source_fanout"} <= event_kinds
+        assert not {"source", "candidate", "backfill_source", "backfill_candidate"} & event_kinds
+        assert timed_kinds == {"article"}
+    assert snapshot.status == "refreshing" and snapshot.lag_seconds == 60
+
+
+@pytest.mark.parametrize("kind", [None, "article", "source"])
+@pytest.mark.parametrize("publisher_age", [-10, 60, 61])
+def test_idle_board_requires_recent_publisher_verification(monkeypatch, kind, publisher_age):
+    policy = reads.pipeline_policy_version()
+    session = Mock(spec=Session)
+    session.in_transaction.return_value = True
+    session.get.return_value = ReadModelState(
+        name="pipeline",
+        payload={
+            "serving_policy": policy,
+            "target_policy": policy,
+            "backfill_complete": True,
+            "serving_generated_at": (NOW - timedelta(days=1)).isoformat(),
+        },
+        updated_at=NOW - timedelta(seconds=publisher_age),
     )
     session.scalar.side_effect = [None, None]
     monkeypatch.setattr(reads, "utcnow", lambda: NOW)
-    assert reads.serving_projection(session)[1].generated_at == NOW - timedelta(minutes=2)
+    _, snapshot = reads.serving_projection(session, kind=kind)
+    assert snapshot.status == ("stale" if publisher_age > 60 else "fresh")
+    assert snapshot.generated_at == NOW - timedelta(days=1)
+    assert snapshot.lag_seconds == max(0, publisher_age)
 
 
 def current_card(processing_case, *, published=False):
@@ -121,7 +221,8 @@ def test_article_column_preserves_saved_cards_and_uses_count_for_continuation(
         generation="serving",
         lag_seconds=3,
     )
-    monkeypatch.setattr(reads, "serving_projection", lambda _: ("serving", snapshot))
+    monkeypatch.setattr(reads, "utcnow", lambda: NOW)
+    monkeypatch.setattr(reads, "serving_projection", lambda _, **_kwargs: ("serving", snapshot))
     session = SimpleNamespace(
         execute=lambda _: SimpleNamespace(all=lambda: [(card.stage, total)]),
         scalars=lambda _: [card.model_dump(mode="json")],
@@ -137,7 +238,7 @@ def test_article_column_preserves_saved_cards_and_uses_count_for_continuation(
         cursor=cursor,
     )
 
-    assert result.as_of == snapshot.generated_at and result.snapshot == snapshot
+    assert result.as_of == NOW and result.snapshot == snapshot
     assert result.counts == {card.stage: total}
     column = result.columns[0]
     assert column.items == [card] and column.total == total
@@ -152,7 +253,7 @@ def test_source_group_cursor_counts_groups_while_stage_total_still_counts_articl
     snapshot = ReadModelSnapshot(
         status="fresh", generated_at=NOW, generation="serving", lag_seconds=0
     )
-    monkeypatch.setattr(reads, "serving_projection", lambda _: ("serving", snapshot))
+    monkeypatch.setattr(reads, "serving_projection", lambda _, **_kwargs: ("serving", snapshot))
     group = {
         "source_id": card.source_id if not cursor else None,
         "source_name": card.source_name if not cursor else None,
@@ -189,7 +290,7 @@ def test_source_group_cursor_counts_groups_while_stage_total_still_counts_articl
 def test_empty_article_board_keeps_all_lanes_and_does_not_invent_continuation(monkeypatch):
     snapshot = ReadModelSnapshot(status="fresh", generation="serving", lag_seconds=0)
     monkeypatch.setattr(reads, "utcnow", lambda: NOW)
-    monkeypatch.setattr(reads, "serving_projection", lambda _: ("serving", snapshot))
+    monkeypatch.setattr(reads, "serving_projection", lambda _, **_kwargs: ("serving", snapshot))
     session = SimpleNamespace(
         execute=lambda _: SimpleNamespace(all=lambda: []), scalars=lambda _: []
     )
@@ -226,4 +327,4 @@ def test_source_columns_keep_snapshot_identity_and_total_beyond_the_last_page(mo
         assert (
             column.items[0].snapshot == value.snapshot and column.items[0].source_id == current.id
         )
-    serving.assert_called_once_with(session)
+    serving.assert_called_once_with(session, kind="source")

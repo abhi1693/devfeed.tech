@@ -32,14 +32,35 @@ remain bounded to eight inputs; publication decisions are always derived again.
 
 Queued retry timestamps schedule future projection changes. Running lease expiry
 continues through existing scheduler recovery. Catalog invalidations use bounded
-keyset fanout and replay when the catalog changes during a pass. Code, prompt,
-image/logo, source-policy, and settings fingerprints cause policy rebuilds beside
+keyset fanout over saved article cards with catalog-dependent analysis or topic
+links. They do not scan historical articles or rebuild sources and candidates.
+Rejected cards and cards without either dependency are skipped; legacy cards
+without dependency metadata are conservatively refreshed. Recent published cards
+remain included because their retry controls depend on current analysis validity.
+New matching terms, selected identities, and ranking changes can affect candidate
+selection beyond existing assignments, so assignment-only invalidation is unsafe.
+The authoritative candidate and lifecycle checks remain unchanged.
+
+Edits during a catalog refresh are coalesced without rewinding its cursor. A
+revision change at completion queues another bounded dependent-card refresh.
+Tokenized continuations cannot revive a refresh superseded by a policy rebuild.
+Code, prompt, image/logo, source-policy, and settings fingerprints cause policy rebuilds beside
 the previous complete policy. Cutover follows complete entity coverage and bounded
-orphan cleanup. Catalog edits during that pass schedule another pass while the
-covered board remains available with rebuilding status. A global invalidation after
-coverage has begun also schedules a follow-up pass, so concurrent truncation cannot
+orphan cleanup. Catalog edits during initial coverage queue a dependent-card
+refresh after cutover, rather than restarting population-wide coverage. A global
+invalidation after coverage has begun also schedules a follow-up pass, so concurrent truncation cannot
 leave deleted cards behind. The initial policy event is covered by the first pass.
 Obsolete policy rows and expired article terminal rows are pruned in bounded batches.
+
+Dependency metadata is additive and does not change lifecycle policy or require
+a schema migration. The first catalog refresh conservatively includes existing
+saved cards without metadata and records their dependencies as they are evaluated;
+it does not require another population-wide rebuild. Catalog refreshes retain
+completed coverage and report `refreshing`, independently of true policy rebuilds.
+Article and source views track their own last card-update times and relevant queued work; article catalog
+refreshes do not mark source views rebuilding. Publisher inactivity still marks
+saved views stale. The admin UI checks response age separately from the displayed
+last card-update time, so healthy idle boards do not acquire a stale warning.
 
 Increment `PIPELINE_POLICY_VERSION` when changing lifecycle or card derivation
 without a corresponding prompt/settings version change. Increment the report
@@ -66,7 +87,8 @@ Processing charts use maintained daily job facts and active counts. Blocker repo
 aggregate exact classifications from pipeline projections, preserving overlapping
 counts and recovery targets. Reports can publish after complete entity coverage
 while catalog catchup continues; saved dependency metadata keeps those reports
-marked rebuilding. Event lag over 60 seconds defers new blocker publication.
+marked refreshing, or rebuilding for a policy change. Event lag over 60 seconds
+defers new blocker publication.
 Responses expose calculation time, policy generation, freshness status, and lag.
 Report calculations use read-only repeatable-read transactions so a concurrent
 policy cutover cannot mix a serving pointer with another generation's rows.

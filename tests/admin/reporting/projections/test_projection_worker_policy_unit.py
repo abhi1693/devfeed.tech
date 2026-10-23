@@ -116,13 +116,12 @@ def test_invalidation_during_coverage_only_requires_global_policy_replay_after_p
     assert stored.payload == before  # A plan is unpublished until its owner publishes it.
 
 
-@pytest.mark.parametrize("kind", ["policy", "catalog"])
-def test_new_invalidation_starts_all_entity_passes_while_preserving_last_complete_serving(kind):
+def test_policy_invalidation_starts_all_entity_passes_while_preserving_last_complete_serving():
     stored = state(pending_backfills=[], backfill_complete=True, backfill_progress=True)
     session = read_session(stored)
     session.execute.return_value = [("tags", 4), ("topics", 7)]
     _, _, acknowledged, continuations, planned = projections._expand(
-        session, [event(10, kind)], 10, NOW
+        session, [event(10, "policy")], 10, NOW
     )
     assert planned["pending_backfills"] == ["article", "source", "candidate"]
     assert planned["backfill_revision"] == REVISION
@@ -134,6 +133,92 @@ def test_new_invalidation_starts_all_entity_passes_while_preserving_last_complet
     assert continuations == [
         {"kind": f"backfill_{name}"} for name in ("article", "source", "candidate")
     ]
+
+
+@pytest.mark.parametrize("count", [1, 2])
+def test_catalog_refresh_is_bounded_article_work_without_restarting_coverage(count):
+    stored = state(pending_backfills=[], backfill_complete=True, serving_policy=POLICY)
+    original = copy.deepcopy(stored.payload)
+    identifiers = [uuid.UUID(int=index) for index in range(1, count + 1)]
+    session = read_session(stored, [identifiers])
+    session.execute.return_value = [("tags", 4), ("topics", 7)]
+    work, finished, acknowledged, continuations, planned = projections._expand(
+        session, [event(10, "catalog")], 2, NOW
+    )
+    assert work == {"article": set(identifiers), "source": set(), "candidate": set()}
+    assert planned["backfill_complete"] and planned["pending_backfills"] == []
+    assert planned["backfill_started_at"] == original["backfill_started_at"]
+    refresh = planned["catalog_refresh"]
+    assert refresh["revision"] == REVISION and refresh["started_at"] == NOW.isoformat()
+    assert acknowledged == [10] and stored.payload == original
+    if count == 2:
+        assert finished == set()
+        assert continuations == [
+            {
+                "kind": "catalog",
+                "entity_id": uuid.UUID(refresh["token"]),
+                "after_id": identifiers[-1],
+            }
+        ]
+    else:
+        assert finished == {"catalog"} and continuations == []
+
+
+def test_catalog_edits_during_refresh_coalesce_without_rewinding_its_cursor():
+    refresh = {"token": str(uuid.uuid4()), "revision": REVISION, "started_at": NOW.isoformat()}
+    stored = state(pending_backfills=[], backfill_complete=True, catalog_refresh=refresh)
+    session = read_session(stored)
+    work, finished, acknowledged, continuations, planned = projections._expand(
+        session, [event(11, "catalog"), event(12, "catalog")], 2, NOW
+    )
+    assert not any(work.values()) and not finished and not continuations
+    assert acknowledged == [11, 12] and planned["catalog_refresh"] == refresh
+    session.scalars.assert_not_called()
+    session.execute.assert_not_called()
+
+
+@pytest.mark.parametrize("active", [False, True])
+def test_obsolete_catalog_continuations_cannot_start_or_replace_a_refresh(active):
+    changes = (
+        {"catalog_refresh": {"token": str(uuid.uuid4()), "revision": REVISION}} if active else {}
+    )
+    stored = state(pending_backfills=[], backfill_complete=True, **changes)
+    session = read_session(stored)
+    work, finished, acknowledged, continuations, planned = projections._expand(
+        session, [event(12, "catalog", uuid.uuid4(), uuid.uuid4())], 2, NOW
+    )
+    assert not any(work.values()) and not finished and not continuations
+    assert acknowledged == [12] and planned == stored.payload
+    session.scalars.assert_not_called()
+
+
+def test_policy_invalidation_cancels_a_catalog_refresh_finished_in_the_same_batch():
+    stored = state(pending_backfills=[], backfill_complete=True, serving_policy=POLICY)
+    session = read_session(stored, [[]])
+    session.execute.return_value = [("tags", 4), ("topics", 7)]
+    _, finished, acknowledged, continuations, planned = projections._expand(
+        session, [event(10, "catalog"), event(11, "policy")], 2, NOW
+    )
+    assert finished == set() and "catalog_refresh" not in planned
+    assert acknowledged == [10, 11] and not planned["backfill_complete"]
+    assert continuations == [
+        {"kind": f"backfill_{name}"} for name in ("article", "source", "candidate")
+    ]
+
+
+def test_catalog_continuation_retains_its_owner_and_advances_without_restarting():
+    token = uuid.uuid4()
+    refresh = {"token": str(token), "revision": REVISION, "started_at": NOW.isoformat()}
+    stored = state(pending_backfills=[], backfill_complete=True, catalog_refresh=refresh)
+    identifiers = [uuid.UUID(int=index) for index in (11, 12)]
+    session = read_session(stored, [identifiers])
+    work, finished, acknowledged, continuations, planned = projections._expand(
+        session, [event(13, "catalog", token, uuid.UUID(int=10))], 2, NOW
+    )
+    assert work["article"] == set(identifiers) and not finished
+    assert acknowledged == [13] and planned["catalog_refresh"] == refresh
+    assert continuations == [{"kind": "catalog", "entity_id": token, "after_id": identifiers[-1]}]
+    session.execute.assert_not_called()  # The pass retains its captured revision.
 
 
 @pytest.mark.parametrize("existing", [None, "older-target", POLICY])
@@ -305,6 +390,29 @@ def publish(value, **kwargs):
     return projections.project_batch(value.factory, token=TOKEN, now=NOW, **kwargs)
 
 
+@pytest.mark.parametrize("changed", [False, True])
+def test_completed_catalog_refresh_only_requeues_dependent_work_after_new_edits(publisher, changed):
+    value = publisher
+    token = uuid.uuid4()
+    value.stored.payload.update(
+        serving_policy=POLICY,
+        pending_backfills=[],
+        backfill_complete=True,
+        catalog_refresh={"token": str(token), "revision": REVISION, "started_at": NOW.isoformat()},
+    )
+    value.incoming.append(event(12, "catalog", token, uuid.uuid4()))
+    value.reads([("tags", 4), ("topics", 8 if changed else 7)], [], [])
+    assert publish(value) == 1
+    saved = value.save.call_args.args[2]
+    assert saved["backfill_complete"] and saved["pending_backfills"] == []
+    assert "catalog_refresh" not in saved
+    value.acknowledge.assert_called_once_with(value.session, [12])
+    if changed:
+        value.enqueue.assert_called_once_with(value.session, "catalog")
+    else:
+        value.enqueue.assert_not_called()
+
+
 def test_busy_publisher_does_not_read_events_or_evaluate_cards(publisher):
     publisher.lease_boundary.return_value = False
     assert publish(publisher) == 0
@@ -378,12 +486,14 @@ def test_policy_cutover_waits_for_cleanup_then_replays_changed_inputs_without_wi
     else:
         assert payload["serving_policy"] == POLICY
         assert payload["serving_generated_at"] == NOW.isoformat()
-        assert payload["backfill_complete"] is (replay == "unchanged")
+        assert payload["backfill_complete"] is (replay != "policy")
         assert payload["pending_backfills"] == (
-            [] if replay == "unchanged" else ["article", "source", "candidate"]
+            ["article", "source", "candidate"] if replay == "policy" else []
         )
-        assert value.enqueue.call_count == (0 if replay == "unchanged" else 3)
-        if replay != "unchanged":
+        assert value.enqueue.call_count == {"unchanged": 0, "catalog": 1, "policy": 3}[replay]
+        if replay == "catalog":
+            value.enqueue.assert_called_once_with(value.session, "catalog")
+        if replay == "policy":
             assert payload["backfill_started_at"] == NOW.isoformat()
             assert not payload["backfill_progress"] and not payload["policy_replay_required"]
 
