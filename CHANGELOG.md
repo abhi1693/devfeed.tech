@@ -6,24 +6,31 @@ Application releases and Alembic schema revisions are separate identifiers.
 
 ### Enhancements
 
-- [#281](https://github.com/abhi1693/devfeed.tech/pull/281) - Save per-feed Grid, List, Stacked, and Columns layouts, with account preferences, browser-local guest choices, and a reusable My feed workspace across web, Chrome, and Edge.
+- [#281](https://github.com/abhi1693/devfeed.tech/pull/281) - Save Grid, List, and Stacked layouts for individual feeds across web, Chrome, and Edge, with signed-in preferences shared across devices.
+- [#281](https://github.com/abhi1693/devfeed.tech/pull/281) - Build a personalized My feed Columns workspace with up to twelve independent feeds, personalized starters, drag-and-drop ordering, and per-column controls.
 
 ### Performance Improvements
 
-- [#284](https://github.com/abhi1693/devfeed.tech/pull/284) - Unload inactive analysis threads after requests finish instead of retaining completed work through the default 30-minute grace period.
-- [#280](https://github.com/abhi1693/devfeed.tech/pull/280) - Serve administration boards and Overview reports from indexed, durable read models maintained by dedicated workers, with visible freshness and recovery status.
+- [#280](https://github.com/abhi1693/devfeed.tech/pull/280) - Keep admin article and source pipelines and Overview responsive with saved projections and reports, background refresh, and visible freshness and preparation states.
+- [#281](https://github.com/abhi1693/devfeed.tech/pull/281) - Reduce repeated preference reads and recommendation rebuild work while bounding parallel column requests and retained articles.
+- [#284](https://github.com/abhi1693/devfeed.tech/pull/284) - Unload inactive analysis threads promptly after requests finish while active analysis continues.
 
 ### Bug Fixes
 
-- [#282](https://github.com/abhi1693/devfeed.tech/pull/282) - Recognize ICO publisher logos and keep source logo-job changes reflected in pipeline projections.
-- [#284](https://github.com/abhi1693/devfeed.tech/pull/284) - Keep server trace exports working with the consolidated OpenTelemetry trace package.
-- [#284](https://github.com/abhi1693/devfeed.tech/pull/284) - Preserve untouched tag fields when replaying partial edits, including clearing aliases, disabling automatic topic matching, or removing a topic link.
-- [#284](https://github.com/abhi1693/devfeed.tech/pull/284) - Show a clear error when an upload is too large or stalls, preserving the response before closing the upload connection.
+- [#282](https://github.com/abhi1693/devfeed.tech/pull/282) - Import ICO publisher favicons into managed logos so valid icons no longer block source branding.
+- [#283](https://github.com/abhi1693/devfeed.tech/pull/283) - Regenerate published article thumbnails from a saved original when derivatives need updating.
+- [#283](https://github.com/abhi1693/devfeed.tech/pull/283) - Preserve reader scroll position when opening previews and navigating across web, Chrome, and Edge.
+- [#285](https://github.com/abhi1693/devfeed.tech/pull/285) - Load Trending articles correctly in Chrome and Edge, including the first page and subsequent pages.
+- [#286](https://github.com/abhi1693/devfeed.tech/pull/286) - Avoid unnecessary starter-column saves after manual column choices or intentional clearing of My feed have already been saved.
+- [#284](https://github.com/abhi1693/devfeed.tech/pull/284) - Preserve omitted tag fields when applying partial edits, while supporting empty aliases, disabled automatic matching, and explicit removal of a topic link.
+- [#284](https://github.com/abhi1693/devfeed.tech/pull/284) - Return complete errors for oversized or stalled uploads instead of resetting the connection before the browser receives the response.
+- [#284](https://github.com/abhi1693/devfeed.tech/pull/284) - Keep server traces exporting after telemetry dependency updates.
 
 ### Upgrade Notes
 
-- Apply migration `0034` with a planned write-blocking index window, then start the separate pipeline and report workers and complete their backfill before promoting new readers. Older `0.1.1` images reject schema `0034`; plan the compatibility boundary explicitly using the [read-model rollout guide](https://github.com/abhi1693/devfeed.tech/blob/master/apps/admin-api/READ_MODELS.md#migration-and-rollout).
-- Keep the JavaScript telemetry SDK on 2.12/API 1.9.1 while using Faro 2.13. Upgrading SDK 3/API 1.10 independently breaks the current browser tracing peer contract.
+- Coordinate migration `0034` with backend replacement because `0.1.1` services reject the new schema. Allow for review-index creation to block writes to `article_reviews`; follow the [read-model rollout guide](https://github.com/abhi1693/devfeed.tech/blob/master/apps/admin-api/READ_MODELS.md#migration-and-rollout).
+- Run separate pipeline and report publishers with reserved database connection capacity, configured through `DEVFEED_READ_MODEL_DATABASE_URL`. Complete the initial pipeline backfill and publish required reports before promoting admin readers, as described in the [worker configuration](https://github.com/abhi1693/devfeed.tech/blob/master/apps/admin-api/READ_MODELS.md#workers-and-capacity).
+- Deploy the updated APIs and reader before distributing browser extensions `0.1.23`, which use the new saved layout and Columns settings.
 
 ## 0.1.1 — 2026-10-20
 
