@@ -5,6 +5,7 @@ from datetime import datetime
 from typing import Annotated, Literal
 
 from pydantic import (
+    MISSING,
     AfterValidator,
     BaseModel,
     BeforeValidator,
@@ -326,13 +327,15 @@ class TagWrite(InputModel):
 
 
 class TagPatch(InputModel):
-    name: TagName | None = None
-    slug: Slug | None = None
-    aliases: list[Keyword] | None = Field(default=None, max_length=100)
-    topic_id: uuid.UUID | None = None
-    auto_link_topic: bool | None = None
+    # MISSING keeps optional updates absent in JSON and OpenAPI; only topic_id
+    # accepts null, which explicitly unlinks the tag from its current topic.
+    name: TagName | MISSING = MISSING
+    slug: Slug | MISSING = MISSING
+    aliases: list[Keyword] | MISSING = Field(default=MISSING, max_length=100)
+    topic_id: uuid.UUID | None | MISSING = MISSING
+    auto_link_topic: bool | MISSING = MISSING
 
-    @field_validator("name", "slug", "aliases", "auto_link_topic")
+    @field_validator("name", "slug", "aliases", "auto_link_topic", mode="before")
     @classmethod
     def reject_null(cls, value):
         if value is None:

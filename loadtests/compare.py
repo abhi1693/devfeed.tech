@@ -5,6 +5,7 @@ import json
 import math
 import os
 import statistics
+from datetime import datetime
 from pathlib import Path
 
 ROUTES = (
@@ -42,7 +43,7 @@ RESULT_LABELS = {
 
 def classify(base, head):
     """Conservative repeated-sample decision, with absolute and relative noise floors."""
-    if any(not math.isfinite(v) or v <= 0 for v in base + head):
+    if len(base) != 3 or len(head) != 3 or any(not math.isfinite(v) or v <= 0 for v in base + head):
         return "ERROR"
     if any(
         max(values) - min(values) > max(20, statistics.median(values) * 0.35)
@@ -50,13 +51,20 @@ def classify(base, head):
     ):
         return "INCONCLUSIVE"
     b, h = statistics.median(base), statistics.median(head)
-    slower = sum(y > b * 1.20 and y - b > 20 for y in head)
-    faster = sum(y < b * 0.80 and b - y > 20 for y in head)
-    if h > b * 1.20 and h - b > 20 and slower >= 2:
-        return "REGRESSED"
-    if h < b * 0.80 and b - h > 20 and faster >= 2:
-        return "IMPROVED"
+    slower, faster = paired_changes(base, head)
+    if h > b * 1.20 and h - b > 20:
+        return "REGRESSED" if slower >= 2 else "INCONCLUSIVE"
+    if h < b * 0.80 and b - h > 20:
+        return "IMPROVED" if faster >= 2 else "INCONCLUSIVE"
     return "NO MATERIAL CHANGE"
+
+
+def paired_changes(base, head):
+    pairs = list(zip(base, head, strict=True))
+    return (
+        sum(h > b * 1.20 and h - b > 20 for b, h in pairs),
+        sum(h < b * 0.80 and b - h > 20 for b, h in pairs),
+    )
 
 
 def report(runs, base_sha, head_sha):
@@ -126,6 +134,10 @@ def report(runs, base_sha, head_sha):
         "| Endpoint | p50 | p99 | Requests/s |",
         "|---|---:|---:|---:|",
     ]
+    pair_lines = [
+        "| Route | Pair 1 | Pair 2 | Pair 3 | Slower pairs | Faster pairs |",
+        "|---|---:|---:|---:|---:|---:|",
+    ]
     results = []
     for route in ROUTES:
 
@@ -136,7 +148,7 @@ def report(runs, base_sha, head_sha):
         result = classify(base, head)
         results.append(result)
         b, h = statistics.median(base), statistics.median(head)
-        if b <= 0 or not math.isfinite(b + h):
+        if result == "ERROR" or b <= 0 or not math.isfinite(b + h):
             return "ERROR", "\n".join(lines) + "\n**ERROR** — invalid latency samples.\n"
 
         def median(side, metric):
@@ -151,6 +163,12 @@ def report(runs, base_sha, head_sha):
             f"{median('base', 'p99'):.0f} → {median('head', 'p99'):.0f} | "
             f"{median('base', 'rps'):.2f} → {median('head', 'rps'):.2f} |"
         )
+        pairs = [
+            f"{b:.0f} → {h:.0f} ({h - b:+.0f}, {(h / b - 1) * 100:+.1f}%)"
+            for b, h in zip(base, head, strict=True)
+        ]
+        slower, faster = paired_changes(base, head)
+        pair_lines.append(f"| {LABELS[route]} | {' | '.join(pairs)} | {slower} | {faster} |")
     verdict = next(
         (v for v in ("ERROR", "REGRESSED", "INCONCLUSIVE", "IMPROVED") if v in results),
         "NO MATERIAL CHANGE",
@@ -183,6 +201,17 @@ def report(runs, base_sha, head_sha):
         "</details>",
         "",
         "<details>",
+        "<summary>All paired p95 samples and changes</summary>",
+        "",
+        "Each pair shares a validated runner. Cells show base → PR p95 "
+        "(absolute and percentage change), in milliseconds. Slower/faster counts use "
+        "the same strict 20% and 20 ms thresholds against that pair's own baseline.",
+        "",
+        *pair_lines,
+        "",
+        "</details>",
+        "",
+        "<details>",
         "<summary>Individual runs</summary>",
         "",
         *run_lines,
@@ -195,12 +224,13 @@ def report(runs, base_sha, head_sha):
     lines += [
         "",
         "**Regressed / Improved:** a p95 regression needs >20% **and** >20 ms "
-        "increase in the medians and at least two head samples versus the base median. "
+        "increase in the medians and in at least two same-runner base/PR pairs. "
         "Improvements use the inverse "
         "threshold. **Within threshold** means the change did not meet both thresholds.",
         "",
         "**Inconclusive:** a within-revision p95 range >35% of its median and >20 ms "
-        "is too noisy for a confident latency verdict.",
+        "is too noisy for a confident latency verdict. A material median change without "
+        "two confirming pairs is also inconclusive; this does not prove unchanged performance.",
         "",
         "Inconclusive latency comparisons are non-blocking: the check passes without claiming "
         "an improvement. Confirmed regressions and test/report errors fail the PR gate. "
@@ -218,6 +248,7 @@ def report(runs, base_sha, head_sha):
 
 def collect(directory, base_sha, head_sha):
     runs = {}
+    metadata = {}
     expected = {
         "users": 16,
         "spawn_rate": 4,
@@ -255,8 +286,41 @@ def collect(directory, base_sha, head_sha):
                             raise ValueError("Invalid statistics")
                 item["exit_code"] = code
                 runs[key] = item
+                metadata[key] = meta
             except (OSError, ValueError, KeyError, TypeError):
                 runs[key] = {"invalid": True, "exit_code": None}
+    runners = []
+    for index in range(3):
+        keys = (f"base-{index}", f"head-{index}")
+        try:
+            base, head = (metadata[key] for key in keys)
+            for meta in (base, head):
+                if (
+                    not isinstance(meta["runner_name"], str)
+                    or not meta["runner_name"].strip()
+                    or meta["architecture"] not in {"aarch64", "arm64"}
+                    or type(meta["logical_cpus"]) is not int
+                    or meta["logical_cpus"] < 1
+                ):
+                    raise ValueError("Invalid runner provenance")
+            if any(
+                base[field] != head[field]
+                for field in ("runner_name", "architecture", "logical_cpus")
+            ):
+                raise ValueError("Runner pair mismatch")
+            starts = [datetime.fromisoformat(meta["started_at"]) for meta in (base, head)]
+            if any(start.utcoffset() is None for start in starts):
+                raise ValueError("Missing timestamp timezone")
+            first, second = starts if index % 2 == 0 else starts[::-1]
+            if first >= second:
+                raise ValueError("Invalid alternating execution order")
+            runners.append(base["runner_name"])
+        except (KeyError, TypeError, ValueError):
+            for key in keys:
+                runs[key].update(invalid=True, exit_code=None)
+    if len(set(runners)) != len(runners):
+        for run in runs.values():
+            run.update(invalid=True, exit_code=None)
     return runs
 
 

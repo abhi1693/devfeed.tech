@@ -10,7 +10,12 @@ ci_container=""
 trap 'if [[ -n "$ci_container" ]]; then docker rm -f "$ci_container" >/dev/null; fi' EXIT
 trap 'echo "$ci_component smoke failed at line $LINENO" >&2; if [[ -n "$ci_container" ]]; then docker logs "$ci_container" >&2; fi' ERR
 if [[ "$ci_component" = mcp ]]; then
-  ci_container=$(docker run -d --rm "$ci_image")
+  # Fleet uses the image's default command with UID/GID10001, a read-only
+  # root, no capabilities and only /tmp writable. External APIs stay isolated.
+  ci_container=$(docker run -d --rm --network none --read-only --cap-drop ALL \
+    --security-opt no-new-privileges --user 10001:10001 \
+    --tmpfs /tmp:rw,nosuid,nodev,size=64m,mode=1777 \
+    -e DEVFEED_MCP_API_URL=http://127.0.0.1:8000 "$ci_image")
   for attempt in $(seq 1 30); do
     if docker exec "$ci_container" python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8003/health/live', timeout=2).close()" 2>/dev/null; then break; fi
     if [[ "$attempt" -eq 30 ]]; then exit 1; fi
@@ -18,19 +23,81 @@ if [[ "$ci_component" = mcp ]]; then
   done
   docker exec -i "$ci_container" python - "$ci_version" <<'PY'
 import asyncio
+import errno
 import importlib.util
 import json
 import os
 import sys
+import tempfile
+import threading
+import urllib.error
 import urllib.request
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 from mcp import Client
 
-assert os.geteuid() != 0
+assert os.geteuid() == os.getegid() == 10001
+with open("/proc/self/status") as status:
+    assert next(line.split()[1] for line in status if line.startswith("CapEff:")) == "0000000000000000"
+try:
+    with open("/app/mcp-smoke-must-not-write", "w"):
+        pass
+except OSError as error:
+    assert error.errno == errno.EROFS
+else:
+    raise AssertionError("MCP root filesystem must be read-only")
+with tempfile.TemporaryFile(dir="/tmp") as writable:
+    writable.write(b"disposable MCP tmp fixture")
+    writable.seek(0)
+    assert writable.read() == b"disposable MCP tmp fixture"
 assert importlib.util.find_spec("devfeed_core") is None
 assert importlib.util.find_spec("sqlalchemy") is None
 with urllib.request.urlopen("http://127.0.0.1:8003/version", timeout=3) as response:
     assert json.load(response)["version"] == sys.argv[1]
+
+def health(path):
+    try:
+        with urllib.request.urlopen("http://127.0.0.1:8003" + path, timeout=3) as response:
+            return response.status, json.load(response)
+    except urllib.error.HTTPError as error:
+        with error:
+            return error.code, json.load(error)
+
+assert health("/health/live") == (200, {"status": "ok"})
+assert health("/health/ready") == (503, {"status": "unavailable"})
+
+class PublicFixture(BaseHTTPRequestHandler):
+    calls = []
+
+    def do_GET(self):
+        self.calls.append(self.path)
+        if self.path != "/v1/topics?limit=1":
+            self.send_error(404)
+            return
+        body = b'{"items":[],"next_cursor":null}'
+        self.send_response(200)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def log_message(self, *_args):
+        pass
+
+# Probe the actual running MCP process using only a same-container public stub.
+# This is not proof of production API, personal OAuth or Redis availability.
+fixture = ThreadingHTTPServer(("127.0.0.1", 8000), PublicFixture)
+thread = threading.Thread(target=fixture.serve_forever, daemon=True)
+thread.start()
+try:
+    assert health("/health/ready") == (200, {"status": "ok"})
+    assert PublicFixture.calls == ["/v1/topics?limit=1"]
+finally:
+    fixture.shutdown()
+    fixture.server_close()
+    thread.join(timeout=2)
+assert health("/health/ready") == (503, {"status": "unavailable"})
+assert health("/health/live") == (200, {"status": "ok"})
 
 async def check():
     async with Client("http://127.0.0.1:8003/mcp") as client:
@@ -41,24 +108,12 @@ async def check():
 
 asyncio.run(check())
 PY
-  echo "MCP on $ci_arch passed its runtime and protocol smoke tests"
+  echo "MCP on $ci_arch passed Fleet filesystem/capability, local public-readiness and protocol smoke tests"
   exit 0
 fi
 if [[ "$ci_component" = codex ]]; then
-  expected_codex_version=$(python3 -c 'import json; print(json.load(open("infra/codex/package.json"))["dependencies"]["@openai/codex"])')
-  actual_codex_version=$(docker run --rm "$ci_image" --version)
-  [[ "$actual_codex_version" = "codex-cli $expected_codex_version" ]]
-  echo "$actual_codex_version"
-  ci_container=$(docker run -d --rm "$ci_image")
-  for attempt in $(seq 1 30); do
-    if docker exec "$ci_container" node /opt/devfeed/health.cjs; then
-      docker exec -i "$ci_container" node - "$ci_version" < scripts/ci/smoke-codex.cjs
-      echo "Codex on $ci_arch passed its runtime smoke test"
-      exit 0
-    fi
-    if [[ "$attempt" -eq 30 ]]; then docker logs "$ci_container"; exit 1; fi
-    sleep 1
-  done
+  bash scripts/ci/smoke-codex.sh "$ci_image" "$ci_arch" "$ci_version"
+  exit 0
 fi
 if [[ "$ci_component" = article-enrichment-worker ]] || [[ "$ci_component" = images-worker ]] || [[ "$ci_component" = source-discovery-worker ]]; then
   ci_command=devfeed-article-enrichment-worker
@@ -85,6 +140,7 @@ forbidden = {
 assert all(importlib.util.find_spec(module) for module in required)
 assert all(importlib.util.find_spec(module) is None for module in forbidden)
 PY
+  python3 scripts/ci/smoke_fleet_contracts.py "$ci_image" "$ci_component"
   echo "$ci_component on $ci_arch passed its runtime smoke test"
   exit 0
 fi
@@ -217,4 +273,5 @@ if [[ "$ci_component" = backend ]]; then
   docker exec "$ci_container" devfeed-scheduler --help >/dev/null
 fi
 rm -f "$ci_response"
+python3 scripts/ci/smoke_fleet_contracts.py "$ci_image" "$ci_component"
 echo "$ci_component on $ci_arch passed its runtime smoke test"

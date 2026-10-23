@@ -14,7 +14,7 @@ dependencies = [
 devfeed = "devfeed_cli.main:main"
 
 [build-system]
-requires = ["setuptools>=80,<85"]
+requires = ["setuptools>=84.2.1,<85"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools.package-dir]

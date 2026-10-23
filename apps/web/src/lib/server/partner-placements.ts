@@ -1,4 +1,5 @@
 import "server-only";
+import { after } from "next/server";
 import { traceHeaders } from "@devfeed/telemetry/propagation";
 import { parsePartnerPlacements, validPlacementQuery } from "../partner-placements";
 import { publicApiOrigin } from "./config";
@@ -38,7 +39,7 @@ export function bindPersonalizedPartnerPlacements(operation: ReaderGatewayOperat
 export async function partnerPlacements(request: Request) {
   const headers = { "Cache-Control": "no-store", "Referrer-Policy": "no-referrer" };
   try {
-    const body = await readRequestBody(request, 16384, 2000);
+    const body = await readRequestBody(request, 16384, 2000, request.signal, after);
     const query = placementQuery(body);
     if (!validPlacementQuery(query))
       return Response.json({ detail: "Invalid placement context" }, { status: 422, headers });
@@ -70,9 +71,15 @@ export async function partnerPlacements(request: Request) {
     return Response.json({ items }, { headers });
   } catch (error) {
     if (error instanceof RequestBodyTooLarge)
-      return Response.json({ detail: "Request too large" }, { status: 413, headers });
+      return Response.json(
+        { detail: "Request too large" },
+        { status: 413, headers: { ...headers, Connection: "close" } },
+      );
     if (error instanceof RequestBodyTimeout)
-      return Response.json({ detail: "Incomplete request" }, { status: 408, headers });
+      return Response.json(
+        { detail: "Incomplete request" },
+        { status: 408, headers: { ...headers, Connection: "close" } },
+      );
     return Response.json(
       { detail: "Partner recommendations unavailable" },
       { status: 503, headers },

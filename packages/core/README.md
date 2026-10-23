@@ -1,5 +1,14 @@
 # Shared backend core
 
+## Partial tag edits
+
+`TagPatch` uses Pydantic's stable `MISSING` value for omitted fields. Ordinary
+`model_dump()` and JSON serialization include only the supplied changes, so an
+empty patch remains empty when replayed. Empty aliases and `auto_link_topic=false`
+remain explicit updates. Only `topic_id` accepts `null`, which removes the topic
+link and disables automatic matching unless the caller also explicitly enables
+it. The OpenAPI schema and generated administration client preserve these rules.
+
 ## Source admission and recovery
 
 `source_lifecycle` derives Discovery, Profile, Assessment, Branding, Review, Ingestion,

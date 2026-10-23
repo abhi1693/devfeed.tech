@@ -14,6 +14,8 @@ import * as broadcastRead from "@/app/api/v1/user/notifications/chimely/v1/inbox
 import * as placements from "@/app/api/v1/user/partner-placements/query/route";
 
 vi.mock("@devfeed/telemetry/propagation", () => ({ traceHeaders: () => ({}) }));
+// Unit requests have no Next response lifecycle; real completion is covered by reader-gateway.mjs.
+vi.mock("next/server", () => ({ after: (callback: () => void) => callback() }));
 
 const origin = "https://user.example";
 const api = "http://user-api:8002";

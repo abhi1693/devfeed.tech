@@ -181,7 +181,7 @@ export async function registerTelemetry(app: "web" | "admin" | "partner") {
         import("@opentelemetry/exporter-trace-otlp-http"),
         import("@opentelemetry/resources"),
         import("@opentelemetry/core"),
-        import("@opentelemetry/sdk-trace-base"),
+        import("@opentelemetry/sdk-trace"),
       ]);
       const instance = new NodeSDK({
         resource: resourceFromAttributes({
@@ -194,18 +194,16 @@ export async function registerTelemetry(app: "web" | "admin" | "partner") {
         textMapPropagator: new W3CTraceContextPropagator(),
         sampler: new ParentBasedSampler({ root: new TraceIdRatioBasedSampler(0.1) }),
         spanProcessors: [
-          new BatchSpanProcessor(
-            new OTLPTraceExporter({
+          new BatchSpanProcessor({
+            exporter: new OTLPTraceExporter({
               url: `${process.env.DEVFEED_OTLP_ENDPOINT.replace(/\/$/, "")}/v1/traces`,
               timeoutMillis: 1000,
             }),
-            {
-              maxQueueSize: 512,
-              maxExportBatchSize: 64,
-              scheduledDelayMillis: 1000,
-              exportTimeoutMillis: 2000,
-            },
-          ),
+            maxQueueSize: 512,
+            maxExportBatchSize: 64,
+            scheduledDelayMillis: 1000,
+            exportTimeoutMillis: 2000,
+          }),
         ],
       });
       instance.start();

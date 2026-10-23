@@ -1,6 +1,11 @@
 import "server-only";
 import type { GatewayOperation } from "./gateway";
-import { readRequestBody, RequestBodyTimeout, RequestBodyTooLarge } from "./request-body";
+import {
+  readRequestBody,
+  RequestBodyTimeout,
+  RequestBodyTooLarge,
+  type AfterResponse,
+} from "./request-body";
 
 type TransportOptions<Operation extends GatewayOperation> = {
   apiOrigin: () => string;
@@ -9,6 +14,7 @@ type TransportOptions<Operation extends GatewayOperation> = {
   filterCookies?: (value: string, operation: Operation) => string;
   traceHeaders: () => Record<string, string>;
   unavailableDetail: string;
+  afterResponse?: AfterResponse;
 };
 
 export type GatewayBodyValidator = (
@@ -70,7 +76,13 @@ export class GatewayTransport<Operation extends GatewayOperation = GatewayOperat
       }
       let body: ArrayBuffer | undefined;
       if (!safe.has(operation.method)) {
-        body = await readRequestBody(request, policy.bodyLimit, policy.bodyTimeoutMs);
+        body = await readRequestBody(
+          request,
+          policy.bodyLimit,
+          policy.bodyTimeoutMs,
+          request.signal,
+          this.options.afterResponse,
+        );
         const rejection = await options.validateBody?.(body);
         if (rejection) return rejection;
       }
@@ -106,15 +118,16 @@ export class GatewayTransport<Operation extends GatewayOperation = GatewayOperat
         resultHeaders.append("Set-Cookie", value);
       return new Response(upstream.body, { status: upstream.status, headers: resultHeaders });
     } catch (error) {
+      // The response finishes before input cancellation; never reuse that upload socket.
       if (error instanceof RequestBodyTooLarge)
         return Response.json(
           { detail: "Request too large" },
-          { status: 413, headers: { "Cache-Control": "no-store" } },
+          { status: 413, headers: { "Cache-Control": "no-store", Connection: "close" } },
         );
       if (error instanceof RequestBodyTimeout)
         return Response.json(
           { detail: "Incomplete request" },
-          { status: 408, headers: { "Cache-Control": "no-store" } },
+          { status: 408, headers: { "Cache-Control": "no-store", Connection: "close" } },
         );
       // Callback URLs, codes, provider errors, cookies and tokens must not be logged.
       return Response.json(

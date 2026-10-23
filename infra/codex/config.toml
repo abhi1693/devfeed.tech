@@ -3,6 +3,8 @@ cli_auth_credentials_store = "file"
 approval_policy = "never"
 sandbox_mode = "read-only"
 web_search = "disabled"
+# Each analysis owns a disposable thread; retain no inactive unsubscribed sessions.
+thread_unload_delay_secs = 0
 
 [features]
 shell_tool = false

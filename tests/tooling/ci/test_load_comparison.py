@@ -22,6 +22,15 @@ spec.loader.exec_module(compare)
         ([100, 100, 100], [110, 110, 110], "NO MATERIAL CHANGE"),
         ([100, 100, 100], [100, 150, 100], "INCONCLUSIVE"),
         ([100, 160, 100], [140, 140, 140], "INCONCLUSIVE"),
+        ([82, 100, 83], [120, 110, 82], "INCONCLUSIVE"),
+        ([120, 110, 82], [82, 100, 83], "INCONCLUSIVE"),
+        ([82, 100, 83], [120, 130, 100], "REGRESSED"),
+        ([120, 130, 100], [82, 100, 83], "IMPROVED"),
+        ([100, 100, 100], [120, 120, 120], "NO MATERIAL CHANGE"),
+        ([100, 100, 100], [121, 121, 121], "REGRESSED"),
+        ([200, 200, 200], [221, 221, 221], "NO MATERIAL CHANGE"),
+        ([50, 50, 50], [61, 61, 61], "NO MATERIAL CHANGE"),
+        ([100, 100], [150, 150], "ERROR"),
         ([0, 0, 0], [100, 100, 100], "ERROR"),
         ([100, 100, 100], [float("nan"), 100, 100], "ERROR"),
     ],
@@ -92,6 +101,21 @@ def test_connection_ownership_failure_fails_even_with_good_http_metrics():
     assert compare.report(data, "base", "head")[0] == "REGRESSED"
 
 
+def test_unconfirmed_pooled_shift_preserves_every_pair_and_discloses_uncertainty():
+    data = runs()
+    for side, values in (("base", [82, 100, 83]), ("head", [120, 110, 82])):
+        for index, value in enumerate(values):
+            data[f"{side}-{index}"]["entries"][4]["p95"] = value
+    verdict, markdown = compare.report(data, "base", "head")
+    assert verdict == "INCONCLUSIVE"
+    assert "| Source feed | 83 | 110 | +27 (+32.5%) | Inconclusive |" in markdown
+    assert (
+        "| Source feed | 82 → 120 (+38, +46.3%) | 100 → 110 (+10, +10.0%) | "
+        "83 → 82 (-1, -1.2%) | 1 | 0 |" in markdown
+    )
+    assert "does not prove unchanged performance" in markdown
+
+
 def write_sample(root, side, index, sha):
     import json
 
@@ -113,6 +137,14 @@ def write_sample(root, side, index, sha):
                 "api_instances": 1,
                 "requested_admission": 16,
                 "requested_pool": "NullPool",
+                "runner_name": f"runner-{index}",
+                "architecture": "aarch64",
+                "logical_cpus": 4,
+                "started_at": (
+                    "2026-01-01T00:00:00+00:00"
+                    if (side == "base") == (index % 2 == 0)
+                    else "2026-01-01T00:02:00+00:00"
+                ),
             }
         )
     )
@@ -150,6 +182,55 @@ def test_collector_rejects_unknown_or_mixed_histogram_precision(tmp_path, precis
     collected = compare.collect(tmp_path, "base", "head")
     assert collected["head-1"]["invalid"]
     assert compare.report(collected, "base", "head")[0] == "ERROR"
+
+
+@pytest.mark.parametrize(
+    "changes",
+    [
+        [("head-0", "runner_name", None)],
+        [("head-0", "runner_name", "different-runner")],
+        [("head-0", "runner_name", " ")],
+        [("base-1", "runner_name", "runner-0"), ("head-1", "runner_name", "runner-0")],
+        [("head-0", "architecture", None)],
+        [("head-0", "architecture", "x86_64")],
+        [("head-0", "logical_cpus", None)],
+        [("head-0", "logical_cpus", 8)],
+        [("base-0", "logical_cpus", True), ("head-0", "logical_cpus", True)],
+        [("head-0", "started_at", None)],
+        [("head-0", "started_at", "not a timestamp")],
+        [("head-0", "started_at", "2026-01-01T00:02:00")],
+        [("head-0", "started_at", "2025-12-31T23:59:00+00:00")],
+        [("base-1", "started_at", "2025-12-31T23:59:00+00:00")],
+    ],
+)
+def test_unverifiable_runner_pairs_fail_closed_without_discarding_samples(
+    tmp_path, monkeypatch, changes
+):
+    import json
+    import sys
+
+    for side in ("base", "head"):
+        for index in range(3):
+            write_sample(tmp_path, side, index, side)
+    for sample, field, value in changes:
+        path = tmp_path / sample / "metadata.json"
+        metadata = json.loads(path.read_text())
+        if value is None:
+            metadata.pop(field)
+        else:
+            metadata[field] = value
+        path.write_text(json.dumps(metadata))
+    data = compare.collect(tmp_path, "base", "head")
+    assert len(data) == 6
+    assert all(item["entries"] == runs()[key]["entries"] for key, item in data.items())
+    assert compare.report(data, "base", "head")[0] == "ERROR"
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["compare.py", "--base-sha", "base", "--head-sha", "head", "--output", str(tmp_path)],
+    )
+    monkeypatch.delenv("GITHUB_STEP_SUMMARY", raising=False)
+    assert compare.main() == 1
 
 
 @pytest.mark.parametrize(

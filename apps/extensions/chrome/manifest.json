@@ -10,7 +10,9 @@
   "chrome_url_overrides": {
     "newtab": "newtab.html"
   },
-  "host_permissions": ["https://devfeed.tech/*"],
+  "host_permissions": [
+    "https://devfeed.tech/*"
+  ],
   "content_security_policy": {
     "extension_pages": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' https: data:; connect-src https://devfeed.tech; object-src 'none'; base-uri 'none'; frame-src 'none'"
   },
