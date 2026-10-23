@@ -34,9 +34,8 @@ const { resolveReaderRoute } = await bundled("../../web/src/lib/reader-routes.ts
 const { articleDestination, pageDestination } = await bundled(
   "../../web/src/lib/reader-destination.ts",
 );
-const { parseFilters, searchParamsFromUrl, feedParams, feedHref } = await bundled(
-  "../../web/src/lib/feed-query.ts",
-);
+const { parseFilters, searchParamsFromUrl, feedParams, feedHref, trendingFeedParams } =
+  await bundled("../../web/src/lib/feed-query.ts");
 const { readerFeeds, resolveFeed } = await bundled("../../web/src/lib/reader-feed.ts");
 
 test("extension guest home and Latest default to All without an implicit API content type", () => {
@@ -77,6 +76,25 @@ test("extension feed dispatch follows descriptor modes across session changes", 
       const result = resolveFeed(route.feed, {}, authenticated, route.contentType);
       assert.equal(result.mode, expected, `${path}: authenticated=${authenticated}`);
     }
+  }
+});
+
+test("Trending route filters omit the first-page cursor and preserve later offsets", () => {
+  for (const [query, expectedQuery] of [
+    ["", "limit=24"],
+    ["cursor=", "limit=24"],
+    ["cursor=0", "limit=24&cursor=0"],
+    ["cursor=24", "limit=24&cursor=24"],
+    ["cursor=24%26limit%3D1000", "limit=24&cursor=24%26limit%3D1000"],
+  ]) {
+    const result = resolveFeed(
+      readerFeeds.trending,
+      searchParamsFromUrl(new URLSearchParams(query)),
+      false,
+    );
+    assert.equal(result.mode, "trending");
+    const params = trendingFeedParams(result.filters.cursor);
+    assert.equal(params.toString(), expectedQuery);
   }
 });
 

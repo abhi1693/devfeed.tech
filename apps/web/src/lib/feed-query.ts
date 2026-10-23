@@ -64,6 +64,11 @@ export function latestFeedParams(filters: FeedFilters): URLSearchParams {
     params.set("diverse", "true");
   return params;
 }
+export function trendingFeedParams(cursor: string): URLSearchParams {
+  const params = new URLSearchParams({ limit: "24" });
+  if (cursor) params.set("cursor", cursor);
+  return params;
+}
 export function personalFeedHref(filters: FeedFilters, changes: Partial<FeedFilters> = {}) {
   const params = feedParams({ ...filters, cursor: "", ...changes });
   return params.size ? `/?${params}` : "/";

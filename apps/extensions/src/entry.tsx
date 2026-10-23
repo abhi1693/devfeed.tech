@@ -20,7 +20,12 @@ import {
 import { SearchFilters } from "../../web/src/components/search-filters";
 import { LoadingSkeleton } from "../../web/src/components/loading-skeleton";
 import { configureReaderRuntime, readerRequest } from "../../web/src/lib/reader-runtime";
-import { feedParams, searchParamsFromUrl, latestFeedParams } from "../../web/src/lib/feed-query";
+import {
+  feedParams,
+  searchParamsFromUrl,
+  latestFeedParams,
+  trendingFeedParams,
+} from "../../web/src/lib/feed-query";
 import { readerFeeds, resolveFeed } from "../../web/src/lib/reader-feed";
 import { parseSearchOptions, normalizeSearch, type SearchResponse } from "../../web/src/lib/search";
 import type { FeedPage, FeedOptions, Topic, Source, Tag } from "../../web/src/lib/types";
@@ -122,10 +127,7 @@ function Reader({
     async function load() {
       if (trending) {
         const [feed] = await Promise.allSettled([
-          read<FeedPage>(
-            `/api/v1/user/trending?limit=24${filters.cursor ? `&cursor=${encodeURIComponent(filters.cursor)}` : ""}`,
-            signal,
-          ),
+          read<FeedPage>(`/api/v1/user/trending?${trendingFeedParams(filters.cursor)}`, signal),
         ]);
         if (!signal.aborted) setState({ key, trending: feed });
         return;
