@@ -1,5 +1,8 @@
 {
-  "base_revision": "ff71700d275c2a8b69a77642b543b1a87955404c",
+  "base_revisions": [
+    "ff71700d275c2a8b69a77642b543b1a87955404c",
+    "a5541d6242aea01b486a372c9372a5822b65cc6b"
+  ],
   "schema": {
     "additionalProperties": false,
     "properties": {

@@ -417,14 +417,19 @@ jobs:
       - name: Preserve findings before documented schema corrections
         if: steps.changes.outputs.changed == 'true'
         run: uv run --no-sync --no-build --locked python scripts/ci/api_contracts.py report
+      - name: Prepare corrections for the actual base revision and schema
+        id: policy
+        if: steps.changes.outputs.changed == 'true'
+        run: uv run --no-sync --no-build --locked python scripts/ci/api_contracts.py prepare-policy
       - name: Check public API
         id: public
-        if: ${{ !cancelled() && steps.probes.outcome == 'success' }}
+        if: ${{ !cancelled() && steps.probes.outcome == 'success' && steps.policy.outcome == 'success' }}
         uses: oasdiff/oasdiff-action/breaking@b9325c9e0a27ab65b0da3b766522cedec6be81dc # v0.1.18
         with:
           base: reports/api-compatibility/base/public.json
           revision: reports/api-compatibility/head/public.json
           fail-on: WARN
+          err-ignore: reports/api-compatibility/policy/approved-errors.md
           flatten-allof: true
           allow-external-refs: false
           review: false
@@ -432,12 +437,13 @@ jobs:
           output-to-file: reports/api-compatibility/public.breaking.txt
       - name: Check user API
         id: user
-        if: ${{ !cancelled() && steps.probes.outcome == 'success' }}
+        if: ${{ !cancelled() && steps.probes.outcome == 'success' && steps.policy.outcome == 'success' }}
         uses: oasdiff/oasdiff-action/breaking@b9325c9e0a27ab65b0da3b766522cedec6be81dc # v0.1.18
         with:
           base: reports/api-compatibility/base/user.json
           revision: reports/api-compatibility/head/user.json
           fail-on: WARN
+          err-ignore: reports/api-compatibility/policy/approved-errors.md
           flatten-allof: true
           allow-external-refs: false
           review: false
@@ -445,12 +451,13 @@ jobs:
           output-to-file: reports/api-compatibility/user.breaking.txt
       - name: Check admin API
         id: admin
-        if: ${{ !cancelled() && steps.probes.outcome == 'success' }}
+        if: ${{ !cancelled() && steps.probes.outcome == 'success' && steps.policy.outcome == 'success' }}
         uses: oasdiff/oasdiff-action/breaking@b9325c9e0a27ab65b0da3b766522cedec6be81dc # v0.1.18
         with:
           base: reports/api-compatibility/base/admin.json
           revision: reports/api-compatibility/head/admin.json
           fail-on: WARN
+          err-ignore: reports/api-compatibility/policy/approved-errors.md
           flatten-allof: true
           allow-external-refs: false
           review: false
@@ -458,12 +465,13 @@ jobs:
           output-to-file: reports/api-compatibility/admin.breaking.txt
       - name: Check public MCP
         id: mcp_public
-        if: ${{ !cancelled() && steps.probes.outcome == 'success' }}
+        if: ${{ !cancelled() && steps.probes.outcome == 'success' && steps.policy.outcome == 'success' }}
         uses: oasdiff/oasdiff-action/breaking@b9325c9e0a27ab65b0da3b766522cedec6be81dc # v0.1.18
         with:
           base: reports/api-compatibility/base/mcp-public.json
           revision: reports/api-compatibility/head/mcp-public.json
           fail-on: WARN
+          err-ignore: reports/api-compatibility/policy/approved-errors.md
           flatten-allof: true
           allow-external-refs: false
           review: false
@@ -471,12 +479,13 @@ jobs:
           output-to-file: reports/api-compatibility/mcp-public.breaking.txt
       - name: Check account MCP
         id: mcp_account
-        if: ${{ !cancelled() && steps.probes.outcome == 'success' }}
+        if: ${{ !cancelled() && steps.probes.outcome == 'success' && steps.policy.outcome == 'success' }}
         uses: oasdiff/oasdiff-action/breaking@b9325c9e0a27ab65b0da3b766522cedec6be81dc # v0.1.18
         with:
           base: reports/api-compatibility/base/mcp-account.json
           revision: reports/api-compatibility/head/mcp-account.json
           fail-on: WARN
+          err-ignore: reports/api-compatibility/policy/approved-errors.md
           flatten-allof: true
           allow-external-refs: false
           review: false
@@ -503,7 +512,7 @@ jobs:
             printf '| mcp-account | %s |\n' "$API_MCP_ACCOUNT_RESULT"
             echo
             echo 'Compared generated PR base and merge-candidate schemas using their own locked dependencies.'
-            echo 'Unapproved WARN and ERR findings fail CI; exact documented schema corrections use the shared policy.'
+            echo 'Unapproved WARN and ERR findings fail CI; legacy corrections require an approved base commit and unchanged baseline schema.'
             echo 'Schemas, raw findings before corrections, and gated reports are in the api-compatibility artifact.'
           } >> "$GITHUB_STEP_SUMMARY"
       - name: Upload API reports

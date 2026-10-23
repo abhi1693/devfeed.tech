@@ -24,7 +24,10 @@ After Fleet convergence, compare the applied payload without printing any secret
 
 ```sh
 sha256sum scripts/ci/fixtures/codex/retention.cjs.fixture
-kubectl -n devfeed get configmap devfeed-codex-runtime \
+codex_runtime_configmap="$(kubectl -n devfeed get deployment devfeed-codex \
+  -o 'jsonpath={.spec.template.spec.volumes[?(@.name=="codex-runtime-scripts")].configMap.name}')"
+test -n "$codex_runtime_configmap"
+kubectl -n devfeed get configmap "$codex_runtime_configmap" \
   -o go-template='{{index .data "retention.cjs"}}' | sha256sum
 ```
 

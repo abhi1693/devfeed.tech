@@ -4,6 +4,7 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const http = require("node:http");
 const https = require("node:https");
+const { createSecureContext } = require("node:tls");
 const path = require("node:path");
 const { once } = require("node:events");
 const { randomBytes } = require("node:crypto");
@@ -12,8 +13,8 @@ const { DatabaseSync } = require("node:sqlite");
 
 const pause = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));
 const version = process.argv[2];
-const home = process.env.CODEX_HOME;
-const runtime = process.env.CODEX_SQLITE_HOME;
+const home = "/var/lib/codex";
+const runtime = "/var/lib/codex-runtime";
 const retention = "/opt/codex-runtime/retention.cjs";
 const heartbeat = path.join(runtime, ".retention-health");
 const heartbeatProbe =
@@ -25,8 +26,7 @@ const deadline = setTimeout(() => {
   process.exit(1);
 }, 55_000);
 
-function start(command, args, options = {}) {
-  const child = spawn(command, args, { stdio: ["ignore", "pipe", "pipe"], ...options });
+function track(child) {
   children.add(child);
   child.output = "";
   for (const stream of [child.stdout, child.stderr]) {
@@ -35,6 +35,12 @@ function start(command, args, options = {}) {
     });
   }
   return child;
+}
+
+function startRetention() {
+  return track(
+    spawn(process.execPath, [retention, runtime], { stdio: ["ignore", "pipe", "pipe"] }),
+  );
 }
 
 async function stop(child) {
@@ -148,7 +154,7 @@ async function verifyMountedCommands() {
   insert.run(1, now, "DEBUG", "verbose fixture");
   insert.run(2, now - 86401, "ERROR", "expired fixture");
   insert.run(3, now, "WARN", "retained fixture");
-  let sidecar = start(process.execPath, [retention, runtime]);
+  let sidecar = startRetention();
   await eventually(() => fs.existsSync(heartbeat), "Retention CLI did not publish its heartbeat");
   assert.deepEqual(
     database
@@ -161,7 +167,7 @@ async function verifyMountedCommands() {
   await stop(sidecar);
   fs.writeFileSync(heartbeat, String(Date.now() - 90001));
   assert.notEqual(spawnSync(process.execPath, ["-e", heartbeatProbe]).status, 0);
-  sidecar = start(process.execPath, [retention, runtime]);
+  sidecar = startRetention();
   await eventually(
     () => Number(fs.readFileSync(heartbeat, "utf8")) > Date.now() - 5000,
     "Restarted retention CLI did not recover its stale heartbeat",
@@ -174,13 +180,13 @@ async function verifyMountedCommands() {
   console.log("Native SQLite retention, fresh/stale/recovered probes and init commands passed");
 }
 
-function tlsUpgrade(authorization) {
+function tlsUpgrade(authorization, agent) {
   return new Promise((resolve, reject) => {
     const request = https.request({
       host: "127.0.0.1",
       servername: "localhost",
       port: 4501,
-      ca: fs.readFileSync("/run/smoke-tls/cert.pem"),
+      agent,
       headers: {
         Connection: "Upgrade",
         Upgrade: "websocket",
@@ -207,11 +213,35 @@ function tlsUpgrade(authorization) {
 async function main() {
   assert.equal(process.getuid(), 10001);
   assert.equal(process.getgid(), 10001);
-  assert.equal(home, "/var/lib/codex");
-  assert.equal(runtime, "/var/lib/codex-runtime");
+  assert.equal(process.env.CODEX_HOME, home, "Native fixture CODEX_HOME must match Fleet");
+  assert.equal(
+    process.env.CODEX_SQLITE_HOME,
+    runtime,
+    "Native fixture SQLite home must match Fleet",
+  );
   assert.throws(() => fs.writeFileSync("/opt/devfeed/smoke-must-not-write", "x"), {
     code: "EROFS",
   });
+  const tlsDirectory = fs.statSync("/run/smoke-tls");
+  assert.equal(tlsDirectory.uid, 0);
+  assert.equal(tlsDirectory.gid, 10001);
+  assert.equal(tlsDirectory.mode & 0o777, 0o550);
+  for (const name of ["cert.pem", "key.pem"]) {
+    const filename = `/run/smoke-tls/${name}`;
+    const metadata = fs.statSync(filename);
+    assert.equal(metadata.uid, 0);
+    assert.equal(metadata.gid, 10001);
+    assert.equal(metadata.mode & 0o777, 0o440);
+    assert.ok(fs.readFileSync(filename).length > 0, "App UID/GID cannot read its TLS fixture");
+    assert.throws(() => fs.writeFileSync(filename, "read-only fixture probe"));
+  }
+  const tlsMount = fs
+    .readFileSync("/proc/self/mountinfo", "utf8")
+    .split("\n")
+    .map((line) => line.split(" "))
+    .find((fields) => fields[4] === "/run/smoke-tls");
+  assert.ok(tlsMount?.[5].split(",").includes("ro"), "TLS fixture volume must be read-only");
+  console.log("TLS root:10001 ownership, 0440 files, app read access and read-only mount passed");
   await verifyMountedCommands();
 
   let responseStream;
@@ -258,43 +288,46 @@ async function main() {
     const token = "synthetic-native-smoke-service-token-minimum-32-characters";
     // Run the SHIPPED entrypoint and production flags. Model overrides point only
     // to this in-container fixture; never override the thread-unload setting.
-    const server = start(
-      "sh",
-      [
-        "/opt/devfeed/entrypoint.sh",
-        "app-server",
-        "--listen",
-        "ws://127.0.0.1:4500",
-        "-c",
-        'history.persistence="none"',
-        "-c",
-        'model="mock-model"',
-        "-c",
-        'model_provider="native_smoke"',
-        "-c",
-        'model_providers.native_smoke.name="Isolated native smoke"',
-        "-c",
-        `model_providers.native_smoke.base_url="http://127.0.0.1:${model.address().port}/v1"`,
-        "-c",
-        'model_providers.native_smoke.wire_api="responses"',
-        "-c",
-        "model_providers.native_smoke.requires_openai_auth=false",
-        "-c",
-        "model_providers.native_smoke.supports_websockets=false",
-        "-c",
-        "model_providers.native_smoke.request_max_retries=0",
-        "-c",
-        "model_providers.native_smoke.stream_max_retries=0",
-      ],
-      {
-        env: {
-          ...process.env,
-          DEVFEED_CODEX_TLS_CERT: "/run/smoke-tls/cert.pem",
-          DEVFEED_CODEX_TLS_KEY: "/run/smoke-tls/key.pem",
-          DEVFEED_CODEX_AUTH_TOKEN: token,
-          RUST_LOG: "warn",
+    const server = track(
+      spawn(
+        "sh",
+        [
+          "/opt/devfeed/entrypoint.sh",
+          "app-server",
+          "--listen",
+          "ws://127.0.0.1:4500",
+          "-c",
+          'history.persistence="none"',
+          "-c",
+          'model="mock-model"',
+          "-c",
+          'model_provider="native_smoke"',
+          "-c",
+          'model_providers.native_smoke.name="Isolated native smoke"',
+          "-c",
+          `model_providers.native_smoke.base_url="http://127.0.0.1:${model.address().port}/v1"`,
+          "-c",
+          'model_providers.native_smoke.wire_api="responses"',
+          "-c",
+          "model_providers.native_smoke.requires_openai_auth=false",
+          "-c",
+          "model_providers.native_smoke.supports_websockets=false",
+          "-c",
+          "model_providers.native_smoke.request_max_retries=0",
+          "-c",
+          "model_providers.native_smoke.stream_max_retries=0",
+        ],
+        {
+          stdio: ["ignore", "pipe", "pipe"],
+          env: {
+            ...process.env,
+            DEVFEED_CODEX_TLS_CERT: "/run/smoke-tls/cert.pem",
+            DEVFEED_CODEX_TLS_KEY: "/run/smoke-tls/key.pem",
+            DEVFEED_CODEX_AUTH_TOKEN: token,
+            RUST_LOG: "warn",
+          },
         },
-      },
+      ),
     );
     try {
       const client = await connection();
@@ -310,9 +343,21 @@ async function main() {
       const account = await client.request("account/read", { refreshToken: false });
       assert.equal(typeof account.requiresOpenaiAuth, "boolean");
       assert.equal(account.account, null, "Native smoke must not have operator credentials");
-      assert.equal(await tlsUpgrade(), 401);
-      assert.equal(await tlsUpgrade("Bearer invalid"), 401);
-      assert.equal(await tlsUpgrade(`Bearer ${token}`), 101);
+      // The self-signed fixture must fail without its CA. Keep certificate and
+      // hostname verification enabled; CA bytes configure TLS, never HTTP data.
+      await assert.rejects(tlsUpgrade(`Bearer ${token}`), {
+        code: "DEPTH_ZERO_SELF_SIGNED_CERT",
+      });
+      const tlsAgent = new https.Agent({
+        secureContext: createSecureContext({ ca: fs.readFileSync("/run/smoke-tls/cert.pem") }),
+      });
+      try {
+        assert.equal(await tlsUpgrade(undefined, tlsAgent), 401);
+        assert.equal(await tlsUpgrade("Bearer invalid", tlsAgent), 401);
+        assert.equal(await tlsUpgrade(`Bearer ${token}`, tlsAgent), 101);
+      } finally {
+        tlsAgent.destroy();
+      }
 
       const startThread = async (owner) => {
         const profile = "devfeed-native-smoke";

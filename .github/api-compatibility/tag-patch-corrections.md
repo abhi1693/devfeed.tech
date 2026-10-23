@@ -7,7 +7,8 @@ remain enforced. The previous schema placed bounds inside nullable unions;
 oasdiff also reports moving those bounds to the non-null property as additions.
 
 The baseline runtime at `ff71700d275c2a8b69a77642b543b1a87955404c` rejects all
-nine corresponding inputs. These are documentation corrections, not new
+nine corresponding inputs. The later base `a5541d6242aea01b486a372c9372a5822b65cc6b`
+retains that same generated input schema. These are documentation corrections, not new
 request restrictions. `tag-patch-baseline.json` preserves that generated input
 schema. Native classifier probes verify these exact findings are allowed while
 new limits, patterns, required properties, nullability changes and changes to
@@ -16,9 +17,13 @@ the rejection rules and intentional omitted, empty, false and unlink behavior.
 
 The lines below use oasdiff's built-in method/path/description matching. Keep
 every finding specific; do not replace them with endpoint-wide or check-wide
-suppression. Raw findings remain in the API compatibility artifact. Remove
-this file, its config entry and baseline probes when comparisons against the
-old generated contract are retired; any future allowance needs its own review.
+suppression. Policy preparation copies these lines to a generated allowance file
+only when the actual `.api-base` checkout has one of those two commits and the
+exported tag PATCH request schema equals the frozen baseline. Every other base
+gets an empty file, including a future revision that restores the old schema.
+A failed preparation clears stale allowances and blocks all five native actions.
+Raw findings remain in the API compatibility artifact. Any future allowance
+needs its own review.
 
 <!-- prettier-ignore -->
 - PATCH /v1/admin/tags/{tag_id} request property `aliases` list-of-types was narrowed by removing types `null` from media type `application/json`

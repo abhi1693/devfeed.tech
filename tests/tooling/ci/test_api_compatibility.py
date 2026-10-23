@@ -3,6 +3,7 @@
 import copy
 import importlib.util
 import json
+import shutil
 import socket
 import subprocess
 from pathlib import Path
@@ -133,8 +134,24 @@ def test_classifier_probes_cover_nested_and_required_changes(tmp_path, monkeypat
 
     def run(command):
         assert command[command.index("--config") + 1] == str(ROOT / ".oasdiff.yaml")
-        assert "--err-ignore" not in command
         change = Path(command[3]).stem
+        approved = Path(command[command.index("--err-ignore") + 1]).read_text()
+        assert bool(approved) == (
+            change.startswith("tag-patch-")
+            and change
+            not in {
+                "tag-patch-other-null",
+                "tag-patch-other-type",
+                "tag-patch-other-endpoint",
+                "tag-patch-other-method",
+                "tag-patch-future-nullable-name",
+                "tag-patch-future-name-max-removed",
+                "tag-patch-future-slug-pattern-removed",
+                "tag-patch-unknown-revision",
+                "tag-patch-current-unknown-revision",
+                "tag-patch-altered-baseline",
+            }
+        )
         calls.append(change)
         code = contracts.PROBE_RESULTS[change]
         return subprocess.CompletedProcess(
@@ -163,6 +180,12 @@ def test_classifier_probes_cover_nested_and_required_changes(tmp_path, monkeypat
         "required-input-with-default",
         "required-response-removed",
         "nested-response-type",
+        "tag-patch-future-nullable-name",
+        "tag-patch-future-name-max-removed",
+        "tag-patch-future-slug-pattern-removed",
+        "tag-patch-unknown-revision",
+        "tag-patch-current-unknown-revision",
+        "tag-patch-altered-baseline",
     ],
 )
 def test_classifier_probes_reject_incorrect_compatibility_classifications(
@@ -187,7 +210,7 @@ def test_classifier_probes_reject_incorrect_compatibility_classifications(
 
 def test_ci_contracts_share_the_local_policy_and_keep_warn_as_the_gate():
     config = yaml.safe_load((ROOT / ".oasdiff.yaml").read_text())
-    assert set(config) == {"severity-levels", "err-ignore"}
+    assert set(config) == {"severity-levels"}
     levels = [
         line.strip()
         for line in (ROOT / config["severity-levels"]).read_text().splitlines()
@@ -206,11 +229,141 @@ def test_ci_contracts_share_the_local_policy_and_keep_warn_as_the_gate():
         if step.get("id") in {"public", "user", "admin", "mcp_public", "mcp_account"}
     ]
     assert len(checks) == 5
+    policy = next(step for step in job["steps"] if step.get("id") == "policy")
+    assert policy["run"].endswith("python scripts/ci/api_contracts.py prepare-policy")
     for step in checks:
         assert step["uses"].startswith("oasdiff/oasdiff-action/breaking@")
         assert step["with"]["fail-on"] == "WARN"
-        assert "err-ignore" not in step["with"]
+        assert step["with"]["err-ignore"] == "reports/api-compatibility/policy/approved-errors.md"
+        assert "steps.policy.outcome == 'success'" in step["if"]
+        assert "steps.probes.outcome == 'success'" in step["if"]
         assert "warn-ignore" not in step["with"]
+
+
+@pytest.fixture
+def policy_checkout(tmp_path, monkeypatch):
+    source = ROOT / ".github/api-compatibility"
+    shutil.copytree(source, tmp_path / ".github/api-compatibility")
+    document, _ = contracts.tag_patch_probe("tag-patch-schema-correction")
+    schema = document["paths"]["/v1/admin/tags/{tag_id}"]["patch"]["requestBody"]["content"][
+        "application/json"
+    ]["schema"]
+    document["components"] = {"schemas": {"TagPatch": schema}}
+    document["paths"]["/v1/admin/tags/{tag_id}"]["patch"]["requestBody"]["content"][
+        "application/json"
+    ]["schema"] = {"$ref": "#/components/schemas/TagPatch"}
+    monkeypatch.setattr(contracts, "ROOT", tmp_path)
+    base = contracts.report_directory("base")
+    base.mkdir(parents=True)
+    contracts.write_json(base / "admin.json", document)
+    output = contracts.report_directory("policy")
+    output.mkdir(parents=True)
+    (output / "approved-errors.md").write_text("stale previously granted corrections")
+    contracts.write_json(output / "decision.json", {"corrections_approved": True})
+    return tmp_path, output, document
+
+
+def checked_out_revision(monkeypatch, root, revision):
+    def run(command, **kwargs):
+        assert command == ["git", "-C", str(root / ".api-base"), "rev-parse", "--verify", "HEAD"]
+        assert kwargs == {"capture_output": True, "text": True, "check": True, "timeout": 10}
+        return subprocess.CompletedProcess(command, 0, f"{revision}\n", "")
+
+    monkeypatch.setattr(contracts.subprocess, "run", run)
+
+
+@pytest.mark.parametrize(
+    "revision",
+    [
+        "ff71700d275c2a8b69a77642b543b1a87955404c",
+        "a5541d6242aea01b486a372c9372a5822b65cc6b",
+    ],
+)
+def test_policy_requires_the_actual_known_checkout_and_exported_request_schema(
+    revision, policy_checkout, monkeypatch
+):
+    root, output, _ = policy_checkout
+    checked_out_revision(monkeypatch, root, revision)
+    # An environment claim cannot substitute for the actual Git checkout.
+    monkeypatch.setenv("BASE_SHA", "f" * 40)
+    contracts.prepare_policy(output)
+    assert (output / "approved-errors.md").read_text() == (
+        root / ".github/api-compatibility/tag-patch-corrections.md"
+    ).read_text()
+    assert json.loads((output / "decision.json").read_text()) == {
+        "base_revision": revision,
+        "corrections_approved": True,
+    }
+
+
+@pytest.mark.parametrize(
+    "mismatch", ["revision", "schema", "missing-operation", "different-ref", "ref-sibling"]
+)
+def test_policy_clears_stale_allowances_for_unproven_bases(mismatch, policy_checkout, monkeypatch):
+    root, output, document = policy_checkout
+    known = "ff71700d275c2a8b69a77642b543b1a87955404c"
+    revision = "f" * 40 if mismatch == "revision" else known
+    checked_out_revision(monkeypatch, root, revision)
+    monkeypatch.setenv("BASE_SHA", known)
+    if mismatch == "schema":
+        document["components"]["schemas"]["TagPatch"]["properties"]["name"]["title"] = "Changed"
+    elif mismatch == "missing-operation":
+        document["paths"] = {}
+    elif mismatch == "different-ref":
+        document["paths"]["/v1/admin/tags/{tag_id}"]["patch"]["requestBody"]["content"][
+            "application/json"
+        ]["schema"] = {"$ref": "#/components/schemas/OtherPatch"}
+    elif mismatch == "ref-sibling":
+        document["paths"]["/v1/admin/tags/{tag_id}"]["patch"]["requestBody"]["content"][
+            "application/json"
+        ]["schema"]["required"] = ["name"]
+    contracts.write_json(contracts.report_directory("base") / "admin.json", document)
+    contracts.prepare_policy(output)
+    assert (output / "approved-errors.md").read_text() == ""
+    assert json.loads((output / "decision.json").read_text()) == {
+        "base_revision": revision,
+        "corrections_approved": False,
+    }
+
+
+@pytest.mark.parametrize(
+    "failure", ["git-error", "git-timeout", "missing-export", "invalid-export", "invalid-baseline"]
+)
+def test_policy_preparation_errors_discard_stale_allowances(failure, policy_checkout, monkeypatch):
+    root, output, _ = policy_checkout
+    checked_out_revision(monkeypatch, root, "ff71700d275c2a8b69a77642b543b1a87955404c")
+    if failure.startswith("git-"):
+
+        def fail(*args, **kwargs):
+            if failure == "git-timeout":
+                raise subprocess.TimeoutExpired("git", 10)
+            raise subprocess.CalledProcessError(128, "git")
+
+        monkeypatch.setattr(contracts.subprocess, "run", fail)
+    elif failure == "missing-export":
+        (contracts.report_directory("base") / "admin.json").unlink()
+    elif failure == "invalid-export":
+        (contracts.report_directory("base") / "admin.json").write_text("invalid JSON")
+    else:
+        (root / ".github/api-compatibility/tag-patch-baseline.json").write_text("invalid JSON")
+    with pytest.raises((subprocess.SubprocessError, OSError, ValueError)):
+        contracts.prepare_policy(output)
+    assert (output / "approved-errors.md").read_text() == ""
+    assert not (output / "decision.json").exists()
+
+
+def test_policy_does_not_follow_a_stale_allowance_symlink(policy_checkout, monkeypatch):
+    root, output, _ = policy_checkout
+    checked_out_revision(monkeypatch, root, "f" * 40)
+    outside = root / "untouched.md"
+    outside.write_text("outside data")
+    approved = output / "approved-errors.md"
+    approved.unlink()
+    approved.symlink_to(outside)
+    contracts.prepare_policy(output)
+    assert approved.read_text() == ""
+    assert not approved.is_symlink()
+    assert outside.read_text() == "outside data"
 
 
 @pytest.mark.parametrize("findings", [[], [{"id": "request-property-pattern-added"}]])
@@ -249,14 +402,21 @@ def test_raw_reports_reject_tool_errors_and_inconsistent_results(
 
 
 @pytest.mark.parametrize(
-    "mode,revision", [("export", "head"), ("export", "base"), ("verify", None), ("report", None)]
+    "mode,revision",
+    [
+        ("export", "head"),
+        ("export", "base"),
+        ("verify", None),
+        ("report", None),
+        ("prepare-policy", None),
+    ],
 )
 def test_cli_returns_the_gate_result(mode, revision, tmp_path, monkeypatch):
     monkeypatch.setattr(contracts, "ROOT", tmp_path)
     directory = (
         tmp_path
         / "reports/api-compatibility"
-        / (revision or ("raw" if mode == "report" else "probes"))
+        / (revision or {"report": "raw", "verify": "probes", "prepare-policy": "policy"}[mode])
     )
     arguments = ["api_contracts", mode, *([revision] if revision else [])]
     monkeypatch.setattr("sys.argv", arguments)
@@ -264,11 +424,12 @@ def test_cli_returns_the_gate_result(mode, revision, tmp_path, monkeypatch):
     monkeypatch.setattr(contracts, "export_contracts", lambda output: calls.append(output))
     monkeypatch.setattr(contracts, "verify_diff_rules", lambda output: calls.append(output))
     monkeypatch.setattr(contracts, "report_breaking_changes", lambda output: calls.append(output))
+    monkeypatch.setattr(contracts, "prepare_policy", lambda output: calls.append(output))
     assert contracts.main() == 0
     assert calls == [directory]
 
 
-@pytest.mark.parametrize("mode", ["export", "verify", "report"])
+@pytest.mark.parametrize("mode", ["export", "verify", "report", "prepare-policy"])
 @pytest.mark.parametrize("escape", ["absolute", "traversal", "symlink"])
 def test_cli_rejects_output_escapes_before_work(mode, escape, tmp_path, monkeypatch):
     monkeypatch.setattr(contracts, "ROOT", tmp_path)
@@ -301,7 +462,7 @@ def test_cli_rejects_executable_override(tmp_path, monkeypatch):
     assert not output.exists()
 
 
-@pytest.mark.parametrize("name", ["head", "base", "probes", "raw"])
+@pytest.mark.parametrize("name", ["head", "base", "probes", "raw", "policy"])
 def test_fixed_report_destinations_reject_symlinks(name, tmp_path, monkeypatch):
     monkeypatch.setattr(contracts, "ROOT", tmp_path)
     root = tmp_path / "reports/api-compatibility"

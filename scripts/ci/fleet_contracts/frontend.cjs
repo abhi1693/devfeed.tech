@@ -1,6 +1,8 @@
 // Exercise the actual standalone image under Fleet's filesystem restrictions.
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
+const os = require("node:os");
+const path = require("node:path");
 
 const [action, component] = process.argv.slice(2);
 if (action === "ready") {
@@ -15,7 +17,15 @@ if (action === "ready") {
   assert.equal(action, "permissions");
   assert.equal(process.getuid(), 1000);
   assert.equal(process.getgid(), 1000);
-  fs.writeFileSync("/tmp/fleet-smoke", "writable tmp");
-  fs.writeFileSync(`/app/apps/${component}/.next/cache/fleet-smoke`, "writable cache");
+  for (const directory of [os.tmpdir(), `/app/apps/${component}/.next/cache`]) {
+    const temporary = fs.mkdtempSync(path.join(directory, "fleet-smoke-"));
+    try {
+      const filename = path.join(temporary, "probe");
+      fs.writeFileSync(filename, "writable mount", { flag: "wx" });
+      assert.equal(fs.readFileSync(filename, "utf8"), "writable mount");
+    } finally {
+      fs.rmSync(temporary, { recursive: true });
+    }
+  }
   assert.throws(() => fs.writeFileSync("/app/readonly", "bad"), { code: "EROFS" });
 }

@@ -4,24 +4,72 @@
     "repository": "https://github.com/abhi1693/home-lab",
     "revision": "76bd4d280e00031e31b05f7c2b3e7fa15b1135c2",
     "path": "kubernetes/projects/applications/apps/devfeed",
-    "files_sha256": {
-      "deployment-api.yaml": "2b0c7eea0820a8c60a0473f938359a5244b9793e484b016dbb4feac924c2eec2",
-      "deployment-admin-api.yaml": "f8687670a007c77c85f9051b7e917955df2297aa651169c1f29af47f47a4311f",
-      "deployment-user-api.yaml": "976f17ba426680f3d504520ca42ec83a55e86e682f426193b641724c6431d267",
-      "deployment-partner-api.yaml": "7a2b2ab7d5400cb429e11016c1734afb0c40d856414aab16c239e69b3919e1a2",
-      "deployment-read-model-pipeline.yaml": "3711a77548daacd29ef0501e396b6786fa5c3c12a1bd486bcdd1e76c06624a16",
-      "deployment-read-model-reports.yaml": "625bc236d3d5a49523fa490f4ef3c26efd4a9a27a3dbc31d159718a5c162ebbd",
-      "deployment-scheduler.yaml": "690e7920067fc8e688cd97d77f6a901d4bd824bc85117a461102a4c7fa0b662d",
-      "deployment-search-indexer.yaml": "a6b18be0dea90661a88705e0207b6f82242d7450bf650c35030d80f9b78a2748",
-      "deployment-worker-ai.yaml": "5cfc1974be5458cc5e9af5e7b39304a03aa549c7908bf1b6f500e671abbc88ed",
-      "deployment-worker-notification.yaml": "dab7f1a6c115f1a22cbdd7b1442c5bc895f4a8b0c111d4cb0ea67eff66f022ee",
-      "deployment-worker-article-enrichment.yaml": "d98d1918dfec8f072d3b63ea84c22da0621a3a05b5be650ce46893ee9c117d51",
-      "deployment-worker-images.yaml": "f3e1244624c70fde91c62dc831bd3e373dadc90812c87d4484074af6db49169e",
-      "deployment-worker-source-discovery.yaml": "bffce3ac079cca57fc9edf9e3476f36ed04ebf1a61fbc36fea560f645a6e92a6",
-      "migration-hook.yaml": "08db166e78dfc7b3409a6f1cd1f7d3bf50d657bf1c71e135291393d76d067a82",
-      "read-model-backfill-hook.yaml": "c171bcd3b16fe76cc883d02b786ef45d820434aa970761a7a1a93c743f33c074",
-      "deployment-web.yaml": "b5a0086e53c93cdbd4fe4e7350fc6c07bf6e08787d9ce87941fa3011b35cd7b9"
-    }
+    "files": [
+      {
+        "path": "deployment-api.yaml",
+        "sha256": "2b0c7eea0820a8c60a0473f938359a5244b9793e484b016dbb4feac924c2eec2"
+      },
+      {
+        "path": "deployment-admin-api.yaml",
+        "sha256": "f8687670a007c77c85f9051b7e917955df2297aa651169c1f29af47f47a4311f"
+      },
+      {
+        "path": "deployment-user-api.yaml",
+        "sha256": "976f17ba426680f3d504520ca42ec83a55e86e682f426193b641724c6431d267"
+      },
+      {
+        "path": "deployment-partner-api.yaml",
+        "sha256": "7a2b2ab7d5400cb429e11016c1734afb0c40d856414aab16c239e69b3919e1a2"
+      },
+      {
+        "path": "deployment-read-model-pipeline.yaml",
+        "sha256": "3711a77548daacd29ef0501e396b6786fa5c3c12a1bd486bcdd1e76c06624a16"
+      },
+      {
+        "path": "deployment-read-model-reports.yaml",
+        "sha256": "625bc236d3d5a49523fa490f4ef3c26efd4a9a27a3dbc31d159718a5c162ebbd"
+      },
+      {
+        "path": "deployment-scheduler.yaml",
+        "sha256": "690e7920067fc8e688cd97d77f6a901d4bd824bc85117a461102a4c7fa0b662d"
+      },
+      {
+        "path": "deployment-search-indexer.yaml",
+        "sha256": "a6b18be0dea90661a88705e0207b6f82242d7450bf650c35030d80f9b78a2748"
+      },
+      {
+        "path": "deployment-worker-ai.yaml",
+        "sha256": "5cfc1974be5458cc5e9af5e7b39304a03aa549c7908bf1b6f500e671abbc88ed"
+      },
+      {
+        "path": "deployment-worker-notification.yaml",
+        "sha256": "dab7f1a6c115f1a22cbdd7b1442c5bc895f4a8b0c111d4cb0ea67eff66f022ee"
+      },
+      {
+        "path": "deployment-worker-article-enrichment.yaml",
+        "sha256": "d98d1918dfec8f072d3b63ea84c22da0621a3a05b5be650ce46893ee9c117d51"
+      },
+      {
+        "path": "deployment-worker-images.yaml",
+        "sha256": "f3e1244624c70fde91c62dc831bd3e373dadc90812c87d4484074af6db49169e"
+      },
+      {
+        "path": "deployment-worker-source-discovery.yaml",
+        "sha256": "bffce3ac079cca57fc9edf9e3476f36ed04ebf1a61fbc36fea560f645a6e92a6"
+      },
+      {
+        "path": "migration-hook.yaml",
+        "sha256": "08db166e78dfc7b3409a6f1cd1f7d3bf50d657bf1c71e135291393d76d067a82"
+      },
+      {
+        "path": "read-model-backfill-hook.yaml",
+        "sha256": "c171bcd3b16fe76cc883d02b786ef45d820434aa970761a7a1a93c743f33c074"
+      },
+      {
+        "path": "deployment-web.yaml",
+        "sha256": "b5a0086e53c93cdbd4fe4e7350fc6c07bf6e08787d9ce87941fa3011b35cd7b9"
+      }
+    ]
   },
   "contracts": {
     "api": {

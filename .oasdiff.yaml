@@ -1,5 +1,3 @@
 # Shared by local regression probes and every API compatibility job.
 # Response enums may grow and response maxima may be removed; other checks keep upstream severities.
 severity-levels: .github/api-compatibility/severity-levels.txt
-# Exact corrections to a tag PATCH schema that advertised already-invalid requests.
-err-ignore: .github/api-compatibility/tag-patch-corrections.md
