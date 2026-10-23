@@ -6,8 +6,8 @@ suite="${1:-all}"
 shard_index="${2:-0}"
 shard_count="${3:-1}"
 case "$suite" in
-  all|unit|integration) ;;
-  *) echo 'Usage: python-tests.sh [all|unit|integration] [shard-index] [shard-count]' >&2; exit 2 ;;
+  all|unit|unit-merge|integration) ;;
+  *) echo 'Usage: python-tests.sh [all|unit|unit-merge|integration] [shard-index] [shard-count]' >&2; exit 2 ;;
 esac
 if ! [[ "$shard_index" =~ ^[0-9]+$ && "$shard_count" =~ ^[1-9][0-9]*$ ]] ||
    (( shard_index >= shard_count )); then
@@ -19,17 +19,10 @@ export DEVFEED_DATABASE_URL=postgresql+psycopg://ci@database.invalid/ci
 export DEVFEED_REDIS_URL=redis://redis.invalid/15
 backend_sources=$(uv run --locked --no-sync --no-build python -c \
   'import tomllib; print(",".join(tomllib.load(open("pyproject.toml", "rb"))["tool"]["coverage"]["run"]["source"]))')
-if [[ "$suite" != integration ]]; then
-  rm -rf reports/coverage
-  rm -f reports/python-unit.xml
-  mkdir -p reports/coverage/python-unit
+unit_reports() {
+  local unit_status="$1"
   unit_coverage=reports/coverage/python-unit/coverage.db
   backend_include='apps/*/src/**,packages/*/src/**'
-  unit_status=0
-  # Keep CI, migration and benchmark measurements for Sonar; the floor covers backend files.
-  COVERAGE_FILE="$unit_coverage" uv run --locked --no-sync --no-build coverage run \
-    --source="$backend_sources,scripts,migrations,loadtests" -m pytest -q -m 'not integration' \
-    --junitxml=reports/python-unit.xml || unit_status=$?
   report_status=0
   uv run --locked --no-sync --no-build coverage report --data-file="$unit_coverage" \
     --include="$backend_include" --skip-covered || report_status=$?
@@ -47,6 +40,51 @@ if [[ "$suite" != integration ]]; then
   if [[ "$unit_status" -ne 0 ]]; then exit "$unit_status"; fi
   if [[ "$report_status" -ne 0 ]]; then exit "$report_status"; fi
   uv run --locked --no-sync --no-build python scripts/ci/check_reports.py junit reports/python-unit.xml
+}
+if [[ "$suite" = unit-merge ]]; then
+  if [[ "$shard_index" -ne 0 ]]; then
+    echo 'Unit merge requires shard-index 0' >&2
+    exit 2
+  fi
+  rm -rf reports/coverage/python-unit reports/coverage/html
+  rm -f reports/python-unit.xml reports/coverage/unit.json reports/coverage/unit.xml \
+    reports/coverage/summary.json reports/coverage/summary.md
+  uv run --locked --no-sync --no-build python -m scripts.ci.unit_shards --count "$shard_count"
+  unit_reports 0
+  exit 0
+fi
+if [[ "$suite" != integration ]]; then
+  if [[ "$shard_count" -gt 1 ]]; then
+    if [[ "$suite" != unit ]]; then
+      echo 'Sharded runs require the unit or integration suite' >&2
+      exit 2
+    fi
+    directory="reports/coverage/python-unit-${shard_index}"
+    report="reports/python-unit-${shard_index}.xml"
+    rm -rf "$directory"
+    rm -f "$report"
+    mkdir -p "$directory"
+    unit_status=0
+    # A shard has only partial coverage. The complete merged unit job enforces the floor.
+    COVERAGE_FILE="$directory/coverage.db" uv run --locked --no-sync --no-build coverage run \
+      --source="$backend_sources,scripts,migrations,loadtests" -m pytest \
+      -p scripts.ci.pytest_shard --ci-shard-index "$shard_index" --ci-shard-count "$shard_count" \
+      --ci-shard-report "$directory/manifest.json" -q -m 'not integration' \
+      --junitxml="$report" || unit_status=$?
+    if [[ "$unit_status" -ne 0 ]]; then exit "$unit_status"; fi
+    uv run --locked --no-sync --no-build python scripts/ci/check_reports.py junit "$report"
+    exit 0
+  fi
+  rm -rf reports/coverage
+  rm -f reports/python-unit.xml
+  mkdir -p reports/coverage/python-unit
+  unit_coverage=reports/coverage/python-unit/coverage.db
+  unit_status=0
+  # Keep CI, migration and benchmark measurements for Sonar; the floor covers backend files.
+  COVERAGE_FILE="$unit_coverage" uv run --locked --no-sync --no-build coverage run \
+    --source="$backend_sources,scripts,migrations,loadtests" -m pytest -q -m 'not integration' \
+    --junitxml=reports/python-unit.xml || unit_status=$?
+  unit_reports "$unit_status"
 fi
 if [[ "$suite" = unit ]]; then exit 0; fi
 

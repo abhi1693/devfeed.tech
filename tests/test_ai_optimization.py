@@ -165,7 +165,11 @@ def test_topic_context_survives_transport_without_becoming_source_evidence(wire)
             validate_evidence(AnalysisResult.model_validate(restored), snapshot, candidates)
 
 
-@pytest.mark.parametrize("identifier", ["g0", "t100", str(uuid.uuid4()), None, []])
+@pytest.mark.parametrize(
+    "identifier",
+    ["g0", "t100", str(uuid.uuid4()), None, []],
+    ids=["unknown-kind", "unknown-position", "foreign-uuid", "null", "list"],
+)
 def test_wire_mapping_rejects_foreign_and_malformed_ids(identifier):
     with pytest.raises(InferenceValidationError):
         restore_identities(

@@ -297,13 +297,6 @@ def test_source_profile_and_source_filters(mcp_client):
         ("search", {"query": "python", "page": 81}),
         ("search", {"query": "python", "topics": [ID] * 21}),
         ("search", {"query": "python", "date_from": "2020-02-02", "date_to": "2020-01-01"}),
-        (
-            "search",
-            {
-                "query": "python",
-                "date_to": (datetime.now(UTC) + timedelta(days=1)).date().isoformat(),
-            },
-        ),
         ("list_topics", {"offset": -1}),
         ("list_sources", {"limit": 1000}),
     ],
@@ -312,6 +305,32 @@ def test_invalid_arguments_cannot_reach_upstream(mcp_client, name, arguments):
     client, state = mcp_client
     assert call(client, name, **arguments)["isError"]
     assert not state.requests
+
+
+@pytest.mark.parametrize("field", ["date_from", "date_to"])
+@pytest.mark.parametrize("days_ahead", [-1, 0, 1], ids=["yesterday", "today", "tomorrow"])
+def test_search_date_boundaries_use_the_runtime_utc_day(mcp_client, monkeypatch, field, days_ahead):
+    # The application already exists. Freeze its runtime clock just after UTC
+    # midnight so a long-running suite cannot turn a future date into today.
+    now = datetime(2026, 9, 2, 0, 0, 1, tzinfo=UTC)
+
+    class Clock:
+        @staticmethod
+        def now(timezone):
+            assert timezone is UTC
+            return now
+
+    monkeypatch.setattr("devfeed_mcp.server.datetime", Clock)
+    client, state = mcp_client
+    state.body = {"query": "python", "sections": {}}
+    value = (now + timedelta(days=days_ahead)).date().isoformat()
+    result = call(client, "search", query="python", **{field: value})
+    assert result["isError"] is (days_ahead > 0)
+    if days_ahead > 0:
+        assert not state.requests
+    else:
+        (request,) = state.requests
+        assert request.url.params[field] == value
 
 
 @pytest.mark.parametrize("status", [302, 404, 422, 429, 500, 503])

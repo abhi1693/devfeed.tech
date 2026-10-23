@@ -424,9 +424,13 @@ def test_role_removed_then_restored_can_sign_in_again_in_same_browser(oidc_app):
     assert state.client.get("/v1/admin/auth/me").json()["roles"] == ["superuser"]
 
 
-@pytest.mark.parametrize("auth_time", [None, True, "123", 1, int(time.time()) + 600])
+@pytest.mark.parametrize(
+    "auth_time",
+    [None, True, "123", 1, lambda: int(time.time()) + 600],
+    ids=["missing", "boolean", "numeric-string", "stale", "future"],
+)
 def test_reauthentication_rejects_stale_or_invalid_signed_auth_time(oidc_app, auth_time):
-    oidc_app.claims["auth_time"] = auth_time
+    oidc_app.claims["auth_time"] = auth_time() if callable(auth_time) else auth_time
     # UserInfo cannot repair a missing/stale signed authentication claim.
     oidc_app.info["auth_time"] = int(time.time())
     flow = begin(oidc_app, reauthenticate=True)

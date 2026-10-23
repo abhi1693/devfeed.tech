@@ -13,6 +13,25 @@ import pytest
 import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
+BACKEND_UNIT_JOBS = {"python-lint", "python-unit", "python-loadtest"}
+FRONTEND_UNIT_JOBS = {"admin-web", "partner-web", "user-web", "extensions"}
+BACKEND_INTEGRATION_JOBS = {
+    "python-integration",
+    "migration-upgrade",
+    "api-compat",
+    "api-fuzz",
+    "performance",
+    "recovery",
+}
+FRONTEND_INTEGRATION_JOBS = {
+    "reader-browser",
+    "admin-browser",
+    "partner-browser",
+    "browser-budgets",
+    "property",
+    "mutation",
+}
+SHARED_INTEGRATION_JOBS = {"live-browser", "dast", "security"}
 
 
 def load_script(name):
@@ -56,6 +75,107 @@ READER_SHA = "a" * 40
 
 def reader_jobs():
     return yaml.safe_load((ROOT / ".github/workflows/ci.yml").read_text())["jobs"]
+
+
+def job_needs(job):
+    dependencies = job.get("needs", [])
+    return {dependencies} if isinstance(dependencies, str) else set(dependencies)
+
+
+def job_ancestors(jobs, name, visiting=frozenset()):
+    assert name not in visiting, f"Cyclic CI dependency: {sorted(visiting)} -> {name}"
+    assert name in jobs, f"Unknown CI dependency: {name}"
+    dependencies = job_needs(jobs[name])
+    return dependencies.union(
+        *(job_ancestors(jobs, parent, visiting | {name}) for parent in dependencies)
+    )
+
+
+def test_ci_job_dependencies_form_a_complete_acyclic_graph():
+    jobs = reader_jobs()
+    for name in jobs:
+        job_ancestors(jobs, name)
+
+
+def test_backend_and_frontend_unit_lanes_start_independently():
+    jobs = reader_jobs()
+    for name in BACKEND_UNIT_JOBS:
+        assert job_ancestors(jobs, name).isdisjoint(FRONTEND_UNIT_JOBS)
+    for name in FRONTEND_UNIT_JOBS:
+        assert job_ancestors(jobs, name).isdisjoint(BACKEND_UNIT_JOBS)
+    partner_scripts = json.loads(jobs["partner-web"]["with"]["scripts"])
+    assert partner_scripts["build"] == "partner:build", "Browser checks belong after unit tests"
+
+
+@pytest.mark.parametrize("name", sorted(BACKEND_INTEGRATION_JOBS))
+def test_backend_integration_waits_for_backend_units_without_waiting_for_frontend(name):
+    jobs = reader_jobs()
+    ancestors = job_ancestors(jobs, name)
+    assert ancestors >= BACKEND_UNIT_JOBS
+    assert ancestors.isdisjoint(FRONTEND_UNIT_JOBS)
+
+
+@pytest.mark.parametrize("name", sorted(FRONTEND_INTEGRATION_JOBS))
+def test_frontend_integration_waits_for_frontend_units_without_waiting_for_backend(name):
+    jobs = reader_jobs()
+    ancestors = job_ancestors(jobs, name)
+    assert ancestors >= FRONTEND_UNIT_JOBS
+    assert ancestors.isdisjoint(BACKEND_UNIT_JOBS)
+
+
+@pytest.mark.parametrize("name", sorted(SHARED_INTEGRATION_JOBS))
+def test_live_boundary_integration_waits_for_both_unit_lanes(name):
+    jobs = reader_jobs()
+    assert job_ancestors(jobs, name) >= BACKEND_UNIT_JOBS | FRONTEND_UNIT_JOBS
+
+
+@pytest.mark.parametrize("name", ["containers", "release-images"])
+def test_image_work_starts_only_after_all_validation_lanes(name):
+    jobs = reader_jobs()
+    assert (
+        BACKEND_UNIT_JOBS
+        | FRONTEND_UNIT_JOBS
+        | BACKEND_INTEGRATION_JOBS
+        | FRONTEND_INTEGRATION_JOBS
+        | SHARED_INTEGRATION_JOBS
+        | {"reader-parity", "sonarqube"}
+    ) <= job_ancestors(jobs, name)
+
+
+@pytest.mark.parametrize(
+    "name",
+    sorted(BACKEND_INTEGRATION_JOBS | FRONTEND_INTEGRATION_JOBS | SHARED_INTEGRATION_JOBS)
+    + ["containers", "release-images"],
+)
+def test_downstream_work_cannot_override_failed_dependencies(name):
+    job = reader_jobs()[name]
+    condition = job.get("if", "")
+    # GitHub adds success() to ordinary event conditions. A status function
+    # disables that safeguard, so every direct prerequisite then needs a guard.
+    if any(status in condition for status in ("always()", "cancelled()", "failure()")):
+        for parent in job_needs(job):
+            assert f"needs.{parent}.result == 'success'" in condition, (name, parent)
+
+
+@pytest.mark.parametrize(
+    "name,workers,parallel",
+    [("python-unit-shards", 4, 4), ("python-integration", 6, 4), ("reader-browser", 6, 3)],
+)
+def test_scaled_worker_pools_keep_every_partition_and_bound_parallelism(name, workers, parallel):
+    job = reader_jobs()[name]
+    strategy = job["strategy"]
+    assert strategy["fail-fast"] is False, "Failed partitions must leave the other workers running"
+    assert strategy["max-parallel"] == parallel
+    matrix = strategy["matrix"]
+    assert len(matrix.get("include", matrix.get("shard", []))) == workers
+
+
+def test_performance_pool_limits_load_without_dropping_runner_pairs():
+    workflow = yaml.safe_load((ROOT / ".github/workflows/performance.yml").read_text())
+    strategy = workflow["jobs"]["measure"]["strategy"]
+    assert strategy["fail-fast"] is False
+    assert strategy["max-parallel"] == 2
+    assert strategy["matrix"] == {"repeat": [0, 1, 2]}
 
 
 def reader_step(name):
@@ -199,7 +319,7 @@ def test_reader_matrix_keeps_all_suites_and_strict_aggregate_and_report_boundari
     assert reader_step("Reports")["with"]["name"] == "reader-parity-${{ github.run_attempt }}"
     assert reader_step("Reports")["with"]["if-no-files-found"] == "error"
     assert "reader-parity" in jobs["required"]["needs"]
-    assert "reader-parity" in jobs["release-images"]["needs"]
+    assert "reader-parity" in job_ancestors(jobs, "release-images")
     assert jobs["admin-browser"]["name"] == "Admin browser tests"
     assert jobs["live-browser"]["name"] == "Live API browser tests"
     security = yaml.safe_load((ROOT / ".github/workflows/security.yml").read_text())
@@ -490,7 +610,7 @@ def test_integration_measures_ci_utilities_and_migrations_without_changing_backe
     script = (ROOT / "scripts/ci/python-tests.sh").read_text()
     assert script.count("backend_sources=$(") == 1
     assert script.index("backend_sources=$(") < script.index('if [[ "$suite" != integration ]]')
-    assert script.count('--source="$backend_sources,scripts,migrations,loadtests" -m pytest') == 2
+    assert script.count('--source="$backend_sources,scripts,migrations,loadtests" -m pytest') == 3
     assert "backend_include='apps/*/src/**,packages/*/src/**'" in script
     assert script.count('--include="$backend_include"') == 4
 
@@ -499,7 +619,7 @@ def test_real_histogram_contracts_use_an_isolated_environment_and_feed_sonar_cov
     jobs = reader_jobs()
     contracts = jobs["python-loadtest"]
     assert "--group loadtest" in contracts["with"]["sync-command"]
-    assert "--group loadtest" not in jobs["python-unit"]["with"]["sync-command"]
+    assert "--group loadtest" not in jobs["python-unit-shards"]["with"]["sync-command"]
     assert "if" not in contracts and "continue-on-error" not in contracts
     assert contracts["with"]["test-command"].replace("\\\n", "").split() == [
         "mkdir",
@@ -521,7 +641,7 @@ def test_real_histogram_contracts_use_an_isolated_environment_and_feed_sonar_cov
         "python-loadtest-arm64-${{ github.run_attempt }}"
     )
     assert all(
-        "python-loadtest" in jobs[name]["needs"]
+        "python-loadtest" in job_ancestors(jobs, name)
         for name in ("sonarqube", "required", "release-images")
     )
     download = next(
@@ -531,6 +651,58 @@ def test_real_histogram_contracts_use_an_isolated_environment_and_feed_sonar_cov
     )
     assert download["with"]["pattern"] == "python-*-arm64-${{ github.run_attempt }}"
     assert "needs.python-loadtest.result == 'success'" in jobs["sonarqube"]["if"]
+
+
+def test_unit_shards_merge_into_the_single_canonical_coverage_artifact():
+    jobs = reader_jobs()
+    workers = jobs["python-unit-shards"]
+    assert workers["strategy"]["matrix"] == {"shard": list(range(4))}
+    assert workers["with"]["test-command"] == (
+        "bash scripts/ci/python-tests.sh unit ${{ matrix.shard }} 4"
+    )
+    raw_artifact = workers["with"]["test-results-name"]
+    assert raw_artifact == "unit-shard-${{ matrix.shard }}-arm64-${{ github.run_attempt }}"
+    assert not raw_artifact.startswith("python-"), "Sonar must only combine the validated aggregate"
+    aggregate = jobs["python-unit"]
+    assert job_needs(aggregate) == {"python-unit-shards"}
+    download = next(
+        step for step in aggregate["steps"] if "download-artifact@" in step.get("uses", "")
+    )
+    assert download["with"] == {
+        "pattern": "unit-shard-*-arm64-${{ github.run_attempt }}",
+        "path": "reports/",
+        "merge-multiple": True,
+    }
+    assert "continue-on-error" not in download
+    upload = next(step for step in aggregate["steps"] if "upload-artifact@" in step.get("uses", ""))
+    assert upload["with"]["name"] == "python-unit-arm64-${{ github.run_attempt }}"
+    assert upload["with"]["if-no-files-found"] == "error"
+    assert "reports/python-unit.xml" in upload["with"]["path"]
+    assert "reports/coverage/python-unit/coverage.db" in upload["with"]["path"]
+    assert "reports/coverage/summary.json" in upload["with"]["path"]
+
+
+@pytest.mark.parametrize("result", ["success", "failure", "cancelled", "skipped", ""])
+def test_unit_aggregate_never_promotes_reports_from_unsuccessful_workers(tmp_path, result):
+    script = tmp_path / "scripts/ci/python-tests.sh"
+    script.parent.mkdir(parents=True)
+    script.write_text('set -e\ntest "$*" = "unit-merge 0 4"\nprintf merged > combined\n')
+    aggregate = reader_jobs()["python-unit"]
+    check = next(
+        step
+        for step in aggregate["steps"]
+        if step.get("name") == "Validate unit shards and enforce combined coverage"
+    )
+    assert check["env"] == {"UNIT_SHARDS_RESULT": "${{ needs.python-unit-shards.result }}"}
+    completed = subprocess.run(
+        ["bash", "-e", "-o", "pipefail", "-c", check["run"]],
+        cwd=tmp_path,
+        env={**os.environ, "UNIT_SHARDS_RESULT": result},
+        capture_output=True,
+        text=True,
+    )
+    assert (completed.returncode == 0) is (result == "success"), completed.stderr
+    assert (tmp_path / "combined").exists() is (result == "success")
 
 
 def test_case_count_plan_balances_all_current_files_deterministically():
@@ -605,6 +777,74 @@ def test_ci_shards_reject_invalid_partition(tmp_path, index, count):
 
 
 @pytest.mark.parametrize(
+    "name",
+    ["backend-unit", "frontend-unit", "backend-integration", "frontend-integration", "validation"],
+)
+@pytest.mark.parametrize(
+    "event,ref_type,sonar_expected",
+    [
+        ("pull_request", "branch", True),
+        ("pull_request", "branch", False),
+        ("push", "branch", True),
+        ("push", "tag", False),
+        ("workflow_dispatch", "tag", False),
+        ("merge_group", "branch", False),
+        ("schedule", "branch", False),
+    ],
+)
+def test_stage_gates_reject_failed_cancelled_missing_and_unexpectedly_skipped_dependencies(
+    name, event, ref_type, sonar_expected
+):
+    gate = reader_jobs()[name]
+    assert gate["if"] == "always() && !cancelled()"
+    scripts = [step["run"] for step in gate["steps"] if "run" in step]
+    assert len(scripts) == 1
+    # Intentional event skips must be accepted; a skipped applicable check must
+    # block later work just as a failure does. Execute the actual workflow gate.
+    applicable = {
+        "api-compat": event in {"pull_request", "merge_group"},
+        "api-fuzz": event in {"pull_request", "merge_group"},
+        "performance": event == "pull_request",
+        "recovery": event in {"pull_request", "merge_group", "push"},
+        "dast": event in {"pull_request", "merge_group", "push"},
+        "sonarqube": sonar_expected,
+        **dict.fromkeys(
+            ("browser-budgets", "property", "mutation"),
+            event in {"pull_request", "merge_group"} or (event == "push" and ref_type == "branch"),
+        ),
+    }
+    results = {
+        parent: {"result": "success" if applicable.get(parent, True) else "skipped"}
+        for parent in job_needs(gate)
+    }
+
+    def evaluate():
+        return subprocess.run(
+            ["bash", "-e", "-o", "pipefail", "-c", scripts[0]],
+            env={
+                **os.environ,
+                "EVENT_NAME": event,
+                "REF_TYPE": ref_type,
+                "SONAR_EXPECTED": str(sonar_expected).lower(),
+                "RESULTS": json.dumps(results),
+            },
+            capture_output=True,
+            text=True,
+        )
+
+    completed = evaluate()
+    assert completed.returncode == 0, completed.stdout + completed.stderr
+    for parent in list(results):
+        expected = results[parent]["result"]
+        for unexpected in {"success", "failure", "cancelled", "skipped"} - {expected}:
+            results[parent] = {"result": unexpected}
+            assert evaluate().returncode != 0, (name, event, ref_type, parent, unexpected)
+        del results[parent]
+        assert evaluate().returncode != 0, (name, event, ref_type, parent, "missing")
+        results[parent] = {"result": expected}
+
+
+@pytest.mark.parametrize(
     "event,ref_type,sonar_expected",
     [
         ("pull_request", "branch", True),
@@ -626,8 +866,15 @@ def test_ci_required_accepts_only_the_expected_successes(
     gate = textwrap.dedent(workflow.split("  required:\n", 1)[1].split("        run: |\n", 1)[1])
     release = event == "push" and ref_type == "tag"
     results = {
+        "python-lint": {"result": "success"},
+        "python-unit-shards": {"result": "success"},
         "python-unit": {"result": "success"},
         "python-loadtest": {"result": "success"},
+        "backend-unit": {"result": "success"},
+        "frontend-unit": {"result": "success"},
+        "backend-integration": {"result": "success"},
+        "frontend-integration": {"result": "success"},
+        "validation": {"result": "success"},
         "coverage-report": {"result": "success" if comment_required else "skipped"},
         "admin-web": {"result": "success"},
         "partner-web": {"result": "success"},
@@ -643,6 +890,7 @@ def test_ci_required_accepts_only_the_expected_successes(
         "migration-upgrade": {"result": "success"},
         "reader-parity": {"result": "success"},
         "admin-browser": {"result": "success"},
+        "partner-browser": {"result": "success"},
         "live-browser": {"result": "success"},
         "security": {"result": "success"},
         "dast": {
@@ -681,8 +929,7 @@ def test_ci_required_accepts_only_the_expected_successes(
         .split("    runs-on:", 1)[0]
     )
     assert {line.strip().removeprefix("- ") for line in declared_needs.splitlines()} == set(results)
-    release_needs = workflow.split("  release-images:\n", 1)[1].split("    if:", 1)[0]
-    assert "      - recovery\n" in release_needs
+    assert "recovery" in job_ancestors(reader_jobs(), "release-images")
 
     def evaluate():
         return subprocess.run(

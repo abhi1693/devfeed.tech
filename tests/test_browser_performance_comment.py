@@ -160,11 +160,12 @@ def test_browser_comment_uses_pinned_sticky_action_without_executing_pr_code():
     assert "path: browser-comment.md\n" in job
 
 
-def test_browser_budgets_run_independently_and_keep_measurement_and_report_gates():
+def test_browser_budgets_follow_frontend_units_and_keep_measurement_and_report_gates():
     workflow = yaml.safe_load((ROOT / ".github/workflows/ci.yml").read_text())
     job = workflow["jobs"]["browser-budgets"]
-    assert not job.get("needs")
-    assert "needs." not in job["if"]
+    assert job["needs"] == "frontend-unit"
+    assert "success()" in job["if"]
+    assert "always()" not in job["if"]
     assert "github.event_name == 'pull_request'" in job["if"]
     assert "github.event_name == 'merge_group'" in job["if"]
     assert "github.event_name == 'push' && github.ref == 'refs/heads/master'" in job["if"]

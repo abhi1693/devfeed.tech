@@ -142,6 +142,7 @@ def test_first_snapshot_page_keeps_snapshot_order_and_uses_only_current_read_res
         f"latest-v1:{uuid.uuid4()}:-1",
         f"latest-v1:{uuid.uuid4()}:481",
     ],
+    ids=["old-format", "malformed-generation", "negative-offset", "offset-too-large"],
 )
 def test_invalid_snapshot_cursor_is_rejected_before_article_reads(cache, cursor):
     session = CurrentArticles()
