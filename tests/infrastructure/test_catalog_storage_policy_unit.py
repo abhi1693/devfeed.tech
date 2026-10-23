@@ -125,6 +125,14 @@ def test_invalid_redis_generation_never_falls_back_to_a_shareable_cache_key(bad_
     redis.eval.assert_not_called()
 
 
+def test_invalidation_rejects_the_feed_storage_domain_before_touching_redis():
+    redis = Mock()
+    store = cache.ResponseCache(redis, "unit")
+    with pytest.raises(ValueError, match="Unknown cache domain"):
+        store.invalidate("feed")
+    assert not redis.mock_calls
+
+
 @pytest.mark.parametrize("entries,ttl", [([], 30), ([b"one"] * 501, 30), ([b"one"], 0)])
 def test_invalid_feed_sequences_are_rejected_before_redis(entries, ttl):
     redis = Mock()

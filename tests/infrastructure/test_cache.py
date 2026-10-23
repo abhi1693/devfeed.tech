@@ -247,7 +247,11 @@ def test_cache_outage_falls_back_and_uses_short_circuit(cached_client, response_
     assert client.get("/v1/feed").headers["x-cache"] == "HIT"
 
 
-def test_late_loader_cannot_restore_invalidated_data(response_cache):
+@pytest.mark.parametrize(
+    "runtime", [None, SimpleNamespace(instruments={})], ids=["no-runtime", "metrics-disabled"]
+)
+def test_late_loader_cannot_restore_invalidated_data(response_cache, monkeypatch, runtime):
+    monkeypatch.setattr(cache, "current", lambda: runtime)
     lookup = response_cache.lookup("/v1/feed", "public")
     assert lookup.token
     response_cache.invalidate()
