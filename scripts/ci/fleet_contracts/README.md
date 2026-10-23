@@ -37,6 +37,11 @@ setup plus the indexer against real Typesense. Dedicated worker images start
 their own commands and health probes. All API images execute their Fleet command
 and must reject an incompatible database revision. Frontends start with their
 writable cache/tmp mounts, and web also executes its preStop command.
+Frontend shutdown enables `DEBUG=next:start-server` and requires Next's
+`next:start-server start-server process cleanup finished` message plus its
+intentional SIGTERM exit status 143
+after asynchronous cleanup. Backend processes must still exit 0. Unexpected
+statuses, forced SIGKILL (137), and an OOM-killed container fail the smoke gate.
 
 CA initialization writes the combined trust bundle as UID/GID 10001 into an owned
 Docker volume prepared as root:10001, mode 0770, matching the group-writable

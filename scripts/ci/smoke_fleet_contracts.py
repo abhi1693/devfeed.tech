@@ -116,14 +116,18 @@ class Smoke:
     def execute(self, name, *args, check=True):
         return command("docker", "exec", name, *args, timeout=30, check=check)
 
-    def stop(self, name):
+    def stop(self, name, *, expected_exit=0, required_log=None):
         command("docker", "stop", "-t", "15", name, timeout=25)
-        status = command(
-            "docker", "inspect", "--format", "{{.State.ExitCode}}", name
-        ).stdout.strip()
-        if status != "0":
-            logs = command("docker", "logs", name).stdout
-            raise RuntimeError(f"Native command did not shut down cleanly: {status}\n{logs}")
+        state = json.loads(command("docker", "inspect", "--format", "{{json .State}}", name).stdout)
+        output = command("docker", "logs", name)
+        logs = output.stdout + output.stderr
+        if state["ExitCode"] != expected_exit or state["OOMKilled"]:
+            raise RuntimeError(
+                f"Native command did not shut down cleanly: {state['ExitCode']} "
+                f"(expected {expected_exit}, OOMKilled={state['OOMKilled']})\n{logs}"
+            )
+        if required_log and required_log not in logs:
+            raise RuntimeError(f"Native command did not complete cleanup: {required_log}\n{logs}")
 
     def wait_probe(self, name, probe, seconds=45):
         deadline = time.monotonic() + seconds
@@ -405,16 +409,22 @@ class Smoke:
         )
 
     def frontend(self):
-        name = self.start(frontend=True)
+        name = self.start(frontend=True, env={"DEBUG": "next:start-server", "DEBUG_COLORS": "0"})
         probe = ["node", "/fleet/frontend.cjs", "ready", self.component]
         self.wait_probe(name, probe, seconds=60)
         self.execute(name, "node", "/fleet/frontend.cjs", "permissions", self.component)
         if self.component == "web":
             self.execute(name, *CONTRACTS["web-prestop"]["command"])
-        self.stop(name)
+        # Next explicitly exits with 128 + signal after its asynchronous cleanup.
+        self.stop(
+            name,
+            expected_exit=128 + signal.SIGTERM,
+            required_log="next:start-server start-server process cleanup finished",
+        )
         print(
             f"PASS native Fleet {self.component} read-only startup/cache/tmp"
             + (" and preStop" if self.component == "web" else "")
+            + "; Next SIGTERM cleanup completed with exit 143"
         )
 
 
