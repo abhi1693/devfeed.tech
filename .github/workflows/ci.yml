@@ -1202,7 +1202,10 @@ jobs:
   containers:
     name: ARM64 image checks
     needs: validation
-    if: github.event_name != 'push' || github.ref_type != 'tag'
+    # Event-specific skips upstream must not suppress an already successful gate.
+    if: >-
+      ${{ !cancelled() && needs.validation.result == 'success' &&
+          (github.event_name != 'push' || github.ref_type != 'tag') }}
     uses: ./.github/workflows/containers.yml
     permissions:
       contents: read
@@ -1229,7 +1232,16 @@ jobs:
       - security
       - recovery
       - dast
-    if: github.event_name == 'push' && github.ref_type == 'tag'
+    if: >-
+      ${{ !cancelled() && github.event_name == 'push' && github.ref_type == 'tag' &&
+          needs.validation.result == 'success' && needs.python-unit.result == 'success' &&
+          needs.python-loadtest.result == 'success' && needs.admin-web.result == 'success' &&
+          needs.partner-web.result == 'success' && needs.user-web.result == 'success' &&
+          needs.extensions.result == 'success' && needs.python-integration.result == 'success' &&
+          needs.migration-upgrade.result == 'success' && needs.reader-parity.result == 'success' &&
+          needs.admin-browser.result == 'success' && needs.live-browser.result == 'success' &&
+          needs.security.result == 'success' && needs.recovery.result == 'success' &&
+          needs.dast.result == 'success' }}
     uses: ./.github/workflows/containers.yml
     permissions:
       contents: read
