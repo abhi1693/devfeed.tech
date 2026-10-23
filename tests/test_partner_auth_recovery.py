@@ -6,6 +6,7 @@ from urllib.parse import parse_qs, urlsplit
 
 import pytest
 from devfeed_partner_api import auth
+from devfeed_partner_api.config import Settings
 from redis.exceptions import RedisError
 from test_partner_portal_auth import ORIGIN, begin, complete
 from test_partner_portal_auth import oidc_app as oidc_app
@@ -29,11 +30,24 @@ def test_auth_config_advertises_only_configured_identity_providers(oidc_app, pro
     assert oidc_app.requests == []
 
 
-def test_disabled_auth_exposes_no_providers_or_session_access(oidc_app):
-    oidc_app.settings.oidc_client_id = ""
-    oidc_app.settings.oidc_github_idp_id = "github-provider"
+@pytest.mark.parametrize("field", ["oidc_client_id", "oidc_organization_id"])
+@pytest.mark.parametrize("value", [None, "", "   "], ids=["missing", "empty", "whitespace"])
+def test_disabled_auth_exposes_no_providers_or_session_access(oidc_app, monkeypatch, field, value):
+    assert auth.oidc.configured(oidc_app.settings)
+    settings = Settings(
+        _env_file=None,
+        **{
+            **oidc_app.settings.model_dump(),
+            "oidc_github_idp_id": "github-provider",
+            field: value,
+        },
+    )
+    assert getattr(settings, field) is None
+    monkeypatch.setattr(auth, "get_settings", lambda: settings)
 
-    assert oidc_app.client.get("/v1/partner/auth/config").json() == {
+    response = oidc_app.client.get("/v1/partner/auth/config")
+    assert response.status_code == 200
+    assert response.json() == {
         "enabled": False,
         "providers": [],
     }
@@ -42,6 +56,8 @@ def test_disabled_auth_exposes_no_providers_or_session_access(oidc_app):
         assert response.status_code == 503
         assert response.json()["detail"] == "Partner authentication is not configured"
     assert not oidc_app.store.values and not oidc_app.requests
+    assert not oidc_app.client.cookies
+    oidc_app.register_user.assert_not_called()
 
 
 def test_unconfigured_social_provider_cannot_start_a_login_flow(oidc_app):
