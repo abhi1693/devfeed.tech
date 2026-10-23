@@ -36,6 +36,64 @@ it("rejects declared oversize bodies before acquiring a reader and cancels their
   expect(cancel).toHaveBeenCalledOnce();
 });
 
+it.each(["declared", "streamed", "deadline"])(
+  "defers %s rejection cancellation until response completion without reading more input",
+  async (outcome) => {
+    vi.useFakeTimers();
+    const cancel = vi.fn(() => new Promise<void>(() => undefined));
+    const pull = vi.fn();
+    const callbacks: (() => void)[] = [];
+    const stream = new ReadableStream<Uint8Array>(
+      {
+        start(controller) {
+          if (outcome === "streamed") controller.enqueue(new Uint8Array(2049));
+        },
+        pull,
+        cancel,
+      },
+      { highWaterMark: 0 },
+    );
+    const incoming = request(
+      stream,
+      outcome === "declared" ? { "Content-Length": "2049" } : undefined,
+    );
+    const pending = readRequestBody(incoming, 2048, 2000, incoming.signal, (callback) => {
+      callbacks.push(callback);
+    });
+    const rejection = expect(pending).rejects.toBeInstanceOf(
+      outcome === "deadline" ? RequestBodyTimeout : RequestBodyTooLarge,
+    );
+    if (outcome === "deadline") await vi.advanceTimersByTimeAsync(2000);
+    await rejection;
+    expect(callbacks).toHaveLength(1);
+    expect(cancel).not.toHaveBeenCalled();
+    expect(incoming.body!.locked).toBe(false);
+    expect(vi.getTimerCount()).toBe(0);
+    expect(pull).toHaveBeenCalledTimes(outcome === "deadline" ? 1 : 0);
+    callbacks[0]();
+    expect(cancel).toHaveBeenCalledOnce();
+  },
+);
+
+it("cancels an aborted request immediately even with a response-completion hook", async () => {
+  const controller = new AbortController();
+  const cancel = vi.fn();
+  const afterResponse = vi.fn();
+  const incoming = request(
+    new ReadableStream<Uint8Array>({ cancel }),
+    undefined,
+    controller.signal,
+  );
+  const pending = readRequestBody(incoming, 2048, 2000, incoming.signal, afterResponse);
+  const reason = new DOMException("Reader disconnected", "AbortError");
+  const rejected = expect(pending).rejects.toBe(reason);
+  controller.abort(reason);
+  await rejected;
+  expect(cancel).toHaveBeenCalledOnce();
+  expect(afterResponse).not.toHaveBeenCalled();
+  expect(incoming.body!.locked).toBe(false);
+});
+
 it("counts accumulated chunk bytes, distrusts smaller declarations and cancels at the limit", async () => {
   const cancel = vi.fn();
   const stream = new ReadableStream<Uint8Array>({

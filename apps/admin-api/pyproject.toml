@@ -1,15 +1,15 @@
 [project]
 name = "devfeed-admin-api"
-version = "0.1.1"
+version = "0.1.2"
 description = "Isolated DevFeed administration and OIDC service"
 requires-python = ">=3.12"
 dependencies = [
-    "devfeed-core", "devfeed-http[identity,uploads]", "fastapi>=0.143.3,<1", "uvicorn[standard]>=0.34,<1",
-    "websockets>=15,<18", "rq>=2.8,<3",
+    "devfeed-core", "devfeed-http[identity,uploads]", "fastapi>=0.161.0,<1", "uvicorn[standard]>=0.54.0,<1",
+    "websockets>=17.3,<18", "rq>=2.12.0,<3",
 ]
 
 [build-system]
-requires = ["setuptools>=80,<85"]
+requires = ["setuptools>=84.2.1,<85"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools.package-dir]

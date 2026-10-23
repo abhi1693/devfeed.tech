@@ -1,6 +1,6 @@
 [project]
 name = "devfeed-search-indexer"
-version = "0.1.1"
+version = "0.1.2"
 description = "Durable Typesense index projection worker"
 requires-python = ">=3.12"
 dependencies = ["devfeed-core"]
@@ -9,7 +9,7 @@ dependencies = ["devfeed-core"]
 devfeed-search-indexer = "devfeed_search_indexer.main:main"
 
 [build-system]
-requires = ["setuptools>=80,<85"]
+requires = ["setuptools>=84.2.1,<85"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools.package-dir]

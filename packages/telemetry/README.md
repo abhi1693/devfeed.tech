@@ -28,3 +28,12 @@ adding `admin` or `partner` for those applications. For built extensions, run
 adding `DEVFEED_EXTENSION_BROWSER=edge` for Edge. These checks use local collector
 and API fixtures, inspect actual emitted labels, and verify that identifying
 values never enter route labels.
+
+## Dependency compatibility
+
+The browser uses Grafana Faro Web Tracing 2.13, whose current stable release depends on the
+OpenTelemetry 2.x SDK and requires API versions below 1.10. Keep the shared JavaScript telemetry
+family on the latest compatible SDK 2.12/API 1.9.1 and experimental 0.223 releases. SDK 3.0/API 1.10
+were evaluated for the 0.1.2 update but produce incompatible browser/server peer requirements.
+Move this family together when Faro supports SDK 3. The server already uses the consolidated
+`@opentelemetry/sdk-trace` package and its exporter-options constructor.

@@ -1,5 +1,18 @@
 # Shared HTTP contracts
 
+## Request body limits
+
+The shared body reader bounds raw bytes before decoding, checks declared and streamed sizes,
+and enforces one total deadline. Next gateways pass `after` as their response-completion hook
+and close rejected upload connections. This sends the complete HTTP 413/408 before cancelling
+input; immediate cancellation can destroy the incoming HTTP socket before the response is sent.
+Cancellation is never awaited, and rejection does not drain or retain additional upload data.
+Non-HTTP consumers, including extensions, keep immediate cancellation and the same limits.
+
+Run `node apps/web/tests/browser/reader-gateway.mjs` after the production web build to verify
+actual HTTP responses at the ordinary, avatar and placement byte limits and upload deadlines.
+The fixture uses only its local upstream and rejects any oversized or incomplete upstream call.
+
 ## Reader destinations
 
 The reader destination contract in [reader-destinations.json](src/reader-destinations.json)

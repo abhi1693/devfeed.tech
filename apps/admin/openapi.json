@@ -15060,58 +15060,30 @@
         "additionalProperties": false,
         "properties": {
           "aliases": {
-            "anyOf": [
-              {
-                "items": {
-                  "maxLength": 100,
-                  "minLength": 1,
-                  "type": "string"
-                },
-                "maxItems": 100,
-                "type": "array"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Aliases"
+            "items": {
+              "maxLength": 100,
+              "minLength": 1,
+              "type": "string"
+            },
+            "maxItems": 100,
+            "title": "Aliases",
+            "type": "array"
           },
           "auto_link_topic": {
-            "anyOf": [
-              {
-                "type": "boolean"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Auto Link Topic"
+            "title": "Auto Link Topic",
+            "type": "boolean"
           },
           "name": {
-            "anyOf": [
-              {
-                "maxLength": 100,
-                "minLength": 1,
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Name"
+            "maxLength": 100,
+            "minLength": 1,
+            "title": "Name",
+            "type": "string"
           },
           "slug": {
-            "anyOf": [
-              {
-                "maxLength": 100,
-                "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Slug"
+            "maxLength": 100,
+            "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$",
+            "title": "Slug",
+            "type": "string"
           },
           "topic_id": {
             "anyOf": [
@@ -16844,7 +16816,7 @@
   "info": {
     "description": "Private administration API. OIDC sessions and CSRF protection required.",
     "title": "DevFeed Admin API",
-    "version": "0.1.1"
+    "version": "0.1.2"
   },
   "openapi": "3.1.0",
   "paths": {

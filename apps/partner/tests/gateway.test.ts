@@ -23,6 +23,8 @@ import * as callback from "../src/app/api/v1/partner/auth/callback/route";
 import * as me from "../src/app/api/v1/partner/auth/me/route";
 
 vi.mock("@devfeed/telemetry/propagation", () => ({ traceHeaders: () => ({}) }));
+// Unit requests have no Next response lifecycle; reader-gateway.mjs covers HTTP completion.
+vi.mock("next/server", () => ({ after: (callback: () => void) => callback() }));
 
 const accountId = "11111111-1111-4111-8111-111111111111";
 const productId = "22222222-2222-4222-8222-222222222222";

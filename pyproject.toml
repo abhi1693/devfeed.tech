@@ -1,10 +1,10 @@
 [project]
 name = "devfeed"
-version = "0.1.1"
+version = "0.1.2"
 description = "Developer news aggregation monorepo"
 requires-python = ">=3.12"
 dependencies = [
-    "black>=26.5.1",
+    "black>=26.10.1",
 ]
 
 [tool.uv]
@@ -63,7 +63,7 @@ devfeed-images-worker = { workspace = true }
 devfeed-source-discovery-worker = { workspace = true }
 
 [dependency-groups]
-coverage = ["coverage[toml]>=7.16.2,<8"]
+coverage = ["coverage[toml]>=7.17.0,<8"]
 dev = [
   { include-group = "coverage" },
   "devfeed-api",
@@ -77,20 +77,20 @@ dev = [
   "devfeed-article-enrichment-worker",
   "devfeed-images-worker",
   "devfeed-source-discovery-worker",
-  "pytest>=8.3,<10",
-  "httpx>=0.28,<1",
-  "ruff>=0.12,<1",
-  "mypy>=1.15,<3",
-  "pre-commit>=4.3,<5",
-  "jsonschema>=4.23,<5",
-  "testcontainers>=4.10,<5",
-  "pytest-cov>=7,<8",
+  "pytest>=9.1.1,<10",
+  "httpx>=0.28.1,<1",
+  "ruff>=0.17.2,<1",
+  "mypy>=2.4.0,<3",
+  "pre-commit>=4.7.0,<5",
+  "jsonschema>=4.26.0,<5",
+  "testcontainers>=4.15.0,<5",
+  "pytest-cov>=7.1.0,<8",
 ]
 fuzz = [
-    "schemathesis==4.31.1",
+    "schemathesis==4.32.4",
 ]
 loadtest = [
-    "locust==2.46.7",
+    "locust==2.47.0",
 ]
 
 [tool.ruff]

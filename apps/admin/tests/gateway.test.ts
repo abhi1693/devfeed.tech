@@ -3,6 +3,9 @@ import { gateway } from "@/lib/server/gateway";
 import { adminFetch, ApiError, returnToLogin } from "@/lib/api/client";
 import { adminAuthLogout } from "@/lib/api/generated/admin";
 
+// Unit requests have no Next response lifecycle; reader-gateway.mjs covers HTTP completion.
+vi.mock("next/server", () => ({ after: (callback: () => void) => callback() }));
+
 const productAdImage = [
   "v1",
   "admin",
@@ -44,6 +47,7 @@ describe("isolated API gateway", () => {
       const response = await gateway(incoming, path);
       expect(response.status).toBe(413);
       expect(response.headers.get("cache-control")).toBe("no-store");
+      expect(response.headers.get("connection")).toBe("close");
     }
     expect(fetcher).not.toHaveBeenCalled();
   });

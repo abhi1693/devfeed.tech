@@ -12,7 +12,14 @@ export class RequestBodyTimeout extends Error {
   }
 }
 
-async function collectBody(reader: ReadableStreamDefaultReader<Uint8Array>, limit: number) {
+/** HTTP adapters must also close rejected connections before cancelling their input. */
+export type AfterResponse = (callback: () => void) => void;
+
+async function collectBody(
+  reader: ReadableStreamDefaultReader<Uint8Array>,
+  limit: number,
+  cancel: () => void,
+) {
   const chunks: Uint8Array[] = [];
   let size = 0;
   while (true) {
@@ -22,7 +29,7 @@ async function collectBody(reader: ReadableStreamDefaultReader<Uint8Array>, limi
     size += value.byteLength;
     if (size > limit) {
       // Peer disconnection must not turn an oversized request into an accepted body.
-      void reader.cancel().catch(() => undefined);
+      cancel();
       throw new RequestBodyTooLarge();
     }
     chunks.push(value);
@@ -42,22 +49,37 @@ export async function readRequestBody(
   limit: number,
   timeoutMs?: number,
   signal: AbortSignal = request.signal,
+  afterResponse?: AfterResponse,
 ): Promise<ArrayBuffer> {
   signal.throwIfAborted();
+  let reader: ReadableStreamDefaultReader<Uint8Array> | undefined;
+  let cancelled = false;
+  const cancel = (defer = true) => {
+    if (cancelled) return;
+    cancelled = true;
+    const close = () => {
+      // A deferred callback runs after finally has released the reader lock.
+      void (reader ? reader.cancel() : request.body?.cancel())?.catch(() => undefined);
+    };
+    // Cancelling Node's incoming stream can destroy its HTTP socket. Next's
+    // response-completion hook lets the 413/408 finish before closing input.
+    if (defer && afterResponse) afterResponse(close);
+    else close();
+  };
   if (Number(request.headers.get("content-length")) > limit) {
-    void request.body?.cancel().catch(() => undefined);
+    cancel();
     throw new RequestBodyTooLarge();
   }
-  const reader = request.body?.getReader();
+  reader = request.body?.getReader();
   if (!reader) return new ArrayBuffer(0);
   let timer: ReturnType<typeof setTimeout> | undefined;
   let abort: (() => void) | undefined;
   try {
-    const body = collectBody(reader, limit);
+    const body = collectBody(reader, limit, cancel);
     const cancellation = new Promise<never>((_resolve, reject) => {
       abort = () => {
         reject(signal.reason);
-        void reader.cancel().catch(() => undefined);
+        cancel(false);
       };
       signal.addEventListener("abort", abort, { once: true });
       if (signal.aborted) abort();
@@ -69,7 +91,7 @@ export async function readRequestBody(
           timer = setTimeout(() => {
             reject(new RequestBodyTimeout());
             // An unresponsive peer must not delay the deadline response.
-            void reader.cancel().catch(() => undefined);
+            cancel();
           }, timeoutMs);
         }),
       );
@@ -79,5 +101,6 @@ export async function readRequestBody(
     if (timer !== undefined) clearTimeout(timer);
     if (abort) signal.removeEventListener("abort", abort);
     reader.releaseLock();
+    reader = undefined;
   }
 }

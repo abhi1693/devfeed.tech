@@ -1,4 +1,5 @@
 import "server-only";
+import { after } from "next/server";
 import {
   GatewayTransport,
   methodNotAllowed,
@@ -21,6 +22,7 @@ const transport = new GatewayTransport<ReaderGatewayOperation>({
   filterCookies: (value, operation) => cookies.filter(value, operation.policy.cookiePolicy),
   traceHeaders,
   unavailableDetail: "User service unavailable",
+  afterResponse: after,
 });
 
 type RouteContext = { params?: Promise<GatewayParameters> };

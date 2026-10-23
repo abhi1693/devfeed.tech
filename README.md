@@ -81,6 +81,15 @@ choose the kind of reading you’re in the mood for.
 DevFeed combines **Next.js and React** with **FastAPI**, **PostgreSQL**, and
 **Redis/RQ**. [Run your own instance with Docker Compose](compose.yaml).
 
+Container and CI runtimes use Node.js 26.12.1 and uv 0.13.5. Python images retain the tested 3.12
+line at patch 3.12.15 on Alpine 3.24. Base images are pinned by verified multi-platform digests; the
+minimal Node runtimes install libatomic and libstdc++ and execute a native-module loading check
+during the build. Native ARM64 image smoke checks remain required in CI.
+
+The [API performance comparison](loadtests/README.md) requires material latency changes to repeat
+within two validated runner pairs. It preserves every sample and reports inconsistent evidence as
+inconclusive; this does not establish that a dependency update has unchanged performance.
+
 Tag and topic pages use the reader's language and content preferences. Existing pages
 with empty filtered feeds are marked `noindex, follow`; missing collections return 404.
 Tags without any publicly visible articles also retain their 404 response. Collection sitemap entries
@@ -92,7 +101,9 @@ The scheduler generates cached sitemaps in the background. Crawler requests serv
 the last completed snapshot while refreshes run; see
 [sitemap refresh and retention](apps/aggregator/README.md#cached-sitemaps).
 
-[Configure OpenTelemetry and service metrics](packages/core/OBSERVABILITY.md).
+[Configure OpenTelemetry and service metrics](packages/core/OBSERVABILITY.md). The 0.1.2 dependency
+refresh retains the latest compatible OpenTelemetry 2.x JavaScript family until Faro supports SDK 3;
+see [telemetry compatibility](packages/telemetry/README.md#dependency-compatibility).
 
 ## Help shape what comes next
 

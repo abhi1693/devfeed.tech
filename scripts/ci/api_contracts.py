@@ -22,6 +22,8 @@ def report_directory(name: str) -> Path:
         "head": root / "head",
         "base": root / "base",
         "probes": root / "probes",
+        "raw": root / "raw",
+        "policy": root / "policy",
     }[name].resolve()
     if not directory.is_relative_to(root):
         raise ValueError("Output must be within reports/api-compatibility")
@@ -30,6 +32,53 @@ def report_directory(name: str) -> Path:
 
 def write_json(path: Path, value) -> None:
     path.write_text(json.dumps(value, indent=2, sort_keys=True) + "\n")
+
+
+def clear_approved_errors(path: Path) -> None:
+    """Discard stale allowances without following an existing file symlink."""
+    path.unlink(missing_ok=True)
+    path.write_text("")
+
+
+def write_approved_errors(path: Path, base_revision: str, document: dict) -> bool:
+    """Permit legacy documentation corrections only for their proven base contract."""
+    clear_approved_errors(path)
+    baseline = json.loads((ROOT / ".github/api-compatibility/tag-patch-baseline.json").read_text())
+    try:
+        schema = document["paths"]["/v1/admin/tags/{tag_id}"]["patch"]["requestBody"]["content"][
+            "application/json"
+        ]["schema"]
+        if schema == {"$ref": "#/components/schemas/TagPatch"}:
+            schema = document["components"]["schemas"]["TagPatch"]
+    except (KeyError, TypeError):
+        schema = None
+    approved = base_revision in baseline["base_revisions"] and schema == baseline["schema"]
+    if approved:
+        path.write_text((ROOT / ".github/api-compatibility/tag-patch-corrections.md").read_text())
+    return approved
+
+
+def prepare_policy(output: Path) -> None:
+    """Bind the action's allowance file to the actual checked-out and exported base."""
+    output.mkdir(parents=True, exist_ok=True)
+    approved = output / "approved-errors.md"
+    # Clear before git/JSON reads: a failed preparation must never retain an old grant.
+    clear_approved_errors(approved)
+    (output / "decision.json").unlink(missing_ok=True)
+    result = subprocess.run(
+        ["git", "-C", str(ROOT / ".api-base"), "rev-parse", "--verify", "HEAD"],
+        capture_output=True,
+        text=True,
+        check=True,
+        timeout=10,
+    )
+    revision = result.stdout.strip()
+    document = json.loads((report_directory("base") / "admin.json").read_text())
+    granted = write_approved_errors(approved, revision, document)
+    write_json(
+        output / "decision.json", {"base_revision": revision, "corrections_approved": granted}
+    )
+    print(f"Legacy tag PATCH corrections: {'approved' if granted else 'disabled'} for {revision}")
 
 
 def schema_components(schema: dict, prefix: str, components: dict) -> dict:
@@ -169,7 +218,126 @@ PROBE_RESULTS = {
     "response-root-max-unset": 1,
     "response-max-increased": 1,
     "request-max-decreased": 1,
+    "tag-patch-schema-correction": 0,
+    "tag-patch-alias-limit": 1,
+    "tag-patch-name-max": 1,
+    "tag-patch-slug-max": 1,
+    "tag-patch-name-min": 1,
+    "tag-patch-slug-pattern": 1,
+    "tag-patch-required-name": 1,
+    "tag-patch-null-topic": 1,
+    "tag-patch-other-null": 1,
+    "tag-patch-other-type": 1,
+    "tag-patch-other-endpoint": 1,
+    "tag-patch-other-method": 1,
+    "tag-patch-future-nullable-name": 1,
+    "tag-patch-future-name-max-removed": 1,
+    "tag-patch-future-slug-pattern-removed": 1,
+    "tag-patch-unknown-revision": 1,
+    "tag-patch-current-unknown-revision": 0,
+    "tag-patch-altered-baseline": 1,
 }
+
+
+def tag_patch_probe(change: str) -> tuple[dict, dict]:
+    """Keep the documented correction from concealing real future restrictions."""
+    from devfeed_core.schemas import TagPatch
+
+    baseline = json.loads((ROOT / ".github/api-compatibility/tag-patch-baseline.json").read_text())[
+        "schema"
+    ]
+    current = TagPatch.model_json_schema(mode="validation")
+    base = {
+        "openapi": "3.1.0",
+        "info": {"title": "Tag PATCH compatibility probe", "version": "1"},
+        "paths": {
+            "/v1/admin/tags/{tag_id}": {
+                "patch": {
+                    "parameters": [
+                        {
+                            "name": "tag_id",
+                            "in": "path",
+                            "required": True,
+                            "schema": {"type": "string"},
+                        }
+                    ],
+                    "requestBody": {
+                        "required": True,
+                        "content": {"application/json": {"schema": baseline}},
+                    },
+                    "responses": {"200": {"description": "Updated tag"}},
+                }
+            }
+        },
+    }
+    head = copy.deepcopy(base)
+    old = base["paths"]["/v1/admin/tags/{tag_id}"]["patch"]["requestBody"]["content"][
+        "application/json"
+    ]["schema"]
+    head["paths"]["/v1/admin/tags/{tag_id}"]["patch"]["requestBody"]["content"]["application/json"][
+        "schema"
+    ] = current
+    properties = current["properties"]
+    if change.startswith("tag-patch-future-") or change == "tag-patch-current-unknown-revision":
+        old.clear()
+        old.update(copy.deepcopy(current))
+        if change == "tag-patch-future-nullable-name":
+            old["properties"]["name"] = {"anyOf": [old["properties"]["name"], {"type": "null"}]}
+        elif change == "tag-patch-future-name-max-removed":
+            del old["properties"]["name"]["maxLength"]
+        elif change == "tag-patch-future-slug-pattern-removed":
+            del old["properties"]["slug"]["pattern"]
+    elif change == "tag-patch-altered-baseline":
+        old["properties"]["name"]["title"] = "Changed baseline name"
+    elif change == "tag-patch-alias-limit":
+        properties["aliases"]["maxItems"] = 99
+    elif change == "tag-patch-name-max":
+        properties["name"]["maxLength"] = 99
+    elif change == "tag-patch-slug-max":
+        properties["slug"]["maxLength"] = 99
+    elif change == "tag-patch-name-min":
+        properties["name"]["minLength"] = 2
+    elif change == "tag-patch-slug-pattern":
+        properties["slug"]["pattern"] = "^[a-z]+$"
+    elif change == "tag-patch-required-name":
+        current["required"] = ["name"]
+    elif change == "tag-patch-null-topic":
+        properties["topic_id"] = {"type": "string", "format": "uuid"}
+    elif change == "tag-patch-other-null":
+        old["properties"]["description"] = {"type": ["string", "null"]}
+        properties["description"] = {"type": "string"}
+    elif change == "tag-patch-other-type":
+        old["properties"]["name"]["anyOf"].append({"type": "integer"})
+    elif change in {"tag-patch-other-endpoint", "tag-patch-other-method"}:
+        for document in (base, head):
+            operation = document["paths"].pop("/v1/admin/tags/{tag_id}")
+            if change == "tag-patch-other-endpoint":
+                document["paths"]["/v1/admin/other-tags/{tag_id}"] = operation
+            else:
+                operation["put"] = operation.pop("patch")
+                document["paths"]["/v1/admin/tags/{tag_id}"] = operation
+    return base, head
+
+
+def report_breaking_changes(output: Path, binary: str = "oasdiff") -> None:
+    """Retain unfiltered evidence; the five native action checks remain the gate."""
+    output.mkdir(parents=True, exist_ok=True)
+    for contract in CONTRACTS:
+        command = breaking_command(
+            binary,
+            ROOT / ".oasdiff.yaml",
+            report_directory("base") / f"{contract}.json",
+            report_directory("head") / f"{contract}.json",
+            "json",
+        )
+        command.extend(["--err-ignore", "/dev/null", "--warn-ignore", "/dev/null"])
+        result = run_diff(command)
+        (output / f"{contract}.json").write_text(result.stdout)
+        if result.returncode not in (0, 1):
+            raise ValueError(f"oasdiff could not report {contract} findings: {result.stderr}")
+        findings = json.loads(result.stdout)
+        if not isinstance(findings, list) or bool(findings) != bool(result.returncode):
+            raise ValueError(f"oasdiff could not report {contract} findings: {result.stderr}")
 
 
 def verify_diff_rules(output: Path, binary: str = "oasdiff") -> None:
@@ -272,11 +440,22 @@ def verify_diff_rules(output: Path, binary: str = "oasdiff") -> None:
         elif change == "required-response-removed":
             del article["properties"]["id"]
             article["required"].remove("id")
+        elif change.startswith("tag-patch-"):
+            original, head = tag_patch_probe(change)
         base_path = output / f"{change}.base.json"
         head_path = output / f"{change}.json"
         write_json(base_path, original)
         write_json(head_path, head)
-        result = run_diff(breaking_command(binary, config, base_path, head_path, "json"))
+        approved = output / f"{change}.approved-errors.md"
+        revision = (
+            "0" * 40
+            if change in {"tag-patch-unknown-revision", "tag-patch-current-unknown-revision"}
+            else ("ff71700d275c2a8b69a77642b543b1a87955404c")
+        )
+        write_approved_errors(approved, revision, original)
+        command = breaking_command(binary, config, base_path, head_path, "json")
+        command.extend(["--err-ignore", str(approved)])
+        result = run_diff(command)
         (output / f"{change}.findings.json").write_text(result.stdout)
         findings = json.loads(result.stdout)
         if (
@@ -294,9 +473,15 @@ def main() -> int:
     export = commands.add_parser("export")
     export.add_argument("revision", choices=("head", "base"))
     commands.add_parser("verify")
+    commands.add_parser("report")
+    commands.add_parser("prepare-policy")
     args = parser.parse_args()
     if args.command == "verify":
         verify_diff_rules(report_directory("probes"))
+    elif args.command == "report":
+        report_breaking_changes(report_directory("raw"))
+    elif args.command == "prepare-policy":
+        prepare_policy(report_directory("policy"))
     else:
         export_contracts(report_directory(args.revision))
     return 0

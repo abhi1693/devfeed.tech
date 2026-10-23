@@ -4,6 +4,9 @@ import * as personalized from "@/app/api/v1/user/partner-placements/query/route"
 import { placement } from "./partner-placement-fixtures";
 import { article } from "./fixtures";
 
+// Unit requests have no Next response lifecycle; reader-gateway.mjs covers HTTP completion.
+vi.mock("next/server", () => ({ after: (callback: () => void) => callback() }));
+
 vi.mock("@devfeed/telemetry/propagation", () => ({ traceHeaders: () => ({}) }));
 const query = { surface: "article", article_id: placement.product_id, exclude_product_ids: [] };
 const sponsoredArticle = { ...article, topics: [], sponsor_names: ["Example partner"] };

@@ -1,3 +1,4 @@
+import json
 import re
 
 import pytest
@@ -32,6 +33,72 @@ def test_admin_tag_inputs_share_name_normalization():
     assert TagPatch(name="#C#").name == "C#"
     with pytest.raises(ValueError):
         TagPatch(name="###")
+
+
+@pytest.mark.parametrize(
+    "changes",
+    [
+        {},
+        {"name": "Python"},
+        {"slug": "python"},
+        {"aliases": []},
+        {"auto_link_topic": False},
+        {"topic_id": None},
+        {"aliases": [], "auto_link_topic": False, "topic_id": None},
+    ],
+)
+def test_tag_patch_serialization_preserves_omission_clear_and_falsy_changes(changes):
+    from devfeed_core.schemas import TagPatch
+
+    patch = TagPatch.model_validate(changes)
+    assert patch.model_dump() == changes
+    assert json.loads(patch.model_dump_json()) == changes
+    replay = TagPatch.model_validate_json(patch.model_dump_json())
+    assert replay.model_fields_set == set(changes)
+
+
+@pytest.mark.parametrize("field", ["name", "slug", "aliases", "auto_link_topic"])
+def test_tag_patch_contract_does_not_advertise_invalid_null_updates(field):
+    from devfeed_admin_api.main import create_app
+    from devfeed_core.schemas import TagPatch
+    from jsonschema import Draft202012Validator
+    from pydantic import ValidationError
+
+    schema = create_app().openapi()["components"]["schemas"]["TagPatch"]
+    validator = Draft202012Validator(schema)
+    assert validator.is_valid({})
+    assert validator.is_valid({"aliases": [], "auto_link_topic": False, "topic_id": None})
+    assert not validator.is_valid({field: None})
+    with pytest.raises(ValidationError, match="Only topic_id can be null"):
+        TagPatch.model_validate({field: None})
+
+
+@pytest.mark.parametrize(
+    "changes",
+    [
+        {"name": ""},
+        {"name": "x" * 101},
+        {"slug": "x" * 101},
+        {"slug": "Invalid Slug"},
+        {"aliases": [f"alias-{number}" for number in range(101)]},
+    ],
+)
+def test_tag_patch_runtime_and_contract_reject_invalid_bounds(changes):
+    from devfeed_core.schemas import TagPatch
+    from jsonschema import Draft202012Validator
+    from pydantic import ValidationError
+
+    validator = Draft202012Validator(TagPatch.model_json_schema())
+    assert not validator.is_valid(changes)
+    with pytest.raises(ValidationError):
+        TagPatch.model_validate(changes)
+    boundary = {
+        "name": "x" * 100,
+        "slug": "x" * 100,
+        "aliases": [f"alias-{number}" for number in range(100)],
+    }
+    validator.validate(boundary)
+    assert TagPatch.model_validate(boundary).model_dump() == boundary
 
 
 def test_source_tag_names_are_bounded_clean_and_case_insensitive():

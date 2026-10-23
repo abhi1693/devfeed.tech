@@ -1,6 +1,9 @@
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { POST } from "@/app/api/v1/partner-tracking/events/route";
 
+// Unit requests have no Next response lifecycle; reader-gateway.mjs covers HTTP completion.
+vi.mock("next/server", () => ({ after: (callback: () => void) => callback() }));
+
 vi.mock("@devfeed/telemetry/propagation", () => ({ traceHeaders: () => ({}) }));
 const request = (body = JSON.stringify({ receipt: "receipt", kind: "click" })) =>
   new Request("https://devfeed.tech/api/v1/partner-tracking/events?upstream=evil", {
@@ -76,7 +79,11 @@ it.each(["missing-edge-ip", "invalid-edge-ip", "missing-key"])(
   },
 );
 it("rejects an oversized body before calling the collector", async () => {
-  expect((await POST(request("x".repeat(2049)))).status).toBe(413);
+  const response = await POST(request("x".repeat(2049)));
+  expect(response.status).toBe(413);
+  expect(await response.json()).toEqual({ detail: "Request too large" });
+  expect(response.headers.get("cache-control")).toBe("no-store");
+  expect(response.headers.get("connection")).toBe("close");
   expect(fetch).not.toHaveBeenCalled();
 });
 it.each([403, 429, 503, 302])(

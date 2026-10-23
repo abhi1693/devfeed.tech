@@ -5,6 +5,7 @@ import os
 import shutil
 import subprocess
 import sys
+import textwrap
 import xml.etree.ElementTree as ET
 
 import pytest
@@ -102,6 +103,19 @@ def write_report(root):
     )
 
 
+def merge_partition(root):
+    # Coverage initializes process-wide path handling. A fixture checkout must
+    # not change how the enclosing test run records its own source filenames.
+    result = subprocess.run(
+        [sys.executable, "-m", "scripts.ci.unit_shards", "--root", str(root), "--count", "2"],
+        cwd=root,
+        env={**os.environ, "PYTHONPATH": str(ROOT)},
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+
+
 def test_real_unit_shards_partition_cases_and_merge_complementary_coverage(partition):
     manifests = [
         json.loads((partition / f"reports/coverage/python-unit-{index}/manifest.json").read_text())
@@ -117,7 +131,7 @@ def test_real_unit_shards_partition_cases_and_merge_complementary_coverage(parti
         data.read()
         assert data.has_arcs()
         assert data.arcs("apps/api/src/subject.py")
-    merge(partition, 2)
+    merge_partition(partition)
     result = write_report(partition)
     assert result.returncode == 0, result.stdout + result.stderr
     summary = summarize(partition, 0)
@@ -134,9 +148,63 @@ def test_complete_partition_still_fails_when_merged_coverage_is_below_floor(part
         partition / "reports/coverage/python-unit-0/coverage.db",
         partition / "reports/coverage/python-unit-1/coverage.db",
     )
-    merge(partition, 2)
+    merge_partition(partition)
     assert write_report(partition).returncode == 2
     assert summarize(partition, 0)["status"] == "failed"
+
+
+def test_fixture_merge_preserves_the_enclosing_runs_actual_coverage(partition):
+    outer = partition / "enclosing"
+    source = outer / "apps/api/src/subject.py"
+    source.parent.mkdir(parents=True)
+    source.write_text("def classify(value):\n    if value:\n        return 1\n    return 0\n")
+    (outer / "pyproject.toml").write_text(
+        '[tool.coverage.run]\nbranch = true\nrelative_files = true\nsource = ["apps/api/src"]\n'
+    )
+    driver = textwrap.dedent(
+        """
+        import os, runpy, sys
+        from pathlib import Path
+        from coverage import Coverage
+
+        fixture = runpy.run_path(sys.argv[1])
+        partition = Path(sys.argv[2])
+        outer = Path.cwd()
+        measurement = Coverage(data_file="enclosing.db", config_file="pyproject.toml")
+        measurement.start()
+        subject = runpy.run_path("apps/api/src/subject.py")
+        assert subject["classify"](True) == 1
+        os.chdir(partition)
+        fixture["merge_partition"](partition)
+        os.chdir(outer)
+        assert subject["classify"](True) == 1
+        measurement.stop()
+        measurement.save()
+        report = Coverage(data_file="enclosing.db", config_file="pyproject.toml")
+        report.load()
+        report.json_report(outfile="enclosing.json")
+        """
+    )
+    result = subprocess.run(
+        [sys.executable, "-c", driver, __file__, str(partition)],
+        cwd=outer,
+        env={**os.environ, "PYTHONPATH": str(ROOT)},
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    data = CoverageData(str(outer / "enclosing.db"))
+    data.read()
+    assert data.measured_files() == {"apps/api/src/subject.py"}
+    assert (2, 3) in data.arcs("apps/api/src/subject.py")
+    assert (2, 4) not in data.arcs("apps/api/src/subject.py")
+    entry = json.loads((outer / "enclosing.json").read_text())["files"]["apps/api/src/subject.py"]
+    assert entry["executed_lines"] == [1, 2, 3]
+    # The fixture's two child shards cover both branches. Their measurements
+    # must not become observations of the enclosing run's identical source.
+    assert entry["missing_lines"] == [4]
+    assert entry["summary"]["covered_branches"] == 1
+    assert entry["summary"]["missing_branches"] == 1
 
 
 @pytest.mark.parametrize("change", ["missing", "unexpected", "empty-coverage", "missing-manifest"])

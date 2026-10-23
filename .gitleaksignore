@@ -16,3 +16,10 @@ aefa7143e2d3420c702e54dd1906279f9b9c50ec:docs/development.md:generic-api-key:147
 # Reviewed disposable fixture literals, replaced by generated test values.
 9463cbb56414fc4f83ee6f183873bc39de323d2e:tests/test_partner_placement_api.py:generic-api-key:25
 9463cbb56414fc4f83ee6f183873bc39de323d2e:tests/test_partner_placements_integration.py:generic-api-key:44
+
+# Reviewed SHA-256 provenance of Fleet manifests, verified against all 16 input files.
+# These four historical lines pair API manifest filenames with public file digests.
+d042d46959612e7011517a7e0b49d843b1bc1f93:scripts/ci/fleet_contracts/commands.json:generic-api-key:8
+d042d46959612e7011517a7e0b49d843b1bc1f93:scripts/ci/fleet_contracts/commands.json:generic-api-key:9
+d042d46959612e7011517a7e0b49d843b1bc1f93:scripts/ci/fleet_contracts/commands.json:generic-api-key:10
+d042d46959612e7011517a7e0b49d843b1bc1f93:scripts/ci/fleet_contracts/commands.json:generic-api-key:11
