@@ -103,8 +103,10 @@ function transport(initial: ReaderColumnsState = { initialized: false, columns: 
   };
 }
 const queue = createColumnRequestQueue();
-function Workspace() {
+type PreferencesObserver = (state: ReturnType<typeof useColumnPreferences>) => void;
+function Workspace({ observe }: { observe?: PreferencesObserver }) {
   const state = useColumnPreferences();
+  observe?.(state);
   return (
     <>
       <output aria-label="My columns">{JSON.stringify(state.columns)}</output>
@@ -136,11 +138,11 @@ function Workspace() {
     </>
   );
 }
-function App() {
+function App({ observe }: { observe?: PreferencesObserver }) {
   return (
     <FeedPreferencesProvider>
       <ColumnPreferencesProvider workspace="my_feed">
-        <Workspace />
+        <Workspace observe={observe} />
       </ColumnPreferencesProvider>
     </FeedPreferencesProvider>
   );
@@ -226,6 +228,92 @@ it("keeps a manual selection when personal discovery finishes late", async () =>
   await release();
   expect(columns()).toEqual(custom);
   expect(api.writes).toHaveLength(1);
+});
+
+it.each([
+  { action: "selection", expected: custom },
+  { action: "intentional clearing", expected: [] },
+])("ignores a stale initializer after a manual $action is acknowledged", async ({ expected }) => {
+  const api = transport();
+  const release = api.hold();
+  let preferences!: ReturnType<typeof useColumnPreferences>;
+  render(<App observe={(state) => (preferences = state)} />);
+  await waitFor(() =>
+    expect(api.reads.some((url) => url.endsWith("/columns/starters"))).toBe(true),
+  );
+  // Discovery retains this actual context callback while its request is pending.
+  const initializeDiscovered = preferences.initializeColumns;
+  await act(async () => {
+    expect(await preferences.setColumns(expected)).toBe(true);
+    expect(columns()).toEqual([]);
+    expect(await initializeDiscovered(latest, "initialize")).toBe(true);
+  });
+  await release();
+
+  expect(columns()).toEqual(expected);
+  expect(api.personal.get("a")).toEqual({ initialized: true, columns: expected });
+  expect(api.writes).toHaveLength(1);
+  expect(api.writes[0].body.mode).toBe("replace");
+});
+
+it("keeps a local replacement while stale explicit starter preparation is finishing", async () => {
+  const api = transport();
+  const release = api.hold();
+  let preferences!: ReturnType<typeof useColumnPreferences>;
+  render(<App observe={(state) => (preferences = state)} />);
+  await waitFor(() =>
+    expect(api.reads.some((url) => url.endsWith("/columns/starters"))).toBe(true),
+  );
+  const restoreDiscovered = preferences.initializeColumns;
+  await act(async () => {
+    expect(await preferences.setColumns(custom)).toBe(true);
+    expect(await restoreDiscovered(latest, "restore_empty")).toBe(true);
+  });
+  await release();
+  expect(columns()).toEqual(custom);
+  expect(api.writes).toHaveLength(1);
+  expect(api.writes[0].body.mode).toBe("replace");
+});
+
+it("does not submit starters while a manual replacement is awaiting acknowledgement", async () => {
+  const api = transport();
+  const releaseDiscovery = api.hold();
+  let preferences!: ReturnType<typeof useColumnPreferences>;
+  render(<App observe={(state) => (preferences = state)} />);
+  await waitFor(() =>
+    expect(api.reads.some((url) => url.endsWith("/columns/starters"))).toBe(true),
+  );
+  const initializeDiscovered = preferences.initializeColumns;
+  const original = fetch;
+  let releaseSave!: () => void;
+  const heldSave = new Promise<void>((resolve) => {
+    releaseSave = resolve;
+  });
+  let started = false;
+  vi.stubGlobal("fetch", async (input: RequestInfo | URL, init?: RequestInit) => {
+    if (String(input).includes("/settings/columns?workspace=my_feed") && init?.method === "PUT") {
+      started = true;
+      await heldSave;
+    }
+    return original(input, init);
+  });
+  let saved!: Promise<boolean>;
+  await act(async () => {
+    saved = preferences.setColumns(custom);
+  });
+  await waitFor(() => expect(started).toBe(true));
+  await act(async () => {
+    expect(await initializeDiscovered(latest, "initialize")).toBe(false);
+  });
+  expect(api.writes).toEqual([]);
+  await act(async () => {
+    releaseSave();
+    expect(await saved).toBe(true);
+  });
+  await releaseDiscovery();
+  expect(columns()).toEqual(custom);
+  expect(api.writes).toHaveLength(1);
+  expect(api.writes[0].body.mode).toBe("replace");
 });
 
 it("keeps another device's columns when personal discovery finishes late", async () => {
