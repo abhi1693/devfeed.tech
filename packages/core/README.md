@@ -102,6 +102,14 @@ neither indexing eligibility nor sitemap membership based on overview length.
   read through `x-devfeed-cache` metadata. The namespace and revision identify the response
   contract; path parameters and ordered query values identify its inputs. Its `content` or
   `metadata` TTL uses the existing cache settings, independently of the route's URL or mount.
+  Required public and personalized feed sequences use a separate Redis pool and circuit
+  breaker, so an optional response-cache timeout cannot block cursor storage. Sequence
+  sockets have one-second connect/read deadlines and no automatic Redis retries; optional
+  response caching retains its 200 ms deadlines. Sentinel discovery uses these same
+  per-socket bounds for each configured Sentinel, rather than a single end-to-end deadline.
+  Cursor storage failures preserve the existing unavailable/expired responses and private
+  feed fallback. Retrying an immutable sequence publication preserves its original order
+  and expiry through the atomic write-once script; it cannot append or extend retention.
 - `devfeed_http.route_policies.RouteRuntimePolicy` declares admission lane, telemetry
   exclusion and successful-request logging level through `x-devfeed-runtime` metadata.
   `install_runtime_policies()` binds these to native selected routes after registration,

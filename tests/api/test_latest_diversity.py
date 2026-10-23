@@ -148,7 +148,7 @@ def test_snapshot_pagination_survives_new_arrivals_and_moderation(client, databa
         == 422
     )
     generation = first["next_cursor"].split(":")[1]
-    cache = latest.get_cache()
+    cache = latest.get_feed_sequence_cache()
     cache.redis.delete(f"{cache.namespace}:feed:latest-v1:{generation}")
     assert (
         client.get("/v1/feed", params={"diverse": True, "cursor": first["next_cursor"]}).status_code
@@ -190,5 +190,5 @@ def test_cache_outage_is_retryable_without_changing_order(client, database, monk
     def unavailable(*args):
         raise CacheUnavailable()
 
-    monkeypatch.setattr(latest.get_cache(), "write_sequence", unavailable)
+    monkeypatch.setattr(latest.get_feed_sequence_cache(), "write_sequence", unavailable)
     assert client.get("/v1/feed?diverse=true").status_code == 503

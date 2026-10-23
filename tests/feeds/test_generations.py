@@ -3,15 +3,39 @@
 import uuid
 from collections import Counter
 from types import SimpleNamespace
-from unittest.mock import Mock
+from unittest.mock import MagicMock, Mock
 
 import pytest
+from devfeed_core import cache
 from devfeed_core import feed_generations as feeds
 from devfeed_core.cache import CacheUnavailable
 from devfeed_core.feed_generations import shuffled_ids
 from devfeed_core.models import UserRecommendation, UserRecommendationState
+from redis.exceptions import TimeoutError as RedisTimeoutError
 
 from tests.support.source_readiness import NOW
+
+
+def test_private_generation_publication_and_read_survive_optional_cache_timeout(monkeypatch):
+    optional_redis = Mock()
+    optional_redis.get.side_effect = RedisTimeoutError()
+    optional = cache.ResponseCache(optional_redis, "test:feed")
+    monkeypatch.setattr(cache, "get_cache", lambda: optional)
+    redis = MagicMock()
+    monkeypatch.setattr(cache, "create_redis", lambda *_args, **_kwargs: redis)
+    with pytest.raises(CacheUnavailable):
+        optional.lookup("public-feed", "public")
+    session = SimpleNamespace(scalars=lambda _: [])
+    state = UserRecommendationState(user_id=uuid.uuid4(), preference_revision=3)
+    assert feeds.publish_generation(session, state) == 0
+    assert state.generation is not None
+    assert redis.eval.call_args.args[-1] == b""
+    pipe = redis.pipeline.return_value.__enter__.return_value
+    pipe.exists.return_value = pipe.lrange.return_value = pipe
+    pipe.execute.return_value = [1, [b""]]
+    assert feeds.generation_ids(state.user_id, 3, state.generation, 0, 24) == []
+    assert optional.blocked_until > 0
+    assert cache.get_feed_sequence_cache().blocked_until == 0
 
 
 @pytest.mark.parametrize("empty", [False, True])
@@ -48,7 +72,7 @@ def test_sequence_is_written_before_exposing_the_new_generation_and_failure_reta
     session.execute.return_value.all.return_value = [
         (row.article_id, publisher) for row in candidates
     ]
-    monkeypatch.setattr(feeds, "get_cache", lambda: cache)
+    monkeypatch.setattr(feeds, "get_feed_sequence_cache", lambda: cache)
     monkeypatch.setattr(feeds, "uuid", SimpleNamespace(uuid4=lambda: generation, UUID=uuid.UUID))
 
     def write(key, values, ttl):
@@ -94,7 +118,7 @@ def test_cached_generation_keeps_owner_revision_and_slice_order_and_rejects_corr
     }[stored]
     cache = Mock()
     cache.read_sequence.return_value = rows
-    monkeypatch.setattr(feeds, "get_cache", lambda: cache)
+    monkeypatch.setattr(feeds, "get_feed_sequence_cache", lambda: cache)
     if stored in {"corrupt", "mixed-marker"}:
         with pytest.raises(CacheUnavailable):
             feeds.generation_ids(user, 7, generation, 12, 2)

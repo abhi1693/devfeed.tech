@@ -8,7 +8,7 @@ from datetime import datetime, timedelta
 from heapq import heapify, heappop, heappush
 
 from devfeed_core.article_reads import PUBLIC_ARTICLE_OPTIONS
-from devfeed_core.cache import CacheUnavailable, get_cache
+from devfeed_core.cache import CacheUnavailable, get_feed_sequence_cache
 from devfeed_core.models import Article, ArticleOrigin, Source, utcnow
 from devfeed_core.schemas import ArticleOut, FeedPage
 from fastapi import HTTPException
@@ -102,7 +102,7 @@ def snapshot(session, conditions, identity, *, as_of=None, after=None):
 
 def latest_page(session, conditions, filters, limit, cursor):
     identity = filter_key(filters)
-    cache = get_cache()
+    cache = get_feed_sequence_cache()
     try:
         if cursor:
             try:

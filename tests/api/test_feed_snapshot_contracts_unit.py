@@ -6,13 +6,18 @@ import uuid
 from collections import namedtuple
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace
-from unittest.mock import ANY, Mock
+from unittest.mock import ANY, MagicMock, Mock
 
 import pytest
 from devfeed_api import latest, ordered_feed
+from devfeed_core import cache as cache_module
 from devfeed_core.cache import CacheUnavailable
 from devfeed_core.models import Article, ArticleOrigin, Source
 from fastapi import HTTPException
+from redis.exceptions import TimeoutError as RedisTimeoutError
+
+from tests.infrastructure.test_cache import cached_client as cached_client
+from tests.infrastructure.test_cache import response_cache as response_cache
 
 NOW = datetime(2026, 10, 22, 12, tzinfo=UTC)
 
@@ -111,7 +116,7 @@ def state(*identifiers, after=None, filters=None):
 @pytest.fixture
 def cache(monkeypatch):
     value = SequenceCache()
-    monkeypatch.setattr(latest, "get_cache", lambda: value)
+    monkeypatch.setattr(latest, "get_feed_sequence_cache", lambda: value)
     return value
 
 
@@ -233,6 +238,57 @@ def test_cache_outage_is_a_retryable_feed_error_without_article_reads(
         "Latest feed is temporarily unavailable",
     )
     assert session.reads == 0
+
+
+@pytest.mark.parametrize("failure", [None, "read", "write"])
+def test_diverse_http_feed_isolates_optional_timeout_but_requires_cursor_storage(
+    cached_client, response_cache, monkeypatch, failure
+):
+    client, _, _, _, records = cached_client
+    articles = [published_article(i) for i in (1, 2, 3)]
+    records.extend(articles)
+    saved = state(*(article.id for article in articles))
+
+    def snapshot(_session, _conditions, identity):
+        return {**saved, "filter": identity}
+
+    monkeypatch.setattr(latest, "snapshot", snapshot)
+    # Exercise the real independent cache/breaker. Redis is the only mocked boundary;
+    # the actual Lua's write-once/order/expiry behavior has integration coverage.
+    redis = MagicMock()
+    pipe = redis.pipeline.return_value.__enter__.return_value
+    pipe.exists.return_value = pipe.lrange.return_value = pipe
+    monkeypatch.setattr(cache_module, "create_redis", lambda *_args, **_kwargs: redis)
+    response_cache.redis.get = Mock(side_effect=RedisTimeoutError())
+    if failure == "write":
+        redis.eval.side_effect = RedisTimeoutError()
+    first = client.get("/v1/feed?diverse=true&limit=2")
+    assert response_cache.blocked_until > 0
+    if failure == "write":
+        assert first.status_code == 503
+        assert first.json()["detail"] == "Latest feed is temporarily unavailable"
+        return
+    assert first.status_code == 200
+    assert first.headers["x-cache-bypass-reason"] == "cache_unavailable"
+    assert [item["id"] for item in first.json()["items"]] == [str(a.id) for a in articles[:2]]
+    stored = redis.eval.call_args.args[-1]
+    pipe.execute.return_value = [1, [stored]]
+    if failure == "read":
+        pipe.execute.side_effect = RedisTimeoutError()
+    cursor = first.json()["next_cursor"]
+    second = client.get("/v1/feed", params={"diverse": True, "limit": 2, "cursor": cursor})
+    if failure == "read":
+        assert second.status_code == 503
+        assert second.json()["detail"] == "Latest feed is temporarily unavailable"
+        return
+    repeated = client.get("/v1/feed", params={"diverse": True, "limit": 2, "cursor": cursor})
+    assert second.status_code == repeated.status_code == 200
+    assert second.json() == repeated.json()
+    assert [item["id"] for item in second.json()["items"]] == [str(articles[2].id)]
+    assert second.json()["next_cursor"] is None
+    redis.eval.assert_called_once()
+    response_cache.redis.get.assert_called_once()
+    assert cache_module.get_feed_sequence_cache().blocked_until == 0
 
 
 def test_empty_snapshot_finishes_without_fetching_article_rows(cache, monkeypatch):

@@ -7,7 +7,7 @@ from collections import Counter
 
 from sqlalchemy import select
 
-from devfeed_core.cache import CacheUnavailable, get_cache
+from devfeed_core.cache import CacheUnavailable, get_feed_sequence_cache
 from devfeed_core.models import ArticleOrigin, Source, UserRecommendation
 
 RETENTION_HOURS = 9
@@ -74,7 +74,7 @@ def publish_generation(session, state):
     # Publish Redis first. The DB state pointer becomes visible only on commit.
     # A rolled-back transaction leaves an unreachable list which expires naturally.
     # Redis failures leave the worker free to commit DB candidates for fallback.
-    get_cache().write_sequence(
+    get_feed_sequence_cache().write_sequence(
         sequence_key(state.user_id, state.preference_revision, generation),
         [identifier.bytes for identifier in identifiers] or [b""],
         RETENTION_HOURS * 3600,
@@ -84,7 +84,7 @@ def publish_generation(session, state):
 
 
 def generation_ids(user_id, revision, generation, offset, count):
-    rows = get_cache().read_sequence(
+    rows = get_feed_sequence_cache().read_sequence(
         sequence_key(user_id, revision, generation), offset, offset + count - 1
     )
     if rows is None:

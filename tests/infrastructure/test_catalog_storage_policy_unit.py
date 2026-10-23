@@ -146,13 +146,16 @@ def test_sequence_adapter_passes_exact_ordered_entries_and_private_identity_to_r
     pipe.lrange.assert_called_once_with("unit:feed:opaque-feed", 1, 2)
 
 
-def test_process_cache_isolates_database_namespace_and_closes_both_owned_pools(monkeypatch):
+def test_process_cache_isolates_database_namespace_and_closes_all_owned_pools(monkeypatch):
     settings = configuration(cache_enabled=True)
     connections = []
 
-    def connect(*_args, **_kwargs):
+    options = []
+
+    def connect(*_args, **kwargs):
         value = Mock()
         connections.append(value)
+        options.append(kwargs)
         return value
 
     monkeypatch.setattr(cache, "get_settings", lambda: settings)
@@ -167,9 +170,17 @@ def test_process_cache_isolates_database_namespace_and_closes_both_owned_pools(m
         sitemap = cache.get_sitemap_cache()
         assert cache.get_sitemap_cache() is sitemap
         assert sitemap is not current and sitemap.namespace == current.namespace
+        sequences = cache.get_feed_sequence_cache()
+        assert cache.get_feed_sequence_cache() is sequences
+        assert sequences is not current and sequences is not sitemap
+        assert sequences.namespace == current.namespace
+        assert options[0]["socket_timeout"] == 0.2
+        assert options[2]["socket_connect_timeout"] == options[2]["socket_timeout"] == 1
+        assert options[2]["retry"].get_retries() == 0
+        assert options[2]["max_connections"] == 32
         cache.close_cache()
         assert cache._cache_for_process.cache_info().currsize == 0
-        assert len(connections) == 2
+        assert len(connections) == 3
         for connection in connections:
             connection.close.assert_called_once()
     finally:
