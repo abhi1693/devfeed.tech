@@ -3,6 +3,7 @@
 import importlib.util
 import json
 import os
+import re
 import subprocess
 import sys
 import textwrap
@@ -141,6 +142,117 @@ def test_image_work_starts_only_after_all_validation_lanes(name):
         | SHARED_INTEGRATION_JOBS
         | {"reader-parity", "sonarqube"}
     ) <= job_ancestors(jobs, name)
+
+
+def image_job_scheduled(job, results, event, ref_type, *, cancelled=False):
+    """Execute the workflow's boolean condition, including GitHub's default status check."""
+    condition = job["if"].strip().removeprefix("${{").removesuffix("}}").strip()
+    statuses = re.findall(r"\b(always|cancelled|success|failure)\(\)", condition)
+    # The expressions used here contain only status functions, context values,
+    # string comparisons and boolean operators, which have equivalent jq forms.
+    expression = re.sub(r"'([^']*)'", lambda match: json.dumps(match[1]), condition)
+    expression = expression.replace("always()", "true")
+    for status in ("cancelled", "success", "failure"):
+        expression = expression.replace(f"{status}()", f"${status}")
+    expression = re.sub(r"!\s*(\$(?:cancelled|success|failure)|true)", r"(\1 | not)", expression)
+    expression = expression.replace("github.event_name", "$event").replace(
+        "github.ref_type", "$ref_type"
+    )
+    expression = re.sub(
+        r"needs\.([\w-]+)\.result", lambda match: f".[{json.dumps(match[1])}].result", expression
+    )
+    expression = expression.replace("&&", "and").replace("||", "or")
+    if not statuses:
+        # A skipped ancestor blocks success(), even when its aggregate gate passes.
+        expression = f"$success and ({expression})"
+    completed = subprocess.run(
+        [
+            "jq",
+            "-e",
+            "--arg",
+            "event",
+            event,
+            "--arg",
+            "ref_type",
+            ref_type,
+            "--argjson",
+            "cancelled",
+            json.dumps(cancelled),
+            "--argjson",
+            "success",
+            json.dumps(all(item["result"] == "success" for item in results.values())),
+            "--argjson",
+            "failure",
+            json.dumps(any(item["result"] == "failure" for item in results.values())),
+            expression,
+        ],
+        input=json.dumps(results),
+        capture_output=True,
+        text=True,
+    )
+    assert completed.returncode in {0, 1}, completed.stderr
+    return completed.returncode == 0
+
+
+@pytest.mark.parametrize("name", ["containers", "release-images"])
+@pytest.mark.parametrize(
+    "event,ref_type,sonar_expected",
+    [
+        ("pull_request", "branch", True),
+        ("pull_request", "branch", False),
+        ("merge_group", "branch", False),
+        ("push", "branch", True),
+        ("push", "tag", False),
+        ("workflow_dispatch", "tag", False),
+        ("schedule", "branch", False),
+    ],
+)
+def test_image_stages_run_after_successful_validation_despite_expected_ancestor_skips(
+    name, event, ref_type, sonar_expected
+):
+    jobs = reader_jobs()
+    ancestors = job_ancestors(jobs, name)
+    optional = {
+        "api-compat": event in {"pull_request", "merge_group"},
+        "api-fuzz": event in {"pull_request", "merge_group"},
+        "performance": event == "pull_request",
+        "recovery": event in {"pull_request", "merge_group", "push"},
+        "dast": event in {"pull_request", "merge_group", "push"},
+        "sonarqube": sonar_expected,
+        **dict.fromkeys(
+            ("browser-budgets", "property", "mutation"),
+            event in {"pull_request", "merge_group"} or (event == "push" and ref_type == "branch"),
+        ),
+    }
+    results = {
+        parent: {"result": "success" if optional.get(parent, True) else "skipped"}
+        for parent in ancestors
+    }
+    assert results["validation"]["result"] == "success"
+    if event != "pull_request" or not sonar_expected:
+        assert any(item["result"] == "skipped" for item in results.values())
+    release = event == "push" and ref_type == "tag"
+    assert image_job_scheduled(jobs[name], results, event, ref_type) is (
+        release if name == "release-images" else not release
+    )
+    assert jobs["containers"]["with"]["publish"] is False
+
+
+@pytest.mark.parametrize("name", ["containers", "release-images"])
+def test_image_stages_reject_failed_cancelled_skipped_or_missing_prerequisites(name):
+    jobs = reader_jobs()
+    job = jobs[name]
+    results = {parent: {"result": "success"} for parent in job_ancestors(jobs, name)}
+    ref_type = "tag" if name == "release-images" else "branch"
+    assert image_job_scheduled(job, results, "push", ref_type)
+    assert not image_job_scheduled(job, results, "push", ref_type, cancelled=True)
+    for parent in job_needs(job):
+        for result in ("failure", "cancelled", "skipped", ""):
+            results[parent] = {"result": result}
+            assert not image_job_scheduled(job, results, "push", ref_type), (name, parent, result)
+        del results[parent]
+        assert not image_job_scheduled(job, results, "push", ref_type), (name, parent, "missing")
+        results[parent] = {"result": "success"}
 
 
 @pytest.mark.parametrize(

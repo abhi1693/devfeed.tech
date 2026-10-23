@@ -73,11 +73,15 @@ for each index from 0 through 3, then run
 
 ## Failure propagation
 
-Stage gates reject unsuccessful or missing prerequisites. Expensive consumers
+Stage gates reject unsuccessful or missing prerequisites. Integration consumers
 use normal success gating; report and aggregate jobs may run after failures to
-explain them, but cannot promote partial results to success. Existing event rules
-still determine which API, performance, quality, and release jobs apply to PRs,
-merge groups, master pushes, tags, schedules, and manual runs.
+explain them, but cannot promote partial results to success. Image jobs explicitly
+require an uncancelled workflow and successful direct prerequisites. This lets
+them follow a successful validation gate when an inapplicable ancestor was
+intentionally skipped, while still blocking failed, cancelled, skipped, or missing
+prerequisites. Existing event rules determine which API, performance, quality, and
+release jobs apply to PRs, merge groups, master pushes, tags, schedules, and manual
+runs.
 
 `CI required` checks both stage gates and their individual required jobs, as well
 as the applicable image workflow. Local validation and an older successful run do
