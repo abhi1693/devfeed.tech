@@ -65,7 +65,11 @@ class SQLSamples:
         self.local.started = time.perf_counter()
 
     def after(self, _connection, _cursor, statement, parameters, _context, many):
-        if statement.lstrip().upper().startswith("SELECT") and any(
+        compiled = getattr(getattr(_context, "compiled", None), "statement", None)
+        is_select = statement.lstrip().upper().startswith("SELECT") or getattr(
+            compiled, "is_select", False
+        )
+        if is_select and any(
             name in statement
             for name in ("pipeline_projections", "read_model_events", "article_analysis_jobs")
         ):

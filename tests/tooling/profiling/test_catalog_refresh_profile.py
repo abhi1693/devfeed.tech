@@ -3,8 +3,11 @@
 import copy
 import importlib.util
 import sys
+from types import SimpleNamespace
 
 import pytest
+from sqlalchemy import column, delete, select, table
+from sqlalchemy.dialects import postgresql
 
 from tests.support.paths import REPO_ROOT
 
@@ -158,3 +161,28 @@ def test_native_requirement_is_an_enforced_gate_independent_of_behavior():
     qualified = copy.deepcopy(output)
     qualified["qualification"]["native_arm64_postgresql_17"] = True
     assert profile.gates(qualified, "fixed")["passed"]
+
+
+def test_sql_evidence_captures_cte_selects_without_explaining_writes():
+    cards = table("pipeline_projections", column("entity_id"))
+    targets = select(cards.c.entity_id).cte("blocker_targets")
+    compiled = select(targets.c.entity_id).compile(dialect=postgresql.dialect())
+    query = str(compiled)
+    assert query.startswith("WITH ")
+    samples = profile.SQLSamples(None)
+
+    def observe(statement):
+        sql = str(statement)
+        context = SimpleNamespace(compiled=statement)
+        samples.before(None, None, sql, statement.params, context, False)
+        samples.after(None, None, sql, statement.params, context, False)
+
+    observe(compiled)
+    observe(compiled)
+    for write in (delete(cards), delete(cards).add_cte(targets)):
+        observe(write.compile(dialect=postgresql.dialect()))
+
+    assert set(samples.queries) == {query}
+    captured = samples.queries[query]
+    assert captured["calls"] == 2 and captured["parameters"] == compiled.params
+    assert captured["sql_seconds"] >= 0
