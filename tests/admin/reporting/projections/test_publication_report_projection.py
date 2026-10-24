@@ -5,6 +5,7 @@ from datetime import timedelta
 import pytest
 from devfeed_admin_api.automation import _publication_automation_query, publication_automation
 from devfeed_core.models import ArticleReview, utcnow
+from psycopg import sql
 from sqlalchemy import text
 
 from tests.admin.reporting.projections.test_pipeline_projection_safety import add_article
@@ -221,6 +222,73 @@ def test_report_reloads_review_facts_and_publication_cutoff_after_editorial_chan
         assert changed["median_ingestion_to_publication_seconds"] == pytest.approx(600.000001)
 
 
+def test_prepared_generic_report_keeps_exact_results_and_literal_window_bounds(database):
+    start = NOW - timedelta(days=7)
+    with database.begin() as session:
+        for published, reviews in [
+            (start, [("publish", {"policy": "automatic"}, start)]),
+            (NOW, [("publish", {"policy": "automatic"}, NOW), ("approve", {}, start)]),
+            (NOW, []),
+            (start - timedelta(microseconds=1), [("publish", {"policy": "automatic"}, start)]),
+        ]:
+            article = add_article(session, published=True, published_at=published)
+            article.discovered_at = published - timedelta(seconds=120)
+            session.add_all(
+                ArticleReview(
+                    article_id=article.id,
+                    action=action,
+                    revision=revision,
+                    automation=evidence,
+                    created_at=created_at,
+                )
+                for revision, (action, evidence, created_at) in enumerate(reviews, start=1)
+            )
+        session.flush()
+        session.execute(text("SET LOCAL plan_cache_mode = force_generic_plan"))
+        session.execute(text("SET LOCAL enable_seqscan = off"))
+        compiled = _publication_automation_query(start, NOW).compile(
+            session.get_bind(), compile_kwargs={"render_postcompile": True}
+        )
+        driver = session.connection().connection.driver_connection
+        before = dict(
+            driver.execute(
+                "SELECT name, generic_plans FROM pg_prepared_statements", prepare=False
+            ).fetchall()
+        )
+        for _ in range(3):
+            assert driver.execute(str(compiled), compiled.params, prepare=True).fetchone() == (
+                3,
+                1,
+                120.0,
+            )
+        prepared = next(
+            (
+                row
+                for row in driver.execute(
+                    "SELECT name, generic_plans FROM pg_prepared_statements "
+                    "WHERE statement LIKE 'WITH publications AS MATERIALIZED%'",
+                    prepare=False,
+                )
+                if row[1] - before.get(row[0], 0) >= 3
+            ),
+            None,
+        )
+        assert prepared is not None
+        plan = "\n".join(
+            row[0]
+            for row in driver.execute(
+                sql.SQL("EXPLAIN EXECUTE {} (0.5)").format(sql.Identifier(prepared[0])),
+                prepare=False,
+            )
+        )
+    # Even under a forced generic plan, selectivity estimates can see the actual
+    # cohort; the percentile fraction remains the sole prepared parameter.
+    assert "ix_article_reviews_manual_publication" in plan
+    assert "ix_article_reviews_automatic_publication" in plan
+    assert start.strftime("%Y-%m-%d %H:%M:%S") in plan
+    assert NOW.strftime("%Y-%m-%d %H:%M:%S") in plan
+
+
 def test_large_review_evidence_uses_partial_indexes_without_changing_manual_cutoff(database):
     now = utcnow()
     evidence = {"policy": "automatic", "evidence": "Unicode extraction evidence 設計 " * 3000}
@@ -258,7 +326,7 @@ def test_large_review_evidence_uses_partial_indexes_without_changing_manual_cuto
         # exact application predicates can use narrow indexes at large scale.
         session.execute(text("SET LOCAL enable_seqscan = off"))
         compiled = _publication_automation_query(now - timedelta(days=1), now).compile(
-            session.get_bind()
+            session.get_bind(), compile_kwargs={"render_postcompile": True}
         )
         plan = "\n".join(
             row[0]

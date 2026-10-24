@@ -40,6 +40,7 @@ from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
 from sqlalchemy import (
     BigInteger,
+    DateTime,
     String,
     and_,
     case,
@@ -606,9 +607,17 @@ def automation_blocker_rows(session, article_ids):
 
 
 def _publication_automation_query(start, now):
+    # Keep cohort selectivity visible to prepared generic plans, which otherwise
+    # estimate an unknown date range as small and return to per-article probes.
+    # SQLAlchemy caches the statement and renders these values with its typed
+    # literal processor only at execution; other parameters remain bound.
+    start_bound = literal(start, type_=DateTime(timezone=True), literal_execute=True)
+    now_bound = literal(now, type_=DateTime(timezone=True), literal_execute=True)
     publications = (
         select(Article.id, Article.published_to_feed_at, Article.discovered_at)
-        .where(Article.published_to_feed_at >= start, Article.published_to_feed_at <= now)
+        .where(
+            Article.published_to_feed_at >= start_bound, Article.published_to_feed_at <= now_bound
+        )
         .cte("publications")
         .prefix_with("MATERIALIZED")
     )

@@ -17,7 +17,8 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from devfeed_admin_api.automation import _publication_automation_query
-from sqlalchemy import create_engine, text
+from sqlalchemy import create_engine, literal, text
+from sqlalchemy.dialects.postgresql.psycopg import dialect
 from sqlalchemy.engine import make_url
 
 NOW = datetime(2026, 10, 24, 12, tzinfo=UTC)
@@ -132,7 +133,6 @@ class Ingestion:
             with self.engine.connect() as connection:
                 first_wal = connection.scalar(text("SELECT pg_current_wal_insert_lsn()"))
                 connection.commit()
-                self.ready.set()
                 while not self.stop.is_set():
                     started = time.perf_counter()
                     identifier = uuid.uuid4()
@@ -166,6 +166,7 @@ class Ingestion:
                         )
                     self.rows += 1
                     self.samples_ms.append((time.perf_counter() - started) * 1000)
+                    self.ready.set()  # Start reports only after a successful ordinary write.
                     self.stop.wait(0.005)
                 self.wal_bytes = int(
                     connection.scalar(
@@ -178,20 +179,28 @@ class Ingestion:
             self.ready.set()
 
 
-def measure(engine, sql, params, repeats, concurrent):
+def measure(engine, sql, params, repeats, concurrent, prepared=None):
     ingestion = Ingestion(engine) if concurrent else None
+    started = time.perf_counter()
     if ingestion:
         ingestion.thread.start()
         if not ingestion.ready.wait(10):
             raise RuntimeError("Concurrent ingestion did not start")
     samples, cpu, app_cpu = [], [], []
-    started = time.perf_counter()
     try:
         with engine.connect() as connection:
             connection.execute(text("SET statement_timeout='60s'"))
             connection.execute(text("SET work_mem='4MB'"))
             connection.execute(text("SET max_parallel_workers_per_gather=0"))
-            connection.execute(text(sql), params).one()  # One unmeasured warmup per strategy.
+            if prepared:
+                name, statement, mode = prepared
+                connection.execute(text(f"SET plan_cache_mode='{mode}'"))
+                connection.execute(text(f"PREPARE {name} AS {statement}"))
+            # Auto-prepared plans may switch after five executions. Warm beyond
+            # that decision point before collecting its measured samples.
+            warmups = 7 if prepared and prepared[2] == "auto" else 1
+            for _ in range(warmups):
+                connection.execute(text(sql), params).one()
             for _ in range(repeats):
                 before_cpu = backend_cpu(connection)
                 before_app = time.thread_time()
@@ -203,6 +212,19 @@ def measure(engine, sql, params, repeats, concurrent):
             plan = connection.scalar(
                 text("EXPLAIN (ANALYZE, BUFFERS, WAL, SETTINGS, FORMAT JSON) " + sql), params
             )[0]
+            if prepared:
+                plan_counts = dict(
+                    connection.execute(
+                        text(
+                            "SELECT generic_plans,custom_plans FROM pg_prepared_statements "
+                            "WHERE name=:name"
+                        ),
+                        {"name": prepared[0]},
+                    )
+                    .mappings()
+                    .one()
+                )
+                connection.execute(text(f"DEALLOCATE {prepared[0]}"))
     finally:
         elapsed = time.perf_counter() - started
         if ingestion:
@@ -218,6 +240,8 @@ def measure(engine, sql, params, repeats, concurrent):
         "application_thread_cpu_samples_ms": app_cpu,
         "plan": plan,
     }
+    if prepared:
+        output["prepared_plan_counts"] = plan_counts
     if ingestion:
         output["concurrent_ingestion"] = {
             "commits": ingestion.rows,
@@ -263,12 +287,63 @@ def check_work(report):
     }
 
 
+def prepared_profiles(engine, repeats, rows=0, preserve=None):
+    reports = []
+    for mode in ("force_custom_plan", "force_generic_plan", "auto"):
+        for days in (1, 7, 30):
+            start = NOW - timedelta(days=days)
+            compiled = _publication_automation_query(start, NOW).compile(
+                dialect=dialect(paramstyle="numeric_dollar"),
+                compile_kwargs={"render_postcompile": True},
+            )
+            strategies = {
+                "baseline": (
+                    BASELINE.replace("percentile_cont(0.5)", "percentile_cont($1)")
+                    .replace(":start", "$2")
+                    .replace(":now", "$3"),
+                    [0.5, start, NOW],
+                ),
+                "candidate": (
+                    str(compiled),
+                    [compiled.params[key] for key in compiled.positiontup],
+                ),
+            }
+            report = {"days": days, "plan_cache_mode": mode, "strategies": {}}
+            for strategy, (statement, values) in strategies.items():
+                name = f"profile_{strategy}_{mode}_{days}"
+                arguments = ",".join(
+                    str(literal(value).compile(engine, compile_kwargs={"literal_binds": True}))
+                    for value in values
+                )
+                report["strategies"][strategy] = measure(
+                    engine,
+                    f"EXECUTE {name}({arguments})",
+                    {},
+                    repeats,
+                    False,
+                    prepared=(name, statement, mode),
+                )
+                report["strategies"][strategy]["sql"] = statement
+            results = [value["result"] for value in report["strategies"].values()]
+            reports.append(report)
+            if preserve:
+                preserve(reports)
+            assert results[0] == results[1], "Prepared report results differ"
+            report["result_equality"] = True
+            if rows >= 100000 and days == 30:
+                report["work_checks"] = check_work(report)
+            if preserve:
+                preserve(reports)
+    return reports
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--seed", action="store_true")
     parser.add_argument("--rows", type=int, default=100000)
     parser.add_argument("--repeats", type=int, default=5)
     parser.add_argument("--inline-comparison", action="store_true")
+    parser.add_argument("--prepared", action="store_true")
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
     try:
@@ -344,6 +419,13 @@ def main():
                     ),
                     flush=True,
                 )
+        if args.prepared:
+
+            def preserve(reports):
+                output["prepared_reports"] = reports
+                args.output.write_text(json.dumps(output, indent=2) + "\n")
+
+            prepared_profiles(engine, args.repeats, args.rows, preserve)
     finally:
         engine.dispose()
 

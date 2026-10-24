@@ -40,6 +40,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
           persist-credentials: false
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
@@ -59,7 +60,7 @@ jobs:
           mkdir -p reports/publication
           git rev-parse HEAD > reports/publication/source-sha.txt
           .venv/bin/python scripts/profile_publication_reports.py --seed \
-            --rows "$ARTICLE_ROWS" --repeats 7 --inline-comparison \
+            --rows "$ARTICLE_ROWS" --repeats 7 --inline-comparison --prepared \
             --output "reports/publication/${ARTICLE_ROWS}-arm64.json"
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: always()

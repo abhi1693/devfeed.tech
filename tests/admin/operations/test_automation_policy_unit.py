@@ -308,6 +308,37 @@ def test_publication_query_keeps_narrow_review_probes_out_of_aggregate_filters()
     assert review_projections and set(review_projections) == {"article_id"}
 
 
+def test_publication_window_remains_planner_visible_in_cached_prepared_queries():
+    from sqlalchemy import DateTime
+    from sqlalchemy.dialects import postgresql
+    from sqlalchemy.sql import visitors
+    from sqlalchemy.sql.elements import BindParameter
+
+    start = NOW - timedelta(days=7)
+    statement = automation._publication_automation_query(start, NOW)
+    other = automation._publication_automation_query(start - timedelta(days=1), NOW)
+    assert statement._generate_cache_key().key == other._generate_cache_key().key
+    bounds = [
+        clause
+        for clause in visitors.iterate(statement)
+        if isinstance(clause, BindParameter) and clause.literal_execute
+    ]
+    assert {bound.value for bound in bounds} == {start, NOW}
+    assert all(isinstance(bound.type, DateTime) and bound.type.timezone for bound in bounds)
+    rendered = statement.compile(
+        dialect=postgresql.dialect(), compile_kwargs={"render_postcompile": True}
+    )
+    assert start not in rendered.params.values() and NOW not in rendered.params.values()
+    assert set(rendered.params.values()) == {0.5}
+    assert "POSTCOMPILE" not in str(rendered)
+    # SQLAlchemy may reuse the compiled expression; PostgreSQL still receives
+    # each window's timestamps rather than unknown generic-plan parameters.
+    rendered_other = other.compile(
+        dialect=postgresql.dialect(), compile_kwargs={"render_postcompile": True}
+    )
+    assert str(rendered) != str(rendered_other)
+
+
 @pytest.mark.parametrize("projected", [False, True])
 def test_automation_overview_composes_one_consistent_window_and_selects_correct_blocker_reader(
     monkeypatch, projected
