@@ -20,22 +20,7 @@ jobs:
       fail-fast: false
       matrix:
         rows: [100000, 300000]
-    services:
-      postgres:
-        image: postgres:17.11
-        env:
-          POSTGRES_USER: profile
-          POSTGRES_PASSWORD: profile
-          POSTGRES_DB: publication_report_test
-        ports:
-          - 127.0.0.1:55496:5432
-        options: >-
-          --cpus=2 --memory=3g --shm-size=512m
-          --health-cmd="pg_isready -U profile -d publication_report_test"
-          --health-interval=5s --health-timeout=5s --health-retries=10
     env:
-      DEVFEED_TEST_DATABASE_URL: postgresql+psycopg://profile:profile@127.0.0.1:55496/publication_report_test
-      DEVFEED_DATABASE_URL: postgresql+psycopg://profile:profile@127.0.0.1:55496/publication_report_test
       DEVFEED_REDIS_URL: redis://127.0.0.1:6379/15
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -51,6 +36,39 @@ jobs:
           enable-cache: true
       - name: Install locked workspace dependencies
         run: sh scripts/ci/python-bootstrap.sh . --editable --all-packages
+      - name: Start isolated PostgreSQL with a fresh password
+        run: |
+          benchmark_password="$(openssl rand -hex 24)"
+          echo "::add-mask::$benchmark_password"
+          export POSTGRES_PASSWORD="$benchmark_password"
+          .venv/bin/python - <<'PY'
+          import os
+          from sqlalchemy import URL
+
+          url = URL.create(
+              "postgresql+psycopg", username="profile", password=os.environ["POSTGRES_PASSWORD"],
+              host="127.0.0.1", port=55496, database="publication_report_test",
+          ).render_as_string(hide_password=False)
+          with open(os.environ["GITHUB_ENV"], "a") as output:
+              for key in ("DEVFEED_DATABASE_URL", "DEVFEED_TEST_DATABASE_URL"):
+                  output.write(f"{key}={url}\n")
+          PY
+          docker run --detach --name publication-report-postgres \
+            --cpus=2 --memory=3g --shm-size=512m \
+            --env POSTGRES_USER=profile --env POSTGRES_DB=publication_report_test \
+            --env POSTGRES_PASSWORD --publish 127.0.0.1:55496:5432 postgres:17.11
+          for attempt in {1..30}; do
+            if docker exec publication-report-postgres \
+              pg_isready --host 127.0.0.1 -U profile -d publication_report_test; then
+              exit 0
+            fi
+            if [ "$attempt" -eq 30 ]; then
+              break
+            fi
+            sleep 1
+          done
+          docker logs publication-report-postgres
+          exit 1
       - name: Apply disposable database migrations
         run: .venv/bin/alembic upgrade head
       - name: Compare fixed publication cohorts under steady and concurrent ingestion
@@ -69,3 +87,6 @@ jobs:
           path: reports/publication/
           if-no-files-found: error
           retention-days: 7
+      - name: Remove disposable PostgreSQL
+        if: always()
+        run: docker rm -fv publication-report-postgres >/dev/null 2>&1 || true

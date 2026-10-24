@@ -2,7 +2,8 @@
 
 DEVFEED_TEST_DATABASE_URL must name a local database ending in _test. --seed
 truncates article fixtures (including dependent rows). Apply migrations first.
-No production rows or credentials are used. Full JSON plans are retained.
+No production rows or credentials are used. Full JSON plans are retained under
+the repository's reports/publication directory; --output must name a JSON file.
 """
 
 import argparse
@@ -10,6 +11,7 @@ import json
 import os
 import platform
 import statistics
+import tempfile
 import threading
 import time
 import uuid
@@ -61,6 +63,39 @@ def validate_target(value):
             "Use a disposable local PostgreSQL database ending in _test without overrides"
         )
     return url
+
+
+def validate_output(value):
+    repository = Path(__file__).resolve().parents[1]
+    root = repository / "reports" / "publication"
+    if root.resolve() != root:
+        raise ValueError("The reports/publication directory must not be redirected by symlinks")
+    output = (repository / value).resolve()
+    if not output.is_relative_to(root) or output.suffix != ".json":
+        raise ValueError("Output must be a JSON file beneath the repository's reports/publication")
+    if output.exists() and not output.is_file():
+        raise ValueError("Output must be a regular JSON file")
+    if any(parent.exists() and not parent.is_dir() for parent in output.parents):
+        raise ValueError("Output parent paths must be directories")
+    return output
+
+
+def write_report(path, report):
+    output = validate_output(path)
+    output.parent.mkdir(parents=True, exist_ok=True)
+    # Recheck when saving each sample: the benchmark may run for several minutes.
+    output = validate_output(output)
+    payload = json.dumps(report, indent=2) + "\n"
+    with tempfile.NamedTemporaryFile(
+        mode="w", encoding="utf-8", dir=output.parent, prefix=".publication-", delete=False
+    ) as temporary:
+        try:
+            temporary.write(payload)
+            temporary.close()
+            # Replace the directory entry, avoiding writes through existing hard links.
+            Path(temporary.name).replace(output)
+        finally:
+            Path(temporary.name).unlink(missing_ok=True)
 
 
 def seed(engine, rows):
@@ -182,12 +217,12 @@ class Ingestion:
 def measure(engine, sql, params, repeats, concurrent, prepared=None):
     ingestion = Ingestion(engine) if concurrent else None
     started = time.perf_counter()
-    if ingestion:
-        ingestion.thread.start()
-        if not ingestion.ready.wait(10):
-            raise RuntimeError("Concurrent ingestion did not start")
     samples, cpu, app_cpu = [], [], []
     try:
+        if ingestion:
+            ingestion.thread.start()
+            if not ingestion.ready.wait(10):
+                raise RuntimeError("Concurrent ingestion did not start")
         with engine.connect() as connection:
             connection.execute(text("SET statement_timeout='60s'"))
             connection.execute(text("SET work_mem='4MB'"))
@@ -347,6 +382,7 @@ def main():
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
     try:
+        args.output = validate_output(args.output)
         url = validate_target(os.environ["DEVFEED_TEST_DATABASE_URL"])
         if not 100 <= args.rows <= 1000000 or not 1 <= args.repeats <= 20:
             raise ValueError("Use 100..1000000 rows and 1..20 repetitions")
@@ -379,7 +415,6 @@ def main():
             "repeats": args.repeats,
             "reports": [],
         }
-        args.output.parent.mkdir(parents=True, exist_ok=True)
         for concurrent in (False, True):
             for days in (1, 7, 30):
                 params = {"start": NOW - timedelta(days=days), "now": NOW}
@@ -399,13 +434,13 @@ def main():
                 results = [value["result"] for value in report["strategies"].values()]
                 output["reports"].append(report)
                 # Preserve failing plans and samples too; CI uploads partial output.
-                args.output.write_text(json.dumps(output, indent=2) + "\n")
+                write_report(args.output, output)
                 assert all(result == results[0] for result in results), "Report results differ"
                 assert 0 < results[0][1] < results[0][0], "Fixture lost mixed publication outcomes"
                 report["result_equality"] = True
                 if args.rows >= 100000 and days == 30:
                     report["work_checks"] = check_work(report)
-                args.output.write_text(json.dumps(output, indent=2) + "\n")
+                write_report(args.output, output)
                 print(
                     json.dumps(
                         {
@@ -423,7 +458,7 @@ def main():
 
             def preserve(reports):
                 output["prepared_reports"] = reports
-                args.output.write_text(json.dumps(output, indent=2) + "\n")
+                write_report(args.output, output)
 
             prepared_profiles(engine, args.repeats, args.rows, preserve)
     finally:
