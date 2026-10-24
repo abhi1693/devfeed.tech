@@ -684,6 +684,13 @@ def main():
     parser.add_argument("--payload-bytes", type=int, default=4096)
     parser.add_argument("--cadence-interval-seconds", type=float, default=15)
     parser.add_argument("--cadence-payload-bytes", type=int, default=65536)
+    parser.add_argument(
+        "--postgres-major",
+        type=int,
+        choices=(17, 18),
+        default=17,
+        help="Expected PostgreSQL major version (default: 17, matching production)",
+    )
     args = parser.parse_args()
     if args.cadence_interval_seconds <= 0:
         parser.error("--cadence-interval-seconds must be positive")
@@ -711,6 +718,7 @@ def main():
     specification.loader.exec_module(baseline)
     with engine.connect() as connection:
         version = connection.execute(text("SELECT version()")).scalar()
+        postgres_major = connection.dialect.server_version_info[0]
         settings = dict(
             connection.execute(
                 text(
@@ -719,8 +727,9 @@ def main():
                 )
             ).all()
         )
-    if "PostgreSQL 17." not in version:
-        parser.error("Use PostgreSQL 17 for the production comparison")
+    if postgres_major != args.postgres_major:
+        engine.dispose()
+        parser.error(f"Use PostgreSQL {args.postgres_major} for this benchmark comparison")
     result = {
         "articles": args.articles,
         "jobs_per_kind": args.articles * 17 // 10 + 2000,
@@ -730,6 +739,7 @@ def main():
         "cadence_topic_usage_bytes": 1024,
         "cadence_subjects_per_kind": min(args.articles, 1000),
         "application_architecture": platform.machine(),
+        "postgres_major": postgres_major,
         "postgres_version": version,
         "postgres_settings": settings,
         "cpu_count": os.cpu_count(),

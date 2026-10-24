@@ -6,6 +6,12 @@ full migrated PostgreSQL 17 schemas, measuring ordinary ticks separately from
 maintenance pages and backlog recovery. The standalone Analysis retention performance workflow runs the
 comparison on a native ARM64 runner at 100,000 and 250,000 articles.
 
+The benchmark requires PostgreSQL 17 by default to match production. Compatibility
+smoke tests select their actual supported server with `--postgres-major 17` or
+`--postgres-major 18`; a different server major is rejected before fixture seeding.
+Reports preserve the actual server major and complete version string. The
+standalone production comparison continues to use PostgreSQL 17.
+
 Fresh read-only production counts on 24 October 2026 showed approximately
 92,394 articles, 156,004 article analysis jobs and 159,446 topic analysis jobs.
 There were 51,434 old unpruned article successes and 6,735 old unpruned topic

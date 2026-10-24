@@ -1,0 +1,325 @@
+import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
+import { mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { test } from "node:test";
+import { fileURLToPath } from "node:url";
+import { readRetentionReports, retentionSummary } from "./job-retention-report.mjs";
+
+const marker = "<!-- devfeed-job-retention-benchmark -->";
+const workflow = readFileSync(
+  new URL("../../.github/workflows/job-retention-performance.yml", import.meta.url),
+  "utf8",
+);
+const publisher = workflow.split("  report:\n")[1];
+const source = publisher
+  .split("          script: |\n")[1]
+  .split("      - uses:")[0]
+  .replace(/^ {12}/gm, "");
+const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor;
+const sha = "a".repeat(40);
+
+function measurement(articles) {
+  const phase = {
+    retention: { calls: 5, median_ms: 100, p95_ms: 200 },
+    ingestion: { calls: 1498, p95_ms: 5, p99_ms: 10, max_ms: 40 },
+    pruned: 1000,
+    real_tick_interval_seconds: 15,
+    application_cpu_seconds_including_ingestion: 2,
+    wal_bytes_including_ingestion: 1000000,
+    plans: [{ examined_job_rows: 1000, plan: { Plan: { "Shared Hit Blocks": 2000 } } }],
+    deep_cursor_plans: [
+      { examined_job_rows: 1000, plan: { Plan: { "Shared Read Blocks": 3000 } } },
+    ],
+  };
+  const phases = {};
+  for (const prefix of ["baseline", "current"])
+    for (const name of [
+      "backlog",
+      "convergence_prune1000_scan1000",
+      "latest_only",
+      "ordinary_ticks",
+      "ordinary_ticks_no_writer",
+      "deployed_cadence",
+    ])
+      phases[`${prefix}_${name}`] = {
+        ...structuredClone(phase),
+        retention: { ...phase.retention, calls: name === "backlog" ? 50 : 5 },
+      };
+  phases.current_ordinary_ticks_no_writer.retention.median_ms = 2;
+  phases.current_backlog.application_cpu_seconds_including_ingestion = 4;
+  phases.current_deployed_cadence.pruned = 600;
+  phases.current_deployed_cadence.ingestion.p95_ms = 5.1;
+  return {
+    articles,
+    jobs_per_kind: articles * 1.7,
+    application_architecture: "aarch64",
+    postgres_version: "PostgreSQL 17.11 on aarch64",
+    payload_bytes: 4096,
+    cadence_payload_bytes: 65536,
+    cadence_subjects_per_kind: 1000,
+    phases,
+  };
+}
+
+const reports = () =>
+  [100000, 250000].map((articles) => ({ articles, data: measurement(articles) }));
+
+test("formatter leads with 250k and keeps signed regressions and unequal cadence work", () => {
+  const summary = retentionSummary(reports());
+  assert.equal(summary.complete, true);
+  assert.ok(summary.body.indexOf("250,000 articles") < summary.body.indexOf("100,000 articles"));
+  assert.match(summary.body, /Before \| After \| Improvement \(\+\/-\)/);
+  assert.match(summary.body, /100\.000 ms \| 2\.000 ms \| \+98\.00%/);
+  assert.match(summary.body, /5\.000 ms \| 5\.100 ms \| -2\.00%/);
+  assert.match(summary.body, /2\.000 s \| 4\.000 s \| -100\.00%/);
+  assert.match(summary.body, /1,000 → 600/);
+  assert.match(summary.body, /not equal-prune costs/);
+  assert.match(summary.body, /4\.000 KiB full-history.*64\.000 KiB cadence/);
+  assert.match(summary.body, /including ingestion and the wait sampler/);
+  assert.match(summary.body, /3,000 shared buffers\/query, 0 temporary blocks/);
+});
+
+test("formatter reports incomplete measurements without invented values or leaked input", () => {
+  for (const change of [
+    (items) => items.pop(),
+    (items) => delete items[0].data.phases.current_backlog,
+    (items) => (items[0].data.phases.current_backlog.ingestion.p95_ms = NaN),
+    (items) => (items[0].data.phases.current_latest_only.plans = []),
+    (items) =>
+      (items[0].data.phases.current_latest_only.deep_cursor_plans[0].examined_job_rows = -1),
+    (items) => (items[0].data.articles = 1),
+    (items) => (items[0].data.application_architecture = "x86_64"),
+    (items) => (items[0].data.postgres_version = "Sensitive internal detail"),
+    (items) => (items[0].data.phases.current_deployed_cadence.real_tick_interval_seconds = 0.05),
+    (items) => (items[0].data.phases.current_deployed_cadence.retention.calls = 4),
+    (items) => (items[0].data.phases.current_backlog.retention.calls = 1),
+  ]) {
+    const items = reports();
+    change(items);
+    const summary = retentionSummary(items);
+    assert.equal(summary.complete, false);
+    assert.match(summary.body, /Results unavailable/);
+    assert.doesNotMatch(summary.body, /NaN|undefined|Sensitive internal detail/);
+  }
+  const absent = retentionSummary([]);
+  assert.equal(absent.complete, false);
+  assert.doesNotMatch(absent.body, /\| Metric/);
+});
+
+test("zero baseline costs have explicit comparisons rather than infinity", () => {
+  const items = reports();
+  items[0].data.phases.baseline_backlog.wal_bytes_including_ingestion = 0;
+  items[0].data.phases.current_backlog.wal_bytes_including_ingestion = 0;
+  items[1].data.phases.baseline_backlog.wal_bytes_including_ingestion = 0;
+  const summary = retentionSummary(items);
+  assert.match(summary.body, /0\.000 MB \| 0\.000 MB \| \+0\.00%/);
+  assert.match(summary.body, /0\.000 MB \| 1\.000 MB \| n\/a/);
+  assert.doesNotMatch(summary.body, /Infinity/);
+});
+
+test("CLI reads actual report files and writes artifact plus job summary", () => {
+  const directory = mkdtempSync(join(tmpdir(), "retention-report-"));
+  try {
+    for (const item of reports())
+      writeFileSync(join(directory, `${item.articles}.json`), JSON.stringify(item.data));
+    const output = join(directory, "rendered", "summary.json");
+    const jobSummary = join(directory, "job-summary.md");
+    const command = fileURLToPath(new URL("./job-retention-report.mjs", import.meta.url));
+    execFileSync(process.execPath, [command, directory, output], {
+      env: { ...process.env, GITHUB_STEP_SUMMARY: jobSummary },
+    });
+    assert.deepEqual(JSON.parse(readFileSync(output, "utf8")), retentionSummary(reports()));
+    assert.match(readFileSync(jobSummary, "utf8"), /250,000 articles/);
+    execFileSync(process.execPath, [command, directory, output], {
+      env: { ...process.env, GITHUB_STEP_SUMMARY: "" },
+    });
+    writeFileSync(join(directory, "100000.json"), "invalid JSON");
+    assert.equal(retentionSummary(readRetentionReports(directory)).complete, false);
+    rmSync(join(directory, "100000.json"));
+    symlinkSync(join(directory, "250000.json"), join(directory, "100000.json"));
+    assert.equal(readRetentionReports(directory)[1].data, undefined);
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+  assert.equal(
+    retentionSummary(readRetentionReports("/missing/retention-reports")).complete,
+    false,
+  );
+});
+
+function publication(options = {}) {
+  const state = {
+    comments: options.comments ?? [],
+    creates: [],
+    updates: [],
+    failures: [],
+    logs: [],
+  };
+  const context = {
+    repo: { owner: "abhi1693", repo: "devfeed.tech" },
+    payload: { pull_request: { number: 305, head: { sha } } },
+    serverUrl: "https://github.com",
+    runId: 123,
+  };
+  let body = JSON.stringify({ complete: true, body: "Measured Before / After tables" });
+  const fs = {
+    lstatSync() {
+      if (options.missing) throw new Error("Sensitive internal detail");
+      return { isFile: () => !options.symlink, size: options.size ?? body.length };
+    },
+    readFileSync: () => (options.invalid ? "not JSON" : body),
+    writeFileSync: (_path, contents) => (state.body = contents),
+  };
+  const core = {
+    info: (message) => state.logs.push(message),
+    setFailed: (message) => state.failures.push(message),
+    summary: { addRaw: () => ({ write: async () => {} }) },
+  };
+  const github = {
+    paginate: async () => state.comments,
+    rest: {
+      pulls: {
+        get: async () => ({ data: { head: { sha: options.stale ? "b".repeat(40) : sha } } }),
+      },
+      issues: {
+        listComments: Symbol("listComments"),
+        updateComment: async (request) => {
+          if (options.forbidden) throw new Error("Resource not accessible by integration");
+          state.updates.push(request);
+          state.comments.find((item) => item.id === request.comment_id).body = request.body;
+        },
+        createComment: async (request) => {
+          state.creates.push(request);
+          state.comments.push({
+            id: 42,
+            body: request.body,
+            user: { type: "Bot", login: "actions" },
+          });
+          return { data: { id: 42 } };
+        },
+      },
+    },
+  };
+  const env = {
+    BENCHMARK_RESULT: options.status ?? "success",
+    ARTIFACT_RESULT: options.artifact ?? "success",
+    GITHUB_RUN_ATTEMPT: "2",
+  };
+  const run = () =>
+    new AsyncFunction("require", "context", "github", "core", "process", source)(
+      () => fs,
+      context,
+      github,
+      core,
+      { env },
+    );
+  return { state, run, setSummary: (summary) => (body = JSON.stringify(summary)) };
+}
+
+test("publisher updates the owner-authored existing marker and leaves other reports untouched", async () => {
+  const owner = {
+    id: 6383637610,
+    body: `${marker}\nOld success`,
+    user: { type: "User", login: "abhi1693" },
+  };
+  const coverage = { id: 6383564805, body: "<!-- coverage -->", user: { type: "Bot" } };
+  const api = { id: 6383736484, body: "<!-- devfeed-pr-performance -->", user: { type: "Bot" } };
+  const duplicate = { id: 43, body: marker, user: { type: "Bot" } };
+  const { state, run } = publication({ comments: [coverage, api, duplicate, owner] });
+  await run();
+  assert.deepEqual(
+    state.updates.map((item) => item.comment_id),
+    [6383637610],
+  );
+  assert.equal(state.creates.length, 0);
+  assert.equal(coverage.body, "<!-- coverage -->");
+  assert.equal(api.body, "<!-- devfeed-pr-performance -->");
+  assert.match(owner.body, /✅ Complete/);
+  assert.match(owner.body, /runs\/123\/attempts\/2/);
+  assert.match(owner.body, new RegExp(`/commit/${sha}`));
+});
+
+test("publisher creates once then updates the same bot comment on subsequent measurements", async () => {
+  const { state, run, setSummary } = publication({
+    comments: [{ id: 1, body: marker, user: { type: "User", login: "untrusted-contributor" } }],
+  });
+  await run();
+  await run();
+  assert.equal(state.creates.length, 1);
+  assert.equal(state.updates.length, 0);
+  setSummary({ complete: true, body: "New measurements" });
+  await run();
+  assert.equal(state.creates.length, 1);
+  assert.equal(state.updates[0].comment_id, 42);
+});
+
+test("publisher surfaces failed or incomplete runs instead of leaving stale success", async () => {
+  for (const options of [
+    { status: "failure" },
+    { status: "skipped" },
+    { missing: true },
+    { invalid: true },
+    { symlink: true },
+    { size: 0 },
+    { size: 100001 },
+    { artifact: "failure" },
+  ]) {
+    const owner = {
+      id: 6383637610,
+      body: `${marker}\nOld success`,
+      user: { type: "User", login: "abhi1693" },
+    };
+    const { state, run } = publication({ ...options, comments: [owner] });
+    await run();
+    assert.equal(state.updates[0].comment_id, owner.id);
+    assert.match(state.body, /❌ Failed or incomplete/);
+    assert.doesNotMatch(state.body, /Old success|Sensitive internal detail/);
+    assert.equal(state.failures.length, 1);
+  }
+  for (const summary of [
+    { complete: false, body: "Only 100k finished" },
+    { body: "Invalid" },
+    { complete: true, body: "" },
+    { complete: true, body: "a".repeat(50001) },
+  ]) {
+    const { state, run, setSummary } = publication();
+    setSummary(summary);
+    await run();
+    assert.match(state.body, /❌ Failed or incomplete/);
+    assert.equal(state.failures.length, 1);
+  }
+});
+
+test("publisher refuses a newer PR head and never creates a replacement after denied PATCH", async () => {
+  const stale = publication({ stale: true, missing: true });
+  await stale.run();
+  assert.equal(stale.state.body, undefined);
+  assert.equal(stale.state.creates.length + stale.state.updates.length, 0);
+  const forbidden = publication({
+    forbidden: true,
+    comments: [{ id: 6383637610, body: marker, user: { type: "User", login: "abhi1693" } }],
+  });
+  await assert.rejects(
+    forbidden.run(),
+    /Cannot update retention comment 6383637610; no replacement/,
+  );
+  assert.equal(forbidden.state.creates.length, 0);
+});
+
+test("write-token job cannot execute PR code and remains restricted to trusted same-repository PRs", () => {
+  assert.doesNotMatch(publisher, /actions\/checkout@|setup-node@|\brun:/);
+  assert.match(publisher, /github\.event_name == 'pull_request'/);
+  assert.match(publisher, /head\.repo\.full_name == github\.repository/);
+  assert.match(publisher, /github\.actor != 'renovate\[bot\]'/);
+  assert.match(publisher, /github\.actor != 'dependabot\[bot\]'/);
+  assert.match(publisher, /always\(\) && !cancelled\(\)/);
+  assert.match(publisher, /pull-requests: write/);
+  assert.equal(workflow.match(/pull-requests: write/g).length, 1);
+  assert.match(publisher, /needs: benchmark/);
+  assert.match(publisher, /continue-on-error: true/);
+  assert.ok(
+    workflow.indexOf("Test retention report") < workflow.indexOf("Install benchmark application"),
+  );
+});

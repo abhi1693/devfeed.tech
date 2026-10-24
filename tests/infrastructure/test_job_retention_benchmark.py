@@ -1,11 +1,13 @@
 """The retention benchmark exercises real migrated SQL and concurrent ingestion."""
 
 import json
+import os
 import sys
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
 import pytest
 from devfeed_core.config import get_settings
+from sqlalchemy import text
 
 from scripts import job_retention_benchmark
 from tests.support.paths import REPO_ROOT
@@ -16,6 +18,8 @@ def test_benchmark_runs_both_histories_to_convergence_with_real_plans_and_ingest
     database, monkeypatch, tmp_path
 ):
     settings = get_settings()
+    with database() as session:
+        postgres_major = int(session.scalar(text("SHOW server_version_num"))) // 10000
     baseline = tmp_path / "checkpointed-baseline.py"
     baseline.write_text((REPO_ROOT / "packages/core/src/job_retention.py").read_text())
     output = tmp_path / "retention-smoke.json"
@@ -38,6 +42,8 @@ def test_benchmark_runs_both_histories_to_convergence_with_real_plans_and_ingest
             "0.05",
             "--cadence-payload-bytes",
             "4096",
+            "--postgres-major",
+            str(postgres_major),
         ],
     )
     monkeypatch.setenv("DEVFEED_TEST_DATABASE_URL", settings.database_url)
@@ -63,7 +69,8 @@ def test_benchmark_runs_both_histories_to_convergence_with_real_plans_and_ingest
     assert report["cadence_article_usage_output_bytes"] == 16384
     assert report["cadence_topic_usage_bytes"] == 1024
     assert report["cadence_subjects_per_kind"] == 1000
-    assert "PostgreSQL 17." in report["postgres_version"]
+    assert report["postgres_major"] == postgres_major
+    assert f"PostgreSQL {postgres_major}." in report["postgres_version"]
     assert len(report["phases"]) == 12
     for implementation in ("baseline", "current"):
         phases = report["phases"]
@@ -120,6 +127,40 @@ def test_benchmark_runs_both_histories_to_convergence_with_real_plans_and_ingest
         }
         assert phases[f"{implementation}_ordinary_ticks"]["ingestion"]["calls"] > 0
         assert phases[f"{implementation}_ordinary_ticks_no_writer"]["ingestion"]["calls"] == 0
+
+
+@pytest.mark.integration
+def test_benchmark_rejects_a_different_server_major_before_seeding(
+    database, monkeypatch, tmp_path, capsys
+):
+    with database() as session:
+        actual_major = int(session.scalar(text("SHOW server_version_num"))) // 10000
+    baseline = tmp_path / "baseline.py"
+    baseline.write_text((REPO_ROOT / "packages/core/src/job_retention.py").read_text())
+    output = tmp_path / "mismatched-postgres.json"
+    arguments = [
+        "job_retention_benchmark.py",
+        "--articles",
+        "1000",
+        "--baseline-file",
+        str(baseline),
+        "--output",
+        str(output),
+    ]
+    # PostgreSQL 18 must remain rejected by the production default. On 17,
+    # require 18 explicitly to prove that the requested major is enforced too.
+    expected_major = 17 if actual_major == 18 else 18
+    if actual_major != 18:
+        arguments.extend(["--postgres-major", str(expected_major)])
+    monkeypatch.setattr(sys, "argv", arguments)
+    seed = Mock()
+    monkeypatch.setattr(job_retention_benchmark, "seed", seed)
+    with patch.dict(os.environ), pytest.raises(SystemExit) as failure:
+        job_retention_benchmark.main()
+    assert failure.value.code == 2
+    assert f"Use PostgreSQL {expected_major}" in capsys.readouterr().err
+    seed.assert_not_called()
+    assert not output.exists()
 
 
 def test_benchmark_rejects_a_database_without_the_disposable_name_before_migrations(
