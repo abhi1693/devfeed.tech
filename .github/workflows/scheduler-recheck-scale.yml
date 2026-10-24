@@ -36,7 +36,6 @@ jobs:
       run:
         working-directory: candidate
     env:
-      DEVFEED_TEST_DATABASE_URL: postgresql+psycopg://profile:profile@127.0.0.1:5432/scheduler_profile_test
       DEVFEED_TEST_REDIS_URL: redis://127.0.0.1:6379/15
     steps:
       - name: Check out candidate
@@ -64,9 +63,12 @@ jobs:
         run: |
           test "$(uname -m)" = aarch64
           mkdir -p reports/scheduler-rechecks
+          scheduler_profile_password=$(openssl rand -hex 32)
+          echo "::add-mask::$scheduler_profile_password"
+          echo "DEVFEED_TEST_DATABASE_URL=postgresql+psycopg://profile:$scheduler_profile_password@127.0.0.1:5432/scheduler_profile_test" >> "$GITHUB_ENV"
           docker run -d --name scheduler-profile-postgres --shm-size=1g \
             -p 127.0.0.1:5432:5432 \
-            -e POSTGRES_USER=profile -e POSTGRES_PASSWORD=profile \
+            -e POSTGRES_USER=profile -e POSTGRES_PASSWORD="$scheduler_profile_password" \
             -e POSTGRES_DB=scheduler_profile_test \
             postgres:17.11-alpine@sha256:eee6c6e1b0894fa4fe0075eb054af9fd1cf39a35321c2d4110626cfe506411fb \
             -c shared_preload_libraries=pg_stat_statements \
@@ -86,15 +88,15 @@ jobs:
             -v ON_ERROR_STOP=1 -c 'CREATE EXTENSION IF NOT EXISTS pg_stat_statements'
       - name: Install locked applications and identical measurement harness
         run: |
-          uv sync --all-packages --locked
+          sh scripts/ci/python-bootstrap.sh . --editable --all-packages
           cp scripts/profile_scheduler_rechecks.py ../baseline/scripts/profile_scheduler_rechecks.py
-          uv sync --all-packages --locked --project ../baseline
+          sh scripts/ci/python-bootstrap.sh ../baseline --editable --all-packages
       - name: Measure base application
         working-directory: baseline
         env:
           PROFILE_SCALE: ${{ matrix.scale }}
         run: |
-          uv run --locked --no-sync python scripts/profile_scheduler_rechecks.py \
+          uv run --locked --no-sync --no-build python scripts/profile_scheduler_rechecks.py \
             --seed --scale "$PROFILE_SCALE" --ticks 5 --batch 50 --ingest-per-tick 10 \
             --history-bytes 8192 --label baseline \
             --output ../candidate/reports/scheduler-rechecks/baseline.json
@@ -102,7 +104,7 @@ jobs:
         env:
           PROFILE_SCALE: ${{ matrix.scale }}
         run: |
-          uv run --locked --no-sync python scripts/profile_scheduler_rechecks.py \
+          uv run --locked --no-sync --no-build python scripts/profile_scheduler_rechecks.py \
             --reuse-fixture --scale "$PROFILE_SCALE" --ticks 5 --batch 50 --ingest-per-tick 10 \
             --history-bytes 8192 --label candidate --assert-bounded \
             --output reports/scheduler-rechecks/candidate.json
@@ -224,7 +226,14 @@ jobs:
             const body = sections.join('\n');
             await core.summary.addRaw(body).write();
             const comments = await github.paginate(github.rest.issues.listComments, {...context.repo, issue_number: pr.number});
-            const previous = comments.find(comment => comment.user.type === 'Bot' && comment.body?.startsWith(marker));
+            // Adopt the original author-created report as well as prior bot reports.
+            // Prefer the oldest matching comment so reruns keep its existing URL.
+            const previous = comments.filter(comment => {
+              const trusted = comment.user.login === 'github-actions[bot]' ||
+                (pr.user?.login && comment.user.login === pr.user.login);
+              return trusted && (comment.body?.startsWith(marker) ||
+                comment.body?.startsWith('<!-- devfeed-scheduler-recheck-evidence-'));
+            }).sort((left, right) => left.id - right.id)[0];
             const latest = await github.rest.pulls.get({...context.repo, pull_number: pr.number});
             if (latest.data.head.sha !== pr.head.sha || latest.data.base.sha !== pr.base.sha) return;
             if (previous) {

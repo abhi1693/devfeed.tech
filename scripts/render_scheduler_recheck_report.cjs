@@ -5,8 +5,9 @@ const { parseArgs } = require("node:util");
 const expectedBaselineFailure = "clock-only rechecks generated card events or hydration";
 const finite = (value) => typeof value === "number" && Number.isFinite(value) && value >= 0;
 const object = (value) => value && typeof value === "object" && !Array.isArray(value);
-const same = (left, right) =>
-  JSON.stringify(Object.entries(left).sort()) === JSON.stringify(Object.entries(right).sort());
+const ordered = (value) =>
+  Object.entries(value).sort(([left], [right]) => left.localeCompare(right));
+const same = (left, right) => JSON.stringify(ordered(left)) === JSON.stringify(ordered(right));
 const escape = (value) =>
   String(value)
     .replace(/[\n\r|`<>]/g, " ")
@@ -226,31 +227,61 @@ function main() {
   });
   if (!["100000", "150000"].includes(values.articles))
     throw new Error("--articles must be 100000 or 150000");
-  const directory = values.directory ?? "reports/scheduler-rechecks";
+  const directory = workspacePath(values.directory ?? "reports/scheduler-rechecks");
   const pair = {};
   const errors = [];
   for (const label of ["baseline", "candidate"]) {
     try {
-      pair[label] = JSON.parse(fs.readFileSync(path.join(directory, `${label}.json`), "utf8"));
+      const filename = workspacePath(path.join(directory, `${label}.json`));
+      pair[label] = JSON.parse(fs.readFileSync(filename, "utf8"));
     } catch (error) {
       errors.push(`${label} report unavailable (${error.code ?? "invalid JSON"})`);
     }
   }
   if (errors.length) pair.error = errors.join("; ");
   const conclusion = values.conclusion ?? "success";
-  const output = values.output ?? path.join(directory, "comment.md");
+  const output = workspacePath(values.output ?? path.join(directory, "comment.md"));
   fs.mkdirSync(path.dirname(output), { recursive: true });
-  fs.writeFileSync(
+  const descriptor = fs.openSync(
     output,
-    renderReport({
-      reports: { [values.articles]: pair },
-      runUrl: values["run-url"],
-      headSha: values["head-sha"],
-      baseSha: values["base-sha"],
-      conclusion,
-    }),
+    fs.constants.O_WRONLY | fs.constants.O_CREAT | fs.constants.O_TRUNC | fs.constants.O_NOFOLLOW,
+    0o600,
   );
+  try {
+    fs.writeFileSync(
+      descriptor,
+      renderReport({
+        reports: { [values.articles]: pair },
+        runUrl: values["run-url"],
+        headSha: values["head-sha"],
+        baseSha: values["base-sha"],
+        conclusion,
+      }),
+    );
+  } finally {
+    fs.closeSync(descriptor);
+  }
   if (compare(pair, values.articles).length || conclusion !== "success") process.exitCode = 1;
+}
+
+function workspacePath(filename) {
+  const root = fs.realpathSync(process.cwd());
+  const target = path.resolve(root, filename);
+  const relative = path.relative(root, target);
+  if (relative === ".." || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative))
+    throw new Error("Benchmark report paths must remain inside the working directory");
+  let current = root;
+  for (const part of relative.split(path.sep).filter(Boolean)) {
+    current = path.join(current, part);
+    try {
+      if (fs.lstatSync(current).isSymbolicLink())
+        throw new Error("Benchmark report paths must not follow symbolic links");
+    } catch (error) {
+      if (error.code !== "ENOENT") throw error;
+      break;
+    }
+  }
+  return target;
 }
 
 module.exports = { renderReport };

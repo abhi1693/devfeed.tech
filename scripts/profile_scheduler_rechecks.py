@@ -428,7 +428,9 @@ def drain_at(factory, now, batch=200):
     count = 0
     with reuse_snapshots(), reuse_candidates():
         for _ in range(10000):
-            processed = project_batch(factory, batch=batch, now=now)
+            # Fixture setup can outlast a publisher lease. Keep simulated future
+            # deadlines, but never acquire a lease using an expired wall clock.
+            processed = project_batch(factory, batch=batch, now=max(now, datetime.now(UTC)))
             count += processed
             if not processed:
                 with factory() as session:
@@ -689,6 +691,9 @@ def main():
         started = time.perf_counter()
         output["initial_publisher_events"] = drain_at(factory, now)
         output["initial_publisher_seconds"] = time.perf_counter() - started
+        # Advance measured ticks from completed warmup, rather than from fixture
+        # setup, whose runtime depends on the historical population and runner.
+        now = datetime.now(UTC)
         with factory() as session:
             expired = session.scalar(
                 select(func.count())

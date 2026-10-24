@@ -33,8 +33,10 @@ pinned PostgreSQL 17.11 image. It runs the same measurement harness against the 
 base and candidate, at 100,000 and 150,000 articles. Each application uses its own
 locked environment. The base seeds the disposable historical corpus; the candidate
 reuses that corpus after removing only the harness's measured ingested articles
-and resetting projections. Both warm the measured cards before timing. The base
-always runs first; corpus identity and article count are checked before reuse.
+and resetting projections. Both warm the measured cards before timing. Publisher
+batches refresh setup-time clocks so a large fixture cannot acquire an already-expired
+lease; measured ticks start from completed warmup. The base always runs first;
+corpus identity and article count are checked before reuse.
 
 Each run publishes one persistent PR comment covering both dataset sizes. Tables
 show before, after, signed absolute delta and percentage improvement: a positive
@@ -42,8 +44,8 @@ improvement means less time or work, while a negative value exposes a regression
 The report includes SQL, buffer, temporary-write and WAL counters as well as
 clock-only events and card hydration. Failed, incomplete or mismatched
 measurements are labeled unavailable rather than reported as a speedup. Reruns
-update the same comment; source SHAs and artifact links identify the measurement.
-The comment job reads artifacts as data without checking out or executing PR code.
+update the original author or bot comment in place, preserving its URL; source
+SHAs and artifact links identify the measurement. The comment job reads artifacts as data without checking out or executing PR code.
 
 For a local run, set explicitly local `DEVFEED_TEST_DATABASE_URL` and
 `DEVFEED_TEST_REDIS_URL`. The database name must end in `_test`; Redis must use

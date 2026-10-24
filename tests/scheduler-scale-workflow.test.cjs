@@ -9,7 +9,7 @@ const workflow = fs.readFileSync(
 );
 const report = workflow.slice(workflow.indexOf("\n  report:\n"));
 const scriptBlock = report.match(/\n          script: \|\n([\s\S]+)$/);
-assert.ok(scriptBlock, "The report job must retain an executable github-script block");
+if (!scriptBlock) throw new Error("The report job must retain an executable github-script block");
 const script = scriptBlock[1]
   .split("\n")
   .map((line) => line.replace(/^ {12}/, ""))
@@ -71,7 +71,14 @@ async function run({
     repo: { owner: "devfeed", repo: "example" },
     runId,
     serverUrl: "https://github.example",
-    payload: { pull_request: { number: 300, head: { sha: head }, base: { sha: base } } },
+    payload: {
+      pull_request: {
+        number: 300,
+        user: { login: "author" },
+        head: { sha: head },
+        base: { sha: base },
+      },
+    },
   };
   const github = {
     rest: {
@@ -127,7 +134,11 @@ test("updates the existing bot comment and selects attempts numerically", async 
     artifacts: [artifact(100000, 2), artifact(100000, 10), artifact(150000, 10)],
     comments: [
       { id: 1, user: { type: "User" }, body: marker },
-      { id: 2, user: { type: "Bot" }, body: `${marker}\nPrevious results` },
+      {
+        id: 2,
+        user: { type: "Bot", login: "github-actions[bot]" },
+        body: `${marker}\nPrevious results`,
+      },
     ],
   });
   assert.equal(result.writes.length, 1);
@@ -279,3 +290,40 @@ for (const field of ["head", "base"]) {
     assert.deepEqual(result.writes, []);
   });
 }
+
+test("adopts the original author's results comment instead of adding another", async () => {
+  const result = await run({
+    comments: [
+      { id: 12, user: { login: "github-actions[bot]" }, body: `${marker}\nLater bot report` },
+      {
+        id: 10,
+        user: { login: "author" },
+        body: "<!-- devfeed-scheduler-recheck-evidence-123 -->\nOriginal report",
+      },
+    ],
+  });
+  assert.equal(result.writes.length, 1);
+  assert.equal(result.writes[0].operation, "update");
+  assert.equal(result.writes[0].comment_id, 10);
+  assert.ok(result.writes[0].body.startsWith(marker));
+});
+
+test("updates an author-created report after its stable marker has been adopted", async () => {
+  const result = await run({ comments: [{ id: 10, user: { login: "author" }, body: marker }] });
+  assert.equal(result.writes[0].operation, "update");
+  assert.equal(result.writes[0].comment_id, 10);
+});
+
+test("does not adopt matching comments from other users or unrelated bots", async () => {
+  const result = await run({
+    comments: [
+      { id: 8, user: { login: "stranger" }, body: marker },
+      {
+        id: 9,
+        user: { login: "another[bot]" },
+        body: "<!-- devfeed-scheduler-recheck-evidence-123 -->",
+      },
+    ],
+  });
+  assert.equal(result.writes[0].operation, "create");
+});

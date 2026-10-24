@@ -2,8 +2,10 @@
 
 import asyncio
 import importlib.util
+import json
+import os
 import sys
-from datetime import timedelta
+from datetime import datetime, timedelta
 from types import SimpleNamespace
 
 import httpx
@@ -14,6 +16,7 @@ from devfeed_core.models import (
     ArticleContent,
     PipelineProjection,
     ReadModelEvent,
+    ReadModelState,
     Tag,
     utcnow,
 )
@@ -256,6 +259,181 @@ def test_scheduler_profile_captures_due_query_and_clock_trigger_plans():
         == "scheduler_clock_update"
     )
     assert scheduler_profile.classify_plan("SELECT 1", "scheduler") is None
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize("busy_owner", [False, True])
+def test_scheduler_publisher_uses_a_fresh_lease_after_slow_setup(database, busy_owner):
+    from devfeed_admin_api.pipeline_projection import LEASE_SECONDS, project_batch
+
+    setup_time = utcnow() - timedelta(seconds=LEASE_SECONDS + 30)
+    identifier = profile.fixture_id("articles", 1)
+    deadline = utcnow() + timedelta(hours=1)
+    with database.begin() as session:
+        session.add(
+            Article(
+                id=identifier,
+                canonical_url="https://publisher.example/articles/1",
+                url_hash="slow-setup",
+                title="Python runtime diagnostics",
+                automation_next_check_at=deadline,
+            )
+        )
+    scheduler_profile.prepare_projections(database, [identifier], setup_time)
+    if busy_owner:
+        with database.begin() as session:
+            session.add(
+                ReadModelState(
+                    name="pipeline-worker",
+                    payload={
+                        "token": "another-publisher",
+                        "expires_at": (utcnow() + timedelta(seconds=LEASE_SECONDS)).isoformat(),
+                    },
+                )
+            )
+        with pytest.raises(RuntimeError, match="stopped with pending events"):
+            scheduler_profile.drain_at(database, setup_time)
+    else:
+        # A lease acquired at the original setup timestamp is already expired:
+        # publication correctly refuses it and leaves its event retryable.
+        assert project_batch(database, now=setup_time) == 0
+        assert scheduler_profile.drain_at(database, setup_time) == 1
+    with database() as session:
+        pending = session.scalar(select(func.count()).select_from(ReadModelEvent))
+        assert pending == int(busy_owner)
+        card = session.scalar(
+            select(PipelineProjection).where(PipelineProjection.entity_id == identifier)
+        )
+        if busy_owner:
+            assert card.payload == {"_profile_placeholder": True}
+        else:
+            assert card.payload["title"] == "Python runtime diagnostics"
+            assert datetime.fromisoformat(card.payload["next_check_at"]) == deadline
+            assert session.get(ReadModelState, "pipeline-worker").payload == {}
+
+
+def test_scheduler_publisher_refuses_unbounded_work(monkeypatch):
+    from devfeed_admin_api import pipeline_projection
+
+    calls = 0
+
+    def always_more_work(*args, **kwargs):
+        nonlocal calls
+        calls += 1
+        return 1
+
+    monkeypatch.setattr(pipeline_projection, "project_batch", always_more_work)
+    with pytest.raises(RuntimeError, match="exceeded its bounded drain"):
+        scheduler_profile.drain_at(None, utcnow())
+    assert calls == 10000
+
+
+@pytest.mark.integration
+def test_scheduler_publisher_preserves_simulated_future_retry_deadlines(database):
+    now = utcnow()
+    identifier = profile.fixture_id("articles", 1)
+    retry = now + timedelta(minutes=5)
+    with database.begin() as session:
+        session.add(
+            Article(
+                id=identifier,
+                canonical_url="https://publisher.example/articles/1",
+                url_hash="future-retry",
+                title="Python runtime diagnostics",
+            )
+        )
+        session.flush()
+        session.add(ArticleAnalysisJob(article_id=identifier, status="queued", available_at=retry))
+    scheduler_profile.prepare_projections(database, [identifier], now)
+    assert scheduler_profile.drain_at(database, now) == 1
+    with database() as session:
+        projection = session.scalar(select(PipelineProjection))
+        assert projection.next_transition_at == retry
+    assert scheduler_profile.drain_at(database, now + timedelta(minutes=10)) == 1
+    with database() as session:
+        projection = session.scalar(select(PipelineProjection))
+        assert projection.next_transition_at is None
+        assert session.scalar(select(func.count()).select_from(ReadModelEvent)) == 0
+
+
+@pytest.mark.integration
+def test_scheduler_cli_profiles_real_seeded_and_reused_workloads(database, monkeypatch, tmp_path):
+    from devfeed_core.config import Settings
+
+    # Keep the CLI's intentional process-wide configuration local to this test.
+    monkeypatch.setattr(os, "environ", os.environ.copy())
+    monkeypatch.setattr(Settings, "model_config", Settings.model_config.copy())
+    # Ordinary integration servers do not preload pg_stat_statements. The native
+    # scale workflow covers that sampler; exercise the real workload, SQL recorder
+    # and rollback-only plans here without requiring a server restart.
+    monkeypatch.setattr(scheduler_profile, "statement_totals", lambda engine: {"calls": 0})
+    reports = []
+    for mode in ("--seed", "--reuse-fixture"):
+        output = tmp_path / (mode.removeprefix("--") + ".json")
+        monkeypatch.setattr(
+            sys,
+            "argv",
+            [
+                "profile_scheduler_rechecks.py",
+                mode,
+                "--scale",
+                "0.0014",
+                "--ticks",
+                "2",
+                "--batch",
+                "5",
+                "--ingest-per-tick",
+                "2",
+                "--history-bytes",
+                "256",
+                "--assert-bounded",
+                "--output",
+                str(output),
+            ],
+        )
+        scheduler_profile.main()
+        result = json.loads(output.read_text())
+        assert result["complete"] and result["checkpoint_before_workload"]
+        assert result["bounded_failures"] == []
+        assert result["dataset"]["articles"] == 210
+        assert len(result["ticks"]) == 2
+        for tick in result["ticks"]:
+            assert tick["outcome"]["articles_checked"] == 5
+            assert tick["ingested"] == tick["ingested_projected"] == 2
+            assert tick["active_analysis_unchanged"]
+            assert tick["cohort_clock_visible"] and tick["cohort_retry_transition_correct"]
+            assert all(
+                tick["sql_statements"][name] > 0 for name in ("scheduler", "publisher", "ingestion")
+            )
+        due = result["plans"]["scheduler_due_candidates"]["plan"][0]["Plan"]
+        assert due["Actual Rows"] == 5
+        assert result["postgres_workload_delta"] == {"calls": 0}
+        assert result["workload_seconds"] > 0
+        assert result["application_cpu_seconds"] > 0
+        reports.append(result)
+    assert reports[0]["dataset"] == reports[1]["dataset"]
+    assert reports[1]["fixture_reused"]
+
+
+@pytest.mark.parametrize(
+    "arguments",
+    [
+        ["--seed", "--reuse-fixture"],
+        ["--scale", "0"],
+        ["--ticks", "21"],
+    ],
+)
+def test_scheduler_cli_rejects_unsafe_work_before_connecting(monkeypatch, tmp_path, arguments):
+    monkeypatch.setenv(
+        "DEVFEED_TEST_DATABASE_URL", "postgresql+psycopg://profile@localhost/fixture_test"
+    )
+    monkeypatch.setenv("DEVFEED_TEST_REDIS_URL", "redis://localhost/15")
+    output = tmp_path / "refused.json"
+    monkeypatch.setattr(sys, "argv", ["profile", "--output", str(output), *arguments])
+    with pytest.raises(SystemExit) as error:
+        scheduler_profile.main()
+    assert error.value.code == 2
+    assert not output.exists()
 
 
 @pytest.mark.parametrize(

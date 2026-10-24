@@ -67,6 +67,20 @@ function row(markdown, metric) {
   return markdown.split("\n").find((line) => line.startsWith(`| ${metric} |`));
 }
 
+function runCLI(directory, arguments_ = ["--articles", "100000", "--directory", "."]) {
+  return spawnSync(
+    process.execPath,
+    [path.resolve(__dirname, "../scripts/render_scheduler_recheck_report.cjs"), ...arguments_],
+    { cwd: directory, encoding: "utf8" },
+  );
+}
+
+function temporaryDirectory(t) {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "devfeed-recheck-report-"));
+  t.after(() => fs.rmSync(directory, { recursive: true, force: true }));
+  return directory;
+}
+
 test("reports signed reductions and regressions with immutable source identities", () => {
   const data = pair();
   data.baseline.ticks[0].cohort_events = 50;
@@ -131,6 +145,13 @@ for (const [name, mutate, reason] of [
       data.candidate.workload.history_bytes++;
     },
     /workload differ/,
+  ],
+  [
+    "missing workload",
+    (data) => {
+      delete data.candidate.workload;
+    },
+    /workload missing or invalid/,
   ],
   [
     "missing checkpoint",
@@ -207,6 +228,16 @@ test("supplied scales render independently in numeric order", () => {
   assert.ok(markdown.indexOf("100,000 articles") < markdown.indexOf("150,000 articles"));
 });
 
+test("matching dataset and workload keys compare by key regardless of JSON insertion order", () => {
+  const data = pair();
+  data.candidate.dataset = Object.fromEntries(Object.entries(data.candidate.dataset).reverse());
+  data.candidate.workload = Object.fromEntries(Object.entries(data.candidate.workload).reverse());
+  assert.match(
+    renderReport({ ...context, reports: { 100000: data } }),
+    /Valid controlled comparison/,
+  );
+});
+
 test("partially written tick and assertion records render as unavailable instead of throwing", () => {
   const data = pair();
   data.candidate.ticks = [null];
@@ -239,8 +270,7 @@ test("malformed bounded-failure records remain visible without crashing the repo
 });
 
 test("CLI writes an unavailable report and exits unsuccessfully when JSON artifacts are missing", (t) => {
-  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "devfeed-recheck-report-"));
-  t.after(() => fs.rmSync(directory, { recursive: true, force: true }));
+  const directory = temporaryDirectory(t);
   fs.writeFileSync(path.join(directory, "baseline.json"), JSON.stringify(report()));
   const output = path.join(directory, "comment.md");
   const result = spawnSync(
@@ -260,8 +290,59 @@ test("CLI writes an unavailable report and exits unsuccessfully when JSON artifa
       "--base-sha",
       context.baseSha,
     ],
-    { encoding: "utf8" },
+    { cwd: directory, encoding: "utf8" },
   );
   assert.equal(result.status, 1, result.stderr);
   assert.match(fs.readFileSync(output, "utf8"), /candidate report unavailable \(ENOENT\)/);
+});
+
+test("CLI renders complete artifacts from the workspace and handles invalid JSON without losing output", (t) => {
+  const directory = temporaryDirectory(t);
+  const reportDirectory = path.join(directory, "reports/scheduler-rechecks");
+  fs.mkdirSync(reportDirectory, { recursive: true });
+  for (const label of ["baseline", "candidate"])
+    fs.writeFileSync(path.join(reportDirectory, `${label}.json`), JSON.stringify(report()));
+  const arguments_ = ["--articles", "100000"];
+  const success = runCLI(directory, arguments_);
+  assert.equal(success.status, 0, success.stderr);
+  assert.match(
+    fs.readFileSync(path.join(reportDirectory, "comment.md"), "utf8"),
+    /Valid controlled comparison/,
+  );
+  fs.writeFileSync(path.join(reportDirectory, "candidate.json"), "{incomplete");
+  const failed = runCLI(directory, arguments_);
+  assert.equal(failed.status, 1, failed.stderr);
+  assert.match(fs.readFileSync(path.join(reportDirectory, "comment.md"), "utf8"), /invalid JSON/);
+});
+
+test("CLI rejects traversal, sibling-prefix escapes and symlinks without touching their targets", (t) => {
+  const directory = temporaryDirectory(t);
+  const workspace = path.join(directory, "work");
+  const outside = path.join(directory, "work-elsewhere");
+  fs.mkdirSync(workspace);
+  fs.mkdirSync(outside);
+  const target = path.join(outside, "protected.md");
+  fs.writeFileSync(target, "Keep this content");
+  fs.symlinkSync(outside, path.join(workspace, "linked-directory"));
+  fs.symlinkSync(target, path.join(workspace, "linked-file.md"));
+  for (const output of [
+    "../work-elsewhere/protected.md",
+    target,
+    "linked-directory/protected.md",
+    "linked-file.md",
+  ]) {
+    const result = runCLI(workspace, [
+      "--articles",
+      "100000",
+      "--directory",
+      ".",
+      "--output",
+      output,
+    ]);
+    assert.notEqual(result.status, 0, `Accepted unsafe output ${output}`);
+    assert.match(result.stderr, /working directory|symbolic links/);
+    assert.equal(fs.readFileSync(target, "utf8"), "Keep this content");
+  }
+  assert.notEqual(runCLI(workspace, ["--articles", "100000", "--directory", outside]).status, 0);
+  assert.match(runCLI(workspace, ["--articles", "1"]).stderr, /articles must be 100000 or 150000/);
 });
