@@ -94,6 +94,15 @@ def upgrade():
           END IF;
           INSERT INTO topic_decision_calls AS target
           SELECT NEW.proposal_id, calls.* FROM topic_decision_call_values(NEW.state->'calls') calls
+          LEFT JOIN topic_decision_calls existing
+            ON existing.proposal_id = NEW.proposal_id AND existing.ordinal = calls.ordinal
+          -- ON CONFLICT locks even unchanged rows before checking its WHERE clause.
+          -- The source run row serializes writers; skip those conflicts entirely.
+          WHERE existing.ordinal IS NULL OR
+            (existing.stage, existing.stage_call, existing.started_at,
+             existing.tokens, existing.charged_tokens, existing.escalated)
+            IS DISTINCT FROM (calls.stage, calls.stage_call, calls.started_at,
+                              calls.tokens, calls.charged_tokens, calls.escalated)
           ON CONFLICT (proposal_id, ordinal) DO UPDATE SET
             (stage, stage_call, started_at, tokens, charged_tokens, escalated) =
             (excluded.stage, excluded.stage_call, excluded.started_at,

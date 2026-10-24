@@ -8,8 +8,9 @@ strategy order and requires exact JSON equality for 1-, 7-, 30- and 90-day repor
 
 `topic_decision_calls` stores one typed fact for each original `(proposal_id,
 ordinal)`, including its lifetime occurrence number within its stage. Source run
-JSON remains authoritative. A transactional trigger updates only changed facts and
-deletes removed tail entries; unrelated state updates skip projection work. Each
+JSON remains authoritative. A transactional trigger filters unchanged facts before
+the upsert, avoiding conflict locks on unaffected calls, and deletes removed tail
+entries; unrelated state updates skip projection work. Each
 write handles that run's calls, with no global rollup or separate refresh scheduler.
 Report time filters use the fact timestamp index, while completed proposal usage
 joins all lifetime facts for proposals reviewed in the requested window.
@@ -70,6 +71,24 @@ WAL and excludes the later transaction rollback. A full
 equivalent backfill measures initial extraction and index insertion separately from
 steady-state reporting. An equivalent backfill excludes migration DDL/lock wait.
 
+Separate committed-write comparisons run after the read diagnostics. Fresh cohorts
+start with four or nineteen calls, then append a fifth or twentieth call, settle it,
+correct an earlier call and save an unrelated checkpoint. These are four separate
+transactions per workflow; the append also inserts an article. Latency ends after
+COMMIT. Five calls cover the configured default; twenty cover the maximum initial
+budget plus both operator grants. Each strategy uses the same logical source states
+and 20 KiB of unrelated evidence. Repeated pairs alternate strategy order. Final
+source-state hashes must match, and all current facts must match their source before
+cleanup. Setup, trigger changes, verification and cleanup are outside timing.
+
+Committed samples report per-operation median and overall p95, transaction counts,
+application thread CPU and WAL snapshots. They measure these lifecycle transactions,
+not the full worker pipeline or maximum ingestion capacity. Each phase uses fresh
+rows on the same dedicated database; cleanup does not restore identical heap/index
+bloat. Server-wide WAL counters include background work and can contain unequal
+full-page images. Retain those counts rather than interpreting one ratio as stable
+write amplification. No universal acceptable writer-latency budget has been defined.
+
 To run locally, create and migrate a new disposable database and make a clean
 checkout of the pre-change revision. Set `DEVFEED_DATABASE_URL` to that database
 for migrations, and export the same URL as `DEVFEED_TEST_DATABASE_URL` for profiling:
@@ -97,9 +116,14 @@ writes, and complete overlap between reports and the paced writer phase. Later c
 against their current base and retain exact output parity without requiring every
 change to make the already normalized queries faster again. Full phase
 elapsed time includes identical writer pacing and is not a report latency metric.
+These are read checks, not an overall performance verdict. The summary reports
+committed write costs separately and marks them unverified when absent; a passing
+read check cannot establish acceptable long-term write overhead.
 
 Each run publishes separate 100,000- and 300,000-article before/after tables with
-signed deltas in its job summary and summary artifact. Same-repository pull requests
+signed cost deltas and improvement percentages in its job summary and summary artifact.
+Positive improvement means reduced cost; negative improvement means increased cost.
+Same-repository pull requests
 also receive one updated bot comment. The publishing job executes no checkout or
 artifact code, validates the current attempt's JSON as data, and checks the current
 PR head before writing. Forks retain the summary and artifact. Failed jobs and

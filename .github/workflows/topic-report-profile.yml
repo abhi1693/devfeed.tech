@@ -177,6 +177,47 @@ jobs:
             const integer = value => Number.isSafeInteger(value) && value >= 0;
             const ensure = (condition, message) => { if (!condition) throw new Error(message); };
             const fields = (value, names) => value && names.every(name => finite(value[name]));
+            const operations = ['append', 'settle', 'correction', 'checkpoint'];
+            const validDurable = condition => ensure(condition, 'Invalid committed-write evidence');
+            const validateDurableStrategy = (row, repeats) => {
+              validDurable(fields(row, ['median_ms', 'p95_ms', 'elapsed_seconds', 'application_thread_cpu_seconds']) &&
+                row.p95_ms >= row.median_ms && row.committed === true &&
+                integer(row.iterations) && row.iterations > 0 && row.iterations % repeats === 0 &&
+                integer(row.committed_transactions) && row.committed_transactions === row.iterations * operations.length &&
+                ['wal_bytes', 'wal_records', 'wal_full_page_images'].every(key => integer(row[key])));
+              for (const operation of operations) {
+                const sample = row.operations?.[operation];
+                validDurable(fields(sample, ['median_ms', 'p95_ms']) && sample.p95_ms >= sample.median_ms &&
+                  sample.samples === row.iterations);
+              }
+            };
+            const durableProfiles = data => {
+              if (!Object.hasOwn(data, 'durable_writes')) return null;
+              const profiles = data.durable_writes;
+              validDurable(Array.isArray(profiles) && profiles.length === 2 &&
+                [5, 20].every(calls => profiles.filter(row => row.calls_per_workflow === calls).length === 1));
+              for (const profile of profiles) {
+                validDurable(integer(profile.repeats) && profile.repeats > 0 &&
+                  Array.isArray(profile.paired_order) && profile.paired_order.length === profile.repeats &&
+                  profile.paired_order.every((order, index) => JSON.stringify(order) ===
+                    JSON.stringify(index % 2 === 0 ? ['legacy', 'facts'] : ['facts', 'legacy'])) &&
+                  profile.source_states_equal === true && profile.projection_verified === true);
+                for (const strategy of ['legacy', 'facts']) {
+                  validateDurableStrategy(profile.strategies?.[strategy], profile.repeats);
+                }
+                validDurable(profile.strategies.legacy.iterations === profile.strategies.facts.iterations);
+              }
+              return profiles;
+            };
+            const writeResult = profiles => {
+              if (!profiles) return 'UNVERIFIED';
+              const higherLatency = profiles.some(profile => {
+                const before = profile.strategies.legacy, after = profile.strategies.facts;
+                return after.p95_ms > before.p95_ms || operations.some(operation =>
+                  after.operations[operation].median_ms > before.operations[operation].median_ms);
+              });
+              return higherLatency ? 'HIGHER LATENCY OBSERVED' : 'NO HIGHER LATENCY IN THESE SAMPLES';
+            };
             const read = articles => {
               const nested = `report/topic-reports-${articles}-arm64-${attempt}/topic-reports.json`;
               try {
@@ -235,35 +276,44 @@ jobs:
                 };
                 ensure(Object.entries(checks).every(([key, value]) => data.improvement?.[key] === value),
                   'Inconsistent reported checks');
-                return {articles, data, checks, serverVersion};
+                return {articles, data, checks, serverVersion, durable: durableProfiles(data)};
               } catch (error) {
                 const known = ['Incomplete artifact', 'Oversized artifact', 'Missing artifact for this fixture',
                   'Invalid native PostgreSQL 17 identity', 'Invalid fixture cardinalities',
                   'Missing exact report parity', 'Invalid concurrent report metrics',
                   'Invalid topic query metrics', 'Invalid ingestion metrics',
                   'Invalid correction metrics', 'Invalid backfill metrics',
-                  'Unmatched workloads', 'Inconsistent reported checks'];
+                  'Unmatched workloads', 'Inconsistent reported checks', 'Invalid committed-write evidence'];
                 return {articles, error: known.includes(error.message) ? error.message :
                   'Missing or invalid artifact for this run attempt'};
               }
             };
             const reports = [100000, 300000].map(read);
-            const passed = process.env.PROFILE_RESULT === 'success' &&
+            const evidenceComplete = process.env.PROFILE_RESULT === 'success' &&
               process.env.TEST_RESULT === 'success' && reports.every(row => row.data);
+            const readResult = evidenceComplete ?
+              (reports.every(row => Object.values(row.checks).every(Boolean)) ? 'IMPROVED' : 'MIXED') :
+              'UNVERIFIED';
+            const durable = evidenceComplete && reports.every(row => row.durable) ?
+              reports.flatMap(row => row.durable) : null;
             const number = (value, digits = 3) => value.toLocaleString('en-US', {
               minimumFractionDigits: digits, maximumFractionDigits: digits});
-            const delta = (before, after, unit, faster = false) => {
+            const delta = (before, after, unit) => {
               const difference = after - before;
               const sign = difference < 0 ? '-' : '+';
-              const percent = before > 0 ? `${sign}${number(Math.abs(difference) / before * 100, 1)}%` :
-                (difference === 0 ? '+0.0%' : 'baseline zero');
-              const ratio = faster && after > 0 && difference < 0 ?
-                `; ${number(before / after, 1)}× faster` : '';
-              const text = `${sign}${number(Math.abs(difference))} ${unit} (${percent}${ratio})`;
+              const text = `${sign}${number(Math.abs(difference))} ${unit}`;
               return difference > 0 ? `🔺 **${text}**` : text;
             };
+            const improvement = (before, after) => {
+              if (before === 0) return after === 0 ? '0.0%' : 'N/A (baseline zero)';
+              const value = (before - after) / before * 100;
+              const sign = value > 0 ? '+' : value < 0 ? '-' : '';
+              return `${sign}${number(Math.abs(value), 1)}%`;
+            };
             const lines = [marker, '### Topic report history', '',
-              `**${passed ? 'PASS' : 'FAIL — incomplete or failed benchmark'}** · native ARM64 PostgreSQL 17 · 90-day concurrent reports.`, '',
+              `Read result: **${readResult}**. Write result: **${writeResult(durable)}**.`, '',
+              'Native ARM64 PostgreSQL 17 · 90-day concurrent reports.', '',
+              'Delta = after - before. Improvement = (before - after) / before × 100: positive means less time/work; negative means slower or higher cost.', '',
               `Tested commit: \`${pr.head.sha}\` · [Workflow, artifacts and full plans](${url}) · attempt ${attempt}.`];
             if (process.env.PROFILE_RESULT !== 'success' || process.env.TEST_RESULT !== 'success') {
               lines.push('', `Native matrix: **${process.env.PROFILE_RESULT}**; summary tests: **${process.env.TEST_RESULT}**. Any available measurements below do not establish a passing run.`);
@@ -278,32 +328,57 @@ jobs:
               const before = data.concurrent.legacy, after = data.concurrent.facts;
               lines.push(`PostgreSQL ${report.serverVersion} / ARM64 / work_mem 4MB. ` +
                 `${number(data.fixture.runs, 0)} workflows · ${number(data.fixture.calls, 0)} topic calls · ${number(data.fixture.inference_calls, 0)} inference rows.`, '',
-                '| Metric | Before | After | Delta |', '| --- | ---: | ---: | ---: |');
-              const row = (label, first, last, unit, faster = false) =>
-                lines.push(`| ${label} | ${number(first)} ${unit} | ${number(last)} ${unit} | ${delta(first, last, unit, faster)} |`);
-              row('Report pair median', before.median_report_pair_ms, after.median_report_pair_ms, 'ms', true);
-              row('Topic SQL total', before.report_plan_totals.execution_ms, after.report_plan_totals.execution_ms, 'ms', true);
-              row('Temporary writes', before.report_plan_totals.temp_written_blocks / 128, after.report_plan_totals.temp_written_blocks / 128, 'MiB');
+                '| Metric | Before | After | Delta (after - before) | Improvement |',
+                '| --- | ---: | ---: | ---: | ---: |');
+              const row = (label, first, last, unit) =>
+                lines.push(`| ${label} | ${number(first)} ${unit} | ${number(last)} ${unit} | ${delta(first, last, unit)} | ${improvement(first, last)} |`);
+              row('Report pair median', before.median_report_pair_ms, after.median_report_pair_ms, 'ms');
+              row('Topic SQL replay total', before.report_plan_totals.execution_ms, after.report_plan_totals.execution_ms, 'ms');
+              row('Topic SQL replay temp writes', before.report_plan_totals.temp_written_blocks / 128, after.report_plan_totals.temp_written_blocks / 128, 'MiB');
               row('Application CPU', before.application_process_cpu_seconds, after.application_process_cpu_seconds, 's');
-              row('Ingestion median', before.ingestion.median_ms, after.ingestion.median_ms, 'ms');
-              row('Ingestion p95', before.ingestion.p95_ms, after.ingestion.p95_ms, 'ms');
+              row('Rolled-back synthetic write median', before.ingestion.median_ms, after.ingestion.median_ms, 'ms');
+              row('Rolled-back synthetic write p95', before.ingestion.p95_ms, after.ingestion.p95_ms, 'ms');
               const first = data.correction_plans.legacy, last = data.correction_plans.facts;
-              row('Single correction', first['Execution Time'], last['Execution Time'], 'ms');
+              row('Rolled-back correction', first['Execution Time'], last['Execution Time'], 'ms');
               row('WAL snapshot (FPI-sensitive)', first.statement_wal_bytes / 1024, last.statement_wal_bytes / 1024, 'KiB');
               lines.push('', `Exact output parity: **1 / 7 / 30 / 90 days passed**. Observed checks: **${Object.values(checks).filter(Boolean).length}/4**. ` +
                 `${before.report_workers} report workers; ${before.report_pairs} report pairs total; ${before.ingestion.iterations} ingestion transactions per strategy. ` +
                 `Equivalent backfill: ${number(data.backfill_equivalent_plan['Execution Time'] / 1000)} s. ` +
-                `Correction full-page images: ${first.Plan['WAL FPI']} → ${last.Plan['WAL FPI']}.`);
+                `Correction full-page images: ${first.Plan['WAL FPI']} → ${last.Plan['WAL FPI']}.`, '',
+                'The synthetic writes and correction above roll back and exclude commit latency; they cannot establish durable write throughput or overall production benefit.');
+              if (!report.durable) {
+                lines.push('', '**Write result: UNVERIFIED.** Committed append, settlement, correction and checkpoint costs are absent from this artifact.');
+                continue;
+              }
+              lines.push('', `**Write result: ${writeResult(report.durable)}.** Committed topic operations follow.`);
+              for (const profile of report.durable) {
+                const initial = profile.strategies.legacy, final = profile.strategies.facts;
+                lines.push('', `##### Committed topic writes: ${profile.calls_per_workflow} calls per workflow`, '',
+                  `${profile.repeats} alternating repeats; ${number(initial.iterations, 0)} iterations and ` +
+                  `${number(initial.committed_transactions, 0)} committed transactions per strategy. ` +
+                  'Source histories match and normalized facts were verified.', '',
+                  '| Metric | Before | After | Delta (after - before) | Improvement |',
+                  '| --- | ---: | ---: | ---: | ---: |');
+                for (const operation of operations) {
+                  row(`${operation[0].toUpperCase()}${operation.slice(1)} median (commit included)`,
+                    initial.operations[operation].median_ms, final.operations[operation].median_ms, 'ms');
+                }
+                row('All committed operations p95', initial.p95_ms, final.p95_ms, 'ms');
+                row('Committed writes WAL snapshot', initial.wal_bytes / 1024, final.wal_bytes / 1024, 'KiB');
+                lines.push('', `WAL full-page images: ${number(initial.wal_full_page_images, 0)} → ` +
+                  `${number(final.wal_full_page_images, 0)}. WAL is a server-wide snapshot sensitive to full-page images and background activity; it is not a stable amplification ratio.`);
+              }
             }
             lines.push('', 'Before = PR base; after = tested commit. 🔺 marks increased cost. ' +
               'Writers are paced and every transaction ends with rollback: their phase includes SQL and sleeps, not continuous SQL overlap or durable-commit throughput. ' +
               'CPU is application process CPU. Statement WAL uses a server-wide LSN delta including AFTER triggers/background activity; unequal full-page images prevent a stable WAL-amplification estimate. ' +
-              'Backfill excludes migration DDL and lock waits.');
+              'Topic SQL replay totals come from separate EXPLAIN executions after each timed report. Backfill excludes migration DDL and lock waits. ' +
+              'Committed topic measurements include commit latency; they do not measure full ingestion-pipeline capacity or establish an overall production benefit.');
             const body = lines.join('\n');
             fs.mkdirSync('summary', {recursive: true});
             fs.writeFileSync('summary/topic-reports.md', body + '\n');
             await core.summary.addRaw(body).write();
-            if (!passed) core.setFailed('Topic benchmark evidence is incomplete or the native matrix failed');
+            if (!evidenceComplete) core.setFailed('Topic benchmark evidence is incomplete or the native matrix failed');
             const sameRepository = pr.head.repo.full_name === `${context.repo.owner}/${context.repo.repo}`;
             if (!sameRepository) return;
             const current = await github.rest.pulls.get({...context.repo, pull_number: pr.number});

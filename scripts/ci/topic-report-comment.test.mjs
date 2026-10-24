@@ -71,6 +71,53 @@ function artifact(articles) {
   };
 }
 
+function committedProfiles({ slower = true } = {}) {
+  return [5, 20].map((calls) => {
+    const legacy = {
+      iterations: 600,
+      committed_transactions: 2400,
+      committed: true,
+      median_ms: 1,
+      p95_ms: 2,
+      elapsed_seconds: 3,
+      application_thread_cpu_seconds: 1,
+      wal_bytes: 1024,
+      wal_records: 20,
+      wal_full_page_images: 1,
+      operations: Object.fromEntries(
+        ["append", "settle", "correction", "checkpoint"].map((operation) => [
+          operation,
+          { samples: 600, median_ms: 1, p95_ms: 2 },
+        ]),
+      ),
+    };
+    const facts = structuredClone(legacy);
+    facts.operations.append.median_ms = slower ? 1.5 : 0.5;
+    facts.wal_bytes = 2048;
+    facts.wal_full_page_images = 2;
+    return {
+      calls_per_workflow: calls,
+      repeats: 3,
+      paired_order: [
+        ["legacy", "facts"],
+        ["facts", "legacy"],
+        ["legacy", "facts"],
+      ],
+      source_states_equal: true,
+      projection_verified: true,
+      strategies: { legacy, facts },
+    };
+  });
+}
+
+function changeArtifacts(fixture, change) {
+  for (const [file, raw] of fixture.files) {
+    const data = JSON.parse(raw);
+    change(data);
+    fixture.files.set(file, JSON.stringify(data));
+  }
+}
+
 function script() {
   const workflow = readFileSync(
     new URL("../../.github/workflows/topic-report-profile.yml", import.meta.url),
@@ -231,20 +278,24 @@ function harness({ attempt = "2", heads = [sha], fork = false, comments = [] } =
 }
 
 // Expectations below exercise the exact inline script, including its GitHub API writes.
-test("the automatic summary reports signed improvements and positive ingestion/WAL overhead", async () => {
+test("the summary separates after-minus-before deltas from positive savings and negative overhead", async () => {
   const fixture = harness();
   const body = await fixture.run();
   assert.ok(body.startsWith(marker));
   assert.match(body, /100[,.]?000/);
   assert.match(body, /300[,.]?000/);
-  assert.match(body, /-50\.0%/);
-  assert.match(body, /\+25\.0%/);
+  assert.match(body, /Read result: \*\*IMPROVED\*\*/);
+  assert.match(body, /Write result: \*\*UNVERIFIED\*\*/);
+  assert.doesNotMatch(body, /\*\*PASS\b/);
   assert.match(body, /\+50\.0%/);
+  assert.match(body, /Delta \(after - before\) \| Improvement/);
+  assert.match(body, /positive means less time\/work; negative means slower or higher cost/);
   assert.match(body, /writer.phase|paced|pacing/i);
   assert.match(body, /roll.?back|rolled.back|fsync/i);
-  assert.match(body, /Report pair median[^\n]+-50\.0%/);
-  assert.match(body, /Ingestion median[^\n]+\+25\.0%/);
-  assert.match(body, /WAL snapshot[^\n]+\+50\.0%/);
+  assert.match(body, /Report pair median[^\n]+-50\.000 ms \| \+50\.0%/);
+  assert.match(body, /Rolled-back synthetic write median[^\n]+\+1\.000 ms[^\n]+-25\.0%/);
+  assert.match(body, /WAL snapshot[^\n]+\+0\.488 KiB[^\n]+-50\.0%/);
+  assert.match(body, /cannot establish durable write throughput or overall production benefit/);
   assert.match(body, new RegExp(sha));
   assert.ok(
     body.includes(
@@ -256,6 +307,156 @@ test("the automatic summary reports signed improvements and positive ingestion/W
   assert.equal(fixture.calls.failures.length, 0);
   assert.ok(fixture.calls.writes.some((entry) => entry.file === "summary/topic-reports.md"));
 });
+
+test("faster reads do not claim overall success when committed write costs are absent", async () => {
+  const fixture = harness();
+  const body = await fixture.run();
+  assert.match(body, /Read result: \*\*IMPROVED\*\*/);
+  assert.match(body, /Write result: \*\*UNVERIFIED\*\*/);
+  assert.match(body, /Committed append, settlement, correction and checkpoint costs are absent/);
+  assert.doesNotMatch(body, /\*\*PASS\b|overall benefit verified/i);
+});
+
+test("a valid read slowdown is disclosed instead of being called an improvement", async () => {
+  const fixture = harness();
+  changeArtifacts(fixture, (data) => {
+    data.concurrent.facts.median_report_pair_ms = 125;
+    data.improvement.report_runtime_lower = false;
+  });
+  const body = await fixture.run();
+  assert.match(body, /Read result: \*\*MIXED\*\*/);
+  assert.match(body, /Report pair median[^\n]+\+25\.000 ms[^\n]+-25\.0%/);
+  assert.doesNotMatch(body, /\*\*PASS\b|Unavailable/);
+  assert.equal(fixture.calls.failures.length, 0);
+});
+
+test("zero baselines preserve absolute deltas without inventing a percentage", async () => {
+  const fixture = harness();
+  changeArtifacts(fixture, (data) => {
+    data.concurrent.legacy.ingestion.median_ms = 0;
+    data.concurrent.legacy.ingestion.p95_ms = 0;
+    data.concurrent.facts.ingestion.p95_ms = 0;
+  });
+  const body = await fixture.run();
+  assert.match(
+    body,
+    /Rolled-back synthetic write median[^\n]+\+5\.000 ms[^\n]+N\/A \(baseline zero\)/,
+  );
+  assert.match(body, /Rolled-back synthetic write p95[^\n]+\+0\.000 ms \| 0\.0%/);
+  assert.doesNotMatch(body, /NaN|Infinity/);
+});
+
+test("committed append overhead is visible even when every read check improves", async () => {
+  const fixture = harness();
+  changeArtifacts(fixture, (data) => {
+    data.durable_writes = committedProfiles();
+  });
+  const body = await fixture.run();
+  assert.match(
+    body,
+    /Read result: \*\*IMPROVED\*\*\. Write result: \*\*HIGHER LATENCY OBSERVED\*\*/,
+  );
+  assert.match(body, /Committed topic writes: 5 calls per workflow/);
+  assert.match(body, /Committed topic writes: 20 calls per workflow/);
+  assert.match(body, /2,400 committed transactions per strategy/);
+  assert.match(body, /Append median \(commit included\)[^\n]+\+0\.500 ms[^\n]+-50\.0%/);
+  assert.match(body, /Committed writes WAL snapshot[^\n]+\+1\.000 KiB[^\n]+-100\.0%/);
+  assert.match(body, /WAL full-page images: 1 → 2/);
+  assert.match(body, /not a stable amplification ratio/);
+  assert.doesNotMatch(body, /\*\*PASS\b/);
+  assert.equal(fixture.calls.failures.length, 0);
+});
+
+test("lower sampled committed latency still makes no overall production claim", async () => {
+  const fixture = harness();
+  changeArtifacts(fixture, (data) => {
+    data.durable_writes = committedProfiles({ slower: false });
+  });
+  const body = await fixture.run();
+  assert.match(body, /Write result: \*\*NO HIGHER LATENCY IN THESE SAMPLES\*\*/);
+  assert.match(body, /Append median \(commit included\)[^\n]+-0\.500 ms \| \+50\.0%/);
+  assert.match(
+    body,
+    /do not measure full ingestion-pipeline capacity or establish an overall production benefit/,
+  );
+  assert.doesNotMatch(body, /\*\*PASS\b/);
+});
+
+test("one measured fixture cannot verify writes for a second fixture without committed evidence", async () => {
+  const fixture = harness();
+  const target = [...fixture.files.keys()].find((file) => file.includes("100000"));
+  const data = JSON.parse(fixture.files.get(target));
+  data.durable_writes = committedProfiles();
+  fixture.files.set(target, JSON.stringify(data));
+  const body = await fixture.run();
+  assert.match(body, /Read result: \*\*IMPROVED\*\*\. Write result: \*\*UNVERIFIED\*\*/);
+  assert.match(body, /Committed topic writes: 20 calls per workflow/);
+  assert.match(body, /Committed append, settlement, correction and checkpoint costs are absent/);
+  assert.equal(fixture.calls.failures.length, 0);
+});
+
+for (const [label, change] of [
+  [
+    "missing long workflow",
+    (profiles) => {
+      profiles.pop();
+    },
+  ],
+  [
+    "unequal source histories",
+    (profiles) => {
+      profiles[0].source_states_equal = false;
+    },
+  ],
+  [
+    "unverified projection",
+    (profiles) => {
+      profiles[0].projection_verified = false;
+    },
+  ],
+  [
+    "rolled-back transactions",
+    (profiles) => {
+      profiles[0].strategies.facts.committed = false;
+    },
+  ],
+  [
+    "missing commits",
+    (profiles) => {
+      profiles[0].strategies.facts.committed_transactions--;
+    },
+  ],
+  [
+    "missing operation",
+    (profiles) => {
+      delete profiles[0].strategies.facts.operations.append;
+    },
+  ],
+  [
+    "non-numeric WAL",
+    (profiles) => {
+      profiles[0].strategies.facts.wal_bytes = "2048";
+    },
+  ],
+  [
+    "nonalternating order",
+    (profiles) => {
+      profiles[0].paired_order[1] = ["legacy", "facts"];
+    },
+  ],
+]) {
+  test(`invalid committed-write evidence rejects ${label}`, async () => {
+    const fixture = harness();
+    changeArtifacts(fixture, (data) => {
+      data.durable_writes = committedProfiles();
+      change(data.durable_writes);
+    });
+    const body = await fixture.run();
+    assert.match(body, /Read result: \*\*UNVERIFIED\*\*/);
+    assert.match(body, /Invalid committed-write evidence/);
+    assert.equal(fixture.calls.failures.length, 1);
+  });
+}
 
 for (const [name, mutate, message] of [
   ["missing", (fixture, target) => fixture.files.delete(target), /missing|unavailable|absent/i],
@@ -311,7 +512,7 @@ for (const [name, mutate] of [
     mutate(result);
     fixture.files.set(target, JSON.stringify(result));
     const body = await fixture.run();
-    assert.match(body, /\*\*FAIL/);
+    assert.match(body, /Read result: \*\*UNVERIFIED\*\*/);
     assert.match(body, /Unavailable/);
     assert.doesNotMatch(body, /NaN|Infinity/);
     assert.equal(fixture.calls.failures.length, 1);
@@ -337,7 +538,7 @@ for (const articles of attempts) {
     const body = await fixture.run();
     const section = (count) =>
       body.split(`#### ${count.toLocaleString("en-US")} articles`)[1].split("####")[0];
-    assert.match(body, /\*\*FAIL/);
+    assert.match(body, /Read result: \*\*UNVERIFIED\*\*/);
     assert.match(section(articles), /Report pair median/);
     const missing = section(articles === 100000 ? 300000 : 100000);
     assert.match(missing, /Unavailable/);

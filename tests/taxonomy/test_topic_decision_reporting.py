@@ -509,6 +509,45 @@ def test_facts_follow_append_settlement_correction_reorder_removal_and_noop(data
         assert facts(session, identifier) == []
 
 
+@pytest.mark.parametrize(
+    ("changes", "expected"),
+    [
+        ({"tokens": {"totalTokens": 99}}, {"tokens": 99}),
+        ({"started_at": END.isoformat()}, {"started_at": END}),
+        ({"stage": "verification"}, {"stage": "verification", "stage_call": 1}),
+        ({"charged_tokens": None}, {"charged_tokens": None}),
+        ({"escalated": True}, {"escalated": True}),
+        ({"status": "returned"}, {}),
+    ],
+)
+def test_correcting_one_call_does_not_lock_unchanged_call_facts(database, changes, expected):
+    initial = [call(tokens=index + 1) for index in range(20)]
+    corrected = [*initial[:-1], {**initial[-1], **changes}]
+    with database.begin() as session:
+        identifier = add_run(session, initial)
+    with database() as session:
+        before = facts(session, identifier)
+        engine = session.get_bind()
+    with engine.connect() as holder, holder.begin():
+        holder.execute(
+            text("""SELECT ordinal FROM topic_decision_calls
+            WHERE proposal_id=:id AND ordinal=1 FOR UPDATE"""),
+            {"id": identifier},
+        )
+        with database.begin() as session:
+            session.execute(text("SET LOCAL lock_timeout='2s'"))
+            run = session.get(TopicDecisionRun, identifier)
+            run.state = {"calls": corrected}
+            # The former upsert attempted to lock ordinal 1 before checking that
+            # it was unchanged, so a correction of ordinal 20 timed out here.
+            session.flush()
+    with database() as session:
+        after = facts(session, identifier)
+        assert after[:-1] == before[:-1]
+        assert after[-1]._asdict() == {**before[-1]._asdict(), **expected}
+        assert session.get(TopicDecisionRun, identifier).state["calls"] == corrected
+
+
 def test_concurrent_atomic_appends_never_duplicate_or_lose_fact_occurrences(database):
     with database.begin() as session:
         identifier = add_run(session, [call(tokens=1)])

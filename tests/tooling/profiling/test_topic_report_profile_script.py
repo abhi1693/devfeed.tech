@@ -11,7 +11,7 @@ from types import SimpleNamespace
 import pytest
 from devfeed_core.inference_metrics import inference_charts
 from devfeed_core.topic_decision_metrics import decision_metrics
-from sqlalchemy import text
+from sqlalchemy import event, text
 
 from scripts import profile_topic_reports as profile
 
@@ -394,6 +394,186 @@ def test_correction_wal_measurement_includes_after_triggers_and_rolls_back(datab
             assert fixture_snapshot(session) == before
 
 
+def committed_fixture_snapshot(session):
+    return {
+        **fixture_snapshot(session),
+        "table_counts": {
+            table.name: session.scalar(text(f'SELECT count(*) FROM "{table.name}"'))
+            for table in profile.models.Base.metadata.sorted_tables
+        },
+    }
+
+
+@pytest.mark.parametrize(
+    "iterations,call_count,repeats",
+    [(0, 5, 1), (1001, 5, 1), (1, 1, 1), (1, 21, 1), (1, 5, 0), (1, 5, 11)],
+)
+def test_durable_writes_reject_unbounded_work_before_connecting(
+    monkeypatch, iterations, call_count, repeats
+):
+    monkeypatch.setattr(
+        profile, "_durable_write_phase", lambda *_a, **_kw: pytest.fail("Started durable writes")
+    )
+    with pytest.raises(ValueError, match="exceeds supported bounds"):
+        profile.durable_write_profile(
+            object(), iterations=iterations, call_count=call_count, repeats=repeats
+        )
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize("call_count", [5, 20])
+def test_durable_writes_commit_lifecycle_steps_and_clean_up_each_strategy(database, call_count):
+    with database() as session:
+        engine = session.get_bind()
+    profile.seed(engine, articles=10, runs=10, history_bytes=64)
+    with database() as session:
+        before = committed_fixture_snapshot(session)
+    visible_steps = []
+    final_states = []
+
+    def observe_commits(_connection, _cursor, statement, parameters, _context, _many):
+        normalized = " ".join(statement.lower().split())
+        if normalized.startswith("update topic_decision_runs set state="):
+            value = json.loads(parameters["value"])
+            with engine.connect() as observer:
+                state = observer.scalar(
+                    text("SELECT state FROM topic_decision_runs WHERE proposal_id=:proposal"),
+                    {"proposal": parameters["proposal"]},
+                )
+            if isinstance(value, list):
+                operation = "append"
+                assert len(state["calls"]) == call_count - 1
+            elif isinstance(value, dict):
+                operation = "settle"
+                assert len(state["calls"]) == call_count
+                assert state["calls"][-1]["status"] == "running"
+                assert state["calls"][-1]["charged_tokens"] == 40000
+            elif isinstance(value, int):
+                operation = "correction"
+                assert state["calls"][-1]["status"] == "returned"
+                assert state["calls"][-1]["tokens"] == {"totalTokens": 1200}
+                assert state["calls"][0]["charged_tokens"] == 1100
+            else:
+                operation = "checkpoint"
+                assert value == "complete"
+                assert state["calls"][0]["charged_tokens"] in {50000, 50001}
+                assert "checkpoint" not in state
+            visible_steps.append(operation)
+        elif normalized.startswith("delete from articles where id="):
+            with engine.connect() as observer:
+                assert (
+                    observer.scalar(
+                        text("SELECT count(*) FROM articles WHERE id=ANY(:ids)"), parameters
+                    )
+                    == 2
+                )
+                states = observer.execute(
+                    text("""SELECT r.proposal_id,r.state FROM topic_decision_runs r
+                    JOIN topic_proposals p ON p.id=r.proposal_id
+                    WHERE p.slug LIKE 'durable-%' ORDER BY r.state->>'evidence',
+                        r.state#>>'{calls,0,charged_tokens}'""")
+                ).all()
+                assert len(states) == 2
+                for proposal, state in states:
+                    assert len(state["calls"]) == call_count
+                    assert state["calls"][-1]["status"] == "returned"
+                    assert state["checkpoint"] == "complete"
+                    facts = (
+                        observer.execute(
+                            text("""SELECT charged_tokens FROM topic_decision_calls
+                        WHERE proposal_id=:proposal ORDER BY ordinal"""),
+                            {"proposal": proposal},
+                        )
+                        .scalars()
+                        .all()
+                    )
+                    if len(final_states) == 0:
+                        assert facts == [1100] * (call_count - 1)
+                    else:
+                        assert facts == [call["charged_tokens"] for call in state["calls"]]
+                final_states.append([state for _proposal, state in states])
+
+    event.listen(engine, "before_cursor_execute", observe_commits)
+    try:
+        result = profile.durable_write_profile(
+            engine, iterations=2, call_count=call_count, repeats=1
+        )
+    finally:
+        event.remove(engine, "before_cursor_execute", observe_commits)
+    assert visible_steps == ["append", "settle", "correction", "checkpoint"] * 4
+    assert final_states[0] == final_states[1]
+    assert result["calls_per_workflow"] == call_count
+    assert result["paired_order"] == [["legacy", "facts"]]
+    assert result["source_states_equal"] is True
+    assert result["projection_verified"] is True
+    for strategy in result["strategies"].values():
+        assert strategy["committed"] is True
+        assert strategy["iterations"] == 2
+        assert strategy["committed_transactions"] == 8
+        assert strategy["samples"] == 8
+        assert strategy["wal_bytes"] > 0
+        assert strategy["wal_records"] > 0
+        assert strategy["wal_full_page_images"] >= 0
+        assert strategy["elapsed_seconds"] > 0
+        assert strategy["application_thread_cpu_seconds"] > 0
+        assert set(strategy["operations"]) == {"append", "settle", "correction", "checkpoint"}
+        for operation in strategy["operations"].values():
+            assert operation["samples"] == 2
+            assert 0 < operation["median_ms"] <= operation["p95_ms"]
+    with database() as session:
+        assert committed_fixture_snapshot(session) == before
+        assert (
+            session.scalar(
+                text("""SELECT tgenabled FROM pg_trigger
+            WHERE tgrelid='topic_decision_runs'::regclass
+            AND tgname='topic_decision_calls_sync'""")
+            )
+            == "O"
+        )
+
+
+@pytest.mark.integration
+def test_durable_writes_clean_up_partial_commits_and_restore_projection_after_failure(database):
+    with database() as session:
+        engine = session.get_bind()
+    profile.seed(engine, articles=10, runs=10, history_bytes=64)
+    with database() as session:
+        before = committed_fixture_snapshot(session)
+    observed_committed_append = []
+
+    def fail_settlement(_connection, _cursor, statement, parameters, _context, _many):
+        if " ".join(statement.lower().split()).startswith("update topic_decision_runs set state="):
+            value = json.loads(parameters["value"])
+            if isinstance(value, dict):
+                with engine.connect() as observer:
+                    state = observer.scalar(
+                        text("SELECT state FROM topic_decision_runs WHERE proposal_id=:proposal"),
+                        {"proposal": parameters["proposal"]},
+                    )
+                    assert len(state["calls"]) == 5
+                    assert state["calls"][-1]["status"] == "running"
+                    observed_committed_append.append(True)
+                raise RuntimeError("Settlement failed after the append committed")
+
+    event.listen(engine, "before_cursor_execute", fail_settlement)
+    try:
+        with pytest.raises(RuntimeError, match="after the append committed"):
+            profile.durable_write_profile(engine, iterations=2, call_count=5, repeats=1)
+    finally:
+        event.remove(engine, "before_cursor_execute", fail_settlement)
+    assert observed_committed_append == [True]
+    with database() as session:
+        assert committed_fixture_snapshot(session) == before
+        assert (
+            session.scalar(
+                text("""SELECT tgenabled FROM pg_trigger
+            WHERE tgrelid='topic_decision_runs'::regclass
+            AND tgname='topic_decision_calls_sync'""")
+            )
+            == "O"
+        )
+
+
 @pytest.mark.integration
 def test_seed_repeated_stages_cross_report_window_and_utc_day_boundaries(database):
     with database() as session:
@@ -465,6 +645,13 @@ def test_cli_preserves_facts_and_restores_projection_after_concurrent_samples(
             assert sample["ingestion"]["iterations"] == 2
             assert sample["report_pairs"] == 2
             assert len(sample["plans"]) == 2
+        assert [sample["calls_per_workflow"] for sample in result["durable_writes"]] == [5, 20]
+        for sample in result["durable_writes"]:
+            assert sample["source_states_equal"] is True
+            assert sample["projection_verified"] is True
+            for strategy in sample["strategies"].values():
+                assert strategy["committed"] is True
+                assert strategy["committed_transactions"] == 8
     with database() as session:
         assert fixture_snapshot(session) == before
         assert (

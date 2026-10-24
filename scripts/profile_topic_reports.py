@@ -4,8 +4,9 @@ Run migrations first. --seed requires an empty database and never truncates data
 --baseline-root selects a clean checkout of the previous report implementation.
 --require-postgres-major pins comparisons to a specific PostgreSQL major release.
 --output creates a new JSON artifact below the current directory's reports folder.
-All measured ingestion writes roll back. Only the projection trigger is temporarily
-disabled, in short committed transactions, for the legacy concurrency comparison.
+Concurrent report diagnostics roll back their writes. Separate lifecycle samples
+include COMMIT for five- and twenty-call workflows. Only the projection trigger is
+temporarily disabled, in short committed transactions, for legacy comparisons.
 """
 
 import argparse
@@ -445,6 +446,243 @@ def concurrent(engine, functions, workers, repeats, writes, interval, runs):
     }
 
 
+def latency_summary(samples):
+    return {
+        "samples": len(samples),
+        "median_ms": round(statistics.median(samples), 3),
+        "p95_ms": round(sorted(samples)[min(len(samples) - 1, int(len(samples) * 0.95))], 3),
+    }
+
+
+def _wal_snapshot(connection):
+    # Flush this backend's pending counters before reading a new statistics snapshot.
+    connection.execute(text("SELECT pg_stat_force_next_flush()"))
+    connection.commit()
+    connection.execute(text("SELECT pg_stat_clear_snapshot()"))
+    row = dict(
+        connection.execute(
+            text("SELECT pg_current_wal_insert_lsn() AS lsn, wal_records, wal_fpi FROM pg_stat_wal")
+        )
+        .mappings()
+        .one()
+    )
+    connection.commit()
+    return row
+
+
+def _durable_write_phase(engine, iterations, call_count, *, legacy):
+    """Measure separate lifecycle commits on fresh, logically identical workflows."""
+    proposals = [uuid.uuid4() for _ in range(iterations)]
+    articles = [uuid.uuid4() for _ in range(iterations)]
+    calls = [
+        {
+            "stage": "draft" if index % 2 else "verification",
+            "started_at": (NOW - timedelta(hours=index + 1)).isoformat(),
+            "status": "returned",
+            "tokens": {"totalTokens": 1100},
+            "charged_tokens": 1100,
+            "escalated": False,
+        }
+        for index in range(call_count - 1)
+    ]
+    evidence = "".join(hashlib.sha256(str(index).encode()).hexdigest() for index in range(313))
+    state = {"calls": calls, "evidence": evidence}
+    operations = {name: [] for name in ("append", "settle", "correction", "checkpoint")}
+    try:
+        with engine.begin() as connection:
+            connection.execute(
+                insert(models.TopicProposal),
+                [
+                    {
+                        "id": value,
+                        "batch_id": value,
+                        "slug": f"durable-{value}",
+                        "action": "create",
+                        "origin": "import",
+                        "source_name": "Durable profiler",
+                        "proposed": {},
+                        "evidence": [],
+                        "status": "pending",
+                        "created_by": {},
+                    }
+                    for value in proposals
+                ],
+            )
+            connection.execute(
+                insert(models.TopicDecisionRun),
+                [
+                    {"proposal_id": value, "input_hash": "d" * 64, "state": state}
+                    for value in proposals
+                ],
+            )
+        set_projection(engine, not legacy)
+        with engine.connect() as connection:
+            before = _wal_snapshot(connection)
+            started, cpu = time.perf_counter(), time.thread_time()
+            for index, proposal in enumerate(proposals):
+                pending = {
+                    "stage": "verification",
+                    "started_at": NOW.isoformat(),
+                    "status": "running",
+                    "charged_tokens": 40000,
+                    "escalated": False,
+                }
+                settled = {
+                    **pending,
+                    "status": "returned",
+                    "tokens": {"totalTokens": 1200},
+                    "charged_tokens": 1200,
+                }
+                updates = {
+                    "append": (
+                        "jsonb_set(state,'{calls}',state->'calls'||CAST(:value AS jsonb))",
+                        json.dumps([pending]),
+                    ),
+                    "settle": (
+                        f"jsonb_set(state,'{{calls,{call_count - 1}}}',CAST(:value AS jsonb))",
+                        json.dumps(settled),
+                    ),
+                    "correction": (
+                        "jsonb_set(state,'{calls,0,charged_tokens}',CAST(:value AS jsonb))",
+                        str(50000 + index),
+                    ),
+                    "checkpoint": (
+                        "jsonb_set(state,'{checkpoint}',CAST(:value AS jsonb))",
+                        '"complete"',
+                    ),
+                }
+                for name, (expression, value) in updates.items():
+                    transaction = connection.begin()
+                    sample_started = time.perf_counter()
+                    try:
+                        if name == "append":
+                            article = articles[index]
+                            connection.execute(
+                                insert(models.Article).values(
+                                    id=article,
+                                    canonical_url=f"https://durable-profile.invalid/{article}",
+                                    url_hash=hashlib.sha256(article.bytes).hexdigest(),
+                                    title="Committed ingestion",
+                                )
+                            )
+                        connection.execute(
+                            text(
+                                f"UPDATE topic_decision_runs SET state={expression},"
+                                "updated_at=:now "
+                                "WHERE proposal_id=:proposal"
+                            ),
+                            {"value": value, "now": NOW, "proposal": proposal},
+                        )
+                        transaction.commit()
+                        operations[name].append((time.perf_counter() - sample_started) * 1000)
+                    except BaseException:
+                        transaction.rollback()
+                        raise
+            elapsed, process_cpu = time.perf_counter() - started, time.thread_time() - cpu
+            after = _wal_snapshot(connection)
+            wal_bytes = int(
+                connection.scalar(
+                    text("SELECT pg_wal_lsn_diff(:after,:before)"),
+                    {"after": after["lsn"], "before": before["lsn"]},
+                )
+            )
+            states = connection.scalars(
+                text("SELECT state FROM topic_decision_runs WHERE proposal_id=ANY(:ids)"),
+                {"ids": proposals},
+            ).all()
+            if not legacy:
+                # Compare both directions: missing, additional and stale facts all fail.
+                expected = """SELECT r.proposal_id,c.* FROM topic_decision_runs r
+                    CROSS JOIN LATERAL topic_decision_call_values(r.state->'calls') c
+                    WHERE r.proposal_id=ANY(:ids)"""
+                actual = "SELECT * FROM topic_decision_calls WHERE proposal_id=ANY(:ids)"
+                if connection.scalar(
+                    text(
+                        f"SELECT EXISTS(({actual} EXCEPT {expected}) UNION ALL "
+                        f"({expected} EXCEPT {actual}))"
+                    ),
+                    {"ids": proposals},
+                ):
+                    raise AssertionError("Committed workflow facts differ from source")
+            digest = hashlib.sha256(
+                json.dumps(sorted(json.dumps(value, sort_keys=True) for value in states)).encode()
+            ).hexdigest()
+            return {
+                "operations": operations,
+                "elapsed_seconds": elapsed,
+                "application_thread_cpu_seconds": process_cpu,
+                "wal_bytes": wal_bytes,
+                "wal_records": int(after["wal_records"] - before["wal_records"]),
+                "wal_full_page_images": int(after["wal_fpi"] - before["wal_fpi"]),
+                "source_sha256": digest,
+            }
+    finally:
+        set_projection(engine, True)
+        with engine.begin() as connection:
+            connection.execute(text("DELETE FROM articles WHERE id=ANY(:ids)"), {"ids": articles})
+            connection.execute(
+                text("DELETE FROM topic_proposals WHERE id=ANY(:ids)"), {"ids": proposals}
+            )
+            # Article deletion itself emits tombstones. Remove only this phase's
+            # outbox rows after deletion so later pairs retain the same queue load.
+            for table, kind in (
+                ("partner_match_jobs", "article"),
+                ("read_model_events", "article"),
+                ("search_events", "articles"),
+            ):
+                connection.execute(
+                    text(f"DELETE FROM {table} WHERE kind=:kind AND entity_id=ANY(:ids)"),
+                    {"kind": kind, "ids": articles},
+                )
+
+
+def durable_write_profile(engine, iterations=200, call_count=5, repeats=3):
+    if not (1 <= iterations <= 1000 and 2 <= call_count <= 20 and 1 <= repeats <= 10):
+        raise ValueError("Committed write profiling exceeds supported bounds")
+    phases = {name: [] for name in ("legacy", "facts")}
+    orders = []
+    for repeat in range(repeats):
+        order = ["legacy", "facts"] if repeat % 2 == 0 else ["facts", "legacy"]
+        orders.append(order)
+        for name in order:
+            phases[name].append(
+                _durable_write_phase(engine, iterations, call_count, legacy=name == "legacy")
+            )
+    if len({phase["source_sha256"] for values in phases.values() for phase in values}) != 1:
+        raise AssertionError("Committed comparisons ended with different source states")
+    strategies = {}
+    for name, values in phases.items():
+        operations = {
+            operation: [sample for value in values for sample in value["operations"][operation]]
+            for operation in values[0]["operations"]
+        }
+        strategies[name] = {
+            **latency_summary([sample for samples in operations.values() for sample in samples]),
+            "iterations": iterations * repeats,
+            "committed": True,
+            "committed_transactions": iterations * repeats * 4,
+            "operations": {key: latency_summary(samples) for key, samples in operations.items()},
+            **{
+                key: sum(value[key] for value in values)
+                for key in (
+                    "elapsed_seconds",
+                    "application_thread_cpu_seconds",
+                    "wal_bytes",
+                    "wal_records",
+                    "wal_full_page_images",
+                )
+            },
+        }
+    return {
+        "calls_per_workflow": call_count,
+        "repeats": repeats,
+        "paired_order": orders,
+        "source_states_equal": True,
+        "projection_verified": True,
+        "strategies": strategies,
+    }
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--baseline-root", type=Path, required=True)
@@ -592,6 +830,9 @@ def main():
                 for row in output["concurrent"].values()
             ),
         }
+        output["durable_writes"] = [
+            durable_write_profile(engine, args.writes, calls, args.repeats) for calls in (5, 20)
+        ]
         output["complete"] = True
         write_profile_output(args.output, output)
         print(
