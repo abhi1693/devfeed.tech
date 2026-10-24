@@ -186,21 +186,21 @@ Earlier schemas lack required source-processing fields. Drain older processes be
 applying `0033`; when returning to older binaries, first restore the schema they support. No production
 migration or publication repair is performed by viewing the pipeline.
 
-## Analysis payload retention (0035)
+## Analysis payload retention (0037)
 
-Revision `0035` adds two durable retention checkpoints and three partial indexes for
+Revision `0037` adds two durable retention checkpoints and three partial indexes for
 newer retained successful analysis results. Existing age-selection and general history
 indexes remain. Builds run concurrently with a five-second metadata lock timeout;
 retry repairs invalid new indexes and preserves checkpoint rows created by an earlier
 interrupted attempt. The migration does not scan or redact job payloads.
 
 Stop older schedulers before migration so their per-tick retention cannot overlap the
-new policy. Apply with `uv run devfeed db upgrade` before starting schema `0035` runtimes.
+new policy. Apply with `uv run devfeed db upgrade` before starting schema `0037` runtimes.
 Workers can continue while the indexes build. Check `pg_index.indisvalid` for all three
 `*_retained_success` indexes before starting the new scheduler. PostgreSQL 17 or later
 is required for the five-second per-page transaction timeout.
 
-Rollback requires stopping the new runtimes, downgrading to `0034`, then starting the
+Rollback requires stopping the new runtimes, downgrading to `0036`, then starting the
 older binaries. Downgrade removes only the checkpoints and new indexes. It cannot restore
 previously redacted inputs, catalogs or specialist outputs; durable job identities,
 results, accounting and failures remain. Rolling back also restores the old retention

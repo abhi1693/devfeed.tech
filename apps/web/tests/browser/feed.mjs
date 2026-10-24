@@ -1404,6 +1404,8 @@ async function createReaderFixture(
     routeFixture,
     mutationFixture,
     runJourney,
+    readingFixture,
+    mustReadsFixture,
     domCatalog,
     renderReads,
     topicContext,
@@ -1766,6 +1768,46 @@ test(
       });
   },
 );
+
+test("reading streak panel survives ordinary account resume", { timeout: 90000 }, async (t) => {
+  const { browser, origin, readingFixture, mustReadsFixture } = await createReaderFixture(t);
+  await withReaderPage(browser, async (page, context) => {
+    await context.addCookies([{ name: "devfeed_user_session", value: "valid", url: origin }]);
+    await page.goto(`${origin}/latest`);
+    await checkReadingStreak(page, artifactPath("reading-streak-resume/web"), {
+      fixture: readingFixture,
+      mustReads: mustReadsFixture,
+    });
+  });
+});
+
+test("tab resume retains paginated feeds and reading position", { timeout: 180000 }, async (t) => {
+  const { browser, origin, previewRequests } = await createReaderFixture(t, {
+    previewRetention: true,
+  });
+  for (const signedIn of [false, true])
+    await withReaderPage(browser, async (page, context) => {
+      if (signedIn)
+        await context.addCookies([{ name: "devfeed_user_session", value: "valid", url: origin }]);
+      const routes = [
+        "/latest?sort=most_liked",
+        ...(signedIn ? ["/?sort=newest", "/read-later"] : []),
+      ];
+      for (const route of routes)
+        await checkPreviewFeedRetention(
+          page,
+          `${origin}${route}`,
+          artifactPath(
+            `tab-resume/web-${signedIn ? "member" : "guest"}-${route.startsWith("/latest") ? "latest" : route.startsWith("/read-later") ? "saved" : "personal"}.json`,
+          ),
+          {
+            resumeOnly: true,
+            requests: () => previewRequests,
+            baseline: process.env.DEVFEED_PREVIEW_RETENTION_BASELINE === "1",
+          },
+        );
+    });
+});
 
 test(
   "stacked reader preserves presentation, preferences, and article actions",

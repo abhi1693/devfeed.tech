@@ -64,3 +64,70 @@ profiler refuses non-local hosts and database names without the `_test` suffix. 
 complete 30/90-day report payloads and prints timings plus activity-query buffer statistics;
 writer samples roll back their rows and temporary trigger changes. These local synthetic
 measurements do not establish production latency.
+
+## Completed-job token usage
+
+The automation report aggregates each job's cumulative `usage.totalTokens` once on its
+UTC completion date. Two streaming subqueries extract token text and validate its numeric
+value once per job. Literal `OFFSET 0` fences prevent PostgreSQL from pulling those
+expressions into every aggregate, while avoiding a full-window materialized working set.
+Projecting the date before grouping also gives PostgreSQL 17 a small daily group estimate
+instead of inheriting the near-unique completion timestamp distribution. This preserves
+inclusive time boundaries, succeeded/failed jobs, missing or malformed telemetry,
+durations, and the eighteen-digit token validity rule. It requires no migration or
+additional writes; rolling back the application restores the previous query.
+
+PostgreSQL maintains `OFFSET 0` as an explicit optimization fence; see the
+[upstream planner change](https://www.postgresql.org/message-id/E1pK7VD-0059mE-Jc%40gemulon.postgresql.org).
+Actual execution plans verify the extraction and validation projections, daily aggregation,
+and temporary writes in both custom and generic plans.
+
+To reproduce the before/after comparison on a migrated disposable local PostgreSQL 17:
+
+```bash
+DEVFEED_TEST_DATABASE_URL=postgresql+psycopg://.../devfeed_token_profile_test \
+  uv run --locked --no-sync --no-build python scripts/profile_token_usage.py \
+    --seed --articles 100000 300000
+```
+
+The profiler writes `reports/token-usage/profile.json` in the checkout. The summary
+renderer reads that artifact and writes `reports/token-usage/summary.md`; neither tool
+accepts arbitrary file paths, and report paths must not be symlinks.
+
+`--seed` replaces articles, proposals and their dependent histories. Remote hosts,
+connection routing overrides and database names without `_test` are refused. The tool
+uses actual migrated tables and indexes, two retained article/topic jobs per article,
+180 days of skewed completion history, failed/incomplete jobs, mixed telemetry and
+incompressible 4 KiB provider metadata on every fifth job. The 100,000-article fixture
+has approximately 60,000 article and 160,000 topic completions in a month, plus a
+recent article burst. Research histories contain 73,000 and 219,000 jobs. Exact
+read-only production counts at 10:05 UTC on 24 October 2026 were 92,598 articles,
+156,021 article jobs, 159,575 topic jobs and 67,014 research jobs; planner and live-tuple
+statistics are not exact population counts. The profiler records this comparison and
+requires every 100,000+ article fixture to cover production's total histories and
+qualifying 1/7/30-day counts for each job type. Smaller fixtures remain useful for
+checking the full benchmark lifecycle locally.
+
+For 1/7/30 UTC calendar-day windows, the tool checks exact result equality, alternating
+warm samples, fully parameterized custom/generic plans, aggregate group estimates,
+temporary writes and runtime with a noise allowance. It retains raw `EXPLAIN (ANALYZE,
+BUFFERS, SETTINGS)` plans at 4 MiB `work_mem`, JIT enabled and up to two parallel workers.
+Concurrent ingestion inserts articles and starts/finishes jobs after the fixed report
+cutoff, preserving comparison results; samples report actual write overlap and latency.
+Reporting-thread CPU is recorded separately from elapsed time. On Linux cgroup v2,
+`--postgres-container CONTAINER` also records database-container CPU, including the
+concurrent writer. Use an isolated container for that measurement.
+
+The `Token usage performance` PR workflow runs the complete comparison on native
+ARM64 PostgreSQL 17 and retains its JSON evidence and Markdown summary for 30 days.
+The job summary shows before/after tables with signed improvements; same-repository
+PRs also update one existing performance comment shared with the reader API comparison.
+The two jobs preserve each other's sections and serialize comment updates. Positive
+percentages in the token benchmark mean improvement,
+negative percentages mean regression, and missing or failed evidence cannot report a
+pass. The comment includes validation totals and writer-latency caveats, with resource
+and production-volume details available to expand. Forks retain the artifact and job
+summary without granting comment permissions. Synthetic measurements
+establish the query behavior at those fixture sizes; after deployment, compare fresh
+production query statistics under matched traffic and watch report freshness, database
+CPU and ingestion latency before attributing an improvement to the change.

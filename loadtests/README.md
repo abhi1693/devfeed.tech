@@ -33,11 +33,16 @@ Redis database 15, session-mode PgBouncer (five server slots), seeded API proces
 and isolated environment. It never truncates an existing database, reads the
 checkout's `.env`, starts AI providers, or contacts production.
 
+Every run generates a disposable database password. PgBouncer authenticates with
+SCRAM using the database's exact stored verifier; its mounted configuration files
+contain no plaintext password. The PostgreSQL readiness check uses TCP so it cannot
+accept the temporary initialization server before the final server starts.
+
 ```sh
 uv run --locked --group loadtest python scripts/load-test.py
 ```
 
-Default: eight users, two users spawned per second, 30 seconds, 1,000 published
+Default: eight users, two users spawned per second, a 30-second measurement, 1,000 published
 articles, 20 sources/topics, cache disabled and API admission 16. The dataset
 is synthetic and the topology is one API and one pooler. It is not a production
 capacity model.
@@ -47,6 +52,9 @@ select a subdirectory there, using a relative or absolute path; paths or symlink
 that escape that folder are rejected before the runner creates resources. Run
 from the repository root for the examples below. Repeating a run replaces its
 reports, but an existing `database-statistics.json` symlink is rejected.
+Known report and log filenames must not be symlinks. The runner's JSON reports
+are written through file descriptors that reject symlinks and enforce owner-only
+read/write permissions, including when replacing an existing report.
 
 Compare uncached database pressure with a normal cache-enabled run **sequentially**
 on the same otherwise idle machine, with separate report directories:
@@ -65,6 +73,28 @@ on test failure. It writes CSV endpoint statistics and history, an HTML report,
 API/setup logs, run metadata and a post-run `SHOW POOLS` snapshot. The API remains
 alive during the snapshot; retained application clients or waiting work fail the
 run. PgBouncer's idle **server** connections are expected and reusable.
+
+Each disposable run waits for every user to finish bootstrap, warms the workload
+for 15 seconds, then parks all users between journeys. At that barrier it resets
+statistics, each user's random streams and bootstrap cursor/article state before
+releasing the users for the full requested `--seconds` measurement. A fixed
+`--journey-seed` (default 294, an integer from 0 through 4,294,967,295) controls
+separate per-user journey, resource and think-time streams. Different response
+times can change how many journeys finish,
+but cannot change the next journey chosen by another user. `--warmup-seconds`
+changes the warmup duration. Bootstrap, warmup and request-draining failures still
+fail the run; a watchdog cannot produce a successful shortened measurement.
+
+`measurement.json` records completed phases and timestamps.
+`runtime-diagnostics.json` retains API and load-generator CPU/RSS, PostgreSQL CPU
+and throttling counters, database activity/waits and pooler snapshots at phase
+changes and every five seconds. It also records measured-window PostgreSQL
+statement deltas, including execution time, calls and buffer/temp activity. A
+separate direct database connection keeps diagnostics outside the five pooler
+slots. Phase boundaries are observed by polling; recorded observation lag makes
+the CPU/SQL window's limits explicit. Partial diagnostics survive a failed run.
+Image IDs and the PostgreSQL version are retained in the metadata. These counters
+help investigate a failed latency gate; they do not establish causation alone.
 
 After committing the seed data, the runner explicitly analyzes its disposable
 database so query plans do not depend on automatic analyze starting during the
@@ -121,7 +151,14 @@ an established production SLO. Unhandled user exceptions still fail the run.
 Empty datasets, HTML fallbacks, malformed JSON and unexpected schemas fail.
 Redirects, 401/403/429/503 and admission rejection are failures, not silently
 retried or excluded. Bootstrap failures are also reported in distributed statistics.
-`--reset-stats` excludes ramp-up samples; the runtime still includes ramp-up time.
+For ordinary standalone Locust runs, `--reset-stats` excludes ramp-up samples;
+the runtime still includes ramp-up time. The disposable runner uses the controlled
+warmup and full measurement window above instead. Standalone Locust opts into that
+protocol only with `--measurement-seconds`; its `--run-time` then acts as a watchdog
+and must allow bootstrap, warmup, measurement and request draining to finish. The
+controlled protocol requires a local load generator. An optional `--phase-file`
+must name a different, regular file beside the explicit `--final-json` report;
+phase writes use secure temporary siblings and atomic replacement.
 
 ## Pull request regression reports
 
@@ -149,12 +186,15 @@ base and head sequentially, alternating which revision runs first. This produces
 isolated samples, three per revision, while keeping each base/head pair on the same
 host. The harness cleans up each sample's resources before the next sample starts.
 All samples use the same profile:
-16 users, 60 seconds per run, 1,000 articles, cache disabled, five server slots.
+16 users, completed bootstrap, 15 seconds of warmup, a full 60-second measurement,
+journey seed 294, 1,000 articles, cache disabled, five server slots. The measurement
+barrier excludes warmup requests already in flight and resets per-user journey
+state so unequal warmup throughput cannot change the measured starting point.
 
 A bot updates one PR comment with commit SHAs, per-endpoint median p50/p95/p99,
 request rates and the verdict. The same report is in the check's job summary;
-HTML, CSV, final JSON, metadata and logs for all six runs are downloadable from
-its artifact link. Fork and Dependabot PRs receive check summaries and artifacts
+HTML, CSV, final JSON, phase records, runtime diagnostics, metadata and logs for
+all six runs are downloadable from its artifact link. Fork and Dependabot PRs receive check summaries and artifacts
 without a write-token comment. Benchmark execution has read-only permissions;
 the separate comment job only reads artifacts and never executes candidate code.
 
@@ -188,7 +228,9 @@ schema or failed baseline connection checks are reported as errors, not skipped.
 
 A separate read-only comparison job collects all six artifacts and verifies their
 commit SHAs and workload metadata before comparing. Missing, malformed or mismatched
-artifacts are errors, never silently omitted. Matrix fail-fast is disabled
+artifacts are errors, never silently omitted. Completed warmup and measurement
+windows, protocol version, seed and readiness counts must also match; older or
+partially completed measurement protocols are rejected. Matrix fail-fast is disabled
 so one failed sample does not discard the other evidence. Runner identity,
 architecture, logical CPU count, and timezone-aware start time must validate each
 pair and its alternating execution order; the three pairs must use distinct runners.

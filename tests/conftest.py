@@ -170,7 +170,7 @@ def database(integration_environment, monkeypatch, rss_bytes):
     with get_engine().begin() as connection:
         names = ", ".join(f'"{table.name}"' for table in Base.metadata.sorted_tables)
         connection.execute(text(f"TRUNCATE TABLE {names} CASCADE"))
-        # Migration 0035 creates durable cadence rows. Restore their initial
+        # Migration 0037 creates durable cadence rows. Restore their initial
         # state after truncation, as a newly provisioned database would have.
         connection.execute(
             JobPayloadRetention.__table__.insert(),

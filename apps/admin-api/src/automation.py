@@ -40,6 +40,7 @@ from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
 from sqlalchemy import (
     BigInteger,
+    DateTime,
     String,
     and_,
     case,
@@ -112,13 +113,15 @@ def analysis_token_activity(session, start: datetime, now: datetime):
         ("topic_analysis", TopicAnalysisJob),
         ("research_verification", ResearchVerificationJob),
     ):
-        # Keep a narrow materialization boundary: otherwise PostgreSQL inlines
-        # JSON extraction into every SUM/COUNT/CASE and repeatedly detoasts the
-        # same potentially large job usage. Nineteen characters preserve the
-        # eighteen-digit validity rule even for oversized malformed telemetry.
-        usage = (
+        # Two OFFSET 0 fences keep JSON extraction and numeric validation once
+        # per row while streaming values directly into the daily aggregates.
+        # Project the UTC date before grouping so its estimate does not inherit
+        # near-unique completion timestamps. Literal offsets also let generic
+        # plans remove the runtime Limit nodes. Nineteen characters preserve
+        # the eighteen-digit validity rule for oversized malformed telemetry.
+        raw_usage = (
             select(
-                model.finished_at,
+                func.date(func.timezone("UTC", model.finished_at)).label("date"),
                 model.duration_ms,
                 func.left(model.usage["totalTokens"].astext, 19).label("raw_tokens"),
             )
@@ -127,12 +130,18 @@ def analysis_token_activity(session, start: datetime, now: datetime):
                 model.finished_at <= now,
                 model.status.in_(("succeeded", "failed")),
             )
-            .cte(f"{kind}_usage")
-            .prefix_with("MATERIALIZED")
+            .offset(literal_column("0"))
+            .subquery(f"{kind}_raw_usage")
         )
-        day = func.date(func.timezone("UTC", usage.c.finished_at))
-        raw = usage.c.raw_tokens
-        tokens = case((raw.op("~")(r"^[0-9]{1,18}$"), cast(raw, BigInteger)), else_=None)
+        raw = raw_usage.c.raw_tokens
+        validated = case((raw.op("~")(r"^[0-9]{1,18}$"), cast(raw, BigInteger)), else_=None)
+        usage = (
+            select(raw_usage.c.date, raw_usage.c.duration_ms, validated.label("tokens"))
+            .offset(literal_column("0"))
+            .subquery(f"{kind}_usage")
+        )
+        day = usage.c.date
+        tokens = usage.c.tokens
         statements.append(
             select(
                 day.label("date"),
@@ -606,13 +615,30 @@ def automation_blocker_rows(session, article_ids):
 
 
 def _publication_automation_query(start, now):
-    cutoff = (
-        ArticleReview.article_id == Article.id,
-        ArticleReview.created_at <= Article.published_to_feed_at,
+    # Keep cohort selectivity visible to prepared generic plans, which otherwise
+    # estimate an unknown date range as small and return to per-article probes.
+    # SQLAlchemy caches the statement and renders these values with its typed
+    # literal processor only at execution; other parameters remain bound.
+    start_bound = literal(start, type_=DateTime(timezone=True), literal_execute=True)
+    now_bound = literal(now, type_=DateTime(timezone=True), literal_execute=True)
+    publications = (
+        select(Article.id, Article.published_to_feed_at, Article.discovered_at)
+        .where(
+            Article.published_to_feed_at >= start_bound, Article.published_to_feed_at <= now_bound
+        )
+        .cte("publications")
+        .prefix_with("MATERIALIZED")
     )
-    # Fixed predicates match the narrow partial indexes even for prepared generic
-    # plans. Neither evidence JSON nor complete review histories are transferred.
+    # EXISTS in a WHERE clause can become a semi-join: unlike probes inside the
+    # aggregate FILTER, PostgreSQL can scan narrow evidence indexes once for a
+    # broad report, or stop at the first match for a selective cohort. Semi/anti
+    # joins retain one row per publication even with repeated review facts.
+    # Fixed predicates match the partial indexes for prepared generic plans too.
     empty = literal_column("'{}'::jsonb", type_=JSONB)
+    cutoff = (
+        ArticleReview.article_id == publications.c.id,
+        ArticleReview.created_at <= publications.c.published_to_feed_at,
+    )
     automatic = (
         select(ArticleReview.article_id)
         .where(
@@ -625,13 +651,32 @@ def _publication_automation_query(start, now):
     manual = (
         select(ArticleReview.article_id).where(*cutoff, ArticleReview.automation == empty).exists()
     )
-    return select(
-        func.count(),
-        func.count().filter(automatic, ~manual),
-        func.percentile_cont(0.5)
-        .within_group(func.extract("epoch", Article.published_to_feed_at - Article.discovered_at))
-        .filter(Article.published_to_feed_at >= Article.discovered_at),
-    ).where(Article.published_to_feed_at >= start, Article.published_to_feed_at <= now)
+    totals = (
+        select(
+            func.count().label("published"),
+            func.percentile_cont(0.5)
+            .within_group(
+                func.extract(
+                    "epoch", publications.c.published_to_feed_at - publications.c.discovered_at
+                )
+            )
+            .filter(publications.c.published_to_feed_at >= publications.c.discovered_at)
+            .label("median"),
+        )
+        .select_from(publications)
+        .subquery("publication_totals")
+    )
+    autonomous = (
+        select(func.count().label("automatic"))
+        .select_from(publications)
+        .where(automatic, ~manual)
+        .subquery("autonomous_publications")
+    )
+    return (
+        select(totals.c.published, autonomous.c.automatic, totals.c.median)
+        .select_from(totals)
+        .join(autonomous, true())
+    )
 
 
 def publication_automation(session, start, now):

@@ -929,6 +929,33 @@ test(
     }),
 );
 
+test("tab resume retains paginated feeds and reading position", { timeout: 180000 }, (t) =>
+  withAuthenticatedReader(t, async ({ page, state, signIn }) => {
+    state.previewRetention = true;
+    const current = page.url();
+    for (const signedIn of [false, true]) {
+      if (signedIn) await signIn();
+      const routes = [
+        "/latest?sort=most_liked",
+        ...(signedIn ? ["/?sort=newest", "/read-later"] : []),
+      ];
+      for (const route of routes)
+        await checkPreviewFeedRetention(
+          page,
+          readerRouteUrl(current, route),
+          artifactPath(
+            `tab-resume/${browser}-${signedIn ? "member" : "guest"}-${route.startsWith("/latest") ? "latest" : route.startsWith("/read-later") ? "saved" : "personal"}.json`,
+          ),
+          {
+            resumeOnly: true,
+            requests: () => state.previewRequests,
+            baseline: process.env.DEVFEED_PREVIEW_RETENTION_BASELINE === "1",
+          },
+        );
+    }
+  }),
+);
+
 test(
   "stacked reader preserves presentation, preferences, and article actions",
   { timeout: 180000 },

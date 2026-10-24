@@ -17,11 +17,60 @@ from devfeed_http.cursors import decode_cursor as decode_cursor
 from devfeed_http.cursors import encode_cursor as encode_cursor
 from fastapi import APIRouter, HTTPException, Query
 from sqlalchemy import func, literal, literal_column, select, tuple_, union_all
+from sqlalchemy.orm import load_only
 
 from devfeed_api.cache import CachedReadRoute, CachePolicy
 from devfeed_api.dependencies import DB
 
 router = APIRouter(prefix="/v1", tags=["discovery"], route_class=CachedReadRoute)
+
+
+def _option_sources(*conditions, article_conditions=None):
+    # Establish catalog order before testing articles so a nested-loop semijoin
+    # can stop after 500 matches. OFFSET 0 preserves this subquery boundary;
+    # otherwise the planner can probe the whole catalog before sorting matches.
+    candidates = (
+        select(Source.id, Source.name)
+        .where(Source.enabled.is_(True), Source.approval_status == "approved", *conditions)
+        .order_by(Source.name, Source.id)
+        .offset(0)
+        .subquery()
+    )
+    selected = select(candidates.c.id, candidates.c.name)
+    if article_conditions is not None:
+        matching_article = (
+            select(literal(1))
+            .select_from(ArticleOrigin)
+            .join(Article, Article.id == ArticleOrigin.article_id)
+            .where(ArticleOrigin.source_id == candidates.c.id, *article_conditions)
+            .correlate(candidates)
+            .exists()
+        )
+        selected = selected.where(matching_article)
+    limited = selected.order_by(candidates.c.name, candidates.c.id).limit(500).subquery()
+    # Hydrate only the limited public records, including managed branding.
+    # Editorial receipts and polling state can grow independently of the catalog.
+    return (
+        select(Source)
+        .join(limited, limited.c.id == Source.id)
+        .options(
+            load_only(
+                Source.id,
+                Source.slug,
+                Source.name,
+                Source.source_type,
+                Source.description,
+                Source.website_url,
+                Source.logo_url,
+                Source.managed_logo,
+                Source.image_url,
+                Source.language,
+                Source.created_at,
+                raiseload=True,
+            )
+        )
+        .order_by(Source.name, Source.id)
+    )
 
 
 def feed_conditions(
@@ -128,28 +177,9 @@ def feed_options(
     # Rechecking an approved origin inside visible_article repeats the same proof
     # for every source candidate. Other callers retain the full visibility guard.
     conditions = feed_conditions(**common, content_type=content_type, _approved_origin=True)
-    matching_source = (
-        select(literal(1))
-        .select_from(ArticleOrigin)
-        .join(Article, Article.id == ArticleOrigin.article_id)
-        .where(
-            ArticleOrigin.source_id == Source.id,
-            *conditions,
-        )
-        .limit(1)
-        .correlate(Source)
-        .scalar_subquery()
-    )
-    sources = session.scalars(
-        select(Source)
-        .where(
-            Source.enabled.is_(True),
-            Source.approval_status == "approved",
-            matching_source.is_not(None),
-        )
-        .order_by(Source.name, Source.id)
-        .limit(500)
-    ).all()
+    # EXISTS allows PostgreSQL to choose a semijoin for broad matches as well as
+    # indexed early-exit probes. A scalar LIMIT subquery forces repeated probes.
+    sources = session.scalars(_option_sources(article_conditions=conditions)).all()
     return dict(content_types=sorted(types or []), sources=sources)
 
 
@@ -200,16 +230,7 @@ def _filtered_feed_options(session, *, q, topic, tag, languages, content_type, s
             facet_values(sources_query),
         )
     ).one()
-    sources = session.scalars(
-        select(Source)
-        .where(
-            Source.enabled.is_(True),
-            Source.approval_status == "approved",
-            Source.id.in_(source_ids or []),
-        )
-        .order_by(Source.name, Source.id)
-        .limit(500)
-    ).all()
+    sources = session.scalars(_option_sources(Source.id.in_(source_ids or []))).all()
     return dict(content_types=sorted(types or []), sources=sources)
 
 

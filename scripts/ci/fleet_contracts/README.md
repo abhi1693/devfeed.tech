@@ -22,7 +22,7 @@ production URLs are forwarded. Typesense uses the immutable official 30.2 index
 already pinned in `compose.yaml`, covering native AMD64 and ARM64 fixtures.
 
 The backend runs packaged Alembic to `0033`, seeds an article and account, executes
-the exact migration hook, and verifies `0034` plus retained records. This includes
+the exact migration hook, and verifies the required schema revision plus retained records. This includes
 the actual CLI, migration files and hook connection settings. The trimmed admin,
 user, partner and dedicated worker images deliberately use packaged
 `Base.metadata.create_all()` for their separate runtime fixtures. Their output

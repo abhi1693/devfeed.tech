@@ -120,7 +120,7 @@ freshness under the deployed workload. These are capacity limits, not a measured
 production throughput guarantee. Increase budgets only after representative measurement;
 changing intervals affects subsequent committed pages. Reducing retention days applies
 on the next sweep; increasing them also protects inputs during the current sweep.
-See [migration and rollback](../../migrations/README.md#analysis-payload-retention-0035).
+See [migration and rollback](../../migrations/README.md#analysis-payload-retention-0037).
 
 ## Personal feed preparation
 

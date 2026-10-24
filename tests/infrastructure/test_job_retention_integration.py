@@ -469,7 +469,7 @@ def test_parent_review_lock_allows_concurrent_ingestion_to_link_an_existing_arti
 def test_migration_roundtrip_restores_cadence_rows_and_valid_partial_indexes(database):
     config = Config(str(REPO_ROOT / "alembic.ini"))
     try:
-        command.downgrade(config, "0034")
+        command.downgrade(config, "0036")
         with database() as session:
             assert session.scalar(text("SELECT to_regclass('job_payload_retention')")) is None
         command.upgrade(config, "head")
@@ -502,7 +502,7 @@ def test_migration_retry_repairs_an_invalid_concurrent_index_and_preserves_check
     index_name = "ix_article_analysis_jobs_article_id_retained_success"
     engine = database.kw["bind"]
     try:
-        command.downgrade(config, "0034")
+        command.downgrade(config, "0036")
         # Simulate DDL committed by an interrupted concurrent-index migration.
         JobPayloadRetention.__table__.create(engine)
         checkpoint_id = uuid.uuid4()

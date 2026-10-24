@@ -15,10 +15,9 @@ export function prepareDialogScroll(identity: string) {
     for (const event of interruptEvents) window.removeEventListener(event, cancel);
     pending = undefined;
   };
-  const frame = requestAnimationFrame(() => {
-    restore();
-    cancel();
-  });
+  // A slow route may commit after this correction. Keep its activation position
+  // available until the modal claims it or later input supersedes navigation.
+  const frame = requestAnimationFrame(restore);
   pending = { identity, restore, cancel };
   for (const event of interruptEvents) window.addEventListener(event, cancel, { passive: true });
   restore();
@@ -36,10 +35,16 @@ export function lockDialogScroll(identity?: string) {
   document.body.style.overflow = "hidden";
   restore();
   // Overflow blocks new wheel input, but a queued compositor scroll can still
-  // arrive once after cancellation. Correct it before the modal's next paint.
+  // arrive after the first correction frame. Retain the entry position for the
+  // entire modal lifetime without writing again for our own correction event.
+  const retainPosition = () => {
+    if (window.scrollX !== position.left || window.scrollY !== position.top) restore();
+  };
+  window.addEventListener("scroll", retainPosition, { passive: true });
   const frame = requestAnimationFrame(restore);
   return () => {
     cancelAnimationFrame(frame);
+    window.removeEventListener("scroll", retainPosition);
     document.body.style.overflow = overflow;
   };
 }

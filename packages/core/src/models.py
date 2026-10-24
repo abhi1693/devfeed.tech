@@ -286,7 +286,7 @@ class TopicProposal(Base):
     status: Mapped[str] = mapped_column(String(20), default="pending", index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     created_by: Mapped[dict] = mapped_column(JSONB)
-    reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), index=True)
     reviewed_by: Mapped[dict | None] = mapped_column(JSONB)
     review_note: Mapped[str | None] = mapped_column(String(1000))
     applied: Mapped[dict | None] = mapped_column(JSONB)
@@ -1540,6 +1540,22 @@ class TopicDecisionRun(Base):
     state: Mapped[dict] = mapped_column(JSONB, default=dict)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class TopicDecisionCall(Base):
+    """Indexed report facts, projected transactionally from each run's call ledger."""
+
+    __tablename__ = "topic_decision_calls"
+    proposal_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("topic_decision_runs.proposal_id", ondelete="CASCADE"), primary_key=True
+    )
+    ordinal: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    stage: Mapped[str | None] = mapped_column(Text)
+    stage_call: Mapped[int] = mapped_column(BigInteger)
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), index=True)
+    tokens: Mapped[Decimal] = mapped_column(Numeric)
+    charged_tokens: Mapped[int | None] = mapped_column(BigInteger)
+    escalated: Mapped[bool] = mapped_column(Boolean)
 
 
 class DiscoverySeed(Base):

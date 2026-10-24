@@ -51,35 +51,26 @@ def decision_metrics(session, start: datetime, now: datetime) -> TopicDecisionMe
     result.decisions_per_hour = round((result.approved + result.rejected) / hours, 2)
     if result.decisions_per_hour:
         result.estimated_drain_hours = round(result.actionable / result.decisions_per_hour, 1)
+    # A completed topic's efficiency includes its entire workflow, even calls
+    # outside this reporting window. Only the activity counters use call time.
     usage = (
         session.execute(
             text("""
-        WITH calls AS (
-          SELECT r.proposal_id, r.status, c, n,
-            (p.status IN ('approved', 'rejected')
-            AND p.reviewed_at BETWEEN :start AND :now) AS completed
-          FROM topic_decision_runs r JOIN topic_proposals p ON p.id = r.proposal_id,
-               jsonb_array_elements(r.state->'calls') WITH ORDINALITY AS items(c, n)
-        ), totals AS (
-          SELECT *, greatest(coalesce((c->'tokens'->>'totalTokens')::bigint, 0),
-            coalesce((c->'tokens'->>'inputTokens')::bigint, 0)
-              + coalesce((c->'tokens'->>'outputTokens')::bigint, 0)) AS tokens,
-            (c->>'started_at')::timestamptz BETWEEN :start AND :now AS in_window,
-            row_number() OVER (PARTITION BY proposal_id, c->>'stage' ORDER BY n) AS stage_call
-          FROM calls
-        )
-        SELECT count(*) FILTER (WHERE in_window) AS calls,
-          coalesce(sum(tokens) FILTER (WHERE in_window), 0) AS tokens,
-          coalesce(sum((c->>'charged_tokens')::bigint)
-            FILTER (WHERE in_window), 0) AS charged_tokens,
-          count(*) FILTER (WHERE in_window AND tokens = 0) AS unreported_calls,
-          count(*) FILTER (WHERE in_window AND (c->>'escalated')::boolean) AS escalations,
-          count(*) FILTER (WHERE in_window AND stage_call > 1) AS repeat_calls,
-          CASE WHEN bool_and(tokens > 0) FILTER (WHERE completed)
-            THEN sum(tokens) FILTER (WHERE completed)::float
-              / nullif(count(DISTINCT proposal_id) FILTER (WHERE completed), 0)
+        WITH window_usage AS (
+          SELECT count(*) AS calls, coalesce(sum(tokens), 0) AS tokens,
+            coalesce(sum(charged_tokens), 0) AS charged_tokens,
+            count(*) FILTER (WHERE tokens = 0) AS unreported_calls,
+            count(*) FILTER (WHERE escalated) AS escalations,
+            count(*) FILTER (WHERE stage_call > 1) AS repeat_calls
+          FROM topic_decision_calls WHERE started_at BETWEEN :start AND :now
+        ), completed_usage AS (
+          SELECT CASE WHEN bool_and(c.tokens > 0)
+            THEN sum(c.tokens)::float / nullif(count(DISTINCT c.proposal_id), 0)
             ELSE NULL END AS tokens_per_completed_topic
-        FROM totals
+          FROM topic_proposals p JOIN topic_decision_calls c ON c.proposal_id = p.id
+          WHERE p.status IN ('approved', 'rejected') AND p.reviewed_at BETWEEN :start AND :now
+        )
+        SELECT * FROM window_usage CROSS JOIN completed_usage
     """),
             {"start": start, "now": now},
         )

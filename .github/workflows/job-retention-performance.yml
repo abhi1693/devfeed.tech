@@ -6,7 +6,7 @@ on:
       - packages/core/src/job_retention.py
       - packages/core/src/models.py
       - packages/core/src/config.py
-      - migrations/versions/0035_job_payload_retention.py
+      - migrations/versions/0037_job_payload_retention.py
       - scripts/job_retention_benchmark.py
       - scripts/ci/job-retention-report.mjs
       - scripts/ci/job-retention-report.test.mjs

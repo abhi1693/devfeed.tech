@@ -83,6 +83,32 @@ it("adopts the matching activation position when a modal commits before the queu
   expect(document.body.style.overflow).toBe("");
 });
 
+it("retains activation coordinates when a slow preview commits after the correction frame", () => {
+  beginReaderNavigation("/articles/slow-preview");
+  paint();
+  // Native compositor work may finish after the first frame but before the route renders.
+  vi.stubGlobal("scrollY", 1481);
+  const release = lockDialogScroll("slow-preview");
+  try {
+    expect(window.scrollY).toBe(1478);
+  } finally {
+    release();
+  }
+});
+
+it("respects new reader input after the activation correction while a preview is loading", () => {
+  beginReaderNavigation("/articles/slow-preview");
+  paint();
+  window.dispatchEvent(new Event("wheel"));
+  vi.stubGlobal("scrollY", 900);
+  const release = lockDialogScroll("slow-preview");
+  try {
+    expect(window.scrollY).toBe(900);
+  } finally {
+    release();
+  }
+});
+
 it("does not apply an unrelated preview activation to a different modal", () => {
   beginReaderNavigation("/articles/slow-preview");
   vi.stubGlobal("scrollY", 900);

@@ -161,8 +161,9 @@ def inference_charts(session, start: datetime, now: datetime) -> InferenceCharts
         else _ledger_activity(session, start, now)
     )
     days = {}
-    day = start.date()
-    while day <= now.date():
+    day = (start.replace(tzinfo=UTC) if start.tzinfo is None else start.astimezone(UTC)).date()
+    last_day = (now.replace(tzinfo=UTC) if now.tzinfo is None else now.astimezone(UTC)).date()
+    while day <= last_day:
         key = day.isoformat()
         days[key] = TopicDecisionDay(date=key)
         day += timedelta(days=1)
@@ -179,17 +180,11 @@ def inference_charts(session, start: datetime, now: datetime) -> InferenceCharts
         days[row["date"]].approved, days[row["date"]].rejected = row["approved"], row["rejected"]
     calls = session.execute(
         text("""
-        WITH calls AS (
-          SELECT proposal_id, c, n,
-            row_number() OVER (PARTITION BY proposal_id, c->>'stage' ORDER BY n) AS stage_call
-          FROM topic_decision_runs,
-            jsonb_array_elements(state->'calls') WITH ORDINALITY AS items(c, n)
-        )
-        SELECT to_char((c->>'started_at')::timestamptz AT TIME ZONE 'UTC', 'YYYY-MM-DD') AS date,
+        SELECT to_char(started_at AT TIME ZONE 'UTC', 'YYYY-MM-DD') AS date,
           count(*) AS calls,
-          count(*) FILTER (WHERE (c->>'escalated')::boolean) AS escalations,
+          count(*) FILTER (WHERE escalated) AS escalations,
           count(*) FILTER (WHERE stage_call > 1) AS repeated_stages
-        FROM calls WHERE (c->>'started_at')::timestamptz BETWEEN :start AND :now GROUP BY date
+        FROM topic_decision_calls WHERE started_at BETWEEN :start AND :now GROUP BY date
     """),
         {"start": start, "now": now},
     ).mappings()
