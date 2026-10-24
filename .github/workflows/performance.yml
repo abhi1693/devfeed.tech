@@ -11,7 +11,6 @@ jobs:
     timeout-minutes: 5
     outputs:
       needed: ${{ steps.changes.outputs.needed }}
-      retention: ${{ steps.retention.outputs.needed }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -27,20 +26,6 @@ jobs:
       - name: Select inputs
         id: changes
         run: node scripts/ci/api-performance-changes.mjs
-      - name: Select retention benchmark
-        id: retention
-        env:
-          BASE_SHA: ${{ github.event.pull_request.base.sha }}
-          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-        run: |
-          git diff --name-only "$BASE_SHA" "$HEAD_SHA" -- \
-            packages/core/src/job_retention.py packages/core/src/models.py migrations \
-            scripts/job_retention_benchmark.py .github/workflows/performance.yml > "$RUNNER_TEMP/retention-changes.txt"
-          if [[ -s "$RUNNER_TEMP/retention-changes.txt" ]]; then
-            echo 'needed=true' >> "$GITHUB_OUTPUT"
-          else
-            echo 'needed=false' >> "$GITHUB_OUTPUT"
-          fi
   measure:
     name: Runner pair ${{ matrix.repeat }}
     needs: select
@@ -94,59 +79,6 @@ jobs:
         with:
           name: perf-sample-pair-${{ matrix.repeat }}-${{ github.run_attempt }}
           path: reports/performance/
-          if-no-files-found: error
-          retention-days: 30
-  retention:
-    name: Retention at 100k and 250k articles (ARM64 PostgreSQL 17)
-    needs: select
-    if: github.event_name == 'pull_request' && needs.select.outputs.retention == 'true'
-    runs-on: ubuntu-24.04-arm
-    timeout-minutes: 45
-    services:
-      postgres:
-        image: postgres:17.11-bookworm@sha256:858bb5e98eed02eb8cafbcdc007f9a65d1b613972028944a8ec2133ccaf80d27
-        env:
-          POSTGRES_USER: benchmark
-          POSTGRES_PASSWORD: disposable-benchmark-only
-          POSTGRES_DB: retention_benchmark_test
-        ports: ['5432:5432']
-        options: >-
-          --health-cmd "pg_isready -U benchmark -d retention_benchmark_test"
-          --health-interval 5s --health-timeout 5s --health-retries 12
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          ref: ${{ github.event.pull_request.head.sha }}
-          fetch-depth: 0
-          persist-credentials: false
-      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
-        with:
-          python-version: "3.12"
-      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
-        with:
-          version: "0.13.5"
-          enable-cache: true
-      - name: Install benchmark application
-        run: sh scripts/ci/python-bootstrap.sh . --editable --all-packages
-      - name: Compare retention with concurrent ingestion
-        env:
-          BASE_SHA: ${{ github.event.pull_request.base.sha }}
-          DEVFEED_TEST_DATABASE_URL: postgresql+psycopg://benchmark:disposable-benchmark-only@127.0.0.1:5432/retention_benchmark_test
-        run: |
-          uname -a
-          lscpu
-          df -h
-          git show "$BASE_SHA:packages/core/src/job_retention.py" > "$RUNNER_TEMP/baseline-job-retention.py"
-          for articles in 100000 250000; do
-            uv run --locked --no-sync --no-build python scripts/job_retention_benchmark.py \
-              --articles "$articles" --baseline-file "$RUNNER_TEMP/baseline-job-retention.py" \
-              --output "reports/retention/$articles.json"
-          done
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        if: always()
-        with:
-          name: retention-arm64-postgresql17-${{ github.run_attempt }}
-          path: reports/retention/
           if-no-files-found: error
           retention-days: 30
   compare:

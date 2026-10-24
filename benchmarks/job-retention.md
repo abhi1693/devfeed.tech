@@ -3,7 +3,7 @@
 Issue [#298](https://github.com/abhi1693/devfeed.tech/issues/298) concerns retention
 candidate selection even when almost nothing can be pruned. The benchmark uses
 full migrated PostgreSQL 17 schemas, measuring ordinary ticks separately from
-maintenance pages and backlog recovery. The PR performance workflow runs the
+maintenance pages and backlog recovery. The standalone Analysis retention performance workflow runs the
 comparison on a native ARM64 runner at 100,000 and 250,000 articles.
 
 Fresh read-only production counts on 24 October 2026 showed approximately
