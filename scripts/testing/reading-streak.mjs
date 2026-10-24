@@ -128,6 +128,28 @@ export async function checkReadingStreak(page, screenshot, { fixture, mustReads 
       await panel.getByRole("region", { name: "Next milestone", exact: true }).count(),
       1,
     );
+    const retainedPanel = await panel.elementHandle();
+    const resumeTime = await page.evaluate(() => Date.now() + 120_000);
+    await page.clock.setFixedTime(resumeTime);
+    const resumeAuth = page.waitForResponse((value) =>
+      new URL(value.url()).pathname.endsWith("/user/auth/me"),
+    );
+    const resumeHistory = page.waitForResponse((value) =>
+      new URL(value.url()).pathname.endsWith("/user/settings/reading-week"),
+    );
+    await page.evaluate(() => {
+      window.dispatchEvent(new Event("focus"));
+      document.dispatchEvent(new Event("visibilitychange"));
+    });
+    assert.equal((await resumeAuth).status(), 200);
+    assert.equal((await resumeHistory).status(), 200);
+    await checkWeek(panel, fixture);
+    assert.equal(
+      await retainedPanel.evaluate((node) => node.isConnected),
+      true,
+      "Routine account resume preserves the open streak panel",
+    );
+    await retainedPanel.dispose();
     await closeWithEscape(page, panel, trigger);
     await trigger.click();
     await panel.waitFor();

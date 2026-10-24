@@ -8,7 +8,11 @@ import { openMustReadsEvent } from "@/lib/reading-streak";
 import type { UserProfile } from "@/lib/user";
 
 const account = vi.hoisted(() => ({
-  user: { user_id: "reader" } as { user_id: string } | null,
+  user: { user_id: "reader" } as {
+    user_id: string;
+    csrf_token?: string;
+    expires_at?: number;
+  } | null,
   profile: null as UserProfile | null,
   sessionRevision: 1,
 }));
@@ -187,6 +191,18 @@ it("updates the streak at the UTC boundary without waiting for another profile r
     await vi.advanceTimersByTimeAsync(0);
   });
   expect(vi.getTimerCount()).toBe(0);
+});
+
+it("keeps the reading panel open while a same-session preference revision refreshes history", async () => {
+  const view = render(<App />);
+  open();
+  await flush();
+  const panel = screen.getByRole("dialog", { name: "Your reading streak" });
+  account.sessionRevision++;
+  view.rerender(<App />);
+  await flush();
+  expect(screen.getByRole("dialog", { name: "Your reading streak" })).toBe(panel);
+  expect(request).toHaveBeenCalledTimes(2);
 });
 
 it("aborts private history on sign out and ignores a late response", async () => {
@@ -426,6 +442,7 @@ it("aborts the previous credentials' history when the session refreshes", async 
   open();
   await flush();
   const signal = request.mock.calls[0][1].signal as AbortSignal;
+  account.user = { ...account.user!, csrf_token: "refreshed-credentials" };
   account.sessionRevision++;
   view.rerender(<App />);
   expect(signal.aborted).toBe(true);
@@ -468,7 +485,7 @@ it.each(["another-reader", "reader", null])(
     const listener = vi.fn();
     window.addEventListener(openMustReadsEvent, listener);
     fireEvent.click(screen.getByRole("button", { name: "Find today’s read" }));
-    account.user = owner ? { user_id: owner } : null;
+    account.user = owner ? { user_id: owner, csrf_token: "new-session" } : null;
     account.sessionRevision++;
     view.rerender(<App />);
     await flush();

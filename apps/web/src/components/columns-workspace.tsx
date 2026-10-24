@@ -600,10 +600,10 @@ function ColumnEditor({
 }
 
 export function ColumnsWorkspace({ workspace = "latest" }: { workspace?: ColumnWorkspaceScope }) {
-  const { user, sessionRevision } = useUser();
+  const { user } = useUser();
   return (
     <ColumnPreferencesProvider
-      key={`${user?.user_id ?? "guest"}:${sessionRevision}:${workspace}`}
+      key={JSON.stringify([user?.user_id, user?.csrf_token, user?.expires_at, workspace])}
       workspace={workspace}
     >
       <Workspace />

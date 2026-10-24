@@ -113,13 +113,15 @@ def analysis_token_activity(session, start: datetime, now: datetime):
         ("topic_analysis", TopicAnalysisJob),
         ("research_verification", ResearchVerificationJob),
     ):
-        # Keep a narrow materialization boundary: otherwise PostgreSQL inlines
-        # JSON extraction into every SUM/COUNT/CASE and repeatedly detoasts the
-        # same potentially large job usage. Nineteen characters preserve the
-        # eighteen-digit validity rule even for oversized malformed telemetry.
-        usage = (
+        # Two OFFSET 0 fences keep JSON extraction and numeric validation once
+        # per row while streaming values directly into the daily aggregates.
+        # Project the UTC date before grouping so its estimate does not inherit
+        # near-unique completion timestamps. Literal offsets also let generic
+        # plans remove the runtime Limit nodes. Nineteen characters preserve
+        # the eighteen-digit validity rule for oversized malformed telemetry.
+        raw_usage = (
             select(
-                model.finished_at,
+                func.date(func.timezone("UTC", model.finished_at)).label("date"),
                 model.duration_ms,
                 func.left(model.usage["totalTokens"].astext, 19).label("raw_tokens"),
             )
@@ -128,12 +130,18 @@ def analysis_token_activity(session, start: datetime, now: datetime):
                 model.finished_at <= now,
                 model.status.in_(("succeeded", "failed")),
             )
-            .cte(f"{kind}_usage")
-            .prefix_with("MATERIALIZED")
+            .offset(literal_column("0"))
+            .subquery(f"{kind}_raw_usage")
         )
-        day = func.date(func.timezone("UTC", usage.c.finished_at))
-        raw = usage.c.raw_tokens
-        tokens = case((raw.op("~")(r"^[0-9]{1,18}$"), cast(raw, BigInteger)), else_=None)
+        raw = raw_usage.c.raw_tokens
+        validated = case((raw.op("~")(r"^[0-9]{1,18}$"), cast(raw, BigInteger)), else_=None)
+        usage = (
+            select(raw_usage.c.date, raw_usage.c.duration_ms, validated.label("tokens"))
+            .offset(literal_column("0"))
+            .subquery(f"{kind}_usage")
+        )
+        day = usage.c.date
+        tokens = usage.c.tokens
         statements.append(
             select(
                 day.label("date"),

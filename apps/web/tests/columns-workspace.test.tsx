@@ -799,6 +799,30 @@ it("retains keyboard focus through a rejected save and permits one focused retry
   expect(api.writes[1].value.columns).toEqual(api.writes[0].value.columns);
 });
 
+it("retains column DOM and an open editor during same-session preference revalidation", async () => {
+  state.user = account;
+  const api = transport([latest]);
+  const app = await mount();
+  const feed = await screen.findByRole("region", { name: "Articles in Latest column" });
+  feed.scrollTop = 240;
+  await chooseColumnAction("Latest", "Change feed for Latest column");
+  const dialog = screen.getByRole("dialog", { name: "Edit column" });
+  const reads = () =>
+    api.fetcher.mock.calls.filter(([input]) => String(input).includes("/settings/columns")).length;
+  const before = reads();
+  state.sessionRevision++;
+  app.rerender(<Workspace />);
+  await waitFor(() => expect(reads()).toBe(before + 1));
+  await waitFor(() =>
+    expect(
+      screen.getByRole("region", { name: "Columns workspace" }).getAttribute("aria-busy"),
+    ).toBe("false"),
+  );
+  expect(screen.getByRole("region", { name: "Articles in Latest column" })).toBe(feed);
+  expect(feed.scrollTop).toBe(240);
+  expect(screen.getByRole("dialog", { name: "Edit column" })).toBe(dialog);
+});
+
 it("discards an old account's open editor when the account changes", async () => {
   state.user = account;
   const api = transport([latest]);

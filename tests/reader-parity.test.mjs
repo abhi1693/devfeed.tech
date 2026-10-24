@@ -5,7 +5,9 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
+import { createContext, runInContext } from "node:vm";
 import { createReaderArtifactDirectory } from "../scripts/testing/reader-artifacts.mjs";
+import { settleStackedTouchScroll } from "../scripts/testing/stacked-reader.mjs";
 import {
   assertPartnerCallerProofs,
   partnerRuntimePlan,
@@ -13,6 +15,76 @@ import {
 } from "../apps/web/tests/browser/partner-runtimes.mjs";
 
 const root = fileURLToPath(new URL("../", import.meta.url));
+
+function scrollFixture(y, saved) {
+  let waited;
+  let complete;
+  const waiting = new Promise((resolve) => {
+    waited = resolve;
+  });
+  const state = createContext({
+    scrollX: 0,
+    scrollY: y,
+    history: { state: saved },
+    frames: 0,
+    requestAnimationFrame: (callback) => {
+      state.frames++;
+      queueMicrotask(callback);
+    },
+  });
+  state.window = {
+    scrollTo: (x, y) => {
+      state.scrollX = x;
+      state.scrollY = y;
+    },
+  };
+  const evaluate = (fn) => runInContext(`(${fn.toString()})()`, state);
+  return {
+    state,
+    waiting,
+    page: {
+      evaluate,
+      waitForFunction: (predicate) => {
+        waited();
+        if (evaluate(predicate)) return Promise.resolve();
+        return new Promise((resolve) => {
+          complete = () => {
+            assert.equal(evaluate(predicate), true);
+            resolve();
+          };
+        });
+      },
+    },
+    save: () => {
+      state.history.state = { readerScroll: [state.scrollX, state.scrollY] };
+      complete();
+    },
+  };
+}
+
+test("touch setup accepts an already topmost reader without a saved history position", async () => {
+  const fixture = scrollFixture(0, null);
+  await settleStackedTouchScroll(fixture.page);
+  assert.equal(fixture.state.history.state, null);
+  assert.equal(fixture.state.frames, 2);
+  assert.equal(fixture.state.scrollY, 0);
+});
+
+test("touch setup waits for pending scroll persistence before settling the renderer", async () => {
+  const fixture = scrollFixture(922, { readerScroll: [0, 922] });
+  let settled = false;
+  const pending = settleStackedTouchScroll(fixture.page).then(() => {
+    settled = true;
+  });
+  await fixture.waiting;
+  assert.equal(fixture.state.scrollY, 0);
+  assert.equal(fixture.state.frames, 0);
+  assert.equal(settled, false);
+  fixture.save();
+  await pending;
+  assert.equal(settled, true);
+  assert.equal(fixture.state.frames, 2);
+});
 
 test("reader artifacts allocate distinct owner-only directories for concurrent local runtimes", async (t) => {
   const directories = [];

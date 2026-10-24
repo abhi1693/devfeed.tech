@@ -233,7 +233,7 @@ def test_completed_token_series_keeps_idle_days_and_combines_all_three_job_kinds
     assert points[2].reported_runs == 2 and duration == 275
 
 
-def test_completed_token_query_reads_each_usage_once_into_bounded_materialized_values():
+def test_completed_token_query_streams_bounded_usage_with_once_per_row_validation():
     from sqlalchemy.dialects import postgresql
 
     statements = []
@@ -246,14 +246,29 @@ def test_completed_token_query_reads_each_usage_once_into_bounded_materialized_v
         SimpleNamespace(execute=execute), NOW - timedelta(days=7), NOW
     )
     assert len(statements) == 1
+    for branch in statements[0].selects:
+        usage = branch.get_final_froms()[0]
+        raw_usage = usage.element.get_final_froms()[0]
+        # Keep the computed date visible across both projection boundaries;
+        # grouping a timestamp expression loses its daily cardinality estimate.
+        projected_day = branch.selected_columns["date"].element
+        assert getattr(projected_day, "table", None) is usage
+        assert getattr(usage.element.selected_columns["date"], "table", None) is raw_usage
+        assert len(usage.c) == len(raw_usage.c) == 3
+        assert "finished_at" not in usage.c and "finished_at" not in raw_usage.c
+        assert "raw_tokens" not in usage.c
     sql = str(statements[0].compile(dialect=postgresql.dialect()))
-    assert sql.count("AS MATERIALIZED") == 3
+    # Literal OFFSET 0 fences preserve both streaming projections in generic
+    # plans, without introducing a materialized working set or runtime limits.
+    assert sql.count("OFFSET 0") == 6
+    assert "MATERIALIZED" not in sql
     for table in ("article_analysis_jobs", "topic_analysis_jobs", "research_verification_jobs"):
         assert sql.count(f"{table}.usage ->>") == 1
         assert f"{table}.finished_at >=" in sql
         assert f"{table}.finished_at <=" in sql
         assert f"{table}.status IN" in sql
     assert sql.count("left(") == 3
+    assert sql.count("CASE WHEN") == 3
 
 
 @pytest.mark.parametrize(
