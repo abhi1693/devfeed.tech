@@ -64,3 +64,47 @@ profiler refuses non-local hosts and database names without the `_test` suffix. 
 complete 30/90-day report payloads and prints timings plus activity-query buffer statistics;
 writer samples roll back their rows and temporary trigger changes. These local synthetic
 measurements do not establish production latency.
+
+## Completed-job token usage
+
+The automation report aggregates each job's cumulative `usage.totalTokens` once on its
+UTC completion date. A narrow materialized CTE extracts the token text once and projects
+that date before grouping. PostgreSQL 17 can then estimate the small number of dates
+without inheriting the near-unique completion timestamp distribution. This preserves
+inclusive time boundaries, succeeded/failed jobs, missing or malformed telemetry,
+durations, and the eighteen-digit token validity rule. It requires no migration or
+additional writes; rolling back the application restores the previous query.
+
+To reproduce the before/after comparison on a migrated disposable local PostgreSQL 17:
+
+```bash
+DEVFEED_TEST_DATABASE_URL=postgresql+psycopg://.../devfeed_token_profile_test \
+  uv run python scripts/profile_token_usage.py --seed --articles 100000 300000 \
+    --output /tmp/devfeed-token-profile.json
+```
+
+`--seed` replaces articles, proposals and their dependent histories. Remote hosts,
+connection routing overrides and database names without `_test` are refused. The tool
+uses actual migrated tables and indexes, two retained article/topic jobs per article,
+180 days of skewed completion history, failed/incomplete jobs, mixed telemetry and
+incompressible 4 KiB provider metadata on every fifth job. The 100,000-article fixture
+has approximately 60,000 article and 160,000 topic completions in a month, exceeding
+the issue's representative production inputs. Research history follows the observed
+252 production rows: 300 and 900 fixture rows. The issue's 44,924 research figure was
+a planner estimate, not a measured row count.
+
+For 1/7/30 UTC calendar-day windows, the tool checks exact result equality, alternating
+warm samples, fully parameterized custom/generic plans, aggregate group estimates,
+temporary writes and runtime with a noise allowance. It retains raw `EXPLAIN (ANALYZE,
+BUFFERS, SETTINGS)` plans at 4 MiB `work_mem`, JIT enabled and two parallel workers.
+Concurrent ingestion inserts articles and starts/finishes jobs after the fixed report
+cutoff, preserving comparison results; samples report actual write overlap and latency.
+Reporting-thread CPU is recorded separately from elapsed time. On Linux cgroup v2,
+`--postgres-container CONTAINER` also records database-container CPU, including the
+concurrent writer. Use an isolated container for that measurement.
+
+The `Token usage performance` PR workflow runs the complete comparison on native
+ARM64 PostgreSQL 17 and retains its JSON evidence for 30 days. Synthetic measurements
+establish the query behavior at those fixture sizes; after deployment, compare fresh
+production query statistics under matched traffic and watch report freshness, database
+CPU and ingestion latency before attributing an improvement to the change.

@@ -112,13 +112,15 @@ def analysis_token_activity(session, start: datetime, now: datetime):
         ("topic_analysis", TopicAnalysisJob),
         ("research_verification", ResearchVerificationJob),
     ):
-        # Keep a narrow materialization boundary: otherwise PostgreSQL inlines
-        # JSON extraction into every SUM/COUNT/CASE and repeatedly detoasts the
-        # same potentially large job usage. Nineteen characters preserve the
-        # eighteen-digit validity rule even for oversized malformed telemetry.
+        # Project the UTC day before materialization so PostgreSQL can estimate
+        # groups from that column instead of treating each completion timestamp
+        # as a distinct day. Keep the boundary narrow and extract JSON once:
+        # inlining would repeatedly detoast potentially large job usage for each
+        # aggregate. Nineteen characters preserve the eighteen-digit validity
+        # rule even for oversized malformed telemetry.
         usage = (
             select(
-                model.finished_at,
+                func.date(func.timezone("UTC", model.finished_at)).label("date"),
                 model.duration_ms,
                 func.left(model.usage["totalTokens"].astext, 19).label("raw_tokens"),
             )
@@ -130,7 +132,7 @@ def analysis_token_activity(session, start: datetime, now: datetime):
             .cte(f"{kind}_usage")
             .prefix_with("MATERIALIZED")
         )
-        day = func.date(func.timezone("UTC", usage.c.finished_at))
+        day = usage.c.date
         raw = usage.c.raw_tokens
         tokens = case((raw.op("~")(r"^[0-9]{1,18}$"), cast(raw, BigInteger)), else_=None)
         statements.append(

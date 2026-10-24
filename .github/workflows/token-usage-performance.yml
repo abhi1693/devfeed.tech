@@ -1,0 +1,62 @@
+name: Token usage performance
+on:
+  pull_request:
+    paths:
+      - apps/admin-api/src/automation.py
+      - scripts/profile_token_usage.py
+      - .github/workflows/token-usage-performance.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  benchmark:
+    name: Native ARM64 PostgreSQL 17
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 30
+    services:
+      postgres:
+        image: postgres:17.11-bookworm
+        env:
+          POSTGRES_USER: devfeed
+          POSTGRES_PASSWORD: disposable_profile
+          POSTGRES_DB: devfeed_token_profile_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U devfeed -d devfeed_token_profile_test"
+          --health-interval 5s --health-timeout 5s --health-retries 12
+    env:
+      DEVFEED_DATABASE_URL: postgresql+psycopg://devfeed:disposable_profile@127.0.0.1:5432/devfeed_token_profile_test
+      DEVFEED_TEST_DATABASE_URL: postgresql+psycopg://devfeed:disposable_profile@127.0.0.1:5432/devfeed_token_profile_test
+      DEVFEED_REDIS_URL: redis://127.0.0.1:6379/15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        with:
+          version: "0.13.5"
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+          cache-suffix: token-usage-profile
+      - name: Install locked application
+        run: sh scripts/ci/python-bootstrap.sh . --editable --all-packages
+      - name: Migrate disposable database
+        run: uv run devfeed db upgrade
+      - name: Compare production-sized and larger histories
+        env:
+          POSTGRES_CONTAINER: ${{ job.services.postgres.id }}
+        run: |
+          test "$(uname -m)" = aarch64
+          uv run python scripts/profile_token_usage.py --seed --articles 100000 300000 \
+            --postgres-container "$POSTGRES_CONTAINER" --output reports/token-usage/profile.json
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
+        with:
+          name: token-usage-native-arm64-${{ github.run_attempt }}
+          path: reports/token-usage/
+          if-no-files-found: warn
+          retention-days: 30

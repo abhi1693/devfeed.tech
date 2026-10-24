@@ -246,6 +246,14 @@ def test_completed_token_query_reads_each_usage_once_into_bounded_materialized_v
         SimpleNamespace(execute=execute), NOW - timedelta(days=7), NOW
     )
     assert len(statements) == 1
+    for branch in statements[0].selects:
+        usage = branch.get_final_froms()[0]
+        # Grouping an expression of a materialized completion timestamp loses
+        # its daily cardinality. Keep the date itself visible across the boundary,
+        # without carrying the high-cardinality timestamp into the working set.
+        projected_day = branch.selected_columns["date"].element
+        assert getattr(projected_day, "table", None) is usage
+        assert "finished_at" not in usage.c
     sql = str(statements[0].compile(dialect=postgresql.dialect()))
     assert sql.count("AS MATERIALIZED") == 3
     for table in ("article_analysis_jobs", "topic_analysis_jobs", "research_verification_jobs"):
