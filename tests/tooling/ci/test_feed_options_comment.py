@@ -58,12 +58,14 @@ const fs = {
   },
 };
 const context = {
-  payload: {pull_request: {number: 303, head: {sha: head}, base: {sha: base}}},
+  payload: {pull_request: {number: 303, user: {login: 'abhi1693'},
+    head: {sha: head}, base: {sha: base}}},
   repo: {owner: 'abhi1693', repo: 'devfeed.tech'},
   serverUrl: 'https://github.com', runId: 200,
 };
-const previous = input.previous ? [{id: 900, user: {type: input.author ?? 'Bot'},
-  body: input.previousBody ?? `${marker}\nOld successful results`}] : [];
+const previous = input.comments ?? (input.previous ? [{id: 900,
+  user: {type: input.author ?? 'Bot', login: input.login ?? 'github-actions[bot]'},
+  body: input.previousBody ?? `${marker}\nOld successful results`}] : []);
 const github = {
   rest: {
     pulls: {get: async request => {
@@ -250,10 +252,76 @@ def test_newer_attempt_updates_the_existing_bot_comment():
     assert result["writes"][0]["comment_id"] == 900
 
 
-def test_manual_report_comments_remain_owned_by_their_human_author():
-    result = publish_comment(previous=True, author="User")
+def test_existing_pr_author_report_is_updated_in_place():
+    result = publish_comment(previous=True, author="User", login="abhi1693")
+    assert len(result["writes"]) == 1
+    assert result["writes"][0]["method"] == "update"
+    assert result["writes"][0]["comment_id"] == 900
+
+
+def test_pr_author_login_matching_is_case_insensitive():
+    result = publish_comment(previous=True, author="User", login="ABHI1693")
+    assert result["writes"][0]["method"] == "update"
+
+
+@pytest.mark.parametrize(
+    "author,login", [("User", "another-reviewer"), ("Bot", "unrelated-bot[bot]")]
+)
+def test_reports_from_unrelated_people_and_bots_are_preserved(author, login):
+    result = publish_comment(previous=True, author=author, login=login)
     assert result["writes"][0]["method"] == "create"
     assert "comment_id" not in result["writes"][0]
+
+
+def test_oldest_report_is_reused_even_when_comments_are_returned_out_of_order():
+    result = publish_comment(
+        comments=[
+            {"id": 904, "user": {"type": "Bot", "login": "github-actions[bot]"}, "body": MARKER},
+            {"id": 902, "user": {"type": "User", "login": "abhi1693"}, "body": MARKER},
+            {"id": 901, "user": {"type": "User", "login": "someone-else"}, "body": MARKER},
+            {"id": 900, "user": {"type": "Bot", "login": "other-bot[bot]"}, "body": MARKER},
+        ]
+    )
+    assert len(result["writes"]) == 1
+    assert result["writes"][0]["method"] == "update"
+    assert result["writes"][0]["comment_id"] == 902
+
+
+@pytest.mark.parametrize("run,attempt", [(201, 1), (200, 3)])
+def test_newer_results_in_a_duplicate_report_protect_the_canonical_comment(run, attempt):
+    result = publish_comment(
+        comments=[
+            {"id": 900, "user": {"type": "User", "login": "abhi1693"}, "body": MARKER},
+            {
+                "id": 901,
+                "user": {"type": "Bot", "login": "github-actions[bot]"},
+                "body": f"{MARKER}\n<!-- devfeed-feed-options-scale-run:{run}:{attempt} -->",
+            },
+        ]
+    )
+    assert not result["writes"]
+
+
+def test_unrelated_comments_cannot_block_publishing_with_a_newer_run_marker():
+    result = publish_comment(
+        comments=[
+            {
+                "id": 900,
+                "user": {"type": "User", "login": "another-reviewer"},
+                "body": f"{MARKER}\n<!-- devfeed-feed-options-scale-run:999:1 -->",
+            },
+            {"id": 901, "user": {"type": "User", "login": "abhi1693"}, "body": MARKER},
+        ]
+    )
+    assert result["writes"][0]["method"] == "update"
+    assert result["writes"][0]["comment_id"] == 901
+
+
+def test_pr_author_comments_without_the_report_marker_remain_untouched():
+    result = publish_comment(
+        previous=True, author="User", login="abhi1693", previousBody="Please review these changes"
+    )
+    assert result["writes"][0]["method"] == "create"
 
 
 def test_publisher_reads_artifacts_without_executing_pr_code_with_write_permissions():
@@ -280,3 +348,15 @@ def test_publisher_reads_artifacts_without_executing_pr_code_with_write_permissi
     download = report["steps"][0]
     assert download["continue-on-error"] is True
     assert download["with"]["name"] == "feed-options-scale-${{ github.run_attempt }}"
+
+
+def test_disposable_benchmark_database_uses_loopback_without_stored_credentials():
+    measure = workflow_jobs()["measure"]
+    postgres = measure["services"]["postgres"]
+    assert postgres["ports"] == ["127.0.0.1:5432:5432"]
+    assert postgres["env"]["POSTGRES_HOST_AUTH_METHOD"] == "trust"
+    assert "POSTGRES_PASSWORD" not in postgres["env"]
+    run = next(step for step in measure["steps"] if step.get("env", {}).get("BASE_SHA"))
+    assert run["env"]["DEVFEED_TEST_DATABASE_URL"] == (
+        "postgresql+psycopg://benchmark@127.0.0.1:5432/feed_options_benchmark_test"
+    )

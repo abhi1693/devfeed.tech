@@ -10,6 +10,7 @@ import importlib.util
 import json
 import os
 import platform
+import re
 import statistics
 import subprocess
 import tempfile
@@ -493,9 +494,15 @@ def ingest(engine, sources, start, stop, result):
         stop.wait(0.02)
 
 
+def commit_sha(value):
+    if not re.fullmatch(r"[0-9a-f]{40}", value):
+        raise argparse.ArgumentTypeError("Use a full lowercase 40-character commit SHA")
+    return value
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--baseline-ref", required=True)
+    parser.add_argument("--baseline-ref", required=True, type=commit_sha)
     parser.add_argument("--rows", type=int, nargs="+", default=[2000, 100000, 1000000])
     parser.add_argument("--repeats", type=int, default=5)
     parser.add_argument("--output", type=Path, default=Path("reports/feed-options-benchmark"))
@@ -513,11 +520,7 @@ def main():
     if not output.is_relative_to(ROOT / "reports"):
         parser.error("Output must stay in this checkout's reports directory")
     output.mkdir(parents=True, exist_ok=True)
-    # Explicitly prepared calls allow bounded force_generic_plan execution cases.
-    engine = create_engine(url, pool_size=4, connect_args={"prepare_threshold": 0})
-    baseline_sha = subprocess.check_output(
-        ["git", "rev-parse", f"{args.baseline_ref}^{{commit}}"], cwd=ROOT, text=True
-    ).strip()
+    baseline_sha = args.baseline_ref
     baseline = subprocess.check_output(
         ["git", "show", f"{baseline_sha}:apps/api/src/feed.py"], cwd=ROOT, text=True
     )
@@ -539,6 +542,8 @@ def main():
         "not a capture of the exact server-prepared execution plan",
         cases=[],
     )
+    # Explicitly prepared calls allow bounded force_generic_plan execution cases.
+    engine = create_engine(url, pool_size=4, connect_args={"prepare_threshold": 0})
     try:
         with engine.connect() as connection:
             if connection.scalar(

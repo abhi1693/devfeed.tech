@@ -14,13 +14,16 @@ Use an otherwise idle native ARM64 host and native PostgreSQL 17. The PR's
 `Feed options scale comparison` workflow owns a disposable PostgreSQL 17.11 service
 and publishes the full matrix as an artifact and job summary. Local x86 runs are
 diagnostic evidence and cannot establish ARM64 performance.
+The disposable CI database uses trust authentication on a port published only to
+the runner's loopback address; no database password is stored in the workflow.
 
-The workflow also updates a Bot-authored PR comment with before/after tables and
+The workflow also updates the existing PR results comment with before/after tables and
 signed percentage improvements: positive means less time or work, negative means
 more. Slower medians remain visible alongside paired measurements, and the full
 scenario table is expandable. Comments identify the measured commits and run;
 partial or unavailable results are labelled explicitly. Older runs cannot replace
-newer results, and human-authored comments are preserved.
+newer results. It reuses the oldest marked report from the PR author or
+`github-actions[bot]`, preserving its URL and leaving unrelated comments alone.
 
 Create a new disposable database named **exactly**
 `feed_options_benchmark_test`, exposed on `127.0.0.1`. The harness refuses a
@@ -32,10 +35,12 @@ load the checkout's `.env` or contact Redis, providers, or production.
 ```sh
 DEVFEED_TEST_DATABASE_URL='postgresql+psycopg://benchmark:benchmark@127.0.0.1:55498/feed_options_benchmark_test' \
   uv run --locked python scripts/feed_options_benchmark.py \
-  --baseline-ref 6da65eca --rows 2000 100000 1000000 --repeats 5 \
+  --baseline-ref 6da65ecab623444bb1933e59b7d354013726efad --rows 2000 100000 1000000 --repeats 5 \
   --require-arm64 --output reports/feed-options-benchmark
 ```
 
+Use the baseline's full lowercase 40-character commit SHA; branches, abbreviated
+revisions, and Git options are rejected before any database connection is opened.
 The database must be new for each invocation. Remove `--require-arm64` only for
 explicitly labeled local diagnostics. The output remains under ignored `reports/`.
 

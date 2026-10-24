@@ -21,10 +21,11 @@ jobs:
         image: postgres:17.11
         env:
           POSTGRES_USER: benchmark
-          POSTGRES_PASSWORD: benchmark
           POSTGRES_DB: feed_options_benchmark_test
+          # Disposable database; publish only on loopback without storing a password.
+          POSTGRES_HOST_AUTH_METHOD: trust
         ports:
-          - 5432:5432
+          - 127.0.0.1:5432:5432
         options: >-
           --health-cmd "pg_isready -U benchmark -d feed_options_benchmark_test"
           --health-interval 5s --health-timeout 5s --health-retries 12
@@ -46,7 +47,7 @@ jobs:
       - name: Compare fixed datasets and concurrent ingestion
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
-          DEVFEED_TEST_DATABASE_URL: postgresql+psycopg://benchmark:benchmark@127.0.0.1:5432/feed_options_benchmark_test
+          DEVFEED_TEST_DATABASE_URL: postgresql+psycopg://benchmark@127.0.0.1:5432/feed_options_benchmark_test
         run: >-
           uv run --locked --no-sync --no-build python scripts/feed_options_benchmark.py
           --baseline-ref "$BASE_SHA" --rows 2000 100000 1000000 --repeats 5
@@ -139,10 +140,20 @@ jobs:
             if (summary) lines.push(summary);
             const body = lines.join('\n');
             const comments = await github.paginate(github.rest.issues.listComments, {...context.repo, issue_number: pr.number});
-            const previous = comments.find(comment => comment.user.type === 'Bot' && comment.body?.startsWith(marker));
-            const priorRun = previous?.body.match(/<!-- devfeed-feed-options-scale-run:(\d+):(\d+) -->/);
-            if (priorRun && (Number(priorRun[1]) > Number(context.runId) ||
-                (Number(priorRun[1]) === Number(context.runId) && Number(priorRun[2]) > attempt))) return;
+            // Adopt the PR author's initial report, then keep its original URL on later runs.
+            // A marker alone does not give the publisher ownership of other people's comments.
+            const reports = comments.filter(comment => comment.body?.startsWith(marker) &&
+              ((comment.user?.type === 'Bot' && comment.user.login === 'github-actions[bot]') ||
+                (comment.user?.type === 'User' && typeof pr.user?.login === 'string' &&
+                  comment.user.login.toLowerCase() === pr.user.login.toLowerCase())))
+              .sort((left, right) => left.id - right.id);
+            const previous = reports[0];
+            // Check every old report so a duplicate cannot hide a newer completed run.
+            if (reports.some(comment => {
+              const priorRun = comment.body.match(/<!-- devfeed-feed-options-scale-run:(\d+):(\d+) -->/);
+              return priorRun && (Number(priorRun[1]) > Number(context.runId) ||
+                (Number(priorRun[1]) === Number(context.runId) && Number(priorRun[2]) > attempt));
+            })) return;
             const latest = await github.rest.pulls.get({...context.repo, pull_number: pr.number});
             if (latest.data.state !== 'open' || latest.data.head.sha !== pr.head.sha) return;
             if (previous) {
