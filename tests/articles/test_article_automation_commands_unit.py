@@ -235,6 +235,61 @@ def test_active_work_retains_its_provider_delay_or_lease(runtime, target, status
     runtime.apply.assert_not_called()
 
 
+@pytest.mark.parametrize("status", ["queued", "running", "failed"])
+def test_unchanged_processing_reuses_facts_without_reloading_or_requesting_images(
+    monkeypatch, status
+):
+    article, facts = scenario()
+    facts["content"] = None
+    facts["analysis"] = active_job(article, facts, "analysis", status=status)
+    article.image_url = "https://publisher.example/image.png"
+    facts["settings"].image_storage_enabled = True
+    facts["settings"].image_public_url = "https://images.example"
+    facts["storage"] = active_job(article, facts, "storage", status=status)
+    load = Mock(return_value=facts)
+    image = Mock()
+    monkeypatch.setattr(article_lifecycle, "get_settings", lambda: facts["settings"])
+    monkeypatch.setattr(article_lifecycle, "_processing_facts", load)
+    monkeypatch.setattr(image_jobs, "request_image", image)
+    session = Mock()
+
+    result = article_lifecycle.reconcile_processing(session, article)
+
+    load.assert_called_once_with(session, article, None)
+    image.assert_not_called()
+    assert result.checks["analysis"].status in {status, "retry_wait"}
+    assert result.checks["images"].job_id == facts["storage"].id
+    session.flush.assert_called_once()
+
+
+def test_changed_storage_policy_reconciles_missing_images_while_analysis_is_active(monkeypatch):
+    article, facts = scenario()
+    facts["content"] = None
+    facts["analysis"] = active_job(article, facts, "analysis", status="running")
+    article.image_url = "https://publisher.example/image.png"
+    facts["settings"].image_storage_enabled = True
+    facts["settings"].image_public_url = "https://images.example"
+    load = Mock(return_value=facts)
+    queued = active_job(article, facts, "storage")
+
+    def request(*_, **__):
+        facts["storage"] = queued
+        return queued
+
+    image = Mock(side_effect=request)
+    monkeypatch.setattr(article_lifecycle, "get_settings", lambda: facts["settings"])
+    monkeypatch.setattr(article_lifecycle, "_processing_facts", load)
+    monkeypatch.setattr(image_jobs, "request_image", image)
+    session = Mock()
+
+    result = article_lifecycle.reconcile_processing(session, article)
+
+    image.assert_called_once_with(session, article.id, automatic=True)
+    assert load.call_count == 2
+    assert result.checks["analysis"].status == "running"
+    assert result.checks["images"].job_id == queued.id
+
+
 def test_exhausted_extraction_without_source_text_is_rejected_with_attributed_reason(runtime):
     runtime.facts["enrichment"] = active_job(
         runtime.article, runtime.facts, "enrichment", status="failed"
@@ -503,8 +558,8 @@ def test_preparation_avoids_catalog_ranking_for_missing_or_active_work(monkeypat
     read = Mock()
     read.scalar.side_effect = [
         None if busy == "missing" else article,
-        facts["analysis"],
-        facts["enrichment"],
+        facts["analysis"].status if facts["analysis"] else None,
+        facts["enrichment"].status if facts["enrichment"] else None,
     ]
     factory = factory_for(read, Mock())
     catalog, rank = Mock(), Mock()
@@ -519,7 +574,7 @@ def test_preparation_avoids_catalog_ranking_for_missing_or_active_work(monkeypat
 def test_candidate_ranking_happens_after_releasing_the_read_transaction(monkeypatch):
     article, facts = scenario()
     read = Mock()
-    read.scalar.side_effect = [article, facts["analysis"], facts["enrichment"]]
+    read.scalar.side_effect = [article, facts["analysis"].status, facts["enrichment"].status]
     content = ArticleContent(
         article_id=article.id,
         text="Publisher's full Angular routing explanation.",

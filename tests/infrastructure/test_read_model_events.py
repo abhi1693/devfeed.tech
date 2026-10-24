@@ -1,7 +1,7 @@
 """Read-model changes survive SQL writers, rollback, cascades, and commit reordering."""
 
 import uuid
-from datetime import timedelta
+from datetime import datetime, timedelta
 
 import pytest
 from alembic import command
@@ -144,6 +144,118 @@ def test_raw_bulk_article_updates_and_rollback_are_transactional(database):
     with database() as session:
         assert changes(session) == set()
         assert session.scalar(select(Article.ai_summary).limit(1)) is None
+
+
+@pytest.mark.integration
+def test_repeated_clock_updates_patch_only_serving_and_building_cards_without_events(database):
+    now = utcnow()
+    retry = now + timedelta(minutes=10)
+    with database.begin() as session:
+        row, terminal = article(session), article(session)
+        identifier, terminal_id = row.id, terminal.id
+        row.automation_next_check_at = terminal.automation_next_check_at = now
+        set_state(session, "pipeline", {"target_policy": "building", "serving_policy": "serving"})
+        for policy in ("serving", "building", "obsolete"):
+            for current_id, complete in ((identifier, False), (terminal_id, True)):
+                session.add(
+                    PipelineProjection(
+                        policy_version=policy,
+                        kind="article",
+                        entity_id=current_id,
+                        payload={
+                            "next_check_at": None if complete else now.isoformat(),
+                            "title": "Saved",
+                        },
+                        stage="published" if complete else "analysis",
+                        state="complete" if complete else "waiting",
+                        created_at=now,
+                        activity_at=now,
+                        next_transition_at=None if complete else retry,
+                        evaluated_at=now,
+                    )
+                )
+        clear_events(session)
+    for tick in range(1, 7):
+        clock = now + timedelta(minutes=tick)
+        with database.begin() as session:
+            session.execute(update(Article).values(automation_next_check_at=clock))
+            assert changes(session) == set()
+        with database() as session:
+            for policy in ("serving", "building", "obsolete"):
+                saved = session.get(PipelineProjection, (policy, "article", identifier))
+                expected = now if policy == "obsolete" else clock
+                assert datetime.fromisoformat(saved.payload["next_check_at"]) == expected
+                assert saved.payload["title"] == "Saved"
+                assert saved.next_transition_at == retry and saved.evaluated_at == now
+                completed = session.get(PipelineProjection, (policy, "article", terminal_id))
+                assert completed.payload["next_check_at"] is None
+                assert completed.next_transition_at is None
+    versions_query = text(
+        "SELECT xmin::text FROM pipeline_projections ORDER BY policy_version, entity_id"
+    )
+    with database() as session:
+        versions = list(session.execute(versions_query))
+    with database.begin() as session:
+        session.execute(update(Article).values(automation_next_check_at=clock))
+        assert changes(session) == set()
+    with database() as session:
+        assert list(session.execute(versions_query)) == versions
+    with database() as session:
+        session.execute(update(Article).values(automation_next_check_at=clock + timedelta(hours=1)))
+        saved = session.get(PipelineProjection, ("serving", "article", identifier))
+        assert datetime.fromisoformat(saved.payload["next_check_at"]) == clock + timedelta(hours=1)
+        session.rollback()
+    with database() as session:
+        assert session.get(Article, identifier).automation_next_check_at == clock
+        assert (
+            datetime.fromisoformat(
+                session.get(PipelineProjection, ("serving", "article", identifier)).payload[
+                    "next_check_at"
+                ]
+            )
+            == clock
+        )
+        assert changes(session) == set()
+
+
+@pytest.mark.integration
+def test_clock_and_card_dependency_changed_in_one_statement_still_invalidates(database):
+    with database.begin() as session:
+        identifier = article(session).id
+        clear_events(session)
+        session.execute(
+            update(Article)
+            .where(Article.id == identifier)
+            .values(
+                automation_next_check_at=utcnow() + timedelta(minutes=5),
+                publication_status="published",
+                published_to_feed_at=utcnow(),
+                review_status="approved",
+            )
+        )
+        events = list(session.execute(select(ReadModelEvent.kind, ReadModelEvent.entity_id)))
+        assert events == [("article", identifier)]
+
+
+@pytest.mark.integration
+def test_scheduler_clock_migration_round_trip_restores_capture_without_rebuilding(database):
+    config = Config(str(REPO_ROOT / "alembic.ini"))
+    with database.begin() as session:
+        identifier = article(session).id
+        clear_events(session)
+    try:
+        command.downgrade(config, "0034")
+        with database.begin() as session:
+            session.execute(update(Article).values(automation_next_check_at=utcnow()))
+            assert changes(session) == {("article", identifier)}
+            clear_events(session)
+        command.upgrade(config, "head")
+        with database.begin() as session:
+            session.execute(update(Article).values(automation_next_check_at=utcnow()))
+            assert changes(session) == set()
+            assert session.get(Article, identifier) is not None
+    finally:
+        command.upgrade(config, "head")
 
 
 @pytest.mark.integration
