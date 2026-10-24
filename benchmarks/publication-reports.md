@@ -33,6 +33,52 @@ Compare root-plan shared-buffer hits/reads, temp blocks, WAL and review-node loo
 
 Unknown date bounds can make PostgreSQL estimate a broad reporting window as a selective one when reusing a generic prepared plan. A disposable 100,000-article experiment reproduced that regression: the set-based query returned to per-article review probes under a generic plan. The application renders only its datetime window bounds through SQLAlchemy's typed `literal_execute` mechanism, keeping those constants visible to the planner while ordinary values such as the percentile remain bound. The date serializer handles quoting; no raw request text becomes SQL. This scope preserves the connection's and server's normal plan-cache settings. The prepared-plan benchmark compiles with `render_postcompile=True` to inspect the same statement shape sent by the driver.
 
+## Native ARM64 results
+
+Measured source [`c3211deec1ebaa204bc5395868905f0d4fa69b9a`](https://github.com/abhi1693/devfeed.tech/commit/c3211deec1ebaa204bc5395868905f0d4fa69b9a), [workflow run 40083944048](https://github.com/abhi1693/devfeed.tech/actions/runs/40083944048), completed 24 October 2026. Both jobs passed on PostgreSQL 17.11 `aarch64-unknown-linux-gnu`. The 100,000-article fixture has 311,928 reviews and 165,000 historical analysis jobs; the 300,000-article fixture has 935,808 reviews and 495,000 jobs. All 1-, 7- and 30-day comparisons preserved results, including forced custom, forced generic and warmed automatic prepared plans. All broad-period buffer, correlated-subplan and temporary-work guards passed.
+
+Each cell shows baseline → candidate. Times are medians of seven measured executions. Buffer accesses include shared hits **and** reads. Backend CPU is serial PostgreSQL user/system CPU with a 10 ms clock-tick resolution; it is not whole-service CPU. Temporary writes are MiB reported by the instrumented plan.
+
+| Articles | Days | Concurrent ingestion |       Median ms |   Buffer accesses | Backend CPU ms | Temp written MiB |
+| -------: | ---: | :------------------- | --------------: | ----------------: | -------------: | ---------------: |
+|  100,000 |    1 | No                   |     6.81 → 6.90 |     7,533 → 7,533 |        10 → 10 |        0.0 → 0.0 |
+|  100,000 |    7 | No                   |   53.23 → 29.94 |   51,709 → 17,298 |        50 → 30 |        0.0 → 0.0 |
+|  100,000 |   30 | No                   | 217.97 → 113.40 |  230,628 → 20,920 |      210 → 110 |        0.0 → 0.0 |
+|  100,000 |    1 | Yes                  |     7.11 → 6.98 |     7,537 → 7,537 |        10 → 10 |        0.0 → 0.0 |
+|  100,000 |    7 | Yes                  |   53.07 → 30.67 |   51,743 → 17,931 |        50 → 30 |        0.0 → 0.0 |
+|  100,000 |   30 | Yes                  | 222.17 → 116.21 |  231,287 → 24,795 |      220 → 120 |        0.0 → 0.0 |
+|  300,000 |    1 | No                   |   17.07 → 17.51 |   25,568 → 25,568 |        20 → 20 |        0.0 → 0.0 |
+|  300,000 |    7 | No                   | 136.79 → 109.84 | 175,842 → 253,742 |      140 → 110 |        0.0 → 0.0 |
+|  300,000 |   30 | No                   | 688.75 → 428.30 | 780,918 → 306,141 |      690 → 430 |       0.0 → 21.3 |
+|  300,000 |    1 | Yes                  |   17.96 → 17.88 |   25,572 → 25,572 |        20 → 20 |        0.0 → 0.0 |
+|  300,000 |    7 | Yes                  | 134.12 → 112.82 | 175,936 → 256,454 |      130 → 110 |        0.0 → 0.0 |
+|  300,000 |   30 | Yes                  | 673.89 → 429.88 | 782,877 → 319,983 |      670 → 430 |       0.0 → 21.4 |
+
+The 300,000-article seven-day candidate uses more logical buffer accesses despite lower ordinary-run latency and CPU. In warmed automatic prepared mode it measured 117.74 ms against 113.40 ms for the baseline, with 272,379 against 176,736 accesses. One-day report times are effectively unchanged at this sample size. This change does not promise an improvement for every period and planner mode.
+
+The 300,000-article 30-day candidate adds about 21.3–21.4 MiB of temporary writes and the same amount of temporary reads; the baseline writes none. The combined 42.7–42.8 MiB is below the 73.2 MiB budget for its 150,000-publication cohort. Materialization performs less article work than the inlined alternative, which measured 528.73 ms steady and 535.86 ms with ingestion, compared with 428.30 and 429.88 ms for materialization. At 100,000 articles neither strategy spills.
+
+The exact driver SQL retains the improvement after prepared-plan adoption. These are the 30-day results; the artifacts also retain all shorter-period plans and samples.
+
+| Articles | Prepared plan mode |       Median ms |   Buffer accesses |
+| -------: | :----------------- | --------------: | ----------------: |
+|  100,000 | Forced custom      | 215.66 → 118.76 |  231,807 → 26,101 |
+|  100,000 | Forced generic     | 168.74 → 116.20 |  222,202 → 26,101 |
+|  100,000 | Warmed automatic   | 168.25 → 116.55 |  222,202 → 26,101 |
+|  300,000 | Forced custom      | 663.70 → 431.11 | 784,734 → 324,778 |
+|  300,000 | Forced generic     | 547.84 → 433.45 | 755,649 → 324,778 |
+|  300,000 | Warmed automatic   | 567.32 → 436.38 | 755,649 → 324,778 |
+
+Each warmed automatic statement recorded five custom executions followed by ten generic executions, including the instrumented plan. The forced modes recorded nine executions of their requested plan type. The candidate therefore preserves known window selectivity even when PostgreSQL chooses a generic plan.
+
+At 100,000 articles, the concurrent 30-day writer measured 112.7 → 115.1 commits/s, 3.80 → 3.65 ms median commit time, and 24.3 → 22.0 KiB WAL per commit, with no errors.
+
+At 300,000 articles, the concurrent 30-day writer measured 119.5 → 121.6 commits/s, 3.26 → 3.10 ms median commit time, and 39.9 → 34.7 KiB WAL per commit, with no errors.
+
+The Python calling-thread CPU medians span 0.32–0.74 ms for the baseline and 0.24–0.60 ms for the candidate. All report plans record zero WAL bytes. Writer WAL differences include ordinary full-page/checkpoint effects and are descriptive. The short 300,000-article one-day candidate writer interval contains only 18 commits and one 35.4 ms maximum commit, producing 86.0 commits/s; this sample does not establish a sustained ingestion regression or a production percentile.
+
+These fixtures match representative job cardinality with smaller retained job payloads: a local 165,000-job fixture occupied about 182 MB, while the production audit estimated 2.45 GB for 156,002 jobs. Those are total relation footprints, including indexes. Neither publication query reads job payloads. The benchmark establishes publication/review query behavior under concurrent ordinary inserts; it does not reproduce every production body, historical job blob, storage condition, parallel plan or complete application workload. It makes no production p95 claim. Production requires the matched-workload follow-up described below.
+
 ## Rollout and rollback
 
 This change adds no indexes, triggers, stored facts or migration, so write paths and recovery semantics remain unchanged. Rolling back the application restores the original SQL without a database downgrade. After deployment, compare fresh statement-statistics deltas under matched report periods and ingestion workload; confirm report freshness, review precedence and duration metrics. Check PostgreSQL CPU, buffer work, temporary writes, ingestion latency and queue age independently. Local x86 runs validate the SQL and profiling mechanism; native ARM64 artifacts supply architecture-specific execution evidence. Future production diagnostics must remain bounded and read-only; this benchmark does not execute the changed query against production. Do not run these fixture or `ANALYZE` operations against production.
