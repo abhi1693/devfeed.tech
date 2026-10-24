@@ -316,10 +316,11 @@ async function checkExactByteLimits() {
     assert.equal((await response.json()).received_bytes, limit);
     assert.deepEqual(requests.at(-1).body, exact);
     const before = requests.length;
-    const rejected = await call(resource, method, Buffer.alloc(limit + 1, 97));
+    const rejected = await rawRequest(resource, method, { declaredLength: limit + 1 });
     assert.equal(rejected.status, 413, `${method} ${resource} rejects a declared overflow`);
-    assert.deepEqual(await rejected.json(), { detail: "Request too large" });
-    assert.equal(rejected.headers.get("connection"), "close");
+    assert.deepEqual(JSON.parse(rejected.body.toString()), { detail: "Request too large" });
+    assert.equal(rejected.headers.connection, "close");
+    assert.equal(rejected.uploadEnded, false, "Declared overflow is rejected before body upload");
     assert.equal(requests.length, before);
     const chunked = await rawRequest(resource, method, {
       body: Buffer.alloc(limit + 1, 97),
@@ -339,9 +340,12 @@ async function checkExactByteLimits() {
   assert.equal((await accepted.json()).received_bytes, avatarLimit);
   assert.deepEqual(requests.at(-1).body, Buffer.from(unicode));
   const unicodeBefore = requests.length;
-  const declaredUnicode = await call(avatar, "POST", unicode + "x");
+  const declaredUnicode = await rawRequest(avatar, "POST", {
+    declaredLength: Buffer.byteLength(unicode + "x"),
+  });
   assert.equal(declaredUnicode.status, 413);
-  assert.deepEqual(await declaredUnicode.json(), { detail: "Request too large" });
+  assert.deepEqual(JSON.parse(declaredUnicode.body.toString()), { detail: "Request too large" });
+  assert.equal(declaredUnicode.uploadEnded, false);
   const chunkedUnicode = await rawRequest(avatar, "POST", { body: Buffer.from(unicode + "x") });
   assert.equal(chunkedUnicode.status, 413);
   assert.deepEqual(JSON.parse(chunkedUnicode.body.toString()), { detail: "Request too large" });
@@ -358,16 +362,28 @@ async function checkExactByteLimits() {
   assert.deepEqual(requests.at(-1).body, exact);
   assert.equal(requests.at(-1).headers.cookie, readerCookies);
   const overflowBefore = requests.length;
-  const overflow = await call(resource, "POST", Buffer.concat([exact, Buffer.from(" ")]));
+  const overflowBody = Buffer.concat([exact, Buffer.from(" ")]);
+  const overflow = await rawRequest(resource, "POST", {
+    declaredLength: overflowBody.byteLength,
+  });
   assert.equal(overflow.status, 413);
-  assert.deepEqual(await overflow.json(), { detail: "Request too large" });
+  assert.deepEqual(JSON.parse(overflow.body.toString()), { detail: "Request too large" });
+  assert.equal(overflow.uploadEnded, false);
+  assert.equal(requests.length, overflowBefore);
+  const actualOverflow = await rawRequest(resource, "POST", { body: overflowBody });
+  assert.equal(actualOverflow.status, 413);
+  assert.deepEqual(JSON.parse(actualOverflow.body.toString()), { detail: "Request too large" });
   assert.equal(requests.length, overflowBefore);
   console.log(
     "Reader body limits: exact ordinary/avatar/placement byte boundaries, ASCII/UTF-8 declared and chunked overflow, dedicated placement validation passed.",
   );
 }
 
-async function rawRequest(resource, method, { body, headers: extraHeaders = {}, deadline } = {}) {
+async function rawRequest(
+  resource,
+  method,
+  { body, headers: extraHeaders = {}, deadline, declaredLength } = {},
+) {
   let upload;
   let watchdog;
   try {
@@ -388,7 +404,12 @@ async function rawRequest(resource, method, { body, headers: extraHeaders = {}, 
         {
           method,
           agent: false,
-          headers: headers({ "Transfer-Encoding": "chunked", ...extraHeaders }),
+          headers: headers({
+            ...(declaredLength === undefined
+              ? { "Transfer-Encoding": "chunked" }
+              : { "Content-Length": String(declaredLength) }),
+            ...extraHeaders,
+          }),
         },
         (response) => {
           const chunks = [];
@@ -411,6 +432,10 @@ async function rawRequest(resource, method, { body, headers: extraHeaders = {}, 
       if (body !== undefined) {
         upload.write(body);
         upload.end();
+      } else if (declaredLength !== undefined) {
+        // Require the declared-length rejection before any body is uploaded.
+        // A large concurrent write can race the intentional connection close.
+        upload.flushHeaders();
       } else {
         // This first chunk is deliberately followed by no end() call.
         upload.write('{"incomplete-private-fixture":');
