@@ -349,6 +349,10 @@ export async function checkPreviewFeedRetention(
     await mkdir(dirname(output), { recursive: true });
     await writeFile(output, JSON.stringify(results, null, 2));
   }
+  if (resumeOnly) {
+    console.log(`Tab resume retention ${target}: ${JSON.stringify(results)}`);
+    return results;
+  }
   console.log(
     `Preview retention ${target}: ${JSON.stringify(
       results.map(({ view, after, openRequests, closeRequests }) => ({

@@ -129,7 +129,7 @@ export async function checkReadingStreak(page, screenshot, { fixture, mustReads 
       1,
     );
     const retainedPanel = await panel.elementHandle();
-    const resumeTime = Date.now() + 120_000;
+    const resumeTime = await page.evaluate(() => Date.now() + 120_000);
     await page.clock.setFixedTime(resumeTime);
     const resumeAuth = page.waitForResponse((value) =>
       new URL(value.url()).pathname.endsWith("/user/auth/me"),
