@@ -115,7 +115,13 @@ Reporting-thread CPU is recorded separately from elapsed time. On Linux cgroup v
 concurrent writer. Use an isolated container for that measurement.
 
 The `Token usage performance` PR workflow runs the complete comparison on native
-ARM64 PostgreSQL 17 and retains its JSON evidence for 30 days. Synthetic measurements
+ARM64 PostgreSQL 17 and retains its JSON evidence and Markdown summary for 30 days.
+The job summary shows before/after tables with signed improvements; same-repository
+PRs also receive one updated results comment. Positive percentages mean improvement,
+negative percentages mean regression, and missing or failed evidence cannot report a
+pass. The comment includes validation totals and writer-latency caveats, with resource
+and production-volume details available to expand. Forks retain the artifact and job
+summary without granting comment permissions. Synthetic measurements
 establish the query behavior at those fixture sizes; after deployment, compare fresh
 production query statistics under matched traffic and watch report freshness, database
 CPU and ingestion latency before attributing an improvement to the change.

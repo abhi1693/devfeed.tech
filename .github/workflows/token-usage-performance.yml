@@ -4,8 +4,14 @@ on:
     paths:
       - apps/admin-api/src/automation.py
       - scripts/profile_token_usage.py
+      - scripts/ci/token-usage-summary.py
+      - tests/tooling/ci/test_token_usage_comment.py
+      - tests/tooling/profiling/test_token_usage_summary.py
       - .github/workflows/token-usage-performance.yml
   workflow_dispatch:
+concurrency:
+  group: token-usage-performance-${{ github.ref }}
+  cancel-in-progress: true
 permissions:
   contents: read
 jobs:
@@ -32,6 +38,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
           persist-credentials: false
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
@@ -47,12 +54,30 @@ jobs:
       - name: Migrate disposable database
         run: uv run devfeed db upgrade
       - name: Compare production-sized and larger histories
+        id: measure
         env:
           POSTGRES_CONTAINER: ${{ job.services.postgres.id }}
         run: |
           test "$(uname -m)" = aarch64
           uv run python scripts/profile_token_usage.py --seed --articles 100000 300000 \
             --postgres-container "$POSTGRES_CONTAINER" --output reports/token-usage/profile.json
+      - name: Summarize before and after measurements
+        if: always()
+        env:
+          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          MEASUREMENT_OUTCOME: ${{ steps.measure.outcome }}
+        run: |
+          set +e
+          python3 scripts/ci/token-usage-summary.py \
+            --profile reports/token-usage/profile.json --output reports/token-usage/summary.md \
+            --head-sha "$HEAD_SHA" --run-url "$RUN_URL" --outcome "$MEASUREMENT_OUTCOME"
+          summary_status=$?
+          set -e
+          if [ -f reports/token-usage/summary.md ]; then
+            cat reports/token-usage/summary.md >> "$GITHUB_STEP_SUMMARY"
+          fi
+          exit "$summary_status"
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: always()
         with:
@@ -60,3 +85,74 @@ jobs:
           path: reports/token-usage/
           if-no-files-found: warn
           retention-days: 30
+  report:
+    name: Publish token usage results
+    needs: benchmark
+    if: >-
+      always() && !cancelled() && github.event_name == 'pull_request' &&
+      github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        id: download
+        continue-on-error: true
+        with:
+          name: token-usage-native-arm64-${{ github.run_attempt }}
+          path: report
+      - uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        env:
+          BENCHMARK_RESULT: ${{ needs.benchmark.result }}
+          DOWNLOAD_OUTCOME: ${{ steps.download.outcome }}
+        with:
+          script: |
+            const fs = require('fs');
+            const marker = '<!-- devfeed-token-usage-performance -->';
+            const pr = context.payload.pull_request;
+            const current = await github.rest.pulls.get({...context.repo, pull_number: pr.number});
+            if (current.data.head.sha !== pr.head.sha) {
+              core.info('Skipping results for a superseded PR head.');
+              return;
+            }
+            const attempt = process.env.GITHUB_RUN_ATTEMPT;
+            const url = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+            let summary;
+            let missing = false;
+            try {
+              if (process.env.DOWNLOAD_OUTCOME !== 'success') throw new Error('Artifact unavailable');
+              const stat = fs.lstatSync('report/summary.md');
+              if (!stat.isFile() || stat.size > 50000) throw new Error('Invalid summary file');
+              summary = fs.readFileSync('report/summary.md', 'utf8');
+              if (!/^\*\*(PASS|FAIL|INCOMPLETE) — Token usage benchmark:\*\*/.test(summary)) {
+                throw new Error('Invalid summary verdict');
+              }
+            } catch {
+              missing = true;
+              summary = '**INCOMPLETE — Token usage benchmark:** no readable results artifact was produced. Inspect the job logs; no performance pass can be claimed.';
+            }
+            if (process.env.BENCHMARK_RESULT !== 'success') {
+              const verdict = process.env.BENCHMARK_RESULT === 'failure' ? 'FAIL' : 'INCOMPLETE';
+              summary = summary.replace(/^\*\*(PASS|FAIL|INCOMPLETE)/, `**${verdict}`);
+              summary += `\n\nBenchmark job outcome: **${process.env.BENCHMARK_RESULT}**. The run did not complete successfully.`;
+            }
+            const metadata = `<!-- devfeed-token-usage-run:${context.runId} attempt:${attempt} -->`;
+            const body = `${marker}\n${metadata}\n${summary}\n\n[Full JSON artifact and job logs](${url}) · attempt ${attempt}`;
+            const comments = await github.paginate(github.rest.issues.listComments, {...context.repo, issue_number: pr.number});
+            const previous = comments.filter(c => c.user?.login === 'github-actions[bot]' && c.user.type === 'Bot' && c.body?.startsWith(marker)).sort((a, b) => b.id - a.id)[0];
+            const oldRun = previous?.body.match(/<!-- devfeed-token-usage-run:(\d+) attempt:(\d+) -->/);
+            if (oldRun && (BigInt(oldRun[1]) > BigInt(context.runId) ||
+                (oldRun[1] === String(context.runId) && Number(oldRun[2]) > Number(attempt)))) {
+              core.info('Keeping the newer benchmark results comment.');
+              return;
+            }
+            const latest = await github.rest.pulls.get({...context.repo, pull_number: pr.number});
+            if (latest.data.head.sha !== pr.head.sha) return;
+            if (previous) {
+              await github.rest.issues.updateComment({...context.repo, comment_id: previous.id, body});
+            } else {
+              await github.rest.issues.createComment({...context.repo, issue_number: pr.number, body});
+            }
+            if (missing) core.setFailed('Published incomplete results: the summary artifact was unavailable or invalid.');
