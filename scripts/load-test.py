@@ -38,6 +38,12 @@ STATEMENT_COUNTERS = (
     "temp_blks_read",
     "temp_blks_written",
 )
+DIAGNOSTIC_STATEMENTS = (
+    "pg_stat_statements",
+    "pg_stat_activity",
+    "pg_stat_database",
+    "pg_stat_clear_snapshot",
+)
 
 
 def process_statistics(pid, proc_root=Path("/proc")):
@@ -83,6 +89,12 @@ def runtime_snapshot(database, pooler, pg, api_pid, load_pid, phase):
           AND toplevel AND query NOT LIKE '%performance diagnostics%'
         """
     ).fetchall()
+    # PostgreSQL can retain normalized SQL without its leading diagnostic marker.
+    queries = [
+        row
+        for row in queries
+        if not any(name in row["query"].lower() for name in DIAGNOSTIC_STATEMENTS)
+    ]
     activity = database.execute(
         """/* performance diagnostics */
         SELECT state, wait_event_type, wait_event, count(*) AS connections
@@ -117,6 +129,36 @@ def runtime_snapshot(database, pooler, pg, api_pid, load_pid, phase):
     }
 
 
+def measurement_diagnostics(samples):
+    measured = [sample for sample in samples if sample["phase"]["phase"] == "measurement"]
+    finished = [sample for sample in samples if sample["phase"]["phase"] == "finished"]
+    if not measured or not finished:
+        raise ValueError("Load test did not record a completed measurement phase")
+    start, end = measured[0], finished[0]
+    return {
+        "observed_start_at": start["recorded_at"],
+        "observed_end_at": end["recorded_at"],
+        "start_observation_lag_seconds": start["monotonic"] - start["phase"]["started_monotonic"],
+        "end_observation_lag_seconds": end["monotonic"] - end["phase"]["finished_monotonic"],
+        "api_cpu_seconds": end["api_process"]["cpu_seconds"] - start["api_process"]["cpu_seconds"],
+        "postgres_cpu_seconds": (
+            end["postgres_cgroup"]["usage_usec"] - start["postgres_cgroup"]["usage_usec"]
+        )
+        / 1_000_000,
+        "queries": statement_delta(start["queries"], end["queries"]),
+    }
+
+
+def stop_load_process(process):
+    if process is not None and process.poll() is None:
+        process.terminate()
+        try:
+            process.wait(timeout=10)
+        except subprocess.TimeoutExpired:
+            process.kill()
+            process.wait(timeout=5)
+
+
 def run_measured_load(command, *, env, cwd, timeout, phase_file, output, capture):
     """Retain diagnostics even when traffic, telemetry or the watchdog fails.
 
@@ -145,37 +187,13 @@ def run_measured_load(command, *, env, cwd, timeout, phase_file, output, capture
             if moment >= deadline:
                 raise subprocess.TimeoutExpired(command, timeout)
             time.sleep(0.1)
-        measured = [sample for sample in samples if sample["phase"]["phase"] == "measurement"]
-        finished = [sample for sample in samples if sample["phase"]["phase"] == "finished"]
-        if not measured or not finished:
-            raise ValueError("Load test did not record a completed measurement phase")
-        start, end = measured[0], finished[0]
-        report["measurement"] = {
-            "observed_start_at": start["recorded_at"],
-            "observed_end_at": end["recorded_at"],
-            "start_observation_lag_seconds": start["monotonic"]
-            - start["phase"]["started_monotonic"],
-            "end_observation_lag_seconds": end["monotonic"] - end["phase"]["finished_monotonic"],
-            "api_cpu_seconds": end["api_process"]["cpu_seconds"]
-            - start["api_process"]["cpu_seconds"],
-            "postgres_cpu_seconds": (
-                end["postgres_cgroup"]["usage_usec"] - start["postgres_cgroup"]["usage_usec"]
-            )
-            / 1_000_000,
-            "queries": statement_delta(start["queries"], end["queries"]),
-        }
+        report["measurement"] = measurement_diagnostics(samples)
         return process.returncode
     except BaseException as error:
         report["error"] = f"{type(error).__name__}: {error}"
         raise
     finally:
-        if process is not None and process.poll() is None:
-            process.terminate()
-            try:
-                process.wait(timeout=10)
-            except subprocess.TimeoutExpired:
-                process.kill()
-                process.wait(timeout=5)
+        stop_load_process(process)
         output.write_text(json.dumps(report, indent=2, default=str) + "\n")
 
 
@@ -227,6 +245,32 @@ def statistics_report(output: Path):
         0o600,
     )
     return os.fdopen(descriptor, "w", encoding="utf-8")
+
+
+def prepare_pooler(directory, database):
+    row = database.execute(
+        "SELECT rolpassword AS scram_verifier FROM pg_authid WHERE rolname = current_user"
+    ).fetchone()
+    verifier = row["scram_verifier"] if row else None
+    if not isinstance(verifier, str) or not verifier.startswith("SCRAM-SHA-256$"):
+        raise ValueError("The disposable PostgreSQL user must have a stored SCRAM verifier")
+    # SCRAM passthrough requires the server's exact verifier and no forced backend
+    # user: https://www.pgbouncer.org/config.html#authentication-file-format.
+    (directory / "pgbouncer.ini").write_text("""[databases]
+devfeed_load_test = host=db port=5432 dbname=devfeed_load_test
+[pgbouncer]
+listen_addr = 0.0.0.0
+listen_port = 6432
+auth_type = scram-sha-256
+auth_file = /etc/pgbouncer/users.txt
+admin_users = load
+pool_mode = session
+default_pool_size = 5
+max_client_conn = 60
+query_wait_timeout = 2
+pidfile = /tmp/pgbouncer.pid
+""")
+    (directory / "users.txt").write_text(f'"load" "{verifier}"\n')
 
 
 def prepare_database(args, env, cwd, statistics):
@@ -342,6 +386,8 @@ def main():
                             "exec",
                             pg,
                             "pg_isready",
+                            "-h",
+                            "127.0.0.1",
                             "-U",
                             "load",
                             "-d",
@@ -376,21 +422,7 @@ def main():
                 f"postgresql+psycopg://load:{password}@127.0.0.1:{database_port}/devfeed_load_test"
             )
             prepare_database(args, env, temp, statistics)
-            (temp / "pgbouncer.ini").write_text(f"""[databases]
-devfeed_load_test = host=db port=5432 dbname=devfeed_load_test user=load password={password}
-[pgbouncer]
-listen_addr = 0.0.0.0
-listen_port = 6432
-auth_type = trust
-auth_file = /etc/pgbouncer/users.txt
-admin_users = load
-pool_mode = session
-default_pool_size = 5
-max_client_conn = 60
-query_wait_timeout = 2
-pidfile = /tmp/pgbouncer.pid
-""")
-            (temp / "users.txt").write_text(f'"load" "{password}"\n')
+            prepare_pooler(temp, diagnostics_database)
             temp.chmod(0o755)
             for file in temp.iterdir():
                 file.chmod(0o644)

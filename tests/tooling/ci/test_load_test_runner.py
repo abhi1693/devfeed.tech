@@ -21,6 +21,35 @@ assert spec and spec.loader
 runner = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(runner)
 
+SCRAM_VERIFIER = "SCRAM-SHA-256$4096:c2FsdA==$c3RvcmVk:c2VydmVy"
+
+
+def test_pooler_uses_server_scram_verifier_without_forcing_a_backend_user(tmp_path):
+    database = Mock()
+    database.execute.return_value.fetchone.return_value = {"scram_verifier": SCRAM_VERIFIER}
+
+    runner.prepare_pooler(tmp_path, database)
+
+    database.execute.assert_called_once_with(
+        "SELECT rolpassword AS scram_verifier FROM pg_authid WHERE rolname = current_user"
+    )
+    configuration = (tmp_path / "pgbouncer.ini").read_text()
+    backend = next(line for line in configuration.splitlines() if line.startswith("devfeed_load"))
+    assert "user=" not in backend and "password=" not in backend
+    assert "auth_type = scram-sha-256" in configuration
+    assert (tmp_path / "users.txt").read_text() == f'"load" "{SCRAM_VERIFIER}"\n'
+
+
+@pytest.mark.parametrize("row", [None, {"scram_verifier": None}, {"scram_verifier": "md5old"}])
+def test_pooler_rejects_missing_or_non_scram_credentials_without_writing_files(tmp_path, row):
+    database = Mock()
+    database.execute.return_value.fetchone.return_value = row
+
+    with pytest.raises(ValueError, match="stored SCRAM verifier"):
+        runner.prepare_pooler(tmp_path, database)
+
+    assert list(tmp_path.iterdir()) == []
+
 
 def test_api_listener_disables_nagle_on_inherited_connections_and_closes():
     with runner.api_listener() as listener:
@@ -246,11 +275,22 @@ def test_finished_load_process_can_disappear_before_its_cpu_sample(monkeypatch):
 
 def test_runtime_snapshot_keeps_live_pool_waits_and_top_level_sql_cost(monkeypatch):
     queries = [statement("feed", 10, 20)]
+    diagnostics = [
+        {**statement(f"diagnostics-{index}", 5, 10), "query": sql}
+        for index, sql in enumerate(
+            (
+                "SELECT queryid, calls FROM pg_stat_statements",
+                "SELECT state, wait_event FROM PG_STAT_ACTIVITY",
+                "SELECT * FROM pg_stat_database WHERE datname = current_database()",
+                "SELECT pg_stat_clear_snapshot()",
+            )
+        )
+    ]
     activity = [{"state": "active", "wait_event_type": "Lock", "connections": 2}]
     database = Mock()
     database.execute.side_effect = [
         Mock(),
-        Mock(fetchall=Mock(return_value=queries)),
+        Mock(fetchall=Mock(return_value=queries + diagnostics)),
         Mock(fetchall=Mock(return_value=activity)),
         Mock(fetchone=Mock(return_value={"numbackends": 6, "blks_hit": 123})),
     ]
@@ -380,6 +420,42 @@ def test_load_failures_retain_partial_diagnostics_and_stop_owned_process(
         assert report["samples"][0]["phase"]["phase"] == "starting"
 
 
+def test_load_watchdog_force_kills_uncooperative_process_and_retains_diagnostics(
+    monkeypatch, tmp_path
+):
+    clock = [0.0]
+    process = Mock(pid=123)
+    process.poll.return_value = None
+    process.wait.side_effect = [subprocess.TimeoutExpired("locust", 10), None]
+    monkeypatch.setattr(runner.subprocess, "Popen", Mock(return_value=process))
+    monkeypatch.setattr(runner.time, "monotonic", lambda: clock[0])
+    monkeypatch.setattr(
+        runner.time, "sleep", lambda seconds: clock.__setitem__(0, clock[0] + seconds)
+    )
+    output = tmp_path / "runtime.json"
+
+    with pytest.raises(subprocess.TimeoutExpired):
+        runner.run_measured_load(
+            ["locust"],
+            env={},
+            cwd=tmp_path,
+            timeout=0.2,
+            phase_file=tmp_path / "measurement.json",
+            output=output,
+            capture=lambda pid, phase: measurement_sample(phase, clock[0]),
+        )
+
+    process.terminate.assert_called_once()
+    process.kill.assert_called_once()
+    assert [call.kwargs for call in process.wait.call_args_list] == [
+        {"timeout": 10},
+        {"timeout": 5},
+    ]
+    report = json.loads(output.read_text())
+    assert "TimeoutExpired" in report["error"]
+    assert report["samples"][0]["phase"]["phase"] == "starting"
+
+
 @pytest.mark.parametrize("outcome", ["success", "retained", "failed"])
 def test_disposable_run_wires_equal_measurement_and_diagnostics_and_cleans_only_owned_resources(
     monkeypatch, tmp_path, outcome
@@ -454,7 +530,10 @@ def test_disposable_run_wires_equal_measurement_and_diagnostics_and_cleans_only_
     spawn_api = Mock(return_value=api)
     monkeypatch.setattr(runner.subprocess, "Popen", spawn_api)
     database, pooler = Mock(), Mock()
-    database.execute.return_value.fetchone.return_value = {"version": "PostgreSQL 18 fixture"}
+    database.execute.return_value.fetchone.side_effect = [
+        {"scram_verifier": SCRAM_VERIFIER},
+        {"version": "PostgreSQL 18 fixture"},
+    ]
     pools = [
         {
             "database": "devfeed_load_test",
@@ -491,8 +570,10 @@ def test_disposable_run_wires_equal_measurement_and_diagnostics_and_cleans_only_
         )
         assert kwargs["env"]["DEVFEED_REDIS_URL"] == "redis://127.0.0.1:56495/15"
         assert "LOCUST_HOST" not in kwargs["env"]
-        assert f"password={generated_password}" in (kwargs["cwd"] / "pgbouncer.ini").read_text()
-        assert (kwargs["cwd"] / "users.txt").read_text() == f'"load" "{generated_password}"\n'
+        configuration = (kwargs["cwd"] / "pgbouncer.ini").read_text()
+        assert "auth_type = scram-sha-256" in configuration
+        assert generated_password not in configuration
+        assert (kwargs["cwd"] / "users.txt").read_text() == f'"load" "{SCRAM_VERIFIER}"\n'
         kwargs["output"].write_text(json.dumps({"samples": ["retained"], "error": outcome}))
         if outcome == "failed":
             raise subprocess.TimeoutExpired(command, kwargs["timeout"])
@@ -532,6 +613,23 @@ def test_disposable_run_wires_equal_measurement_and_diagnostics_and_cleans_only_
     assert "shared_preload_libraries=pg_stat_statements" in postgres_command
     assert "pg_stat_statements.track=top" in postgres_command
     assert f"POSTGRES_PASSWORD={generated_password}" in postgres_command
+    commands.assert_any_call(
+        [
+            "docker",
+            "exec",
+            "owned-postgres",
+            "pg_isready",
+            "-h",
+            "127.0.0.1",
+            "-U",
+            "load",
+            "-d",
+            "devfeed_load_test",
+        ],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        timeout=5,
+    )
     generate_password.assert_called_once_with(32)
     assert all(call.kwargs["password"] == generated_password for call in connect.call_args_list)
     database.execute.assert_any_call("CREATE EXTENSION pg_stat_statements")

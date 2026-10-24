@@ -33,6 +33,11 @@ Redis database 15, session-mode PgBouncer (five server slots), seeded API proces
 and isolated environment. It never truncates an existing database, reads the
 checkout's `.env`, starts AI providers, or contacts production.
 
+Every run generates a disposable database password. PgBouncer authenticates with
+SCRAM using the database's exact stored verifier; its mounted configuration files
+contain no plaintext password. The PostgreSQL readiness check uses TCP so it cannot
+accept the temporary initialization server before the final server starts.
+
 ```sh
 uv run --locked --group loadtest python scripts/load-test.py
 ```
