@@ -725,7 +725,7 @@ def test_integration_measures_ci_utilities_and_migrations_without_changing_backe
     assert script.count('--include="$backend_include"') == 4
 
 
-def test_real_histogram_contracts_use_an_isolated_environment_and_feed_sonar_coverage():
+def test_real_loadtest_contracts_use_an_isolated_environment_and_feed_sonar_coverage():
     jobs = reader_jobs()
     contracts = jobs["python-loadtest"]
     assert "--group loadtest" in contracts["with"]["sync-command"]
@@ -744,7 +744,13 @@ def test_real_histogram_contracts_use_an_isolated_environment_and_feed_sonar_cov
         "coverage",
         "run",
         "--source=loadtests",
-        "loadtests/test_histogram.py",
+        "-m",
+        "unittest",
+        "discover",
+        "-s",
+        "loadtests",
+        "-p",
+        "'test_*.py'",
     ]
     assert contracts["with"]["test-results-path"] == "reports/"
     assert contracts["with"]["test-results-name"] == (

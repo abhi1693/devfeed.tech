@@ -1,6 +1,7 @@
 """Regression decisions must not hide slow routes, noise, missing traffic or failures."""
 
 import importlib.util
+from datetime import datetime, timedelta
 
 import pytest
 
@@ -126,6 +127,7 @@ def write_sample(root, side, index, sha):
     (directory / "metadata.json").write_text(
         json.dumps(
             {
+                **compare.PROTOCOL,
                 "commit": sha,
                 "users": 16,
                 "spawn_rate": 4,
@@ -148,6 +150,26 @@ def write_sample(root, side, index, sha):
             }
         )
     )
+    started = datetime.fromisoformat(
+        json.loads((directory / "metadata.json").read_text())["started_at"]
+    )
+    (directory / "measurement.json").write_text(
+        json.dumps(
+            {
+                **compare.PROTOCOL,
+                "phase": "finished",
+                "users": 16,
+                "ready_users": 16,
+                "measurement_seconds": 60,
+                "warmup_completed_seconds": 15.0,
+                "measured_seconds": 60.0,
+                "warmup_started_at": (started + timedelta(seconds=5)).isoformat(),
+                "warmup_finished_at": (started + timedelta(seconds=20)).isoformat(),
+                "started_at": (started + timedelta(seconds=20)).isoformat(),
+                "finished_at": (started + timedelta(seconds=80)).isoformat(),
+            }
+        )
+    )
     return directory
 
 
@@ -163,6 +185,130 @@ def test_collector_checks_commits_and_requires_all_six_artifacts(tmp_path):
     assert compare.report(data, "base", "head")[0] == "ERROR"
     data = compare.collect(tmp_path, "wrong-base-sha", "head")
     assert data["base-0"]["invalid"]
+
+
+@pytest.mark.parametrize(
+    "sample", [f"{side}-{index}" for side in ("base", "head") for index in range(3)]
+)
+def test_every_sample_requires_a_completed_measurement_phase(tmp_path, sample):
+    for side in ("base", "head"):
+        for index in range(3):
+            write_sample(tmp_path, side, index, side)
+    (tmp_path / sample / "measurement.json").unlink()
+    collected = compare.collect(tmp_path, "base", "head")
+    assert collected[sample]["invalid"]
+    assert all(item["entries"] == runs()[key]["entries"] for key, item in collected.items())
+    verdict, markdown = compare.report(collected, "base", "head")
+    assert verdict == "ERROR"
+    assert "No latency improvement claim" in markdown
+
+
+@pytest.mark.parametrize(
+    "filename,field,value",
+    [
+        ("metadata.json", "protocol_version", None),
+        ("metadata.json", "protocol_version", "reader-load-v1"),
+        ("metadata.json", "journey_seed", None),
+        ("metadata.json", "journey_seed", 295),
+        ("metadata.json", "journey_seed", True),
+        ("metadata.json", "warmup_seconds", None),
+        ("metadata.json", "warmup_seconds", 0),
+        ("measurement.json", "protocol_version", "reader-load-v1"),
+        ("measurement.json", "journey_seed", 295),
+        ("measurement.json", "warmup_seconds", 14),
+        ("measurement.json", "measurement_seconds", 59),
+        ("measurement.json", "measurement_seconds", True),
+        ("measurement.json", "users", 15),
+        ("measurement.json", "ready_users", 15),
+        ("measurement.json", "phase", "measuring"),
+        ("measurement.json", "warmup_completed_seconds", 14.99),
+        ("measurement.json", "measured_seconds", 59.99),
+        ("measurement.json", "measured_seconds", float("nan")),
+        ("measurement.json", "measured_seconds", "60"),
+        ("measurement.json", "warmup_started_at", "2026-01-01T00:02:05"),
+        ("measurement.json", "warmup_finished_at", "2026-01-01T00:02:15+00:00"),
+        ("measurement.json", "started_at", "2026-01-01T00:02:19+00:00"),
+        ("measurement.json", "finished_at", "2026-01-01T00:02:50+00:00"),
+    ],
+)
+def test_old_mismatched_or_incomplete_phase_protocol_cannot_produce_a_latency_verdict(
+    tmp_path, filename, field, value
+):
+    import json
+
+    for side in ("base", "head"):
+        for index in range(3):
+            write_sample(tmp_path, side, index, side)
+    path = tmp_path / "head-0" / filename
+    document = json.loads(path.read_text())
+    if value is None:
+        document.pop(field)
+    else:
+        document[field] = value
+    path.write_text(json.dumps(document))
+    collected = compare.collect(tmp_path, "base", "head")
+    assert collected["head-0"]["invalid"]
+    assert collected["head-0"]["entries"] == runs()["head-0"]["entries"]
+    assert compare.report(collected, "base", "head")[0] == "ERROR"
+
+
+def test_internally_consistent_outlier_seed_still_cannot_mix_journeys_across_runners(tmp_path):
+    import json
+
+    for side in ("base", "head"):
+        for index in range(3):
+            write_sample(tmp_path, side, index, side)
+    for filename in ("metadata.json", "measurement.json"):
+        path = tmp_path / "head-1" / filename
+        document = json.loads(path.read_text())
+        document["journey_seed"] = 295
+        path.write_text(json.dumps(document))
+    collected = compare.collect(tmp_path, "base", "head")
+    assert collected["head-1"]["invalid"]
+    assert compare.report(collected, "base", "head")[0] == "ERROR"
+
+
+def test_completed_locust_float_durations_match_runner_integer_settings(tmp_path):
+    import json
+
+    for side in ("base", "head"):
+        for index in range(3):
+            directory = write_sample(tmp_path, side, index, side)
+            path = directory / "measurement.json"
+            phase = json.loads(path.read_text())
+            # Locust argparse emits float seconds; the runner's metadata records
+            # the same requested windows as integers. JSON representation does
+            # not change the completed protocol or the measured workload.
+            phase["warmup_seconds"] = 15.0
+            phase["measurement_seconds"] = 60.0
+            path.write_text(json.dumps(phase))
+    collected = compare.collect(tmp_path, "base", "head")
+    assert not any(item.get("invalid") for item in collected.values())
+    assert compare.report(collected, "base", "head")[0] == "NO MATERIAL CHANGE"
+
+
+@pytest.mark.parametrize("phase_started_before_run", [False, True])
+def test_phase_timestamps_must_belong_to_sequential_isolated_runner_samples(
+    tmp_path, phase_started_before_run
+):
+    import json
+
+    for side in ("base", "head"):
+        for index in range(3):
+            write_sample(tmp_path, side, index, side)
+    path = tmp_path / "base-0/measurement.json"
+    phase = json.loads(path.read_text())
+    if phase_started_before_run:
+        for field in ("warmup_started_at", "warmup_finished_at", "started_at", "finished_at"):
+            phase[field] = (
+                datetime.fromisoformat(phase[field]) - timedelta(seconds=10)
+            ).isoformat()
+    else:
+        phase["finished_at"] = "2026-01-01T00:02:01+00:00"
+    path.write_text(json.dumps(phase))
+    collected = compare.collect(tmp_path, "base", "head")
+    assert collected["base-0"]["invalid"] and collected["head-0"]["invalid"]
+    assert compare.report(collected, "base", "head")[0] == "ERROR"
 
 
 @pytest.mark.parametrize("precision", [None, 10, True])
