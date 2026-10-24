@@ -6,7 +6,7 @@ __version__ = version("devfeed-core")
 
 # Schema revisions are not application versions. Advance this when adding a
 # migration required by this application; never change an existing migration.
-SCHEMA_REVISION = "0034"
+SCHEMA_REVISION = "0035"
 
-# Pipeline and Overview reads require the durable projection tables in 0034.
+# Topic decision reports require the indexed call facts introduced in 0035.
 BACKWARD_COMPATIBLE_SCHEMA_REVISIONS: frozenset[str] = frozenset()
