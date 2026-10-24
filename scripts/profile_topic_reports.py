@@ -30,6 +30,7 @@ from scripts.profile_read_models import identifier, seed_rows
 
 ROOT = Path(__file__).resolve().parents[1]
 NOW = datetime(2026, 10, 24, 12, tzinfo=UTC)
+CONCURRENT_DAYS = 90
 PRODUCTION = {
     "observed_at": "2026-10-24T09:29:00Z",
     "articles": 92581,
@@ -260,7 +261,7 @@ def maintenance_profile(engine):
             transaction.rollback()
 
 
-def correction_plan(engine, legacy):
+def _correction_plan(engine, legacy):
     with engine.connect() as connection:
         transaction = connection.begin()
         try:
@@ -278,6 +279,13 @@ def correction_plan(engine, legacy):
             return plan.scalar_one()[0]
         finally:
             transaction.rollback()
+
+
+def correction_plan(engine, legacy):
+    # Prime the same pages first: otherwise the first strategy pays checkpoint-
+    # dependent full-page images and makes WAL amplification appear misleading.
+    _correction_plan(engine, legacy)
+    return _correction_plan(engine, legacy)
 
 
 def writer(engine, iterations, barrier=None, active=None, interval=0, runs=50):
@@ -343,7 +351,7 @@ def concurrent(engine, functions, workers, repeats, writes, interval, runs):
         samples = []
         for _ in range(repeats):
             during_start = active.is_set()
-            sample = report_sample(engine, functions, 30, explain=True)
+            sample = report_sample(engine, functions, CONCURRENT_DAYS, explain=True)
             sample["writer_overlapped_whole_report"] = during_start and active.is_set()
             samples.append(sample)
         return samples
@@ -358,6 +366,7 @@ def concurrent(engine, functions, workers, repeats, writes, interval, runs):
         "elapsed_seconds": round(time.perf_counter() - started, 3),
         "application_process_cpu_seconds": round(time.process_time() - cpu, 3),
         "report_workers": workers,
+        "days": CONCURRENT_DAYS,
         "report_pairs": len(samples),
         "writer_interval_seconds": round(interval, 6),
         "fully_overlapped_report_pairs": sum(s["writer_overlapped_whole_report"] for s in samples),
@@ -400,7 +409,21 @@ def main():
         "facts": report_functions(ROOT, "facts"),
     }
     engine = create_engine(url, pool_size=12, max_overflow=0)
-    output = {"production_reference": PRODUCTION, "client_architecture": platform.machine()}
+    output = {
+        "production_reference": PRODUCTION,
+        "client_architecture": platform.machine(),
+        "python_version": platform.python_version(),
+        "harness_sha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
+        "report_source_sha256": {
+            name: {
+                Path(sys.modules[function.__module__].__file__).name: hashlib.sha256(
+                    Path(sys.modules[function.__module__].__file__).read_bytes()
+                ).hexdigest()
+                for function in implementations
+            }
+            for name, implementations in functions.items()
+        },
+    }
     try:
         with engine.connect() as connection:
             output["server"] = dict(
@@ -457,9 +480,9 @@ def main():
         output["concurrent"] = {}
         # Pace identical fixed ingestion workloads long enough to cover all report
         # repetitions. Pacing waits are excluded from each transaction's latency.
-        thirty_days = next(row for row in output["reports"] if row["days"] == 30)
+        comparison_window = next(row for row in output["reports"] if row["days"] == CONCURRENT_DAYS)
         legacy_ms = statistics.median(
-            sample["elapsed_ms"] for sample in thirty_days["strategies"]["legacy"]
+            sample["elapsed_ms"] for sample in comparison_window["strategies"]["legacy"]
         )
         interval = min(
             0.25, max(0.002, legacy_ms / 1000 * args.repeats * args.workers * 4 / args.writes)

@@ -40,7 +40,7 @@ The ARM64 workflow runs 100,000 and 300,000 article fixtures, with respectively
 6,000 and 18,000 decision runs and 500,000 and 1,500,000 inference ledger rows.
 It saves complete `EXPLAIN (ANALYZE, BUFFERS, WAL, FORMAT JSON)` plans, report wall
 time, application process CPU, shared buffers and temporary blocks as artifacts.
-Four concurrent reporting workers run alongside 200 article insert and decision
+Four concurrent workers run 90-day report pairs alongside 200 article insert and decision
 correction transactions, rotating through one- to five-call workflows. Both
 strategies execute the same operations, paced identically using the measured legacy
 runtime to keep ingestion active throughout reporting. The artifact records overlap
@@ -53,7 +53,9 @@ The legacy concurrency phase briefly disables only the new decision projection
 trigger on this dedicated fixture database, restoring it in `finally`. Committing
 that short trigger-state change prevents an open `ALTER TABLE` transaction from
 holding an exclusive lock during reporting. No workload writes commit. A separate
-rolled-back correction captures before/after WAL and trigger execution, and a full
+rolled-back correction captures before/after WAL and trigger execution after a
+warm-up sample avoids charging only the first strategy for checkpoint-dependent
+full-page images. A full
 equivalent backfill measures initial extraction and index insertion separately from
 steady-state reporting. An equivalent backfill excludes migration DDL/lock wait.
 
