@@ -196,14 +196,25 @@ def test_policy_rebuild_retains_previous_generation_until_complete(
     for url in ("/v1/admin/article-pipeline", "/v1/admin/source-pipeline"):
         response = admin_client.get(url)
         assert response.status_code == 200
-        assert response.json()["snapshot"]["status"] == "rebuilding"
-        assert response.json()["snapshot"]["generation"] == previous
+        snapshot = response.json()["snapshot"]
+        assert snapshot["status"] == "rebuilding"
+        assert snapshot["policy_version"] == previous
+        assert snapshot["generation"] == (
+            previous
+            if url.endswith("source-pipeline")
+            else f"{previous}:{snapshot['article_generation']}"
+        )
     drain_pipeline(database, batch=2)
     with database() as session:
         assert session.get(ReadModelState, "pipeline").payload["serving_policy"] == "next-policy"
     for url in ("/v1/admin/article-pipeline", "/v1/admin/source-pipeline"):
         snapshot = admin_client.get(url).json()["snapshot"]
-        assert snapshot["status"] == "fresh" and snapshot["generation"] == "next-policy"
+        assert snapshot["status"] == "fresh" and snapshot["policy_version"] == "next-policy"
+        assert snapshot["generation"] == (
+            "next-policy"
+            if url.endswith("source-pipeline")
+            else f"next-policy:{snapshot['article_generation']}"
+        )
 
 
 def test_global_rebuild_removes_entities_lost_to_truncate(database):
@@ -408,7 +419,7 @@ def test_source_freshness_and_updates_are_independent_of_article_catalog_catchup
     project_batch(database, batch=1)
     article_board = admin_client.get("/v1/admin/article-pipeline").json()
     source_board = admin_client.get("/v1/admin/source-pipeline").json()
-    assert article_board["snapshot"]["status"] == "refreshing"
+    assert article_board["snapshot"]["status"] == "catching_up"
     assert source_board["snapshot"]["status"] == "fresh"
     assert source_board["snapshot"]["generated_at"] == before["snapshot"]["generated_at"]
     assert source_board["snapshot"]["generation"] == before["snapshot"]["generation"]
@@ -430,7 +441,7 @@ def test_source_freshness_and_updates_are_independent_of_article_catalog_catchup
         if current["snapshot"]["status"] == "fresh":
             assert (
                 admin_client.get("/v1/admin/article-pipeline").json()["snapshot"]["status"]
-                == "refreshing"
+                == "catching_up"
             )
             break
     else:

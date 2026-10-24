@@ -72,23 +72,29 @@ def test_cold_dashboard_burst_records_one_demand_without_loading(
     assert engine.pool.checkedout() == 0
 
 
+@pytest.mark.parametrize("pipeline_ready", [True, False])
 def test_stale_dashboard_returns_connection_and_survives_cache_failure(
-    single_connection, admin_client, monkeypatch
+    single_connection, admin_client, monkeypatch, pipeline_ready
 ):
     from datetime import timedelta
 
+    from devfeed_admin_api.pipeline_projection import drain_pipeline
     from devfeed_core.models import utcnow
 
     from tests.admin.reporting.projections.test_overview_projections import save_overview
 
     engine, sessions = single_connection
+    if pipeline_ready:
+        drain_pipeline(sessions)
     save_overview(sessions, generated_at=utcnow() - timedelta(days=2))
     monkeypatch.setattr(cache, "get_cache", lambda: pytest.fail("Redis contacted while serving"))
     monkeypatch.setattr(overview, "overview_metrics", lambda *_: pytest.fail("stale GET rebuilt"))
     response = admin_client.get("/v1/admin/overview")
     assert response.status_code == 200
     assert response.headers["x-overview-stale"] == "true"
-    assert response.json()["snapshot"]["status"] == "refreshing"
+    assert response.json()["snapshot"]["status"] == (
+        "refreshing" if pipeline_ready else "rebuilding"
+    )
     assert engine.pool.checkedout() == 0
 
 

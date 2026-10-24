@@ -12459,6 +12459,76 @@
       },
       "ReadModelSnapshot": {
         "properties": {
+          "article_generation": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Article Generation"
+          },
+          "catalog_generation": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Catalog Generation"
+          },
+          "catalog_lag_seconds": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Catalog Lag Seconds"
+          },
+          "catalog_revision": {
+            "anyOf": [
+              {
+                "items": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Catalog Revision"
+          },
+          "catalog_target_revision": {
+            "anyOf": [
+              {
+                "items": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Catalog Target Revision"
+          },
           "generated_at": {
             "anyOf": [
               {
@@ -12494,11 +12564,23 @@
             ],
             "title": "Lag Seconds"
           },
+          "policy_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Policy Version"
+          },
           "status": {
             "enum": [
               "fresh",
               "stale",
               "refreshing",
+              "catching_up",
               "rebuilding"
             ],
             "title": "Status",

@@ -11,13 +11,29 @@ from devfeed_core.models import ReadModelState, ReportRefresh, ReportSnapshot
 from fastapi import HTTPException
 
 NOW = datetime(2026, 10, 21, tzinfo=UTC)
+PIPELINE_POLICY = "pipeline-current"
+DEFAULT_PIPELINE = object()
+
+
+def pipeline_state(refresh=None):
+    return ReadModelState(
+        name="pipeline",
+        payload={
+            "serving_policy": PIPELINE_POLICY,
+            "target_policy": PIPELINE_POLICY,
+            "backfill_complete": True,
+            "article_generation": 99,
+            **({"catalog_refresh": refresh} if refresh else {}),
+        },
+        updated_at=NOW,
+    )
 
 
 class SavedReports:
-    def __init__(self, stored=None, refresh=None, pipeline=None):
+    def __init__(self, stored=None, refresh=None, pipeline=DEFAULT_PIPELINE):
         self.stored = stored
         self.refresh = refresh
-        self.pipeline = pipeline
+        self.pipeline = pipeline_state() if pipeline is DEFAULT_PIPELINE else pipeline
         self.events = []
         self.keys = []
         self.connection_info = {}
@@ -45,9 +61,9 @@ class SavedReports:
             assert "report_snapshots LEFT OUTER JOIN read_model_states" in query
             assert "read_model_states.name =" in query
             self.keys.extend([(compiled.params["group_1"], compiled.params["days_1"]), "pipeline"])
-            refresh = self.pipeline.payload.get("catalog_refresh") if self.pipeline else None
+            pipeline = self.pipeline.payload if self.pipeline else None
             return SimpleNamespace(
-                one_or_none=lambda: (self.stored, refresh) if self.stored else None
+                one_or_none=lambda: (self.stored, pipeline) if self.stored else None
             )
 
     def get(self, model, key):
@@ -64,6 +80,7 @@ class SavedReports:
 @pytest.fixture
 def saved_reports(monkeypatch):
     monkeypatch.setattr(overview_projection, "report_policy_version", lambda: "report-current")
+    monkeypatch.setattr(overview_projection, "pipeline_policy_version", lambda: PIPELINE_POLICY)
     monkeypatch.setattr(
         overview_projection,
         "calculate_report",
@@ -106,7 +123,17 @@ def stored_report(*, age=5, policy="report-current", dependency=None):
 def test_saved_report_preserves_payload_and_exposes_honest_freshness(
     saved_reports, age, policy, dependency, failed, status, demand
 ):
-    metadata = {"status": dependency, "lag_seconds": 7} if dependency else None
+    metadata = (
+        {
+            "status": dependency,
+            "lag_seconds": 7,
+            "generation": f"{PIPELINE_POLICY}:17",
+            "policy_version": PIPELINE_POLICY,
+            "article_generation": 17,
+        }
+        if dependency
+        else None
+    )
     stored = stored_report(age=age, policy=policy, dependency=metadata)
     failure = SimpleNamespace(last_error="OperationalError") if failed else None
     store = saved_reports(stored, failure)
@@ -115,7 +142,8 @@ def test_saved_report_preserves_payload_and_exposes_honest_freshness(
     assert result.articles_pending_review == 23
     assert result.generated_at == stored.generated_at
     assert result.snapshot.status == status
-    assert result.snapshot.generation == policy
+    assert result.snapshot.generation == (metadata["generation"] if metadata else policy)
+    assert result.snapshot.article_generation == (17 if metadata else None)
     assert result.snapshot.generated_at == stored.generated_at
     assert result.snapshot.lag_seconds == age + (7 if metadata else 0)
     assert store.events == (["begin", "demand", "commit"] if demand else ["begin", "commit"])
@@ -145,22 +173,16 @@ def test_pending_catalog_work_cannot_make_a_dependent_saved_report_look_fresh(
     stored = stored_report(
         dependency={"status": dependency, "lag_seconds": 2} if dependency else None
     )
-    pipeline = ReadModelState(
-        name="pipeline",
-        payload={
-            "backfill_complete": True,
-            "catalog_refresh": {"started_at": (NOW - timedelta(seconds=20)).isoformat()},
-        },
-        updated_at=NOW,
-    )
+    pipeline = pipeline_state({"started_at": (NOW - timedelta(seconds=20)).isoformat()})
     store = saved_reports(stored, pipeline=pipeline)
     result = overview_projection.read_report(store, group, 7, OverviewPanel, now=NOW)
     dependent = group in {"blockers", "overview"}
     assert result.snapshot.status == (
-        "refreshing" if dependent or dependency == "refreshing" else "fresh"
+        "catching_up" if dependent else "refreshing" if dependency == "refreshing" else "fresh"
     )
     assert result.snapshot.generated_at == stored.generated_at
-    assert result.snapshot.lag_seconds == (20 if dependent else 7 if dependency else 5)
+    assert result.snapshot.lag_seconds == (7 if dependency else 5)
+    assert result.snapshot.catalog_lag_seconds == (20 if dependent else None)
     assert result.articles_pending_review == 23
     assert ("demand" in store.events) is (dependent and dependency != "refreshing")
     assert ("pipeline" in store.keys) is dependent
@@ -173,15 +195,54 @@ def test_active_catalog_refresh_preserves_existing_report_warning_and_cooldown(
 ):
     stored = stored_report(dependency={"status": status, "lag_seconds": 45})
     cooldown = SimpleNamespace(last_error="OperationalError")
-    pipeline = ReadModelState(
-        name="pipeline",
-        payload={"catalog_refresh": {"started_at": (NOW + timedelta(seconds=10)).isoformat()}},
-    )
+    pipeline = pipeline_state({"started_at": (NOW + timedelta(seconds=10)).isoformat()})
     store = saved_reports(stored, cooldown, pipeline)
     result = overview_projection.read_report(store, "blockers", 7, OverviewPanel, now=NOW)
     assert result.snapshot.status == status and result.snapshot.lag_seconds == 50
     assert store.refresh is cooldown
     assert store.events == ["begin", "commit"]
+
+
+def test_legacy_dependency_without_a_generation_retains_the_saved_report_identity(saved_reports):
+    stored = stored_report(dependency={"status": "fresh", "lag_seconds": 2})
+    result = overview_projection.read_report(
+        saved_reports(stored), "blockers", 7, OverviewPanel, now=NOW
+    )
+    assert result.snapshot.generation == "report-current"
+    assert result.snapshot.article_generation is None
+
+
+@pytest.mark.parametrize("group", ["blockers", "overview", "daily"])
+def test_missing_current_pipeline_keeps_saved_content_but_requests_dependent_rebuild(
+    saved_reports, group
+):
+    store = saved_reports(stored_report(), pipeline=None)
+    result = overview_projection.read_report(store, group, 7, OverviewPanel, now=NOW)
+    dependent = group != "daily"
+    assert result.articles_pending_review == 23
+    assert result.snapshot.status == ("rebuilding" if dependent else "fresh")
+    assert ("demand" in store.events) is dependent
+
+
+@pytest.mark.parametrize("age,status", [(1, "catching_up"), (2, "stale")])
+def test_saved_catalog_report_ages_operational_lag_past_the_budget(saved_reports, age, status):
+    stored = stored_report(age=age, dependency={"status": "catching_up", "lag_seconds": 59})
+    pipeline = pipeline_state({"started_at": (NOW - timedelta(hours=1)).isoformat()})
+    result = overview_projection.read_report(
+        saved_reports(stored, pipeline=pipeline), "blockers", 7, OverviewPanel, now=NOW
+    )
+    assert result.snapshot.status == status and result.snapshot.lag_seconds == age + 59
+    assert result.snapshot.catalog_lag_seconds == 3600
+
+
+def test_catalog_progress_does_not_clear_a_saved_stale_dependency_warning(saved_reports):
+    stored = stored_report(dependency={"status": "stale", "lag_seconds": 2})
+    pipeline = pipeline_state({"started_at": (NOW - timedelta(seconds=20)).isoformat()})
+    result = overview_projection.read_report(
+        saved_reports(stored, pipeline=pipeline), "blockers", 7, OverviewPanel, now=NOW
+    )
+    assert result.snapshot.status == "stale"
+    assert result.snapshot.lag_seconds == 7 and result.snapshot.catalog_lag_seconds == 20
 
 
 def test_corrupt_document_commits_rebuild_demand_without_losing_the_original(saved_reports):

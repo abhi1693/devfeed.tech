@@ -118,7 +118,8 @@ const fixture = createServer(async (req, res) => {
     body = structuredClone(mode === "empty" ? emptyOverview : populatedOverview);
     body.generated_at = new Date(Date.now() - (mode === "stale" ? 600000 : 0)).toISOString();
     body.snapshot = {
-      status: mode === "stale" ? "stale" : "fresh",
+      status: mode === "stale" ? "stale" : mode === "catching-up" ? "catching_up" : "fresh",
+      catalog_lag_seconds: mode === "catching-up" ? 3600 : null,
       generated_at: body.generated_at,
       generation: "fixture",
       lag_seconds: mode === "stale" ? 600 : 0,
@@ -666,6 +667,35 @@ try {
     .getByText(/Stale data/)
     .first()
     .waitFor();
+  mode = "catching-up";
+  await page.reload();
+  await page
+    .getByText(/Catalog catching up/)
+    .first()
+    .waitFor();
+  await page.locator("#overview-panel-blockers").scrollIntoViewIfNeeded();
+  await settled();
+  await page
+    .locator("#overview-panel-blockers")
+    .getByText(/Catalog changes pending for 60 min/)
+    .waitFor();
+  await page
+    .locator("#overview-panel-blockers")
+    .getByText(/Catalog changes pending for 60 min/)
+    .scrollIntoViewIfNeeded();
+  const catalogStatusBounds = await page
+    .locator("#overview-panel-blockers")
+    .getByText(/Catalog changes pending for 60 min/)
+    .evaluate((status) => {
+      const section = status.closest("[data-overview-panel]").getBoundingClientRect();
+      const warning = status.getBoundingClientRect();
+      return { sectionBottom: section.bottom, warningBottom: warning.bottom };
+    });
+  assert.ok(
+    catalogStatusBounds.warningBottom <= catalogStatusBounds.sectionBottom + 1,
+    "Catalog freshness must remain inside the panel's paint containment",
+  );
+  await page.screenshot({ path: `${output}/catalog-catching-up.png` });
   mode = "populated";
   await page.getByRole("button", { name: "7 days", exact: true }).click();
   await settled();

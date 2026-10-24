@@ -69,6 +69,7 @@ it.each([
   ["stale", "Stale data"],
   ["rebuilding", "Rebuilding saved data"],
   ["refreshing", "Updating saved data"],
+  ["catching_up", "Catalog catching up"],
 ] as const)("preserves the server's %s status after a recent response", (status, label) => {
   render(
     <SnapshotStatus
@@ -77,4 +78,28 @@ it.each([
     />,
   );
   expect(screen.getByRole("status").textContent).toContain(label);
+});
+
+it("marks an abandoned catalog report stale while retaining its last completed result", async () => {
+  vi.useFakeTimers();
+  render(
+    <SnapshotStatus snapshot={{ status: "catching_up", generated_at: new Date().toISOString() }} />,
+  );
+  expect(screen.getByRole("status").textContent).toContain("Catalog catching up");
+  await act(() => vi.advanceTimersByTimeAsync(90_000));
+  expect(screen.getByRole("status").textContent).toContain("Stale data");
+});
+
+it("keeps unfinished catalog age visible beside a recently calculated report", () => {
+  render(
+    <SnapshotStatus
+      snapshot={{
+        status: "catching_up",
+        generated_at: new Date().toISOString(),
+        catalog_lag_seconds: 3600,
+        lag_seconds: 2,
+      }}
+    />,
+  );
+  expect(screen.getByRole("status").textContent).toContain("Catalog changes pending for 60 min");
 });

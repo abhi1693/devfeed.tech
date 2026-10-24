@@ -13,5 +13,6 @@ export const ReadModelSnapshotStatus = {
   fresh: 'fresh',
   stale: 'stale',
   refreshing: 'refreshing',
+  catching_up: 'catching_up',
   rebuilding: 'rebuilding',
 } as const;

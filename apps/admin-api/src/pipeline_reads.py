@@ -30,12 +30,12 @@ def serving_projection(session, kind: Literal["article", "source"] | None = None
             {"code": "projection_initializing", "message": "Pipeline views are being prepared."},
             headers={"Retry-After": "2"},
         )
-    pending = select(func.min(ReadModelEvent.created_at))
+    # Catalog coverage is incremental and can take longer than the operational
+    # freshness budget. Keep its age separate from unapplied entity changes.
+    pending = select(func.min(ReadModelEvent.created_at)).where(ReadModelEvent.kind != "catalog")
     if kind == "article":
         pending = pending.where(
-            ReadModelEvent.kind.in_(
-                ("article", "backfill_article", "catalog", "source_fanout", "policy")
-            )
+            ReadModelEvent.kind.in_(("article", "backfill_article", "source_fanout", "policy"))
         )
     elif kind == "source":
         pending = pending.where(
@@ -43,7 +43,17 @@ def serving_projection(session, kind: Literal["article", "source"] | None = None
                 ("source", "candidate", "backfill_source", "backfill_candidate", "policy")
             )
         )
-    oldest = session.scalar(pending)
+    if kind == "source":
+        oldest, catalog_oldest = session.scalar(pending), None
+    else:
+        catalog_pending = select(func.min(ReadModelEvent.created_at)).where(
+            ReadModelEvent.kind == "catalog"
+        )
+        # Scalar subqueries retain PostgreSQL's indexed MIN probes without a
+        # full-backlog aggregate or an additional interactive round trip.
+        oldest, catalog_oldest = session.execute(
+            select(pending.scalar_subquery(), catalog_pending.scalar_subquery())
+        ).one()
     now = utcnow()
     transitions = select(func.min(PipelineProjection.next_transition_at)).where(
         PipelineProjection.policy_version == policy,
@@ -58,11 +68,26 @@ def serving_projection(session, kind: Literal["article", "source"] | None = None
     due = session.scalar(transitions)
     if due is not None:
         oldest = min(oldest, due) if oldest else due
-    if kind != "source" and (refresh := state.payload.get("catalog_refresh")):
+    refresh = state.payload.get("catalog_refresh") if kind != "source" else None
+    if refresh:
         started = datetime.fromisoformat(refresh["started_at"])
-        oldest = min(oldest, started) if oldest else started
+        catalog_oldest = min(catalog_oldest, started) if catalog_oldest else started
     publisher_age = max(0.0, (now - state.updated_at).total_seconds())
     lag = max(publisher_age, max(0.0, (now - oldest).total_seconds()) if oldest else 0.0)
+    if refresh:
+        progress = datetime.fromisoformat(refresh.get("progress_at", refresh["started_at"]))
+        lag = max(lag, max(0.0, (now - progress).total_seconds()))
+    elif catalog_oldest is not None:
+        # A queued scan must also start promptly; an active publisher heartbeat
+        # alone cannot disguise a catalog event that is never being expanded.
+        # A just-completed pass may leave earlier edits queued for its successor;
+        # measure that handoff from real progress, preserving the full demand age
+        # separately as catalog lag.
+        progress = state.payload.get("catalog_progress_at")
+        waiting_since = (
+            max(catalog_oldest, datetime.fromisoformat(progress)) if progress else catalog_oldest
+        )
+        lag = max(lag, max(0.0, (now - waiting_since).total_seconds()))
     rebuilding = (
         state.payload.get("target_policy") != policy
         or pipeline_policy_version() != policy
@@ -74,13 +99,31 @@ def serving_projection(session, kind: Literal["article", "source"] | None = None
     snapshot = ReadModelSnapshot(
         status="rebuilding"
         if rebuilding
+        else "stale"
+        if lag > PUBLISHER_FRESH_SECONDS
+        else "catching_up"
+        if catalog_oldest
         else "refreshing"
         if oldest
-        else "stale"
-        if publisher_age > PUBLISHER_FRESH_SECONDS
         else "fresh",
         generated_at=datetime.fromisoformat(generated) if generated else state.updated_at,
-        generation=policy,
+        generation=policy
+        if kind == "source"
+        else f"{policy}:{state.payload.get('article_generation', 0)}",
+        policy_version=policy,
+        article_generation=state.payload.get("article_generation", 0) if kind != "source" else None,
+        catalog_generation=state.payload.get("catalog_generation", 0) if kind != "source" else None,
+        catalog_revision=state.payload.get("catalog_revision") if kind != "source" else None,
+        catalog_target_revision=(
+            state.payload.get(
+                "catalog_target_revision", refresh.get("revision") if refresh else None
+            )
+            if kind != "source"
+            else None
+        ),
+        catalog_lag_seconds=(
+            max(0.0, (now - catalog_oldest).total_seconds()) if catalog_oldest else None
+        ),
         lag_seconds=lag,
     )
     return policy, snapshot
