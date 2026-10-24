@@ -214,9 +214,12 @@ def mutate(factory, requests, completed, stats):
                     )
                 )
                 session.add(ArticleAnalysisJob(article_id=identifier, status="queued"))
-                session.add(IngestionJob(source_id=fixture_id("sources", 1), status="succeeded"))
+                ingestion = IngestionJob(source_id=fixture_id("sources", 1), status="succeeded")
+                session.add(ingestion)
             stats["commits"] += 1
             stats["wall_seconds"] += time.perf_counter() - started
+            stats.setdefault("article_ids", []).append(str(identifier))
+            stats.setdefault("ingestion_job_ids", []).append(str(ingestion.id))
         except Exception as error:
             stats["error"] = type(error).__name__ + ": " + str(error)
         finally:
