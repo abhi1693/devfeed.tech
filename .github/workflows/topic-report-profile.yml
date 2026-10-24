@@ -1,0 +1,86 @@
+name: Topic report history profile
+on:
+  pull_request:
+    paths:
+      - .github/workflows/topic-report-profile.yml
+      - scripts/profile_topic_reports.py
+      - packages/core/src/topic_decision_metrics.py
+      - packages/core/src/inference_metrics.py
+      - migrations/versions/0035_topic_decision_calls.py
+permissions:
+  contents: read
+concurrency:
+  group: topic-report-profile-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  profile:
+    name: PostgreSQL 17 / ${{ matrix.articles }} articles (ARM64)
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        articles: [100000, 300000]
+    services:
+      postgres:
+        image: postgres:17.11@sha256:b8faeff7712663c2773a190181e1246e37e364b887611c04658c28b44e2408fe
+        env:
+          POSTGRES_USER: topic_profile
+          POSTGRES_PASSWORD: topic_profile
+          POSTGRES_DB: topic_profile_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U topic_profile -d topic_profile_test"
+          --health-interval 5s --health-timeout 5s --health-retries 12
+    env:
+      DEVFEED_DATABASE_URL: postgresql+psycopg://topic_profile:topic_profile@127.0.0.1:5432/topic_profile_test
+      DEVFEED_TEST_DATABASE_URL: postgresql+psycopg://topic_profile:topic_profile@127.0.0.1:5432/topic_profile_test
+      DEVFEED_REDIS_URL: redis://127.0.0.1:6379/15
+      OTEL_SDK_DISABLED: "true"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          path: candidate
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          path: baseline
+          ref: ${{ github.event.pull_request.base.sha }}
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        with:
+          version: "0.13.5"
+          enable-cache: true
+          cache-dependency-glob: candidate/uv.lock
+      - name: Install profiling dependencies
+        run: sh candidate/scripts/ci/python-bootstrap.sh candidate --editable --all-packages
+      - name: Migrate the disposable database
+        working-directory: candidate
+        run: uv run --locked --no-sync alembic upgrade head
+      - name: Verify native ARM64 and profile historical reports
+        working-directory: candidate
+        env:
+          PROFILE_ARTICLES: ${{ matrix.articles }}
+        run: |
+          test "$(uname -m)" = aarch64
+          PROFILE_GATE_ARGS=()
+          if rg -q jsonb_array_elements ../baseline/packages/core/src/topic_decision_metrics.py; then
+            PROFILE_GATE_ARGS+=(--require-improvement)
+          fi
+          uv run --locked --no-sync python -m scripts.profile_topic_reports \
+            --baseline-root ../baseline --seed --articles "$PROFILE_ARTICLES" \
+            "${PROFILE_GATE_ARGS[@]}" \
+            --output ../reports/topic-reports.json
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
+        with:
+          name: topic-reports-${{ matrix.articles }}-arm64-${{ github.run_attempt }}
+          path: reports/
+          if-no-files-found: error
+          retention-days: 30
