@@ -316,10 +316,10 @@ async function checkExactByteLimits() {
     assert.equal((await response.json()).received_bytes, limit);
     assert.deepEqual(requests.at(-1).body, exact);
     const before = requests.length;
-    const rejected = await call(resource, method, Buffer.alloc(limit + 1, 97));
+    const rejected = await declaredOverflow(resource, method, limit + 1);
     assert.equal(rejected.status, 413, `${method} ${resource} rejects a declared overflow`);
-    assert.deepEqual(await rejected.json(), { detail: "Request too large" });
-    assert.equal(rejected.headers.get("connection"), "close");
+    assert.deepEqual(JSON.parse(rejected.body.toString()), { detail: "Request too large" });
+    assert.equal(rejected.headers.connection, "close");
     assert.equal(requests.length, before);
     const chunked = await rawRequest(resource, method, {
       body: Buffer.alloc(limit + 1, 97),
@@ -339,9 +339,10 @@ async function checkExactByteLimits() {
   assert.equal((await accepted.json()).received_bytes, avatarLimit);
   assert.deepEqual(requests.at(-1).body, Buffer.from(unicode));
   const unicodeBefore = requests.length;
-  const declaredUnicode = await call(avatar, "POST", unicode + "x");
+  const declaredUnicode = await declaredOverflow(avatar, "POST", Buffer.byteLength(unicode + "x"));
   assert.equal(declaredUnicode.status, 413);
-  assert.deepEqual(await declaredUnicode.json(), { detail: "Request too large" });
+  assert.deepEqual(JSON.parse(declaredUnicode.body.toString()), { detail: "Request too large" });
+  assert.equal(declaredUnicode.headers.connection, "close");
   const chunkedUnicode = await rawRequest(avatar, "POST", { body: Buffer.from(unicode + "x") });
   assert.equal(chunkedUnicode.status, 413);
   assert.deepEqual(JSON.parse(chunkedUnicode.body.toString()), { detail: "Request too large" });
@@ -358,13 +359,25 @@ async function checkExactByteLimits() {
   assert.deepEqual(requests.at(-1).body, exact);
   assert.equal(requests.at(-1).headers.cookie, readerCookies);
   const overflowBefore = requests.length;
-  const overflow = await call(resource, "POST", Buffer.concat([exact, Buffer.from(" ")]));
+  const overflow = await declaredOverflow(resource, "POST", exact.byteLength + 1);
   assert.equal(overflow.status, 413);
-  assert.deepEqual(await overflow.json(), { detail: "Request too large" });
+  assert.deepEqual(JSON.parse(overflow.body.toString()), { detail: "Request too large" });
+  assert.equal(overflow.headers.connection, "close");
   assert.equal(requests.length, overflowBefore);
   console.log(
     "Reader body limits: exact ordinary/avatar/placement byte boundaries, ASCII/UTF-8 declared and chunked overflow, dedicated placement validation passed.",
   );
+}
+
+async function declaredOverflow(resource, method, bytes) {
+  // A declared overflow must be rejected before upload completion. Sending the
+  // whole oversized buffer with fetch races its uploader against Connection:
+  // close, which can report EPIPE instead of exposing the complete 413 response.
+  const response = await rawRequest(resource, method, {
+    headers: { "Content-Length": String(bytes) },
+  });
+  assert.equal(response.uploadEnded, false, "Declared overflow responds before upload completion");
+  return response;
 }
 
 async function rawRequest(resource, method, { body, headers: extraHeaders = {}, deadline } = {}) {
@@ -373,6 +386,7 @@ async function rawRequest(resource, method, { body, headers: extraHeaders = {}, 
   try {
     return await new Promise((resolve, reject) => {
       let settled = false;
+      let receivingResponse = false;
       const started = performance.now();
       const fail = (error) => {
         if (settled) return;
@@ -383,14 +397,17 @@ async function rawRequest(resource, method, { body, headers: extraHeaders = {}, 
         () => fail(new Error(`${method} ${resource} did not respond within its watchdog`)),
         (deadline ?? 10_000) + 5000,
       );
+      const uploadHeaders = new Headers(extraHeaders);
+      if (!uploadHeaders.has("content-length")) uploadHeaders.set("transfer-encoding", "chunked");
       upload = httpRequest(
         origin + resource,
         {
           method,
           agent: false,
-          headers: headers({ "Transfer-Encoding": "chunked", ...extraHeaders }),
+          headers: headers(Object.fromEntries(uploadHeaders)),
         },
         (response) => {
+          receivingResponse = true;
           const chunks = [];
           response.on("data", (chunk) => chunks.push(chunk));
           response.once("error", fail);
@@ -407,7 +424,12 @@ async function rawRequest(resource, method, { body, headers: extraHeaders = {}, 
           });
         },
       );
-      upload.once("error", fail);
+      upload.once("error", (error) => {
+        // Once response headers arrive, its end/error/aborted events decide
+        // whether the complete rejection was received. A late upload EPIPE
+        // must not hide that response when the gateway closes rejected input.
+        if (!receivingResponse) fail(error);
+      });
       if (body !== undefined) {
         upload.write(body);
         upload.end();

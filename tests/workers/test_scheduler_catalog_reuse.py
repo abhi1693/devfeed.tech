@@ -1,14 +1,19 @@
 """Scheduler publication keeps authoritative guards without ranking while holding locks."""
 
+import uuid
+from datetime import timedelta
+
 import pytest
+from devfeed_aggregator.scheduler import recover_jobs
 from devfeed_core import analysis, article_automation, publication_policy
 from devfeed_core.config import get_settings
 from devfeed_core.db import get_engine
+from devfeed_core.job_lifecycle import finish_job
 from devfeed_core.models import Article, ArticleAnalysisJob, utcnow
 from sqlalchemy import event, select, text
 from sqlalchemy.orm import Session
 
-from tests.workers.test_automation_integration import ready, seed
+from tests.workers.test_automation_integration import enable, ready, seed
 from tests.workers.test_full_app_automation import full
 
 pytestmark = pytest.mark.integration
@@ -136,3 +141,143 @@ def test_change_between_preparation_and_locking_never_applies_stale_result(
                 assert not jobs[1].result
             else:
                 assert len(jobs) == 1
+
+
+@pytest.mark.parametrize("status", ["queued", "running"])
+def test_repeated_active_checks_preserve_work_without_hydrating_analysis_evidence(
+    database, monkeypatch, status
+):
+    full(monkeypatch, AUTOMATION_BATCH_SIZE=2)
+    now = utcnow()
+    with database.begin() as session:
+        _, article, topic = seed(session, mode="auto")
+        job = ready(session, article, topic)
+        article.automation_started_at = now - timedelta(hours=25)
+        article.automation_next_check_at = now - timedelta(seconds=1)
+        job.status, job.attempts = status, 2
+        job.finished_at = None
+        job.available_at = now + timedelta(hours=1)
+        job.lease_token = uuid.uuid4() if status == "running" else None
+        job.lease_until = now + timedelta(minutes=20) if status == "running" else None
+        job.input_snapshot = {"large_input": "publisher evidence " * 10000}
+        job.catalog_snapshot = {"large_catalog": "retained catalog evidence " * 10000}
+        job.result = {"large_result": "retained analysis evidence " * 10000}
+        job.usage = {"large_usage": "retained specialist evidence " * 10000}
+        identifier, job_id = article.id, job.id
+        before = (
+            job.status,
+            job.attempts,
+            job.available_at,
+            job.lease_token,
+            job.lease_until,
+        )
+    selects = []
+
+    def capture(conn, cursor, statement, parameters, context, executemany):
+        if statement.startswith("SELECT") and "FROM article_analysis_jobs" in statement:
+            selects.append(statement.split("FROM", 1)[0])
+
+    def unexpected_catalog(*_):
+        pytest.fail("An active-job check must not hydrate the taxonomy")
+
+    monkeypatch.setattr(analysis, "_read_catalog", unexpected_catalog)
+    event.listen(get_engine(), "before_cursor_execute", capture)
+    try:
+        for index in range(3):
+            tick_at = now + index * article_automation.CHECK_INTERVAL
+            monkeypatch.setattr(article_automation, "utcnow", lambda tick_at=tick_at: tick_at)
+            counts = article_automation.schedule_article_automation(database)
+            assert counts["articles_checked"] == 1
+            assert counts["articles_published"] == counts["articles_rejected"] == 0
+    finally:
+        event.remove(get_engine(), "before_cursor_execute", capture)
+    # Preparation status, locked metadata, one readiness fact load per tick.
+    assert len(selects) == 9
+    for statement in selects:
+        for field in ("input_snapshot", "catalog_snapshot", "result", "usage"):
+            assert f"article_analysis_jobs.{field}" not in statement
+    with database() as session:
+        article, job = session.get(Article, identifier), session.get(ArticleAnalysisJob, job_id)
+        assert article.automation_next_check_at == tick_at + article_automation.CHECK_INTERVAL
+        assert article.automation_started_at == now - timedelta(hours=25)
+        assert (
+            job.status,
+            job.attempts,
+            job.available_at,
+            job.lease_token,
+            job.lease_until,
+        ) == before
+        assert len(session.scalars(select(ArticleAnalysisJob)).all()) == 1
+
+
+def test_analysis_completing_after_preparation_remains_due_and_publishes_on_the_next_tick(
+    database, monkeypatch
+):
+    full(monkeypatch)
+    with database.begin() as session:
+        _, article, topic = seed(session, mode="auto")
+        job = ready(session, article, topic)
+        job.status, job.finished_at = "running", None
+        identifier, job_id = article.id, job.id
+    prepare = article_automation._prepare_article_candidates
+
+    def completing_prepare(*args):
+        prepared = prepare(*args)
+        assert prepared is None
+        with database.begin() as worker:
+            job = worker.get(ArticleAnalysisJob, job_id)
+            finish_job(job, "applied", utcnow())
+        return prepared
+
+    monkeypatch.setattr(article_automation, "_prepare_article_candidates", completing_prepare)
+    counts = article_automation.schedule_article_automation(database)
+    assert counts["articles_checked"] == 1 and counts["articles_published"] == 0
+    with database() as session:
+        assert session.get(Article, identifier).automation_next_check_at <= utcnow()
+        assert len(session.scalars(select(ArticleAnalysisJob)).all()) == 1
+    monkeypatch.setattr(article_automation, "_prepare_article_candidates", prepare)
+    assert article_automation.schedule_article_automation(database)["articles_published"] == 1
+
+
+@pytest.mark.parametrize("step_attempts,status", [(1, "queued"), (3, "failed")])
+def test_no_outcome_maintenance_keeps_expired_specialists_recoverable_without_duplicate_jobs(
+    database, monkeypatch, step_attempts, status
+):
+    enable(monkeypatch)
+    now = utcnow()
+    with database.begin() as session:
+        _, article, topic = seed(session)
+        job = ready(session, article, topic)
+        job.status, job.finished_at, job.attempts = "running", None, 99
+        job.lease_token, job.lease_until = uuid.uuid4(), now - timedelta(seconds=1)
+        job.usage = {
+            "active_step": "overview",
+            "article_steps": {
+                "developer_relevance": {"status": "succeeded", "output": {"relevant": True}},
+                "overview": {"status": "running", "attempts": step_attempts},
+            },
+        }
+        identifier, job_id, token = article.id, job.id, job.lease_token
+
+    assert article_automation.schedule_article_automation(database)["articles_checked"] == 1
+    with database() as session:
+        job = session.get(ArticleAnalysisJob, job_id)
+        assert job.status == "running" and job.lease_token == token
+
+    assert recover_jobs(database, 10, now) == 1
+    with database.begin() as session:
+        article = session.get(Article, identifier)
+        article.automation_next_check_at = now - timedelta(seconds=1)
+        job = session.get(ArticleAnalysisJob, job_id)
+        assert job.status == status
+        assert job.lease_token is None and job.lease_until is None
+        assert job.steps["overview"]["status"] == ("pending" if status == "queued" else "failed")
+        assert job.steps["developer_relevance"]["output"] == {"relevant": True}
+        available_at = job.available_at
+
+    assert article_automation.schedule_article_automation(database)["articles_checked"] == 1
+    with database() as session:
+        jobs = session.scalars(select(ArticleAnalysisJob)).all()
+        assert len(jobs) == 1
+        assert jobs[0].id == job_id and jobs[0].status == status
+        assert jobs[0].available_at == available_at and jobs[0].attempts == 99

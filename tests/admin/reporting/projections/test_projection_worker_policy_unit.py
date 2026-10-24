@@ -14,6 +14,8 @@ from unittest.mock import Mock
 import pytest
 from devfeed_admin_api import pipeline_projection as projections
 from devfeed_core.models import PipelineProjection, ReadModelEvent, ReadModelState
+from psycopg.errors import LockNotAvailable
+from sqlalchemy.exc import OperationalError
 
 from tests.support.article_readiness import processing_case as processing_case
 from tests.support.source_readiness import NOW
@@ -390,6 +392,9 @@ def publisher(monkeypatch):
         return None
 
     session.execute.side_effect = execute
+    session.begin_nested = begin_nested = Mock()
+    begin_nested.return_value.__enter__ = Mock()
+    begin_nested.return_value.__exit__ = Mock(return_value=False)
     opened = []
 
     @contextmanager
@@ -414,6 +419,8 @@ def publisher(monkeypatch):
     monkeypatch.setattr(projections, "set_state", save)
     monkeypatch.setattr(projections, "article_rows", article_rows)
     monkeypatch.setattr(projections, "source_rows", source_rows)
+    # Scalar SQL/row-lock semantics are exercised by the database race contracts.
+    monkeypatch.setattr(projections, "_synchronize_article_clocks", lambda *_: None)
     incoming = []
 
     def reads(*rows):
@@ -513,6 +520,22 @@ def test_due_timer_becomes_event_and_is_cleared_before_card_evaluation(publisher
     value.enqueue.assert_called_once_with(value.session, "source", due.entity_id)
     assert due.next_transition_at is None
     assert value.save.call_args.args[2]["serving_generated_at"] == NOW.isoformat()
+
+
+def test_busy_article_lock_defers_the_entire_captured_batch_for_retry(publisher, monkeypatch):
+    value = publisher
+    identifier = uuid.uuid4()
+    value.incoming.append(event(71, "article", identifier))
+    value.article_rows.return_value = [{"kind": "article", "entity_id": identifier}]
+
+    def busy(*_):
+        raise OperationalError("SELECT FOR SHARE NOWAIT", {}, LockNotAvailable("busy"))
+
+    monkeypatch.setattr(projections, "_synchronize_article_clocks", busy)
+    assert publish(value) == 0
+    value.acknowledge.assert_not_called()
+    value.save.assert_not_called()
+    assert not any(statement.is_insert or statement.is_delete for statement, _ in value.writes)
 
 
 @pytest.mark.parametrize("replay", ["unchanged", "catalog", "policy", "orphans", "pending-event"])

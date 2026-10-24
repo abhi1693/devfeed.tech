@@ -336,16 +336,50 @@ describe("workflow feedback", () => {
     expect(adminSourceReview).toHaveBeenCalled();
   });
   it("reports queued work as requested, not completed", async () => {
+    const user = userEvent.setup();
+    let resolveReadiness!: (value: Awaited<ReturnType<typeof adminSourcePipelineDetail>>) => void;
+    vi.mocked(adminSourcePipelineDetail).mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolveReadiness = resolve;
+        }),
+    );
+    vi.mocked(getRecord).mockResolvedValueOnce({ id: "source-1", name: "News" });
     vi.mocked(adminSourceFetch).mockResolvedValueOnce({ id: "job-1" } as Awaited<
       ReturnType<typeof adminSourceFetch>
     >);
     withAdmin(
       <ResourceWorkflow identity={{ resource: "sources", id: "source-1" }} action="fetch" />,
     );
-    fireEvent.click(await screen.findByRole("button", { name: "Queue fetch" }));
+    const submit = (await screen.findByRole("button", {
+      name: "Queue fetch",
+    })) as HTMLButtonElement;
+    expect(submit.disabled).toBe(true);
+    await user.click(submit);
+    expect(adminSourceFetch).not.toHaveBeenCalled();
+    expect(toast.success).not.toHaveBeenCalled();
+    await act(async () => {
+      resolveReadiness(
+        sourceDetail({
+          ...sourceCard,
+          id: "source-1",
+          source_id: "source-1",
+          key: "source:source-1",
+          stage: "review",
+          state: "ready",
+          can_approve: true,
+          can_ingest: true,
+        }),
+      );
+    });
+    await waitFor(() => expect(submit.disabled).toBe(false));
+    await user.click(submit);
     await waitFor(() =>
       expect(toast.success).toHaveBeenCalledWith("Feed fetch requested", expect.any(Object)),
     );
+    expect(adminSourceFetch).toHaveBeenCalledExactlyOnceWith("source-1", {
+      headers: { "X-CSRF-Token": "test-csrf" },
+    });
     expect(router.replace).toHaveBeenCalledWith("/jobs/ingestion/job-1");
   });
   it("retains failed decisions and validation without a success or redirect", async () => {
