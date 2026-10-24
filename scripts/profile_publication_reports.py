@@ -36,7 +36,8 @@ ARTICLE_INSERT = """INSERT INTO articles
  SELECT md5(:namespace||n)::uuid,'https://profile.invalid/'||:namespace||n,
  md5(:namespace||n), 'Publication fixture '||n, :namespace||n, repeat('fixture ',128),
  'article',:now, :now-(n%60)*interval '1 day'-(n%86400)*interval '1 second'
-   -(CASE WHEN n%37=0 THEN -60 ELSE 3600+n%100000 END)*interval '1 second',
+   -(CASE WHEN n%37=0 THEN -60 WHEN n%10 IN (1,3,6) THEN 91*86400
+          ELSE 3600+n%100000 END)*interval '1 second',
  'published','approved',:now-(n%60)*interval '1 day'-(n%86400)*interval '1 second'
  FROM generate_series(CAST(:first AS integer),CAST(:last AS integer)) n"""
 
