@@ -198,7 +198,7 @@ def seed(engine, articles, runs, history_bytes):
                       'stage',(ARRAY['discovery','draft','verification','draft','verification'])[s],
                       'started_at',to_char((:now -
                         (CASE WHEN n<=6000 THEN n%90 ELSE 180+n%185 END)*interval '1 day'
-                        - (6-s)*interval '1 hour') AT TIME ZONE 'UTC',
+                        - (6-s)*interval '6 hours' - interval '1 hour') AT TIME ZONE 'UTC',
                         'YYYY-MM-DD"T"HH24:MI:SS"Z"'),
                       'status',CASE WHEN n%19=0 AND s=1 THEN 'failed' ELSE 'returned' END,
                       'tokens',jsonb_build_object('inputTokens',1000+n%1000,
@@ -265,18 +265,34 @@ def _correction_plan(engine, legacy):
     with engine.connect() as connection:
         transaction = connection.begin()
         try:
+            proposal = connection.scalar(
+                text("""SELECT proposal_id FROM topic_decision_calls
+                GROUP BY proposal_id ORDER BY count(*) DESC,proposal_id LIMIT 1""")
+            )
             if legacy:
                 connection.execute(
                     text("""ALTER TABLE topic_decision_runs
                     DISABLE TRIGGER topic_decision_calls_sync""")
                 )
+            before = connection.scalar(text("SELECT pg_current_wal_insert_lsn()"))
             plan = connection.execute(
                 text("""EXPLAIN (ANALYZE, BUFFERS, WAL, FORMAT JSON)
                 UPDATE topic_decision_runs SET state=jsonb_set(state,
                   '{calls,0,charged_tokens}','50000'::jsonb)
-                WHERE proposal_id=(SELECT proposal_id FROM topic_decision_runs LIMIT 1)""")
+                WHERE proposal_id=:proposal"""),
+                {"proposal": proposal},
+            ).scalar_one()[0]
+            plan["statement_wal_bytes"] = int(
+                connection.scalar(
+                    text("SELECT pg_wal_lsn_diff(pg_current_wal_insert_lsn(),:before)"),
+                    {"before": before},
+                )
             )
-            return plan.scalar_one()[0]
+            plan["statement_wal_scope"] = (
+                "Server-wide LSN delta including AFTER triggers and any background WAL; "
+                "excludes later transaction rollback"
+            )
+            return plan
         finally:
             transaction.rollback()
 
@@ -352,7 +368,7 @@ def concurrent(engine, functions, workers, repeats, writes, interval, runs):
         for _ in range(repeats):
             during_start = active.is_set()
             sample = report_sample(engine, functions, CONCURRENT_DAYS, explain=True)
-            sample["writer_overlapped_whole_report"] = during_start and active.is_set()
+            sample["writer_phase_overlap"] = during_start and active.is_set()
             samples.append(sample)
         return samples
 
@@ -369,7 +385,7 @@ def concurrent(engine, functions, workers, repeats, writes, interval, runs):
         "days": CONCURRENT_DAYS,
         "report_pairs": len(samples),
         "writer_interval_seconds": round(interval, 6),
-        "fully_overlapped_report_pairs": sum(s["writer_overlapped_whole_report"] for s in samples),
+        "writer_phase_overlap_pairs": sum(s["writer_phase_overlap"] for s in samples),
         "median_report_pair_ms": round(statistics.median(s["elapsed_ms"] for s in samples), 3),
         "report_plan_totals": plan_totals([plan for sample in samples for plan in sample["plans"]]),
         "ingestion": ingestion_result,
@@ -508,8 +524,8 @@ def main():
             "topic_sql_runtime_lower": facts["report_plan_totals"]["execution_ms"]
             < legacy["report_plan_totals"]["execution_ms"],
             "topic_sql_zero_temp_writes": facts["report_plan_totals"]["temp_written_blocks"] == 0,
-            "all_reports_overlap_ingestion": all(
-                row["fully_overlapped_report_pairs"] == row["report_pairs"]
+            "all_reports_overlap_writer_phase": all(
+                row["writer_phase_overlap_pairs"] == row["report_pairs"]
                 for row in output["concurrent"].values()
             ),
         }

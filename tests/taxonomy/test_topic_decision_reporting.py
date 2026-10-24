@@ -584,11 +584,8 @@ def test_migration_backfill_matches_live_projection_and_downgrade_preserves_json
         transaction.rollback()
 
 
-@pytest.mark.parametrize("flushed", [False, True])
-def test_migration_retries_source_lock_admission_without_blocking_reverse_order_writer(
-    database, flushed
-):
-    migration = importlib.import_module("migrations.versions.0035_topic_decision_calls")
+@pytest.fixture
+def isolated_reporting_schema(database):
     with database() as session:
         engine = session.get_bind()
     schema = f"topic_reporting_lock_{uuid.uuid4().hex}"
@@ -615,6 +612,36 @@ def test_migration_retries_source_lock_admission_without_blocking_reverse_order_
             text(f"INSERT INTO {schema}.topic_decision_runs VALUES (:id, CAST(:state AS jsonb))"),
             {"id": uuid.UUID(int=1), "state": json.dumps({"calls": [call()]})},
         )
+    try:
+        yield engine, schema, original_head
+    finally:
+        with engine.begin() as connection:
+            connection.execute(text(f"DROP SCHEMA {schema} CASCADE"))
+
+
+def wait_for_migration_retry(connection, started, migration_pid):
+    assert started.wait(timeout=5)
+    deadline = time.monotonic() + 5
+    while time.monotonic() < deadline:
+        connection.execute(text("SELECT pg_stat_clear_snapshot()"))
+        if (
+            connection.scalar(
+                text("SELECT wait_event FROM pg_stat_activity WHERE pid=:pid"),
+                {"pid": migration_pid[0]},
+            )
+            == "PgSleep"
+        ):
+            return
+        time.sleep(0.01)
+    pytest.fail("Migration did not release its partial locks and retry admission")
+
+
+@pytest.mark.parametrize("flushed", [False, True])
+def test_migration_retries_source_lock_admission_without_blocking_reverse_order_writer(
+    isolated_reporting_schema, flushed
+):
+    engine, schema, original_head = isolated_reporting_schema
+    migration = importlib.import_module("migrations.versions.0035_topic_decision_calls")
     started = Event()
     migration_pid = []
 
@@ -628,48 +655,84 @@ def test_migration_retries_source_lock_admission_without_blocking_reverse_order_
             assert connection.scalar(text("SELECT count(*) FROM topic_decision_calls")) == 1
             transaction.rollback()
 
-    try:
-        with engine.connect() as writer, writer.begin(), ThreadPoolExecutor(max_workers=1) as pool:
-            writer.execute(text(f"SET LOCAL search_path TO {schema}"))
-            writer.execute(text("SET LOCAL lock_timeout = '2s'"))
-            writer.execute(text("SELECT * FROM topic_decision_runs FOR UPDATE"))
-            if flushed:
-                writer.execute(text("UPDATE topic_decision_runs SET state=state"))
-            task = pool.submit(upgrade)
-            try:
-                assert started.wait(timeout=5)
-                deadline = time.monotonic() + 5
-                while time.monotonic() < deadline:
-                    writer.execute(text("SELECT pg_stat_clear_snapshot()"))
-                    if (
-                        writer.scalar(
-                            text("SELECT wait_event FROM pg_stat_activity WHERE pid=:pid"),
-                            {"pid": migration_pid[0]},
-                        )
-                        == "PgSleep"
-                    ):
-                        break
-                    time.sleep(0.01)
-                else:
-                    pytest.fail("Migration did not release its partial locks and retry admission")
-                # This is the ORM's run -> proposal flush order. It must finish
-                # while migration admission retries, rather than forming a cycle.
-                writer.execute(text("UPDATE topic_decision_runs SET state=state"))
-                writer.execute(text("UPDATE topic_proposals SET reviewed_at=reviewed_at"))
-            finally:
-                writer.rollback()
-            task.result(timeout=10)
-        with engine.connect() as connection:
+    with engine.connect() as writer, writer.begin(), ThreadPoolExecutor(max_workers=1) as pool:
+        writer.execute(text(f"SET LOCAL search_path TO {schema}"))
+        writer.execute(text("SET LOCAL lock_timeout = '2s'"))
+        writer.execute(text("SELECT * FROM topic_decision_runs FOR UPDATE"))
+        if flushed:
+            writer.execute(text("UPDATE topic_decision_runs SET state=state"))
+        task = pool.submit(upgrade)
+        try:
+            wait_for_migration_retry(writer, started, migration_pid)
+            # This is the ORM's run -> proposal flush order. It must finish
+            # while migration admission retries, rather than forming a cycle.
+            writer.execute(text("UPDATE topic_decision_runs SET state=state"))
+            writer.execute(text("UPDATE topic_proposals SET reviewed_at=reviewed_at"))
+        finally:
+            writer.rollback()
+        task.result(timeout=10)
+    with engine.connect() as connection:
+        assert (
+            connection.scalar(
+                text("SELECT to_regclass(:table)"),
+                {"table": f"{schema}.topic_decision_calls"},
+            )
+            is None
+        )
+        assert connection.scalar(text("SELECT version_num FROM alembic_version")) == original_head
+
+
+@pytest.mark.parametrize("blocker", ["writer", "report"])
+def test_downgrade_retries_all_table_locks_without_blocking_existing_work(
+    isolated_reporting_schema, blocker
+):
+    engine, schema, original_head = isolated_reporting_schema
+    migration = importlib.import_module("migrations.versions.0035_topic_decision_calls")
+    with engine.begin() as connection:
+        connection.execute(text(f"SET LOCAL search_path TO {schema}"))
+        with Operations.context(MigrationContext.configure(connection)):
+            migration.upgrade()
+    started = Event()
+    migration_pid = []
+
+    def downgrade():
+        with engine.connect() as connection, connection.begin() as transaction:
+            connection.execute(text(f"SET LOCAL search_path TO {schema}"))
+            migration_pid.append(connection.scalar(text("SELECT pg_backend_pid()")))
+            started.set()
+            with Operations.context(MigrationContext.configure(connection)):
+                migration.downgrade()
             assert (
                 connection.scalar(
-                    text("SELECT to_regclass(:table)"),
-                    {"table": f"{schema}.topic_decision_calls"},
+                    text("SELECT to_regclass(:table)"), {"table": f"{schema}.topic_decision_calls"}
                 )
                 is None
             )
-            assert (
-                connection.scalar(text("SELECT version_num FROM alembic_version")) == original_head
-            )
-    finally:
-        with engine.begin() as connection:
-            connection.execute(text(f"DROP SCHEMA {schema} CASCADE"))
+            assert connection.scalar(text("SELECT count(*) FROM topic_decision_runs")) == 1
+            transaction.rollback()
+
+    with engine.connect() as active, active.begin(), ThreadPoolExecutor(max_workers=1) as pool:
+        active.execute(text(f"SET LOCAL search_path TO {schema}"))
+        active.execute(text("SET LOCAL lock_timeout = '2s'"))
+        if blocker == "writer":
+            active.execute(text("UPDATE topic_decision_runs SET state=state"))
+        else:
+            active.execute(text("SELECT * FROM topic_decision_calls"))
+        task = pool.submit(downgrade)
+        try:
+            wait_for_migration_retry(active, started, migration_pid)
+            if blocker == "writer":
+                active.execute(text("UPDATE topic_proposals SET reviewed_at=reviewed_at"))
+            else:
+                # A report can retain facts AccessShare before asking for sources.
+                assert active.scalar(text("SELECT count(*) FROM topic_decision_runs")) == 1
+                assert active.scalar(text("SELECT count(*) FROM topic_proposals")) == 1
+        finally:
+            active.rollback()
+        task.result(timeout=10)
+    with engine.connect() as connection:
+        assert connection.scalar(text(f"SELECT count(*) FROM {schema}.topic_decision_calls")) == 1
+        assert connection.scalar(text(f"SELECT state FROM {schema}.topic_decision_runs")) == {
+            "calls": [call()]
+        }
+        assert connection.scalar(text("SELECT version_num FROM alembic_version")) == original_head

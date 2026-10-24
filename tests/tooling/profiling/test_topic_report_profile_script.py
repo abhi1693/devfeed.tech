@@ -2,6 +2,7 @@
 
 import json
 import sys
+from datetime import timedelta
 
 import pytest
 from devfeed_core.inference_metrics import inference_charts
@@ -129,6 +130,50 @@ def test_seed_refuses_existing_history_and_report_sample_captures_actual_plans(d
     assert any("topic_decision_calls" in json.dumps(plan) for plan in actual["plans"])
     with database() as session:
         assert fixture_snapshot(session) == before
+
+
+@pytest.mark.integration
+def test_correction_wal_measurement_includes_after_triggers_and_rolls_back(database):
+    with database() as session:
+        engine = session.get_bind()
+    profile.seed(engine, articles=10, runs=10, history_bytes=64)
+    with database() as session:
+        before = fixture_snapshot(session)
+    for legacy in (True, False):
+        plan = profile.correction_plan(engine, legacy=legacy)
+        assert isinstance(plan["statement_wal_bytes"], int)
+        assert plan["statement_wal_bytes"] >= plan["Plan"]["WAL Bytes"] > 0
+        assert "AFTER triggers" in plan["statement_wal_scope"]
+        if not legacy:
+            assert any(
+                trigger["Trigger Name"] == "topic_decision_calls_sync" and trigger["Calls"] == 1
+                for trigger in plan["Triggers"]
+            )
+            assert plan["statement_wal_bytes"] > plan["Plan"]["WAL Bytes"]
+        with database() as session:
+            assert fixture_snapshot(session) == before
+
+
+@pytest.mark.integration
+def test_seed_repeated_stages_cross_report_window_and_utc_day_boundaries(database):
+    with database() as session:
+        engine = session.get_bind()
+    profile.seed(engine, articles=10, runs=90, history_bytes=64)
+    with database() as session:
+        for number, days in ((29, 30), (89, 90)):
+            rows = session.execute(
+                text("""SELECT c.stage,c.stage_call,c.started_at
+                FROM topic_decision_calls c JOIN topic_proposals p ON p.id=c.proposal_id
+                WHERE p.slug=:slug ORDER BY c.ordinal"""),
+                {"slug": f"topic-profile-{number}"},
+            ).all()
+            draft = [row for row in rows if row.stage == "draft"]
+            verification = [row for row in rows if row.stage == "verification"]
+            start = profile.NOW - timedelta(days=days)
+            assert [row.stage_call for row in draft] == [1, 2]
+            assert draft[0].started_at < start < draft[1].started_at <= profile.NOW
+            assert [row.stage_call for row in verification] == [1, 2]
+            assert verification[0].started_at.date() < verification[1].started_at.date()
 
 
 @pytest.mark.integration

@@ -20,6 +20,9 @@ retryable failure. Once admitted, backfill/index creation pauses proposal and ru
 writes while allowing ordinary reads. The current application requires schema
 `0035`; rollback application code together with the schema. Downgrade removes the
 derived facts while preserving source JSON, allowing a later upgrade to rebuild it.
+Downgrade briefly takes exclusive table locks, waiting for active readers and
+writers before removing the trigger and projection; schedule it during a quiet
+period.
 
 The production reference was collected read-only on 24 October 2026 at 09:29 UTC:
 92,581 articles, 6,011 proposals, 5,000 decision runs and 14,373 calls. PostgreSQL
@@ -32,7 +35,9 @@ PostgreSQL 17 databases ending in `_test`. It refuses libpq routing overrides an
 never reads the checkout's `.env` or truncates fixture tables. The benchmark uses
 ordinary article, inference and decision triggers during seeding. Each run has
 approximately 20 KiB of incompressible unrelated evidence, plus one to five ordered
-calls with repeated draft and verification stages. The first 6,000 runs cover the
+calls with repeated draft and verification stages spaced six hours apart and offset
+by one hour from exact integer-day boundaries. Repeated stages span UTC dates and
+the 30- and 90-day report boundaries. The first 6,000 runs cover the
 recent 90 days; further runs add older unrelated history. Proposal review dates
 vary independently, exercising whole-workflow accounting beyond the report window.
 
@@ -43,8 +48,10 @@ time, application process CPU, shared buffers and temporary blocks as artifacts.
 Four concurrent workers run 90-day report pairs alongside 200 article insert and decision
 correction transactions, rotating through one- to five-call workflows. Both
 strategies execute the same operations, paced identically using the measured legacy
-runtime to keep ingestion active throughout reporting. The artifact records overlap
-for every report; transaction latency excludes pacing. These writes
+runtime to keep the writer phase active throughout reporting. The artifact records
+`writer_phase_overlap` for every report. That phase includes SQL, rollback and pacing
+sleeps; the event does not prove that every report overlaps an actual writer SQL
+statement. Transaction latency excludes pacing. These writes
 roll back so report inputs remain identical; ingestion latency measures transaction
 work without durable commit/fsync cost. Concurrent process CPU is reported once for
 the entire process; summing per-report CPU under concurrency would double count.
@@ -53,9 +60,12 @@ The legacy concurrency phase briefly disables only the new decision projection
 trigger on this dedicated fixture database, restoring it in `finally`. Committing
 that short trigger-state change prevents an open `ALTER TABLE` transaction from
 holding an exclusive lock during reporting. No workload writes commit. A separate
-rolled-back correction captures before/after WAL and trigger execution after a
+rolled-back five-call correction captures before/after WAL and trigger execution after a
 warm-up sample avoids charging only the first strategy for checkpoint-dependent
-full-page images. A full
+full-page images. The root `EXPLAIN` WAL excludes AFTER-trigger work, so
+`statement_wal_bytes` also records the server-wide LSN delta around the statement,
+including trigger WAL. This dedicated-server measurement can include background
+WAL and excludes the later transaction rollback. A full
 equivalent backfill measures initial extraction and index insertion separately from
 steady-state reporting. An equivalent backfill excludes migration DDL/lock wait.
 
@@ -76,7 +86,7 @@ repository permissions and no deployment or production credentials. Local AMD64
 smoke measurements validate the harness; they do not establish native ARM64 speed.
 When the pull-request base still uses historical JSON expansion, the workflow
 requires lower concurrent report and topic SQL runtime, zero topic SQL temporary
-writes, and complete overlap between reports and ingestion. Later changes compare
+writes, and complete overlap between reports and the paced writer phase. Later changes compare
 against their current base and retain exact output parity without requiring every
 change to make the already normalized queries faster again. Full phase
 elapsed time includes identical writer pacing and is not a report latency metric.

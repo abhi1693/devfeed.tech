@@ -8,19 +8,24 @@ branch_labels = None
 depends_on = None
 
 
-def upgrade():
-    # ORM flushes can update runs before proposals, even when row locks were taken
-    # in the opposite order. Release both admission locks whenever either is busy;
-    # never hold one source lock while waiting for a writer to release the other.
-    # Exclude run row lockers too: backfill's foreign-key checks acquire row locks.
-    # Reads continue; source writes pause once both locks are held through commit.
-    op.execute("""DO $body$
+def _admit_locks(*, downgrading=False):
+    # These fixed modes cover every relation lock needed by the subsequent DDL.
+    # A failed attempt releases all partial locks before waiting, including when
+    # a writer flushes run -> proposal or a report reads facts -> run/proposal.
+    locks = (
+        """LOCK TABLE topic_proposals IN ACCESS EXCLUSIVE MODE NOWAIT;
+              LOCK TABLE topic_decision_runs IN ACCESS EXCLUSIVE MODE NOWAIT;
+              LOCK TABLE topic_decision_calls IN ACCESS EXCLUSIVE MODE NOWAIT;"""
+        if downgrading
+        else """LOCK TABLE topic_proposals IN SHARE MODE NOWAIT;
+              LOCK TABLE topic_decision_runs IN EXCLUSIVE MODE NOWAIT;"""
+    )
+    op.execute(f"""DO $body$
         DECLARE deadline timestamptz := clock_timestamp() + interval '30 seconds';
         BEGIN
           LOOP
             BEGIN
-              LOCK TABLE topic_proposals IN SHARE MODE NOWAIT;
-              LOCK TABLE topic_decision_runs IN EXCLUSIVE MODE NOWAIT;
+              {locks}
               EXIT;
             EXCEPTION WHEN lock_not_available THEN
               IF clock_timestamp() >= deadline THEN RAISE; END IF;
@@ -28,6 +33,12 @@ def upgrade():
             PERFORM pg_sleep(0.05);
           END LOOP;
         END $body$""")
+
+
+def upgrade():
+    # Exclude run row lockers: backfill's foreign-key checks acquire row locks.
+    # Reads continue; source writes pause once both locks are held through commit.
+    _admit_locks()
     op.execute("""CREATE TABLE topic_decision_calls (
         proposal_id uuid NOT NULL REFERENCES topic_decision_runs(proposal_id) ON DELETE CASCADE,
         ordinal bigint NOT NULL, stage text, stage_call bigint NOT NULL,
@@ -106,6 +117,7 @@ def upgrade():
 
 
 def downgrade():
+    _admit_locks(downgrading=True)
     op.drop_index("ix_topic_proposals_reviewed_at", table_name="topic_proposals")
     op.execute("DROP TRIGGER topic_decision_calls_sync ON topic_decision_runs")
     op.execute("DROP FUNCTION topic_decision_calls_sync()")
