@@ -386,6 +386,10 @@ def test_disposable_run_wires_equal_measurement_and_diagnostics_and_cleans_only_
 ):
     import psycopg
 
+    # Backend unit CI deliberately omits the optional load-generator environment.
+    loadtest_version = Mock(return_value="isolated-locust-version")
+    monkeypatch.setattr(runner, "version", loadtest_version)
+
     monkeypatch.chdir(tmp_path)
     monkeypatch.setenv("DEVFEED_DATABASE_URL", "postgresql://unrelated/production")
     monkeypatch.setenv("LOCUST_HOST", "https://unrelated.example")
@@ -505,6 +509,8 @@ def test_disposable_run_wires_equal_measurement_and_diagnostics_and_cleans_only_
         pooler.execute.assert_called_once_with("SHOW POOLS", prepare=False)
     metadata = json.loads((output / "metadata.json").read_text())
     assert metadata["protocol_version"] == "reader-load-v2"
+    assert metadata["locust_version"] == "isolated-locust-version"
+    loadtest_version.assert_called_once_with("locust")
     assert (metadata["journey_seed"], metadata["warmup_seconds"], metadata["seconds"]) == (
         294,
         15,
