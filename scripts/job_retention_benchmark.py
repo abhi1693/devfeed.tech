@@ -6,16 +6,18 @@ maintenance cadence; it does not change retention age or write scheduling.
 """
 
 import argparse
+import base64
+import hashlib
 import importlib.util
 import json
 import os
 import platform
-import random
+import stat
 import statistics
-import string
 import threading
 import time
 import uuid
+from contextlib import ExitStack, contextmanager, suppress
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from unittest.mock import patch
@@ -39,8 +41,70 @@ from sqlalchemy.engine import make_url
 from sqlalchemy.orm import sessionmaker
 
 ROOT = Path(__file__).resolve().parents[1]
+OUTPUT_ROOT = ROOT / "reports" / "retention"
 ANCHOR = datetime(2026, 10, 24, 12, tzinfo=UTC)
 SOURCE_ID = uuid.UUID("00000000-0000-0000-0000-000000000298")
+
+
+def fixture_payload(length, domain):
+    """Public, reproducible high-entropy fixture text; never a secret or credential."""
+    content = hashlib.shake_256(f"devfeed-retention-fixture:{domain}".encode()).digest(length)
+    return base64.b64encode(content).decode("ascii")[:length]
+
+
+@contextmanager
+def report_writer(articles):
+    """Confine reports to the trusted root and keep validated descriptors open."""
+    if not isinstance(articles, int) or articles <= 0:
+        raise ValueError("Article count must be a positive integer")
+    if not OUTPUT_ROOT.is_absolute() or ".." in OUTPUT_ROOT.parts:
+        raise ValueError("Report root must be an absolute directory without traversal")
+    directory = os.open(OUTPUT_ROOT.anchor, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    descriptor = None
+    created = False
+    written = False
+    filename = f"{articles:d}.json"
+    try:
+        for component in OUTPUT_ROOT.parts[1:]:
+            with suppress(FileExistsError):
+                os.mkdir(component, mode=0o700, dir_fd=directory)
+            child = os.open(
+                component, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=directory
+            )
+            os.close(directory)
+            directory = child
+        flags = os.O_WRONLY | os.O_NOFOLLOW | os.O_NONBLOCK
+        try:
+            descriptor = os.open(
+                filename, flags | os.O_CREAT | os.O_EXCL, mode=0o600, dir_fd=directory
+            )
+            created = True
+        except FileExistsError:
+            descriptor = os.open(filename, flags, dir_fd=directory)
+        metadata = os.fstat(descriptor)
+        if not stat.S_ISREG(metadata.st_mode) or metadata.st_nlink != 1:
+            raise ValueError("Report output must be a regular file without hardlinks")
+        # An accepted local rerun must not leave an older complete report looking current.
+        os.ftruncate(descriptor, 0)
+
+        def write_report(result):
+            nonlocal written
+            content = json.dumps(result, indent=2, default=str) + "\n"
+            with os.fdopen(os.dup(descriptor), "w", encoding="utf8") as output:
+                output.seek(0)
+                output.truncate()
+                output.write(content)
+            written = True
+
+        yield write_report
+    finally:
+        try:
+            if descriptor is not None:
+                os.close(descriptor)
+            if created and not written:
+                os.unlink(filename, dir_fd=directory)
+        finally:
+            os.close(directory)
 
 
 def generated(connection, model, columns, source, parameters):
@@ -53,8 +117,7 @@ def generated(connection, model, columns, source, parameters):
 
 def seed(engine, articles, payload_bytes, *, retained_success=True):
     """1.7 jobs/subject, including a six-run tail and both topic subject types."""
-    rng = random.Random(298)
-    payload = "".join(rng.choices(string.ascii_letters + string.digits, k=payload_bytes))
+    payload = fixture_payload(payload_bytes, "history-input")
     parameters = {"articles": articles, "payload": payload, "anchor": ANCHOR}
     with engine.begin() as connection:
         # Seed only: suppress projection/notification triggers, restoring all triggers at commit.
@@ -254,14 +317,12 @@ def latest_only(engine):
 
 
 def seed_cadence_backlog(engine, subjects, payload_bytes):
-    rng = random.Random(298)
-    payload = "".join(rng.choices(string.ascii_letters + string.digits, k=payload_bytes))
     parameters = {
         "subjects": min(subjects, 1000),
-        "payload": payload,
+        "payload": fixture_payload(payload_bytes, "cadence-input"),
         "anchor": ANCHOR,
-        "usage_output": "".join(rng.choices(string.ascii_letters + string.digits, k=16384)),
-        "topic_usage": "".join(rng.choices(string.ascii_letters + string.digits, k=1024)),
+        "usage_output": fixture_payload(16384, "cadence-article-output"),
+        "topic_usage": fixture_payload(1024, "cadence-topic-usage"),
     }
     with engine.begin() as connection:
         connection.execute(text("SET LOCAL session_replication_role = replica"))
@@ -679,7 +740,6 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--articles", type=int, required=True)
     parser.add_argument("--baseline-file", type=Path, required=True)
-    parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--backlog-pages", type=int, default=50)
     parser.add_argument("--payload-bytes", type=int, default=4096)
     parser.add_argument("--cadence-interval-seconds", type=float, default=15)
@@ -692,11 +752,22 @@ def main():
         help="Expected PostgreSQL major version (default: 17, matching production)",
     )
     args = parser.parse_args()
+    if args.articles <= 0 or args.payload_bytes <= 0 or args.cadence_payload_bytes <= 0:
+        parser.error("Article count and payload sizes must be positive")
     if args.cadence_interval_seconds <= 0:
         parser.error("--cadence-interval-seconds must be positive")
     url = os.environ["DEVFEED_TEST_DATABASE_URL"]
     if not (make_url(url).database or "").endswith("_test"):
         parser.error("DEVFEED_TEST_DATABASE_URL must name a dedicated disposable _test database")
+    with ExitStack() as resources:
+        try:
+            write_report = resources.enter_context(report_writer(args.articles))
+        except (OSError, ValueError):
+            parser.error("Unsafe benchmark output: reports must remain in reports/retention")
+        run_benchmark(args, url, write_report, parser)
+
+
+def run_benchmark(args, url, write_report, parser):
     os.environ["DEVFEED_DATABASE_URL"] = url
     os.environ.setdefault("DEVFEED_REDIS_URL", "redis://127.0.0.1/15")
     for key, value in {
@@ -737,6 +808,7 @@ def main():
         "cadence_payload_bytes": args.cadence_payload_bytes,
         "cadence_article_usage_output_bytes": 16384,
         "cadence_topic_usage_bytes": 1024,
+        "fixture_payload_format": "shake256-base64-v1",
         "cadence_subjects_per_kind": min(args.articles, 1000),
         "application_architecture": platform.machine(),
         "postgres_major": postgres_major,
@@ -791,8 +863,7 @@ def main():
             concurrent=True,
             tick_interval=args.cadence_interval_seconds,
         )
-        args.output.parent.mkdir(parents=True, exist_ok=True)
-        args.output.write_text(json.dumps(result, indent=2, default=str) + "\n")
+        write_report(result)
         for phase, data in result["phases"].items():
             print(
                 phase,

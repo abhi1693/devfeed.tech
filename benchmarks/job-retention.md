@@ -23,15 +23,14 @@ A bounded read-only 1% page sample of terminal unpruned production jobs
 (up to 1,000 rows per history) found these physical stored-byte distributions:
 
 | History and field | Sample rows | p50 bytes | p95 bytes |
-| --- | ---: | ---: | ---: |
-| Article input | 996 | 1,861 | 5,988 |
-| Article catalog | 996 | 9,645 | 21,506 |
-| Article usage | 996 | 744 | 4,671 |
-| Topic input | 1,000 | 26,690 | 27,580 |
-| Topic usage | 1,000 | 379 | 672 |
+| ----------------- | ----------: | --------: | --------: |
+| Article input     |         996 |     1,861 |     5,988 |
+| Article catalog   |         996 |     9,645 |    21,506 |
+| Article usage     |         996 |       744 |     4,671 |
+| Topic input       |       1,000 |    26,690 |    27,580 |
+| Topic usage       |       1,000 |       379 |       672 |
 
-These are `pg_column_size` values, including compression effects, from 24 October
-2026. No source JSON was fetched or exported. Page sampling and the row cap can
+These are `pg_column_size` values, including compression effects, from 24 October 2026. No source JSON was fetched or exported. Page sampling and the row cap can
 bias distributions; these are payload-sizing observations rather than population
 percentiles. The 4 KiB fixed-cardinality fixture is deliberately smaller than
 production's median topic input and article catalog so both large datasets fit
@@ -47,6 +46,13 @@ leases, both topic and proposal subjects, 4 KiB incompressible input snapshots,
 and an additional 4 KiB article catalog snapshot. The old backlog is deliberately
 larger than production's current age-eligible population. Review, provenance,
 verification and concurrent completion contracts have separate integration tests.
+
+Fixture text uses domain-separated SHAKE-256 digest streams encoded as base64
+and truncated to the requested ASCII character count. These public deterministic
+values are not credentials. This replaces the former seeded PRNG content, so old
+reports are not byte-identical fixtures. Cardinalities, payload lengths, statuses
+and scheduling controls are unchanged; fresh reports identify the payload format
+as `shake256-base64-v1`. Compare a fresh baseline/candidate pair after this change.
 
 The phases are:
 
@@ -126,9 +132,17 @@ whose name ends in `_test`, install the locked workspace packages, and run:
 git show <base-sha>:packages/core/src/job_retention.py > /tmp/base-job-retention.py
 export DEVFEED_TEST_DATABASE_URL='postgresql+psycopg://user:password@127.0.0.1:5432/retention_benchmark_test'
 uv run --locked --no-sync --no-build python scripts/job_retention_benchmark.py \
-  --articles 100000 --baseline-file /tmp/base-job-retention.py \
-  --output /tmp/retention-100000.json
+  --articles 100000 --baseline-file /tmp/base-job-retention.py
 ```
+
+Reports always use the repository's `reports/retention/<articles>.json` path;
+there is no CLI output-path or output-root override. The script validates and
+holds the output directory/file descriptors before database mutations, rejecting
+symlink components, nonregular files and hardlinks. Tests inject their temporary
+root internally. An accepted run invalidates an older report only after validating
+the held descriptor. A failed setup removes a newly reserved empty report;
+completed baseline results from the current run remain available if a later
+candidate phase fails.
 
 Repeat with `--articles 250000`. Keep the default
 `--cadence-interval-seconds 15 --cadence-payload-bytes 65536` for performance

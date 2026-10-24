@@ -30,17 +30,6 @@ jobs:
     name: Retention at 100k and 250k articles (ARM64 PostgreSQL 17)
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 45
-    services:
-      postgres:
-        image: postgres:17.11-bookworm@sha256:858bb5e98eed02eb8cafbcdc007f9a65d1b613972028944a8ec2133ccaf80d27
-        env:
-          POSTGRES_USER: benchmark
-          POSTGRES_PASSWORD: disposable-benchmark-only
-          POSTGRES_DB: retention_benchmark_test
-        ports: ['5432:5432']
-        options: >-
-          --health-cmd "pg_isready -U benchmark -d retention_benchmark_test"
-          --health-interval 5s --health-timeout 5s --health-retries 12
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -62,10 +51,29 @@ jobs:
           enable-cache: true
       - name: Install benchmark application
         run: sh scripts/ci/python-bootstrap.sh . --editable --all-packages
+      - name: Start isolated benchmark PostgreSQL
+        run: |
+          benchmark_password=$(python -c 'import secrets; print(secrets.token_hex(32))')
+          echo "::add-mask::$benchmark_password"
+          printf 'DEVFEED_TEST_DATABASE_URL=postgresql+psycopg://benchmark:%s@127.0.0.1:5432/retention_benchmark_test\n' "$benchmark_password" >> "$GITHUB_ENV"
+          docker run --detach --name devfeed-retention-benchmark \
+            --publish 127.0.0.1:5432:5432 \
+            --env POSTGRES_USER=benchmark \
+            --env POSTGRES_PASSWORD="$benchmark_password" \
+            --env POSTGRES_DB=retention_benchmark_test \
+            postgres:17.11-bookworm@sha256:858bb5e98eed02eb8cafbcdc007f9a65d1b613972028944a8ec2133ccaf80d27
+          for benchmark_attempt in $(seq 1 60); do
+            if docker exec devfeed-retention-benchmark pg_isready -h 127.0.0.1 -U benchmark -d retention_benchmark_test; then
+              exit 0
+            fi
+            echo "Waiting for benchmark PostgreSQL ($benchmark_attempt/60)"
+            sleep 1
+          done
+          docker logs devfeed-retention-benchmark
+          exit 1
       - name: Compare retention with concurrent ingestion
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha || inputs.baseline_ref || 'master' }}
-          DEVFEED_TEST_DATABASE_URL: postgresql+psycopg://benchmark:disposable-benchmark-only@127.0.0.1:5432/retention_benchmark_test
         run: |
           uname -a
           lscpu
@@ -73,12 +81,14 @@ jobs:
           git show "$BASE_SHA:packages/core/src/job_retention.py" > "$RUNNER_TEMP/baseline-job-retention.py"
           for articles in 100000 250000; do
             uv run --locked --no-sync --no-build python scripts/job_retention_benchmark.py \
-              --articles "$articles" --baseline-file "$RUNNER_TEMP/baseline-job-retention.py" \
-              --output "reports/retention/$articles.json"
+              --articles "$articles" --baseline-file "$RUNNER_TEMP/baseline-job-retention.py"
           done
+      - name: Stop benchmark PostgreSQL
+        if: always()
+        run: docker rm --force devfeed-retention-benchmark 2>/dev/null || true
       - name: Format retention report
         if: always() && !cancelled()
-        run: node scripts/ci/job-retention-report.mjs reports/retention reports/retention/summary.json
+        run: node scripts/ci/job-retention-report.mjs
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         if: always()
         with:

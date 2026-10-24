@@ -1,8 +1,9 @@
-import fs, { appendFileSync, mkdirSync, writeFileSync } from "node:fs";
-import { dirname, join, resolve } from "node:path";
-import { pathToFileURL } from "node:url";
+import fs, { appendFileSync } from "node:fs";
+import { join, resolve } from "node:path";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 const sizes = [250000, 100000];
+const workspaceRoot = fileURLToPath(new URL("../../", import.meta.url));
 const phases = [
   "backlog",
   "convergence_prune1000_scan1000",
@@ -140,7 +141,7 @@ export function readBoundedReport(path, maximumBytes) {
   );
   try {
     const stat = fs.fstatSync(descriptor);
-    if (!stat.isFile() || stat.size === 0 || stat.size > maximumBytes)
+    if (!stat.isFile() || stat.nlink !== 1 || stat.size === 0 || stat.size > maximumBytes)
       throw new Error("Invalid report file");
     const buffer = Buffer.alloc(maximumBytes + 1);
     let length = 0;
@@ -196,11 +197,62 @@ export function retentionSummary(reports) {
   };
 }
 
+function openReportDirectory(workspaceRoot) {
+  const flags = fs.constants.O_RDONLY | fs.constants.O_DIRECTORY | fs.constants.O_NOFOLLOW;
+  let descriptor = fs.openSync(resolve(workspaceRoot), flags);
+  try {
+    for (const component of ["reports", "retention"]) {
+      const path = `/proc/self/fd/${descriptor}/${component}`;
+      try {
+        fs.mkdirSync(path);
+      } catch (error) {
+        if (error.code !== "EEXIST") throw error;
+      }
+      const previous = descriptor;
+      descriptor = fs.openSync(path, flags);
+      fs.closeSync(previous);
+    }
+    return descriptor;
+  } catch (error) {
+    fs.closeSync(descriptor);
+    throw error;
+  }
+}
+
+export function runRetentionReport(root) {
+  const directory = openReportDirectory(root);
+  let output;
+  try {
+    // Reserve the fixed output before reading any inputs. Directory descriptors
+    // keep every operation inside the opened repository report directory even
+    // if a pathname is replaced while the formatter runs.
+    output = fs.openSync(
+      `/proc/self/fd/${directory}/summary.json`,
+      fs.constants.O_WRONLY |
+        fs.constants.O_CREAT |
+        fs.constants.O_NOFOLLOW |
+        fs.constants.O_NONBLOCK,
+      0o600,
+    );
+    const stat = fs.fstatSync(output);
+    if (!stat.isFile() || stat.nlink !== 1) throw new Error("Invalid summary output");
+    const summary = retentionSummary(readRetentionReports(`/proc/self/fd/${directory}`));
+    fs.ftruncateSync(output, 0);
+    fs.writeFileSync(output, JSON.stringify(summary));
+    if (process.env.GITHUB_STEP_SUMMARY)
+      appendFileSync(process.env.GITHUB_STEP_SUMMARY, `${summary.body}\n`);
+    return summary;
+  } finally {
+    if (output !== undefined) fs.closeSync(output);
+    fs.closeSync(directory);
+  }
+}
+
+export function retentionReportMain(arguments_, root = workspaceRoot) {
+  if (arguments_.length !== 0) throw new Error("The retention reporter accepts no path arguments");
+  return runRetentionReport(root);
+}
+
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
-  const [, , directory, output] = process.argv;
-  const summary = retentionSummary(readRetentionReports(directory));
-  mkdirSync(dirname(output), { recursive: true });
-  writeFileSync(output, JSON.stringify(summary));
-  if (process.env.GITHUB_STEP_SUMMARY)
-    appendFileSync(process.env.GITHUB_STEP_SUMMARY, `${summary.body}\n`);
+  retentionReportMain(process.argv.slice(2));
 }

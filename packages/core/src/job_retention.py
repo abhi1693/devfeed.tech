@@ -197,13 +197,14 @@ def _prune_page(session, model, state, now, settings):
         len(page) < settings.job_payload_scan_batch_size
         and len(candidates) < settings.job_payload_prune_batch_size
     )
-    if exhausted:
+    if not page or exhausted:
         state.cutoff = state.cursor_finished_at = state.cursor_id = None
         delay = settings.job_payload_sweep_interval_seconds
     else:
-        last = (
-            candidates[-1] if len(candidates) == settings.job_payload_prune_batch_size else page[-1]
-        )
+        if candidates and len(candidates) == settings.job_payload_prune_batch_size:
+            last = candidates[-1]
+        else:
+            last = page[-1]
         state.cursor_finished_at, state.cursor_id = last.finished_at, last.id
         delay = settings.job_payload_page_interval_seconds
     state.next_run_at = now + timedelta(seconds=delay)

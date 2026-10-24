@@ -84,7 +84,15 @@ def test_due_page_reports_progress_only_after_its_owning_transaction_commits(
     "model,kind", [(ArticleAnalysisJob, "article"), (TopicAnalysisJob, "topic")]
 )
 @pytest.mark.parametrize(
-    "outcome", ["protected-page", "prune-budget", "locked-candidates", "end-of-sweep"]
+    "outcome",
+    [
+        "protected-page",
+        "prune-budget",
+        "locked-candidates",
+        "end-of-sweep",
+        "partial-final-page",
+        "final-page-at-prune-budget",
+    ],
 )
 def test_cursor_advances_over_protected_rows_and_stops_at_the_prune_budget(model, kind, outcome):
     old = NOW - timedelta(days=40)
@@ -95,11 +103,17 @@ def test_cursor_advances_over_protected_rows_and_stops_at_the_prune_budget(model
         for index in range(2)
     ]
     selected = []
-    if outcome == "prune-budget":
+    if outcome in {"prune-budget", "final-page-at-prune-budget"}:
         first = candidates[0]
         selected = [model(id=first.id, finished_at=first.finished_at, usage={})]
     page = [] if outcome == "end-of-sweep" else candidates
-    eligible = candidates[:1] if outcome in {"prune-budget", "locked-candidates"} else []
+    if outcome in {"partial-final-page", "final-page-at-prune-budget"}:
+        page = page[:1]
+    eligible = (
+        page[:1]
+        if outcome in {"prune-budget", "locked-candidates", "final-page-at-prune-budget"}
+        else []
+    )
     session.execute.side_effect = [Mock(all=lambda: page), Mock(all=lambda: eligible)]
     session.scalars.side_effect = [
         Mock(all=lambda: [row.subject_id for row in eligible]),
@@ -108,7 +122,7 @@ def test_cursor_advances_over_protected_rows_and_stops_at_the_prune_budget(model
     ]
     settings = configuration(job_payload_scan_batch_size=2, job_payload_prune_batch_size=1)
     assert job_retention._prune_page(session, model, state, NOW, settings) == len(selected)
-    if outcome == "end-of-sweep":
+    if outcome in {"end-of-sweep", "partial-final-page"}:
         assert state.cutoff is state.cursor_finished_at is state.cursor_id is None
         assert state.next_run_at == NOW + timedelta(hours=1)
         session.scalars.assert_not_called()

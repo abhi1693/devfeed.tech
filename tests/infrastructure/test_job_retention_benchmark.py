@@ -3,6 +3,8 @@
 import json
 import os
 import sys
+import zlib
+from pathlib import Path
 from unittest.mock import Mock, patch
 
 import pytest
@@ -22,7 +24,8 @@ def test_benchmark_runs_both_histories_to_convergence_with_real_plans_and_ingest
         postgres_major = int(session.scalar(text("SHOW server_version_num"))) // 10000
     baseline = tmp_path / "checkpointed-baseline.py"
     baseline.write_text((REPO_ROOT / "packages/core/src/job_retention.py").read_text())
-    output = tmp_path / "retention-smoke.json"
+    output = tmp_path / "1000.json"
+    monkeypatch.setattr(job_retention_benchmark, "OUTPUT_ROOT", tmp_path)
     monkeypatch.setattr(
         sys,
         "argv",
@@ -32,8 +35,6 @@ def test_benchmark_runs_both_histories_to_convergence_with_real_plans_and_ingest
             "1000",
             "--baseline-file",
             str(baseline),
-            "--output",
-            str(output),
             "--backlog-pages",
             "2",
             "--payload-bytes",
@@ -68,6 +69,7 @@ def test_benchmark_runs_both_histories_to_convergence_with_real_plans_and_ingest
     assert report["cadence_payload_bytes"] == 4096
     assert report["cadence_article_usage_output_bytes"] == 16384
     assert report["cadence_topic_usage_bytes"] == 1024
+    assert report["fixture_payload_format"] == "shake256-base64-v1"
     assert report["cadence_subjects_per_kind"] == 1000
     assert report["postgres_major"] == postgres_major
     assert f"PostgreSQL {postgres_major}." in report["postgres_version"]
@@ -137,15 +139,14 @@ def test_benchmark_rejects_a_different_server_major_before_seeding(
         actual_major = int(session.scalar(text("SHOW server_version_num"))) // 10000
     baseline = tmp_path / "baseline.py"
     baseline.write_text((REPO_ROOT / "packages/core/src/job_retention.py").read_text())
-    output = tmp_path / "mismatched-postgres.json"
+    output = tmp_path / "1000.json"
+    monkeypatch.setattr(job_retention_benchmark, "OUTPUT_ROOT", tmp_path)
     arguments = [
         "job_retention_benchmark.py",
         "--articles",
         "1000",
         "--baseline-file",
         str(baseline),
-        "--output",
-        str(output),
     ]
     # PostgreSQL 18 must remain rejected by the production default. On 17,
     # require 18 explicitly to prove that the requested major is enforced too.
@@ -178,8 +179,6 @@ def test_benchmark_rejects_a_database_without_the_disposable_name_before_migrati
             "1000",
             "--baseline-file",
             str(tmp_path / "baseline.py"),
-            "--output",
-            str(tmp_path / "output.json"),
         ],
     )
     migrate = Mock()
@@ -189,3 +188,148 @@ def test_benchmark_rejects_a_database_without_the_disposable_name_before_migrati
     assert failure.value.code == 2
     assert "dedicated disposable _test database" in capsys.readouterr().err
     migrate.assert_not_called()
+
+
+def test_fixture_payloads_are_reproducible_domain_separated_and_high_entropy():
+    payload = job_retention_benchmark.fixture_payload(65536, "history-input")
+    assert len(payload) == 65536
+    assert payload.isascii()
+    assert payload == job_retention_benchmark.fixture_payload(65536, "history-input")
+    assert payload[:128] == job_retention_benchmark.fixture_payload(128, "history-input")
+    assert payload != job_retention_benchmark.fixture_payload(65536, "cadence-input")
+    assert len(zlib.compress(payload.encode())) > len(payload) * 0.7
+    assert job_retention_benchmark.fixture_payload(0, "history-input") == ""
+
+
+@pytest.mark.parametrize("path", ["../outside.json", "/outside.json", "child/output.json"])
+def test_benchmark_has_no_cli_output_path_override(monkeypatch, tmp_path, path):
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        ["benchmark", "--articles", "1000", "--baseline-file", "baseline.py", "--output", path],
+    )
+    migrate = Mock()
+    monkeypatch.setattr(job_retention_benchmark.command, "upgrade", migrate)
+    with pytest.raises(SystemExit) as failure:
+        job_retention_benchmark.main()
+    assert failure.value.code == 2
+    migrate.assert_not_called()
+    assert not (tmp_path / "1000.json").exists()
+
+
+@pytest.mark.parametrize("articles", ["0", "-1"])
+def test_benchmark_rejects_nonpositive_articles_before_output_or_database(monkeypatch, articles):
+    monkeypatch.setattr(
+        sys, "argv", ["benchmark", "--articles", articles, "--baseline-file", "baseline.py"]
+    )
+    writer = Mock()
+    monkeypatch.setattr(job_retention_benchmark, "report_writer", writer)
+    with pytest.raises(SystemExit) as failure:
+        job_retention_benchmark.main()
+    assert failure.value.code == 2
+    writer.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    "unsafe", ["root-link", "file-link", "hardlink", "fifo", "directory", "traversal", "relative"]
+)
+def test_benchmark_rejects_unsafe_outputs_before_migrations(monkeypatch, tmp_path, unsafe):
+    root = tmp_path / "reports"
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    protected = outside / "1000.json"
+    protected.write_text("Keep outside data")
+    reader = None
+    if unsafe == "root-link":
+        root.symlink_to(outside, target_is_directory=True)
+    elif unsafe == "traversal":
+        root = root / ".." / "outside"
+    elif unsafe == "relative":
+        root = Path("reports/retention")
+    else:
+        root.mkdir()
+        output = root / "1000.json"
+        if unsafe == "file-link":
+            output.symlink_to(protected)
+        elif unsafe == "hardlink":
+            output.hardlink_to(protected)
+        elif unsafe == "directory":
+            output.mkdir()
+        else:
+            os.mkfifo(output)
+            reader = os.open(output, os.O_RDONLY | os.O_NONBLOCK)
+    monkeypatch.setattr(job_retention_benchmark, "OUTPUT_ROOT", root)
+    monkeypatch.setenv(
+        "DEVFEED_TEST_DATABASE_URL", "postgresql+psycopg://unit@database.invalid/disposable_test"
+    )
+    monkeypatch.setattr(
+        sys, "argv", ["benchmark", "--articles", "1000", "--baseline-file", "baseline.py"]
+    )
+    migrate = Mock()
+    monkeypatch.setattr(job_retention_benchmark.command, "upgrade", migrate)
+    try:
+        with pytest.raises(SystemExit) as failure:
+            job_retention_benchmark.main()
+        assert failure.value.code == 2
+        migrate.assert_not_called()
+        assert protected.read_text() == "Keep outside data"
+    finally:
+        if reader is not None:
+            os.close(reader)
+
+
+def test_report_writer_reuses_validated_descriptor_when_path_is_replaced(monkeypatch, tmp_path):
+    root = tmp_path / "reports"
+    protected = tmp_path / "outside.json"
+    protected.write_text("Keep outside data")
+    monkeypatch.setattr(job_retention_benchmark, "OUTPUT_ROOT", root)
+    with job_retention_benchmark.report_writer(1000) as write_report:
+        output = root / "1000.json"
+        original = root / "original.json"
+        output.rename(original)
+        output.symlink_to(protected)
+        write_report({"phase": "baseline"})
+        write_report({"phase": "head"})
+    assert json.loads(original.read_text()) == {"phase": "head"}
+    assert protected.read_text() == "Keep outside data"
+
+
+def test_report_writer_closes_descriptors_and_invalidates_stale_results_on_failure(
+    monkeypatch, tmp_path
+):
+    monkeypatch.setattr(job_retention_benchmark, "OUTPUT_ROOT", tmp_path)
+    opened = []
+    actual_open = os.open
+
+    def track_open(*args, **kwargs):
+        descriptor = actual_open(*args, **kwargs)
+        opened.append(descriptor)
+        return descriptor
+
+    monkeypatch.setattr(os, "open", track_open)
+    with pytest.raises(RuntimeError), job_retention_benchmark.report_writer(1000):
+        raise RuntimeError("Setup failed")
+    assert not (tmp_path / "1000.json").exists()
+    (tmp_path / "1000.json").write_text("Existing report")
+    with pytest.raises(RuntimeError), job_retention_benchmark.report_writer(1000):
+        raise RuntimeError("Setup failed")
+    assert (tmp_path / "1000.json").read_text() == ""
+    with (
+        pytest.raises(RuntimeError),
+        job_retention_benchmark.report_writer(1000) as write_report,
+    ):
+        write_report({"phase": "current-run-baseline"})
+        raise RuntimeError("Candidate failed")
+    assert json.loads((tmp_path / "1000.json").read_text()) == {"phase": "current-run-baseline"}
+    for descriptor in opened:
+        with pytest.raises(OSError):
+            os.fstat(descriptor)
+
+
+@pytest.mark.parametrize("articles", [0, -1, "../outside"])
+def test_report_writer_rejects_invalid_numeric_filenames_before_open(monkeypatch, articles):
+    opened = Mock()
+    monkeypatch.setattr(os, "open", opened)
+    with pytest.raises(ValueError), job_retention_benchmark.report_writer(articles):
+        pytest.fail("Unsafe article count was accepted")
+    opened.assert_not_called()
