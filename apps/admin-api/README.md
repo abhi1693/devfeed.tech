@@ -68,12 +68,19 @@ measurements do not establish production latency.
 ## Completed-job token usage
 
 The automation report aggregates each job's cumulative `usage.totalTokens` once on its
-UTC completion date. A narrow materialized CTE extracts the token text once and projects
-that date before grouping. PostgreSQL 17 can then estimate the small number of dates
-without inheriting the near-unique completion timestamp distribution. This preserves
+UTC completion date. Two streaming subqueries extract token text and validate its numeric
+value once per job. Literal `OFFSET 0` fences prevent PostgreSQL from pulling those
+expressions into every aggregate, while avoiding a full-window materialized working set.
+Projecting the date before grouping also gives PostgreSQL 17 a small daily group estimate
+instead of inheriting the near-unique completion timestamp distribution. This preserves
 inclusive time boundaries, succeeded/failed jobs, missing or malformed telemetry,
 durations, and the eighteen-digit token validity rule. It requires no migration or
 additional writes; rolling back the application restores the previous query.
+
+PostgreSQL maintains `OFFSET 0` as an explicit optimization fence; see the
+[upstream planner change](https://www.postgresql.org/message-id/E1pK7VD-0059mE-Jc%40gemulon.postgresql.org).
+Actual execution plans verify the extraction and validation projections, daily aggregation,
+and temporary writes in both custom and generic plans.
 
 To reproduce the before/after comparison on a migrated disposable local PostgreSQL 17:
 

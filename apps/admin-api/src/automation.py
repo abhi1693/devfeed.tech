@@ -112,13 +112,13 @@ def analysis_token_activity(session, start: datetime, now: datetime):
         ("topic_analysis", TopicAnalysisJob),
         ("research_verification", ResearchVerificationJob),
     ):
-        # Project the UTC day before materialization so PostgreSQL can estimate
-        # groups from that column instead of treating each completion timestamp
-        # as a distinct day. Keep the boundary narrow and extract JSON once:
-        # inlining would repeatedly detoast potentially large job usage for each
-        # aggregate. Nineteen characters preserve the eighteen-digit validity
-        # rule even for oversized malformed telemetry.
-        usage = (
+        # Two OFFSET 0 fences keep JSON extraction and numeric validation once
+        # per row while streaming values directly into the daily aggregates.
+        # Project the UTC date before grouping so its estimate does not inherit
+        # near-unique completion timestamps. Literal offsets also let generic
+        # plans remove the runtime Limit nodes. Nineteen characters preserve
+        # the eighteen-digit validity rule for oversized malformed telemetry.
+        raw_usage = (
             select(
                 func.date(func.timezone("UTC", model.finished_at)).label("date"),
                 model.duration_ms,
@@ -129,12 +129,18 @@ def analysis_token_activity(session, start: datetime, now: datetime):
                 model.finished_at <= now,
                 model.status.in_(("succeeded", "failed")),
             )
-            .cte(f"{kind}_usage")
-            .prefix_with("MATERIALIZED")
+            .offset(literal_column("0"))
+            .subquery(f"{kind}_raw_usage")
+        )
+        raw = raw_usage.c.raw_tokens
+        validated = case((raw.op("~")(r"^[0-9]{1,18}$"), cast(raw, BigInteger)), else_=None)
+        usage = (
+            select(raw_usage.c.date, raw_usage.c.duration_ms, validated.label("tokens"))
+            .offset(literal_column("0"))
+            .subquery(f"{kind}_usage")
         )
         day = usage.c.date
-        raw = usage.c.raw_tokens
-        tokens = case((raw.op("~")(r"^[0-9]{1,18}$"), cast(raw, BigInteger)), else_=None)
+        tokens = usage.c.tokens
         statements.append(
             select(
                 day.label("date"),

@@ -120,6 +120,9 @@ def configure(connection, mode):
 def seed(engine, articles):
     """Actual migrated tables/indexes, skewed 180-day history and incompressible TOAST."""
     with engine.begin() as connection:
+        # A pooled measurement connection retains its bounded report timeout.
+        # Fixture construction has a separate budget and keeps all ordinary triggers.
+        connection.exec_driver_sql("SET LOCAL statement_timeout='10min'")
         connection.exec_driver_sql("TRUNCATE articles,topic_proposals CASCADE")
         connection.execute(
             text("""INSERT INTO articles
@@ -372,7 +375,7 @@ def measure(engine, days, mode, repeats, container, rate):
                     )
                 if repeat == repeats:
                     plans[name] = connection.exec_driver_sql(
-                        "EXPLAIN (ANALYZE,BUFFERS,SETTINGS,FORMAT JSON) " + execute
+                        "EXPLAIN (ANALYZE,BUFFERS,VERBOSE,SETTINGS,FORMAT JSON) " + execute
                     ).scalar_one()[0]
         connection.exec_driver_sql("DEALLOCATE ALL")
         connection.commit()
@@ -406,6 +409,12 @@ def measure(engine, days, mode, repeats, container, rate):
         }
     original_groups = sum(g["Plan Rows"] for g in summaries["original"]["aggregates"])
     current_groups = sum(g["Plan Rows"] for g in summaries["current"]["aggregates"])
+    accesses = {
+        name: sum(
+            summary["buffers"].get(key, 0) for key in ("Shared Hit Blocks", "Shared Read Blocks")
+        )
+        for name, summary in summaries.items()
+    }
     checks = {
         "grouping_estimates_not_worse": current_groups <= original_groups,
         "grouping_estimates_bounded": all(
@@ -414,10 +423,11 @@ def measure(engine, days, mode, repeats, container, rate):
         "aggregate_disk_usage_zero": all(
             g.get("Disk Usage", 0) == 0 for g in summaries["current"]["aggregates"]
         ),
-        "temporary_writes_not_worse": (
-            summaries["current"]["buffers"].get("Temp Written Blocks", 0)
-            <= summaries["original"]["buffers"].get("Temp Written Blocks", 0) + 16
+        "temporary_writes_zero": summaries["current"]["buffers"].get("Temp Written Blocks", 0) == 0,
+        "no_sort_spills": all(
+            node.get("Sort Space Type") != "Disk" for node in nodes(plans["current"]["Plan"])
         ),
+        "buffer_accesses_not_amplified": accesses["current"] <= 1.05 * accesses["original"] + 16,
         "runtime_within_noise_allowance": summaries["current"]["median_ms"]
         <= max(1.2 * summaries["original"]["median_ms"], summaries["original"]["median_ms"] + 20),
     }
