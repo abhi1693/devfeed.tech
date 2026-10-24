@@ -120,7 +120,7 @@ export async function checkPreviewFeedRetention(
   page,
   target,
   output,
-  { requests = () => [], baseline = false } = {},
+  { requests = () => [], baseline = false, resumeOnly = false } = {},
 ) {
   const results = [];
   for (const view of ["stacked", "cards", "compact"]) {
@@ -187,6 +187,43 @@ export async function checkPreviewFeedRetention(
     await title.evaluate((node) => node.scrollIntoView({ block: "center", behavior: "instant" }));
     // Wait for engagement hydration and the initial placeholder's exit transition.
     await page.waitForTimeout(250);
+    if (resumeOnly) {
+      const resumedRows = await rows.elementHandles();
+      const resumeBounds = await title.boundingBox();
+      const resumeTime = await page.evaluate(() => Date.now() + 120_000);
+      await page.clock.setFixedTime(resumeTime);
+      const resumedAuth = page.waitForResponse((response) =>
+        new URL(response.url()).pathname.endsWith("/user/auth/me"),
+      );
+      await page.evaluate(() => {
+        window.dispatchEvent(new Event("focus"));
+        document.dispatchEvent(new Event("visibilitychange"));
+      });
+      await resumedAuth;
+      await page.waitForTimeout(300);
+      assert.equal(await rows.count(), 25, "Tab resume retains every paginated article");
+      for (const row of resumedRows) {
+        assert.equal(
+          await row.evaluate((node) => node.isConnected),
+          true,
+          "Tab resume retains the original article DOM",
+        );
+        await row.dispose();
+      }
+      // Engagement controls can change line height during hydration. Retain the
+      // same article within one text line rather than requiring an identical pixel.
+      const resumedBounds = await title.boundingBox();
+      assert.ok(
+        Math.abs(resumedBounds.y - resumeBounds.y) <= 24,
+        `Tab resume retains the reading position (${target}, ${view}, before=${resumeBounds.y}, after=${resumedBounds.y})`,
+      );
+      results.push({
+        view,
+        retained: resumedRows.length,
+        readingPositionDelta: resumedBounds.y - resumeBounds.y,
+      });
+      continue;
+    }
     const requestStart = requests().length;
     const countBefore = requestCounts(requests());
     const triggerBounds = await title.boundingBox();

@@ -21,7 +21,7 @@ export function ReadingStreak() {
   if (loading || !user || !profile?.reading_streak) return null;
   return (
     <StreakCard
-      key={user.user_id + ":" + sessionRevision}
+      key={JSON.stringify([user.user_id, user.csrf_token, user.expires_at])}
       owner={user.user_id}
       revision={sessionRevision}
       streak={profile.reading_streak}
