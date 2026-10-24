@@ -35,10 +35,10 @@ ARTICLE_INSERT = """INSERT INTO articles
   publication_status,review_status,published_to_feed_at)
  SELECT md5(:namespace||n)::uuid,'https://profile.invalid/'||:namespace||n,
  md5(:namespace||n), 'Publication fixture '||n, :namespace||n, repeat('fixture ',128),
- 'article',:now, :now-(n%60)*interval '1 day'-(n%86400)*interval '1 second'
+ 'article',:now, :now-((n/10)%60)*interval '1 day'-(n%86400)*interval '1 second'
    -(CASE WHEN n%37=0 THEN -60 WHEN n%10 IN (1,3,6) THEN 91*86400
           ELSE 3600+n%100000 END)*interval '1 second',
- 'published','approved',:now-(n%60)*interval '1 day'-(n%86400)*interval '1 second'
+ 'published','approved',:now-((n/10)%60)*interval '1 day'-(n%86400)*interval '1 second'
  FROM generate_series(CAST(:first AS integer),CAST(:last AS integer)) n"""
 
 
@@ -72,17 +72,18 @@ def seed(engine, rows):
             (id,article_id,action,revision,automation,created_at,note)
             SELECT md5('publication-review-'||n||'-'||f)::uuid,
             md5('publication-'||n)::uuid,
-            CASE WHEN f=1 THEN 'publish' ELSE 'approve' END, f,
+            CASE WHEN f=1 OR f>3 THEN 'publish' ELSE 'approve' END, f,
             CASE WHEN (f=2 AND n%10 IN (1,3,6)) OR (f=3 AND n%10=4)
               THEN '{}'::jsonb ELSE jsonb_build_object('profile',true) END,
             a.published_to_feed_at + CASE
               WHEN (f=1 AND n%10 IN (0,1,5,6)) OR (f=3 AND n%10=4)
                 THEN interval '1 hour'
-              WHEN f=2 THEN interval '-90 days' ELSE interval '-1 second' END,
+              WHEN f=2 AND n%10 IN (1,3,6)
+                THEN interval '-90 days' ELSE interval '-1 second' END,
             repeat('review evidence ',32)
             FROM generate_series(CAST(:first AS integer),CAST(:last AS integer)) n
             JOIN articles a ON a.id=md5('publication-'||n)::uuid
-            CROSS JOIN LATERAL generate_series(1,CASE WHEN n%200=0 THEN 27 ELSE 3 END) f""",
+            CROSS JOIN LATERAL generate_series(1,CASE WHEN n%201=0 THEN 27 ELSE 3 END) f""",
             rows,
             {"rows": rows},
         )
@@ -93,9 +94,12 @@ def seed(engine, rows):
              input_snapshot,catalog_snapshot,result)
             SELECT md5('publication-job-'||n)::uuid,
             md5('publication-'||(1+n%:rows))::uuid,'succeeded',1,
-            :now-(n%180)*interval '1 day',:now-(n%180)*interval '1 day',:now,
+            a.discovered_at+(n%60)*interval '1 second',
+            a.discovered_at+(n%60)*interval '1 second',
+            a.discovered_at+(60+n%60)*interval '1 second',
             jsonb_build_object('text',repeat('historical payload ',32)),
-            '{}','{}' FROM generate_series(CAST(:first AS integer),CAST(:last AS integer)) n""",
+            '{}','{}' FROM generate_series(CAST(:first AS integer),CAST(:last AS integer)) n
+            JOIN articles a ON a.id=md5('publication-'||(1+n%:rows))::uuid""",
             rows * 165 // 100,
             {"now": NOW, "rows": rows},
         )
@@ -292,7 +296,7 @@ def main():
             seed(engine, args.rows)
         output = {
             "rows": args.rows,
-            "fixture_review_rows": args.rows * 3 + args.rows // 200 * 24,
+            "fixture_review_rows": args.rows * 3 + args.rows // 201 * 24,
             "fixture_analysis_job_rows": args.rows * 165 // 100,
             "client_architecture": platform.machine(),
             "postgresql": version,
@@ -322,6 +326,7 @@ def main():
                 # Preserve failing plans and samples too; CI uploads partial output.
                 args.output.write_text(json.dumps(output, indent=2) + "\n")
                 assert all(result == results[0] for result in results), "Report results differ"
+                assert 0 < results[0][1] < results[0][0], "Fixture lost mixed publication outcomes"
                 report["result_equality"] = True
                 if args.rows >= 100000 and days == 30:
                     report["work_checks"] = check_work(report)
