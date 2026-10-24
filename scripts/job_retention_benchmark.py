@@ -34,7 +34,7 @@ from devfeed_core.models import (
     TopicAnalysisJob,
     TopicProposal,
 )
-from sqlalchemy import create_engine, event, insert, select, text
+from sqlalchemy import create_engine, event, func, insert, select, text, update
 from sqlalchemy.engine import make_url
 from sqlalchemy.orm import sessionmaker
 
@@ -51,7 +51,7 @@ def generated(connection, model, columns, source, parameters):
     )
 
 
-def seed(engine, articles, payload_bytes):
+def seed(engine, articles, payload_bytes, *, retained_success=True):
     """1.7 jobs/subject, including a six-run tail and both topic subject types."""
     rng = random.Random(298)
     payload = "".join(rng.choices(string.ascii_letters + string.digits, k=payload_bytes))
@@ -72,6 +72,7 @@ def seed(engine, articles, payload_bytes):
         )
         names = ", ".join('"' + name.replace('"', '""') + '"' for name in tables)
         connection.execute(text(f"TRUNCATE {names} CASCADE"))
+        success_indexes(connection, retained_success)
         reset_maintenance(connection)
         connection.execute(
             insert(Source.__table__),
@@ -214,23 +215,22 @@ def reset_maintenance(connection):
         )
 
 
-def success_indexes(engine, enabled):
-    with engine.begin() as connection:
-        for table, subject in (
-            ("article_analysis_jobs", "article_id"),
-            ("topic_analysis_jobs", "proposal_id"),
-            ("topic_analysis_jobs", "topic_id"),
-        ):
-            name = f"ix_{table}_{subject}_retained_success"
-            connection.execute(text(f"DROP INDEX IF EXISTS {name}"))
-            if enabled:
-                connection.execute(
-                    text(
-                        f"CREATE INDEX {name} ON {table} ({subject},created_at,id) "
-                        "WHERE status='succeeded' AND inputs_pruned_at IS NULL "
-                        f"AND {subject} IS NOT NULL"
-                    )
+def success_indexes(connection, enabled):
+    for table, subject in (
+        ("article_analysis_jobs", "article_id"),
+        ("topic_analysis_jobs", "proposal_id"),
+        ("topic_analysis_jobs", "topic_id"),
+    ):
+        name = f"ix_{table}_{subject}_retained_success"
+        connection.execute(text(f"DROP INDEX IF EXISTS {name}"))
+        if enabled:
+            connection.execute(
+                text(
+                    f"CREATE INDEX {name} ON {table} ({subject},created_at,id) "
+                    "WHERE status='succeeded' AND inputs_pruned_at IS NULL "
+                    f"AND {subject} IS NOT NULL"
                 )
+            )
 
 
 def latest_only(engine):
@@ -249,6 +249,49 @@ def latest_only(engine):
             """),
                 {"anchor": ANCHOR},
             )
+    with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as connection:
+        connection.execute(text("VACUUM (ANALYZE)"))
+
+
+def seed_cadence_backlog(engine, subjects, payload_bytes):
+    rng = random.Random(298)
+    payload = "".join(rng.choices(string.ascii_letters + string.digits, k=payload_bytes))
+    parameters = {"subjects": min(subjects, 1000), "payload": payload, "anchor": ANCHOR}
+    with engine.begin() as connection:
+        connection.execute(text("SET LOCAL session_replication_role = replica"))
+        for model, prefix in ((ArticleAnalysisJob, "article"), (TopicAnalysisJob, "topic")):
+            columns = {
+                "id": f"md5('{prefix}-cadence-' || i || '-' || run)::uuid",
+                "input_snapshot": "jsonb_build_object('content', CAST(:payload AS text))",
+                "status": "'succeeded'",
+                "attempts": "1",
+                "available_at": "CAST(:anchor AS timestamptz) - interval '100 days'",
+                "created_at": "CAST(:anchor AS timestamptz) - interval '100 days' "
+                "+ run * interval '1 hour'",
+                "finished_at": "CAST(:anchor AS timestamptz) - interval '90 days' "
+                "+ run * interval '1 hour'",
+            }
+            if model is ArticleAnalysisJob:
+                columns.update(
+                    article_id="md5('article-' || i)::uuid",
+                    catalog_snapshot="jsonb_build_object('catalog', CAST(:payload AS text))",
+                )
+            else:
+                columns.update(
+                    proposal_id="CASE WHEN i % 2 = 0 THEN md5('proposal-' || i / 2)::uuid END",
+                    topic_id="CASE WHEN i % 2 = 1 THEN md5('topic-' || (i + 1) / 2)::uuid END",
+                    input_hash="md5(i::text)",
+                    requested_by="'{}'::jsonb",
+                    prompt_version="'cadence'",
+                )
+            generated(
+                connection,
+                model,
+                columns,
+                "generate_series(1, :subjects) AS g(i) CROSS JOIN generate_series(1,2) AS h(run)",
+                parameters,
+            )
+        reset_maintenance(connection)
     with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as connection:
         connection.execute(text("VACUUM (ANALYZE)"))
 
@@ -327,6 +370,7 @@ def distribution(values):
         "calls": len(ordered),
         "median_ms": statistics.median(ordered) if ordered else None,
         "p95_ms": ordered[min(len(ordered) - 1, int(len(ordered) * 0.95))] if ordered else None,
+        "p99_ms": ordered[min(len(ordered) - 1, int(len(ordered) * 0.99))] if ordered else None,
         "max_ms": max(ordered) if ordered else None,
     }
 
@@ -346,13 +390,42 @@ def examined_job_rows(node):
     return own + sum(examined_job_rows(child) for child in node.get("Plans", []))
 
 
-def collect_plans(engine, module):
+def collect_plans(engine, module, *, deep_cursor=False):
     """Replay one real page under an outer rollback, explaining before each SELECT."""
     plans, seen = [], set()
     explaining = False
     with engine.connect() as connection:
         transaction = connection.begin()
         plan_factory = sessionmaker(bind=connection, join_transaction_mode="create_savepoint")
+        if deep_cursor and checkpointed(module):
+            cutoff = ANCHOR - timedelta(days=get_settings().job_payload_retention_days)
+            for kind, model in (("article", ArticleAnalysisJob), ("topic", TopicAnalysisJob)):
+                conditions = (
+                    model.status == "succeeded",
+                    model.inputs_pruned_at.is_(None),
+                    model.finished_at < cutoff,
+                )
+                count = connection.scalar(
+                    select(func.count()).select_from(model).where(*conditions)
+                )
+                boundary = connection.execute(
+                    select(model.finished_at, model.id)
+                    .where(*conditions)
+                    .order_by(model.finished_at, model.id)
+                    .offset(max(0, count * 4 // 5 - 1))
+                    .limit(1)
+                ).first()
+                if boundary is not None:
+                    connection.execute(
+                        update(module.JobPayloadRetention)
+                        .where(module.JobPayloadRetention.kind == kind)
+                        .values(
+                            next_run_at=ANCHOR,
+                            cutoff=cutoff,
+                            cursor_finished_at=boundary.finished_at,
+                            cursor_id=boundary.id,
+                        )
+                    )
 
         def capture(conn, cursor, statement, parameters, context, executemany):
             nonlocal explaining
@@ -393,22 +466,107 @@ def collect_plans(engine, module):
     return plans
 
 
-def measure(engine, factory, module, calls, *, clock_step, concurrent, converge=False):
+def checkpointer(connection):
+    return dict(
+        connection.execute(
+            text(
+                "SELECT num_timed,num_requested,write_time,sync_time,"
+                "buffers_written FROM pg_stat_checkpointer"
+            )
+        )
+        .mappings()
+        .one()
+    )
+
+
+def wal_stats(connection):
+    return {
+        key: int(value)
+        for key, value in connection.execute(
+            text("SELECT wal_records,wal_fpi,wal_bytes,wal_buffers_full FROM pg_stat_wal")
+        )
+        .mappings()
+        .one()
+        .items()
+    }
+
+
+def measure(
+    engine,
+    factory,
+    module,
+    calls,
+    *,
+    clock_step,
+    concurrent,
+    converge=False,
+    deep=False,
+    tick_interval=0,
+):
     plans = collect_plans(engine, module)
+    deep_plans = (
+        collect_plans(engine, module, deep_cursor=True) if deep and checkpointed(module) else []
+    )
+    # Both implementations start each timed phase at the same checkpoint boundary.
+    # Preparation and rolled-back plan passes cannot leave a pending checkpoint.
+    with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as connection:
+        forced_checkpoint_before = checkpointer(connection)
+        connection.execute(text("CHECKPOINT"))
+        forced_checkpoint_after = checkpointer(connection)
     statement_count = 0
     owner = threading.get_ident()
+    backend_pids = {}
+    wait_samples, observer_errors = [], []
+    observer_stop = threading.Event()
+
+    def observe():
+        try:
+            with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as connection:
+                while not observer_stop.wait(0.1):
+                    rows = (
+                        connection.execute(
+                            text(
+                                "SELECT pid,state,wait_event_type,wait_event,"
+                                "pg_blocking_pids(pid) AS blockers "
+                                "FROM pg_stat_activity WHERE pid=ANY(:pids)"
+                            ),
+                            {"pids": list(backend_pids)},
+                        )
+                        .mappings()
+                        .all()
+                    )
+                    for row in rows:
+                        wait_samples.append(
+                            {
+                                "elapsed_seconds": time.perf_counter() - wall_started,
+                                "role": backend_pids.get(row["pid"]),
+                                **dict(row),
+                            }
+                        )
+        except Exception as exc:
+            observer_errors.append(type(exc).__name__)
+
+    observer = threading.Thread(target=observe, daemon=True)
 
     def capture(conn, cursor, statement, parameters, context, executemany):
         nonlocal statement_count
-        if threading.get_ident() == owner and not context.execution_options.get("benchmark_probe"):
+        thread_id = threading.get_ident()
+        if thread_id == owner or thread_id == writer.thread.ident:
+            backend_pids[conn.connection.driver_connection.info.backend_pid] = (
+                "retention" if thread_id == owner else "ingestion"
+            )
+        if thread_id == owner and not context.execution_options.get("benchmark_probe"):
             statement_count += 1
 
     writer = Ingestion(factory)
     with engine.connect() as connection:
         before_lsn = connection.execute(text("SELECT pg_current_wal_insert_lsn()::text")).scalar()
+        checkpoints_before = checkpointer(connection)
+        wal_before = wal_stats(connection)
     event.listen(engine, "before_cursor_execute", capture)
     durations, pruned = [], []
     cpu_started, wall_started = time.process_time(), time.perf_counter()
+    observer.start()
     if concurrent:
         writer.thread.start()
     try:
@@ -420,7 +578,12 @@ def measure(engine, factory, module, calls, *, clock_step, concurrent, converge=
                 pruned.append(module.prune_job_payloads(factory))
                 durations.append((time.perf_counter() - started) * 1000)
                 if concurrent:
-                    writer.stop.wait(max(0, 0.05 - (time.perf_counter() - started)))
+                    delay = (
+                        (index + 1) * tick_interval - (time.perf_counter() - wall_started)
+                        if tick_interval
+                        else 0.05 - (time.perf_counter() - started)
+                    )
+                    writer.stop.wait(max(0, delay))
                 if converge:
                     if checkpointed(module):
                         with engine.connect().execution_options(benchmark_probe=True) as connection:
@@ -438,6 +601,8 @@ def measure(engine, factory, module, calls, *, clock_step, concurrent, converge=
         if concurrent:
             writer.stop.set()
             writer.thread.join(timeout=10)
+        observer_stop.set()
+        observer.join(timeout=10)
         event.remove(engine, "before_cursor_execute", capture)
     wall_seconds, cpu_seconds = (
         time.perf_counter() - wall_started,
@@ -447,6 +612,8 @@ def measure(engine, factory, module, calls, *, clock_step, concurrent, converge=
         wal = connection.execute(
             text("SELECT pg_wal_lsn_diff(pg_current_wal_insert_lsn(), :lsn)"), {"lsn": before_lsn}
         ).scalar()
+        checkpoints_after = checkpointer(connection)
+        wal_after = wal_stats(connection)
     cap = get_settings().job_payload_prune_batch_size * 2
     if max(pruned, default=0) > cap:
         raise RuntimeError("Retention exceeded the configured prune bound")
@@ -467,6 +634,8 @@ def measure(engine, factory, module, calls, *, clock_step, concurrent, converge=
                 )
                 if remaining is not None:
                     raise RuntimeError("A completed sweep left an eligible payload behind")
+    if observer_errors:
+        raise RuntimeError(f"Wait sampling failed: {observer_errors}")
     if writer.errors:
         raise RuntimeError(f"Concurrent ingestion failed: {writer.errors}")
     return {
@@ -480,7 +649,19 @@ def measure(engine, factory, module, calls, *, clock_step, concurrent, converge=
         "wal_bytes_including_ingestion": int(wal),
         "ingestion": distribution(writer.samples),
         "plans": plans,
+        "deep_cursor_plans": deep_plans,
+        "retention_samples_ms": durations,
+        "ingestion_samples_ms": writer.samples,
+        "checkpointer_before": checkpoints_before,
+        "checkpointer_after": checkpoints_after,
+        "forced_checkpoint_before": forced_checkpoint_before,
+        "forced_checkpoint_after": forced_checkpoint_after,
+        "wal_counters_before": wal_before,
+        "wal_counters_after": wal_after,
+        "wal_counters_delta": {key: wal_after[key] - wal_before[key] for key in wal_before},
+        "wait_samples": wait_samples,
         "clock_step_seconds": clock_step,
+        "real_tick_interval_seconds": tick_interval,
     }
 
 
@@ -491,7 +672,10 @@ def main():
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--backlog-pages", type=int, default=50)
     parser.add_argument("--payload-bytes", type=int, default=4096)
+    parser.add_argument("--cadence-interval-seconds", type=float, default=15)
     args = parser.parse_args()
+    if args.cadence_interval_seconds <= 0:
+        parser.error("--cadence-interval-seconds must be positive")
     url = os.environ["DEVFEED_TEST_DATABASE_URL"]
     if not (make_url(url).database or "").endswith("_test"):
         parser.error("DEVFEED_TEST_DATABASE_URL must name a dedicated disposable _test database")
@@ -538,10 +722,9 @@ def main():
     }
     for name, module in (("baseline", baseline), ("current", job_retention)):
         print(f"Seeding {name}: {args.articles} articles", flush=True)
-        success_indexes(engine, checkpointed(module))
-        seed(engine, args.articles, args.payload_bytes)
+        seed(engine, args.articles, args.payload_bytes, retained_success=checkpointed(module))
         result["phases"][f"{name}_backlog"] = measure(
-            engine, factory, module, args.backlog_pages, clock_step=31, concurrent=True
+            engine, factory, module, args.backlog_pages, clock_step=31, concurrent=True, deep=True
         )
         os.environ["DEVFEED_JOB_PAYLOAD_PRUNE_BATCH_SIZE"] = "1000"
         get_settings.cache_clear()
@@ -565,7 +748,7 @@ def main():
         with engine.begin() as connection:
             reset_maintenance(connection)
         result["phases"][f"{name}_latest_only"] = measure(
-            engine, factory, module, 5, clock_step=31, concurrent=True
+            engine, factory, module, 5, clock_step=31, concurrent=True, deep=True
         )
         result["phases"][f"{name}_ordinary_ticks"] = measure(
             engine, factory, module, 20, clock_step=0, concurrent=True
@@ -573,10 +756,35 @@ def main():
         result["phases"][f"{name}_ordinary_ticks_no_writer"] = measure(
             engine, factory, module, 20, clock_step=0, concurrent=False
         )
+        seed_cadence_backlog(engine, args.articles, args.payload_bytes)
+        result["phases"][f"{name}_deployed_cadence"] = measure(
+            engine,
+            factory,
+            module,
+            5,
+            clock_step=15,
+            concurrent=True,
+            tick_interval=args.cadence_interval_seconds,
+        )
         args.output.parent.mkdir(parents=True, exist_ok=True)
         args.output.write_text(json.dumps(result, indent=2, default=str) + "\n")
         for phase, data in result["phases"].items():
-            print(phase, {key: value for key, value in data.items() if key != "plans"}, flush=True)
+            print(
+                phase,
+                {
+                    key: value
+                    for key, value in data.items()
+                    if key
+                    not in {
+                        "plans",
+                        "deep_cursor_plans",
+                        "retention_samples_ms",
+                        "ingestion_samples_ms",
+                        "wait_samples",
+                    }
+                },
+                flush=True,
+            )
     engine.dispose()
 
 

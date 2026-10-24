@@ -11,7 +11,9 @@ from devfeed_core import job_retention
 from devfeed_core.models import (
     Article,
     ArticleAnalysisJob,
+    ArticleOrigin,
     JobPayloadRetention,
+    Source,
     Topic,
     TopicAnalysisJob,
     utcnow,
@@ -412,6 +414,55 @@ def test_locked_parent_is_revisited_on_the_next_sweep(database, retention):
     due(database, retention)
     assert job_retention.prune_job_payloads(database) == 1
     with database() as session:
+        assert session.get(ArticleAnalysisJob, oldest).input_snapshot == {}
+
+
+def test_parent_review_lock_allows_concurrent_ingestion_to_link_an_existing_article(
+    database, retention
+):
+    with database.begin() as session:
+        _, article, jobs = history(session, retention)
+        source = Source(
+            name="Concurrent ingestion source",
+            feed_url="https://ingestion.example/feed",
+            source_type="publisher",
+            approval_status="approved",
+        )
+        session.add(source)
+        session.flush()
+        article_id, source_id, oldest = article.id, source.id, jobs[0].id
+    inserted = []
+    engine = database.kw["bind"]
+
+    def link_after_parent_lock(_connection, _cursor, statement, _parameters, _context, _many):
+        if (
+            not inserted
+            and statement.lstrip().startswith("SELECT articles.id")
+            and "FROM articles" in statement
+            and "SKIP LOCKED" in statement
+        ):
+            # This independent transaction requests the FK's KEY SHARE lock
+            # while retention still owns its parent review/provenance lock.
+            with database.begin() as ingestion:
+                ingestion.execute(text("SET LOCAL lock_timeout = '100ms'"))
+                origin = ArticleOrigin(
+                    article_id=article_id,
+                    source_id=source_id,
+                    entry_key="concurrent-entry",
+                    original_url=f"https://retention.example/{article_id}",
+                )
+                ingestion.add(origin)
+                ingestion.flush()
+                inserted.append(origin.id)
+
+    event.listen(engine, "after_cursor_execute", link_after_parent_lock)
+    try:
+        assert job_retention.prune_job_payloads(database) == 1
+    finally:
+        event.remove(engine, "after_cursor_execute", link_after_parent_lock)
+    assert len(inserted) == 1
+    with database() as session:
+        assert session.get(ArticleOrigin, inserted[0]).article_id == article_id
         assert session.get(ArticleAnalysisJob, oldest).input_snapshot == {}
 
 

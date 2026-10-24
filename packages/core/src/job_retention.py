@@ -139,6 +139,11 @@ def _prune_page(session, model, state, now, settings):
             .where(
                 model.id.in_([row.id for row in page]),
                 model.finished_at < state.cutoff,
+                # The ID list bounds returned rows, but an ordered retention
+                # index can still traverse the entire earlier history. Carry
+                # both leading range keys so deep pages remain bounded too.
+                tuple_(model.finished_at, model.id) >= tuple_(page[0].finished_at, page[0].id),
+                tuple_(model.finished_at, model.id) <= tuple_(page[-1].finished_at, page[-1].id),
                 *_eligible_conditions(model),
             )
             .order_by(model.finished_at, model.id)
@@ -154,7 +159,9 @@ def _prune_page(session, model, state, now, settings):
             select(parent.id)
             .where(parent.id.in_(parent_ids))
             .order_by(parent.id)
-            .with_for_update(skip_locked=True)
+            # Review/provenance writes must wait; foreign-key inserts for
+            # ingestion may continue because parent identity is unchanged.
+            .with_for_update(key_share=True, skip_locked=True)
         ).all()
         unlocked_subject = (
             model.article_id.in_(locked_parents)

@@ -31,26 +31,43 @@ The phases are:
 - Five maintenance calls against old latest-only successes and long failed tails.
 - Twenty ordinary scheduler calls before the next page is due, with concurrent
   ingestion, followed by twenty ordinary calls without the writer.
+- Five scheduler ticks at the deployed 15-second interval, for 75 seconds with
+  concurrent ingestion. Preparation adds 4,000 old duplicate jobs to the existing
+  full-size history and resets maintenance due time. The baseline runs five pages;
+  the candidate runs three due pages at its 30-second maintenance interval.
+  Per-call latency and ingestion p95/p99 are reported together with the differing
+  prune counts and CPU/WAL cost.
 
 The writer targets twenty committed article/origin/ingestion-job/analysis-outbox
 transactions per second. Measured achieved rate and ingestion latency are in each
-report; overloaded runs can achieve less. The synthetic retention clock advances
-31 seconds per maintenance page so a multi-hour logical sweep can finish quickly.
+report; overloaded runs can achieve less. Compressed stress phases advance the
+synthetic retention clock 31 seconds per maintenance page so a multi-hour logical
+sweep can finish quickly.
+Their write bursts deliberately exceed the deployed cadence; use the separately
+paced phase to assess ingestion latency during normal scheduling.
 Ordinary ticks use a fixed clock. Each call's wall latency excludes deliberate
 writer pacing; phase wall duration includes pacing. Application CPU includes the
-writer thread. These are controlled benchmark results, not production latency or
-PostgreSQL CPU attribution.
+writer thread and the read-only wait observer. These are controlled benchmark
+results, not production latency or PostgreSQL CPU attribution.
+
+Both implementations use the same four-connection SQLAlchemy test pool. These
+measurements isolate maintenance with controlled connection reuse; production
+connection establishment, the pooler and network require live validation.
 
 The baseline loads the base commit's real retention module against the migrated
 schema and removes only the three new retained-success indexes when comparing
 against the legacy implementation. A checkpointed baseline keeps those indexes
 and uses its durable sweep state for convergence checks. The candidate
-restores those indexes before its seeded run. This includes their additional
-write cost in candidate measurements. Fixture seeding temporarily disables
-triggers; every measured maintenance and ingestion transaction uses the real
+restores those indexes on the empty tables after truncation, before seeding.
+This includes their additional write cost in candidate measurements. Fixture seeding
+temporarily disables triggers; every measured maintenance and ingestion transaction uses the real
 migration triggers and indexes. A dedicated PostgreSQL instance is required for
 meaningful instance-wide WAL deltas. Reported WAL includes concurrent ingestion;
-the no-writer ordinary phase isolates retention's idle WAL cost.
+the no-writer ordinary phase isolates retention's idle WAL cost. Every measured
+phase starts after an explicit `CHECKPOINT`, following its rolled-back plan pass;
+fixture preparation is vacuumed and analyzed. This gives both implementations a
+matched checkpoint boundary. Counters still report checkpoints triggered during
+long measured phases.
 
 Reports retain `EXPLAIN (ANALYZE, BUFFERS, WAL, SETTINGS, FORMAT JSON)` for actual
 captured candidate statements, including row counts, buffers and temporary
@@ -59,7 +76,16 @@ transaction. Each captured SELECT is explained immediately before execution,
 so plans observe its actual pre-mutation inputs. This plan pass is outside the
 timed and WAL measurement. The harness rejects excessive per-call pruning,
 ordinary ticks that read job history, ingestion errors, and a completed candidate
-sweep that leaves eligible payloads behind. The JSON includes PostgreSQL version/settings, application
+sweep that leaves eligible payloads behind. Checkpointed implementations also
+run a separate plan pass at 80% of the old unpruned history for backlog and
+latest-only phases. Cursor setup, plan execution and payload changes all roll
+back together; this verifies late pages without changing timed sweep progress.
+The JSON retains individual maintenance and ingestion latency samples and
+checkpointer and WAL counters before/after each phase so checkpoint activity can
+be compared with latency tails. A 100 ms observer records retention and ingestion
+backend wait events and blocking PIDs, with elapsed timestamps and no SQL text.
+Forced checkpoint counters are recorded separately. The JSON includes PostgreSQL
+version/settings, application
 architecture, CPU count, throughput, per-call limits, CPU time and WAL bytes.
 The native CI log also records `uname` and `lscpu`. Plans and WAL are captured only
 in the disposable instance.
@@ -75,7 +101,10 @@ uv run --locked --no-sync --no-build python scripts/job_retention_benchmark.py \
   --output /tmp/retention-100000.json
 ```
 
-Repeat with `--articles 250000`. The script upgrades and truncates the disposable
+Repeat with `--articles 250000`. Keep the default
+`--cadence-interval-seconds 15` for performance evidence. The smoke regression
+uses `0.05` seconds while preserving 15-second logical scheduler ticks to test
+state transitions quickly. The script upgrades and truncates the disposable
 database, including all application tables; give it a dedicated instance and
 superuser role for fixture preparation. Keep raw reports untracked or download
 the workflow's `retention-arm64-postgresql17` artifact. Compare a fresh production

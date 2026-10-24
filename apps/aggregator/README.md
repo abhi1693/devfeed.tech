@@ -104,7 +104,9 @@ Each page locks its checkpoint and commits payload rewrites and progress togethe
 Concurrent schedulers skip an owned page; a crash or timeout rolls it back for retry.
 The page uses a two-second statement timeout, 100-millisecond lock timeout and
 five-second transaction timeout on PostgreSQL 17+. Review/provenance rows are locked
-before checking protections, and history locks skip active work. Queued, running,
+before checking protections, and history locks skip active work.
+New foreign-key references from ingestion can still use the locked parent; writes
+to its review/provenance fields remain serialized. Queued, running,
 failed, leased and young jobs remain intact, as does each subject's latest retained
 successful result, even if a newer attempt failed. Pending article/proposal reviews,
 current article provenance, queued/running research verification and pending relation
