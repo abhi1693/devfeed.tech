@@ -48,7 +48,7 @@ def load_feed(path, name):
 
 def seed_insert(connection, model, expressions, count):
     query = select(*(literal_column(value).label(key) for key, value in expressions.items()))
-    query = query.select_from(text("generate_series(1, :count) AS fixture(n)"))
+    query = query.select_from(text("generate_series(1::bigint, :count) AS fixture(n)"))
     connection.execute(
         insert(model.__table__).from_select(list(expressions), query), {"count": count}
     )
