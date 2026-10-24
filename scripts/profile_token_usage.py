@@ -143,7 +143,7 @@ def seed(engine, articles):
         )
         # Every fifth job has >4 KiB of incompressible provider/step telemetry.
         # Build a bounded pool once, rather than hide seed CPU in measured samples.
-        connection.exec_driver_sql("""CREATE TEMP TABLE token_profile_payloads AS
+        connection.exec_driver_sql("""CREATE TEMP TABLE token_profile_payloads ON COMMIT DROP AS
             SELECT p,string_agg(md5(p::text||'-'||n::text),'') payload
             FROM generate_series(0,255) p CROSS JOIN generate_series(1,128) n GROUP BY p""")
         for kind, model in MODELS[:2]:
