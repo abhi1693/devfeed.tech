@@ -257,7 +257,8 @@ def test_completed_token_query_reads_each_usage_once_into_bounded_materialized_v
 
 
 @pytest.mark.parametrize(
-    "published,automatic,median,percent", [(0, 0, None, None), (3, 2, 120.0, 66.7)]
+    "published,automatic,median,percent",
+    [(0, 0, None, None), (4, 0, None, 0.0), (3, 2, 120.0, 66.7), (6, 1, 0.0, 16.7)],
 )
 def test_publication_metrics_distinguish_empty_history_from_zero_automatic_publication(
     published, automatic, median, percent
@@ -271,6 +272,40 @@ def test_publication_metrics_distinguish_empty_history_from_zero_automatic_publi
         "automatic_publication_percent": percent,
         "median_ingestion_to_publication_seconds": median,
     }
+
+
+def test_publication_query_keeps_narrow_review_probes_out_of_aggregate_filters():
+    from sqlalchemy.dialects import postgresql
+    from sqlalchemy.sql import visitors
+    from sqlalchemy.sql.elements import FunctionFilter
+    from sqlalchemy.sql.selectable import Exists, Select
+
+    start = NOW - timedelta(days=7)
+    statement = automation._publication_automation_query(start, NOW)
+    compiled = statement.compile(dialect=postgresql.dialect())
+    sql = str(compiled)
+    # WHERE EXISTS can become semi/anti joins; EXISTS inside aggregate FILTER
+    # forces repeated per-publication subplans and recreates buffer amplification.
+    aggregate_filters = [
+        clause for clause in visitors.iterate(statement) if isinstance(clause, FunctionFilter)
+    ]
+    assert aggregate_filters
+    assert all(
+        not any(isinstance(clause, Exists) for clause in visitors.iterate(aggregate.criterion))
+        for aggregate in aggregate_filters
+    )
+    assert "article_reviews.action = 'publish'" in sql
+    assert "article_reviews.automation != '{}'::jsonb" in sql
+    assert "article_reviews.automation = '{}'::jsonb" in sql
+    assert start in compiled.params.values() and NOW in compiled.params.values()
+    review_projections = [
+        column.key
+        for select in visitors.iterate(statement)
+        if isinstance(select, Select)
+        for column in select.selected_columns
+        if getattr(getattr(column, "table", None), "name", None) == "article_reviews"
+    ]
+    assert review_projections and set(review_projections) == {"article_id"}
 
 
 @pytest.mark.parametrize("projected", [False, True])

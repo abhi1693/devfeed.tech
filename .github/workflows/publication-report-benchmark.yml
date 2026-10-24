@@ -1,0 +1,70 @@
+name: Publication report benchmark
+
+on:
+  pull_request:
+    paths:
+      - apps/admin-api/src/automation.py
+      - scripts/profile_publication_reports.py
+      - .github/workflows/publication-report-benchmark.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  benchmark:
+    name: PostgreSQL 17 / ${{ matrix.rows }} articles (ARM64)
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        rows: [100000, 300000]
+    services:
+      postgres:
+        image: postgres:17.11
+        env:
+          POSTGRES_USER: profile
+          POSTGRES_PASSWORD: profile
+          POSTGRES_DB: publication_report_test
+        ports:
+          - 127.0.0.1:55496:5432
+        options: >-
+          --cpus=2 --memory=3g --shm-size=512m
+          --health-cmd="pg_isready -U profile -d publication_report_test"
+          --health-interval=5s --health-timeout=5s --health-retries=10
+    env:
+      DEVFEED_TEST_DATABASE_URL: postgresql+psycopg://profile:profile@127.0.0.1:55496/publication_report_test
+      DEVFEED_DATABASE_URL: postgresql+psycopg://profile:profile@127.0.0.1:55496/publication_report_test
+      DEVFEED_REDIS_URL: redis://127.0.0.1:6379/15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        with:
+          version: "0.13.5"
+          enable-cache: true
+      - name: Install locked workspace dependencies
+        run: sh scripts/ci/python-bootstrap.sh . --editable --all-packages
+      - name: Apply disposable database migrations
+        run: .venv/bin/alembic upgrade head
+      - name: Compare fixed publication cohorts under steady and concurrent ingestion
+        env:
+          ARTICLE_ROWS: ${{ matrix.rows }}
+        run: |
+          mkdir -p reports/publication
+          git rev-parse HEAD > reports/publication/source-sha.txt
+          .venv/bin/python scripts/profile_publication_reports.py --seed \
+            --rows "$ARTICLE_ROWS" --repeats 7 --inline-comparison \
+            --output "reports/publication/${ARTICLE_ROWS}-arm64.json"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
+        with:
+          name: publication-report-${{ matrix.rows }}-arm64-${{ github.run_attempt }}
+          path: reports/publication/
+          if-no-files-found: error
+          retention-days: 7
